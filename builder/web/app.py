@@ -5,6 +5,7 @@ PoB runs in a worker process (it changes its process's working directory), start
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import urllib.request
@@ -22,6 +23,7 @@ from builder.pob import codes
 from builder.request import schema
 from builder.request.constraints import FACT_FIELDS, compile_request, main_skill, player_buttons
 from builder.request.schema import BuildRequest
+from builder.web.runs import RESULTS_DIR, RunManager
 from builder.web.store import RequestStore
 
 STATIC = Path(__file__).parent / "static"
@@ -56,6 +58,7 @@ data = GameData()
 store = RequestStore()
 prices = PriceFeed()
 engine = Engine()
+runs = RunManager(prices)
 
 
 @asynccontextmanager
@@ -188,6 +191,62 @@ def inspect(body: InspectBody) -> dict:
         result["checks"] = [check.__dict__ for check in compiled.check(facts)]
         result["issues"] = [issue.__dict__ for issue in compiled.issues]
     return result
+
+
+class RunBody(BaseModel):
+    request: dict
+    id: int | None = None  # the saved request this run belongs to, if any
+
+
+@app.post("/api/runs")
+def start_run(body: RunBody) -> dict:
+    request = parse_request(body.request)
+    errors = [i for i in compile_request(request, data).issues if i.level == "error"]
+    if errors:
+        raise HTTPException(422, detail=[{"field": i.field, "message": i.message} for i in errors])
+    try:
+        record = runs.start(request, body.id)
+    except RuntimeError as error:
+        raise HTTPException(409, str(error))
+    return record.view()
+
+
+@app.get("/api/runs/current")
+def current_run() -> dict:
+    record = runs.current()
+    return record.view() if record else {}
+
+
+@app.get("/api/runs/{run_id}")
+def get_run(run_id: int, since: int = 0) -> dict:
+    record = runs.runs.get(run_id)
+    if record is None:
+        raise HTTPException(404, "no such run")
+    return record.view(since)
+
+
+@app.post("/api/runs/{run_id}/cancel")
+def cancel_run(run_id: int) -> dict:
+    record = runs.runs.get(run_id)
+    if record is None:
+        raise HTTPException(404, "no such run")
+    record.cancel = True
+    return {"ok": True}
+
+
+@app.get("/api/results")
+def list_results() -> list[dict]:
+    """Saved optimizer results, newest first."""
+    paths = sorted(RESULTS_DIR.glob("*.json"), reverse=True) if RESULTS_DIR.exists() else []
+    return [{"name": p.name, "saved_at": p.stat().st_mtime} for p in paths]
+
+
+@app.get("/api/results/{name}")
+def get_result(name: str) -> dict:
+    path = RESULTS_DIR / name
+    if path.parent != RESULTS_DIR or path.suffix != ".json" or not path.exists():
+        raise HTTPException(404, "no such result")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @app.get("/api/prices")

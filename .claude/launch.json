@@ -4,8 +4,28 @@
     {
       "name": "web",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "python", "-m", "builder.web", "--no-browser"],
+      "runtimeArgs": [
+        "run",
+        "python",
+        "-m",
+        "builder.web",
+        "--no-browser"
+      ],
       "port": 8765
+    },
+    {
+      "name": "web-8766",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "python",
+        "-m",
+        "builder.web",
+        "--no-browser",
+        "--port",
+        "8766"
+      ],
+      "port": 8766
     }
   ]
 }

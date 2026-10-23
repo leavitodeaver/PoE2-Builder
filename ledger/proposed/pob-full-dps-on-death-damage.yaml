@@ -1,0 +1,24 @@
+id: pob-full-dps-on-death-damage
+title: Full DPS counts damage that only happens when enemies die (e.g. Fiery Death explosions)
+kind: pob_overcalc
+patches: ["0.5.5"]
+pob: "dev bb52d6b (2026-10-01)"
+when:
+  # A skill in a Full DPS group whose damage needs enemies to die: "explode on death",
+  # "Combust on death", "Plague Burst on death", "when they die". Matched on gem descriptions
+  # (builder/search/objective.py ON_DEATH): Fiery Death, Bursting Plague, Infernal Cry.
+  full_dps_entry_from_gem_matching: '(explode|combust|burst)\w* ... on death | when they die'
+effect:
+  # Applied since Phase 2: subtracted from the boss objective, shown in the result notes
+  discount_full_dps_entries: true
+confidence: community_confirmed
+evidence: |
+  Spark Stormweaver (benchmarks/run_optimizer.py, 2026-10-23): PoB's Full DPS 1,119,640, of
+  which Fiery Death 920,048 and "Best Poison DPS" sourced from Fiery Death 145,096; Spark itself
+  54,496. Fiery Death: "causing enemies it Ignites to have a chance to explode on death". A single
+  boss never dies mid-fight, so none of it is sustained boss damage. Before the correction the
+  optimizer's Full DPS polish chose Fiery Death on Spark, Ice Shot and Raise Zombie builds.
+sources: ["PoB2 data: Data/Skills/sup_*.lua (Fiery Death description)"]
+test_in_game: "Not needed for bosses; for mapping mode, check the explosion rate on packs."
+status: proposed
+reviewed_for: "0.5.5"

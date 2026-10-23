@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-23T00:11:09",
+  "pob_dir": "vendor\\PathOfBuilding-PoE2-v0.23.1",
+  "boot_s": 1.395204000058584,
+  "builds": {
+    "ref:2b75a": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75b": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75c": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75d": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75e": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    }
+  }
+}

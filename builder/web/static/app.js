@@ -272,6 +272,37 @@ function formatNumber(value) {
   return Math.abs(value) >= 1000 ? Math.round(value).toLocaleString() : String(Math.round(value * 10) / 10);
 }
 
+function statTiles(stats, dps) {
+  const tiles = [
+    ["DPS (PoB)", dps], ["Life", stats.Life], ["Energy shield", stats.EnergyShield], ["Mana", stats.Mana],
+    ["Phys max hit", stats.PhysicalMaximumHitTaken], ["Fire/Cold/Light res", null], ["Chaos res", stats.ChaosResist],
+    ["Spare spirit", stats.SpiritUnreserved],
+  ];
+  return el("div", { class: "stats" }, tiles.map(([label, value]) => el("div", { class: "stat" },
+    el("div", { class: "k" }, label),
+    el("div", { class: "v" }, label.startsWith("Fire/")
+      ? `${formatNumber(stats.FireResist)} / ${formatNumber(stats.ColdResist)} / ${formatNumber(stats.LightningResist)}`
+      : formatNumber(value)))));
+}
+
+function checksTable(checks) {
+  const mark = (ok) => (ok === null ? ["pending", "–"] : ok ? ["ok", "✓"] : ["bad", "✗"]);
+  return [el("h3", {}, "Requested vs delivered"), el("div", { class: "table-wrap" }, el("table", { class: "checks" },
+    el("thead", {}, el("tr", {}, el("th", {}, ""), el("th", {}, "Requirement"), el("th", {}, "Requested"), el("th", {}, "Delivered"))),
+    el("tbody", {}, checks.map((check) => {
+      const [cls, symbol] = mark(check.ok);
+      return el("tr", {}, el("td", { class: `status ${cls}` }, symbol), el("td", {}, check.label,
+        check.note ? el("div", { class: "note" }, check.note) : null), el("td", {}, check.requested), el("td", {}, check.delivered));
+    }))))];
+}
+
+function simpleTable(headers, rows) {
+  const isNum = (h) => typeof h === "object" && h.num;
+  return el("div", { class: "table-wrap" }, el("table", { class: "checks" },
+    el("thead", {}, el("tr", {}, headers.map((h) => el("th", { class: isNum(h) ? "num" : "" }, h.label ?? h)))),
+    el("tbody", {}, rows.map((row) => el("tr", {}, row.map((cell, i) => el("td", { class: isNum(headers[i]) ? "num" : "" }, cell)))))));
+}
+
 async function inspect() {
   const output = $("inspect-result");
   const code = $("inspect-code").value.trim();
@@ -287,38 +318,185 @@ async function inspect() {
   const s = result.summary;
   const stats = result.stats;
   const dps = Math.max(stats.FullDPS || 0, stats.CombinedDPS || 0, stats["Minion.CombinedDPS"] || 0);
-  const tiles = [
-    ["DPS (PoB)", dps], ["Life", stats.Life], ["Energy shield", stats.EnergyShield], ["Mana", stats.Mana],
-    ["Phys max hit", stats.PhysicalMaximumHitTaken], ["Fire/Cold/Light res", null], ["Chaos res", stats.ChaosResist],
-    ["Spare spirit", stats.SpiritUnreserved],
-  ];
-  const statGrid = el("div", { class: "stats" }, tiles.map(([label, value]) => el("div", { class: "stat" },
-    el("div", { class: "k" }, label),
-    el("div", { class: "v" }, label.startsWith("Fire/")
-      ? `${formatNumber(stats.FireResist)} / ${formatNumber(stats.ColdResist)} / ${formatNumber(stats.LightningResist)}`
-      : formatNumber(value)))));
   const parts = [
     el("p", { class: "result-summary" },
       el("strong", {}, `${s.ascendClassName || s.className}, level ${s.level}`),
       ` · main skill ${result.mainSkill || "none"} · ${result.buttons.length} button${result.buttons.length === 1 ? "" : "s"}`
       + ` (${result.buttons.join(", ") || "none"}) · ${s.allocated} passives + ${s.ascendancyAllocated} ascendancy`),
-    statGrid,
+    statTiles(stats, dps),
   ];
   if (result.warnings.length) parts.push(el("p", { class: "warnings" }, "PoB warnings: " + result.warnings.join("; ")));
   if (result.issues?.some((issue) => issue.level === "error")) {
     parts.push(el("p", { class: "error-text" }, "The request has errors (see Check request), so some rows may be missing."));
   }
-  if (result.checks) {
-    const mark = (ok) => (ok === null ? ["pending", "–"] : ok ? ["ok", "✓"] : ["bad", "✗"]);
-    parts.push(el("h3", {}, "Requested vs delivered"), el("div", { class: "table-wrap" }, el("table", { class: "checks" },
-      el("thead", {}, el("tr", {}, el("th", {}, ""), el("th", {}, "Requirement"), el("th", {}, "Requested"), el("th", {}, "Delivered"))),
-      el("tbody", {}, result.checks.map((check) => {
-        const [cls, symbol] = mark(check.ok);
-        return el("tr", {}, el("td", { class: `status ${cls}` }, symbol), el("td", {}, check.label,
-          check.note ? el("div", { class: "note" }, check.note) : null), el("td", {}, check.requested), el("td", {}, check.delivered));
-      })))));
-  }
+  if (result.checks) parts.push(...checksTable(result.checks));
   output.replaceChildren(...parts);
+}
+
+// Optimizer --------------------------------------------------------------------------------
+
+let runPoll = null;
+
+function logLine(event) {
+  const t = `${Math.round(event.t)}s`;
+  let text;
+  if (event.kind === "best") {
+    text = `Best so far: ${event.skeleton}, ${formatNumber(event.dps)} DPS`
+      + (event.deficits.length ? ` (short: ${event.deficits.join(", ")})` : "");
+  } else if (event.kind === "probe") {
+    text = `Probe: ${event.skeleton}, ${formatNumber(event.dps)} DPS`;
+  } else if (event.kind === "skeletons") {
+    text = `${event.count} skeleton${event.count === 1 ? "" : "s"} to search`
+      + (event.problems.length ? `; dropped: ${event.problems.join("; ")}` : "");
+  } else {
+    text = event.message ?? event.kind;
+  }
+  return el("li", {}, el("span", { class: "t" }, t), text);
+}
+
+function showRun(run, events) {
+  $("run-progress").hidden = false;
+  const log = $("run-log");
+  for (const event of events) {
+    if (event.kind === "progress") {
+      $("run-status").textContent = `${formatNumber(event.evals_per_second)} evaluations/s across ${event.tasks} searches · `
+        + `${formatNumber(event.evals)} so far · leading: ${event.leader} at ${formatNumber(event.leader_dps)} DPS (${event.phase})`;
+      continue;
+    }
+    log.append(logLine(event));
+    log.scrollTop = log.scrollHeight;
+  }
+  const elapsed = Date.now() / 1000 - run.started;
+  $("run-bar").style.width = `${Math.min(100, (100 * elapsed) / Math.max(run.seconds, 1))}%`;
+}
+
+async function pollRun(runId, since = 0) {
+  clearTimeout(runPoll);
+  let run;
+  try {
+    run = await api(`/api/runs/${runId}?since=${since}`);
+  } catch (error) {
+    $("run-status").textContent = `Lost the run: ${error.message}`;
+    return;
+  }
+  showRun(run, run.events);
+  if (run.status === "running") {
+    $("run-cancel").hidden = false;
+    $("optimize").disabled = true;
+    runPoll = setTimeout(() => pollRun(runId, run.next), 1000);
+    return;
+  }
+  $("run-cancel").hidden = true;
+  $("optimize").disabled = false;
+  $("run-bar").style.width = "100%";
+  if (run.status === "error") {
+    $("run-result").replaceChildren(el("p", { class: "error-text" }, "The run failed:"), el("pre", {}, run.error));
+  } else if (run.result) {
+    renderResult(run.result);
+  }
+}
+
+async function optimize() {
+  const request = readForm();
+  try {
+    const run = await api("/api/runs", { method: "POST", body: { request, id: currentId } });
+    $("run-log").replaceChildren();
+    $("run-status").textContent = "Starting…";
+    $("run-result").replaceChildren();
+    pollRun(run.id);
+  } catch (error) {
+    showIssues([{ level: "error", field: "optimize", message: error.message }]);
+  }
+}
+
+async function cancelRun() {
+  const run = await api("/api/runs/current");
+  if (run.id) await api(`/api/runs/${run.id}/cancel`, { method: "POST" });
+  $("run-status").textContent = "Stopping: finishing the best build found so far…";
+}
+
+function formatPrice(price) {
+  if (price == null) return "–";
+  return price < 1 ? price.toFixed(3) : price.toFixed(1);
+}
+
+function renderResult(result) {
+  const parts = [];
+  if (result.feasible) {
+    parts.push(el("div", { class: "verdict ok" }, "Every requirement is met."));
+  } else {
+    const heading = result.status === "invalid" ? "The request has errors:" : "Infeasible: no build met every requirement.";
+    parts.push(el("div", { class: "verdict bad" }, heading, el("ul", {},
+      (result.reasons || []).map((r) => el("li", {}, r)),
+      (result.relaxations || []).map((r) => el("li", {}, `Cheapest relaxation: ${r}`)))));
+  }
+  if (result.summary) {
+    const s = result.summary;
+    parts.push(el("p", { class: "result-summary" }, el("strong", {}, `${s.ascendClassName}, level ${s.level}`),
+      ` · ${result.label} · ${s.allocated} passives + ${s.ascendancyAllocated} ascendancy`
+      + ` · Full DPS ${formatNumber(result.dps.full)} (main skill ${formatNumber(result.dps.main)})`));
+    parts.push(statTiles(result.stats, result.dps.full));
+    parts.push(...checksTable(result.checks));
+    const copy = el("button", {
+      type: "button",
+      onclick: async (event) => {
+        await navigator.clipboard.writeText(result.code);
+        event.target.textContent = "Copied";
+      },
+    }, "Copy");
+    const badge = result.verified
+      ? el("span", { class: "badge" }, "verified: reloads to the same numbers")
+      : el("span", { class: "badge bad" }, "did not reload identically");
+    parts.push(el("div", { class: "result-section" }, el("h3", {}, "PoB code", badge),
+      el("div", { class: "code-row" }, el("textarea", { rows: 3, readonly: true }, result.code), copy)));
+    const gear = Object.entries(result.gear).sort();
+    parts.push(el("div", { class: "result-section" }, el("h3", {}, `Gear · ${result.spent.toFixed(2)} divine`),
+      simpleTable(["Slot", "Item", "Base", { label: "Price (div)", num: true }, "Confidence"],
+        gear.map(([slot, g]) => [slot, g.unique ? g.name : `${g.name} (normal)`, g.base, formatPrice(g.price), g.confidence]))));
+    parts.push(el("div", { class: "result-section" }, el("h3", {}, "Skills"),
+      el("ul", { class: "gem-groups" }, result.groups.filter((g) => g.enabled).map((g) => {
+        const names = g.gems.map((x) => x.name).join(" + ");
+        return el("li", {}, g.main ? el("strong", {}, names) : names,
+          g.fromItem ? " (from an item)" : "", g.fullDPS && !g.main ? " (counted in Full DPS)" : "");
+      }))));
+    if (result.conditions.length) {
+      parts.push(el("div", { class: "result-section" }, el("h3", {}, "Conditions turned on (the build sustains them)"),
+        simpleTable(["Condition", "Evidence"], result.conditions.map((c) => [
+          c.label + (c.value === true ? "" : ` = ${formatNumber(c.value)}`), c.evidence]))));
+    }
+    const quests = Object.entries(result.quests || {}).filter(([, v]) => v !== "None");
+    if (quests.length) {
+      parts.push(el("div", { class: "result-section" }, el("h3", {}, "Campaign reward choices"),
+        simpleTable(["Quest", "Choice"], quests.map(([q, v]) => [q, v.replaceAll("\n\t", "; ")]))));
+    }
+  }
+  if (result.probes?.length) {
+    parts.push(el("div", { class: "result-section" }, el("h3", {}, "Skeletons searched"),
+      simpleTable(["Skeleton", { label: "DPS", num: true }, "Short of"],
+        result.probes.map((p) => [p.skeleton, formatNumber(p.dps), p.deficits.join(", ") || "–"]))));
+  }
+  for (const note of result.notes || []) parts.push(el("p", { class: "hint" }, note));
+  parts.push(el("p", { class: "hint" }, `${formatNumber(result.evaluations)} PoB evaluations in ${result.seconds}s `
+    + `(${formatNumber(result.evals_per_second)}/s on ${result.workers} workers)`
+    + (result.saved_as ? ` · saved as ${result.saved_as}` : "")));
+  $("run-result").replaceChildren(...parts);
+}
+
+async function attachToRun() {
+  const run = await api("/api/runs/current").catch(() => ({}));
+  if (run.id) {
+    pollRun(run.id);
+    return;
+  }
+  // No run since the page server started: show the last saved result, if any
+  const saved = await api("/api/results").catch(() => []);
+  if (saved.length) {
+    const result = await api(`/api/results/${encodeURIComponent(saved[0].name)}`).catch(() => null);
+    if (result) {
+      $("run-hint").textContent = `Showing the last saved result (${saved[0].name}). Optimize runs a new search.`;
+      renderResult(result);
+    }
+  }
 }
 
 // Prices -----------------------------------------------------------------------------------
@@ -363,9 +541,12 @@ async function start() {
   $("save").addEventListener("click", save);
   $("validate").addEventListener("click", validate);
   $("inspect").addEventListener("click", inspect);
+  $("optimize").addEventListener("click", optimize);
+  $("run-cancel").addEventListener("click", cancelRun);
   $("refresh-prices").addEventListener("click", () => loadPrices(true));
   newRequest();
   loadPrices();
+  attachToRun();
 }
 
 start().catch((error) => {

@@ -32,7 +32,8 @@
         <input id="name" class="title-input" placeholder="Request name" aria-label="Request name">
         <div class="actions">
           <button type="button" id="validate">Check request</button>
-          <button type="button" id="save" class="primary">Save</button>
+          <button type="button" id="save">Save</button>
+          <button type="button" id="optimize" class="primary">Optimize</button>
         </div>
       </div>
       <ul id="issues" class="issues" hidden></ul>
@@ -111,6 +112,22 @@
       </section>
     </form>
 
+
+    <section class="card" id="run-card">
+      <div class="card-head">
+        <h2>Optimizer</h2>
+        <div class="actions"><button type="button" id="run-cancel" hidden>Stop and keep the best so far</button></div>
+      </div>
+      <p class="hint" id="run-hint">Optimize searches for the highest-damage build that meets every requirement above,
+        within the request's search time. Progress streams here; the result shows the same Requested vs Delivered
+        table as the check below, plus a PoB code.</p>
+      <div id="run-progress" hidden>
+        <div class="progress"><div id="run-bar"></div></div>
+        <p id="run-status" class="run-status"></p>
+        <ol id="run-log" class="run-log"></ol>
+      </div>
+      <div id="run-result"></div>
+    </section>
     <section class="card">
       <h2>Check a build against this request</h2>
       <p class="hint">Paste a PoB code, or a poe.ninja or pobb.in share link. The build is calculated with the
@@ -118,12 +135,6 @@
       <textarea id="inspect-code" rows="3" placeholder="PoB code or share link"></textarea>
       <div class="actions"><button type="button" id="inspect" class="primary">Load and check</button></div>
       <div id="inspect-result"></div>
-    </section>
-
-    <section class="card muted">
-      <h2>Optimizer results</h2>
-      <p>The optimizer arrives in Phase 2. Its builds will appear here with the same Requested vs Delivered
-        table as the check above, plus a PoB code and a shopping list.</p>
     </section>
   </main>
 </div>

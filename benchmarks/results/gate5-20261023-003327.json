@@ -1,0 +1,912 @@
+{
+ "seed": 1,
+ "seconds": 45.0,
+ "passed": 10,
+ "cases": [
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 0",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Stormweaver"
+    ],
+    "main_skill": "Falling Thunder",
+    "max_buttons": 3,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [
+      "Mind Over Matter"
+     ],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [
+      "Cadiro's Gambit",
+      "Painter's Servant",
+      "The Whispering Ice",
+      "Midnight Braid",
+      "Necromantle"
+     ],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "shield",
+    "weapon_swap": "may",
+    "defence": "evasion_energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {
+      "physical": 3000
+     },
+     "resists": {
+      "chaos": 20
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 0.0,
+     "gear_tier": "league_start",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": null,
+   "reasons": [
+    "no weapon setup for Falling Thunder satisfies the weapon, offhand and item-class rules"
+   ],
+   "problems": [],
+   "seconds": 9.4
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 1",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Abyssal Lich"
+    ],
+    "main_skill": "Falling Thunder",
+    "max_buttons": null,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [],
+     "passives": [
+      "Resolute Technique",
+      "Unwavering Stance"
+     ],
+     "uniques": [],
+     "item_classes": [
+      "Shield"
+     ],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "shield",
+    "weapon_swap": "may",
+    "defence": "hybrid",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {
+      "physical": 3000
+     },
+     "resists": {
+      "fire": 75,
+      "cold": 75,
+      "lightning": 75
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 0.0,
+     "gear_tier": "mirror",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": null,
+   "reasons": [
+    "no allowed ascendancy has passives to allocate",
+    "no weapon setup for Falling Thunder satisfies the weapon, offhand and item-class rules"
+   ],
+   "problems": [],
+   "seconds": 3.6
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 2",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Abyssal Lich"
+    ],
+    "main_skill": "Rake",
+    "max_buttons": 3,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Charged Shots II",
+      "Embitter",
+      "Kulemak's Dominion",
+      "Concussive Runes",
+      "Medved's Felling",
+      "Tectonic Slams",
+      "Relentless Rage",
+      "Tul's Avalanche",
+      "Enduring Impact II",
+      "Life Leech I",
+      "Infernal Legion I",
+      "Tecrod's Revenge",
+      "Tireless",
+      "Projectile Deceleration II",
+      "Armour Explosion",
+      "Stomping Ground",
+      "Frostfire",
+      "Rage III",
+      "Ratha's Assault",
+      "Durability",
+      "Persistent Ground I",
+      "Xoph's Pyre",
+      "Pin II",
+      "Cannibalism II",
+      "Romira's Requital",
+      "Tul's Stillness",
+      "Cold Attunement",
+      "Derange",
+      "Upwelling II",
+      "Pierce I"
+     ],
+     "passives": [],
+     "uniques": [
+      "The Raven's Flock",
+      "Astramentis",
+      "Nebuloch",
+      "Atziri's Step",
+      "Goldrim"
+     ],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "any",
+    "weapon_swap": "may",
+    "defence": "energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {
+      "chaos": 20
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": 30
+    },
+    "budget": {
+     "divines": 2.0,
+     "gear_tier": "mirror",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": null,
+   "reasons": [
+    "no allowed ascendancy has passives to allocate"
+   ],
+   "problems": [],
+   "seconds": 9.4
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 3",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Warbringer"
+    ],
+    "main_skill": "Contagion",
+    "max_buttons": 1,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [
+      "Trephina",
+      "Zaida's Longevity",
+      "Voltaxic Rift",
+      "The Smiling Knight",
+      "Powertread"
+     ],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "shield",
+    "weapon_swap": "may",
+    "defence": "armour_energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {
+      "chaos": 20
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 20.0,
+     "gear_tier": "endgame",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "ok",
+   "label": "Warbringer \u00b7 Contagion \u00b7 Wand + Shield",
+   "reasons": [],
+   "problems": [],
+   "seconds": 47.5
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 4",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Spirit Walker"
+    ],
+    "main_skill": "Boneshatter",
+    "max_buttons": 2,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [
+      "Unwavering Stance"
+     ],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Shock Conduction",
+      "Arcane Surge",
+      "Fluke",
+      "Einhar's Beastrite",
+      "Zarokh's Revolt",
+      "Elemental Armament II",
+      "Chain II",
+      "Zenith I",
+      "Healing Runes",
+      "Armour Demolisher I"
+     ],
+     "passives": [],
+     "uniques": [
+      "Black Sun Crest",
+      "Blistering Bond",
+      "Apep's Supremacy",
+      "Mind of the Council",
+      "Andvarius",
+      "The Vertex",
+      "Forsaken Bangle",
+      "Essentia Sanguis",
+      "Fixation of Yix",
+      "Brynhand's Mark",
+      "Valako's Roar",
+      "Soul Mantle",
+      "Death Rush",
+      "Hinekora's Sight",
+      "Gamblesprint",
+      "Bitterbloom",
+      "Crown of Eyes",
+      "Couture of Crimson",
+      "Eye of Chayula",
+      "Queen of the Forest"
+     ],
+     "item_classes": [
+      "Quiver"
+     ],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "any",
+    "weapon_swap": "may",
+    "defence": "any",
+    "floors": {
+     "life": 1000,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {
+      "chaos": 20
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 0.0,
+     "gear_tier": "endgame",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": "Spirit Walker \u00b7 Boneshatter \u00b7 One Hand Mace + Shield",
+   "reasons": [
+    "Chaos resistance: requested \u2265 20, delivered 0"
+   ],
+   "problems": [],
+   "seconds": 49.7
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 5",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Infernalist"
+    ],
+    "main_skill": "Rolling Slam",
+    "max_buttons": 1,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [
+      "Blood Magic"
+     ],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Reverberate",
+      "Ammo Conservation III",
+      "Fist of War I"
+     ],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [
+      "Focus"
+     ],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "focus",
+    "weapon_swap": "may",
+    "defence": "energy_shield",
+    "floors": {
+     "life": 2500,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {
+      "physical": 3000
+     },
+     "resists": {},
+     "block": null,
+     "evade": null,
+     "spare_spirit": 30
+    },
+    "budget": {
+     "divines": null,
+     "gear_tier": "mirror",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": null,
+   "reasons": [
+    "no weapon setup for Rolling Slam satisfies the weapon, offhand and item-class rules"
+   ],
+   "problems": [],
+   "seconds": 4.0
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 6",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Stormweaver",
+     "Lich"
+    ],
+    "main_skill": "Spark",
+    "max_buttons": 3,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Blind I",
+      "Last Gasp",
+      "Cool Headed",
+      "Extraction",
+      "Behead II",
+      "Lifetap",
+      "Breachlord's Amalgam",
+      "Brutality II",
+      "Lightning Penetration",
+      "Defy I",
+      "Rearm II",
+      "Harmonic Remnants I",
+      "Corrupting Cry I",
+      "Aftershock I",
+      "Atalui's Bloodletting",
+      "Ferocity",
+      "Shock Siphon",
+      "Double Barrel III",
+      "Uhtred's Augury",
+      "Poison II",
+      "Eternal Flame II",
+      "Mysticism I",
+      "Charged Shots I",
+      "Execute I",
+      "Ricochet I",
+      "Enraged Warcry II",
+      "Swift Affliction III",
+      "Clarity II",
+      "Projectile Acceleration II",
+      "Kulemak's Dominion"
+     ],
+     "passives": [
+      "Unwavering Stance"
+     ],
+     "uniques": [
+      "Pariah's Embrace",
+      "Apep's Supremacy",
+      "Guiding Palm of the Eye",
+      "Skin of the Loyal",
+      "Lavianga's Spirits",
+      "Foxshade",
+      "Apron of Emiran",
+      "Cospri's Will",
+      "Deidbell",
+      "Zerphi's Genesis",
+      "Guiding Palm of the Heart",
+      "Vigilant View",
+      "Sacrosanctum",
+      "Trenchtimbre",
+      "Chober Chaber",
+      "Heartbound Loop",
+      "Mageblood",
+      "Doryani's Prototype",
+      "Fireflower",
+      "The Black Insignia"
+     ],
+     "item_classes": [
+      "Focus"
+     ],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "quiver",
+    "weapon_swap": "may",
+    "defence": "any",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {},
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 0.0,
+     "gear_tier": "endgame",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": null,
+   "reasons": [
+    "no weapon setup for Spark satisfies the weapon, offhand and item-class rules"
+   ],
+   "problems": [],
+   "seconds": 4.3
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 7",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Tactician"
+    ],
+    "main_skill": "Boneshatter",
+    "max_buttons": 1,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Persistent Ground II",
+      "Minion Splash II",
+      "Momentum",
+      "Commandment",
+      "Jagged Ground II",
+      "Fortress I",
+      "Styrn's Mountain",
+      "Crazed Minions",
+      "Zenith I",
+      "Clarity II"
+     ],
+     "passives": [
+      "Chaos Inoculation"
+     ],
+     "uniques": [
+      "Atziri's Rule",
+      "Leopold's Applause",
+      "Blackbraid",
+      "Irongrasp",
+      "Tyranny's Grip"
+     ],
+     "item_classes": [
+      "Helmet"
+     ],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "focus",
+    "weapon_swap": "may",
+    "defence": "energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {
+      "fire": 75,
+      "cold": 75,
+      "lightning": 75
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": null,
+     "gear_tier": "mirror",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "ok",
+   "label": "Tactician \u00b7 Boneshatter \u00b7 One Hand Mace + Focus",
+   "reasons": [],
+   "problems": [],
+   "seconds": 46.7
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 8",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Blood Mage"
+    ],
+    "main_skill": "Rolling Slam",
+    "max_buttons": null,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [
+      "Amor Mandragora",
+      "Skysliver",
+      "The Black Cat",
+      "Andvarius",
+      "Blueflame Bracers"
+     ],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "focus",
+    "weapon_swap": "may",
+    "defence": "evasion_energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {},
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 0.0,
+     "gear_tier": "mid",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "ok",
+   "label": "Blood Mage \u00b7 Rolling Slam \u00b7 One Hand Mace + Focus",
+   "reasons": [],
+   "problems": [],
+   "seconds": 49.5
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 9",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Blood Mage",
+     "Pathfinder"
+    ],
+    "main_skill": "Fireball",
+    "max_buttons": 1,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Wildshards II",
+      "Khatal's Rejuvenation",
+      "Zarokh's Revolt",
+      "Harmonic Remnants II",
+      "Steadfast II",
+      "Long Fuse II",
+      "Charged Shots II",
+      "Execute III",
+      "Loyalty",
+      "Atziri's Communion",
+      "Arbiter's Reach",
+      "Ahn's Citadel",
+      "Knockback",
+      "Magnified Area I",
+      "Scouring Flame",
+      "Projectile Acceleration III",
+      "Lockdown",
+      "Pursuit II",
+      "Bone Shrapnel",
+      "Boundless Energy I",
+      "Longshot II",
+      "Selfless Remnants",
+      "Combo Finisher I",
+      "Hardy Totems I",
+      "Feeding Frenzy I",
+      "Spar",
+      "Opening Move",
+      "Heightened Accuracy II",
+      "Elemental Army",
+      "Wildshards I"
+     ],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "none",
+    "weapon_swap": "may",
+    "defence": "armour",
+    "floors": {
+     "life": 2500,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {
+      "physical": 3000
+     },
+     "resists": {},
+     "block": null,
+     "evade": null,
+     "spare_spirit": 30
+    },
+    "budget": {
+     "divines": 2.0,
+     "gear_tier": "mid",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": "Blood Mage \u00b7 Fireball \u00b7 Staff",
+   "reasons": [
+    "Life: requested \u2265 2,500, delivered 2,322"
+   ],
+   "problems": [],
+   "seconds": 50.0
+  }
+ ]
+}

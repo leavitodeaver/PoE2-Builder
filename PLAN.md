@@ -272,6 +272,8 @@ reviewed_for: "0.5.5"
    defences within 10 minutes. Re-optimizing a seeded reference must never make it worse.
 5. **Constraint compliance.** Randomized request fuzzing: every result passes every hard
    constraint, or is reported infeasible with a reason. 100%, no exceptions.
+   (`benchmarks/fuzz_constraints.py`: each result's PoB code is reloaded and rechecked
+   independently; bans, button cap and budget must hold even in infeasible results.)
 6. **Acceptance specs.** The three `Custom builds` concepts (Ice Shot Gemling pure-Armour MoM with
    3 buttons; Little Minions Disciple of Varashta with 2 buttons and its ban list; Explosive
    Transmutation ascendancy comparison) are re-expressed as requests and must produce results that
@@ -287,7 +289,7 @@ reviewed_for: "0.5.5"
 |---|---|---|
 | **0. Cleanup + engine spike** ✅ 2026-10-22 | Deleted `target*`, `dist`, stray `--help` (~262 GB freed); old source/docs in `legacy/`; `git init`; PoB2 dev pinned; headless boot on PoB's LuaJIT; bridge; test builds; gates; worker pool; release cross-check tool | Gates 1–3 pass on 4 generated builds and 5 of the user's builds; the release reproduces the PoB app's numbers exactly on all 5; ~3,200 what-ifs/s measured |
 | **1. Data, requests, UI shell** ✅ 2026-10-22 | Data dump (`python -m builder.data dump`); poe.ninja price feed; request schema + constraint compiler with tests; local web page (`python -m builder.web`): request form, saved requests, paste a code or share link → stats + Requested vs Delivered | Done. The progress stream moves to Phase 2 with the optimizer it reports on |
-| **2. Optimizer core** | Skeletons + probes; gems; tree (grow/prune/Steiner/ascendancy); uniques-only gear; condition resolver; feasibility penalties; kicks | Complete, legal builds for a given skill that beat naive baselines; gate 5 passes |
+| **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×4.6, Boneshatter Titan ×4.0, Raise Zombie Infernalist ×10.5 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-004851.json`), all feasible, code verified, independent recheck agrees. Gate 5: 20/20 random requests over two seeds. Gates 1–3 still pass, fidelity exact on the release |
 | **3. Rares, budget, sockets** | Rare templates; price model + trade calibration; λ budget allocation; runes/idols/soul cores/augments; jewels; flasks/charms | Gate 4 on the reference set |
 | **4. Ledger + exploits** | Ledger schema and injection; asterisk reporting; approval queue; calibration form; first research pass for 0.5.x | Asterisked results; at least one exploit that works on the current patch modeled end to end |
 | **5. Results polish** | Requested vs Delivered; shopping list + trade links; test-in-game checklist; saved history | Gate 6 |
@@ -295,6 +297,66 @@ reviewed_for: "0.5.5"
 
 A usable MVP (real builds with uniques and simple rares, constraints honored) arrives at the end
 of Phase 2. Full v1 arrives at the end of Phase 5.
+
+### Phase 2 findings that shape later phases
+
+- **PoB's `copyTableSafe` corrupted the shared passive tree.** It gives a copy its metatable
+  before filling it, and PoB class objects keep parent-class proxies whose metatable `__newindex`
+  points at the object, so deep-copying one wrote every field into the *original*. Each build load
+  deep-copies tree nodes to switch attribute nodes, so the shared tree grew with every load
+  (linearly or doubling, depending on table addresses) until loads took seconds and a worker hit
+  20 GB. Intermittent, independent of the JIT, and present in the committed Phase 0 bridge too.
+  The bridge now installs a corrected `copyTableSafe` (fields written with `rawset`; copies are
+  identical) at runtime, no PoB file edited; gates 1–3 still pass exactly, including fidelity
+  against the PoB app's release on all five reference builds. A watchdog in the worker pool also
+  replaces any worker over 4 GB or silent for 3 minutes and reports its task as failed, so one
+  runaway can't take a run down. Worth reporting upstream.
+- **Gem what-ifs must recompute gem requirements.** PoB's GUI path keeps the replaced gem's
+  attribute requirements (it accelerates requirement checks). The bridge's `gemDeltas` sets them
+  like `ProcessSocketGroup` does; before that, persistent skills looked free and were reverted on
+  commit. Every block now verifies each commit and reverts it if the score fell.
+- **PoB's Full DPS counts on-death damage as sustained** (the §5.3 risk, seen at once): Fiery
+  Death ("ignited enemies explode on death") was 920k of a Spark build's 1.12M Full DPS, against
+  54k from Spark, and the Full DPS polish chose it on three builds. The boss objective now
+  subtracts Full DPS entries from gems whose description needs enemies to die, and the result
+  names what was left out (`ledger/proposed/pob-full-dps-on-death-damage.yaml`). Expect more of
+  these; the result's per-skill breakdown is where they show up.
+- **Explosive Transmutation isn't calculated by PoB.** Its "Transmutation Explosion" has no
+  trigger rate (remnant pickups aren't modeled), so PoB gives 0 DPS on every skeleton and the
+  search has nothing to climb. Results now say so (infeasible: damage not modeled) instead of
+  returning a 0-DPS build. The Explosive Transmutation acceptance spec needs a ledger entry or a
+  remnant pickup-rate model in Phase 4.
+- **Skill costs are a game limit too.** A CI build (1 Life) happily took supports with Life
+  costs; PoB only warns ("not enough Life to use ..."). The bridge reports PoB's cost-warning
+  lists as counts and the score treats each as a hard deficit.
+- **Feasibility comes first.** The score is log DPS minus weighted deficits plus a fixed cost for
+  being short at all (3 for request floors, 8 for game limits: attributes, Spirit), so no amount of
+  damage buys an infeasible build, while the weights still steer toward the smallest shortfall.
+- **Where the time goes** (one worker, ~250 what-ifs/s): full support sweeps (5 slots × ~250
+  candidates), full gear sweeps (~350 items) and ascendancy enumeration are the expensive blocks,
+  so they run every third pass or after a kick that touched them; passes in between rescore
+  shortlists. Tree growth is lazy greedy (top few and changed paths rechecked, full recheck every
+  12 allocations). A level-95 tree fills in ~10 s.
+- **Ascendancy enumeration** scores every maximal connected allocation exactly (with
+  multiple-choice options) when there are at most 1,500; Smith of Kitava has ~52k connected
+  allocations, so large ascendancies are first narrowed to their strongest notables (each scored
+  alone).
+- **Conditions:** evidence rules are data (`builder/search/conditions.py`); lines limited to a
+  skill kind ("on Melee Hit", "Spells", "Minions") only count when the main skill is that kind.
+  Stun, freeze, electrocute, daze and pin are never assumed on a boss. Supports that would be the
+  first source of a condition get a real commit-and-resolve trial in the support rounds.
+- **No main skill given:** every allowed skill is screened (starting weapon, greedy supports, no
+  tree) within a quarter of the run, in shuffled order, then the top four go to probes. The
+  Little Minions request (no main skill, minion bans) shortlisted Detonate Dead, Flame Breath,
+  Oil Barrage and Hammer of the Gods; it doesn't require a minion skill, so none was chosen.
+- **Campaign reward choices** (e.g. +5% Cold Resistance vs +5 Intelligence) are free stats and
+  are chosen by score.
+- **Not modeled yet:** meta gems (Cast on X) and supports on persistent skills; weapon-set passive
+  points; dual wielding; weapon swap ("must" reports infeasible); seed codes (ignored with a note);
+  mapping mode (boss DPS with a note); Abyssal Lich (PoB's tree gives it no passives of its own:
+  it shares Lich's start node), so requests for it alone are reported infeasible. Unique prices: a gear-tier cap per unique (league start 1,
+  mid 20, endgame 300 divine) on top of the divine cap; unpriced uniques and lineage supports are
+  left out rather than treated as free.
 
 ### Phase 1 findings that shape later phases
 
@@ -384,12 +446,13 @@ builder/
   pob/      LuaJIT host (ctypes), engine, worker pool, build codes
   data/     data dump loader, prices, rare price model
   request/  schema, constraint compiler
-  search/   skeletons, gems, tree, gear, sockets, budget, loop
+  search/   context, objective, skeletons, gems, tree, gear, conditions, inner + outer loop,
+            baselines (sockets and budget allocation arrive in Phase 3)
   ledger/   schema, predicates, injection
   report/   result assembly, PoB code, shopping list
   web/      FastAPI app + static UI
 ledger/entries/  ledger/proposed/
-benchmarks/    test builds, reference PoB codes, gate/throughput scripts, results history
+benchmarks/    test builds, reference PoB codes, gate/throughput/optimizer/fuzz scripts, results history
 scripts/
 tests/
 legacy/        old Rust source and docs, read-only reference (only docs tracked in git)
