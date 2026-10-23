@@ -222,16 +222,16 @@ The ledger lives in `ledger/entries/*.yaml`, one entry per known PoB mistake or 
 id: weapon-set-disabled-grant
 title: Disabled weapon set still grants item skill/buff
 kind: exploit            # pob_gap | pob_overcalc | exploit | game_bug
-patches: ["0.5.4", "0.5.5"]
+patches: ["0.5.4"]       # removed by GGG in 0.5.5
 when:                    # predicate over the build
   item_in_inactive_weapon_set: { grants_skill: true }
 effect:
   inject_mods: ["..."]   # PoB custom-modifier lines, so it interacts with the rest of the math
   # or: set_config / dps_multiplier / extra_damage_source / ban / discount
-confidence: community_confirmed   # verified_by_you | community_confirmed | reported | theory
-sources: ["https://..."]
+confidence: verified_by_you   # verified_by_you | community_confirmed | reported | theory
+sources: ["user, 2026-10-22: removed in 0.5.5"]
 test_in_game: "Equip X in weapon set 2, swap to set 1, check the buff icon persists."
-status: approved         # proposed | approved | rejected | retired
+status: retired          # proposed | approved | rejected | retired
 reviewed_for: "0.5.5"
 ```
 
@@ -289,7 +289,7 @@ reviewed_for: "0.5.5"
 | **1. Data, requests, UI shell** | Data dump; price feed; request schema + constraint compiler; FastAPI + minimal UI (request form, progress stream, result view); PoB code import/export | Paste a code → see its stats; save a request |
 | **2. Optimizer core** | Skeletons + probes; gems; tree (grow/prune/Steiner/ascendancy); uniques-only gear; condition resolver; feasibility penalties; kicks | Complete, legal builds for a given skill that beat naive baselines; gate 5 passes |
 | **3. Rares, budget, sockets** | Rare templates; price model + trade calibration; λ budget allocation; runes/idols/soul cores/augments; jewels; flasks/charms | Gate 4 on the reference set |
-| **4. Ledger + exploits** | Ledger schema and injection; asterisk reporting; approval queue; calibration form; first research pass for 0.5.x | Asterisked results; disabled-weapon-set exploit modeled |
+| **4. Ledger + exploits** | Ledger schema and injection; asterisk reporting; approval queue; calibration form; first research pass for 0.5.x | Asterisked results; at least one exploit that works on the current patch modeled end to end |
 | **5. Results polish** | Requested vs Delivered; shopping list + trade links; test-in-game checklist; saved history | Gate 6 |
 | **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research | All gates green on 1.0 data |
 
@@ -327,8 +327,8 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
     lines, Iron Reflexes and Meta reservation effects;
   - 0.5.5 data: rune values changed (e.g. Bonded +20 → +40 Life, chaos res rune 11% → 13%);
   - granted and weapon-set skills are resolved differently (duplicates removed, an item-granted
-    Spear Throw dropped). Numbers unaffected on that build, but it's the area of the
-    disabled-weapon-set exploit, so it's queued for research
+    Spear Throw dropped). Numbers unaffected on that build, and consistent with 0.5.5 removing
+    the disabled-weapon-set grant exploit (confirmed by the user)
     (`ledger/proposed/pob-snapshot-weapon-set-granted-skills.yaml`).
 - **One probable snapshot bug:** a Blood Mage's TotalEHP rises 13× (hits to die 3.1 → 41)
   while pools, max hit, block and evade barely change
