@@ -33,6 +33,7 @@ cheapest relaxation. It never relaxes a hard requirement silently.
 | Objective | Sustained single-target boss DPS by default; per-request mapping/clear mode |
 | Exploits | Included when known to work, marked with an asterisk and a confidence level |
 | PoB trust | PoB is the core calculator only. A correction ledger fixes its known gaps |
+| PoB version | Newest dev snapshot (0.5.5 data), cross-checked against the latest PoB release; disagreements are explained and flagged |
 | Ledger upkeep | Each patch, Claude researches and proposes entries; you approve them in the web page |
 | Timeline | Build on 0.5 now; refresh for 1.0 (Dec 11, 2026) once PoB2 ships 1.0 support |
 | Old code | Delete build output (done: ~262 GB freed); archive source and docs into `legacy/` |
@@ -276,12 +277,15 @@ reviewed_for: "0.5.5"
    Transmutation ascendancy comparison) are re-expressed as requests and must produce results that
    honor every stated requirement.
 7. **Throughput dashboard.** Evaluations per second, tracked per release.
+8. **Version cross-check.** `benchmarks/compare_versions.py` on the reference builds after every
+   PoB pin change; every difference is either explained (new data, newly supported modifier) or
+   recorded as a suspected PoB bug in `ledger/proposed/`.
 
 ## 9. Phases
 
 | Phase | Work | Exit criteria |
 |---|---|---|
-| **0. Cleanup + engine spike** ✅ 2026-10-22 | Deleted `target*`, `dist`, stray `--help` (~262 GB freed); old source/docs in `legacy/`; `git init`; PoB2 dev pinned; headless boot on PoB's LuaJIT; bridge; test builds; gates; worker pool | Gates 1–3 pass on 4 generated builds; ~3,200 what-ifs/s measured. GUI fidelity (gate 1 against PoB-app exports) is still pending reference codes in `benchmarks/reference/` |
+| **0. Cleanup + engine spike** ✅ 2026-10-22 | Deleted `target*`, `dist`, stray `--help` (~262 GB freed); old source/docs in `legacy/`; `git init`; PoB2 dev pinned; headless boot on PoB's LuaJIT; bridge; test builds; gates; worker pool; release cross-check tool | Gates 1–3 pass on 4 generated builds and 5 of the user's builds; the release reproduces the PoB app's numbers exactly on all 5; ~3,200 what-ifs/s measured |
 | **1. Data, requests, UI shell** | Data dump; price feed; request schema + constraint compiler; FastAPI + minimal UI (request form, progress stream, result view); PoB code import/export | Paste a code → see its stats; save a request |
 | **2. Optimizer core** | Skeletons + probes; gems; tree (grow/prune/Steiner/ascendancy); uniques-only gear; condition resolver; feasibility penalties; kicks | Complete, legal builds for a given skill that beat naive baselines; gate 5 passes |
 | **3. Rares, budget, sockets** | Rare templates; price model + trade calibration; λ budget allocation; runes/idols/soul cores/augments; jewels; flasks/charms | Gate 4 on the reference set |
@@ -308,6 +312,33 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
 - **PoB warns but still calculates** when requirements aren't met (e.g. "You do not meet the
   Intelligence requirement"). The constraint layer must check requirements itself rather than
   rely on PoB rejecting the build.
+- **Real endgame builds are much heavier than test builds.** On the user's 27-group Ritualist:
+  load 1 s, full recalculation 0.4 s, what-if 100 ms with Full DPS vs 4.6 ms main-skill only.
+  Main-skill screening is mandatory, not optional.
+
+### Engine accuracy and the PoB version (verified 2026-10-22)
+
+- **The engine is exact.** Running the PoB app's own version (release v0.23.1), all five of the
+  user's builds reproduce the numbers the app saved in their codes.
+- **The dev snapshot differs from the release, mostly for real reasons**, found with
+  `benchmarks/compare_versions.py` (stat diff plus item modifier lines read differently):
+  - newly supported mechanics: Abyssal Wasting (debuff, resistance reduction; the main cause of
+    +19% DPS on the Ritualist and +6% on the Oracle), Runic Ward regeneration, more Bonded rune
+    lines, Iron Reflexes and Meta reservation effects;
+  - 0.5.5 data: rune values changed (e.g. Bonded +20 → +40 Life, chaos res rune 11% → 13%);
+  - granted and weapon-set skills are resolved differently (duplicates removed, an item-granted
+    Spear Throw dropped). Numbers unaffected on that build, but it's the area of the
+    disabled-weapon-set exploit, so it's queued for research
+    (`ledger/proposed/pob-snapshot-weapon-set-granted-skills.yaml`).
+- **One probable snapshot bug:** a Blood Mage's TotalEHP rises 13× (hits to die 3.1 → 41)
+  while pools, max hit, block and evade barely change
+  (`ledger/proposed/pob-snapshot-ehp-hits-inflated.yaml`). Consequence: **defence floors use
+  maximum hit taken and pools, not TotalEHP alone**, and an optimizer must not be allowed to
+  chase EHP from this.
+- **Process going forward:** the optimizer calculates with the snapshot. Every finalist is
+  recomputed on the release; where DPS, max hit or pools disagree by more than ~5%, the result
+  lists the responsible modifier lines (newly supported vs changed) and flags anything
+  unexplained as a suspected PoB bug for the ledger.
 
 ## 10. Risks
 

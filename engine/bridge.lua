@@ -55,6 +55,16 @@ local function pickStats(output, fields)
 	return picked
 end
 
+-- PoB v0.23 and earlier pass constructor arguments through new(); current PoB forbids that and
+-- expects new("Item"):Item(raw). Supporting both lets the release serve as a cross-check.
+local function makeItem(raw)
+	local ok, item = pcall(new, "Item", raw)
+	if ok and item then
+		return item
+	end
+	return new("Item"):Item(raw)
+end
+
 local function nodeById(id)
 	local node = build.spec.nodes[tonumber(id)]
 	if not node then
@@ -238,7 +248,7 @@ function bridge.itemDeltas(args)
 	local results = { }
 	local start = os.clock()
 	for i, case in ipairs(args.cases) do
-		local item = new("Item"):Item(case.raw)
+		local item = makeItem(case.raw)
 		results[i] = pickStats(calcFunc({ repSlotName = case.slot, repItem = item }, useFullDPS), args.fields)
 	end
 	return { results = results, seconds = os.clock() - start }
@@ -366,12 +376,55 @@ end
 
 -- Commit an item into a specific slot, then recalculate fully
 function bridge.equip(args)
-	local item = new("Item"):Item(args.raw)
+	local item = makeItem(args.raw)
 	build.itemsTab:AddItem(item, true)
 	build.itemsTab.slots[args.slot]:SetSelItemId(item.id)
 	local start = os.clock()
 	recalc()
 	return { seconds = os.clock() - start, stats = pickStats(build.calcsTab.mainOutput, args.fields) }
+end
+
+-- Every numeric stat in the main output, flattened one level (e.g. "MainHand.Accuracy"), for
+-- comparing PoB versions or explaining a change
+function bridge.outputAll()
+	local flat = { }
+	local function add(prefix, tbl, depth)
+		for key, value in pairs(tbl) do
+			if type(key) == "string" then
+				if type(value) == "number" then
+					flat[prefix .. key] = jsonNumber(value)
+				elseif type(value) == "table" and depth < 1 and (key == "MainHand" or key == "OffHand" or key == "Minion") then
+					add(prefix .. key .. ".", value, depth + 1)
+				end
+			end
+		end
+	end
+	add("", build.calcsTab.mainOutput, 0)
+	return flat
+end
+
+-- How PoB read each modifier line on the equipped items: lines it can't calculate are the
+-- first place to look when numbers look wrong
+function bridge.itemMods()
+	local slots = { }
+	for name, slot in pairs(build.itemsTab.slots) do
+		local item = slot.selItemId and build.itemsTab.items[slot.selItemId]
+		if item then
+			local lines = { }
+			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
+				for _, modLine in ipairs(item[kind] or { }) do
+					lines[#lines + 1] = {
+						kind = kind:gsub("ModLines", ""),
+						line = modLine.line,
+						supported = not modLine.extra and #(modLine.modList or { }) > 0,
+						mods = #(modLine.modList or { }),
+					}
+				end
+			end
+			slots[name] = { name = item.name, base = item.baseName, lines = lines }
+		end
+	end
+	return slots
 end
 
 -- Items currently equipped, by slot

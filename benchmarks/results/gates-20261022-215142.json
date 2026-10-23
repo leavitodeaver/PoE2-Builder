@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-22T21:51:39",
+  "pob_dir": "vendor\\PathOfBuilding-PoE2-v0.23.1",
+  "boot_s": 1.0574052999727428,
+  "builds": {
+    "ref:2b75a": {
+      "gate1_fidelity": []
+    },
+    "ref:2b75b": {
+      "gate1_fidelity": []
+    },
+    "ref:2b75c": {
+      "gate1_fidelity": []
+    },
+    "ref:2b75d": {
+      "gate1_fidelity": []
+    },
+    "ref:2b75e": {
+      "gate1_fidelity": []
+    }
+  }
+}

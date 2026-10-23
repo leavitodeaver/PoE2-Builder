@@ -1,0 +1,21 @@
+id: pob-snapshot-weapon-set-granted-skills
+title: Snapshot PoB changed which item- and weapon-set-granted skills exist
+kind: pob_gap
+patches: ["0.5.5"]
+pob: "dev bb52d6b (2026-10-01), after 'Add individual skill weapon set handling (#2498)'"
+when:
+  observed_on: "Ritualist, Explosive Spear (benchmarks/reference/2b75c.txt)"
+effect:
+  research: true   # no number change yet; decide whether the new behaviour matches the game
+confidence: theory
+evidence: |
+  Release v0.23.1 lists Spear Throw three times (two gems plus one granted by the weapon's
+  "Grants Skill: Spear Throw" implicit), plus duplicate Blood Boil and Ritual Sacrifice. The
+  snapshot lists Spear Throw once, reports that implicit as unsupported, and drops the
+  duplicates. None of these skills feed Full DPS in this build, so its numbers don't change.
+  This is the same area as the disabled-weapon-set grant exploit the user relies on, so the
+  ledger needs to know which version matches the game before modelling that exploit.
+sources: ["https://github.com/PathOfBuildingCommunity/PathOfBuilding-PoE2/pull/2498"]
+test_in_game: "Equip the spear in each weapon set and check which granted skills appear on the skill bar."
+status: proposed
+reviewed_for: "0.5.5"

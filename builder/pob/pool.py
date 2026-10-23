@@ -12,6 +12,7 @@ import os
 import time
 import traceback
 from multiprocessing.connection import Connection, wait
+from pathlib import Path
 from typing import Any
 
 
@@ -19,12 +20,12 @@ def default_workers() -> int:
     return max(1, (os.cpu_count() or 2) - 2)
 
 
-def _worker_main(conn: Connection) -> None:
+def _worker_main(conn: Connection, pob_dir: Path | None) -> None:
     # Imported here so the parent process never boots an engine
     from builder.pob.engine import PobEngine
 
     try:
-        engine = PobEngine()
+        engine = PobEngine(pob_dir) if pob_dir else PobEngine()
         conn.send(("ready", engine.boot_seconds))
     except Exception:
         conn.send(("error", traceback.format_exc()))
@@ -45,15 +46,17 @@ class WorkerError(RuntimeError):
 
 
 class EnginePool:
-    def __init__(self, workers: int | None = None) -> None:
+    def __init__(self, workers: int | None = None, pob_dir: Path | None = None) -> None:
+        """`pob_dir` selects a PoB checkout other than the pinned one (e.g. a release to compare)."""
         self.size = workers or default_workers()
         context = mp.get_context("spawn")
         self._conns: list[Connection] = []
         self._procs: list[mp.Process] = []
         started = time.perf_counter()
+        pob_dir = pob_dir.resolve() if pob_dir else None
         for _ in range(self.size):
             parent, child = context.Pipe()
-            proc = context.Process(target=_worker_main, args=(child,), daemon=True)
+            proc = context.Process(target=_worker_main, args=(child, pob_dir), daemon=True)
             proc.start()
             child.close()
             self._conns.append(parent)

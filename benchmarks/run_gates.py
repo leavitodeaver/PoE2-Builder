@@ -7,20 +7,22 @@ Gate 2 (delta agreement): every what-if answer from PoB's misc calculator matche
   same change and recalculating fully, within 0.1%.
 Gate 3 (round trip): export -> build code -> import reproduces every stat exactly.
 
-Usage: uv run python benchmarks/run_gates.py
+Usage: uv run python benchmarks/run_gates.py [name-filter ...] [--pob-dir DIR] [--gates 123] [--no-timing]
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import random
 import statistics
 import time
 import xml.etree.ElementTree as ET
+import zlib
 from datetime import datetime
 from pathlib import Path
 
-from builder import ROOT
+from builder import POB_DIR, ROOT
 from builder.pob import codes
 from builder.pob.engine import PobEngine
 
@@ -36,10 +38,19 @@ FIELDS = [
 DELTA_TOLERANCE = 1e-3
 EXACT_TOLERANCE = 1e-9
 CASES_PER_KIND = 8
+TIMING_CASES = 40
+
+
+def number(value: object) -> object:
+    # The bridge reports non-finite numbers as strings ("inf", "nan"), since JSON has no form for them
+    return float(value) if value in ("inf", "-inf", "nan") else value
 
 
 def close(a: object, b: object, rel: float) -> bool:
+    a, b = number(a), number(b)
     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if a == b or (a != a and b != b):  # equal infinities, or both NaN
+            return True
         return abs(a - b) <= rel * max(abs(a), abs(b), 1.0)
     return a == b
 
@@ -56,7 +67,10 @@ def diff(expected: dict, actual: dict, rel: float) -> list[str]:
 def load_sources() -> dict[str, str]:
     sources = {path.stem: path.read_text(encoding="utf-8") for path in sorted(BUILD_DIR.glob("*.xml"))}
     for path in sorted(REFERENCE_DIR.glob("*.txt")):
-        sources["ref:" + path.stem] = codes.decode(path.read_text(encoding="utf-8"))
+        try:
+            sources["ref:" + path.stem] = codes.decode(path.read_text(encoding="utf-8"))
+        except (ValueError, zlib.error):
+            print(f"skipping {path.name}: not a PoB code")
     return sources
 
 
@@ -124,7 +138,8 @@ def gate_round_trip(engine: PobEngine, xml: str) -> list[str]:
 
 
 def timings(engine: PobEngine, xml: str) -> dict[str, float]:
-    """Milliseconds per operation. 'lua' excludes the ctypes/JSON crossing; 'wall' includes it."""
+    """Milliseconds per operation, measured inside Lua. What-ifs are timed with Full DPS (all
+    included skills) and with the main skill only, on up to TIMING_CASES cases each."""
     result = {}
     started = time.perf_counter()
     for _ in range(3):
@@ -137,47 +152,59 @@ def timings(engine: PobEngine, xml: str) -> dict[str, float]:
     leaves = [n for n in engine.call("allocatedNodes")["nodes"] if n["depends"] == [n["id"]]]
     equipped = engine.call("equipped")["slots"]
     batches = {
-        "delta_node_ms": [{"add": [n["id"]]} for n in frontier if n["distance"] == 1],
-        "delta_path_ms": [{"add": [n["id"]], "addPaths": True} for n in frontier if n["distance"] > 1],
-        "delta_remove_ms": [{"remove": [n["id"]]} for n in leaves],
+        "delta_node": [{"add": [n["id"]]} for n in frontier if n["distance"] == 1],
+        "delta_path": [{"add": [n["id"]], "addPaths": True} for n in frontier if n["distance"] > 1],
+        "delta_remove": [{"remove": [n["id"]]} for n in leaves],
+        "delta_item": [{"slot": s, "raw": raw + "\n+40 to maximum Life"} for s, raw in sorted(equipped.items())],
     }
     for name, cases in batches.items():
+        cases = cases[:TIMING_CASES]
         if not cases:
             continue
-        started = time.perf_counter()
-        response = engine.call("nodeDeltas", cases=cases, fields=FIELDS)
-        result[name] = 1000 * response["seconds"] / len(cases)
-        result[name.replace("_ms", "_wall_ms")] = 1000 * (time.perf_counter() - started) / len(cases)
-    item_cases = [{"slot": s, "raw": raw + "\n+40 to maximum Life"} for s, raw in sorted(equipped.items())] * 5
-    response = engine.call("itemDeltas", cases=item_cases, fields=FIELDS)
-    result["delta_item_ms"] = 1000 * response["seconds"] / len(item_cases)
+        method = "itemDeltas" if name == "delta_item" else "nodeDeltas"
+        for suffix, full_dps in (("_ms", True), ("_main_skill_ms", False)):
+            response = engine.call(method, cases=cases, fields=FIELDS, fullDPS=full_dps)
+            result[name + suffix] = 1000 * response["seconds"] / len(cases)
     return result
 
 
 def main() -> None:
-    sources = load_sources()
-    engine = PobEngine()
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("names", nargs="*", help="only builds whose name contains one of these")
+    parser.add_argument("--pob-dir", type=Path, default=POB_DIR, help="PoB checkout to run (default: pinned)")
+    parser.add_argument("--gates", default="123", help="which gates to run, e.g. 1 or 13 (default 123)")
+    parser.add_argument("--no-timing", action="store_true")
+    args = parser.parse_args()
+
+    sources = {n: x for n, x in load_sources().items() if not args.names or any(f in n for f in args.names)}
+    engine = PobEngine(args.pob_dir)
     rng = random.Random(20261022)
-    report = {"date": datetime.now().isoformat(timespec="seconds"), "boot_s": engine.boot_seconds, "builds": {}}
+    report = {
+        "date": datetime.now().isoformat(timespec="seconds"), "pob_dir": str(args.pob_dir),
+        "boot_s": engine.boot_seconds, "builds": {},
+    }
     failed = False
+    status = lambda problems: "PASS" if not problems else f"FAIL ({len(problems)})"
     for name, xml in sources.items():
-        fidelity = gate_fidelity(engine, xml)
-        delta_cases, delta = gate_delta(engine, xml, rng)
-        round_trip = gate_round_trip(engine, xml)
-        timing = timings(engine, xml)
-        report["builds"][name] = {
-            "gate1_fidelity": fidelity, "gate2_delta_cases": delta_cases, "gate2_delta": delta,
-            "gate3_round_trip": round_trip, "timing": timing,
-        }
-        failed |= bool(fidelity or delta or round_trip)
-        status = lambda problems: "PASS" if not problems else f"FAIL ({len(problems)})"
-        print(f"\n{name}")
-        print(f"  gate 1 fidelity    {status(fidelity)}")
-        print(f"  gate 2 delta       {status(delta)} over {delta_cases} cases")
-        print(f"  gate 3 round trip  {status(round_trip)}")
-        for problem in (fidelity + delta + round_trip)[:12]:
+        entry: dict = {}
+        print(f"\n{name}", flush=True)
+        if "1" in args.gates:
+            entry["gate1_fidelity"] = gate_fidelity(engine, xml)
+            print(f"  gate 1 fidelity    {status(entry['gate1_fidelity'])}", flush=True)
+        if "2" in args.gates:
+            entry["gate2_delta_cases"], entry["gate2_delta"] = gate_delta(engine, xml, rng)
+            print(f"  gate 2 delta       {status(entry['gate2_delta'])} over {entry['gate2_delta_cases']} cases", flush=True)
+        if "3" in args.gates:
+            entry["gate3_round_trip"] = gate_round_trip(engine, xml)
+            print(f"  gate 3 round trip  {status(entry['gate3_round_trip'])}", flush=True)
+        problems = entry.get("gate1_fidelity", []) + entry.get("gate2_delta", []) + entry.get("gate3_round_trip", [])
+        for problem in problems[:12]:
             print(f"    - {problem}")
-        print("  timing (ms): " + ", ".join(f"{k} {v:.2f}" for k, v in timing.items()))
+        failed |= bool(problems)
+        if not args.no_timing:
+            entry["timing"] = timings(engine, xml)
+            print("  timing (ms): " + ", ".join(f"{k} {v:.1f}" for k, v in entry["timing"].items()), flush=True)
+        report["builds"][name] = entry
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     out = RESULT_DIR / f"gates-{datetime.now():%Y%m%d-%H%M%S}.json"
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")

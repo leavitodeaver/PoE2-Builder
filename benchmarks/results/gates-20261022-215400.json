@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-22T21:52:06",
+  "pob_dir": "C:\\PROJECTS\\PoE2 Builder\\vendor\\PathOfBuilding-PoE2",
+  "boot_s": 1.005369299906306,
+  "builds": {
+    "ref:2b75a": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75b": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75c": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75d": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75e": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    }
+  }
+}

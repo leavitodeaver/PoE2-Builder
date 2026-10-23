@@ -3,5 +3,6 @@
   "branch": "dev",
   "commit": "bb52d6b368307457eb9c54bb13f1829993d390b1",
   "commit_date": "2026-10-01",
-  "notes": "dev is 108 commits past release v0.23.1 and includes the 0.5.5 data export, calc performance work, and per-skill weapon-set handling. Upgrading: change the commit, run scripts/fetch_pob.py, then benchmarks/run_gates.py."
+  "release_tag": "v0.23.1",
+  "notes": "The optimizer calculates with the dev snapshot (newest data: 0.5.5, rune and Abyssal Wasting support) and cross-checks against release_tag, the version the PoB app runs. Upgrading: change commit (and release_tag when PoB ships a release), run scripts/fetch_pob.py, then benchmarks/run_gates.py and benchmarks/compare_versions.py."
 }

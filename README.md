@@ -19,10 +19,16 @@ uv run python scripts/fetch_pob.py
 uv run python benchmarks/make_test_builds.py   # regenerate benchmarks/builds/*.xml
 uv run python benchmarks/run_gates.py          # fidelity, delta agreement, round trip, timings
 uv run python benchmarks/bench_pool.py         # parallel what-if throughput by worker count
+uv run python benchmarks/compare_versions.py   # dev snapshot vs PoB release, per build
 ```
 
-To check GUI fidelity against real builds, save PoB codes exported from the PoB app as
-`benchmarks/reference/<name>.txt`; `run_gates.py` picks them up.
+`scripts/fetch_pob.py` checks out both the pinned dev snapshot (what the optimizer calculates
+with) and the matching PoB release (what the PoB app runs, used for cross-checks).
+
+To check fidelity against real builds, save PoB codes exported from the PoB app as
+`benchmarks/reference/<name>.txt`. `run_gates.py --pob-dir vendor/PathOfBuilding-PoE2-<release>`
+compares them with the release the app runs; `compare_versions.py` explains what the snapshot
+changes.
 
 ## Layout
 

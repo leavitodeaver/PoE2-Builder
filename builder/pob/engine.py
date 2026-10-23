@@ -23,7 +23,8 @@ class PobError(RuntimeError):
 
 class PobEngine:
     def __init__(self, pob_dir: Path = POB_DIR) -> None:
-        src = (pob_dir / "src").resolve()
+        pob_dir = pob_dir.resolve()  # before chdir, so relative paths mean what the caller meant
+        src = pob_dir / "src"
         started = time.perf_counter()
         os.chdir(src)
         self.lua = LuaState(pob_dir / "runtime")

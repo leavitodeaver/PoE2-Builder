@@ -1,0 +1,23 @@
+id: pob-snapshot-ehp-hits-inflated
+title: Snapshot PoB inflates "hits to die" (TotalEHP) with no matching defence change
+kind: pob_overcalc
+patches: ["0.5.5"]
+pob: "dev bb52d6b (2026-10-01); not present in release v0.23.1"
+when:
+  # Seen on one build so far; the trigger isn't isolated yet. Suspects: the new Runic Ward
+  # support and life-loss-over-time handling.
+  observed_on: "Blood Mage, Ice Nova (benchmarks/reference/2b75e.txt)"
+effect:
+  distrust_stats: [TotalEHP, NumberOfDamagingHits, EHPSurvivalTime, TotalNumberOfHits]
+  # Until resolved, defence floors are checked with maximum hit taken and pools, not TotalEHP
+confidence: theory
+evidence: |
+  Same build, release v0.23.1 vs snapshot: NumberOfDamagingHits 3.14 -> 41.0 and TotalEHP
+  15,334 -> 200,113 (+1205%), while hit pools moved -1.5%, damage-over-time pools +4%, max hit
+  taken -1.5%, and block (0%) / evade (13%) were identical. Nothing in the inputs explains a 13x
+  survival increase. No matching upstream issue found on 2026-10-22 (closest: #2556, block chance
+  in the EHP calculation).
+sources: ["https://github.com/PathOfBuildingCommunity/PathOfBuilding-PoE2/issues/2556"]
+test_in_game: "Not testable directly; compare against the next PoB release or report upstream."
+status: proposed
+reviewed_for: "0.5.5"
