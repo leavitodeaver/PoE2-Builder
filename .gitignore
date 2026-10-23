@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Pinned Path of Building checkout; fetch with `uv run python scripts/fetch_pob.py`
+vendor/
+
+# Old Rust optimizer: kept on disk for reference, only the build docs are tracked
+legacy/*
+!legacy/Custom builds/
+!legacy/README.md
+!legacy/CONTINUATION_NOTES.md

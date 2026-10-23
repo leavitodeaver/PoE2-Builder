@@ -1,0 +1,61 @@
+{
+  "build": "boneshatter_titan",
+  "fields": [
+    "FullDPS",
+    "CombinedDPS",
+    "Minion.CombinedDPS",
+    "Life",
+    "EnergyShield",
+    "TotalEHP"
+  ],
+  "rows": [
+    {
+      "workers": 1,
+      "startup_s": 1.22,
+      "cases": 12000,
+      "seconds": 31.62,
+      "per_second": 380,
+      "worker_mb": 608
+    },
+    {
+      "workers": 4,
+      "startup_s": 1.37,
+      "cases": 12000,
+      "seconds": 7.82,
+      "per_second": 1535,
+      "worker_mb": 603
+    },
+    {
+      "workers": 8,
+      "startup_s": 1.67,
+      "cases": 12000,
+      "seconds": 5.14,
+      "per_second": 2334,
+      "worker_mb": 588
+    },
+    {
+      "workers": 12,
+      "startup_s": 4.67,
+      "cases": 12000,
+      "seconds": 4.3,
+      "per_second": 2791,
+      "worker_mb": 513
+    },
+    {
+      "workers": 14,
+      "startup_s": 2.4,
+      "cases": 12000,
+      "seconds": 3.77,
+      "per_second": 3181,
+      "worker_mb": 466
+    },
+    {
+      "workers": 16,
+      "startup_s": 2.63,
+      "cases": 12000,
+      "seconds": 3.64,
+      "per_second": 3296,
+      "worker_mb": 510
+    }
+  ]
+}

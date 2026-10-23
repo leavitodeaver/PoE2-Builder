@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-22T21:10:05",
+  "boot_s": 0.7559359999140725,
+  "builds": {
+    "boneshatter_titan": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 70.59699999323736,
+        "full_recalc_ms": 17.0,
+        "delta_node_ms": 1.305084745762712,
+        "delta_node_wall_ms": 1.3259322031290601,
+        "delta_path_ms": 1.0622568093385214,
+        "delta_path_wall_ms": 1.0749046692573954,
+        "delta_remove_ms": 1.0303030303030607,
+        "delta_remove_wall_ms": 1.039096972707546,
+        "delta_item_ms": 1.4
+      }
+    },
+    "lightning_arrow_deadeye": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 60.62473333440721,
+        "full_recalc_ms": 23.0,
+        "delta_node_ms": 1.5106382978723405,
+        "delta_node_wall_ms": 1.5318744662316872,
+        "delta_path_ms": 1.975,
+        "delta_path_wall_ms": 2.011741785931268,
+        "delta_remove_ms": 2.279069767441884,
+        "delta_remove_wall_ms": 2.3548651167169905,
+        "delta_item_ms": 1.6444444444444444
+      }
+    },
+    "spark_stormweaver": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 176.47636666273078,
+        "full_recalc_ms": 9.999999999999801,
+        "delta_node_ms": 1.1147540983606556,
+        "delta_node_wall_ms": 1.1346032785740299,
+        "delta_path_ms": 1.0382165605095541,
+        "delta_path_wall_ms": 1.0506745222451723,
+        "delta_remove_ms": 0.9583333333333334,
+        "delta_remove_wall_ms": 0.9837666633150851,
+        "delta_item_ms": 2.55
+      }
+    },
+    "zombie_infernalist": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 108.99986668179433,
+        "full_recalc_ms": 21.999999999998,
+        "delta_node_ms": 1.775,
+        "delta_node_wall_ms": 1.7883574997540563,
+        "delta_path_ms": 1.6360759493670887,
+        "delta_path_wall_ms": 1.6485601265714327,
+        "delta_remove_ms": 1.558139534883721,
+        "delta_remove_wall_ms": 1.5836348838367782,
+        "delta_item_ms": 1.9249999999999499
+      }
+    }
+  }
+}

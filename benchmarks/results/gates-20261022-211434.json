@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-22T21:14:01",
+  "boot_s": 1.4507897000294179,
+  "builds": {
+    "boneshatter_titan": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 187.42329999804497,
+        "full_recalc_ms": 35.0,
+        "delta_node_ms": 3.283333333333333,
+        "delta_node_wall_ms": 3.3329600002616644,
+        "delta_path_ms": 3.321969696969697,
+        "delta_path_wall_ms": 3.3453712120800363,
+        "delta_remove_ms": 3.6666666666666665,
+        "delta_remove_wall_ms": 3.732287878819713,
+        "delta_item_ms": 10.55
+      }
+    },
+    "lightning_arrow_deadeye": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 333.960233333831,
+        "full_recalc_ms": 44.999999999998,
+        "delta_node_ms": 3.673469387755102,
+        "delta_node_wall_ms": 3.687404081871619,
+        "delta_path_ms": 3.4444444444444446,
+        "delta_path_wall_ms": 3.4677019047122153,
+        "delta_remove_ms": 3.526315789473684,
+        "delta_remove_wall_ms": 3.555876316233097,
+        "delta_item_ms": 3.7333333333333334
+      }
+    },
+    "spark_stormweaver": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 305.87830002574873,
+        "full_recalc_ms": 24.000000000001,
+        "delta_node_ms": 5.911764705882353,
+        "delta_node_wall_ms": 5.946948530275703,
+        "delta_path_ms": 2.6685082872928176,
+        "delta_path_wall_ms": 2.6873027624752766,
+        "delta_remove_ms": 2.4999999999999583,
+        "delta_remove_wall_ms": 2.5028666665699952,
+        "delta_item_ms": 3.175
+      }
+    },
+    "zombie_infernalist": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 116.99810003240903,
+        "full_recalc_ms": 24.999999999998998,
+        "delta_node_ms": 4.029411764705735,
+        "delta_node_wall_ms": 4.040191176018732,
+        "delta_path_ms": 5.501510574018127,
+        "delta_path_wall_ms": 5.521815105586164,
+        "delta_remove_ms": 4.263157894737,
+        "delta_remove_wall_ms": 4.295852629614896,
+        "delta_item_ms": 4.475
+      }
+    }
+  }
+}
