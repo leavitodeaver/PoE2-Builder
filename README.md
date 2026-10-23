@@ -13,6 +13,19 @@ uv sync
 uv run python scripts/fetch_pob.py
 ```
 
+## Use
+
+```
+uv run python -m builder.data dump     # export game data from the pinned PoB (after setup or a pin change)
+uv run python -m builder.data prices   # refresh the poe.ninja price cache
+uv run python -m builder.web           # open the local web page
+uv run pytest                          # request/constraint tests
+```
+
+The web page holds the request form and saved requests, and checks any PoB code or poe.ninja /
+pobb.in share link against the current request. Optional: set `POE2_BUILDER_CONTACT` to add a
+contact to the User-Agent sent to poe.ninja, as their API docs ask.
+
 ## Engine checks
 
 ```

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PoE2 Builder</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>PoE2 Builder</h1>
+  <div class="meta">
+    <span id="data-version"></span>
+    <span class="sep">·</span>
+    <span id="price-status">prices: loading…</span>
+    <button type="button" class="link" id="refresh-prices">Refresh prices</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h2>Saved requests</h2>
+      <button type="button" id="new-request">New</button>
+    </div>
+    <ul id="saved-list" class="saved-list"></ul>
+  </aside>
+
+  <main>
+    <form id="request-form" class="card" autocomplete="off">
+      <div class="card-head">
+        <input id="name" class="title-input" placeholder="Request name" aria-label="Request name">
+        <div class="actions">
+          <button type="button" id="validate">Check request</button>
+          <button type="button" id="save" class="primary">Save</button>
+        </div>
+      </div>
+      <ul id="issues" class="issues" hidden></ul>
+
+      <section>
+        <h3>Character</h3>
+        <div class="grid">
+          <label>Class <select id="class_name"></select></label>
+          <label>Main skill <input id="main_skill" list="list-skills" placeholder="Any"></label>
+          <label>Max buttons <input id="max_buttons" type="number" min="1" max="12" placeholder="No cap"></label>
+          <label>Level <input id="level" type="number" min="1" max="100"></label>
+          <label>League <select id="league"></select></label>
+          <label class="check"><input id="hardcore" type="checkbox"> Hardcore</label>
+        </div>
+        <fieldset class="ascendancies">
+          <legend>Ascendancies <span class="hint">none ticked = any</span></legend>
+          <div id="ascendancies"></div>
+        </fieldset>
+      </section>
+
+      <section>
+        <h3>Requirements and bans <span class="hint">type a name and press Enter</span></h3>
+        <table class="choices">
+          <thead><tr><th></th><th>Require</th><th>Ban</th></tr></thead>
+          <tbody id="choices"></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h3>Weapons</h3>
+        <div class="grid">
+          <label>Weapon type <select id="weapon_type"></select></label>
+          <label>Specific unique weapon <input id="weapon_unique" list="list-uniques" placeholder="Any"></label>
+          <label>Offhand <select id="offhand"></select></label>
+          <label>Weapon swap <select id="weapon_swap"></select></label>
+        </div>
+      </section>
+
+      <section>
+        <h3>Defence</h3>
+        <div class="grid">
+          <label>Style <select id="defence"></select></label>
+          <label>Min life <input id="floor-life" type="number" min="0" placeholder="None"></label>
+          <label>Min energy shield <input id="floor-energy_shield" type="number" min="0" placeholder="None"></label>
+          <label>Min mana <input id="floor-mana" type="number" min="0" placeholder="None"></label>
+          <label>Min block % <input id="floor-block" type="number" min="0" max="100" placeholder="None"></label>
+          <label>Min evade % <input id="floor-evade" type="number" min="0" max="100" placeholder="None"></label>
+          <label>Spare spirit <input id="floor-spare_spirit" type="number" min="0" placeholder="None"></label>
+        </div>
+        <div class="subgrid">
+          <div>
+            <h4>Min resistances</h4>
+            <div class="grid compact" id="resists"></div>
+          </div>
+          <div>
+            <h4>Min max hit taken</h4>
+            <div class="grid compact" id="max-hit"></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>Budget and goal</h3>
+        <div class="grid">
+          <label>Budget (divines) <input id="divines" type="number" min="0" step="any" placeholder="No cap"></label>
+          <label>Gear tier <select id="gear_tier"></select></label>
+          <label class="check"><input id="ssf" type="checkbox"> Solo self-found</label>
+          <label>Optimize for <select id="objective"></select></label>
+          <label>Minimum DPS <input id="dps_gate" type="number" min="0" placeholder="None"></label>
+          <label>Search time (minutes) <input id="effort_minutes" type="number" min="1" max="240"></label>
+          <label class="check"><input id="allow_exploits" type="checkbox"> Allow known exploits (marked *)</label>
+        </div>
+        <label class="block">Start from a PoB code <span class="hint">optional</span>
+          <textarea id="seed_code" rows="2" placeholder="Paste a PoB code to optimize from"></textarea></label>
+        <label class="block">Notes <textarea id="notes" rows="2"></textarea></label>
+      </section>
+    </form>
+
+    <section class="card">
+      <h2>Check a build against this request</h2>
+      <p class="hint">Paste a PoB code, or a poe.ninja or pobb.in share link. The build is calculated with the
+        pinned PoB and compared with every requirement above.</p>
+      <textarea id="inspect-code" rows="3" placeholder="PoB code or share link"></textarea>
+      <div class="actions"><button type="button" id="inspect" class="primary">Load and check</button></div>
+      <div id="inspect-result"></div>
+    </section>
+
+    <section class="card muted">
+      <h2>Optimizer results</h2>
+      <p>The optimizer arrives in Phase 2. Its builds will appear here with the same Requested vs Delivered
+        table as the check above, plus a PoB code and a shopping list.</p>
+    </section>
+  </main>
+</div>
+
+<div id="datalists"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

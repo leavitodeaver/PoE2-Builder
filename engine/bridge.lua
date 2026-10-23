@@ -427,6 +427,235 @@ function bridge.itemMods()
 	return slots
 end
 
+-- Game data export ---------------------------------------------------------------------------
+
+-- Convert a PoB data table to plain JSON-able values: consecutive integer keys become arrays,
+-- anything else an object with string keys. Functions, userdata and cycles are dropped.
+local function plain(value, depth, seen)
+	local kind = type(value)
+	if kind == "number" then
+		return jsonNumber(value)
+	elseif kind == "string" or kind == "boolean" then
+		return value
+	elseif kind ~= "table" or depth <= 0 then
+		return nil
+	end
+	seen = seen or { }
+	if seen[value] then
+		return nil
+	end
+	seen[value] = true
+	local count, maxIndex = 0, 0
+	for key in pairs(value) do
+		count = count + 1
+		if type(key) == "number" and key >= 1 and key % 1 == 0 then
+			maxIndex = math.max(maxIndex, key)
+		end
+	end
+	local result = { }
+	if count > 0 and maxIndex == count then
+		for i = 1, count do
+			result[i] = plain(value[i], depth - 1, seen)
+		end
+	else
+		for key, item in pairs(value) do
+			if type(key) == "string" or type(key) == "number" then
+				result[tostring(key)] = plain(item, depth - 1, seen)
+			end
+		end
+	end
+	seen[value] = nil
+	return result
+end
+
+local skillTypeNames
+local function skillTypeList(types)
+	if not skillTypeNames then
+		skillTypeNames = { }
+		for name, id in pairs(SkillType) do
+			skillTypeNames[id] = name
+		end
+	end
+	local list = { }
+	for id, enabled in pairs(types or { }) do
+		if enabled and skillTypeNames[id] then
+			list[#list + 1] = skillTypeNames[id]
+		end
+	end
+	table.sort(list)
+	return list
+end
+
+local function keyList(set)
+	local list = { }
+	for key, enabled in pairs(set or { }) do
+		if enabled then
+			list[#list + 1] = tostring(key)
+		end
+	end
+	table.sort(list)
+	return list
+end
+
+local dumpers = { }
+
+function dumpers.gems()
+	local gems = { }
+	for id, gem in pairs(build.data.gems) do
+		local effect = gem.grantedEffect or { }
+		gems[#gems + 1] = {
+			id = id, name = gem.name, baseTypeName = gem.baseTypeName, tier = gem.Tier,
+			gemType = gem.gemType, tags = keyList(gem.tags), tagString = gem.tagString,
+			support = effect.support and true or false, skillTypes = skillTypeList(effect.skillTypes),
+			reqStr = gem.reqStr, reqDex = gem.reqDex, reqInt = gem.reqInt,
+			naturalMaxLevel = gem.naturalMaxLevel, grantedEffectId = gem.grantedEffectId,
+			description = effect.description,
+		}
+	end
+	table.sort(gems, function(a, b) return a.name < b.name end)
+	return { gems = gems }
+end
+
+function dumpers.tree()
+	local tree = build.spec.tree
+	local nodes = { }
+	for id, node in pairs(tree.nodes) do
+		local linked = { }
+		for _, other in ipairs(node.linked or { }) do
+			linked[#linked + 1] = other.id
+		end
+		table.sort(linked)
+		nodes[#nodes + 1] = {
+			id = id, name = node.dn, type = node.type, ascendancy = node.ascendancyName,
+			stats = plain(node.sd, 2), linked = linked, x = node.x, y = node.y,
+			isAttribute = node.isAttribute or nil, isMultipleChoice = node.isMultipleChoice or nil,
+			isMultipleChoiceOption = node.isMultipleChoiceOption or nil,
+			classStart = node.classStartIndex,
+		}
+	end
+	table.sort(nodes, function(a, b) return a.id < b.id end)
+	local classes = { }
+	for classId, class in pairs(tree.classes) do
+		local ascendancies = { }
+		for ascendId, ascend in pairs(class.classes) do
+			if ascend.name ~= "None" then
+				ascendancies[#ascendancies + 1] = { id = ascendId, name = ascend.name, startNode = ascend.startNodeId }
+			end
+		end
+		table.sort(ascendancies, function(a, b) return a.name < b.name end)
+		classes[#classes + 1] = { id = classId, name = class.name, startNode = class.startNodeId, ascendancies = ascendancies }
+	end
+	table.sort(classes, function(a, b) return a.name < b.name end)
+	return { treeVersion = build.spec.treeVersion, classes = classes, nodes = nodes }
+end
+
+function dumpers.bases()
+	local bases = { }
+	for name, base in pairs(build.data.itemBases) do
+		bases[#bases + 1] = {
+			name = name, type = base.type, subType = base.subType, hidden = base.hidden or nil,
+			req = plain(base.req, 2), tags = keyList(base.tags), implicit = base.implicit,
+			socketLimit = base.socketLimit, weapon = plain(base.weapon, 2), armour = plain(base.armour, 2),
+			flask = plain(base.flask, 2), charm = plain(base.charm, 2),
+		}
+	end
+	table.sort(bases, function(a, b) return a.name < b.name end)
+	return { bases = bases }
+end
+
+function dumpers.uniques()
+	local uniques = { }
+	for name, item in pairs(main.uniqueDB.list) do
+		uniques[#uniques + 1] = { name = item.title or name, key = name, base = item.baseName, type = item.type, raw = item.raw }
+	end
+	table.sort(uniques, function(a, b) return a.key < b.key end)
+	return { uniques = uniques }
+end
+
+function dumpers.mods()
+	local pools = { }
+	for pool, mods in pairs(build.data.itemMods) do
+		if pool ~= "Runes" then
+			local list = { }
+			for id, mod in pairs(mods) do
+				local entry = plain(mod, 4)
+				entry.id = id
+				list[#list + 1] = entry
+			end
+			table.sort(list, function(a, b) return a.id < b.id end)
+			pools[pool] = list
+		end
+	end
+	return { pools = pools }
+end
+
+function dumpers.runes()
+	local runes = { }
+	for name, rune in pairs(build.data.itemMods.Runes) do
+		runes[#runes + 1] = { name = name, slots = plain(rune, 5) }
+	end
+	table.sort(runes, function(a, b) return a.name < b.name end)
+	return { runes = runes }
+end
+
+function bridge.dumpData(args)
+	local dumper = dumpers[args.part]
+	if not dumper then
+		error("unknown data part " .. tostring(args.part))
+	end
+	return dumper()
+end
+
+-- Facts about the loaded build that requirement checks need
+function bridge.facts(args)
+	local skillGroups = { }
+	for index, group in ipairs(build.skillsTab.socketGroupList) do
+		local gems = { }
+		for _, gem in ipairs(group.gemList or { }) do
+			local effect = gem.gemData and gem.gemData.grantedEffect
+			gems[#gems + 1] = {
+				name = gem.gemData and gem.gemData.name or gem.nameSpec,
+				support = effect and effect.support and true or false,
+				enabled = gem.enabled ~= false,
+				skillTypes = skillTypeList(effect and effect.skillTypes),
+				tags = gem.gemData and keyList(gem.gemData.tags) or { },
+			}
+		end
+		skillGroups[#skillGroups + 1] = {
+			index = index, label = group.label, enabled = group.enabled ~= false, slot = group.slot,
+			fromItem = group.source ~= nil or group.sourceItem ~= nil, main = index == build.mainSocketGroup,
+			gems = gems,
+		}
+	end
+	local passives = { }
+	for id, node in pairs(build.spec.allocNodes) do
+		passives[#passives + 1] = { id = id, name = node.dn, type = node.type, ascendancy = node.ascendancyName }
+	end
+	table.sort(passives, function(a, b) return a.id < b.id end)
+	local items = { }
+	for slotName, slot in pairs(build.itemsTab.slots) do
+		local item = slot.selItemId and build.itemsTab.items[slot.selItemId]
+		if item and not slot.inactive then
+			items[#items + 1] = {
+				slot = slotName, name = item.title or item.name, base = item.baseName, type = item.type,
+				rarity = item.rarity, runes = plain(item.runes, 2) or { },
+			}
+		end
+	end
+	table.sort(items, function(a, b) return a.slot < b.slot end)
+	local warnings = { }
+	for _, line in ipairs(build.controls.warnings and build.controls.warnings.lines or { }) do
+		warnings[#warnings + 1] = tostring(line)
+	end
+	local summary = bridge.summary()
+	summary.skillGroups = skillGroups
+	summary.passives = passives
+	summary.items = items
+	summary.warnings = warnings
+	summary.stats = pickStats(build.calcsTab.mainOutput, args.fields)
+	return summary
+end
+
 -- Items currently equipped, by slot
 function bridge.equipped()
 	local slots = { }

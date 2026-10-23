@@ -1,0 +1,15 @@
+{
+  "name": "Little Minions: Disciple of Varashta",
+  "notes": "Re-expressed from legacy/Custom builds/Little Minions - Disciple of Varashta.md",
+  "class_name": "Sorceress",
+  "ascendancies": ["Disciple of Varashta"],
+  "max_buttons": 2,
+  "require": {"passives": ["Chaos Inoculation"]},
+  "forbid": {
+    "skills": ["Summon Spectre", "Wardbound Minions"],
+    "mechanics": ["companion", "wolf", "CreatesSkeletonMinion"]
+  },
+  "defence": "energy_shield",
+  "floors": {"energy_shield": 4500},
+  "dps_gate": 1500000
+}

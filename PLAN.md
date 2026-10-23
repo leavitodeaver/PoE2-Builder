@@ -252,8 +252,8 @@ reviewed_for: "0.5.5"
 - **Game data:** `uv run builder data dump` boots the pinned PoB and serializes its loaded tables
   (gems, skills, tree, bases, mods, uniques, runes, augments) to JSON. There is no regex parsing
   of Lua.
-- **Prices:** documented poe.ninja PoE2 economy endpoints, with poe2scout as fallback. Cached with
-  timestamps, refreshed on demand at most hourly. poe.ninja's build/character endpoints are **not**
+- **Prices:** documented poe.ninja PoE2 economy endpoints (`builder/data/prices.py`). Cached with
+  timestamps and ETags, refreshed on demand at most hourly. poe.ninja's build/character endpoints are **not**
   used (their policy forbids third-party use), which is why seeds come from pasted PoB codes.
 - **Rare price model:** price as a function of slot, base and premium affix tiers. It is calibrated
   by a user-triggered sampling job against the official trade API. The job follows GGG's returned
@@ -286,7 +286,7 @@ reviewed_for: "0.5.5"
 | Phase | Work | Exit criteria |
 |---|---|---|
 | **0. Cleanup + engine spike** ✅ 2026-10-22 | Deleted `target*`, `dist`, stray `--help` (~262 GB freed); old source/docs in `legacy/`; `git init`; PoB2 dev pinned; headless boot on PoB's LuaJIT; bridge; test builds; gates; worker pool; release cross-check tool | Gates 1–3 pass on 4 generated builds and 5 of the user's builds; the release reproduces the PoB app's numbers exactly on all 5; ~3,200 what-ifs/s measured |
-| **1. Data, requests, UI shell** | Data dump; price feed; request schema + constraint compiler; FastAPI + minimal UI (request form, progress stream, result view); PoB code import/export | Paste a code → see its stats; save a request |
+| **1. Data, requests, UI shell** ✅ 2026-10-22 | Data dump (`python -m builder.data dump`); poe.ninja price feed; request schema + constraint compiler with tests; local web page (`python -m builder.web`): request form, saved requests, paste a code or share link → stats + Requested vs Delivered | Done. The progress stream moves to Phase 2 with the optimizer it reports on |
 | **2. Optimizer core** | Skeletons + probes; gems; tree (grow/prune/Steiner/ascendancy); uniques-only gear; condition resolver; feasibility penalties; kicks | Complete, legal builds for a given skill that beat naive baselines; gate 5 passes |
 | **3. Rares, budget, sockets** | Rare templates; price model + trade calibration; λ budget allocation; runes/idols/soul cores/augments; jewels; flasks/charms | Gate 4 on the reference set |
 | **4. Ledger + exploits** | Ledger schema and injection; asterisk reporting; approval queue; calibration form; first research pass for 0.5.x | Asterisked results; at least one exploit that works on the current patch modeled end to end |
@@ -295,6 +295,24 @@ reviewed_for: "0.5.5"
 
 A usable MVP (real builds with uniques and simple rares, constraints honored) arrives at the end
 of Phase 2. Full v1 arrives at the end of Phase 5.
+
+### Phase 1 findings that shape later phases
+
+- **The game enforces limits PoB only warns about:** negative unreserved Spirit, more than 9
+  non-item gem groups, unmet attribute requirements. They're always-on checks in the compiler,
+  and the Phase 2 generators must treat them as hard limits (one of the user's own builds
+  breaks two of them).
+- **Button counting is a heuristic** from skill types: persistent, meta, triggered (by a meta gem
+  in the same group or inbuilt) and item-granted skills don't count. Results label it
+  approximate; the user can correct it per build if it misjudges a skill.
+- **Prices:** poe.ninja now covers runes, Soul Cores and Idols, so the poe2scout fallback was
+  dropped (revisit only if poe.ninja has outages). 427 of PoB's 441 uniques have a price; the
+  rest need Phase 3's estimate (never 0). Single-listing troll prices exist (38M divine), so
+  every price carries a listing-count confidence.
+- **PoB loads uniques a slice per frame;** the bootstrap now finishes that load, so boot is
+  ~1.6–2 s.
+- **Ascendancy notables resolve as passives** (e.g. "Advanced Thaumaturgy"), so requests can
+  require them alongside keystones.
 
 ### Phase 0 findings that shape later phases
 

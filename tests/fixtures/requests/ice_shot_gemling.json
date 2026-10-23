@@ -1,0 +1,15 @@
+{
+  "name": "Ice Shot Gemling: pure Armour, Mind over Matter",
+  "notes": "Re-expressed from legacy/Custom builds/Ice Shot Gemling - Advanced Thaumaturgy.md",
+  "class_name": "Mercenary",
+  "ascendancies": ["Gemling Legionnaire"],
+  "main_skill": "Ice Shot",
+  "max_buttons": 3,
+  "require": {"passives": ["Mind Over Matter", "Advanced Thaumaturgy", "Gem Studded"]},
+  "forbid": {"passives": ["Eldritch Battery"], "uniques": ["Loreweave"]},
+  "weapon_type": "Bow",
+  "offhand": "quiver",
+  "defence": "armour",
+  "floors": {"resists": {"fire": 75, "cold": 75, "lightning": 75, "chaos": 75}},
+  "dps_gate": 950000
+}

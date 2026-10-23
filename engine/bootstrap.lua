@@ -164,6 +164,15 @@ if __mainObject__.promptMsg then
 	error("PoB startup failed: " .. tostring(__mainObject__.promptMsg) .. "\n" .. table.concat(engineLog, "\n"))
 end
 
+-- The unique and rare item databases load a slice per frame; finish loading them now
+local mainModule = __mainObject__.main
+for _ = 1, 100000 do
+	if not (mainModule.uniqueDB and mainModule.uniqueDB.loading) and not (mainModule.rareDB and mainModule.rareDB.loading) then
+		break
+	end
+	runCallback("OnFrame")
+end
+
 build = __mainObject__.main.modes["BUILD"]
 
 function newBuild()

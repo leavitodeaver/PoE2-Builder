@@ -10,3 +10,6 @@ legacy/*
 !legacy/Custom builds/
 !legacy/README.md
 !legacy/CONTINUATION_NOTES.md
+
+# Generated game data and price cache
+/data/

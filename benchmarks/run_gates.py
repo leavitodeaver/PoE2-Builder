@@ -188,7 +188,11 @@ def main() -> None:
     for name, xml in sources.items():
         entry: dict = {}
         print(f"\n{name}", flush=True)
-        if "1" in args.gates:
+        if "1" in args.gates and name.startswith("ref:") and args.pob_dir.resolve() == POB_DIR.resolve():
+            # Reference codes carry numbers from the PoB app's release; the snapshot differs on
+            # purpose (see compare_versions.py), so fidelity is checked against the release
+            print("  gate 1 fidelity    skipped on the snapshot; run with --pob-dir vendor/PathOfBuilding-PoE2-<release>")
+        elif "1" in args.gates:
             entry["gate1_fidelity"] = gate_fidelity(engine, xml)
             print(f"  gate 1 fidelity    {status(entry['gate1_fidelity'])}", flush=True)
         if "2" in args.gates:
