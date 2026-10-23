@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from collections import deque
 from dataclasses import dataclass
 from functools import cached_property
@@ -122,6 +123,30 @@ class Context:
         if price is None or price > self.price_cap:
             return None  # unpriced items are never treated as free
         return price, "exchange"
+
+    @cached_property
+    def all_gems(self) -> dict[str, dict]:
+        """Every gem by name, including skills only passives or items grant."""
+        gems: dict[str, dict] = {}
+        for gem in self.data.gems:
+            gems.setdefault(gem["name"], gem)
+        return gems
+
+    @cached_property
+    def granted_by(self) -> dict[str, list[tuple[str, str, str | None]]]:
+        """Skill name -> [(kind, source name, ascendancy)] for skills a passive ("passive") or a
+        unique ("unique") grants."""
+        grants: dict[str, list[tuple[str, str, str | None]]] = {}
+        pattern = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")
+        for node in self.data.tree["nodes"]:
+            for line in node.get("stats") or []:
+                if m := pattern.search(line):
+                    grants.setdefault(m.group(1), []).append(("passive", node["name"], node.get("ascendancy")))
+        for unique in self.data.uniques:
+            for line in unique["raw"].splitlines():
+                if m := pattern.search(re.sub(r"\{[^}]*\}", "", line)):
+                    grants.setdefault(m.group(1), []).append(("unique", unique["name"], None))
+        return grants
 
     def allowed_gem(self, name: str) -> bool:
         return name in self.gems and name not in self.compiled.filters.forbidden_gems

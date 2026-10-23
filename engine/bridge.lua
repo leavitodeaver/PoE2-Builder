@@ -532,9 +532,9 @@ end
 local function describeGroup(index, group)
 	local gems = { }
 	for _, gem in ipairs(group.gemList or { }) do
-		local effect = gem.gemData and gem.gemData.grantedEffect
+		local effect = gem.gemData and gem.gemData.grantedEffect or gem.grantedEffect
 		gems[#gems + 1] = {
-			name = gem.gemData and gem.gemData.name or gem.nameSpec, level = gem.level, quality = gem.quality,
+			name = gem.gemData and gem.gemData.name or (gem.nameSpec ~= "" and gem.nameSpec) or (gem.grantedEffect and gem.grantedEffect.name) or "", level = gem.level, quality = gem.quality,
 			support = effect and effect.support and true or false, enabled = gem.enabled ~= false,
 		}
 	end
@@ -545,7 +545,12 @@ local function describeGroup(index, group)
 		for _, part in ipairs(effect.grantedEffect.parts or { }) do
 			parts[#parts + 1] = part.name
 		end
-		skills[#skills + 1] = { name = effect.grantedEffect.name, parts = parts, part = effect.srcInstance and effect.srcInstance.skillPart }
+		local statSets = { }
+		for _, statSet in ipairs(effect.grantedEffect.statSets or { }) do
+			statSets[#statSets + 1] = statSet.label or ""
+		end
+		skills[#skills + 1] = { name = effect.grantedEffect.name, parts = parts, statSets = statSets,
+			part = effect.srcInstance and effect.srcInstance.skillPart }
 	end
 	return {
 		index = index, label = group.label, enabled = group.enabled ~= false, main = index == build.mainSocketGroup,
@@ -597,12 +602,22 @@ function bridge.setGroup(args)
 		group.mainActiveSkillCalcs = args.mainActiveSkill
 	end
 	recalc()
-	if args.skillPart then
+	if args.skillPart or args.statSet then
 		local activeSkill = group.displaySkillList and group.displaySkillList[group.mainActiveSkill or 1]
 		local instance = activeSkill and activeSkill.activeEffect.srcInstance
 		if instance then
-			instance.skillPart = args.skillPart
-			instance.skillPartCalcs = args.skillPart
+			if args.skillPart then
+				instance.skillPart = args.skillPart
+				instance.skillPartCalcs = args.skillPart
+			end
+			if args.statSet then
+				-- Which of the skill's stat sets PoB calculates (e.g. the Fire, Cold or Lightning storm)
+				local id = activeSkill.activeEffect.grantedEffect.id
+				instance.statSet = instance.statSet or { }
+				instance.statSetCalcs = instance.statSetCalcs or { }
+				instance.statSet[id] = args.statSet
+				instance.statSetCalcs[id] = args.statSet
+			end
 			recalc()
 		end
 	end
@@ -737,6 +752,57 @@ function bridge.getConfig()
 	return { input = input }
 end
 
+-- Assumptions: modifiers for what PoB doesn't model (e.g. how often a skill is triggered when its
+-- trigger source isn't in PoB), kept in the config modifier list so they reach every calculation,
+-- what-ifs included. They live only in this engine: exported codes don't carry them.
+local assumedMods = { }
+
+local function installAssumptions()
+	local configTab = build.configTab
+	if not rawget(configTab, "bridgeWrapped") then
+		local original = configTab.BuildModList
+		configTab.BuildModList = function(self, ...)
+			local results = { original(self, ...) }
+			for _, mod in ipairs(assumedMods) do
+				local tags = mod.skill and { { type = "SkillName", skillName = mod.skill } } or { }
+				if mod.kind == "SkillData" then
+					self.modList:NewMod("SkillData", "LIST", { key = mod.key, value = mod.value }, "Assumption", unpack(tags))
+				end
+			end
+			return unpack(results)
+		end
+		configTab.bridgeWrapped = true
+	end
+	configTab:BuildModList()
+end
+
+-- Replace the assumptions: { mods = { {kind = "SkillData", skill = name, key = k, value = v} } }
+function bridge.setAssumptions(args)
+	assumedMods = args.mods or { }
+	installAssumptions()
+	recalc()
+	return { stats = pickStats(build.calcsTab.mainOutput, args.fields) }
+end
+
+-- Active skills of the current build with what an assumption needs about them: base cooldown,
+-- cooldown recovery, and whether they generate Remnants
+function bridge.activeSkills()
+	local skills = { }
+	local env = build.calcsTab.mainEnv
+	for _, activeSkill in ipairs(env and env.player.activeSkillList or { }) do
+		local effect = activeSkill.activeEffect.grantedEffect
+		skills[#skills + 1] = {
+			name = effect.name,
+			cooldown = activeSkill.skillData.cooldown,
+			cooldownRecovery = calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "CooldownRecovery"),
+			generatesRemnants = activeSkill.skillTypes[SkillType.GeneratesRemnants] and true or false,
+			triggered = activeSkill.skillTypes[SkillType.Triggered] and true or false,
+			disabled = activeSkill.skillFlags and activeSkill.skillFlags.disable or false,
+		}
+	end
+	return { skills = skills }
+end
+
 -- Campaign quest rewards that are a choice (Configuration tab lists), as PoB names them
 function bridge.questOptions()
 	local quests = { }
@@ -781,9 +847,9 @@ function bridge.sourceLines()
 	for index, group in ipairs(build.skillsTab.socketGroupList) do
 		if group.enabled ~= false then
 			for _, gem in ipairs(group.gemList or { }) do
-				local effect = gem.gemData and gem.gemData.grantedEffect
+				local effect = gem.gemData and gem.gemData.grantedEffect or gem.grantedEffect
 				if gem.enabled ~= false and effect then
-					add("gem:" .. gem.gemData.name, effect.description)
+					add("gem:" .. (gem.gemData and gem.gemData.name or effect.name), effect.description)
 				end
 			end
 		end
@@ -1072,9 +1138,9 @@ function bridge.facts(args)
 	for index, group in ipairs(build.skillsTab.socketGroupList) do
 		local gems = { }
 		for _, gem in ipairs(group.gemList or { }) do
-			local effect = gem.gemData and gem.gemData.grantedEffect
+			local effect = gem.gemData and gem.gemData.grantedEffect or gem.grantedEffect
 			gems[#gems + 1] = {
-				name = gem.gemData and gem.gemData.name or gem.nameSpec,
+				name = gem.gemData and gem.gemData.name or (gem.nameSpec ~= "" and gem.nameSpec) or (gem.grantedEffect and gem.grantedEffect.name) or "",
 				support = effect and effect.support and true or false,
 				enabled = gem.enabled ~= false,
 				skillTypes = skillTypeList(effect and effect.skillTypes),

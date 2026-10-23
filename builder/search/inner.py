@@ -16,6 +16,7 @@ from typing import Any
 
 from builder.pob import codes
 from builder.request.constraints import FACT_FIELDS
+from builder.search.assumptions import Assumptions
 from builder.search.conditions import Conditions
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
 from builder.search.gear import Gear, SlotSpec
@@ -45,6 +46,12 @@ class Search:
         self.gear = Gear(self.build, weapon, offhand, self.rng)
         self.conditions = Conditions(self.build, self.skeleton.main_skill)
         self.gems.conditions = self.conditions
+        self.assumptions = Assumptions(self.build)
+        self.gems.resolve = self.resolve
+        self.gems.assumptions = self.assumptions
+        self.tree.resolve = self.resolve
+        self.tree.relevant_skill = self.assumptions.relevant
+        self.build.after_load.append(self.assumptions.reinstall)
         self.problems: list[str] = []
         self.kicks = 0
         self.kicks_kept = 0
@@ -61,19 +68,38 @@ class Search:
         build.call("newBuild")
         build.call("setClass", className=sk.class_name, ascendancy=sk.ascendancy)
         build.call("setLevel", level=self.ctx.level)
-        build.set_group(gems=[{"name": sk.main_skill, "level": GEM_LEVEL, "quality": GEM_QUALITY}], main=True, fullDPS=True)
+        kind, source = sk.granted_by.split(":", 1) if sk.granted_by else (None, None)
+        if kind is None:
+            build.set_group(gems=[{"name": sk.main_skill, "level": GEM_LEVEL, "quality": GEM_QUALITY}], main=True,
+                            fullDPS=True)
+        elif kind == "passive":
+            self.tree.required_names.add(source)
         for name in self.ctx.request.require.skills:
             if name != sk.main_skill:
                 build.set_group(gems=[{"name": name, "level": GEM_LEVEL, "quality": GEM_QUALITY}], label="required")
         missing = self.gems.add_required_supports()
         self.problems += [f"required support {n} can't support {sk.main_skill}" for n in missing]
-        self.problems += self.gear.setup()
+        self.problems += self.gear.setup([source] if kind == "unique" else [])
         self.tree.choose_default_attribute(sk.main_skill)
         self.problems += [f"required passive {n} isn't reachable" for n in self.tree.allocate_required(sk.class_name)]
+        if kind is not None:
+            self.adopt_granted_skill(source)
+        self.resolve()
         self.gems.choose_active_skill()
-        self.conditions.resolve()
         if quests:
             self.conditions.choose_quests()
+
+    def adopt_granted_skill(self, source: str) -> None:
+        """Make the group of a skill a passive or unique grants the main group."""
+        build, skill = self.build, self.skeleton.main_skill
+        if not any(s["name"] == skill for g in build.groups() for s in g["skills"]):
+            self.tree.ascendancy_round()  # an ascendancy passive arrives with the ascendancy allocation
+        for group in build.groups():
+            for position, active in enumerate(group["skills"], start=1):
+                if active["name"] == skill:
+                    build.set_group(index=group["index"], main=True, fullDPS=True, mainActiveSkill=position)
+                    return
+        self.problems.append(f"{skill} didn't appear after taking {source}")
 
     def state(self) -> dict:
         snap = self.build.snapshot()
@@ -81,7 +107,8 @@ class Search:
             "xml": snap["xml"], "equipped": snap["equipped"], "locked": sorted(self.build.locked_slots),
             "required": sorted(self.tree.required), "active": self.conditions.active,
             "shortlist": self.gems.shortlist, "gear_shortlist": self.gear.shortlist, "attribute": self.tree.attribute,
-            "multipliers": dict(self.build.objective.multipliers),
+            "multipliers": dict(self.build.objective.multipliers), "assumed_mods": self.assumptions.mods,
+            "required_names": sorted(self.tree.required_names),
             "problems": self.problems,
         }
 
@@ -90,13 +117,25 @@ class Search:
         self.build.equipped = dict(state["equipped"])
         self.build.locked_slots = set(state["locked"])
         self.build.objective.multipliers = dict(state.get("multipliers") or {})
+        self.assumptions.mods = list(state.get("assumed_mods") or [])
+        self.assumptions.reinstall()
         self.build.refresh()
         self.tree.required = set(state["required"])
+        self.tree.required_names = set(state.get("required_names") or self.tree.required_names)
         self.tree.attribute = state["attribute"]
         self.conditions.active = dict(state["active"])
         self.gems.shortlist = state["shortlist"]
         self.gear.shortlist = dict(state.get("gear_shortlist") or {})
         self.problems = list(state["problems"])
+
+    def resolve(self) -> bool:
+        """Conditions and assumptions follow the build; if an assumption changed (e.g. a Remnant
+        source arrived), the main group's calculated skill is chosen again."""
+        changed = self.conditions.resolve()
+        if self.assumptions.apply():
+            self.gems.choose_active_skill()
+            changed = True
+        return changed
 
     # Blocks ------------------------------------------------------------------------------------
 
@@ -122,7 +161,7 @@ class Search:
             ("ascendancy", self.tree.ascendancy_round, ()),
             ("tree", self.tree.grow, (deadline,)),
             ("attributes", self.tree.attributes_round, ()),
-            ("conditions", self.conditions.resolve, ()),
+            ("conditions", self.resolve, ()),
             ("persistent", self.gems.optimize_persistent, (deadline,)),
             ("prune and regrow", self.tree.swap_round, (deadline,)),
         ]
@@ -147,6 +186,8 @@ class Search:
             self.gear.kick()
         else:
             group = self.build.main_group()
+            if group is None or group["fromItem"]:
+                return
             names = [g["name"] for g in group["gems"]]
             removable = [i for i, n in enumerate(names) if i > 0 and n not in self.gems.required_supports]
             if removable:
@@ -192,7 +233,7 @@ class Search:
             self.kick()
         if best is not None and best["score"] > self.build.score:
             self.build.restore(best)
-        self.conditions.resolve()
+        self.resolve()
 
     # Results -----------------------------------------------------------------------------------
 
@@ -268,7 +309,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         search.run(deadline)
     except Cancelled:
         pass
-    search.conditions.resolve()
+    search.resolve()
 
     facts = build.call("facts", fields=RESULT_FIELDS)
     xml = build.call("exportXml")["xml"]
@@ -280,8 +321,11 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     spent = build.spent()
     summary = search.summary()
 
-    # Reload the exported code in this engine and compare every stat
+    # Reload the exported code in this engine and compare every stat (the assumptions aren't in
+    # the code, so they're put back first, exactly as the search had them)
+    assumptions = list(search.assumptions.active)
     build.call("loadXml", xml=codes.decode(code))
+    search.assumptions.reinstall()
     reloaded = build.call("facts", fields=RESULT_FIELDS)
     mismatched = [k for k in RESULT_FIELDS if facts["stats"].get(k) != reloaded["stats"].get(k)]
     excluded, excluded_names = build.objective.excluded(build.stats)
@@ -289,6 +333,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
         "pob_full_dps": facts["stats"].get("FullDPS"), "excluded_dps": excluded, "excluded_from": excluded_names,
         "gear": {slot: option.describe() for slot, option in equipped.items()}, "spent": spent,
+        "assumptions": assumptions,
         "verified": not mismatched, "verify_mismatch": mismatched,
     }
 

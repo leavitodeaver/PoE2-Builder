@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import random
+import re
 import time
 from collections import Counter, deque
 from dataclasses import dataclass
@@ -34,6 +35,8 @@ PAIR_POOL = 10
 ASCENDANCY_POINTS = 8
 ASCENDANCY_CASES = 1500  # most allocations scored exactly in one round
 STRENGTH, DEXTERITY, INTELLIGENCE = 1, 2, 3
+GRANTS_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+)$")
+TRIALS = 2  # ascendancy allocations tried for real when they grant a skill an assumption uses
 
 
 @dataclass
@@ -81,6 +84,9 @@ class Tree:
         self.round = 0
         self.allocations_since_full = FULL_EVERY
         self.required: set[int] = set()
+        self.required_names: set[str] = set(self.ctx.compiled.request.require.passives)
+        self.resolve = None  # re-resolves conditions and assumptions (set by the search)
+        self.relevant_skill = None  # does granting this skill change an assumption?
 
     # Setup -------------------------------------------------------------------------------------
 
@@ -91,7 +97,7 @@ class Tree:
 
     def allocate_required(self, class_name: str) -> list[str]:
         """Allocate required main-tree passives (with their paths). Returns names not found."""
-        names = [n for n in self.ctx.compiled.request.require.passives]
+        names = sorted(self.required_names)
         distances = self.ctx.main_tree_distances(class_name)
         missing = []
         for name in names:
@@ -331,7 +337,7 @@ class Tree:
                    for i in adjacency if nodes[i].get("isMultipleChoice")}
         core = {i: [j for j in adjacency[i] if not nodes[j].get("isMultipleChoiceOption")]
                 for i in adjacency if not nodes[i].get("isMultipleChoiceOption")}
-        required = {i for i in adjacency if nodes[i].get("name") in set(self.ctx.compiled.request.require.passives)}
+        required = {i for i in adjacency if nodes[i].get("name") in self.required_names}
 
         allocations = self.allocations(start, core, options, required, adjacency)
         if len(allocations) > ASCENDANCY_CASES:
@@ -350,15 +356,36 @@ class Tree:
             return False
         scored = build.node_deltas([{"add": ids, "remove": current} for ids in allocations])
         best_score, best_ids = max(zip((s for s, _ in scored), allocations), key=lambda x: x[0])
-        if best_score <= build.score + EPSILON or sorted(best_ids) == current:
+        previous = self.bfs_order(start, set(current) | {start}, adjacency)
+        # Nodes granting a skill an assumption depends on (e.g. a Remnant source) only show their
+        # worth once the assumption updates: try the best few such allocations for real
+        if self.resolve is not None and self.relevant_skill is not None:
+            granting = {i for i in adjacency for line in (nodes[i].get("stats") or [])
+                        if (m := GRANTS_SKILL.match(line)) and self.relevant_skill(m.group(1).strip())}
+            if granting:
+                ranked = sorted(((s, ids) for (s, _), ids in zip(scored, allocations) if granting & set(ids)),
+                                key=lambda x: -x[0])
+                for _, ids in ranked[:TRIALS]:
+                    build.allocate(remove=current, add=ids)
+                    self.resolve()
+                    if build.score > best_score:
+                        best_score, best_ids = build.score, ids
+                    build.allocate(remove=ids, add=previous)
+                    self.resolve()
+        missing_required = bool(required - set(current) - {start})
+        if sorted(best_ids) == current or (best_score <= build.score + EPSILON and not missing_required):
             return False
         before = build.score
         build.allocate(remove=current, add=best_ids)
+        if self.resolve is not None:
+            self.resolve()
         self.round += 1
-        if build.worse(before):
-            build.allocate(remove=best_ids, add=self.bfs_order(start, set(current) | {start}, adjacency))
+        if not missing_required and build.worse(before):
+            build.allocate(remove=best_ids, add=previous)
+            if self.resolve is not None:
+                self.resolve()
             return False
-        return build.score > before + EPSILON
+        return build.score > before + EPSILON or missing_required
 
     def allocations(self, start: int, core: dict[int, list[int]], options: dict[int, list[int]],
                     required: set[int], adjacency: dict[int, list[int]]) -> list[list[int]]:

@@ -37,6 +37,7 @@ class Build:
         self.equipped: dict[str, ItemOption] = {}
         self.locked_slots: set[str] = set()
         self.reverts: dict[str, int] = {}  # phase -> commits undone because the score fell
+        self.after_load: list = []  # called after every reload, before the score is refreshed
 
     def worse(self, before: float) -> bool:
         """After a commit a what-if said would gain: True (and counted) if it lost instead."""
@@ -154,6 +155,8 @@ class Build:
     def restore(self, snap: dict) -> None:
         self.call("loadXml", xml=snap["xml"])
         self.equipped = dict(snap["equipped"])
+        for hook in self.after_load:
+            hook()
         self.refresh()
 
     # Facts -------------------------------------------------------------------------------------
@@ -161,9 +164,10 @@ class Build:
     def groups(self) -> list[dict]:
         return self.call("groups")["groups"]
 
-    def main_group(self) -> dict:
+    def main_group(self) -> dict | None:
         result = self.call("groups")
-        return result["groups"][result["mainSocketGroup"] - 1]
+        index = result["mainSocketGroup"]
+        return result["groups"][index - 1] if 0 < index <= len(result["groups"]) else None
 
     def spent(self) -> float:
         """Divines spent on items and priced gems."""

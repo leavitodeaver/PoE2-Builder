@@ -24,11 +24,14 @@ class Skeleton:
     weapon: str | None  # main-hand item type; None = unarmed
     weapon_sub: str | None  # "Warstaff" for quarterstaves, "" for caster staves, None = any
     offhand: str | None  # "Shield", "Focus", "Quiver" or None
+    granted_by: str | None = None  # "passive:<name>" or "unique:<name>" for skills only those grant
 
     @property
     def label(self) -> str:
         weapon = "Quarterstaff" if self.weapon_sub == "Warstaff" else (self.weapon or "unarmed")
-        return f"{self.ascendancy} · {self.main_skill} · {weapon}" + (f" + {self.offhand}" if self.offhand else "")
+        source = f" (from {self.granted_by.split(':', 1)[1]})" if self.granted_by else ""
+        return (f"{self.ascendancy} · {self.main_skill}{source} · {weapon}"
+                + (f" + {self.offhand}" if self.offhand else ""))
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -38,10 +41,13 @@ def is_button(gem: dict) -> bool:
     return not gem["support"] and not (set(gem["skillTypes"]) & NOT_A_BUTTON)
 
 
-def weapon_archetypes(ctx: Context, skill: str) -> tuple[list[tuple[str | None, str | None, str | None]], list[str]]:
-    """(weapon, sub-type, offhand) choices for a main skill under the request."""
-    gem = ctx.gems[skill]
+def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
+                      ) -> tuple[list[tuple[str | None, str | None, str | None]], list[str]]:
+    """(weapon, sub-type, offhand) choices for a main skill under the request. `weapon_unique`
+    fixes the weapon (the request's, or a unique that grants the skill)."""
+    gem = ctx.all_gems[skill]
     request = ctx.request
+    weapon_unique = weapon_unique or request.weapon_unique
     forbidden = ctx.compiled.filters.forbidden_item_classes
     problems: list[str] = []
     types = gem.get("weaponTypes") or []
@@ -55,14 +61,15 @@ def weapon_archetypes(ctx: Context, skill: str) -> tuple[list[tuple[str | None, 
     else:
         mains = list(CASTER_WEAPONS)
 
-    if request.weapon_unique:
-        option = ctx.unique_option(request.weapon_unique)
+    if weapon_unique:
+        option = ctx.unique_option(weapon_unique)
         if option is None:
-            return [], [f"weapon {request.weapon_unique} isn't a known unique"]
+            return [], [f"weapon {weapon_unique} isn't a known unique"]
         fixed = (option.type, option.sub_type or "") if option.type == "Staff" else (option.type, None)
-        mains = [m for m in mains if m[0] == fixed[0] and (m[1] is None or m[1] == fixed[1])]
+        mains = [m for m in mains if m[0] == fixed[0] and (m[1] is None or m[1] == fixed[1])] or \
+            ([(fixed[0], fixed[1] or None)] if not attack else [])
         if not mains:
-            problems.append(f"{skill} can't be used with {request.weapon_unique} ({option.type})")
+            problems.append(f"{skill} can't be used with {weapon_unique} ({option.type})")
     if request.weapon_type:
         mains = [m for m in mains if m[0] == request.weapon_type]
         if not mains:
@@ -109,11 +116,11 @@ def usable_ascendancies(ctx: Context) -> list[str]:
 
 
 def skill_problems(ctx: Context, skill: str) -> list[str]:
-    if skill not in ctx.gems:
-        return [f"{skill} isn't a gem a level {ctx.level} character can socket"]
+    if skill not in ctx.gems and not ctx.granted_by.get(skill):
+        return [f"{skill} isn't a gem a level {ctx.level} character can socket, and no passive or unique grants it"]
     if skill in ctx.compiled.filters.forbidden_gems:
         return [f"{skill} is banned by the request"]
-    buttons = {skill} if is_button(ctx.gems[skill]) else set()
+    buttons = {skill} if skill in ctx.gems and is_button(ctx.gems[skill]) else set()
     for name in ctx.request.require.skills:
         gem = ctx.gems.get(name)
         if gem is None:
@@ -137,12 +144,36 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
         if found:
             problems += found
             continue
-        archetypes, found = weapon_archetypes(ctx, skill)
-        problems += found
-        for ascendancy in ascendancies:
-            for weapon, sub, offhand in archetypes:
-                skeletons.append(Skeleton(ctx.class_of[ascendancy], ascendancy, skill, weapon, sub, offhand))
+        if skill in ctx.gems:
+            archetypes, found = weapon_archetypes(ctx, skill)
+            problems += found
+            for ascendancy in ascendancies:
+                for weapon, sub, offhand in archetypes:
+                    skeletons.append(Skeleton(ctx.class_of[ascendancy], ascendancy, skill, weapon, sub, offhand))
+            continue
+        # A skill only a passive or a unique grants: that source becomes part of the skeleton
+        for kind, source, source_ascendancy in ctx.granted_by.get(skill, []):
+            if kind == "passive" and source in ctx.compiled.filters.forbidden_passives:
+                problems.append(f"{skill} comes from {source}, which the request bans")
+                continue
+            if kind == "unique" and source in ctx.compiled.filters.forbidden_uniques:
+                problems.append(f"{skill} comes from {source}, which the request bans")
+                continue
+            archetypes, found = weapon_archetypes(ctx, skill, source if kind == "unique" and _is_weapon(ctx, source) else None)
+            problems += found
+            usable = [a for a in ascendancies if source_ascendancy in (None, a)]
+            if not usable:
+                problems.append(f"{skill} comes from the {source_ascendancy} passive {source}, which the request doesn't allow")
+            for ascendancy in usable:
+                for weapon, sub, offhand in archetypes:
+                    skeletons.append(Skeleton(ctx.class_of[ascendancy], ascendancy, skill, weapon, sub, offhand,
+                                              f"{kind}:{source}"))
     return skeletons, sorted(set(problems))
+
+
+def _is_weapon(ctx: Context, unique: str) -> bool:
+    option = ctx.unique_option(unique)
+    return option is not None and option.type in ctx.data.weapon_types
 
 
 def candidate_skills(ctx: Context) -> list[str]:
@@ -150,10 +181,9 @@ def candidate_skills(ctx: Context) -> list[str]:
     skill that isn't a support, meta or pure utility gem."""
     names = []
     for name, gem in ctx.gems.items():
-        types = set(gem["skillTypes"])
-        if gem["support"] or "Meta" in types or name in ctx.compiled.filters.forbidden_gems:
-            continue
-        if not (types & {"Attack", "Spell", "Damage", "CreatesMinion", "Minion", "Trapped", "Totem"}):
+        # Every socketable active skill; the screen drops those PoB gives no damage. Meta gems
+        # only trigger other skills, so they aren't main skills themselves.
+        if gem["support"] or "Meta" in gem["skillTypes"] or name in ctx.compiled.filters.forbidden_gems:
             continue
         if not skill_problems(ctx, name):
             names.append(name)

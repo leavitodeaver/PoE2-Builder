@@ -57,12 +57,12 @@ class Gear:
             self._options[slot] = options
         return self._options[slot]
 
-    def setup(self) -> list[str]:
+    def setup(self, extra_uniques: list[str] = ()) -> list[str]:
         """Equip required uniques (locked) and a starting base in each weapon slot; the gear round
         fills the rest by score. Returns problems (a required unique that fits no slot)."""
         build = self.build
         problems = []
-        wanted = list(self.ctx.compiled.request.require.uniques)
+        wanted = list(self.ctx.compiled.request.require.uniques) + list(extra_uniques)
         if self.ctx.request.weapon_unique:
             wanted.insert(0, self.ctx.request.weapon_unique)
         for name in dict.fromkeys(wanted):

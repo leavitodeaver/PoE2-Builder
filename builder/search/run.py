@@ -276,6 +276,10 @@ class Run:
             self.notes.append(f"PoB's Full DPS ({final['pob_full_dps']:,.0f}) also counts {final['excluded_dps']:,.0f} from "
                               f"effects that need enemies to die ({', '.join(final['excluded_from'])}); a single boss "
                               "never triggers them, so they're left out of the DPS above.")
+        for assumption in final.get("assumptions") or []:
+            self.notes.append(f"* {assumption['label']}: {assumption['value']} (assumed, since PoB doesn't model it: "
+                              f"{assumption['basis']}; confidence: {assumption['confidence']}). The PoB code doesn't "
+                              "carry this, so PoB itself shows less damage for that skill.")
         result = self._base("ok" if not reasons else "infeasible")
         result.update({
             "feasible": not reasons,
@@ -289,6 +293,7 @@ class Run:
             "stats": facts["stats"], "checks": checks, "code": final["code"], "verified": final["verified"],
             "gear": final["gear"], "spent": spent, "groups": final["groups"], "conditions": final["conditions"],
             "quests": final["quests"], "warnings": facts["warnings"], "skeleton_problems": problems,
+            "assumptions": final.get("assumptions") or [],
             "timing": final.get("timing"), "escalations": final.get("escalations"),
             "requirement_weights": final.get("multipliers"),
         })

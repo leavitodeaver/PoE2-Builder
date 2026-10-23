@@ -24,6 +24,8 @@ class Gems:
         self.required_supports = set(self.ctx.compiled.request.require.supports)
         self.shortlist: list[str] | None = None  # best supports at the last full sweep
         self.conditions = None  # the condition resolver, when supports should be tried with it
+        self.assumptions = None
+        self.resolve = None  # re-resolves conditions and assumptions after a trial commit
 
     # Helpers ---------------------------------------------------------------------------------
 
@@ -63,6 +65,8 @@ class Gems:
         if not self.required_supports:
             return []
         group = self.build.main_group()
+        if group is None or group["fromItem"]:
+            return sorted(self.required_supports)
         names = [g["name"] for g in group["gems"]]
         compatible = set(self.candidates(group["index"], self.build.groups()))
         missing = []
@@ -83,7 +87,9 @@ class Gems:
         shortlist from the last sweep."""
         build = self.build
         groups = build.groups()
-        group = next(g for g in groups if g["main"])
+        group = next((g for g in groups if g["main"]), None)
+        if group is None or group["fromItem"]:
+            return False  # a skill a passive or item grants: its group isn't the player's to fill
         index = group["index"]
         names = [g["name"] for g in group["gems"]]
         supports = names[1:]
@@ -204,18 +210,21 @@ class Gems:
         triggered skill a persistent gem grants."""
         build = self.build
         group = build.main_group()
+        if group is None:
+            return
         options = []
         for i, skill in enumerate(group["skills"], start=1):
             parts = list(range(1, len(skill["parts"]) + 1)) or [None]
-            options += [(i, part) for part in parts]
+            stat_sets = list(range(1, len(skill.get("statSets") or []) + 1)) or [None]
+            options += [(i, part, stat_set) for part in parts for stat_set in stat_sets]
         if len(options) <= 1:
             return
         best = None
-        for active, part in options:
-            build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part)
+        for active, part, stat_set in options:
+            build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part, statSet=stat_set)
             if best is None or build.score > best[0]:
-                best = (build.score, active, part)
-        build.set_group(index=group["index"], mainActiveSkill=best[1], skillPart=best[2])
+                best = (build.score, active, part, stat_set)
+        build.set_group(index=group["index"], mainActiveSkill=best[1], skillPart=best[2], statSet=best[3])
 
     # Persistent skills -------------------------------------------------------------------------
 
@@ -236,9 +245,12 @@ class Gems:
                                       skip_ehp=False)
             for (score, stats), name in zip(scored, names):
                 spirit = stats.get("SpiritUnreserved")
-                if isinstance(spirit, (int, float)) and spirit >= spare_floor and score > build.score + EPSILON:
-                    if best is None or score > best[0]:
-                        best = (score, "add", name)
+                if not (isinstance(spirit, (int, float)) and spirit >= spare_floor):
+                    continue
+                if self.assumptions is not None and self.assumptions.relevant(name):
+                    score = self.trial_new_group(name)  # its effect only shows once assumptions update
+                if score > build.score + EPSILON and (best is None or score > best[0]):
+                    best = (score, "add", name)
         if own:
             scored = build.gem_deltas([{"group": g["index"], "slot": 1, "remove": True} for g in own], skip_ehp=False)
             for (score, _), group in zip(scored, own):
@@ -249,8 +261,12 @@ class Gems:
         before = build.score
         if best[1] == "add":
             added = build.set_group(gems=self.gem_list([best[2]]), label=PERSISTENT_LABEL)
+            if self.resolve is not None:
+                self.resolve()
             if build.worse(before):
                 build.remove_group(added["index"])
+                if self.resolve is not None:
+                    self.resolve()
                 return False
         else:
             removed = next(g for g in own if g["index"] == best[2])
@@ -259,6 +275,18 @@ class Gems:
                 build.set_group(gems=self.gem_list([g["name"] for g in removed["gems"]]), label=PERSISTENT_LABEL)
                 return False
         return build.score > before + EPSILON
+
+    def trial_new_group(self, name: str) -> float:
+        """Score adding a persistent skill for real: commit, resolve, read, undo."""
+        build = self.build
+        added = build.set_group(gems=self.gem_list([name]), label=PERSISTENT_LABEL)
+        if self.resolve is not None:
+            self.resolve()
+        score = build.score
+        build.remove_group(added["index"])
+        if self.resolve is not None:
+            self.resolve()
+        return score
 
     def optimize_persistent(self, deadline: float, rounds: int = 6) -> bool:
         import time

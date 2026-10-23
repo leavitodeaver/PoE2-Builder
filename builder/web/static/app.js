@@ -459,6 +459,11 @@ function renderResult(result) {
         return el("li", {}, g.main ? el("strong", {}, names) : names,
           g.fromItem ? " (from an item)" : "", g.fullDPS && !g.main ? " (counted in Full DPS)" : "");
       }))));
+    if (result.assumptions?.length) {
+      parts.push(el("div", { class: "result-section" }, el("h3", {}, "Assumptions * (PoB doesn't model these)"),
+        simpleTable(["Assumption", { label: "Value", num: true }, "Basis", "Confidence"],
+          result.assumptions.map((a) => [`${a.label} *`, formatNumber(a.value), a.basis, a.confidence]))));
+    }
     if (result.conditions.length) {
       parts.push(el("div", { class: "result-section" }, el("h3", {}, "Conditions turned on (the build sustains them)"),
         simpleTable(["Condition", "Evidence"], result.conditions.map((c) => [
