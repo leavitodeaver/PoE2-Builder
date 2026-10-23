@@ -1,0 +1,1016 @@
+{
+ "seed": 4,
+ "seconds": 45.0,
+ "passed": 10,
+ "cases": [
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 0",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Invoker"
+    ],
+    "main_skill": "Spark",
+    "max_buttons": 2,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [
+      "Killjoy",
+      "Nocturne",
+      "Corpsewade",
+      "Blueflame Bracers",
+      "Birthright Buckle",
+      "Arakaali's Gift",
+      "Lavianga's Spirits",
+      "Rise of the Phoenix",
+      "Gamblesprint",
+      "Valako's Vice",
+      "Thief's Torment",
+      "Berek's Respite",
+      "Drillneck",
+      "Prism of Belief",
+      "Rathpith Globe",
+      "Icetomb",
+      "Forbidden Gaze",
+      "Treefingers",
+      "Crown of the Victor",
+      "Wandering Reliquary"
+     ],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "none",
+    "weapon_swap": "may",
+    "defence": "energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {
+      "physical": 3000
+     },
+     "resists": {
+      "fire": 75,
+      "cold": 75,
+      "lightning": 75
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 2.0,
+     "gear_tier": "league_start",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": "Invoker \u00b7 Spark \u00b7 Sceptre",
+   "reasons": [
+    "Fire resistance: requested \u2265 75, delivered 69",
+    "Cold resistance: requested \u2265 75, delivered 67",
+    "Lightning resistance: requested \u2265 75, delivered 67"
+   ],
+   "problems": [],
+   "seconds": 48.0
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 1",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Lich",
+     "Warbringer"
+    ],
+    "main_skill": "Explosive Grenade",
+    "max_buttons": 1,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Trickster's Shard",
+      "Guatelitzi's Ablation",
+      "Electrocute",
+      "Gorge",
+      "Splinter Totem I",
+      "Impending Doom",
+      "Catharsis",
+      "Xibaqua's Rending",
+      "Lasting Shock",
+      "Advancing Storm",
+      "Jagged Ground II",
+      "Living Lightning II",
+      "Tul's Stillness",
+      "Eonyr's Thunder",
+      "Rapid Casting III",
+      "Remnant Potency I",
+      "Intense Agony",
+      "Retreat III",
+      "Searing Flame II",
+      "Delayed Reaction",
+      "Font of Mana",
+      "Life Leech III",
+      "Heightened Accuracy II",
+      "Barbs II",
+      "Burning Inscription",
+      "Behead I",
+      "Short Fuse I",
+      "Incision",
+      "Upheaval II",
+      "Volcanic Eruption"
+     ],
+     "passives": [
+      "Chaos Inoculation"
+     ],
+     "uniques": [
+      "Necromantle",
+      "The Eternal Spark",
+      "Heroic Tragedy",
+      "Collapsing Horizon",
+      "The Black Doubt",
+      "Decree of Loyalty",
+      "Birthright Buckle",
+      "Lightning Coil",
+      "Demon Stitcher",
+      "Split Personality",
+      "Splinter of Lorrata",
+      "Matsya",
+      "Forbidden Gaze",
+      "Death Rush",
+      "Hysseg's Claw",
+      "Mask of the Sanguimancer",
+      "The Taming",
+      "Serle's Grit",
+      "Grip of Winter",
+      "Splinterheart"
+     ],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "none",
+    "weapon_swap": "may",
+    "defence": "energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {
+      "fire": 75,
+      "cold": 75,
+      "lightning": 75
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 20.0,
+     "gear_tier": "league_start",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": "Warbringer \u00b7 Explosive Grenade \u00b7 Crossbow",
+   "reasons": [
+    "Fire resistance: requested \u2265 75, delivered 69",
+    "Cold resistance: requested \u2265 75, delivered 69",
+    "Lightning resistance: requested \u2265 75, delivered 67"
+   ],
+   "problems": [],
+   "seconds": 46.9
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 2",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Martial Artist"
+    ],
+    "main_skill": "Fireball",
+    "max_buttons": 2,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [
+      "The Road Warrior",
+      "The Black Insignia",
+      "Guiding Palm of the Heart",
+      "Apron of Emiran",
+      "Guiding Palm"
+     ],
+     "item_classes": [
+      "Helmet"
+     ],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "none",
+    "weapon_swap": "may",
+    "defence": "energy_shield",
+    "floors": {
+     "life": 2500,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {
+      "fire": 75,
+      "cold": 75,
+      "lightning": 75
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 20.0,
+     "gear_tier": "mid",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": "Martial Artist \u00b7 Fireball \u00b7 Sceptre",
+   "reasons": [
+    "Fire resistance: requested \u2265 75, delivered 69",
+    "Cold resistance: requested \u2265 75, delivered 68",
+    "Lightning resistance: requested \u2265 75, delivered 67"
+   ],
+   "problems": [],
+   "seconds": 46.7
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 3",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Stormweaver"
+    ],
+    "main_skill": "Contagion",
+    "max_buttons": 2,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [],
+     "passives": [
+      "Chaos Inoculation"
+     ],
+     "uniques": [
+      "Atziri's Step",
+      "Ming's Heart",
+      "Crown of Thorns",
+      "Idol of Uldurn",
+      "Trephina"
+     ],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "shield",
+    "weapon_swap": "may",
+    "defence": "energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {},
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 0.0,
+     "gear_tier": "mid",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "ok",
+   "label": "Stormweaver \u00b7 Contagion \u00b7 Wand + Shield",
+   "reasons": [],
+   "problems": [],
+   "seconds": 46.3
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 4",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Acolyte of Chayula",
+     "Spirit Walker"
+    ],
+    "main_skill": "Frost Bomb",
+    "max_buttons": null,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Haemocrystals",
+      "Maim",
+      "Arms Length",
+      "Considered Casting",
+      "Varashta's Blessing",
+      "Kalisa's Crescendo",
+      "Rapid Attacks II",
+      "Eternal Flame II",
+      "Stoicism I",
+      "Eternal Flame III",
+      "Frost Nexus",
+      "Romira's Requital",
+      "Rapid Attacks III",
+      "Swift Affliction II",
+      "Astral Projection",
+      "Fire Attunement",
+      "Reinforced Totems II",
+      "Rusted Spikes",
+      "Guatelitzi's Ablation",
+      "Retaliate II",
+      "Feeding Frenzy I",
+      "Tear",
+      "Encroaching Ground",
+      "Armour Break III",
+      "Hayoxi's Fulmination",
+      "Harmonic Remnants II",
+      "Frostfire",
+      "Uul-Netol's Embrace",
+      "Expand",
+      "Font of Blood"
+     ],
+     "passives": [
+      "Mind Over Matter",
+      "Resolute Technique"
+     ],
+     "uniques": [
+      "Facebreaker",
+      "Cloak of Flame",
+      "Guiding Palm of the Eye",
+      "Beira's Anguish",
+      "Greed's Embrace"
+     ],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "shield",
+    "weapon_swap": "may",
+    "defence": "energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {
+      "physical": 3000
+     },
+     "resists": {
+      "fire": 75,
+      "cold": 75,
+      "lightning": 75
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 20.0,
+     "gear_tier": "endgame",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "ok",
+   "label": "Spirit Walker \u00b7 Frost Bomb \u00b7 Wand + Shield",
+   "reasons": [],
+   "problems": [],
+   "seconds": 47.4
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 5",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Smith of Kitava"
+    ],
+    "main_skill": "Lightning Arrow",
+    "max_buttons": null,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Holy Descent",
+      "Minion Splash II",
+      "Projectile Deceleration I"
+     ],
+     "passives": [
+      "Iron Reflexes",
+      "Blood Magic"
+     ],
+     "uniques": [
+      "Blackflame",
+      "Zerphi's Genesis",
+      "Forsaken Bangle",
+      "Spire of Ire",
+      "The Barrow Dweller"
+     ],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "any",
+    "weapon_swap": "may",
+    "defence": "hybrid",
+    "floors": {
+     "life": 2500,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {
+      "chaos": 20
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": null,
+     "gear_tier": "mid",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "ok",
+   "label": "Smith of Kitava \u00b7 Lightning Arrow \u00b7 Bow + Quiver",
+   "reasons": [],
+   "problems": [],
+   "seconds": 51.7
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 6",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Abyssal Lich"
+    ],
+    "main_skill": "Raise Zombie",
+    "max_buttons": null,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [
+      "Resolute Technique"
+     ],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Compressed Duration I",
+      "Prototype Seventeen",
+      "Potent Exposure",
+      "Fire Penetration I",
+      "Zarokh's Revolt",
+      "Biting Frost II",
+      "Eternal Flame III",
+      "Delayed Reaction",
+      "Meat Shield I",
+      "Spell Cascade"
+     ],
+     "passives": [],
+     "uniques": [
+      "Matsya",
+      "Asphyxia's Wrath",
+      "Blackheart",
+      "Atziri's Acuity",
+      "The Devouring Diadem",
+      "Shackles of the Wretched",
+      "Bursting Decay",
+      "Olrovasara",
+      "Sacred Flame",
+      "Eyes of the Runefather",
+      "Sine Aequo",
+      "Tidebreaker",
+      "Cloak of Defiance",
+      "Atziri's Splendour",
+      "Idle Hands",
+      "Thrillsteel",
+      "Prized Pain",
+      "Alpha's Howl",
+      "Gifts from Above",
+      "Widowhail"
+     ],
+     "item_classes": [
+      "Helmet"
+     ],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "none",
+    "weapon_swap": "may",
+    "defence": "evasion_energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {
+      "chaos": 20
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": null,
+     "gear_tier": "league_start",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": null,
+   "reasons": [
+    "no allowed ascendancy has passives to allocate"
+   ],
+   "problems": [],
+   "seconds": 4.1
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 7",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Martial Artist",
+     "Smith of Kitava"
+    ],
+    "main_skill": "Rolling Slam",
+    "max_buttons": 2,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Rearm I",
+      "Rusted Spikes",
+      "Bounty II",
+      "Escalating Poison",
+      "Life Drain",
+      "Stoicism II",
+      "Relentless Rage",
+      "Concoct I",
+      "Doedre's Undoing",
+      "Pierce II",
+      "Deliberation",
+      "Efficiency II",
+      "Daze",
+      "Mark for Death",
+      "Tacati's Ire",
+      "Minion Splash II",
+      "Heightened Accuracy I",
+      "Wildshards I",
+      "Adhesive Grenades I",
+      "Dominus' Grasp",
+      "Adhesive Grenades II",
+      "Living Lightning II",
+      "Concussive Runes",
+      "Window of Opportunity II",
+      "Cold Penetration",
+      "Stun III",
+      "Strong Hearted",
+      "Uul-Netol's Embrace",
+      "Brutality I",
+      "Upwelling II"
+     ],
+     "passives": [
+      "Resolute Technique"
+     ],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "quiver",
+    "weapon_swap": "may",
+    "defence": "any",
+    "floors": {
+     "life": 1000,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {
+      "chaos": 20
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": 30
+    },
+    "budget": {
+     "divines": 20.0,
+     "gear_tier": "mirror",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": null,
+   "reasons": [
+    "no weapon setup for Rolling Slam satisfies the weapon, offhand and item-class rules"
+   ],
+   "problems": [],
+   "seconds": 4.1
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 8",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Chronomancer"
+    ],
+    "main_skill": "Ice Strike",
+    "max_buttons": null,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Paquate's Pact",
+      "Momentum",
+      "Crackling Barrier",
+      "Ricochet I",
+      "Bursting Plague",
+      "Culmination II",
+      "Einhar's Beastrite",
+      "Infernal Legion III",
+      "Pierce II",
+      "Esh's Radiance"
+     ],
+     "passives": [
+      "Chaos Inoculation"
+     ],
+     "uniques": [
+      "Undying Hate",
+      "Horror's Flight",
+      "The Black Insignia",
+      "Snakepit",
+      "Bones of Ullr",
+      "Blackgleam",
+      "Leer Cast",
+      "Surefooted Sigil",
+      "Darkness Enthroned",
+      "Guiding Palm of the Mind",
+      "Tabula Rasa",
+      "Infernoclasp",
+      "Guiding Palm of the Heart",
+      "Cursecarver",
+      "Glimpse of Chaos",
+      "Arvil's Wheel",
+      "Silks of Veneration",
+      "Arakaali's Gift",
+      "Quatl's Molt",
+      "The Vertex"
+     ],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "focus",
+    "weapon_swap": "may",
+    "defence": "hybrid",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {
+      "physical": 3000
+     },
+     "resists": {},
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 20.0,
+     "gear_tier": "mid",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": null,
+   "reasons": [
+    "no weapon setup for Ice Strike satisfies the weapon, offhand and item-class rules"
+   ],
+   "problems": [],
+   "seconds": 4.5
+  },
+  {
+   "request": {
+    "schema_version": 1,
+    "name": "fuzz 9",
+    "notes": "",
+    "league": null,
+    "hardcore": false,
+    "level": 95,
+    "class_name": null,
+    "ascendancies": [
+     "Warbringer",
+     "Invoker"
+    ],
+    "main_skill": "Contagion",
+    "max_buttons": 2,
+    "require": {
+     "skills": [],
+     "supports": [],
+     "passives": [],
+     "uniques": [],
+     "item_classes": [],
+     "augments": [],
+     "mechanics": []
+    },
+    "forbid": {
+     "skills": [],
+     "supports": [
+      "Freezefork",
+      "Supercritical",
+      "Fire Mastery",
+      "Lightning Penetration",
+      "Persistent Ground II",
+      "Fluke",
+      "Mark for Death",
+      "Vruun's Aftermath",
+      "Verglas",
+      "Searing Flame II",
+      "Pursuit III",
+      "Trickster's Shard",
+      "Quill Burst",
+      "Lockdown",
+      "Infernal Legion I",
+      "Ritualistic Curse",
+      "Rapid Casting I",
+      "Alignment II",
+      "Hardy Totems II",
+      "Elemental Discharge",
+      "Wildfire",
+      "Shock Conduction",
+      "Perfection",
+      "Rage III",
+      "Profanity II",
+      "Arcane Surge",
+      "Deep Cuts I",
+      "Uhtred's Exodus",
+      "Brambleslam",
+      "Mysticism I"
+     ],
+     "passives": [],
+     "uniques": [
+      "Ungil's Harmony",
+      "Grand Spectrum",
+      "Blueflame Bracers",
+      "The Vertex",
+      "Ezomyte Peak",
+      "Oaksworn",
+      "Drillneck",
+      "Stone of Lazhwar",
+      "Nightscale",
+      "Silks of Veneration",
+      "Trampletoe",
+      "Birth of Fury",
+      "Controlled Metamorphosis",
+      "Empire's Grasp",
+      "Bitterbloom",
+      "Glimpse of Chaos",
+      "Chainsting",
+      "Beacon of Azis",
+      "Cracklecreep",
+      "Kingsguard"
+     ],
+     "item_classes": [
+      "Focus"
+     ],
+     "augments": [],
+     "mechanics": []
+    },
+    "weapon_type": null,
+    "weapon_unique": null,
+    "offhand": "any",
+    "weapon_swap": "may",
+    "defence": "energy_shield",
+    "floors": {
+     "life": null,
+     "energy_shield": null,
+     "mana": null,
+     "max_hit": {},
+     "resists": {
+      "fire": 75,
+      "cold": 75,
+      "lightning": 75
+     },
+     "block": null,
+     "evade": null,
+     "spare_spirit": null
+    },
+    "budget": {
+     "divines": 2.0,
+     "gear_tier": "league_start",
+     "ssf": false
+    },
+    "objective": "boss",
+    "dps_gate": null,
+    "allow_exploits": true,
+    "forbid_ledger_entries": [],
+    "seed_code": null,
+    "effort_minutes": 10
+   },
+   "status": "infeasible",
+   "label": "Invoker \u00b7 Contagion \u00b7 Staff",
+   "reasons": [
+    "Fire resistance: requested \u2265 75, delivered 67",
+    "Cold resistance: requested \u2265 75, delivered 67",
+    "Lightning resistance: requested \u2265 75, delivered 69"
+   ],
+   "problems": [],
+   "seconds": 46.8
+  }
+ ]
+}

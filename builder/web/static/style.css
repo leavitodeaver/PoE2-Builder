@@ -160,3 +160,4 @@ table.checks .note { color: var(--muted); font-size: 0.8rem; }
 .gem-groups { margin: 0; padding-left: 18px; font-size: 0.9rem; }
 .gem-groups li { margin: 3px 0; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+table.checks td .note { color: var(--muted); font-size: 0.8rem; }

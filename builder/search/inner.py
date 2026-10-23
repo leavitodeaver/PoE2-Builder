@@ -21,14 +21,15 @@ from builder.search.conditions import Conditions
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
 from builder.search.gear import Gear, SlotSpec
 from builder.search.gems import Gems
-from builder.search.objective import Objective, main_dps, shortfall
+from builder.search.jewels import Jewels
+from builder.search.objective import SUSTAIN_FIELDS, Objective, main_dps, shortfall
 from builder.search.skeletons import Skeleton
 from builder.search.state import EPSILON, Build
 from builder.search.tree import Tree
 
 KICK_TREE_POINTS = (6, 16)
 SWEEP_EVERY = 3
-RESULT_FIELDS = sorted(set(FACT_FIELDS) | {
+RESULT_FIELDS = sorted(set(FACT_FIELDS) | set(SUSTAIN_FIELDS) | {
     "TotalDPS", "TotalDotDPS", "Spirit", "TotalEHP", "Speed", "CritChance", "HitChance",
 })
 
@@ -44,6 +45,7 @@ class Search:
         weapon = SlotSpec(self.skeleton.weapon, self.skeleton.weapon_sub) if self.skeleton.weapon else None
         offhand = SlotSpec(self.skeleton.offhand) if self.skeleton.offhand else None
         self.gear = Gear(self.build, weapon, offhand, self.rng)
+        self.jewels = Jewels(self.build, self.tree, self.gear)
         self.conditions = Conditions(self.build, self.skeleton.main_skill)
         self.gems.conditions = self.conditions
         self.assumptions = Assumptions(self.build)
@@ -161,6 +163,7 @@ class Search:
             ("ascendancy", self.tree.ascendancy_round, ()),
             ("tree", self.tree.grow, (deadline,)),
             ("attributes", self.tree.attributes_round, ()),
+            ("jewels", self.jewels.jewel_round, (deadline, sweep or "gear" in self.kicked)),
             ("conditions", self.resolve, ()),
             ("persistent", self.gems.optimize_persistent, (deadline,)),
             ("prune and regrow", self.tree.swap_round, (deadline,)),

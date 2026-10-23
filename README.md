@@ -35,8 +35,11 @@ also checks any PoB code or poe.ninja / pobb.in share link against the current r
 set `POE2_BUILDER_CONTACT` to add a contact to the User-Agent sent to poe.ninja, as their API
 docs ask.
 
-Gear is uniques plus normal bases for now (rares arrive in Phase 3), so requests with resistance
-floors or high DPS gates often come back infeasible, with the reason and the cheapest relaxation.
+Gear is normal bases, affordable uniques and rares built affix by affix, with runes, Soul Cores
+and Idols in their sockets and jewels in the tree's sockets. Rare prices are an uncalibrated
+estimate for now, and flasks and charms aren't modeled yet. Any skill can be the main skill;
+where PoB doesn't model a skill's trigger (e.g. Explosive Transmutation's Remnant pickups), the
+result marks the assumed rate with an asterisk.
 
 ## Engine checks
 

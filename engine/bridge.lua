@@ -229,7 +229,8 @@ function bridge.recalc(args)
 end
 
 -- Unallocated nodes reachable from the current tree, with their paths. With `ascendancy`, lists
--- the selected ascendancy's nodes instead of the main tree's. `maxDistanceByType` overrides the
+-- the selected ascendancy's nodes instead of the main tree's; `sockets = "only"` lists jewel
+-- sockets (which have no stats of their own) instead. `maxDistanceByType` overrides the
 -- distance limit per node type (e.g. reach further for notables than for small nodes).
 function bridge.frontier(args)
 	local maxDistance = args.maxDistance or 3
@@ -238,8 +239,12 @@ function bridge.frontier(args)
 	local nodes = { }
 	for id, node in pairs(build.spec.nodes) do
 		local limit = byType[node.type] or maxDistance
+		local wanted = (node.modKey and node.modKey ~= "") or (args.sockets and node.type == "Socket")
+		if args.sockets == "only" then
+			wanted = node.type == "Socket"
+		end
 		if not node.alloc and node.path and node.pathDist and node.pathDist <= limit
-			and node.modKey and node.modKey ~= "" and node.ascendancyName == ascendancy
+			and wanted and node.ascendancyName == ascendancy
 			and not node.isMultipleChoiceOption then
 			local path = { }
 			for _, pathNode in ipairs(node.path) do

@@ -452,7 +452,11 @@ function renderResult(result) {
     const gear = Object.entries(result.gear).sort();
     parts.push(el("div", { class: "result-section" }, el("h3", {}, `Gear · ${result.spent.toFixed(2)} divine`),
       simpleTable(["Slot", "Item", "Base", { label: "Price (div)", num: true }, "Confidence"],
-        gear.map(([slot, g]) => [slot, g.unique ? g.name : `${g.name} (normal)`, g.base, formatPrice(g.price), g.confidence]))));
+        gear.map(([slot, g]) => [slot,
+          el("div", {}, g.unique || g.rare ? g.name : `${g.name} (normal)`,
+            g.affixes?.length ? el("div", { class: "note" }, g.affixes.join(" · ")) : null,
+            g.runes?.length ? el("div", { class: "note" }, `Sockets: ${g.runes.join(", ")}`) : null),
+          g.base, formatPrice(g.price), g.confidence]))));
     parts.push(el("div", { class: "result-section" }, el("h3", {}, "Skills"),
       el("ul", { class: "gem-groups" }, result.groups.filter((g) => g.enabled).map((g) => {
         const names = g.gems.map((x) => x.name).join(" + ");

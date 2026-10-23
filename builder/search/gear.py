@@ -1,23 +1,32 @@
-"""Gear block, uniques only for now (rares arrive in Phase 3).
+"""Gear block (PLAN.md §5.2.3–4): normal bases, uniques, rares built affix by affix, and the runes,
+Soul Cores and Idols in their sockets.
 
-Each slot holds a normal base (always available, found rather than bought) or an affordable,
-allowed unique, scored with item what-ifs (bridge `itemDeltas`). Budget holds at the source: a
-unique is proposed only if it fits the divine cap with everything else already bought, and only
-if it has a price (unpriced items are never treated as free). Required uniques are equipped first
-and locked; armour pieces only carry the defence layers the requested style allows.
+Each slot compares every affordable option with item what-ifs (bridge `itemDeltas`): normal bases
+(found, not bought), allowed and priced uniques, and in full rounds a rare built for the slot
+(builder/search/rares.py). The winner's sockets are then filled. Budget holds at the source: nothing
+is proposed that doesn't fit the divine cap with everything else already bought, and unpriced items
+are never treated as free. When the cap binds, a budget weight λ (score per divine) makes each
+choice weigh its price, so the money goes where it buys the most (a Lagrangian, adjusted after every
+full round). Required uniques are equipped first and locked; armour pieces only carry the defence
+layers the requested style allows.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import random
 import time
 from dataclasses import dataclass
 
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption
+from builder.search.rares import (
+    RUNE_KEEP, SCREEN_KEEP, AffixPools, RuneCatalog, rare_price, rare_text, socket_count, with_runes,
+)
 from builder.search.state import EPSILON, Build
 
 BASES_PER_SUBTYPE = 3  # normal armour/jewellery bases kept per sub-type, highest level first
 SHORTLIST = 6  # options per slot rescored between full rounds
+AFFIX_LIMIT = {"Prefix": 3, "Suffix": 3}
 
 
 @dataclass(frozen=True)
@@ -40,6 +49,12 @@ class Gear:
             self.slots[slot] = SlotSpec(SLOT_TYPE[slot])
         self._options: dict[str, list[ItemOption]] = {}
         self.shortlist: dict[str, list[str]] = {}
+        self.pools = AffixPools(self.ctx)
+        self.runes = RuneCatalog(self.ctx, self.ctx.augment_prices)
+        self.rares: dict[str, ItemOption] = {}  # the last rare built for each slot
+        self.lam = 0.0  # budget weight: score per divine
+
+    # Options ---------------------------------------------------------------------------------
 
     def options(self, slot: str) -> list[ItemOption]:
         if slot not in self._options:
@@ -90,17 +105,124 @@ class Gear:
             return slot
         return None
 
+    def left_for(self, slot: str) -> float:
+        """Divines this slot may spend: the budget minus everything else already bought."""
+        current = self.build.equipped.get(slot)
+        return self.ctx.budget - self.build.spent() + ((current.price or 0.0) if current else 0.0)
+
     def candidates(self, slot: str) -> list[ItemOption]:
         build = self.build
         current = build.equipped.get(slot)
-        left = self.ctx.budget - build.spent() + ((current.price or 0.0) if current else 0.0)
+        left = self.left_for(slot)
         others = {o.name for s, o in build.equipped.items() if s != slot and o.unique}
         return [o for o in self.options(slot)
                 if (o.price or 0.0) <= left + 1e-9 and o != current and not (o.unique and o.name in others)]
 
+    def adjusted(self, score: float, option: ItemOption | None) -> float:
+        return score - self.lam * ((option.price or 0.0) if option else 0.0)
+
+    # Rares -----------------------------------------------------------------------------------
+
+    def build_rare(self, slot: str, deadline: float) -> ItemOption | None:
+        """The best rare for this slot within its budget, affix by affix."""
+        build, spec = self.build, self.slots[slot]
+        bases = [o for o in self.options(slot) if not o.unique]
+        if not bases or time.perf_counter() > deadline:
+            return None
+        scored = build.item_deltas([{"slot": slot, "raw": o.raw} for o in bases])
+        base_option = max(zip((s for s, _ in scored), bases), key=lambda x: x[0])[1]
+        base = self.ctx.bases_by_name[base_option.base]
+        pool = self.pools.pool(base["name"])
+        if not pool:
+            return None
+        left = self.left_for(slot)
+        level = self.pools.item_level
+
+        # Score each affix alone, keep the best few of each kind
+        scored = build.item_deltas([{"slot": slot, "raw": rare_text(slot, base, level, [a])} for a in pool])
+        ranked = sorted(zip((s for s, _ in scored), pool), key=lambda x: -x[0])
+        shortlist = []
+        for kind in AFFIX_LIMIT:
+            shortlist += [a for _, a in ranked if a.type == kind][:SCREEN_KEEP]
+
+        chosen: list = []
+        current = build.item_deltas([{"slot": slot, "raw": rare_text(slot, base, level, [])}])[0][0]
+        while time.perf_counter() < deadline:
+            groups = {a.group for a in chosen}
+            counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in AFFIX_LIMIT}
+            options = [a for a in shortlist if a.group not in groups and counts[a.type] < AFFIX_LIMIT[a.type]
+                       and rare_price(slot, chosen + [a]) <= left + 1e-9]
+            if not options:
+                break
+            scored = build.item_deltas([{"slot": slot, "raw": rare_text(slot, base, level, chosen + [a])}
+                                        for a in options])
+            best_value, best = max(((s - self.lam * rare_price(slot, chosen + [a]), a)
+                                    for (s, _), a in zip(scored, options)), key=lambda x: x[0])
+            if best_value <= current - self.lam * rare_price(slot, chosen) + EPSILON:
+                break
+            chosen.append(best)
+            current = best_value + self.lam * rare_price(slot, chosen)
+        if not chosen:
+            return None
+        price = None if self.ctx.ssf else rare_price(slot, chosen)
+        return ItemOption(f"Rare {spec.type}", base["name"], base["type"], base.get("subType"),
+                          rare_text(slot, base, level, chosen), False, price,
+                          "ssf" if self.ctx.ssf else "estimate (uncalibrated)", base_option.level, rare=True,
+                          affixes=tuple(line for a in chosen for line in a.lines))
+
+    def socketed(self, slot: str, option: ItemOption, deadline: float) -> ItemOption:
+        """The option with its sockets filled by the runes that score best."""
+        build = self.build
+        base = self.ctx.bases_by_name.get(option.base)
+        count = socket_count(base, option.unique) if base else 0
+        if count == 0 or time.perf_counter() > deadline:
+            return option
+        raw = with_runes(option.raw, [])
+        left = self.left_for(slot) - (option.price or 0.0)
+        names = [n for n in self.runes.candidates(base, option.unique) if (self.runes.price(n) or 0.0) <= left]
+        if not names:
+            return option
+        scored = build.item_deltas([{"slot": slot, "raw": with_runes(raw, [n])} for n in names])
+        top = [n for _, n in sorted(zip((s for s, _ in scored), names), key=lambda x: -x[0])[:RUNE_KEEP]]
+        chosen: list[str] = []
+        current = build.item_deltas([{"slot": slot, "raw": raw}])[0][0]
+        used: dict[str, int] = {}  # per-character augment limits, across every other item
+        for other_slot, other in build.equipped.items():
+            if other_slot != slot:
+                for name in other.runes:
+                    if limit := self.runes.limit(name):
+                        used[limit[0]] = used.get(limit[0], 0) + 1
+
+        def within_limit(name: str) -> bool:
+            limit = self.runes.limit(name)
+            if not limit:
+                return True
+            taken = used.get(limit[0], 0) + sum(1 for n in chosen if (self.runes.limit(n) or ("",))[0] == limit[0])
+            return taken < limit[1]
+
+        top = [n for n in top if within_limit(n)]
+        for _ in range(count):
+            spend = sum(self.runes.price(n) or 0.0 for n in chosen)
+            options = [n for n in top if spend + (self.runes.price(n) or 0.0) <= left + 1e-9 and within_limit(n)]
+            if not options:
+                break
+            scored = build.item_deltas([{"slot": slot, "raw": with_runes(raw, chosen + [n])} for n in options])
+            best_value, best = max(((s - self.lam * (self.runes.price(n) or 0.0), n)
+                                    for (s, _), n in zip(scored, options)), key=lambda x: x[0])
+            if best_value <= current + EPSILON:
+                break
+            chosen.append(best)
+            current = best_value + self.lam * (self.runes.price(best) or 0.0)
+        if not chosen:
+            return option
+        price = option.price if option.price is None else option.price + sum(self.runes.price(n) or 0.0 for n in chosen)
+        return dataclasses.replace(option, raw=with_runes(raw, chosen), runes=tuple(chosen), price=price)
+
+    # Rounds ----------------------------------------------------------------------------------
+
     def gear_round(self, deadline: float, full: bool = True) -> bool:
-        """Best affordable item per slot. A full round scores every option and remembers the top
-        few per slot; other rounds rescore only those."""
+        """Best affordable item per slot. A full round scores every option, builds a rare and
+        fills sockets, and remembers the top few per slot; other rounds rescore only those."""
         build = self.build
         improved = False
         for slot in self.slots:
@@ -110,21 +232,51 @@ class Gear:
             if not full and slot in self.shortlist:
                 shortlisted = set(self.shortlist[slot])
                 options = [o for o in options if o.name in shortlisted]
+            if full:
+                rare = self.build_rare(slot, deadline)
+                if rare is not None:
+                    self.rares[slot] = rare
+            rare = self.rares.get(slot)
+            if rare is not None and rare != build.equipped.get(slot) and (rare.price or 0.0) <= self.left_for(slot) + 1e-9:
+                options.append(rare)
             scored = build.item_deltas([{"slot": slot, "raw": o.raw} for o in options])
-            if not scored:
-                continue
-            ranked = sorted(zip((s for s, _ in scored), options), key=lambda x: -x[0])
+            current = build.equipped.get(slot)
+            current_value = self.adjusted(build.score, current)
+            ranked = sorted(((self.adjusted(s, o), o) for (s, _), o in zip(scored, options)), key=lambda x: -x[0])
             if full or slot not in self.shortlist:
-                self.shortlist[slot] = [o.name for _, o in ranked[:SHORTLIST]]
-            best_score, best = ranked[0]
-            if best_score > build.score + EPSILON:
-                before, previous = build.score, build.equipped.get(slot)
-                build.equip(slot, best)
-                if build.worse(before):
-                    build.equip(slot, previous)
-                    continue
-                improved = improved or build.score > before + EPSILON
+                self.shortlist[slot] = [o.name for _, o in ranked[:SHORTLIST] if not o.rare]
+            choice = None
+            if ranked and ranked[0][0] > current_value + EPSILON:
+                choice = ranked[0][1]
+            if full:
+                # Sockets, on the new choice or on what's there now
+                target = choice or current
+                if target is not None and not target.runes:
+                    filled = self.socketed(slot, target, deadline)
+                    if filled is not target:
+                        choice = filled
+            if choice is None:
+                continue
+            before, previous = build.score, current
+            build.equip(slot, choice)
+            if self.adjusted(build.score, choice) < self.adjusted(before, previous) - EPSILON and build.worse(before):
+                build.equip(slot, previous)
+                continue
+            improved = improved or build.score > before + EPSILON
+        if full:
+            self.update_lambda()
         return improved
+
+    def update_lambda(self) -> None:
+        """Raise the budget weight while spending presses on the cap; relax it when there's room."""
+        budget = self.ctx.budget
+        if budget == float("inf"):
+            return
+        spent = self.build.spent()
+        if spent > 0.9 * budget:
+            self.lam = max(self.lam * 2.0, 0.02)
+        elif spent < 0.5 * budget:
+            self.lam = self.lam / 2.0 if self.lam > 0.005 else 0.0
 
     def kick(self) -> None:
         slots = [s for s in self.slots if s not in self.build.locked_slots]

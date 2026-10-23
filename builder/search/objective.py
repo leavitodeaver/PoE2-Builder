@@ -44,6 +44,31 @@ COST_WARNINGS = {
 # Full DPS counts it as if it were sustained, but a single boss never triggers it
 # (ledger/proposed/pob-full-dps-on-death-damage.yaml). Matched on gem descriptions.
 ON_DEATH = re.compile(r"\b(?:explode|combust|burst)\w*\b[^.]*\bon death\b|\bwhen they die\b", re.I)
+# Sustain: PoB's DPS assumes you can keep paying a skill's cost. Regeneration, leech and on-hit
+# recovery must cover at least this share of the per-second cost; below it the build is short of
+# a requirement-style floor. Flasks aren't modeled yet, so the bar sits under the user's own
+# endgame builds (19%, 47% and 71% of their costs) and above degenerate ones (0-4%).
+SUSTAIN_FLOOR = 0.10
+SUSTAIN_POOLS = {
+    "Mana": ("ManaPerSecondCost", ("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate")),
+    "Life": ("LifePerSecondCost", ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate")),
+}
+SUSTAIN_FIELDS = sorted({f for cost, recovery in SUSTAIN_POOLS.values() for f in (cost, *recovery)})
+
+
+def sustain(stats: dict) -> tuple[float, str | None]:
+    """The lowest share of a pool's per-second skill cost that recovery covers (1.0 = all), and
+    the pool."""
+    worst, pool_name = 1.0, None
+    for pool, (cost_field, recovery_fields) in SUSTAIN_POOLS.items():
+        cost = number(stats.get(cost_field))
+        if cost > 0:
+            share = sum(number(stats.get(f)) for f in recovery_fields) / cost
+            if share < worst:
+                worst, pool_name = share, pool
+    return worst, pool_name
+
+
 # Fields only an EHP pass fills in; gem what-ifs skip that pass and keep the build's values
 EHP_FIELDS_PREFIXES = ("PhysicalMaximumHitTaken", "FireMaximumHitTaken", "ColdMaximumHitTaken",
                        "LightningMaximumHitTaken", "ChaosMaximumHitTaken")
@@ -68,7 +93,7 @@ class Objective:
         self.multipliers: dict[str, float] = dict(multipliers or {})  # requirement label -> weight factor
         self.penalties = ctx.compiled.penalties
         self.style = DefenceStyle(ctx.request.defence)
-        fields = set(BASE_FIELDS) | set(COST_WARNINGS) | {p.stat for p in self.penalties}
+        fields = set(BASE_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS) | {p.stat for p in self.penalties}
         if full:
             fields.add("SkillDPS")
         self.fields = sorted(fields)
@@ -107,6 +132,9 @@ class Objective:
             count = number(stats.get(field))
             if count > 0:
                 found.append((f"Skill costs: not enough {pool}", count, True))
+        share, pool = sustain(stats)
+        if share < SUSTAIN_FLOOR:
+            found.append((f"Skill cost sustain: {pool}", (SUSTAIN_FLOOR - share) / SUSTAIN_FLOOR, False))
         unreserved = number(stats.get("SpiritUnreserved"))
         if unreserved < 0:
             found.append(("Spirit", -unreserved / max(number(stats.get("Spirit")), 1.0), True))

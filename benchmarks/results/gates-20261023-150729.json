@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-23T15:05:39",
+  "pob_dir": "C:\\PROJECTS\\PoE2 Builder\\vendor\\PathOfBuilding-PoE2",
+  "boot_s": 2.0814590000081807,
+  "builds": {
+    "boneshatter_titan": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "lightning_arrow_deadeye": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "spark_stormweaver": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "zombie_infernalist": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75a": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75b": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75c": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75d": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75e": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    }
+  }
+}

@@ -20,7 +20,7 @@ from typing import Any
 from builder.pob.pool import EnginePool, WorkerError, default_workers
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
-from builder.search.objective import rank_key
+from builder.search.objective import SUSTAIN_FLOOR, rank_key, sustain
 from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skeletons, weapon_archetypes
 
 FINALIZE_SHARE = 0.12
@@ -263,6 +263,11 @@ class Run:
                 low = [g["name"] for g in final["gear"].values() if g["confidence"] in ("low", "unknown")]
                 check.update(delivered=f"{spent:.2f} divine", ok=spent <= budget + 1e-9,
                              note="poe.ninja prices" + (f"; low-confidence: {', '.join(low)}" if low else ""))
+        share, pool = sustain(facts["stats"])
+        checks.append({"label": "Skill costs sustained", "requested": f"≥ {SUSTAIN_FLOOR:.0%} by recovery",
+                       "delivered": "no costs to pay" if pool is None and share >= 1 else f"{min(share, 9.99):.0%}"
+                       + (f" of {pool}" if pool else ""), "ok": share >= SUSTAIN_FLOOR,
+                       "note": "regeneration, leech and on-hit recovery against the per-second cost; flasks not counted"})
         failing = [c for c in checks if c["ok"] is False]
         reasons = [f"{c['label']}: requested {c['requested']}, delivered {c['delivered']}" for c in failing]
         reasons += final.get("problems") or []

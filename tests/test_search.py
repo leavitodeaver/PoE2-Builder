@@ -215,3 +215,56 @@ def test_unsustainable_boss_conditions_are_never_resolved():
              "conditionEnemyPinned", "conditionEnemyHeavyStunned"}
     assert not never & set(RULES)
     assert math.isfinite(len(RULES))
+
+
+# Rares and sockets -------------------------------------------------------------------------------
+
+
+def test_ranges_roll_where_asked():
+    from builder.search.rares import roll
+
+    assert roll("+(110-114) to maximum Mana", 0.5) == "+112 to maximum Mana"
+    assert roll("Adds (1-3) to (5-9) Fire Damage", 1.0) == "Adds 3 to 9 Fire Damage"
+    assert roll("Regenerate (1.5-2.5)% of maximum Life per second", 0.5) == "Regenerate 2.0% of maximum Life per second"
+
+
+def test_affix_pools_respect_tags_groups_and_tier_caps():
+    from builder.search.rares import AffixPools
+
+    endgame = AffixPools(context(main_skill="Ice Shot", budget={"gear_tier": "endgame"}))
+    league = AffixPools(context(main_skill="Ice Shot", budget={"gear_tier": "league_start"}))
+    ring = next(b["name"] for b in endgame.ctx.data.bases if b["type"] == "Ring" and not b.get("hidden"))
+    pool = endgame.pool(ring)
+    assert pool and len({(a.group, a.type) for a in pool}) == len(pool)  # one affix per group
+    assert all(a.tier >= 1 for a in pool) and all(a.tier >= 4 for a in league.pool(ring))
+    assert not any("(" in line for a in pool for line in a.lines)  # every range rolled
+
+
+def test_socket_lines_go_before_the_implicits():
+    from builder.search.rares import with_runes
+
+    unique = "Andvarius\nGold Ring\nImplicits: 1\n(6-15)% increased Rarity"
+    assert with_runes(unique, ["Iron Rune"]).splitlines()[2:4] == ["Sockets: S", "Rune: Iron Rune"]
+    rare = "Rarity: Rare\nX\nFanatic Bow\nItem Level: 82\nImplicits: 0\n+10 to Dexterity"
+    lines = with_runes(rare, ["A", "B"]).splitlines()
+    assert lines.index("Sockets: S S") < lines.index("Implicits: 0") and "Rune: B" in lines
+
+
+def test_better_affixes_cost_more():
+    from builder.search.rares import Affix, rare_price
+
+    top = Affix("a", "g1", "Prefix", 1, ("x",))
+    low = Affix("b", "g2", "Prefix", 4, ("y",))
+    assert rare_price("Helmet", [top]) > rare_price("Helmet", [low]) > 0
+    assert rare_price("Weapon 1", [top]) > rare_price("Helmet", [top])
+
+
+def test_unsustainable_skill_costs_fall_short():
+    from builder.search.objective import sustain
+
+    assert sustain({"ManaPerSecondCost": 1000, "ManaRegenRecovery": 100})[0] == pytest.approx(0.1)
+    assert sustain({"LifePerSecondCost": 700, "LifeLeechRate": 310, "LifeRegenRecovery": 40})[0] == pytest.approx(0.5)
+    assert sustain({})[0] == 1.0
+    objective = Objective(context(main_skill="Ice Nova", floors={"resists": {}}))
+    labels = [label for label, _, _ in objective.deficits({"ManaPerSecondCost": 1000, "ManaRegenRecovery": 40})]
+    assert "Skill cost sustain: Mana" in labels

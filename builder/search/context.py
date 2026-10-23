@@ -52,14 +52,25 @@ class ItemOption:
     price: float | None  # divine; None in SSF, where prices don't apply
     confidence: str  # price confidence: high / medium / low, "found" for normal bases, "ssf"
     level: int
+    rare: bool = False
+    affixes: tuple[str, ...] = ()  # a rare's modifier lines
+    runes: tuple[str, ...] = ()  # what's in its sockets
 
     def describe(self) -> dict:
-        return {"name": self.name, "base": self.base, "type": self.type, "unique": self.unique,
-                "price": self.price, "confidence": self.confidence}
+        return {"name": self.name, "base": self.base, "type": self.type, "unique": self.unique, "rare": self.rare,
+                "price": self.price, "confidence": self.confidence, "affixes": list(self.affixes),
+                "runes": list(self.runes)}
 
 
 def normal_item(base: dict) -> str:
-    return f"Rarity: Normal\n{base['name']}"
+    """A normal (white) base, with its implicit: PoB doesn't add implicits by itself."""
+    implicit = base.get("implicit")
+    if not implicit:
+        return f"Rarity: Normal\n{base['name']}"
+    lines = [re.sub(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)",
+                    lambda m: str(int(round((float(m.group(1)) + float(m.group(2))) / 2))) if "." not in m.group(0)
+                    else f"{(float(m.group(1)) + float(m.group(2))) / 2:.1f}", line) for line in implicit.splitlines()]
+    return "\n".join([f"Rarity: Normal", base["name"], f"Implicits: {len(lines)}", *lines])
 
 
 class Context:
@@ -69,6 +80,7 @@ class Context:
         self.data = GameData()
         self.unique_prices: dict[str, list] = payload.get("unique_prices") or {}
         self.gem_prices: dict[str, float] = payload.get("gem_prices") or {}
+        self.augment_prices: dict[str, float] = payload.get("augment_prices") or {}
 
     @cached_property
     def compiled(self) -> CompiledRequest:
@@ -289,6 +301,7 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
     builder.data.prices.PriceTable, or None when there's no price data)."""
     unique_prices: dict[str, list] = {}
     gem_prices: dict[str, float] = {}
+    augment_prices: dict[str, float] = {}
     if prices is not None:
         for name in prices.uniques:
             price = prices.unique(name)
@@ -297,9 +310,12 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         for name, price in prices.exchange.items():
             if price.category == "LineageSupportGems":
                 gem_prices[name] = price.divine
+            elif price.category in ("Runes", "SoulCores", "Idols"):
+                augment_prices[name] = price.divine
     return {
         "request": request.model_dump(mode="json"),
         "unique_prices": unique_prices,
         "gem_prices": gem_prices,
+        "augment_prices": augment_prices,
         "league": getattr(prices, "league", None),
     }

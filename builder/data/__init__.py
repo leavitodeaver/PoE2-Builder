@@ -115,7 +115,7 @@ class GameData:
         return sorted(a for names in self.classes.values() for a in names)
 
     def nodes_of_type(self, node_type: str) -> list[str]:
-        return sorted({n["name"] for n in self.tree["nodes"] if n["type"] == node_type and n["name"] and not n["ascendancy"]})
+        return sorted({n["name"] for n in self.tree["nodes"] if n["type"] == node_type and n.get("name") and not n.get("ascendancy")})
 
     @cached_property
     def keystones(self) -> list[str]:
