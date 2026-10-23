@@ -20,7 +20,7 @@ from builder.search.conditions import Conditions
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
 from builder.search.gear import Gear, SlotSpec
 from builder.search.gems import Gems
-from builder.search.objective import Objective, main_dps
+from builder.search.objective import Objective, main_dps, shortfall
 from builder.search.skeletons import Skeleton
 from builder.search.state import EPSILON, Build
 from builder.search.tree import Tree
@@ -48,6 +48,7 @@ class Search:
         self.problems: list[str] = []
         self.kicks = 0
         self.kicks_kept = 0
+        self.escalations = 0
         self.timing: dict[str, list[float]] = {}  # phase -> [seconds, evaluations, gain]
         self.passes = 0
         self.kicked: set[str] = set()  # blocks a kick disturbed, swept fully on the next pass
@@ -80,6 +81,7 @@ class Search:
             "xml": snap["xml"], "equipped": snap["equipped"], "locked": sorted(self.build.locked_slots),
             "required": sorted(self.tree.required), "active": self.conditions.active,
             "shortlist": self.gems.shortlist, "gear_shortlist": self.gear.shortlist, "attribute": self.tree.attribute,
+            "multipliers": dict(self.build.objective.multipliers),
             "problems": self.problems,
         }
 
@@ -87,6 +89,7 @@ class Search:
         self.build.call("loadXml", xml=state["xml"])
         self.build.equipped = dict(state["equipped"])
         self.build.locked_slots = set(state["locked"])
+        self.build.objective.multipliers = dict(state.get("multipliers") or {})
         self.build.refresh()
         self.tree.required = set(state["required"])
         self.tree.attribute = state["attribute"]
@@ -152,13 +155,34 @@ class Search:
             self.gems.shortlist = None  # force a full sweep afterwards
 
     def run(self, deadline: float) -> None:
-        """Block coordinate ascent until nothing improves, then kick; keep the best build seen."""
+        """Block coordinate ascent until nothing improves, then kick; keep the best build seen.
+
+        Requirements come first: after any pass that ends with a requirement still short and no
+        closer than the pass before, its weight goes up (Objective.escalate); on the second raise
+        the passive tree is cleared and regrown under the new weights, since a tree grown for damage
+        rarely walks over to, say, the Mana nodes one swap at a time."""
         best = None
+        last_short = float("inf")
         while time.perf_counter() < deadline:
-            if self.blocks(deadline):
-                continue
+            improved = self.blocks(deadline)
             if time.perf_counter() >= deadline:
                 break
+            objective = self.build.objective
+            short = shortfall([{"amount": a, "hard": h} for _, a, h in objective.deficits(self.build.stats)])
+            if short > 0 and short >= last_short - 1e-4 and objective.escalate(self.build.stats):
+                self.escalations += 1
+                self.build.phase = "requirements"
+                self.build.refresh()
+                if best is not None:
+                    best["score"] = objective.score(best["stats"])
+                if self.escalations == 2:
+                    self.tree.reset()
+                self.kicked.update({"gear", "supports"})
+                last_short = short
+                continue
+            last_short = short
+            if improved:
+                continue
             if best is None or self.build.score > best["score"] + EPSILON:
                 if best is not None:
                     self.kicks_kept += 1
@@ -181,6 +205,7 @@ class Search:
                          for label, amount, hard in build.objective.deficits(build.stats)],
             "evals": build.evals, "commits": build.commits, "seconds": time.perf_counter() - build.started,
             "kicks": self.kicks, "kicks_kept": self.kicks_kept, "problems": self.problems, "reverts": build.reverts,
+            "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
             "timing": {k: {"seconds": round(v[0], 2), "evals": v[1], "gain": round(v[2], 4)} for k, v in self.timing.items()},
         }
 

@@ -85,9 +85,10 @@ def weapon_archetypes(ctx: Context, skill: str) -> tuple[list[tuple[str | None, 
         if offhand_choice == Offhand.NONE:
             archetypes.append((weapon, sub, None))
         elif offhand_choice == Offhand.ANY:
-            preferred = ["Shield", "Focus"] if attack else ["Focus", "Shield"]
-            offhand = next((o for o in preferred if o not in forbidden), None)
-            archetypes.append((weapon, sub, offhand))
+            # Shield and Focus both get a skeleton: which pays more (block and armour, or a
+            # focus's mana and energy shield) depends on the request
+            offhands = [o for o in ("Shield", "Focus") if o not in forbidden] or [None]
+            archetypes += [(weapon, sub, offhand) for offhand in offhands]
         elif offhand_choice in (Offhand.SHIELD, Offhand.FOCUS):
             name = "Shield" if offhand_choice == Offhand.SHIELD else "Focus"
             if name not in forbidden:

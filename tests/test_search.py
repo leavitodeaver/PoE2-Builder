@@ -128,6 +128,24 @@ def test_full_dps_leaves_out_damage_that_needs_enemies_to_die():
     assert "Contagion" not in objective.on_death  # its damage hits the target; only the spread needs a death
 
 
+def test_requirements_still_short_weigh_more_until_the_cap():
+    from builder.search.objective import MAX_MULTIPLIER, rank_key
+
+    ctx = context(main_skill="Ice Shot", floors={"mana": 4000, "resists": {}})
+    objective = Objective(ctx)
+    short = {"CombinedDPS": 60000, "Mana": 2000}
+    before = objective.score(short)
+    assert objective.escalate(short) and objective.multipliers["Mana"] > 1
+    assert objective.score(short) < before
+    while objective.escalate(short):
+        pass
+    assert objective.multipliers["Mana"] == MAX_MULTIPLIER
+    # Ranking across searches ignores their weights: smaller shortfall first, then damage
+    closer = {"deficits": [{"label": "Mana", "amount": 0.1, "hard": False}], "dps": 5000}
+    farther = {"deficits": [{"label": "Mana", "amount": 0.5, "hard": False}], "dps": 60000}
+    assert rank_key(closer) < rank_key(farther)
+
+
 def test_objective_never_reads_total_ehp():
     ctx = context(main_skill="Ice Shot")
     assert "TotalEHP" not in Objective(ctx).fields

@@ -15,6 +15,10 @@ uv run python scripts/fetch_pob.py
 
 ## Use
 
+Double-click **`PoE2 Builder.bat`** in the project folder: it starts the local server and opens
+the page in your browser (keep its window open while you use it; close it to stop). From a
+terminal:
+
 ```
 uv run python -m builder.data dump     # export game data from the pinned PoB (after setup or a pin change)
 uv run python -m builder.data prices   # refresh the poe.ninja price cache

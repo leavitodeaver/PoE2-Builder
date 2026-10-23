@@ -23,6 +23,11 @@ HARD_WEIGHT = 15.0
 # DPS, e^8 about 3000x); the weights above still steer toward the smallest shortfall
 FLOOR_OFFSET = 3.0
 HARD_OFFSET = 8.0
+# When a search settles with a requirement still short, that requirement's weight is multiplied
+# by ESCALATION (up to MAX_MULTIPLIER) and the search goes on: a big gap (2,000 Mana) can need
+# several moves that each lose DPS before the floor is met, which a fixed weight never pays for.
+ESCALATION = 4.0
+MAX_MULTIPLIER = 64.0
 MAIN_DPS_FIELDS = ["CombinedDPS", "Minion.CombinedDPS"]
 BASE_FIELDS = [
     "FullDPS", *MAIN_DPS_FIELDS, "Life", "EnergyShield", "Mana", "Armour", "Evasion", "Spirit",
@@ -57,9 +62,10 @@ def main_dps(stats: dict) -> float:
 
 
 class Objective:
-    def __init__(self, ctx: Context, full: bool = False) -> None:
+    def __init__(self, ctx: Context, full: bool = False, multipliers: dict[str, float] | None = None) -> None:
         self.ctx = ctx
         self.full = full
+        self.multipliers: dict[str, float] = dict(multipliers or {})  # requirement label -> weight factor
         self.penalties = ctx.compiled.penalties
         self.style = DefenceStyle(ctx.request.defence)
         fields = set(BASE_FIELDS) | set(COST_WARNINGS) | {p.stat for p in self.penalties}
@@ -119,12 +125,34 @@ class Objective:
 
     def penalty(self, stats: dict) -> float:
         deficits = self.deficits(stats)
-        total = sum((HARD_WEIGHT if hard else FLOOR_WEIGHT) * amount for _, amount, hard in deficits)
+        total = sum((HARD_WEIGHT if hard else FLOOR_WEIGHT) * self.multipliers.get(label, 1.0) * amount
+                    for label, amount, hard in deficits)
         if any(hard for _, _, hard in deficits):
             total += HARD_OFFSET
         if any(not hard for _, _, hard in deficits):
             total += FLOOR_OFFSET
         return total
 
+    def escalate(self, stats: dict) -> bool:
+        """Raise the weight of every requirement still short. False once all are at the cap."""
+        raised = False
+        for label, _, _ in self.deficits(stats):
+            current = self.multipliers.get(label, 1.0)
+            if current < MAX_MULTIPLIER:
+                self.multipliers[label] = min(current * ESCALATION, MAX_MULTIPLIER)
+                raised = True
+        return raised
+
     def score(self, stats: dict) -> float:
         return math.log1p(max(self.dps(stats), 0.0)) - self.penalty(stats)
+
+
+def shortfall(deficits: list[dict]) -> float:
+    """How far a result is from feasible, for ranking results whose scores used different weights:
+    game limits count ten times a request floor."""
+    return sum(d["amount"] * (10.0 if d["hard"] else 1.0) for d in deficits)
+
+
+def rank_key(result: dict) -> tuple[float, float]:
+    """Feasibility first (smallest shortfall), then damage."""
+    return round(shortfall(result["deficits"]), 6), -result["dps"]

@@ -9,7 +9,9 @@
         "python",
         "-m",
         "builder.web",
-        "--no-browser"
+        "--no-browser",
+        "--port",
+        "8765"
       ],
       "port": 8765
     },

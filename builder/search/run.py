@@ -20,6 +20,7 @@ from typing import Any
 from builder.pob.pool import EnginePool, WorkerError, default_workers
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
+from builder.search.objective import rank_key
 from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skeletons, weapon_archetypes
 
 FINALIZE_SHARE = 0.12
@@ -89,9 +90,9 @@ class Run:
                 continue
             self.evals_done += result.get("evals", 0)
             label = result["label"]
-            if label not in self.probes or result["score"] > self.probes[label]["score"]:
+            if label not in self.probes or rank_key(result) < rank_key(self.probes[label]):
                 self.probes[label] = result
-            if self.best is None or result["score"] > self.best["score"]:
+            if self.best is None or rank_key(result) < rank_key(self.best):
                 self.best = result
                 self.emit("best", skeleton=label, dps=result["dps"], score=result["score"],
                           deficits=[d["label"] for d in result["deficits"]])
@@ -178,11 +179,11 @@ class Run:
                     for i, s in enumerate(alive) for r in range(replicas)]
                 best_of: dict[str, dict] = {}
                 for result in self._record(self._tasks(pool, tasks)):
-                    if result["label"] not in best_of or result["score"] > best_of[result["label"]]["score"]:
+                    if result["label"] not in best_of or rank_key(result) < rank_key(best_of[result["label"]]):
                         best_of[result["label"]] = result
                 for result in best_of.values():
                     states[result["label"]] = result["state"]
-                ranked = sorted(best_of.values(), key=lambda r: -r["score"])
+                ranked = sorted(best_of.values(), key=rank_key)
                 for r in ranked:
                     self.emit("probe", skeleton=r["label"], dps=r["dps"], score=r["score"],
                               deficits=[d["label"] for d in r["deficits"]])
@@ -237,7 +238,7 @@ class Run:
             "workers": self.workers,
             "probes": sorted(({"skeleton": label, "dps": r["dps"], "score": r["score"],
                                "deficits": [d["label"] for d in r["deficits"]]}
-                              for label, r in self.probes.items()), key=lambda p: -p["score"]),
+                              for label, r in self.probes.items()), key=lambda p: (len(p["deficits"]) > 0, -p["dps"])),
         }
 
     def result_invalid(self) -> dict:
@@ -288,7 +289,8 @@ class Run:
             "stats": facts["stats"], "checks": checks, "code": final["code"], "verified": final["verified"],
             "gear": final["gear"], "spent": spent, "groups": final["groups"], "conditions": final["conditions"],
             "quests": final["quests"], "warnings": facts["warnings"], "skeleton_problems": problems,
-            "timing": final.get("timing"),
+            "timing": final.get("timing"), "escalations": final.get("escalations"),
+            "requirement_weights": final.get("multipliers"),
         })
         return result
 
@@ -301,7 +303,8 @@ def relaxations(failing: list[dict]) -> list[str]:
         if label == "DPS gate":
             hints.append(f"lower the DPS gate to {delivered} (rares arrive in Phase 3)")
         elif check["requested"].startswith("≥"):
-            hints.append(f"lower the {label.lower()} floor to {delivered}")
+            hints.append(f"lower the {label.lower()} floor to {delivered}, the most found while meeting the other "
+                         "requirements with uniques and passives (rare gear, Phase 3, can add more)")
         elif label == "Buttons":
             hints.append(f"allow {delivered.split()[0]} buttons")
         elif label == "Budget":

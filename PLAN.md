@@ -289,7 +289,7 @@ reviewed_for: "0.5.5"
 |---|---|---|
 | **0. Cleanup + engine spike** ✅ 2026-10-22 | Deleted `target*`, `dist`, stray `--help` (~262 GB freed); old source/docs in `legacy/`; `git init`; PoB2 dev pinned; headless boot on PoB's LuaJIT; bridge; test builds; gates; worker pool; release cross-check tool | Gates 1–3 pass on 4 generated builds and 5 of the user's builds; the release reproduces the PoB app's numbers exactly on all 5; ~3,200 what-ifs/s measured |
 | **1. Data, requests, UI shell** ✅ 2026-10-22 | Data dump (`python -m builder.data dump`); poe.ninja price feed; request schema + constraint compiler with tests; local web page (`python -m builder.web`): request form, saved requests, paste a code or share link → stats + Requested vs Delivered | Done. The progress stream moves to Phase 2 with the optimizer it reports on |
-| **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×4.6, Boneshatter Titan ×4.0, Raise Zombie Infernalist ×10.5 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-004851.json`), all feasible, code verified, independent recheck agrees. Gate 5: 20/20 random requests over two seeds. Gates 1–3 still pass, fidelity exact on the release |
+| **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×8.5, Boneshatter Titan ×3.6, Raise Zombie Infernalist ×9.7 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-023030.json`), all feasible, code verified, independent recheck agrees. Gate 5: 30/30 random requests over three seeds. Gates 1–3 still pass, fidelity exact on the release |
 | **3. Rares, budget, sockets** | Rare templates; price model + trade calibration; λ budget allocation; runes/idols/soul cores/augments; jewels; flasks/charms | Gate 4 on the reference set |
 | **4. Ledger + exploits** | Ledger schema and injection; asterisk reporting; approval queue; calibration form; first research pass for 0.5.x | Asterisked results; at least one exploit that works on the current patch modeled end to end |
 | **5. Results polish** | Requested vs Delivered; shopping list + trade links; test-in-game checklist; saved history | Gate 6 |
@@ -330,8 +330,16 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   costs; PoB only warns ("not enough Life to use ..."). The bridge reports PoB's cost-warning
   lists as counts and the score treats each as a hard deficit.
 - **Feasibility comes first.** The score is log DPS minus weighted deficits plus a fixed cost for
-  being short at all (3 for request floors, 8 for game limits: attributes, Spirit), so no amount of
-  damage buys an infeasible build, while the weights still steer toward the smallest shortfall.
+  being short at all (3 for request floors, 8 for game limits: attributes, Spirit). Fixed weights
+  weren't enough: in the user's first test (Gemling, Glacial Lance, MoM, pure Armour, 75% all
+  resistances incl. chaos, 4,000 Mana) the search stopped at 1,758–2,165 Mana, because closing a
+  big gap takes several moves that each lose a lot of DPS. Now a requirement still short after a
+  pass, and no closer than before, gets its weight ×4 (up to ×64); on the second raise the tree is
+  cleared and regrown; results are ranked by shortfall first, then DPS. That run then reached 3,560
+  Mana with everything else met (with a Focus; 1H weapons now get Shield and Focus skeletons). Experiments put the ceiling there: ~2,900–3,100 Mana with the
+  other requirements held (4,777 with Mana alone), so the request needs rare gear (Phase 3). The
+  cost of a hard floor that can't be met is damage: the closest build had 8.5k DPS. The relaxation
+  hint says so.
 - **Where the time goes** (one worker, ~250 what-ifs/s): full support sweeps (5 slots × ~250
   candidates), full gear sweeps (~350 items) and ascendancy enumeration are the expensive blocks,
   so they run every third pass or after a kick that touched them; passes in between rescore

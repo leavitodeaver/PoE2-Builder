@@ -62,7 +62,8 @@ local function jsonNumber(value)
 end
 
 local function pickStats(output, fields)
-	local picked = { }
+	-- An object even when empty (dkjson would otherwise encode {} as an array)
+	local picked = setmetatable({ }, { __jsontype = "object" })
 	for _, field in ipairs(fields or DEFAULT_FIELDS) do
 		local value = output
 		for part in field:gmatch("[^%.]+") do

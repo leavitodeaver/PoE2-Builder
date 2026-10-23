@@ -254,6 +254,17 @@ class Tree:
         self.round += 1
         self.allocations_since_full = FULL_EVERY
 
+    def reset(self) -> None:
+        """Clear every passive that can go (required ones and their paths stay), to regrow."""
+        while True:
+            branches = self.branches()
+            if not branches:
+                break
+            self.build.allocate(remove=sorted(max(branches, key=len)))
+        self.round += 1
+        self.candidates.clear()
+        self.allocations_since_full = FULL_EVERY
+
     def kick(self, size: int) -> None:
         """Remove random branches worth about `size` points (iterated local search)."""
         removed = 0
