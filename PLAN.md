@@ -228,7 +228,7 @@ when:                    # predicate over the build
 effect:
   inject_mods: ["..."]   # PoB custom-modifier lines, so it interacts with the rest of the math
   # or: set_config / dps_multiplier / extra_damage_source / ban / discount
-confidence: verified_by_you   # verified_by_you | community_confirmed | reported | theory
+confidence: verified_by_you   # verified_by_you | datamined (game files) | community_confirmed | reported | theory
 sources: ["user, 2026-10-22: removed in 0.5.5"]
 test_in_game: "Equip X in weapon set 2, swap to set 1, check the buff icon persists."
 status: retired          # proposed | approved | rejected | retired
@@ -246,6 +246,22 @@ reviewed_for: "0.5.5"
   notes, PoB2 bug reports and changelog, and community exploit threads. It writes proposed entries
   into `ledger/proposed/` and re-reviews existing entries, proposing to retire ones a patch fixed.
   You approve or reject each one in the web page's queue.
+
+**As built (Phase 4, first pass).** Entries are `ledger/entries/*.yaml` lists. A `pob_gap` entry
+has a regex `match` on a line PoB ignores and `replace` lines PoB parses (`{1}` = group 1,
+`{g1*0.9}` = arithmetic, rounded; a unique's rolled range stays a range). On passives the bridge
+adds the parsed modifiers to the tree node (and re-adds them whenever PoB re-parses an
+ascendancy node); on uniques the lines are added to the item text with the original line's
+variant tags. `flag:Name` / `if:Name <line>` make a correction conditional: a passive switches
+Name on, or a `condition` entry names the skills that do (e.g. a skill that requires Glory). Every
+correction a build uses is listed in its result with the entry's confidence; uncorrected ignored
+lines are listed as "not modeled".
+
+Still needing a custom model rather than a modifier line (research in
+`ledger/entries/pob-gaps-boss.yaml` sources): Archon buffs (Elemental Archon and the nodes that
+extend it), Meta-skill Energy gain (Cast on Critical, Invocations), Invoker's Elemental
+Expression, Acolyte's Darkness pool, Pathfinder's attribute-node damage choice, Blood Mage's
+Sanguine Tides, Thorns on melee hit, Endurance-charge consumption, Empowered-attack extra damage.
 
 ## 7. Data and prices
 
@@ -291,7 +307,7 @@ reviewed_for: "0.5.5"
 | **1. Data, requests, UI shell** ✅ 2026-10-22 | Data dump (`python -m builder.data dump`); poe.ninja price feed; request schema + constraint compiler with tests; local web page (`python -m builder.web`): request form, saved requests, paste a code or share link → stats + Requested vs Delivered | Done. The progress stream moves to Phase 2 with the optimizer it reports on |
 | **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×8.5, Boneshatter Titan ×3.6, Raise Zombie Infernalist ×9.7 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-023030.json`), all feasible, code verified, independent recheck agrees. Gate 5: 30/30 random requests over three seeds. Gates 1–3 still pass, fidelity exact on the release |
 | **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; uncalibrated rare price estimate; λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets). Not yet: trade-API price calibration, flasks/charms, radius/Time-Lost jewels, corruption/desecration | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled. The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
-| **4. Ledger + exploits** | Ledger schema and injection; asterisk reporting; approval queue; calibration form; first research pass for 0.5.x | Asterisked results; at least one exploit that works on the current patch modeled end to end |
+| **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all). Not yet: approval queue, calibration form, exploits, custom models (below) | Asterisked results; at least one exploit that works on the current patch modeled end to end |
 | **5. Results polish** | Requested vs Delivered; shopping list + trade links; test-in-game checklist; saved history | Gate 6 |
 | **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research | All gates green on 1.0 data |
 

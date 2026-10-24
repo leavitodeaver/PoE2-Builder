@@ -8,12 +8,24 @@ modifier text PoB does calculate:
     kind: pob_gap
     match: '^(\\d+)% increased Cast Speed for each different Spell'   # regex on the ignored line
     replace: ['{1}% increased Cast Speed']                            # {n} = the match's groups
-    confidence: community_confirmed      # verified_by_you | community_confirmed | reported | theory
+    confidence: community_confirmed      # verified_by_you | datamined | community_confirmed | reported | theory
     sources: ["..."]
     status: proposed                     # proposed | approved | rejected | retired
 
-Numbers in `replace` may be arithmetic on groups g1, g2, ..., e.g. '{g1*3}'. Only proposed and approved entries
-apply; every number they touch is shown with an asterisk and the entry's confidence.
+Numbers in `replace` may be arithmetic on groups g1, g2, ..., e.g. '{g1*3}', and are rounded to whole numbers
+(PoB's parser reads whole percentages). A unique's rolled range like '(15-30)' is computed at both ends and
+stays a range. Only proposed and approved entries apply; every number they touch is shown with an asterisk
+and the entry's confidence.
+
+Corrections that only hold together with something else use conditions:
+    flag:Witchbane                 # this passive switches on condition "Witchbane"
+    if:Witchbane 36% more Damage   # this line only counts while "Witchbane" is on
+A condition is switched on by a passive's `flag:` line or by a `condition` entry naming the skills
+that provide it (`skills`: regex on active skill and support gem names; `skill_text`: regex on
+active skills' gem descriptions). Conditional lines apply to passives only, not to uniques.
+
+A `pob_wrong` entry is for a unique line PoB does calculate, but wrongly: the line is replaced in
+the item's text by the entry's single replacement line.
 
 `gap lists` come from PoB itself (bridge `auditUnsupported`, saved by the data dump as gaps.json):
 every passive and unique line its parser doesn't understand.
@@ -34,6 +46,8 @@ from builder import ROOT
 ENTRY_DIR = ROOT / "ledger" / "entries"
 ACTIVE = {"proposed", "approved"}
 TEMPLATE = re.compile(r"\{([^{}]+)\}")
+RANGE = re.compile(r"^\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)$")
+SYNTAX = re.compile(r"^(flag|if):(\w+)\s*(.*)$")
 
 
 @dataclass(frozen=True)
@@ -55,20 +69,32 @@ class Entry:
         match = self.pattern.search(line)
         if not match:
             return None
-        groups = {str(i): float(g) for i, g in enumerate(match.groups(), start=1) if g and _number(g)}
+        groups: dict[str, tuple[float, float]] = {}
+        for i, g in enumerate(match.groups(), start=1):
+            if g and _number(g):
+                groups[str(i)] = (float(g), float(g))
+            elif g and (r := RANGE.match(g)):
+                groups[str(i)] = (float(r.group(1)), float(r.group(2)))
 
         def fill(m: re.Match) -> str:
             expression = m.group(1).strip()
             if expression in groups:  # {1}: the first group as matched
-                expression = repr(groups[expression])
-            else:  # {g1*2}: arithmetic on groups g1, g2, ...
-                expression = re.sub(r"\bg(\d+)\b", lambda g: repr(groups.get(g.group(1), float("nan"))), expression)
-            if not re.fullmatch(r"[\d.+\-*/() ]+", expression):
+                expression = f"g{expression}"
+            if not re.fullmatch(r"[\dg.+\-*/() ]+", expression):
                 return m.group(0)
-            value = eval(expression, {"__builtins__": {}})  # arithmetic only, checked above
-            return str(int(round(value))) if abs(value - round(value)) < 1e-9 else f"{value:.2f}".rstrip("0")
+            values = []
+            for end in (0, 1):  # {g1*2}: arithmetic on groups g1, g2, ..., at both ends of a rolled range
+                arithmetic = re.sub(r"\bg(\d+)\b", lambda g: repr(groups.get(g.group(1), (float("nan"),) * 2)[end]),
+                                    expression)
+                values.append(eval(arithmetic, {"__builtins__": {}}))  # arithmetic only, checked above
+            low, high = (int(round(v)) for v in values)
+            return str(low) if low == high else f"({low}-{high})"
 
         return [TEMPLATE.sub(fill, template) for template in self.replace]
+
+    @property
+    def conditional(self) -> bool:
+        return any(SYNTAX.match(line) for line in self.replace)
 
 
 def _number(text: str) -> bool:
@@ -104,6 +130,31 @@ def translate(line: str) -> tuple[Entry, list[str]] | None:
             if lines is not None:
                 return entry, lines
     return None
+
+
+def wrong(line: str) -> tuple[Entry, str] | None:
+    """A `pob_wrong` entry for a unique line PoB parses but calculates wrongly, with the one line
+    that replaces it."""
+    for entry in entries():
+        if entry.kind == "pob_wrong":
+            lines = entry.translate(line)
+            if lines:
+                return entry, lines[0]
+    return None
+
+
+def conditions() -> list[dict]:
+    """`condition` entries: which skills switch a ledger condition on."""
+    return [e.raw for e in entries() if e.kind == "condition"]
+
+
+def readable(line: str) -> str:
+    """A correction line as the result shows it."""
+    m = SYNTAX.match(line)
+    if not m:
+        return line
+    kind, name, rest = m.groups()
+    return f"enables {name}" if kind == "flag" else f"{rest} (with {name})"
 
 
 def gap_list(data_dir: Path) -> dict:

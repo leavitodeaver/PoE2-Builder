@@ -308,14 +308,15 @@ class Run:
 
 def annotate_blind_spots(lines: list[dict]) -> list[dict]:
     """Mark the ignored lines a ledger entry stands in for."""
-    from builder.ledger import translate
+    from builder.ledger import readable, translate
 
     annotated = []
     for line in lines:
         translated = translate(line["line"])
-        if translated:
+        if translated and not (translated[0].conditional and not line["source"].startswith("passive:")):
             entry, replacement = translated
-            line = {**line, "corrected_by": entry.id, "as": replacement, "confidence": entry.confidence}
+            line = {**line, "corrected_by": entry.id, "as": [readable(r) for r in replacement],
+                    "confidence": entry.confidence}
         annotated.append(line)
     return annotated
 

@@ -1,0 +1,380 @@
+# Mechanics Path of Building ignores, as their effect on a sustained single-target boss fight.
+# Research (2026-10, PoE2 0.5.x): exact texts and numbers from poe2db.tw (datamined from the
+# game files); boss behaviour from community guides. Uptimes that depend on how a fight goes are
+# fixed assumptions stated in `notes`, labelled `theory`. Every corrected number in a result is
+# shown with an asterisk and this confidence.
+#
+# Unique lines appear with their roll range in PoB's data ("(15-30)%") and rolled on an equipped
+# item ("22%"), so unique patterns accept both.
+
+# Conditions switched on by the build's skills ----------------------------------------------------
+
+- id: GlorySkill
+  title: Uses a skill that requires Glory
+  kind: condition
+  skill_text: '\bGlory\b'
+  confidence: datamined
+  sources: ["Glory skills' gem descriptions (Hammer of the Gods, Spear of Solaris, Banners, Ancestral Cry ...)"]
+  status: approved
+
+- id: SpellEcho
+  title: Uses Spell Echo
+  kind: condition
+  skills: '^Spell Echo'
+  confidence: datamined
+  sources: ["Support gem name"]
+  status: approved
+
+- id: JaggedGround
+  title: Creates Jagged Ground
+  kind: condition
+  skills: 'Jagged Ground'
+  skill_text: 'Jagged Ground'
+  confidence: reported
+  sources: ["https://poe2db.tw/us/Jagged_Ground (Earthquake, Jagged Ground I, Stampede, Furious Slam)"]
+  status: approved
+
+# Witchhunter: Witchbane and No Mercy -----------------------------------------------------------
+
+- id: witchbane-concentration
+  title: Witchbane gives enemies Concentration (needed by No Mercy)
+  kind: pob_gap
+  match: '^Enemies have Maximum Concentration equal to \d+% of their Maximum Life$'
+  replace: ['flag:Witchbane']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Witchbane", "https://poe2db.tw/Concentration"]
+  status: approved
+
+- id: witchbane-rest
+  title: Witchbane's Concentration break and regain (part of No Mercy's model)
+  kind: pob_gap
+  match: '^(Break enemy Concentration on Hit equal to \d+% of Damage Dealt|Enemies regain \d+% of Concentration every second.*)$'
+  replace: []
+  confidence: datamined
+  sources: ["https://poe2db.tw/Witchbane"]
+  status: approved
+
+- id: no-mercy
+  title: No Mercy, more damage by missing Concentration
+  kind: pob_gap
+  match: '^Deal up to (\d+)% more Damage to Enemies based on their missing Concentration$'
+  replace: ['if:Witchbane {g1*0.9}% more Damage']
+  confidence: reported
+  notes: >-
+    Concentration is 30% of the boss's life and only regenerates after 5 s without Hits, so after
+    the first 30% of its life the bonus is at its maximum. Averaged over a long fight about 90% of
+    the maximum. Needs Witchbane for enemies to have Concentration at all.
+  sources: ["https://poe2db.tw/No_Mercy", "https://poe2db.tw/Witchbane",
+            "https://pcgamer.com/games/rpg/path-of-exile-2-mercenary-build"]
+  status: proposed
+
+# Lines with no effect on a single boss ----------------------------------------------------------
+
+- id: no-effect-blood-boils
+  title: Corrupted Lifeforce, more damage against Boils (non-Unique enemies only)
+  kind: pob_gap
+  match: '^\d+% more Damage against Enemies affected by Blood Boils$'
+  replace: []
+  confidence: community_confirmed
+  sources: ["https://poe2db.tw/Blood_Boil (Boils apply only to non-Unique enemies)",
+            "https://maxroll.gg/poe2/resources/ritualist-ascendancy-overview"]
+  status: approved
+
+- id: no-effect-fork-projectile
+  title: Additional projectile when forking (forks can't hit the same target again)
+  kind: pob_gap
+  match: 'chance for an additional Projectile when Forking$'
+  replace: []
+  confidence: community_confirmed
+  sources: ["https://poe2db.tw/us/Fork", "https://www.poe2wiki.net/wiki/Forking"]
+  status: approved
+
+- id: no-effect-splash
+  title: Splash damage (hits other enemies, not the one struck)
+  kind: pob_gap
+  match: '^(Strikes deal Splash Damage|Strike Skills you use yourself with Maces have \d+% chance to deal Splash Damage)$'
+  replace: []
+  confidence: community_confirmed
+  sources: ["https://poe2db.tw/Splash_Damage", "https://poe2db.tw/Split_the_Earth"]
+  status: approved
+
+- id: no-effect-run-and-gun
+  title: Run and Gun extra projectiles while moving (one target can't be hit twice by most skills)
+  kind: pob_gap
+  match: '^Projectile Attacks have a \d+% chance to fire two additional Projectiles while moving$'
+  replace: []
+  confidence: reported
+  sources: ["https://poe2db.tw/Run_and_Gun", "https://www.poe2wiki.net/wiki/Projectile_behaviour"]
+  status: approved
+
+- id: no-effect-extra-combo
+  title: Chance to build additional Combo (only speeds up Combo; consumers are calculated separately)
+  kind: pob_gap
+  match: '^\d+% Chance to build an additional Combo on Hit$'
+  replace: []
+  confidence: reported
+  sources: ["https://poe2db.tw/Chakra_of_Rhythm", "https://poe2db.tw/us/Combo"]
+  status: approved
+
+- id: no-effect-presence-aggravate
+  title: Aggravate Bleeding when enemies enter your Presence (a boss enters once, before it bleeds)
+  kind: pob_gap
+  match: '^Aggravate Bleeding on Enemies when they Enter your Presence$'
+  replace: []
+  confidence: reported
+  sources: ["https://poe2db.tw/us/Aggravated_Bleeding"]
+  status: approved
+
+- id: no-effect-adapt
+  title: Reactive Growth's adaptation rule (modeled by its damage-taken line)
+  kind: pob_gap
+  match: '^Adapt to the highest Elemental Damage Type of each Hit you take$'
+  replace: []
+  confidence: datamined
+  sources: ["https://poe2db.tw/Reactive_Growth"]
+  status: approved
+
+- id: no-effect-alternating-header
+  title: '"Alternating every 5 seconds:" (the lines under it are corrected individually)'
+  kind: pob_gap
+  match: '^Alternating every \d+ seconds:$'
+  replace: []
+  confidence: datamined
+  sources: ["https://poe2db.tw/Keeper_of_the_Arc"]
+  status: approved
+
+# Defences --------------------------------------------------------------------------------------
+
+- id: unlucky-enemy-damage
+  title: Damage of enemies hitting you is Unlucky
+  kind: pob_gap
+  match: '^Damage of Enemies Hitting you is Unlucky$'
+  replace: ['8% less Damage taken from Hits']
+  confidence: theory
+  notes: >-
+    Unlucky rolls twice and keeps the lower: the average falls by (max-min)/(3*(max+min)), 6.7% for
+    a +-20% damage spread and 10% for +-30%. Boss spreads aren't published; 8% assumed.
+  sources: ["https://poe2db.tw/us/Oracle", "https://poe2db.tw/Unlucky"]
+  status: proposed
+
+- id: unlucky-enemy-damage-chance
+  title: Chance for damage of enemies hitting you to be Unlucky
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% chance for Damage of Enemies Hitting you to be Unlucky$'
+  replace: ['{g1*0.08}% less Damage taken from Hits']
+  confidence: theory
+  notes: "Chance x the 8% assumed for always Unlucky."
+  sources: ["https://poe2db.tw/Unlucky"]
+  status: proposed
+
+- id: unlucky-enemy-damage-low-life
+  title: Damage of enemies hitting you is Unlucky on Low Life
+  kind: pob_gap
+  match: '^Damage of Enemies Hitting you is Unlucky while you are on Low Life$'
+  replace: ['8% less Damage taken from Hits while on Low Life']
+  confidence: theory
+  sources: ["https://poe2db.tw/Unlucky"]
+  status: proposed
+
+- id: unlucky-enemy-physical
+  title: Physical damage of enemies hitting you is Unlucky
+  kind: pob_gap
+  match: '^Physical Damage of Enemies Hitting you is Unlucky$'
+  replace: ['8% less Physical Damage taken from Hits']
+  confidence: theory
+  sources: ["https://poe2db.tw/Unlucky"]
+  status: proposed
+
+- id: unlucky-enemy-lightning
+  title: Lightning damage of enemies hitting you is Unlucky
+  kind: pob_gap
+  match: '^Lightning Damage of Enemies Hitting you is Unlucky$'
+  replace: ['8% less Lightning Damage taken']
+  confidence: theory
+  notes: "PoB has no 'Lightning damage taken from Hits'; lightning damage over time is rare."
+  sources: ["https://poe2db.tw/The_Burrower", "https://poe2db.tw/Unlucky"]
+  status: proposed
+
+- id: reactive-growth
+  title: Reactive Growth, less damage taken per matching Adaptation
+  kind: pob_gap
+  match: '^(\d+)% less Damage taken of each Elemental Damage Type per matching Adaptation$'
+  replace: ['{1}% less Fire Damage taken', '{1}% less Cold Damage taken', '{1}% less Lightning Damage taken']
+  confidence: reported
+  notes: >-
+    Up to 3 Adaptations, gained from the element of each Hit taken. A boss that mostly uses one
+    element keeps all three on it (27% less); assumed one per element, as against a mixed boss.
+  sources: ["https://poe2db.tw/Reactive_Growth", "https://poe2db.tw/Adaptation"]
+  status: proposed
+
+- id: keeper-of-the-arc
+  title: Keeper of the Arc, alternating less damage from Hits
+  kind: pob_gap
+  match: '^Take (\d+)% less Damage from Hits$'
+  replace: ['{g1/2}% less Damage taken from Hits']
+  confidence: reported
+  notes: >-
+    The crown alternates every 5 s between less damage from Hits and less damage over time, so
+    Hits get the reduction half the time. Counted as the average; a single big hit may land in
+    the other phase.
+  sources: ["https://poe2db.tw/Keeper_of_the_Arc"]
+  status: proposed
+
+- id: adaptive-skin
+  title: Adaptive Skin, maximum resistance of elements you were hit by
+  kind: pob_gap
+  match: '^\+(\d+)% to Maximum Resistances of each Elemental Damage Type you have been Hit with Recently$'
+  replace: ['+{1}% to all Maximum Elemental Resistances']
+  confidence: reported
+  notes: "Assumes the boss has hit you with an element within 4 s before its biggest hit of that element."
+  sources: ["https://poe2db.tw/Adaptive_Skin"]
+  status: proposed
+
+# Damage ----------------------------------------------------------------------------------------
+
+- id: melting-flames
+  title: Melting Flames, Fire damage taken by enemies you've ignited
+  kind: pob_gap
+  match: '^Enemies Ignited by you permanently take \d+% increased Fire Damage for each second they have ever been Ignited by you, up to a maximum of (\d+)%$'
+  replace: ['Enemies Ignited by you take {1}% increased Fire Damage']
+  confidence: datamined
+  notes: "Permanent once earned; capped after 10 s of total Ignite on the boss."
+  sources: ["https://poe2db.tw/Melting_Flames"]
+  status: approved
+
+- id: lucky-spell-crits
+  title: Chance for spell critical hits to be Lucky
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% chance for Spell Damage with Critical Hits to be Lucky$'
+  replace: ['{g1*0.04}% more Spell Damage']
+  confidence: theory
+  notes: >-
+    Lucky keeps the better of two damage rolls: +(max-min)/(6*average), 6.7% for a +-20% spread.
+    Times the chance and an assumed 60% of hits being critical.
+  sources: ["https://poe2db.tw/us/Lucky"]
+  status: proposed
+
+- id: aggravate-bleed-on-hit
+  title: Chance to Aggravate Bleeding on hit
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% chance to Aggravate Bleeding on (?:targets you Hit with Attacks|Hit)$'
+  replace: ['{600*g1/(100+6*g1)}% more Damage with Bleeding']
+  confidence: theory
+  notes: >-
+    Aggravated Bleeding deals damage as if the target were moving (100% more). Share of bleed time
+    aggravated, for chance p at 2 hits per second on 5 s bleeds, is about 6p/(1+6p) (10% -> 38%).
+    Assumes a stationary boss; don't also set the enemy as moving.
+  sources: ["https://poe2db.tw/us/Aggravated_Bleeding", "https://poe2db.tw/us/Bleeding"]
+  status: proposed
+
+- id: aggravate-bleed-on-crit
+  title: Chance to Aggravate Bleeding on critical hit
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% chance to Aggravate Bleeding on targets you Critically Hit with Attacks$'
+  replace: ['{300*g1/(100+3*g1)}% more Damage with Bleeding']
+  confidence: theory
+  notes: "As the on-hit chance, with half of hits assumed critical."
+  sources: ["https://poe2db.tw/us/Aggravated_Bleeding"]
+  status: proposed
+
+- id: aggravate-bleed-always-on-crit
+  title: Aggravate Bleeding on critical hit
+  kind: pob_gap
+  match: '^Aggravate Bleeding on targets you Critically Hit with Attacks$'
+  replace: ['75% more Damage with Bleeding']
+  confidence: theory
+  notes: "As the on-hit chance with p = 50% (half of hits assumed critical)."
+  sources: ["https://poe2db.tw/us/Aggravated_Bleeding"]
+  status: proposed
+
+- id: aggravate-bleed-empowered
+  title: Chance to Aggravate Bleeding with Empowered attacks
+  kind: pob_gap
+  match: '^(\d+)% chance to Aggravate Bleeding on targets you Hit with Empowered Attacks$'
+  replace: ['{60*g1/(100+0.6*g1)}% more Damage with Bleeding']
+  confidence: theory
+  notes: "As the on-hit chance, with about 10% of attacks empowered against a single boss."
+  sources: ["https://poe2db.tw/us/Aggravated_Bleeding", "https://poe2db.tw/Empowered_Skills"]
+  status: proposed
+
+- id: aggravate-bleed-jagged-ground
+  title: Bleeding aggravated against enemies on Jagged Ground
+  kind: pob_gap
+  match: '^(\d+)% chance for Bleeding to be Aggravated when Inflicted against Enemies on Jagged Ground$'
+  replace: ['if:JaggedGround {g1*0.4}% more Damage with Bleeding']
+  confidence: theory
+  notes: "Each new bleed is aggravated with this chance while the boss stands on your Jagged Ground (40% of the time assumed)."
+  sources: ["https://poe2db.tw/us/Jagged_Ground", "https://poe2db.tw/us/Aggravated_Bleeding"]
+  status: proposed
+
+- id: spike-pit
+  title: Spike Pit, enemies in your Jagged Ground take more damage
+  kind: pob_gap
+  match: '^Enemies in Jagged Ground you create take (\d+)% increased Damage$'
+  replace: ['if:JaggedGround {g1*0.4}% more Damage']
+  confidence: theory
+  notes: "Bosses move; the boss assumed in your Jagged Ground 40% of the time."
+  sources: ["https://poe2db.tw/Spike_Pit", "https://poe2db.tw/us/Jagged_Ground"]
+  status: proposed
+
+- id: cast-speed-per-different-spell
+  title: Cast speed for each different spell cast in the last 8 seconds
+  kind: pob_gap
+  match: "^(\\d+)% increased Cast Speed for each different Spell you've Cast in the last eight seconds$"
+  replace: ['{1}% increased Cast Speed']
+  confidence: reported
+  notes: "Counts only the main spell; a rotation of several spells gets more."
+  sources: ["https://poe2db.tw/Casting_Cascade"]
+  status: approved
+
+- id: rhythm-of-ice
+  title: Rhythm of Ice, cast speed per spell echoed
+  kind: pob_gap
+  match: '^\d+% increased Cast Speed per Spell Echoed Recently, up to (\d+)%$'
+  replace: ['if:SpellEcho {1}% increased Cast Speed']
+  confidence: theory
+  notes: "'Echoed' read as repeated by Spell Echo; the cap is reached at 1.25 echoed casts per second."
+  sources: ["https://poe2db.tw/Rhythm_of_Ice", "https://poe2db.tw/Spell_Echo"]
+  status: proposed
+
+- id: escalation
+  title: Escalation, damage per different warcry used recently
+  kind: pob_gap
+  match: "^(\\d+)% increased Damage for each different Warcry you've used Recently$"
+  replace: ["{g1*0.5}% increased Damage if you've used a Warcry Recently"]
+  confidence: theory
+  notes: "One warcry on an 8 s cooldown counts within 4 s half of the time."
+  sources: ["https://poe2db.tw/Escalation", "https://poe2db.tw/us/Recently"]
+  status: proposed
+
+- id: call-upon-the-deep
+  title: Call Upon the Deep, penetration per Glory skill used
+  kind: pob_gap
+  match: "^Damage Penetrates (\\d+)% Elemental Resistances for each time you've used a Skill that Requires Glory in the past 6 seconds$"
+  replace: ['if:GlorySkill Damage Penetrates {1}% Elemental Resistances']
+  confidence: theory
+  notes: "One use of a Glory skill every 6 s assumed (a boss's Power of 20 refills Glory quickly)."
+  sources: ["https://poe2db.tw/Call_Upon_the_Deep", "https://poe2db.tw/Glory", "https://poe2db.tw/us/Monster_Power"]
+  status: proposed
+
+- id: thrill-of-the-fight
+  title: Thrill of the Fight, attack damage when consuming Glory
+  kind: pob_gap
+  match: '^Consuming Glory grants you \d+% increased Attack damage per Glory consumed for (\d+) seconds, up to (\d+)%$'
+  replace: ['if:GlorySkill {g2/2}% increased Attack Damage']
+  confidence: theory
+  notes: "One 20-Glory use reaches the cap; assumed one use per 12 s, so up half the time."
+  sources: ["https://poe2db.tw/Thrill_of_the_Fight", "https://poe2db.tw/Glory"]
+  status: proposed
+
+# Lines PoB calculates wrongly -------------------------------------------------------------------
+
+- id: keeper-of-the-arc-dot
+  title: Keeper of the Arc, alternating less damage over time (PoB counts it as always on)
+  kind: pob_wrong
+  match: '^Take (\d+)% less Damage over time$'
+  replace: ['{g1/2}% less Damage over Time taken']
+  confidence: datamined
+  notes: "The crown alternates every 5 s between this and less damage from Hits; counted as the average."
+  sources: ["https://poe2db.tw/Keeper_of_the_Arc"]
+  status: approved

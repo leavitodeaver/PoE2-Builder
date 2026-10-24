@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from builder.data import GameData
-from builder.ledger import gap_list, translate
+from builder.ledger import gap_list, translate, wrong
 from builder.request.constraints import CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
 
@@ -220,17 +220,27 @@ class Context:
         return found
 
     @cached_property
-    def unique_corrections(self) -> dict[str, list[str]]:
-        """Unique name -> ledger lines that stand in for lines PoB ignores on it."""
-        found: dict[str, list[str]] = {}
+    def unique_gaps(self) -> dict[str, set[str]]:
+        """Unique name -> its lines PoB ignores."""
+        found: dict[str, set[str]] = {}
         for gap in self.gaps.get("uniques", []):
-            if translated := translate(gap["line"]):
-                found.setdefault(gap["unique"], []).extend(translated[1])
+            found.setdefault(gap["unique"], set()).add(gap["line"])
         return found
 
     def corrected_raw(self, name: str, raw: str) -> str:
-        extra = self.unique_corrections.get(name)
-        return raw + "\n" + "\n".join(extra) if extra else raw
+        """A unique's text with ledger corrections: lines standing in for the ones PoB ignores are
+        added at the end, and lines PoB gets wrong are replaced in place. Each correction keeps its
+        line's variant tags, so only the selected version of the unique counts."""
+        ignored = self.unique_gaps.get(name, set())
+        lines, added = [], []
+        for line in raw.split("\n"):
+            prefix, text = re.match(r"^((?:\{[^}]*\})*)(.*)$", line).groups()
+            if text in ignored and (translated := translate(text)) and not translated[0].conditional:
+                added += [prefix + extra for extra in translated[1]]
+            elif fixed := wrong(text):
+                line = prefix + fixed[1]
+            lines.append(line)
+        return "\n".join(lines + added)
 
     def unique_price(self, name: str) -> tuple[float | None, str] | None:
         if self.ssf:

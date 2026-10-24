@@ -772,6 +772,8 @@ local function installAssumptions()
 				local tags = mod.skill and { { type = "SkillName", skillName = mod.skill } } or { }
 				if mod.kind == "SkillData" then
 					self.modList:NewMod("SkillData", "LIST", { key = mod.key, value = mod.value }, "Assumption", unpack(tags))
+				elseif mod.kind == "Condition" then  -- a ledger condition the build's skills switch on
+					self.modList:NewMod("Condition:Ledger" .. mod.name, "FLAG", true, "Ledger")
 				end
 			end
 			return unpack(results)
@@ -841,8 +843,19 @@ function bridge.parseLines(args)
 	local results = { }
 	for i, line in ipairs(args.lines or { }) do
 		local list, extra = modLib.parseMod(line)
+		local parsed = { }
+		for _, mod in ipairs(list or { }) do
+			local tags = { }
+			for _, tag in ipairs(mod) do
+				tags[#tags + 1] = tostring(tag.type) .. (tag.var and (":" .. tostring(tag.var)) or "")
+					.. (tag.skillType and (":" .. tostring(tag.skillType)) or "")
+			end
+			parsed[#parsed + 1] = { name = mod.name, type = mod.type,
+				value = type(mod.value) == "table" and (mod.value.mod and mod.value.mod.name or "table") or mod.value,
+				flags = mod.flags, keywordFlags = mod.keywordFlags, tags = tags }
+		end
 		results[i] = { line = line, supported = list ~= nil and #list > 0 and not extra, mods = list and #list or 0,
-			extra = extra }
+			extra = extra, parsed = parsed }
 	end
 	return { results = results }
 end
@@ -850,22 +863,63 @@ end
 -- Ledger corrections for passive lines PoB ignores: each node gets the parsed modifiers of its
 -- replacement lines added to its own modifier list, so allocations and what-ifs both see them.
 -- Applied once per tree per engine (the tree is shared by every build this engine loads).
+-- PoB re-parses an allocated ascendancy node's text whenever paths are rebuilt
+-- (PassiveTree:ProcessStats gives it a fresh modifier list), so the tree's ProcessStats is wrapped
+-- to add the node's ledger modifiers back each time.
 local correctedTrees = setmetatable({ }, { __mode = "k" })
 function bridge.applyPassiveCorrections(args)
 	local tree = build.spec.tree
-	local done = correctedTrees[tree] or { }
-	correctedTrees[tree] = done
+	local done = correctedTrees[tree]
+	if not done then
+		done = { }
+		correctedTrees[tree] = done
+		local processStats = tree.ProcessStats
+		rawset(tree, "ProcessStats", function(self, node, startIndex)
+			local result = processStats(self, node, startIndex)
+			if node.ledgerMods and (startIndex or 1) == 1 then
+				for _, mod in ipairs(node.ledgerMods) do
+					node.modList:AddMod(mod)
+				end
+			end
+			return result
+		end)
+	end
 	local applied, failed = 0, { }
 	for _, correction in ipairs(args.nodes or { }) do
 		local key = tostring(correction.id) .. "|" .. correction.entry
 		local node = tree.nodes[tonumber(correction.id)]
 		if node and not done[key] then
 			done[key] = true
+			-- The current build may hold its own copy of the node's modifiers (made before this
+			-- correction); later builds read or copy the corrected tree node
+			local specNode = build.spec.nodes[tonumber(correction.id)]
+			local specList = specNode and rawget(specNode, "modList")
+			if specList == node.modList then
+				specList = nil
+			end
 			for _, line in ipairs(correction.lines) do
-				local list, extra = modLib.parseMod(line)
+				-- "flag:Name" switches ledger condition Name on; "if:Name <line>" counts only while it's on
+				local flag = line:match("^flag:(%w+)$")
+				local condition, rest = line:match("^if:(%w+)%s+(.+)$")
+				local list, extra
+				if flag then
+					list = { modLib.createMod("Condition:Ledger" .. flag, "FLAG", true) }
+				else
+					list, extra = modLib.parseMod(rest or line)
+				end
 				if list and not extra then
-					for _, mod in ipairs(list) do
-						node.modList:AddMod(modLib.setSource(copyTable(mod), "Ledger:" .. correction.entry))
+					for _, parsed in ipairs(list) do
+						local copy = copyTable(parsed)
+						if condition then
+							copy[#copy + 1] = { type = "Condition", var = "Ledger" .. condition }
+						end
+						modLib.setSource(copy, "Ledger:" .. correction.entry)
+						node.modList:AddMod(copy)
+						node.ledgerMods = node.ledgerMods or { }
+						node.ledgerMods[#node.ledgerMods + 1] = copy
+						if specList then
+							specList:AddMod(copy)
+						end
 					end
 					applied = applied + 1
 				else

@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 import re
 
+from builder.ledger import conditions
 from builder.search.state import Build
 
 # Remnants per second on a single boss, at gem level 20, while the stated condition holds
@@ -101,7 +102,25 @@ class Assumptions:
                          "assumes the build provides the trigger often enough)",
                 "confidence": "theory",
             })
+        mods += [{"kind": "Condition", "name": name} for name in self.ledger_conditions(skills)]
         return mods, notes
+
+    def ledger_conditions(self, skills: list[dict]) -> list[str]:
+        """Ledger conditions the build's skills switch on (e.g. it uses a skill that requires Glory)."""
+        wanted = conditions()
+        if not wanted:
+            return []
+        actives = [s["name"] for s in skills if not s["disabled"]]
+        names = actives + [gem["name"] for group in self.build.groups() for gem in group["gems"]
+                           if gem.get("enabled", True)]
+        texts = [(self.build.ctx.all_gems.get(name) or {}).get("description") or "" for name in actives]
+        found = []
+        for condition in wanted:
+            by_name = condition.get("skills") and any(re.search(condition["skills"], n, re.I) for n in names)
+            by_text = condition.get("skill_text") and any(re.search(condition["skill_text"], t, re.I) for t in texts)
+            if by_name or by_text:
+                found.append(condition["id"])
+        return sorted(found)
 
     def apply(self) -> bool:
         """Match PoB's assumed modifiers to the build. True if they changed."""
@@ -120,4 +139,8 @@ class Assumptions:
 
     def relevant(self, gem_name: str) -> bool:
         """Would adding this gem change an assumption (so it deserves a real trial)?"""
-        return bool(self.mods) and gem_name in REMNANT_SOURCES
+        if self.mods and gem_name in REMNANT_SOURCES:
+            return True
+        text = (self.build.ctx.all_gems.get(gem_name) or {}).get("description") or ""
+        return any((c.get("skills") and re.search(c["skills"], gem_name, re.I))
+                   or (c.get("skill_text") and re.search(c["skill_text"], text, re.I)) for c in conditions())
