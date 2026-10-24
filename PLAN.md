@@ -93,7 +93,8 @@ Browser UI  ──HTTP/WebSocket──  Python orchestrator (FastAPI)
   Phase 0: `lupa`'s stock LuaJIT can't run PoB, because PoB's source uses `+=`-style operators
   that only PoB's patched LuaJIT accepts. Using PoB's own DLL also means the same interpreter as
   the GUI, and PoB's native modules (lua-utf8, zlib) load as-is. Windows-only as a result.
-  Default worker count is cores − 2 (14 on the 9800X3D).
+  Worker count is a per-machine setting (page: "CPU workers"; `builder/settings.py`), default half
+  the CPU threads (8 on the 9800X3D). Workers run at below-normal priority.
 - **PoB2 is pinned as a git checkout** in `vendor/PathOfBuilding-PoE2` (not a re-zipped copy).
   The pin is in `engine/pob-pin.json` (dev branch, 2026-10-01, includes 0.5.5 data);
   `scripts/fetch_pob.py` checks it out. Upgrading means moving the pin, running the data dump,
