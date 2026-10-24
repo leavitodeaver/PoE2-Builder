@@ -1,18 +1,20 @@
 """Jewels (PLAN.md §5.2.4): rare and unique jewels in the passive tree's sockets.
 
 Allocated sockets get the best jewel that scores: an affordable unique (each one once), or a rare
-built affix by affix from the Jewel modifier pool (two prefixes, two suffixes) on a Ruby, Emerald
-or Sapphire. Full rounds also try one more socket near the tree: if no points are free, the
+built affix by affix from the Jewel modifier pool on a Ruby, Emerald or Sapphire: two prefixes and
+two suffixes, or (0.5 crafting) three of one kind, one of the other and the crafted line that
+boosts the three (builder/search/rares.py JEWEL_CRAFTS). Full rounds also try one more socket near the tree: if no points are free, the
 weakest branch makes room, the socket is filled and the leftover points regrown; the change is
 kept only if the build ends better.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import time
 
 from builder.search.context import ItemOption
-from builder.search.rares import SCREEN_KEEP, AffixPools, rare_price, rare_text
+from builder.search.rares import SCREEN_KEEP, AffixPools, boosted, rare_price, rare_text
 from builder.search.state import EPSILON, Build
 
 JEWEL_BASES = ("Ruby", "Emerald", "Sapphire")
@@ -51,8 +53,7 @@ class Jewels:
                 if o.unique and o.name not in others and (o.price or 0.0) <= left + 1e-9]
 
     def build_rare(self, slot: str, deadline: float) -> ItemOption | None:
-        build, gear = self.build, self.gear
-        left = gear.left_for(slot)
+        left = self.gear.left_for(slot)
         level = self.pools.item_level
         best: tuple[float, ItemOption] | None = None
         for base_name in JEWEL_BASES:
@@ -60,34 +61,55 @@ class Jewels:
             pool = self.pools.pool(base_name) if base else []
             if not pool or time.perf_counter() > deadline:
                 continue
-            scored = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, [a])} for a in pool])
-            ranked = sorted(zip((s for s, _ in scored), pool), key=lambda x: -x[0])
-            shortlist = [a for kind in JEWEL_LIMIT for _, a in ranked if a.type == kind][:2 * SCREEN_KEEP]
-            chosen: list = []
-            current = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, [])}])[0][0]
-            while time.perf_counter() < deadline and not self.pools.full(chosen):
-                groups = {a.group for a in chosen}
-                counts = {k: sum(1 for a in chosen if a.type == k) for k in JEWEL_LIMIT}
-                candidates = (self.pools.buyable(a, chosen) for a in shortlist
-                              if a.group not in groups and counts[a.type] < JEWEL_LIMIT[a.type])
-                options = [a for a in candidates if a and rare_price("Jewel", chosen + [a]) <= left + 1e-9]
-                if not options:
-                    break
-                scored = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen + [a])}
-                                            for a in options])
-                value, affix = max(((s - gear.lam * rare_price("Jewel", chosen + [a]), a)
-                                    for (s, _), a in zip(scored, options)), key=lambda x: x[0])
-                if value <= current - gear.lam * rare_price("Jewel", chosen) + EPSILON:
-                    break
-                chosen.append(affix)
-                current = value + gear.lam * rare_price("Jewel", chosen)
-            if chosen and (best is None or current > best[0]):
-                price = None if self.ctx.ssf else rare_price("Jewel", chosen)
-                best = (current, ItemOption(
-                    "Rare Jewel", base_name, "Jewel", None, rare_text("Jewel", base, level, chosen), False, price,
-                    "ssf" if self.ctx.ssf else "estimate (uncalibrated)", 0, rare=True,
-                    affixes=tuple(line for a in chosen for line in a.lines)))
+            scored = self.build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, [a])} for a in pool])
+            ranked = [a for _, a in sorted(zip((s for s, _ in scored), pool), key=lambda x: -x[0])]
+            shapes = [(JEWEL_LIMIT, [], None)]
+            for kind in JEWEL_LIMIT:
+                if crafted := self.pools.crafted(kind):
+                    other = next(k for k in JEWEL_LIMIT if k != kind)
+                    shapes.append(({kind: 3, other: 1}, [crafted[0]], (kind, crafted[1])))
+            for limits, fixed, boost in shapes:
+                shortlist = [a for kind in limits for a in [x for x in ranked if x.type == kind][:SCREEN_KEEP]]
+                if boost:
+                    shortlist = [dataclasses.replace(a, lines=tuple(boosted(l, boost[1]) for l in a.lines))
+                                 if a.type == boost[0] else a for a in shortlist]
+                found = self.greedy(slot, base, shortlist, limits, fixed, left, deadline)
+                if found and (best is None or found[0] > best[0]):
+                    value, chosen = found
+                    price = None if self.ctx.ssf else rare_price("Jewel", chosen)
+                    best = (value, ItemOption(
+                        "Rare Jewel", base_name, "Jewel", None, rare_text("Jewel", base, level, chosen), False, price,
+                        "ssf" if self.ctx.ssf else "estimate (uncalibrated)", 0, rare=True,
+                        affixes=tuple(line for a in chosen for line in a.lines)))
         return best[1] if best else None
+
+    def greedy(self, slot: str, base: dict, shortlist: list, limits: dict[str, int], fixed: list, left: float,
+               deadline: float) -> tuple[float, list] | None:
+        """Add affixes to `fixed` while one pays: (score less the price's weight, affixes), or None
+        when nothing beyond `fixed` fits the budget or pays."""
+        build, lam, level = self.build, self.gear.lam, self.pools.item_level
+        chosen = list(fixed)
+        if rare_price("Jewel", chosen) > left + 1e-9:
+            return None
+        current = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen)}])[0][0]
+        current -= lam * rare_price("Jewel", chosen)
+        while time.perf_counter() < deadline:
+            groups = {a.group for a in chosen}
+            counts = {k: sum(1 for a in chosen if a.type == k and not a.crafted) for k in limits}
+            candidates = (c for a in shortlist if a.group not in groups and counts[a.type] < limits[a.type]
+                          for c in self.pools.choices(a, chosen))
+            options = [a for a in candidates if rare_price("Jewel", chosen + [a]) <= left + 1e-9]
+            if not options:
+                break
+            scored = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen + [a])}
+                                        for a in options])
+            value, affix = max(((s - lam * rare_price("Jewel", chosen + [a]), a)
+                                for (s, _), a in zip(scored, options)), key=lambda x: x[0])
+            if value <= current + EPSILON:
+                break
+            chosen.append(affix)
+            current = value
+        return (current, chosen) if len(chosen) > len(fixed) else None
 
     def fill(self, socket: int, deadline: float, rebuild: bool) -> bool:
         build = self.build

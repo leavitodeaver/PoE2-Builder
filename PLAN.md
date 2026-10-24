@@ -386,7 +386,7 @@ Endurance-charge consumption, Empowered-attack extra damage.
   timestamps and ETags, refreshed on demand at most hourly. poe.ninja's build/character endpoints are **not**
   used (their policy forbids third-party use), which is why seeds come from pasted PoB codes.
 - **Rare price model** (`builder/data/rare_prices.py`): log price = base[slot] + Σ factor[tier] over
-  the affixes + stack × (tier-1 affixes beyond the second) (tier 1 = the best the base can roll,
+  the affixes + stack × (tier-1 affixes beyond the second, counting groups with lower tiers) (tier 1 = the best the base can roll,
   4 = lower; the base type isn't a term yet, too few samples). The Phase 3 estimate is the prior
   (stack 0). **Calibrate rare prices** on the web page
   (`builder/report/calibrate.py`) prices 24 representative packages on the official trade site: the
@@ -443,7 +443,7 @@ Endurance-charge consumption, Empowered-attack extra damage.
 | **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; a rare price model (uncalibrated until the user calibrates it); λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets); rare price calibration against the official trade site ✅ 2026-10-24 (§7, Phase 5 findings). Not yet: flasks/charms, radius/Time-Lost jewels, corruption/desecration | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled. The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
 | **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all); custom models for Elemental Archon, meta-skill Energy, Darkness, Traveller's Wisdom and Elemental Expression (§6). Not yet: approval queue, calibration form, exploits, the remaining custom models | Asterisked results; at least one exploit that works on the current patch modeled end to end |
 | **5. Results polish** (started 2026-10-24) | Done: Requested vs Delivered; shopping list in every result (slot, base, a rare's target affixes with tier and roll range, a unique's name and variant, runes and lineage gems, price with its confidence, total against the budget) with official trade-site links made on click; test-in-game checklist for every asterisked or not-modeled line. Not yet: saved history | Gate 6 |
-| **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research | All gates green on 1.0 data |
+| **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research; recheck the 0.5 jewel craft (`JEWEL_CRAFTS`: four mods plus the effect line) and the tier-1 cap; recalibrate rare prices | All gates green on 1.0 data |
 
 A usable MVP (real builds with uniques and simple rares, constraints honored) arrives at the end
 of Phase 2. Full v1 arrives at the end of Phase 5.
@@ -472,18 +472,33 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   result had no listings at all (6×T1 gloves, a 3×T1 amulet, two 4×T1 jewels): the endgame gear
   tier allows every affix at tier 1 with 70% rolls. The stack term now prices those out (the gloves
   near 19,500 divines, the jewels near 220).
-- **Rares are built buyable** (`BUY_RULES` in `builder/search/rares.py`). Below mirror tier a rare
-  takes at most two tier-1 affixes (counting groups with lower tiers); once it has two, further
-  picks use their group's tier 2. A rare jewel stops at three affixes. Mirror tier has no cap, and
-  league start and mid can't roll tier 1 anyway. The caps follow the calibration samples (one or two
-  tier-1 affixes on thousands of listings, three on some, four to six on none); a live listing
-  check during the search was rejected, since it would query the trade site without a click. On
-  the same Deadeye request (4 minutes each) the capped run reached **1.24M** Full DPS for 19.91
-  divines against 796k uncapped (`data/results/20261024-145810-run1.json`). Under calibrated
-  prices, stacked tier 1s are dear (the uncapped run spent 8.9 of its 20 divines on a 4×T1 helmet
-  and kept its other rares to two or three affixes), while 2×T1 plus tier 2s costs cents, so the
-  budget buys six-affix rares. Single 4-minute runs are noisy, but the direction matches the
-  prices.
+- **Rares weigh tier 1 against tier 2** (`builder/search/rares.py`). Each pick offers a tier-1 affix
+  and its tier 2, and the budget weight decides between them under the calibrated prices. A rare
+  takes at most four tier-1 affixes (counting groups with lower tiers) below mirror tier, then only
+  tier 2s (`BUY_RULES`). Four came from the user's knowledge of the market (rares with four tier-1
+  rolls sell well below mirror prices). The calibration's "nobody sells four" was an artifact:
+  instant-buyout-only searches for one exact stat combination each undercount supply. A live
+  listing check during the search was rejected, since it would query the trade site without a
+  click. On the same Deadeye request (4 minutes each, single runs, so noisy):
+  - uncapped, tier 1 only: 796k Full DPS (8.9 of 20 divines on a 4×T1 helmet; rares of two or
+    three affixes);
+  - two tier-1s, tier 2 only as the fallback: 1.24M;
+  - four tier-1s, tier 2 only as the fallback: 552k (back to dear stacks);
+  - four tier-1s, tier 1 or 2 by price, crafted jewels: **1.20M** for 19.67 divines
+    (`data/results/20261024-152053-run1.json`).
+
+  Offering tier 2 at every pick is what matters: under calibrated prices, 2–3 tier-1s plus tier 2s
+  cost cents and fill six affixes.
+- **0.5 jewel crafting** (the user, 2026-10-24; `JEWEL_CRAFTS` in `builder/search/rares.py`):
+  craft "+1 Prefix Modifier allowed" (a suffix), add a third prefix, then replace the +1 with
+  "(40–60)% increased Effect of Prefixes" (also a suffix), or the same on the suffix side. The
+  finished jewel has three boosted mods of one kind, one of the other kind and the effect line. The
+  jewel builder tries that shape both ways beside the usual two prefixes and two suffixes. PoB
+  ignores the effect line, so the boosted values go into the item text, as the game shows them. The
+  shopping list marks the boosted and crafted lines, gives the crafting steps, and its trade search
+  looks for the unboosted mods. The Deadeye run took 5-line crafted jewels in two of three sockets.
+  **Likely to change in 1.0: recheck at the refresh.** The price model's stack term counts only
+  tier 1s of groups with lower tiers, so single-tier jewel mods carry no stacking premium.
 - **Strict searches rarely match.** A rare's exact base with every modeled roll usually finds
   nothing, so links loosen to any base at each tier's floor (the Deadeye ring below: 0 → 753).
   96% of item affix stat lines map to explicit trade stats; the rest (essence-only, a few shield

@@ -523,9 +523,11 @@ function itemCell(item) {
   return el("div", {}, el("strong", {}, title),
     item.kind === "unique" ? el("span", { class: "hint" }, " unique") : null,
     item.affixes?.length ? el("ul", { class: "affixes" }, item.affixes.map((a) => el("li", {},
-      el("span", { class: "tier" }, a.tier ? `T${a.tier}` : "?"), a.text,
+      el("span", { class: "tier" }, a.tier ? `T${a.tier}` : a.crafted ? "craft" : "?"), a.text,
       a.range && a.range !== a.text ? el("span", { class: "range" }, `  (tier range ${a.range})`) : null,
-      a.searchable ? null : el("span", { class: "range" }, "  · not searchable on trade, check by eye")))) : null,
+      a.crafted ? el("span", { class: "range" }, "  · crafted")
+        : !a.searchable ? el("span", { class: "range" }, "  · not searchable on trade, check by eye")
+          : a.boosted ? el("span", { class: "range" }, `  · includes the crafted ${a.boosted}% boost`) : null))) : null,
     item.note ? el("div", { class: "note" }, item.note) : null);
 }
 

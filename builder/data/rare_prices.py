@@ -82,7 +82,10 @@ class RarePriceModel:
         tiers = [affix if isinstance(affix, int) else affix.tier for affix in affixes]
         log_price = self.params["base"].get(category(slot), self.params["base"]["helmet"])
         log_price += sum(self.params["tier"][str(tier_bucket(t))] for t in tiers)
-        log_price += self.params.get("stack", {}).get("t1", 0.0) * stacked(tiers)
+        # Only tier 1s of groups with lower tiers are scarce (a jewel's single-tier mods aren't)
+        tops = sum(1 for a in affixes if a.top) if all(hasattr(a, "top") for a in affixes) else None
+        stack = max(0, tops - 2) if tops is not None else stacked(tiers)
+        log_price += self.params.get("stack", {}).get("t1", 0.0) * stack
         return max(MIN_PRICE, math.exp(min(log_price, 20.0)))
 
     def confidence(self, slot: str) -> str:

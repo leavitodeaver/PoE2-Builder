@@ -19,7 +19,7 @@ from collections.abc import Callable
 from builder.data import GameData, rare_prices
 from builder.data.trade import TradeClient
 from builder.request.schema import GearTier
-from builder.search.rares import TIER_RULES, mod_lines, roll
+from builder.search.rares import EFFECT, JEWEL_CRAFTS, TIER_RULES, boosted, mod_lines, roll
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 SLOT_ORDER = ["Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Belt"]
@@ -90,9 +90,17 @@ def identify(item: dict, data: GameData, fraction: float) -> list[tuple[dict | N
     pool = POOLS.get(item["type"], "Item")
     if not any(b["name"] == item["base"] for b in data.bases):
         return [(None, None, [line]) for line in item["affixes"]]
+    # A crafted 0.5 jewel (builder/search/rares.py JEWEL_CRAFTS): its effect line boosts one kind
+    effect = next(((float(m.group(1)), m.group(2)[:-2]) for line in item["affixes"] if (m := EFFECT.search(line))), None)
+    crafts = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids}
+    candidates = list(ranked_affixes(data, item["base"], pool))
+    if pool == "Jewel":
+        candidates += [(m, 1) for m in data.mods.get("Jewel", []) if m["id"] in crafts]
     by_line: dict[str, list[tuple[dict, int, list[str]]]] = {}
-    for mod, tier in ranked_affixes(data, item["base"], pool):
+    for mod, tier in candidates:
         lines = [roll(line, fraction) for line in mod_lines(mod)]
+        if effect and mod["type"] == effect[1] and mod["id"] not in crafts:
+            lines = [boosted(line, effect[0]) for line in lines]
         if lines:
             by_line.setdefault(lines[0], []).append((mod, tier, lines))
     remaining = list(item["affixes"])
@@ -169,13 +177,24 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                 entry["model_category"] = rare_prices.category(slot)
                 if gear.get("price") is not None:
                     entry["confidence"] = model.confidence(slot)
+            crafted_ids = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids}
+            effect = next(((m.group(1), m.group(2)) for line in gear["affixes"] if (m := EFFECT.search(line))), None)
             for mod, tier, lines in identify(gear, data, fraction):
                 affix = {"text": " / ".join(lines), "tier": tier, "searchable": False}
-                if mod is not None:
+                if mod is not None and mod["id"] in crafted_ids:
+                    affix.update(mod=mod["id"], type=mod["type"], crafted=True, tier=None)
+                elif mod is not None:
                     affix.update(mod=mod["id"], type=mod["type"], level=mod.get("level", 0),
                                  range=" / ".join(mod_lines(mod)), trade=trade_filters(mod, fraction, stats))
                     affix["searchable"] = bool(affix["trade"])
+                    if effect and mod["type"] == effect[1][:-2]:
+                        affix["boosted"] = effect[0]  # values shown include it; the search uses the unboosted ones
                 entry["affixes"].append(affix)
+            if effect:
+                kind_name = effect[1][:-2].lower()
+                entry["note"] = (f"Crafted (0.5): craft \"+1 {effect[1][:-2]} Modifier allowed\", add a third {kind_name}, then "
+                                 f"replace the +1 with \"{effect[0]}% increased Effect of {effect[1]}\". The values shown "
+                                 f"include that boost; Trade looks for a jewel with the unboosted mods to start from.")
         else:
             entry["note"] = "a white base: any copy from drops or a vendor works"
         items.append(entry)

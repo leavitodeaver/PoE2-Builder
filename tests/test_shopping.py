@@ -270,22 +270,51 @@ def pools_for(tier: str, source: str = "Item"):
     return AffixPools(Context(make_payload(BuildRequest(main_skill="Ice Shot", budget={"gear_tier": tier}))), source)
 
 
-def test_endgame_rares_take_two_tier_one_affixes_then_tier_two() -> None:
+def test_endgame_rares_take_four_tier_one_affixes_then_tier_two() -> None:
     pools = pools_for("endgame")
     tops = [a for a in pools.pool("Biostatic Ring") if a.top]
-    assert len(tops) >= 3 and all(a.lower and a.lower.tier == 2 and a.lower.group == a.group for a in tops)
-    first, second, third = tops[:3]
-    assert pools.buyable(first, []) is first
-    assert pools.buyable(second, [first]) is second
-    assert pools.buyable(third, [first, second]) is third.lower  # the third tier-1 pick drops a tier
-    assert not third.lower.top and pools.buyable(third.lower, [first, second]) is third.lower
+    assert len(tops) >= 5 and all(a.lower and a.lower.tier == 2 and a.lower.group == a.group for a in tops)
+    assert pools.choices(tops[3], tops[:3]) == [tops[3], tops[3].lower]  # both tiers, the budget decides
+    fifth = tops[4]
+    assert pools.choices(fifth, tops[:4]) == [fifth.lower]  # the fifth tier-1 pick drops a tier
+    assert not fifth.lower.top and pools.choices(fifth.lower, tops[:4]) == [fifth.lower]
     mirror = pools_for("mirror")
-    assert mirror.top_cap is None and mirror.buyable(third, [first, second]) is third
+    assert mirror.top_cap is None and mirror.choices(fifth, tops[:4]) == [fifth, fifth.lower]
 
 
-def test_rare_jewels_stop_at_three_affixes_below_mirror_tier() -> None:
+def test_boosted_lines() -> None:
+    from builder.search.rares import boosted
+
+    assert boosted("17% increased Critical Damage Bonus", 54) == "26% increased Critical Damage Bonus"
+    assert boosted("Adds 3 to 68 Lightning damage", 50) == "Adds 4 to 102 Lightning damage"
+    assert boosted("1% increased Damage per 10 Strength", 50) == "1% increased Damage per 10 Strength"
+    assert boosted("+4.2% to Critical Hit Chance", 50) == "+6.3% to Critical Hit Chance"
+
+
+def test_crafted_jewels_have_four_mods_and_the_effect_line(data) -> None:
+    from builder.search.rares import boosted, rare_text
+
     jewels = pools_for("endgame", "Jewel")
+    effect_affix, effect = jewels.crafted("Prefix")
+    assert effect_affix.crafted and effect_affix.type == "Suffix" and 40 <= effect <= 60
+    assert "Effect of Prefixes" in effect_affix.lines[0]
+    assert jewels.crafted("Suffix")[0].type == "Prefix"
     pool = jewels.pool("Emerald")
-    assert not jewels.full(pool[:2]) and jewels.full(pool[:3])
-    assert not pools_for("mirror", "Jewel").full(pool[:4])
-    assert not pools_for("endgame").full(pool[:4])  # the jewel cap is for jewels only
+    prefixes = [a for a in pool if a.type == "Prefix"][:3]
+    suffix = next(a for a in pool if a.type == "Suffix")
+    lifted = [type(a)(a.id, a.group, a.type, a.tier, tuple(boosted(l, effect) for l in a.lines)) for a in prefixes]
+    chosen = lifted + [suffix, effect_affix]
+    # Single-tier jewel mods aren't scarce tier 1s: no stacking premium on a five-line jewel
+    model = rare_prices.RarePriceModel.load("Forbidden Rites")
+    assert model.price("Jewel 1", chosen) < 50 * model.price("Jewel 1", chosen[:2])
+    # The shopping list recognises the boosted mods and the crafted line, and says how to craft it
+    base = next(b for b in data.bases if b["name"] == "Emerald")
+    raw = rare_text("Jewel", base, 82, chosen)
+    assert raw.count("\n") >= 5
+    item = {"name": "Rare Jewel", "base": "Emerald", "type": "Jewel", "rare": True, "unique": False, "price": 1.0,
+            "confidence": "estimate", "affixes": [l for a in chosen for l in a.lines], "runes": []}
+    shop = shopping_list({"request": {"budget": {"gear_tier": "endgame"}}, "gear": {"Jewel 1": item}}, data, {}, STATS)
+    affixes = shop["items"][0]["affixes"]
+    assert [a.get("boosted") is not None for a in affixes] == [True, True, True, False, False]
+    assert affixes[-1].get("crafted") and all(a.get("tier") == 1 for a in affixes[:4])
+    assert "replace the +1" in shop["items"][0]["note"]

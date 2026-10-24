@@ -46,6 +46,14 @@ class SlotSpec:
         return (self.type, *self.also)
 
 
+def extra_ring_passive(ctx, ascendancy: str) -> str | None:
+    """The ascendancy passive that adds a ring slot (Ritualist's Unfurled Finger), if any."""
+    for node in ctx.data.tree["nodes"]:
+        if node.get("ascendancy") == ascendancy and "+1 Ring Slot" in (node.get("stats") or []):
+            return node.get("name")
+    return None
+
+
 class Gear:
     def __init__(self, build: Build, weapon: SlotSpec | None, offhand: SlotSpec | None, rng: random.Random,
                  swap: tuple[SlotSpec | None, SlotSpec | None] = (None, None)) -> None:
@@ -92,6 +100,14 @@ class Gear:
             self._options[slot] = options
         return self._options[slot]
 
+    def add_ring_slot(self) -> None:
+        """A third ring slot (from an ascendancy passive). PoB ignores it until the passive is
+        allocated, and the passive is worth nothing to the ascendancy round with the slot empty,
+        so the slot starts with a free normal ring; the gear round upgrades it once it counts."""
+        slots = list(self.slots.items())
+        at = next(i for i, (slot, _) in enumerate(slots) if slot == "Ring 2") + 1
+        self.slots = dict(slots[:at] + [("Ring 3", SlotSpec("Ring"))] + slots[at:])
+
     def setup(self, extra_uniques: list[str] = ()) -> list[str]:
         """Equip required uniques (locked) and a starting base in each weapon slot; the gear round
         fills the rest by score. Returns problems (a required unique that fits no slot)."""
@@ -109,7 +125,7 @@ class Gear:
             self.put(slot, option)
             build.locked_slots.add(slot)
         for slot in self.slots:
-            if slot in build.locked_slots or not slot.startswith("Weapon"):
+            if slot in build.locked_slots or not (slot.startswith("Weapon") or slot == "Ring 3"):
                 continue
             bases = [o for o in self.options(slot) if not o.unique]
             if bases:
@@ -252,9 +268,9 @@ class Gear:
         while time.perf_counter() < deadline:
             groups = {a.group for a in chosen}
             counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in limits}
-            candidates = (pools.buyable(a, chosen) for a in shortlist
-                          if a.group not in groups and counts[a.type] < limits[a.type])
-            options = [a for a in candidates if a and price_of(slot, chosen + [a]) <= left + 1e-9]
+            candidates = (c for a in shortlist if a.group not in groups and counts[a.type] < limits[a.type]
+                          for c in pools.choices(a, chosen))
+            options = [a for a in candidates if price_of(slot, chosen + [a]) <= left + 1e-9]
             if not options:
                 break
             scored = self.deltas(slot, [text(slot, base, level, chosen + [a]) for a in options])
