@@ -131,3 +131,22 @@ def test_a_seed_keeps_what_the_request_allows_and_never_ends_below_its_start(eng
     other = make_payload(BuildRequest(ascendancies=["Deadeye"], seed_code=code))
     found = seed_task(engine, None, other)
     assert found["skeleton"] is None and "Ritualist" in found["notes"][0]
+
+
+def test_a_loaded_build_never_reads_the_previous_builds_cached_skills(engine):
+    """Both builds have Ice Shot on weapon set 2; the second has no Mana (Blood Magic). PoB's skill
+    cache carried the first build's Ice Shot Mana cost over to the second when a fresh engine loaded
+    them in this order, so PoB warned about Mana (gate 5). A fresh worker process replays it."""
+    from pathlib import Path
+
+    from builder.pob import codes
+    from builder.pob.pool import EnginePool
+
+    folder = Path(__file__).parent / "fixtures" / "codes"
+    first, second = (codes.decode((folder / f"{n}.txt").read_text(encoding="utf-8").strip())
+                     for n in ("set2_ice_shot_with_mana", "set2_ice_shot_blood_magic"))
+    with EnginePool(1) as pool:
+        pool.broadcast("loadXml", xml=first)
+        pool.broadcast("facts", fields=[])
+        pool.broadcast("loadXml", xml=second)
+        assert pool.broadcast("facts", fields=[])[0]["warnings"] == []

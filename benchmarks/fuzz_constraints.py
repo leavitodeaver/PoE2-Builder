@@ -28,6 +28,7 @@ from builder.request.schema import BuildRequest, DefenceStyle, GearTier, Offhand
 from builder.search.run import optimize
 
 RESULT_DIR = ROOT / "benchmarks" / "results"
+SEEDS = [p.read_text(encoding="utf-8").strip() for p in sorted((ROOT / "benchmarks" / "reference").glob("2b75*.txt"))]
 SKILLS = ["Ice Shot", "Spark", "Boneshatter", "Lightning Arrow", "Fireball", "Raise Zombie", "Rolling Slam",
           "Twister", "Explosive Grenade", "Frost Bomb", "Falling Thunder", "Rake", "Contagion", "Ice Strike"]
 KEYSTONES = ["Mind Over Matter", "Chaos Inoculation", "Iron Reflexes", "Resolute Technique", "Eldritch Battery",
@@ -49,9 +50,16 @@ def random_request(rng: random.Random, data: GameData, index: int) -> BuildReque
         "max_buttons": rng.choice([None, 1, 2, 3]),
         "forbid": {"supports": supports, "uniques": uniques,
                    "passives": rng.sample(KEYSTONES, rng.choice([0, 0, 1, 2])),
-                   "item_classes": rng.sample(["Shield", "Focus", "Quiver", "Helmet"], rng.choice([0, 0, 1]))},
-        "require": {"passives": rng.sample(KEYSTONES, rng.choice([0, 0, 0, 1]))},
-        "offhand": rng.choice([Offhand.ANY, Offhand.ANY, Offhand.NONE, Offhand.SHIELD, Offhand.FOCUS, Offhand.QUIVER]),
+                   "item_classes": rng.sample(["Shield", "Focus", "Quiver", "Helmet", "Sceptre", "Charm", "Flask"],
+                                              rng.choice([0, 0, 1]))},
+        # A second attack that may need another weapon: dual wielding, weapon swap
+        "require": {"passives": rng.sample(KEYSTONES, rng.choice([0, 0, 0, 1])),
+                    "skills": rng.choice([[], [], [], ["Ice Shot"], ["Spear Throw"]])},
+        "offhand": rng.choice([Offhand.ANY, Offhand.ANY, Offhand.NONE, Offhand.SHIELD, Offhand.FOCUS, Offhand.QUIVER,
+                               Offhand.WEAPON]),
+        "weapon_swap": rng.choice(["may", "may", "must", "never"]),
+        # Sometimes start from a reference build's PoB code (most don't fit the random request)
+        "seed_code": rng.choice([None, None, None, *SEEDS]),
         "defence": rng.choice(list(DefenceStyle)),
         "floors": {
             "life": rng.choice([None, None, 1000, 2500]),
@@ -113,7 +121,7 @@ def main() -> None:
             problems = evaluate(checker, request, result, data)
             cases.append({"request": request.model_dump(mode="json"), "status": result["status"],
                           "label": result.get("label"), "reasons": result.get("reasons"), "problems": problems,
-                          "seconds": round(time.perf_counter() - started, 1)})
+                          "seconds": round(time.perf_counter() - started, 1), "code": result.get("code")})
             verdict = "PASS" if not problems else "FAIL"
             print(f"[{verdict}] case {index}: {result['status']} {result.get('label', '')} "
                   f"({'; '.join(result.get('reasons') or [])[:160]})" + (f"\n    problems: {problems}" if problems else ""),

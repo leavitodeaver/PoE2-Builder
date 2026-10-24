@@ -473,7 +473,8 @@ function renderResult(result) {
       el("ul", { class: "gem-groups" }, result.groups.filter((g) => g.enabled).map((g) => {
         const names = g.gems.map((x) => x.name).join(" + ");
         return el("li", {}, g.main ? el("strong", {}, names) : names,
-          g.fromItem ? " (from an item)" : "", g.fullDPS && !g.main ? " (counted in Full DPS)" : "");
+          g.fromItem ? " (from an item)" : "", g.fullDPS && !g.main ? " (counted in Full DPS)" : "",
+          g.set1 === false ? " (weapon set 2)" : "");
       }))));
     if (result.checklist) parts.push(checklistSection(result));
     if (result.assumptions?.length) {

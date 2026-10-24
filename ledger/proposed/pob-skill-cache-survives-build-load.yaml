@@ -1,0 +1,27 @@
+id: pob-skill-cache-survives-build-load
+title: PoB keeps its skill cache across build loads, so a build's numbers depend on the build open before it
+kind: pob_bug
+patches: ["0.5.5"]
+pob: "release v0.23.1 and dev bb52d6b (2026-10-01)"
+when:
+  # GlobalCache.cachedData (Modules/Common.lua) is keyed by skill name, slot and gem position and is
+  # wiped only when a recalculation is flagged, not when a build is loaded, so the loaded build's
+  # first calculation can read the previous build's entry for a same-named skill in the same slot.
+  observed_on: "benchmarks/reference/2b75e.txt after 2b75d.txt; gate 5 fuzz cases (Ice Shot on weapon set 2)"
+effect:
+  # Applied 2026-10-24: the bridge wipes the cache before every newBuild and loadXml
+  # (engine/bridge.lua), so every load gives the same numbers whatever was open before.
+  wipe_cache_on_load: true
+confidence: verified_headless
+evidence: |
+  Blood Mage Ice Shot (weapon set 2, Blood Magic, no Mana): loaded after a build whose set-2 Ice
+  Shot costs Mana, PoB warns "You do not have enough Mana to use: Ice Shot"; loaded first, no
+  warning (tests/test_engine_items.py replays it in a fresh worker). Reference 2b75e on the
+  release: a fresh load gives TotalDPS 85,404.9 every time; loaded right after 2b75d it gives
+  84,891.5, exactly the PlayerStat the PoB app saved in the code, so the app computed it with
+  2b75d's cache. Gate 1 (fidelity) on the release therefore differs for 2b75e by 0.6% now, with
+  the order-independent number on our side.
+sources: ["PoB2 Modules/Common.lua wipeGlobalCache, Modules/Build.lua (wiped on buildFlag only)"]
+test_in_game: "Not a game question. Upstream: open 2b75d, then 2b75e, and compare with 2b75e opened on its own."
+status: proposed
+reviewed_for: "0.5.5"

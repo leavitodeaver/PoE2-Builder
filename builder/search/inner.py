@@ -20,7 +20,7 @@ from builder.request.schema import WeaponSwap
 from builder.search.assumptions import Assumptions
 from builder.search.conditions import Conditions
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
-from builder.search.gear import Gear, SlotSpec
+from builder.search.gear import Gear, SlotSpec, extra_ring_passive
 from builder.search.gems import Gems
 from builder.search.jewels import Jewels
 from builder.search.models import MODEL_FIELDS
@@ -55,6 +55,8 @@ class Search:
             swap = (SlotSpec(sk.swap_weapon, sk.swap_sub) if sk.swap_weapon else None,
                     SlotSpec(held[0], None, held[1:]) if held else None)
         self.gear = Gear(self.build, weapon, offhand, self.rng, swap)
+        if extra_ring_passive(self.ctx, sk.ascendancy):
+            self.gear.add_ring_slot()
         self.swap_locked = set(swap_skills(self.ctx, sk)) if sk.swap else set()  # skills only set 2 can use
         self.jewels = Jewels(self.build, self.tree, self.gear)
         self.conditions = Conditions(self.build, self.skeleton.main_skill)
@@ -210,7 +212,7 @@ class Search:
                 self.gear.put(slot, option)
             build.locked_slots.add(slot)
         for slot in self.gear.slots:
-            if slot.startswith("Weapon") and slot not in build.equipped:
+            if (slot.startswith("Weapon") or slot == "Ring 3") and slot not in build.equipped:
                 bases = [o for o in self.gear.options(slot) if not o.unique]
                 if bases:
                     self.gear.put(slot, max(bases, key=lambda o: o.level))
@@ -569,9 +571,13 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     # the code, so they're put back first, exactly as the search had them)
     assumptions = list(search.assumptions.active)
     build.call("loadXml", xml=codes.decode(code))
+    # What PoB itself warns about in the code, without the search's assumptions (a skill on weapon
+    # set 2 can be flagged only on a fresh load), joins the live build's warnings for the checks
+    plain = build.call("facts", fields=[])["warnings"]
     search.assumptions.reinstall()
     reloaded = build.call("facts", fields=RESULT_FIELDS)
     mismatched = [k for k in RESULT_FIELDS if facts["stats"].get(k) != reloaded["stats"].get(k)]
+    facts["warnings"] = list(dict.fromkeys([*facts["warnings"], *reloaded["warnings"], *plain]))
     facts["stats"].update(build.extra_stats)  # flask recovery, for the sustain check
     build.objective.prepare(facts["stats"])  # what the checks see: Darkness in maximum hit taken
     excluded, excluded_names = build.objective.excluded(build.stats)

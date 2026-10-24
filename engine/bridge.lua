@@ -227,7 +227,11 @@ function bridge.summary()
 	}
 end
 
+-- PoB's skill cache (GlobalCache) is keyed by skill name and slot and isn't wiped when a build
+-- is loaded, so the next build's first calculation could read another build's cached skill (a
+-- weapon-set-2 Ice Shot's Mana cost, seen in gate 5). Every new or loaded build starts clean.
 function bridge.newBuild()
+	wipeGlobalCache()
 	newBuild()
 	return bridge.summary()
 end
@@ -246,6 +250,7 @@ local function applyTravellerChoices(choices)
 end
 
 function bridge.loadXml(args)
+	wipeGlobalCache()
 	loadBuildFromXML(args.xml, args.name or "build")
 	if __mainObject__.promptMsg then
 		error("PoB rejected the build: " .. tostring(__mainObject__.promptMsg))

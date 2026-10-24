@@ -476,3 +476,11 @@ def test_magic_flasks_take_one_prefix_and_one_suffix_from_the_flask_pool():
     assert MAGIC_LIMIT == {"Prefix": 1, "Suffix": 1}
     text = magic_text("Flask 2", ctx.bases_by_name["Ultimate Mana Flask"], 82, pool[:1])
     assert text.startswith("Rarity: Magic\nUltimate Mana Flask\nItem Level: 82")
+
+
+def test_only_an_ascendancy_with_a_ring_slot_passive_gets_ring_three():
+    from builder.search.gear import extra_ring_passive
+
+    ctx = context(main_skill="Explosive Spear")
+    assert extra_ring_passive(ctx, "Ritualist") == "Unfurled Finger"
+    assert extra_ring_passive(ctx, "Deadeye") is None
