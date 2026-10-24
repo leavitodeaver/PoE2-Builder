@@ -346,6 +346,8 @@ def test_jewel_craft_prices_the_base_and_each_material_step() -> None:
     assert rare_prices.jewel_craft(suffixes, {}, lambda keep: 0.1) is None  # no material prices
     plain = rare_prices.jewel_craft(suffixes[:2], MATERIALS, lambda keep: 0.1)
     assert plain["total"] == pytest.approx(0.1) and plain["steps"] == []  # two mods: just buy it
+    # The search prices part-built jewels: the effect line before any mod of the kind it boosts
+    assert rare_prices.jewel_craft([prefix, effect], MATERIALS, lambda keep: 0.1) is not None
 
 
 def test_jewel_budget_uses_crafting_while_market_data_is_thin() -> None:

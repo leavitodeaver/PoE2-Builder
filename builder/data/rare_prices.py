@@ -111,7 +111,8 @@ def jewel_craft(affixes, materials: dict[str, float], base_price: Callable[[list
         other = [a for a in rest if a.type != boosted]
         add(f"open a third {kind} slot (a 50/50: about two tries)", "Exalted Orb", 2)
         add(f"open a third {kind} slot (a 50/50: about two tries)", "Potent Liquid Contempt", 2)
-        add(f"re-roll the {kind} a lost 50/50 removes", "Chaos Orb", statistics.mean(1 / a.odds for a in keep))
+        if keep:  # a part-built jewel in the search may hold none of the boosted kind yet
+            add(f"re-roll the {kind} a lost 50/50 removes", "Chaos Orb", statistics.mean(1 / a.odds for a in keep))
         add(f"roll the third {kind}", "Chaos Orb", sum(1 / a.odds for a in third))
         # "+1 Suffix Modifier allowed" is a prefix (Sinistral), "+1 Prefix ..." a suffix (Dextral)
         omen = "Omen of Sinistral Erasure" if boosted == "Suffix" else "Omen of Dextral Erasure"
