@@ -36,10 +36,11 @@ RESULT_FIELDS = sorted(set(FACT_FIELDS) | set(SUSTAIN_FIELDS) | set(MODEL_FIELDS
 
 
 class Search:
-    def __init__(self, engine: Any, report: Any, payload: dict, skeleton: dict, seed: int, full: bool = False) -> None:
+    def __init__(self, engine: Any, report: Any, payload: dict, skeleton: dict, seed: int, full: bool = False,
+                 goal: str | None = None) -> None:
         self.ctx: Context = context_for(payload)
         self.skeleton = Skeleton(**skeleton)
-        self.build = Build(engine, self.ctx, Objective(self.ctx, full), report, self.skeleton.label)
+        self.build = Build(engine, self.ctx, Objective(self.ctx, full, goal=goal), report, self.skeleton.label)
         self.rng = random.Random(seed)
         self.gems = Gems(self.build)
         self.tree = Tree(self.build, self.rng)
@@ -277,6 +278,7 @@ class Search:
             "skeleton": self.skeleton.as_dict(), "label": self.skeleton.label, "score": build.score,
             "dps": build.objective.dps(build.stats), "main_dps": main_dps(build.stats),
             "value": build.objective.value(build.stats), "clear": build.objective.clear(build.stats)["score"],
+            "goal": build.objective.goal.value,
             "deficits": [{"label": label, "amount": amount, "hard": hard}
                          for label, amount, hard in build.objective.deficits(build.stats)],
             "evals": build.evals, "commits": build.commits, "seconds": time.perf_counter() - build.started,
@@ -287,9 +289,11 @@ class Search:
 
 
 def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, seconds: float, seed: int = 0,
-                  state: dict | None = None) -> dict:
+                  state: dict | None = None, goal: str | None = None) -> dict:
+    """`goal` overrides the request's (a balanced run's boss-DPS searches); the result's `value` is
+    on that goal, so the run ranks results on its own goal from `dps` and `clear`."""
     deadline = time.perf_counter() + seconds
-    search = Search(engine, report, payload, skeleton, seed)
+    search = Search(engine, report, payload, skeleton, seed, goal=goal)
     if state is None:
         search.setup()
     else:

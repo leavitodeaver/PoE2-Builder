@@ -138,15 +138,27 @@ def clear_estimate(stats: dict, damage: float) -> dict:
             "damage": damage}
 
 
+def goal_value(goal: str, dps: float, clear: float) -> float:
+    """A goal's value from boss DPS and the clear score: what a search maximizes, and what results
+    from searches run on different goals are ranked by."""
+    if goal == Goal.BOSS:
+        return dps
+    if goal == Goal.MAPPING:
+        return clear
+    return math.sqrt(max(dps, 0.0) * max(clear, 0.0))
+
+
 class Objective:
-    def __init__(self, ctx: Context, full: bool = False, multipliers: dict[str, float] | None = None) -> None:
+    def __init__(self, ctx: Context, full: bool = False, multipliers: dict[str, float] | None = None,
+                 goal: str | None = None) -> None:
         self.ctx = ctx
         self.base_full = full  # finalists: Full DPS throughout
         self.extra = False  # the build has triggered damage outside the main skill (see module doc)
         self.multipliers: dict[str, float] = dict(multipliers or {})  # requirement label -> weight factor
         self.penalties = ctx.compiled.penalties
         self.style = DefenceStyle(ctx.request.defence)
-        self.goal = Goal(ctx.request.objective)
+        # The request's goal unless overridden: balanced runs some searches on boss DPS (run.py)
+        self.goal = Goal(goal or ctx.request.objective)
         # Clear fields in every mode, so a boss result can still show its clear estimate
         fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS)
         self._fields = sorted(fields | {p.stat for p in self.penalties})
@@ -187,13 +199,10 @@ class Objective:
         return clear_estimate(stats, self.clear_damage(stats))
 
     def value(self, stats: dict) -> float:
-        """What the request maximizes, before penalties."""
+        """What this search maximizes, before penalties."""
         if self.goal == Goal.BOSS:
             return self.dps(stats)
-        clear = self.clear(stats)["score"]
-        if self.goal == Goal.MAPPING:
-            return clear
-        return math.sqrt(max(self.dps(stats), 0.0) * clear)
+        return goal_value(self.goal, self.dps(stats), self.clear(stats)["score"])
 
     def excluded(self, stats: dict) -> tuple[float, list[str]]:
         """Full DPS that comes from on-death effects, and their names."""

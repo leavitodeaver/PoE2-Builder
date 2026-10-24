@@ -222,6 +222,35 @@ def test_clearing_counts_damage_that_needs_enemies_to_die():
     assert objectives["mapping"].value(explosions) > 0 and objectives["balanced"].value(explosions) == 0.0
 
 
+def test_balanced_runs_some_searches_on_boss_dps_and_ranks_them_all_on_balanced():
+    from builder.search.objective import goal_value
+    from builder.search.run import Run, replica_goals
+
+    assert replica_goals("balanced", 1) == [None]
+    assert replica_goals("balanced", 2) == [None, "boss"]
+    assert replica_goals("balanced", 14).count("boss") == 5
+    assert replica_goals("boss", 3) == replica_goals("mapping", 3) == [None] * 3
+    # A boss-DPS search inside a balanced request scores boss DPS...
+    ctx = context(main_skill="Lightning Arrow", objective="balanced")
+    stats = {"CombinedDPS": 100000, "AreaOfEffectRadius": 30, "Speed": 2.0}
+    assert Objective(ctx, goal="boss").value(stats) == pytest.approx(100000)
+    assert Objective(ctx).value(stats) == pytest.approx(goal_value("balanced", 100000, Objective(ctx).clear(stats)["score"]))
+    # ...and the run ranks every result on balanced, whatever value its search reported
+    run = Run(BuildRequest(main_skill="Lightning Arrow", objective="balanced"), workers=2, seconds=10)
+    result = {"label": "LA", "deficits": [], "score": 0.0, "evals": 1}
+    boss_search = {**result, "goal": "boss", "dps": 814744, "clear": 251329, "value": 814744, "state": "hard hitter"}
+    balanced_search = {**result, "goal": "balanced", "dps": 535133, "clear": 311727, "value": 408430, "state": "fast"}
+    lopsided = {**result, "goal": "boss", "dps": 2000000, "clear": 10000, "value": 2000000, "state": "lopsided"}
+    results = run._record([balanced_search, lopsided, boss_search])
+    assert run.best is boss_search and boss_search["value"] == pytest.approx(math.sqrt(814744 * 251329))
+    assert lopsided["value"] == pytest.approx(math.sqrt(2000000 * 10000))
+    # Boss searches go on from the best boss build; balanced ones from the best on balanced
+    states = {}
+    run.keep_states(states, results)
+    assert run.state_for(states, "LA", "boss") == "lopsided"
+    assert run.state_for(states, "LA", None) == "hard hitter"
+
+
 def test_feasibility_penalties_are_the_same_for_every_goal():
     objectives = goals(floors={"life": 2000, "resists": {}})
     short = {"CombinedDPS": 100000, "Life": 1000, "Str": 10, "ReqStr": 40, "AreaOfEffectRadius": 20}

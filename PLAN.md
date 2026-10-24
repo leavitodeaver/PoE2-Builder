@@ -168,7 +168,7 @@ A **skeleton** is ascendancy + main skill + weapon archetype (+ seed). The tool 
 skeleton the request allows, gives each a short **probe** (about 20–40 s of inner optimization),
 then puts the remaining time into the best K, in parallel across workers. If no main skill is
 given, it shortlists skills by probe first. Ascendancy is never fixed by accident: every legal one
-gets a probe.
+gets a probe. In balanced mode a third of each skeleton's searches maximize boss DPS (§5.5).
 
 ### 5.2 Inner loop: block coordinate ascent with kicks
 
@@ -260,12 +260,31 @@ as before (`rank_key`).
 | mapping | 329,225 | 339,780 | 334,461 | 5.06 | ×1.65 | Voltaxic Rift, Rapid Attacks II, 35% movement-speed boots |
 | balanced | 535,133 | 311,727 | 408,430 | 4.00 | ×1.45 | Inexorable Critical I, Lightning Attunement, the same boots |
 
-Boss and mapping each win on their own goal. Balanced doesn't: a second run found the same
-build (406,723), but the boss build scores 452,514 on the balanced goal, 11% higher. The
-balanced search settles among fast, lighter-hitting builds (attack speed pays twice there:
-damage and use time; movement speed pays in clear) and doesn't reach the boss build's
-neighbourhood within the run. Not built yet: in balanced mode, give some searches the boss goal
-and rank every result on the balanced value.
+Boss and mapping each won on their own goal. Balanced didn't: a second run found the same build
+(406,723), but the boss build scores 452,514 on the balanced goal, 11% higher. The balanced search
+settles among fast, lighter-hitting builds (attack speed pays twice there: damage and use time;
+movement speed pays in clear). Boss DPS builds only pull ahead late: in the boss run, probes
+ended at 118k DPS and the focus stage took one to 891k.
+
+**So balanced mode runs a portfolio** (`run.py`, `replica_goals`): every third search of a
+skeleton (5 of 14 here) maximizes boss DPS. Each goal keeps its own line through probes and
+focus: boss searches continue from the best boss-DPS state, balanced searches from the best
+state on the balanced value (which may be a boss search's). Every result is ranked on the
+balanced value, recomputed from its boss DPS and clear score, so the finalist can be a boss
+search's build, and the finalize polish then runs on the balanced goal. Starting every search
+from the probe winner was tried first and changed nothing: the boss searches inherited the fast
+build.
+
+| Balanced run, same request | Boss DPS | Clear (approx.) | √(boss × clear) | Uses/s | Movement |
+|---|---|---|---|---|---|
+| before the portfolio | 535,133 | 311,727 | 408,430 | 4.00 | ×1.45 |
+| with the portfolio | 849,693 | 299,077 | 504,106 | 2.86 | ×1.42 |
+| (a fresh boss-mode run) | 897,135 | 247,517 | 471,228 | 2.80 | ×1.12 |
+
+With the portfolio, a boss search found 890,871 DPS; the polish on the balanced goal swapped Wake
+of Destruction for the 35% movement-speed boots. The result keeps 95% of boss mode's damage and
+88% of mapping mode's clear, and beats the boss build on the balanced goal by 7%. Mapping mode
+has no portfolio yet: it won on its own goal here.
 
 ## 6. Correction ledger (PoB gaps and exploits)
 

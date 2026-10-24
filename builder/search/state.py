@@ -80,7 +80,8 @@ class Build:
         elapsed = time.perf_counter() - self.started
         return {
             "skeleton": self.label, "phase": self.phase, "score": self.score,
-            "dps": self.objective.dps(self.stats), "value": self.objective.value(self.stats), "evals": self.evals,
+            "dps": self.objective.dps(self.stats), "clear": self.objective.clear(self.stats)["score"],
+            "value": self.objective.value(self.stats), "evals": self.evals,
             "evals_per_second": self.evals / elapsed if elapsed > 0 else 0.0,
             "deficits": [label for label, _, _ in self.objective.deficits(self.stats)],
         }

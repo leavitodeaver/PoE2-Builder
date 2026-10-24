@@ -20,7 +20,7 @@ from typing import Any
 from builder.pob.pool import EnginePool, WorkerError, default_workers
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
-from builder.search.objective import PACK_SIZE, SUSTAIN_FLOOR, rank_key, sustain
+from builder.search.objective import PACK_SIZE, SUSTAIN_FLOOR, goal_value, rank_key, shortfall, sustain
 from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skeletons, weapon_archetypes
 
 FINALIZE_SHARE = 0.12
@@ -30,6 +30,18 @@ MAX_PROBE = 60.0
 SHORTLIST_SKILLS = 4
 SCREEN_CHUNK = 6
 SCREEN_SHARE = 0.25  # most of the run the main-skill screen may take
+# Balanced mode: every BOSS_EVERY-th search of a skeleton maximizes boss DPS instead, so the
+# hard-hitting builds a balanced search walks away from (attack and movement speed pay twice
+# there) are still found. Each goal's searches continue from that goal's best state; the final
+# pick ranks every result on the balanced value (PLAN.md §5.5).
+BOSS_EVERY = 3
+
+
+def replica_goals(goal: str, count: int) -> list[str | None]:
+    """The goal of each of a skeleton's `count` searches: None keeps the request's."""
+    if goal != "balanced":
+        return [None] * count
+    return ["boss" if r % BOSS_EVERY == 1 else None for r in range(count)]
 
 
 def _score(entry: Any) -> float:
@@ -74,9 +86,10 @@ class Run:
             if now - last[0] >= 1.0:
                 last[0] = now
                 rate = sum(p.get("evals_per_second", 0.0) for p in self.live.values())
-                top = max(self.live.values(), key=lambda p: p.get("score", -math.inf))
+                # Searches may run on different goals: the leader is the best on the request's
+                top = max(self.live.values(), key=lambda p: (not p["deficits"], self.goal_of(p)))
                 self.emit("progress", evals_per_second=round(rate), tasks=len(self.live), leader=top["skeleton"],
-                          leader_dps=top["dps"], leader_value=top.get("value"), phase=top["phase"],
+                          leader_dps=top["dps"], leader_value=self.goal_of(top), phase=top["phase"],
                           deficits=top["deficits"],
                           evals=self.evals_done + sum(p.get("evals", 0) for p in self.live.values()))
         return on_progress
@@ -90,6 +103,10 @@ class Run:
             if result is None:
                 continue
             self.evals_done += result.get("evals", 0)
+            # Ranked on the request's goal, whichever the search had; its own goal picks the state
+            # its line of searches continues from
+            result["search_value"] = result.get("value", result["dps"])
+            result["value"] = self.goal_of(result)
             label = result["label"]
             if label not in self.probes or rank_key(result) < rank_key(self.probes[label]):
                 self.probes[label] = result
@@ -101,6 +118,34 @@ class Run:
             good.append(result)
         self.live.clear()
         return good
+
+    @staticmethod
+    def boss_share(goals: list[str | None]) -> str:
+        boss = goals.count("boss")
+        return f" ({boss} of them on boss DPS)" if boss else ""
+
+    def lineage(self, result: dict) -> tuple[str, str]:
+        return result["label"], result.get("goal") or self.request.objective
+
+    def keep_states(self, states: dict, results: list[dict]) -> None:
+        """Where each (skeleton, goal) line of searches continues: the request's goal from the best
+        result on it, any other goal from its own searches' best on that goal."""
+        best: dict[tuple[str, str], tuple[tuple[float, float], dict]] = {}
+        for result in results:
+            short = round(shortfall(result["deficits"]), 6)
+            for key, value in {self.lineage(result): result["search_value"],
+                               (result["label"], self.request.objective): result["value"]}.items():
+                if key not in best or (short, -value) < best[key][0]:
+                    best[key] = ((short, -value), result)
+        for key, (_, result) in best.items():
+            states[key] = result["state"]
+
+    def state_for(self, states: dict, label: str, goal: str | None) -> dict | None:
+        return states.get((label, goal or self.request.objective)) or states.get((label, self.request.objective))
+
+    def goal_of(self, result: dict) -> float:
+        """A result's (or progress report's) value on the request's goal."""
+        return goal_value(self.request.objective, result["dps"], result.get("clear") or 0.0)
 
     def _tasks(self, pool: EnginePool, tasks: list[tuple[str, dict]]) -> list[Any]:
         return pool.run_tasks(tasks, on_progress=self._progress(), should_cancel=self.should_cancel)
@@ -172,24 +217,27 @@ class Run:
             probe, finalize = self.plan(len(skeletons))
 
             # Probes, then successive halving while there are more survivors than workers
-            states: dict[str, dict] = {}
+            states: dict[tuple[str, str], dict] = {}  # (skeleton, goal) -> the state its searches continue from
             alive = skeletons
             round_index = 0
             while alive and not self.should_cancel():
                 # With fewer skeletons than workers, each gets several searches (different seeds)
                 replicas = max(1, self.workers // len(alive))
+                goals = replica_goals(self.request.objective, replicas)
                 self.emit("status", message=f"Probing {len(alive)} skeleton(s) for {probe:.0f}s"
-                                            + (f", {replicas} searches each" if replicas > 1 else ""))
+                                            + (f", {replicas} searches each" if replicas > 1 else "")
+                                            + self.boss_share(goals))
                 tasks = [("builder.search.inner:optimize_task", {
                     "payload": self.payload, "skeleton": s.as_dict(), "seconds": probe,
-                    "seed": round_index * 1000 + 31 * r + i, "state": states.get(s.label)})
+                    "seed": round_index * 1000 + 31 * r + i, "state": self.state_for(states, s.label, goals[r]),
+                    "goal": goals[r]})
                     for i, s in enumerate(alive) for r in range(replicas)]
                 best_of: dict[str, dict] = {}
-                for result in self._record(self._tasks(pool, tasks)):
+                results = self._record(self._tasks(pool, tasks))
+                for result in results:
                     if result["label"] not in best_of or rank_key(result) < rank_key(best_of[result["label"]]):
                         best_of[result["label"]] = result
-                for result in best_of.values():
-                    states[result["label"]] = result["state"]
+                self.keep_states(states, results)
                 ranked = sorted(best_of.values(), key=rank_key)
                 for r in ranked:
                     self.emit("probe", skeleton=r["label"], dps=r["dps"], clear=r.get("clear"), value=r.get("value"),
@@ -205,11 +253,12 @@ class Run:
             focus_seconds = self.remaining() - finalize
             if alive and focus_seconds > 5 and not self.should_cancel():
                 replicas = max(1, self.workers // len(alive))
+                goals = replica_goals(self.request.objective, replicas)
                 self.emit("status", message=f"Improving the best {len(alive)} skeleton(s) with {replicas} search(es) each "
-                                            f"for {focus_seconds:.0f}s")
+                                            f"for {focus_seconds:.0f}s" + self.boss_share(goals))
                 tasks = [("builder.search.inner:optimize_task", {
                     "payload": self.payload, "skeleton": s.as_dict(), "seconds": focus_seconds,
-                    "seed": 7919 * (r + 1) + i, "state": states.get(s.label)})
+                    "seed": 7919 * (r + 1) + i, "state": self.state_for(states, s.label, goals[r]), "goal": goals[r]})
                     for i, s in enumerate(alive) for r in range(replicas)]
                 self._record(self._tasks(pool, tasks))
 
