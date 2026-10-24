@@ -375,7 +375,16 @@ function bridge.itemDeltas(args)
 	local start = os.clock()
 	for i, case in ipairs(args.cases) do
 		local item = makeItem(case.raw)
+		-- A flask or charm counts only in an active slot; `active` sets that for this what-if alone
+		local slot = case.active ~= nil and build.itemsTab.slots[case.slot]
+		local wasActive = slot and slot.active
+		if slot then
+			slot.active = case.active
+		end
 		results[i] = pickStats(calcFunc({ repSlotName = case.slot, repItem = item }, useFullDPS), args.fields)
+		if slot then
+			slot.active = wasActive
+		end
 	end
 	return { results = results, seconds = os.clock() - start }
 end
@@ -529,7 +538,19 @@ local function forgetItem(item)
 	end
 end
 
--- Commit an item into a specific slot (or empty it when `raw` is absent), then recalculate fully
+-- Flask and charm slots count only while active (the GUI's checkbox); the item set keeps the flag
+-- for the export
+local function setSlotActive(slotName, active)
+	local slot = build.itemsTab.slots[slotName]
+	slot.active = active
+	build.itemsTab.activeItemSet[slotName].active = active
+	if slot.controls and slot.controls.activate then
+		slot.controls.activate.state = active
+	end
+end
+
+-- Commit an item into a specific slot (or empty it when `raw` is absent), then recalculate fully.
+-- `active` switches a flask or charm slot on or off.
 function bridge.equip(args)
 	local slot, old = slotItem(args.slot)
 	if args.raw then
@@ -538,6 +559,9 @@ function bridge.equip(args)
 		slot:SetSelItemId(item.id)
 	else
 		slot:SetSelItemId(0)
+	end
+	if args.active ~= nil then
+		setSlotActive(args.slot, args.active and args.raw ~= nil)
 	end
 	forgetItem(old)
 	local start = os.clock()
@@ -1480,6 +1504,58 @@ function bridge.facts(args)
 end
 
 -- Items currently equipped, by slot
+-- Whether PoB accepts an item in a slot with the gear already equipped (dual wielding rules)
+function bridge.validForSlot(args)
+	local item = makeItem(args.raw)
+	return { valid = build.itemsTab:IsItemValidForSlot(item, args.slot) and true or false }
+end
+
+-- Flask and charm numbers PoB parsed from each item, local modifiers included (duration, charges
+-- per use, local charge gain, recovery per use), for the search's uptime model
+function bridge.flaskData(args)
+	local keys = { "duration", "chargesMax", "chargesUsed", "gainBase", "gainInc", "gainMod", "lifeTotal", "manaTotal" }
+	local results = { }
+	for i, raw in ipairs(args.raws) do
+		local item = makeItem(raw)
+		local data = item.base.flask and item.flaskData or item.base.charm and item.charmData
+		local entry = setmetatable({ }, { __jsontype = "object" })
+		if data then
+			entry.kind = item.base.flask and "Flask" or "Charm"
+			for _, key in ipairs(keys) do
+				entry[key] = data[key]
+			end
+		end
+		results[i] = entry
+	end
+	return { results = results }
+end
+
+-- Charge generation and flask/charm scaling from the committed build (passives, gear): what keeps
+-- flasks and charms going in a boss fight, where no kills refill them
+function bridge.chargeGain()
+	local modDB = build.calcsTab.mainEnv.modDB
+	local function base(name)
+		return modDB:Sum("BASE", nil, name)
+	end
+	local function inc(name)
+		return modDB:Sum("INC", nil, name)
+	end
+	local active = setmetatable({ }, { __jsontype = "object" })
+	for _, name in ipairs({ "Flask 1", "Flask 2", "Charm 1", "Charm 2", "Charm 3" }) do
+		active[name] = build.itemsTab.slots[name].active and true or false
+	end
+	return {
+		active = active,
+		flask = base("FlaskChargesGenerated"), lifeFlask = base("LifeFlaskChargesGenerated"),
+		manaFlask = base("ManaFlaskChargesGenerated"), flaskGainInc = inc("FlaskChargesGained"),
+		charm = base("CharmChargesGenerated"), charmGainInc = inc("CharmChargesGained"),
+		flaskDurationInc = inc("FlaskDuration"), charmDurationInc = inc("CharmDuration"),
+		lifeRecoveryInc = inc("FlaskRecovery") + inc("FlaskLifeRecovery"),
+		manaRecoveryInc = inc("FlaskRecovery") + inc("FlaskManaRecovery"),
+		charmLimit = math.min(modDB:Override(nil, "CharmLimit") or modDB:Sum("BASE", nil, "CharmLimit"), 3),
+	}
+end
+
 function bridge.equipped()
 	local slots = { }
 	for name, slot in pairs(build.itemsTab.slots) do

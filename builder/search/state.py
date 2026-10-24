@@ -38,6 +38,9 @@ class Build:
         self.locked_slots: set[str] = set()
         self.reverts: dict[str, int] = {}  # phase -> commits undone because the score fell
         self.after_load: list = []  # called after every reload, before the score is refreshed
+        # Stats PoB doesn't calculate, added to every result before scoring (flask recovery per
+        # second, builder/search/flasks.py); what-if cases may override them with an "extra" entry
+        self.extra_stats: dict = {}
 
     def worse(self, before: float) -> bool:
         """After a commit a what-if said would gain: True (and counted) if it lost instead."""
@@ -53,7 +56,7 @@ class Build:
 
     def _committed(self, result: dict) -> float:
         self.commits += 1
-        self.stats = self.objective.prepare(result["stats"])
+        self.stats = self.objective.prepare({**result["stats"], **self.extra_stats})
         self.score = self.objective.score(self.stats)
         self.tick()
         return self.score
@@ -88,10 +91,14 @@ class Build:
 
     # What-ifs ----------------------------------------------------------------------------------
 
-    def _scored(self, results: list[dict], fill_from_base: bool = False) -> list[tuple[float, dict]]:
+    def _scored(self, results: list[dict], fill_from_base: bool = False,
+                extras: list[dict | None] | None = None) -> list[tuple[float, dict]]:
         self.evals += len(results)
         scored = []
-        for stats in results:
+        for index, stats in enumerate(results):
+            stats.update(self.extra_stats)
+            if extras and extras[index]:
+                stats.update(extras[index])
             if fill_from_base:
                 # A clear field the what-if lacks is gone (a support that stops chaining), not skipped
                 for key, value in self.stats.items():
@@ -105,10 +112,12 @@ class Build:
     def _deltas(self, method: str, cases: list[dict], fill_from_base: bool = False, **kwargs: Any) -> list[tuple[float, dict]]:
         """Run what-ifs in chunks, so progress (and cancellation) keeps flowing on slow builds."""
         scored: list[tuple[float, dict]] = []
+        extras = [case.get("extra") for case in cases]
+        cases = [{k: v for k, v in case.items() if k != "extra"} for case in cases]
         for start in range(0, len(cases), DELTA_CHUNK):
             result = self.call(method, cases=cases[start:start + DELTA_CHUNK], fields=self.objective.fields,
                                fullDPS=self.objective.full, **kwargs)
-            scored += self._scored(result["results"], fill_from_base)
+            scored += self._scored(result["results"], fill_from_base, extras[start:start + DELTA_CHUNK])
         return scored
 
     def node_deltas(self, cases: list[dict]) -> list[tuple[float, dict]]:
@@ -138,8 +147,10 @@ class Build:
     def remove_group(self, index: int) -> float:
         return self._committed(self.call("removeGroup", index=index, fields=self.objective.fields))
 
-    def equip(self, slot: str, option: ItemOption | None) -> float:
-        result = self.call("equip", slot=slot, raw=option.raw if option else None, fields=self.objective.fields)
+    def equip(self, slot: str, option: ItemOption | None, active: bool | None = None) -> float:
+        """`active` switches a flask or charm slot on or off (None leaves it as it is)."""
+        extra = {} if active is None else {"active": active}
+        result = self.call("equip", slot=slot, raw=option.raw if option else None, fields=self.objective.fields, **extra)
         if option is None:
             self.equipped.pop(slot, None)
         else:
@@ -153,11 +164,12 @@ class Build:
 
     def snapshot(self) -> dict:
         return {"xml": self.call("exportXml")["xml"], "equipped": dict(self.equipped), "score": self.score,
-                "stats": dict(self.stats)}
+                "stats": dict(self.stats), "extra_stats": dict(self.extra_stats)}
 
     def restore(self, snap: dict) -> None:
         self.call("loadXml", xml=snap["xml"])
         self.equipped = dict(snap["equipped"])
+        self.extra_stats = dict(snap.get("extra_stats") or {})
         for hook in self.after_load:
             hook()
         self.refresh()

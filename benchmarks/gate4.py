@@ -56,6 +56,8 @@ def reference_request(name: str, facts: dict, keystones: list[str]) -> BuildRequ
         offhand_choice = "none"
     elif offhand["type"] in ("Shield", "Focus", "Quiver"):
         offhand_choice = offhand["type"].lower()
+    elif offhand["type"] in GameData().weapon_types:
+        offhand_choice = "weapon"  # dual wielding (a Sceptre or a one-handed weapon)
     return BuildRequest(
         name=f"gate 4: {name}", class_name=facts["className"], ascendancies=[facts["ascendClassName"]],
         main_skill=main_skill(facts), level=facts["level"], weapon_type=weapon["type"] if weapon else None,

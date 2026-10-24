@@ -21,6 +21,7 @@ import re
 
 from builder.request.schema import DefenceStyle, Objective as Goal
 from builder.search.context import DEFENCE_LAYERS, Context
+from builder.search.flasks import RECOVERY_FIELDS
 from builder.search.models import DAMAGE_TYPES, with_darkness
 
 FLOOR_WEIGHT = 6.0
@@ -52,16 +53,19 @@ COST_WARNINGS = {
 # Full DPS counts it as if it were sustained, but a single boss never triggers it
 # (ledger/proposed/pob-full-dps-on-death-damage.yaml). Matched on gem descriptions.
 ON_DEATH = re.compile(r"\b(?:explode|combust|burst)\w*\b[^.]*\bon death\b|\bwhen they die\b", re.I)
-# Sustain: PoB's DPS assumes you can keep paying a skill's cost. Regeneration, leech and on-hit
-# recovery must cover at least this share of the per-second cost; below it the build is short of
-# a requirement-style floor. Flasks aren't modeled yet, so the bar sits under the user's own
-# endgame builds (19%, 47% and 71% of their costs) and above degenerate ones (0-4%).
+# Sustain: PoB's DPS assumes you can keep paying a skill's cost. Regeneration, leech, on-hit
+# recovery and flasks (at the rate generated charges pay for in a boss fight, builder/search/
+# flasks.py) must cover at least this share of the per-second cost; below it the build is short of
+# a requirement-style floor. The bar sits under the user's own endgame builds (19%, 47% and 71% of
+# their costs, without flasks) and above degenerate ones (0-4%).
 SUSTAIN_FLOOR = 0.10
 SUSTAIN_POOLS = {
-    "Mana": ("ManaPerSecondCost", ("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate")),
-    "Life": ("LifePerSecondCost", ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate")),
+    "Mana": ("ManaPerSecondCost", ("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", RECOVERY_FIELDS["Mana"])),
+    "Life": ("LifePerSecondCost", ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", RECOVERY_FIELDS["Life"])),
 }
-SUSTAIN_FIELDS = sorted({f for cost, recovery in SUSTAIN_POOLS.values() for f in (cost, *recovery)})
+# What PoB is asked for (the flask fields are the search's own, added by Build.extra_stats)
+SUSTAIN_FIELDS = sorted({f for cost, recovery in SUSTAIN_POOLS.values() for f in (cost, *recovery)}
+                        - set(RECOVERY_FIELDS.values()))
 # Clear speed (PLAN.md §5.5). PoB doesn't model it, so this is an estimate, labelled approximate in
 # the result: the monster life a build clears per second in a typical map pack. One use reaches
 # part of the pack (area, projectiles, chain, pierce, fork); killing what it reaches takes the hits

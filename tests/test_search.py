@@ -13,7 +13,8 @@ from builder.request.schema import BuildRequest
 from builder.search.conditions import CONDITIONS, qualifies, text_evidence
 from builder.search.context import Context, make_payload
 from builder.search.objective import Objective
-from builder.search.skeletons import enumerate_skeletons
+from builder.search.gear import SlotSpec
+from builder.search.skeletons import DUAL_WIELD, enumerate_skeletons, offhand_types, offhand_weapon_types
 from builder.search.tree import rooted_subsets
 
 FIXTURES = Path(__file__).parent / "fixtures" / "requests"
@@ -62,6 +63,38 @@ def test_button_cap_drops_skeletons_with_a_reason():
     ctx = context(main_skill="Ice Shot", ascendancies=["Deadeye"], max_buttons=1, require={"skills": ["Spark"]})
     skeletons, problems = enumerate_skeletons(ctx, ["Ice Shot"])
     assert skeletons == [] and any("buttons" in p for p in problems)
+
+
+def test_dual_wield_skeletons_follow_pobs_offhand_rules():
+    ctx = context(main_skill="Explosive Spear", ascendancies=["Ritualist"], offhand="weapon")
+    skeletons, _ = enumerate_skeletons(ctx, ["Explosive Spear"])
+    assert [(s.weapon, s.offhand) for s in skeletons] == [("Spear", DUAL_WIELD)]
+    assert skeletons[0].label.endswith("Spear + off-hand weapon")
+    # A Sceptre goes beside any one-handed weapon; other one-handers not beside a Wand or Sceptre,
+    # and a Spear never goes in the off hand
+    assert offhand_weapon_types(ctx, "Spear") == ["Claw", "Dagger", "Flail", "One Hand Axe", "One Hand Mace",
+                                                  "One Hand Sword", "Sceptre"]
+    assert offhand_weapon_types(ctx, "Wand") == ["Sceptre"]
+    assert offhand_weapon_types(ctx, "Bow") == []
+    banned = context(main_skill="Explosive Spear", offhand="weapon", forbid={"item_classes": ["Sceptre", "Dagger"]})
+    assert "Sceptre" not in offhand_weapon_types(banned, "Spear") and "Dagger" not in offhand_weapon_types(banned, "Spear")
+
+
+def test_offhand_any_includes_dual_wielding_and_two_handers_explain_why_not():
+    ctx = context(main_skill="Explosive Spear", ascendancies=["Ritualist"])
+    skeletons, _ = enumerate_skeletons(ctx, ["Explosive Spear"])
+    assert {s.offhand for s in skeletons} == {"Shield", "Focus", DUAL_WIELD}
+    ctx = context(main_skill="Ice Shot", ascendancies=["Deadeye"], offhand="weapon")
+    skeletons, problems = enumerate_skeletons(ctx, ["Ice Shot"])
+    assert skeletons == [] and any("dual wielded" in p for p in problems)
+
+
+def test_offhand_weapon_slot_offers_every_legal_type():
+    ctx = context(main_skill="Explosive Spear", ascendancies=["Ritualist"], offhand="weapon")
+    types = offhand_types(ctx, "Spear", DUAL_WIELD)
+    spec = SlotSpec(types[0], None, types[1:])
+    assert set(spec.types) == set(offhand_weapon_types(ctx, "Spear"))
+    assert offhand_types(ctx, "Spear", "Shield") == ("Shield",) and offhand_types(ctx, "Bow", None) == ()
 
 
 def test_incompatible_weapon_type_is_explained():
@@ -375,3 +408,45 @@ def test_unsustainable_skill_costs_fall_short():
     objective = Objective(context(main_skill="Ice Nova", floors={"resists": {}}))
     labels = [label for label, _, _ in objective.deficits({"ManaPerSecondCost": 1000, "ManaRegenRecovery": 40})]
     assert "Skill cost sustain: Mana" in labels
+
+
+# Flasks and charms -------------------------------------------------------------------------------
+
+
+def test_flask_effects_count_only_while_generated_charges_keep_them_up():
+    from builder.search.flasks import Charges, uptime
+
+    mana = {"kind": "Flask", "duration": 3, "chargesUsed": 10, "manaTotal": 310}
+    assert uptime(mana, Charges()) == 0.0  # nothing dies in a boss fight: no charges, no effect
+    assert uptime(mana, Charges(flask=2)) == pytest.approx(0.6)  # 2/s x 3 s / 10 per use
+    assert uptime(mana, Charges(flask=2, flask_duration_inc=100)) == 1.0
+    assert uptime({**mana, "gainBase": 1, "gainInc": 100}, Charges(mana_flask=1), "Mana") == 1.0  # (1+1) x 2 x 3 s
+    assert uptime(mana, Charges(life_flask=5), "Mana") == 0.0  # Life flask generation doesn't fill Mana flasks
+    golden = {"kind": "Charm", "duration": 4, "chargesUsed": 20}
+    assert uptime(golden, Charges(charm=50), trigger="Used when you kill a Rare or Unique enemy") == 0.0
+    assert uptime(golden, Charges(charm=5), trigger="Used when you become Frozen") == 1.0
+
+
+def test_flask_recovery_counts_toward_sustain_at_the_rate_charges_allow():
+    from builder.search.flasks import RECOVERY_FIELDS, Charges, recovery_per_second
+    from builder.search.objective import sustain
+
+    mana = {"kind": "Flask", "duration": 3, "chargesUsed": 10, "manaTotal": 300}
+    assert recovery_per_second(mana, Charges(), "Mana") == 0.0
+    assert recovery_per_second(mana, Charges(flask=1), "Mana") == pytest.approx(30.0)  # one use per 10 s
+    assert recovery_per_second(mana, Charges(flask=100), "Mana") == pytest.approx(100.0)  # one use at a time
+    assert recovery_per_second(mana, Charges(flask=1, mana_recovery_inc=50), "Mana") == pytest.approx(45.0)
+    stats = {"ManaPerSecondCost": 1000, "ManaRegenRecovery": 40, RECOVERY_FIELDS["Mana"]: 60}
+    assert sustain(stats)[0] == pytest.approx(0.1)
+
+
+def test_magic_flasks_take_one_prefix_and_one_suffix_from_the_flask_pool():
+    from builder.search.rares import MAGIC_LIMIT, AffixPools, magic_text
+
+    ctx = context(main_skill="Spark")
+    pool = AffixPools(ctx, "Flask").pool("Ultimate Mana Flask")
+    assert pool and any("Charges per Second" in line for a in pool for line in a.lines)
+    assert not any("Life Recovered" in line for a in pool for line in a.lines)  # life_flask only
+    assert MAGIC_LIMIT == {"Prefix": 1, "Suffix": 1}
+    text = magic_text("Flask 2", ctx.bases_by_name["Ultimate Mana Flask"], 82, pool[:1])
+    assert text.startswith("Rarity: Magic\nUltimate Mana Flask\nItem Level: 82")

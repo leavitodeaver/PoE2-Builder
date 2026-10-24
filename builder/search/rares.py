@@ -27,6 +27,8 @@ TIER_RULES = {
     GearTier.MIRROR: (86, 1, 1.0),
 }
 SCREEN_KEEP = 18  # affixes per prefix/suffix kept after scoring each alone
+MAGIC_LIMIT = {"Prefix": 1, "Suffix": 1}
+MAGIC_PRICE = 0.01  # divine per affix on a magic flask or charm
 RUNE_KEEP = 6  # runes kept after scoring each in the first socket
 RANGE = re.compile(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)")
 # Price estimate (divine): a cheap rare times a factor per affix by its tier
@@ -111,6 +113,20 @@ def rare_text(slot: str, base: dict, item_level: int, affixes: list[Affix], rune
     for affix in affixes:
         lines += affix.lines
     return "\n".join(lines)
+
+
+def magic_text(slot: str, base: dict, item_level: int, affixes: list[Affix]) -> str:
+    """A magic item (flasks and charms): one prefix and one suffix at most."""
+    implicits = implicit_lines(base)
+    lines = ["Rarity: Magic", base["name"], f"Item Level: {item_level}", f"Implicits: {len(implicits)}", *implicits]
+    for affix in affixes:
+        lines += affix.lines
+    return "\n".join(lines)
+
+
+def magic_price(slot: str, affixes: list[Affix]) -> float:
+    """Magic flasks and charms are cheap: a flat estimate per affix (uncalibrated)."""
+    return MAGIC_PRICE * max(1, len(affixes))
 
 
 def socket_lines(runes: list[str]) -> list[str]:

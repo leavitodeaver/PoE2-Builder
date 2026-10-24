@@ -14,6 +14,7 @@ from builder.search.context import TWO_HANDED, Context
 # Weapons a spell or minion caster might hold: (item type, sub-type; "" = plain caster staff)
 CASTER_WEAPONS = [("Wand", None), ("Sceptre", None), ("Staff", "")]
 MELEE_FALLBACK = ["One Hand Mace", "Two Hand Mace", "Spear", "Staff"]
+DUAL_WIELD = "Weapon"  # the offhand of a skeleton that holds a weapon in each hand
 
 
 @dataclass(frozen=True)
@@ -23,15 +24,15 @@ class Skeleton:
     main_skill: str
     weapon: str | None  # main-hand item type; None = unarmed
     weapon_sub: str | None  # "Warstaff" for quarterstaves, "" for caster staves, None = any
-    offhand: str | None  # "Shield", "Focus", "Quiver" or None
+    offhand: str | None  # "Shield", "Focus", "Quiver", DUAL_WIELD (an off-hand weapon) or None
     granted_by: str | None = None  # "passive:<name>" or "unique:<name>" for skills only those grant
 
     @property
     def label(self) -> str:
         weapon = "Quarterstaff" if self.weapon_sub == "Warstaff" else (self.weapon or "unarmed")
         source = f" (from {self.granted_by.split(':', 1)[1]})" if self.granted_by else ""
-        return (f"{self.ascendancy} · {self.main_skill}{source} · {weapon}"
-                + (f" + {self.offhand}" if self.offhand else ""))
+        offhand = "off-hand weapon" if self.offhand == DUAL_WIELD else self.offhand
+        return f"{self.ascendancy} · {self.main_skill}{source} · {weapon}" + (f" + {offhand}" if offhand else "")
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -39,6 +40,26 @@ class Skeleton:
 
 def is_button(gem: dict) -> bool:
     return presses(gem)
+
+
+def offhand_weapon_types(ctx: Context, weapon: str | None) -> list[str]:
+    """Weapons PoB lets this main hand hold in the other hand (ItemsTab:IsItemValidForSlot): a
+    Sceptre beside any one-handed weapon; any other one-handed weapon except a Spear, but not beside
+    a Wand or Sceptre. Two-handed weapons dual wield only with keystones (Giant's Blood), not modeled."""
+    if weapon is None or weapon in TWO_HANDED:
+        return []
+    forbidden = ctx.compiled.filters.forbidden_item_classes
+    types = {"Sceptre"}
+    if weapon not in ("Wand", "Sceptre"):
+        types |= {b["type"] for b in ctx.data.bases if "one_hand_weapon" in (b.get("tags") or {}) and b["type"] != "Spear"}
+    return sorted(t for t in types if t not in forbidden)
+
+
+def offhand_types(ctx: Context, weapon: str | None, offhand: str | None) -> tuple[str, ...]:
+    """Item types the off-hand slot of a skeleton takes."""
+    if offhand == DUAL_WIELD:
+        return tuple(offhand_weapon_types(ctx, weapon))
+    return (offhand,) if offhand else ()
 
 
 def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
@@ -80,8 +101,13 @@ def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
     archetypes = []
     for weapon, sub in mains:
         two_handed = weapon in TWO_HANDED
+        dual = bool(offhand_weapon_types(ctx, weapon))
         if offhand_choice == Offhand.WEAPON:
-            problems.append("dual wielding isn't modeled yet")
+            if dual:
+                archetypes.append((weapon, sub, DUAL_WIELD))
+            else:
+                problems.append(f"a {weapon or 'bare hand'} can't be dual wielded (PoB needs a one-handed main weapon)"
+                                if two_handed or weapon is None else f"no off-hand weapon is allowed beside a {weapon}")
             continue
         if two_handed or weapon is None:
             if weapon == "Bow" and offhand_choice in (Offhand.ANY, Offhand.QUIVER) and "Quiver" not in forbidden:
@@ -94,8 +120,8 @@ def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
         elif offhand_choice == Offhand.ANY:
             # Shield and Focus both get a skeleton: which pays more (block and armour, or a
             # focus's mana and energy shield) depends on the request
-            offhands = [o for o in ("Shield", "Focus") if o not in forbidden] or [None]
-            archetypes += [(weapon, sub, offhand) for offhand in offhands]
+            offhands = [o for o in ("Shield", "Focus") if o not in forbidden] + ([DUAL_WIELD] if dual else [])
+            archetypes += [(weapon, sub, offhand) for offhand in offhands or [None]]
         elif offhand_choice in (Offhand.SHIELD, Offhand.FOCUS):
             name = "Shield" if offhand_choice == Offhand.SHIELD else "Focus"
             if name not in forbidden:
@@ -147,13 +173,14 @@ def required_holders(ctx: Context) -> list[tuple[str, str]]:
 
 
 def fits_holders(ctx: Context, weapon: str | None, offhand: str | None) -> bool:
+    held = offhand_types(ctx, weapon, offhand)
     for _, unique in required_holders(ctx):
         option = ctx.unique_option(unique)
         if option is None:
             return False
-        if option.type in ("Shield", "Focus", "Quiver") and option.type != offhand:
+        if option.type in ("Shield", "Focus", "Quiver") and option.type not in held:
             return False
-        if option.type in ctx.data.weapon_types and option.type != weapon:
+        if option.type in ctx.data.weapon_types and option.type != weapon and option.type not in held:
             return False
     return True
 

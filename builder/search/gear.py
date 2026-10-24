@@ -1,5 +1,6 @@
 """Gear block (PLAN.md §5.2.3–4): normal bases, uniques, rares built affix by affix, and the runes,
-Soul Cores and Idols in their sockets.
+Soul Cores and Idols in their sockets; flasks and charms (normal, magic or unique) the same way, with
+their slots switched on only while a boss fight sustains them (builder/search/flasks.py).
 
 Each slot compares every affordable option with item what-ifs (bridge `itemDeltas`): normal bases
 (found, not bought), allowed and priced uniques, and in full rounds a rare built for the slot
@@ -19,8 +20,13 @@ import time
 from dataclasses import dataclass
 
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption
+from builder.search.flasks import (
+    ACTIVE_UPTIME, CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, is_flask_slot, recovery_per_second, slot_pool,
+    uptime,
+)
 from builder.search.rares import (
-    RUNE_KEEP, SCREEN_KEEP, AffixPools, RuneCatalog, rare_price, rare_text, socket_count, with_runes,
+    MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
+    socket_count, with_runes,
 )
 from builder.search.state import EPSILON, Build
 
@@ -33,6 +39,11 @@ AFFIX_LIMIT = {"Prefix": 3, "Suffix": 3}
 class SlotSpec:
     type: str
     sub_type: str | None = None  # "" means "no sub-type" (caster staves); None means any
+    also: tuple[str, ...] = ()  # more item types the slot takes (an off-hand weapon: Sceptre, Dagger, ...)
+
+    @property
+    def types(self) -> tuple[str, ...]:
+        return (self.type, *self.also)
 
 
 class Gear:
@@ -47,22 +58,30 @@ class Gear:
             self.slots["Weapon 2"] = offhand
         for slot in ARMOUR_SLOTS + JEWELLERY_SLOTS:
             self.slots[slot] = SlotSpec(SLOT_TYPE[slot])
+        # After the belt, which sets how many charms count
+        for slot, pool in FLASK_SLOTS.items():
+            self.slots[slot] = SlotSpec("Flask", pool)
+        for slot in CHARM_SLOTS:
+            self.slots[slot] = SlotSpec("Charm")
         self._options: dict[str, list[ItemOption]] = {}
         self.shortlist: dict[str, list[str]] = {}
         self.pools = AffixPools(self.ctx)
         self.runes = RuneCatalog(self.ctx, self.ctx.augment_prices)
         self.rares: dict[str, ItemOption] = {}  # the last rare built for each slot
         self.lam = 0.0  # budget weight: score per divine
+        self.magic_pools = {kind: AffixPools(self.ctx, kind) for kind in ("Flask", "Charm")}
+        self.charges = Charges()  # charge generation of the committed build (sync_flasks)
+        self._flask_info: dict[str, dict] = {}  # item text -> PoB's flask/charm numbers
 
     # Options ---------------------------------------------------------------------------------
 
     def options(self, slot: str) -> list[ItemOption]:
         if slot not in self._options:
             spec = self.slots[slot]
-            options = list(self.ctx.item_options.get(spec.type, []))
+            options = [o for t in spec.types for o in self.ctx.item_options.get(t, [])]
             if spec.sub_type is not None:
                 options = [o for o in options if (o.sub_type or "") == spec.sub_type]
-            if not slot.startswith("Weapon"):
+            if not slot.startswith("Weapon") and spec.type != "Charm":
                 # Normal armour and jewellery bases differ little within a sub-type: keep the top few
                 bases: dict[str | None, list[ItemOption]] = {}
                 for option in sorted((o for o in options if not o.unique), key=lambda o: -o.level):
@@ -86,7 +105,7 @@ class Gear:
             if slot is None:
                 problems.append(f"required unique {name} fits no slot of this skeleton")
                 continue
-            build.equip(slot, option)
+            self.put(slot, option)
             build.locked_slots.add(slot)
         for slot in self.slots:
             if slot in build.locked_slots or not slot.startswith("Weapon"):
@@ -98,7 +117,7 @@ class Gear:
 
     def slot_for(self, option: ItemOption) -> str | None:
         for slot, spec in self.slots.items():
-            if slot in self.build.locked_slots or spec.type != option.type:
+            if slot in self.build.locked_slots or option.type not in spec.types:
                 continue
             if spec.sub_type is not None and (option.sub_type or "") != spec.sub_type:
                 continue
@@ -121,54 +140,135 @@ class Gear:
     def adjusted(self, score: float, option: ItemOption | None) -> float:
         return score - self.lam * ((option.price or 0.0) if option else 0.0)
 
+    # What-ifs and commits ----------------------------------------------------------------------
+
+    def deltas(self, slot: str, raws: list[str]) -> list[tuple[float, dict]]:
+        """Item what-ifs for one slot; a flask or charm is scored with its slot on only if a boss
+        fight sustains its effect, and with the flask recovery it would bring."""
+        cases = [{"slot": slot, "raw": raw} for raw in raws]
+        if is_flask_slot(slot):
+            for case, raw, info in zip(cases, raws, self.flask_info(raws)):
+                case["active"] = self.counts(slot, info, raw)
+                case["extra"] = self.recovery_stats({slot: info})
+        return self.build.item_deltas(cases)
+
+    def put(self, slot: str, option: ItemOption | None) -> float:
+        """Equip (or empty) a slot; a flask or charm slot is switched on only if its effect is sustained."""
+        if not is_flask_slot(slot):
+            return self.build.equip(slot, option)
+        info = self.flask_info([option.raw])[0] if option else {}
+        self.build.extra_stats = self.recovery_stats({slot: info})
+        return self.build.equip(slot, option, active=option is not None and self.counts(slot, info, option.raw))
+
+    # Flasks and charms -----------------------------------------------------------------------
+
+    def flask_info(self, raws: list[str]) -> list[dict]:
+        missing = [raw for raw in dict.fromkeys(raws) if raw not in self._flask_info]
+        if missing:
+            for raw, info in zip(missing, self.build.call("flaskData", raws=missing)["results"]):
+                self._flask_info[raw] = info
+        return [self._flask_info[raw] for raw in raws]
+
+    def counts(self, slot: str, info: dict, raw: str) -> bool:
+        """Whether PoB may count the item's effect: generated charges keep it up in a boss fight."""
+        return uptime(info, self.charges, slot_pool(slot), raw) >= ACTIVE_UPTIME
+
+    def recovery_stats(self, replace: dict[str, dict] | None = None) -> dict:
+        """Flask recovery per second (the sustain floor's flask share), with `replace`d slots."""
+        replace = replace or {}
+        totals = {field: 0.0 for field in RECOVERY_FIELDS.values()}
+        for slot, pool in FLASK_SLOTS.items():
+            if slot in replace:
+                info = replace[slot]
+            else:
+                option = self.build.equipped.get(slot)
+                info = self.flask_info([option.raw])[0] if option else None
+            if info:
+                totals[RECOVERY_FIELDS[pool]] += recovery_per_second(info, self.charges, pool)
+        return totals
+
+    def sync_flasks(self) -> None:
+        """After the build changed elsewhere (passives, other gear): re-read charge generation, switch
+        flask and charm slots on or off to match it, and refresh flask recovery."""
+        build = self.build
+        data = build.call("chargeGain")
+        self.charges = Charges.from_bridge(data)
+        changed = False
+        for slot in [*FLASK_SLOTS, *CHARM_SLOTS]:
+            option = build.equipped.get(slot)
+            if option is not None and self.counts(slot, self.flask_info([option.raw])[0], option.raw) != data["active"].get(slot):
+                build.equip(slot, option, active=not data["active"].get(slot))
+                changed = True
+        extra = self.recovery_stats()
+        if changed or extra != build.extra_stats:
+            build.extra_stats = extra
+            build.refresh()
+
+    def flask_report(self) -> list[dict]:
+        """Each equipped flask and charm: uptime in a boss fight, whether its effect counted, recovery."""
+        rows = []
+        for slot in [*FLASK_SLOTS, *CHARM_SLOTS]:
+            option = self.build.equipped.get(slot)
+            if option is None:
+                continue
+            info, pool = self.flask_info([option.raw])[0], slot_pool(slot)
+            rows.append({"slot": slot, "name": option.name, "pool": pool,
+                         "uptime": uptime(info, self.charges, pool, option.raw),
+                         "counted": self.counts(slot, info, option.raw),
+                         "recovery": recovery_per_second(info, self.charges, pool) if pool else 0.0})
+        return rows
+
     # Rares -----------------------------------------------------------------------------------
 
     def build_rare(self, slot: str, deadline: float) -> ItemOption | None:
-        """The best rare for this slot within its budget, affix by affix."""
-        build, spec = self.build, self.slots[slot]
+        """The best rare for this slot within its budget, affix by affix (for a flask or charm, the
+        best magic item: one prefix and one suffix)."""
         bases = [o for o in self.options(slot) if not o.unique]
         if not bases or time.perf_counter() > deadline:
             return None
-        scored = build.item_deltas([{"slot": slot, "raw": o.raw} for o in bases])
+        scored = self.deltas(slot, [o.raw for o in bases])
         base_option = max(zip((s for s, _ in scored), bases), key=lambda x: x[0])[1]
         base = self.ctx.bases_by_name[base_option.base]
-        pool = self.pools.pool(base["name"])
+        magic = is_flask_slot(slot)
+        pools = self.magic_pools[base["type"]] if magic else self.pools
+        limits = MAGIC_LIMIT if magic else AFFIX_LIMIT
+        text, price_of = (magic_text, magic_price) if magic else (rare_text, rare_price)
+        pool = pools.pool(base["name"])
         if not pool:
             return None
         left = self.left_for(slot)
-        level = self.pools.item_level
+        level = pools.item_level
 
         # Score each affix alone, keep the best few of each kind
-        scored = build.item_deltas([{"slot": slot, "raw": rare_text(slot, base, level, [a])} for a in pool])
+        scored = self.deltas(slot, [text(slot, base, level, [a]) for a in pool])
         ranked = sorted(zip((s for s, _ in scored), pool), key=lambda x: -x[0])
         shortlist = []
-        for kind in AFFIX_LIMIT:
+        for kind in limits:
             shortlist += [a for _, a in ranked if a.type == kind][:SCREEN_KEEP]
 
         chosen: list = []
-        current = build.item_deltas([{"slot": slot, "raw": rare_text(slot, base, level, [])}])[0][0]
+        current = self.deltas(slot, [text(slot, base, level, [])])[0][0]
         while time.perf_counter() < deadline:
             groups = {a.group for a in chosen}
-            counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in AFFIX_LIMIT}
-            options = [a for a in shortlist if a.group not in groups and counts[a.type] < AFFIX_LIMIT[a.type]
-                       and rare_price(slot, chosen + [a]) <= left + 1e-9]
+            counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in limits}
+            options = [a for a in shortlist if a.group not in groups and counts[a.type] < limits[a.type]
+                       and price_of(slot, chosen + [a]) <= left + 1e-9]
             if not options:
                 break
-            scored = build.item_deltas([{"slot": slot, "raw": rare_text(slot, base, level, chosen + [a])}
-                                        for a in options])
-            best_value, best = max(((s - self.lam * rare_price(slot, chosen + [a]), a)
+            scored = self.deltas(slot, [text(slot, base, level, chosen + [a]) for a in options])
+            best_value, best = max(((s - self.lam * price_of(slot, chosen + [a]), a)
                                     for (s, _), a in zip(scored, options)), key=lambda x: x[0])
-            if best_value <= current - self.lam * rare_price(slot, chosen) + EPSILON:
+            if best_value <= current - self.lam * price_of(slot, chosen) + EPSILON:
                 break
             chosen.append(best)
-            current = best_value + self.lam * rare_price(slot, chosen)
+            current = best_value + self.lam * price_of(slot, chosen)
         if not chosen:
             return None
-        price = None if self.ctx.ssf else rare_price(slot, chosen)
-        return ItemOption(f"Rare {spec.type}", base["name"], base["type"], base.get("subType"),
-                          rare_text(slot, base, level, chosen), False, price,
-                          "ssf" if self.ctx.ssf else "estimate (uncalibrated)", base_option.level, rare=True,
-                          affixes=tuple(line for a in chosen for line in a.lines))
+        price = None if self.ctx.ssf else price_of(slot, chosen)
+        confidence = "ssf" if self.ctx.ssf else "estimate (magic)" if magic else "estimate (uncalibrated)"
+        return ItemOption(f"{'Magic' if magic else 'Rare'} {base['type']}", base["name"], base["type"],
+                          base.get("subType"), text(slot, base, level, chosen), False, price, confidence,
+                          base_option.level, rare=True, affixes=tuple(line for a in chosen for line in a.lines))
 
     def socketed(self, slot: str, option: ItemOption, deadline: float) -> ItemOption:
         """The option with its sockets filled by the runes that score best."""
@@ -225,8 +325,13 @@ class Gear:
         fills sockets, and remembers the top few per slot; other rounds rescore only those."""
         build = self.build
         improved = False
+        self.sync_flasks()
         for slot in self.slots:
             if slot in build.locked_slots or time.perf_counter() > deadline:
+                continue
+            if slot in CHARM_SLOTS and CHARM_SLOTS.index(slot) >= self.charges.charm_limit:
+                if build.equipped.get(slot) is not None:  # the belt changed: a charm PoB no longer counts
+                    self.put(slot, None)
                 continue
             options = self.candidates(slot)
             if not full and slot in self.shortlist:
@@ -239,7 +344,7 @@ class Gear:
             rare = self.rares.get(slot)
             if rare is not None and rare != build.equipped.get(slot) and (rare.price or 0.0) <= self.left_for(slot) + 1e-9:
                 options.append(rare)
-            scored = build.item_deltas([{"slot": slot, "raw": o.raw} for o in options])
+            scored = self.deltas(slot, [o.raw for o in options])
             current = build.equipped.get(slot)
             current_value = self.adjusted(build.score, current)
             ranked = sorted(((self.adjusted(s, o), o) for (s, _), o in zip(scored, options)), key=lambda x: -x[0])
@@ -258,9 +363,9 @@ class Gear:
             if choice is None:
                 continue
             before, previous = build.score, current
-            build.equip(slot, choice)
+            self.put(slot, choice)
             if self.adjusted(build.score, choice) < self.adjusted(before, previous) - EPSILON and build.worse(before):
-                build.equip(slot, previous)
+                self.put(slot, previous)
                 continue
             improved = improved or build.score > before + EPSILON
         if full:
@@ -285,4 +390,4 @@ class Gear:
         slot = self.rng.choice(slots)
         options = self.candidates(slot)
         if options:
-            self.build.equip(slot, self.rng.choice(options))
+            self.put(slot, self.rng.choice(options))

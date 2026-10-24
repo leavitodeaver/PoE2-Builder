@@ -324,7 +324,8 @@ class Run:
         checks.append({"label": "Skill costs sustained", "requested": f"≥ {SUSTAIN_FLOOR:.0%} by recovery",
                        "delivered": "no costs to pay" if pool is None and share >= 1 else f"{min(share, 9.99):.0%}"
                        + (f" of {pool}" if pool else ""), "ok": share >= SUSTAIN_FLOOR,
-                       "note": "regeneration, leech and on-hit recovery against the per-second cost; flasks not counted"})
+                       "note": "regeneration, leech, on-hit recovery and flasks (at the rate charge generation "
+                               "refills them in a boss fight) against the per-second cost"})
         failing = [c for c in checks if c["ok"] is False]
         reasons = [f"{c['label']}: requested {c['requested']}, delivered {c['delivered']}" for c in failing]
         reasons += final.get("problems") or []
@@ -339,6 +340,13 @@ class Run:
                               f"effects that need enemies to die ({', '.join(final['excluded_from'])}); a single boss "
                               "never triggers them, so they're left out of the boss DPS above (the clear estimate "
                               "counts them).")
+        for flask in final.get("flasks") or []:
+            if not flask["counted"]:
+                self.notes.append(f"{flask['slot']} ({flask['name']}): charge generation keeps its effect up "
+                                  f"{flask['uptime']:.0%} of a boss fight (no kills refill it), so its effect isn't "
+                                  "counted and its slot is left switched off in the code"
+                                  + (f"; its {flask['pool']} recovery counts at {flask['recovery']:,.0f}/s"
+                                     if flask["pool"] and flask["recovery"] > 0 else ""))
         for assumption in final.get("assumptions") or []:
             self.notes.append(f"* {assumption['label']}: {assumption['value']} (assumed, since PoB doesn't model it: "
                               f"{assumption['basis']}; confidence: {assumption['confidence']}). The PoB code doesn't "
@@ -361,7 +369,7 @@ class Run:
             "stats": facts["stats"], "checks": checks, "code": final["code"], "verified": final["verified"],
             "gear": final["gear"], "spent": spent, "groups": final["groups"], "conditions": final["conditions"],
             "quests": final["quests"], "warnings": facts["warnings"], "skeleton_problems": problems,
-            "assumptions": final.get("assumptions") or [],
+            "assumptions": final.get("assumptions") or [], "flasks": final.get("flasks") or [],
             "blind_spots": annotate_blind_spots(final.get("blind_spots") or []),
             "timing": final.get("timing"), "escalations": final.get("escalations"),
             "requirement_weights": final.get("multipliers"),

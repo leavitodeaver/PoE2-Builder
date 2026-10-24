@@ -24,7 +24,7 @@ from builder.search.gems import Gems
 from builder.search.jewels import Jewels
 from builder.search.models import MODEL_FIELDS
 from builder.search.objective import CLEAR_FIELDS, DARKNESS_FIELDS, SUSTAIN_FIELDS, Objective, main_dps, shortfall
-from builder.search.skeletons import Skeleton
+from builder.search.skeletons import Skeleton, offhand_types
 from builder.search.state import EPSILON, Build
 from builder.search.tree import Tree
 
@@ -45,7 +45,8 @@ class Search:
         self.gems = Gems(self.build)
         self.tree = Tree(self.build, self.rng)
         weapon = SlotSpec(self.skeleton.weapon, self.skeleton.weapon_sub) if self.skeleton.weapon else None
-        offhand = SlotSpec(self.skeleton.offhand) if self.skeleton.offhand else None
+        held = offhand_types(self.ctx, self.skeleton.weapon, self.skeleton.offhand)
+        offhand = SlotSpec(held[0], None, held[1:]) if held else None
         self.gear = Gear(self.build, weapon, offhand, self.rng)
         self.jewels = Jewels(self.build, self.tree, self.gear)
         self.conditions = Conditions(self.build, self.skeleton.main_skill)
@@ -140,6 +141,7 @@ class Search:
             "multipliers": dict(self.build.objective.multipliers), "assumed_mods": self.assumptions.mods,
             "extra_groups": [[k, v] for k, v in sorted(self.assumptions.extra_groups.items())],
             "required_names": sorted(self.tree.required_names),
+            "extra_stats": dict(self.build.extra_stats),
             "problems": self.problems,
         }
 
@@ -152,6 +154,7 @@ class Search:
         self.assumptions.mods = list(state.get("assumed_mods") or [])
         self.assumptions.extra_groups = {k: v for k, v in state.get("extra_groups") or []}
         self.build.objective.extra = bool(self.assumptions.extra_groups)
+        self.build.extra_stats = dict(state.get("extra_stats") or {})
         self.assumptions.reinstall()
         self.build.refresh()
         self.tree.required = set(state["required"])
@@ -161,6 +164,7 @@ class Search:
         self.gems.shortlist = state["shortlist"]
         self.gear.shortlist = dict(state.get("gear_shortlist") or {})
         self.problems = list(state["problems"])
+        self.gear.sync_flasks()
 
     def resolve(self) -> bool:
         """Conditions and assumptions follow the build; if an assumption changed (e.g. a Remnant
@@ -352,6 +356,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         pass
     search.resolve()
 
+    search.gear.sync_flasks()
     facts = build.call("facts", fields=RESULT_FIELDS)
     xml = build.call("exportXml")["xml"]
     code = codes.encode(xml)
@@ -369,6 +374,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     search.assumptions.reinstall()
     reloaded = build.call("facts", fields=RESULT_FIELDS)
     mismatched = [k for k in RESULT_FIELDS if facts["stats"].get(k) != reloaded["stats"].get(k)]
+    facts["stats"].update(build.extra_stats)  # flask recovery, for the sustain check
     build.objective.prepare(facts["stats"])  # what the checks see: Darkness in maximum hit taken
     excluded, excluded_names = build.objective.excluded(build.stats)
     blind_spots = build.call("unsupportedInBuild")["lines"]
@@ -378,7 +384,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "clear_estimate": build.objective.clear(build.stats),
         "blind_spots": blind_spots,
         "gear": {slot: option.describe() for slot, option in equipped.items()}, "spent": spent,
-        "assumptions": assumptions,
+        "assumptions": assumptions, "flasks": search.gear.flask_report(),
         "verified": not mismatched, "verify_mismatch": mismatched,
     }
 
