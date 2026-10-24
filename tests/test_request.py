@@ -47,6 +47,11 @@ def test_required_and_forbidden_together_is_rejected():
         BuildRequest(require={"skills": ["Spark"]}, forbid={"skills": ["Spark"]})
 
 
+def test_balanced_is_the_default_goal_and_the_others_stay_selectable():
+    assert BuildRequest().objective == "balanced"
+    assert {BuildRequest(objective=o).objective for o in ("boss", "mapping", "balanced")} == {"boss", "mapping", "balanced"}
+
+
 def test_ascendancy_must_belong_to_class(data):
     request = BuildRequest(class_name="Witch", ascendancies=["Titan"])
     assert any(issue.field == "ascendancies" for issue in compile_request(request, data).errors)

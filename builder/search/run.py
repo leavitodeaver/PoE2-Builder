@@ -153,8 +153,10 @@ class Run:
             return self.result_invalid()
         if self.request.seed_code:
             self.notes.append("Seed codes aren't used yet (they arrive with gate 4 in Phase 3); the search started from scratch.")
-        if self.request.objective == "mapping":
-            self.notes.append("Mapping mode isn't modeled yet; this result maximizes single-target boss DPS.")
+        if self.request.objective in ("mapping", "balanced"):
+            mode = "Mapping" if self.request.objective == "mapping" else "Balanced"
+            self.notes.append(f"{mode} mode isn't modeled yet (clear speed, PLAN.md §5.5); this result maximizes "
+                              "single-target boss DPS.")
         self.emit("status", message=f"Starting {self.workers} PoB workers")
         with EnginePool(self.workers) as pool:
             self.emit("status", message=f"Workers ready in {pool.startup_seconds:.1f}s")

@@ -51,6 +51,7 @@ class GearTier(StrEnum):
 
 class Objective(StrEnum):
     BOSS = "boss"
+    BALANCED = "balanced"  # boss damage and clear speed together (the default)
     MAPPING = "mapping"
 
 
@@ -128,7 +129,7 @@ class BuildRequest(Model):
     floors: Floors = Floors()
     budget: Budget = Budget()
 
-    objective: Objective = Objective.BOSS
+    objective: Objective = Objective.BALANCED
     dps_gate: float | None = Field(None, ge=0)  # below this, report infeasible with the closest result
 
     allow_exploits: bool = True

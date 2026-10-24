@@ -28,7 +28,7 @@ function el(tag, attrs = {}, ...children) {
 const LABELS = {
   armour_evasion: "Armour + evasion", armour_energy_shield: "Armour + energy shield",
   evasion_energy_shield: "Evasion + energy shield", hybrid: "Armour + evasion + energy shield",
-  weapon: "Weapon (dual wield)", boss: "Boss DPS", mapping: "Mapping (clear)",
+  weapon: "Weapon (dual wield)", boss: "Boss DPS", balanced: "Balanced (boss + clear)", mapping: "Mapping (clear)",
 };
 
 function pretty(value) {

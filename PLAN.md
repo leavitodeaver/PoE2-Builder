@@ -6,7 +6,7 @@ spec future work sessions build from. Update it when a decision changes.
 ## 1. What it does
 
 You describe a build: a skill or concept, ascendancy, bans, button cap, defence style and floors,
-divine budget plus gear-tier ceiling, and boss or mapping focus. Optionally you paste a PoB code
+divine budget plus gear-tier ceiling, and boss, mapping or balanced focus. Optionally you paste a PoB code
 to start from. The tool searches for the highest-damage build that satisfies every hard
 requirement. It returns:
 
@@ -30,7 +30,7 @@ cheapest relaxation. It never relaxes a hard requirement silently.
 | Budget | Divine cap (live prices) **and** a gear-tier ceiling |
 | Starting point | From scratch by default; optionally a pasted PoB code |
 | Combat assumptions | Only buffs and debuffs the build itself can sustain |
-| Objective | Sustained single-target boss DPS by default; per-request mapping/clear mode |
+| Objective | Balanced (boss DPS and clear speed) by default; per-request boss-only or mapping/clear mode (changed 2026-10-24 at the user's request) |
 | Exploits | Included when known to work, marked with an asterisk and a confidence level |
 | PoB trust | PoB is the core calculator only. A correction ledger fixes its known gaps |
 | PoB version | Newest dev snapshot (0.5.5 data), cross-checked against the latest PoB release; disagreements are explained and flagged |
@@ -141,7 +141,7 @@ One JSON request schema (`builder/request/schema.py`), saved per request, editab
 - **Budget:** divine cap plus gear tier (League start / Mid / Endgame / Mirror). The tier caps
   affix tiers, the number of premium affixes per rare, unique price, and whether corruption,
   desecration or omens are allowed. SSF mode ignores prices and uses the tier only.
-- **Objective:** boss DPS (default) or mapping mode. Optional **DPS acceptance gate**: if it isn't
+- **Objective:** balanced (default: boss DPS and clear speed together), boss DPS, or mapping mode. Optional **DPS acceptance gate**: if it isn't
   met, the build is reported as infeasible along with the closest result.
 - **Exploits:** allowed by default. Can be forbidden per request, or per individual ledger entry.
 - **Level / points / league flags:** character level, passive points, weapon-set points,
@@ -210,7 +210,7 @@ worth it. The table is extendable through the ledger. The boss config uses PoB's
 
 ### 5.5 Mapping mode
 
-PoB doesn't model clear speed, so mapping mode is approximate: hit DPS × effective targets (from
+PoB doesn't model clear speed, so mapping mode (and the clear half of balanced mode) is approximate: hit DPS × effective targets (from
 area, projectile count, chain and pierce) × a movement/attack-speed factor. The result says it is
 approximate.
 
