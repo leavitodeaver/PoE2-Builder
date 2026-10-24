@@ -20,7 +20,7 @@ from typing import Any
 from builder.pob.pool import EnginePool, WorkerError, default_workers
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
-from builder.search.objective import SUSTAIN_FLOOR, rank_key, sustain
+from builder.search.objective import PACK_SIZE, SUSTAIN_FLOOR, rank_key, sustain
 from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skeletons, weapon_archetypes
 
 FINALIZE_SHARE = 0.12
@@ -76,7 +76,8 @@ class Run:
                 rate = sum(p.get("evals_per_second", 0.0) for p in self.live.values())
                 top = max(self.live.values(), key=lambda p: p.get("score", -math.inf))
                 self.emit("progress", evals_per_second=round(rate), tasks=len(self.live), leader=top["skeleton"],
-                          leader_dps=top["dps"], phase=top["phase"], deficits=top["deficits"],
+                          leader_dps=top["dps"], leader_value=top.get("value"), phase=top["phase"],
+                          deficits=top["deficits"],
                           evals=self.evals_done + sum(p.get("evals", 0) for p in self.live.values()))
         return on_progress
 
@@ -94,7 +95,8 @@ class Run:
                 self.probes[label] = result
             if self.best is None or rank_key(result) < rank_key(self.best):
                 self.best = result
-                self.emit("best", skeleton=label, dps=result["dps"], score=result["score"],
+                self.emit("best", skeleton=label, dps=result["dps"], clear=result.get("clear"),
+                          value=result.get("value"), score=result["score"],
                           deficits=[d["label"] for d in result["deficits"]])
             good.append(result)
         self.live.clear()
@@ -133,8 +135,8 @@ class Run:
             if isinstance(chunk, list):
                 for entry in chunk:
                     name = entry["skeleton"]["main_skill"]
-                    ranked[name] = max(ranked.get(name, 0.0), entry["dps"])
-        shortlist = [name for name, dps in sorted(ranked.items(), key=lambda x: -x[1]) if dps > 0][:SHORTLIST_SKILLS]
+                    ranked[name] = max(ranked.get(name, 0.0), entry.get("value", entry["dps"]))
+        shortlist = [name for name, value in sorted(ranked.items(), key=lambda x: -x[1]) if value > 0][:SHORTLIST_SKILLS]
         self.emit("status", message="Shortlisted main skills: " + (", ".join(shortlist) or "none"))
         if not shortlist:
             return [], ["no allowed skill deals damage in PoB with the allowed weapons"]
@@ -153,10 +155,13 @@ class Run:
             return self.result_invalid()
         if self.request.seed_code:
             self.notes.append("Seed codes aren't used yet (they arrive with gate 4 in Phase 3); the search started from scratch.")
-        if self.request.objective in ("mapping", "balanced"):
-            mode = "Mapping" if self.request.objective == "mapping" else "Balanced"
-            self.notes.append(f"{mode} mode isn't modeled yet (clear speed, PLAN.md §5.5); this result maximizes "
-                              "single-target boss DPS.")
+        if self.request.objective != "boss":
+            goal = ("clear speed" if self.request.objective == "mapping"
+                    else "the geometric mean of boss DPS and clear speed")
+            self.notes.append(f"* This result maximizes {goal}. PoB doesn't model clear speed, so it is an estimate "
+                              "(PLAN.md §5.5): monster life cleared per second in a typical map pack, from the main "
+                              "skill's damage, area, projectiles, chain, pierce and fork, its use speed and movement "
+                              "speed. Treat clear numbers as approximate (confidence: low).")
         self.emit("status", message=f"Starting {self.workers} PoB workers")
         with EnginePool(self.workers) as pool:
             self.emit("status", message=f"Workers ready in {pool.startup_seconds:.1f}s")
@@ -187,8 +192,8 @@ class Run:
                     states[result["label"]] = result["state"]
                 ranked = sorted(best_of.values(), key=rank_key)
                 for r in ranked:
-                    self.emit("probe", skeleton=r["label"], dps=r["dps"], score=r["score"],
-                              deficits=[d["label"] for d in r["deficits"]])
+                    self.emit("probe", skeleton=r["label"], dps=r["dps"], clear=r.get("clear"), value=r.get("value"),
+                              score=r["score"], deficits=[d["label"] for d in r["deficits"]])
                 keep = max(1, min(len(ranked), max(self.workers // 3, 1)))
                 if len(ranked) <= max(keep, self.workers) or self.remaining() < finalize + 2 * probe:
                     alive = [Skeleton(**r["skeleton"]) for r in ranked[:keep]]
@@ -238,9 +243,10 @@ class Run:
             "seconds": round(elapsed, 1), "evaluations": self.evals_done,
             "evals_per_second": round(self.evals_done / elapsed) if elapsed > 0 else 0,
             "workers": self.workers,
-            "probes": sorted(({"skeleton": label, "dps": r["dps"], "score": r["score"],
+            "probes": sorted(({"skeleton": label, "dps": r["dps"], "clear": r.get("clear"),
+                               "value": r.get("value", r["dps"]), "score": r["score"],
                                "deficits": [d["label"] for d in r["deficits"]]}
-                              for label, r in self.probes.items()), key=lambda p: (len(p["deficits"]) > 0, -p["dps"])),
+                              for label, r in self.probes.items()), key=lambda p: (len(p["deficits"]) > 0, -p["value"])),
         }
 
     def result_invalid(self) -> dict:
@@ -282,7 +288,8 @@ class Run:
         if final.get("excluded_dps"):
             self.notes.append(f"PoB's Full DPS ({final['pob_full_dps']:,.0f}) also counts {final['excluded_dps']:,.0f} from "
                               f"effects that need enemies to die ({', '.join(final['excluded_from'])}); a single boss "
-                              "never triggers them, so they're left out of the DPS above.")
+                              "never triggers them, so they're left out of the boss DPS above (the clear estimate "
+                              "counts them).")
         for assumption in final.get("assumptions") or []:
             self.notes.append(f"* {assumption['label']}: {assumption['value']} (assumed, since PoB doesn't model it: "
                               f"{assumption['basis']}; confidence: {assumption['confidence']}). The PoB code doesn't "
@@ -297,6 +304,11 @@ class Run:
                                                "ascendancyAllocated")},
             "dps": {"full": final["dps"], "main": final["main_dps"], "pob_full": final.get("pob_full_dps"),
                     "excluded": final.get("excluded_dps"), "excluded_from": final.get("excluded_from")},
+            # What was maximized, and the clear estimate beside boss DPS (PLAN.md §5.5)
+            "objective": {"goal": self.request.objective, "value": final.get("value", final["dps"])},
+            "clear": {**(final.get("clear_estimate") or {}), "approximate": True,
+                      "basis": f"monster life cleared per second in a map pack of {PACK_SIZE} (PLAN.md §5.5); "
+                               "PoB doesn't model clear speed"},
             "stats": facts["stats"], "checks": checks, "code": final["code"], "verified": final["verified"],
             "gear": final["gear"], "spent": spent, "groups": final["groups"], "conditions": final["conditions"],
             "quests": final["quests"], "warnings": facts["warnings"], "skeleton_problems": problems,

@@ -58,7 +58,8 @@ def main() -> None:
     for name, body in BENCHMARKS.items():
         if args.names and not any(f in name for f in args.names):
             continue
-        request = BuildRequest(name=name, budget={"divines": 20}, **body)
+        # Boss DPS is what the baselines are compared on (the request default is balanced)
+        request = BuildRequest(name=name, budget={"divines": 20}, objective="boss", **body)
         started = time.perf_counter()
         result = optimize(request, prices=prices, workers=args.workers, seconds=args.seconds)
         if "code" not in result:

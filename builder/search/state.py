@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 from builder.search.context import Context, ItemOption
-from builder.search.objective import EHP_FIELDS_PREFIXES, Objective
+from builder.search.objective import CLEAR_FIELDS, EHP_FIELDS_PREFIXES, Objective
 
 EPSILON = 1e-6  # smallest score gain worth committing
 PROGRESS_INTERVAL = 1.0
@@ -80,7 +80,7 @@ class Build:
         elapsed = time.perf_counter() - self.started
         return {
             "skeleton": self.label, "phase": self.phase, "score": self.score,
-            "dps": self.objective.dps(self.stats), "evals": self.evals,
+            "dps": self.objective.dps(self.stats), "value": self.objective.value(self.stats), "evals": self.evals,
             "evals_per_second": self.evals / elapsed if elapsed > 0 else 0.0,
             "deficits": [label for label, _, _ in self.objective.deficits(self.stats)],
         }
@@ -92,8 +92,9 @@ class Build:
         scored = []
         for stats in results:
             if fill_from_base:
+                # A clear field the what-if lacks is gone (a support that stops chaining), not skipped
                 for key, value in self.stats.items():
-                    if key not in stats or key.startswith(EHP_FIELDS_PREFIXES):
+                    if (key not in stats and key not in CLEAR_FIELDS) or key.startswith(EHP_FIELDS_PREFIXES):
                         stats[key] = value
             self.objective.prepare(stats)
             scored.append((self.objective.score(stats), stats))

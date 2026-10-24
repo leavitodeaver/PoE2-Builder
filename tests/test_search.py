@@ -151,6 +151,84 @@ def test_objective_never_reads_total_ehp():
     assert "TotalEHP" not in Objective(ctx).fields
 
 
+# Clear speed and the goals ----------------------------------------------------------------------
+
+
+def test_clear_estimate_counts_reach_speed_and_movement():
+    from builder.search.objective import PACK_SIZE, clear_estimate
+
+    single = {"Speed": 2.0, "EffectiveMovementSpeedMod": 1.0}
+    one = clear_estimate(single, 50000)
+    assert one["targets"] == pytest.approx(1.0)
+    # Every kind of reach adds targets, never more than a pack holds
+    for extra in ({"AreaOfEffectRadius": 30}, {"ProjectileCount": 3}, {"ChainMax": 2}, {"PierceCount": 2},
+                  {"ForkCountMax": 1}):
+        wider = clear_estimate({**single, **extra}, 50000)
+        assert 1.0 < wider["targets"] < PACK_SIZE and wider["score"] > one["score"]
+    everything = clear_estimate({**single, "AreaOfEffectRadius": 60, "ProjectileCount": 10, "ChainMax": 5}, 50000)
+    assert PACK_SIZE - 0.01 < everything["targets"] <= PACK_SIZE
+    # Faster uses and faster walking clear faster
+    assert clear_estimate({**single, "Speed": 4.0}, 50000)["score"] > one["score"]
+    assert clear_estimate({**single, "EffectiveMovementSpeedMod": 1.3}, 50000)["score"] > one["score"]
+    # While damage is the limit, clear is hit DPS x targets (the PLAN.md §5.5 formula)...
+    instant = {"AreaOfEffectRadius": 30, "Speed": "inf", "EffectiveMovementSpeedMod": 1e9}
+    weak = clear_estimate(instant, 1000)
+    assert weak["score"] == pytest.approx(1000 * weak["targets"], rel=1e-6)
+    # ...and once every use kills what it reaches, more damage hardly helps
+    assert clear_estimate(single, 1e10)["score"] < 1.01 * clear_estimate(single, 1e9)["score"]
+    assert clear_estimate(single, 0)["score"] == 0.0
+    # A minion skill's reach and speed are the minion's
+    minion = {"Minion.CombinedDPS": 5000, "Minion.AreaOfEffectRadius": 30, "Minion.Speed": 1.0, "Speed": 9.0}
+    assert clear_estimate(minion, 5000)["targets"] > 1.0 and clear_estimate(minion, 5000)["uses_per_second"] == 1.0
+
+
+def goals(full: bool = False, **body) -> dict[str, Objective]:
+    return {goal: Objective(context(main_skill="Spark", objective=goal, **body), full=full)
+            for goal in ("boss", "mapping", "balanced")}
+
+
+def test_goal_is_boss_dps_clear_or_their_geometric_mean():
+    from builder.search.objective import rank_key
+
+    objectives = goals(floors={"resists": {}})
+    pack = {"CombinedDPS": 100000, "AreaOfEffectRadius": 30, "Speed": 2.0, "EffectiveMovementSpeedMod": 1.2}
+    clear = objectives["mapping"].clear(pack)["score"]
+    assert objectives["boss"].value(pack) == pytest.approx(100000)
+    assert objectives["mapping"].value(pack) == pytest.approx(clear)
+    assert objectives["balanced"].value(pack) == pytest.approx(math.sqrt(100000 * clear))
+    # Twice the damage on one target against a pack clearer: each goal prefers its own
+    single = {"CombinedDPS": 200000, "Speed": 2.0, "EffectiveMovementSpeedMod": 1.2}
+    assert objectives["boss"].score(single) > objectives["boss"].score(pack)
+    assert objectives["mapping"].score(pack) > objectives["mapping"].score(single)
+    # Movement speed is worth nothing to a boss score, something to balanced
+    faster = {**pack, "EffectiveMovementSpeedMod": 1.5}
+    assert objectives["boss"].score(faster) == objectives["boss"].score(pack)
+    assert objectives["balanced"].score(faster) > objectives["balanced"].score(pack)
+    # Results rank on the goal, not on boss DPS
+    assert rank_key({"deficits": [], "dps": 100, "value": 500}) < rank_key({"deficits": [], "dps": 200, "value": 300})
+
+
+def test_clearing_counts_damage_that_needs_enemies_to_die():
+    objectives = goals(full=True)
+    stats = {"FullDPS": 1000000, "CombinedDPS": 60000, "Speed": 2.0, "SkillDPS": [
+        {"name": "Fiery Death", "dps": 940000, "count": 1},
+        {"name": "Spark", "dps": 60000, "count": 1},
+    ]}
+    assert objectives["boss"].dps(stats) == pytest.approx(60000)
+    assert objectives["mapping"].clear(stats)["damage"] == pytest.approx(1000000)
+    # Neither half of balanced can be traded down to nothing: all damage needing enemies to die is
+    # worth a lot when mapping, nothing in balanced (no boss damage at all)
+    explosions = {**stats, "SkillDPS": [{"name": "Fiery Death", "dps": 1000000, "count": 1}]}
+    assert objectives["mapping"].value(explosions) > 0 and objectives["balanced"].value(explosions) == 0.0
+
+
+def test_feasibility_penalties_are_the_same_for_every_goal():
+    objectives = goals(floors={"life": 2000, "resists": {}})
+    short = {"CombinedDPS": 100000, "Life": 1000, "Str": 10, "ReqStr": 40, "AreaOfEffectRadius": 20}
+    penalties = {goal: o.penalty(short) for goal, o in objectives.items()}
+    assert penalties["boss"] > 0 and len(set(penalties.values())) == 1
+
+
 # Ascendancy enumeration --------------------------------------------------------------------------
 
 

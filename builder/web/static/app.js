@@ -272,9 +272,9 @@ function formatNumber(value) {
   return Math.abs(value) >= 1000 ? Math.round(value).toLocaleString() : String(Math.round(value * 10) / 10);
 }
 
-function statTiles(stats, dps) {
+function statTiles(stats, dps, clear) {
   const tiles = [
-    ["DPS (PoB)", dps], ["Life", stats.Life], ["Energy shield", stats.EnergyShield], ["Mana", stats.Mana],
+    ["DPS (PoB)", dps], ...(clear === undefined ? [] : [["Clear score (approx.)", clear]]), ["Life", stats.Life], ["Energy shield", stats.EnergyShield], ["Mana", stats.Mana],
     ["Phys max hit", stats.PhysicalMaximumHitTaken], ["Fire/Cold/Light res", null], ["Chaos res", stats.ChaosResist],
     ["Spare spirit", stats.SpiritUnreserved],
   ];
@@ -337,14 +337,19 @@ async function inspect() {
 
 let runPoll = null;
 
+// Clear speed is an estimate (PLAN.md §5.5), so it is always shown as approximate
+function clearText(clear) {
+  return typeof clear === "number" ? `, clear ~${formatNumber(clear)}` : "";
+}
+
 function logLine(event) {
   const t = `${Math.round(event.t)}s`;
   let text;
   if (event.kind === "best") {
-    text = `Best so far: ${event.skeleton}, ${formatNumber(event.dps)} DPS`
+    text = `Best so far: ${event.skeleton}, ${formatNumber(event.dps)} DPS${clearText(event.clear)}`
       + (event.deficits.length ? ` (short: ${event.deficits.join(", ")})` : "");
   } else if (event.kind === "probe") {
-    text = `Probe: ${event.skeleton}, ${formatNumber(event.dps)} DPS`;
+    text = `Probe: ${event.skeleton}, ${formatNumber(event.dps)} DPS${clearText(event.clear)}`;
   } else if (event.kind === "skeletons") {
     text = `${event.count} skeleton${event.count === 1 ? "" : "s"} to search`
       + (event.problems.length ? `; dropped: ${event.problems.join("; ")}` : "");
@@ -434,8 +439,11 @@ function renderResult(result) {
     const s = result.summary;
     parts.push(el("p", { class: "result-summary" }, el("strong", {}, `${s.ascendClassName}, level ${s.level}`),
       ` · ${result.label} · ${s.allocated} passives + ${s.ascendancyAllocated} ascendancy`
-      + ` · Full DPS ${formatNumber(result.dps.full)} (main skill ${formatNumber(result.dps.main)})`));
-    parts.push(statTiles(result.stats, result.dps.full));
+      + ` · Full DPS ${formatNumber(result.dps.full)} (main skill ${formatNumber(result.dps.main)})`
+      + (result.clear ? ` · clear score ~${formatNumber(result.clear.score)} (approximate: `
+        + `${formatNumber(result.clear.targets)} targets per use)` : "")
+      + (result.objective ? ` · goal: ${pretty(result.objective.goal)}` : "")));
+    parts.push(statTiles(result.stats, result.dps.full, result.clear?.score));
     parts.push(...checksTable(result.checks));
     const copy = el("button", {
       type: "button",
@@ -490,8 +498,8 @@ function renderResult(result) {
   }
   if (result.probes?.length) {
     parts.push(el("div", { class: "result-section" }, el("h3", {}, "Skeletons searched"),
-      simpleTable(["Skeleton", { label: "DPS", num: true }, "Short of"],
-        result.probes.map((p) => [p.skeleton, formatNumber(p.dps), p.deficits.join(", ") || "–"]))));
+      simpleTable(["Skeleton", { label: "DPS", num: true }, { label: "Clear (approx.)", num: true }, "Short of"],
+        result.probes.map((p) => [p.skeleton, formatNumber(p.dps), formatNumber(p.clear), p.deficits.join(", ") || "–"]))));
   }
   for (const note of result.notes || []) parts.push(el("p", { class: "hint" }, note));
   parts.push(el("p", { class: "hint" }, `${formatNumber(result.evaluations)} PoB evaluations in ${result.seconds}s `

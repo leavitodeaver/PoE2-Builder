@@ -141,7 +141,11 @@ One JSON request schema (`builder/request/schema.py`), saved per request, editab
 - **Budget:** divine cap plus gear tier (League start / Mid / Endgame / Mirror). The tier caps
   affix tiers, the number of premium affixes per rare, unique price, and whether corruption,
   desecration or omens are allowed. SSF mode ignores prices and uses the tier only.
-- **Objective:** balanced (default: boss DPS and clear speed together), boss DPS, or mapping mode. Optional **DPS acceptance gate**: if it isn't
+- **Objective:** what the search maximizes. **Balanced** (default): the geometric mean of boss
+  DPS and the clear-speed estimate. **Boss:** single-target boss DPS (on-death damage left out).
+  **Mapping:** the clear-speed estimate alone (§5.5). Feasibility penalties are identical in every
+  mode. The result shows boss DPS and the clear score separately, the clear score marked
+  approximate. Optional **DPS acceptance gate** (on PoB's DPS, whatever the mode): if it isn't
   met, the build is reported as infeasible along with the closest result.
 - **Exploits:** allowed by default. Can be forbidden per request, or per individual ledger entry.
 - **Level / points / league flags:** character level, passive points, weapon-set points,
@@ -208,11 +212,60 @@ justifies it, e.g. "has a frenzy charge generator" or "chance to shock ≥ X%". 
 re-runs whenever the build changes. This lets the search discover that adding a shock source is
 worth it. The table is extendable through the ledger. The boss config uses PoB's pinnacle preset.
 
-### 5.5 Mapping mode
+### 5.5 Clear speed (mapping and balanced modes)
 
-PoB doesn't model clear speed, so mapping mode (and the clear half of balanced mode) is approximate: hit DPS × effective targets (from
-area, projectile count, chain and pierce) × a movement/attack-speed factor. The result says it is
-approximate.
+PoB doesn't model clear speed, so it is estimated (`builder/search/objective.py`, `clear_estimate`)
+and the result calls it approximate (confidence: low). The **clear score** is the monster life a
+build clears per second in a typical map pack:
+
+    clear = LIFE × PACK / ( PACK / targets × (LIFE / damage + 1 / uses per second) + TRAVEL / movement )
+
+- **damage:** the boss objective's damage, except that on-death effects (Fiery Death's
+  explosions, `ON_DEATH`) count, since clearing kills enemies and sets them off.
+- **targets:** the enemies one use reaches, from the main skill's PoB output: `ProjectileCount` ×
+  (1 + `ChainMax` + ½ × `PierceCount` + `ForkCountMax`) × (1 + (PACK − 1) × (`AreaOfEffectRadius` /
+  40)²). That raw reach saturates smoothly at the pack size: 1 + (PACK − 1)(1 − e^−(reach − 1)/(PACK − 1)).
+  A pierce counts half (only enemies behind the first); a fork counts one (its two projectiles
+  leave at an angle). Minion skills read the `Minion.` fields. A skill whose area PoB doesn't report
+  (Boneshatter's strike) counts as single-target.
+- **uses per second:** PoB's `Speed` (the minion's for minion skills), 1 if PoB gives none.
+  **movement:** `EffectiveMovementSpeedMod` (movement × action speed).
+- **Constants (guesses):** a pack of 8 within a 4 m radius; 70,000 life per member (level-80
+  base life 31,065 from PoB's table, ×1.75 for two magic and one rare among eight, +30% map
+  modifiers); 2 s of walking between packs at base speed.
+
+While damage is the limit, this reduces to the original formula, hit DPS × effective targets.
+Once each use kills what it reaches, more damage hardly helps, and use speed, area and movement
+speed set the pace, as they do in maps. The constants mostly decide where that switch happens.
+
+**Balanced mode maximizes √(boss DPS × clear score)**, not a sum. The reasons:
+- **Neither half can be traded to zero.** log √(B·C) = ½ log B + ½ log C, which falls without
+  bound as either half nears 0. A sum would accept a build that clears well and can't kill a
+  boss, or the reverse.
+- **No unit problem.** The two numbers differ in size (a pack clearer's clear score can be several
+  times its boss DPS). In a sum the bigger term, and with it the guessed constants, would decide
+  the build. In a product, a constant factor on either half moves every build's score alike and
+  changes no choice.
+- **Equal value per percent:** +10% boss DPS is worth exactly +10% clear score. Scores stay
+  logarithmic, so the feasibility weights keep their meaning (e^3 is still 20× the goal).
+
+The skill screen, probe ranking and finalist all rank on the request's goal. Requirements first,
+as before (`rank_key`).
+
+**Measured (2026-10-24):** Lightning Arrow Deadeye with a bow, 20 divine, 240 s on 14 workers:
+
+| Goal | Boss DPS | Clear (approx.) | √(boss × clear) | Uses/s | Movement | What changed |
+|---|---|---|---|---|---|---|
+| boss | 814,744 | 251,329 | 452,514 | 2.81 | ×1.12 | Wake of Destruction, Inexorable Critical I, Minion Pact II |
+| mapping | 329,225 | 339,780 | 334,461 | 5.06 | ×1.65 | Voltaxic Rift, Rapid Attacks II, 35% movement-speed boots |
+| balanced | 535,133 | 311,727 | 408,430 | 4.00 | ×1.45 | Inexorable Critical I, Lightning Attunement, the same boots |
+
+Boss and mapping each win on their own goal. Balanced doesn't: a second run found the same
+build (406,723), but the boss build scores 452,514 on the balanced goal, 11% higher. The
+balanced search settles among fast, lighter-hitting builds (attack speed pays twice there:
+damage and use time; movement speed pays in clear) and doesn't reach the boss build's
+neighbourhood within the run. Not built yet: in balanced mode, give some searches the boss goal
+and rank every result on the balanced value.
 
 ## 6. Correction ledger (PoB gaps and exploits)
 
@@ -460,7 +513,7 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   are chosen by score.
 - **Not modeled yet:** meta gems (Cast on X) and supports on persistent skills; weapon-set passive
   points; dual wielding; weapon swap ("must" reports infeasible); seed codes (ignored with a note);
-  mapping mode (boss DPS with a note); Abyssal Lich (PoB's tree gives it no passives of its own:
+  Abyssal Lich (PoB's tree gives it no passives of its own:
   it shares Lich's start node), so requests for it alone are reported infeasible. Unique prices: a gear-tier cap per unique (league start 1,
   mid 20, endgame 300 divine) on top of the divine cap; unpriced uniques and lineage supports are
   left out rather than treated as free.

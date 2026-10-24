@@ -23,14 +23,14 @@ from builder.search.gear import Gear, SlotSpec
 from builder.search.gems import Gems
 from builder.search.jewels import Jewels
 from builder.search.models import MODEL_FIELDS
-from builder.search.objective import DARKNESS_FIELDS, SUSTAIN_FIELDS, Objective, main_dps, shortfall
+from builder.search.objective import CLEAR_FIELDS, DARKNESS_FIELDS, SUSTAIN_FIELDS, Objective, main_dps, shortfall
 from builder.search.skeletons import Skeleton
 from builder.search.state import EPSILON, Build
 from builder.search.tree import Tree
 
 KICK_TREE_POINTS = (6, 16)
 SWEEP_EVERY = 3
-RESULT_FIELDS = sorted(set(FACT_FIELDS) | set(SUSTAIN_FIELDS) | set(MODEL_FIELDS) | set(DARKNESS_FIELDS) | {
+RESULT_FIELDS = sorted(set(FACT_FIELDS) | set(SUSTAIN_FIELDS) | set(MODEL_FIELDS) | set(DARKNESS_FIELDS) | set(CLEAR_FIELDS) | {
     "TotalDPS", "TotalDotDPS", "Spirit", "TotalEHP", "Speed", "CritChance", "HitChance",
 })
 
@@ -276,6 +276,7 @@ class Search:
         return {
             "skeleton": self.skeleton.as_dict(), "label": self.skeleton.label, "score": build.score,
             "dps": build.objective.dps(build.stats), "main_dps": main_dps(build.stats),
+            "value": build.objective.value(build.stats), "clear": build.objective.clear(build.stats)["score"],
             "deficits": [{"label": label, "amount": amount, "hard": hard}
                          for label, amount, hard in build.objective.deficits(build.stats)],
             "evals": build.evals, "commits": build.commits, "seconds": time.perf_counter() - build.started,
@@ -313,11 +314,13 @@ def screen_task(engine: Any, report: Any, payload: dict, skeletons: list[dict], 
             search.setup(quests=False)
             search.gear.gear_round(time.perf_counter() + seconds_each)
             search.gems.optimize_supports(time.perf_counter() + seconds_each, rounds=4)
-            results.append({"skeleton": skeleton, "dps": main_dps(search.build.stats), "score": search.build.score})
+            build = search.build
+            results.append({"skeleton": skeleton, "dps": main_dps(build.stats), "value": build.objective.value(build.stats),
+                            "score": build.score})
         except Cancelled:
             break
         except Exception as error:  # a skill PoB can't set up is simply not shortlisted
-            results.append({"skeleton": skeleton, "dps": 0.0, "score": float("-inf"), "error": str(error)[:300]})
+            results.append({"skeleton": skeleton, "dps": 0.0, "value": 0.0, "score": float("-inf"), "error": str(error)[:300]})
     return results
 
 
@@ -334,9 +337,9 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     for group in build.groups():
         if group["main"] or group["fromItem"] or not group["enabled"] or group["fullDPS"]:
             continue
-        before = build.objective.dps(build.stats)
+        before = build.objective.value(build.stats)
         build.set_group(index=group["index"], fullDPS=True)
-        if build.objective.dps(build.stats) <= before * (1 + 1e-9):
+        if build.objective.value(build.stats) <= before * (1 + 1e-9):
             build.set_group(index=group["index"], fullDPS=False)
     try:
         search.conditions.choose_quests()
@@ -368,6 +371,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     return {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
         "pob_full_dps": facts["stats"].get("FullDPS"), "excluded_dps": excluded, "excluded_from": excluded_names,
+        "clear_estimate": build.objective.clear(build.stats),
         "blind_spots": blind_spots,
         "gear": {slot: option.describe() for slot, option in equipped.items()}, "spent": spent,
         "assumptions": assumptions,

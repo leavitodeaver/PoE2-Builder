@@ -15,6 +15,10 @@ from builder.request.schema import BuildRequest
 from builder.search.run import optimize
 
 
+def clear_text(clear: float | None) -> str:
+    return f", clear ~{clear:,.0f}" if clear is not None else ""
+
+
 def print_event(event: dict) -> None:
     kind = event["kind"]
     t = f"{event['t']:7.1f}s"
@@ -23,9 +27,9 @@ def print_event(event: dict) -> None:
               f"({event['phase']})", flush=True)
     elif kind == "best":
         short = f"  short: {', '.join(event['deficits'])}" if event["deficits"] else ""
-        print(f"{t}  best   {event['skeleton']}: {event['dps']:,.0f} DPS{short}", flush=True)
+        print(f"{t}  best   {event['skeleton']}: {event['dps']:,.0f} DPS{clear_text(event.get('clear'))}{short}", flush=True)
     elif kind == "probe":
-        print(f"{t}  probe  {event['skeleton']}: {event['dps']:,.0f} DPS", flush=True)
+        print(f"{t}  probe  {event['skeleton']}: {event['dps']:,.0f} DPS{clear_text(event.get('clear'))}", flush=True)
     elif kind == "skeletons":
         print(f"{t}  {event['count']} skeleton(s)" + (f"; dropped: {'; '.join(event['problems'])}" if event["problems"] else ""), flush=True)
     else:
@@ -58,6 +62,10 @@ def main() -> None:
     if "dps" in result:
         print(f"  Full DPS {result['dps']['full']:,.0f} (main skill {result['dps']['main']:,.0f}); "
               f"{result['evaluations']:,} evaluations in {result['seconds']}s ({result['evals_per_second']:,}/s)")
+        clear = result["clear"]
+        print(f"  Goal: {result['objective']['goal']}; boss DPS {result['dps']['full']:,.0f}; clear score "
+              f"~{clear['score']:,.0f} (approximate: {clear['targets']:.1f} targets per use, "
+              f"{clear['uses_per_second']:.2f} uses/s, movement x{clear['movement_speed']:.2f})")
     for check in result.get("checks", []):
         mark = {True: "ok ", False: "FAIL", None: " ? "}[check["ok"]]
         print(f"  [{mark}] {check['label']}: {check['requested']} -> {check['delivered']}")

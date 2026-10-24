@@ -1,5 +1,7 @@
-"""The score a search maximizes: log damage minus weighted feasibility deficits.
+"""The score a search maximizes: the log of the request's goal minus weighted feasibility deficits.
 
+- The goal (request `objective`): boss DPS, a clear-speed estimate (mapping), or by default their
+  geometric mean (balanced), so neither can be traded down to nothing (PLAN.md §5.5).
 - Screening uses main-skill DPS (CombinedDPS, or the minion's for minion skills); finalists use
   Full DPS, which costs far more per what-if on real builds (PLAN.md Phase 0 findings).
 - Request floors (life, resistances, max hit, ...) are layer 2 of the constraint compiler:
@@ -17,7 +19,7 @@ from __future__ import annotations
 import math
 import re
 
-from builder.request.schema import DefenceStyle
+from builder.request.schema import DefenceStyle, Objective as Goal
 from builder.search.context import DEFENCE_LAYERS, Context
 from builder.search.models import DAMAGE_TYPES, with_darkness
 
@@ -60,6 +62,23 @@ SUSTAIN_POOLS = {
     "Life": ("LifePerSecondCost", ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate")),
 }
 SUSTAIN_FIELDS = sorted({f for cost, recovery in SUSTAIN_POOLS.values() for f in (cost, *recovery)})
+# Clear speed (PLAN.md §5.5). PoB doesn't model it, so this is an estimate, labelled approximate in
+# the result: the monster life a build clears per second in a typical map pack. One use reaches
+# part of the pack (area, projectiles, chain, pierce, fork); killing what it reaches takes the hits
+# its damage needs plus one use's own time; then the build walks to the next pack. While damage is
+# the limit this is hit DPS x targets; once each use kills what it reaches, use speed and movement
+# speed set the pace. The constants are guesses (confidence: low): they mostly decide where more
+# damage stops paying off for clearing.
+PACK_SIZE = 8  # monsters in a pack
+PACK_RADIUS = 40.0  # PoB units (10 per metre): the circle a pack stands in
+# An average pack member: level 80 base life is 31,065 (PoB's monster life table), x1.75 for a
+# pack of five normal, two magic (x2) and one rare (x5) monster, and +30% from map modifiers
+MONSTER_LIFE = 70_000.0
+TRAVEL_SECONDS = 2.0  # walking to the next pack at base movement speed
+PIERCE_VALUE = 0.5  # a pierce only finds the enemies standing behind the first
+FORK_VALUE = 1.0  # a fork's two projectiles leave at an angle; count one new target
+CLEAR_PARTS = ["AreaOfEffectRadius", "ProjectileCount", "ChainMax", "PierceCount", "ForkCountMax", "Speed"]
+CLEAR_FIELDS = [*CLEAR_PARTS, *(f"Minion.{f}" for f in CLEAR_PARTS), "EffectiveMovementSpeedMod"]
 
 
 def sustain(stats: dict) -> tuple[float, str | None]:
@@ -92,6 +111,33 @@ def main_dps(stats: dict) -> float:
     return max(number(stats.get(field)) for field in MAIN_DPS_FIELDS)
 
 
+def clear_estimate(stats: dict, damage: float) -> dict:
+    """Clear speed from a build's damage per target and the main skill's reach (module constants):
+    the score (monster life cleared per second) and the parts behind it."""
+    # A minion skill's reach and speed are the minion's; movement is always the player's
+    prefix = "Minion." if number(stats.get("Minion.CombinedDPS")) > number(stats.get("CombinedDPS")) else ""
+
+    def part(field: str) -> float:
+        return max(number(stats.get(prefix + field)), 0.0)
+
+    per_projectile = (1.0 + part("ChainMax") + PIERCE_VALUE * min(part("PierceCount"), PACK_SIZE)
+                      + FORK_VALUE * part("ForkCountMax"))
+    area = 1.0 + (PACK_SIZE - 1) * (part("AreaOfEffectRadius") / PACK_RADIUS) ** 2
+    reach = max(part("ProjectileCount"), 1.0) * per_projectile * area
+    # Reaching more enemies than the pack holds is worth less and less: 1 at a reach of 1, rising
+    # at first one for one, approaching PACK_SIZE
+    span = PACK_SIZE - 1
+    targets = 1.0 + span * -math.expm1(-(min(reach, 1e6) - 1.0) / span)
+    speed = part("Speed") or 1.0  # skills PoB gives no use rate count as one use per second
+    movement = number(stats.get("EffectiveMovementSpeedMod")) or 1.0
+    score = 0.0
+    if damage > 0:
+        seconds = PACK_SIZE / targets * (MONSTER_LIFE / damage + 1.0 / speed) + TRAVEL_SECONDS / max(movement, 0.1)
+        score = MONSTER_LIFE * PACK_SIZE / seconds
+    return {"score": score, "targets": targets, "uses_per_second": speed, "movement_speed": movement,
+            "damage": damage}
+
+
 class Objective:
     def __init__(self, ctx: Context, full: bool = False, multipliers: dict[str, float] | None = None) -> None:
         self.ctx = ctx
@@ -100,7 +146,9 @@ class Objective:
         self.multipliers: dict[str, float] = dict(multipliers or {})  # requirement label -> weight factor
         self.penalties = ctx.compiled.penalties
         self.style = DefenceStyle(ctx.request.defence)
-        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS)
+        self.goal = Goal(ctx.request.objective)
+        # Clear fields in every mode, so a boss result can still show its clear estimate
+        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS)
         self._fields = sorted(fields | {p.stat for p in self.penalties})
         self.on_death = {name for name, gem in ctx.gems.items() if ON_DEATH.search(gem.get("description") or "")}
 
@@ -118,11 +166,34 @@ class Objective:
         return with_darkness(stats)
 
     def dps(self, stats: dict) -> float:
+        """Single-target boss DPS."""
         if self.full:
             full = number(stats.get("FullDPS"))
             if full > 0:
                 return max(full - self.excluded(stats)[0], 0.0)
         return main_dps(stats)
+
+    def clear_damage(self, stats: dict) -> float:
+        """Damage per target while clearing: like boss DPS, but on-death effects count (clearing
+        kills enemies, which is what sets them off)."""
+        if self.full:
+            full = number(stats.get("FullDPS"))
+            if full > 0:
+                return full
+        return main_dps(stats)
+
+    def clear(self, stats: dict) -> dict:
+        """The clear-speed estimate and its parts (clear_estimate)."""
+        return clear_estimate(stats, self.clear_damage(stats))
+
+    def value(self, stats: dict) -> float:
+        """What the request maximizes, before penalties."""
+        if self.goal == Goal.BOSS:
+            return self.dps(stats)
+        clear = self.clear(stats)["score"]
+        if self.goal == Goal.MAPPING:
+            return clear
+        return math.sqrt(max(self.dps(stats), 0.0) * clear)
 
     def excluded(self, stats: dict) -> tuple[float, list[str]]:
         """Full DPS that comes from on-death effects, and their names."""
@@ -190,7 +261,7 @@ class Objective:
         return raised
 
     def score(self, stats: dict) -> float:
-        return math.log1p(max(self.dps(stats), 0.0)) - self.penalty(stats)
+        return math.log1p(max(self.value(stats), 0.0)) - self.penalty(stats)
 
 
 def shortfall(deficits: list[dict]) -> float:
@@ -200,5 +271,5 @@ def shortfall(deficits: list[dict]) -> float:
 
 
 def rank_key(result: dict) -> tuple[float, float]:
-    """Feasibility first (smallest shortfall), then damage."""
-    return round(shortfall(result["deficits"]), 6), -result["dps"]
+    """Feasibility first (smallest shortfall), then the request's goal (boss DPS, clear or both)."""
+    return round(shortfall(result["deficits"]), 6), -result.get("value", result["dps"])

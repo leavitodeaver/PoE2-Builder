@@ -60,7 +60,7 @@ def reference_request(name: str, facts: dict, keystones: list[str]) -> BuildRequ
         name=f"gate 4: {name}", class_name=facts["className"], ascendancies=[facts["ascendClassName"]],
         main_skill=main_skill(facts), level=facts["level"], weapon_type=weapon["type"] if weapon else None,
         offhand=offhand_choice, require={"passives": keystones}, floors=floors,
-        budget={"gear_tier": "endgame"},
+        budget={"gear_tier": "endgame"}, objective="boss",  # the reference is scored on boss DPS
     )
 
 
