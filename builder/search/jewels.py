@@ -65,11 +65,12 @@ class Jewels:
             shortlist = [a for kind in JEWEL_LIMIT for _, a in ranked if a.type == kind][:2 * SCREEN_KEEP]
             chosen: list = []
             current = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, [])}])[0][0]
-            while time.perf_counter() < deadline:
+            while time.perf_counter() < deadline and not self.pools.full(chosen):
                 groups = {a.group for a in chosen}
                 counts = {k: sum(1 for a in chosen if a.type == k) for k in JEWEL_LIMIT}
-                options = [a for a in shortlist if a.group not in groups and counts[a.type] < JEWEL_LIMIT[a.type]
-                           and rare_price("Jewel", chosen + [a]) <= left + 1e-9]
+                candidates = (self.pools.buyable(a, chosen) for a in shortlist
+                              if a.group not in groups and counts[a.type] < JEWEL_LIMIT[a.type])
+                options = [a for a in candidates if a and rare_price("Jewel", chosen + [a]) <= left + 1e-9]
                 if not options:
                     break
                 scored = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen + [a])}

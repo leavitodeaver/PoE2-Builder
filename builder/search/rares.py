@@ -28,6 +28,17 @@ TIER_RULES = {
     GearTier.ENDGAME: (82, 1, 0.7),
     GearTier.MIRROR: (86, 1, 1.0),
 }
+# What a buyable rare looks like, per gear tier: the most tier-1 affixes (of groups with more than
+# one tier) on one rare, and the most affixes on a rare jewel; None is no cap. Calibration on
+# 2026-10-24 (PLAN.md Phase 5 findings) found one or two tier-1 affixes on thousands of listings,
+# three on some, and the optimizer's 4x to 6x T1 rares and 4-affix jewels on none. League start and
+# mid can't roll tier 1 at all.
+BUY_RULES = {
+    GearTier.LEAGUE_START: (0, 2),
+    GearTier.MID: (0, 3),
+    GearTier.ENDGAME: (2, 3),
+    GearTier.MIRROR: (None, None),
+}
 SCREEN_KEEP = 18  # affixes per prefix/suffix kept after scoring each alone
 MAGIC_LIMIT = {"Prefix": 1, "Suffix": 1}
 MAGIC_PRICE = 0.01  # divine per affix on a magic flask or charm
@@ -57,6 +68,13 @@ class Affix:
     type: str  # Prefix / Suffix
     tier: int  # 1 = best tier of its group for this base
     lines: tuple[str, ...]
+    tiers: int = 1  # tiers its group has on this base
+    lower: Affix | None = None  # the same group one tier down (where a tier-1 cap may need it)
+
+    @property
+    def top(self) -> bool:
+        """A tier-1 affix of a group with lower tiers: the scarce kind on the trade site."""
+        return self.tier == 1 and self.tiers > 1
 
 
 class AffixPools:
@@ -67,6 +85,7 @@ class AffixPools:
         self.ctx = ctx
         self.source = source
         self.item_level, self.best_tier, self.roll = TIER_RULES[GearTier(ctx.request.budget.gear_tier)]
+        self.top_cap, self.jewel_cap = BUY_RULES[GearTier(ctx.request.budget.gear_tier)]
         self._pools: dict[str, list[Affix]] = {}
 
     @cached_property
@@ -88,13 +107,32 @@ class AffixPools:
             affixes = []
             for (group, kind), mods in groups.items():
                 ranked = sorted(mods, key=lambda m: -m.get("level", 0))
-                for tier, mod in enumerate(ranked, start=1):
-                    if tier >= self.best_tier and mod.get("level", 0) <= self.item_level:
-                        lines = tuple(roll(line, self.roll) for line in mod_lines(mod))
-                        affixes.append(Affix(mod["id"], group, kind, tier, lines))
-                        break  # the best tier allowed; lower tiers of a group never score higher
+                allowed = [(tier, mod) for tier, mod in enumerate(ranked, start=1)
+                           if tier >= self.best_tier and mod.get("level", 0) <= self.item_level]
+                if not allowed:
+                    continue
+                # The best tier allowed (lower tiers of a group never score higher), and the next one
+                # down for when a buyable rare can't take another tier-1 affix
+                (tier, mod), lower = allowed[0], None
+                if len(allowed) > 1:
+                    lower = self.affix(allowed[1][1], group, kind, allowed[1][0], len(ranked))
+                affixes.append(self.affix(mod, group, kind, tier, len(ranked), lower))
             self._pools[base_name] = affixes
         return self._pools[base_name]
+
+    def affix(self, mod: dict, group: str, kind: str, tier: int, tiers: int, lower: Affix | None = None) -> Affix:
+        return Affix(mod["id"], group, kind, tier, tuple(roll(line, self.roll) for line in mod_lines(mod)), tiers, lower)
+
+    def buyable(self, affix: Affix, chosen: list[Affix]) -> Affix | None:
+        """The affix, or its group one tier down once the rare already holds as many tier-1 affixes
+        as a rare people sell does (None when the group has no lower tier)."""
+        if self.top_cap is None or not affix.top or sum(1 for a in chosen if a.top) < self.top_cap:
+            return affix
+        return affix.lower
+
+    def full(self, chosen: list[Affix]) -> bool:
+        """A rare jewel with as many affixes as buyable ones have."""
+        return self.source == "Jewel" and self.jewel_cap is not None and len(chosen) >= self.jewel_cap
 
 
 def implicit_lines(base: dict, fraction: float = 0.5) -> list[str]:

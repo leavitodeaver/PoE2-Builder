@@ -252,8 +252,9 @@ class Gear:
         while time.perf_counter() < deadline:
             groups = {a.group for a in chosen}
             counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in limits}
-            options = [a for a in shortlist if a.group not in groups and counts[a.type] < limits[a.type]
-                       and price_of(slot, chosen + [a]) <= left + 1e-9]
+            candidates = (pools.buyable(a, chosen) for a in shortlist
+                          if a.group not in groups and counts[a.type] < limits[a.type])
+            options = [a for a in candidates if a and price_of(slot, chosen + [a]) <= left + 1e-9]
             if not options:
                 break
             scored = self.deltas(slot, [text(slot, base, level, chosen + [a]) for a in options])

@@ -258,3 +258,34 @@ def test_checklist_covers_every_asterisk_and_unmodeled_line() -> None:
     }
     kinds = [c["kind"] for c in checklist(result)]
     assert kinds == ["assumption", "not modeled", "corrected *", "estimate *"]
+
+
+# Buyable rares ---------------------------------------------------------------------------------
+
+def pools_for(tier: str, source: str = "Item"):
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.rares import AffixPools
+
+    return AffixPools(Context(make_payload(BuildRequest(main_skill="Ice Shot", budget={"gear_tier": tier}))), source)
+
+
+def test_endgame_rares_take_two_tier_one_affixes_then_tier_two() -> None:
+    pools = pools_for("endgame")
+    tops = [a for a in pools.pool("Biostatic Ring") if a.top]
+    assert len(tops) >= 3 and all(a.lower and a.lower.tier == 2 and a.lower.group == a.group for a in tops)
+    first, second, third = tops[:3]
+    assert pools.buyable(first, []) is first
+    assert pools.buyable(second, [first]) is second
+    assert pools.buyable(third, [first, second]) is third.lower  # the third tier-1 pick drops a tier
+    assert not third.lower.top and pools.buyable(third.lower, [first, second]) is third.lower
+    mirror = pools_for("mirror")
+    assert mirror.top_cap is None and mirror.buyable(third, [first, second]) is third
+
+
+def test_rare_jewels_stop_at_three_affixes_below_mirror_tier() -> None:
+    jewels = pools_for("endgame", "Jewel")
+    pool = jewels.pool("Emerald")
+    assert not jewels.full(pool[:2]) and jewels.full(pool[:3])
+    assert not pools_for("mirror", "Jewel").full(pool[:4])
+    assert not pools_for("endgame").full(pool[:4])  # the jewel cap is for jewels only

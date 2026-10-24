@@ -471,8 +471,19 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
 - **The optimizer builds rares nobody sells.** Four of the ten rares in the 2026-10-23 Infernalist
   result had no listings at all (6×T1 gloves, a 3×T1 amulet, two 4×T1 jewels): the endgame gear
   tier allows every affix at tier 1 with 70% rolls. The stack term now prices those out (the gloves
-  near 19,500 divines, the jewels near 220), but a buyability rule (a tier-1 cap per gear tier, or
-  a listing check) belongs in the rare builder.
+  near 19,500 divines, the jewels near 220).
+- **Rares are built buyable** (`BUY_RULES` in `builder/search/rares.py`). Below mirror tier a rare
+  takes at most two tier-1 affixes (counting groups with lower tiers); once it has two, further
+  picks use their group's tier 2. A rare jewel stops at three affixes. Mirror tier has no cap, and
+  league start and mid can't roll tier 1 anyway. The caps follow the calibration samples (one or two
+  tier-1 affixes on thousands of listings, three on some, four to six on none); a live listing
+  check during the search was rejected, since it would query the trade site without a click. On
+  the same Deadeye request (4 minutes each) the capped run reached **1.24M** Full DPS for 19.91
+  divines against 796k uncapped (`data/results/20261024-145810-run1.json`). Under calibrated
+  prices, stacked tier 1s are dear (the uncapped run spent 8.9 of its 20 divines on a 4×T1 helmet
+  and kept its other rares to two or three affixes), while 2×T1 plus tier 2s costs cents, so the
+  budget buys six-affix rares. Single 4-minute runs are noisy, but the direction matches the
+  prices.
 - **Strict searches rarely match.** A rare's exact base with every modeled roll usually finds
   nothing, so links loosen to any base at each tier's floor (the Deadeye ring below: 0 → 753).
   96% of item affix stat lines map to explicit trade stats; the rest (essence-only, a few shield
