@@ -405,6 +405,7 @@ async function optimize() {
   const request = readForm();
   try {
     const run = await api("/api/runs", { method: "POST", body: { request, id: currentId } });
+    $("run-hint").textContent = "Searching. Progress streams below, and the result replaces it when the search ends.";
     $("run-log").replaceChildren();
     $("run-status").textContent = "Starting…";
     $("run-result").replaceChildren();
