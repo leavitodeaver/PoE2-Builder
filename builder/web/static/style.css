@@ -179,3 +179,7 @@ tr.total td { font-weight: 600; border-bottom: 0; }
 .checklist .note { color: var(--muted); font-size: 0.82rem; margin-left: 24px; }
 .checklist li.done > label { color: var(--muted); text-decoration: line-through; }
 .kind { font-size: 0.72rem; padding: 0 6px; border-radius: 999px; background: var(--surface-2); color: var(--pending); flex: none; }
+.craft { margin-top: 6px; padding: 6px 8px; border-left: 3px solid var(--border); font-size: 0.82rem; }
+.craft-steps { margin: 4px 0; padding-left: 16px; }
+.craft-steps li { margin: 2px 0; }
+.craft-steps button { padding: 1px 8px; font-size: 0.78rem; }

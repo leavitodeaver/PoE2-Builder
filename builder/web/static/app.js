@@ -516,7 +516,24 @@ function renderResult(result) {
 
 // Shopping list and trade links ------------------------------------------------------------
 
-function itemCell(item) {
+function craftBlock(shopping, item) {
+  const c = item.craft;
+  const basis = item.basis === "crafting" ? "the crafting estimate (jewel market data is thin)" : "the market model (cheaper)";
+  return el("div", { class: "craft" },
+    el("div", {}, el("strong", {}, "Crafting it: "),
+      `about ${formatPrice(c.total)} div expected (lucky ~${formatPrice(c.low)}, unlucky ~${formatPrice(c.high)})`),
+    el("ul", { class: "craft-steps" },
+      el("li", {}, `Buy: a jewel (${item.base}) with ${c.base.mods.join(" + ")} (any roll within the tier): `
+        + `~${formatPrice(c.base.price)} div `, tradeButton(shopping, item, "base")),
+      c.steps.map((step) => el("li", {}, `${step.count} × ${step.item} (${formatPrice(step.each)} each) = `
+        + `${formatPrice(step.cost)} div: ${step.step}`)),
+      c.roll_divines ? el("li", { class: "range" }, `Then about ${c.roll_divines.toLocaleString()} Divine Orbs to bring `
+        + `every line to the modeled ${Math.round(c.roll * 100)}% roll (not in the total; far fewer if lower rolls will do)`) : null),
+    el("div", { class: "note" }, `Market model: ${formatPrice(item.market_estimate)} div (fitted on two-line jewels; `
+      + `Trade shows what similar jewels ask). The budget uses ${basis}.`));
+}
+
+function itemCell(item, shopping) {
   const kind = { unique: "unique", rare: "rare", magic: "magic", normal: "white base", gem: "lineage gem" }[item.kind] || item.kind;
   const title = item.kind === "rare" || item.kind === "magic" ? `${pretty(item.kind)} ${item.type} · ${item.base}`
     : item.kind === "unique" ? `${item.name} · ${item.base}${item.variant ? ` (${item.variant})` : ""}`
@@ -529,7 +546,8 @@ function itemCell(item) {
       a.crafted ? el("span", { class: "range" }, "  · crafted")
         : !a.searchable ? el("span", { class: "range" }, "  · not searchable on trade, check by eye")
           : a.boosted ? el("span", { class: "range" }, `  · includes the crafted ${a.boosted}% boost`) : null))) : null,
-    item.note ? el("div", { class: "note" }, item.note) : null);
+    item.note ? el("div", { class: "note" }, item.note) : null,
+    item.craft && shopping ? craftBlock(shopping, item) : null);
 }
 
 function tradeButton(shopping, item, part) {
@@ -548,7 +566,9 @@ function tradeButton(shopping, item, part) {
           tab.location.href = link.url;
         }
         const found = link.total ? `${link.total.toLocaleString()} listed` : "nothing listed, even loosened";
-        status.replaceChildren(`${found} · ${link.matches}${link.cached ? " · cached" : ""} · `,
+        const asking = link.asking ? ` · asking from ${formatPrice(link.asking.cheapest)} div, `
+          + `typically ${formatPrice(link.asking.typical)}` : "";
+        status.replaceChildren(`${found}${asking} · ${link.matches}${link.cached ? " · cached" : ""} · `,
           el("a", { href: link.url, target: "_blank", rel: "noopener" }, "open"));
       } catch (error) {
         if (tab) tab.close();
@@ -565,7 +585,7 @@ function shoppingSection(shopping) {
   const rows = [];
   for (const item of shopping.items) {
     const trade = shopping.ssf || item.kind === "normal" ? "–" : tradeButton(shopping, item, "item");
-    rows.push(el("tr", {}, el("td", {}, item.slot), el("td", {}, itemCell(item)),
+    rows.push(el("tr", {}, el("td", {}, item.slot), el("td", {}, itemCell(item, shopping)),
       el("td", { class: "num" }, item.kind === "normal" ? "found" : formatPrice(item.price)),
       el("td", {}, item.confidence || "–"), el("td", {}, trade)));
     for (const rune of item.runes || []) {
@@ -575,8 +595,11 @@ function shoppingSection(shopping) {
     }
   }
   const budget = shopping.budget == null || shopping.ssf ? "" : ` of ${shopping.budget} budget`;
+  const over = !shopping.ssf && shopping.budget != null && shopping.total > shopping.budget + 1e-6;
   rows.push(el("tr", { class: "total" }, el("td", {}, "Total"), el("td", {}, ""),
-    el("td", { class: "num" }, formatPrice(shopping.total)), el("td", {}, `divine${budget}`), el("td", {}, "")));
+    el("td", { class: `num${over ? " error-text" : ""}` }, formatPrice(shopping.total)),
+    el("td", {}, `divine${budget}`, over ? el("div", { class: "note error-text" }, "over budget at today's prices") : null),
+    el("td", {}, "")));
   const model = shopping.rare_prices;
   const rareNote = !model?.fitted_at
     ? "Rare prices are uncalibrated estimates (Calibrate rare prices, at the top, fits them to the trade site)."

@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -39,6 +41,13 @@ CALIBRATED_SAMPLES = 3  # samples a slot needs before its prices count as calibr
 FULL_SUPPORT = 5  # listings behind a sample for full weight; fewer weigh in proportion (two
 # listings at 4,000 and 11,504 divines aren't a market price)
 MODEL_FILE = "rare_model.json"
+# Crafting a rare jewel (0.5): the materials, priced from poe.ninja's exchange by these names
+CRAFT_MATERIALS = ("Chaos Orb", "Exalted Orb", "Divine Orb", "Potent Liquid Contempt", "Potent Liquid Ferocity",
+                   "Omen of Sinistral Erasure", "Omen of Dextral Erasure")
+BASE_MODS = 2  # mods the jewel bought to craft from already has: the two hardest to roll
+# A sum of chaos spams is skewed: about the 25th and 90th percentiles of the random part, as
+# multiples of its expected cost
+LUCKY, UNLUCKY = 0.4, 2.3
 
 
 def category(slot: str) -> str:
@@ -69,6 +78,62 @@ def stacked(tiers: list[int]) -> int:
     return max(0, sum(1 for t in tiers if tier_bucket(t) == 1) - 2)
 
 
+def jewel_craft(affixes, materials: dict[str, float], base_price: Callable[[list], float],
+                roll: float = 0.7) -> dict | None:
+    """The expected cost of crafting this rare jewel from a bought one, step by step (the 0.5 method
+    the guides describe, PLAN.md Phase 5 findings), or None without material prices or mod odds.
+
+    `affixes` need .type, .crafted, .lines, .ranged, .odds (the mod's share of the spawn weight among
+    all the base's mods: a Chaos Orb's chance on an open jewel) and .side_odds (among its own kind:
+    the chance once the other side is locked). `base_price` prices the bought jewel's mods; `roll` is
+    the modeled roll, which the Divine Orb line aims for (not in the total, like every rare's price,
+    which is for any roll within the tiers)."""
+    standard = [a for a in affixes if not a.crafted]
+    effect = next((a for a in affixes if a.crafted), None)
+    if any(materials.get(m) is None for m in CRAFT_MATERIALS) or not standard \
+            or not all(getattr(a, "odds", 0) > 0 for a in standard):
+        return None
+    boosted = None if effect is None else ("Prefix" if effect.type == "Suffix" else "Suffix")
+    keep = sorted([a for a in standard if a.type == boosted] if boosted else standard, key=lambda a: a.odds)[:BASE_MODS]
+    rest = [a for a in standard if a not in keep]
+    steps: list[dict] = []
+
+    def add(step: str, item: str, count: float, random: bool = True) -> None:
+        if count > 0:
+            steps.append({"step": step, "item": item, "count": round(count, 1), "each": materials[item],
+                          "cost": count * materials[item], "random": random})
+
+    if effect is None:
+        add(f"roll the other {len(rest)} mod{'s' if len(rest) != 1 else ''}", "Chaos Orb", sum(1 / a.odds for a in rest))
+    else:
+        kind = boosted.lower()
+        third = [a for a in rest if a.type == boosted]
+        other = [a for a in rest if a.type != boosted]
+        add(f"open a third {kind} slot (a 50/50: about two tries)", "Exalted Orb", 2)
+        add(f"open a third {kind} slot (a 50/50: about two tries)", "Potent Liquid Contempt", 2)
+        add(f"re-roll the {kind} a lost 50/50 removes", "Chaos Orb", statistics.mean(1 / a.odds for a in keep))
+        add(f"roll the third {kind}", "Chaos Orb", sum(1 / a.odds for a in third))
+        # "+1 Suffix Modifier allowed" is a prefix (Sinistral), "+1 Prefix ..." a suffix (Dextral)
+        omen = "Omen of Sinistral Erasure" if boosted == "Suffix" else "Omen of Dextral Erasure"
+        add(f"remove the +1 line, which locks the {kind}es", omen, 1, random=False)
+        add(f"remove the +1 line, which locks the {kind}es", "Chaos Orb", 1, random=False)
+        add("roll the " + ", ".join(a.lines[0] for a in other) if other else "", "Chaos Orb",
+            sum(1 / a.side_odds for a in other))
+        add(f"add the effect line (a 50/50: about two tries)", "Potent Liquid Ferocity", 2)
+        if other:
+            add("re-roll what a lost 50/50 removes", "Chaos Orb", statistics.mean(1 / a.side_odds for a in other))
+    base = base_price(keep)
+    fixed = sum(s["cost"] for s in steps if not s["random"])
+    random = sum(s["cost"] for s in steps if s["random"])
+    total = base + fixed + random
+    ranged = sum(1 for a in affixes if getattr(a, "ranged", False))
+    hit = (1 - roll) ** ranged if ranged and roll < 1 else None
+    return {"base": {"mods": [" / ".join(a.lines) for a in keep], "price": base}, "steps": steps,
+            "total": total, "low": base + fixed + LUCKY * random, "high": base + fixed + UNLUCKY * random,
+            "roll": roll, "roll_divines": round(1 / hit) if hit else None,
+            "divine": materials["Divine Orb"]}
+
+
 @dataclass
 class RarePriceModel:
     params: dict = field(default_factory=prior)
@@ -76,9 +141,13 @@ class RarePriceModel:
     league: str | None = None
     samples: dict = field(default_factory=dict)  # category -> samples used
     spread: float | None = None  # residual standard deviation (log space)
+    materials: dict = field(default_factory=dict)  # crafting material prices (divine), from the payload
 
-    def price(self, slot: str, affixes) -> float:
-        """Price of a rare in this slot; `affixes` are objects with a `tier` (or tiers)."""
+    def price(self, slot: str, affixes, craft: bool = True) -> float:
+        """Price of a rare in this slot; `affixes` are objects with a `tier` (or tiers). A rare
+        jewel's price may be its crafting cost (see `jewel`)."""
+        if craft and category(slot) == "jewel" and self.materials:
+            return self.jewel(slot, affixes)["price"]
         tiers = [affix if isinstance(affix, int) else affix.tier for affix in affixes]
         log_price = self.params["base"].get(category(slot), self.params["base"]["helmet"])
         log_price += sum(self.params["tier"][str(tier_bucket(t))] for t in tiers)
@@ -87,6 +156,19 @@ class RarePriceModel:
         stack = max(0, tops - 2) if tops is not None else stacked(tiers)
         log_price += self.params.get("stack", {}).get("t1", 0.0) * stack
         return max(MIN_PRICE, math.exp(min(log_price, 20.0)))
+
+    def jewel(self, slot: str, affixes, roll: float = 0.7) -> dict:
+        """A rare jewel's budget price and what it rests on: the crafting estimate while the
+        market data for jewels is thin (a specific four- or five-line jewel rarely has listings, and
+        those that do sell far above a model fitted on two-line ones), else the cheaper of the market
+        model and crafting."""
+        market = self.price(slot, affixes, craft=False)
+        craft = jewel_craft(affixes, self.materials, lambda keep: self.price(slot, keep, craft=False), roll)
+        if craft is None:
+            return {"price": market, "basis": "market", "market": market, "craft": None}
+        if self.samples.get("jewel", 0) < CALIBRATED_SAMPLES or craft["total"] < market:
+            return {"price": max(MIN_PRICE, craft["total"]), "basis": "crafting", "market": market, "craft": craft}
+        return {"price": market, "basis": "market", "market": market, "craft": craft}
 
     def confidence(self, slot: str) -> str:
         if self.fitted_at is None:

@@ -13,7 +13,7 @@ from builder.data import GameData, rare_prices
 from builder.data.trade import FETCH, SEARCH, RateLimited, RateLimiter, TradeClient, parse_buckets
 from builder.report.calibrate import choose, listing_price
 from builder.report.checklist import checklist
-from builder.report.shopping import identify, ladder, ranked_affixes, shopping_list, stat_value, trade_filters
+from builder.report.shopping import identify, ladder, ranked_affixes, shopping_list, stat_value, trade_filters, trade_link
 from builder.search.rares import mod_lines, roll
 
 
@@ -318,3 +318,79 @@ def test_crafted_jewels_have_four_mods_and_the_effect_line(data) -> None:
     assert [a.get("boosted") is not None for a in affixes] == [True, True, True, False, False]
     assert affixes[-1].get("crafted") and all(a.get("tier") == 1 for a in affixes[:4])
     assert "replace the +1" in shop["items"][0]["note"]
+
+
+# Jewel crafting cost ---------------------------------------------------------------------------
+
+MATERIALS = {"Chaos Orb": 0.1, "Exalted Orb": 0.002, "Divine Orb": 1.0, "Potent Liquid Contempt": 2.5,
+             "Potent Liquid Ferocity": 8.0, "Omen of Sinistral Erasure": 20.0, "Omen of Dextral Erasure": 14.0}
+
+
+def craft_affix(kind: str, odds: float = 1 / 74, side: float = 1 / 44, crafted: bool = False):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(type=kind, crafted=crafted, lines=[f"{kind} {odds:.4f}"], ranged=True, odds=odds,
+                           side_odds=side, tier=1, top=False)
+
+
+def test_jewel_craft_prices_the_base_and_each_material_step() -> None:
+    suffixes = [craft_affix("Suffix", 1 / 70), craft_affix("Suffix", 1 / 80), craft_affix("Suffix", 1 / 74)]
+    prefix, effect = craft_affix("Prefix", 1 / 74, 1 / 30), craft_affix("Prefix", crafted=True)
+    craft = rare_prices.jewel_craft(suffixes + [prefix, effect], MATERIALS, lambda keep: 0.1, 0.7)
+    items = {s["item"] for s in craft["steps"]}
+    assert {"Potent Liquid Contempt", "Potent Liquid Ferocity", "Omen of Sinistral Erasure", "Chaos Orb"} <= items
+    assert "Omen of Dextral Erasure" not in items  # boosted suffixes: the +1 line to erase is a prefix
+    assert craft["base"]["mods"] == [suffixes[1].lines[0], suffixes[2].lines[0]]  # the two hardest suffixes
+    assert craft["low"] < craft["total"] < craft["high"] and craft["total"] > 40
+    assert craft["roll_divines"] == round(1 / 0.3 ** 5)
+    assert rare_prices.jewel_craft(suffixes, {}, lambda keep: 0.1) is None  # no material prices
+    plain = rare_prices.jewel_craft(suffixes[:2], MATERIALS, lambda keep: 0.1)
+    assert plain["total"] == pytest.approx(0.1) and plain["steps"] == []  # two mods: just buy it
+
+
+def test_jewel_budget_uses_crafting_while_market_data_is_thin() -> None:
+    affixes = [craft_affix("Suffix"), craft_affix("Suffix"), craft_affix("Prefix"), craft_affix("Prefix")]
+    thin = rare_prices.RarePriceModel(materials=MATERIALS)
+    priced = thin.jewel("Jewel 1", affixes)
+    assert priced["basis"] == "crafting" and priced["price"] == pytest.approx(priced["craft"]["total"])
+    assert thin.price("Jewel 1", affixes) == pytest.approx(priced["price"])
+    calibrated = rare_prices.RarePriceModel(samples={"jewel": 5}, fitted_at=1.0, materials=MATERIALS)
+    calibrated.params["base"]["jewel"] = -9.0  # a market far cheaper than crafting
+    assert calibrated.jewel("Jewel 1", affixes)["basis"] == "market"
+    assert rare_prices.RarePriceModel().jewel("Jewel 1", affixes)["basis"] == "market"  # no materials
+
+
+def test_trade_link_reports_what_listings_ask(tmp_path) -> None:
+    class Client:
+        def search(self, league, query, max_wait=None):
+            return {"id": "q", "total": 12, "result": [f"i{n}" for n in range(12)], "url": "u", "cached": False}
+
+        def fetch(self, ids, query_id, max_wait=None):
+            return [{"listing": {"price": {"amount": n, "currency": "exalted"}}} for n in (30, 10, 20, 50, 40)]
+
+    entry = {"kind": "unique", "name": "Blackflame", "base": "Amethyst Ring", "category": "accessory.ring"}
+    link = trade_link(Client(), "Test", entry, rates={"exalted": 0.01})
+    assert link["asking"] == {"cheapest": 0.1, "typical": 0.3, "listings": 5}
+    assert "asking" not in trade_link(Client(), "Test", entry)  # no rates, no fetch
+
+
+def test_jewel_entries_carry_the_crafting_breakdown_and_a_base_search(data) -> None:
+    from builder.search.rares import boosted, rare_text
+
+    jewels = pools_for("endgame", "Jewel")
+    effect_affix, effect = jewels.crafted("Suffix")
+    pool = jewels.pool("Emerald")
+    suffixes = [a for a in pool if a.type == "Suffix"][:3]
+    prefix = next(a for a in pool if a.type == "Prefix")
+    lines = [boosted(l, effect) for a in suffixes for l in a.lines] + list(prefix.lines) + list(effect_affix.lines)
+    item = {"name": "Rare Jewel", "base": "Emerald", "type": "Jewel", "rare": True, "unique": False, "price": 2.2,
+            "confidence": "estimate", "affixes": lines, "runes": []}
+    stats = {f"explicit.stat_{h}": {"text": "#% increased X", "type": "explicit"}
+             for a in suffixes for m in data.mods["Jewel"] if m["id"] == a.id for h in m.get("tradeHashes") or {}}
+    shop = shopping_list({"request": {"budget": {"gear_tier": "endgame", "divines": 20}}, "gear": {"Jewel 1": item}},
+                         data, {"materials": MATERIALS}, stats)
+    entry = shop["items"][0]
+    assert entry["basis"] == "crafting" and entry["price"] > 20 and entry["craft"]["steps"]
+    assert entry["price"] == pytest.approx(shop["total"])
+    base_query = ladder(entry, "base")[0][1]["query"]
+    assert base_query["type"] == "Emerald" and len(base_query["stats"][0]["filters"]) == 2

@@ -83,6 +83,7 @@ class Context:
         self.gem_prices: dict[str, float] = payload.get("gem_prices") or {}
         self.augment_prices: dict[str, float] = payload.get("augment_prices") or {}
         self.rare_model = rare_prices.RarePriceModel.from_payload(payload.get("rare_model"))
+        self.rare_model.materials = dict(payload.get("craft_prices") or {})
         rare_prices.use(self.rare_model)
 
     @cached_property
@@ -379,4 +380,14 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "augment_prices": augment_prices,
         "league": league,
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
+        "craft_prices": craft_prices(prices),
     }
+
+
+def craft_prices(prices) -> dict[str, float]:
+    """Jewel crafting materials from poe.ninja (empty without price data: jewels then use the
+    market model alone)."""
+    if prices is None:
+        return {}
+    found = {name: prices.exchange[name].divine for name in rare_prices.CRAFT_MATERIALS if name in prices.exchange}
+    return found if len(found) == len(rare_prices.CRAFT_MATERIALS) else {}

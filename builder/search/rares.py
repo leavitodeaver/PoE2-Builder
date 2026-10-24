@@ -88,6 +88,9 @@ class Affix:
     tiers: int = 1  # tiers its group has on this base
     lower: Affix | None = None  # the same group one tier down (where a tier-1 cap may need it)
     crafted: bool = False  # a crafted jewel modifier (JEWEL_CRAFTS)
+    odds: float = 0.0  # its share of the spawn weight among all the base's affixes (a Chaos Orb's chance)
+    side_odds: float = 0.0  # its share among affixes of its own kind (once the other side is locked)
+    ranged: bool = False  # it rolls within a range (Divine Orbs reroll it)
 
     @property
     def top(self) -> bool:
@@ -114,6 +117,8 @@ class AffixPools:
         if base_name not in self._pools:
             tags = set(self.ctx.bases_by_name[base_name].get("tags") or [])
             groups: dict[tuple[str, str], list[dict]] = {}
+            weights: dict[str, int] = {}  # spawn weight of each affix this base can roll at this item level
+            totals = {"Prefix": 0, "Suffix": 0}
             for mod in self.mods:
                 weight = 0
                 for key, value in zip(mod.get("weightKey") or [], mod.get("weightVal") or []):
@@ -122,6 +127,14 @@ class AffixPools:
                         break
                 if weight > 0:
                     groups.setdefault((mod["group"], mod["type"]), []).append(mod)
+                    if mod.get("level", 0) <= self.item_level:
+                        weights[mod["id"]] = weight
+                        totals[mod["type"]] += weight
+
+            def odds(mod: dict) -> tuple[float, float]:
+                weight = weights.get(mod["id"], 0)
+                return weight / max(1, sum(totals.values())), weight / max(1, totals[mod["type"]])
+
             affixes = []
             for (group, kind), mods in groups.items():
                 ranked = sorted(mods, key=lambda m: -m.get("level", 0))
@@ -133,13 +146,15 @@ class AffixPools:
                 # down: cheaper, and the fallback when a rare can't take another tier-1 affix
                 (tier, mod), lower = allowed[0], None
                 if len(allowed) > 1:
-                    lower = self.affix(allowed[1][1], group, kind, allowed[1][0], len(ranked))
-                affixes.append(self.affix(mod, group, kind, tier, len(ranked), lower))
+                    lower = self.affix(allowed[1][1], group, kind, allowed[1][0], len(ranked), odds(allowed[1][1]))
+                affixes.append(self.affix(mod, group, kind, tier, len(ranked), odds(mod), lower))
             self._pools[base_name] = affixes
         return self._pools[base_name]
 
-    def affix(self, mod: dict, group: str, kind: str, tier: int, tiers: int, lower: Affix | None = None) -> Affix:
-        return Affix(mod["id"], group, kind, tier, tuple(roll(line, self.roll) for line in mod_lines(mod)), tiers, lower)
+    def affix(self, mod: dict, group: str, kind: str, tier: int, tiers: int, odds: tuple[float, float],
+              lower: Affix | None = None) -> Affix:
+        return Affix(mod["id"], group, kind, tier, tuple(roll(line, self.roll) for line in mod_lines(mod)), tiers, lower,
+                     odds=odds[0], side_odds=odds[1], ranged=any(RANGE.search(line) for line in mod_lines(mod)))
 
     def choices(self, affix: Affix, chosen: list[Affix]) -> list[Affix]:
         """The tiers of the affix's group worth trying next: a tier-1 affix and its tier 2 (often
@@ -162,7 +177,8 @@ class AffixPools:
         found = next((m for line in lines if (m := EFFECT.search(line))), None)
         if not found:
             return None
-        return Affix(effect_mod["id"], effect_mod["group"], effect_mod["type"], 1, lines, crafted=True), float(found.group(1))
+        return (Affix(effect_mod["id"], effect_mod["group"], effect_mod["type"], 1, lines, crafted=True, ranged=True),
+                float(found.group(1)))
 
 
 def implicit_lines(base: dict, fraction: float = 0.5) -> list[str]:

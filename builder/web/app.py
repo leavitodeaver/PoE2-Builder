@@ -283,8 +283,8 @@ def get_result(name: str) -> dict:
     if path.parent != RESULTS_DIR or path.suffix != ".json" or not path.exists():
         raise HTTPException(404, "no such result")
     result = json.loads(path.read_text(encoding="utf-8"))
-    if result.get("gear") and "shopping" not in result:
-        # Saved before results carried a shopping list: build it with today's prices
+    if result.get("gear"):
+        # The shopping list at today's prices (the one saved with the run had the prices of its day)
         request = BuildRequest.model_validate(result["request"])
         try:
             table = prices.table(request.league, refresh=False)
@@ -293,7 +293,7 @@ def get_result(name: str) -> dict:
         payload = make_payload(request, table)
         result["shopping"] = shopping_list(result, data, {
             "augments": payload["augment_prices"], "gems": payload["gem_prices"], "league": payload["league"],
-            "rare_model": payload["rare_model"]}, trade.stats(offline=True))
+            "rare_model": payload["rare_model"], "materials": payload["craft_prices"]}, trade.stats(offline=True))
         result["checklist"] = checklist(result)
     return result
 
@@ -338,17 +338,21 @@ def calibration_status(league: str | None = None) -> dict:
 
 class TradeLinkBody(BaseModel):
     item: dict
-    part: str = "item"  # "item", or "rune:<name>" for something in its sockets
+    part: str = "item"  # "item", "base" (a jewel to craft from), or "rune:<name>" for something in its sockets
     league: str | None = None
 
 
 @app.post("/api/trade/link")
 def make_trade_link(body: TradeLinkBody) -> dict:
     league = body.league or prices.default_league()
-    if body.part != "item" and not body.part.startswith("rune:"):
-        raise HTTPException(422, "part must be 'item' or 'rune:<name>'")
+    if body.part not in ("item", "base") and not body.part.startswith("rune:"):
+        raise HTTPException(422, "part must be 'item', 'base' or 'rune:<name>'")
     try:
-        return {"league": league, **trade_link(trade, league, body.item, body.part)}
+        rates = prices.table(league, refresh=False).currency
+    except Exception:
+        rates = None  # no price data: the link still works, without asking prices
+    try:
+        return {"league": league, **trade_link(trade, league, body.item, body.part, rates=rates)}
     except RateLimited as error:
         raise HTTPException(429, f"The trade site asks us to wait: try again in {error.wait:.0f}s "
                                  "(its rate limit; your open trade-site tabs count too)")

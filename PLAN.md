@@ -492,7 +492,8 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   - two tier-1s, tier 2 only as the fallback: 1.24M;
   - four tier-1s, tier 2 only as the fallback: 552k (back to dear stacks);
   - four tier-1s, tier 1 or 2 by price, crafted jewels: **1.20M** for 19.67 divines
-    (`data/results/20261024-152053-run1.json`).
+    (`data/results/20261024-152053-run1.json`), but its three crafted jewels were priced at 2.2
+    divines each; at their crafting cost (next bullets) the same request reaches 635k.
 
   Offering tier 2 at every pick is what matters: under calibrated prices, 2–3 tier-1s plus tier 2s
   cost cents and fill six affixes.
@@ -506,6 +507,29 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   looks for the unboosted mods. The Deadeye run took 5-line crafted jewels in two of three sockets.
   **Likely to change in 1.0: recheck at the refresh.** The price model's stack term counts only
   tier 1s of groups with lower tiers, so single-tier jewel mods carry no stacking premium.
+- **Jewels are priced at what crafting them costs** (`jewel_craft` in `builder/data/rare_prices.py`),
+  after the user saw 5-line crafted jewels listed at 2.2 divines that sell for far more. The
+  estimate is the jewel bought to start from (its two hardest-to-roll mods, from the market model)
+  plus materials at poe.ninja prices:
+  - Chaos Orbs for each missing mod at 1/odds. The odds come from spawn weights: an Emerald's 74
+    mods all weigh 1, matching the guides' "1 in 73".
+  - For the 5-line craft (steps from community 0.5 guides): Exalted Orb plus Potent Liquid Contempt
+    twice (a 50/50) with a chaos re-roll for the mod a loss removes, the Sinistral or Dextral
+    Erasure omen plus a Chaos Orb to remove the +1 line, chaos for the other side, then Potent
+    Liquid Ferocity twice (a 50/50) plus a re-roll.
+
+  It's shown as the expected cost with a lucky-to-unlucky range (0.4× to 2.3× the random part).
+  The Divine Orbs to reach the modeled roll are listed apart (412 for five lines at 70%), since
+  every rare's price is for any roll within its tiers. While jewel market data is thin (under
+  three samples) the budget uses the crafting estimate, otherwise the cheaper of market and
+  crafting. On 2026-10-24 a 5-line crafted jewel came to about 61 divines (37 to 114), a 4-mod
+  about 15, a 2-mod about 0.1 (its market price); one guide puts a from-scratch 5-line near 150
+  with luck-dependent divines and a desecration step. Trade now also fetches the ten cheapest
+  listings and shows what they ask: the base to craft from had 6,168 listed from 0.003 divines,
+  the finished 5-line jewel one listing at 2,000. With jewels at crafting cost the 20-divine
+  Deadeye took no rare jewels: 635k Full DPS for 14.87 divines
+  (`data/results/20261024-182447-run1.json`). Saved results show their shopping list at today's
+  prices.
 - **Strict searches rarely match.** A rare's exact base with every modeled roll usually finds
   nothing, so links loosen to any base at each tier's floor (the Deadeye ring below: 0 → 753).
   96% of item affix stat lines map to explicit trade stats; the rest (essence-only, a few shield

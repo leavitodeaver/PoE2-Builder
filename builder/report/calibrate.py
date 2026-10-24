@@ -21,7 +21,7 @@ from pathlib import Path
 
 from builder.data import DATA_ROOT, GameData, rare_prices
 from builder.data.trade import Cancelled, RateLimited, TradeClient, TradeError
-from builder.report.shopping import ladder, ranked_affixes, shopping_list, trade_category, trade_filters
+from builder.report.shopping import ladder, listing_divines, ranked_affixes, shopping_list, trade_category, trade_filters
 
 MAX_SEARCHES = 24
 LISTINGS = 10  # fetched per search (one fetch request)
@@ -127,12 +127,7 @@ def choose(packages: list[dict], limit: int, per_category: int = 2) -> list[dict
     return chosen
 
 
-def listing_price(listing: dict, rates: dict[str, float]) -> float | None:
-    price = (listing.get("listing") or {}).get("price") or {}
-    rate = rates.get(price.get("currency"))
-    if rate is None or not price.get("amount"):
-        return None
-    return float(price["amount"]) * rate
+listing_price = listing_divines
 
 
 class Calibration:

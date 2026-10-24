@@ -14,12 +14,14 @@ keep their base: a weapon's damage and a jewel's mod pool depend on it), then al
 from __future__ import annotations
 
 import re
+import statistics
 from collections.abc import Callable
+from types import SimpleNamespace
 
 from builder.data import GameData, rare_prices
 from builder.data.trade import TradeClient
 from builder.request.schema import GearTier
-from builder.search.rares import EFFECT, JEWEL_CRAFTS, TIER_RULES, boosted, mod_lines, roll
+from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, mod_lines, roll
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 SLOT_ORDER = ["Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Ring 3", "Belt"]
@@ -57,6 +59,26 @@ def slot_key(slot: str) -> tuple:
 # Affixes -------------------------------------------------------------------------------------
 
 _RANKED: dict[tuple, list[tuple[dict, int]]] = {}
+_ODDS: dict[tuple, dict[str, tuple[float, float]]] = {}
+
+
+def mod_odds(data: GameData, base_name: str, pool: str, item_level: int) -> dict[str, tuple[float, float]]:
+    """Mod id -> (share of the spawn weight among all the base's affixes, share among its kind's),
+    as builder.search.rares.AffixPools computes them for the crafting estimate."""
+    key = (id(data), base_name, pool, item_level)
+    if key not in _ODDS:
+        base = next(b for b in data.bases if b["name"] == base_name)
+        tags = set(base.get("tags") or [])
+        weights, totals = {}, {"Prefix": 0, "Suffix": 0}
+        for mod in data.mods.get(pool, []):
+            if mod.get("type") not in ("Prefix", "Suffix") or mod.get("level", 0) > item_level:
+                continue
+            weight = next((v for k, v in zip(mod.get("weightKey") or [], mod.get("weightVal") or []) if k in tags), 0)
+            if weight > 0:
+                weights[mod["id"]] = (weight, mod["type"])
+                totals[mod["type"]] += weight
+        _ODDS[key] = {i: (w / max(1, sum(totals.values())), w / max(1, totals[t])) for i, (w, t) in weights.items()}
+    return _ODDS[key]
 
 
 def ranked_affixes(data: GameData, base_name: str, pool: str) -> list[tuple[dict, int]]:
@@ -151,8 +173,9 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
     `stats`: trade stat ids (TradeClient.stats) for the trade filters."""
     request = result.get("request") or {}
     budget = request.get("budget") or {}
-    fraction = TIER_RULES[GearTier(budget.get("gear_tier") or GearTier.ENDGAME)][2]
+    item_level, _, fraction = TIER_RULES[GearTier(budget.get("gear_tier") or GearTier.ENDGAME)]
     model = rare_prices.RarePriceModel.from_payload(prices.get("rare_model"))
+    model.materials = dict(prices.get("materials") or {})
     augments = prices.get("augments") or {}
     stats = stats or {}
     bases = {b["name"]: b for b in data.bases}
@@ -179,10 +202,16 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                     entry["confidence"] = model.confidence(slot)
             crafted_ids = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids}
             effect = next(((m.group(1), m.group(2)) for line in gear["affixes"] if (m := EFFECT.search(line))), None)
+            mods = []  # (affix entry, mod) for the crafting estimate
             for mod, tier, lines in identify(gear, data, fraction):
                 affix = {"text": " / ".join(lines), "tier": tier, "searchable": False}
+                if mod is not None:
+                    mods.append((affix, mod))
                 if mod is not None and mod["id"] in crafted_ids:
-                    affix.update(mod=mod["id"], type=mod["type"], crafted=True, tier=None)
+                    # A finished jewel's search asks for the effect line too
+                    affix.update(mod=mod["id"], type=mod["type"], crafted=True, tier=None,
+                                 trade=trade_filters(mod, fraction, stats))
+                    affix["searchable"] = bool(affix["trade"])
                 elif mod is not None:
                     affix.update(mod=mod["id"], type=mod["type"], level=mod.get("level", 0),
                                  range=" / ".join(mod_lines(mod)), trade=trade_filters(mod, fraction, stats))
@@ -194,7 +223,9 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                 kind_name = effect[1][:-2].lower()
                 entry["note"] = (f"Crafted (0.5): craft \"+1 {effect[1][:-2]} Modifier allowed\", add a third {kind_name}, then "
                                  f"replace the +1 with \"{effect[0]}% increased Effect of {effect[1]}\". The values shown "
-                                 f"include that boost; Trade looks for a jewel with the unboosted mods to start from.")
+                                 f"include that boost.")
+            if gear["type"] == "Jewel" and kind == "rare" and gear.get("price") is not None:
+                jewel_prices(entry, slot, mods, model, data, item_level, fraction)
         else:
             entry["note"] = "a white base: any copy from drops or a vendor works"
         items.append(entry)
@@ -240,8 +271,36 @@ def rare_stats(affixes: list[dict], level: str, slack: int = 0) -> list[dict]:
     return [{"type": "and", "filters": filters}]
 
 
+def jewel_prices(entry: dict, slot: str, mods: list[tuple[dict, dict]], model, data: GameData, item_level: int,
+                 fraction: float) -> None:
+    """A rare jewel's two prices: the market model's, and crafting it from a bought jewel (base
+    plus materials, as a range), and which one the budget uses."""
+    odds = mod_odds(data, entry["base"], "Jewel", item_level)
+    affixes = [SimpleNamespace(type=mod["type"], crafted=bool(affix.get("crafted")),
+                               lines=[roll(line, fraction) for line in mod_lines(mod)],
+                               ranged=any(RANGE.search(line) for line in mod_lines(mod)),
+                               odds=odds.get(mod["id"], (0.0, 0.0))[0], side_odds=odds.get(mod["id"], (0.0, 0.0))[1],
+                               tier=affix.get("tier") or 1, top=False, index=i)
+               for i, (affix, mod) in enumerate(mods)]
+    priced = model.jewel(slot, affixes, fraction)
+    entry["market_estimate"] = priced["market"]
+    entry["basis"] = priced["basis"]
+    entry["price"] = priced["price"]
+    if priced["basis"] == "crafting":
+        entry["confidence"] = "crafting estimate (rough: chaos spam and 50/50s vary)"
+    craft = priced["craft"]
+    if craft:
+        keep = [a for a in affixes if " / ".join(a.lines) in craft["base"]["mods"]]
+        craft["base"]["affixes"] = [mods[a.index][0] for a in keep]
+        entry["craft"] = craft
+
+
 def ladder(entry: dict, part: str = "item", status: str = LINK_STATUS) -> list[tuple[str, dict]]:
     """Searches to try in order, each (what it matches, trade query)."""
+    if part == "base":  # the jewel to craft from: its two hardest mods, any roll within their tiers
+        affixes = [a for a in entry["craft"]["base"]["affixes"] if a.get("searchable")]
+        return [("a jewel to craft from", _query(rare_stats(affixes, "floor"), status, type=entry["base"],
+                                                 filters=_type_filters(entry.get("category"), "nonunique")))]
     if part != "item":
         name = part.split(":", 1)[1]
         return [(f"{name}", _query(status=status, type=name))]
@@ -267,8 +326,10 @@ def ladder(entry: dict, part: str = "item", status: str = LINK_STATUS) -> list[t
     return steps
 
 
-def trade_link(client: TradeClient, league: str, entry: dict, part: str = "item", max_wait: float = 20.0) -> dict:
-    """Run the searches for one shopping-list line until one finds listings; the trade-site URL."""
+def trade_link(client: TradeClient, league: str, entry: dict, part: str = "item", max_wait: float = 20.0,
+               rates: dict[str, float] | None = None) -> dict:
+    """Run the searches for one shopping-list line until one finds listings; the trade-site URL, and
+    (with currency rates) what the cheapest listings ask, from one fetch of the first ten."""
     tried = []
     answer = None
     for label, query in ladder(entry, part):
@@ -276,5 +337,17 @@ def trade_link(client: TradeClient, league: str, entry: dict, part: str = "item"
         tried.append({"matches": label, "total": answer["total"]})
         if answer["total"] > 0:
             break
-    return {"url": answer["url"], "total": answer["total"], "matches": tried[-1]["matches"], "tried": tried,
+    link = {"url": answer["url"], "total": answer["total"], "matches": tried[-1]["matches"], "tried": tried,
             "cached": answer.get("cached", False)}
+    if rates and answer["total"] and answer.get("result"):
+        listings = client.fetch(answer["result"][:10], answer["id"], max_wait=max_wait)
+        asked = sorted(x for x in (listing_divines(l, rates) for l in listings) if x)
+        if asked:
+            link["asking"] = {"cheapest": asked[0], "typical": statistics.median(asked[:5]), "listings": len(asked)}
+    return link
+
+
+def listing_divines(listing: dict, rates: dict[str, float]) -> float | None:
+    price = (listing.get("listing") or {}).get("price") or {}
+    rate = rates.get(price.get("currency"))
+    return float(price["amount"]) * rate if rate is not None and price.get("amount") else None
