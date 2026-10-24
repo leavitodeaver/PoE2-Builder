@@ -8,7 +8,8 @@
   paths, so two notables behind shared travel nodes can win together.
 - Prune and regrow: branches that give least per point are removed and the points regrown; the
   change is kept only if the build ends better.
-- Attributes: each allocated attribute node's Str/Dex/Int is a decision of its own.
+- Attributes: each allocated attribute node's Str/Dex/Int is a decision of its own; with
+  Pathfinder's Traveller's Wisdom also 5% increased Damage, defences or Cost Efficiency.
 - Ascendancy: every connected allocation of the ascendancy's points is enumerated and scored
   (with one option per multiple-choice node).
 
@@ -37,6 +38,11 @@ ASCENDANCY_CASES = 1500  # most allocations scored exactly in one round
 STRENGTH, DEXTERITY, INTELLIGENCE = 1, 2, 3
 GRANTS_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+)$")
 TRIALS = 2  # ascendancy allocations tried for real when they grant a skill an assumption uses
+# Traveller's Wisdom: "Attribute Passive Skills can instead grant 5% increased Damage / Armour,
+# Evasion and Energy Shield / Cost Efficiency" (bridge attribute options 4-6). It is worth nothing
+# until the attribute nodes choose, so the ascendancy round tries it for real.
+TRAVELLERS_WISDOM = "Traveller's Wisdom"
+TRAVELLER_OPTIONS = (4, 5, 6)
 
 
 @dataclass
@@ -288,13 +294,19 @@ class Tree:
 
     # Attribute nodes ---------------------------------------------------------------------------
 
+    def has_passive(self, name: str) -> bool:
+        return any(p["name"] == name for p in self.build.call("facts", fields=[])["passives"])
+
     def attributes_round(self) -> bool:
         nodes = self.build.call("attributeNodes")["nodes"]
         if not nodes:
             return False
+        options = (STRENGTH, DEXTERITY, INTELLIGENCE)
+        if self.has_passive(TRAVELLERS_WISDOM):
+            options += TRAVELLER_OPTIONS
         cases, keys = [], []
         for node in nodes:
-            for attribute in (STRENGTH, DEXTERITY, INTELLIGENCE):
+            for attribute in options:
                 if attribute != node["attribute"]:
                     cases.append({"switch": [node["id"], attribute]})
                     keys.append((node["id"], attribute))
@@ -305,16 +317,20 @@ class Tree:
                 best[node_id] = (gain, attribute)
         chosen = {n["id"]: n["attribute"] for n in nodes}
         improved = False
-        if best:
+        # Each switch was scored alone; together they can break an attribute requirement (all 29
+        # Dexterity passives taking Traveller's Damage at once), so fall back to the best half
+        ranked = sorted(best.items(), key=lambda item: -item[1][0])
+        while ranked:
             before = self.build.score
-            self.build.set_attributes({node_id: attribute for node_id, (_, attribute) in best.items()})
-            if self.build.score < before - EPSILON:
-                self.build.set_attributes({node_id: chosen[node_id] for node_id in best})
-            else:
+            self.build.set_attributes({node_id: attribute for node_id, (_, attribute) in ranked})
+            if self.build.score >= before - EPSILON:
                 improved = self.build.score > before + EPSILON
-                chosen.update({node_id: attribute for node_id, (_, attribute) in best.items()})
-        counts = Counter(a for a in chosen.values() if a)
-        if counts:
+                chosen.update({node_id: attribute for node_id, (_, attribute) in ranked})
+                break
+            self.build.set_attributes({node_id: chosen[node_id] for node_id, _ in ranked})
+            ranked = ranked[:len(ranked) // 2]
+        counts = Counter(a for a in chosen.values() if a in (STRENGTH, DEXTERITY, INTELLIGENCE))
+        if counts:  # new paths take the most common attribute (Traveller's choices aren't one)
             self.attribute = counts.most_common(1)[0][0]
         return improved
 
@@ -372,6 +388,12 @@ class Tree:
                     build.allocate(remove=ids, add=previous)
                     self.resolve()
         missing_required = bool(required - set(current) - {start})
+        traveller = next((i for i in adjacency if nodes[i].get("name") == TRAVELLERS_WISDOM), None)
+        if traveller is not None and traveller not in current and traveller not in best_ids:
+            with_traveller = [(s, ids) for (s, _), ids in zip(scored, allocations) if traveller in ids]
+            if with_traveller and not missing_required and self.traveller_trial(
+                    max(with_traveller, key=lambda x: x[0])[1], current):
+                return True
         if sorted(best_ids) == current or (best_score <= build.score + EPSILON and not missing_required):
             return False
         before = build.score
@@ -385,6 +407,22 @@ class Tree:
                 self.resolve()
             return False
         return build.score > before + EPSILON or missing_required
+
+    def traveller_trial(self, ids: list[int], current: list[int]) -> bool:
+        """Take an ascendancy allocation with Traveller's Wisdom, let the attribute passives choose,
+        and keep it only if the build ends better."""
+        build = self.build
+        snap = build.snapshot()
+        before = build.score
+        build.allocate(remove=current, add=ids)
+        if self.resolve is not None:
+            self.resolve()
+        self.attributes_round()
+        self.round += 1
+        if build.score > before + EPSILON:
+            return True
+        build.restore(snap)
+        return False
 
     def allocations(self, start: int, core: dict[int, list[int]], options: dict[int, list[int]],
                     required: set[int], adjacency: dict[int, list[int]]) -> list[list[int]]:

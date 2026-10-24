@@ -24,6 +24,11 @@ A condition is switched on by a passive's `flag:` line or by a `condition` entry
 that provide it (`skills`: regex on active skill and support gem names; `skill_text`: regex on
 active skills' gem descriptions). Conditional lines apply to passives only, not to uniques.
 
+Lines that feed a custom model (builder/search/models.py) rather than standing for a modifier of
+their own name it with `model:` and use
+    mult:ArchonDuration 15         # this passive adds 15 to the model input "ArchonDuration"
+alongside `flag:` for the model's on/off inputs. The model reads the same lines on items itself.
+
 A `pob_wrong` entry is for a unique line PoB does calculate, but wrongly: the line is replaced in
 the item's text by the entry's single replacement line.
 
@@ -47,7 +52,7 @@ ENTRY_DIR = ROOT / "ledger" / "entries"
 ACTIVE = {"proposed", "approved"}
 TEMPLATE = re.compile(r"\{([^{}]+)\}")
 RANGE = re.compile(r"^\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)$")
-SYNTAX = re.compile(r"^(flag|if):(\w+)\s*(.*)$")
+SYNTAX = re.compile(r"^(flag|if|mult):(\w+)\s*(.*)$")
 
 
 @dataclass(frozen=True)
@@ -143,6 +148,14 @@ def wrong(line: str) -> tuple[Entry, str] | None:
     return None
 
 
+def model_entry(line: str) -> Entry | None:
+    """The entry that feeds this line to a custom model, if any (wherever the line is)."""
+    for entry in entries():
+        if entry.raw.get("model") and entry.pattern is not None and entry.pattern.search(line):
+            return entry
+    return None
+
+
 def conditions() -> list[dict]:
     """`condition` entries: which skills switch a ledger condition on."""
     return [e.raw for e in entries() if e.kind == "condition"]
@@ -154,6 +167,8 @@ def readable(line: str) -> str:
     if not m:
         return line
     kind, name, rest = m.groups()
+    if kind == "mult":
+        return f"{rest} to the model input {name}"
     return f"enables {name}" if kind == "flag" else f"{rest} (with {name})"
 
 

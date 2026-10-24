@@ -126,6 +126,36 @@ end
 -- choice or they undercount every path through attribute nodes. Copies are cached per tree.
 local switchedAttributeNodes = setmetatable({ }, { __mode = "k" })
 
+-- Pathfinder's Traveller's Wisdom: "Attribute Passive Skills can instead grant ..." (PoB ignores
+-- it). Options 4-6 are those choices. The node keeps Strength's name, so PoB saves it as a
+-- Strength node; exportXml/loadXml carry the real choice. Its stats count only while Traveller's
+-- Wisdom is allocated (the ledger's flag:TravellersWisdom on that notable).
+local TRAVELLER = {
+	[4] = "5% increased Damage",
+	[5] = "5% increased Armour, Evasion and Energy Shield",
+	[6] = "5% increased Cost Efficiency",
+}
+
+local function attributeNode(spec, id, attribute)
+	local copy = copyTableSafe(spec.tree.nodes[id], false, true)
+	spec:ReplaceNode(copy, copy.options[TRAVELLER[attribute] and 1 or attribute])
+	if TRAVELLER[attribute] then
+		copy.sd = { TRAVELLER[attribute] }
+		spec.tree:ProcessStats(copy)
+		local list = new("ModList")
+		for _, mod in ipairs(copy.modList) do
+			local conditional = copyTable(mod)
+			conditional[#conditional + 1] = { type = "Condition", var = "LedgerTravellersWisdom" }
+			list:AddMod(conditional)
+		end
+		copy.modList = list
+		copy.travellerChoice = attribute
+	else
+		spec.tree:ProcessStats(copy)
+	end
+	return copy
+end
+
 local function withAttribute(node, attribute, evenIfAllocated)
 	if not node.isAttribute or (node.alloc and not evenIfAllocated) then
 		return node
@@ -136,12 +166,9 @@ local function withAttribute(node, attribute, evenIfAllocated)
 		cache = { }
 		switchedAttributeNodes[spec] = cache
 	end
-	local key = node.id * 4 + attribute
+	local key = node.id * 8 + attribute
 	if not cache[key] then
-		local copy = copyTableSafe(spec.tree.nodes[node.id], false, true)
-		spec:ReplaceNode(copy, copy.options[attribute])
-		spec.tree:ProcessStats(copy)
-		cache[key] = copy
+		cache[key] = attributeNode(spec, node.id, attribute)
 	end
 	return cache[key]
 end
@@ -205,16 +232,50 @@ function bridge.newBuild()
 	return bridge.summary()
 end
 
+-- Traveller's Wisdom choices aren't in PoB's format (it saves Strength, Dexterity or
+-- Intelligence per attribute node), so the export adds them as an element PoB ignores
+local function applyTravellerChoices(choices)
+	local spec = build.spec
+	for id, attribute in pairs(choices) do
+		local node = spec.nodes[id]
+		if node and node.alloc and node.isAttribute then
+			spec.hashOverrides[id] = attributeNode(spec, id, attribute)
+		end
+	end
+	spec:BuildAllDependsAndPaths()
+end
+
 function bridge.loadXml(args)
 	loadBuildFromXML(args.xml, args.name or "build")
 	if __mainObject__.promptMsg then
 		error("PoB rejected the build: " .. tostring(__mainObject__.promptMsg))
 	end
+	local saved = args.xml:match('<BuilderTraveller choices="([^"]*)"')
+	if saved and saved ~= "" then
+		local choices = { }
+		for id, attribute in saved:gmatch("(%d+):(%d+)") do
+			choices[tonumber(id)] = tonumber(attribute)
+		end
+		applyTravellerChoices(choices)
+		recalc()
+	end
 	return bridge.summary()
 end
 
 function bridge.exportXml()
-	return { xml = build:SaveDB("code") }
+	local xml = build:SaveDB("code")
+	local choices = { }
+	for id, override in pairs(build.spec.hashOverrides) do
+		if override.travellerChoice and build.spec.allocNodes[id] then
+			choices[#choices + 1] = id .. ":" .. override.travellerChoice
+		end
+	end
+	if #choices > 0 then
+		table.sort(choices)
+		xml = xml:gsub("</PathOfBuilding2>%s*$", '<BuilderTraveller choices="' .. table.concat(choices, ",")
+			.. '"/>\n</PathOfBuilding2>')
+	end
+	return { xml = xml }
 end
 
 -- Stats from the GUI's main output (what the sidebar and saved PlayerStats show)
@@ -762,6 +823,47 @@ end
 -- what-ifs included. They live only in this engine: exported codes don't carry them.
 local assumedMods = { }
 
+-- A custom model's modifier line (kind "Line"): PoB parses `line`, and each parsed modifier is
+-- scaled by `scale` and gets the model's tags:
+--   when = { {var = "ArchonMana"}, {any = {"A", "B"}, neg = true} }  ledger conditions (all must hold)
+--   per = "ArchonDuration", base = b   value = scale * Multiplier:LedgerArchonDuration + b, the
+--                                      linear part of a model around the current build, so
+--                                      what-ifs that add or remove its passives see the change
+--   skill = name                       only for that skill
+local function lineMods(mod)
+	local list, extra = modLib.parseMod(mod.line)
+	if not list or extra then
+		error("an assumption line PoB can't parse: " .. tostring(mod.line))
+	end
+	local mods = { }
+	for _, parsed in ipairs(list) do
+		local copy = copyTable(parsed)
+		if mod.scale and type(copy.value) == "number" then
+			copy.value = copy.value * mod.scale
+		end
+		for _, condition in ipairs(mod.when or { }) do
+			if condition.any then
+				local vars = { }
+				for i, var in ipairs(condition.any) do
+					vars[i] = "Ledger" .. var
+				end
+				copy[#copy + 1] = { type = "Condition", varList = vars, neg = condition.neg or nil }
+			else
+				copy[#copy + 1] = { type = "Condition", var = "Ledger" .. condition.var, neg = condition.neg or nil }
+			end
+		end
+		if mod.per then
+			copy[#copy + 1] = { type = "Multiplier", var = "Ledger" .. mod.per, base = mod.base or 0 }
+		end
+		if mod.skill then
+			copy[#copy + 1] = { type = "SkillName", skillName = mod.skill }
+		end
+		modLib.setSource(copy, "Assumption")
+		mods[#mods + 1] = copy
+	end
+	return mods
+end
+
 local function installAssumptions()
 	local configTab = build.configTab
 	if not rawget(configTab, "bridgeWrapped") then
@@ -774,6 +876,10 @@ local function installAssumptions()
 					self.modList:NewMod("SkillData", "LIST", { key = mod.key, value = mod.value }, "Assumption", unpack(tags))
 				elseif mod.kind == "Condition" then  -- a ledger condition the build's skills switch on
 					self.modList:NewMod("Condition:Ledger" .. mod.name, "FLAG", true, "Ledger")
+				elseif mod.kind == "Line" then
+					for _, parsed in ipairs(mod.parsed) do
+						self.modList:AddMod(parsed)
+					end
 				end
 			end
 			return unpack(results)
@@ -783,9 +889,16 @@ local function installAssumptions()
 	configTab:BuildModList()
 end
 
--- Replace the assumptions: { mods = { {kind = "SkillData", skill = name, key = k, value = v} } }
+-- Replace the assumptions: { mods = { {kind = "SkillData", skill = name, key = k, value = v},
+-- {kind = "Condition", name = n}, {kind = "Line", line = "...", ...} } }
 function bridge.setAssumptions(args)
-	assumedMods = args.mods or { }
+	local mods = args.mods or { }
+	for _, mod in ipairs(mods) do
+		if mod.kind == "Line" then
+			mod.parsed = lineMods(mod)  -- parsed once, not on every rebuild of the config list
+		end
+	end
+	assumedMods = mods
 	installAssumptions()
 	recalc()
 	return { stats = pickStats(build.calcsTab.mainOutput, args.fields) }
@@ -796,15 +909,29 @@ end
 function bridge.activeSkills()
 	local skills = { }
 	local env = build.calcsTab.mainEnv
+	local groupIndex = { }
+	for index, group in ipairs(build.skillsTab.socketGroupList) do
+		groupIndex[group] = index
+	end
 	for _, activeSkill in ipairs(env and env.player.activeSkillList or { }) do
 		local effect = activeSkill.activeEffect.grantedEffect
+		local types = activeSkill.skillTypes
 		skills[#skills + 1] = {
 			name = effect.name,
 			cooldown = activeSkill.skillData.cooldown,
 			cooldownRecovery = calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "CooldownRecovery"),
-			generatesRemnants = activeSkill.skillTypes[SkillType.GeneratesRemnants] and true or false,
-			triggered = activeSkill.skillTypes[SkillType.Triggered] and true or false,
+			generatesRemnants = types[SkillType.GeneratesRemnants] and true or false,
+			triggered = types[SkillType.Triggered] and true or false,
 			disabled = activeSkill.skillFlags and activeSkill.skillFlags.disable or false,
+			-- for the custom models: what kind of skill, its base cast time, its group, and
+			-- whether it's a meta skill that gains Energy
+			spell = types[SkillType.Spell] and true or false,
+			attack = types[SkillType.Attack] and true or false,
+			melee = types[SkillType.Melee] and true or false,
+			instant = (effect.castTime or 0) == 0 or nil,
+			castTime = effect.castTime,
+			energy = types[SkillType.GeneratesEnergy] and true or false,
+			group = activeSkill.socketGroup and groupIndex[activeSkill.socketGroup] or nil,
 		}
 	end
 	return { skills = skills }
@@ -898,12 +1025,16 @@ function bridge.applyPassiveCorrections(args)
 				specList = nil
 			end
 			for _, line in ipairs(correction.lines) do
-				-- "flag:Name" switches ledger condition Name on; "if:Name <line>" counts only while it's on
+				-- "flag:Name" switches ledger condition Name on; "if:Name <line>" counts only while it's on;
+				-- "mult:Name N" adds N to a custom model's input Name (PoB multiplier LedgerName)
 				local flag = line:match("^flag:(%w+)$")
+				local multName, multValue = line:match("^mult:(%w+)%s+(-?[%d%.]+)$")
 				local condition, rest = line:match("^if:(%w+)%s+(.+)$")
 				local list, extra
 				if flag then
 					list = { modLib.createMod("Condition:Ledger" .. flag, "FLAG", true) }
+				elseif multName then
+					list = { modLib.createMod("Multiplier:Ledger" .. multName, "BASE", tonumber(multValue)) }
 				else
 					list, extra = modLib.parseMod(rest or line)
 				end
@@ -1025,21 +1156,28 @@ function bridge.pointBudget()
 	}
 end
 
--- Commit an attribute choice (1 Strength, 2 Dexterity, 3 Intelligence) on allocated nodes
+-- Commit an attribute choice (1 Strength, 2 Dexterity, 3 Intelligence, 4-6 Traveller's Wisdom's
+-- Damage, defences or Cost Efficiency) on allocated nodes
 function bridge.setAttributes(args)
 	local spec = build.spec
+	local traveller = { }
 	for id, attribute in pairs(args.choices or { }) do
 		local node = nodeById(id)
 		if node.alloc and node.isAttribute then
-			spec:SwitchAttributeNode(node.id, attribute)
+			if TRAVELLER[attribute] then
+				traveller[node.id] = attribute
+			else
+				spec:SwitchAttributeNode(node.id, attribute)
+			end
 		end
 	end
-	spec:BuildAllDependsAndPaths()
+	applyTravellerChoices(traveller)
 	recalc()
 	return { stats = pickStats(build.calcsTab.mainOutput, args.fields) }
 end
 
--- Allocated attribute nodes and the attribute each one has chosen (1 Str, 2 Dex, 3 Int)
+-- Allocated attribute nodes and the attribute each one has chosen (1 Str, 2 Dex, 3 Int, 4-6
+-- Traveller's Wisdom choices)
 function bridge.attributeNodes()
 	local nodes = { }
 	for id, node in pairs(build.spec.allocNodes) do
@@ -1047,7 +1185,9 @@ function bridge.attributeNodes()
 			local chosen = 0
 			local override = build.spec.hashOverrides[id]
 			local stats = table.concat((override or node).sd or { }, " ")
-			if stats:find("Strength") then
+			if override and override.travellerChoice then
+				chosen = override.travellerChoice
+			elseif stats:find("Strength") then
 				chosen = 1
 			elseif stats:find("Dexterity") then
 				chosen = 2

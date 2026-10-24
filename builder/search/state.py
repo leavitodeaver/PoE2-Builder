@@ -53,7 +53,7 @@ class Build:
 
     def _committed(self, result: dict) -> float:
         self.commits += 1
-        self.stats = result["stats"]
+        self.stats = self.objective.prepare(result["stats"])
         self.score = self.objective.score(self.stats)
         self.tick()
         return self.score
@@ -95,6 +95,7 @@ class Build:
                 for key, value in self.stats.items():
                     if key not in stats or key.startswith(EHP_FIELDS_PREFIXES):
                         stats[key] = value
+            self.objective.prepare(stats)
             scored.append((self.objective.score(stats), stats))
         self.tick()
         return scored

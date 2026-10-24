@@ -22,14 +22,15 @@ from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, 
 from builder.search.gear import Gear, SlotSpec
 from builder.search.gems import Gems
 from builder.search.jewels import Jewels
-from builder.search.objective import SUSTAIN_FIELDS, Objective, main_dps, shortfall
+from builder.search.models import MODEL_FIELDS
+from builder.search.objective import DARKNESS_FIELDS, SUSTAIN_FIELDS, Objective, main_dps, shortfall
 from builder.search.skeletons import Skeleton
 from builder.search.state import EPSILON, Build
 from builder.search.tree import Tree
 
 KICK_TREE_POINTS = (6, 16)
 SWEEP_EVERY = 3
-RESULT_FIELDS = sorted(set(FACT_FIELDS) | set(SUSTAIN_FIELDS) | {
+RESULT_FIELDS = sorted(set(FACT_FIELDS) | set(SUSTAIN_FIELDS) | set(MODEL_FIELDS) | set(DARKNESS_FIELDS) | {
     "TotalDPS", "TotalDotDPS", "Spirit", "TotalEHP", "Speed", "CritChance", "HitChance",
 })
 
@@ -78,11 +79,18 @@ class Search:
         elif kind == "passive":
             self.tree.required_names.add(source)
         granted_uniques = []
-        for name in self.ctx.request.require.skills:
-            if name == sk.main_skill:
+        required = [n for n in self.ctx.request.require.skills if n != sk.main_skill]
+        # A required meta skill that gains Energy (Cast on Critical, an Invocation) gets the other
+        # required spells socketed: it triggers them, fed by the main skill (models.energy_model)
+        metas = [n for n in required if {"Meta", "GeneratesEnergy"} <= self.gem_types(n)]
+        socketed = [n for n in required if metas and n not in metas and {"Spell", "Triggerable"} <= self.gem_types(n)]
+        for name in required:
+            if name in socketed:
                 continue
             if name in self.ctx.gems:
-                build.set_group(gems=[{"name": name, "level": GEM_LEVEL, "quality": GEM_QUALITY}], label="required")
+                names = [name] + (socketed if metas and name == metas[0] else [])
+                build.set_group(gems=[{"name": n, "level": GEM_LEVEL, "quality": GEM_QUALITY} for n in names],
+                                label="required")
             elif source := self.ctx.skill_source(name):
                 # A skill only a passive or unique grants comes with its source
                 if source[0] == "passive":
@@ -100,6 +108,9 @@ class Search:
         self.gems.choose_active_skill()
         if quests:
             self.conditions.choose_quests()
+
+    def gem_types(self, name: str) -> set[str]:
+        return set((self.ctx.gems.get(name) or {}).get("skillTypes") or [])
 
     def correct_passives(self) -> None:
         """Ledger corrections for passive lines PoB ignores (once per engine; the tree is shared)."""
@@ -125,6 +136,7 @@ class Search:
             "required": sorted(self.tree.required), "active": self.conditions.active,
             "shortlist": self.gems.shortlist, "gear_shortlist": self.gear.shortlist, "attribute": self.tree.attribute,
             "multipliers": dict(self.build.objective.multipliers), "assumed_mods": self.assumptions.mods,
+            "extra_groups": [[k, v] for k, v in sorted(self.assumptions.extra_groups.items())],
             "required_names": sorted(self.tree.required_names),
             "problems": self.problems,
         }
@@ -136,6 +148,8 @@ class Search:
         self.build.locked_slots = set(state["locked"])
         self.build.objective.multipliers = dict(state.get("multipliers") or {})
         self.assumptions.mods = list(state.get("assumed_mods") or [])
+        self.assumptions.extra_groups = {k: v for k, v in state.get("extra_groups") or []}
+        self.build.objective.extra = bool(self.assumptions.extra_groups)
         self.assumptions.reinstall()
         self.build.refresh()
         self.tree.required = set(state["required"])
@@ -347,6 +361,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     search.assumptions.reinstall()
     reloaded = build.call("facts", fields=RESULT_FIELDS)
     mismatched = [k for k in RESULT_FIELDS if facts["stats"].get(k) != reloaded["stats"].get(k)]
+    build.objective.prepare(facts["stats"])  # what the checks see: Darkness in maximum hit taken
     excluded, excluded_names = build.objective.excluded(build.stats)
     blind_spots = build.call("unsupportedInBuild")["lines"]
     return {

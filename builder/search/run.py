@@ -284,7 +284,7 @@ class Run:
         for assumption in final.get("assumptions") or []:
             self.notes.append(f"* {assumption['label']}: {assumption['value']} (assumed, since PoB doesn't model it: "
                               f"{assumption['basis']}; confidence: {assumption['confidence']}). The PoB code doesn't "
-                              "carry this, so PoB itself shows less damage for that skill.")
+                              "carry this, so PoB itself shows different numbers there.")
         result = self._base("ok" if not reasons else "infeasible")
         result.update({
             "feasible": not reasons,
@@ -306,14 +306,23 @@ class Run:
         return result
 
 
+MODEL_NAMES = {"archon": "Elemental Archon", "energy": "meta-skill Energy", "darkness": "Darkness",
+               "traveller": "Traveller's Wisdom", "elemental_expression": "Elemental Expression"}
+
+
 def annotate_blind_spots(lines: list[dict]) -> list[dict]:
-    """Mark the ignored lines a ledger entry stands in for."""
-    from builder.ledger import readable, translate
+    """Mark the ignored lines a ledger entry stands in for, and those a custom model reads."""
+    from builder.ledger import model_entry, readable, translate
 
     annotated = []
     for line in lines:
         translated = translate(line["line"])
-        if translated and not (translated[0].conditional and not line["source"].startswith("passive:")):
+        if entry := model_entry(line["line"]):
+            # builder/search/models.py: its effect is in the result's assumptions
+            model = MODEL_NAMES.get(entry.raw["model"], entry.raw["model"])
+            line = {**line, "modeled_by": entry.raw["model"], "corrected_by": entry.id,
+                    "as": [f"part of the {model} model (see the assumptions)"], "confidence": entry.confidence}
+        elif translated and not (translated[0].conditional and not line["source"].startswith("passive:")):
             entry, replacement = translated
             line = {**line, "corrected_by": entry.id, "as": [readable(r) for r in replacement],
                     "confidence": entry.confidence}

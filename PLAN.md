@@ -257,11 +257,52 @@ Name on, or a `condition` entry names the skills that do (e.g. a skill that requ
 correction a build uses is listed in its result with the entry's confidence; uncorrected ignored
 lines are listed as "not modeled".
 
-Still needing a custom model rather than a modifier line (research in
-`ledger/entries/pob-gaps-boss.yaml` sources): Archon buffs (Elemental Archon and the nodes that
-extend it), Meta-skill Energy gain (Cast on Critical, Invocations), Invoker's Elemental
-Expression, Acolyte's Darkness pool, Pathfinder's attribute-node damage choice, Blood Mage's
-Sanguine Tides, Thorns on melee hit, Endurance-charge consumption, Empowered-attack extra damage.
+**Custom models (2026-10-24)** for mechanics a single modifier line can't express
+(`builder/search/models.py`, inputs in `ledger/entries/custom-models.yaml`, tests in
+`tests/test_models.py`). Each is a pure function of the build's lines, skills and a few PoB stats;
+its effect goes to PoB as assumption lines (bridge `setAssumptions` kind `Line`: a parsed modifier
+line, scaled, with ledger conditions, a model-input multiplier and a skill tag) or trigger rates,
+and every effect is listed in the result with its basis and confidence:
+- **Inputs inside PoB, so what-ifs see them.** The ledger turns each input line on a passive into
+  `flag:Name` (a ledger condition) or `mult:Name N` (PoB multiplier `LedgerName`). The model's lines
+  are linear in those multipliers around the current build (exact for the build, first order for
+  a change: "more" lines as one factor per input, "increased" lines as value + slope), with one
+  block of lines per on/off state of its conditions. Allocating Archon of the Storm or an Energy
+  node shows its worth in a plain node what-if (Stormweaver Spark: what-if and commit agree
+  exactly). Inputs on items count from the next resolve.
+- **Elemental Archon:** 25% more Elemental spell damage × effect × uptime, and Exhaust All Power's
+  crit grants × effect × uptime; uptime = D / (D + R + wait), D = 10 s × duration, R = 20 s /
+  recovery speed (0 with Dominion), wait by source (Seething Body 0; Archon of the Storm half the
+  time to spend maximum Mana; Archon of the Blizzard twice the Energy Shield recharge delay;
+  Arbiter's Ignition one ignite). Spells with physical or chaos damage lose it while it lasts.
+  Not counted for attack main skills. `theory` (durations datamined, regain timing assumed).
+- **Meta-skill Energy:** a required meta gem that gains Energy (Cast on Critical, Cast on
+  Elemental Ailment, Elemental Invocation) gets the other required spells socketed. Triggers per
+  second = Energy per second from the main skill (crits × Power 20 × share of the boss's Ailment
+  Threshold the crit deals; or shocks and ignites × 20) × Energy modifiers (gem 57/72/68%,
+  increased, more, doubled, after a crit, refunds, half-cost Invocations) / (10 Energy per 0.1 s of
+  the socketed spells' base cast times); Cast on Critical's 20% less damage, which PoB ignores, is
+  added. PoB alone counts these spells at their full self-cast rate. Other metas' spells count 0.
+- **Darkness:** added to every maximum-hit pool (objective `prepare`, also on final facts; PoB's
+  own value kept as `PoB<Type>MaximumHitTaken`); PoB already removes Spirit ("You have no
+  Spirit"), and the persistent-skill block skips adding skills without Spirit. `reported`.
+- **Traveller's Wisdom:** attribute options 4-6 in the bridge (5% increased Damage, defences, Cost
+  Efficiency), counted only while the notable is allocated; the attribute round scores them like
+  Str/Dex/Int (falling back to the best half when switching all at once breaks a requirement), and
+  the ascendancy round tries an allocation with it for real. PoB can't store the choice: the code
+  shows those passives as Strength and carries the choice in a `<BuilderTraveller>` element the
+  engine reads back; the result says which to pick in game.
+- **Elemental Expression:** rate = min(main skill's melee crits per second, cooldown cap 4/s),
+  counted as the most likely of its three effects (from Strength/Dexterity/Intelligence).
+- **Extra damage sources count during the search:** while a build has spells a meta gem triggers
+  or Elemental Expression, their groups are in Full DPS and the objective scores Full DPS.
+
+Not modeled yet: other Archons (Undeath, Nature's; Archon of Chayula is a PoB skill), Seething
+Body's hold at High Infernal Flame, Ritual Cadence, other meta gems, supports for spells a meta gem
+triggers, a meta gem the optimizer picks by itself, hits per use (Spark's projectiles) for
+Energy, and Invocations as buttons (they're pressed; the button heuristic counts meta gems as
+free). Still needing a custom model: Blood Mage's Sanguine Tides, Thorns on melee hit,
+Endurance-charge consumption, Empowered-attack extra damage.
 
 ## 7. Data and prices
 
@@ -307,7 +348,7 @@ Sanguine Tides, Thorns on melee hit, Endurance-charge consumption, Empowered-att
 | **1. Data, requests, UI shell** ✅ 2026-10-22 | Data dump (`python -m builder.data dump`); poe.ninja price feed; request schema + constraint compiler with tests; local web page (`python -m builder.web`): request form, saved requests, paste a code or share link → stats + Requested vs Delivered | Done. The progress stream moves to Phase 2 with the optimizer it reports on |
 | **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×8.5, Boneshatter Titan ×3.6, Raise Zombie Infernalist ×9.7 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-023030.json`), all feasible, code verified, independent recheck agrees. Gate 5: 30/30 random requests over three seeds. Gates 1–3 still pass, fidelity exact on the release |
 | **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; uncalibrated rare price estimate; λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets). Not yet: trade-API price calibration, flasks/charms, radius/Time-Lost jewels, corruption/desecration | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled. The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
-| **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all). Not yet: approval queue, calibration form, exploits, custom models (below) | Asterisked results; at least one exploit that works on the current patch modeled end to end |
+| **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all); custom models for Elemental Archon, meta-skill Energy, Darkness, Traveller's Wisdom and Elemental Expression (§6). Not yet: approval queue, calibration form, exploits, the remaining custom models | Asterisked results; at least one exploit that works on the current patch modeled end to end |
 | **5. Results polish** | Requested vs Delivered; shopping list + trade links; test-in-game checklist; saved history | Gate 6 |
 | **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research | All gates green on 1.0 data |
 

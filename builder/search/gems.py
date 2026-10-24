@@ -239,7 +239,8 @@ class Gems:
         left = self.budget_left()
 
         best = None
-        if len(player_groups) < MAX_GEM_GROUPS:
+        # No Spirit at all (Embrace the Darkness: "You have no Spirit"): nothing new can fit
+        if len(player_groups) < MAX_GEM_GROUPS and build.stats.get("Spirit"):
             names = [n for n in self.ctx.persistent_candidates if n not in present and self.affordable(n, 0.0, left)]
             scored = build.gem_deltas([{"newGroup": [n], "level": GEM_LEVEL, "quality": GEM_QUALITY} for n in names],
                                       skip_ehp=False)

@@ -1,0 +1,297 @@
+# Lines PoB ignores that feed a custom model (builder/search/models.py) instead of standing for a
+# modifier of their own. On passives they become the model's inputs inside PoB:
+#   flag:Name     switches ledger condition Name on (e.g. a source of Elemental Archon)
+#   mult:Name N   adds N to the model input Name (PoB multiplier "LedgerName")
+# so a what-if that adds or removes the passive sees the model's effect change. Lines on items are
+# read by the model itself when the build is resolved. `model` names the model that uses the
+# line; every effect it computes is listed in the result with its basis and confidence.
+#
+# Research (2026-10, PoE2 0.5.x): poe2db.tw (datamined) and PoB's skill data, quoted per entry.
+
+# Archon buffs (model: archon) -----------------------------------------------------------------
+# Elemental Archon: 25% more Elemental Damage with Spells, no non-elemental damage from Spells,
+# removed by using a non-instant Attack; every Archon Buff lasts 10 s and is followed by a 20 s
+# recovery period in which no Archon Buff can be gained (https://poe2db.tw/us/Elemental_Archon).
+
+- id: archon-duration
+  title: Archon Buff duration (Archon model input)
+  kind: pob_gap
+  model: archon
+  match: '^(\d+)% increased Archon Buff duration$'
+  replace: ['mult:ArchonDuration {1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/us/Elemental_Archon (10 s base duration)"]
+  status: approved
+
+- id: archon-duration-reduced
+  title: Reduced Archon Buff duration (Archon model input)
+  kind: pob_gap
+  model: archon
+  match: '^(\d+)% reduced Archon Buff duration$'
+  replace: ['mult:ArchonDuration {g1*-1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/us/Elemental_Archon"]
+  status: approved
+
+- id: archon-recovery-faster
+  title: Archon recovery period expires faster (Archon model input)
+  kind: pob_gap
+  model: archon
+  match: '^Archon recovery period expires (\d+)% faster$'
+  replace: ['mult:ArchonRecovery {1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/us/Elemental_Archon (20 s base recovery period)"]
+  status: approved
+
+- id: archon-recovery-slower
+  title: Archon recovery period expires slower (Archon model input)
+  kind: pob_gap
+  model: archon
+  match: '^Archon recovery period expires (\d+)% slower$'
+  replace: ['mult:ArchonRecovery {g1*-1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Exhaust_All_Power"]
+  status: approved
+
+- id: archon-effect
+  title: Effect of Archon Buffs on you (Archon model input)
+  kind: pob_gap
+  model: archon
+  match: '^(\d+)% increased effect of Archon Buffs on you$'
+  replace: ['mult:ArchonEffect {1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/us/Elemental_Archon"]
+  status: approved
+
+- id: archon-effect-reduced
+  title: Reduced effect of Archon Buffs on you (Archon model input)
+  kind: pob_gap
+  model: archon
+  match: '^(\d+)% reduced effect of Archon Buffs on you$'
+  replace: ['mult:ArchonEffect {g1*-1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Dominion"]
+  status: approved
+
+- id: archon-no-recovery
+  title: Dominion, Archon Buffs have no recovery period (Archon model input)
+  kind: pob_gap
+  model: archon
+  match: '^Archon Buffs have no recovery period after you lose one$'
+  replace: ['flag:ArchonNoRecovery']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Dominion"]
+  status: approved
+
+- id: archon-crit-damage
+  title: Archon Buffs also grant Critical Damage Bonus (Archon model input)
+  kind: pob_gap
+  model: archon
+  match: '^Archon Buffs also grant (\d+)% increased Critical Damage Bonus$'
+  replace: ['mult:ArchonCritDamage {1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Exhaust_All_Power"]
+  status: approved
+
+- id: archon-crit-chance
+  title: Archon Buffs also grant Critical Hit Chance (Archon model input)
+  kind: pob_gap
+  model: archon
+  match: '^Archon Buffs also grant (\d+)% increased Critical Hit Chance$'
+  replace: ['mult:ArchonCritChance {1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Exhaust_All_Power"]
+  status: approved
+
+- id: archon-source-mana
+  title: Archon of the Storm, Elemental Archon after spending your Mana (Archon model source)
+  kind: pob_gap
+  model: archon
+  match: '^Gain Elemental Archon after spending 100% of your Maximum Mana$'
+  replace: ['flag:ArchonMana']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Archon_of_the_Storm"]
+  status: approved
+
+- id: archon-source-recharge
+  title: Archon of the Blizzard, Elemental Archon when Energy Shield Recharge begins (Archon model source)
+  kind: pob_gap
+  model: archon
+  match: '^Gain Elemental Archon when your Energy Shield Recharge begins$'
+  replace: ['flag:ArchonRecharge']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Archon_of_the_Blizzard"]
+  status: approved
+
+- id: archon-source-infernal
+  title: Seething Body, Elemental Archon on casting at High Infernal Flame (Archon model source)
+  kind: pob_gap
+  model: archon
+  match: '^Gain Elemental Archon when you cast a Spell while on High Infernal Flame$'
+  replace: ['flag:ArchonInfernal']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Seething_Body"]
+  status: approved
+
+- id: archon-infernal-rest
+  title: Seething Body's other lines (the Archon model keeps the normal duration)
+  kind: pob_gap
+  model: archon
+  match: '^(Elemental Archon does not expire while on High Infernal Flame|Lose Elemental Archon on reaching maximum Infernal Flame)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    How long a build stays on High Infernal Flame isn't modeled, so Seething Body's Archon keeps
+    the normal duration and recovery: an undercount for builds that hold High Infernal Flame.
+  sources: ["https://poe2db.tw/Seething_Body"]
+  status: approved
+
+- id: archon-no-boss-damage
+  title: Archon lines with no effect on boss damage (immunities, movement, resistances while it lasts)
+  kind: pob_gap
+  model: archon
+  match: '^(Immune to .+ while affected by an Archon Buff|Archon Buffs also grant \d+% increased Movement Speed|Archon Buffs also grant \+\d+% to all Elemental Resistances|\d+% faster start of Energy Shield Recharge while affected by an Archon Buff)$'
+  replace: []
+  confidence: reported
+  notes: >-
+    Resistances and recharge while an Archon Buff lasts aren't counted for defences: a boss's
+    biggest hit can land while it's down, and floors use the worst case.
+  sources: ["https://poe2db.tw/Invigorating_Archon", "https://poe2db.tw/Energising_Archon"]
+  status: approved
+
+# Meta-skill Energy (model: energy) -------------------------------------------------------------
+# Cast on Critical gains 1 Energy per Power of the enemy it critically hits (Unique monsters have
+# 20 Power), scaled by the share of the enemy's Ailment Threshold the hit deals, and triggers all
+# socketed spells at maximum Energy: 10 per 0.1 s of their base cast time
+# (https://poe2db.tw/us/Cast_on_Critical, https://poe2db.tw/us/Monster_Power).
+
+- id: meta-energy
+  title: Meta Skills gain increased Energy (Energy model input)
+  kind: pob_gap
+  model: energy
+  match: '^Meta Skills gain (\d+)% increased Energy$'
+  replace: ['mult:MetaEnergy {1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/us/Cast_on_Critical (energy_generated_+%)"]
+  status: approved
+
+- id: meta-energy-reduced
+  title: Meta Skills gain reduced Energy (Energy model input)
+  kind: pob_gap
+  model: energy
+  match: '^Meta Skills gain (\d+)% reduced Energy$'
+  replace: ['mult:MetaEnergy {g1*-1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/us/Cast_on_Critical"]
+  status: approved
+
+- id: meta-energy-crit
+  title: Meta Skills gain increased Energy after a Critical Hit (Energy model input)
+  kind: pob_gap
+  model: energy
+  match: "^Meta Skills gain (\\d+)% increased Energy if you've dealt a Critical Hit Recently$"
+  replace: ['mult:MetaEnergyCrit {1}']
+  confidence: datamined
+  notes: "Counted when the main skill critically hits at least once every 4 seconds."
+  sources: ["https://poe2db.tw/Evocational_Practitioner"]
+  status: approved
+
+- id: meta-energy-more
+  title: Meta Skills gain more Energy (Energy model input)
+  kind: pob_gap
+  model: energy
+  match: '^Meta Skills gain (\d+)% more Energy$'
+  replace: ['mult:MetaEnergyMore {1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/The_Soul_Springs_Eternal"]
+  status: approved
+
+- id: meta-energy-doubled
+  title: Energy Generation is doubled (Energy model input)
+  kind: pob_gap
+  model: energy
+  match: '^Energy Generation is doubled$'
+  replace: ['flag:EnergyDoubled']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Seeing_Stars"]
+  status: approved
+
+- id: meta-energy-refund
+  title: Trigger skills refund Energy spent (Energy model input)
+  kind: pob_gap
+  model: energy
+  match: '^(\d+)% chance for Trigger skills to refund half of Energy Spent$'
+  replace: ['mult:EnergyRefund {1}']
+  confidence: reported
+  notes: "Each refund returns half a trigger's Energy, so the chance p lowers the cost to (1 - p/2)."
+  sources: ["https://poe2db.tw/Energise"]
+  status: approved
+
+- id: meta-invocation-half-cost
+  title: Invocated Spells sometimes consume half as much Energy (Energy model input)
+  kind: pob_gap
+  model: energy
+  match: '^Invocated Spells have (\d+)% chance to consume half as much Energy$'
+  replace: ['mult:InvocationHalfCost {1}']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Invocated_Echoes"]
+  status: approved
+
+- id: meta-invocation-maximum
+  title: Invocated skills' maximum Energy (storage only; no effect on sustained triggers)
+  kind: pob_gap
+  model: energy
+  match: '^Invocated skills have (\d+)% increased Maximum Energy$'
+  replace: []
+  confidence: reported
+  notes: "An Invocation's maximum Energy is how much it can store; triggers per second follow the Energy gained."
+  sources: ["https://poe2db.tw/us/Elemental_Invocation"]
+  status: approved
+
+# Acolyte of Chayula's Darkness (model: darkness) ----------------------------------------------
+# PoB calculates the Darkness pool (base 100, +10 per level, increased maximum) but not what it does.
+
+- id: darkness-buffer
+  title: Damage taken is reserved from Darkness first (Darkness model)
+  kind: pob_gap
+  model: darkness
+  match: '^(Damage taken is Reserved from Darkness before being taken from Life or Energy Shield|Darkness Reservation lasts for \d+ seconds)$'
+  replace: []
+  confidence: datamined
+  sources: ["https://poe2db.tw/Embrace_the_Darkness"]
+  status: approved
+
+# Pathfinder's Traveller's Wisdom (model: traveller) --------------------------------------------
+
+- id: travellers-wisdom
+  title: Traveller's Wisdom, attribute passives can grant Damage instead (attribute choice)
+  kind: pob_gap
+  model: traveller
+  match: '^Attribute Passive Skills can instead grant 5% increased Damage$'
+  replace: ['flag:TravellersWisdom']
+  confidence: datamined
+  sources: ["https://poe2db.tw/Travellers_Wisdom"]
+  status: approved
+
+- id: travellers-wisdom-other
+  title: Traveller's Wisdom's other choices (offered with the attribute choice)
+  kind: pob_gap
+  model: traveller
+  match: '^Attribute Passive Skills can instead grant 5% increased (Armour, Evasion and Energy Shield|Cost Efficiency)$'
+  replace: []
+  confidence: datamined
+  sources: ["https://poe2db.tw/Travellers_Wisdom"]
+  status: approved
+
+# Invoker's Elemental Expression (model: elemental_expression) ----------------------------------
+
+- id: elemental-expression-trigger
+  title: Elemental Expression is triggered on melee critical hits (trigger rate model)
+  kind: pob_gap
+  model: elemental_expression
+  match: '^Trigger Elemental Expression on Melee Critical Hit$'
+  replace: []
+  confidence: datamined
+  notes: "Its 0.25 s cooldown caps it at 4 per second before cooldown recovery."
+  sources: ["https://poe2db.tw/and_Scatter_Them_to_the_Winds", "PoB skill data: ElementalExpressionTriggeredPlayer cooldown 0.25"]
+  status: approved

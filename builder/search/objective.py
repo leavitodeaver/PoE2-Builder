@@ -6,7 +6,10 @@
   normalized deficits that pull the search toward feasible builds without hiding them.
 - Limits the game enforces (attribute requirements, Spirit) weigh more than request floors.
 - Defence floors use pools and maximum hit taken, never TotalEHP (a known snapshot bug inflates
-  it, PLAN.md "Engine accuracy").
+  it, PLAN.md "Engine accuracy"). Maximum hit taken includes Darkness (models.with_darkness),
+  which PoB pools but doesn't spend.
+- Skills the main skill triggers besides itself (spells in a meta gem, Elemental Expression) only
+  count through Full DPS, so while a build has them (`extra`) the search scores Full DPS too.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import re
 
 from builder.request.schema import DefenceStyle
 from builder.search.context import DEFENCE_LAYERS, Context
+from builder.search.models import DAMAGE_TYPES, with_darkness
 
 FLOOR_WEIGHT = 6.0
 HARD_WEIGHT = 15.0
@@ -33,6 +37,8 @@ BASE_FIELDS = [
     "FullDPS", *MAIN_DPS_FIELDS, "Life", "EnergyShield", "Mana", "Armour", "Evasion", "Spirit",
     "SpiritUnreserved", "Str", "Dex", "Int", "ReqStr", "ReqDex", "ReqInt",
 ]
+# What Darkness needs to join the maximum-hit pools
+DARKNESS_FIELDS = ["Darkness", *(f"{t}TotalHitPool" for t in DAMAGE_TYPES), *(f"{t}MaximumHitTaken" for t in DAMAGE_TYPES)]
 # PoB's lists of skills whose cost a pool can't pay (reported as counts by the bridge): a skill
 # you can't pay for can't be used, so each is a hard limit like attribute requirements
 COST_WARNINGS = {
@@ -89,15 +95,27 @@ def main_dps(stats: dict) -> float:
 class Objective:
     def __init__(self, ctx: Context, full: bool = False, multipliers: dict[str, float] | None = None) -> None:
         self.ctx = ctx
-        self.full = full
+        self.base_full = full  # finalists: Full DPS throughout
+        self.extra = False  # the build has triggered damage outside the main skill (see module doc)
         self.multipliers: dict[str, float] = dict(multipliers or {})  # requirement label -> weight factor
         self.penalties = ctx.compiled.penalties
         self.style = DefenceStyle(ctx.request.defence)
-        fields = set(BASE_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS) | {p.stat for p in self.penalties}
-        if full:
-            fields.add("SkillDPS")
-        self.fields = sorted(fields)
+        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS)
+        self._fields = sorted(fields | {p.stat for p in self.penalties})
         self.on_death = {name for name, gem in ctx.gems.items() if ON_DEATH.search(gem.get("description") or "")}
+
+    @property
+    def full(self) -> bool:
+        return self.base_full or self.extra
+
+    @property
+    def fields(self) -> list[str]:
+        return self._fields + ["SkillDPS"] if self.full else self._fields
+
+    @staticmethod
+    def prepare(stats: dict) -> dict:
+        """Corrections to PoB's stats that every score and check sees (Darkness in max hit)."""
+        return with_darkness(stats)
 
     def dps(self, stats: dict) -> float:
         if self.full:
