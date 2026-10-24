@@ -76,12 +76,21 @@ class Search:
                             fullDPS=True)
         elif kind == "passive":
             self.tree.required_names.add(source)
+        granted_uniques = []
         for name in self.ctx.request.require.skills:
-            if name != sk.main_skill:
+            if name == sk.main_skill:
+                continue
+            if name in self.ctx.gems:
                 build.set_group(gems=[{"name": name, "level": GEM_LEVEL, "quality": GEM_QUALITY}], label="required")
+            elif source := self.ctx.skill_source(name):
+                # A skill only a passive or unique grants comes with its source
+                if source[0] == "passive":
+                    self.tree.required_names.add(source[1])
+                else:
+                    granted_uniques.append(source[1])
         missing = self.gems.add_required_supports()
         self.problems += [f"required support {n} can't support {sk.main_skill}" for n in missing]
-        self.problems += self.gear.setup([source] if kind == "unique" else [])
+        self.problems += self.gear.setup(([source] if kind == "unique" else []) + granted_uniques)
         self.tree.choose_default_attribute(sk.main_skill)
         self.problems += [f"required passive {n} isn't reachable" for n in self.tree.allocate_required(sk.class_name)]
         if kind is not None:

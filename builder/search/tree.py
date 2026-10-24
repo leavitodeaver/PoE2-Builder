@@ -331,8 +331,7 @@ class Tree:
         if start is None:
             return False
         nodes = self.ctx.nodes
-        current = sorted(p["id"] for p in facts["passives"]
-                         if p.get("ascendancy") == ascendancy and p["type"] != "AscendClassStart")
+        current = sorted(p["id"] for p in facts["passives"] if p["id"] in adjacency and p["id"] != start)
         options = {i: [j for j in adjacency[i] if nodes[j].get("isMultipleChoiceOption")]
                    for i in adjacency if nodes[i].get("isMultipleChoice")}
         core = {i: [j for j in adjacency[i] if not nodes[j].get("isMultipleChoiceOption")]

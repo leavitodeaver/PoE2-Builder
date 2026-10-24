@@ -160,6 +160,15 @@ class Context:
                     grants.setdefault(m.group(1), []).append(("unique", unique["name"], None))
         return grants
 
+    def skill_source(self, skill: str) -> tuple[str, str, str | None] | None:
+        """For a skill no gem gives, the first allowed passive or unique that grants it."""
+        for kind, source, ascendancy in self.granted_by.get(skill, []):
+            if kind == "passive" and source not in self.compiled.filters.forbidden_passives:
+                return kind, source, ascendancy
+            if kind == "unique" and source not in self.compiled.filters.forbidden_uniques:
+                return kind, source, ascendancy
+        return None
+
     def allowed_gem(self, name: str) -> bool:
         return name in self.gems and name not in self.compiled.filters.forbidden_gems
 
@@ -260,8 +269,16 @@ class Context:
         return {n["id"] for n in self.data.tree["nodes"] if n.get("name") in names}
 
     def ascendancy_graph(self, ascendancy: str) -> tuple[int | None, dict[int, list[int]]]:
-        """(start node, adjacency) of an ascendancy's own nodes."""
+        """(start node, adjacency) of an ascendancy's own nodes. An alternate ascendancy with no
+        nodes of its own (Abyssal Lich) uses the nodes of the one it shares a start node with:
+        PoB switches those nodes to the alternate's stats when it's selected."""
         members = {i for i, n in self.nodes.items() if n.get("ascendancy") == ascendancy}
+        if not members:
+            start_node = next((a["startNode"] for c in self.data.tree["classes"] for a in c["ascendancies"]
+                               if a["name"] == ascendancy), None)
+            host = (self.nodes.get(start_node) or {}).get("ascendancy")
+            if host and host != ascendancy:
+                members = {i for i, n in self.nodes.items() if n.get("ascendancy") == host}
         start = next((i for i in members if self.nodes[i]["type"] == "AscendClassStart"), None)
         return start, {i: [j for j in self.nodes[i]["linked"] if j in members] for i in members}
 

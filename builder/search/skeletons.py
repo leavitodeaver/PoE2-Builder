@@ -124,13 +124,36 @@ def skill_problems(ctx: Context, skill: str) -> list[str]:
     for name in ctx.request.require.skills:
         gem = ctx.gems.get(name)
         if gem is None:
-            return [f"required skill {name} isn't a gem a level {ctx.level} character can socket"]
+            if ctx.skill_source(name) is None:
+                return [f"required skill {name} isn't a gem, and no allowed passive or unique grants it"]
+            continue  # it comes with its source, and granted skills aren't buttons
         if is_button(gem):
             buttons.add(name)
     cap = ctx.request.max_buttons
     if cap is not None and len(buttons) > cap:
         return [f"{', '.join(sorted(buttons))} need {len(buttons)} buttons; the cap is {cap}"]
     return []
+
+
+def required_holders(ctx: Context) -> list[tuple[str, str]]:
+    """(skill, unique) for required skills that only a unique grants: that unique must be worn."""
+    holders = []
+    for name in ctx.request.require.skills:
+        if name not in ctx.gems and (source := ctx.skill_source(name)) and source[0] == "unique":
+            holders.append((name, source[1]))
+    return holders
+
+
+def fits_holders(ctx: Context, weapon: str | None, offhand: str | None) -> bool:
+    for _, unique in required_holders(ctx):
+        option = ctx.unique_option(unique)
+        if option is None:
+            return False
+        if option.type in ("Shield", "Focus", "Quiver") and option.type != offhand:
+            return False
+        if option.type in ctx.data.weapon_types and option.type != weapon:
+            return False
+    return True
 
 
 def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton], list[str]]:
@@ -168,7 +191,11 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
                 for weapon, sub, offhand in archetypes:
                     skeletons.append(Skeleton(ctx.class_of[ascendancy], ascendancy, skill, weapon, sub, offhand,
                                               f"{kind}:{source}"))
-    return skeletons, sorted(set(problems))
+    kept = [s for s in skeletons if fits_holders(ctx, s.weapon, s.offhand)]
+    if skeletons and not kept:
+        held = ", ".join(f"{skill} (from {unique})" for skill, unique in required_holders(ctx))
+        problems.append(f"no weapon setup for the main skill can also hold {held}")
+    return kept, sorted(set(problems))
 
 
 def _is_weapon(ctx: Context, unique: str) -> bool:
