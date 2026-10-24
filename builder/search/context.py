@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from builder.data import GameData
+from builder.ledger import gap_list, translate
 from builder.request.constraints import CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
 
@@ -204,6 +205,33 @@ class Context:
         layers = {k for k, v in (base.get("armour") or {}).items() if k in ("Armour", "Evasion", "EnergyShield") and v}
         return layers <= DEFENCE_LAYERS[style]
 
+    @cached_property
+    def gaps(self) -> dict:
+        """PoB's own list of passive and unique lines it doesn't calculate."""
+        return gap_list(self.data.dir)
+
+    @cached_property
+    def passive_corrections(self) -> list[dict]:
+        """Ledger translations for ignored passive lines: [{id, entry, lines}] for the bridge."""
+        found = []
+        for gap in self.gaps.get("passives", []):
+            if translated := translate(gap["line"]):
+                found.append({"id": gap["id"], "entry": translated[0].id, "lines": translated[1]})
+        return found
+
+    @cached_property
+    def unique_corrections(self) -> dict[str, list[str]]:
+        """Unique name -> ledger lines that stand in for lines PoB ignores on it."""
+        found: dict[str, list[str]] = {}
+        for gap in self.gaps.get("uniques", []):
+            if translated := translate(gap["line"]):
+                found.setdefault(gap["unique"], []).extend(translated[1])
+        return found
+
+    def corrected_raw(self, name: str, raw: str) -> str:
+        extra = self.unique_corrections.get(name)
+        return raw + "\n" + "\n".join(extra) if extra else raw
+
     def unique_price(self, name: str) -> tuple[float | None, str] | None:
         if self.ssf:
             return None, "ssf"
@@ -236,7 +264,8 @@ class Context:
                 continue
             price, confidence = priced
             options.setdefault(base["type"], []).append(ItemOption(
-                unique["name"], base["name"], base["type"], base.get("subType"), unique["raw"], True,
+                unique["name"], base["name"], base["type"], base.get("subType"),
+                self.corrected_raw(unique["name"], unique["raw"]), True,
                 price, confidence, (base.get("req") or {}).get("level") or 0))
         return options
 
@@ -248,7 +277,8 @@ class Context:
                 if base is None:
                     return None
                 priced = self.unique_price(name) or (None, "over budget or unpriced")
-                return ItemOption(name, base["name"], base["type"], base.get("subType"), unique["raw"], True,
+                return ItemOption(name, base["name"], base["type"], base.get("subType"),
+                                  self.corrected_raw(name, unique["raw"]), True,
                                   priced[0], priced[1], (base.get("req") or {}).get("level") or 0)
         return None
 

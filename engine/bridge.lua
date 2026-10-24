@@ -808,6 +808,104 @@ function bridge.activeSkills()
 	return { skills = skills }
 end
 
+-- What PoB can't calculate: every passive-tree line and unique-item line its modifier parser
+-- doesn't understand (those lines do nothing in PoB's numbers), for the gap ledger
+function bridge.auditUnsupported()
+	local passives, uniques = { }, { }
+	for id, node in pairs(build.spec.tree.nodes) do
+		for i, mod in ipairs(node.mods or { }) do
+			local line = node.sd and node.sd[i]
+			if line and not mod.combined and (mod.extra or not mod.list or #mod.list == 0) then
+				passives[#passives + 1] = { id = id, node = node.dn, type = node.type, ascendancy = node.ascendancyName,
+					line = line }
+			end
+		end
+	end
+	for name, unique in pairs(main.uniqueDB.list) do
+		local ok, item = pcall(makeItem, unique.raw)
+		if ok and item then
+			for _, kind in ipairs({ "implicitModLines", "explicitModLines" }) do
+				for _, modLine in ipairs(item[kind] or { }) do
+					if modLine.extra or #(modLine.modList or { }) == 0 then
+						uniques[#uniques + 1] = { unique = item.title or name, base = item.baseName, line = modLine.line }
+					end
+				end
+			end
+		end
+	end
+	return { passives = passives, uniques = uniques }
+end
+
+-- Does PoB's modifier parser understand these lines? For checking ledger translations.
+function bridge.parseLines(args)
+	local results = { }
+	for i, line in ipairs(args.lines or { }) do
+		local list, extra = modLib.parseMod(line)
+		results[i] = { line = line, supported = list ~= nil and #list > 0 and not extra, mods = list and #list or 0,
+			extra = extra }
+	end
+	return { results = results }
+end
+
+-- Ledger corrections for passive lines PoB ignores: each node gets the parsed modifiers of its
+-- replacement lines added to its own modifier list, so allocations and what-ifs both see them.
+-- Applied once per tree per engine (the tree is shared by every build this engine loads).
+local correctedTrees = setmetatable({ }, { __mode = "k" })
+function bridge.applyPassiveCorrections(args)
+	local tree = build.spec.tree
+	local done = correctedTrees[tree] or { }
+	correctedTrees[tree] = done
+	local applied, failed = 0, { }
+	for _, correction in ipairs(args.nodes or { }) do
+		local key = tostring(correction.id) .. "|" .. correction.entry
+		local node = tree.nodes[tonumber(correction.id)]
+		if node and not done[key] then
+			done[key] = true
+			for _, line in ipairs(correction.lines) do
+				local list, extra = modLib.parseMod(line)
+				if list and not extra then
+					for _, mod in ipairs(list) do
+						node.modList:AddMod(modLib.setSource(copyTable(mod), "Ledger:" .. correction.entry))
+					end
+					applied = applied + 1
+				else
+					failed[#failed + 1] = line
+				end
+			end
+			node.ledger = node.ledger or { }
+			node.ledger[#node.ledger + 1] = correction.entry
+		end
+	end
+	return { applied = applied, failed = failed }
+end
+
+-- The current build's blind spots: lines on its allocated passives and equipped items that PoB
+-- doesn't calculate
+function bridge.unsupportedInBuild()
+	local found = { }
+	for id, node in pairs(build.spec.allocNodes) do
+		for i, mod in ipairs(node.mods or { }) do
+			local line = node.sd and node.sd[i]
+			if line and not mod.combined and not node.isAttribute and (mod.extra or not mod.list or #mod.list == 0) then
+				found[#found + 1] = { source = "passive: " .. tostring(node.dn), line = line }
+			end
+		end
+	end
+	for slotName, slot in pairs(build.itemsTab.slots) do
+		local item = slot.selItemId and build.itemsTab.items[slot.selItemId]
+		if item and not slot.inactive then
+			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
+				for _, modLine in ipairs(item[kind] or { }) do
+					if modLine.extra or #(modLine.modList or { }) == 0 then
+						found[#found + 1] = { source = slotName .. ": " .. tostring(item.title or item.name), line = modLine.line }
+					end
+				end
+			end
+		end
+	end
+	return { lines = found }
+end
+
 -- Campaign quest rewards that are a choice (Configuration tab lists), as PoB names them
 function bridge.questOptions()
 	local quests = { }

@@ -68,6 +68,7 @@ class Search:
         build, sk = self.build, self.skeleton
         build.phase = "setup"
         build.call("newBuild")
+        self.correct_passives()
         build.call("setClass", className=sk.class_name, ascendancy=sk.ascendancy)
         build.call("setLevel", level=self.ctx.level)
         kind, source = sk.granted_by.split(":", 1) if sk.granted_by else (None, None)
@@ -100,6 +101,11 @@ class Search:
         if quests:
             self.conditions.choose_quests()
 
+    def correct_passives(self) -> None:
+        """Ledger corrections for passive lines PoB ignores (once per engine; the tree is shared)."""
+        if self.ctx.passive_corrections:
+            self.build.call("applyPassiveCorrections", nodes=self.ctx.passive_corrections)
+
     def adopt_granted_skill(self, source: str) -> None:
         """Make the group of a skill a passive or unique grants the main group."""
         build, skill = self.build, self.skeleton.main_skill
@@ -125,6 +131,7 @@ class Search:
 
     def load(self, state: dict) -> None:
         self.build.call("loadXml", xml=state["xml"])
+        self.correct_passives()
         self.build.equipped = dict(state["equipped"])
         self.build.locked_slots = set(state["locked"])
         self.build.objective.multipliers = dict(state.get("multipliers") or {})
@@ -341,9 +348,11 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     reloaded = build.call("facts", fields=RESULT_FIELDS)
     mismatched = [k for k in RESULT_FIELDS if facts["stats"].get(k) != reloaded["stats"].get(k)]
     excluded, excluded_names = build.objective.excluded(build.stats)
+    blind_spots = build.call("unsupportedInBuild")["lines"]
     return {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
         "pob_full_dps": facts["stats"].get("FullDPS"), "excluded_dps": excluded, "excluded_from": excluded_names,
+        "blind_spots": blind_spots,
         "gear": {slot: option.describe() for slot, option in equipped.items()}, "spent": spent,
         "assumptions": assumptions,
         "verified": not mismatched, "verify_mismatch": mismatched,

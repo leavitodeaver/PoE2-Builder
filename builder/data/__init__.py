@@ -48,6 +48,11 @@ def dump(target: Path | None = None) -> Path:
             (target / f"{part}.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
             counts[part] = {key: len(value) for key, value in payload.items() if isinstance(value, (list, dict))}
             print(f"{part}: {counts[part]} in {time.perf_counter() - started:.1f}s", flush=True)
+        pool.broadcast("newBuild")
+        gaps = pool.broadcast("auditUnsupported")[0]
+        (target / "gaps.json").write_text(json.dumps(gaps, ensure_ascii=False), encoding="utf-8")
+        counts["gaps"] = {key: len(value) for key, value in gaps.items()}
+        print(f"gaps: {counts['gaps']} lines PoB can't calculate", flush=True)
     manifest = {
         "pob": pin(),
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

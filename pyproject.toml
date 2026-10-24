@@ -5,6 +5,7 @@ description = "Path of Exile 2 build optimizer driven by a headless Path of Buil
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.161.1",
+    "pyyaml>=6.0.3",
     "uvicorn>=0.54.0",
 ]
 

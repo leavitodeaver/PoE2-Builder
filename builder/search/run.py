@@ -299,10 +299,25 @@ class Run:
             "gear": final["gear"], "spent": spent, "groups": final["groups"], "conditions": final["conditions"],
             "quests": final["quests"], "warnings": facts["warnings"], "skeleton_problems": problems,
             "assumptions": final.get("assumptions") or [],
+            "blind_spots": annotate_blind_spots(final.get("blind_spots") or []),
             "timing": final.get("timing"), "escalations": final.get("escalations"),
             "requirement_weights": final.get("multipliers"),
         })
         return result
+
+
+def annotate_blind_spots(lines: list[dict]) -> list[dict]:
+    """Mark the ignored lines a ledger entry stands in for."""
+    from builder.ledger import translate
+
+    annotated = []
+    for line in lines:
+        translated = translate(line["line"])
+        if translated:
+            entry, replacement = translated
+            line = {**line, "corrected_by": entry.id, "as": replacement, "confidence": entry.confidence}
+        annotated.append(line)
+    return annotated
 
 
 def relaxations(failing: list[dict]) -> list[str]:

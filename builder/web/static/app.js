@@ -468,6 +468,15 @@ function renderResult(result) {
         simpleTable(["Assumption", { label: "Value", num: true }, "Basis", "Confidence"],
           result.assumptions.map((a) => [`${a.label} *`, formatNumber(a.value), a.basis, a.confidence]))));
     }
+    if (result.blind_spots?.length) {
+      parts.push(el("div", { class: "result-section" },
+        el("h3", {}, `PoB ignores ${result.blind_spots.length} line${result.blind_spots.length === 1 ? "" : "s"} on this build`),
+        el("p", { class: "hint" }, "Path of Building can't calculate these, so the numbers above leave them out "
+          + "(they may help or hurt more than shown)."),
+        simpleTable(["Where", "Line", "Correction"], result.blind_spots.map((b) => [b.source, b.line,
+          !b.corrected_by ? "not modeled" : b.as.length ? `* counted as: ${b.as.join("; ")} (${b.confidence})`
+            : "no effect on the DPS or defences calculated here"]))));
+    }
     if (result.conditions.length) {
       parts.push(el("div", { class: "result-section" }, el("h3", {}, "Conditions turned on (the build sustains them)"),
         simpleTable(["Condition", "Evidence"], result.conditions.map((c) => [

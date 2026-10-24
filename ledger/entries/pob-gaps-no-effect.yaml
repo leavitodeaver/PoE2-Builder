@@ -1,0 +1,68 @@
+# Lines Path of Building ignores that don't change anything the optimizer calculates: sustained
+# single-target boss DPS and the defences it checks (life/ES/mana pools, resistances, maximum hit
+# taken, block, evade). Recording them keeps a result's list of PoB blind spots to real gaps.
+# They still work in game; only their effect on these numbers is nil.
+# An empty `replace` means "no effect on what's calculated".
+
+- id: no-effect-movement-speed
+  title: Movement speed
+  kind: pob_gap
+  match: 'Movement Speed'
+  replace: []
+  confidence: verified_by_you
+  sources: ["Movement speed doesn't enter PoB's DPS or the checked defences"]
+  status: approved
+
+- id: no-effect-remnant-range
+  title: Remnant pickup range
+  kind: pob_gap
+  match: '^Remnants can be collected from \d+% further away$'
+  replace: []
+  confidence: verified_by_you
+  sources: ["Pickup range; the Explosive Transmutation assumption uses Remnant creation rates"]
+  status: approved
+
+- id: no-effect-slow-potency
+  title: Slowing potency of debuffs on you
+  kind: pob_gap
+  match: 'Slowing Potency of Debuffs on You$'
+  replace: []
+  confidence: verified_by_you
+  sources: ["Affects how much you are slowed; no calculated stat"]
+  status: approved
+
+- id: no-effect-crowd-control-duration
+  title: Pin, Hinder and Armour Break durations
+  kind: pob_gap
+  match: '^\d+% increased (Pin|Hinder|Armour Break) [Dd]uration$'
+  replace: []
+  confidence: verified_by_you
+  sources: ["Durations of debuffs whose presence the condition resolver decides from their sources"]
+  status: approved
+
+- id: no-effect-parry
+  title: Parry area and stun threshold while parrying
+  kind: pob_gap
+  match: '^\d+% increased (Parry Hit Area of Effect|Stun Threshold while Parrying)$'
+  replace: []
+  confidence: verified_by_you
+  sources: ["Parry utility; stun threshold isn't a checked defence"]
+  status: approved
+
+- id: no-effect-offering-life
+  title: Offering life
+  kind: pob_gap
+  match: '^Offerings have \d+% increased Maximum Life$'
+  replace: []
+  confidence: verified_by_you
+  sources: ["How sturdy the offering spike is; its effect is calculated separately"]
+  status: approved
+
+- id: gap-invocation-crit-damage
+  title: Invocation Spells' Critical Damage Bonus (rephrased for PoB)
+  kind: pob_gap
+  match: '^Invocation Spells have (\d+)% increased Critical Damage Bonus$'
+  replace: ['Invocated Spells have {1}% increased Critical Damage Bonus']
+  confidence: reported
+  sources: ["PoB parses the same modifier as 'Invocated Spells have …'; spells an Invocation triggers"]
+  status: proposed
