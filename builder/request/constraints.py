@@ -17,7 +17,7 @@ from builder.data import GameData
 from builder.request.schema import BuildRequest, DamageType, DefenceStyle, Offhand, WeaponSwap
 
 FACT_FIELDS = [
-    "FullDPS", "CombinedDPS", "Minion.CombinedDPS", "Life", "EnergyShield", "Mana", "Armour", "Evasion",
+    "FullDPS", "CombinedDPS", "Minion.CombinedDPS", "Life", "EnergyShield", "Mana", "Ward", "Armour", "Evasion",
     "FireResist", "ColdResist", "LightningResist", "ChaosResist", "PhysicalMaximumHitTaken",
     "FireMaximumHitTaken", "ColdMaximumHitTaken", "LightningMaximumHitTaken", "ChaosMaximumHitTaken",
     "EffectiveBlockChance", "EvadeChance", "SpiritUnreserved", "Str", "Dex", "Int", "ReqStr", "ReqDex", "ReqInt",
@@ -250,7 +250,8 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
     penalties: list[Penalty] = []
     for label, stat_name, floor in (
         ("Life", "Life", floors.life), ("Energy shield", "EnergyShield", floors.energy_shield),
-        ("Mana", "Mana", floors.mana), ("Block chance", "EffectiveBlockChance", floors.block),
+        ("Mana", "Mana", floors.mana), ("Runic ward", "Ward", floors.ward),
+        ("Block chance", "EffectiveBlockChance", floors.block),
         ("Evade chance", "EvadeChance", floors.evade), ("Spare spirit", "SpiritUnreserved", floors.spare_spirit),
     ):
         if floor is not None:

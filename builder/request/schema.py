@@ -88,9 +88,10 @@ class Floors(Model):
     life: int | None = Field(None, ge=0)
     energy_shield: int | None = Field(None, ge=0)
     mana: int | None = Field(None, ge=0)
+    ward: int | None = Field(None, ge=0)  # Runic Ward
     max_hit: dict[DamageType, int] = {}
     resists: dict[DamageType, int] = {
-        DamageType.FIRE: 75, DamageType.COLD: 75, DamageType.LIGHTNING: 75,
+        DamageType.FIRE: 75, DamageType.COLD: 75, DamageType.LIGHTNING: 75, DamageType.CHAOS: 75,
     }
     block: int | None = Field(None, ge=0, le=100)
     evade: int | None = Field(None, ge=0, le=100)

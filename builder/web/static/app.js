@@ -4,7 +4,7 @@ const CATEGORIES = [
   ["skills", "Skills"], ["supports", "Supports"], ["passives", "Passives"], ["uniques", "Uniques"],
   ["item_classes", "Item classes"], ["augments", "Augments"], ["mechanics", "Mechanics"],
 ];
-const FLOORS = ["life", "energy_shield", "mana", "block", "evade", "spare_spirit"];
+const FLOORS = ["life", "energy_shield", "mana", "ward", "block", "evade", "spare_spirit"];
 
 let options = null;
 let currentId = null;
