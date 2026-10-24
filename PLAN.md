@@ -458,8 +458,9 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
 
 - **The trade API answers anonymous searches and fetches** (lower limits than logged in). Limits seen:
   search 5/10 s, 15/60 s, 30/300 s, 600/6 h (lockouts 60 s, 300 s, 1,800 s, 1 h); fetch 12/4 s,
-  16/12 s, 50/300 s, 1,000/6 h. The trade *pages* sit behind a Cloudflare human check in a fresh
-  browser (the built-in browser pane included); the API doesn't.
+  16/12 s, 50/300 s, 1,000/6 h. The trade *pages* sit behind a Cloudflare check (the built-in
+  browser pane loops on it; the user's Chrome passes) and show a search only to a signed-in Path of
+  Exile account; the API needs neither. The page says so beside the Trade buttons.
 - **Count windows by arrival, not by send time.** Three searches sent just as a 60 s window rolled
   over landed inside it on the server (network jitter) and earned a 10-minute lockout. The limiter
   now pads every window (1 s, or 5% of the period) and still keeps one request spare for the user.
@@ -513,7 +514,9 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   feasible, 796k Full DPS, 15.84 divines. The shopping list has nine rares, two uniques, a unique
   jewel and seven runes, and sums to the spend. The checklist has 14 lines. Trade links checked:
   Original Sin (831 listed) and the 3×T1 added-damage ring (753 listed, loosened to tier floors).
-  Both decode to the intended query.
+  Both decode to the intended query, and both were checked by hand on the trade site in the user's
+  Chrome (signed in): the item, league, buyout status and stat filters match, with 839 and 758
+  listings later that day.
 - The built-in browser pane blocks the page's pop-up tab, so a Trade button there only fills in
   the row's "open" link; in a normal browser it opens the search directly.
 

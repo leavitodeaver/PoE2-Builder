@@ -587,7 +587,8 @@ function shoppingSection(shopping) {
     el("p", { class: "hint" }, `Uniques, runes and gems are priced from poe.ninja. ${rareNote} `
       + "Trade opens an official trade-site search for that line, made when you click (one search, or a few "
       + "looser ones when nothing matches). T1 is the best tier the base can roll; the search asks for at least "
-      + "the modeled roll first, then any roll within each tier."),
+      + "the modeled roll first, then any roll within each tier. The trade site shows a search only when you're "
+      + "signed in to your Path of Exile account in that browser."),
     el("div", { class: "table-wrap" }, el("table", { class: "checks" },
       el("thead", {}, el("tr", {}, ["Slot", "Item and target affixes", "Price (div)", "Confidence", "Buy"].map((h, i) =>
         el("th", { class: i === 2 ? "num" : "" }, h)))),
