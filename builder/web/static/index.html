@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PoE2 Builder</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/tree.css">
 </head>
 <body>
 <header class="topbar">
@@ -31,6 +32,7 @@
   </aside>
 
   <main>
+    <div class="request-row">
     <form id="request-form" class="card" autocomplete="off">
       <div class="card-head">
         <input id="name" class="title-input" placeholder="Request name" aria-label="Request name">
@@ -117,6 +119,14 @@
       </section>
     </form>
 
+    <aside class="card tree-panel" id="tree-panel" aria-label="Passive tree for requirements and bans">
+      <div class="tree-panel-head">
+        <h2>Passive tree</h2>
+        <span class="hint">the same Passives as the Require and Ban lists above</span>
+      </div>
+      <div id="request-tree"></div>
+    </aside>
+    </div>
 
     <section class="card" id="run-card">
       <div class="card-head">
@@ -129,11 +139,14 @@
       <p class="hint" id="workers-hint"></p>
       <p class="hint" id="run-hint">Optimize searches for the highest-damage build that meets every requirement above,
         within the request's search time. Progress streams here; the result shows the same Requested vs Delivered
-        table as the check below, plus a PoB code.</p>
+        table as the check below, plus a PoB code. Edit any field while it runs and the search continues from its best
+        build so far with the new settings.</p>
       <div id="run-progress" hidden>
+        <p id="run-notice" class="notice" role="status" hidden></p>
         <div class="progress"><div id="run-bar"></div></div>
         <p id="run-status" class="run-status"></p>
         <ol id="run-log" class="run-log"></ol>
+        <div id="run-synopsis" class="synopsis" hidden></div>
       </div>
       <div id="run-result"></div>
     </section>
@@ -149,6 +162,8 @@
 </div>
 
 <div id="datalists"></div>
+<script src="/static/tree.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/live.js"></script>
 </body>
 </html>

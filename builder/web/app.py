@@ -34,6 +34,7 @@ from builder.request.schema import BuildRequest
 from builder.search.context import make_payload
 from builder.web.runs import RESULTS_DIR, RunManager
 from builder.web.store import RequestStore
+from builder.web.treedata import synopsis_of, tree_payload
 
 STATIC = Path(__file__).parent / "static"
 SHARE_LINKS = [
@@ -58,6 +59,16 @@ class Engine:
                 self._pool = EnginePool(1)
             return self._pool.broadcast(method, **kwargs)[0]
 
+    def facts_of(self, xml: str, fields: list[str] = FACT_FIELDS) -> dict:
+        """Load a build and read its facts, with nothing else using the engine in between."""
+        from builder.pob.pool import EnginePool
+
+        with self._lock:
+            if self._pool is None:
+                self._pool = EnginePool(1)
+            self._pool.broadcast("loadXml", xml=xml)
+            return self._pool.broadcast("facts", fields=fields)[0]
+
     def close(self) -> None:
         if self._pool is not None:
             self._pool.close()
@@ -67,7 +78,7 @@ data = GameData()
 store = RequestStore()
 prices = PriceFeed()
 engine = Engine()
-runs = RunManager(prices)
+runs = RunManager(prices, summarize=lambda xml: synopsis_of(engine.facts_of(xml)))
 trade = TradeClient()
 calibration = Calibration(trade, prices, data)
 
@@ -136,6 +147,42 @@ def issues_of(request: BuildRequest) -> list[dict]:
     return [issue.__dict__ for issue in compile_request(request, data).issues]
 
 
+# The passive tree page (interactive tree for the request form and for results) ------------------
+
+_tree_cache: dict = {}
+_allocation_cache: dict[str, dict] = {}
+
+
+@app.get("/api/tree")
+def passive_tree() -> dict:
+    if "tree" not in _tree_cache:
+        _tree_cache["tree"] = tree_payload(data.tree)
+    return _tree_cache["tree"]
+
+
+class AllocatedBody(BaseModel):
+    code: str
+
+
+@app.post("/api/tree/allocated")
+def allocated_passives(body: AllocatedBody) -> dict:
+    """The passive tree nodes a PoB code allocates, from loading it in the engine."""
+    code = body.code.strip()
+    if code not in _allocation_cache:
+        try:
+            xml = codes.decode(code)
+        except Exception as error:
+            raise HTTPException(400, f"That doesn't look like a PoB code ({error}).")
+        facts = engine.facts_of(xml, fields=[])
+        if len(_allocation_cache) >= 16:
+            _allocation_cache.pop(next(iter(_allocation_cache)))
+        _allocation_cache[code] = {
+            "ids": [p["id"] for p in facts["passives"]], "className": facts["className"],
+            "ascendClassName": facts["ascendClassName"],
+        }
+    return _allocation_cache[code]
+
+
 @app.get("/api/requests")
 def list_requests() -> list[dict]:
     return store.list()
@@ -195,8 +242,7 @@ def inspect(body: InspectBody) -> dict:
         xml = codes.decode(resolve_code(body.code))
     except Exception as error:  # bad base64/zlib, or the link didn't resolve
         raise HTTPException(400, f"That doesn't look like a PoB code or share link ({error}).")
-    engine.call("loadXml", xml=xml)
-    facts = engine.call("facts", fields=FACT_FIELDS)
+    facts = engine.facts_of(xml)
     result = {
         "summary": {key: facts[key] for key in ("className", "ascendClassName", "level", "allocated", "ascendancyAllocated")},
         "mainSkill": main_skill(facts),
@@ -259,6 +305,21 @@ def get_run(run_id: int, since: int = 0) -> dict:
     if record is None:
         raise HTTPException(404, "no such run")
     return record.view(since)
+
+
+@app.post("/api/runs/{run_id}/request")
+def update_run_request(run_id: int, body: dict) -> dict:
+    """An edit to the request of a run in progress: the search continues from its best build with it."""
+    request = parse_request(body)
+    errors = [i for i in compile_request(request, data).issues if i.level == "error"]
+    if errors:
+        raise HTTPException(422, detail=[{"field": i.field, "message": i.message} for i in errors])
+    try:
+        return runs.update(run_id, request)
+    except KeyError:
+        raise HTTPException(404, "no such run")
+    except RuntimeError as error:
+        raise HTTPException(409, str(error))
 
 
 @app.post("/api/runs/{run_id}/cancel")

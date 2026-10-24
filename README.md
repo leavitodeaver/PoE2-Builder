@@ -39,6 +39,15 @@ also checks any PoB code or poe.ninja / pobb.in share link against the current r
 set `POE2_BUILDER_CONTACT` to add a contact to the User-Agent sent to poe.ninja and the trade
 site, as their API docs ask.
 
+Beside the request form (below it on a narrow screen) is the **passive tree**: scroll to zoom, drag to
+move, search for a passive by name or effect, left click a notable or keystone to require it and right
+click to ban it. It edits the same Passives lists as the form and follows them (small passives share
+names, so only notables and keystones can be picked). A result shows the same tree read-only, with the
+passives the build allocated. While a run is going, edits to the form reach it about a second and a half
+after you stop typing: the search stops, keeps its best build, and continues from that build's PoB code
+with the new settings for the time left (an edit with errors is reported and changes nothing). Under the
+progress, a summary of the best build found so far updates each time a search round ends.
+
 **Calibrate rare prices** (top of the page) prices about 24 representative rares on the official
 trade site, paced by its rate limits (a few minutes), and fits the rare price model to them; the
 next optimizer run uses it. Slots with too little data stay labelled as estimates.
