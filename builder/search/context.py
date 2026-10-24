@@ -16,7 +16,7 @@ from collections import deque
 from dataclasses import dataclass
 from functools import cached_property
 
-from builder.data import GameData
+from builder.data import GameData, rare_prices
 from builder.ledger import gap_list, translate, wrong
 from builder.request.constraints import CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
@@ -82,6 +82,8 @@ class Context:
         self.unique_prices: dict[str, list] = payload.get("unique_prices") or {}
         self.gem_prices: dict[str, float] = payload.get("gem_prices") or {}
         self.augment_prices: dict[str, float] = payload.get("augment_prices") or {}
+        self.rare_model = rare_prices.RarePriceModel.from_payload(payload.get("rare_model"))
+        rare_prices.use(self.rare_model)
 
     @cached_property
     def compiled(self) -> CompiledRequest:
@@ -369,10 +371,12 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
                 gem_prices[name] = price.divine
             elif price.category in ("Runes", "SoulCores", "Idols"):
                 augment_prices[name] = price.divine
+    league = getattr(prices, "league", None)
     return {
         "request": request.model_dump(mode="json"),
         "unique_prices": unique_prices,
         "gem_prices": gem_prices,
         "augment_prices": augment_prices,
-        "league": getattr(prices, "league", None),
+        "league": league,
+        "rare_model": rare_prices.RarePriceModel.load(league).payload(),
     }

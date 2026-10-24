@@ -16,6 +16,7 @@ from typing import Any
 
 from builder.pob import codes
 from builder.request.constraints import FACT_FIELDS, meta_socketed
+from builder.request.schema import WeaponSwap
 from builder.search.assumptions import Assumptions
 from builder.search.conditions import Conditions
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
@@ -24,7 +25,7 @@ from builder.search.gems import Gems
 from builder.search.jewels import Jewels
 from builder.search.models import MODEL_FIELDS
 from builder.search.objective import CLEAR_FIELDS, DARKNESS_FIELDS, SUSTAIN_FIELDS, Objective, main_dps, shortfall
-from builder.search.skeletons import Skeleton, offhand_types
+from builder.search.skeletons import Skeleton, is_button, offhand_types, seed_skeleton, swap_skills
 from builder.search.state import EPSILON, Build
 from builder.search.tree import Tree
 
@@ -47,7 +48,14 @@ class Search:
         weapon = SlotSpec(self.skeleton.weapon, self.skeleton.weapon_sub) if self.skeleton.weapon else None
         held = offhand_types(self.ctx, self.skeleton.weapon, self.skeleton.offhand)
         offhand = SlotSpec(held[0], None, held[1:]) if held else None
-        self.gear = Gear(self.build, weapon, offhand, self.rng)
+        sk = self.skeleton
+        swap: tuple = (None, None)
+        if sk.swap:
+            held = offhand_types(self.ctx, sk.swap_weapon, sk.swap_offhand)
+            swap = (SlotSpec(sk.swap_weapon, sk.swap_sub) if sk.swap_weapon else None,
+                    SlotSpec(held[0], None, held[1:]) if held else None)
+        self.gear = Gear(self.build, weapon, offhand, self.rng, swap)
+        self.swap_locked = set(swap_skills(self.ctx, sk)) if sk.swap else set()  # skills only set 2 can use
         self.jewels = Jewels(self.build, self.tree, self.gear)
         self.conditions = Conditions(self.build, self.skeleton.main_skill)
         self.gems.conditions = self.conditions
@@ -58,6 +66,7 @@ class Search:
         self.tree.relevant_skill = self.assumptions.relevant
         self.build.after_load.append(self.assumptions.reinstall)
         self.problems: list[str] = []
+        self.seed_notes: list[str] = []  # what setup_seed took out of the PoB code, and why
         self.kicks = 0
         self.kicks_kept = 0
         self.escalations = 0
@@ -100,6 +109,9 @@ class Search:
                     self.tree.required_names.add(source[1])
                 else:
                     granted_uniques.append(source[1])
+        for group in build.groups() if self.swap_locked else []:
+            if group["gems"] and group["gems"][0]["name"] in self.swap_locked:
+                build.set_group(index=group["index"], set1=False, set2=True)
         missing = self.gems.add_required_supports()
         self.problems += [f"required support {n} can't support {sk.main_skill}" for n in missing]
         self.problems += self.gear.setup(([source] if kind == "unique" else []) + granted_uniques)
@@ -111,6 +123,130 @@ class Search:
         self.gems.choose_active_skill()
         if quests:
             self.conditions.choose_quests()
+
+    def setup_seed(self, quests: bool = True) -> None:
+        """Start from the request's PoB code (PLAN.md §5.1, gate 4) and take out what the request
+        doesn't allow: banned gems, uniques, item classes and passives; skill groups over the button
+        cap; weapons the skeleton doesn't hold; the most expensive priced items while over budget;
+        passives over the request level's points. Then add what it requires. Uniques are priced from
+        the price table; the code's other items count as the user's own (no price)."""
+        build, sk, ctx = self.build, self.skeleton, self.ctx
+        build.phase = "seed"
+        filters = ctx.compiled.filters
+        build.call("loadXml", xml=codes.decode(ctx.request.seed_code))
+        self.correct_passives()
+        build.call("setLevel", level=ctx.level)
+        notes = self.seed_notes
+
+        # Skill groups: banned gems out, the main skill's group main, buttons within the cap
+        groups = build.groups()
+        for group in reversed(groups):
+            if group["fromItem"]:
+                continue
+            gems = [g for g in group["gems"] if g["name"] not in filters.forbidden_gems]
+            if len(gems) == len(group["gems"]):
+                continue
+            notes.append(f"took {', '.join(g['name'] for g in group['gems'] if g not in gems)} out (banned)")
+            if any(not g["support"] for g in gems):
+                build.set_group(index=group["index"], gems=[{"name": g["name"], "level": g["level"],
+                                                            "quality": g["quality"]} for g in gems])
+            else:
+                build.remove_group(group["index"])
+        main = None
+        for group in build.groups():
+            for position, active in enumerate(group["skills"], start=1):
+                if main is None and active["name"] == sk.main_skill:
+                    main = group["index"]
+                    build.set_group(index=main, main=True, fullDPS=True, mainActiveSkill=position)
+        cap = ctx.request.max_buttons
+        buttons = [g for g in build.groups() if g["enabled"] and not g["fromItem"] and g["gems"]
+                   and not g["main"] and g["gems"][0]["name"] in ctx.gems and is_button(ctx.gems[g["gems"][0]["name"]])]
+        for group in buttons[max(0, (cap or len(buttons) + 1) - 1):] if cap else []:
+            build.set_group(index=group["index"], enabled=False)
+            notes.append(f"switched {group['gems'][0]['name']} off (button cap {cap})")
+        if not sk.swap:
+            for group in build.groups():
+                if not group["set1"]:
+                    build.set_group(index=group["index"], set1=True, set2=True)
+
+        # Items: what the skeleton holds and the request allows, priced where a price exists
+        raws = build.call("equipped")["slots"]
+        facts = build.call("facts", fields=[])
+        kept: dict[str, ItemOption] = {}
+        holds = {slot: spec.types for slot, spec in self.gear.slots.items() if slot.startswith("Weapon")}
+        for item in facts["items"]:
+            slot, raw = item["slot"], raws.get(item["slot"])
+            unique = item["rarity"] in ("UNIQUE", "RELIC")
+            banned = (unique and item["name"] in filters.forbidden_uniques) or item["type"] in filters.forbidden_item_classes
+            if raw is None or banned or (slot.startswith("Weapon") and item["type"] not in holds.get(slot, ())):
+                build.equip(slot, None)
+                if raw is not None:
+                    notes.append(f"took {item['name']} out of {slot} ({'banned' if banned else 'not this skeleton'})")
+                continue
+            price, confidence = 0.0, "yours (from your PoB code)"
+            if unique:
+                entry = ctx.unique_prices.get(item["name"])
+                price, confidence = (entry[0], "from the price table") if entry else (None, "unpriced (from your PoB code)")
+            base = ctx.bases_by_name.get(item["base"]) or {}
+            kept[slot] = ItemOption(item["name"], item["base"], item["type"], base.get("subType"), raw, unique,
+                                    None if ctx.ssf else price, "ssf" if ctx.ssf else confidence,
+                                    (base.get("req") or {}).get("level") or 0, rare=item["rarity"] in ("RARE", "MAGIC"))
+        build.equipped = kept
+        for slot, option in sorted(kept.items(), key=lambda x: -(x[1].price or 0.0)):
+            if build.spent() <= ctx.budget + 1e-9:
+                break
+            if option.price:
+                self.gear.put(slot, None)
+                notes.append(f"took {option.name} out of {slot} (over the budget)")
+        for name in dict.fromkeys(list(ctx.compiled.request.require.uniques)
+                                  + ([ctx.request.weapon_unique] if ctx.request.weapon_unique else [])):
+            held = next((s for s, o in build.equipped.items() if o.name == name), None)
+            option = ctx.unique_option(name)
+            slot = held or (self.gear.slot_for(option) if option else None)
+            if slot is None:
+                self.problems.append(f"required unique {name} fits no slot of this skeleton")
+                continue
+            if held is None:
+                self.gear.put(slot, option)
+            build.locked_slots.add(slot)
+        for slot in self.gear.slots:
+            if slot.startswith("Weapon") and slot not in build.equipped:
+                bases = [o for o in self.gear.options(slot) if not o.unique]
+                if bases:
+                    self.gear.put(slot, max(bases, key=lambda o: o.level))
+
+        # Required skills the code lacks
+        present = {g["name"] for group in build.groups() for g in group["gems"]}
+        for name in ctx.request.require.skills:
+            if name in ctx.gems and name not in present:
+                build.set_group(gems=[{"name": name, "level": GEM_LEVEL, "quality": GEM_QUALITY}], label="required")
+        for group in build.groups() if self.swap_locked else []:
+            if group["gems"] and group["gems"][0]["name"] in self.swap_locked:
+                build.set_group(index=group["index"], set1=False, set2=True)
+        missing = self.gems.add_required_supports()
+        self.problems += [f"required support {n} can't support {sk.main_skill}" for n in missing]
+
+        # Passives: banned ones out, required ones in, then within the request level's points
+        allocated = {n["id"] for n in build.call("allocatedNodes")["nodes"]}
+        if banned := sorted(allocated & ctx.forbidden_node_ids):
+            build.allocate(remove=banned)
+            notes.append(f"removed {len(banned)} banned passive(s)")
+        self.tree.choose_default_attribute(sk.main_skill)
+        self.problems += [f"required passive {n} isn't reachable" for n in self.tree.allocate_required(sk.class_name)]
+        trimmed = 0
+        while self.tree.points_left() < 0:
+            ranked = self.tree.weakest_branches()
+            if not ranked:
+                break
+            trimmed += len(ranked[0][1])
+            self.tree.remove_branch(ranked[0][1])
+        if trimmed:
+            notes.append(f"removed {trimmed} passive(s) over a level {ctx.level} character's points")
+        self.resolve()
+        self.gems.choose_active_skill()
+        if quests:
+            self.conditions.choose_quests()
+        self.gear.sync_flasks()
 
     def gem_types(self, name: str) -> set[str]:
         return set((self.ctx.gems.get(name) or {}).get("skillTypes") or [])
@@ -204,6 +340,8 @@ class Search:
             ("persistent", self.gems.optimize_persistent, (deadline,)),
             ("prune and regrow", self.tree.swap_round, (deadline,)),
         ]
+        if self.skeleton.swap:
+            steps.insert(2, ("weapon sets", self.weapon_set_round, ()))
         improved = False
         for phase, fn, args in steps:
             if time.perf_counter() > deadline:
@@ -213,6 +351,44 @@ class Search:
             improved = self.step(phase, fn, *args) or improved
         self.kicked.clear()
         return improved
+
+    def weapon_set_round(self) -> None:
+        """Which skill groups weapon set 2 uses. Each other active group is tried on set 2 alone (PoB
+        then calculates it with set 2's weapons and carries its buffs to the main skill) and stays
+        there if the build scores better. Required skills set 1 can't use stay on set 2. Persistent
+        skills never go there: their Spirit and buffs would come from the set not in use (the
+        disabled-weapon-set grant, removed in 0.5.5). When the request makes weapon swap a must, the
+        group that costs least goes there if none pays."""
+        build = self.build
+        must = WeaponSwap(self.ctx.request.weapon_swap) == WeaponSwap.MUST
+        trials: list[tuple[float, int]] = []
+        for group in build.groups():
+            if not self.swappable(group):
+                continue
+            alone = not group["set1"]
+            if alone and must and len(self.on_set_two()) == 1:
+                continue  # the one skill that makes this a weapon-swap build stays there
+            before = build.score
+            build.set_group(index=group["index"], set1=alone, set2=True)
+            if build.score > before + EPSILON:
+                continue
+            if not alone:
+                trials.append((build.score - before, group["index"]))
+            build.set_group(index=group["index"], set1=not alone, set2=True)
+        if must and trials and not self.on_set_two():
+            build.set_group(index=max(trials)[1], set1=False, set2=True)
+
+    def swappable(self, group: dict) -> bool:
+        if group["main"] or group["fromItem"] or not group["enabled"] or not group["gems"]:
+            return False
+        first = group["gems"][0]
+        if first["support"] or first["name"] in self.swap_locked:
+            return False
+        return "Persistent" not in self.gem_types(first["name"])
+
+    def on_set_two(self) -> list[str]:
+        return [g["gems"][0]["name"] for g in self.build.groups()
+                if g["enabled"] and not g["fromItem"] and g["gems"] and not g["set1"]]
 
     def kick(self) -> None:
         self.kicks += 1
@@ -234,14 +410,14 @@ class Search:
                 self.build.set_group(index=group["index"], gems=Gems.gem_list(names))
             self.gems.shortlist = None  # force a full sweep afterwards
 
-    def run(self, deadline: float) -> None:
+    def run(self, deadline: float, best: dict | None = None) -> None:
         """Block coordinate ascent until nothing improves, then kick; keep the best build seen.
 
         Requirements come first: after any pass that ends with a requirement still short and no
         closer than the pass before, its weight goes up (Objective.escalate); on the second raise
         the passive tree is cleared and regrown under the new weights, since a tree grown for damage
-        rarely walks over to, say, the Mana nodes one swap at a time."""
-        best = None
+        rarely walks over to, say, the Mana nodes one swap at a time. `best` is a snapshot the result
+        must not fall below (a seed's starting point)."""
         last_short = float("inf")
         while time.perf_counter() < deadline:
             improved = self.blocks(deadline)
@@ -298,17 +474,39 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
     on that goal, so the run ranks results on its own goal from `dps` and `clear`."""
     deadline = time.perf_counter() + seconds
     search = Search(engine, report, payload, skeleton, seed, goal=goal)
-    if state is None:
-        search.setup()
-    else:
+    start = None
+    if state is not None:
         search.load(state)
+    elif search.skeleton.seeded:
+        # The search never ends below the PoB code it started from (PLAN.md §8, gate 4)
+        search.setup_seed()
+        start = search.build.snapshot()
+    else:
+        search.setup()
     from builder.pob.pool import Cancelled
 
     try:
-        search.run(deadline)
+        search.run(deadline, best=start)
     except Cancelled:
-        pass
-    return {**search.summary(), "state": search.state()}
+        if start is not None and start["score"] > search.build.score:
+            search.build.restore(start)
+    summary = search.summary()
+    if start is not None:
+        objective = search.build.objective
+        summary["seed_start"] = {"dps": objective.dps(start["stats"]), "value": objective.value(start["stats"]),
+                                 "score": objective.score(start["stats"]),
+                                 "deficits": [label for label, _, _ in objective.deficits(start["stats"])],
+                                 "notes": search.seed_notes}
+    return {**summary, "state": search.state()}
+
+
+def seed_task(engine: Any, report: Any, payload: dict) -> dict:
+    """The skeleton of the request's PoB code, or why it can't be one."""
+    ctx = context_for(payload)
+    engine.call("loadXml", xml=codes.decode(ctx.request.seed_code))
+    facts = engine.call("facts", fields=[])
+    skeleton, notes = seed_skeleton(ctx, facts)
+    return {"skeleton": skeleton.as_dict() if skeleton else None, "notes": notes}
 
 
 def screen_task(engine: Any, report: Any, payload: dict, skeletons: list[dict], seconds_each: float = 3.0) -> list[dict]:

@@ -457,20 +457,25 @@ function renderResult(result) {
       : el("span", { class: "badge bad" }, "did not reload identically");
     parts.push(el("div", { class: "result-section" }, el("h3", {}, "PoB code", badge),
       el("div", { class: "code-row" }, el("textarea", { rows: 3, readonly: true }, result.code), copy)));
-    const gear = Object.entries(result.gear).sort();
-    parts.push(el("div", { class: "result-section" }, el("h3", {}, `Gear · ${result.spent.toFixed(2)} divine`),
-      simpleTable(["Slot", "Item", "Base", { label: "Price (div)", num: true }, "Confidence"],
-        gear.map(([slot, g]) => [slot,
-          el("div", {}, g.unique || g.rare ? g.name : `${g.name} (normal)`,
-            g.affixes?.length ? el("div", { class: "note" }, g.affixes.join(" · ")) : null,
-            g.runes?.length ? el("div", { class: "note" }, `Sockets: ${g.runes.join(", ")}`) : null),
-          g.base, formatPrice(g.price), g.confidence]))));
+    if (result.shopping) {
+      parts.push(shoppingSection(result.shopping));
+    } else {
+      const gear = Object.entries(result.gear).sort();
+      parts.push(el("div", { class: "result-section" }, el("h3", {}, `Gear · ${result.spent.toFixed(2)} divine`),
+        simpleTable(["Slot", "Item", "Base", { label: "Price (div)", num: true }, "Confidence"],
+          gear.map(([slot, g]) => [slot,
+            el("div", {}, g.unique || g.rare ? g.name : `${g.name} (normal)`,
+              g.affixes?.length ? el("div", { class: "note" }, g.affixes.join(" · ")) : null,
+              g.runes?.length ? el("div", { class: "note" }, `Sockets: ${g.runes.join(", ")}`) : null),
+            g.base, formatPrice(g.price), g.confidence]))));
+    }
     parts.push(el("div", { class: "result-section" }, el("h3", {}, "Skills"),
       el("ul", { class: "gem-groups" }, result.groups.filter((g) => g.enabled).map((g) => {
         const names = g.gems.map((x) => x.name).join(" + ");
         return el("li", {}, g.main ? el("strong", {}, names) : names,
           g.fromItem ? " (from an item)" : "", g.fullDPS && !g.main ? " (counted in Full DPS)" : "");
       }))));
+    if (result.checklist) parts.push(checklistSection(result));
     if (result.assumptions?.length) {
       parts.push(el("div", { class: "result-section" }, el("h3", {}, "Assumptions * (PoB doesn't model these)"),
         simpleTable(["Assumption", { label: "Value", num: true }, "Basis", "Confidence"],
@@ -506,6 +511,110 @@ function renderResult(result) {
     + `(${formatNumber(result.evals_per_second)}/s on ${result.workers} workers)`
     + (result.saved_as ? ` · saved as ${result.saved_as}` : "")));
   $("run-result").replaceChildren(...parts);
+}
+
+// Shopping list and trade links ------------------------------------------------------------
+
+function itemCell(item) {
+  const kind = { unique: "unique", rare: "rare", magic: "magic", normal: "white base", gem: "lineage gem" }[item.kind] || item.kind;
+  const title = item.kind === "rare" || item.kind === "magic" ? `${pretty(item.kind)} ${item.type} · ${item.base}`
+    : item.kind === "unique" ? `${item.name} · ${item.base}${item.variant ? ` (${item.variant})` : ""}`
+      : item.kind === "gem" ? item.name : `${item.base} (${kind})`;
+  return el("div", {}, el("strong", {}, title),
+    item.kind === "unique" ? el("span", { class: "hint" }, " unique") : null,
+    item.affixes?.length ? el("ul", { class: "affixes" }, item.affixes.map((a) => el("li", {},
+      el("span", { class: "tier" }, a.tier ? `T${a.tier}` : "?"), a.text,
+      a.range && a.range !== a.text ? el("span", { class: "range" }, `  (tier range ${a.range})`) : null,
+      a.searchable ? null : el("span", { class: "range" }, "  · not searchable on trade, check by eye")))) : null,
+    item.note ? el("div", { class: "note" }, item.note) : null);
+}
+
+function tradeButton(shopping, item, part) {
+  const status = el("span", { class: "trade-status" });
+  const button = el("button", {
+    type: "button",
+    onclick: async () => {
+      // Open the tab now, while the click still counts as the user's (popup blockers), then point it at the search
+      const tab = window.open("about:blank", "_blank");
+      button.disabled = true;
+      status.textContent = "searching the trade site…";
+      try {
+        const link = await api("/api/trade/link", { method: "POST", body: { item, part, league: shopping.league } });
+        if (tab) {
+          tab.opener = null;
+          tab.location.href = link.url;
+        }
+        const found = link.total ? `${link.total.toLocaleString()} listed` : "nothing listed, even loosened";
+        status.replaceChildren(`${found} · ${link.matches}${link.cached ? " · cached" : ""} · `,
+          el("a", { href: link.url, target: "_blank", rel: "noopener" }, "open"));
+      } catch (error) {
+        if (tab) tab.close();
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    },
+  }, "Trade");
+  return el("div", {}, button, status);
+}
+
+function shoppingSection(shopping) {
+  const rows = [];
+  for (const item of shopping.items) {
+    const trade = shopping.ssf || item.kind === "normal" ? "–" : tradeButton(shopping, item, "item");
+    rows.push(el("tr", {}, el("td", {}, item.slot), el("td", {}, itemCell(item)),
+      el("td", { class: "num" }, item.kind === "normal" ? "found" : formatPrice(item.price)),
+      el("td", {}, item.confidence || "–"), el("td", {}, trade)));
+    for (const rune of item.runes || []) {
+      rows.push(el("tr", { class: "socket" }, el("td", {}, "socket"), el("td", {}, rune.name),
+        el("td", { class: "num" }, formatPrice(rune.price)), el("td", {}, rune.price == null ? "unpriced" : rune.confidence),
+        el("td", {}, shopping.ssf ? "–" : tradeButton(shopping, item, `rune:${rune.name}`))));
+    }
+  }
+  const budget = shopping.budget == null || shopping.ssf ? "" : ` of ${shopping.budget} budget`;
+  rows.push(el("tr", { class: "total" }, el("td", {}, "Total"), el("td", {}, ""),
+    el("td", { class: "num" }, formatPrice(shopping.total)), el("td", {}, `divine${budget}`), el("td", {}, "")));
+  const model = shopping.rare_prices;
+  const rareNote = !model?.fitted_at
+    ? "Rare prices are uncalibrated estimates (Calibrate rare prices, at the top, fits them to the trade site)."
+    : `Rare prices come from the model fitted ${new Date(model.fitted_at * 1000).toLocaleDateString()} on `
+      + `${model.total_samples} trade samples (typically within ×${model.error_factor ?? "?"}); slots with thin data stay estimates.`;
+  return el("div", { class: "result-section" },
+    el("h3", {}, `Shopping list · ${formatPrice(shopping.total)} divine${budget}`),
+    el("p", { class: "hint" }, `Uniques, runes and gems are priced from poe.ninja. ${rareNote} `
+      + "Trade opens an official trade-site search for that line, made when you click (one search, or a few "
+      + "looser ones when nothing matches). T1 is the best tier the base can roll; the search asks for at least "
+      + "the modeled roll first, then any roll within each tier."),
+    el("div", { class: "table-wrap" }, el("table", { class: "checks" },
+      el("thead", {}, el("tr", {}, ["Slot", "Item and target affixes", "Price (div)", "Confidence", "Buy"].map((h, i) =>
+        el("th", { class: i === 2 ? "num" : "" }, h)))),
+      el("tbody", {}, rows))));
+}
+
+function checklistSection(result) {
+  const items = result.checklist || [];
+  const key = `checklist:${result.saved_as || result.label}`;
+  let done = [];
+  try { done = JSON.parse(localStorage.getItem(key) || "[]"); } catch { done = []; }
+  const save = () => { try { localStorage.setItem(key, JSON.stringify(done)); } catch { /* private window */ } };
+  if (!items.length) {
+    return el("div", { class: "result-section" }, el("h3", {}, "Test in game"),
+      el("p", { class: "hint" }, "Nothing to test: no number in this result is assumed or left out by PoB."));
+  }
+  return el("div", { class: "result-section" }, el("h3", {}, `Test in game · ${items.length}`),
+    el("p", { class: "hint" }, "Every number marked * or not modeled above, and how to check it before you spend."),
+    el("ol", { class: "checklist" }, items.map((c, i) => {
+      const li = el("li", { class: done.includes(i) ? "done" : "" });
+      const box = el("input", { type: "checkbox", checked: done.includes(i), onchange: () => {
+        done = box.checked ? [...done, i] : done.filter((d) => d !== i);
+        li.classList.toggle("done", box.checked);
+        save();
+      } });
+      li.append(el("label", {}, box, el("span", { class: "kind" }, c.kind), el("strong", {}, c.title),
+        c.where ? el("span", { class: "hint" }, ` (${c.where})`) : null),
+        el("div", { class: "note" }, c.why), el("div", { class: "note" }, `How: ${c.how}`));
+      return li;
+    })));
 }
 
 async function attachToRun() {
@@ -544,6 +653,50 @@ async function loadPrices(refresh = false) {
   } catch (error) {
     $("price-status").textContent = `prices: unavailable (${error.message})`;
   }
+}
+
+// Rare price calibration ------------------------------------------------------------------
+
+function describeRareModel(model) {
+  if (!model.fitted_at) return "rare prices: uncalibrated estimates";
+  const date = new Date(model.fitted_at * 1000).toLocaleDateString();
+  const thin = model.thin?.length ? `; thin data: ${model.thin.join(", ")}` : "";
+  return `rare prices: calibrated ${date} on ${model.total_samples} trade samples${thin}`;
+}
+
+async function loadCalibration() {
+  const league = $("league").value || "";
+  const query = league ? `?league=${encodeURIComponent(league)}` : "";
+  try {
+    const status = await api(`/api/prices/calibration${query}`);
+    const job = status.job;
+    const running = job.state === "running";
+    $("calibrate-prices").hidden = running;
+    $("calibrate-cancel").hidden = !running;
+    $("rare-status").textContent = running
+      ? `calibrating rare prices: ${job.done}/${job.total || "?"} · ${job.message}`
+      : describeRareModel(status.model) + (["error", "cancelled"].includes(job.state) ? ` (last run: ${job.message})` : "");
+    // Only while our own job runs: this asks the local server, never the trade site
+    if (running) setTimeout(loadCalibration, 2000);
+  } catch (error) {
+    $("rare-status").textContent = `rare prices: unavailable (${error.message})`;
+  }
+}
+
+async function calibrate() {
+  const ok = window.confirm("Calibrate rare prices?\n\nThis searches the official trade site for about 24 "
+    + "representative rares (one search and one listing fetch each), paced by the site's rate limits: a few "
+    + "minutes. Nothing is bought. The new prices apply to the next optimizer run.");
+  if (!ok) return;
+  const league = $("league").value || "";
+  const query = league ? `?league=${encodeURIComponent(league)}` : "";
+  try {
+    await api(`/api/prices/calibrate${query}`, { method: "POST" });
+  } catch (error) {
+    $("rare-status").textContent = `rare prices: ${error.message}`;
+    return;
+  }
+  loadCalibration();
 }
 
 // CPU workers --------------------------------------------------------------------------------
@@ -586,7 +739,7 @@ async function start() {
   }
   renderDamageInputs();
   $("class_name").addEventListener("change", () => renderAscendancies(readForm().ascendancies));
-  $("league").addEventListener("change", () => loadPrices());
+  $("league").addEventListener("change", () => { loadPrices(); loadCalibration(); });
   $("new-request").addEventListener("click", newRequest);
   $("save").addEventListener("click", save);
   $("validate").addEventListener("click", validate);
@@ -594,8 +747,13 @@ async function start() {
   $("optimize").addEventListener("click", optimize);
   $("run-cancel").addEventListener("click", cancelRun);
   $("refresh-prices").addEventListener("click", () => loadPrices(true));
+  $("calibrate-prices").addEventListener("click", calibrate);
+  $("calibrate-cancel").addEventListener("click", async () => {
+    await api("/api/prices/calibration/cancel", { method: "POST" }).catch(() => null);
+  });
   newRequest();
   loadPrices();
+  loadCalibration();
   loadSettings();
   attachToRun();
 }

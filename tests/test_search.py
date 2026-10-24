@@ -14,7 +14,9 @@ from builder.search.conditions import CONDITIONS, qualifies, text_evidence
 from builder.search.context import Context, make_payload
 from builder.search.objective import Objective
 from builder.search.gear import SlotSpec
-from builder.search.skeletons import DUAL_WIELD, enumerate_skeletons, offhand_types, offhand_weapon_types
+from builder.search.skeletons import (
+    DUAL_WIELD, enumerate_skeletons, offhand_types, offhand_weapon_types, swap_skills,
+)
 from builder.search.tree import rooted_subsets
 
 FIXTURES = Path(__file__).parent / "fixtures" / "requests"
@@ -95,6 +97,30 @@ def test_offhand_weapon_slot_offers_every_legal_type():
     spec = SlotSpec(types[0], None, types[1:])
     assert set(spec.types) == set(offhand_weapon_types(ctx, "Spear"))
     assert offhand_types(ctx, "Spear", "Shield") == ("Shield",) and offhand_types(ctx, "Bow", None) == ()
+
+
+def test_required_skills_set_one_cant_use_get_weapon_set_two():
+    ctx = context(main_skill="Explosive Spear", ascendancies=["Ritualist"], offhand="weapon",
+                  require={"skills": ["Ice Shot"]})
+    skeletons, problems = enumerate_skeletons(ctx, ["Explosive Spear"])
+    assert [(s.swap, s.swap_weapon, s.swap_offhand) for s in skeletons] == [(True, "Bow", "Quiver")], problems
+    assert skeletons[0].label.endswith("· swap: Bow + Quiver")
+    assert swap_skills(ctx, skeletons[0]) == ["Ice Shot"]
+    never = context(main_skill="Explosive Spear", ascendancies=["Ritualist"], offhand="weapon", weapon_swap="never",
+                    require={"skills": ["Ice Shot"]})
+    skeletons, problems = enumerate_skeletons(never, ["Explosive Spear"])
+    assert not any(s.swap for s in skeletons) and any("forbids weapon swap" in p for p in problems)
+
+
+def test_weapon_swap_must_copies_set_one_and_may_adds_nothing_by_itself():
+    must = context(main_skill="Spark", ascendancies=["Stormweaver"], offhand="focus", weapon_swap="must")
+    skeletons, _ = enumerate_skeletons(must, ["Spark"])
+    assert skeletons and all(s.swap and (s.swap_weapon, s.swap_offhand) == (s.weapon, s.offhand) for s in skeletons)
+    may = context(main_skill="Spark", ascendancies=["Stormweaver"], offhand="focus")
+    assert not any(s.swap for s in enumerate_skeletons(may, ["Spark"])[0])
+    # Spells work with any weapon, so a required spell never needs set 2
+    spell = context(main_skill="Ice Shot", ascendancies=["Deadeye"], require={"skills": ["Spark"]})
+    assert not any(s.swap for s in enumerate_skeletons(spell, ["Ice Shot"])[0])
 
 
 def test_incompatible_weapon_type_is_explained():

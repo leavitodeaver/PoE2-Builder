@@ -646,6 +646,7 @@ local function describeGroup(index, group)
 		index = index, label = group.label, enabled = group.enabled ~= false, main = index == build.mainSocketGroup,
 		fullDPS = group.includeInFullDPS and true or false, fromItem = group.source ~= nil,
 		mainActiveSkill = group.mainActiveSkill or 1, gems = gems, skills = skills,
+		set1 = group.set1 ~= false, set2 = group.set2 ~= false,
 	}
 end
 
@@ -683,6 +684,19 @@ function bridge.setGroup(args)
 	end
 	if args.fullDPS ~= nil then
 		group.includeInFullDPS = args.fullDPS or nil
+	end
+	-- Weapon sets the group is used with (both by default); PoB calculates a group that only
+	-- weapon set 2 uses with that set's weapons and carries its buffs over to the main skill
+	if args.set1 ~= nil or args.set2 ~= nil then
+		if args.set1 ~= nil then
+			group.set1 = args.set1
+		end
+		if args.set2 ~= nil then
+			group.set2 = args.set2
+		end
+		if not group.set1 and not group.set2 then
+			group.set1, group.set2 = true, true
+		end
 	end
 	if args.main then
 		build.mainSocketGroup = args.index
@@ -1472,6 +1486,7 @@ function bridge.facts(args)
 			index = index, label = group.label, enabled = group.enabled ~= false, slot = group.slot,
 			fromItem = group.source ~= nil or group.sourceItem ~= nil, main = index == build.mainSocketGroup,
 			fullDPS = group.includeInFullDPS and true or false, gems = gems,
+			set1 = group.set1 ~= false, set2 = group.set2 ~= false,
 		}
 	end
 	local passives = { }

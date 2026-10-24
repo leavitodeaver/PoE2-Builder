@@ -52,11 +52,14 @@ class Price:
 
 
 class PriceTable:
-    def __init__(self, league: str, exchange: dict[str, Price], uniques: dict[str, list[Price]], fetched_at: float) -> None:
+    def __init__(self, league: str, exchange: dict[str, Price], uniques: dict[str, list[Price]], fetched_at: float,
+                 currency: dict[str, float] | None = None) -> None:
         self.league = league
         self.exchange = exchange
         self.uniques = uniques
         self.fetched_at = fetched_at
+        # Divines per unit by poe.ninja's currency id, which is the trade site's ("exalted", "chaos", ...)
+        self.currency = currency or {}
 
     def unique(self, name: str) -> Price | None:
         """The most-listed uncorrupted copy: a representative price, not the cheapest outlier."""
@@ -137,6 +140,7 @@ class PriceFeed:
             self.refresh(league)
         exchange: dict[str, Price] = {}
         uniques: dict[str, list[Price]] = {}
+        currency: dict[str, float] = {"divine": 1.0}
         oldest = time.time()
         for type_name in EXCHANGE_TYPES:
             cache_file = self.cache_dir / league / "exchange" / f"{type_name}.json"
@@ -149,6 +153,8 @@ class PriceFeed:
             for line in payload.get("lines", []):
                 name = names.get(line["id"], line["id"])
                 exchange[name] = Price(name, line["primaryValue"], None, type_name)
+                if type_name == "Currency":
+                    currency[line["id"]] = line["primaryValue"]
         for type_name in UNIQUE_TYPES:
             cache_file = self.cache_dir / league / "uniques" / f"{type_name}.json"
             if not cache_file.exists():
@@ -159,4 +165,4 @@ class PriceFeed:
                 price = Price(line["name"], line["primaryValue"], line.get("listingCount"), type_name,
                               line.get("baseType"), line.get("variant"), bool(line.get("corrupted")))
                 uniques.setdefault(price.name, []).append(price)
-        return PriceTable(league, exchange, uniques, oldest)
+        return PriceTable(league, exchange, uniques, oldest, currency)

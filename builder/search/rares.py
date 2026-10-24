@@ -6,8 +6,9 @@ PoB item what-ifs, and the best gain is added until nothing pays. The gear tier 
 the best affix tier allowed and how well affixes roll. Sockets take the best rune, Soul Core or
 Idol for the item, priced from poe.ninja (unpriced ones are never treated as free).
 
-Rare prices are an uncalibrated estimate until the trade-API calibration exists: they're labelled
-as such, and they still count against the budget.
+Rare prices come from the rare price model (builder/data/rare_prices.py): the uncalibrated prior
+until the user runs the trade-site calibration, then the fitted model, labelled per slot by how
+much data it had. They always count against the budget.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import re
 from dataclasses import dataclass
 from functools import cached_property
 
+from builder.data import rare_prices
 from builder.request.schema import GearTier
 from builder.search.context import Context, ItemOption
 
@@ -31,11 +33,6 @@ MAGIC_LIMIT = {"Prefix": 1, "Suffix": 1}
 MAGIC_PRICE = 0.01  # divine per affix on a magic flask or charm
 RUNE_KEEP = 6  # runes kept after scoring each in the first socket
 RANGE = re.compile(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)")
-# Price estimate (divine): a cheap rare times a factor per affix by its tier
-RARE_BASE_PRICE = 0.02
-TIER_PRICE_FACTOR = {1: 4.0, 2: 1.8, 3: 1.25}
-OTHER_TIER_FACTOR = 1.05
-SLOT_PRICE_FACTOR = {"Weapon 1": 2.0}
 
 
 def roll(text: str, fraction: float) -> str:
@@ -148,10 +145,8 @@ def with_runes(raw: str, runes: list[str]) -> str:
 
 
 def rare_price(slot: str, affixes: list[Affix]) -> float:
-    price = RARE_BASE_PRICE * SLOT_PRICE_FACTOR.get(slot, 1.0)
-    for affix in affixes:
-        price *= TIER_PRICE_FACTOR.get(affix.tier, OTHER_TIER_FACTOR)
-    return price
+    """Estimated price in divines (never 0), from this process's rare price model."""
+    return rare_prices.active().price(slot, affixes)
 
 
 # Sockets ------------------------------------------------------------------------------------

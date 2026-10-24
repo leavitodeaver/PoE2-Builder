@@ -124,3 +124,25 @@ def test_checks_on_a_real_build(data):
     assert results["Ascendancy"].ok, results["Ascendancy"]
     assert results["Main skill"].ok, results["Main skill"]
     assert results["Fire resistance"].requested == "≥ 75"
+
+
+def test_weapon_swap_check_needs_a_skill_on_set_two_and_gear_for_it(data):
+    def facts(gear: bool, set_two: bool, from_item: bool = False) -> dict:
+        groups = [{"enabled": True, "fromItem": False, "main": True, "set1": True, "set2": True,
+                   "gems": [{"name": "Explosive Spear", "support": False, "enabled": True, "skillTypes": [], "tags": []}]}]
+        if set_two:
+            groups.append({"enabled": True, "fromItem": from_item, "main": False, "set1": False, "set2": True,
+                           "gems": [{"name": "Ice Shot", "support": False, "enabled": True, "skillTypes": [], "tags": []}]})
+        items = [{"slot": "Weapon 1", "type": "Spear", "name": "Spear"}]
+        if gear:
+            items.append({"slot": "Weapon 1 Swap", "type": "Bow", "name": "Bow"})
+        return {"skillGroups": groups, "items": items, "stats": {}, "passives": [], "warnings": []}
+
+    def swap(policy: str, f: dict):
+        compiled = compile_request(BuildRequest(main_skill="Explosive Spear", weapon_swap=policy), data)
+        return next(c for c in compiled.check(f) if c.label == "Weapon swap")
+
+    assert swap("must", facts(True, True)).ok and "Ice Shot" in swap("must", facts(True, True)).delivered
+    assert not swap("must", facts(True, False)).ok  # gear on set 2 with nothing using it isn't a swap
+    assert not swap("must", facts(True, True, from_item=True)).ok  # a weapon's own attack doesn't count
+    assert swap("never", facts(False, False)).ok and not swap("never", facts(True, False)).ok

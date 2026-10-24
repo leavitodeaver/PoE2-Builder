@@ -17,7 +17,10 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from builder.data.trade import TradeClient
 from builder.pob.pool import EnginePool, WorkerError, default_workers
+from builder.report.checklist import checklist
+from builder.report.shopping import shopping_list
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
 from builder.search.objective import PACK_SIZE, SUSTAIN_FLOOR, goal_value, rank_key, shortfall, sustain
@@ -53,6 +56,7 @@ class Run:
                  seconds: float | None = None, on_event: Callable[[dict], None] | None = None,
                  should_cancel: Callable[[], bool] | None = None) -> None:
         self.request = request
+        self.price_table = prices
         self.payload = make_payload(request, prices)
         self.ctx = Context(self.payload)
         self.workers = workers or default_workers()
@@ -315,6 +319,9 @@ class Run:
         checks = [c.__dict__ for c in self.ctx.compiled.check(facts)]
         spent = final["spent"]
         budget = self.ctx.budget
+        for slot, gear in final["gear"].items():
+            if gear.get("rare") and gear.get("price") is not None and gear["type"] not in ("Flask", "Charm"):
+                gear["confidence"] = self.ctx.rare_model.confidence(slot)  # labels follow the price model
         for check in checks:
             if check["label"] == "Budget":
                 low = [g["name"] for g in final["gear"].values() if g["confidence"] in ("low", "unknown")]
@@ -374,7 +381,18 @@ class Run:
             "timing": final.get("timing"), "escalations": final.get("escalations"),
             "requirement_weights": final.get("multipliers"),
         })
+        result["shopping"] = shopping_list(result, self.ctx.data, self.report_prices(), TradeClient().stats(offline=True),
+                                           self.variant)
+        result["checklist"] = checklist(result)
         return result
+
+    def report_prices(self) -> dict:
+        return {"augments": self.ctx.augment_prices, "gems": self.ctx.gem_prices, "league": self.payload["league"],
+                "rare_model": self.payload["rare_model"]}
+
+    def variant(self, name: str) -> str | None:
+        price = self.price_table.unique(name) if self.price_table is not None else None
+        return price.variant if price else None
 
 
 MODEL_NAMES = {"archon": "Elemental Archon", "energy": "meta-skill Energy", "darkness": "Darkness",

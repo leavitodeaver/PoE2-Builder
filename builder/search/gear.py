@@ -47,15 +47,16 @@ class SlotSpec:
 
 
 class Gear:
-    def __init__(self, build: Build, weapon: SlotSpec | None, offhand: SlotSpec | None, rng: random.Random) -> None:
+    def __init__(self, build: Build, weapon: SlotSpec | None, offhand: SlotSpec | None, rng: random.Random,
+                 swap: tuple[SlotSpec | None, SlotSpec | None] = (None, None)) -> None:
+        """`swap` is weapon set 2's main hand and off hand (weapon swap), if the skeleton has one."""
         self.build = build
         self.ctx = build.ctx
         self.rng = rng
         self.slots: dict[str, SlotSpec] = {}
-        if weapon:
-            self.slots["Weapon 1"] = weapon
-        if offhand:
-            self.slots["Weapon 2"] = offhand
+        for slot, spec in zip(("Weapon 1", "Weapon 2", "Weapon 1 Swap", "Weapon 2 Swap"), (weapon, offhand, *swap)):
+            if spec:
+                self.slots[slot] = spec
         for slot in ARMOUR_SLOTS + JEWELLERY_SLOTS:
             self.slots[slot] = SlotSpec(SLOT_TYPE[slot])
         # After the belt, which sets how many charms count

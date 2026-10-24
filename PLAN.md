@@ -385,11 +385,31 @@ Endurance-charge consumption, Empowered-attack extra damage.
 - **Prices:** documented poe.ninja PoE2 economy endpoints (`builder/data/prices.py`). Cached with
   timestamps and ETags, refreshed on demand at most hourly. poe.ninja's build/character endpoints are **not**
   used (their policy forbids third-party use), which is why seeds come from pasted PoB codes.
-- **Rare price model:** price as a function of slot, base and premium affix tiers. It is calibrated
-  by a user-triggered sampling job against the official trade API. The job follows GGG's returned
-  rate-limit headers and identifies itself with a User-Agent. Each estimate carries a confidence
-  level, and **nothing is ever priced at 0**.
-- **Trade links:** generated per item on demand, rate-limited, opened on the official site.
+- **Rare price model** (`builder/data/rare_prices.py`): log price = base[slot] + Σ factor[tier] over
+  the affixes + stack × (tier-1 affixes beyond the second) (tier 1 = the best the base can roll,
+  4 = lower; the base type isn't a term yet, too few samples). The Phase 3 estimate is the prior
+  (stack 0). **Calibrate rare prices** on the web page
+  (`builder/report/calibrate.py`) prices 24 representative packages on the official trade site: the
+  latest result's rares (two per slot at most) and a generic set per slot (life, resistances,
+  damage, speed). Each is one search (instant buyout, every affix at or above its tier's floor,
+  cheapest first) and one fetch of the ten cheapest; the package's price is the median of the five
+  cheapest, converted with poe.ninja's currency rates. A ridge regression in log space toward the
+  prior fits the model (thin data stays near the prior; a sample backed by under five listings
+  weighs in proportion). It's stored per league with the fit date
+  and its samples (`data/prices/<league>/rare_model.json`), reaches the workers in the payload, and
+  labels each rare "calibrated DATE (n trade samples)" or, under three samples for that slot,
+  "estimate (thin data …)". Prices have a floor (0.002 divine), so **nothing is ever priced at 0**.
+- **Trade API** (`builder/data/trade.py`): used only when the user clicks (a trade link, or the
+  calibration job); never polled. It follows GGG's rate-limit headers (X-Rate-Limit-Rules, the
+  limits and their -State), keeps one request per window spare for the user's own trade tabs,
+  pads each window (arrivals jitter), honors Retry-After, keeps its history on disk across
+  restarts, sends a descriptive User-Agent (no email; `POE2_BUILDER_CONTACT` adds a contact), and
+  caches searches (a day) and calibration samples (six hours).
+- **Trade links** (`builder/report/shopping.py`): one per shopping-list line, made when clicked. A
+  rare's search starts strict and loosens only when nothing is listed: exact base and modeled rolls,
+  then any base of the class at each tier's floor (weapons, jewels and flasks keep their base), then
+  all but one affix. Stat ids come from the trade hashes PoB exports with every mod
+  (`explicit.stat_<hash>`, checked against `/api/trade2/data/stats`, cached a week, or PoB's copy).
 
 ## 8. Quality gates (the old tool had none that mattered)
 
@@ -420,13 +440,50 @@ Endurance-charge consumption, Empowered-attack extra damage.
 | **0. Cleanup + engine spike** ✅ 2026-10-22 | Deleted `target*`, `dist`, stray `--help` (~262 GB freed); old source/docs in `legacy/`; `git init`; PoB2 dev pinned; headless boot on PoB's LuaJIT; bridge; test builds; gates; worker pool; release cross-check tool | Gates 1–3 pass on 4 generated builds and 5 of the user's builds; the release reproduces the PoB app's numbers exactly on all 5; ~3,200 what-ifs/s measured |
 | **1. Data, requests, UI shell** ✅ 2026-10-22 | Data dump (`python -m builder.data dump`); poe.ninja price feed; request schema + constraint compiler with tests; local web page (`python -m builder.web`): request form, saved requests, paste a code or share link → stats + Requested vs Delivered | Done. The progress stream moves to Phase 2 with the optimizer it reports on |
 | **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×8.5, Boneshatter Titan ×3.6, Raise Zombie Infernalist ×9.7 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-023030.json`), all feasible, code verified, independent recheck agrees. Gate 5: 30/30 random requests over three seeds. Gates 1–3 still pass, fidelity exact on the release |
-| **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; uncalibrated rare price estimate; λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets). Not yet: trade-API price calibration, flasks/charms, radius/Time-Lost jewels, corruption/desecration | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled. The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
+| **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; a rare price model (uncalibrated until the user calibrates it); λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets); rare price calibration against the official trade site ✅ 2026-10-24 (§7, Phase 5 findings). Not yet: flasks/charms, radius/Time-Lost jewels, corruption/desecration | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled. The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
 | **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all); custom models for Elemental Archon, meta-skill Energy, Darkness, Traveller's Wisdom and Elemental Expression (§6). Not yet: approval queue, calibration form, exploits, the remaining custom models | Asterisked results; at least one exploit that works on the current patch modeled end to end |
-| **5. Results polish** | Requested vs Delivered; shopping list + trade links; test-in-game checklist; saved history | Gate 6 |
+| **5. Results polish** (started 2026-10-24) | Done: Requested vs Delivered; shopping list in every result (slot, base, a rare's target affixes with tier and roll range, a unique's name and variant, runes and lineage gems, price with its confidence, total against the budget) with official trade-site links made on click; test-in-game checklist for every asterisked or not-modeled line. Not yet: saved history | Gate 6 |
 | **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research | All gates green on 1.0 data |
 
 A usable MVP (real builds with uniques and simple rares, constraints honored) arrives at the end
 of Phase 2. Full v1 arrives at the end of Phase 5.
+
+### Phase 5 findings: shopping list, trade links, rare price calibration (2026-10-24)
+
+- **The trade API answers anonymous searches and fetches** (lower limits than logged in). Limits seen:
+  search 5/10 s, 15/60 s, 30/300 s, 600/6 h (lockouts 60 s, 300 s, 1,800 s, 1 h); fetch 12/4 s,
+  16/12 s, 50/300 s, 1,000/6 h. The trade *pages* sit behind a Cloudflare human check in a fresh
+  browser (the built-in browser pane included); the API doesn't.
+- **Count windows by arrival, not by send time.** Three searches sent just as a 60 s window rolled
+  over landed inside it on the server (network jitter) and earned a 10-minute lockout. The limiter
+  now pads every window (1 s, or 5% of the period) and still keeps one request spare for the user.
+- **A trade query id is the query itself**, gzipped and base64url-encoded (`H4sI…`), so a link can be
+  checked offline by decoding it.
+- **The market is convex in top tiers** (Forbidden Rites, 24 packages, 20 priced): one or two
+  tier-1 affixes sell at the 1-Exalted floor (0.0014 divine) on helmets, gloves, body armours,
+  amulets, rings and off-hands; belts, jewels and weapons a little more (0.1 to 0.4); a 4×T1
+  resistance and accuracy helmet 19 divines (4 listed); a 5×T1 ring had two listings, at 4,000 and
+  11,504. The uncalibrated ×4 per tier-1 affix from 0.02 divines was 10 to 50 times too dear for
+  ordinary rares and far too cheap for stacked tier 1s. Fitted: tier 1 ×2.7, tier 2 ×1.7, tier 3
+  ×1.1, ×16 for each tier-1 affix beyond the second, slot bases 0.0006 (helmet) to 0.17 (weapon),
+  typical error ×3.3. Helmets, boots and rings have three samples each and count as calibrated;
+  the other slots stay labelled "estimate (thin data)". Samples with few listings weigh less.
+- **The optimizer builds rares nobody sells.** Four of the ten rares in the 2026-10-23 Infernalist
+  result had no listings at all (6×T1 gloves, a 3×T1 amulet, two 4×T1 jewels): the endgame gear
+  tier allows every affix at tier 1 with 70% rolls. The stack term now prices those out (the gloves
+  near 19,500 divines, the jewels near 220), but a buyability rule (a tier-1 cap per gear tier, or
+  a listing check) belongs in the rare builder.
+- **Strict searches rarely match.** A rare's exact base with every modeled roll usually finds
+  nothing, so links loosen to any base at each tier's floor (the Deadeye ring below: 0 → 753).
+  96% of item affix stat lines map to explicit trade stats; the rest (essence-only, a few shield
+  and jewel lines) are listed as "check by eye".
+- **A real result** (Ice Shot Deadeye, 20 divines, endgame, 4 minutes: `data/results/20261024-144446-run1.json`):
+  feasible, 796k Full DPS, 15.84 divines. The shopping list has nine rares, two uniques, a unique
+  jewel and seven runes, and sums to the spend. The checklist has 14 lines. Trade links checked:
+  Original Sin (831 listed) and the 3×T1 added-damage ring (753 listed, loosened to tier floors).
+  Both decode to the intended query.
+- The built-in browser pane blocks the page's pop-up tab, so a Trade button there only fills in
+  the row's "open" link; in a normal browser it opens the search directly.
 
 ### Phase 3 findings that shape later phases
 
@@ -625,12 +682,12 @@ engine/bridge.lua              only file touching PoB internals
 engine/pob-pin.json            pinned PoB commit
 builder/
   pob/      LuaJIT host (ctypes), engine, worker pool, build codes
-  data/     data dump loader, prices, rare price model
+  data/     data dump loader, prices, rare price model, trade API (rate limits, cache)
   request/  schema, constraint compiler
   search/   context, objective, skeletons, gems, tree, gear, conditions, inner + outer loop,
             baselines (sockets and budget allocation arrive in Phase 3)
   ledger/   schema, predicates, injection
-  report/   result assembly, PoB code, shopping list
+  report/   shopping list + trade searches, rare price calibration job, test-in-game checklist
   web/      FastAPI app + static UI
 ledger/entries/  ledger/proposed/
 benchmarks/    test builds, reference PoB codes, gate/throughput/optimizer/fuzz scripts, results history

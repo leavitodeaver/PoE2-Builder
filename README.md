@@ -29,15 +29,23 @@ uv run pytest                          # request, constraint and search tests
 
 The web page holds the request form and saved requests. **Optimize** runs the search on the
 request in the form (progress streams into the page) and shows the result: Requested vs
-Delivered, a PoB code verified by reloading it, gear with prices, skills, the conditions the build
-sustains and its campaign reward choices. Results are also saved under `data/results/`. The page
+Delivered, a PoB code verified by reloading it, a shopping list (every item with its target affixes,
+tiers and roll ranges, an estimated price with its confidence, and the total against the budget),
+skills, a test-in-game checklist for every number marked * or not modeled, the conditions the build
+sustains and its campaign reward choices. Each shopping-list line has a **Trade** button that makes
+an official trade-site search for it when clicked (never automatically) and opens it. Results are
+also saved under `data/results/`. The page
 also checks any PoB code or poe.ninja / pobb.in share link against the current request. Optional:
-set `POE2_BUILDER_CONTACT` to add a contact to the User-Agent sent to poe.ninja, as their API
-docs ask.
+set `POE2_BUILDER_CONTACT` to add a contact to the User-Agent sent to poe.ninja and the trade
+site, as their API docs ask.
+
+**Calibrate rare prices** (top of the page) prices about 24 representative rares on the official
+trade site, paced by its rate limits (a few minutes), and fits the rare price model to them; the
+next optimizer run uses it. Slots with too little data stay labelled as estimates.
 
 Gear is normal bases, affordable uniques and rares built affix by affix, with runes, Soul Cores
-and Idols in their sockets and jewels in the tree's sockets. Rare prices are an uncalibrated
-estimate for now, and flasks and charms aren't modeled yet. Any skill can be the main skill;
+and Idols in their sockets and jewels in the tree's sockets. Rare prices come from the calibrated
+model (uncalibrated estimates until you calibrate), and flasks and charms aren't modeled yet. Any skill can be the main skill;
 where PoB doesn't model a skill's trigger (e.g. Explosive Transmutation's Remnant pickups), the
 result marks the assumed rate with an asterisk.
 

@@ -83,3 +83,51 @@ def test_flask_slots_switch_on_only_when_a_boss_fight_sustains_them(engine):
     xml = engine.call("exportXml")["xml"]
     assert any('name="Flask 2"' in t and 'active="true"' not in t for t in re.findall(r"<Slot [^>]*>", xml))
     assert build.extra_stats["FlaskManaRecoveryRate"] == 0.0
+
+
+# Weapon swap and seeds ------------------------------------------------------------------------
+
+
+def test_a_required_skill_set_one_cant_use_goes_on_weapon_set_two(engine):
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Explosive Spear", ascendancies=["Ritualist"], offhand="weapon",
+                  require={"skills": ["Ice Shot"]})
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0]
+    search = Search(engine, None, make_payload(ctx.request), skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    groups = {g["gems"][0]["name"]: g for g in search.build.groups() if g["gems"] and not g["fromItem"]}
+    assert (groups["Ice Shot"]["set1"], groups["Ice Shot"]["set2"]) == (False, True)
+    assert groups["Explosive Spear"]["main"] and groups["Explosive Spear"]["set1"]
+    assert search.build.equipped["Weapon 1 Swap"].type == "Bow" and search.build.equipped["Weapon 2 Swap"].type == "Quiver"
+    facts = engine.call("facts", fields=[])
+    must = context(main_skill="Explosive Spear", offhand="weapon", weapon_swap="must", require={"skills": ["Ice Shot"]})
+    check = next(c for c in must.compiled.check(facts) if c.label == "Weapon swap")
+    assert check.ok and "Ice Shot" in check.delivered
+
+
+def test_a_seed_keeps_what_the_request_allows_and_never_ends_below_its_start(engine):
+    from builder import ROOT
+    from builder.search.inner import optimize_task, seed_task
+    from builder.search.skeletons import DUAL_WIELD
+
+    code = (ROOT / "benchmarks" / "reference" / "2b75c.txt").read_text(encoding="utf-8").strip()
+    request = BuildRequest(class_name="Huntress", ascendancies=["Ritualist"], level=90, seed_code=code,
+                           forbid={"uniques": ["Ingenuity"]}, budget={"gear_tier": "endgame"}, objective="boss")
+    payload = make_payload(request)
+    found = seed_task(engine, None, payload)
+    skeleton = found["skeleton"]
+    assert skeleton["seeded"] and skeleton["main_skill"] == "Explosive Spear" and skeleton["offhand"] == DUAL_WIELD
+    result = optimize_task(engine, None, payload, skeleton, 6, seed=1)
+    start = result["seed_start"]
+    assert result["score"] >= start["score"] - 1e-9
+    assert any("Ingenuity" in note and "banned" in note for note in start["notes"])
+    assert any("over a level 90" in note for note in start["notes"])
+    assert all(option.name != "Ingenuity" for option in result["state"]["equipped"].values())
+    budget = engine.call("pointBudget")
+    assert budget["used"] <= budget["passives"]
+    # A request that rules the code's ascendancy out gets no seed skeleton, and says why
+    other = make_payload(BuildRequest(ascendancies=["Deadeye"], seed_code=code))
+    found = seed_task(engine, None, other)
+    assert found["skeleton"] is None and "Ritualist" in found["notes"][0]

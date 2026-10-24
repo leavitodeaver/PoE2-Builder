@@ -1,4 +1,5 @@
-"""Local web app: request form, saved requests, PoB code inspection, price status.
+"""Local web app: request form, saved requests, PoB code inspection, prices and the rare price
+calibration, optimizer runs, and trade-site links for a result's shopping list (made on click).
 
 PoB runs in a worker process (it changes its process's working directory), started on first use.
 """
@@ -21,10 +22,16 @@ from pydantic import BaseModel, ValidationError
 from builder import settings
 from builder.data import GameData
 from builder.data.prices import PriceFeed
+from builder.data.rare_prices import RarePriceModel
+from builder.data.trade import RateLimited, TradeClient, TradeError
 from builder.pob import codes
 from builder.request import schema
 from builder.request.constraints import FACT_FIELDS, compile_request, main_skill, player_buttons
+from builder.report.calibrate import Calibration
+from builder.report.checklist import checklist
+from builder.report.shopping import shopping_list, trade_link
 from builder.request.schema import BuildRequest
+from builder.search.context import make_payload
 from builder.web.runs import RESULTS_DIR, RunManager
 from builder.web.store import RequestStore
 
@@ -61,6 +68,8 @@ store = RequestStore()
 prices = PriceFeed()
 engine = Engine()
 runs = RunManager(prices)
+trade = TradeClient()
+calibration = Calibration(trade, prices, data)
 
 
 @asynccontextmanager
@@ -273,7 +282,20 @@ def get_result(name: str) -> dict:
     path = RESULTS_DIR / name
     if path.parent != RESULTS_DIR or path.suffix != ".json" or not path.exists():
         raise HTTPException(404, "no such result")
-    return json.loads(path.read_text(encoding="utf-8"))
+    result = json.loads(path.read_text(encoding="utf-8"))
+    if result.get("gear") and "shopping" not in result:
+        # Saved before results carried a shopping list: build it with today's prices
+        request = BuildRequest.model_validate(result["request"])
+        try:
+            table = prices.table(request.league, refresh=False)
+        except Exception:
+            table = None
+        payload = make_payload(request, table)
+        result["shopping"] = shopping_list(result, data, {
+            "augments": payload["augment_prices"], "gems": payload["gem_prices"], "league": payload["league"],
+            "rare_model": payload["rare_model"]}, trade.stats(offline=True))
+        result["checklist"] = checklist(result)
+    return result
 
 
 @app.get("/api/prices")
@@ -287,3 +309,50 @@ def refresh_prices(league: str | None = None) -> dict:
     league = league or prices.default_league()
     statuses = prices.refresh(league)
     return {"league": league, "statuses": statuses, **price_status(league)}
+
+
+# Rare price calibration (a user-started job; PLAN.md §7) ---------------------------------------
+
+@app.post("/api/prices/calibrate")
+def start_calibration(league: str | None = None) -> dict:
+    try:
+        return calibration.start(league or prices.default_league())
+    except RuntimeError as error:
+        raise HTTPException(409, str(error))
+
+
+@app.post("/api/prices/calibration/cancel")
+def cancel_calibration() -> dict:
+    calibration.cancel = True
+    return {"ok": True}
+
+
+@app.get("/api/prices/calibration")
+def calibration_status(league: str | None = None) -> dict:
+    league = league or calibration.status.get("league") or prices.default_league()
+    status = {k: v for k, v in calibration.status.items() if k != "samples"}
+    return {"job": status, "model": RarePriceModel.load(league).describe(), "league": league}
+
+
+# Trade links (one search per click, a few at most; never automatic) ----------------------------
+
+class TradeLinkBody(BaseModel):
+    item: dict
+    part: str = "item"  # "item", or "rune:<name>" for something in its sockets
+    league: str | None = None
+
+
+@app.post("/api/trade/link")
+def make_trade_link(body: TradeLinkBody) -> dict:
+    league = body.league or prices.default_league()
+    if body.part != "item" and not body.part.startswith("rune:"):
+        raise HTTPException(422, "part must be 'item' or 'rune:<name>'")
+    try:
+        return {"league": league, **trade_link(trade, league, body.item, body.part)}
+    except RateLimited as error:
+        raise HTTPException(429, f"The trade site asks us to wait: try again in {error.wait:.0f}s "
+                                 "(its rate limit; your open trade-site tabs count too)")
+    except TradeError as error:
+        raise HTTPException(502, str(error))
+    except (KeyError, TypeError) as error:
+        raise HTTPException(422, f"not a shopping-list item ({error})")

@@ -328,10 +328,17 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
         checks.append(offhand_check)
     if request.weapon_swap != WeaponSwap.MAY:
         def swap_check(f: dict) -> CheckResult:
-            used = any(i["slot"].endswith("Swap") for i in f["items"])
-            ok = used if request.weapon_swap == WeaponSwap.MUST else not used
-            return CheckResult("Weapon swap", request.weapon_swap, "used" if used else "not used", ok,
-                               "approximate: checks for gear in the swap slots")
+            gear = any(i["slot"].endswith("Swap") for i in f["items"])
+            # Skill groups only weapon set 2 uses (item-granted groups, e.g. a weapon's default
+            # attack, don't count as using it)
+            on_two = [g["gems"][0]["name"] for g in f["skillGroups"] if g["enabled"] and not g["fromItem"]
+                      and g["gems"] and g.get("set1", True) is False]
+            used = gear and bool(on_two)
+            ok = used if request.weapon_swap == WeaponSwap.MUST else not gear and not on_two
+            delivered = (f"set 2: {listing(on_two)}" if used else "set 2 gear, no skill on it" if gear
+                         else "skills on set 2 without gear" if on_two else "not used")
+            return CheckResult("Weapon swap", request.weapon_swap, delivered, ok,
+                               "a skill group assigned to weapon set 2 only, with gear in the swap slots")
         checks.append(swap_check)
 
     if request.defence != DefenceStyle.ANY:
