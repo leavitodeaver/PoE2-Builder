@@ -22,7 +22,7 @@ from builder.request.schema import GearTier
 from builder.search.rares import EFFECT, JEWEL_CRAFTS, TIER_RULES, boosted, mod_lines, roll
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
-SLOT_ORDER = ["Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Belt"]
+SLOT_ORDER = ["Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Ring 3", "Belt"]
 LINK_STATUS = "available"  # instant buyout and in-person sellers who are online
 WEAPON_CATEGORY = {
     "Bow": "weapon.bow", "Crossbow": "weapon.crossbow", "Talisman": "weapon.talisman", "Wand": "weapon.wand",
