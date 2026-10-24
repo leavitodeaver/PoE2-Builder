@@ -18,6 +18,7 @@ from collections.abc import Callable
 from typing import Any
 
 from builder.data.trade import TradeClient
+from builder.pob import codes
 from builder.pob.pool import EnginePool, WorkerError, default_workers
 from builder.report.checklist import checklist
 from builder.report.shopping import shopping_list
@@ -68,6 +69,7 @@ class Run:
         self.probes: dict[str, dict] = {}  # skeleton label -> latest result
         self.live: dict[int, dict] = {}  # task index -> latest progress
         self.evals_done = 0
+        self.seed_start: dict | None = None  # the PoB code's own numbers under this request
         self.best: dict | None = None
 
     # Events ------------------------------------------------------------------------------------
@@ -107,6 +109,8 @@ class Run:
             if result is None:
                 continue
             self.evals_done += result.get("evals", 0)
+            if result.get("seed_start") and self.seed_start is None:
+                self.seed_start = result["seed_start"]
             # Ranked on the request's goal, whichever the search had; its own goal picks the state
             # its line of searches continues from
             result["search_value"] = result.get("value", result["dps"])
@@ -191,6 +195,39 @@ class Run:
             return [], ["no allowed skill deals damage in PoB with the allowed weapons"]
         return enumerate_skeletons(self.ctx, shortlist)
 
+    def resolve_seed(self) -> None:
+        """The request's PoB code, or the code behind a pasted share link; dropped with a note if
+        it's neither."""
+        code = self.request.seed_code.strip()
+        try:
+            codes.decode(code)
+        except Exception:
+            try:
+                from builder.web.app import resolve_code
+
+                code = resolve_code(code)
+                codes.decode(code)
+            except Exception as error:
+                self.notes.append(f"Your PoB code couldn't be read ({str(error)[:120]}); the search started from scratch.")
+                code = None
+        self.payload["request"]["seed_code"] = code
+
+    def with_seed(self, pool: EnginePool, skeletons: list[Skeleton]) -> list[Skeleton]:
+        """Add the PoB code's skeleton (PLAN.md §5.1): its search starts from the code and never
+        ends below it."""
+        found = pool.run_tasks([("builder.search.inner:seed_task", {"payload": self.payload})])[0]
+        if isinstance(found, WorkerError):
+            self.notes.append(f"Your PoB code couldn't be loaded ({str(found).strip().splitlines()[-1][:200]}); "
+                              "the search started from scratch.")
+            return skeletons
+        if found["skeleton"] is None:
+            self.notes.append("The search didn't start from your PoB code: " + "; ".join(found["notes"]) + ".")
+            return skeletons
+        seed = Skeleton(**found["skeleton"])
+        self.notes += [f"Your PoB code: {note}." for note in found["notes"]]
+        self.emit("status", message=f"Starting one line of searches from your PoB code ({seed.label})")
+        return [seed] + [s for s in skeletons if s.label != seed.label]
+
     def plan(self, count: int) -> tuple[float, float]:
         """(probe seconds, finalize seconds) for `count` skeletons in the time left."""
         finalize = min(FINALIZE_MAX, FINALIZE_SHARE * self.seconds)
@@ -203,7 +240,7 @@ class Run:
         if self.ctx.compiled.errors:
             return self.result_invalid()
         if self.request.seed_code:
-            self.notes.append("Seed codes aren't used yet (they arrive with gate 4 in Phase 3); the search started from scratch.")
+            self.resolve_seed()
         if self.request.objective != "boss":
             goal = ("clear speed" if self.request.objective == "mapping"
                     else "the geometric mean of boss DPS and clear speed")
@@ -215,6 +252,8 @@ class Run:
         with EnginePool(self.workers) as pool:
             self.emit("status", message=f"Workers ready in {pool.startup_seconds:.1f}s")
             skeletons, problems = self.skeletons(pool)
+            if self.payload["request"].get("seed_code"):
+                skeletons = self.with_seed(pool, skeletons)
             self.emit("skeletons", count=len(skeletons), labels=[s.label for s in skeletons], problems=problems)
             if not skeletons:
                 return self.result_infeasible(problems)
@@ -347,6 +386,12 @@ class Run:
                               f"effects that need enemies to die ({', '.join(final['excluded_from'])}); a single boss "
                               "never triggers them, so they're left out of the boss DPS above (the clear estimate "
                               "counts them).")
+        if self.seed_start:
+            start = self.seed_start
+            taken = "; ".join(start["notes"])
+            self.notes.append(f"Your PoB code measured {start['dps']:,.0f} boss DPS here, with only the conditions "
+                              "the build sustains and the request applied" + (f" ({taken})" if taken else "")
+                              + f". Its line of searches never ends below that; this result: {final['dps']:,.0f}.")
         for flask in final.get("flasks") or []:
             if not flask["counted"]:
                 self.notes.append(f"{flask['slot']} ({flask['name']}): charge generation keeps its effect up "
@@ -377,6 +422,7 @@ class Run:
             "gear": final["gear"], "spent": spent, "groups": final["groups"], "conditions": final["conditions"],
             "quests": final["quests"], "warnings": facts["warnings"], "skeleton_problems": problems,
             "assumptions": final.get("assumptions") or [], "flasks": final.get("flasks") or [],
+            "seed": self.seed_start,
             "blind_spots": annotate_blind_spots(final.get("blind_spots") or []),
             "timing": final.get("timing"), "escalations": final.get("escalations"),
             "requirement_weights": final.get("multipliers"),
