@@ -72,6 +72,8 @@ class RunRecord:
     cancel: bool = False
     started: float = field(default_factory=time.time)
     total_seconds: float = 0.0  # the search time, counted from `started`
+    segment_end: float = 0.0  # when the search in progress ends, counted from `started`
+    extended: bool = False  # the search time was raised: continue when the search in progress ends
     pending: BuildRequest | None = None  # an edit waiting for the search in progress to stop
     closing: bool = False  # the last search is over: edits can no longer be applied
     restarts: int = 0
@@ -129,6 +131,10 @@ class RunManager:
                 return {"restarting": False, "changed": []}
             if "effort_minutes" in changed:
                 record.total_seconds = request.effort_minutes * 60.0
+            if changed == ["effort_minutes"] and record.total_seconds >= record.segment_end:
+                # More time and nothing else: no need to stop anything; the search continues when this one ends
+                record.extended = record.total_seconds - record.segment_end >= MIN_CONTINUE_SECONDS
+                return {"restarting": False, "changed": changed, "extended": record.extended}
             record.pending = request
             self._note(record, "status", "Request changed: stopping the search step in progress, "
                                          "keeping its best build, to continue with the new settings")
@@ -138,10 +144,16 @@ class RunManager:
     def _note(record: RunRecord, kind: str, message: str, **extra) -> None:
         record.events.append({"kind": kind, "t": round(time.time() - record.started, 2), "message": message, **extra})
 
-    def _emit(self, record: RunRecord, offset: float) -> Callable[[dict], None]:
+    def _emit(self, record: RunRecord, offset: float, carrying: bool = False) -> Callable[[dict], None]:
         """The event sink of one search: its times count from the start of the whole run."""
         def emit(event: dict) -> None:
             event = {**event, "t": round(event["t"] + offset, 2)}
+            if carrying:  # the optimizer calls a seed "your PoB code"; here it is the build carried over
+                for key in ("message", "skeleton"):
+                    if isinstance(event.get(key), str):
+                        event[key] = event[key].replace("your PoB code", "the carried-over build")
+                if "labels" in event:
+                    event["labels"] = [label.replace("your PoB code", "the carried-over build") for label in event["labels"]]
             if event["kind"] == "best_build":
                 self._summarize_later(record, event)  # carries a whole PoB file, so it stays out of the log
             else:
@@ -192,13 +204,19 @@ class RunManager:
             if stopped:
                 seconds = max(seconds, MIN_CONTINUE_SECONDS)
                 record.total_seconds = max(record.total_seconds, offset + seconds)
+            record.segment_end = offset + seconds
             # Read the worker setting per search, so a change on the page applies to the next one
             result = web_run(request, prices=prices, workers=settings.workers(), seconds=seconds,
-                             on_event=self._emit(record, offset),
+                             on_event=self._emit(record, offset, carrying),
                              should_cancel=lambda: record.cancel or record.pending is not None)
             with self.lock:
+                remaining = record.total_seconds - (time.time() - record.started)
                 follow = None if record.cancel else record.pending
-                record.pending = None
+                if follow is not None and remaining < MIN_CONTINUE_SECONDS and changed_fields(ran, follow) == ["effort_minutes"]:
+                    follow = None  # the search time was cut and nothing else changed: this search's result is the answer
+                elif follow is None and record.extended and not record.cancel and remaining >= MIN_CONTINUE_SECONDS:
+                    follow = record.request  # the search time was raised: carry on for the time added
+                record.pending, record.extended = None, False
                 record.closing = follow is None
             if follow is None:
                 break
@@ -231,7 +249,14 @@ class RunManager:
                       evals_per_second=round(evaluations / elapsed) if elapsed > 0 else 0)
         notes = result.setdefault("notes", [])
         if carrying:
-            notes[:] = [n.replace("Your PoB code", CARRIED.capitalize()).replace("your PoB code", CARRIED) for n in notes]
+            def relabel(text: str) -> str:
+                return text.replace("Your PoB code", CARRIED.capitalize()).replace("your PoB code", CARRIED)
+
+            notes[:] = [relabel(n) for n in notes]
+            if isinstance(result.get("label"), str):
+                result["label"] = relabel(result["label"])
+            for probe in result.get("probes") or []:
+                probe["skeleton"] = relabel(probe["skeleton"])
         count = len(stopped)
         notes.append(f"The request was edited {count} time{'s' if count != 1 else ''} while the search ran. Each time, the "
                      "search stopped, kept its best build and continued from it with the new settings, so the evaluations "

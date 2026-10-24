@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -71,6 +72,8 @@ def test_edit_continues_from_the_best_build(monkeypatch, tmp_path):
         else:
             result["code"] = "CODE-2"
             result["notes"] = ["Your PoB code measured 5 boss DPS here."]
+            result["label"] = "Mercenary · Ice Shot · from your PoB code"
+            result["probes"] = [{"skeleton": "Mercenary · Ice Shot · from your PoB code"}]
         return result
 
     monkeypatch.setattr(runs_module, "web_run", fake_run)
@@ -97,6 +100,7 @@ def test_edit_continues_from_the_best_build(monkeypatch, tmp_path):
     assert result["request"]["seed_code"] is None  # the carried build is the search's seed, not the user's request
     assert result["evaluations"] == 200
     assert any("carried over" in note for note in result["notes"])
+    assert "your PoB code" not in result["label"] and "your PoB code" not in result["probes"][0]["skeleton"]
     assert any("edited 1 time" in note for note in result["notes"])
     assert [e["kind"] for e in record.events if e["kind"] == "restart"] == ["restart"]
     assert (tmp_path / result["saved_as"]).exists()
@@ -104,3 +108,53 @@ def test_edit_continues_from_the_best_build(monkeypatch, tmp_path):
     # A finished run takes no more edits
     with pytest.raises(RuntimeError):
         manager.update(record.id, edited.model_copy(update={"max_buttons": 5}))
+
+
+def scripted_runs(monkeypatch, tmp_path, release):
+    """Fake searches: the first waits for `release` or a cancel, any later one ends at once."""
+    calls = []
+
+    def fake_run(request, prices=None, workers=1, seconds=None, on_event=None, should_cancel=None):
+        calls.append({"seed": request.seed_code, "seconds": seconds, "effort": request.effort_minutes,
+                      "cancelled_early": False})
+        result = {"status": "ok", "evaluations": 1, "seconds": 1.0, "notes": [], "code": f"CODE-{len(calls)}"}
+        if len(calls) == 1:
+            while not release.is_set() and not should_cancel():
+                time.sleep(0.01)
+            calls[0]["cancelled_early"] = should_cancel()
+        return result
+
+    monkeypatch.setattr(runs_module, "web_run", fake_run)
+    monkeypatch.setattr(runs_module, "RESULTS_DIR", tmp_path)
+    return calls
+
+
+def test_more_search_time_extends_without_stopping(monkeypatch, tmp_path):
+    release = threading.Event()
+    calls = scripted_runs(monkeypatch, tmp_path, release)
+    manager = RunManager(NoPrices())
+    request = BuildRequest(effort_minutes=3)
+    record = manager.start(request)
+    wait(lambda: len(calls) == 1)
+    answer = manager.update(record.id, request.model_copy(update={"effort_minutes": 10}))
+    assert answer == {"restarting": False, "changed": ["effort_minutes"], "extended": True}
+    time.sleep(0.2)
+    assert record.pending is None and record.status == "running"  # the search in progress wasn't stopped
+    release.set()
+    wait(lambda: record.status != "running")
+    # When it ended, the search carried on from its best build for the time added
+    assert len(calls) == 2 and not calls[0]["cancelled_early"]
+    assert calls[1]["seed"] == "CODE-1" and calls[1]["effort"] == 10 and 300 < calls[1]["seconds"] <= 600
+
+
+def test_cutting_search_time_below_what_is_spent_ends_the_run(monkeypatch, tmp_path):
+    calls = scripted_runs(monkeypatch, tmp_path, threading.Event())
+    manager = RunManager(NoPrices())
+    request = BuildRequest(effort_minutes=3)
+    record = manager.start(request)
+    wait(lambda: len(calls) == 1)
+    record.started -= 100  # 100 s in: a minute is already used up
+    assert manager.update(record.id, request.model_copy(update={"effort_minutes": 1}))["restarting"] is True
+    wait(lambda: record.status != "running")
+    assert len(calls) == 1 and calls[0]["cancelled_early"]  # stopped, with its result as the answer
+    assert record.result["request"]["effort_minutes"] == 1 and record.restarts == 0

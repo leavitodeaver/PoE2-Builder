@@ -135,6 +135,8 @@ async function applyLive() {
     if (result.restarting) {
       showNotice("Request changed: finishing the search step in progress, then continuing from the best build so far "
         + "with the new settings…");
+    } else if (result.extended) {
+      showNotice("Search time raised: the search carries on from its best build when the current one ends, for the time added.");
     }
   } catch (error) {
     // A request with errors restarts nothing; the run goes on with the last request that was good
