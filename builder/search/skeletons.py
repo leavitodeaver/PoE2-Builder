@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from builder.request.constraints import NOT_A_BUTTON
+from builder.request.constraints import meta_socketed, presses
 from builder.request.schema import Offhand
 from builder.search.context import TWO_HANDED, Context
 
@@ -38,7 +38,7 @@ class Skeleton:
 
 
 def is_button(gem: dict) -> bool:
-    return not gem["support"] and not (set(gem["skillTypes"]) & NOT_A_BUTTON)
+    return presses(gem)
 
 
 def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
@@ -121,13 +121,15 @@ def skill_problems(ctx: Context, skill: str) -> list[str]:
     if skill in ctx.compiled.filters.forbidden_gems:
         return [f"{skill} is banned by the request"]
     buttons = {skill} if skill in ctx.gems and is_button(ctx.gems[skill]) else set()
+    # Required spells the setup sockets into a required meta skill are triggered by it, not pressed
+    socketed = meta_socketed([n for n in ctx.request.require.skills if n != skill], ctx.gems)
     for name in ctx.request.require.skills:
         gem = ctx.gems.get(name)
         if gem is None:
             if ctx.skill_source(name) is None:
                 return [f"required skill {name} isn't a gem, and no allowed passive or unique grants it"]
             continue  # it comes with its source, and granted skills aren't buttons
-        if is_button(gem):
+        if is_button(gem) and name not in socketed:
             buttons.add(name)
     cap = ctx.request.max_buttons
     if cap is not None and len(buttons) > cap:

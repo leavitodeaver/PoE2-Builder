@@ -15,7 +15,7 @@ import time
 from typing import Any
 
 from builder.pob import codes
-from builder.request.constraints import FACT_FIELDS
+from builder.request.constraints import FACT_FIELDS, meta_socketed
 from builder.search.assumptions import Assumptions
 from builder.search.conditions import Conditions
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
@@ -83,7 +83,8 @@ class Search:
         # A required meta skill that gains Energy (Cast on Critical, an Invocation) gets the other
         # required spells socketed: it triggers them, fed by the main skill (models.energy_model)
         metas = [n for n in required if {"Meta", "GeneratesEnergy"} <= self.gem_types(n)]
-        socketed = [n for n in required if metas and n not in metas and {"Spell", "Triggerable"} <= self.gem_types(n)]
+        in_meta = meta_socketed(required, self.ctx.gems)
+        socketed = [n for n in required if n in in_meta]
         for name in required:
             if name in socketed:
                 continue

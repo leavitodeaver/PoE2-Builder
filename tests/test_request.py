@@ -82,6 +82,36 @@ def test_button_count_skips_persistent_meta_and_triggered():
     assert player_buttons(facts) == ["Ice Shot", "Barrage", "Pinnacle of Power"]
 
 
+def test_invocations_are_pressed_but_their_spells_are_not():
+    def gem(name, *types):
+        return {"name": name, "support": False, "enabled": True, "skillTypes": list(types), "tags": []}
+
+    facts = {"skillGroups": [
+        {"enabled": True, "fromItem": False, "main": True, "gems": [gem("Spark", "Spell", "Triggerable")]},
+        {"enabled": True, "fromItem": False, "main": False, "gems": [
+            gem("Elemental Invocation", "Meta", "Persistent", "Invocation", "GeneratesEnergy"),
+            gem("Comet", "Spell", "Triggerable")]},
+        {"enabled": True, "fromItem": False, "main": False, "gems": [
+            gem("Cast on Critical", "Meta", "Persistent", "GeneratesEnergy"), gem("Frost Bomb", "Spell", "Triggerable")]},
+    ]}
+    assert player_buttons(facts) == ["Spark", "Elemental Invocation"]
+
+
+def test_skeletons_count_invocations_and_not_the_spells_a_meta_triggers(data):
+    from builder.search.context import Context, make_payload
+    from builder.search.skeletons import skill_problems
+
+    def problems(**body):
+        return skill_problems(Context(make_payload(BuildRequest(main_skill="Spark", **body))), "Spark")
+
+    # Comet goes into Cast on Critical (inner.Search.setup), so only Spark is pressed
+    assert problems(max_buttons=1, require={"skills": ["Cast on Critical", "Comet"]}) == []
+    # An Invocation is pressed to release its Energy: Spark + Elemental Invocation is two
+    found = problems(max_buttons=1, require={"skills": ["Elemental Invocation", "Comet"]})
+    assert found and "Elemental Invocation" in found[0] and "Comet" not in found[0]
+    assert problems(max_buttons=2, require={"skills": ["Elemental Invocation", "Comet"]}) == []
+
+
 def test_checks_on_a_real_build(data):
     """The user's Acolyte build (reference 2b75b) against the Explosive Transmutation request."""
     from builder.pob.pool import EnginePool

@@ -299,9 +299,9 @@ and every effect is listed in the result with its basis and confidence:
 
 Not modeled yet: other Archons (Undeath, Nature's; Archon of Chayula is a PoB skill), Seething
 Body's hold at High Infernal Flame, Ritual Cadence, other meta gems, supports for spells a meta gem
-triggers, a meta gem the optimizer picks by itself, hits per use (Spark's projectiles) for
-Energy, and Invocations as buttons (they're pressed; the button heuristic counts meta gems as
-free). Still needing a custom model: Blood Mage's Sanguine Tides, Thorns on melee hit,
+triggers, a meta gem the optimizer picks by itself, and hits per use (Spark's projectiles) for
+Energy. Invocations count as buttons (you press them to release their Energy); the spells a meta
+gem triggers don't. Still needing a custom model: Blood Mage's Sanguine Tides, Thorns on melee hit,
 Endurance-charge consumption, Empowered-attack extra damage.
 
 ## 7. Data and prices
@@ -472,8 +472,9 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   and the Phase 2 generators must treat them as hard limits (one of the user's own builds
   breaks two of them).
 - **Button counting is a heuristic** from skill types: persistent, meta, triggered (by a meta gem
-  in the same group or inbuilt) and item-granted skills don't count. Results label it
-  approximate; the user can correct it per build if it misjudges a skill.
+  in the same group or inbuilt) and item-granted skills don't count, except Invocations, which
+  are pressed (2026-10-24; `constraints.presses`, shared by skeletons, setup and the final check).
+  Results label it approximate; the user can correct it per build if it misjudges a skill.
 - **Prices:** poe.ninja now covers runes, Soul Cores and Idols, so the poe2scout fallback was
   dropped (revisit only if poe.ninja has outages). 427 of PoB's 441 uniques have a price; the
   rest need Phase 3's estimate (never 0). Single-listing troll prices exist (38M divine), so
