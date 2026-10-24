@@ -150,3 +150,34 @@ def test_a_loaded_build_never_reads_the_previous_builds_cached_skills(engine):
         pool.broadcast("facts", fields=[])
         pool.broadcast("loadXml", xml=second)
         assert pool.broadcast("facts", fields=[])[0]["warnings"] == []
+
+
+def test_changing_a_groups_gems_keeps_the_chosen_stat_set(engine):
+    """The skill part and stat set PoB calculates live on the gem; rewriting the group's gems (a
+    support swap, or undoing one) used to reset Glacial Lance from Explosion to Spear (1.02M to
+    613k on the user's run)."""
+    ctx = context(main_skill="Glacial Lance")
+    engine.call("newBuild")
+    engine.call("setClass", className="Huntress", ascendancy="Amazon")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", raw=normal_item(base_of(ctx, "Spear")), fields=[])
+    fields = ["CombinedDPS"]
+    group = engine.call("setGroup", gems=[{"name": "Glacial Lance", "level": 20, "quality": 20}], main=True,
+                        fields=fields)["group"]
+    assert group["skills"][0]["statSets"] == ["Spear", "Explosion"]
+    spear = engine.call("stats", fields=fields)["CombinedDPS"]
+    explosion = engine.call("setGroup", index=group["index"], statSet=2, fields=fields)["stats"]["CombinedDPS"]
+    assert explosion != spear
+    with_support = [{"name": "Glacial Lance", "level": 20, "quality": 20}, {"name": "Elemental Focus", "level": 20, "quality": 0}]
+    engine.call("setGroup", index=group["index"], gems=with_support, fields=fields)
+    undone = engine.call("setGroup", index=group["index"], gems=with_support[:1], fields=fields)["stats"]["CombinedDPS"]
+    assert undone == explosion
+
+
+def test_gem_requirements_per_level_match_pob(engine):
+    levels = engine.call("gemRequirements", names=["Elemental Conflux", "Herald of Ice"])["gems"]
+    conflux = {entry["level"]: entry for entry in levels["Elemental Conflux"]}
+    assert (conflux[20]["levelRequirement"], conflux[20]["int"], conflux[20]["str"]) == (90, 157, 0)
+    assert conflux[1]["int"] == 0 and conflux[10]["int"] < conflux[20]["int"]
+    herald = {entry["level"]: entry for entry in levels["Herald of Ice"]}
+    assert herald[20]["dex"] == herald[20]["int"] == 86

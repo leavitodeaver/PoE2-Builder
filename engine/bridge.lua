@@ -614,6 +614,27 @@ local function setGemRequirements(instance)
 	instance.reqInt = calcLib.getGemStatRequirement(instance.reqLevel, instance.gemData.reqInt, effect.support)
 end
 
+-- Character level and attributes each level of each gem needs, as PoB computes them: lets the
+-- search use a gem at the highest level the build can actually equip
+function bridge.gemRequirements(args)
+	local results = setmetatable({ }, { __jsontype = "object" })
+	for _, name in ipairs(args.names) do
+		local gemData = gemByName(name)
+		local levels = { }
+		for level = 1, args.maxLevel or 20 do
+			local instance = { gemData = gemData, level = level }
+			if not gemData.grantedEffect.levels[level] then
+				break
+			end
+			setGemRequirements(instance)
+			levels[#levels + 1] = { level = level, levelRequirement = instance.reqLevel,
+				str = instance.reqStr, dex = instance.reqDex, int = instance.reqInt }
+		end
+		results[name] = levels
+	end
+	return { gems = results }
+end
+
 local function gemInstance(gemData, level, quality)
 	local instance = {
 		level = level or gemData.naturalMaxLevel, quality = quality or 0, count = 1, enabled = true,
@@ -676,10 +697,23 @@ function bridge.setGroup(args)
 		args.index = #list
 	end
 	if args.gems then
+		-- The skill part and stat set PoB calculates (e.g. Glacial Lance's Explosion) live on the
+		-- gem instance; carry them over, or every support change would quietly reset them
+		local kept = { }
+		for _, old in ipairs(group.gemList or { }) do
+			local name = old.gemData and old.gemData.name
+			if name and not kept[name] then
+				kept[name] = { skillPart = old.skillPart, skillPartCalcs = old.skillPartCalcs,
+					statSet = old.statSet, statSetCalcs = old.statSetCalcs }
+			end
+		end
 		group.gemList = { }
 		for _, spec in ipairs(args.gems) do
 			local instance = gemInstance(gemByName(spec.name), spec.level, spec.quality)
 			instance.enabled = spec.enabled ~= false
+			for key, value in pairs(kept[spec.name] or { }) do
+				instance[key] = value
+			end
 			group.gemList[#group.gemList + 1] = instance
 		end
 		build.skillsTab:ProcessSocketGroup(group)
