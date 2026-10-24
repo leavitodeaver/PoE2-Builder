@@ -165,7 +165,9 @@ Constraints compile into three layers:
 
 ### 5.1 Outer loop: skeletons
 
-A **skeleton** is ascendancy + main skill + weapon archetype (+ seed). The tool enumerates every
+A **skeleton** is ascendancy + main skill + weapon archetype (main hand + off hand: Shield, Focus,
+Quiver or a second weapon) (+ weapon set 2) (+ seed). A pasted PoB code is one more skeleton whose
+searches start from it and never end below it. The tool enumerates every
 skeleton the request allows, gives each a short **probe** (about 20–40 s of inner optimization),
 then puts the remaining time into the best K, in parallel across workers. If no main skill is
 given, it shortlists skills by probe first. Ascendancy is never fixed by accident: every legal one
@@ -185,14 +187,18 @@ ends better.
    - **Prune and regrow:** score removing each leaf branch, swap in better paths, repeat.
    - Multi-target Steiner heuristic for clusters reached through shared travel nodes.
    - Exact enumeration of ascendancy allocations (the space is small).
-   - Weapon-set passive points; attribute-node stat choices.
+   - Attribute-node stat choices. (Weapon-set passive points: not modeled, see the Phase 3
+     follow-up findings.)
 3. **Gear.** For each slot the candidates are:
    - affordable uniques from the price feed
    - **rare templates** built affix by affix: pick a base, then add the affix with the best score
      gain. Respects prefix/suffix limits, mod groups, item level and tier caps.
 
    Budget is spread across slots with a Lagrangian: maximize DPS − λ·cost, with λ bisected until
-   total cost fits the divine cap.
+   total cost fits the divine cap. Flasks (Life in Flask 1, Mana in Flask 2) and charms are slots
+   too (normal bases, priced uniques, magic items with one prefix and one suffix), switched on only
+   while a boss fight sustains them. With a weapon set 2, its weapons are slots of their own and
+   a weapon-set block tries the other active skills on set 2.
 4. **Sockets.** Runes, Soul Cores, Idols, Ancient Augments and jewels, assigned to compatible
    sockets. Bonded and one-per-character rules are enforced.
 5. **Repair.** Fix any remaining deficit at the smallest DPS loss.
@@ -440,7 +446,7 @@ Endurance-charge consumption, Empowered-attack extra damage.
 | **0. Cleanup + engine spike** ✅ 2026-10-22 | Deleted `target*`, `dist`, stray `--help` (~262 GB freed); old source/docs in `legacy/`; `git init`; PoB2 dev pinned; headless boot on PoB's LuaJIT; bridge; test builds; gates; worker pool; release cross-check tool | Gates 1–3 pass on 4 generated builds and 5 of the user's builds; the release reproduces the PoB app's numbers exactly on all 5; ~3,200 what-ifs/s measured |
 | **1. Data, requests, UI shell** ✅ 2026-10-22 | Data dump (`python -m builder.data dump`); poe.ninja price feed; request schema + constraint compiler with tests; local web page (`python -m builder.web`): request form, saved requests, paste a code or share link → stats + Requested vs Delivered | Done. The progress stream moves to Phase 2 with the optimizer it reports on |
 | **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×8.5, Boneshatter Titan ×3.6, Raise Zombie Infernalist ×9.7 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-023030.json`), all feasible, code verified, independent recheck agrees. Gate 5: 30/30 random requests over three seeds. Gates 1–3 still pass, fidelity exact on the release |
-| **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; a rare price model (uncalibrated until the user calibrates it); λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets); rare price calibration against the official trade site ✅ 2026-10-24 (§7, Phase 5 findings). Not yet: flasks/charms, radius/Time-Lost jewels, corruption/desecration | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled. The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
+| **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; a rare price model (uncalibrated until the user calibrates it); λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets); rare price calibration against the official trade site ✅ 2026-10-24 (§7, Phase 5 findings); dual wielding, weapon swap, flasks and charms, seed codes and the Ritualist's third ring ✅ 2026-10-24 (Phase 3 follow-up findings). Not yet: radius/Time-Lost jewels, corruption/desecration, weapon-set passive points | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled then; now dual wielding and the Ritualist's third ring are modeled: ×0.05 on the final code (`benchmarks/results/gate4-20261024-162050.json`) and ×0.23 in a run whose build found an ignite source (the resolver's "enemy ignited" alone was worth 5×), every floor met in both; under this tool's rules the reference itself measures 2.42M when loaded as a seed and is short of Spirit, and the rest of the gap is an item-granted keystone (Black Scythe Training) and Megalomaniac and Heart of the Well, which the search doesn't propose. The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
 | **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all); custom models for Elemental Archon, meta-skill Energy, Darkness, Traveller's Wisdom and Elemental Expression (§6). Not yet: approval queue, calibration form, exploits, the remaining custom models | Asterisked results; at least one exploit that works on the current patch modeled end to end |
 | **5. Results polish** (started 2026-10-24) | Done: Requested vs Delivered; shopping list in every result (slot, base, a rare's target affixes with tier and roll range, a unique's name and variant, runes and lineage gems, price with its confidence, total against the budget) with official trade-site links made on click; test-in-game checklist for every asterisked or not-modeled line. Not yet: saved history | Gate 6 |
 | **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research; recheck the 0.5 jewel craft (`JEWEL_CRAFTS`: four mods plus the effect line) and the tier-1 cap; recalibrate rare prices | All gates green on 1.0 data |
@@ -511,6 +517,55 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
 - The built-in browser pane blocks the page's pop-up tab, so a Trade button there only fills in
   the row's "open" link; in a normal browser it opens the search directly.
 
+### Phase 3 follow-up findings: dual wielding, weapon swap, flasks and charms, seeds (2026-10-24)
+
+- **Dual wielding follows PoB's slot rule** (`ItemsTab:IsItemValidForSlot`): a Sceptre goes beside
+  any one-handed weapon; other one-handers except Spears too, but not beside a Wand or Sceptre;
+  two-handers only with keystones (Giant's Blood and the like, not modeled). Offhand "weapon" gives
+  a dual-wield skeleton and "any" adds one per one-handed main hand. The off-hand slot offers every
+  legal type and the gear block picks one (the Ritualist reference holds a Sceptre). The type list
+  is checked against PoB for Spear, Wand and One Hand Mace main hands (`tests/test_engine_items.py`).
+  Gate 4 now maps a reference's Sceptre or one-handed off hand to "weapon".
+- **Weapon swap is PoB's weapon-set model.** A skill group is on set 1, set 2 or both; PoB
+  calculates a set-2-only group in a second environment with set 2's weapons and carries its buffs
+  and debuffs to the main skill (what-ifs on the swap slots match commits; codes reload exactly).
+  A skeleton gets a weapon set 2 when a required skill can't use set 1's weapons (Ice Shot beside an
+  Explosive Spear: swap Bow + Quiver, its group on set 2 only) or when swap is a must (a copy of set
+  1's weapon types). A weapon-set block tries each other active group on set 2 alone and keeps what
+  scores better; under a must, the cheapest one goes there if none pays. Persistent skills never go
+  on set 2: their Spirit and buffs would come from the set not in use (the disabled-weapon-set
+  grant, removed in 0.5.5). The check wants a non-item group on set 2 and gear in the swap slots.
+- **Weapon-set passive points aren't worth modeling yet.** In PoB's accounting, allocated passives
+  minus min(set-1 points, set-2 points) must fit the normal budget and each set's points are capped
+  at the quest points, so each set sees as many passives as it would without them. They only let set
+  2's passives differ from set 1's, which pays only through set-2 skills' buffs; a build that never
+  swaps gains nothing.
+- **Flasks and charms, in a boss fight** (`builder/search/flasks.py`). Nothing dies, so charges come
+  only from generation (passives, gear, a flask's own "gains charges per second"). An effect counts
+  only while generation keeps it up 90% of the fight; otherwise its slot stays switched off in the
+  code and the result says why. Life and Mana flask recovery counts toward the sustain floor at the
+  rate generated charges pay for (one use per duration at most). Charms triggered by killing a Rare
+  or Unique never count; charms beyond the belt's charm limit are dropped. So most builds carry none:
+  without charge generation they're worth nothing, and the Ritualist reference's two unique flasks
+  and three charms count nothing here (no generation, uptime 0).
+- **Seed codes** (`seed_task`, `Search.setup_seed`): the code's ascendancy, main skill (the
+  request's, if the code has it) and weapons make one more skeleton, first in line. Its search loads
+  the code, takes out what the request doesn't allow (banned gems, uniques, item classes and
+  passives; buttons over the cap; weapons the skeleton doesn't hold, swap gear included when no skill
+  uses set 2; the dearest priced items while over budget; passives over the request level's points,
+  weakest branches first), adds what it requires, resolves conditions from evidence (the code's own
+  configuration isn't trusted) and switches flasks by the uptime rule. That start is a snapshot the
+  search never ends below (gate 4's "never worse"). Uniques are priced from the table; the code's
+  rares and magic items count as the user's own (no price). Share links are resolved as on the web
+  page, and the result reports the code's own numbers under the request. The Ritualist reference
+  starts 2.42M but short of Spirit once its weapon-set-2 items go (they fed set 1 through the removed
+  grant), so its line trades damage for a legal build.
+- **A third ring.** Ritualist's Unfurled Finger adds Ring 3, which PoB ignores until the passive is
+  allocated, and the ascendancy round valued the passive at nothing while the slot was empty. Such
+  skeletons now start with a free normal ring there.
+- **Gate 5** also draws dual wielding, weapon swap (must and never), a required second attack,
+  Flask/Charm/Sceptre bans and seed codes now: 30/30 over seeds 1–3 (`benchmarks/results/gate5-20261024-160117.json`, `-160710`, `-161031`). Two fixes came out of it: finalize adds PoB's warnings from a plain reload of the exported code to the checks, and the bridge wipes PoB's skill cache before every load. PoB keys that cache by skill name and slot and kept it across loads, so a build loaded after another with a weapon-set-2 Ice Shot was flagged "not enough Mana" (`ledger/proposed/pob-skill-cache-survives-build-load.yaml`). The same cache explains gate 1 on the release for reference 2b75e: the PoB app saved its stats with 2b75d's cache, so a clean load is 0.6% higher there; the other four references stay exact, and gates 2–3 pass on all nine builds.
+
 ### Phase 3 findings that shape later phases
 
 - **Rares are built, not looked up** (`builder/search/rares.py`): PoB's "Item" modifier pool, filtered
@@ -539,8 +594,8 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
 - **Sustained damage needs sustained costs.** PoB's DPS assumes every cost is paid. A gate 4 Ice Nova
   reached "2.4M" while spending 3,263 Mana/s against 114 regeneration and 1,166 Life/s with no
   recovery. Recovery (regeneration, leech, on-hit) covering under 10% of the per-second cost is now a
-  requirement-style shortfall, and the result shows the share. Flasks aren't modeled, so the bar is
-  set from the user's own builds: their endgame references sustain 19% (Ritualist, 3.66M), 47% and
+  requirement-style shortfall, and the result shows the share. Flasks weren't modeled then (they
+  now count at the rate their charges are sustained), so the bar is set from the user's own builds: their endgame references sustain 19% (Ritualist, 3.66M), 47% and
   71%; a 25% bar rejected the strongest of them and halved an Ice Shot build's attack speed.
 - **Every skill is a candidate.** Skills a passive or unique grants become skeletons that require
   their source; the skill screen no longer filters by skill type; the main skill's stat set (e.g.
@@ -550,8 +605,8 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   source rates from the user's 0.5.4 audit (0 → 100k DPS on Acolyte with uniques); other triggered
   skills with a cooldown fire whenever it allows (low confidence). Exported codes don't carry
   assumptions, so PoB itself shows less for those skills.
-- **Not done in Phase 3:** flasks and charms, the trade-API price calibration, radius/Time-Lost
-  jewels, corruption and desecration, weapon-set passive points.
+- **Not done in Phase 3:** the trade-API price calibration, radius/Time-Lost jewels, corruption and
+  desecration, weapon-set passive points. (Flasks and charms came in the follow-up above.)
 
 ### Phase 2 findings that shape later phases
 
@@ -615,9 +670,8 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
 - **Campaign reward choices** (e.g. +5% Cold Resistance vs +5 Intelligence) are free stats and
   are chosen by score.
 - **Not modeled yet:** meta gems (Cast on X) and supports on persistent skills; weapon-set passive
-  points; dual wielding; weapon swap ("must" reports infeasible); seed codes (ignored with a note);
-  Abyssal Lich (PoB's tree gives it no passives of its own:
-  it shares Lich's start node), so requests for it alone are reported infeasible. Unique prices: a gear-tier cap per unique (league start 1,
+  points. (Dual wielding, weapon swap and seed codes followed in the Phase 3 follow-up.) Unique
+  prices: a gear-tier cap per unique (league start 1,
   mid 20, endgame 300 divine) on top of the divine cap; unpriced uniques and lineage supports are
   left out rather than treated as free.
 

@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-24T15:54:02",
+  "pob_dir": "vendor\\PathOfBuilding-PoE2-v0.23.1",
+  "boot_s": 1.0488798000151291,
+  "builds": {
+    "boneshatter_titan": {
+      "gate1_fidelity": []
+    },
+    "lightning_arrow_deadeye": {
+      "gate1_fidelity": [
+        "AverageBurstDamage: 3919.460933091 vs 3920.627133091",
+        "AverageDamage: 3919.460933091 vs 3920.627133091",
+        "CombinedDPS: 8251.5627132179 vs 8254.0178907539",
+        "FullDPS: 8251.5627132179 vs 8254.0178907539",
+        "Spec:ArmourInc: -25.0 vs 0",
+        "Spec:EnergyShieldInc: -25.0 vs 0",
+        "Spec:EvasionInc: 25.0 vs 50",
+        "TotalDPS: 8251.5627132179 vs 8254.0178907539",
+        "WithBleedDPS: 8251.5627132179 vs 8254.0178907539",
+        "WithIgniteDPS: 8251.5627132179 vs 8254.0178907539",
+        "WithPoisonDPS: 8251.5627132179 vs 8254.0178907539"
+      ]
+    },
+    "spark_stormweaver": {
+      "gate1_fidelity": []
+    },
+    "zombie_infernalist": {
+      "gate1_fidelity": []
+    },
+    "ref:2b75a": {
+      "gate1_fidelity": []
+    },
+    "ref:2b75b": {
+      "gate1_fidelity": []
+    },
+    "ref:2b75c": {
+      "gate1_fidelity": []
+    },
+    "ref:2b75d": {
+      "gate1_fidelity": []
+    },
+    "ref:2b75e": {
+      "gate1_fidelity": [
+        "AverageBurstDamage: 55484.613645475 vs 55820.203345558",
+        "AverageHit: 55484.613645475 vs 55820.203345558",
+        "CombinedAvg: 60988.898451804 vs 61364.248702123",
+        "IgniteDPS: 1109.7348399857 vs 1117.7510799526",
+        "IgniteDamage: 5504.2848063293 vs 5544.0453565647",
+        "TotalDPS: 84891.458877577 vs 85404.911118704",
+        "TotalDotDPS: 1109.7348399857 vs 1117.7510799526"
+      ]
+    }
+  }
+}
