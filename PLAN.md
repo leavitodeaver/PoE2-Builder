@@ -530,6 +530,15 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   Deadeye took no rare jewels: 635k Full DPS for 14.87 divines
   (`data/results/20261024-182447-run1.json`). Saved results show their shopping list at today's
   prices.
+- **Mods can forbid each other through tags** (the user's 2026-10-24 Antler Focus, which no search
+  found). A caster weapon's spell-damage prefix adds tags such as "no_cold_spell_mods" and
+  "no_lightning_spell_mods", and the other elements' prefixes have spawn weight 0 for them, so a
+  focus, wand or staff takes one element. 160 Item mods add such tags. The rare builder ignored
+  them and put fire, cold and lightning damage on one focus. `AffixPools.choices` now never offers
+  an affix whose spawn weights put a 0 on a tag an affix already chosen adds. The shopping list
+  flags such combinations in saved results as impossible. When even the loosest Trade search finds
+  nothing, the page now calls the item likely craft-only and its price only the model's estimate;
+  pricing non-jewel rares as crafts is not modeled.
 - **Strict searches rarely match.** A rare's exact base with every modeled roll usually finds
   nothing, so links loosen to any base at each tier's floor (the Deadeye ring below: 0 → 753).
   96% of item affix stat lines map to explicit trade stats; the rest (essence-only, a few shield

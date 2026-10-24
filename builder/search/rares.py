@@ -91,6 +91,8 @@ class Affix:
     odds: float = 0.0  # its share of the spawn weight among all the base's affixes (a Chaos Orb's chance)
     side_odds: float = 0.0  # its share among affixes of its own kind (once the other side is locked)
     ranged: bool = False  # it rolls within a range (Divine Orbs reroll it)
+    adds: tuple[str, ...] = ()  # tags it gives the item ("no_cold_spell_mods" on a Fire Damage focus prefix)
+    excluded_by: frozenset[str] = frozenset()  # tags with spawn weight 0 for it: an item carrying one can't roll it
 
     @property
     def top(self) -> bool:
@@ -154,12 +156,18 @@ class AffixPools:
     def affix(self, mod: dict, group: str, kind: str, tier: int, tiers: int, odds: tuple[float, float],
               lower: Affix | None = None) -> Affix:
         return Affix(mod["id"], group, kind, tier, tuple(roll(line, self.roll) for line in mod_lines(mod)), tiers, lower,
-                     odds=odds[0], side_odds=odds[1], ranged=any(RANGE.search(line) for line in mod_lines(mod)))
+                     odds=odds[0], side_odds=odds[1], ranged=any(RANGE.search(line) for line in mod_lines(mod)),
+                     adds=tuple(mod.get("tags") or ()), excluded_by=excluded_by(mod))
 
     def choices(self, affix: Affix, chosen: list[Affix]) -> list[Affix]:
         """The tiers of the affix's group worth trying next: a tier-1 affix and its tier 2 (often
         nearly as strong for a fraction of the price, which the budget weight then decides), or only
-        the tier 2 once the rare holds as many tier-1 affixes as rares people sell do."""
+        the tier 2 once the rare holds as many tier-1 affixes as rares people sell do. None when an
+        affix already chosen forbids it: a caster weapon's spell-damage prefixes add tags such as
+        "no_cold_spell_mods" that give the other elements' prefixes zero spawn weight, so a focus takes
+        one element (a user's 2026-10-24 focus had fire, cold and lightning, which can't roll)."""
+        if any(tag in affix.excluded_by for a in chosen for tag in a.adds):
+            return []
         if not affix.top or affix.lower is None:
             return [affix]
         if self.top_cap is not None and sum(1 for a in chosen if a.top) >= self.top_cap:
@@ -179,6 +187,18 @@ class AffixPools:
             return None
         return (Affix(effect_mod["id"], effect_mod["group"], effect_mod["type"], 1, lines, crafted=True, ranged=True),
                 float(found.group(1)))
+
+
+def excluded_by(mod: dict) -> frozenset[str]:
+    """Tags that give the mod zero spawn weight. Only tags other affixes add matter here: the base's
+    own tags are applied when the pool is built."""
+    return frozenset(key for key, value in zip(mod.get("weightKey") or [], mod.get("weightVal") or []) if value == 0)
+
+
+def conflicts(mods: list[dict]) -> list[tuple[dict, dict]]:
+    """(blocked, blocker) pairs: a mod that couldn't roll because another one's tags forbid it."""
+    return [(mod, other) for mod in mods for other in mods
+            if other is not mod and set(other.get("tags") or ()) & excluded_by(mod)]
 
 
 def implicit_lines(base: dict, fraction: float = 0.5) -> list[str]:

@@ -394,3 +394,21 @@ def test_jewel_entries_carry_the_crafting_breakdown_and_a_base_search(data) -> N
     assert entry["price"] == pytest.approx(shop["total"])
     base_query = ladder(entry, "base")[0][1]["query"]
     assert base_query["type"] == "Emerald" and len(base_query["stats"][0]["filters"]) == 2
+
+
+def test_a_focus_takes_one_spell_element(data) -> None:
+    """The user's 2026-10-24 focus had fire, cold and lightning damage prefixes, which can't roll
+    together: each adds tags that give the other elements zero spawn weight."""
+    from builder.search.rares import conflicts
+
+    pools = pools_for("endgame")
+    pool = pools.pool("Antler Focus")
+    fire = next(a for a in pool if a.group == "FireDamageWeaponPrefix")
+    cold = next(a for a in pool if a.group == "ColdDamageWeaponPrefix")
+    resist = next(a for a in pool if a.group == "ColdResistance")
+    assert pools.choices(cold, [fire]) == [] and pools.choices(fire, [cold]) == []
+    assert pools.choices(resist, [fire]) and pools.choices(fire, [resist])
+    by_id = {m["id"]: m for m in data.mods["Item"]}
+    impossible = [by_id[fire.id], by_id[cold.id], by_id[resist.id]]
+    assert {(a["id"], b["id"]) for a, b in conflicts(impossible)} == {(fire.id, cold.id), (cold.id, fire.id)}
+    assert conflicts([by_id[fire.id], by_id[resist.id]]) == []

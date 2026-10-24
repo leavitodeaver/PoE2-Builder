@@ -547,6 +547,7 @@ function itemCell(item, shopping) {
         : !a.searchable ? el("span", { class: "range" }, "  · not searchable on trade, check by eye")
           : a.boosted ? el("span", { class: "range" }, `  · includes the crafted ${a.boosted}% boost`) : null))) : null,
     item.note ? el("div", { class: "note" }, item.note) : null,
+    item.impossible ? el("div", { class: "note error-text" }, item.impossible) : null,
     item.craft && shopping ? craftBlock(shopping, item) : null);
 }
 
@@ -565,7 +566,8 @@ function tradeButton(shopping, item, part) {
           tab.opener = null;
           tab.location.href = link.url;
         }
-        const found = link.total ? `${link.total.toLocaleString()} listed` : "nothing listed, even loosened";
+        const found = link.total ? `${link.total.toLocaleString()} listed`
+          : "nothing listed, even loosened: likely craft-only, and its price here is only the model's estimate";
         const asking = link.asking ? ` · asking from ${formatPrice(link.asking.cheapest)} div, `
           + `typically ${formatPrice(link.asking.typical)}` : "";
         status.replaceChildren(`${found}${asking} · ${link.matches}${link.cached ? " · cached" : ""} · `,

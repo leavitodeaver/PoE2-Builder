@@ -21,7 +21,7 @@ from types import SimpleNamespace
 from builder.data import GameData, rare_prices
 from builder.data.trade import TradeClient
 from builder.request.schema import GearTier
-from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, mod_lines, roll
+from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, conflicts, mod_lines, roll
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 SLOT_ORDER = ["Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Ring 3", "Belt"]
@@ -224,6 +224,13 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                 entry["note"] = (f"Crafted (0.5): craft \"+1 {effect[1][:-2]} Modifier allowed\", add a third {kind_name}, then "
                                  f"replace the +1 with \"{effect[0]}% increased Effect of {effect[1]}\". The values shown "
                                  f"include that boost.")
+            clashes = conflicts([mod for _, mod in mods])
+            if clashes:
+                # Built before the rare builder respected these tags: no such item exists
+                blocked, blocker = clashes[0]
+                entry["impossible"] = (f"This combination can't exist: \"{mod_lines(blocker)[0]}\" stops "
+                                       f"\"{mod_lines(blocked)[0]}\" from rolling on the same item. Rerun the "
+                                       "optimizer; it now keeps such mods apart.")
             if gear["type"] == "Jewel" and kind == "rare" and gear.get("price") is not None:
                 jewel_prices(entry, slot, mods, model, data, item_level, fraction)
         else:
