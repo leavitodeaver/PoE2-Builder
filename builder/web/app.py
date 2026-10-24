@@ -6,6 +6,7 @@ PoB runs in a worker process (it changes its process's working directory), start
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import urllib.request
@@ -17,6 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
+from builder import settings
 from builder.data import GameData
 from builder.data.prices import PriceFeed
 from builder.pob import codes
@@ -69,6 +71,15 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="PoE2 Builder", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.middleware("http")
+async def always_revalidate_page(request, call_next):
+    # Browsers otherwise keep showing an old page after an update; revalidating is free locally
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @app.get("/")
@@ -191,6 +202,22 @@ def inspect(body: InspectBody) -> dict:
         result["checks"] = [check.__dict__ for check in compiled.check(facts)]
         result["issues"] = [issue.__dict__ for issue in compiled.issues]
     return result
+
+
+@app.get("/api/settings")
+def get_settings() -> dict:
+    return {"workers": settings.workers(), "max_workers": settings.max_workers(),
+            "recommended_workers": settings.recommended_workers(), "cpu_threads": os.cpu_count()}
+
+
+class SettingsBody(BaseModel):
+    workers: int
+
+
+@app.post("/api/settings")
+def update_settings(body: SettingsBody) -> dict:
+    settings.set_workers(body.workers)
+    return get_settings()
 
 
 class RunBody(BaseModel):

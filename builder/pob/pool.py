@@ -30,7 +30,31 @@ TASK_SILENCE_LIMIT = 180.0
 
 
 def default_workers() -> int:
-    return max(1, (os.cpu_count() or 2) - 2)
+    """The user's chosen worker count (builder/settings.py), or half the CPU threads."""
+    from builder.settings import workers
+
+    return workers()
+
+
+def _lower_priority() -> None:
+    """Let everything else on the computer go first: workers still use idle CPU at full speed,
+    but games, browsers and the desktop stay responsive."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            # Declared types matter: undeclared, the -1 pseudo-handle is truncated to 32 bits on
+            # 64-bit Windows and the call silently targets nothing
+            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            kernel32.SetPriorityClass.restype = ctypes.c_int
+            kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS)
+        else:
+            os.nice(5)
+    except (OSError, AttributeError):
+        pass
 
 
 class Cancelled(Exception):
@@ -59,6 +83,7 @@ def _worker_main(conn: Connection, pob_dir: Path | None) -> None:
     # Imported here so the parent process never boots an engine
     from builder.pob.engine import PobEngine
 
+    _lower_priority()
     try:
         engine = PobEngine(pob_dir) if pob_dir else PobEngine()
         conn.send(("ready", engine.boot_seconds))

@@ -78,6 +78,7 @@ section + section, .card-head + section, .issues + section { border-top: 1px sol
 label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); }
 label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); padding-top: 18px; }
 label.block { margin-top: 12px; }
+label.inline { flex-direction: row; align-items: center; gap: 8px; }
 
 input, select, textarea, button {
   font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border);

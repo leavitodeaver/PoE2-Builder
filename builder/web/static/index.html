@@ -116,8 +116,12 @@
     <section class="card" id="run-card">
       <div class="card-head">
         <h2>Optimizer</h2>
-        <div class="actions"><button type="button" id="run-cancel" hidden>Stop and keep the best so far</button></div>
+        <div class="actions">
+          <label class="inline">CPU workers <select id="workers"></select></label>
+          <button type="button" id="run-cancel" hidden>Stop and keep the best so far</button>
+        </div>
       </div>
+      <p class="hint" id="workers-hint"></p>
       <p class="hint" id="run-hint">Optimize searches for the highest-damage build that meets every requirement above,
         within the request's search time. Progress streams here; the result shows the same Requested vs Delivered
         table as the check below, plus a PoB code.</p>

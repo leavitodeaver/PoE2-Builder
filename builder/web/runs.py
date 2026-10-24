@@ -10,6 +10,7 @@ import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from builder import settings
 from builder.data import DATA_ROOT
 from builder.request.schema import BuildRequest
 
@@ -66,8 +67,9 @@ class RunManager:
             except Exception as error:
                 prices = None
                 record.events.append({"kind": "status", "t": 0, "message": f"No price data ({error}); uniques can't be priced"})
-            record.result = optimize(record.request, prices=prices, seconds=seconds, on_event=record.events.append,
-                                     should_cancel=lambda: record.cancel)
+            # Read the worker setting per run, so a change on the page applies to the next run
+            record.result = optimize(record.request, prices=prices, workers=settings.workers(), seconds=seconds,
+                                     on_event=record.events.append, should_cancel=lambda: record.cancel)
             record.status = "cancelled" if record.cancel else "done"
             self._save(record)
         except Exception:

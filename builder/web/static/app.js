@@ -546,6 +546,30 @@ async function loadPrices(refresh = false) {
   }
 }
 
+// CPU workers --------------------------------------------------------------------------------
+
+function describeWorkers(s) {
+  const busy = s.workers >= s.max_workers ? "nearly all" : `${s.workers} of`;
+  $("workers-hint").textContent = `Each worker keeps one CPU thread busy: ${busy} your ${s.cpu_threads} threads. `
+    + "Fewer workers keep the computer cooler and quieter but search less in the same time. "
+    + "Workers run at low priority, so other programs come first. Changes apply to the next run.";
+}
+
+async function loadSettings() {
+  const s = await api("/api/settings");
+  const select = $("workers");
+  select.replaceChildren();
+  for (let count = 1; count <= s.max_workers; count++) {
+    const note = count === s.recommended_workers ? " (recommended)" : count === s.max_workers ? " (fastest)" : "";
+    select.append(el("option", { value: count }, `${count}${note}`));
+  }
+  select.value = s.workers;
+  describeWorkers(s);
+  select.addEventListener("change", async () => {
+    describeWorkers(await api("/api/settings", { method: "POST", body: { workers: Number(select.value) } }));
+  });
+}
+
 // Start ------------------------------------------------------------------------------------
 
 async function start() {
@@ -572,6 +596,7 @@ async function start() {
   $("refresh-prices").addEventListener("click", () => loadPrices(true));
   newRequest();
   loadPrices();
+  loadSettings();
   attachToRun();
 }
 
