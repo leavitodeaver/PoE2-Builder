@@ -499,6 +499,55 @@ Endurance-charge consumption, Empowered-attack extra damage.
 A usable MVP (real builds with uniques and simple rares, constraints honored) arrives at the end
 of Phase 2. Full v1 arrives at the end of Phase 5.
 
+### Still missing (collected 2026-10-25)
+
+One list of every open item; the findings sections below have the details. Remove items here as
+they land.
+
+**Builds the optimizer can't make yet**
+- Meta gems it picks by itself (Cast on X), supports for the spells a meta gem triggers, supports on
+  persistent skills.
+- Weapon-set passive points.
+- Timeless jewels (need PoB's seed tables), Voices' Sinister sockets, Split Personality (unpriced),
+  Pathfinder's alternate starts (PoB doesn't path them), corrupted jewel implicits.
+- Corruption and desecration as crafting steps.
+- Raising attributes on purpose for higher Spirit-gem levels; valuing Spirit on gear before a skill
+  can use it.
+- Ascendancy passives as condition sources.
+
+**Damage PoB ignores that needs a custom model** (§6)
+- Undeath and Nature's Archons, Seething Body at High Infernal Flame, Ritual Cadence, Blood Mage's
+  Sanguine Tides, Thorns on melee hit, Endurance-charge consumption, Empowered-attack extra damage,
+  hits per use (e.g. Spark's projectiles) for meta-gem Energy.
+
+**Rules that are still assumed rather than checked**
+- Charge rates: once a generator exists, charges count as always up (overestimates builds that
+  consume them, e.g. Frenzy-charged Explosive Spear).
+- Life sacrificed on use (Extraction, Guatelitzi's Ablation) isn't checked against recovery.
+- Infused and Empowered stat sets are chosen by score, without checking for an infusion or
+  empowering source.
+- A requested main skill with a usage condition is still calculated as if usable at will.
+
+**Prices**
+- Non-jewel rares aren't priced as crafts when nobody sells them; strict trade searches rarely match.
+- Megalomaniac and Against the Darkness versions are budgeted at poe.ninja's single price.
+- "Calibrate rare prices" and "Price unique versions" are user-started jobs; until they've run,
+  those prices are rough.
+
+**Ledger and exploits (Phase 4)**
+- The approval queue for proposed ledger entries, the calibration form for in-game numbers, and any
+  exploit that works on the current patch.
+- Clear speed (mapping and balanced goals) is our own estimate, not PoB's.
+
+**Web page**
+- Saved history of past results.
+- Small passives can't be required or banned by name (they share names); class starts aren't drawn
+  with the game's art; the best-so-far summary can lag during long search stages.
+
+**PoE2 1.0 (Dec 11, 2026)**
+- After PoB ships 1.0: move the pin, re-dump data, rerun every gate, review the ledger, recheck the
+  jewel craft rules and the tier-1 cap, recalibrate rare prices.
+
 ### Radius jewels and other tree-changing items (2026-10-24)
 
 The user asked (2026-10-24) that passive choices take into account every jewel and item that lets
