@@ -44,6 +44,18 @@ off_hand:
     - "https://steamcommunity.com/app/2694490/discussions/0/596260925367967924"
   test_in_game: "Try a sceptre in the off hand beside a spear, and a one-handed mace beside a spear."
 
+floor_blockers:
+  # Item lines that pin a stat, so a request's floor on that stat can never be met while the item
+  # is worn. Such items are never proposed under such a floor (a required unique still is). Without
+  # this, Veil of the Night trapped gate 4's searches: it lifts -50% resistances to 0 in one move,
+  # after which no resistance affix anywhere is worth anything, and the floors stay unmet.
+  lines:
+    "You have no Elemental Resistances": [resists.fire, resists.cold, resists.lightning]
+    "Cannot have Energy Shield": [energy_shield]
+    "You have no Spirit": [spare_spirit]
+  confidence: high
+  sources: ["PoB2 data: Data/Uniques (Veil of the Night, Immaculate Adherence, Kaom's Heart)"]
+
 unique_only_bases:
   # Bases only uniques use (the Golden "demigod" items: Golden Visage, Golden Mantle, ...). PoB
   # tags them; they never drop as normal, magic or rare items.

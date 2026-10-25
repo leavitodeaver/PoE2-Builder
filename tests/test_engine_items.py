@@ -233,3 +233,20 @@ def test_a_search_never_ends_below_where_it_started(engine):
     search.build.objective.escalate = lambda stats: False  # keep the weights, so scores compare
     search.run(time.perf_counter() + 0.3)
     assert search.build.score >= start - 1e-9
+
+
+def test_a_search_that_raises_requirements_keeps_its_progress_and_ends_cleanly(engine):
+    """Raising requirement weights trades score for requirements on purpose, so the start no longer
+    bounds the result; with no snapshot kept yet, the search used to crash (max() of nothing)."""
+    import time
+
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Spark", ascendancies=["Stormweaver"], floors={"life": 50000})
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0]
+    search = Search(engine, None, make_payload(ctx.request), skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.blocks = lambda deadline: True  # passes that "improve" but never reach the far-off Life floor
+    search.run(time.perf_counter() + 0.5)
+    assert search.escalations >= 1

@@ -440,17 +440,18 @@ class Search:
                 self.build.set_group(index=group["index"], gems=Gems.gem_list(names))
             self.gems.shortlist = None  # force a full sweep afterwards
 
-    def run(self, deadline: float, best: dict | None = None) -> None:
+    def run(self, deadline: float, best: dict | None = None, escalate: bool = True) -> None:
         """Block coordinate ascent until nothing improves, then kick; keep the best build seen.
 
         Requirements come first: after any pass that ends with a requirement still short and no
         closer than the pass before, its weight goes up (Objective.escalate); on the second raise
         the passive tree is cleared and regrown under the new weights, since a tree grown for damage
         rarely walks over to, say, the Mana nodes one swap at a time. `best` is a snapshot the result
-        must not fall below (a seed's starting point). Neither does it end below the state it started
-        from: a pass the deadline cuts short can stop inside a block, and before any pass had finished
-        without improving there was no snapshot to go back to (finalize's short polish ended worse
-        than the build the run had chosen)."""
+        must not fall below (a seed's starting point). Nor does it end below the state it started from
+        (a pass the deadline cuts short can stop inside a block), unless requirements were raised on
+        the way: that trade of score for requirements is on purpose, and undoing it at every deadline
+        kept gate 4's searches from ever reaching their resistance floors. `escalate` False keeps the
+        weights as they are (finalize's short polish, where clearing the tree can only hurt)."""
         start = self.build.snapshot()
         last_short = float("inf")
         while time.perf_counter() < deadline:
@@ -459,13 +460,13 @@ class Search:
                 break
             objective = self.build.objective
             short = shortfall([{"amount": a, "hard": h} for _, a, h in objective.deficits(self.build.stats)])
-            if short > 0 and short >= last_short - 1e-4 and objective.escalate(self.build.stats):
+            if escalate and short > 0 and short >= last_short - 1e-4 and objective.escalate(self.build.stats):
                 self.escalations += 1
+                start = None  # the search now trades score for requirements on purpose
                 self.build.phase = "requirements"
                 self.build.refresh()
                 if best is not None:
                     best["score"] = objective.score(best["stats"])
-                start["score"] = objective.score(start["stats"])
                 if self.escalations == 2:
                     self.tree.reset()
                 self.kicked.update({"gear", "supports"})
@@ -481,9 +482,11 @@ class Search:
             elif self.build.score < best["score"]:
                 self.build.restore(best)
             self.kick()
-        top = max((s for s in (best, start) if s is not None), key=lambda s: s["score"])
-        if top["score"] > self.build.score + EPSILON:
-            self.build.restore(top)
+        kept = [snap for snap in (best, start) if snap is not None]
+        if kept:
+            top = max(kept, key=lambda snap: snap["score"])
+            if top["score"] > self.build.score + EPSILON:
+                self.build.restore(top)
         self.resolve()
 
     # Results -----------------------------------------------------------------------------------
@@ -592,7 +595,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
             build.set_group(index=group["index"], fullDPS=False)
     try:
         search.conditions.choose_quests()
-        search.run(deadline)
+        search.run(deadline, escalate=False)
     except Cancelled:
         pass
     search.resolve()

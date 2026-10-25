@@ -272,10 +272,13 @@ class Context:
                     base["name"], base["name"], base["type"], base.get("subType"), normal_item(base), False,
                     0.0, "found", (base.get("req") or {}).get("level") or 0))
         forbidden = self.compiled.filters.forbidden_uniques
+        floors = self.requested_floors
         for unique in self.data.uniques:
             base = self.bases_by_name.get(unique["base"])
             if unique["name"] in forbidden or base is None or not self._base_ok(base) or not self._style_ok(base):
                 continue
+            if rules.blocked_floors(unique["raw"]) & floors:
+                continue  # e.g. Veil of the Night under a resistance floor (game_rules.yaml floor_blockers)
             priced = self.unique_price(unique["name"])
             if priced is None:
                 continue
@@ -285,6 +288,16 @@ class Context:
                 self.corrected_raw(unique["name"], unique["raw"]), True,
                 price, confidence, (base.get("req") or {}).get("level") or 0))
         return options
+
+    @cached_property
+    def requested_floors(self) -> set[str]:
+        """The request's floors above zero, named as game_rules.yaml's floor_blockers name them."""
+        floors = self.request.floors
+        named = {name for name in ("life", "energy_shield", "mana", "ward", "block", "evade", "spare_spirit")
+                 if getattr(floors, name, None)}
+        named |= {f"resists.{kind}" for kind, value in floors.resists.items() if value and value > 0}
+        named |= {f"max_hit.{kind}" for kind, value in floors.max_hit.items() if value and value > 0}
+        return named
 
     def unique_option(self, name: str) -> ItemOption | None:
         """A specific unique (required by the request), affordable or not."""

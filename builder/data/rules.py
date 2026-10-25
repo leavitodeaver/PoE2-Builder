@@ -23,6 +23,7 @@ class GameRules:
     unreleased: frozenset[str]
     off_hand: dict[str, tuple[str, ...]]
     unique_only_tags: frozenset[str]
+    floor_blockers: dict[str, tuple[str, ...]]  # item line -> floors it makes unreachable
 
     def weapon_in_game(self, item_class: str | None) -> bool:
         """False for weapon classes whose bases are in PoB's data but don't drop yet."""
@@ -35,6 +36,10 @@ class GameRules:
     def off_hand_weapons(self, main_hand: str | None) -> tuple[str, ...]:
         """The weapon classes among them: a sceptre, or the same martial class (dual wielding)."""
         return tuple(t for t in self.off_hands(main_hand) if t not in OFF_HAND_ITEMS)
+
+    def blocked_floors(self, raw: str) -> set[str]:
+        """Floors ("energy_shield", "resists.fire", ...) an item with this text can never meet."""
+        return {floor for line, floors in self.floor_blockers.items() if line in raw for floor in floors}
 
     def normal_base_ok(self, base: dict) -> bool:
         """Whether a base can be found or crafted as a normal, magic or rare item: not a base only
@@ -52,4 +57,5 @@ def rules(path: Path = RULES_FILE) -> GameRules:
         unreleased=frozenset(classes["unreleased"]),
         off_hand={main: tuple(off) for main, off in data["off_hand"]["by_main_hand"].items()},
         unique_only_tags=frozenset(data["unique_only_bases"]["tags"]),
+        floor_blockers={line: tuple(floors) for line, floors in data["floor_blockers"]["lines"].items()},
     )
