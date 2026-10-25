@@ -206,3 +206,11 @@ def test_megalomaniac_gets_the_notables_that_score_best(grown):
     assert len(chosen.variants) == 3 and len(set(chosen.variants)) == 3
     default, best = grown.build.item_deltas([{"slot": slot, "raw": option.raw}, {"slot": slot, "raw": chosen.raw}])
     assert best[0] > default[0]
+    # A banned passive is never granted either
+    banned = grown.build.ctx.compiled.filters.forbidden_passives
+    banned.add(chosen.variants[0])
+    try:
+        jewels.full_rounds += 1  # rescored on the next full round
+        assert chosen.variants[0] not in jewels.version(slot, option, time.perf_counter() + 120).variants
+    finally:
+        banned.discard(chosen.variants[0])

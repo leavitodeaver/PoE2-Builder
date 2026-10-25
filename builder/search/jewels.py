@@ -111,7 +111,11 @@ class Jewels:
     def best_version(self, slot: str, option: ItemOption, variants: Variants, deadline: float) -> ItemOption:
         """Choose each selection in turn with the others held, among the variants a real item can
         have, all different; after the first, only the first's best few are rescored."""
-        usable = list(variants.usable)
+        # A variant that grants a banned passive ("Allocates <name>") is never chosen
+        banned = self.ctx.compiled.filters.forbidden_passives
+        usable = [i for i in variants.usable
+                  if not any(line.split("Allocates ", 1)[1].strip() in banned
+                             for line in variants.lines[i - 1] if "Allocates " in line)]
         if len(usable) < len(variants.slots):
             return option
         choice: list[int] = []

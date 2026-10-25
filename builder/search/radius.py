@@ -25,6 +25,7 @@ class Variants:
     slots: tuple[str, ...]  # the selections this unique uses
     selected: tuple[int, ...]  # current choice per slot (1-based)
     usable: tuple[int, ...]  # variants a real item can have (not PoB's test variants)
+    lines: tuple[tuple[str, ...], ...] = ()  # each variant's own lines, tags stripped (variant 1 first)
 
     def label(self, choice: tuple[int, ...]) -> tuple[str, ...]:
         return tuple(self.names[i - 1] for i in choice if 0 < i <= len(self.names))
@@ -46,16 +47,17 @@ def variants_of(raw: str) -> Variants | None:
         selected.append(int(value) if value and value.isdigit() else len(names) - index)
     # PoB adds convenience variants that switch on every line (From Nothing's "Everything (QoL Test
     # Variant)"): a variant with far more lines than the others isn't an item that drops
-    counts = [0] * (len(names) + 1)
+    own: list[list[str]] = [[] for _ in range(len(names) + 1)]
     for line in lines:
         if match := TAG.search(line):
             for index in {int(i) for i in match.group(1).split(",")}:
                 if 0 < index <= len(names):
-                    counts[index] += 1
+                    own[index].append(line[:match.start()] + line[match.end():])
+    counts = [len(x) for x in own]
     typical = sorted(counts[1:])[len(names) // 2]
     usable = tuple(i for i in range(1, len(names) + 1)
                    if counts[i] <= max(2, 2 * typical) and "test variant" not in names[i - 1].lower())
-    return Variants(names, tuple(slots), tuple(selected), usable)
+    return Variants(names, tuple(slots), tuple(selected), usable, tuple(tuple(x) for x in own[1:]))
 
 
 def with_variants(raw: str, variants: Variants, choice: tuple[int, ...]) -> str:
