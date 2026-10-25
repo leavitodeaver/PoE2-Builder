@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from builder.data import GameData, rare_prices
+from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, translate, wrong
 from builder.request.constraints import CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
@@ -262,8 +263,11 @@ class Context:
         """Every item the gear block may propose, by item type ("Bow", "Helmet", "Ring", ...):
         normal bases (always available) and affordable, allowed uniques."""
         options: dict[str, list[ItemOption]] = {}
+        rules = game_rules()
         for base in self.data.bases:
-            if self._base_ok(base) and self._style_ok(base):
+            # Bases only uniques use (Golden Visage, ...) and weapon classes not in the game yet
+            # are never normal, magic or rare items (builder/data/game_rules.yaml)
+            if self._base_ok(base) and self._style_ok(base) and rules.normal_base_ok(base):
                 options.setdefault(base["type"], []).append(ItemOption(
                     base["name"], base["name"], base["type"], base.get("subType"), normal_item(base), False,
                     0.0, "found", (base.get("req") or {}).get("level") or 0))

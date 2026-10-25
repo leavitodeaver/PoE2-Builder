@@ -1,0 +1,52 @@
+# Game rules PoB doesn't enforce, or enforces more loosely than the game, for one patch.
+# PoB's data has bases for weapon classes that aren't in the game yet, and its off-hand check
+# (ItemsTab:IsItemValidForSlot) lets almost any one-hander go beside another. Skeletons, gear
+# slots and rares all read this table (builder/data/rules.py). Check it against the patch notes
+# and poe2db when the game changes; each rule lists its sources and how sure we are.
+
+patch: "0.5.5"
+
+weapon_classes:
+  # Item classes that drop and can be used. Swords come with the Duelist in 1.0; axes, daggers,
+  # claws and flails belong to classes not in the game yet. Their bases are in PoB's data, but
+  # they don't drop, so they're never proposed as normal or rare items (a priced unique of such a
+  # class would still be one: being on poe.ninja means it exists).
+  released: [Bow, Crossbow, Staff, Talisman, One Hand Mace, Two Hand Mace, Spear, Wand, Sceptre]
+  unreleased: [Claw, Dagger, Flail, One Hand Axe, One Hand Sword, Two Hand Axe, Two Hand Sword]
+  confidence: high
+  sources:
+    - "https://www.notebookcheck.net/Path-of-Exile-2-is-going-1-0-but-I-m-still-wondering-where-the-rest-of-the-game-is.1379931.0.html"
+    - "https://www.aoeah.com/news/4759--poe-2-055-new-ascendancies--class-changes"
+    - "https://maxroll.gg/poe2/resources/poe-2-class-overview"
+
+off_hand:
+  # Main hand -> what the off hand may hold. Martial weapons are dual wielded only with the same
+  # item class (so in this patch only One Hand Mace + One Hand Mace); spears and wands never go in
+  # the off hand; a sceptre goes in the off hand beside a one-handed weapon, but two sceptres
+  # can't be held together. Two-handed weapons take no off hand except a bow's quiver (Giant's
+  # Blood dual wielding of two-handers isn't modeled).
+  by_main_hand:
+    One Hand Mace: [Shield, Focus, Sceptre, One Hand Mace]
+    Spear: [Shield, Focus, Sceptre]
+    Wand: [Shield, Focus, Sceptre]
+    Sceptre: [Shield, Focus]
+    Bow: [Quiver]
+  confidence: medium
+  conflicts:
+    - "Spear + Sceptre: the wiki's spear page allows a sceptre beside a spear; its dual-wielding page
+      says spears can't be held with any other weapon. PoB allows it and the user's Ritualist
+      reference (benchmarks/reference/2b75c.txt) holds one, so it stays allowed until an in-game
+      test says otherwise."
+  sources:
+    - "https://poe2wiki.net/wiki/Dual_wield"
+    - "https://www.poe2wiki.net/wiki/Spears"
+    - "https://www.poe2wiki.net/wiki/Master_Weapon"
+    - "https://steamcommunity.com/app/2694490/discussions/0/596260925367967924"
+  test_in_game: "Try a sceptre in the off hand beside a spear, and a one-handed mace beside a spear."
+
+unique_only_bases:
+  # Bases only uniques use (the Golden "demigod" items: Golden Visage, Golden Mantle, ...). PoB
+  # tags them; they never drop as normal, magic or rare items.
+  tags: [demigods]
+  confidence: high
+  sources: ["PoB2 data: Data/Bases/*.lua (tags demigods, not_for_sale)"]
