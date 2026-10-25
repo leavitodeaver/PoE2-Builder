@@ -26,7 +26,7 @@ from builder.data.rare_prices import RarePriceModel
 from builder.data.trade import RateLimited, TradeClient, TradeError
 from builder.pob import codes
 from builder.request import schema
-from builder.request.constraints import FACT_FIELDS, compile_request, main_skill, player_buttons
+from builder.request.constraints import FACT_FIELDS, compile_request, main_skill, passive_names, passive_rules, player_buttons
 from builder.report.calibrate import Calibration
 from builder.report.checklist import checklist
 from builder.report.shopping import shopping_list, trade_link
@@ -34,6 +34,7 @@ from builder.request.schema import BuildRequest
 from builder.search.context import make_payload
 from builder.web.runs import RESULTS_DIR, RunManager
 from builder.web.store import RequestStore
+from builder.web import treeart
 from builder.web.treedata import synopsis_of, tree_payload
 
 STATIC = Path(__file__).parent / "static"
@@ -109,7 +110,7 @@ def index() -> FileResponse:
 
 @app.get("/api/options")
 def options() -> dict:
-    passives = sorted({n["name"] for n in data.tree["nodes"] if n["type"] in ("Keystone", "Notable") and n["name"]})
+    passives = passive_names(data)
     mechanics = sorted({t for g in data.gems for t in g["tags"]} | {t for g in data.gems for t in g["skillTypes"]}, key=str.lower)
     try:
         leagues = [league["id"] for league in prices.leagues()]
@@ -156,8 +157,25 @@ _allocation_cache: dict[str, dict] = {}
 @app.get("/api/tree")
 def passive_tree() -> dict:
     if "tree" not in _tree_cache:
-        _tree_cache["tree"] = tree_payload(data.tree)
+        _tree_cache["tree"] = tree_payload(data.tree, passive_rules(data))
     return _tree_cache["tree"]
+
+
+@app.get("/api/tree/art")
+def tree_art() -> dict:
+    """Where each icon and frame sits in the art images (built from PoB's sprite sheets on first use)."""
+    try:
+        return treeart.ensure(data)
+    except (treeart.ArtUnavailable, OSError, ValueError) as error:
+        raise HTTPException(404, f"no tree art: {error}")
+
+
+@app.get("/api/tree/art/{name}")
+def tree_art_image(name: str) -> FileResponse:
+    path = treeart.art_dir() / name
+    if name not in treeart.FILES or not path.exists():
+        raise HTTPException(404, "no such image")
+    return FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
 
 
 class AllocatedBody(BaseModel):

@@ -12,6 +12,7 @@ from __future__ import annotations
 import difflib
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from builder.data import GameData
 from builder.request.schema import BuildRequest, DamageType, DefenceStyle, Offhand, WeaponSwap
@@ -158,6 +159,72 @@ def listing(names: list[str] | set[str]) -> str:
     return ", ".join(sorted(names)) if names else "none"
 
 
+# Passive names -----------------------------------------------------------------------------------
+
+
+def passive_names(data: GameData) -> list[str]:
+    """Every notable and keystone name a request may require or ban: the tree's, plus the versions
+    of a few nodes near the class starts that some classes get instead (Vile Wounds is Eagle Eye
+    for a Huntress)."""
+    names = {n["name"] for n in data.tree["nodes"] if n["type"] in ("Keystone", "Notable") and n["name"]}
+    for node in data.tree["nodes"]:
+        if node["type"] in ("Keystone", "Notable"):
+            names |= {v["name"] for v in (node.get("variants") or {}).values() if v.get("name")}
+    return sorted(names)
+
+
+@lru_cache(maxsize=4)
+def passive_rules(data: GameData) -> dict[str, dict]:
+    """Where a passive name exists, for the names that aren't available everywhere:
+    {name: {"ascendancies": [...] | None, "classes": [...] | None, "note": str}}.
+
+    `ascendancies`: only these ascendancies have a node of that name (ascendancies sharing a start
+    node, like Lich and Abyssal Lich, count as one); None if a node outside the ascendancies has it.
+    `classes`: only these classes have it; None if every class does. A node near a class start can
+    be another passive for some classes: its base name exists for every other class, the version
+    only for that class."""
+    all_classes = set(data.classes)
+    groups = ascendancy_groups(data)
+    found: dict[str, dict] = {}
+    for node in data.tree["nodes"]:
+        if node["type"] not in ("Keystone", "Notable") or not node["name"]:
+            continue
+        variants = node.get("variants") or {}
+        entries = [(node["name"], all_classes - set(variants) if variants else all_classes)]
+        entries += [(v["name"], {cls}) for cls, v in variants.items() if v.get("name")]
+        for name, classes in entries:
+            seen = found.setdefault(name, {"ascendancies": set(), "outside": False, "classes": set(), "notes": []})
+            if node.get("ascendancy"):
+                seen["ascendancies"] |= groups.get(node["ascendancy"], {node["ascendancy"]})
+            else:
+                seen["outside"] = True
+            seen["classes"] |= classes
+            for cls, v in variants.items():
+                if name == node["name"]:
+                    seen["notes"].append(f"{cls} gets {v['name']} in its place")
+                elif name == v["name"]:
+                    seen["notes"].append(f"{cls} gets it in place of {node['name']}")
+    rules = {}
+    for name, seen in found.items():
+        ascendancies = None if seen["outside"] else sorted(seen["ascendancies"])
+        classes = None if seen["classes"] >= all_classes else sorted(seen["classes"])
+        if ascendancies is not None or classes is not None:
+            rules[name] = {"ascendancies": ascendancies, "classes": classes, "note": "; ".join(dict.fromkeys(seen["notes"]))}
+    return rules
+
+
+@lru_cache(maxsize=4)
+def ascendancy_groups(data: GameData) -> dict[str, set[str]]:
+    """Ascendancy -> the ascendancies sharing its start node, itself included. An alternate
+    ascendancy (Abyssal Lich) has no nodes of its own: it uses the other's (Lich), which PoB
+    switches to the alternate's version when it is selected."""
+    by_start: dict[int, set[str]] = {}
+    for cls in data.tree["classes"]:
+        for asc in cls["ascendancies"]:
+            by_start.setdefault(asc["startNode"], set()).add(asc["name"])
+    return {name: group for group in by_start.values() for name in group}
+
+
 # Compiler --------------------------------------------------------------------------------------
 
 
@@ -177,12 +244,11 @@ class _Names:
 
 def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
     issues: list[Issue] = []
-    passive_names = sorted({n["name"] for n in data.tree["nodes"] if n["type"] in ("Keystone", "Notable") and n["name"]})
     mechanic_names = sorted({t for g in data.gems for t in g["tags"]} | {t for g in data.gems for t in g["skillTypes"]})
     lookups = {
         "skills": _Names(data.active_skills),
         "supports": _Names(data.supports),
-        "passives": _Names(passive_names),
+        "passives": _Names(passive_names(data)),
         "uniques": _Names(data.unique_names),
         "item_classes": _Names(data.item_classes),
         "augments": _Names(data.augments),
@@ -221,6 +287,36 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
         allowed_ascendancies = list(classes[request.class_name])
     else:
         allowed_ascendancies = list(data.ascendancies)
+
+    # The classes the request allows, and which passives that rules out
+    if request.class_name in classes:
+        allowed_classes = {request.class_name}
+    elif request.ascendancies:
+        allowed_classes = {c for c, names in classes.items() if set(names) & set(allowed_ascendancies)}
+    else:
+        allowed_classes = set(classes)
+    rules = passive_rules(data)
+    groups = ascendancy_groups(data)
+    usable_ascendancies = set().union(*(groups.get(a, {a}) for a in allowed_ascendancies)) if allowed_ascendancies else set()
+    narrowed = set(allowed_classes)
+    for name in required["passives"]:
+        rule = rules.get(name)
+        if not rule:
+            continue
+        if rule["ascendancies"] is not None and not usable_ascendancies & set(rule["ascendancies"]):
+            home = " or ".join(rule["ascendancies"])
+            issues.append(Issue("error", "require.passives", f"{name} is an ascendancy passive ({home}), but this request "
+                                f"doesn't allow {home}. Allow it, or drop {name}."))
+        elif rule["classes"] is not None:
+            usable = set(rule["classes"]) & allowed_classes
+            if not usable:
+                where = request.class_name or " or ".join(sorted(allowed_classes))
+                issues.append(Issue("error", "require.passives", f"{name} isn't available for {where}: it exists for "
+                                    f"{', '.join(rule['classes'])} only ({rule['note']})."))
+            elif not request.class_name and not request.ascendancies:
+                narrowed &= usable  # no class asked for: only those that have it can be proposed
+    if narrowed != allowed_classes and not request.ascendancies:
+        allowed_ascendancies = [a for a in allowed_ascendancies if any(a in classes[c] for c in narrowed)]
 
     main = resolve("skills", request.main_skill, "main_skill") if request.main_skill else None
     weapon_type = request.weapon_type

@@ -42,8 +42,15 @@ site, as their API docs ask.
 Beside the request form (below it on a narrow screen) is the **passive tree**: scroll to zoom, drag to
 move, search for a passive by name or effect, left click a notable or keystone to require it and right
 click to ban it. It edits the same Passives lists as the form and follows them (small passives share
-names, so only notables and keystones can be picked). A result shows the same tree read-only, with the
-passives the build allocated. While a run is going, edits to the form reach it about a second and a half
+names, so only notables and keystones can be picked). It is drawn with the game's own node art, cut
+once from the sprite sheets PoB ships and cached under `data/` (Grinding Gear Games' art, for local use
+only; without PoB's sheets the nodes are plain dots). Ticking an ascendancy sets the class to match
+(Any class when the ticked ones span classes), and changing the class or ascendancy drops required or
+banned ascendancy passives that no longer fit, saying which. A few nodes beside the class starts are a
+different passive for some classes (Vile Wounds is Eagle Eye for a Huntress; PoB applies that when the
+class is selected): they are marked ⇄, the tree shows the version of the chosen class (or whichever you
+pick), and requiring or banning one sets the class to match. A result shows the same tree read-only,
+with the passives the build allocated. While a run is going, edits to the form reach it about a second and a half
 after you stop typing: the search stops, keeps its best build, and continues from that build's PoB code
 with the new settings for the time left (an edit with errors is reported and changes nothing). Under the
 progress, a summary of the best build found so far updates each time a search round ends.

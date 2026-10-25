@@ -1,16 +1,21 @@
 "use strict";
 
-// Interactive passive tree, drawn on canvases. Used twice: beside the request form (click a notable
-// or keystone to require it, right click to ban it) and in a result (read-only: the nodes the build
-// allocated). The data comes from /api/tree: the main tree and each ascendancy are separate layers,
-// since the game places ascendancies far from the main tree.
+// Interactive passive tree, drawn on canvases with the game's own node art. Used twice: beside the
+// request form (click a notable or keystone to require it, right click to ban it) and in a result
+// (read-only: the nodes the build allocated). The data comes from /api/tree: the main tree and each
+// ascendancy are separate layers, since the game places ascendancies far from the main tree. The art
+// (frames and icons cut from Path of Building's texture sheets, Grinding Gear Games' property, for
+// local use) comes from /api/tree/art; without it, and where nodes are too small to show art, nodes
+// are drawn as dots.
 
 const NODE = { NORMAL: 0, NOTABLE: 1, KEYSTONE: 2, SOCKET: 3, CLASS_START: 4, ASC_START: 5 };
 const NODE_KIND = ["Small passive", "Notable", "Keystone", "Jewel socket", "Class start", "Ascendancy start"];
-// Drawn size per node type: radius in tree units, and the least and most pixels it takes on screen
-const NODE_SIZE = [[55, 0.9, 8], [105, 1.8, 15], [160, 3.4, 22], [100, 2.4, 13], [170, 4.2, 20], [140, 3.6, 18]];
+// Dots (and hit areas) per node type: radius in tree units where the node has no frame, and the least pixels
+const NODE_SIZE = [[55, 1], [105, 2], [160, 3.5], [100, 2.5], [170, 4.5], [140, 3.5]];
+const ART_MIN_PX = 6; // frames smaller than this on screen are drawn as dots
 const MAIN_LAYER = "";
 let treeDataPromise = null;
+let treeArtPromise = null;
 
 function loadTreeData() {
   if (!treeDataPromise) {
@@ -22,11 +27,44 @@ function loadTreeData() {
   return treeDataPromise;
 }
 
+/** The node art, or null when it isn't available (the page then draws dots). */
+function loadTreeArt() {
+  if (!treeArtPromise) {
+    treeArtPromise = (async () => {
+      const response = await fetch("/api/tree/art");
+      if (!response.ok) return null;
+      const atlas = await response.json();
+      const load = (name) => new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error(`${name} didn't load`));
+        image.src = `/api/tree/art/${name}?v=${atlas.signature}`;
+      });
+      const [frames, lit, dim] = await Promise.all(atlas.files.map(load));
+      return { atlas, frames, lit, dim };
+    })().catch(() => null);
+  }
+  return treeArtPromise;
+}
+
 function prepareTree(raw) {
-  const nodes = raw.nodes.map(([id, x, y, type, name, stats, asc]) => ({
-    id, x, y, type, name, stats, asc, key: name.toLowerCase(), links: [],
-    text: `${name} ${stats.join(" ")}`.toLowerCase(),
-  }));
+  const allClasses = raw.classes.map((c) => c.name);
+  const look = (name, stats, icon, classes) => ({ name, stats, icon, classes, key: name.toLowerCase(), text: `${name} ${stats.join(" ")}`.toLowerCase() });
+  const switchable = [];
+  const nodes = raw.nodes.map(([id, x, y, type, name, stats, asc, icon, frame, iconW, frameW, variants]) => {
+    const node = { id, x, y, type, asc, links: [], iconW, frameW, frame, views: null };
+    // A node near a class start can be another passive for a class: `views` maps "" (every other class) and
+    // each such class to the look it has for that class
+    if (variants) {
+      const own = variants.map((v) => v[0]);
+      node.base = look(name, stats, icon, allClasses.filter((c) => !own.includes(c)));
+      node.views = new Map([["", node.base], ...variants.map(([cls, vname, vstats, vicon]) => [cls, look(vname, vstats, vicon, [cls])])]);
+      switchable.push(node);
+    } else {
+      node.base = look(name, stats, icon, null);
+    }
+    return node;
+  });
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const layers = new Map();
   const layerFor = (name) => {
@@ -43,14 +81,14 @@ function prepareTree(raw) {
     layerFor(from.asc).edges.push([from, to]);
   }
   for (const layer of layers.values()) layer.bounds = boundsOf(layer.nodes);
-  // Notables and keystones by name: the names a request can require or ban (a few share a name)
-  const byName = new Map();
   const nameCount = new Map();
-  for (const node of nodes) {
-    nameCount.set(node.key, (nameCount.get(node.key) || 0) + 1);
-    if (node.type === NODE.NOTABLE || node.type === NODE.KEYSTONE) {
-      if (!byName.has(node.key)) byName.set(node.key, []);
-      byName.get(node.key).push(node);
+  for (const node of nodes) nameCount.set(node.base.key, (nameCount.get(node.base.key) || 0) + 1);
+  // Names of the versions a class gets: found when no node shows that name for the class being viewed
+  const variantNodes = new Map();
+  for (const node of switchable) {
+    for (const view of node.views.values()) {
+      if (!variantNodes.has(view.key)) variantNodes.set(view.key, []);
+      variantNodes.get(view.key).push(node);
     }
   }
   const classes = new Map(raw.classes.map((c) => [c.name, byId.get(c.start)]));
@@ -60,7 +98,12 @@ function prepareTree(raw) {
     const twin = raw.ascendancies.find((b) => b.start === a.start && layers.has(b.name));
     layerNames.set(a.name, layers.has(a.name) ? a.name : twin ? twin.name : "");
   }
-  return { nodes, byId, layers, byName, nameCount, classes, ascendancies: raw.ascendancies, layerNames };
+  const rules = new Map(Object.entries(raw.rules || {}).map(([name, rule]) => [name.toLowerCase(), rule]));
+  const variantClasses = [...new Set(switchable.flatMap((n) => [...n.views.keys()].filter(Boolean)))].sort();
+  return {
+    nodes, byId, layers, nameCount, classes, allClasses, ascendancies: raw.ascendancies, layerNames, rules, switchable,
+    variantNodes, variantClasses, icons: raw.icons, frames: raw.frames,
+  };
 }
 
 function boundsOf(nodes) {
@@ -167,8 +210,9 @@ class TreeView {
     const b = this.layer?.bounds;
     if (!b || !this.width) return;
     const fit = Math.min(this.width / (b.x1 - b.x0 + 1), this.height / (b.y1 - b.y0 + 1));
+    const main = this.layer.name === MAIN_LAYER;
     this.minScale = fit * 0.6;
-    this.maxScale = fit * (this.layer.name === MAIN_LAYER ? 60 : 8);
+    this.maxScale = Math.max(fit, Math.min(fit * (main ? 60 : 8), main ? 0.5 : 0.6));
   }
 
   fit() {
@@ -227,16 +271,23 @@ class TreeView {
     requestAnimationFrame(() => { this.queued = false; this.draw(); });
   }
 
+  /** On-screen radius of a node: its frame, or at least a dot. */
   radius(node) {
-    const [world, least, most] = NODE_SIZE[node.type];
-    return Math.min(most, Math.max(least, world * this.scale));
+    const [world, least] = NODE_SIZE[node.type];
+    const size = node.frameW > 1 ? node.frameW : world * 2;
+    return Math.min(90, Math.max(least, size * 0.5 * this.scale));
+  }
+
+  /** Is this node drawn with art at this zoom? */
+  hasArt(node) {
+    return !!this.tree.art && node.frameW > 1 && node.frameW * this.scale >= ART_MIN_PX;
   }
 
   // Which node is at this pixel: the nearest within its drawn size plus a margin for the pointer
   hit(px, py, coarse = false) {
     if (!this.layer) return null;
     const margin = coarse ? 10 : 3;
-    const reach = (22 + margin) / this.scale;
+    const reach = (60 + margin) / this.scale;
     const here = this.toWorld(px, py);
     const grid = this.layer.grid;
     let best = null, bestScore = Infinity;
@@ -263,6 +314,7 @@ class TreeView {
     if (tree.scheme.matches !== tree.dark) tree.onScheme(); // the theme changed and the change event hasn't arrived yet
     const colors = tree.colors;
     const alloc = tree.allocated;
+    const marks = tree.markedNodes;
     const scale = this.scale, tx = this.tx, ty = this.ty, w = this.width, hgt = this.height;
     ctx.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
     ctx.clearRect(0, 0, w, hgt);
@@ -278,22 +330,24 @@ class TreeView {
       path.lineTo(bx, by);
     }
     ctx.lineCap = "round";
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = alloc ? 0.25 : 0.5;
+    ctx.lineWidth = Math.max(1, Math.min(2.4, 8 * scale));
+    ctx.globalAlpha = alloc ? 0.3 : 0.5;
     ctx.strokeStyle = colors.muted;
     ctx.stroke(plain);
     if (alloc) {
       ctx.globalAlpha = 0.95;
-      ctx.lineWidth = Math.max(1.6, Math.min(4, 90 * scale));
+      ctx.lineWidth = Math.max(1.6, Math.min(4, 24 * scale));
       ctx.strokeStyle = colors.accent;
       ctx.stroke(lit);
     }
 
-    // Nodes, batched by look
+    // Nodes too small for art are dots, batched by look; the rest are drawn with their frames and icons
     const batches = new Map();
+    const arts = [];
     for (const node of this.layer.nodes) {
       const x = node.x * scale + tx, y = node.y * scale + ty;
-      if (x < -20 || x > w + 20 || y < -20 || y > hgt + 20) continue;
+      if (x < -60 || x > w + 60 || y < -60 || y > hgt + 60) continue;
+      if (this.hasArt(node)) { arts.push(node, x, y); continue; }
       const on = alloc ? alloc.has(node.id) : false;
       const key = node.type * 2 + (on ? 1 : 0);
       if (!batches.has(key)) batches.set(key, []);
@@ -305,12 +359,24 @@ class TreeView {
       ctx.globalAlpha = on ? 1 : alloc ? 0.35 : type === NODE.NORMAL ? 0.7 : 0.95;
       ctx.fillStyle = color;
       ctx.strokeStyle = color;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = type === NODE.CLASS_START ? 2.5 : 1.5;
       ctx.beginPath();
-      for (let i = 0; i < list.length; i += 3) shape(ctx, type, list[i], list[i + 1], list[i + 2]);
-      if (type === NODE.SOCKET || type === NODE.ASC_START) ctx.stroke(); else ctx.fill();
+      for (let i = 0; i < list.length; i += 3) {
+        ctx.moveTo(list[i] + list[i + 2], list[i + 1]);
+        ctx.arc(list[i], list[i + 1], list[i + 2], 0, Math.PI * 2);
+      }
+      if (type === NODE.SOCKET || type === NODE.ASC_START || type === NODE.CLASS_START) ctx.stroke(); else ctx.fill();
     }
     ctx.globalAlpha = 1;
+    if (arts.length) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      for (let i = 0; i < arts.length; i += 3) {
+        const node = arts[i];
+        const lit_ = (alloc && alloc.has(node.id)) || marks.get(node) === "require" || node === this.hover;
+        this.drawArt(node, arts[i + 1], arts[i + 2], lit_);
+      }
+    }
 
     // The chosen class's starting point
     const start = tree.startNode;
@@ -319,30 +385,12 @@ class TreeView {
     // Search matches, then the required and banned passives
     for (const node of tree.matches) if (node.asc === this.layer.name) this.ring(node, colors.accent, 4, 2);
     const labels = [];
-    for (const { node, mode } of tree.marked) {
+    for (const [node, mode] of marks) {
       if (node.asc !== this.layer.name) continue;
-      const colour = mode === "require" ? colors.ok : colors.bad;
-      const r = this.radius(node) + 3;
       const x = node.x * scale + tx, y = node.y * scale + ty;
-      if (x < -30 || x > w + 30 || y < -30 || y > hgt + 30) continue;
-      ctx.fillStyle = colour;
-      ctx.beginPath();
-      ctx.arc(x, y, r - 1, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = colour;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(x, y, r + 3, 0, Math.PI * 2);
-      ctx.stroke();
-      if (mode === "forbid") {
-        ctx.strokeStyle = colors.surface;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(x - r * 0.5, y - r * 0.5); ctx.lineTo(x + r * 0.5, y + r * 0.5);
-        ctx.moveTo(x + r * 0.5, y - r * 0.5); ctx.lineTo(x - r * 0.5, y + r * 0.5);
-        ctx.stroke();
-      }
-      labels.push({ node, colour, rank: 0 });
+      if (x < -60 || x > w + 60 || y < -60 || y > hgt + 60) continue;
+      this.mark(node, mode, x, y);
+      labels.push({ node, colour: mode === "require" ? colors.ok : colors.bad, rank: 0 });
     }
     if (this.hover) this.ring(this.hover, colors.text, 3, 2);
 
@@ -367,17 +415,85 @@ class TreeView {
     ctx.lineJoin = "round";
     const placed = [];
     for (const { node, colour } of labels) {
+      const name = tree.shown(node).name;
       const x = node.x * scale + tx, y = node.y * scale + ty - this.radius(node) - 4;
       if (x < 0 || x > w || y < 0 || y > hgt + 12) continue;
-      const half = ctx.measureText(node.name).width / 2 + 2;
+      const half = ctx.measureText(name).width / 2 + 2;
       const box = [x - half, y - 13, x + half, y + 1];
       if (placed.some((p) => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1])) continue;
       placed.push(box);
       ctx.lineWidth = 3.5;
       ctx.strokeStyle = colors.surface;
-      ctx.strokeText(node.name, x, y);
+      ctx.strokeText(name, x, y);
       ctx.fillStyle = colour;
-      ctx.fillText(node.name, x, y);
+      ctx.fillText(name, x, y);
+    }
+  }
+
+  /** One node's icon, then its frame over it; lit when allocated, required or hovered, dimmed otherwise. */
+  drawArt(node, x, y, lit) {
+    const { ctx, tree } = this;
+    const { art, data } = tree;
+    const shown = tree.shown(node);
+    const icon = art.atlas.icons[data.icons[shown.icon]];
+    if (icon && node.iconW) {
+      const size = node.iconW * this.scale;
+      ctx.drawImage(lit ? art.lit : art.dim, icon[0], icon[1], icon[2], icon[3], x - size / 2, y - size / 2, size, size);
+    }
+    const frame = art.atlas.frames[(data.frames[node.frame] || [])[lit ? 0 : 2]];
+    if (frame) {
+      const width = node.frameW * this.scale, height = (width * frame[3]) / frame[2];
+      ctx.drawImage(art.frames, frame[0], frame[1], frame[2], frame[3], x - width / 2, y - height / 2, width, height);
+    }
+    if (node.views && node.frameW * this.scale >= 14) this.badge(node, x, y);
+  }
+
+  /** A small mark on the nodes that are a different passive for some classes. */
+  badge(node, x, y) {
+    const { ctx } = this;
+    const r = this.radius(node) * 0.72;
+    ctx.fillStyle = this.tree.colors.accent;
+    ctx.beginPath();
+    ctx.arc(x + r, y - r, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = this.tree.colors.surface;
+    ctx.font = "700 9px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("⇄", x + r, y - r + 0.5);
+  }
+
+  /** Required: a green ring around the lit node; banned: a red ring and a cross. Dots get a filled disk. */
+  mark(node, mode, x, y) {
+    const { ctx } = this;
+    const colour = mode === "require" ? this.tree.colors.ok : this.tree.colors.bad;
+    const art = this.hasArt(node);
+    const r = this.radius(node) + (art ? 1 : 3);
+    if (!art) {
+      ctx.fillStyle = colour;
+      ctx.beginPath();
+      ctx.arc(x, y, r - 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = colour;
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.arc(x, y, r + 1, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(x, y, r + 1, 0, Math.PI * 2);
+    ctx.stroke();
+    if (mode === "forbid") {
+      const k = r * 0.55;
+      ctx.strokeStyle = art ? colour : this.tree.colors.surface;
+      ctx.lineWidth = art ? 3 : 2;
+      ctx.beginPath();
+      ctx.moveTo(x - k, y - k); ctx.lineTo(x + k, y + k);
+      ctx.moveTo(x + k, y - k); ctx.lineTo(x - k, y + k);
+      ctx.stroke();
     }
   }
 
@@ -509,40 +625,27 @@ function buildGrid(nodes) {
   return grid;
 }
 
-function shape(ctx, type, x, y, r) {
-  if (type === NODE.NOTABLE) {
-    const d = r * 1.3;
-    ctx.moveTo(x, y - d); ctx.lineTo(x + d, y); ctx.lineTo(x, y + d); ctx.lineTo(x - d, y); ctx.closePath();
-  } else if (type === NODE.KEYSTONE) {
-    for (let i = 0; i < 6; i++) {
-      const angle = Math.PI / 6 + (i * Math.PI) / 3;
-      const px = x + Math.cos(angle) * r * 1.1, py = y + Math.sin(angle) * r * 1.1;
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-  } else if (type === NODE.ASC_START) {
-    ctx.rect(x - r, y - r, r * 2, r * 2);
-  } else {
-    ctx.moveTo(x + r, y);
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-  }
-}
-
 // The panel: toolbar, the main tree, an ascendancy view, notes and legend --------------------------
 
 class PassiveTree {
   /* options: interactive (click to require/ban), marks() -> {require: Set, forbid: Set} of lowercase names,
-     onMark(name, "require" | "forbid"), ascendancySelect (offer a choice of ascendancy), help (a node shown under the toolbar) */
+     onMark(name, "require" | "forbid", {classes}) (classes: the classes that have that version of the node, or null),
+     ascendancySelect (offer a choice of ascendancy), help (a node shown under the toolbar) */
   constructor(root, options = {}) {
     this.options = { interactive: false, ascendancySelect: false, marks: () => ({ require: new Set(), forbid: new Set() }), ...options };
     this.root = root;
     this.data = null;
+    this.art = null;
     this.allocated = null;
     this.matches = [];
     this.marked = [];
+    this.markedNodes = new Map();
     this.startNode = null;
     this.asc = "";
     this.className = "";
+    this.variantChoice = "follow"; // "follow" the class, "base" (every other class) or a class's name
+    this.variantClass = "";
+    this.byName = new Map();
     this.tapMode = "require";
     this.query = "";
     this.cursor = -1;
@@ -556,6 +659,7 @@ class PassiveTree {
     loadTreeData().then((data) => this.attach(data)).catch((error) => {
       this.main.setEmpty(`The passive tree couldn't load: ${error.message}`);
     });
+    loadTreeArt().then((art) => { if (art) { this.art = art; this.redraw(); } });
   }
 
   readColors() {
@@ -573,10 +677,13 @@ class PassiveTree {
     const button = (label, title, fn) => h("button", { type: "button", title, "aria-label": title, onclick: fn }, label);
     this.modeButtons = ["require", "forbid"].map((mode) => h("button", { type: "button", "data-mode": mode, "aria-pressed": String(mode === this.tapMode),
       onclick: () => this.setTapMode(mode) }, mode === "require" ? "Tap: require" : "Tap: ban"));
+    this.variantSelect = o.interactive ? h("select", { "aria-label": "Which class's version of the nodes that differ by class to show",
+      onchange: () => this.setVariantChoice(this.variantSelect.value) }) : null;
     const tools = h("div", { class: "tree-tools" }, this.search,
       h("span", { class: "tree-buttons" }, button("−", "Zoom out", () => this.main.zoomAt(1 / 1.5)), button("+", "Zoom in", () => this.main.zoomAt(1.5)),
         button("Reset", "Reset the view", () => { this.main.fit(); this.ascView.fit(); })),
-      o.interactive ? h("span", { class: "tree-mode", role: "group", "aria-label": "What a tap does" }, this.modeButtons) : null, this.count);
+      o.interactive ? h("span", { class: "tree-mode", role: "group", "aria-label": "What a tap does" }, this.modeButtons) : null,
+      this.variantSelect ? h("label", { class: "tree-variant" }, "Nodes that differ by class (⇄) show", this.variantSelect) : null, this.count);
     this.mainStage = h("div", { class: "tree-stage tree-stage-main" });
     this.ascStage = h("div", { class: "tree-stage tree-stage-asc" });
     this.ascSelect = o.ascendancySelect ? h("select", { "aria-label": "Ascendancy shown", onchange: () => this.setAscendancy(this.ascSelect.value) }) : null;
@@ -603,6 +710,7 @@ class PassiveTree {
     this.main.setEmpty("");
     this.main.setLayer(data.layers.get(MAIN_LAYER));
     if (this.ascSelect) this.fillAscendancies();
+    this.fillVariants();
     this.applyAscendancy();
     this.applyClass();
     this.applyAllocated();
@@ -620,6 +728,11 @@ class PassiveTree {
   redraw() {
     this.main.requestDraw();
     this.ascView.requestDraw();
+  }
+
+  /** What a node looks like and is called for the class being shown (a node near a class start can differ by class). */
+  shown(node) {
+    return node.views ? node.views.get(this.variantClass) || node.base : node.base;
   }
 
   // State the page sets ---------------------------------------------------------------------------
@@ -675,7 +788,38 @@ class PassiveTree {
     this.startNode = this.className ? this.data.classes.get(this.className) || null : null;
     if (this.startNode && this.focusClass) this.main.centreOn(this.startNode, 0.07);
     this.focusClass = false;
-    this.redraw();
+    this.applyVariants();
+  }
+
+  // Nodes near a class start that differ by class -----------------------------------------------
+
+  fillVariants() {
+    if (!this.variantSelect) return;
+    const classes = this.data.variantClasses;
+    this.variantSelect.replaceChildren(h("option", { value: "follow" }, "the class chosen above"),
+      ...classes.map((c) => h("option", { value: c }, `${c}'s version`)), h("option", { value: "base" }, "the other classes' version"));
+    this.variantSelect.value = this.variantChoice;
+  }
+
+  setVariantChoice(choice) {
+    this.variantChoice = choice;
+    this.applyVariants();
+  }
+
+  /** Show each such node as the chosen class (or the other classes) gets it. */
+  applyVariants() {
+    if (!this.data) return;
+    this.variantClass = this.variantChoice === "follow" ? this.className : this.variantChoice === "base" ? "" : this.variantChoice;
+    // Names by what each node shows now, for finding the marked ones
+    this.byName = new Map();
+    for (const node of this.data.nodes) {
+      if (!targetable(node)) continue;
+      const key = this.shown(node).key;
+      if (!this.byName.has(key)) this.byName.set(key, []);
+      this.byName.get(key).push(node);
+    }
+    this.updateMatches();
+    this.refresh();
   }
 
   /** The node ids a result's build allocated (null: no allocation to show). */
@@ -703,8 +847,16 @@ class PassiveTree {
     if (!this.data) return;
     const marks = this.options.marks();
     this.marked = [];
+    this.markedNodes = new Map();
     for (const [mode, names] of [["require", marks.require], ["forbid", marks.forbid]]) {
-      for (const name of names) for (const node of this.data.byName.get(name) || []) this.marked.push({ node, mode });
+      for (const name of names) {
+        // Under the class being shown; a version only some class has is found whichever class that is
+        const nodes = this.byName.get(name) || this.data.variantNodes.get(name) || [];
+        for (const node of nodes) {
+          this.marked.push({ node, mode });
+          this.markedNodes.set(node, mode);
+        }
+      }
     }
     this.markCounts = { require: marks.require.size, forbid: marks.forbid.size };
     for (const view of [this.main, this.ascView]) if (view.hover) this.fillTip(view.tip, view.hover);
@@ -714,12 +866,11 @@ class PassiveTree {
 
   renderLegend() {
     const swatch = (cls, label) => h("span", { class: "tree-key" }, h("i", { class: cls }), label);
-    const parts = [swatch("k-small", "small passive"), swatch("k-notable", "notable"), swatch("k-keystone", "keystone")];
+    const parts = [];
     if (this.allocatedIds) parts.push(swatch("k-alloc", `allocated (${this.allocatedIds.length})`));
-    if (this.options.marks) {
-      const c = this.markCounts || { require: 0, forbid: 0 };
-      parts.push(swatch("k-require", `required (${c.require})`), swatch("k-forbid", `banned (${c.forbid})`));
-    }
+    const c = this.markCounts || { require: 0, forbid: 0 };
+    parts.push(swatch("k-require", `required (${c.require})`), swatch("k-forbid", `banned (${c.forbid})`));
+    if (this.options.interactive) parts.push(swatch("k-switch", "differs by class"));
     this.legend.replaceChildren(...parts);
   }
 
@@ -734,8 +885,8 @@ class PassiveTree {
   updateMatches() {
     if (!this.data) return;
     const q = this.query;
-    this.matches = q.length >= 2 ? this.data.nodes.filter((n) => n.text.includes(q)) : [];
-    this.matches.sort((a, b) => (targetable(b) - targetable(a)) || ((b.key.includes(q)) - (a.key.includes(q))));
+    this.matches = q.length >= 2 ? this.data.nodes.filter((n) => this.shown(n).text.includes(q)) : [];
+    this.matches.sort((a, b) => (targetable(b) - targetable(a)) || ((this.shown(b).key.includes(q)) - (this.shown(a).key.includes(q))));
     if (!q) this.count.textContent = "";
     else if (q.length < 2) this.count.textContent = "type two letters";
     else if (!this.matches.length) this.count.textContent = "no match";
@@ -768,17 +919,18 @@ class PassiveTree {
   clicked(node, button, touch = false, view = this.main) {
     if (!this.options.interactive) return;
     this.lastView = view;
+    const look = this.shown(node);
     if (!targetable(node)) {
-      const same = this.data.nameCount.get(node.key) || 1;
+      const same = this.data.nameCount.get(look.key) || 1;
       const what = node.type === NODE.NORMAL
-        ? `Only notables and keystones can be required or banned: small passives share names (${node.name} appears ${same} times), so a name can't pick this one.`
+        ? `Only notables and keystones can be required or banned: small passives share names (${look.name} appears ${same} times), so a name can't pick this one.`
         : `${NODE_KIND[node.type]}s can't be required or banned here.`;
       this.flash(what, view);
       return;
     }
     // A mouse's left click requires; a tap does what the Tap switch says (a touch screen has no right click)
     const mode = button === "secondary" ? "forbid" : touch ? this.tapMode : "require";
-    this.options.onMark(node.name, mode);
+    this.options.onMark(look.name, mode, { classes: look.classes, node });
   }
 
   /** A note that stays until replaced (flash fades by itself). */
@@ -792,15 +944,22 @@ class PassiveTree {
     view.toast.textContent = message;
     view.toast.hidden = false;
     clearTimeout(this.noteTimer);
-    this.noteTimer = setTimeout(() => { view.toast.hidden = true; }, 6000);
+    this.noteTimer = setTimeout(() => { view.toast.hidden = true; }, 7000);
   }
 
   fillTip(tip, node) {
     const marks = this.options.marks();
-    const state = marks.require.has(node.key) && targetable(node) ? "Required" : marks.forbid.has(node.key) && targetable(node) ? "Banned"
+    const look = this.shown(node);
+    const state = marks.require.has(look.key) && targetable(node) ? "Required" : marks.forbid.has(look.key) && targetable(node) ? "Banned"
       : this.allocated?.has(node.id) ? "Allocated" : this.allocated ? "Not allocated" : "";
-    const lines = [h("strong", {}, node.name || NODE_KIND[node.type]), h("div", { class: "tip-kind" }, NODE_KIND[node.type] + (node.asc ? ` · ${node.asc}` : "") + (state ? ` · ${state}` : ""))];
-    if (node.stats.length) lines.push(h("ul", {}, node.stats.map((s) => h("li", {}, s))));
+    const lines = [h("strong", {}, look.name || NODE_KIND[node.type]), h("div", { class: "tip-kind" }, NODE_KIND[node.type] + (node.asc ? ` · ${node.asc}` : "") + (state ? ` · ${state}` : ""))];
+    if (look.stats.length) lines.push(h("ul", {}, look.stats.map((s) => h("li", {}, s))));
+    if (node.views) {
+      // The same spot is another passive for some classes
+      const versions = [...node.views].map(([cls, v]) => h("li", { class: v === look ? "on" : "" },
+        h("strong", {}, cls ? `${cls}: ` : "Every other class: "), v.name, v.stats.length ? h("span", { class: "tip-stats" }, ` · ${v.stats.join("; ")}`) : null));
+      lines.push(h("div", { class: "tip-sub" }, "Differs by class"), h("ul", { class: "tip-versions" }, versions));
+    }
     if (this.options.interactive) {
       lines.push(h("div", { class: "tip-hint" }, targetable(node) ? "Left click: require · Right click: ban · again to clear"
         : node.type === NODE.NORMAL ? "Small passives can't be required or banned by name" : ""));

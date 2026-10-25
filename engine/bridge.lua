@@ -1425,12 +1425,29 @@ function dumpers.tree()
 			linked[#linked + 1] = otherId
 		end
 		table.sort(linked)
+		-- Nodes near a class's start that become another passive for some classes (PoB swaps them
+		-- in PassiveSpec when that class is the build's): the version each such class gets
+		local variants
+		if node.isSwitchable and node.options then
+			for className, option in pairs(node.options) do
+				if tree.classNameMap[className] then
+					variants = variants or { }
+					variants[className] = { id = option.id, name = option.name, stats = plain(option.stats, 2), icon = option.icon }
+				end
+			end
+		end
+		-- How the page draws the node: its icon, its frame (by state) and their sizes
+		local frame = node.overlay and node.overlay.alloc and
+			{ alloc = node.overlay.alloc, path = node.overlay.path, unalloc = node.overlay.unalloc } or nil
 		nodes[#nodes + 1] = {
 			id = id, name = node.dn, type = node.type, ascendancy = node.ascendancyName,
 			stats = plain(node.sd, 2), linked = linked, x = node.x, y = node.y,
 			isAttribute = node.isAttribute or nil, isMultipleChoice = node.isMultipleChoice or nil,
 			isMultipleChoiceOption = node.isMultipleChoiceOption or nil,
 			classStart = node.classStartIndex,
+			icon = node.icon, frame = frame, variants = variants,
+			iconSize = node.targetSize and node.targetSize.width or nil,
+			frameSize = node.targetSize and node.targetSize.overlay and node.targetSize.overlay.width or nil,
 		}
 	end
 	table.sort(nodes, function(a, b) return a.id < b.id end)
@@ -1446,7 +1463,15 @@ function dumpers.tree()
 		classes[#classes + 1] = { id = classId, name = class.name, startNode = class.startNodeId, ascendancies = ascendancies }
 	end
 	table.sort(classes, function(a, b) return a.name < b.name end)
-	return { treeVersion = build.spec.treeVersion, classes = classes, nodes = nodes }
+	-- Where each sprite sits in PoB's texture sheets (file -> name -> {x, y, w, h, layer}), for the
+	-- icons and frames the page draws
+	local sprites = { }
+	for file, entries in pairs(tree.ddsCoords or { }) do
+		if file:find("^skills") or file:find("^group%-background") or file:find("^jewel%-sockets") then
+			sprites[file] = plain(entries, 3)
+		end
+	end
+	return { treeVersion = build.spec.treeVersion, classes = classes, nodes = nodes, sprites = sprites }
 end
 
 function dumpers.bases()

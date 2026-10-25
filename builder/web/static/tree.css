@@ -11,6 +11,8 @@
 .tree { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .tree-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .tree-search { flex: 1 1 200px; min-width: 0; }
+.tree-variant { flex: 1 1 100%; flex-direction: row; align-items: center; gap: 8px; font-size: 0.82rem; flex-wrap: wrap; }
+.tree-variant select { padding: 3px 6px; min-width: 0; }
 .tree-buttons { display: inline-flex; gap: 4px; }
 .tree-buttons button, .tree-mode button { padding: 4px 10px; }
 .tree-mode { display: none; gap: 4px; }
@@ -55,6 +57,11 @@
 .tree-tip[hidden] { display: none; }
 .tree-tip ul { margin: 4px 0 0; padding-left: 16px; }
 .tip-kind { color: var(--muted); font-size: 0.75rem; }
+.tip-sub { margin-top: 6px; color: var(--muted); font-size: 0.75rem; }
+.tip-versions { margin: 2px 0 0; padding-left: 16px; }
+.tip-versions li { color: var(--muted); }
+.tip-versions li.on { color: var(--text); }
+.tip-stats { color: var(--muted); font-size: 0.75rem; }
 .tip-hint { margin-top: 4px; color: var(--muted); font-size: 0.75rem; }
 .tip-hint:empty { display: none; }
 
@@ -65,9 +72,8 @@
 .tree-toast[hidden] { display: none; }
 .tree-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.78rem; color: var(--muted); }
 .tree-key i { display: inline-block; width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; background: var(--muted); border-radius: 50%; }
-.tree-key .k-small { width: 6px; height: 6px; vertical-align: 0; }
-.tree-key .k-notable { background: var(--text); border-radius: 0; transform: rotate(45deg) scale(0.85); }
-.tree-key .k-keystone { background: var(--pending); border-radius: 0; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); width: 11px; height: 11px; }
+.tree-key .k-switch { background: var(--accent); }
+.tree-key .k-switch::after { content: "⇄"; display: block; color: var(--surface-2); font-size: 8px; line-height: 9px; text-align: center; }
 .tree-key .k-alloc { background: var(--accent); }
 .tree-key .k-require { background: var(--ok); }
 .tree-key .k-forbid { background: var(--bad); }
@@ -86,3 +92,7 @@
 .synopsis dd.big { font-size: 1.05rem; font-weight: 600; }
 .synopsis dd.short { color: var(--bad); }
 @media (max-width: 640px) { .synopsis dl { grid-template-columns: 1fr; gap: 0; } .synopsis dt { margin-top: 6px; font-size: 0.78rem; } }
+
+/* Ascendancies are always listed by class; the chosen class's group stands out */
+#ascendancies .class-group.current .class-name { color: var(--text); font-weight: 600; }
+#selection-note { margin-top: 10px; }

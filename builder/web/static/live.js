@@ -20,27 +20,184 @@ const lowerSet = (names) => new Set((names || []).map((name) => name.toLowerCase
 // The request tree ---------------------------------------------------------------------------------
 
 let requestTree = null;
+let treeInfo = null; // the tree data once loaded: which passives need which ascendancy or class
 let loadingForm = false; // writeForm is filling the form: that isn't an edit
 let lastClass = "";
 let treeSignature = ""; // the class and ascendancy ticks the tree last followed
+let noteTimer = null;
+loadTreeData().then((data) => { treeInfo = data; }).catch(() => { /* the tree panel says so */ });
 
 function passiveMarks() {
   return { require: lowerSet(choices.require.passives), forbid: lowerSet(choices.forbid.passives) };
 }
 
+// Class, ascendancies and passives must agree ---------------------------------------------------------
+
+const classOf = (ascendancy) => Object.entries(options.classes).find(([, names]) => names.includes(ascendancy))?.[0];
+const tickedAscendancies = () => [...$("ascendancies").querySelectorAll("input:checked")].map((box) => box.value);
+const listOf = (names) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0]);
+
+function setTicks(names) {
+  for (const box of $("ascendancies").querySelectorAll("input")) box.checked = names.includes(box.value);
+}
+
+/** All the ascendancies on the form, grouped by class, whatever the class is: ticking one picks its class. */
+globalThis.renderAscendancies = (selected = []) => {
+  const container = $("ascendancies");
+  container.replaceChildren();
+  for (const [name, ascendancies] of Object.entries(options.classes)) {
+    const group = el("div", { class: "class-group", "data-class": name }, el("span", { class: "class-name" }, name));
+    for (const ascendancy of ascendancies) {
+      group.append(el("label", {}, el("input", { type: "checkbox", value: ascendancy, checked: selected.includes(ascendancy) }), ascendancy));
+    }
+    container.append(group);
+  }
+  markClassGroup();
+};
+
+function markClassGroup() {
+  const className = $("class_name").value;
+  for (const group of $("ascendancies").querySelectorAll(".class-group")) group.classList.toggle("current", group.dataset.class === className);
+}
+
+/** What the form allows now: the classes, and the ascendancies (those sharing a start node, like Lich and Abyssal Lich, count as one). */
+function selection() {
+  const className = $("class_name").value;
+  const ticked = tickedAscendancies();
+  const classes = className ? [className] : ticked.length ? [...new Set(ticked.map(classOf))] : Object.keys(options.classes);
+  const names = ticked.length ? ticked : className ? options.classes[className] : Object.values(options.classes).flat();
+  const all = treeInfo?.ascendancies || [];
+  const starts = new Map(all.map((a) => [a.name, a.start]));
+  const ascendancies = new Set(names);
+  for (const name of names) {
+    for (const other of all) if (other.start === starts.get(name)) ascendancies.add(other.name);
+  }
+  return { className, ticked, classes: new Set(classes), ascendancies };
+}
+
+function whyInvalid(name, choice) {
+  const rule = treeInfo.rules.get(name.toLowerCase());
+  if (!rule) return null;
+  if (rule.ascendancies && !rule.ascendancies.some((a) => choice.ascendancies.has(a))) {
+    return `a ${[...new Set(rule.ascendancies)].join(" or ")} passive, and that ascendancy isn't allowed now`;
+  }
+  if (rule.classes && !rule.classes.some((c) => choice.classes.has(c))) {
+    return `only ${listOf(rule.classes)} has it, and the class is ${listOf([...choice.classes])} now`;
+  }
+  return null;
+}
+
+/** Take required and banned passives out of the lists when the class or ascendancies no longer allow them. */
+function dropInvalidPassives() {
+  if (!treeInfo || !options) return [];
+  const choice = selection();
+  const removed = [];
+  for (const mode of ["require", "forbid"]) {
+    choices[mode].passives = choices[mode].passives.filter((name) => {
+      const why = whyInvalid(name, choice);
+      if (why) removed.push(`${name} (${mode === "require" ? "required" : "banned"}: ${why})`);
+      return !why;
+    });
+  }
+  return removed;
+}
+
+/** After the class or ascendancies changed: drop what no longer fits, and say what happened. */
+function settle(notes) {
+  const removed = dropInvalidPassives();
+  if (removed.length) {
+    renderChoices();
+    notes.push(`Removed ${removed.join("; ")}.`);
+  }
+  markClassGroup();
+  syncTreeSelection();
+  showSelectionNote(notes.join(" "));
+}
+
+function showSelectionNote(text) {
+  const note = $("selection-note");
+  note.textContent = text;
+  note.hidden = !text;
+  clearTimeout(noteTimer);
+  if (text) noteTimer = setTimeout(() => { note.hidden = true; }, 25000);
+}
+
+function classChanged() {
+  const className = $("class_name").value;
+  const notes = [];
+  if (className) {
+    const ticked = tickedAscendancies();
+    const keep = ticked.filter((a) => options.classes[className].includes(a));
+    if (keep.length !== ticked.length) {
+      setTicks(keep);
+      notes.push(`Unticked ${listOf(ticked.filter((a) => !keep.includes(a)))}: not ${className} ascendancies.`);
+    }
+  }
+  settle(notes);
+}
+
+function ascendancyChanged() {
+  const ticked = tickedAscendancies();
+  const notes = [];
+  if (ticked.length) {
+    const classes = [...new Set(ticked.map(classOf))];
+    const target = classes.length === 1 ? classes[0] : "";
+    if ($("class_name").value !== target) {
+      $("class_name").value = target;
+      notes.push(target ? `Class set to ${target}, to match ${listOf(ticked)}.`
+        : `${listOf(ticked)} belong to different classes (${listOf(classes)}), so the class is now Any.`);
+    }
+  }
+  settle(notes);
+}
+
+/** Of the classes that have a version of a node, the one to switch to: one that starts where the current class does, else Any. */
+function pickClass(classes, choice) {
+  if (classes.length === 1) return classes[0];
+  const here = treeInfo?.classes.get(choice.className);
+  return classes.find((c) => treeInfo.classes.get(c) === here) || "";
+}
+
+/** Requiring or banning a version of a node that only some classes have: make the class one of them. */
+function ensureClass(classes, name) {
+  const choice = selection();
+  const notes = [];
+  if (classes.some((c) => choice.classes.has(c))) {
+    if (!choice.className && !choice.ticked.length && classes.length === 1) {
+      $("class_name").value = classes[0];
+      notes.push(`Class set to ${classes[0]}: ${name} is the version of that node only ${classes[0]} gets.`);
+    }
+    return notes;
+  }
+  const target = pickClass(classes, choice);
+  const ticked = tickedAscendancies();
+  const keep = ticked.filter((a) => (target ? options.classes[target].includes(a) : classes.includes(classOf(a))));
+  $("class_name").value = target;
+  setTicks(keep);
+  const others = Object.keys(options.classes).filter((c) => !classes.includes(c));
+  notes.push(`Class ${target ? `changed to ${target}` : "set to Any"}`
+    + (keep.length !== ticked.length ? `, unticked ${listOf(ticked.filter((a) => !keep.includes(a)))}` : "")
+    + `: ${name} is the version of that node ${classes.length === 1 ? `only ${classes[0]} gets` : `every class but ${listOf(others)} has`}.`);
+  return notes;
+}
+
 /** A click on the tree: toggle the passive in the Require or Ban list (the chips), never in both. */
-function markPassive(name, mode) {
+function markPassive(name, mode, info = {}) {
   const same = (n) => n.toLowerCase() === name.toLowerCase();
   const other = mode === "require" ? "forbid" : "require";
   const present = choices[mode].passives.some(same);
+  const notes = [];
   if (present) {
     choices[mode].passives = choices[mode].passives.filter((n) => !same(n));
   } else {
     choices[mode].passives = [...choices[mode].passives, name];
     choices[other].passives = choices[other].passives.filter((n) => !same(n));
+    if (info.classes) notes.push(...ensureClass(info.classes, name));
   }
   renderChoices();
-  requestTree.flash(present ? `Cleared ${name}.` : mode === "require" ? `Required: ${name}.` : `Banned: ${name}.`);
+  const done = present ? `Cleared ${name}.` : mode === "require" ? `Required: ${name}.` : `Banned: ${name}.`;
+  settle(notes);
+  requestTree.flash([done, ...notes].join(" "));
 }
 
 function treeHelp() {
@@ -49,14 +206,15 @@ function treeHelp() {
     item("Scroll to zoom, drag to move, or search for a passive by name or effect (Enter jumps to the next match)."),
     item(el("span", { class: "req" }, "Left click"), " a notable or keystone to require it, ",
       el("span", { class: "ban" }, "right click"), " to ban it; click again to clear. On a touch screen use the Tap switch."),
-    item("It edits the Passives lists under Requirements and bans, and follows them. Small passives share names, so only notables and keystones (ascendancy ones too) can be picked."));
+    item("It edits the Passives lists under Requirements and bans, and follows them. Small passives share names, so only notables and keystones (ascendancy ones too) can be picked."),
+    item("Nodes marked ⇄ are a different passive for some classes (Vile Wounds is Eagle Eye for a Huntress). Choose which class's version to show above; requiring or banning one sets the class to match."));
 }
 
 /** Class and ascendancy ticks on the form decide which ascendancy the tree's second view offers. */
-function syncTreeSelection() {
+function syncTreeSelection(focus = false) {
   if (!requestTree || !options) return;
   const className = $("class_name").value;
-  const ticked = [...$("ascendancies").querySelectorAll("input:checked")].map((box) => box.value);
+  const ticked = tickedAscendancies();
   const signature = `${className}|${ticked.join(",")}`;
   if (signature === treeSignature) return; // not a change of class or ascendancy: leave the views as the user has them
   treeSignature = signature;
@@ -64,11 +222,20 @@ function syncTreeSelection() {
   const current = requestTree.asc;
   const shown = ticked.includes(current) ? current : ticked[0] || (names.includes(current) ? current : "");
   requestTree.setAscendancyChoices(names, shown);
-  requestTree.setClass(className, className !== lastClass);
+  requestTree.setClass(className, focus && className !== lastClass);
   lastClass = className;
 }
 
-function onFormEdited() {
+function onFormEdited(event) {
+  if (event?.type === "change") {
+    const target = event.target;
+    if (target.id === "class_name") {
+      classChanged();
+      syncTreeSelection(true);
+    } else if (target.closest?.("#ascendancies")) {
+      ascendancyChanged();
+    }
+  }
   syncTreeSelection();
   liveEdited();
 }
@@ -88,7 +255,9 @@ extend("writeForm", (original, request) => {
   }
   lastClass = "";
   treeSignature = "";
-  syncTreeSelection();
+  showSelectionNote("");
+  markClassGroup();
+  syncTreeSelection(true);
   if (liveRun && !adoptingRun) detachLive();
 });
 

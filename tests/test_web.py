@@ -44,6 +44,44 @@ def test_changed_fields_ignores_name_and_notes():
     assert sorted(changed_fields(base, edited)) == ["dps_gate", "max_buttons"]
 
 
+def test_tree_payload_art_and_class_versions(tree):
+    if not tree.get("sprites"):
+        pytest.skip("the tree dump predates node art and class versions; run `uv run python -m builder.data dump`")
+    payload = tree_payload(tree, {"x": {"ascendancies": None, "classes": ["Huntress"], "note": ""}})
+    assert payload["rules"]["x"]["classes"] == ["Huntress"]
+    rows = {row[0]: row for row in payload["nodes"]}
+    assert all(len(row) == 12 for row in rows.values())
+    # Vile Wounds: a notable with its own icon and frame, and the version a Huntress gets in its place
+    vile = rows[30695]
+    assert payload["icons"][vile[7]].endswith(".dds") and payload["frames"][vile[8]] == [
+        "NotableFrameAllocated", "NotableFrameCanAllocate", "NotableFrameUnallocated"]
+    assert vile[9] > 0 and vile[10] > vile[9]  # icon and frame sizes, in tree units
+    (cls, name, stats, icon), = vile[11]
+    assert (cls, name) == ("Huntress", "Eagle Eye") and stats and payload["icons"][icon].endswith("eagleeye.dds")
+    # Ascendancy starts get the ascendancy's middle frame
+    start = next(r for r in payload["nodes"] if r[3] == NODE_TYPES["AscendClassStart"])
+    assert payload["frames"][start[8]] == ["AscendancyMiddle"] * 3
+
+
+def test_tree_art_atlas(tree, tmp_path, monkeypatch):
+    from builder.web import treeart
+
+    data = GameData()
+    if not tree.get("sprites") or not (treeart.sheet_dir(data) / "skills_64_64_BC1.dds.zst").exists():
+        pytest.skip("PoB's tree sprite sheets aren't fetched")
+    monkeypatch.setattr(treeart, "art_dir", lambda: tmp_path)
+    atlas = treeart.ensure(data)
+    assert treeart.ensure(data) == atlas  # the second call reads what the first built
+    assert {f.name for f in tmp_path.iterdir()} >= {"atlas.json", *treeart.FILES}
+    frames, icons = treeart.wanted(data)
+    # Every frame and (apart from the mastery art nobody draws) every icon of the nodes is in the atlas
+    assert not [f for f in frames if f not in atlas["frames"]]
+    drawn = {n["icon"] for n in data.tree["nodes"] if n.get("icon") and n["type"] != "OnlyImage"}
+    assert not [i for i in drawn if i not in atlas["icons"]]
+    for x, y, w, h in list(atlas["frames"].values()) + list(atlas["icons"].values()):
+        assert x >= 0 and y >= 0 and x + w <= treeart.ATLAS_WIDTH
+
+
 class NoPrices:
     def table(self, league, refresh=False):
         return None
