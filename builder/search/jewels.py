@@ -18,6 +18,9 @@ Jewels that change the tree (PLAN.md "Radius jewels") are classified by PoB's pa
   by what the newly takeable nodes would give, then the best are socketed, the weakest branches
   make room and the tree regrows; kept only if the build ends better.
 - Jewels PoB miscalculates (timeless jewels: no seed tables) are never proposed.
+- A passive that enlarges Time-Lost radii (Baryanic Leylines, a custom model in the bridge) is
+  worth nothing without a Time-Lost jewel, and a Time-Lost jewel is scored without it: full rounds
+  try the pair (radius_trial).
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ VARIANT_SCREEN = 24  # variants rescored for a unique's later selections (Megalo
 UNLOCK_TRIALS = 2  # socket and variant pairs grown for real per full round
 UNLOCK_SCREENS = 12  # socket and variant pairs screened per full round (each socketed for real)
 UNLOCK_POINTS = 8  # newly takeable nodes a screen counts, and points a trial may free for them
+RADIUS_MODEL_ENTRY = "baryanic-leylines"  # the ledger entry for the bridge's larger Time-Lost radius model
 
 
 class Jewels:
@@ -57,6 +61,8 @@ class Jewels:
         self.full_rounds = 0
         self.left_out: dict[str, str] = {}  # unique -> why it's never proposed (for the result)
         self.screened: set[tuple[str, int, tuple[str, ...]]] = set()  # unlock screens since the last full cycle
+        # The larger Time-Lost radius model is on unless the request forbids its ledger entry
+        build.call("radiusModel", enabled=RADIUS_MODEL_ENTRY not in self.ctx.request.forbid_ledger_entries)
 
     @staticmethod
     def slot(node_id: int) -> str:
@@ -140,14 +146,15 @@ class Jewels:
         return dataclasses.replace(option, raw=with_variants(option.raw, variants, tuple(choice)),
                                    variants=variants.label(tuple(choice)), confidence="low")
 
-    def build_rare(self, slot: str, deadline: float, required: Callable[[Affix], bool] | None = None) -> ItemOption | None:
-        """The best rare jewel for this socket within its budget. With `required`, it starts from the
-        best affix that passes it (a condition's source, builder/search/sources.py), with the plain
-        two-and-two shape."""
+    def build_rare(self, slot: str, deadline: float, required: Callable[[Affix], bool] | None = None,
+                   bases: tuple[str, ...] = JEWEL_BASES + RADIUS_BASES) -> ItemOption | None:
+        """The best rare jewel for this socket within its budget, on one of `bases`. With `required`,
+        it starts from the best affix that passes it (a condition's source, builder/search/sources.py),
+        with the plain two-and-two shape."""
         left = self.gear.left_for(slot)
         level = self.pools.item_level
         best: tuple[float, ItemOption] | None = None
-        for base_name in JEWEL_BASES + RADIUS_BASES:
+        for base_name in bases:
             base = self.ctx.bases_by_name.get(base_name)
             pool = self.pools.pool(base_name) if base else []
             if not pool or time.perf_counter() > deadline:
@@ -241,6 +248,28 @@ class Jewels:
             return False
         return True
 
+    def radius_notes(self) -> list[dict]:
+        """The larger Time-Lost radius, for the result's assumptions (marked with an asterisk)."""
+        model = self.build.call("radiusModel")
+        if model["increase"] <= 0:
+            return []
+        allocated = {n["id"] for n in self.build.call("facts", fields=[])["passives"]}
+        source = ", ".join(p["name"] for p in model["passives"] if p["id"] in allocated)
+        notes = []
+        for jewel in self.build.call("radiusJewels")["jewels"]:
+            if enlarged := jewel.get("enlarged"):
+                reached = set(enlarged["extra"]) & set(jewel["affected"])
+                notes.append({
+                    "label": f"{source}: {jewel['name']} (Jewel {jewel['socket']}) reaches {enlarged['percent']}% "
+                             "further (custom model), allocated passives it adds",
+                    "value": len(reached),
+                    "basis": f"PoB ignores \"Non-Unique Time-Lost Jewels have {enlarged['percent']}% increased "
+                             "radius\"; the jewel's \"in Radius\" lines also apply to the passives within its "
+                             f"radius made {enlarged['percent']}% longer, by PoB's own distance rule. Assumed: the "
+                             "increase lengthens the radius rather than its area",
+                    "confidence": "theory"})
+        return notes
+
     def holds(self, socket: int) -> bool:
         """Whether the tree holds nodes only through this socket's jewel."""
         return any(j["socket"] == socket and j["unconnected"] for j in self.build.call("radiusJewels")["jewels"])
@@ -257,7 +286,70 @@ class Jewels:
             improved = self.try_new_socket(deadline) or improved
         if full and time.perf_counter() < deadline:
             improved = self.unlock_round(deadline) or improved
+        if full and time.perf_counter() < deadline:
+            improved = self.radius_trial(deadline) or improved
         return improved
+
+    # A larger Time-Lost radius (Baryanic Leylines*) ---------------------------------------------
+
+    def radius_trial(self, deadline: float) -> bool:
+        """Take the ascendancy's best allocation with a passive that enlarges Time-Lost radii (the
+        ascendancy round with it required), rebuild the jewels with the larger radius in effect,
+        regrow; keep the pair only if the build ends better. Every other full round, while the
+        ascendancy has such a passive and doesn't hold it."""
+        build, tree = self.build, self.tree
+        model = build.call("radiusModel")
+        ascendancy = build.call("summary")["ascendClassName"]
+        names = {p["name"] for p in model["passives"] if p["ascendancy"] == ascendancy} - tree.required_names
+        if not model["enabled"] or model["increase"] > 0 or not names or self.full_rounds % 2:
+            return False
+        sockets = self.sync()
+        near = None
+        if not sockets:  # the nearest free socket, its path taken from the weakest branches
+            forbidden = tree.forbidden
+            options = [n for n in build.call("frontier", maxDistance=SOCKET_REACH, sockets="only")["nodes"]
+                       if not forbidden.intersection(n["path"])]
+            if not options:
+                return False
+            near = min(options, key=lambda n: (n["distance"], n["id"]))
+        snap = build.snapshot()
+        before = build.score
+        tree.required_names |= names
+        try:
+            tree.ascendancy_round()
+        finally:
+            tree.required_names -= names
+        if build.call("radiusModel")["increase"] <= 0:
+            build.restore(snap)
+            return False
+        if near is not None:
+            for _, branch in tree.weakest_branches():
+                if tree.points_left() >= near["distance"]:
+                    break
+                if not branch & set(near["path"]):
+                    tree.remove_branch(branch)
+            if tree.points_left() < near["distance"]:
+                build.restore(snap)
+                return False
+            build.allocate(add=[near["id"]], attribute=tree.attribute)
+            sockets = [near["id"]]
+        # A Time-Lost rare built for each socket with the larger radius in effect (its worth
+        # depends on where it sits), offered beside the uniques
+        for socket in sockets:
+            if time.perf_counter() > deadline:
+                break
+            rare = self.build_rare(self.slot(socket), deadline, bases=RADIUS_BASES)
+            if rare is not None:
+                self.rare = rare
+                self.fill(socket, deadline, rebuild=False)
+        tree.grow(deadline)
+        # Kept only for the pair: a jewel the larger radius reaches further, and a better build
+        enlarged = any(j.get("enlarged") for j in build.call("radiusJewels")["jewels"])
+        if enlarged and build.score > before + EPSILON:
+            return True
+        build.restore(snap)
+        tree.round += 1
+        return False
 
     # Jewels that let the tree take nodes without a connection -----------------------------------
 

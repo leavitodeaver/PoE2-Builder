@@ -397,6 +397,14 @@ class TreeView {
           ctx.fill("evenodd");
           ctx.globalAlpha = 0.6;
           ctx.stroke();
+          if (jewel.enlarged) {
+            // The radius the custom model gives it (Baryanic Leylines*), dashed
+            ctx.setLineDash([8, 6]);
+            ctx.beginPath();
+            ctx.arc(x, y, jewel.enlarged.outer * scale, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
         }
         ctx.globalAlpha = 1;
         for (const node of jewel.affectedNodes) this.ring(node, colors.gold, 3, 1.5);
@@ -876,7 +884,11 @@ class PassiveTree {
     const note = (id, text) => this.radiusNotes.set(id, [...(this.radiusNotes.get(id) || []), text]);
     for (const jewel of this.radiusJewels) {
       note(jewel.socket, `${jewel.name}: ${jewel.radius.label} radius`);
-      for (const id of jewel.affected) note(id, `In the radius of ${jewel.name}`);
+      const extra = new Set(jewel.enlarged ? jewel.enlarged.extra : []);
+      for (const id of jewel.affected) {
+        note(id, extra.has(id) ? `In the radius of ${jewel.name} only as enlarged ${jewel.enlarged.percent}%* (custom model)`
+          : `In the radius of ${jewel.name}`);
+      }
       for (const id of jewel.unconnected) note(id, `Allocated without a connection, through ${jewel.name}`);
     }
     if (this.allocated) {
@@ -918,7 +930,8 @@ class PassiveTree {
     if (this.allocatedIds) parts.push(swatch("k-alloc", `allocated (${this.allocatedIds.length})`));
     for (const jewel of this.radiusJewels) {
       const held = jewel.unconnected.length ? `, ${jewel.unconnected.length} held through it` : "";
-      parts.push(swatch(jewel.unconnected.length ? "k-radius k-held" : "k-radius", `${jewel.name} radius${held}`));
+      const larger = jewel.enlarged ? ` (+${jewel.enlarged.percent}%*, dashed)` : "";
+      parts.push(swatch(jewel.unconnected.length ? "k-radius k-held" : "k-radius", `${jewel.name} radius${larger}${held}`));
     }
     const c = this.markCounts || { require: 0, forbid: 0 };
     parts.push(swatch("k-require", `required (${c.require})`), swatch("k-forbid", `banned (${c.forbid})`));

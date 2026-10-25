@@ -295,3 +295,16 @@
   notes: "Its 0.25 s cooldown caps it at 4 per second before cooldown recovery."
   sources: ["https://poe2db.tw/and_Scatter_Them_to_the_Winds", "PoB skill data: ElementalExpressionTriggeredPlayer cooldown 0.25"]
   status: approved
+
+# Disciple of Varashta's Baryanic Leylines (model: leylines) -------------------------------------
+
+- id: baryanic-leylines
+  title: Non-unique Time-Lost jewels have increased radius (larger radius model, in the bridge)
+  kind: pob_gap
+  model: leylines
+  match: '^Non-Unique Time-Lost Jewels have \d+% increased radius$'
+  replace: []
+  confidence: theory
+  notes: "engine/bridge.lua gives a socketed non-unique Time-Lost jewel the passives within its radius made N% longer (PoB's own distance rule), so PoB applies its 'in Radius' lines to them too. The theory part: the increase lengthens the radius (not its area)."
+  sources: ["PoB tree data: Baryanic Leylines (Disciple of Varashta), 'Non-Unique Time-Lost Jewels have 40% increased radius', unsupported in ModCache"]
+  status: approved

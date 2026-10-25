@@ -182,7 +182,9 @@ def radius_view(jewel: dict) -> dict:
     """What the result tree draws for a radius jewel (keeps the payload small: no nodes merely in reach)."""
     return {"socket": jewel["socket"], "name": jewel["name"], "radius": jewel["radius"],
             "centres": jewel.get("centres") or [jewel["socket"]], "affected": jewel.get("affected") or [],
-            "unconnected": jewel.get("unconnected") or [], "allowsUnconnected": bool(jewel.get("allowsUnconnected"))}
+            "unconnected": jewel.get("unconnected") or [], "allowsUnconnected": bool(jewel.get("allowsUnconnected")),
+            # The larger Time-Lost radius (custom model): the radius and the passives it adds
+            "enlarged": jewel.get("enlarged")}
 
 
 class AllocatedBody(BaseModel):

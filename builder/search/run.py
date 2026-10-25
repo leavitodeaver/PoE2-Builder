@@ -469,7 +469,8 @@ class Run:
 
 
 MODEL_NAMES = {"archon": "Elemental Archon", "energy": "meta-skill Energy", "darkness": "Darkness",
-               "traveller": "Traveller's Wisdom", "elemental_expression": "Elemental Expression"}
+               "traveller": "Traveller's Wisdom", "elemental_expression": "Elemental Expression",
+               "leylines": "larger Time-Lost radius"}
 
 
 def annotate_blind_spots(lines: list[dict]) -> list[dict]:

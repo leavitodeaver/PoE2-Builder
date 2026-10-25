@@ -211,13 +211,19 @@ local function mainSkillName()
 	return skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name or nil
 end
 
+-- The larger Time-Lost radius model (below): its calcs.initEnv wrapper, and the radius increase in
+-- effect for a calculation
+local installRadiusModel, radiusIncrease
+
 local function calculator()
+	installRadiusModel()
 	local calcFunc, calcBase = build.calcsTab:GetMiscCalculator()
 	return calcFunc, calcBase
 end
 
 -- Full recalculation through PoB's normal path, as after any edit in the GUI
 local function recalc()
+	installRadiusModel()
 	build.buildFlag = true
 	runCallback("OnFrame")
 end
@@ -272,6 +278,8 @@ function bridge.loadXml(args)
 		end
 		applyTravellerChoices(choices)
 		recalc()
+	elseif radiusIncrease(nil) > 0 then
+		recalc()  -- the load calculated before the radius model was back in place
 	end
 	return bridge.summary()
 end
@@ -636,8 +644,162 @@ function bridge.treeCheck(args)
 	}
 end
 
+-- Larger Time-Lost radii (custom model, ledger entry baryanic-leylines) --------------------------
+
+-- PoB ignores "Non-Unique Time-Lost Jewels have N% increased radius" (Disciple of Varashta's
+-- Baryanic Leylines). While a passive with that line is allocated, committed or in a what-if, a
+-- socketed non-unique Time-Lost jewel works on the passives within its radius N% larger, by the
+-- distance rule PoB uses for every jewel radius (PassiveTree.lua). calcs.initEnv is wrapped to give
+-- the jewel's socket that larger node set for the one calculation, so PoB itself applies the
+-- jewel's "in Radius" lines to the extra passives and they stack with everything else.
+local RADIUS_LINE = "^non%-unique time%-lost jewels have (%d+)%% increased radius$"
+local radiusModel = { enabled = true }
+local radiusPassiveCache = setmetatable({ }, { __mode = "k" })  -- tree -> { [node id] = percent }
+local enlargedCache = setmetatable({ }, { __mode = "k" })  -- spec -> { [key] = node set }
+
+local function radiusPassives()
+	local tree = build.spec.tree
+	if not radiusPassiveCache[tree] then
+		local found = { }
+		for id, node in pairs(tree.nodes) do
+			for _, line in ipairs(node.sd or { }) do
+				local percent = line:lower():match(RADIUS_LINE)
+				if percent then
+					found[id] = (found[id] or 0) + tonumber(percent)
+				end
+			end
+		end
+		radiusPassiveCache[tree] = found
+	end
+	return radiusPassiveCache[tree]
+end
+
+-- The radius increase in effect for a calculation with this override (0 when none)
+radiusIncrease = function(override)
+	if not radiusModel.enabled then
+		return 0
+	end
+	local total = 0
+	for id, percent in pairs(radiusPassives()) do
+		local node = build.spec.nodes[id]
+		local on = node ~= nil and node.alloc
+		for added in pairs(override and override.addNodes or { }) do
+			on = on or added.id == id
+		end
+		for removed in pairs(override and override.removeNodes or { }) do
+			on = on and removed.id ~= id
+		end
+		total = total + (on and percent or 0)
+	end
+	return total
+end
+
+local function enlargedRadiusEligible(item)
+	return item and item.rarity ~= "UNIQUE" and item.rarity ~= "RELIC" and item.jewelRadiusIndex ~= nil
+		and (item.baseName or ""):find("Time%-Lost") ~= nil
+end
+
+-- The nodes within a socket's radius `index` grown by `percent`, by PassiveTree.lua's rule: the
+-- squared distance between the inner and outer bounds, no masteries, proxies, blighted or
+-- group-less nodes, not the socket itself. At 0% it is PoB's own set.
+local function enlargedNodes(socket, index, percent)
+	local spec = build.spec
+	enlargedCache[spec] = enlargedCache[spec] or { }
+	local key = socket.id .. ":" .. index .. ":" .. percent
+	if not enlargedCache[spec][key] then
+		local info = data.jewelRadius[index]
+		local scale = (1 + percent / 100) ^ 2
+		local inner2, outer2 = info.innerSquared * scale, info.outerSquared * scale
+		local set = { }
+		for id, node in pairs(spec.tree.nodes) do
+			if node.x and node.y and id ~= socket.id and not node.isBlighted and node.group and not node.isProxy
+				and not node.group.isProxy and not node.isMastery then
+				local dx, dy = node.x - socket.x, node.y - socket.y
+				local d2 = dx * dx + dy * dy
+				if d2 <= outer2 and inner2 <= d2 then
+					set[id] = spec.nodes[id] or node
+				end
+			end
+		end
+		enlargedCache[spec][key] = set
+	end
+	return enlargedCache[spec][key]
+end
+
+-- Installed before every bridge call: PoB defines calcs.initEnv again whenever it loads its
+-- calculation modules (a new build's CalcsTab)
+local wrappedInitEnv
+installRadiusModel = function()
+	local calcs = require("Modules.CalcBase")
+	if calcs.initEnv == wrappedInitEnv or not calcs.initEnv then
+		return
+	end
+	local initEnv = calcs.initEnv
+	wrappedInitEnv = function(buildArg, mode, override, specEnv)
+		local percent = build and buildArg == build and radiusIncrease(override) or 0
+		local swapped = { }
+		if percent > 0 then
+			for _, entry in ipairs(socketedJewels()) do
+				local socket, item = entry.socket, entry.item
+				if override and override.repSlotName == "Jewel " .. socket.id then
+					item = override.repItem  -- the jewel a what-if puts there
+				end
+				if enlargedRadiusEligible(item) and socket.nodesInRadius then
+					local index = item.jewelRadiusIndex
+					swapped[#swapped + 1] = { socket.nodesInRadius, index, socket.nodesInRadius[index] }
+					socket.nodesInRadius[index] = enlargedNodes(socket, index, percent)
+				end
+			end
+		end
+		-- Put PoB's own node sets back whatever happens, and pass every result through
+		local function restore(ok, ...)
+			for i = #swapped, 1, -1 do
+				swapped[i][1][swapped[i][2]] = swapped[i][3]
+			end
+			if not ok then
+				error((...), 0)
+			end
+			return ...
+		end
+		return restore(pcall(initEnv, buildArg, mode, override, specEnv))
+	end
+	calcs.initEnv = wrappedInitEnv
+end
+
+-- The passives with a radius increase, the one in effect, and the model's switch (`enabled`)
+function bridge.radiusModel(args)
+	if args and args.enabled ~= nil and radiusModel.enabled ~= (args.enabled and true or false) then
+		radiusModel.enabled = args.enabled and true or false
+		recalc()  -- the committed numbers follow the switch
+	end
+	local passives = { }
+	for id, percent in pairs(radiusPassives()) do
+		local node = build.spec.tree.nodes[id]
+		passives[#passives + 1] = { id = id, name = node.dn, ascendancy = node.ascendancyName, percent = percent }
+	end
+	table.sort(passives, function(a, b) return a.id < b.id end)
+	return { enabled = radiusModel.enabled, increase = radiusIncrease(nil), passives = passives }
+end
+
+-- Test support: a socket's node set for radius `index` grown by `percent`, as the model computes it
+function bridge.enlargedRadius(args)
+	local socket = nodeById(args.socket)
+	local ids = { }
+	for id in pairs(enlargedNodes(socket, args.index, args.percent or 0)) do
+		ids[#ids + 1] = id
+	end
+	table.sort(ids)
+	local base = { }
+	for id in pairs(socket.nodesInRadius and socket.nodesInRadius[args.index] or { }) do
+		base[#base + 1] = id
+	end
+	table.sort(base)
+	return { ids = ids, base = base }
+end
+
 -- Socketed radius jewels: the radius, the nodes in it, the allocated nodes it changes, the nodes the
--- tree holds only through it, and where the radius sits (the socket, or a keystone for From Nothing)
+-- tree holds only through it, and where the radius sits (the socket, or a keystone for From Nothing).
+-- A radius the custom model enlarges also gives `enlarged` (percent, radius and the extra passives).
 function bridge.radiusJewels()
 	local spec = build.spec
 	local allowed = unconnectedAllowed()
@@ -674,11 +836,34 @@ function bridge.radiusJewels()
 				end
 			end
 			table.sort(through)
+			local enlarged
+			local percent = radiusIncrease(nil)
+			if percent > 0 and enlargedRadiusEligible(item) and socket.nodesInRadius then
+				local base = socket.nodesInRadius[item.jewelRadiusIndex] or { }
+				local extra = { }
+				for id, node in pairs(enlargedNodes(socket, item.jewelRadiusIndex, percent)) do
+					if not base[id] then
+						extra[#extra + 1] = id
+						inRadius[#inRadius + 1] = id
+						if node.alloc then
+							affected[#affected + 1] = id
+						end
+					end
+				end
+				table.sort(extra)
+				table.sort(inRadius)
+				table.sort(affected)
+				local scale = 1 + percent / 100
+				enlarged = {
+					percent = percent, outer = traits.radius.outer * scale, inner = traits.radius.inner * scale,
+					extra = extra,
+				}
+			end
 			list[#list + 1] = {
 				socket = socket.id, name = item.title or item.name, base = item.baseName,
 				radius = traits.radius, centres = centres, inRadius = inRadius, affected = affected,
 				unconnected = through, allowsUnconnected = traits.unconnected or (traits.keystones and true) or nil,
-				conquers = traits.conquers,
+				conquers = traits.conquers, enlarged = enlarged,
 			}
 		end
 	end
@@ -1998,6 +2183,7 @@ function bridge_dispatch(method, jsonArgs)
 		return false, "unknown bridge method " .. tostring(method)
 	end
 	local args = dkjson.decode(jsonArgs) or { }
+	installRadiusModel()
 	local ok, result = xpcall(fn, debug.traceback, args)
 	if not ok then
 		return false, tostring(result)

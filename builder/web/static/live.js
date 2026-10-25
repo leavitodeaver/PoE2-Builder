@@ -450,7 +450,7 @@ async function addResultTree(result) {
     help: el("ul", { class: "tree-help" },
       el("li", {}, "Orange: the passives this build allocates. Scroll to zoom, drag to move, hover for what a passive does."),
       el("li", {}, el("span", { class: "req" }, "Green"), " rings are passives you required, ", el("span", { class: "ban" }, "red"), " ones you banned."),
-      el("li", {}, "Gold circles: a socketed jewel's radius; gold rings mark the passives in it, dashed ones the passives taken without a connection through it.")),
+      el("li", {}, "Gold circles: a socketed jewel's radius; gold rings mark the passives in it, dashed ones the passives taken without a connection through it. A dashed circle is a radius the custom model enlarges (Baryanic Leylines*).")),
   });
   resultTree = tree;
   tree.setClass(summary.className);

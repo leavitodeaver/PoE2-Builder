@@ -214,3 +214,93 @@ def test_megalomaniac_gets_the_notables_that_score_best(grown):
         assert chosen.variants[0] not in jewels.version(slot, option, time.perf_counter() + 120).variants
     finally:
         banned.discard(chosen.variants[0])
+
+
+# The larger Time-Lost radius (Baryanic Leylines, custom model in the bridge) ----------------------
+
+LEYLINES_PATH = [56783, 36891]  # Disciple of Varashta: the small passive, then Baryanic Leylines
+LIFE_JEWEL = "\n".join(["Rarity: Rare", "Probe Jewel", "Time-Lost Ruby", "Item Level: 80", "Radius: Small",
+                        "Implicits: 0", "Small Passive Skills in Radius also grant +8 to maximum Life"])
+
+
+def test_the_model_reproduces_pobs_radius_sets_and_grows_them(engine):
+    sockets = load_reference(engine)
+    for socket in sockets:
+        for index in range(1, 13):
+            same = engine.call("enlargedRadius", socket=socket, index=index, percent=0)
+            assert same["ids"] == same["base"], (socket, index)
+    larger = engine.call("enlargedRadius", socket=sockets[0], index=1, percent=40)
+    assert set(larger["base"]) < set(larger["ids"])
+    model = engine.call("radiusModel")
+    assert [(p["name"], p["percent"]) for p in model["passives"]] == [("Baryanic Leylines", 40)]
+
+
+@pytest.fixture(scope="module")
+def disciple(engine):
+    """A Spark Disciple of Varashta with its tree grown and the nearest socket allocated, empty."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    request = BuildRequest(main_skill="Spark", ascendancies=["Disciple of Varashta"], budget={"divines": 50})
+    ctx = Context(make_payload(request))
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0]
+    search = Search(engine, None, make_payload(request), skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.tree.grow(time.perf_counter() + 60)
+    if not search.jewels.sync():
+        near = engine.call("frontier", maxDistance=6, sockets="only")["nodes"]
+        search.build.allocate(add=[min(near, key=lambda n: n["distance"])["id"]])
+    return search
+
+
+def test_leylines_enlarges_non_unique_time_lost_jewels_in_what_ifs_and_commits(disciple, engine):
+    build = disciple.build
+    snap = build.snapshot()
+    slot = disciple.jewels.slot(disciple.jewels.sync()[0])
+    try:
+        engine.call("equip", slot=slot, raw=LIFE_JEWEL)
+        base = engine.call("stats", fields=["Life"])["Life"]
+        what_if = engine.call("nodeDeltas", cases=[{"add": LEYLINES_PATH}], fields=["Life"])["results"][0]["Life"]
+        engine.call("allocate", add=LEYLINES_PATH)
+        assert engine.call("stats", fields=["Life"])["Life"] == what_if > base
+        assert engine.call("nodeDeltas", cases=[{"remove": [36891]}], fields=["Life"])["results"][0]["Life"] == base
+        jewel = engine.call("radiusJewels")["jewels"][0]
+        assert jewel["enlarged"]["percent"] == 40 and set(jewel["enlarged"]["extra"]) & set(jewel["affected"])
+        # The same jewel's what-if in the socket sees the larger radius too
+        assert engine.call("itemDeltas", cases=[{"slot": slot, "raw": LIFE_JEWEL}], fields=["Life"])["results"][0]["Life"] == what_if
+        # Unique Time-Lost jewels keep their radius ("Non-Unique")
+        darkness = with_variants(raw("Against the Darkness"), variants_of(raw("Against the Darkness")), (10, 12))
+        engine.call("equip", slot=slot, raw=darkness)
+        assert "enlarged" not in engine.call("radiusJewels")["jewels"][0]
+        # A request that forbids the ledger entry switches the model off
+        engine.call("equip", slot=slot, raw=LIFE_JEWEL)
+        engine.call("radiusModel", enabled=False)
+        assert engine.call("nodeDeltas", cases=[{"remove": [36891]}], fields=["Life"])["results"][0]["Life"] \
+            == engine.call("stats", fields=["Life"])["Life"]
+    finally:
+        engine.call("radiusModel", enabled=True)
+        build.restore(snap)
+
+
+def test_the_search_pairs_leylines_with_a_time_lost_jewel(disciple, monkeypatch):
+    from builder.search.context import ItemOption
+
+    build, tree, jewels = disciple.build, disciple.tree, disciple.jewels
+    tree.ascendancy_round()  # nothing in the socket yet: Leylines is worth nothing
+    assert 36891 not in {p["id"] for p in build.call("facts", fields=[])["passives"]}
+    strong = "\n".join(["Rarity: Rare", "Optimizer Jewel", "Time-Lost Ruby", "Item Level: 80", "Radius: Small",
+                        "Implicits: 0", "Small Passive Skills in Radius also grant 40% increased Damage"])
+    option = ItemOption("Rare Jewel", "Time-Lost Ruby", "Jewel", None, strong, False, 0.5, "estimate", 0, rare=True)
+    monkeypatch.setattr(jewels, "build_rare", lambda slot, deadline, required=None, bases=(): option)
+    monkeypatch.setattr(jewels, "uniques", lambda slot: [])
+    jewels.full_rounds = 2
+    assert jewels.radius_trial(time.perf_counter() + 120)
+    assert 36891 in {p["id"] for p in build.call("facts", fields=[])["passives"]}
+    assert option in build.equipped.values()
+    # Leylines pulls its weight: taking it out would lose score
+    without = build.node_deltas([{"remove": [36891]}])[0][0]
+    assert without < build.score
+    notes = jewels.radius_notes()
+    assert notes and notes[0]["value"] > 0 and notes[0]["confidence"] == "theory"

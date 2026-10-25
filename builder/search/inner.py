@@ -641,6 +641,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     # The tree as the exported code has it, checked against the game's allocation rules (bridge
     # treeCheck): every passive reachable from the class start or through a socketed jewel
     tree_check = reloaded["treeCheck"]
+    assumptions += search.jewels.radius_notes()  # the larger Time-Lost radius (custom model)
     return {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
         "pob_full_dps": facts["stats"].get("FullDPS"), "excluded_dps": excluded, "excluded_from": excluded_names,
