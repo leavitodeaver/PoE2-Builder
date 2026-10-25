@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 from builder.data import DATA_ROOT, GameData, rare_prices
+from builder.data.rules import rules
 from builder.data.trade import Cancelled, RateLimited, TradeClient, TradeError
 from builder.report.shopping import ladder, listing_divines, ranked_affixes, shopping_list, trade_category, trade_filters
 
@@ -51,7 +52,8 @@ PATTERNS = [[2, 2, 2, 2], [1, 2, 3, 3], [1, 1, 2, 2], [3, 3, 3, 3]]
 def generic_packages(data: GameData, stats: dict) -> list[dict]:
     packages = []
     for slot_index, (slot, kind, group_lists) in enumerate(GENERIC):
-        bases = [b for b in data.bases if b["type"] == kind] or [b for b in data.bases if b["name"] == kind]
+        # Bases the game drops as normal items (not ones only uniques use: builder/data/rules.py)
+        bases = [b for b in data.bases if (b["type"] == kind or b["name"] == kind) and rules().normal_base_ok(b)]
         if not bases:
             continue
         base = max(bases, key=lambda b: (b.get("req") or {}).get("level") or 0)

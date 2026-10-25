@@ -414,3 +414,13 @@ def test_a_focus_takes_one_spell_element(data) -> None:
     impossible = [by_id[fire.id], by_id[cold.id], by_id[resist.id]]
     assert {(a["id"], b["id"]) for a, b in conflicts(impossible)} == {(fire.id, cold.id), (cold.id, fire.id)}
     assert conflicts([by_id[fire.id], by_id[resist.id]]) == []
+
+
+def test_calibration_packages_use_bases_the_game_drops(data) -> None:
+    from builder.data.rules import rules
+    from builder.report.calibrate import generic_packages
+
+    packages = generic_packages(data, {f"explicit.stat_{h}": {"text": "#", "type": "explicit"}
+                                       for m in data.mods["Item"] + data.mods["Jewel"] for h in m.get("tradeHashes") or {}})
+    bases = {b["name"]: b for b in data.bases}
+    assert packages and all(rules().normal_base_ok(bases[p["base"]]) for p in packages)
