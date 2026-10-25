@@ -522,3 +522,15 @@ def test_spirit_skills_go_in_at_the_highest_gem_level_the_build_can_use():
     assert highest_usable_level(levels, {"int": 200}, 80) == 15  # a level-80 character can't use level 20
     assert highest_usable_level(levels, {}, 95) == 1
     assert highest_usable_level([], {"int": 200}, 95) is None
+
+
+def test_a_feasible_result_always_outranks_one_that_misses_a_floor():
+    """Gate 4 on 2b75c (2026-10-24): the trapped build had 3.6M DPS and no elemental resistances
+    (Veil of the Night) against 75% floors; the feasible one 1.14M. The run must deliver the
+    feasible one."""
+    from builder.search.objective import rank_key
+
+    short = [{"label": f"{kind} resistance", "amount": 1.0, "hard": False} for kind in ("Fire", "Cold", "Lightning")]
+    veil = {"deficits": short, "dps": 3_602_315, "value": 3_602_315}
+    feasible = {"deficits": [], "dps": 1_139_413, "value": 1_139_413}
+    assert sorted([veil, feasible], key=rank_key)[0] is feasible

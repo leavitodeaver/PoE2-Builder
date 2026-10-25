@@ -250,3 +250,33 @@ def test_a_search_that_raises_requirements_keeps_its_progress_and_ends_cleanly(e
     search.blocks = lambda deadline: True  # passes that "improve" but never reach the far-off Life floor
     search.run(time.perf_counter() + 0.5)
     assert search.escalations >= 1
+
+
+def test_finalize_never_trades_a_requirement_for_damage(engine):
+    """The score lets a build trade a small shortfall for enough damage; the delivered build (finalize's
+    feasible_first) never ends further from feasible than it started."""
+    import time
+
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Spark", ascendancies=["Stormweaver"])
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0]
+    for feasible_first in (False, True):
+        search = Search(engine, None, make_payload(ctx.request), skeleton.as_dict(), 0)
+        search.setup(quests=False)
+        main = next(g for g in search.build.groups() if g["main"])
+        search.build.set_group(index=main["index"], gems=[{"name": "Spark", "level": 15, "quality": 0}])
+        start_dps = search.build.objective.dps(search.build.stats)
+
+        def stronger_but_short(deadline: float) -> bool:
+            search.build.set_group(index=main["index"], gems=[{"name": "Spark", "level": 20, "quality": 20}])
+            return True
+
+        search.blocks = stronger_but_short
+        search.build.objective.escalate = lambda stats: False
+        # Stand-in for a floor the stronger build misses: anything above the start's damage is short
+        search.shortfall = lambda stats: 1.0 if search.build.objective.dps(stats) > start_dps * 1.0001 else 0.0
+        search.run(time.perf_counter() + 0.3, escalate=False, feasible_first=feasible_first)
+        end_dps = search.build.objective.dps(search.build.stats)
+        assert (end_dps == pytest.approx(start_dps)) if feasible_first else (end_dps > start_dps)

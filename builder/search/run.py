@@ -408,6 +408,11 @@ class Run:
             self.notes.append(f"* {assumption['label']}: {assumption['value']} (assumed, since PoB doesn't model it: "
                               f"{assumption['basis']}; confidence: {assumption['confidence']}). The PoB code doesn't "
                               "carry this, so PoB itself shows different numbers there.")
+        if reasons:
+            # Said plainly, before anything else: no build met every requirement
+            self.notes.insert(0, f"No build that meets every requirement was found in this search; this is the closest "
+                                 f"one ({len(reasons)} requirement{'s' if len(reasons) > 1 else ''} not met, listed below). The cheapest "
+                                 "relaxations say what to change; more search time can also help.")
         result = self._base("ok" if not reasons else "infeasible")
         result.update({
             "feasible": not reasons,

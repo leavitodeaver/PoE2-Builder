@@ -440,7 +440,8 @@ class Search:
                 self.build.set_group(index=group["index"], gems=Gems.gem_list(names))
             self.gems.shortlist = None  # force a full sweep afterwards
 
-    def run(self, deadline: float, best: dict | None = None, escalate: bool = True) -> None:
+    def run(self, deadline: float, best: dict | None = None, escalate: bool = True,
+            feasible_first: bool = False) -> None:
         """Block coordinate ascent until nothing improves, then kick; keep the best build seen.
 
         Requirements come first: after any pass that ends with a requirement still short and no
@@ -451,7 +452,9 @@ class Search:
         (a pass the deadline cuts short can stop inside a block), unless requirements were raised on
         the way: that trade of score for requirements is on purpose, and undoing it at every deadline
         kept gate 4's searches from ever reaching their resistance floors. `escalate` False keeps the
-        weights as they are (finalize's short polish, where clearing the tree can only hurt)."""
+        weights as they are (finalize's short polish, where clearing the tree can only hurt).
+        `feasible_first` (finalize): the score lets a build trade a small shortfall for enough damage,
+        but the delivered build never ends further from feasible than it started."""
         start = self.build.snapshot()
         last_short = float("inf")
         while time.perf_counter() < deadline:
@@ -487,7 +490,16 @@ class Search:
             top = max(kept, key=lambda snap: snap["score"])
             if top["score"] > self.build.score + EPSILON:
                 self.build.restore(top)
+        if feasible_first and kept:
+            short = self.shortfall(self.build.stats)
+            closest = min(kept, key=lambda snap: (round(self.shortfall(snap["stats"]), 6), -snap["score"]))
+            if self.shortfall(closest["stats"]) < short - 1e-6:
+                self.build.restore(closest)
         self.resolve()
+
+    def shortfall(self, stats: dict) -> float:
+        """How far a build is from meeting every requirement (objective.shortfall)."""
+        return shortfall([{"amount": a, "hard": h} for _, a, h in self.build.objective.deficits(stats)])
 
     # Results -----------------------------------------------------------------------------------
 
@@ -595,7 +607,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
             build.set_group(index=group["index"], fullDPS=False)
     try:
         search.conditions.choose_quests()
-        search.run(deadline, escalate=False)
+        search.run(deadline, escalate=False, feasible_first=True)
     except Cancelled:
         pass
     search.resolve()
