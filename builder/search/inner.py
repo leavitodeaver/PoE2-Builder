@@ -1,6 +1,6 @@
 """The inner loop (PLAN.md §5.2), run inside a worker process next to its engine: one skeleton,
-block coordinate ascent over gems, gear, ascendancy, tree, attributes, conditions and persistent
-skills, then kicks (iterated local search) until the time is up.
+block coordinate ascent over gems, gear, ascendancy, tree, attributes, conditions, condition
+sources and persistent skills, then kicks (iterated local search) until the time is up.
 
 Worker tasks (called through EnginePool.run_tasks):
 - `optimize_task`: start a skeleton from scratch, or continue from a saved state
@@ -26,6 +26,7 @@ from builder.search.jewels import Jewels
 from builder.search.models import MODEL_FIELDS
 from builder.search.objective import CLEAR_FIELDS, DARKNESS_FIELDS, SUSTAIN_FIELDS, Objective, main_dps, shortfall
 from builder.search.skeletons import Skeleton, is_button, offhand_types, seed_skeleton, swap_skills
+from builder.search.sources import Sources
 from builder.search.state import EPSILON, Build
 from builder.search.tree import Tree
 
@@ -63,10 +64,14 @@ class Search:
         self.gems.conditions = self.conditions
         self.assumptions = Assumptions(self.build)
         self.gems.resolve = self.resolve
+        self.gems.settle = self.settle
         self.gems.assumptions = self.assumptions
         self.tree.resolve = self.resolve
         self.tree.relevant_skill = self.assumptions.relevant
+        self.gear.resolve = self.resolve
+        self.sources = Sources(self.build, self.conditions, self.gems, self.tree, self.gear, self.jewels, self.resolve)
         self.build.after_load.append(self.assumptions.reinstall)
+        self.build.after_load.append(self.conditions.sync)
         self.problems: list[str] = []
         self.seed_notes: list[str] = []  # what setup_seed took out of the PoB code, and why
         self.kicks = 0
@@ -278,7 +283,7 @@ class Search:
             "shortlist": self.gems.shortlist, "gear_shortlist": self.gear.shortlist, "attribute": self.tree.attribute,
             "multipliers": dict(self.build.objective.multipliers), "assumed_mods": self.assumptions.mods,
             "extra_groups": [[k, v] for k, v in sorted(self.assumptions.extra_groups.items())],
-            "required_names": sorted(self.tree.required_names),
+            "required_names": sorted(self.tree.required_names), "sources": sorted(self.tree.sources),
             "extra_stats": dict(self.build.extra_stats),
             "problems": self.problems,
         }
@@ -297,6 +302,7 @@ class Search:
         self.build.refresh()
         self.tree.required = set(state["required"])
         self.tree.required_names = set(state.get("required_names") or self.tree.required_names)
+        self.tree.sources = set(state.get("sources") or [])
         self.tree.attribute = state["attribute"]
         self.conditions.active = dict(state["active"])
         self.gems.shortlist = state["shortlist"]
@@ -304,14 +310,24 @@ class Search:
         self.problems = list(state["problems"])
         self.gear.sync_flasks()
 
-    def resolve(self) -> bool:
-        """Conditions and assumptions follow the build; if an assumption changed (e.g. a Remnant
-        source arrived), the main group's calculated skill is chosen again."""
+    def settle(self) -> bool:
+        """Conditions and assumptions follow the build."""
         changed = self.conditions.resolve()
-        if self.assumptions.apply():
+        return self.assumptions.apply() or changed
+
+    def resolve(self) -> bool:
+        """Conditions and assumptions follow the build; if either changed (e.g. a Remnant or Frenzy
+        Charge source arrived), the main group's calculated skill and stat set are chosen again."""
+        changed = self.settle()
+        if changed:
             self.gems.choose_active_skill()
-            changed = True
         return changed
+
+    def conditions_round(self) -> None:
+        """Resolve, and choose the calculated skill and stat set again: which one scores best
+        changes as the rest of the build grows (Explosive Spear's explosion overtakes its spear)."""
+        if not self.resolve():
+            self.gems.choose_active_skill()
 
     # Blocks ------------------------------------------------------------------------------------
 
@@ -338,7 +354,8 @@ class Search:
             ("tree", self.tree.grow, (deadline,)),
             ("attributes", self.tree.attributes_round, ()),
             ("jewels", self.jewels.jewel_round, (deadline, sweep or "gear" in self.kicked)),
-            ("conditions", self.resolve, ()),
+            ("conditions", self.conditions_round, ()),
+            ("condition sources", self.sources.round, (deadline,)),
             ("persistent", self.gems.optimize_persistent, (deadline,)),
             ("prune and regrow", self.tree.swap_round, (deadline,)),
         ]
@@ -348,7 +365,7 @@ class Search:
         for phase, fn, args in steps:
             if time.perf_counter() > deadline:
                 break
-            if phase == "ascendancy" and not sweep:
+            if phase in ("ascendancy", "condition sources") and not sweep:
                 continue
             improved = self.step(phase, fn, *args) or improved
         self.kicked.clear()
@@ -397,6 +414,7 @@ class Search:
         self.build.phase = "kick"
         kind = self.rng.choice(["tree", "tree", "tree", "supports", "gear"])
         self.kicked.add(kind)
+        self.sources.forget()
         if kind == "tree":
             self.tree.kick(self.rng.randint(*KICK_TREE_POINTS))
         elif kind == "gear":
@@ -465,6 +483,7 @@ class Search:
                          for label, amount, hard in build.objective.deficits(build.stats)],
             "evals": build.evals, "commits": build.commits, "seconds": time.perf_counter() - build.started,
             "kicks": self.kicks, "kicks_kept": self.kicks_kept, "problems": self.problems, "reverts": build.reverts,
+            "condition_sources": list(self.sources.kept),
             "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
             "timing": {k: {"seconds": round(v[0], 2), "evals": v[1], "gain": round(v[2], 4)} for k, v in self.timing.items()},
         }

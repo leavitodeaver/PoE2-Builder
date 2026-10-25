@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption
@@ -25,7 +26,7 @@ from builder.search.flasks import (
     uptime,
 )
 from builder.search.rares import (
-    MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
+    MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, Affix, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
     socket_count, with_runes,
 )
 from builder.search.state import EPSILON, Build
@@ -81,6 +82,12 @@ class Gear:
         self.magic_pools = {kind: AffixPools(self.ctx, kind) for kind in ("Flask", "Charm")}
         self.charges = Charges()  # charge generation of the committed build (sync_flasks)
         self._flask_info: dict[str, dict] = {}  # item text -> PoB's flask/charm numbers
+        self.resolve = None  # re-resolves conditions after a commit (set by the search)
+
+    def settle(self) -> None:
+        """After a commit: an item's what-if can't see a condition it switches on or off."""
+        if self.resolve is not None:
+            self.resolve()
 
     # Options ---------------------------------------------------------------------------------
 
@@ -237,17 +244,25 @@ class Gear:
 
     # Rares -----------------------------------------------------------------------------------
 
-    def build_rare(self, slot: str, deadline: float) -> ItemOption | None:
+    def build_rare(self, slot: str, deadline: float, required: Callable[[Affix], bool] | None = None) -> ItemOption | None:
         """The best rare for this slot within its budget, affix by affix (for a flask or charm, the
-        best magic item: one prefix and one suffix)."""
+        best magic item: one prefix and one suffix). With `required`, the rare starts from the best
+        affix that passes it (a condition's source, builder/search/sources.py), on the best base
+        that can roll one."""
         bases = [o for o in self.options(slot) if not o.unique]
         if not bases or time.perf_counter() > deadline:
             return None
-        scored = self.deltas(slot, [o.raw for o in bases])
-        base_option = max(zip((s for s, _ in scored), bases), key=lambda x: x[0])[1]
-        base = self.ctx.bases_by_name[base_option.base]
         magic = is_flask_slot(slot)
-        pools = self.magic_pools[base["type"]] if magic else self.pools
+        scored = self.deltas(slot, [o.raw for o in bases])
+        base = None
+        for _, option in sorted(zip((s for s, _ in scored), bases), key=lambda x: -x[0]):
+            candidate = self.ctx.bases_by_name[option.base]
+            pools = self.magic_pools[candidate["type"]] if magic else self.pools
+            if required is None or any(required(a) for a in pools.pool(candidate["name"])):
+                base_option, base = option, candidate
+                break
+        if base is None:
+            return None
         limits = MAGIC_LIMIT if magic else AFFIX_LIMIT
         text, price_of = (magic_text, magic_price) if magic else (rare_text, rare_price)
         pool = pools.pool(base["name"])
@@ -264,7 +279,14 @@ class Gear:
             shortlist += [a for _, a in ranked if a.type == kind][:SCREEN_KEEP]
 
         chosen: list = []
-        current = self.deltas(slot, [text(slot, base, level, [])])[0][0]
+        if required is not None:
+            forced = next(a for _, a in ranked if required(a))
+            if price_of(slot, [forced]) > left + 1e-9 and forced.lower is not None:
+                forced = forced.lower
+            if price_of(slot, [forced]) > left + 1e-9:
+                return None
+            chosen.append(forced)
+        current = self.deltas(slot, [text(slot, base, level, chosen)])[0][0]
         while time.perf_counter() < deadline:
             groups = {a.group for a in chosen}
             counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in limits}
@@ -382,8 +404,10 @@ class Gear:
                 continue
             before, previous = build.score, current
             self.put(slot, choice)
+            self.settle()
             if self.adjusted(build.score, choice) < self.adjusted(before, previous) - EPSILON and build.worse(before):
                 self.put(slot, previous)
+                self.settle()
                 continue
             improved = improved or build.score > before + EPSILON
         if full:

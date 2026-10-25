@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import dataclasses
 import time
+from collections.abc import Callable
 
 from builder.search.context import ItemOption
-from builder.search.rares import SCREEN_KEEP, AffixPools, boosted, rare_price, rare_text
+from builder.search.rares import SCREEN_KEEP, Affix, AffixPools, boosted, rare_price, rare_text
 from builder.search.state import EPSILON, Build
 
 JEWEL_BASES = ("Ruby", "Emerald", "Sapphire")
@@ -52,7 +53,10 @@ class Jewels:
         return [o for o in self.ctx.item_options.get("Jewel", [])
                 if o.unique and o.name not in others and (o.price or 0.0) <= left + 1e-9]
 
-    def build_rare(self, slot: str, deadline: float) -> ItemOption | None:
+    def build_rare(self, slot: str, deadline: float, required: Callable[[Affix], bool] | None = None) -> ItemOption | None:
+        """The best rare jewel for this socket within its budget. With `required`, it starts from the
+        best affix that passes it (a condition's source, builder/search/sources.py), with the plain
+        two-and-two shape."""
         left = self.gear.left_for(slot)
         level = self.pools.item_level
         best: tuple[float, ItemOption] | None = None
@@ -64,7 +68,12 @@ class Jewels:
             scored = self.build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, [a])} for a in pool])
             ranked = [a for _, a in sorted(zip((s for s, _ in scored), pool), key=lambda x: -x[0])]
             shapes = [(JEWEL_LIMIT, [], None)]
-            for kind in JEWEL_LIMIT:
+            if required is not None:
+                forced = next((a for a in ranked if required(a)), None)
+                if forced is None:
+                    continue
+                shapes = [(JEWEL_LIMIT, [forced], None)]
+            for kind in JEWEL_LIMIT if required is None else ():
                 if crafted := self.pools.crafted(kind):
                     other = next(k for k in JEWEL_LIMIT if k != kind)
                     shapes.append(({kind: 3, other: 1}, [crafted[0]], (kind, crafted[1])))
@@ -73,7 +82,7 @@ class Jewels:
                 if boost:
                     shortlist = [dataclasses.replace(a, lines=tuple(boosted(l, boost[1]) for l in a.lines))
                                  if a.type == boost[0] else a for a in shortlist]
-                found = self.greedy(slot, base, shortlist, limits, fixed, left, deadline)
+                found = self.greedy(slot, base, shortlist, limits, fixed, left, deadline, required is not None)
                 if found and (best is None or found[0] > best[0]):
                     value, chosen = found
                     price = None if self.ctx.ssf else rare_price("Jewel", chosen)
@@ -84,9 +93,9 @@ class Jewels:
         return best[1] if best else None
 
     def greedy(self, slot: str, base: dict, shortlist: list, limits: dict[str, int], fixed: list, left: float,
-               deadline: float) -> tuple[float, list] | None:
+               deadline: float, fixed_only: bool = False) -> tuple[float, list] | None:
         """Add affixes to `fixed` while one pays: (score less the price's weight, affixes), or None
-        when nothing beyond `fixed` fits the budget or pays."""
+        when nothing beyond `fixed` fits the budget or pays (unless `fixed_only` allows that)."""
         build, lam, level = self.build, self.gear.lam, self.pools.item_level
         chosen = list(fixed)
         if rare_price("Jewel", chosen) > left + 1e-9:
@@ -109,7 +118,7 @@ class Jewels:
                 break
             chosen.append(affix)
             current = value
-        return (current, chosen) if len(chosen) > len(fixed) else None
+        return (current, chosen) if len(chosen) > len(fixed) or (fixed_only and fixed) else None
 
     def fill(self, socket: int, deadline: float, rebuild: bool) -> bool:
         build = self.build
@@ -130,8 +139,10 @@ class Jewels:
             return False
         before = build.score
         build.equip(slot, best)
+        self.gear.settle()
         if build.worse(before):
             build.equip(slot, current)
+            self.gear.settle()
             return False
         return True
 

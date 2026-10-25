@@ -219,6 +219,19 @@ justifies it, e.g. "has a frenzy charge generator" or "chance to shock ≥ X%". 
 re-runs whenever the build changes. This lets the search discover that adding a shock source is
 worth it. The table is extendable through the ledger. The boss config uses PoB's pinnacle preset.
 
+Stat sets follow the same rule: one that consumes a charge (Explosive Spear's "Frenzy-Charged"
+explosion) is calculated only while the resolver has evidence for that charge, since PoB calculates
+it either way (`conditions.STAT_SET_NEEDS`). The main skill's stat set is chosen again on every pass,
+each option scored with conditions resolved for it (a stat set can itself be a source: the
+Frenzy-Charged explosion ignites). A **condition-source block** (`builder/search/sources.py`) looks
+for sources on purpose: each condition that is off is valued with a what-if (the option on, and
+any stat set it allows), and for each one worth ≥1% the cheapest untried source of each kind
+(persistent skill, main-tree passive, rare affix, rare jewel) is committed and resolved for real;
+the best one that switched the condition on is kept if the build gains. Supports get the same trial
+in the supports block. Commits in the gear, jewel and prune-and-regrow blocks re-resolve before
+deciding, and passives kept as sources are protected from pruning, since a what-if can't see a
+condition go.
+
 ### 5.5 Clear speed (mapping and balanced modes)
 
 PoB doesn't model clear speed, so it is estimated (`builder/search/objective.py`, `clear_estimate`)
@@ -446,7 +459,7 @@ Endurance-charge consumption, Empowered-attack extra damage.
 | **0. Cleanup + engine spike** ✅ 2026-10-22 | Deleted `target*`, `dist`, stray `--help` (~262 GB freed); old source/docs in `legacy/`; `git init`; PoB2 dev pinned; headless boot on PoB's LuaJIT; bridge; test builds; gates; worker pool; release cross-check tool | Gates 1–3 pass on 4 generated builds and 5 of the user's builds; the release reproduces the PoB app's numbers exactly on all 5; ~3,200 what-ifs/s measured |
 | **1. Data, requests, UI shell** ✅ 2026-10-22 | Data dump (`python -m builder.data dump`); poe.ninja price feed; request schema + constraint compiler with tests; local web page (`python -m builder.web`): request form, saved requests, paste a code or share link → stats + Requested vs Delivered | Done. The progress stream moves to Phase 2 with the optimizer it reports on |
 | **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×8.5, Boneshatter Titan ×3.6, Raise Zombie Infernalist ×9.7 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-023030.json`), all feasible, code verified, independent recheck agrees. Gate 5: 30/30 random requests over three seeds. Gates 1–3 still pass, fidelity exact on the release |
-| **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; a rare price model (uncalibrated until the user calibrates it); λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets); rare price calibration against the official trade site ✅ 2026-10-24 (§7, Phase 5 findings); dual wielding, weapon swap, flasks and charms, seed codes and the Ritualist's third ring ✅ 2026-10-24 (Phase 3 follow-up findings). Not yet: radius/Time-Lost jewels, corruption/desecration, weapon-set passive points | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled then; now dual wielding and the Ritualist's third ring are modeled: ×0.05 on the final code (`benchmarks/results/gate4-20261024-162050.json`) and ×0.23 in a run whose build found an ignite source (the resolver's "enemy ignited" alone was worth 5×), every floor met in both; under this tool's rules the reference itself measures 2.42M when loaded as a seed and is short of Spirit, and the rest of the gap is an item-granted keystone (Black Scythe Training) and Megalomaniac and Heart of the Well, which the search doesn't propose. The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
+| **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; a rare price model (uncalibrated until the user calibrates it); λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets); rare price calibration against the official trade site ✅ 2026-10-24 (§7, Phase 5 findings); dual wielding, weapon swap, flasks and charms, seed codes and the Ritualist's third ring ✅ 2026-10-24 (Phase 3 follow-up findings). Not yet: radius/Time-Lost jewels, corruption/desecration, weapon-set passive points | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled then; now dual wielding and the Ritualist's third ring are modeled, and the stat set and condition sources are searched on purpose (Gate 4's Ritualist swing, below): ×0.55, ×0.60 and ×0.34 on three consecutive 10-minute runs of the committed code (`benchmarks/results/gate4-20261024-192040.json`, `-193046`, `-194050`; ×0.47, ×0.60 and ×0.53 before `c02c380`, `-175338`, `-180401`, `-181427`), every floor met, up from ×0.05 or ×0.23 by luck of the stat set (`gate4-20261024-162050.json`, `-153535`). The rest of the gap: an item-granted keystone (Black Scythe Training) and Megalomaniac and Heart of the Well, which the search doesn't propose; the reference loaded as a seed measured 2.42M and short of Spirit, but a seed still keeps its code's own config switches (enemy resistances at -100, six Frenzy Charges), so that figure is too high. The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
 | **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all); custom models for Elemental Archon, meta-skill Energy, Darkness, Traveller's Wisdom and Elemental Expression (§6). Not yet: approval queue, calibration form, exploits, the remaining custom models | Asterisked results; at least one exploit that works on the current patch modeled end to end |
 | **5. Results polish** (started 2026-10-24) | Done: Requested vs Delivered; shopping list in every result (slot, base, a rare's target affixes with tier and roll range, a unique's name and variant, runes and lineage gems, price with its confidence, total against the budget) with official trade-site links made on click; test-in-game checklist for every asterisked or not-modeled line. Not yet: saved history | Gate 6 |
 | **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research; recheck the 0.5 jewel craft (`JEWEL_CRAFTS`: four mods plus the effect line) and the tier-1 cap; recalibrate rare prices | All gates green on 1.0 data |
@@ -552,6 +565,51 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   listings later that day.
 - The built-in browser pane blocks the page's pop-up tab, so a Trade button there only fills in
   the row's "open" link; in a normal browser it opens the search directly.
+
+### Gate 4's Ritualist swing: stat sets and condition sources (2026-10-24)
+
+- **The swing wasn't the ignite condition.** Gate 4 on 2b75c gave ×0.23 or ×0.05 with the same
+  tree and gear. The two codes differ only in Explosive Spear's stat set (3, "Frenzy-Charged", against
+  the default 1, "Spear") and `conditionEnemyIgnited`. With ignite forced off, stat set 3 still
+  scores the full ×0.23 (858k): the ignite is a side effect of that stat set (its explosion converts
+  to fire and has 100% ignite chance), not the cause. The stat set was chosen only at setup and when
+  an assumption changed, and every support swap quietly reset it to set 1 (the bridge rebuilt gem
+  instances; fixed in `c02c380`), so a run kept whichever it last landed on. On the ×0.05 build,
+  set 2 ("Explosion") scores 579k and set 1 166k.
+- **Frenzy-Charged needs a Frenzy Charge, and the ×0.23 build had none.** The explosion consumes one
+  per throw; PoB calculates it with or without charges. Stat sets that consume a charge are now
+  chosen only while the resolver has evidence for that charge (`STAT_SET_NEEDS`; "Vs Frozen" never).
+  The stat set is chosen again every pass, each option resolved for itself (§5.4).
+- **The resolver's charge rule was too loose.** Prize of the Hunt ("if you would gain Frenzy Charges,
+  you instead gain up to your maximum") and Resonance ("Gain Power Charges instead of Frenzy
+  Charges") counted as Frenzy Charge generators. Neither generates charges, so neither counts now.
+  For an attack that leaves one source in the game data: Combat Frenzy (persistent, 30 Spirit).
+- **A condition-source block** (§5.4, `builder/search/sources.py`) values each condition that is
+  off with a what-if and tries the cheapest source of each kind for real. On 2b75c it adds Combat
+  Frenzy (Frenzy Charges, which allow the Frenzy-Charged stat set) and Lingering Illusion (Power
+  Charges), and Savage Fury (Onslaught) in some runs: gate 4 lands at ×0.55, ×0.60 and ×0.34 (2.02M,
+  2.19M, 1.23M) on three consecutive runs of the committed code, every floor met, all on the
+  Frenzy-Charged stat set with Combat Frenzy as its evidence. The ×0.34 run has no Power Charge source
+  and so no Charge Regulation, the persistent skill that turns charges into buffs; the other two
+  have both. That pair is the remaining spread: a Power Charge source is worth little until Charge
+  Regulation is in, and Charge Regulation is worth nothing without charges. The block costs about 7%
+  of a search's time.
+- **Commits re-resolve.** Gear, jewel and prune-and-regrow commits now re-resolve conditions before
+  deciding, persistent removals too, and a restored snapshot re-reads its conditions from the config
+  (`Conditions.sync`), so a condition can't outlive its source unnoticed.
+- **Charge rates aren't modeled.** Once a generator exists, the resolver counts the charges as
+  always there, so the Frenzy-Charged explosion counts on every throw, although Combat Frenzy grants
+  one "once every few seconds" (and only on Freeze, Electrocute or Pin). The reference build makes the
+  same assumption in PoB. A rate model (charges gained per second against consumed per second, like
+  the trigger-rate assumptions) would cap it.
+- **Gate 5** stays 30/30 over seeds 1–3 on the committed code (`benchmarks/results/gate5-20261024-190113.json`,
+  `-190710`, `-191034`).
+- **A crafted-jewel price crash** (from `8af8bd6`, fixed in `580faea`): the jewel crafting cost took a
+  mean over the jewel's mods of the boosted kind, which a part-built jewel in the search can lack, so
+  every search task of an endgame request failed.
+- **Not done:** "Cold-Infused" and "Fire-Infused" stat sets need an infusion and "Empowered" ones an
+  empowering source; they're still chosen by score alone. Ascendancy passives aren't proposed as
+  condition sources (the ascendancy round scores allocations by what-if only).
 
 ### Phase 3 follow-up findings: dual wielding, weapon swap, flasks and charms, seeds (2026-10-24)
 

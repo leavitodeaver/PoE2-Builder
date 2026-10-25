@@ -26,6 +26,7 @@ class Gems:
         self.conditions = None  # the condition resolver, when supports should be tried with it
         self.assumptions = None
         self.resolve = None  # re-resolves conditions and assumptions after a trial commit
+        self.settle = None  # the same without choosing the calculated skill again (choose_active_skill)
 
     # Helpers ---------------------------------------------------------------------------------
 
@@ -156,7 +157,9 @@ class Gems:
 
     def commit(self, index: int, names: list[str]) -> None:
         self.build.set_group(index=index, gems=self.gem_list(names))
-        if self.conditions is not None:
+        if self.resolve is not None:
+            self.resolve()  # a condition the support turns on can also change the stat set chosen
+        elif self.conditions is not None:
             self.conditions.resolve()
 
     def discover(self, index: int, names: list[str], options: list[tuple[float, tuple[int, str]]]) -> list:
@@ -205,26 +208,46 @@ class Gems:
 
     # Main active skill -------------------------------------------------------------------------
 
-    def choose_active_skill(self) -> None:
-        """Pick which of the main group's skills (and skill part) PoB calculates, e.g. the
-        triggered skill a persistent gem grants."""
+    @staticmethod
+    def active_options(group: dict) -> list[tuple[int, int | None, int | None, str | None]]:
+        """(skill, skill part, stat set, the stat set's label) for every choice in the group."""
+        options = []
+        for i, skill in enumerate(group["skills"], start=1):
+            parts = list(range(1, len(skill["parts"]) + 1)) or [None]
+            labels = skill.get("statSets") or []
+            stat_sets = list(range(1, len(labels) + 1)) or [None]
+            options += [(i, part, s, labels[s - 1] if s else None) for part in parts for s in stat_sets]
+        return options
+
+    def choose_active_skill(self, settle: bool = True, assume: tuple[str, ...] = ()) -> None:
+        """Pick which of the main group's skills, skill parts and stat sets PoB calculates (e.g. the
+        triggered skill a persistent gem grants, or Explosive Spear's explosion). Each option is
+        scored with conditions and assumptions settled for it, since a stat set can be a condition's
+        source (the Frenzy-Charged explosion ignites). A stat set that needs a condition
+        (conditions.STAT_SET_NEEDS) is a choice only while the resolver has evidence for it, or
+        while a what-if `assume`s it (settle=False leaves the config as it is)."""
         build = self.build
         group = build.main_group()
         if group is None:
             return
-        options = []
-        for i, skill in enumerate(group["skills"], start=1):
-            parts = list(range(1, len(skill["parts"]) + 1)) or [None]
-            stat_sets = list(range(1, len(skill.get("statSets") or []) + 1)) or [None]
-            options += [(i, part, stat_set) for part in parts for stat_set in stat_sets]
+        options = self.active_options(group)
         if len(options) <= 1:
             return
+        settle_fn = self.settle if settle else None
         best = None
-        for active, part, stat_set in options:
+        for active, part, stat_set, label in options:
+            if self.conditions is not None and not self.conditions.allows(label, assume):
+                continue
             build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part, statSet=stat_set)
+            if settle_fn is not None:
+                settle_fn()
             if best is None or build.score > best[0]:
                 best = (build.score, active, part, stat_set)
+        if best is None:
+            best = (None, *options[0][:3])
         build.set_group(index=group["index"], mainActiveSkill=best[1], skillPart=best[2], statSet=best[3])
+        if settle_fn is not None:
+            settle_fn()
 
     # Persistent skills -------------------------------------------------------------------------
 
@@ -272,8 +295,12 @@ class Gems:
         else:
             removed = next(g for g in own if g["index"] == best[2])
             build.remove_group(best[2])
+            if self.resolve is not None:
+                self.resolve()  # its what-if can't see a condition it was the source of go
             if build.worse(before):
                 build.set_group(gems=self.gem_list([g["name"] for g in removed["gems"]]), label=PERSISTENT_LABEL)
+                if self.resolve is not None:
+                    self.resolve()
                 return False
         return build.score > before + EPSILON
 

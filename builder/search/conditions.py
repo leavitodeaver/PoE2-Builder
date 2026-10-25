@@ -32,9 +32,12 @@ def _gen(subject: str) -> str:
 
 
 def _consumer(subject: str) -> str:
+    # "If you would gain Frenzy Charges, you instead gain up to your maximum" and "Gain Power Charges
+    # instead of Frenzy Charges" change charges the build already gains; neither is a source
     return (rf"\bper {subject}|maximum (?:number of )?{subject}|consum\w*[^.;]*{subject}|lose[^.;]*{subject}"
             rf"|when you gain[^.;]*{subject}|while you have[^.;]*{subject}|if you have[^.;]*{subject}"
-            rf"|during {subject}|effect of {subject}|{subject}\w* you have")
+            rf"|during {subject}|effect of {subject}|{subject}\w* you have"
+            rf"|would gain[^.;]*{subject}|instead of {subject}|{subject}\w* instead")
 
 
 def _inflict(subject: str) -> str:
@@ -123,6 +126,20 @@ TRIAL_WORDS = {
     "conditionEnemyBleeding": ("bleed",), "conditionEnemyChilled": ("chill", "cold"),
     "conditionCritRecently": ("critical",), "conditionSkillCritRecently": ("critical",),
 }
+# Stat sets that only happen with something the build has to supply: Explosive Spear's
+# "Frenzy-Charged" explosion consumes a Frenzy Charge. PoB calculates them either way, so one is
+# calculated only while the resolver has evidence for what it needs (None: a boss fight never
+# sustains it, like freeze).
+STAT_SET_NEEDS = [
+    (re.compile(r"\bfrenzy-charged\b", re.I), "useFrenzyCharges"),
+    (re.compile(r"\bpower-charged\b", re.I), "usePowerCharges"),
+    (re.compile(r"\bendurance-charged\b", re.I), "useEnduranceCharges"),
+    (re.compile(r"\bvs frozen\b", re.I), None),
+]
+
+
+def stat_set_needs(label: str | None) -> list[str | None]:
+    return [var for pattern, var in STAT_SET_NEEDS if label and pattern.search(label)]
 
 
 # Words that limit a line to one kind of skill. Such a line is evidence only if the main skill is
@@ -209,19 +226,35 @@ class Conditions:
             self.build.set_config(changes)
         return bool(changes)
 
+    def could_source(self, condition: Condition, text: str) -> bool:
+        """Could something with this text be the condition's source? Text rules are checked
+        exactly; for conditions read from PoB's numbers (shock chance, crit chance) a mention of
+        the effect is enough to deserve a real trial."""
+        if condition.text and text_evidence(condition, text) and qualifies(text, self.main_types):
+            return True
+        return condition.stat is not None and any(
+            word.lower() in text.lower() for word in TRIAL_WORDS.get(condition.var, ()))
+
     def would_enable(self, text: str) -> bool:
-        """Could adding something with this text turn on a condition that's off now? Text rules
-        are checked exactly; for conditions read from PoB's numbers (shock chance, crit chance)
-        a mention of the effect is enough to deserve a real trial."""
+        """Could adding something with this text turn on a condition that's off now?"""
+        return any(self.could_source(c, text) for c in CONDITIONS if c.var not in self.active)
+
+    def allows(self, stat_set: str | None, assume: tuple[str, ...] = ()) -> bool:
+        """May PoB calculate this stat set (STAT_SET_NEEDS)? `assume` counts as active, for what-ifs."""
+        return all(var is not None and (var in self.active or var in assume) for var in stat_set_needs(stat_set))
+
+    def sync(self) -> None:
+        """After a reload: what the config has on is what's active, so the next resolve can turn a
+        restored build's conditions off again when their source is gone."""
+        config = self.build.call("getConfig")["input"]
+        active = {}
         for condition in CONDITIONS:
-            if condition.var in self.active:
-                continue
-            if condition.text and text_evidence(condition, text) and qualifies(text, self.main_types):
-                return True
-            if condition.stat is not None and any(
-                    word.lower() in text.lower() for word in TRIAL_WORDS.get(condition.var, ())):
-                return True
-        return False
+            value = config.get(condition.var)
+            if value not in (None, False, 0):
+                old = self.active.get(condition.var) or {}
+                active[condition.var] = {"label": condition.label, "value": value,
+                                         "evidence": old.get("evidence", "restored")}
+        self.active = active
 
     def describe(self) -> list[dict]:
         return [{"var": var, **info} for var, info in sorted(self.active.items())]

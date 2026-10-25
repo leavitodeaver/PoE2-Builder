@@ -10,7 +10,7 @@ import pytest
 
 from builder.data import GameData
 from builder.request.schema import BuildRequest
-from builder.search.conditions import CONDITIONS, qualifies, text_evidence
+from builder.search.conditions import CONDITIONS, Conditions, qualifies, stat_set_needs, text_evidence
 from builder.search.context import Context, make_payload
 from builder.search.objective import Objective
 from builder.search.gear import SlotSpec
@@ -366,6 +366,12 @@ RULES = {c.var: c for c in CONDITIONS}
     ("useFrenzyCharges", "Gain a Frenzy Charge on Critical Hit", {"Attack"}, True),
     ("useFrenzyCharges", "5% increased Attack Speed per Frenzy Charge", {"Attack"}, False),
     ("useFrenzyCharges", "50% chance when you gain a Frenzy Charge to gain an additional Frenzy Charge", {"Attack"}, False),
+    ("useFrenzyCharges", "2% chance that if you would gain Frenzy Charges, you instead gain up to your maximum number "
+                         "of Frenzy Charges", {"Attack"}, False),
+    ("useFrenzyCharges", "Gain Frenzy Charges instead of Endurance Charges", {"Attack"}, False),
+    ("usePowerCharges", "Gain Power Charges instead of Frenzy Charges", {"Attack"}, False),
+    ("useFrenzyCharges", "While active, grants you a Frenzy Charge when you Freeze, Electrocute or Pin an enemy",
+     {"Attack"}, True),
     ("multiplierRage", "Gain 1 Rage on Melee Hit", {"Attack", "Projectile"}, False),
     ("multiplierRage", "Gain 1 Rage on Melee Hit", {"Attack", "Melee"}, True),
     ("buffOnslaught", "Minions gain Onslaught", {"Attack"}, False),
@@ -381,6 +387,18 @@ def test_unsustainable_boss_conditions_are_never_resolved():
              "conditionEnemyPinned", "conditionEnemyHeavyStunned"}
     assert not never & set(RULES)
     assert math.isfinite(len(RULES))
+
+
+def test_stat_sets_that_consume_a_charge_need_its_source():
+    conditions = Conditions.__new__(Conditions)
+    conditions.active = {}
+    assert stat_set_needs("Frenzy-Charged") == ["useFrenzyCharges"]
+    assert conditions.allows("Explosion") and conditions.allows(None)
+    assert not conditions.allows("Frenzy-Charged")
+    assert conditions.allows("Frenzy-Charged", assume=("useFrenzyCharges",))
+    assert not conditions.allows("Vs Frozen", assume=("useFrenzyCharges",))  # a boss fight never sustains freeze
+    conditions.active = {"useFrenzyCharges": {"label": "Frenzy Charges", "value": True, "evidence": "gem:Combat Frenzy"}}
+    assert conditions.allows("Frenzy-Charged")
 
 
 # Rares and sockets -------------------------------------------------------------------------------

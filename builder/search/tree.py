@@ -93,6 +93,9 @@ class Tree:
         self.required_names: set[str] = set(self.ctx.compiled.request.require.passives)
         self.resolve = None  # re-resolves conditions and assumptions (set by the search)
         self.relevant_skill = None  # does granting this skill change an assumption?
+        # Nodes kept as a condition's source (builder/search/sources.py): a what-if removing one
+        # can't see the condition go, so pruning leaves them alone until a reset or kick
+        self.sources: set[int] = set()
 
     # Setup -------------------------------------------------------------------------------------
 
@@ -225,7 +228,7 @@ class Tree:
     # Prune and regrow ---------------------------------------------------------------------------
 
     def protected(self) -> set[int]:
-        return set(self.required)
+        return set(self.required) | self.sources
 
     def branches(self) -> list[frozenset[int]]:
         protected = self.protected()
@@ -255,6 +258,8 @@ class Tree:
             before = self.build.score
             self.remove_branch(branch)
             self.grow(deadline)
+            if self.resolve is not None:
+                self.resolve()  # the branch may have been a condition's source
             if self.build.score > before + EPSILON:
                 return True
             self.build.restore(snap)
@@ -268,6 +273,7 @@ class Tree:
 
     def reset(self) -> None:
         """Clear every passive that can go (required ones and their paths stay), to regrow."""
+        self.sources.clear()
         while True:
             branches = self.branches()
             if not branches:
@@ -279,6 +285,7 @@ class Tree:
 
     def kick(self, size: int) -> None:
         """Remove random branches worth about `size` points (iterated local search)."""
+        self.sources.clear()
         removed = 0
         branches = self.branches()
         self.rng.shuffle(branches)
