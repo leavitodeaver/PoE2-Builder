@@ -33,6 +33,9 @@ MODEL_FIELDS = sorted({
     "Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
     "Darkness", "Str", "Dex", "Int", *(f"{t}CritAverage" for t in DAMAGE_TYPES), *(f"{t}HitAverage" for t in DAMAGE_TYPES),
+    # Iron Ward: the boss's physical hits and how much of them the build prevents
+    "PhysicalEnemyDamage", "PhysicalDamageReduction", "PhysicalDamageReductionMax", "BasePhysicalDamageReductionWhenHit",
+    "Armour", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
 })
 
 
@@ -47,14 +50,18 @@ def _round(value: float) -> float:
 
 
 def line(text: str, scale: float = 1.0, *, when: list | None = None, per: str | None = None,
-         base: float = 0.0, skill: str | None = None) -> dict:
+         stat: str | None = None, base: float = 0.0, skill: str | None = None) -> dict:
     """A modifier line for the bridge: PoB parses `text` (written with a magnitude of 1) and scales
-    it by `scale`; with `per`, the value is scale × the model input `per` + base."""
+    it by `scale`; with `per` (a model input) or `stat` (a PoB output stat such as Armour), the
+    value is scale × that number + base."""
     mod: dict = {"kind": "Line", "line": text, "scale": _round(scale)}
     if when:
         mod["when"] = when
     if per:
         mod["per"] = per
+        mod["base"] = _round(base)
+    elif stat:
+        mod["stat"] = stat
         mod["base"] = _round(base)
     if skill:
         mod["skill"] = skill
@@ -167,12 +174,14 @@ class Skill:
     cast_time: float = 0.0
     cooldown: float | None = None
     cooldown_recovery: float = 1.0
+    level_stats: dict[str, float] = field(default_factory=dict)  # only for skills asked for (Iron Ward)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
         return cls(raw["name"], raw.get("group"), bool(raw.get("spell")), bool(raw.get("attack")),
                    bool(raw.get("melee")), bool(raw.get("triggered")), bool(raw.get("energy")),
-                   number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0)
+                   number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0,
+                   dict(raw.get("levelStats") or {}))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -501,3 +510,118 @@ def expression_model(skills: list[Skill], stats: dict, main: Skill | None) -> tu
             "confidence": "theory" if rate else "datamined"}
     groups = {expression.group: stat_set} if rate > 0 and expression.group is not None else {}
     return trigger_rate(EXPRESSION, rate), [note], groups
+
+
+# Iron Ward ---------------------------------------------------------------------------------------
+# https://poe2db.tw/us/Iron_Ward: "Stores (100—480)% of mitigated Physical damage, up to (65—22886)"
+# (gem levels 1—20), "Using this Skill releases the stored damage as a nova of spikes", "Stored
+# damage grants up to 200% more Area of Effect". PoB reads none of its warding_steel_* stats, so the
+# nova (IronWardNovaPlayer, a Physical area hit) has no base damage and every Iron Ward build is 0
+# DPS. The model (ledger entry iron-ward-store, `theory`): against a boss the store fills to its
+# maximum between uses, at the boss's hit rate (PoB's boss config, less evaded and blocked hits)
+# times the share of each physical hit the build prevents; the full store is the nova's base
+# Physical damage, which PoB scales through the nova's own hit calculation.
+
+IRON_WARD = "Iron Ward"
+IRON_WARD_ENTRY = "iron-ward-store"
+STORE_CAP = "warding_steel_maximum_stored_mitigated_physical_damage"
+STORE_GAIN = "warding_steel_gains_%_of_damage_from_mitigated_physical_damage"
+STORE_AREA = "warding_steel_area_of_effect_+%_final_per_charge_%"
+ARMOUR_RATIO = 10  # PoB: Armour prevents Armour / (Armour + 10 × hit) of a hit (data.misc.ArmourRatio)
+MIN_REDUCTION = 1.0  # % prevented assumed at least, so a build without Armour still has a slope to climb
+
+
+@dataclass
+class IronWardStore:
+    cap: float  # the most it stores: the nova's base Physical damage when released full
+    gain: float  # share of the prevented Physical damage it stores (4.8 = 480%)
+    hit: float  # the boss's Physical damage per hit (PoB's boss config)
+    reduction: float  # % of that hit the build prevents (Armour and flat damage reduction)
+    hits: float  # boss hits taken per second
+    use_time: float  # seconds one use takes
+
+    @property
+    def fill(self) -> float:
+        """Damage stored per second."""
+        return self.gain * self.hit * max(self.reduction, MIN_REDUCTION) / 100 * self.hits
+
+    @property
+    def use_capped(self) -> bool:
+        """Does it refill faster than it can be used?"""
+        return self.cap > 0 and self.use_time > 0 and self.fill / self.cap > 1 / self.use_time
+
+    @property
+    def uses(self) -> float:
+        """Novas per second: one whenever the store is full, at most one per use time."""
+        if self.cap <= 0 or self.fill <= 0:
+            return 0.0
+        return 1 / self.use_time if self.use_capped else self.fill / self.cap
+
+
+def iron_ward_store(skill: Skill, stats: dict) -> IronWardStore:
+    skill_time = number(stats.get("enemySkillTime"))
+    hits = ((1 / skill_time if skill_time > 0 else 0.0) * (1 - min(number(stats.get("EvadeChance")), 100) / 100)
+            * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100))
+    return IronWardStore(number(skill.level_stats.get(STORE_CAP)), number(skill.level_stats.get(STORE_GAIN)) / 100,
+                         number(stats.get("PhysicalEnemyDamage")), number(stats.get("PhysicalDamageReduction")), hits,
+                         skill.cast_time or 1.0)
+
+
+def reduction_slopes(stats: dict) -> tuple[float, float]:
+    """How many points the % of a boss hit prevented moves per point of Armour, and per point of
+    flat physical damage reduction (PoB: Armour / (Armour + 10 × hit) + flat, up to the cap)."""
+    reduction = number(stats.get("PhysicalDamageReduction"))
+    if reduction >= (number(stats.get("PhysicalDamageReductionMax")) or 90.0) - 0.5:
+        return 0.0, 0.0
+    hit = number(stats.get("PhysicalEnemyDamage"))
+    if hit <= 0:
+        return 0.0, 1.0
+    from_armour = min(max(reduction - number(stats.get("BasePhysicalDamageReductionWhenHit")), 0.0), 99.0)
+    armour = from_armour * ARMOUR_RATIO * hit / (100 - from_armour)  # the Armour PoB applied to the hit
+    return 100 * ARMOUR_RATIO * hit / (armour + ARMOUR_RATIO * hit) ** 2, 1.0
+
+
+def iron_ward_model(skills: list[Skill], stats: dict, enabled: bool = True) -> tuple[list[dict], list[dict]]:
+    """Base damage and use rate for Iron Ward's nova (PoB gives it none), plus lines that let
+    what-ifs see Armour and flat reduction speed it up."""
+    ward = next((s for s in skills if s.name == IRON_WARD and s.level_stats.get(STORE_CAP)), None)
+    if ward is None:
+        return [], []
+    if not enabled:
+        return [], [{"label": "Iron Ward nova", "value": "not counted",
+                     "basis": f"the request switches off ledger entry {IRON_WARD_ENTRY}, so the nova deals no damage, "
+                              "as in PoB", "confidence": "datamined"}]
+    store = iron_ward_store(ward, stats)
+    uses = store.uses
+    base = store.cap if uses > 0 else 0.0
+    mods = [{"kind": "SkillData", "skill": IRON_WARD, "key": "PhysicalMin", "value": _round(base)},
+            {"kind": "SkillData", "skill": IRON_WARD, "key": "PhysicalMax", "value": _round(base)}]
+    if uses > 0:
+        mods.append({"kind": "SkillData", "skill": IRON_WARD, "key": "timeOverride", "value": _round(1 / uses)})
+    # the nova's own stat: more area per % of the maximum stored, released full
+    area = max(number(s.level_stats.get(STORE_AREA)) for s in skills if s.name == IRON_WARD) * 100
+    if area:
+        mods.append(line("1% more Area of Effect", area, skill=IRON_WARD))
+    # Novas per second follow the % of each hit prevented (until the use time is the limit): one
+    # "more" factor per stat, 1 at the current build, so what-ifs adding Armour see the gain
+    reduction = max(store.reduction, MIN_REDUCTION)
+    if uses > 0 and not store.use_capped:
+        for stat, slope in zip(("Armour", "BasePhysicalDamageReductionWhenHit"), reduction_slopes(stats)):
+            h = slope / reduction
+            if abs(h) > 1e-12:
+                mods.append(line("1% more Damage", 100 * h, stat=stat, base=-100 * h * number(stats.get(stat)),
+                                 skill=IRON_WARD))
+    refill = store.cap / store.fill if store.fill > 0 else math.inf
+    note = {
+        "label": "Iron Ward nova (released full)",
+        "value": f"{uses:.2f} per second for {base:,.0f} base Physical damage",
+        "basis": f"stores {store.gain:.0%} of the Physical damage your Armour and damage reduction prevent "
+                 f"({reduction:.0f}% of the boss's {store.hit:,.0f} per hit = {store.hit * reduction / 100:,.0f}), up to "
+                 f"{store.cap:,.0f}; the boss hits you {store.hits:.2f} times per second (every "
+                 f"{number(stats.get('enemySkillTime')):g}s in PoB's boss config, less evaded and blocked hits), so it "
+                 f"refills in {refill:.1f}s"
+                 + (f", faster than one use every {store.use_time:g}s" if store.use_capped else "")
+                 + (f"; {area:.0f}% more area released full" if area else "")
+                 + (f"; at least {MIN_REDUCTION:g}% prevented assumed" if store.reduction < MIN_REDUCTION else ""),
+        "confidence": "theory"}
+    return mods, [note]

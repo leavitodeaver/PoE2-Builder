@@ -30,6 +30,9 @@ NOT_A_BUTTON = {"Persistent", "Meta", "Triggered", "InbuiltTrigger"}
 # ... except Invocations: meta skills you press to release the Energy they stored ("Using the
 # Invocation once sufficient Energy is gathered will consume the Energy to trigger socketed Spells")
 PRESSED_META = "Invocation"
+# ... and persistent buffs you press to release what they stored ("Using this Skill releases the
+# stored damage as a nova of spikes"): their buff reserves Spirit, their use is a button
+PRESSED_PERSISTENT = {"Iron Ward", "Plague Bearer", "Savage Fury"}
 OFFHAND_TYPES = {Offhand.SHIELD: {"Shield"}, Offhand.FOCUS: {"Focus"}, Offhand.QUIVER: {"Quiver"}}
 
 
@@ -106,10 +109,12 @@ def main_skill(facts: dict) -> str | None:
 
 
 def presses(gem: dict) -> bool:
-    """Is this gem (from facts or game data) a skill the player presses? Invocations are; other
-    persistent, meta and triggered skills and supports aren't."""
+    """Is this gem (from facts or game data) a skill the player presses? Invocations and
+    persistent buffs released by using them are; other persistent, meta and triggered skills and
+    supports aren't."""
     types = set(gem["skillTypes"])
-    return not gem["support"] and (PRESSED_META in types or not types & NOT_A_BUTTON)
+    return not gem["support"] and (PRESSED_META in types or gem["name"] in PRESSED_PERSISTENT
+                                   or not types & NOT_A_BUTTON)
 
 
 def meta_socketed(names: list[str], gems: dict[str, dict]) -> set[str]:

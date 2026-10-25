@@ -14,7 +14,7 @@ def test_every_entry_loads_with_a_valid_pattern_and_status():
     for entry in found:
         assert entry.status in ACTIVE
         assert entry.confidence
-        assert entry.pattern is not None or entry.kind == "condition"
+        assert entry.pattern is not None or entry.kind == "condition" or (entry.kind == "model" and entry.raw.get("model"))
 
 
 def test_translations_fill_numbers_and_arithmetic():

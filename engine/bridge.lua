@@ -1387,6 +1387,8 @@ local assumedMods = { }
 --   per = "ArchonDuration", base = b   value = scale * Multiplier:LedgerArchonDuration + b, the
 --                                      linear part of a model around the current build, so
 --                                      what-ifs that add or remove its passives see the change
+--   stat = "Armour", base = b          value = scale * the build's Armour (a PoB output stat) + b,
+--                                      so what-ifs that change that stat see the change
 --   skill = name                       only for that skill
 local function lineMods(mod)
 	local list, extra = modLib.parseMod(mod.line)
@@ -1412,6 +1414,8 @@ local function lineMods(mod)
 		end
 		if mod.per then
 			copy[#copy + 1] = { type = "Multiplier", var = "Ledger" .. mod.per, base = mod.base or 0 }
+		elseif mod.stat then
+			copy[#copy + 1] = { type = "PerStat", stat = mod.stat, base = mod.base or 0 }
 		end
 		if mod.skill then
 			copy[#copy + 1] = { type = "SkillName", skillName = mod.skill }
@@ -1463,8 +1467,13 @@ function bridge.setAssumptions(args)
 end
 
 -- Active skills of the current build with what an assumption needs about them: base cooldown,
--- cooldown recovery, and whether they generate Remnants
-function bridge.activeSkills()
+-- cooldown recovery, and whether they generate Remnants. `levelStats = {names}` adds those skills'
+-- stats at their current level and quality (e.g. Iron Ward's store, which PoB doesn't read).
+function bridge.activeSkills(args)
+	local wantStats = { }
+	for _, name in ipairs(args and args.levelStats or { }) do
+		wantStats[name] = true
+	end
 	local skills = { }
 	local env = build.calcsTab.mainEnv
 	local groupIndex = { }
@@ -1491,6 +1500,16 @@ function bridge.activeSkills()
 			energy = types[SkillType.GeneratesEnergy] and true or false,
 			group = activeSkill.socketGroup and groupIndex[activeSkill.socketGroup] or nil,
 		}
+		if wantStats[effect.name] and effect.statSets and effect.statSets[1] then
+			local stats = setmetatable({ }, { __jsontype = "object" })
+			local ok, built = pcall(calcLib.buildSkillInstanceStats, activeSkill.activeEffect, effect, effect.statSets[1])
+			for stat, value in pairs(ok and built or { }) do
+				if type(value) == "number" then
+					stats[stat] = value
+				end
+			end
+			skills[#skills].levelStats = stats
+		end
 	end
 	return { skills = skills }
 end

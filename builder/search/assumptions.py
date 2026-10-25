@@ -12,7 +12,7 @@ On a single boss, Remnants come only from sources that create them without kills
 the user's audit (legacy/Custom builds/Explosive Transmutation - Shaman vs Acolyte.md, 0.5.4).
 
 The custom models (builder/search/models.py) add Elemental Archon, meta-skill Energy, Elemental
-Expression and the Traveller's Wisdom and Darkness notes. Skills they trigger besides the main
+Expression, Iron Ward's nova and the Traveller's Wisdom and Darkness notes. Skills they trigger besides the main
 skill (spells in a meta gem, Elemental Expression) count through Full DPS: their groups are
 included in it and the objective switches to Full DPS while any exist.
 """
@@ -71,8 +71,10 @@ class Assumptions:
         mods, notes = models.archon_model(inputs, stats, main, main_gems)
         energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main)
         expression_mods, expression_notes, expression_groups = models.expression_model(found, stats, main)
-        mods += energy_mods + expression_mods
-        notes += energy_notes + expression_notes
+        ward_mods, ward_notes = models.iron_ward_model(
+            found, stats, enabled=models.IRON_WARD_ENTRY not in build.ctx.request.forbid_ledger_entries)
+        mods += energy_mods + expression_mods + ward_mods
+        notes += energy_notes + expression_notes + ward_notes
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]
         if chosen:
             kinds = {4: "Damage", 5: "Armour, Evasion and Energy Shield", 6: "Cost Efficiency"}
@@ -89,7 +91,7 @@ class Assumptions:
         return mods, notes, {**{g: None for g in energy_groups}, **expression_groups}
 
     def wanted(self) -> tuple[list[dict], list[dict]]:
-        skills = self.build.call("activeSkills")["skills"]
+        skills = self.build.call("activeSkills", levelStats=[models.IRON_WARD])["skills"]
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:

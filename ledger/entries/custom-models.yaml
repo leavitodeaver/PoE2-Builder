@@ -308,3 +308,30 @@
   notes: "engine/bridge.lua gives a socketed non-unique Time-Lost jewel the passives within its radius made N% longer (PoB's own distance rule), so PoB applies its 'in Radius' lines to them too. The theory part: the increase lengthens the radius (not its area)."
   sources: ["PoB tree data: Baryanic Leylines (Disciple of Varashta), 'Non-Unique Time-Lost Jewels have 40% increased radius', unsupported in ModCache"]
   status: approved
+
+# Iron Ward (model: iron_ward) -------------------------------------------------------------------
+# PoB has Iron Ward's buff and its nova (IronWardPlayer, IronWardNovaPlayer) but reads none of the
+# warding_steel_* stats, so the nova has no base damage and every Iron Ward build calculates 0.
+
+- id: iron-ward-store
+  title: Iron Ward releases its stored mitigated Physical damage as the nova's base damage (store and use-rate model)
+  kind: model
+  model: iron_ward
+  confidence: theory
+  notes: >-
+    Datamined: the buff stores 480% of the Physical damage prevented by Armour and other damage
+    reduction, up to 22,886 (gem level 20), and the full store gives 200% more Area of Effect.
+    Assumed: against a pinnacle boss you take its hits at PoB's boss-config rate (one every 0.7 s,
+    979 Physical each at the Pinnacle preset), less the hits you evade or block, and you release
+    the nova whenever the store is full, at most once per second (its 1 s use time). The full
+    store is the nova's base Physical damage, scaled by the nova's own modifiers in PoB; uses per
+    second follow how fast the store refills. A build that never gets hit (or avoids most hits)
+    fills it more slowly than this. Forbid this entry in a request to switch the model off.
+  test_in_game: >-
+    With Iron Ward active against a boss, time how long the buff takes to show its maximum stored
+    damage while you stand and take hits, and compare it with the refill time in the result; then
+    use it at full and check the damage against the nova's hit in the result.
+  sources: ["https://poe2db.tw/us/Iron_Ward",
+            "PoB skill data: IronWardPlayer (warding_steel_* stats, unread) and IronWardNovaPlayer (no base damage)",
+            "PoB Pinnacle boss config: enemy skill time 0.7 s, PhysicalEnemyDamage 979"]
+  status: approved

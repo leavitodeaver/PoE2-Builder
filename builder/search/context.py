@@ -19,7 +19,7 @@ from functools import cached_property
 from builder.data import GameData, rare_prices, unique_versions
 from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, translate, wrong
-from builder.request.constraints import CompiledRequest, compile_request
+from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
 
 # Most a single unique may cost at each gear tier (divine), on top of the request's divine cap
@@ -186,11 +186,12 @@ class Context:
     @cached_property
     def persistent_candidates(self) -> list[str]:
         """Persistent skills (auras, heralds, buffs) that need no trigger setup: candidates for
-        spare Spirit. Meta gems need a socketed skill to do anything and aren't proposed yet."""
+        spare Spirit. Meta gems need a socketed skill to do anything and aren't proposed yet; buffs
+        you press to release what they stored (Iron Ward) are buttons, not spare-Spirit fillers."""
         names = []
         for name, gem in self.gems.items():
             types = set(gem["skillTypes"])
-            if gem["support"] or "Persistent" not in types or "Meta" in types:
+            if gem["support"] or "Persistent" not in types or "Meta" in types or name in PRESSED_PERSISTENT:
                 continue
             if self.allowed_gem(name) and self.gem_price(name) is not None:
                 names.append(name)

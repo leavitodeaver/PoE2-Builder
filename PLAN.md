@@ -407,6 +407,19 @@ and every effect is listed in the result with its basis and confidence:
   tree-changing items" (§9). `theory`.
 - **Elemental Expression:** rate = min(main skill's melee crits per second, cooldown cap 4/s),
   counted as the most likely of its three effects (from Strength/Dexterity/Intelligence).
+- **Iron Ward** (2026-10-25; the user's Iron Ward build calculated 0): PoB has the buff and its nova
+  but reads none of the `warding_steel_*` stats, so the nova had no base damage. The model gives
+  the nova the full store as base Physical damage (PoB skill data `PhysicalMin/Max`, so PoB scales
+  it through the nova's own hit) and a use rate (`timeOverride`): the store (480% of the Physical
+  damage prevented, up to 22,886 at gem level 20, read from PoB's level stats) refills at the
+  boss's hit rate in PoB's boss config (one 979-Physical hit every 0.7 s at the Pinnacle preset,
+  less evaded and blocked hits) × the % the build prevents, and the nova is released whenever full,
+  at most once per 1 s use time; 200% more area when released full. Two "more damage" lines
+  linear in Armour and flat physical reduction (PoB `PerStat`, exact at the build) let what-ifs see
+  how Armour speeds it up. Iron Ward (with Plague Bearer and Savage Fury, buffs released by
+  pressing them) counts as a button and is never added as a spare-Spirit filler. `theory`; forbid
+  ledger entry `iron-ward-store` to switch it off. Tests: `tests/test_models.py`,
+  `tests/test_engine_models.py`.
 - **Extra damage sources count during the search:** while a build has spells a meta gem triggers
   or Elemental Expression, their groups are in Full DPS and the objective scores Full DPS.
 

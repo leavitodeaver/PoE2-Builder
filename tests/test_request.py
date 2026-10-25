@@ -97,6 +97,22 @@ def test_invocations_are_pressed_but_their_spells_are_not():
     assert player_buttons(facts) == ["Spark", "Elemental Invocation"]
 
 
+def test_buffs_released_by_pressing_them_are_buttons_not_spare_spirit(data):
+    """Iron Ward's buff reserves Spirit, but its nova is released by using the skill."""
+    from builder.search.context import Context, make_payload
+
+    def gem(name, *types):
+        return {"name": name, "support": False, "enabled": True, "skillTypes": list(types), "tags": []}
+
+    facts = {"skillGroups": [
+        {"enabled": True, "fromItem": False, "main": True, "gems": [gem("Iron Ward", "Buff", "Persistent", "HasReservation")]},
+        {"enabled": True, "fromItem": False, "main": False, "gems": [gem("Purity of Fire", "Aura", "Persistent")]},
+    ]}
+    assert player_buttons(facts) == ["Iron Ward"]
+    candidates = Context(make_payload(BuildRequest(main_skill="Boneshatter"))).persistent_candidates
+    assert "Iron Ward" not in candidates and candidates  # never added as a spare-Spirit filler
+
+
 def test_skeletons_count_invocations_and_not_the_spells_a_meta_triggers(data):
     from builder.search.context import Context, make_payload
     from builder.search.skeletons import skill_problems

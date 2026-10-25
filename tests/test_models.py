@@ -207,3 +207,65 @@ def test_lines_a_model_reads_are_shown_as_modeled():
     ])
     assert [f.get("modeled_by") for f in found] == ["archon", "energy", None]
     assert "Elemental Archon" in found[0]["as"][0] and "corrected_by" not in found[2]
+
+
+# Iron Ward ---------------------------------------------------------------------------------------
+
+WARD_STATS = {models.STORE_CAP: 22886, models.STORE_GAIN: 480}
+WARD = Skill("Iron Ward", group=1, cast_time=1.0, level_stats=WARD_STATS)
+NOVA = Skill("Iron Ward", group=1, cast_time=1.0, level_stats={**WARD_STATS, models.STORE_AREA: 2})
+PINNACLE = {"enemySkillTime": 0.7, "PhysicalEnemyDamage": 979.475, "PhysicalDamageReduction": 50,
+            "PhysicalDamageReductionMax": 90, "Armour": 9795, "BasePhysicalDamageReductionWhenHit": 0}
+
+
+def test_iron_ward_store_fills_at_the_boss_hit_rate_after_mitigation():
+    store = models.iron_ward_store(WARD, PINNACLE)
+    fill = 4.8 * 979.475 * 0.5 / 0.7  # 480% of half of each 979 hit, a hit every 0.7 s
+    assert store.fill == pytest.approx(fill)
+    assert store.uses == pytest.approx(fill / 22886) and not store.use_capped  # released whenever full
+    dodgy = models.iron_ward_store(WARD, {**PINNACLE, "EvadeChance": 50, "EffectiveBlockChance": 20})
+    assert dodgy.fill == pytest.approx(fill * 0.5 * 0.8)  # evaded and blocked hits store nothing
+    flooded = models.iron_ward_store(WARD, {**PINNACLE, "PhysicalEnemyDamage": 50000})
+    assert flooded.use_capped and flooded.uses == pytest.approx(1.0)  # at most one use per 1 s use time
+    assert models.iron_ward_store(WARD, {**PINNACLE, "enemySkillTime": 0}).uses == 0.0
+
+
+def test_iron_ward_nova_gets_the_full_store_as_base_damage_and_its_use_rate():
+    mods, notes = models.iron_ward_model([WARD, NOVA], PINNACLE)
+    data = {m["key"]: m["value"] for m in mods if m["kind"] == "SkillData"}
+    assert data["PhysicalMin"] == data["PhysicalMax"] == 22886
+    uses = models.iron_ward_store(WARD, PINNACLE).uses
+    assert data["timeOverride"] == pytest.approx(1 / uses, rel=1e-4)
+    area = next(m for m in mods if m["kind"] == "Line" and m["line"] == "1% more Area of Effect")
+    assert area["scale"] == 200 and area["skill"] == "Iron Ward"  # 2% per % stored, released full
+    assert notes[0]["confidence"] == "theory" and "refills in" in notes[0]["basis"]
+
+
+def test_iron_ward_lines_let_armour_what_ifs_see_the_faster_store():
+    mods, _ = models.iron_ward_model([WARD, NOVA], PINNACLE)
+    by_stat = {m["stat"]: m for m in mods if m.get("stat")}
+
+    def factor(stats: dict) -> float:  # the "more Damage" lines PoB would apply
+        product = 1.0
+        for stat, mod in by_stat.items():
+            product *= 1 + (mod["scale"] * stats[stat] + mod["base"]) / 100
+        return product
+
+    assert factor(PINNACLE) == pytest.approx(1.0, rel=1e-4)  # exact at the current build (lines rounded)
+    hit, armour = PINNACLE["PhysicalEnemyDamage"], PINNACLE["Armour"]
+    more = {**PINNACLE, "Armour": armour + 200}
+    exact = (armour + 200) / (armour + 200 + 10 * hit) / (armour / (armour + 10 * hit))
+    assert factor(more) == pytest.approx(exact, rel=2e-3)  # novas per second follow the % prevented
+    flat = {**PINNACLE, "BasePhysicalDamageReductionWhenHit": 5}
+    assert factor(flat) == pytest.approx(55 / 50, rel=1e-4)
+    capped = {**PINNACLE, "PhysicalDamageReduction": 90}
+    assert not [m for m in models.iron_ward_model([WARD, NOVA], capped)[0] if m.get("stat")]
+
+
+def test_iron_ward_model_switches_off_through_its_ledger_entry():
+    mods, notes = models.iron_ward_model([WARD, NOVA], PINNACLE, enabled=False)
+    assert mods == [] and notes[0]["value"] == "not counted" and models.IRON_WARD_ENTRY in notes[0]["basis"]
+    assert models.iron_ward_model([SPARK], PINNACLE) == ([], [])
+    from builder.ledger import entries
+    entry = next(e for e in entries() if e.id == models.IRON_WARD_ENTRY)
+    assert entry.raw["model"] == "iron_ward" and entry.raw["test_in_game"] and entry.confidence == "theory"
