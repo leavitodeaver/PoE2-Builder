@@ -378,6 +378,34 @@ class TreeView {
       }
     }
 
+    // Socketed radius jewels: the radius (a ring for Controlled Metamorphosis), the allocated
+    // passives in it, and those the tree holds only through the jewel (dashed)
+    if (this.layer.name === MAIN_LAYER) {
+      for (const jewel of tree.radiusJewels) {
+        ctx.strokeStyle = colors.gold;
+        ctx.fillStyle = colors.gold;
+        ctx.lineWidth = 1.5;
+        for (const centre of jewel.centreNodes) {
+          const x = centre.x * scale + tx, y = centre.y * scale + ty;
+          ctx.beginPath();
+          ctx.arc(x, y, jewel.radius.outer * scale, 0, Math.PI * 2);
+          if (jewel.radius.inner > 0) {
+            ctx.moveTo(x + jewel.radius.inner * scale, y);
+            ctx.arc(x, y, jewel.radius.inner * scale, 0, Math.PI * 2, true);
+          }
+          ctx.globalAlpha = 0.07;
+          ctx.fill("evenodd");
+          ctx.globalAlpha = 0.6;
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        for (const node of jewel.affectedNodes) this.ring(node, colors.gold, 3, 1.5);
+        ctx.setLineDash([3, 3]);
+        for (const node of jewel.unconnectedNodes) this.ring(node, colors.gold, 6, 2);
+        ctx.setLineDash([]);
+      }
+    }
+
     // The chosen class's starting point
     const start = tree.startNode;
     if (start && start.asc === this.layer.name) this.ring(start, colors.accent, 5, 2);
@@ -637,6 +665,8 @@ class PassiveTree {
     this.data = null;
     this.art = null;
     this.allocated = null;
+    this.radiusJewels = [];
+    this.radiusNotes = new Map();
     this.matches = [];
     this.marked = [];
     this.markedNodes = new Map();
@@ -822,15 +852,33 @@ class PassiveTree {
     this.refresh();
   }
 
-  /** The node ids a result's build allocated (null: no allocation to show). */
-  setAllocated(ids) {
+  /** The node ids a result's build allocated (null: no allocation to show), and its socketed radius
+   * jewels ({socket, name, radius: {label, inner, outer}, centres, affected, unconnected}). */
+  setAllocated(ids, radiusJewels = []) {
     this.allocatedIds = ids;
+    this.radiusJewelData = radiusJewels;
     this.applyAllocated();
   }
 
   applyAllocated() {
     if (!this.data) return;
     this.allocated = this.allocatedIds ? new Set(this.allocatedIds) : null;
+    const byId = this.data.byId;
+    const known = (ids) => (ids || []).map((id) => byId.get(id)).filter(Boolean);
+    this.radiusJewels = (this.radiusJewelData || []).map((jewel) => {
+      const held = new Set(jewel.unconnected);
+      const affected = jewel.affected.filter((id) => !held.has(id) && id !== jewel.socket);
+      return { ...jewel, affected, socketNode: byId.get(jewel.socket), centreNodes: known(jewel.centres),
+        affectedNodes: known(affected), unconnectedNodes: known(jewel.unconnected) };
+    });
+    // Node id -> what the tooltip says about the radius jewels reaching it
+    this.radiusNotes = new Map();
+    const note = (id, text) => this.radiusNotes.set(id, [...(this.radiusNotes.get(id) || []), text]);
+    for (const jewel of this.radiusJewels) {
+      note(jewel.socket, `${jewel.name}: ${jewel.radius.label} radius`);
+      for (const id of jewel.affected) note(id, `In the radius of ${jewel.name}`);
+      for (const id of jewel.unconnected) note(id, `Allocated without a connection, through ${jewel.name}`);
+    }
     if (this.allocated) {
       const nodes = this.data.nodes.filter((n) => this.allocated.has(n.id));
       const mainNodes = nodes.filter((n) => n.asc === MAIN_LAYER);
@@ -868,6 +916,10 @@ class PassiveTree {
     const swatch = (cls, label) => h("span", { class: "tree-key" }, h("i", { class: cls }), label);
     const parts = [];
     if (this.allocatedIds) parts.push(swatch("k-alloc", `allocated (${this.allocatedIds.length})`));
+    for (const jewel of this.radiusJewels) {
+      const held = jewel.unconnected.length ? `, ${jewel.unconnected.length} held through it` : "";
+      parts.push(swatch(jewel.unconnected.length ? "k-radius k-held" : "k-radius", `${jewel.name} radius${held}`));
+    }
     const c = this.markCounts || { require: 0, forbid: 0 };
     parts.push(swatch("k-require", `required (${c.require})`), swatch("k-forbid", `banned (${c.forbid})`));
     if (this.options.interactive) parts.push(swatch("k-switch", "differs by class"));
@@ -954,6 +1006,7 @@ class PassiveTree {
       : this.allocated?.has(node.id) ? "Allocated" : this.allocated ? "Not allocated" : "";
     const lines = [h("strong", {}, look.name || NODE_KIND[node.type]), h("div", { class: "tip-kind" }, NODE_KIND[node.type] + (node.asc ? ` · ${node.asc}` : "") + (state ? ` · ${state}` : ""))];
     if (look.stats.length) lines.push(h("ul", {}, look.stats.map((s) => h("li", {}, s))));
+    for (const text of this.radiusNotes.get(node.id) || []) lines.push(h("div", { class: "tip-sub" }, text));
     if (node.views) {
       // The same spot is another passive for some classes
       const versions = [...node.views].map(([cls, v]) => h("li", { class: v === look ? "on" : "" },

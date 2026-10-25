@@ -57,11 +57,15 @@ class ItemOption:
     rare: bool = False
     affixes: tuple[str, ...] = ()  # a rare's modifier lines
     runes: tuple[str, ...] = ()  # what's in its sockets
+    variants: tuple[str, ...] = ()  # a unique's chosen variants, when the search chose them (radius.py)
 
     def describe(self) -> dict:
-        return {"name": self.name, "base": self.base, "type": self.type, "unique": self.unique, "rare": self.rare,
-                "price": self.price, "confidence": self.confidence, "affixes": list(self.affixes),
-                "runes": list(self.runes)}
+        described = {"name": self.name, "base": self.base, "type": self.type, "unique": self.unique, "rare": self.rare,
+                     "price": self.price, "confidence": self.confidence, "affixes": list(self.affixes),
+                     "runes": list(self.runes)}
+        if self.variants:
+            described["variants"] = list(self.variants)
+        return described
 
 
 def normal_item(base: dict) -> str:

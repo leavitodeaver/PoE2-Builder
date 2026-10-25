@@ -195,6 +195,11 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                  "runes": runes, "affixes": []}
         if kind == "unique":
             entry["variant"] = variants(gear["name"]) if variants else None
+            if gear.get("variants"):
+                # The search chose these (builder/search/radius.py); the feed's price is for any version
+                entry["variant"] = ", ".join(gear["variants"])
+                entry["note"] = "buy this version: the price shown is poe.ninja's for any version of it"
+
         elif kind in ("rare", "magic"):
             if kind == "rare":
                 entry["model_category"] = rare_prices.category(slot)

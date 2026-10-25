@@ -638,6 +638,9 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     build.objective.prepare(facts["stats"])  # what the checks see: Darkness in maximum hit taken
     excluded, excluded_names = build.objective.excluded(build.stats)
     blind_spots = build.call("unsupportedInBuild")["lines"]
+    # The tree as the exported code has it, checked against the game's allocation rules (bridge
+    # treeCheck): every passive reachable from the class start or through a socketed jewel
+    tree_check = reloaded["treeCheck"]
     return {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
         "pob_full_dps": facts["stats"].get("FullDPS"), "excluded_dps": excluded, "excluded_from": excluded_names,
@@ -646,6 +649,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "gear": {slot: option.describe() for slot, option in equipped.items()}, "spent": spent,
         "assumptions": assumptions, "flasks": search.gear.flask_report(),
         "verified": not mismatched, "verify_mismatch": mismatched,
+        "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": dict(search.jewels.left_out),
     }
 
 

@@ -178,6 +178,13 @@ def tree_art_image(name: str) -> FileResponse:
     return FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
 
 
+def radius_view(jewel: dict) -> dict:
+    """What the result tree draws for a radius jewel (keeps the payload small: no nodes merely in reach)."""
+    return {"socket": jewel["socket"], "name": jewel["name"], "radius": jewel["radius"],
+            "centres": jewel.get("centres") or [jewel["socket"]], "affected": jewel.get("affected") or [],
+            "unconnected": jewel.get("unconnected") or [], "allowsUnconnected": bool(jewel.get("allowsUnconnected"))}
+
+
 class AllocatedBody(BaseModel):
     code: str
 
@@ -197,6 +204,8 @@ def allocated_passives(body: AllocatedBody) -> dict:
         _allocation_cache[code] = {
             "ids": [p["id"] for p in facts["passives"]], "className": facts["className"],
             "ascendClassName": facts["ascendClassName"],
+            # Socketed radius jewels: their radius and the passives they change or let the tree take
+            "radiusJewels": [radius_view(j) for j in facts.get("radiusJewels") or []],
         }
     return _allocation_cache[code]
 

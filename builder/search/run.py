@@ -386,6 +386,22 @@ class Run:
                            "tried, so its damage isn't modeled yet; it needs a ledger entry (Phase 4)")
         if not final["verified"]:
             reasons.append("the exported PoB code didn't reload to the same numbers: " + ", ".join(final["verify_mismatch"]))
+        broken = (final.get("tree_check") or {}).get("broken") or []
+        if broken:
+            # Never expected: the search only allocates what PoB can path to; said loudly if it happens
+            reasons.append("the passive tree breaks the game's allocation rules: "
+                           + ", ".join(f"{b['name']} ({b['id']})" for b in broken[:8])
+                           + (f" and {len(broken) - 8} more" if len(broken) > 8 else "")
+                           + " can't be reached from the class start or through a socketed jewel")
+        for jewel in final.get("radius_jewels") or []:
+            if jewel.get("unconnected"):
+                self.notes.append(f"{jewel['name']} (Jewel {jewel['socket']}) lets the tree take "
+                                  f"{len(jewel['unconnected'])} passive{'s' if len(jewel['unconnected']) > 1 else ''} "
+                                  "without a connection; taking the jewel out drops them")
+        left_out = final.get("left_out") or {}
+        for reason in dict.fromkeys(left_out.values()):
+            names = sorted(name for name, why in left_out.items() if why == reason)
+            self.notes.append(f"Not proposed: {', '.join(names)}. {reason[0].upper()}{reason[1:]}.")
         if final.get("excluded_dps"):
             self.notes.append(f"PoB's Full DPS ({final['pob_full_dps']:,.0f}) also counts {final['excluded_dps']:,.0f} from "
                               f"effects that need enemies to die ({', '.join(final['excluded_from'])}); a single boss "
@@ -436,6 +452,7 @@ class Run:
             "blind_spots": annotate_blind_spots(final.get("blind_spots") or []),
             "timing": final.get("timing"), "escalations": final.get("escalations"),
             "requirement_weights": final.get("multipliers"),
+            "radius_jewels": final.get("radius_jewels") or [], "tree_check": final.get("tree_check"),
         })
         result["shopping"] = shopping_list(result, self.ctx.data, self.report_prices(), TradeClient().stats(offline=True),
                                            self.variant)

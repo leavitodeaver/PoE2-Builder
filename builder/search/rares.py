@@ -208,6 +208,10 @@ def implicit_lines(base: dict, fraction: float = 0.5) -> list[str]:
 
 def rare_text(slot: str, base: dict, item_level: int, affixes: list[Affix], runes: list[str] = ()) -> str:
     lines = ["Rarity: Rare", f"Optimizer {slot}", base["name"], f"Item Level: {item_level}"]
+    if base.get("subType") == "Radius":
+        # Time-Lost jewels: PoB applies "in Radius" lines only with a radius (Small unless a mod
+        # upgrades it), and a parsed item without this line has none
+        lines.append("Radius: Small")
     lines += socket_lines(runes)
     implicits = implicit_lines(base)
     lines += [f"Implicits: {len(implicits)}", *implicits]

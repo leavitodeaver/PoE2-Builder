@@ -173,11 +173,20 @@ local function withAttribute(node, attribute, evenIfAllocated)
 	return cache[key]
 end
 
+-- A node a socketed jewel lets the tree allocate without a connection (Controlled
+-- Metamorphosis's radius, From Nothing's keystone radius): PassiveSpec flags it and AllocNode
+-- then takes the node alone, not its path
+local function unconnectedOk(node)
+	return node.intuitiveLeapLikesAffecting and #node.intuitiveLeapLikesAffecting > 0
+end
+
 local function nodeSet(ids, withPaths, attribute)
 	local set = { }
 	for _, id in ipairs(ids or { }) do
 		local node = nodeById(id)
-		if withPaths and not node.alloc then
+		if withPaths and not node.alloc and unconnectedOk(node) then
+			set[withAttribute(node, attribute)] = true
+		elseif withPaths and not node.alloc then
 			if not node.path then
 				error("passive node " .. id .. " has no path from the allocated tree")
 			end
@@ -309,16 +318,19 @@ function bridge.frontier(args)
 		if args.sockets == "only" then
 			wanted = node.type == "Socket"
 		end
-		if not node.alloc and node.path and node.pathDist and node.pathDist <= limit
+		-- A node a jewel lets the tree take without a connection costs one point, however far it is
+		local unconnected = not node.alloc and node.path and unconnectedOk(node)
+		local distance = unconnected and 1 or node.pathDist
+		if not node.alloc and node.path and distance and distance <= limit
 			and wanted and node.ascendancyName == ascendancy
 			and not node.isMultipleChoiceOption then
 			local path = { }
-			for _, pathNode in ipairs(node.path) do
+			for _, pathNode in ipairs(unconnected and { node } or node.path) do
 				path[#path + 1] = pathNode.id
 			end
 			nodes[#nodes + 1] = {
-				id = id, name = node.dn, type = node.type, distance = node.pathDist,
-				path = path, modKey = node.modKey,
+				id = id, name = node.dn, type = node.type, distance = distance,
+				path = path, modKey = node.modKey, unconnected = unconnected or nil,
 			}
 		end
 	end
@@ -418,6 +430,272 @@ function bridge.allocate(args)
 		summary = bridge.summary(),
 		stats = pickStats(build.calcsTab.mainOutput, args.fields),
 	}
+end
+
+-- Radius jewels and the tree's allocation rules ---------------------------------------------------
+
+-- Jewels in allocated sockets: { socket = node, item = item }
+local function socketedJewels()
+	local list = { }
+	for socketId, itemId in pairs(build.spec.jewels) do
+		local socket = build.spec.nodes[socketId]
+		local item = itemId and itemId ~= 0 and build.itemsTab.items[itemId]
+		if socket and socket.alloc and item then
+			list[#list + 1] = { socket = socket, item = item }
+		end
+	end
+	table.sort(list, function(a, b) return a.socket.id < b.socket.id end)
+	return list
+end
+
+local function radiusInfo(index)
+	local info = index and data.jewelRadius[index]
+	return info and {
+		index = index, label = info.label,
+		inner = math.sqrt(info.innerSquared or 0), outer = math.sqrt(info.outerSquared or 0),
+	} or nil
+end
+
+-- What a jewel does to the tree, read from PoB's parse of it (no names listed here): its radius,
+-- which nodes it lets the tree take without a connection, the class start it adds, what it conquers
+local function jewelTraits(item)
+	local jewelData = item.jewelData or { }
+	local keystones = { }
+	for name in pairs(jewelData.fromNothingKeystones or { }) do
+		local key = build.spec.tree.keystoneMap[name]
+		if key then
+			keystones[#keystones + 1] = key.id
+		end
+	end
+	table.sort(keystones)
+	local funcs, grants = 0, 0
+	for _ in ipairs(jewelData.funcList or { }) do
+		funcs = funcs + 1
+	end
+	for _, mod in ipairs(item.modList or { }) do
+		if mod.name == "GrantedPassive" then  -- "Allocates <passive>" (Megalomaniac)
+			grants = grants + 1
+		end
+	end
+	return {
+		radius = radiusInfo(item.jewelRadiusIndex),
+		unconnected = jewelData.intuitiveLeapLike and true or nil,
+		keystones = #keystones > 0 and keystones or nil,
+		classStart = jewelData.alternateClassStart,
+		-- Timeless jewels: PoB-PoE2 has no seed tables, so conquered notables keep their stats
+		conquers = jewelData.conqueredBy and true or nil,
+		seedData = data.readLUT ~= nil,
+		radiusFuncs = funcs,
+		grants = grants > 0 and grants or nil,
+	}
+end
+
+-- PoB's rule for nodes a jewel may free from the connection rule (PassiveSpec
+-- BuildAllDependsAndPaths): not class starts, sockets or ascendancy nodes
+local function freeable(node)
+	return node.type ~= "ClassStart" and node.type ~= "Socket" and not node.ascendancyName
+end
+
+-- Node id -> where the permission comes from (socket or keystone id): every node the socketed
+-- jewels (and allocated passives with "AllocateFromNodeRadius") let the tree allocate without a
+-- connection. Derived from the jewels themselves, not from the flags PassiveSpec sets, so the
+-- check below is independent of the pathing it checks.
+local function unconnectedAllowed()
+	local spec, allowed = build.spec, { }
+	local function allow(nodes, source, types)
+		for id in pairs(nodes or { }) do
+			local node = spec.nodes[id]
+			if node and freeable(node) and (not types or types[node.type]) then
+				allowed[id] = allowed[id] or source
+			end
+		end
+	end
+	for _, entry in ipairs(socketedJewels()) do
+		local item, socket = entry.item, entry.socket
+		local index = item.jewelRadiusIndex
+		if index and item.jewelData and not item.jewelData.limitDisabled then
+			if item.jewelData.intuitiveLeapLike and socket.nodesInRadius then
+				allow(socket.nodesInRadius[index], socket.id)
+			end
+			for name in pairs(item.jewelData.fromNothingKeystones or { }) do
+				local key = spec.tree.keystoneMap[name]
+				if key and key.nodesInRadius then
+					allow(key.nodesInRadius[index], key.id)
+				end
+			end
+		end
+	end
+	for _, node in pairs(spec.allocNodes) do
+		if node.modList then
+			for _, radius in ipairs(node.modList:List(nil, "AllocateFromNodeRadius")) do
+				local types = { }
+				for _, kind in ipairs(radius.to or { }) do
+					types[kind] = true
+				end
+				for _, key in pairs(spec.tree.keystoneMap) do
+					if radius.from == "Keystone" and spec.allocNodes[key.id] and key.nodesInRadius then
+						allow(key.nodesInRadius[radius.radiusIndex], key.id, types)
+					end
+				end
+			end
+		end
+	end
+	return allowed
+end
+
+-- Every allocated node must be reachable under the game's rules: through allocated nodes from the
+-- class start (or the ascendancy start, or a class start a jewel adds), or be a node a socketed
+-- jewel lets the tree take without a connection. Nodes reached only that way don't carry a path
+-- on. Returns the nodes that break the rule; with `prune`, deallocates them and recalculates.
+function bridge.treeCheck(args)
+	args = args or { }
+	local spec = build.spec
+	local allowed = unconnectedAllowed()
+	local starts = { }
+	if spec.curClass and spec.curClass.startNodeId then
+		starts[#starts + 1] = spec.curClass.startNodeId
+	end
+	if spec.curAscendClass and spec.curAscendClass.startNodeId then
+		starts[#starts + 1] = spec.curAscendClass.startNodeId
+	end
+	for _, entry in ipairs(socketedJewels()) do
+		local className = entry.item.jewelData and entry.item.jewelData.alternateClassStart
+		local startId = className and spec.tree.classStartNodeNameMap and spec.tree.classStartNodeNameMap[className]
+		if startId then
+			starts[#starts + 1] = startId
+		end
+	end
+	local connected, queue = { }, { }
+	for _, id in ipairs(starts) do
+		local node = spec.nodes[id]
+		if node and not connected[id] then
+			connected[id] = true
+			queue[#queue + 1] = node
+		end
+	end
+	for _, node in pairs(spec.allocNodes) do
+		if node.isFreeAllocate and not connected[node.id] then  -- granted by an item, not pathed
+			connected[node.id] = true
+			queue[#queue + 1] = node
+		end
+	end
+	local head = 1
+	while head <= #queue do
+		local node = queue[head]
+		head = head + 1
+		for _, other in ipairs(node.linked or { }) do
+			if other.alloc and not connected[other.id] and other.ascendancyName == node.ascendancyName then
+				connected[other.id] = true
+				queue[#queue + 1] = other
+			end
+		end
+	end
+	local broken, unconnected = { }, { }
+	for id, node in pairs(spec.allocNodes) do
+		if not connected[id] then
+			if allowed[id] then
+				unconnected[#unconnected + 1] = id
+			elseif node.type ~= "ClassStart" and node.type ~= "AscendClassStart" then
+				broken[#broken + 1] = { id = id, name = node.dn, type = node.type }
+			end
+		end
+		local constraint = node.unlockConstraint
+		for _, needed in ipairs(constraint and constraint.nodes or { }) do
+			if not (spec.nodes[needed] and spec.nodes[needed].alloc) then
+				broken[#broken + 1] = { id = id, name = node.dn, type = node.type, needs = needed }
+				break
+			end
+		end
+	end
+	table.sort(broken, function(a, b) return a.id < b.id end)
+	table.sort(unconnected)
+	-- Points as PoB's EstimatePlayerProgress counts them: a passive on each weapon set costs one
+	-- point between them, and each set holds at most its weapon-set allowance
+	local budget = bridge.pointBudget()
+	local _, _, _, _, set1, set2 = spec:CountAllocNodes()
+	local output = build.calcsTab.mainOutput or { }
+	local setPoints = (build.maxWeaponSets or 0) + (output.PassivePointsToWeaponSetPoints or 0)
+	local over = math.max(budget.used - math.min(set1, set2) - budget.passives - (output.ExtraPoints or 0), 0)
+	local overAscendancy = math.max(budget.ascendancyUsed - budget.ascendancy, 0)
+	over = over + math.max(set1 - setPoints, 0) + math.max(set2 - setPoints, 0)
+	if args.prune and #broken > 0 then
+		for _, entry in ipairs(broken) do
+			local node = spec.nodes[entry.id]
+			if node.alloc then
+				spec:DeallocSingleNode(node)
+			end
+		end
+		spec:BuildAllDependsAndPaths()
+		recalc()
+	end
+	-- `ok` is reachability alone: the user's own builds hold a point more than level and quests
+	-- give in PoB (2b75a: 117 at level 93), so points are reported, not failed here
+	return {
+		ok = #broken == 0, broken = broken, unconnected = unconnected,
+		overBudget = over, overAscendancy = overAscendancy, pruned = args.prune and #broken > 0 or nil,
+	}
+end
+
+-- Socketed radius jewels: the radius, the nodes in it, the allocated nodes it changes, the nodes the
+-- tree holds only through it, and where the radius sits (the socket, or a keystone for From Nothing)
+function bridge.radiusJewels()
+	local spec = build.spec
+	local allowed = unconnectedAllowed()
+	local connectedOnlyThrough = { }
+	local check = bridge.treeCheck()
+	for _, id in ipairs(check.unconnected) do
+		connectedOnlyThrough[id] = allowed[id]
+	end
+	local list = { }
+	for _, entry in ipairs(socketedJewels()) do
+		local item, socket = entry.item, entry.socket
+		local traits = jewelTraits(item)
+		if traits.radius then
+			local centres = traits.keystones or { socket.id }
+			local inRadius, affected = { }, { }
+			for _, centreId in ipairs(centres) do
+				local centre = centreId == socket.id and socket or spec.tree.nodes[centreId]
+				for id in pairs(centre.nodesInRadius and centre.nodesInRadius[item.jewelRadiusIndex] or { }) do
+					local node = spec.nodes[id]
+					if node then
+						inRadius[#inRadius + 1] = id
+						if node.alloc then
+							affected[#affected + 1] = id
+						end
+					end
+				end
+			end
+			table.sort(inRadius)
+			table.sort(affected)
+			local through = { }
+			for id, source in pairs(connectedOnlyThrough) do
+				if source == socket.id or (traits.keystones and isValueInArray(traits.keystones, source)) then
+					through[#through + 1] = id
+				end
+			end
+			table.sort(through)
+			list[#list + 1] = {
+				socket = socket.id, name = item.title or item.name, base = item.baseName,
+				radius = traits.radius, centres = centres, inRadius = inRadius, affected = affected,
+				unconnected = through, allowsUnconnected = traits.unconnected or (traits.keystones and true) or nil,
+				conquers = traits.conquers,
+			}
+		end
+	end
+	return { jewels = list }
+end
+
+-- What each jewel (item text) does to the tree, for the search to classify candidates without a
+-- hand-made list: { traits = [{ radius, unconnected, keystones, classStart, conqueredBy, ... }] }
+function bridge.jewelTraits(args)
+	local traits = { }
+	for i, raw in ipairs(args.raws or { }) do
+		local item = makeItem(raw)
+		local entry = jewelTraits(item)
+		entry.variants = item.variantList and #item.variantList or 0
+		traits[i] = entry
+	end
+	return { traits = traits }
 end
 
 -- Classes and their ascendancies, as named in the passive tree
@@ -1596,6 +1874,8 @@ function bridge.facts(args)
 	summary.passives = passives
 	summary.items = items
 	summary.warnings = warnings
+	summary.radiusJewels = bridge.radiusJewels().jewels
+	summary.treeCheck = bridge.treeCheck()
 	summary.stats = pickStats(build.calcsTab.mainOutput, args.fields)
 	return summary
 end

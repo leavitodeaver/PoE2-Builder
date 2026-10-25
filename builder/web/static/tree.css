@@ -75,6 +75,8 @@
 .tree-key .k-switch { background: var(--accent); }
 .tree-key .k-switch::after { content: "⇄"; display: block; color: var(--surface-2); font-size: 8px; line-height: 9px; text-align: center; }
 .tree-key .k-alloc { background: var(--accent); }
+.tree-key .k-radius { background: transparent; border: 1.5px solid var(--pending); }
+.tree-key .k-held { border-style: dashed; }
 .tree-key .k-require { background: var(--ok); }
 .tree-key .k-forbid { background: var(--bad); }
 

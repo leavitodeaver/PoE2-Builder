@@ -200,7 +200,11 @@ ends better.
    while a boss fight sustains them. With a weapon set 2, its weapons are slots of their own and
    a weapon-set block tries the other active skills on set 2.
 4. **Sockets.** Runes, Soul Cores, Idols, Ancient Augments and jewels, assigned to compatible
-   sockets. Bonded and one-per-character rules are enforced.
+   sockets. Bonded and one-per-character rules are enforced. Jewels that change the tree
+   (Time-Lost radius mods, Megalomaniac, Controlled Metamorphosis and From Nothing freeing nodes
+   from the connection rule) are scored in their socket, and the ones that free nodes are grown
+   for real. Every result's tree is checked against the game's allocation rules (§9,
+   "Radius jewels and other tree-changing items").
 5. **Repair.** Fix any remaining deficit at the smallest DPS loss.
 
 ### 5.3 Guarding against PoB miscalculations
@@ -472,13 +476,97 @@ Endurance-charge consumption, Empowered-attack extra damage.
 | **0. Cleanup + engine spike** ✅ 2026-10-22 | Deleted `target*`, `dist`, stray `--help` (~262 GB freed); old source/docs in `legacy/`; `git init`; PoB2 dev pinned; headless boot on PoB's LuaJIT; bridge; test builds; gates; worker pool; release cross-check tool | Gates 1–3 pass on 4 generated builds and 5 of the user's builds; the release reproduces the PoB app's numbers exactly on all 5; ~3,200 what-ifs/s measured |
 | **1. Data, requests, UI shell** ✅ 2026-10-22 | Data dump (`python -m builder.data dump`); poe.ninja price feed; request schema + constraint compiler with tests; local web page (`python -m builder.web`): request form, saved requests, paste a code or share link → stats + Requested vs Delivered | Done. The progress stream moves to Phase 2 with the optimizer it reports on |
 | **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×8.5, Boneshatter Titan ×3.6, Raise Zombie Infernalist ×9.7 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-023030.json`), all feasible, code verified, independent recheck agrees. Gate 5: 30/30 random requests over three seeds. Gates 1–3 still pass, fidelity exact on the release |
-| **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; a rare price model (uncalibrated until the user calibrates it); λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets); rare price calibration against the official trade site ✅ 2026-10-24 (§7, Phase 5 findings); dual wielding, weapon swap, flasks and charms, seed codes and the Ritualist's third ring ✅ 2026-10-24 (Phase 3 follow-up findings). Not yet: radius/Time-Lost jewels, corruption/desecration, weapon-set passive points | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled then; now dual wielding and the Ritualist's third ring are modeled, and the stat set and condition sources are searched on purpose (Gate 4's Ritualist swing, below): ×0.55, ×0.60 and ×0.34 on three consecutive 10-minute runs of the committed code (`benchmarks/results/gate4-20261024-192040.json`, `-193046`, `-194050`; ×0.47, ×0.60 and ×0.53 before `c02c380`, `-175338`, `-180401`, `-181427`), every floor met, up from ×0.05 or ×0.23 by luck of the stat set (`gate4-20261024-162050.json`, `-153535`). The rest of the gap: an item-granted keystone (Black Scythe Training) and Megalomaniac and Heart of the Well, which the search doesn't propose; the reference loaded as a seed starts at 608K and short of Spirit, with its code's own config switches reset (2.42M with them: enemy resistances at -100, six Frenzy Charges). The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
+| **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; a rare price model (uncalibrated until the user calibrates it); λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets); rare price calibration against the official trade site ✅ 2026-10-24 (§7, Phase 5 findings); dual wielding, weapon swap, flasks and charms, seed codes and the Ritualist's third ring ✅ 2026-10-24 (Phase 3 follow-up findings). radius and Time-Lost jewels, Megalomaniac, jewels that free nodes from the connection rule, and a tree validity check ✅ 2026-10-24 ("Radius jewels and other tree-changing items"). Not yet: timeless jewels, corruption/desecration, weapon-set passive points | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled then; now dual wielding and the Ritualist's third ring are modeled, and the stat set and condition sources are searched on purpose (Gate 4's Ritualist swing, below): ×0.55, ×0.60 and ×0.34 on three consecutive 10-minute runs of the committed code (`benchmarks/results/gate4-20261024-192040.json`, `-193046`, `-194050`; ×0.47, ×0.60 and ×0.53 before `c02c380`, `-175338`, `-180401`, `-181427`), every floor met, up from ×0.05 or ×0.23 by luck of the stat set (`gate4-20261024-162050.json`, `-153535`). The rest of the gap: an item-granted keystone (Black Scythe Training) and Megalomaniac and Heart of the Well, which the search doesn't propose; the reference loaded as a seed starts at 608K and short of Spirit, with its code's own config switches reset (2.42M with them: enemy resistances at -100, six Frenzy Charges). The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
 | **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all); custom models for Elemental Archon, meta-skill Energy, Darkness, Traveller's Wisdom and Elemental Expression (§6). Not yet: approval queue, calibration form, exploits, the remaining custom models | Asterisked results; at least one exploit that works on the current patch modeled end to end |
 | **5. Results polish** (started 2026-10-24) | Done: Requested vs Delivered; shopping list in every result (slot, base, a rare's target affixes with tier and roll range, a unique's name and variant, runes and lineage gems, price with its confidence, total against the budget) with official trade-site links made on click; test-in-game checklist for every asterisked or not-modeled line. Not yet: saved history | Gate 6 |
 | **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research; recheck the 0.5 jewel craft (`JEWEL_CRAFTS`: four mods plus the effect line) and the tier-1 cap; recalibrate rare prices | All gates green on 1.0 data |
 
 A usable MVP (real builds with uniques and simple rares, constraints honored) arrives at the end
 of Phase 2. Full v1 arrives at the end of Phase 5.
+
+### Radius jewels and other tree-changing items (2026-10-24)
+
+The user asked (2026-10-24) that passive choices take into account every jewel and item that lets
+the tree allocate inside a radius, start from elsewhere, transform nodes in a radius or add effects
+to them, and that every allocated node has a valid path. The inventory below comes from the pinned
+PoB's data and code, not from memory. Paths are relative to `vendor/PathOfBuilding-PoE2/src`.
+
+**Radii** (`Modules/Data.lua:668`): Small 1000, Medium 1150, Large 1300, Very Large 1500, and eight
+"Variable" rings (650–950 up to 1800–2100) for Controlled Metamorphosis. The values are tree units ×
+1.2 (`PassiveTreeJewelDistanceMultiplier`). An item gets its radius from its `Radius:` line, or from
+"Only affects Passives in X Ring" or "Upgrades Radius to ...". `PassiveTree.lua:369` precomputes
+`nodesInRadius[index]` for every socket, and `:399` does the same for every keystone (used by
+From Nothing and Entwined Realities).
+
+| Source | What it does | PoB calculates | PoB enforces the allocation rule | Here |
+|---|---|---|---|---|
+| Controlled Metamorphosis (Diamond, 8 ring variants) | Passives in its ring can be allocated without being connected; −res | yes | yes: `jewelData.intuitiveLeapLike` (`PassiveSpec.lua:1536`) | screened and grown for real (below) |
+| From Nothing (Diamond, one variant per keystone) | Passives in a Small radius of that keystone can be allocated without a connection | n/a | yes: `fromNothingKeystones` (`PassiveSpec.lua:1549`) | same; PoB's "Everything (QoL Test Variant)" is never used |
+| Entwined Realities (Oracle notable) | Non-keystones in Medium radius of allocated keystones, no connection needed | n/a | yes: `AllocateFromNodeRadius` (`PassiveSpec.lua:1496`) | priced right by `frontier` once allocated; checked |
+| Split Personality (Ruby) | Allocate from another class's start | n/a | yes, socketed only: `alternateClassStart` | not priced in the feed; checked |
+| Pathfinder's "Path of the Warrior/Sorceress" | Same text, on ascendancy nodes | parsed | **no**: PassiveSpec reads it only from jewels | gap: PoB prunes such trees |
+| Voices (Sapphire) | Allocates 2–4 Sinister jewel sockets | yes | yes: free sockets as path roots | not proposed (its sockets aren't filled) |
+| Megalomaniac (Diamond, 874 notables × 3) | Allocates 3 notables | yes, as granted passives (`CalcSetup.lua:1761`) | n/a (not in the tree) | best three notables by what-if |
+| Time-Lost rares (Ruby/Emerald/Sapphire) and Against the Darkness (Time-Lost Diamond, 23 variants × 2) | Small / Notable Passive Skills in Radius also grant ... (180 rare mods: 86 small, 94 notable) | yes (`ModParser.lua:7170`, `CalcSetup.lua:219`) | n/a | rares built affix by affix, scored in their socket; best variants by what-if |
+| Time-Lost "of Potency" / "of Supremacy" | (15–25)% increased effect of Small / Notable passives in radius | yes | n/a | in the Time-Lost pools |
+| Heroic Tragedy, Undying Hate (Timeless, Very Large) | Conquer passives in radius by seed and conqueror | **partly**: keystones and abyss small nodes only; no seed tables (`DataLegionLookUpTableHelper` isn't loaded), so notables keep their stats | n/a | never proposed (`miscalculated`); not in the item options anyway |
+| Baryanic Leylines (Disciple of Varashta) | Non-unique Time-Lost jewels have 40% increased radius | **no** (unsupported line) | n/a | gap |
+| The Adorned; a rare mod "N% increased effect per allocated passive between it and class start" | Socket effect | yes | n/a | as before |
+
+PoB also carries PoE1 radius handlers that no PoE2 unique uses: attribute transforms, "Notable
+Passive Skills in Radius grant nothing", per-attribute-in-radius and threshold jewels. They are
+inert unless 1.0 brings such items. When jewels overlap, PoB applies only the first Time-Lost or
+Timeless jewel to a node (`CalcSetup.lua:235`). That undercounts, so it errs safe.
+
+**How PoB paths (`PassiveSpec.lua:1475` BuildAllDependsAndPaths).** A node in a no-connection radius
+gets `intuitiveLeapLikesAffecting`, and `AllocNode` then allocates it alone, without its path. Such
+nodes are not path roots unless they are also connected, so paths don't grow out of them. Orphans are
+pruned, except those a jewel holds. Removing the socket (or the keystone) removes what it held, and
+loading a code prunes any passive nothing reaches. PoB's `node.path` for a freed node is still the
+long connected path, so the bridge's `frontier` and `nodeDeltas` used to price such nodes at their
+full path. Now they cost one point.
+
+**What changed here:**
+- Bridge: `frontier` and `nodeDeltas` take a jewel-freed node alone (distance 1). `jewelTraits` reads
+  what a jewel does from PoB's parse (radius, no-connection rules, granted passives, conquest, seed
+  data), so the search classifies jewels without a name list. `radiusJewels` lists each socketed
+  radius jewel with its radius, the allocated passives in it, and the ones held through it.
+- **Tree validity check** (bridge `treeCheck`). Every allocated passive must be reachable through
+  allocated passives from the class start, the ascendancy start, a class start a jewel adds, or an
+  item-granted node. Otherwise it must be a node a socketed jewel frees, a rule re-derived from the
+  jewels rather than read from PassiveSpec's flags. Freed nodes don't carry a path on. Finalize
+  checks the reloaded code; a break makes the result infeasible, with the passives named. Points are
+  reported, not failed: three of the user's five reference builds hold one passive more than level
+  and quests give in PoB (2b75a: 117 at level 93), with no PoB warning.
+- Search (`builder/search/jewels.py`, `radius.py`):
+  - Time-Lost rares get `Radius: Small` in their text (PoB applies "in Radius" lines only with a
+    radius) and are built like the other rare jewels, with the plain two-and-two shape and no 0.5
+    craft.
+  - Uniques with a radius or a granted passive get their best variants: each selection in turn,
+    the others held, all different, every usable variant scored, then the first one's best 24 for
+    the later selections. The scoring uses a compact text with only the chosen lines (Megalomaniac:
+    16 s down to 3 s per full round), rescored once per full round, per socket when the jewel has a
+    radius.
+  - Jewels that free nodes are screened in full rounds, 12 socket and variant pairs at a time and
+    every pair before any again. Candidate sockets are allocated sockets the tree holds nothing
+    through, plus the nearest free socket with its path. The screen sockets the jewel for real and
+    scores each freed node alone at one point. The best two are tried: the weakest branches make
+    room, the tree regrows, and the change is kept only if the build ends better.
+  - Replacing a jewel the tree holds nodes through is reverted by a reload, since PoB prunes those
+    nodes and re-equipping doesn't bring them back.
+  - A chosen version is priced at the feed's price for any version, with low confidence, and the
+    shopping list names the version to buy.
+- Result tree: each socketed radius jewel's radius (a ring for Controlled Metamorphosis, around the
+  keystone for From Nothing) is drawn in gold. The passives in it get gold rings and the ones held
+  through it dashed rings, with a legend line and tooltip lines.
+- First measurements, Ice Shot Abyssal Lich at 50 divines after a 7 s tree: a full jewel round took
+  Megalomaniac (Volcanic Skin, All Natural, Spiral into Mania) and Against the Darkness (chaos and
+  lightning resistance, which the floors wanted). From Nothing around Hollow Palm Technique, in the
+  nearest free socket, raised the score from −18.4 to −14.4 with a valid tree.
+- **Not done:** timeless jewels (need PoB's seed tables; a specific seed isn't the feed's price
+  either), Voices' Sinister sockets, Split Personality (not priced), Baryanic Leylines,
+  Pathfinder's alternate starts (PoB doesn't path them), corrupted implicits on jewels. Recheck all
+  of it at 1.0.
 
 ### Phase 5 findings: shopping list, trade links, rare price calibration (2026-10-24)
 
@@ -603,7 +691,7 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   sources' node lines, now use the names and stats the skeleton's class sees (`Context.node_as`,
   `Tree.forbidden`); before, a Huntress requiring Eagle Eye got node 19104, her Reflex Action.
 - **Radius jewels** (allocating in a radius without a path, transforming nodes, adding effects to
-  them, the paths they need) are still not proposed; the user asked for them on 2026-10-24.
+  them, the paths they need): see "Radius jewels and other tree-changing items" above.
 
 ### Gate 4's Ritualist swing: stat sets and condition sources (2026-10-24)
 
@@ -758,7 +846,8 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   augment limit"), so limits are now enforced across all items.
 - **Jewels**: rare jewels (two prefixes, two suffixes from the Jewel pool, on a Ruby, Emerald or
   Sapphire) and affordable uniques in the tree's sockets; each full round also tries taking one
-  more socket nearby. Radius and Time-Lost jewels aren't proposed yet.
+  more socket nearby. Radius and Time-Lost jewels came later ("Radius jewels and other
+  tree-changing items").
 - **PoB doesn't add base implicits**: a normal base written without its implicit line has none, so
   every normal base before Phase 3 was missing it (e.g. Gemini Bow's extra-arrow chance).
 - **Sustained damage needs sustained costs.** PoB's DPS assumes every cost is paid. A gate 4 Ice Nova

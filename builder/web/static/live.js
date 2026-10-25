@@ -449,7 +449,8 @@ async function addResultTree(result) {
     marks: () => ({ require: lowerSet(request.require?.passives), forbid: lowerSet(request.forbid?.passives) }),
     help: el("ul", { class: "tree-help" },
       el("li", {}, "Orange: the passives this build allocates. Scroll to zoom, drag to move, hover for what a passive does."),
-      el("li", {}, el("span", { class: "req" }, "Green"), " rings are passives you required, ", el("span", { class: "ban" }, "red"), " ones you banned.")),
+      el("li", {}, el("span", { class: "req" }, "Green"), " rings are passives you required, ", el("span", { class: "ban" }, "red"), " ones you banned."),
+      el("li", {}, "Gold circles: a socketed jewel's radius; gold rings mark the passives in it, dashed ones the passives taken without a connection through it.")),
   });
   resultTree = tree;
   tree.setClass(summary.className);
@@ -457,7 +458,7 @@ async function addResultTree(result) {
   try {
     const allocation = await api("/api/tree/allocated", { method: "POST", body: { code: result.code } });
     if (resultTree !== tree) return; // another result was drawn meanwhile
-    tree.setAllocated(allocation.ids);
+    tree.setAllocated(allocation.ids, allocation.radiusJewels || []);
     tree.setAscendancy(allocation.ascendClassName || summary.ascendClassName);
     tree.setNote("");
   } catch (error) {
