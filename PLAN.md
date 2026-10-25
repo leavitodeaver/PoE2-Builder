@@ -613,13 +613,20 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
 
 ### Phase 3 follow-up findings: dual wielding, weapon swap, flasks and charms, seeds (2026-10-24)
 
-- **Dual wielding follows PoB's slot rule** (`ItemsTab:IsItemValidForSlot`): a Sceptre goes beside
-  any one-handed weapon; other one-handers except Spears too, but not beside a Wand or Sceptre;
-  two-handers only with keystones (Giant's Blood and the like, not modeled). Offhand "weapon" gives
-  a dual-wield skeleton and "any" adds one per one-handed main hand. The off-hand slot offers every
-  legal type and the gear block picks one (the Ritualist reference holds a Sceptre). The type list
-  is checked against PoB for Spear, Wand and One Hand Mace main hands (`tests/test_engine_items.py`).
-  Gate 4 now maps a reference's Sceptre or one-handed off hand to "weapon".
+- **Off hands follow the game's rules, not PoB's** (`builder/data/game_rules.yaml`, read by
+  `builder/data/rules.py`; corrected 2026-10-24 after the user spotted "Spear + off-hand weapon").
+  PoB's slot check lets almost any one-hander go beside another. The game's rules for 0.5.5:
+  martial weapons dual wield only with the same item class, so the only real dual wield is One Hand
+  Mace + One Hand Mace; spears and wands never go in the off hand; a sceptre goes beside a mace,
+  spear or wand, but two sceptres can't be held together. The off hand is a concrete item class in
+  the skeleton ("Spear + Sceptre"); "any" gives a skeleton per legal off hand. The same table says
+  which weapon classes are in the game (claws, daggers, flails, axes and swords have bases in PoB's
+  data but don't drop; swords come with the Duelist in 1.0), so they're never a skeleton's weapon
+  or a normal/rare item, and which bases only uniques use (the Golden "demigod" bases: rares had
+  landed on Golden Visage and Golden Mantle). Sources and confidence per rule are in the table.
+  Spear + Sceptre is contested (the wiki's spear page allows it, its dual-wield page doesn't); PoB
+  and the user's Ritualist reference allow it, so it stays until an in-game test says otherwise.
+  Gate 4 maps a reference's Sceptre or one-handed off hand to "weapon".
 - **Weapon swap is PoB's weapon-set model.** A skill group is on set 1, set 2 or both; PoB
   calculates a set-2-only group in a second environment with set 2's weapons and carries its buffs
   and debuffs to the main skill (what-ifs on the swap slots match commits; codes reload exactly).
@@ -663,6 +670,23 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   skeletons now start with a free normal ring there.
 - **Gate 5** also draws dual wielding, weapon swap (must and never), a required second attack,
   Flask/Charm/Sceptre bans and seed codes now: 30/30 over seeds 1–3 (`benchmarks/results/gate5-20261024-160117.json`, `-160710`, `-161031`). Two fixes came out of it: finalize adds PoB's warnings from a plain reload of the exported code to the checks, and the bridge wipes PoB's skill cache before every load. PoB keys that cache by skill name and slot and kept it across loads, so a build loaded after another with a weapon-set-2 Ice Shot was flagged "not enough Mana" (`ledger/proposed/pob-skill-cache-survives-build-load.yaml`). The same cache explains gate 1 on the release for reference 2b75e: the PoB app saved its stats with 2b75d's cache, so a clean load is 0.6% higher there; the other four references stay exact, and gates 2–3 pass on all nine builds.
+- **A skill's chosen stat set survived nothing** (fixed 2026-10-24, c02c380). PoB keeps the skill part
+  and stat set it calculates on the gem instance, and the bridge's setGroup built new instances
+  whenever it rewrote a group's gems, so every support swap, and every undo of one, reset the main
+  skill to its first stat set. The user's Abyssal Lich Glacial Lance run showed 1M+ while searching
+  (Explosion stat set, 1,021,145) and delivered 612,931 (Spear) after finalize's support polish.
+  setGroup now carries each gem's part and stat set over. Search.run also keeps a snapshot of where
+  it started and never ends below it: a pass the deadline cuts short can stop inside a block, and
+  before any pass had finished without improving there was nothing to go back to. The run's last
+  "best" event is the delivered build.
+- **Spirit skills were never usable at the level offered.** The persistent block offered every
+  Spirit skill at gem level 20, which needs character level 90 and up to 157 of an attribute
+  (bridge `gemRequirements`, PoB's own numbers). On the user's Abyssal Lich every candidate came with
+  an attribute deficit (a game limit, about −18 in score), so none was taken, although Elemental
+  Conflux alone was worth +23%. Spirit skills now go in at the highest level the build's attributes
+  and character level allow and are raised as attributes grow: the same request now reserves 90 of
+  100 Spirit (Elemental Conflux 8, Overwhelming Presence 4). Not yet: raising attributes on purpose
+  for a higher gem level, valuing Spirit on gear before a skill can use it.
 
 ### Phase 3 findings that shape later phases
 
