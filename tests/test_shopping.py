@@ -5,15 +5,17 @@ from __future__ import annotations
 import io
 import json
 import math
+import time
 import urllib.error
 
 import pytest
 
-from builder.data import GameData, rare_prices
+from builder.data import GameData, rare_prices, unique_versions
 from builder.data.trade import FETCH, SEARCH, RateLimited, RateLimiter, TradeClient, parse_buckets
 from builder.report.calibrate import choose, listing_price
 from builder.report.checklist import checklist
-from builder.report.shopping import identify, ladder, ranked_affixes, shopping_list, stat_value, trade_filters, trade_link
+from builder.report.shopping import (identify, ladder, ranked_affixes, shopping_list, stat_index, stat_key, stat_value,
+                                     trade_filters, trade_link, version_filters, version_lines)
 from builder.search.rares import mod_lines, roll
 
 
@@ -424,3 +426,156 @@ def test_calibration_packages_use_bases_the_game_drops(data) -> None:
                                        for m in data.mods["Item"] + data.mods["Jewel"] for h in m.get("tradeHashes") or {}})
     bases = {b["name"]: b for b in data.bases}
     assert packages and all(rules().normal_base_ok(bases[p["base"]]) for p in packages)
+
+
+# Unique versions ---------------------------------------------------------------------------------
+
+# Trade stats as /api/trade2/data/stats lists them (2026-10-24): a stat with options carries the
+# option in its id (a notable's or keystone's node id, a ring size's index)
+VERSION_STATS = {
+    "enchant.stat_2954116742|2344": {"text": "Allocates Dimensional Weakspot", "type": "enchant"},
+    "enchant.stat_2954116742|56265": {"text": "Allocates Throatseeker", "type": "enchant"},
+    "enchant.stat_2954116742|58016": {"text": "Allocates All Natural", "type": "enchant"},
+    "explicit.stat_2954116742|2344": {"text": "Allocates Dimensional Weakspot", "type": "explicit"},
+    "explicit.stat_2422708892|64601": {"text": "Passives in Radius of Hollow Palm Technique can be Allocated\n"
+                                               "without being connected to your tree", "type": "explicit"},
+    "explicit.stat_3642528642|4": {"text": "Only affects Passives in Medium Ring", "type": "explicit"},
+    "explicit.stat_3642528642|5": {"text": "Only affects Passives in Medium-Large Ring", "type": "explicit"},
+    "explicit.stat_2264240911": {"text": "Small Passive Skills in Radius also grant #% to Chaos Resistance", "type": "explicit"},
+    "explicit.stat_3994876825": {"text": "Small Passive Skills in Radius also grant #% to Lightning Resistance",
+                                 "type": "explicit"},
+}
+MEGALOMANIAC = ["All Natural", "Dimensional Weakspot", "Throatseeker"]
+
+
+def raw_of(data: GameData, name: str) -> str:
+    return next(u["raw"] for u in data.uniques if u["name"] == name)
+
+
+def version_entry_for(data: GameData, name: str, base: str, chosen: list[str], stats=VERSION_STATS) -> dict:
+    return {"kind": "unique", "name": name, "base": base, "variants": chosen,
+            "version_lines": version_filters(raw_of(data, name), chosen, stat_index(stats))}
+
+
+def test_unique_lines_match_their_trade_stats() -> None:
+    assert stat_key("Small Passive Skills in Radius also grant +(2-3)% to Chaos Resistance") \
+        == stat_key("Small Passive Skills in Radius also grant #% to Chaos Resistance") \
+        == stat_key("[SmallPassive|Small Passive] Skills in Radius also grant +3% to [Resistances|Chaos Resistance]")
+    assert stat_key("Passives in radius of Ancestral Bond can be Allocated without being connected to your tree") \
+        == stat_key("Passives in Radius of Ancestral Bond can be Allocated\nwithout being connected to your tree")
+    assert stat_key("Only affects Passives in Medium Ring") != stat_key("Only affects Passives in Medium-Large Ring")
+
+
+def test_version_queries_search_every_chosen_line(data) -> None:
+    # Megalomaniac's notables are trade enchantments (listings carry them as enchantMods)
+    mega = version_entry_for(data, "Megalomaniac", "Diamond", MEGALOMANIAC)
+    assert [l["id"] for l in mega["version_lines"]] == [
+        "enchant.stat_2954116742|58016", "enchant.stat_2954116742|2344", "enchant.stat_2954116742|56265"]
+    steps = ladder(mega)
+    assert [label for label, _ in steps] == ["this version", "2 of its 3 chosen lines"]
+    exact, looser = steps[0][1]["query"], steps[1][1]["query"]
+    assert exact["name"] == "Megalomaniac" and exact["type"] == "Diamond"
+    assert exact["filters"]["type_filters"]["filters"]["rarity"]["option"] == "unique"
+    assert exact["stats"] == [{"type": "and", "filters": [{"id": l["id"]} for l in mega["version_lines"]]}]
+    assert looser["stats"][0]["type"] == "count" and looser["stats"][0]["value"] == {"min": 2}
+
+    keystone = version_entry_for(data, "From Nothing", "Diamond", ["Hollow Palm Technique"])
+    assert [l["id"] for l in keystone["version_lines"]] == ["explicit.stat_2422708892|64601"]
+    assert len(ladder(keystone)) == 1  # one line: nothing looser is this version
+    ring = version_entry_for(data, "Controlled Metamorphosis", "Diamond", ["Medium Ring"])
+    assert [l["id"] for l in ring["version_lines"]] == ["explicit.stat_3642528642|4"]
+    darkness = version_entry_for(data, "Against the Darkness", "Time-Lost Diamond", ["Chaos Resistance", "Lightning Resistance"])
+    assert [l["id"] for l in darkness["version_lines"]] == ["explicit.stat_2264240911", "explicit.stat_3994876825"]
+
+    # A line the trade site has no stat for is left to the eye, and the label says so
+    partial = version_entry_for(data, "Megalomaniac", "Diamond", ["Abasement", "Dimensional Weakspot", "Throatseeker"])
+    assert partial["version_lines"][0]["id"] is None
+    assert ladder(partial)[0][0] == "this version's 2 searchable lines of 3"
+    unsearchable = version_entry_for(data, "From Nothing", "Diamond", ["Hollow Palm Technique"], stats={})
+    assert ladder(unsearchable)[0][0].startswith("this unique, any version")
+    assert version_lines(raw_of(data, "Megalomaniac"), ["Not A Notable"]) is None
+
+
+class VersionSite:
+    """Searches answer with these totals in order; a fetch returns these asks (divines)."""
+
+    def __init__(self, totals, asks) -> None:
+        self.totals, self.asks, self.searches = list(totals), asks, []
+
+    def search(self, league, query, max_wait=None):
+        self.searches.append(query)
+        n = len(self.searches)
+        total = self.totals[n - 1]
+        return {"id": f"q{n}", "total": total, "result": [f"i{k}" for k in range(total)], "url": f"url{n}"}
+
+    def fetch(self, ids, query_id, max_wait=None):
+        return [{"listing": {"price": {"amount": a, "currency": "divine"}}} for a in self.asks]
+
+
+def test_only_the_exact_version_prices_it(data) -> None:
+    mega = version_entry_for(data, "Megalomaniac", "Diamond", MEGALOMANIAC)
+    rates = {"divine": 1.0}
+    # Not listed: the looser search's listings are shown, never priced as this version
+    link = trade_link(VersionSite([0, 2], [148, 100]), "Test", mega, rates=rates)
+    assert link["url"] == "url2" and link["asking"]["cheapest"] == 100
+    assert link["version"] == {"listed": 0, "price": None, "url": "url1", "matches": "this version", "complete": True,
+                               "partial": "2 of its 3 chosen lines", "partial_listed": 2, "partial_url": "url2",
+                               "partial_cheapest": 100, "partial_typical": 124}
+    # Listed: the median of the five cheapest asks
+    site = VersionSite([3], [30, 1, 29, 31, 29, 40])
+    found = trade_link(site, "Test", mega, rates=rates)["version"]
+    assert len(site.searches) == 1
+    assert found["listed"] == 3 and found["price"] == 29 and found["cheapest"] == 1 and found["url"] == "url1"
+    # Nothing searchable: no version price (the search is for any version)
+    assert "version" not in trade_link(VersionSite([5], [1]), "Test", {**mega, "version_lines": []}, rates=rates)
+
+
+def test_shopping_list_prices_a_priced_version_from_trade(data) -> None:
+    gear = {"Jewel 60735": {"name": "Megalomaniac", "base": "Diamond", "type": "Jewel", "unique": True, "rare": False,
+                            "price": 0.097, "confidence": "low", "affixes": [], "runes": [], "variants": MEGALOMANIAC}}
+    result = {"request": {"budget": {"divines": 50, "gear_tier": "endgame"}}, "gear": gear}
+    now = time.time()
+
+    def entry_with(versions):
+        shop = shopping_list(result, data, {"league": "Test", "unique_versions": versions}, VERSION_STATS)
+        return shop, shop["items"][0]
+
+    shop, unpriced = entry_with({})
+    assert unpriced["price"] == 0.097 and unpriced["confidence"] == "low"
+    assert "Trade prices this exact version" in unpriced["note"]
+    assert unpriced["variant"] == "All Natural, Dimensional Weakspot, Throatseeker"
+    assert [l["id"] for l in unpriced["version_lines"]] == [l["id"] for l in version_entry_for(
+        data, "Megalomaniac", "Diamond", MEGALOMANIAC)["version_lines"]]
+
+    key = unique_versions.key("Megalomaniac", MEGALOMANIAC)
+    shop, priced = entry_with({key: {"listed": 3, "price": 124.0, "cheapest": 100.0, "asks": 3, "priced_at": now,
+                                     "url": "u", "complete": True}})
+    assert priced["price"] == 124.0 and shop["total"] == pytest.approx(124.0)
+    assert priced["confidence"].startswith("trade, this version (3 listed, ") and "0.097" in priced["note"]
+    assert priced["version_price"]["url"] == "u"
+
+    shop, missing = entry_with({key: {"listed": 0, "price": None, "priced_at": now, "url": "u",
+                                      "partial": "2 of its 3 chosen lines", "partial_listed": 2, "partial_cheapest": 100.0}})
+    assert missing["price"] == 0.097 and missing["confidence"] == "low: this version isn't listed"
+    assert "No listing of this exact version" in missing["note"] and "asking from 100 div" in missing["note"]
+
+    stale = {key: {"listed": 3, "price": 124.0, "priced_at": now - unique_versions.MAX_AGE - 60, "url": "u"}}
+    assert entry_with(stale)[1]["price"] == 0.097
+
+
+def test_version_prices_are_kept_per_version(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(unique_versions, "DATA_ROOT", tmp_path)
+    assert unique_versions.load("Test") == {}
+    unique_versions.record("Test", "Megalomaniac", ["Throatseeker", "All Natural", "Dimensional Weakspot"],
+                           {"listed": 0, "price": None, "url": "u"}, now=1000.0)
+    unique_versions.record("Test", "From Nothing", ["Hollow Palm Technique"], {"listed": 86, "price": 29.0, "url": "v"},
+                           now=1000.0)
+    saved = unique_versions.load("Test")
+    assert set(saved) == {"Megalomaniac | All Natural | Dimensional Weakspot | Throatseeker",
+                          "From Nothing | Hollow Palm Technique"}
+    # The order the selections were made in doesn't make another version
+    assert unique_versions.lookup(saved, "Megalomaniac", MEGALOMANIAC, now=1000.0)["listed"] == 0
+    assert unique_versions.lookup(saved, "From Nothing", ["Hollow Palm Technique"], now=1000.0)["price"] == 29.0
+    assert unique_versions.lookup(saved, "From Nothing", ["Iron Reflexes"], now=1000.0) is None
+    assert unique_versions.lookup(saved, "From Nothing", ["Hollow Palm Technique"],
+                                  now=1000.0 + unique_versions.MAX_AGE + 1) is None

@@ -552,8 +552,25 @@ function itemCell(item, shopping) {
     item.craft && shopping ? craftBlock(shopping, item) : null);
 }
 
-function tradeButton(shopping, item, part) {
+function versionStatus(version) {
+  // What the trade site had of a unique's chosen version (builder/report/shopping.py version_priced)
+  const day = version.priced_at ? ` on ${new Date(version.priced_at * 1000).toLocaleDateString()}` : "";
+  if (!version.listed) {
+    const looser = version.partial_listed ? ` (${version.partial_listed.toLocaleString()} listed with ${version.partial}`
+      + `${version.partial_cheapest != null ? `, asking from ${formatPrice(version.partial_cheapest)} div` : ""})` : "";
+    return `no listing of this exact version${day}${looser}`;
+  }
+  const asking = version.price != null ? `, asking from ${formatPrice(version.cheapest)} div, typically ${formatPrice(version.price)}` : "";
+  return `${version.listed.toLocaleString()} listed of this exact version${day}${asking}`;
+}
+
+function tradeButton(shopping, item, part, onVersion) {
   const status = el("span", { class: "trade-status" });
+  const known = part === "item" ? item.version_price : null;
+  if (known) {
+    const href = !known.listed && known.partial_listed ? known.partial_url : known.url;  // the search with listings
+    status.replaceChildren(`${versionStatus(known)} · `, el("a", { href, target: "_blank", rel: "noopener" }, "open"));
+  }
   const button = el("button", {
     type: "button",
     onclick: async () => {
@@ -568,11 +585,19 @@ function tradeButton(shopping, item, part) {
           tab.location.href = link.url;
         }
         const found = link.total ? `${link.total.toLocaleString()} listed`
+          : item.kind === "unique" ? "nothing listed"
           : "nothing listed, even loosened: likely craft-only, and its price here is only the model's estimate";
         const asking = link.asking ? ` · asking from ${formatPrice(link.asking.cheapest)} div, `
           + `typically ${formatPrice(link.asking.typical)}` : "";
-        status.replaceChildren(`${found}${asking} · ${link.matches}${link.cached ? " · cached" : ""} · `,
-          el("a", { href: link.url, target: "_blank", rel: "noopener" }, "open"));
+        if (link.version) {
+          // A unique's chosen version: only the first search is that exact version
+          status.replaceChildren(`${versionStatus(link.version)}${link.cached ? " · cached" : ""} · `,
+            el("a", { href: link.url, target: "_blank", rel: "noopener" }, "open"));
+          if (onVersion) onVersion(link.version);
+        } else {
+          status.replaceChildren(`${found}${asking} · ${link.matches}${link.cached ? " · cached" : ""} · `,
+            el("a", { href: link.url, target: "_blank", rel: "noopener" }, "open"));
+        }
       } catch (error) {
         if (tab) tab.close();
         status.textContent = error.message;
@@ -586,31 +611,56 @@ function tradeButton(shopping, item, part) {
 
 function shoppingSection(shopping) {
   const rows = [];
+  const budget = shopping.budget == null || shopping.ssf ? "" : ` of ${shopping.budget} budget`;
+  const totalCell = el("td", { class: "num" });
+  const totalNote = el("td", {});
+  const heading = el("h3", {});
+  const showTotal = () => {
+    const over = !shopping.ssf && shopping.budget != null && shopping.total > shopping.budget + 1e-6;
+    totalCell.className = `num${over ? " error-text" : ""}`;
+    totalCell.textContent = formatPrice(shopping.total);
+    totalNote.replaceChildren(`divine${budget}`, ...(over ? [el("div", { class: "note error-text" }, "over budget at today's prices")] : []));
+    heading.textContent = `Shopping list · ${formatPrice(shopping.total)} divine${budget}`;
+  };
   for (const item of shopping.items) {
-    const trade = shopping.ssf || item.kind === "normal" ? "–" : tradeButton(shopping, item, "item");
-    rows.push(el("tr", {}, el("td", {}, item.slot), el("td", {}, itemCell(item, shopping)),
-      el("td", { class: "num" }, item.kind === "normal" ? "found" : formatPrice(item.price)),
-      el("td", {}, item.confidence || "–"), el("td", {}, trade)));
+    const priceCell = el("td", { class: "num" }, item.kind === "normal" ? "found" : formatPrice(item.price));
+    const confidenceCell = el("td", {}, item.confidence || "–");
+    const cell = itemCell(item, shopping);
+    // A Trade click that prices a unique's chosen version replaces the feed's any-version price
+    const onVersion = (version) => {
+      const note = cell.querySelector(":scope > .note");
+      if (!version.listed) confidenceCell.textContent = "low: this version isn't listed";
+      if (!version.listed && note) note.textContent = "No listing of this exact version today. The price shown is "
+        + "poe.ninja's for any version: this one may cost far more, or not be for sale.";
+      if (version.price == null) return;
+      if (note) note.textContent = "Priced from the trade site's listings of this exact version today"
+        + (item.feed_price != null ? `; poe.ninja's ${formatPrice(item.feed_price)} div is for any version.` : ".");
+      shopping.total += version.price - (item.price || 0);
+      item.price = version.price;
+      priceCell.textContent = formatPrice(version.price);
+      confidenceCell.textContent = `trade, this version (${version.listed} listed, today)`;
+      showTotal();
+    };
+    const trade = shopping.ssf || item.kind === "normal" ? "–" : tradeButton(shopping, item, "item", onVersion);
+    rows.push(el("tr", {}, el("td", {}, item.slot), el("td", {}, cell), priceCell, confidenceCell, el("td", {}, trade)));
     for (const rune of item.runes || []) {
       rows.push(el("tr", { class: "socket" }, el("td", {}, "socket"), el("td", {}, rune.name),
         el("td", { class: "num" }, formatPrice(rune.price)), el("td", {}, rune.price == null ? "unpriced" : rune.confidence),
         el("td", {}, shopping.ssf ? "–" : tradeButton(shopping, item, `rune:${rune.name}`))));
     }
   }
-  const budget = shopping.budget == null || shopping.ssf ? "" : ` of ${shopping.budget} budget`;
-  const over = !shopping.ssf && shopping.budget != null && shopping.total > shopping.budget + 1e-6;
-  rows.push(el("tr", { class: "total" }, el("td", {}, "Total"), el("td", {}, ""),
-    el("td", { class: `num${over ? " error-text" : ""}` }, formatPrice(shopping.total)),
-    el("td", {}, `divine${budget}`, over ? el("div", { class: "note error-text" }, "over budget at today's prices") : null),
-    el("td", {}, "")));
+  showTotal();
+  rows.push(el("tr", { class: "total" }, el("td", {}, "Total"), el("td", {}, ""), totalCell, totalNote, el("td", {}, "")));
   const model = shopping.rare_prices;
   const rareNote = !model?.fitted_at
     ? "Rare prices are uncalibrated estimates (Calibrate rare prices, at the top, fits them to the trade site)."
     : `Rare prices come from the model fitted ${new Date(model.fitted_at * 1000).toLocaleDateString()} on `
       + `${model.total_samples} trade samples (typically within ×${model.error_factor ?? "?"}); slots with thin data stay estimates.`;
   return el("div", { class: "result-section" },
-    el("h3", {}, `Shopping list · ${formatPrice(shopping.total)} divine${budget}`),
-    el("p", { class: "hint" }, `Uniques, runes and gems are priced from poe.ninja. ${rareNote} `
+    heading,
+    el("p", { class: "hint" }, `Uniques, runes and gems are priced from poe.ninja, which has one price per unique; `
+      + "a unique whose version the optimizer chose (Megalomaniac's notables, From Nothing's keystone, a ring size) is "
+      + `priced from the trade site's listings of that exact version once you click its Trade. ${rareNote} `
       + "Trade opens an official trade-site search for that line, made when you click (one search, or a few "
       + "looser ones when nothing matches). T1 is the best tier the base can roll; the search asks for at least "
       + "the modeled roll first, then any roll within each tier. The trade site shows a search only when you're "

@@ -17,6 +17,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from builder.data import unique_versions
 from builder.data.trade import TradeClient
 from builder.pob import codes
 from builder.pob.pool import EnginePool, WorkerError, default_workers
@@ -461,7 +462,8 @@ class Run:
 
     def report_prices(self) -> dict:
         return {"augments": self.ctx.augment_prices, "gems": self.ctx.gem_prices, "league": self.payload["league"],
-                "rare_model": self.payload["rare_model"], "materials": self.payload.get("craft_prices")}
+                "rare_model": self.payload["rare_model"], "materials": self.payload.get("craft_prices"),
+                "unique_versions": unique_versions.load(self.payload["league"])}
 
     def variant(self, name: str) -> str | None:
         price = self.price_table.unique(name) if self.price_table is not None else None

@@ -441,6 +441,12 @@ Endurance-charge consumption, Empowered-attack extra damage.
   pads each window (arrivals jitter), honors Retry-After, keeps its history on disk across
   restarts, sends a descriptive User-Agent (no email; `POE2_BUILDER_CONTACT` adds a contact), and
   caches searches (a day) and calibration samples (six hours).
+- **Unique versions** (`builder/data/unique_versions.py`): poe.ninja prices a unique once, whatever
+  its variants. When the user clicks Trade on a unique whose variants the search chose, the search for
+  that exact version and the median of its five cheapest asks are kept per (unique, variants) in
+  `data/prices/<league>/unique_versions.json`. From then on the shopping list prices that version with
+  the date, for up to a week. A version with no listings keeps the feed's price, labelled "this
+  version isn't listed", with what copies sharing all but one of its lines ask.
 - **Trade links** (`builder/report/shopping.py`): one per shopping-list line, made when clicked. A
   rare's search starts strict and loosens only when nothing is listed: exact base and modeled rolls,
   then any base of the class at each tier's floor (weapons, jewels and flasks keep their base), then
@@ -478,7 +484,7 @@ Endurance-charge consumption, Empowered-attack extra damage.
 | **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×8.5, Boneshatter Titan ×3.6, Raise Zombie Infernalist ×9.7 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-023030.json`), all feasible, code verified, independent recheck agrees. Gate 5: 30/30 random requests over three seeds. Gates 1–3 still pass, fidelity exact on the release |
 | **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; a rare price model (uncalibrated until the user calibrates it); λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets); rare price calibration against the official trade site ✅ 2026-10-24 (§7, Phase 5 findings); dual wielding, weapon swap, flasks and charms, seed codes and the Ritualist's third ring ✅ 2026-10-24 (Phase 3 follow-up findings). radius and Time-Lost jewels, Megalomaniac, jewels that free nodes from the connection rule, and a tree validity check ✅ 2026-10-24 ("Radius jewels and other tree-changing items"). Not yet: timeless jewels, corruption/desecration, weapon-set passive points | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled then; now dual wielding and the Ritualist's third ring are modeled, and the stat set and condition sources are searched on purpose (Gate 4's Ritualist swing, below): ×0.55, ×0.60 and ×0.34 on three consecutive 10-minute runs of the committed code (`benchmarks/results/gate4-20261024-192040.json`, `-193046`, `-194050`; ×0.47, ×0.60 and ×0.53 before `c02c380`, `-175338`, `-180401`, `-181427`), every floor met, up from ×0.05 or ×0.23 by luck of the stat set (`gate4-20261024-162050.json`, `-153535`). The rest of the gap: an item-granted keystone (Black Scythe Training) and Megalomaniac and Heart of the Well, which the search doesn't propose; the reference loaded as a seed starts at 608K and short of Spirit, with its code's own config switches reset (2.42M with them: enemy resistances at -100, six Frenzy Charges). The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
 | **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all); custom models for Elemental Archon, meta-skill Energy, Darkness, Traveller's Wisdom and Elemental Expression (§6). Not yet: approval queue, calibration form, exploits, the remaining custom models | Asterisked results; at least one exploit that works on the current patch modeled end to end |
-| **5. Results polish** (started 2026-10-24) | Done: Requested vs Delivered; shopping list in every result (slot, base, a rare's target affixes with tier and roll range, a unique's name and variant, runes and lineage gems, price with its confidence, total against the budget) with official trade-site links made on click; test-in-game checklist for every asterisked or not-modeled line. Not yet: saved history | Gate 6 |
+| **5. Results polish** (started 2026-10-24) | Done: Requested vs Delivered; shopping list in every result (slot, base, a rare's target affixes with tier and roll range, a unique's name and variant, runes and lineage gems, price with its confidence, total against the budget) with official trade-site links made on click; a chosen unique version priced from the trade site on click; test-in-game checklist for every asterisked or not-modeled line. Not yet: saved history | Gate 6 |
 | **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research; recheck the 0.5 jewel craft (`JEWEL_CRAFTS`: four mods plus the effect line) and the tier-1 cap; recalibrate rare prices | All gates green on 1.0 data |
 
 A usable MVP (real builds with uniques and simple rares, constraints honored) arrives at the end
@@ -554,8 +560,9 @@ full path. Now they cost one point.
     room, the tree regrows, and the change is kept only if the build ends better.
   - Replacing a jewel the tree holds nodes through is reverted by a reload, since PoB prunes those
     nodes and re-equipping doesn't bring them back.
-  - A chosen version is priced at the feed's price for any version, with low confidence, and the
-    shopping list names the version to buy.
+  - A chosen version is priced at the feed's price for any version during the search, with low
+    confidence. The shopping list names the version to buy, and its Trade button prices that exact
+    version on the trade site (Phase 5 findings, "Unique versions").
 - Result tree: each socketed radius jewel's radius (a ring for Controlled Metamorphosis, around the
   keystone for From Nothing) is drawn in gold. The passives in it get gold rings and the ones held
   through it dashed rings, with a legend line and tooltip lines.
@@ -572,9 +579,9 @@ full path. Now they cost one point.
   (`gates-20261024-155405.json`). The 40-second gate 5 searches still leave most sockets empty, as
   they did before.
 - **Prices of chosen versions are optimistic.** poe.ninja has one price per unique, so a Megalomaniac
-  with three chosen notables counts as the cheapest copy (0.1 divine). The shopping list says to buy
-  that version and labels the price low-confidence. Pricing specific versions needs trade queries
-  (a follow-up for the shopping-list code).
+  with three chosen notables counts as the cheapest copy (0.1 divine). The shopping list now prices
+  the exact version from the trade site when its Trade button is clicked (Phase 5 findings, "Unique
+  versions"). The first prices are far above the feed's. The search still budgets the feed's price.
 - **Not done:** timeless jewels (need PoB's seed tables; a specific seed isn't the feed's price
   either), Voices' Sinister sockets, Split Personality (not priced), Baryanic Leylines,
   Pathfinder's alternate starts (PoB doesn't path them), corrupted implicits on jewels. Recheck all
@@ -678,6 +685,38 @@ full path. Now they cost one point.
   listings later that day.
 - The built-in browser pane blocks the page's pop-up tab, so a Trade button there only fills in
   the row's "open" link; in a normal browser it opens the search directly.
+- **Unique versions** (2026-10-24, `builder/data/unique_versions.py`, `version_entry`/`unique_ladder`
+  in shopping.py). The search chooses variants of tree-changing jewels, but poe.ninja's price is the
+  cheapest copy of any version. What the trade site lists:
+  - Megalomaniac's "Allocates <notable>" lines are **enchantments** on trade
+    (`enchant.stat_2954116742|<node id>`), not explicits, though PoB keeps them among the implicits.
+    From Nothing's keystone is `explicit.stat_2422708892|<keystone node id>`. Controlled
+    Metamorphosis's ring is `explicit.stat_3642528642|<1–8>`. Against the Darkness's lines are
+    ordinary explicit stats. An option stat's option is part of the filter id.
+  - A variant's lines match trade stats by text: values become #, and signs, case, line breaks and
+    the site's `[tag|text]` markup are ignored. The match keeps the line's own kind: {enchant},
+    implicit, or explicit. Every usable variant of Megalomaniac (874), From Nothing (33), Controlled
+    Metamorphosis (8) and Against the Darkness (23) matches. So does every other jewel unique's,
+    except one Heart of the Well line, 27 newer skills on Prism of Belief and the timeless jewels'
+    seed lines. A line with no trade stat is listed as "check by eye", and the search label says how
+    many lines it covers.
+  - The search for a version filters on every line the chosen variants add, at any roll. A version
+    of several lines also gets a looser search, all but one of them. It's shown with its asking
+    prices but never used as the version's price.
+  - A positive control (a listed Megalomaniac's three notables) found exactly that copy, so the filter
+    form works.
+  - First prices, 2026-10-24, Forbidden Rites. The feed has any Megalomaniac or From Nothing at
+    0.097 divine. The 3-minute Ice Shot Deadeye run at 50 divines
+    (`data/results/20261024-230617-run1.json`) took Megalomaniac with All Natural, Dimensional
+    Weakspot and Throatseeker. No copy of that version is listed; two copies have two of the three,
+    asking 100 and 148 divines. From Nothing around Hollow Palm Technique: 86 listed, one at 1
+    divine, then 29 to 30 (priced at 29). So the search's budget check for these versions is off by
+    a factor of 300 to over 1,000.
+  - A specific Megalomaniac is rarely for sale: three of 874 notables make about 111 million
+    versions. A trade table refreshed by a job could price every From Nothing keystone and
+    Controlled Metamorphosis ring (41 versions, about 8 minutes at the site's pace), and Against the
+    Darkness's 253 pairs in most of an hour, but not Megalomaniac's combinations. Whether and how the
+    search should use version prices is the user's call (open).
 
 ### Usage requirements and class-variant passives (2026-10-24)
 

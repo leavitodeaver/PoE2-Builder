@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from builder import settings
-from builder.data import GameData
+from builder.data import GameData, unique_versions
 from builder.data.prices import PriceFeed
 from builder.data.rare_prices import RarePriceModel
 from builder.data.trade import RateLimited, TradeClient, TradeError
@@ -381,7 +381,8 @@ def get_result(name: str) -> dict:
         payload = make_payload(request, table)
         result["shopping"] = shopping_list(result, data, {
             "augments": payload["augment_prices"], "gems": payload["gem_prices"], "league": payload["league"],
-            "rare_model": payload["rare_model"], "materials": payload["craft_prices"]}, trade.stats(offline=True))
+            "rare_model": payload["rare_model"], "materials": payload["craft_prices"],
+            "unique_versions": unique_versions.load(payload["league"])}, trade.stats(offline=True))
         result["checklist"] = checklist(result)
     return result
 
@@ -440,7 +441,13 @@ def make_trade_link(body: TradeLinkBody) -> dict:
     except Exception:
         rates = None  # no price data: the link still works, without asking prices
     try:
-        return {"league": league, **trade_link(trade, league, body.item, body.part, rates=rates)}
+        link = trade_link(trade, league, body.item, body.part, rates=rates)
+        version = link.get("version")
+        if version and (rates is not None or not version["listed"]):
+            # This exact version's price, for the shopping list from now on (without rates there's
+            # nothing to price listings with)
+            link["version"] = unique_versions.record(league, body.item["name"], body.item["variants"], version)
+        return {"league": league, **link}
     except RateLimited as error:
         raise HTTPException(429, f"The trade site asks us to wait: try again in {error.wait:.0f}s "
                                  "(its rate limit; your open trade-site tabs count too)")
