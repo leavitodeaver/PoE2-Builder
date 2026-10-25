@@ -562,7 +562,19 @@ full path. Now they cost one point.
 - First measurements, Ice Shot Abyssal Lich at 50 divines after a 7 s tree: a full jewel round took
   Megalomaniac (Volcanic Skin, All Natural, Spiral into Mania) and Against the Darkness (chaos and
   lightning resistance, which the floors wanted). From Nothing around Hollow Palm Technique, in the
-  nearest free socket, raised the score from −18.4 to −14.4 with a valid tree.
+  nearest free socket, raised the score from −18.4 to −14.4 with a valid tree. A 3-minute Ice Shot
+  Deadeye run at 50 divines ended feasible at 1.34M boss DPS for 23.17 divines. It took Megalomaniac
+  with Dimensional Weakspot, Throatseeker and Direct Approach, and its tree check passed.
+- Gates on the committed code: gate 5 is 30/30 over seeds 1–3 (`benchmarks/results/gate5-20261024-221726.json`,
+  `-222318`, `-222635`). Gates 2 and 3 pass on all five references (`gates-20261024-221457.json`).
+  Gate 1 on the release (`gates-20261024-221511.json`) differs only where it already did before this
+  work: 2b75e by 0.6% (the GlobalCache wipe, above) and lightning_arrow_deadeye's 11 lines
+  (`gates-20261024-155405.json`). The 40-second gate 5 searches still leave most sockets empty, as
+  they did before.
+- **Prices of chosen versions are optimistic.** poe.ninja has one price per unique, so a Megalomaniac
+  with three chosen notables counts as the cheapest copy (0.1 divine). The shopping list says to buy
+  that version and labels the price low-confidence. Pricing specific versions needs trade queries
+  (a follow-up for the shopping-list code).
 - **Not done:** timeless jewels (need PoB's seed tables; a specific seed isn't the feed's price
   either), Voices' Sinister sockets, Split Personality (not priced), Baryanic Leylines,
   Pathfinder's alternate starts (PoB doesn't path them), corrupted implicits on jewels. Recheck all

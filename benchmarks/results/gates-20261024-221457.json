@@ -1,0 +1,164 @@
+{
+  "date": "2026-10-24T22:12:55",
+  "pob_dir": "C:\\PROJECTS\\PoE2 Builder\\.claude\\worktrees\\friendly-cartwright-cba5cd\\vendor\\PathOfBuilding-PoE2",
+  "boot_s": 1.4000198000576347,
+  "builds": {
+    "boneshatter_titan": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 86.70413331128657,
+        "full_recalc_ms": 19.0,
+        "delta_node_ms": 2.274999999999975,
+        "delta_node_main_skill_ms": 1.975,
+        "delta_path_ms": 2.05,
+        "delta_path_main_skill_ms": 2.125,
+        "delta_remove_ms": 2.0303030303030303,
+        "delta_remove_main_skill_ms": 1.9393939393939394,
+        "delta_item_ms": 2.5,
+        "delta_item_main_skill_ms": 2.374999999999875
+      }
+    },
+    "lightning_arrow_deadeye": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 76.07290001275639,
+        "full_recalc_ms": 17.999999999998998,
+        "delta_node_ms": 2.4749999999999504,
+        "delta_node_main_skill_ms": 2.374999999999975,
+        "delta_path_ms": 5.3,
+        "delta_path_main_skill_ms": 3.175,
+        "delta_remove_ms": 6.105263157894737,
+        "delta_remove_main_skill_ms": 6.842105263157895,
+        "delta_item_ms": 3.111111111111111,
+        "delta_item_main_skill_ms": 3.111111111111111
+      }
+    },
+    "spark_stormweaver": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 187.02166667208076,
+        "full_recalc_ms": 16.999999999998998,
+        "delta_node_ms": 2.475,
+        "delta_node_main_skill_ms": 2.1250000000000253,
+        "delta_path_ms": 2.1,
+        "delta_path_main_skill_ms": 2.075,
+        "delta_remove_ms": 2.0833333333333752,
+        "delta_remove_main_skill_ms": 2.041666666666625,
+        "delta_item_ms": 2.5,
+        "delta_item_main_skill_ms": 2.375
+      }
+    },
+    "zombie_infernalist": {
+      "gate1_fidelity": [],
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 89.7100333046789,
+        "full_recalc_ms": 23.999999999996998,
+        "delta_node_ms": 4.05,
+        "delta_node_main_skill_ms": 4.175,
+        "delta_path_ms": 7.25,
+        "delta_path_main_skill_ms": 9.0,
+        "delta_remove_ms": 3.4736842105262635,
+        "delta_remove_main_skill_ms": 3.3684210526315788,
+        "delta_item_ms": 4.0,
+        "delta_item_main_skill_ms": 13.75
+      }
+    },
+    "ref:2b75a": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 212.2435999723772,
+        "full_recalc_ms": 62.000000000001,
+        "delta_node_ms": 10.725,
+        "delta_node_main_skill_ms": 4.10000000000025,
+        "delta_path_ms": 2.65,
+        "delta_path_main_skill_ms": 2.5,
+        "delta_remove_ms": 2.315789473684421,
+        "delta_remove_main_skill_ms": 2.3157894736840525,
+        "delta_item_ms": 3.222222222221778,
+        "delta_item_main_skill_ms": 3.000000000000111
+      }
+    },
+    "ref:2b75b": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 202.6892666472122,
+        "full_recalc_ms": 70.999999999998,
+        "delta_node_ms": 3.925,
+        "delta_node_main_skill_ms": 2.2499999999999,
+        "delta_path_ms": 2.37500000000015,
+        "delta_path_main_skill_ms": 2.9,
+        "delta_remove_ms": 2.9047619047619047,
+        "delta_remove_main_skill_ms": 2.9047619047619047,
+        "delta_item_ms": 14.1499999999995,
+        "delta_item_main_skill_ms": 4.299999999999949
+      }
+    },
+    "ref:2b75c": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 938.3676666378354,
+        "full_recalc_ms": 299.00000000001,
+        "delta_node_ms": 59.025,
+        "delta_node_main_skill_ms": 10.5,
+        "delta_path_ms": 52.275,
+        "delta_path_main_skill_ms": 3.775,
+        "delta_remove_ms": 42.04761904761905,
+        "delta_remove_main_skill_ms": 5.190476190476667,
+        "delta_item_ms": 73.04,
+        "delta_item_main_skill_ms": 4.4399999999996
+      }
+    },
+    "ref:2b75d": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 366.9626333285123,
+        "full_recalc_ms": 152.0,
+        "delta_node_ms": 22.0,
+        "delta_node_main_skill_ms": 2.9499999999997497,
+        "delta_path_ms": 14.70000000000025,
+        "delta_path_main_skill_ms": 2.84999999999975,
+        "delta_remove_ms": 21.058823529411764,
+        "delta_remove_main_skill_ms": 4.235294117647236,
+        "delta_item_ms": 15.0,
+        "delta_item_main_skill_ms": 3.291666666666417
+      }
+    },
+    "ref:2b75e": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": [],
+      "timing": {
+        "load_xml_ms": 230.0261666920657,
+        "full_recalc_ms": 63.99999999999301,
+        "delta_node_ms": 4.57499999999975,
+        "delta_node_main_skill_ms": 2.4250000000002,
+        "delta_path_ms": 2.4499999999999753,
+        "delta_path_main_skill_ms": 2.3500000000002,
+        "delta_remove_ms": 2.333333333333697,
+        "delta_remove_main_skill_ms": 2.3636363636364544,
+        "delta_item_ms": 3.1999999999996502,
+        "delta_item_main_skill_ms": 2.90000000000035
+      }
+    }
+  }
+}
