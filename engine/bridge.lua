@@ -895,6 +895,24 @@ function bridge.getConfig()
 	return { input = input }
 end
 
+-- A loaded code's configuration isn't evidence (PLAN.md §5.4): the active config set goes back
+-- to what a new build has (PoB's own new-set defaults, the boss preset included), with no custom
+-- modifiers. Only the campaign quest choices stay; they're free picks, not conditions.
+function bridge.resetConfig()
+	local configTab = build.configTab
+	local id = configTab.activeConfigSetId
+	local old = configTab.configSets[id]
+	local fresh = configTab:CreateConfigSet(id, old.title)
+	for var, value in pairs(old.input) do
+		if var:match("^quest") then
+			fresh.input[var] = value
+		end
+	end
+	configTab:SetActiveConfigSet(id, false, true)
+	recalc()
+	return bridge.getConfig()
+end
+
 -- Assumptions: modifiers for what PoB doesn't model (e.g. how often a skill is triggered when its
 -- trigger source isn't in PoB), kept in the config modifier list so they reach every calculation,
 -- what-ifs included. They live only in this engine: exported codes don't carry them.
