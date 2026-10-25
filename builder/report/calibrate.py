@@ -180,7 +180,7 @@ class Calibration:
 
     def price(self, league: str, p: dict, rates: dict[str, float]) -> dict:
         label, query = ladder(p, status=STATUS)[1]  # each affix at its tier's floor
-        wait = {"on_wait": self._wait, "cancel": lambda: self.cancel}
+        wait = {"on_wait": self._wait, "cancel": lambda: self.cancel, "even": True}
         sample = {"slot": p["slot"], "category": p["model_category"], "base": p["base"], "source": p["source"],
                   "tiers": [a["tier"] for a in p["affixes"] if a.get("searchable")],
                   "affixes": [a["text"] for a in p["affixes"] if a.get("searchable")], "price": None}

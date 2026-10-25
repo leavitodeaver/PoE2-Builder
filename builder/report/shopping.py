@@ -236,8 +236,8 @@ def version_entry(entry: dict, gear: dict, data: GameData, versions: dict | None
     known = unique_versions.lookup(versions, gear["name"], chosen)
     feed = entry["feed_price"] = entry["price"]
     if known is None:
-        entry["note"] = ("buy this version: the price shown is poe.ninja's for any version of it, which can be far "
-                         "cheaper; Trade prices this exact version")
+        entry["note"] = ("buy this version: the price shown is poe.ninja's for the cheapest copy of any version, and "
+                         "this one can cost far more; Trade prices this exact version")
         return
     entry["version_price"] = known
     day = time.strftime("%Y-%m-%d", time.localtime(known["priced_at"]))
@@ -464,11 +464,8 @@ def trade_link(client: TradeClient, league: str, entry: dict, part: str = "item"
             break
     link = {"url": answer["url"], "total": answer["total"], "matches": tried[-1]["matches"], "tried": tried,
             "cached": answer.get("cached", False)}
-    if rates and answer["total"] and answer.get("result"):
-        listings = client.fetch(answer["result"][:10], answer["id"], max_wait=max_wait)
-        asked = sorted(x for x in (listing_divines(l, rates) for l in listings) if x)
-        if asked:
-            link["asking"] = {"cheapest": asked[0], "typical": statistics.median(asked[:5]), "listings": len(asked)}
+    if rates and (asked := asking_prices(client, answer, rates, max_wait=max_wait)):
+        link["asking"] = asked
     lines = entry.get("version_lines") or []
     if part == "item" and entry.get("kind") == "unique" and any(line.get("id") for line in lines):
         link["version"] = version_priced(tried, link, all(line.get("id") for line in lines))
@@ -490,6 +487,16 @@ def version_priced(tried: list[dict], link: dict, complete: bool = True) -> dict
         if tried[-1]["total"] and link.get("asking"):
             priced.update(partial_cheapest=link["asking"]["cheapest"], partial_typical=link["asking"]["typical"])
     return priced
+
+
+def asking_prices(client: TradeClient, answer: dict, rates: dict[str, float], **wait) -> dict | None:
+    """What a search's ten cheapest listings ask (one fetch): {cheapest, typical (the median of the
+    five cheapest), listings}, or None when none are listed or priced."""
+    if not answer["total"] or not answer.get("result"):
+        return None
+    listings = client.fetch(answer["result"][:10], answer["id"], **wait)
+    asked = sorted(x for x in (listing_divines(l, rates) for l in listings) if x)
+    return {"cheapest": asked[0], "typical": statistics.median(asked[:5]), "listings": len(asked)} if asked else None
 
 
 def listing_divines(listing: dict, rates: dict[str, float]) -> float | None:

@@ -61,6 +61,12 @@ progress, a summary of the best build found so far updates each time a search ro
 trade site, paced by its rate limits (a few minutes), and fits the rare price model to them; the
 next optimizer run uses it. Slots with too little data stay labelled as estimates.
 
+**Price unique versions** (also at the top) prices every version of From Nothing (one per keystone)
+and Controlled Metamorphosis (one per ring size) on the trade site, about 7 minutes. poe.ninja has
+one price for all of a unique's versions; after this, the optimizer budgets each version at its own
+trade price and doesn't offer versions nobody sells. A Megalomaniac's notables are chosen at
+poe.ninja's price: its Trade button in the shopping list prices that exact version.
+
 Gear is normal bases, affordable uniques and rares built affix by affix, with runes, Soul Cores
 and Idols in their sockets and jewels in the tree's sockets. Rare prices come from the calibrated
 model (uncalibrated estimates until you calibrate), and flasks and charms aren't modeled yet. Any skill can be the main skill;

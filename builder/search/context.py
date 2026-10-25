@@ -16,7 +16,7 @@ from collections import deque
 from dataclasses import dataclass
 from functools import cached_property
 
-from builder.data import GameData, rare_prices
+from builder.data import GameData, rare_prices, unique_versions
 from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, translate, wrong
 from builder.request.constraints import CompiledRequest, compile_request
@@ -87,6 +87,8 @@ class Context:
         self.unique_prices: dict[str, list] = payload.get("unique_prices") or {}
         self.gem_prices: dict[str, float] = payload.get("gem_prices") or {}
         self.augment_prices: dict[str, float] = payload.get("augment_prices") or {}
+        # Trade prices of specific versions of a unique (builder/data/unique_versions.py)
+        self.unique_versions: dict[str, dict] = payload.get("unique_versions") or {}
         self.rare_model = rare_prices.RarePriceModel.from_payload(payload.get("rare_model"))
         self.rare_model.materials = dict(payload.get("craft_prices") or {})
         rare_prices.use(self.rare_model)
@@ -415,7 +417,17 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "league": league,
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
         "craft_prices": craft_prices(prices),
+        "unique_versions": version_prices(league),
     }
+
+
+def version_prices(league: str | None) -> dict[str, dict]:
+    """The trade prices of unique versions the search may budget with: current ones only, and only
+    what it reads (whether listed, the price, when)."""
+    versions = unique_versions.load(league)
+    return {key: {"name": v["name"], "variants": v["variants"], "listed": v.get("listed", 0), "price": v.get("price"),
+                  "priced_at": v["priced_at"]}
+            for key, v in versions.items() if unique_versions.lookup(versions, v["name"], v["variants"]) is not None}
 
 
 def craft_prices(prices) -> dict[str, float]:

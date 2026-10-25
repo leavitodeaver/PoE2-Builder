@@ -30,6 +30,7 @@ from builder.request.constraints import FACT_FIELDS, compile_request, main_skill
 from builder.report.calibrate import Calibration
 from builder.report.checklist import checklist
 from builder.report.shopping import shopping_list, trade_link
+from builder.report.version_prices import VersionPricing
 from builder.request.schema import BuildRequest
 from builder.search.context import make_payload
 from builder.web.runs import RESULTS_DIR, RunManager
@@ -82,6 +83,7 @@ engine = Engine()
 runs = RunManager(prices, summarize=lambda xml: synopsis_of(engine.facts_of(xml)))
 trade = TradeClient()
 calibration = Calibration(trade, prices, data)
+version_pricing = VersionPricing(trade, prices, data)
 
 
 @asynccontextmanager
@@ -421,6 +423,29 @@ def calibration_status(league: str | None = None) -> dict:
     league = league or calibration.status.get("league") or prices.default_league()
     status = {k: v for k, v in calibration.status.items() if k != "samples"}
     return {"job": status, "model": RarePriceModel.load(league).describe(), "league": league}
+
+
+# Unique version pricing (a user-started job; PLAN.md §7 "Unique versions") --------------------
+
+@app.post("/api/prices/versions")
+def start_version_pricing(league: str | None = None) -> dict:
+    try:
+        return version_pricing.start(league or prices.default_league())
+    except RuntimeError as error:
+        raise HTTPException(409, str(error))
+
+
+@app.post("/api/prices/versions/cancel")
+def cancel_version_pricing() -> dict:
+    version_pricing.cancel = True
+    return {"ok": True}
+
+
+@app.get("/api/prices/versions")
+def version_pricing_status(league: str | None = None) -> dict:
+    league = league or version_pricing.status.get("league") or prices.default_league()
+    return {"job": version_pricing.status, "league": league, "planned": version_pricing.planned(),
+            "priced": unique_versions.summary(unique_versions.load(league))}
 
 
 # Trade links (one search per click, a few at most; never automatic) ----------------------------

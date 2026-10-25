@@ -779,6 +779,59 @@ async function calibrate() {
   loadCalibration();
 }
 
+// Unique version pricing (From Nothing's keystones, Controlled Metamorphosis's rings) ------------
+
+function describeVersions(status) {
+  const uniques = status.planned.uniques;
+  const priced = uniques.map((name) => [name, status.priced[name]]).filter(([, p]) => p);
+  if (!priced.length) return `unique versions: ${uniques.join(" and ")} budgeted at poe.ninja's any-version price`;
+  const oldest = Math.min(...priced.map(([, p]) => p.priced_at));
+  const parts = priced.map(([name, p]) => `${name} ${p.versions} (${p.listed} listed)`);
+  return `unique versions: ${parts.join(", ")} priced ${new Date(oldest * 1000).toLocaleDateString()}`;
+}
+
+async function loadVersionPricing() {
+  const league = $("league").value || "";
+  const query = league ? `?league=${encodeURIComponent(league)}` : "";
+  try {
+    const status = await api(`/api/prices/versions${query}`);
+    const job = status.job;
+    const running = job.state === "running";
+    $("price-versions").hidden = running;
+    $("price-versions-cancel").hidden = !running;
+    $("version-status").textContent = running
+      ? `pricing unique versions: ${job.done}/${job.total || "?"} · ${job.message}`
+      : describeVersions(status) + (job.state && job.state !== "idle" ? ` (last run: ${job.message})` : "");
+    // Only while our own job runs: this asks the local server, never the trade site
+    if (running) setTimeout(loadVersionPricing, 2000);
+    return status;
+  } catch (error) {
+    $("version-status").textContent = `unique versions: unavailable (${error.message})`;
+    return null;
+  }
+}
+
+async function priceVersions() {
+  const status = await loadVersionPricing();
+  const planned = status?.planned;
+  const what = planned ? `every version of ${planned.uniques.join(" and ")} (${planned.searches} searches, one `
+    + "listing fetch for each listed version)" : "every version of From Nothing and Controlled Metamorphosis";
+  const minutes = planned ? Math.max(1, Math.round(planned.searches / 5.5)) : 8;
+  const ok = window.confirm(`Price unique versions?\n\nThis searches the official trade site for ${what}, paced `
+    + `by the site's rate limits: about ${minutes} minutes. Nothing is bought. From the next optimizer run, each `
+    + "version is budgeted at its trade price, and versions nobody lists aren't offered.");
+  if (!ok) return;
+  const league = $("league").value || "";
+  const query = league ? `?league=${encodeURIComponent(league)}` : "";
+  try {
+    await api(`/api/prices/versions${query}`, { method: "POST" });
+  } catch (error) {
+    $("version-status").textContent = `unique versions: ${error.message}`;
+    return;
+  }
+  loadVersionPricing();
+}
+
 // CPU workers --------------------------------------------------------------------------------
 
 function describeWorkers(s) {
@@ -819,7 +872,7 @@ async function start() {
   }
   renderDamageInputs();
   $("class_name").addEventListener("change", () => renderAscendancies(readForm().ascendancies));
-  $("league").addEventListener("change", () => { loadPrices(); loadCalibration(); });
+  $("league").addEventListener("change", () => { loadPrices(); loadCalibration(); loadVersionPricing(); });
   $("new-request").addEventListener("click", newRequest);
   $("save").addEventListener("click", save);
   $("validate").addEventListener("click", validate);
@@ -831,9 +884,14 @@ async function start() {
   $("calibrate-cancel").addEventListener("click", async () => {
     await api("/api/prices/calibration/cancel", { method: "POST" }).catch(() => null);
   });
+  $("price-versions").addEventListener("click", priceVersions);
+  $("price-versions-cancel").addEventListener("click", async () => {
+    await api("/api/prices/versions/cancel", { method: "POST" }).catch(() => null);
+  });
   newRequest();
   loadPrices();
   loadCalibration();
+  loadVersionPricing();
   loadSettings();
   attachToRun();
 }

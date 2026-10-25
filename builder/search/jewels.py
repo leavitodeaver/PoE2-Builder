@@ -26,6 +26,7 @@ import dataclasses
 import time
 from collections.abc import Callable
 
+from builder.data import unique_versions
 from builder.search.context import ItemOption
 from builder.search.radius import Variants, compact, miscalculated, tree_changing, unlocks, variants_of, with_variants
 from builder.search.rares import SCREEN_KEEP, Affix, AffixPools, boosted, rare_price, rare_text
@@ -285,8 +286,8 @@ class Jewels:
         anywhere = empty[:1] or [s for s, path in paths.items() if path][:1] or [next(iter(paths))]
         pairs = [(socket, version) for option in options
                  for socket in (list(paths) if self.traits([option])[0].get("unconnected") else anywhere)
-                 if (option.price or 0.0) <= self.gear.left_for(self.slot(socket)) + 1e-9
-                 for version in self.unlock_versions(option)]
+                 for version in self.unlock_versions(option)
+                 if (version.price or 0.0) <= self.gear.left_for(self.slot(socket)) + 1e-9]
         # Every pair once before any again: a full round screens a share of them (each is socketed
         # for real, about a quarter of a second), so From Nothing's 33 keystones take a few rounds
         fresh = [p for p in pairs if (p[1].name, p[0], p[1].variants) not in self.screened]
@@ -327,12 +328,27 @@ class Jewels:
         return False
 
     def unlock_versions(self, option: ItemOption) -> list[ItemOption]:
-        """Each variant a real item can have (a ring size, a keystone), or the jewel as it is."""
+        """Each variant a real item can have (a ring size, a keystone), or the jewel as it is. A
+        version the Price unique versions job priced (builder/report/version_prices.py) costs its
+        trade price, and one nobody lists isn't offered; the others cost the feed's price for any
+        version, with low confidence."""
         variants = variants_of(option.raw)
         if variants is None or len(variants.slots) != 1:
             return [option]
-        return [dataclasses.replace(option, raw=with_variants(option.raw, variants, (i,)),
-                                    variants=variants.label((i,)), confidence="low") for i in variants.usable]
+        found = []
+        for i in variants.usable:
+            label = variants.label((i,))
+            version = dataclasses.replace(option, raw=with_variants(option.raw, variants, (i,)), variants=label,
+                                          confidence="low")
+            priced = None if self.ctx.ssf else unique_versions.lookup(self.ctx.unique_versions, option.name, label)
+            if priced is not None and not priced["listed"]:
+                continue
+            if priced is not None and priced.get("price") is not None:
+                day = time.strftime("%Y-%m-%d", time.localtime(priced["priced_at"]))
+                version = dataclasses.replace(version, price=priced["price"],
+                                              confidence=f"trade, this version ({priced['listed']} listed, {day})")
+            found.append(version)
+        return found
 
     def try_unlock(self, socket: int, version: ItemOption, wanted: int, path: tuple[int, ...], deadline: float) -> bool:
         """Free points from the weakest branches (never the socket's own) for the socket's path and

@@ -40,6 +40,7 @@ DEFAULT_RULES = {
     DATA: [(1, 5, 0)],
 }
 MARGIN = 1  # requests per window left for the user's own trade-site tabs
+EVENTS = 20  # imposed pauses kept in limits.json
 MIN_SPACING = 1.0  # seconds between any two requests of one policy
 # A hit counts as aged out only this long after its window ends. The site times a request when it
 # arrives, not when we send it: without a pad, network jitter at a window's edge let three quick
@@ -79,12 +80,16 @@ class RateLimiter:
         self.rules: dict[str, list[tuple[int, int, int]]] = {k: list(v) for k, v in DEFAULT_RULES.items()}
         self.history: dict[str, list[float]] = {}
         self.blocked_until: dict[str, float] = {}
+        # Each pause the site imposed, with the headers that came with it: the penalties seen so far
+        # (600 s) match none the rule headers announce, so these are kept to find out why
+        self.events: list[dict] = []
         if path and path.exists():
             try:
                 saved = json.loads(path.read_text(encoding="utf-8"))
                 self.rules.update({k: [tuple(r) for r in v] for k, v in saved.get("rules", {}).items()})
                 self.history = {k: list(v) for k, v in saved.get("history", {}).items()}
                 self.blocked_until = dict(saved.get("blocked_until", {}))
+                self.events = list(saved.get("events", []))
             except (ValueError, OSError):
                 pass
 
@@ -92,7 +97,14 @@ class RateLimiter:
         if self.path:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(json.dumps({"rules": self.rules, "history": self.history,
-                                             "blocked_until": self.blocked_until}), encoding="utf-8")
+                                             "blocked_until": self.blocked_until, "events": self.events[-EVENTS:]}),
+                                 encoding="utf-8")
+
+    def note(self, policy: str, status: int, headers, seconds: float) -> None:
+        """Keep a pause the site imposed and the rate-limit headers it came with."""
+        found = {k: v for k, v in (headers or {}).items() if k.lower().startswith("x-rate-limit") or k.lower() == "retry-after"}
+        self.events = (self.events + [{"at": self.clock(), "policy": policy, "status": status, "pause": seconds,
+                                       "headers": found}])[-EVENTS:]
 
     def _recent(self, policy: str, now: float) -> list[float]:
         longest = max((period + age_out_pad(period) for _, period, _ in self.rules.get(policy, [])), default=60)
@@ -116,6 +128,18 @@ class RateLimiter:
                 wait = max(wait, recent[len(recent) - allowed] + window - now)
         return wait
 
+    def even_delay(self, policy: str) -> float:
+        """Seconds until a background job's next request is due when its requests are spread evenly
+        at the pace of the slowest window up to five minutes (padded, one spare). A job's total time
+        is set by that window anyway; spread out, it never sits at a short window's edge, where a
+        search the site counts inside the window costs a 10-minute lockout (2026-10-24: 14 searches
+        in 34 s, then two more as the first aged out)."""
+        rules = [(count, period) for count, period, _ in self.rules.get(policy, []) if period <= 300]
+        every = max(((period + age_out_pad(period)) / max(count - MARGIN, 1) for count, period in rules),
+                    default=MIN_SPACING)
+        hits = self._recent(policy, self.clock())
+        return max(0.0, every - (self.clock() - hits[-1])) if hits else 0.0
+
     def record(self, policy: str) -> None:
         self.history.setdefault(policy, []).append(self.clock())
         self._save()
@@ -135,6 +159,8 @@ class RateLimiter:
             rules += limits
             for hits, period, active in parse_buckets(headers.get(f"X-Rate-Limit-{name}-State")):
                 if active > 0:
+                    if now + active > self.blocked_until.get(policy, 0.0) + 1:
+                        self.note(policy, 200, headers, active)
                     self.blocked_until[policy] = max(self.blocked_until.get(policy, 0.0), now + active)
                 ours = sum(1 for t in self.history.get(policy, []) if now - t < period)
                 if hits > ours:
@@ -174,12 +200,16 @@ class TradeClient:
         self.requests_made = 0
 
     def _request(self, policy: str, url: str, body: dict | None = None, max_wait: float | None = None,
-                 on_wait: Callable[[float], None] | None = None, cancel: Callable[[], bool] | None = None) -> dict:
+                 on_wait: Callable[[float], None] | None = None, cancel: Callable[[], bool] | None = None,
+                 even: bool = False) -> dict:
+        """`even`: a background job's request, spread evenly (RateLimiter.even_delay)."""
         # Wait without holding the lock, so a Trade click during a long calibration pause is told
         # how long to wait instead of hanging behind it
         while True:
             self.lock.acquire()
             delay = self.limiter.delay(policy)
+            if even:
+                delay = max(delay, self.limiter.even_delay(policy))
             if delay <= 0:
                 break
             self.lock.release()
@@ -212,6 +242,7 @@ class TradeClient:
             self.limiter.update(policy, error.headers)
             if error.code == 429:
                 retry = float((error.headers or {}).get("Retry-After") or 60)
+                self.limiter.note(policy, 429, error.headers, retry)
                 self.limiter.penalize(policy, retry)
                 raise RateLimited(retry) from None
             try:

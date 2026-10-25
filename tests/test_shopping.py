@@ -7,6 +7,7 @@ import json
 import math
 import time
 import urllib.error
+from types import SimpleNamespace
 
 import pytest
 
@@ -60,6 +61,18 @@ def test_limiter_keeps_a_request_spare_in_every_window() -> None:
     assert limiter.delay(SEARCH) == pytest.approx(first + 10 + 1.0 - clock.now)
     clock.now = first + 11.1
     assert limiter.delay(SEARCH) <= 1.0
+
+
+def test_background_jobs_spread_their_requests_evenly() -> None:
+    clock = Clock()
+    limiter = RateLimiter(clock=clock)  # searches: 5/10 s, 15/60 s, 30/300 s, 600/6 h
+    assert limiter.even_delay(SEARCH) == 0
+    limiter.record(SEARCH)
+    # The 5-minute window sets the pace: (300 s + its pad) per 29 searches, about 11 s apart
+    assert limiter.even_delay(SEARCH) == pytest.approx(315 / 29)
+    assert limiter.delay(SEARCH) <= 1.0  # a click doesn't wait for the job's pace
+    clock.now += 4
+    assert limiter.even_delay(SEARCH) == pytest.approx(315 / 29 - 4)
 
 
 def test_limiter_counts_hits_it_did_not_make_and_penalties() -> None:
@@ -116,6 +129,10 @@ def test_search_is_cached_identified_and_rate_limited(tmp_path) -> None:
     site.answers.append(urllib.error.HTTPError("u", 429, "Too Many", Headers({"Retry-After": "60"}), None))
     with pytest.raises(RateLimited):
         client.search("Test League", {"query": {"type": "Other"}})
+    # The pause is kept with the headers it came with, to see later which rule it was
+    event = client.limiter.events[-1]
+    assert event["status"] == 429 and event["pause"] == 60 and event["headers"] == {"Retry-After": "60"}
+    assert json.loads((tmp_path / "limits.json").read_text())["events"][-1]["pause"] == 60
     with pytest.raises(RateLimited) as waited:
         client.search("Test League", {"query": {"type": "Third"}}, max_wait=5)
     assert waited.value.wait > 50 and len(site.requests) == 2  # refused without asking the site
@@ -579,3 +596,85 @@ def test_version_prices_are_kept_per_version(tmp_path, monkeypatch) -> None:
     assert unique_versions.lookup(saved, "From Nothing", ["Iron Reflexes"], now=1000.0) is None
     assert unique_versions.lookup(saved, "From Nothing", ["Hollow Palm Technique"],
                                   now=1000.0 + unique_versions.MAX_AGE + 1) is None
+
+
+def stats_for_versions(data: GameData, names: tuple[str, ...]) -> dict[str, dict]:
+    """A trade stat for every line the variants of these uniques add, worded as the unique words it."""
+    from builder.search.radius import variants_of
+
+    stats = {}
+    for name in names:
+        raw = raw_of(data, name)
+        for variant in variants_of(raw).names:
+            for text, kind in version_lines(raw, [variant]) or []:
+                stats[f"{kind}.stat_{len(stats)}"] = {"text": text, "type": kind}
+    return stats
+
+
+def test_the_version_job_prices_every_keystone_and_ring(data) -> None:
+    from builder.report.version_prices import version_entries
+
+    stats = stats_for_versions(data, ("From Nothing", "Controlled Metamorphosis", "Megalomaniac"))
+    entries, unsearchable = version_entries(data, stats)
+    # The jewels whose one variant decides what the tree may take without a connection
+    assert {e["name"] for e in entries} == {"From Nothing", "Controlled Metamorphosis"}
+    assert sum(e["name"] == "From Nothing" for e in entries) == 33
+    assert sum(e["name"] == "Controlled Metamorphosis" for e in entries) == 8
+    assert not unsearchable and all(len(e["variants"]) == 1 and e["version_lines"][0]["id"] for e in entries)
+    assert "Everything (QoL Test Variant)" not in {e["variants"][0] for e in entries}
+    # A version whose line has no trade stat can't be searched: it's named, not guessed
+    missing = {k: v for k, v in stats.items() if v["text"] != "Only affects Passives in Medium Ring"}
+    entries, unsearchable = version_entries(data, missing)
+    assert unsearchable == ["Controlled Metamorphosis (Medium Ring)"] and len(entries) == 40
+
+
+def test_the_version_job_keeps_each_version_it_searched(data, tmp_path, monkeypatch) -> None:
+    from builder.report.version_prices import VersionPricing
+
+    monkeypatch.setattr(unique_versions, "DATA_ROOT", tmp_path)
+    stats = stats_for_versions(data, ("From Nothing", "Controlled Metamorphosis"))
+
+    class Site:
+        def __init__(self) -> None:
+            self.searches = 0
+
+        def stats(self, offline=False):
+            return stats
+
+        def search(self, league, query, max_age=None, **wait):
+            self.searches += 1
+            total = 0 if self.searches % 4 == 0 else 3  # every fourth version is listed by nobody
+            return {"id": f"q{self.searches}", "total": total, "result": [f"i{n}" for n in range(total)],
+                    "url": f"url{self.searches}", "fetched_at": 5000.0}
+
+        def fetch(self, ids, query_id, max_age=None, **wait):
+            return [{"listing": {"price": {"amount": a, "currency": "divine"}}} for a in (30, 1, 29)]
+
+    feed = SimpleNamespace(table=lambda league, refresh=False: SimpleNamespace(currency={"divine": 1.0}))
+    job = VersionPricing(Site(), feed, data)
+    planned = job.planned()
+    assert planned["searches"] == 41 and set(planned["uniques"]) == {"From Nothing", "Controlled Metamorphosis"}
+    job.status = {"state": "running", "league": "Test", "done": 0, "total": 0}
+    job._run("Test")
+    assert job.status["state"] == "done" and job.status["done"] == 41
+    assert job.status["message"] == "Priced 41 versions: 31 listed, 10 not listed"
+    saved = unique_versions.load("Test")
+    assert len(saved) == 41
+    listed = [v for v in saved.values() if v["listed"]]
+    assert all(v["price"] == 29 and v["cheapest"] == 1 and v["priced_at"] == 5000.0 for v in listed)
+    assert all(v["price"] is None for v in saved.values() if not v["listed"])
+    assert unique_versions.summary(saved, now=5000.0)["From Nothing"]["versions"] == 33
+
+
+def test_the_search_gets_current_version_prices_only(tmp_path, monkeypatch) -> None:
+    from builder.search.context import version_prices
+
+    monkeypatch.setattr(unique_versions, "DATA_ROOT", tmp_path)
+    unique_versions.record("Test", "From Nothing", ["Hollow Palm Technique"],
+                           {"listed": 86, "price": 29.0, "url": "u", "cheapest": 1.0})
+    unique_versions.record("Test", "From Nothing", ["Iron Reflexes"], {"listed": 5, "price": 2.0, "url": "v"},
+                           now=time.time() - unique_versions.MAX_AGE - 60)
+    table = version_prices("Test")
+    assert list(table) == [unique_versions.key("From Nothing", ["Hollow Palm Technique"])]
+    assert set(next(iter(table.values()))) == {"name", "variants", "listed", "price", "priced_at"}
+    assert version_prices(None) == {}
