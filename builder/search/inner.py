@@ -29,6 +29,7 @@ from builder.search.skeletons import Skeleton, is_button, offhand_types, seed_sk
 from builder.search.sources import Sources
 from builder.search.state import EPSILON, Build
 from builder.search.tree import Tree
+from builder.search.usage import Usage
 
 KICK_TREE_POINTS = (6, 16)
 SWEEP_EVERY = 3
@@ -69,6 +70,8 @@ class Search:
         self.tree.resolve = self.resolve
         self.tree.relevant_skill = self.assumptions.relevant
         self.gear.resolve = self.resolve
+        self.usage = Usage(self.build, self.conditions, self.gear.flask_rate)
+        self.gems.usage = self.usage
         self.sources = Sources(self.build, self.conditions, self.gems, self.tree, self.gear, self.jewels, self.resolve)
         self.build.after_load.append(self.assumptions.reinstall)
         self.build.after_load.append(self.conditions.sync)
@@ -328,7 +331,10 @@ class Search:
 
     def conditions_round(self) -> None:
         """Resolve, and choose the calculated skill and stat set again: which one scores best
-        changes as the rest of the build grows (Explosive Spear's explosion overtakes its spear)."""
+        changes as the rest of the build grows (Explosive Spear's explosion overtakes its spear).
+        Gems whose usage requirement lost its source go first (builder/search/usage.py)."""
+        if self.gems.drop_unusable():
+            return  # it resolved, which chose the stat set again
         if not self.resolve():
             self.gems.choose_active_skill()
 
@@ -547,6 +553,12 @@ def screen_task(engine: Any, report: Any, payload: dict, skeletons: list[dict], 
     for skeleton in skeletons:
         search = Search(engine, report, payload, skeleton, 0)
         try:
+            main = search.skeleton.main_skill
+            blocked = [] if main == search.ctx.request.main_skill else search.usage.blockers(main)
+            if blocked:  # PoB would calculate it at will; only a request that names it gets it anyway
+                results.append({"skeleton": skeleton, "dps": 0.0, "value": 0.0, "score": float("-inf"),
+                                "error": "can't be used at will: " + "; ".join(blocked)})
+                continue
             search.setup(quests=False)
             search.gear.gear_round(time.perf_counter() + seconds_each)
             search.gems.optimize_supports(time.perf_counter() + seconds_each, rounds=4)

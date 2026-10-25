@@ -22,7 +22,8 @@ from dataclasses import dataclass
 
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption
 from builder.search.flasks import (
-    ACTIVE_UPTIME, CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, is_flask_slot, recovery_per_second, slot_pool,
+    ACTIVE_UPTIME, CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
+    recovery_per_second, slot_pool,
     uptime,
 )
 from builder.search.rares import (
@@ -83,6 +84,16 @@ class Gear:
         self.charges = Charges()  # charge generation of the committed build (sync_flasks)
         self._flask_info: dict[str, dict] = {}  # item text -> PoB's flask/charm numbers
         self.resolve = None  # re-resolves conditions after a commit (set by the search)
+
+    def flask_rate(self, pool: str) -> tuple[float, float]:
+        """(charges generated per second, maximum charges) of the equipped flask for this pool, for
+        supports that consume its charges on use (builder/search/usage.py)."""
+        for slot, slot_pool_name in FLASK_SLOTS.items():
+            option = self.build.equipped.get(slot)
+            if slot_pool_name == pool and option is not None:
+                info = self.flask_info([option.raw])[0]
+                return charges_per_second(info, self.charges, pool), float(info.get("chargesMax") or 0)
+        return 0.0, 0.0
 
     def settle(self) -> None:
         """After a commit: an item's what-if can't see a condition it switches on or off."""

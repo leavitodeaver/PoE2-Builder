@@ -107,7 +107,7 @@ class Sources:
         present = {g["name"] for group in groups for g in group["gems"]}
         left = gems.budget_left()
         names = [n for n in self.ctx.persistent_candidates
-                 if n not in present and gems.affordable(n, 0.0, left)
+                 if n not in present and gems.affordable(n, 0.0, left) and gems.usable(n)
                  and self.sources(condition, self.ctx.gems[n].get("description") or "")]
         cases = [{"newGroup": [n], "level": GEM_LEVEL, "quality": GEM_QUALITY} for n in names]
         if not cases:

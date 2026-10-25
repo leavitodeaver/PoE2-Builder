@@ -346,8 +346,11 @@ def candidate_skills(ctx: Context) -> list[str]:
     names = []
     for name, gem in ctx.gems.items():
         # Every socketable active skill; the screen drops those PoB gives no damage. Meta gems
-        # only trigger other skills, so they aren't main skills themselves.
-        if gem["support"] or "Meta" in gem["skillTypes"] or name in ctx.compiled.filters.forbidden_gems:
+        # only trigger other skills, so they aren't main skills themselves; nor are skills PoB
+        # marks as having a usage condition (Glory, Combo, charges: builder/search/usage.py), which
+        # it would calculate as if used at will.
+        types = gem["skillTypes"]
+        if gem["support"] or "Meta" in types or "HasUsageCondition" in types or name in ctx.compiled.filters.forbidden_gems:
             continue
         if not skill_problems(ctx, name):
             names.append(name)

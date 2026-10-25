@@ -1627,6 +1627,54 @@ function bridge.flaskData(args)
 	return { results = results }
 end
 
+-- Gems that can't be used at will, for the search's usage rules (builder/search/usage.py): PoB's
+-- HasUsageCondition skill type (a skill's own, or one a support adds to the skills it supports)
+-- and the constant stats that name what a use needs or costs (Glory or Combo required, charges
+-- required, flask charges consumed, Glory built from Life spent). PoB calculates these skills as if
+-- they were used at will. Stat names are matched loosely; usage.py decides what each one means.
+local USAGE_STAT_WORDS = { "require", "cannot_be_used_unless", "flask_charges_on_skill_use", "as_glory" }
+function bridge.usageRules()
+	local rules = setmetatable({ }, { __jsontype = "object" })
+	for _, gem in pairs(build.data.gems) do
+		if gem.grantedEffect and gem.name and not rules[gem.name] then
+			local stats = setmetatable({ }, { __jsontype = "object" })
+			local rule = { stats = stats }
+			local found = false
+			-- A banner's Glory gate is on its second effect (the placed banner), not the reservation
+			local effects = { gem.grantedEffect }
+			for _, additional in ipairs(gem.additionalGrantedEffects or { }) do
+				effects[#effects + 1] = additional
+			end
+			for _, effect in ipairs(effects) do
+				for _, statSet in ipairs(effect.statSets or { }) do
+					for _, stat in ipairs(statSet.constantStats or { }) do
+						for _, word in ipairs(USAGE_STAT_WORDS) do
+							if type(stat[1]) == "string" and stat[1]:find(word, 1, true) then
+								stats[stat[1]] = stat[2]
+								found = true
+							end
+						end
+					end
+				end
+				if effect.skillTypes and effect.skillTypes[SkillType.HasUsageCondition] then
+					rule.usageCondition = true
+					found = true
+				end
+				for _, skillType in ipairs(effect.addSkillTypes or { }) do
+					if skillType == SkillType.HasUsageCondition then
+						rule.addsUsageCondition = true
+						found = true
+					end
+				end
+			end
+			if found then
+				rules[gem.name] = rule
+			end
+		end
+	end
+	return { gems = rules }
+end
+
 -- Charge generation and flask/charm scaling from the committed build (passives, gear): what keeps
 -- flasks and charms going in a boss fight, where no kills refill them
 function bridge.chargeGain()

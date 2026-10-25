@@ -41,6 +41,7 @@ class Gems:
         self.resolve = None  # re-resolves conditions and assumptions after a trial commit
         self.settle = None  # the same without choosing the calculated skill again (choose_active_skill)
         self._requirements: dict[str, list[dict]] = {}  # gem -> requirements per level (gemRequirements)
+        self.usage = None  # usage requirements (builder/search/usage.py), set by the search
 
     # Helpers ---------------------------------------------------------------------------------
 
@@ -58,6 +59,15 @@ class Gems:
     def affordable(self, name: str, freed: float, left: float) -> bool:
         priced = self.ctx.gem_price(name)
         return priced is not None and (priced[0] or 0.0) <= left + freed
+
+    def usable(self, name: str, stats: dict | None = None) -> bool:
+        """Can the build use this gem at the rate PoB calculates (builder/search/usage.py)?"""
+        return self.usage is None or self.usage.usable(name, stats)
+
+    def usage_stats(self) -> dict | None:
+        from builder.search.usage import FIELDS
+
+        return self.build.call("stats", fields=FIELDS) if self.usage is not None else None
 
     def gem_cost(self, name: str) -> float:
         priced = self.ctx.gem_price(name)
@@ -108,7 +118,8 @@ class Gems:
         index = group["index"]
         names = [g["name"] for g in group["gems"]]
         supports = names[1:]
-        candidates = self.candidates(index, groups)
+        stats = self.usage_stats()
+        candidates = [c for c in self.candidates(index, groups) if self.usable(c, stats)]
         if not full_sweep and self.shortlist is not None:
             candidates = [c for c in self.shortlist if c in set(candidates)]
         left = self.budget_left()
@@ -195,6 +206,33 @@ class Gems:
             found.append((self.build.score, move))
             self.commit(index, names)
         return found
+
+    def drop_unusable(self) -> bool:
+        """Take out what the build can't use at the rate PoB calculates (builder/search/usage.py):
+        a main-group support whose usage requirement lost its source (required supports stay), or a
+        persistent skill gated the same way."""
+        if self.usage is None:
+            return False
+        build = self.build
+        changed = False
+        group = build.main_group()
+        if group is not None and not group["fromItem"]:
+            names = [g["name"] for g in group["gems"]]
+            stats = self.usage_stats()
+            keep = names[:1] + [n for n in names[1:] if n in self.required_supports or self.usable(n, stats)]
+            if len(keep) != len(names):
+                self.commit(group["index"], keep)
+                changed = True
+        while True:
+            gated = next((g for g in build.groups() if g["label"] == PERSISTENT_LABEL and g["gems"]
+                          and not self.usable(g["gems"][0]["name"])), None)
+            if gated is None:
+                break
+            build.remove_group(gated["index"])
+            changed = True
+        if changed and self.resolve is not None:
+            self.resolve()
+        return changed
 
     def weakest_slot(self, index: int, slots: list[int]) -> int:
         """The support slot whose gem adds least (by disabling each one)."""
@@ -291,7 +329,8 @@ class Gems:
         best = None
         # No Spirit at all (Embrace the Darkness: "You have no Spirit"): nothing new can fit
         if len(player_groups) < MAX_GEM_GROUPS and build.stats.get("Spirit"):
-            names = [n for n in self.ctx.persistent_candidates if n not in present and self.affordable(n, 0.0, left)]
+            names = [n for n in self.ctx.persistent_candidates
+                     if n not in present and self.affordable(n, 0.0, left) and self.usable(n)]
             missing = [n for n in names if n not in self._requirements]
             if missing:
                 self._requirements.update(build.call("gemRequirements", names=missing, maxLevel=GEM_LEVEL)["gems"])
