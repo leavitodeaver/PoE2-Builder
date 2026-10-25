@@ -232,6 +232,19 @@ in the supports block. Commits in the gear, jewel and prune-and-regrow blocks re
 deciding, and passives kept as sources are protected from pruning, since a what-if can't see a
 condition go.
 
+**Usage requirements** (`builder/search/usage.py`) apply the same rule to gems that can't be used at
+will. PoB marks them itself: the HasUsageCondition skill type (on a skill, or added by a support to
+the skills it supports) and constant stats naming what a use needs (`active_skill_requires_X_glory`,
+`..._required_number_of_combo_stacks`, charges, flask charges consumed), read from its gem data by the
+bridge (`usageRules`), so no gem is listed by hand. PoB calculates such a skill as if used at will.
+A support or persistent skill with one is a candidate only while the build sustains what a use
+needs: charges with resolver evidence; Glory a support builds from Life spent (Zerphi's Infamy, 50
+per use from 5% of Life spent) only while the main skill's Life spending pays for 90% of its uses;
+flask charges only while generation pays for them. The rest (Combo from other skills, distance
+moved, standing still, recent blocks, Volatility, a skill's own Glory) is never sustained at the
+calculated rate. Gems that lose their source are dropped on the next pass, and unrequested main
+skills with such a condition are left out of the skill screen.
+
 ### 5.5 Clear speed (mapping and balanced modes)
 
 PoB doesn't model clear speed, so it is estimated (`builder/search/objective.py`, `clear_estimate`)
@@ -565,6 +578,32 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   listings later that day.
 - The built-in browser pane blocks the page's pop-up tab, so a Trade button there only fills in
   the row's "open" link; in a normal browser it opens the search directly.
+
+### Usage requirements and class-variant passives (2026-10-24)
+
+- **Gems that can't be used at will were scored as if they could** (the user, 2026-10-24: Zerphi's
+  Infamy on a CI build). PoB treats Zerphi's Infamy's "requires 50 Glory" as text and adds its 50%
+  more damage at full attack speed, though a build with 1 Life never builds Glory. Hit and Run
+  ("can only be used after you have moved a certain distance") was in every gate 4 Explosive Spear
+  build the same way. PoB's own markers find 34 such gems, plus four flask-charge consumers (§5.4,
+  `builder/search/usage.py`): Glory (Zerphi's Infamy, the banners, the Glory skills), Combo (Combo
+  Finisher, Culmination, Mantra of Destruction, Tempest Bell), charges (Charged Staff, Spell Totem,
+  Ancestral Warrior Totem, Wind Serpent's Fury) and conditions (Hit and Run, Dauntless, Echoing Cry,
+  Ancestral Aid, Catharsis, ...). On the same code otherwise, gate 4 on 2b75c went from 3.60M with
+  both supports (on 1 Life, spending none) to 2.11M without them (`gate4-20261024-201650.json`,
+  `-200527`); both runs ended short of resistances, from an unrelated regression: Veil of the Night
+  ("You have no Elemental Resistances") on the final build.
+- **Not done:** Life sacrificed on use (Extraction, Guatelitzi's Ablation) isn't checked against
+  recovery; "if possible" consumption bonuses (Ferocity, Abiding Hex) and infusion-consuming stat
+  sets rely on how PoB conditions them; a requested main skill with a usage condition is still
+  calculated at will (only unrequested ones leave the screen).
+- **Class-variant passives.** 59 start-area nodes are another passive for some classes (PoB's
+  PassiveSpec takes the node's option for the class, else for the ascendancy): node 30695 is Eagle
+  Eye for a Huntress and Vile Wounds otherwise. Required and banned passives, and the condition
+  sources' node lines, now use the names and stats the skeleton's class sees (`Context.node_as`,
+  `Tree.forbidden`); before, a Huntress requiring Eagle Eye got node 19104, her Reflex Action.
+- **Radius jewels** (allocating in a radius without a path, transforming nodes, adding effects to
+  them, the paths they need) are still not proposed; the user asked for them on 2026-10-24.
 
 ### Gate 4's Ritualist swing: stat sets and condition sources (2026-10-24)
 

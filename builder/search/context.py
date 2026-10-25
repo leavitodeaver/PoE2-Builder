@@ -310,10 +310,23 @@ class Context:
         """Ascendancy name -> class name."""
         return {a: c for c, ascendancies in self.data.classes.items() for a in ascendancies}
 
-    @cached_property
-    def forbidden_node_ids(self) -> set[int]:
-        names = self.compiled.filters.forbidden_passives
-        return {n["id"] for n in self.data.tree["nodes"] if n.get("name") in names}
+    @staticmethod
+    def node_as(node: dict, class_name: str | None, ascendancy: str | None = None) -> dict:
+        """A node as PoB shows it to this class: 59 start-area nodes become another passive for some
+        classes or ascendancies (PassiveSpec takes options[class], else options[ascendancy]), e.g.
+        node 30695 is Eagle Eye for a Huntress and Vile Wounds otherwise."""
+        variants = node.get("variants") or {}
+        return variants.get(class_name) or variants.get(ascendancy) or node
+
+    def forbidden_nodes(self, class_name: str | None, ascendancy: str | None = None) -> set[int]:
+        """Banned passives' nodes, by the names this class sees."""
+        key = (class_name, ascendancy)
+        cache = self.__dict__.setdefault("_forbidden_nodes", {})
+        if key not in cache:
+            names = self.compiled.filters.forbidden_passives
+            cache[key] = {n["id"] for n in self.data.tree["nodes"]
+                          if self.node_as(n, class_name, ascendancy).get("name") in names}
+        return cache[key]
 
     def ascendancy_graph(self, ascendancy: str) -> tuple[int | None, dict[int, list[int]]]:
         """(start node, adjacency) of an ascendancy's own nodes. An alternate ascendancy with no

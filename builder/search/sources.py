@@ -127,10 +127,10 @@ class Sources:
 
     def passive_trials(self, condition: Condition) -> list[Trial]:
         build, tree = self.build, self.tree
-        forbidden = self.ctx.forbidden_node_ids
+        forbidden = tree.forbidden
         nodes = [n for n in build.call("frontier", maxDistance=PASSIVE_REACH)["nodes"]
                  if n["id"] not in forbidden and not forbidden.intersection(n["path"])
-                 and any(self.sources(condition, line) for line in self.ctx.nodes[n["id"]].get("stats") or [])]
+                 and any(self.sources(condition, line) for line in self.node_stats(n["id"]))]
         nodes.sort(key=lambda n: (n["distance"], n["id"]))
         if condition.stat is not None:
             nodes = [n for n in nodes if (condition.var, "passive", n["id"]) not in self.tried][:STAT_SCREEN]
@@ -155,6 +155,10 @@ class Sources:
         return [Trial("passive", n["id"], f"{n['name']} (passive, {n['distance']} points)",
                       lambda deadline, n=n: apply(n, deadline), lambda n=n: tree.sources.add(n["id"]))
                 for n in nodes]
+
+    def node_stats(self, node_id: int) -> list[str]:
+        tree = self.tree
+        return self.ctx.node_as(self.ctx.nodes[node_id], tree.class_name, tree.ascendancy).get("stats") or []
 
     def affix_trials(self, condition: Condition) -> list[Trial]:
         build, gear = self.build, self.gear

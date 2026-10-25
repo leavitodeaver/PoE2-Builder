@@ -91,6 +91,8 @@ class Tree:
         self.allocations_since_full = FULL_EVERY
         self.required: set[int] = set()
         self.required_names: set[str] = set(self.ctx.compiled.request.require.passives)
+        self.class_name: str | None = None  # the skeleton's, set by the search: names follow it (Context.node_as)
+        self.ascendancy: str | None = None
         self.resolve = None  # re-resolves conditions and assumptions (set by the search)
         self.relevant_skill = None  # does granting this skill change an assumption?
         # Nodes kept as a condition's source (builder/search/sources.py): a what-if removing one
@@ -104,13 +106,19 @@ class Tree:
         reqs = {STRENGTH: gem.get("reqStr") or 0, DEXTERITY: gem.get("reqDex") or 0, INTELLIGENCE: gem.get("reqInt") or 0}
         self.attribute = max(reqs, key=lambda a: (reqs[a], -a))
 
+    @property
+    def forbidden(self) -> set[int]:
+        return self.ctx.forbidden_nodes(self.class_name, self.ascendancy)
+
     def allocate_required(self, class_name: str) -> list[str]:
-        """Allocate required main-tree passives (with their paths). Returns names not found."""
+        """Allocate required main-tree passives (with their paths), by the names this class sees.
+        Returns names not found."""
         names = sorted(self.required_names)
         distances = self.ctx.main_tree_distances(class_name)
         missing = []
         for name in names:
-            ids = [i for i, n in self.ctx.nodes.items() if n.get("name") == name and not n.get("ascendancy")]
+            ids = [i for i, n in self.ctx.nodes.items()
+                   if self.ctx.node_as(n, class_name, self.ascendancy).get("name") == name and not n.get("ascendancy")]
             if not ids:
                 continue  # an ascendancy passive: the ascendancy round handles it
             reachable = [i for i in ids if i in distances]
@@ -133,7 +141,7 @@ class Tree:
         reach = min(FAR_REACH, limit)
         nodes = self.build.call("frontier", maxDistance=min(SMALL_REACH, limit),
                                 maxDistanceByType={"Notable": reach, "Keystone": reach})["nodes"]
-        forbidden = self.ctx.forbidden_node_ids
+        forbidden = self.forbidden
         current: dict[int, Candidate] = {}
         for node in nodes:
             path = tuple(node["path"])

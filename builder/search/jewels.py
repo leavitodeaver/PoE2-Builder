@@ -160,7 +160,7 @@ class Jewels:
     def try_new_socket(self, deadline: float) -> bool:
         """Take the nearest free socket (making room if needed) and keep it only if it pays."""
         build, tree = self.build, self.tree
-        forbidden = self.ctx.forbidden_node_ids
+        forbidden = self.tree.forbidden
         nodes = build.call("frontier", maxDistance=SOCKET_REACH, sockets="only")["nodes"]
         nodes = [n for n in nodes if not forbidden.intersection(n["path"])]
         if not nodes:

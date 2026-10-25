@@ -30,7 +30,7 @@ def greedy_fill(search: Search, ascendancy: bool) -> None:
         if left <= 0:
             return
         frontier = build.call("frontier", maxDistance=min(REACH, left), ascendancy=ascendancy)["nodes"]
-        forbidden = search.ctx.forbidden_node_ids
+        forbidden = search.tree.forbidden
         frontier = [n for n in frontier if not (forbidden & set(n["path"]))]
         if not frontier:
             return

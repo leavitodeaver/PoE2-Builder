@@ -47,6 +47,7 @@ class Search:
         self.rng = random.Random(seed)
         self.gems = Gems(self.build)
         self.tree = Tree(self.build, self.rng)
+        self.tree.class_name, self.tree.ascendancy = self.skeleton.class_name, self.skeleton.ascendancy
         weapon = SlotSpec(self.skeleton.weapon, self.skeleton.weapon_sub) if self.skeleton.weapon else None
         held = offhand_types(self.ctx, self.skeleton.weapon, self.skeleton.offhand)
         offhand = SlotSpec(held[0], None, held[1:]) if held else None
@@ -241,7 +242,7 @@ class Search:
 
         # Passives: banned ones out, required ones in, then within the request level's points
         allocated = {n["id"] for n in build.call("allocatedNodes")["nodes"]}
-        if banned := sorted(allocated & ctx.forbidden_node_ids):
+        if banned := sorted(allocated & self.tree.forbidden):
             build.allocate(remove=banned)
             notes.append(f"removed {len(banned)} banned passive(s)")
         self.tree.choose_default_attribute(sk.main_skill)
