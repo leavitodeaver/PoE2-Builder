@@ -33,7 +33,9 @@ Delivered, a PoB code verified by reloading it, a shopping list (every item with
 tiers and roll ranges, an estimated price with its confidence, and the total against the budget),
 skills, a test-in-game checklist for every number marked * or not modeled, the conditions the build
 sustains and its campaign reward choices. Each shopping-list line has a **Trade** button that makes
-an official trade-site search for it when clicked (never automatically) and opens it. Results are
+an official trade-site search for it when clicked (never automatically) and opens it. For a unique
+whose version the optimizer chose (Megalomaniac's notables, From Nothing's keystone, a ring size),
+that click also prices the exact version, which poe.ninja can't, and the list keeps that price. Results are
 also saved under `data/results/`. The page
 also checks any PoB code or poe.ninja / pobb.in share link against the current request. Optional:
 set `POE2_BUILDER_CONTACT` to add a contact to the User-Agent sent to poe.ninja and the trade
@@ -58,6 +60,12 @@ progress, a summary of the best build found so far updates each time a search ro
 **Calibrate rare prices** (top of the page) prices about 24 representative rares on the official
 trade site, paced by its rate limits (a few minutes), and fits the rare price model to them; the
 next optimizer run uses it. Slots with too little data stay labelled as estimates.
+
+**Price unique versions** (also at the top) prices every version of From Nothing (one per keystone)
+and Controlled Metamorphosis (one per ring size) on the trade site, about 7 minutes. poe.ninja has
+one price for all of a unique's versions; after this, the optimizer budgets each version at its own
+trade price and doesn't offer versions nobody sells. A Megalomaniac's notables are chosen at
+poe.ninja's price: its Trade button in the shopping list prices that exact version.
 
 Gear is normal bases, affordable uniques and rares built affix by affix, with runes, Soul Cores
 and Idols in their sockets and jewels in the tree's sockets. Rare prices come from the calibrated

@@ -9,18 +9,25 @@ through the trade hashes PoB exports with every mod.
 A rare's trade search starts strict and loosens only when nothing is listed: the exact base with
 the modeled rolls, then any base of the item class at each affix's tier floor (weapons and jewels
 keep their base: a weapon's damage and a jewel's mod pool depend on it), then all but one affix.
+
+A unique whose variants the search chose (Megalomaniac's notables, From Nothing's keystone,
+Controlled Metamorphosis's ring) is searched with a stat filter for each line those variants add,
+matched to the trade site's stat list by text; its listings price that exact version
+(builder/data/unique_versions.py keeps the price per version), where poe.ninja's price is for any.
 """
 
 from __future__ import annotations
 
 import re
 import statistics
+import time
 from collections.abc import Callable
 from types import SimpleNamespace
 
-from builder.data import GameData, rare_prices
+from builder.data import GameData, rare_prices, unique_versions
 from builder.data.trade import TradeClient
 from builder.request.schema import GearTier
+from builder.search.radius import TAG, variants_of
 from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, conflicts, mod_lines, roll
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
@@ -165,12 +172,99 @@ def trade_filters(mod: dict, fraction: float, stats: dict[str, dict]) -> list[di
     return filters
 
 
+# Unique versions -------------------------------------------------------------------------------
+
+VALUE = re.compile(r"[+-]?(?:\(\s*-?\d+(?:\.\d+)?\s*-\s*-?\d+(?:\.\d+)?\s*\)|\d+(?:\.\d+)?)")
+MARKUP = re.compile(r"\[(?:[^|\]]*\|)?([^\]]*)\]")  # the trade site's "[Resistances|Chaos Resistance]"
+POB_TAG = re.compile(r"\{[^}]*\}")
+
+
+def stat_key(text: str) -> str:
+    """What a unique's line and its trade stat have in common: values become #, and signs, case
+    and line breaks don't count ("+(2-3)% to Chaos Resistance" ~ "#% to Chaos Resistance")."""
+    text = MARKUP.sub(r"\1", POB_TAG.sub("", text))
+    return " ".join(VALUE.sub("#", text).replace("+#", "#").lower().split())
+
+
+def stat_index(stats: dict[str, dict]) -> dict[tuple[str, str], str]:
+    """(stat kind, stat_key of its text) -> trade stat id. Stats with options (a notable, a
+    keystone, a ring size) carry the option in the id: "enchant.stat_2954116742|34473" is
+    "Allocates Spaghettification"."""
+    index: dict[tuple[str, str], str] = {}
+    for stat_id, stat in stats.items():
+        index.setdefault((stat_id.split(".", 1)[0], stat_key(stat["text"])), stat_id)
+    return index
+
+
+def version_lines(raw: str, chosen) -> list[tuple[str, str]] | None:
+    """(line, kind) for each line the chosen variants add to a unique; kind is the trade site's:
+    "enchant" for {enchant} lines (Megalomaniac's notables are listed as enchantments), "implicit"
+    or "explicit". None when the text doesn't have these variants."""
+    variants = variants_of(raw)
+    if variants is None or not chosen or any(name not in variants.names for name in chosen):
+        return None
+    picked = {variants.names.index(name) + 1 for name in chosen}
+    found, implicits_left = [], 0
+    for line in raw.split("\n"):
+        if line.startswith("Implicits:"):
+            implicits_left = int(line.split(":", 1)[1].strip() or 0)
+            continue
+        implicit = implicits_left > 0
+        implicits_left -= 1 if implicit else 0
+        match = TAG.search(line)
+        if match and picked & {int(i) for i in match.group(1).split(",")}:
+            text = line[:match.start()] + line[match.end():]
+            kind = "enchant" if "{enchant}" in text else "implicit" if implicit else "explicit"
+            found.append((POB_TAG.sub("", text).strip(), kind))
+    return found
+
+
+def version_filters(raw: str, chosen, index: dict[tuple[str, str], str]) -> list[dict]:
+    """{text, id} for each line the chosen variants add: the trade stat to search it by, of the
+    line's own kind, or None (the page says to check it by eye)."""
+    return [{"text": text, "id": index.get((kind, stat_key(text)))} for text, kind in version_lines(raw, chosen) or []]
+
+
+def version_entry(entry: dict, gear: dict, data: GameData, versions: dict | None, index: dict) -> None:
+    """A unique whose variants the search chose: the lines to search it by, and the trade price of
+    this exact version once a Trade click priced it (else the feed's, which is for any version)."""
+    chosen = list(gear["variants"])
+    entry["variant"] = ", ".join(chosen)
+    entry["variants"] = chosen
+    raw = next((u["raw"] for u in data.uniques if u["name"] == gear["name"] and version_lines(u["raw"], chosen)), None)
+    entry["version_lines"] = version_filters(raw, chosen, index) if raw else []
+    known = unique_versions.lookup(versions, gear["name"], chosen)
+    feed = entry["feed_price"] = entry["price"]
+    if known is None:
+        entry["note"] = ("buy this version: the price shown is poe.ninja's for the cheapest copy of any version, and "
+                         "this one can cost far more; Trade prices this exact version")
+        return
+    entry["version_price"] = known
+    day = time.strftime("%Y-%m-%d", time.localtime(known["priced_at"]))
+    if known.get("price") is not None:
+        entry["price"] = known["price"]
+        exact = "this version" if known.get("complete", True) else "this version's searchable lines"
+        entry["confidence"] = f"trade, {exact} ({known['listed']} listed, {day})"
+        entry["note"] = (f"Priced from the trade site's listings of {exact} on {day} (median of the "
+                         f"{min(5, known.get('asks') or 5)} cheapest asks)"
+                         + (f"; poe.ninja's {feed:.3g} div is for any version." if feed is not None else "."))
+        return
+    entry["confidence"] = "low: this version isn't listed"
+    partial = ""
+    if known.get("partial_listed"):
+        asking = (f", asking from {known['partial_cheapest']:.3g} div" if known.get("partial_cheapest") is not None else "")
+        partial = f"; {known['partial_listed']} listed with {known['partial']}{asking}"
+    entry["note"] = (f"No listing of this exact version on {day}{partial}. The price shown is poe.ninja's for any "
+                     "version: this one may cost far more, or not be for sale.")
+
+
 # Shopping list ---------------------------------------------------------------------------------
 
 def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, dict] | None = None,
                   variants: Callable[[str], str | None] | None = None) -> dict:
-    """`prices`: {"augments": {name: divine}, "gems": {name: divine}, "league", "rare_model"};
-    `stats`: trade stat ids (TradeClient.stats) for the trade filters."""
+    """`prices`: {"augments": {name: divine}, "gems": {name: divine}, "league", "rare_model",
+    "unique_versions" (builder/data/unique_versions.py)}; `stats`: trade stat ids
+    (TradeClient.stats) for the trade filters."""
     request = result.get("request") or {}
     budget = request.get("budget") or {}
     item_level, _, fraction = TIER_RULES[GearTier(budget.get("gear_tier") or GearTier.ENDGAME)]
@@ -178,6 +272,7 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
     model.materials = dict(prices.get("materials") or {})
     augments = prices.get("augments") or {}
     stats = stats or {}
+    index = None  # trade stats by text, for uniques' chosen variants
     bases = {b["name"]: b for b in data.bases}
     items = []
     for slot, gear in sorted((result.get("gear") or {}).items(), key=lambda kv: slot_key(kv[0])):
@@ -196,9 +291,9 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
         if kind == "unique":
             entry["variant"] = variants(gear["name"]) if variants else None
             if gear.get("variants"):
-                # The search chose these (builder/search/radius.py); the feed's price is for any version
-                entry["variant"] = ", ".join(gear["variants"])
-                entry["note"] = "buy this version: the price shown is poe.ninja's for any version of it"
+                # The search chose these (builder/search/jewels.py); the feed's price is for any version
+                index = index if index is not None else stat_index(stats)
+                version_entry(entry, gear, data, prices.get("unique_versions"), index)
 
         elif kind in ("rare", "magic"):
             if kind == "rare":
@@ -318,8 +413,7 @@ def ladder(entry: dict, part: str = "item", status: str = LINK_STATUS) -> list[t
         return [(f"{name}", _query(status=status, type=name))]
     kind, category = entry["kind"], entry.get("category")
     if kind == "unique":
-        return [("this unique", _query(status=status, name=entry["name"], type=entry["base"],
-                                       filters=_type_filters(None, "unique")))]
+        return unique_ladder(entry, status)
     if kind == "normal":
         return [("this base", _query(status=status, type=entry["base"], filters=_type_filters(None, "normal")))]
     if kind == "gem":
@@ -338,25 +432,71 @@ def ladder(entry: dict, part: str = "item", status: str = LINK_STATUS) -> list[t
     return steps
 
 
+def unique_ladder(entry: dict, status: str = LINK_STATUS) -> list[tuple[str, dict]]:
+    """A unique by name; with chosen variants, every line they add (any roll), then, for versions
+    of several lines (Megalomaniac's three notables), all but one of them: shown, but never this
+    version's price."""
+    plain = {"name": entry["name"], "type": entry["base"], "filters": _type_filters(None, "unique")}
+    lines = entry.get("version_lines") or []
+    filters = [{"id": line["id"]} for line in lines if line.get("id")]
+    if not filters:
+        label = "this unique, any version (its chosen lines aren't searchable: check them by eye)" if lines else "this unique"
+        return [(label, _query(status=status, **plain))]
+    exact = "this version" if len(filters) == len(lines) else f"this version's {len(filters)} searchable lines of {len(lines)}"
+    steps = [(exact, _query([{"type": "and", "filters": filters}], status, **plain))]
+    if len(filters) > 1:
+        steps.append((f"{len(filters) - 1} of its {len(filters)} chosen lines",
+                      _query([{"type": "count", "value": {"min": len(filters) - 1}, "filters": filters}], status, **plain)))
+    return steps
+
+
 def trade_link(client: TradeClient, league: str, entry: dict, part: str = "item", max_wait: float = 20.0,
                rates: dict[str, float] | None = None) -> dict:
     """Run the searches for one shopping-list line until one finds listings; the trade-site URL, and
-    (with currency rates) what the cheapest listings ask, from one fetch of the first ten."""
+    (with currency rates) what the cheapest listings ask, from one fetch of the first ten. A unique
+    with chosen variants also gets `version`: what this exact version costs (unique_versions)."""
     tried = []
     answer = None
     for label, query in ladder(entry, part):
         answer = client.search(league, query, max_wait=max_wait)
-        tried.append({"matches": label, "total": answer["total"]})
+        tried.append({"matches": label, "total": answer["total"], "url": answer["url"]})
         if answer["total"] > 0:
             break
     link = {"url": answer["url"], "total": answer["total"], "matches": tried[-1]["matches"], "tried": tried,
             "cached": answer.get("cached", False)}
-    if rates and answer["total"] and answer.get("result"):
-        listings = client.fetch(answer["result"][:10], answer["id"], max_wait=max_wait)
-        asked = sorted(x for x in (listing_divines(l, rates) for l in listings) if x)
-        if asked:
-            link["asking"] = {"cheapest": asked[0], "typical": statistics.median(asked[:5]), "listings": len(asked)}
+    if rates and (asked := asking_prices(client, answer, rates, max_wait=max_wait)):
+        link["asking"] = asked
+    lines = entry.get("version_lines") or []
+    if part == "item" and entry.get("kind") == "unique" and any(line.get("id") for line in lines):
+        link["version"] = version_priced(tried, link, all(line.get("id") for line in lines))
     return link
+
+
+def version_priced(tried: list[dict], link: dict, complete: bool = True) -> dict:
+    """What a Trade click found for a unique's chosen version, as unique_versions keeps it: a price
+    only from listings of the exact version (the first search), with what looser searches found.
+    `complete`: every line the version adds was searched."""
+    exact = tried[0]
+    priced = {"listed": exact["total"], "price": None, "url": exact["url"], "matches": exact["matches"],
+              "complete": complete}
+    if exact["total"] and link.get("asking"):
+        priced.update(price=link["asking"]["typical"], cheapest=link["asking"]["cheapest"],
+                      asks=link["asking"]["listings"])
+    elif not exact["total"] and len(tried) > 1:
+        priced.update(partial=tried[-1]["matches"], partial_listed=tried[-1]["total"], partial_url=tried[-1]["url"])
+        if tried[-1]["total"] and link.get("asking"):
+            priced.update(partial_cheapest=link["asking"]["cheapest"], partial_typical=link["asking"]["typical"])
+    return priced
+
+
+def asking_prices(client: TradeClient, answer: dict, rates: dict[str, float], **wait) -> dict | None:
+    """What a search's ten cheapest listings ask (one fetch): {cheapest, typical (the median of the
+    five cheapest), listings}, or None when none are listed or priced."""
+    if not answer["total"] or not answer.get("result"):
+        return None
+    listings = client.fetch(answer["result"][:10], answer["id"], **wait)
+    asked = sorted(x for x in (listing_divines(l, rates) for l in listings) if x)
+    return {"cheapest": asked[0], "typical": statistics.median(asked[:5]), "listings": len(asked)} if asked else None
 
 
 def listing_divines(listing: dict, rates: dict[str, float]) -> float | None:

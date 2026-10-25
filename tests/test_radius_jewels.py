@@ -170,12 +170,13 @@ def grown(engine):
     except Exception as error:  # no cached prices: nothing to buy
         pytest.skip(f"no price data ({error})")
     request = BuildRequest(main_skill="Ice Shot", budget={"divines": 50})
-    ctx = Context(make_payload(request, table))
+    payload = {**make_payload(request, table), "unique_versions": {}}  # the feed's prices only
+    ctx = Context(payload)
     names = {o.name for o in ctx.item_options.get("Jewel", [])}
     if not {"From Nothing", "Megalomaniac"} <= names:
         pytest.skip("From Nothing or Megalomaniac isn't priced")
     skeleton = enumerate_skeletons(ctx, ["Ice Shot"])[0][0]
-    search = Search(engine, None, make_payload(request, table), skeleton.as_dict(), 0)
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
     search.setup(quests=False)
     search.tree.grow(time.perf_counter() + 60)
     return search
@@ -304,3 +305,28 @@ def test_the_search_pairs_leylines_with_a_time_lost_jewel(disciple, monkeypatch)
     assert without < build.score
     notes = jewels.radius_notes()
     assert notes and notes[0]["value"] > 0 and notes[0]["confidence"] == "theory"
+def test_priced_versions_cost_their_trade_price_and_unlisted_ones_are_not_offered():
+    from types import SimpleNamespace
+
+    from builder.data import unique_versions
+    from builder.search.context import ItemOption
+    from builder.search.jewels import Jewels
+
+    raw = next(u["raw"] for u in GameData().uniques if u["name"] == "From Nothing")
+    option = ItemOption("From Nothing", "Diamond", "Jewel", None, raw, True, 0.097, "high", 0)
+    now = time.time()
+    table = {unique_versions.key("From Nothing", ["Hollow Palm Technique"]):
+             {"name": "From Nothing", "variants": ["Hollow Palm Technique"], "listed": 86, "price": 29.0, "priced_at": now},
+             unique_versions.key("From Nothing", ["Iron Reflexes"]):
+             {"name": "From Nothing", "variants": ["Iron Reflexes"], "listed": 0, "price": None, "priced_at": now}}
+    jewels = Jewels.__new__(Jewels)
+    jewels.ctx = SimpleNamespace(ssf=False, unique_versions=table)
+    versions = {v.variants[0]: v for v in jewels.unlock_versions(option)}
+    assert versions["Hollow Palm Technique"].price == 29.0
+    assert versions["Hollow Palm Technique"].confidence.startswith("trade, this version (86 listed, ")
+    assert "Iron Reflexes" not in versions  # nobody sells it
+    assert versions["Chaos Inoculation"].price == 0.097 and versions["Chaos Inoculation"].confidence == "low"
+    assert len(versions) == len(variants_of(raw).usable) - 1
+    # Self-found: prices don't apply, and any version can drop
+    jewels.ctx = SimpleNamespace(ssf=True, unique_versions=table)
+    assert len(jewels.unlock_versions(option)) == len(variants_of(raw).usable)
