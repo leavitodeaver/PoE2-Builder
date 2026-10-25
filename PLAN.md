@@ -726,6 +726,15 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   and character level allow and are raised as attributes grow: the same request now reserves 90 of
   100 Spirit (Elemental Conflux 8, Overwhelming Presence 4). Not yet: raising attributes on purpose
   for a higher gem level, valuing Spirit on gear before a skill can use it.
+- **Veil of the Night trapped gate 4** (fixed 9364667). After 13a053c every gate 4 run on the
+  Ritualist ended short on all elemental resistances wearing it: "You have no Elemental
+  Resistances" lifts a build at -50% to 0 in one move, after which no resistance affix anywhere is
+  worth anything. game_rules.yaml now lists such stat-pinning lines (no elemental resistances,
+  cannot have Energy Shield, no Spirit) and they're never proposed under a floor on that stat. The
+  start floor of 13a053c also undid every deliberate trade of score for requirements at the
+  deadline; raising requirement weights now releases it, finalize's polish no longer raises
+  weights, and a search that raised them before keeping a snapshot no longer crashes. Gate 4 then:
+  x0.31 with every floor met (`benchmarks/results/gate4-20261024-211532.json`); gate 5 seed 2 10/10.
 
 ### Phase 3 findings that shape later phases
 
