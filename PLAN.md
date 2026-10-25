@@ -401,6 +401,10 @@ and every effect is listed in the result with its basis and confidence:
   the ascendancy round tries an allocation with it for real. PoB can't store the choice: the code
   shows those passives as Strength and carries the choice in a `<BuilderTraveller>` element the
   engine reads back; the result says which to pick in game.
+- **Larger Time-Lost radius** (Baryanic Leylines): in the bridge, not in models.py. The jewel's
+  socket gets its radius's node set made N% longer for each calculation while the passive is
+  allocated, so PoB applies the jewel's lines to the extra passives. See "Radius jewels and other
+  tree-changing items" (§9). `theory`.
 - **Elemental Expression:** rate = min(main skill's melee crits per second, cooldown cap 4/s),
   counted as the most likely of its three effects (from Strength/Dexterity/Intelligence).
 - **Extra damage sources count during the search:** while a build has spells a meta gem triggers
@@ -477,7 +481,7 @@ Endurance-charge consumption, Empowered-attack extra damage.
 | **1. Data, requests, UI shell** ✅ 2026-10-22 | Data dump (`python -m builder.data dump`); poe.ninja price feed; request schema + constraint compiler with tests; local web page (`python -m builder.web`): request form, saved requests, paste a code or share link → stats + Requested vs Delivered | Done. The progress stream moves to Phase 2 with the optimizer it reports on |
 | **2. Optimizer core** ✅ 2026-10-23 | Skeletons + probes (successive halving, replicas); gems (accelerated gem what-ifs, persistent skills under Spirit); tree (lazy-greedy paths, Steiner pairs, prune/regrow, attribute choices, exact ascendancy enumeration); uniques-only gear with budget at the source; condition resolver + quest rewards; feasibility penalties; kicks; Full DPS finalize with reload check; web page runs (`Optimize`, streamed progress, result + code); CLI `python -m builder.search` | Done. Beats naive baselines on all four benchmark skeletons in 2 minutes: Ice Shot Deadeye ×3.2, Spark Stormweaver ×8.5, Boneshatter Titan ×3.6, Raise Zombie Infernalist ×9.7 Full DPS vs greedy + uniques (`benchmarks/results/optimizer-20261023-023030.json`), all feasible, code verified, independent recheck agrees. Gate 5: 30/30 random requests over three seeds. Gates 1–3 still pass, fidelity exact on the release |
 | **3. Rares, budget, sockets** ✅ 2026-10-23 (partly) | Done: rares built affix by affix with tier/roll caps per gear tier; a rare price model (uncalibrated until the user calibrates it); λ budget allocation; runes/Soul Cores/Idols in sockets with per-character limits; rare and unique jewels in tree sockets; skill-cost sustain floor; every skill as a main skill (granted skills, trigger-rate assumptions, stat sets); rare price calibration against the official trade site ✅ 2026-10-24 (§7, Phase 5 findings); dual wielding, weapon swap, flasks and charms, seed codes and the Ritualist's third ring ✅ 2026-10-24 (Phase 3 follow-up findings). radius and Time-Lost jewels, Megalomaniac, jewels that free nodes from the connection rule, and a tree validity check ✅ 2026-10-24 ("Radius jewels and other tree-changing items"). Not yet: timeless jewels, corruption/desecration, weapon-set passive points | Gate 4: 3 of 4 usable reference builds beaten at their own defences (Explosive Transmutation ×14, Resonating Shield ×4.4, Ice Nova ×24; `benchmarks/results/gate4-20261023-155225.json`). The miss: Ritualist Explosive Spear ×0.11, built on dual wielding and an item-granted keystone, neither modeled then; now dual wielding and the Ritualist's third ring are modeled, and the stat set and condition sources are searched on purpose (Gate 4's Ritualist swing, below): ×0.55, ×0.60 and ×0.34 on three consecutive 10-minute runs of the committed code (`benchmarks/results/gate4-20261024-192040.json`, `-193046`, `-194050`; ×0.47, ×0.60 and ×0.53 before `c02c380`, `-175338`, `-180401`, `-181427`), every floor met, up from ×0.05 or ×0.23 by luck of the stat set (`gate4-20261024-162050.json`, `-153535`). The rest of the gap: an item-granted keystone (Black Scythe Training) and Megalomaniac and Heart of the Well, which the search doesn't propose; the reference loaded as a seed starts at 608K and short of Spirit, with its code's own config switches reset (2.42M with them: enemy resistances at -100, six Frenzy Charges). The user's 4,000-Mana Gemling request is met; Little Minions meets its 1.5M DPS gate (1.92M) |
-| **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all); custom models for Elemental Archon, meta-skill Energy, Darkness, Traveller's Wisdom and Elemental Expression (§6). Not yet: approval queue, calibration form, exploits, the remaining custom models | Asterisked results; at least one exploit that works on the current patch modeled end to end |
+| **4. Ledger + exploits** (started 2026-10-24) | Done: PoB's own gap list (885 passive, 454 unique lines it ignores); per-build blind spots in every result; ledger kinds `pob_gap` (translate an ignored line into lines PoB calculates), `pob_wrong` (replace a unique line PoB miscalculates) and `condition` (skills that switch a correction on); first research pass over 30 high-impact mechanics (43 ledger entries in all); custom models for Elemental Archon, meta-skill Energy, Darkness, Traveller's Wisdom, Elemental Expression and Baryanic Leylines' larger Time-Lost radius (§6). Not yet: approval queue, calibration form, exploits, the remaining custom models | Asterisked results; at least one exploit that works on the current patch modeled end to end |
 | **5. Results polish** (started 2026-10-24) | Done: Requested vs Delivered; shopping list in every result (slot, base, a rare's target affixes with tier and roll range, a unique's name and variant, runes and lineage gems, price with its confidence, total against the budget) with official trade-site links made on click; test-in-game checklist for every asterisked or not-modeled line. Not yet: saved history | Gate 6 |
 | **6. 1.0 refresh** | After PoB2 ships 1.0 support: move pin, dump data, rerun benchmarks, ledger review + research; recheck the 0.5 jewel craft (`JEWEL_CRAFTS`: four mods plus the effect line) and the tier-1 cap; recalibrate rare prices | All gates green on 1.0 data |
 
@@ -510,7 +514,7 @@ From Nothing and Entwined Realities).
 | Time-Lost rares (Ruby/Emerald/Sapphire) and Against the Darkness (Time-Lost Diamond, 23 variants × 2) | Small / Notable Passive Skills in Radius also grant ... (180 rare mods: 86 small, 94 notable) | yes (`ModParser.lua:7170`, `CalcSetup.lua:219`) | n/a | rares built affix by affix, scored in their socket; best variants by what-if |
 | Time-Lost "of Potency" / "of Supremacy" | (15–25)% increased effect of Small / Notable passives in radius | yes | n/a | in the Time-Lost pools |
 | Heroic Tragedy, Undying Hate (Timeless, Very Large) | Conquer passives in radius by seed and conqueror | **partly**: keystones and abyss small nodes only; no seed tables (`DataLegionLookUpTableHelper` isn't loaded), so notables keep their stats | n/a | never proposed (`miscalculated`); not in the item options anyway |
-| Baryanic Leylines (Disciple of Varashta) | Non-unique Time-Lost jewels have 40% increased radius | **no** (unsupported line) | n/a | gap |
+| Baryanic Leylines (Disciple of Varashta) | Non-unique Time-Lost jewels have 40% increased radius | **no** (unsupported line) | n/a | custom model (below and §6) |
 | The Adorned; a rare mod "N% increased effect per allocated passive between it and class start" | Socket effect | yes | n/a | as before |
 
 PoB also carries PoE1 radius handlers that no PoE2 unique uses: attribute transforms, "Notable
@@ -575,10 +579,38 @@ full path. Now they cost one point.
   with three chosen notables counts as the cheapest copy (0.1 divine). The shopping list says to buy
   that version and labels the price low-confidence. Pricing specific versions needs trade queries
   (a follow-up for the shopping-list code).
+- **Baryanic Leylines, a custom model** (the user, 2026-10-25: "i definitely want that included").
+  - The bridge wraps `calcs.initEnv`. While a passive with "Non-Unique Time-Lost Jewels have N%
+    increased radius" is allocated, in the build or in a what-if, each socketed non-unique Time-Lost
+    jewel's socket gets the node set of that jewel's radius made N% longer, for that one
+    calculation.
+  - The set uses PassiveTree.lua's own distance rule; at 0% it equals PoB's set for all 12 radii.
+    PoB then applies the jewel's "in Radius" lines to the extra passives, stacked with everything
+    else. Small goes from 43 to 78 passives in reach on 2b75b's first socket.
+  - Unique Time-Lost jewels (Against the Darkness) keep their radius.
+  - The wrapper is reinstalled before every bridge call and recalculation, since PoB defines
+    `calcs.initEnv` again whenever it loads its calculation modules.
+  - Ledger entry `baryanic-leylines` (confidence: theory, because "increased radius" is taken to
+    lengthen the radius, not grow its area). A request that forbids it switches the model off.
+    Results list it as an asterisked assumption.
+  - The result tree draws the larger radius dashed; the passives only it reaches say so in their
+    tooltips.
+  - The search: Leylines is worth nothing without a Time-Lost jewel, and a Time-Lost jewel is scored
+    without Leylines. So every other full jewel round of a Disciple of Varashta tries the pair: the
+    ascendancy round with Leylines required, a Time-Lost rare built per socket with the larger radius
+    in effect (the nearest free socket when none is allocated), then regrow. The pair is kept only
+    when an enlarged jewel is socketed and the build ends better. Once both are in, ordinary
+    what-ifs value Leylines.
+  - On a Spark Disciple of Varashta at 50 divines, the best Time-Lost rare with Leylines (crit
+    notables, spell and elemental damage on small passives) added +0.03 to the score where Grand
+    Spectrum added +1.44, so the search rightly declined the pair. Without Leylines no Time-Lost rare
+    paid at all. A test with a strong Time-Lost jewel checks that the pair is found and that Leylines
+    then pulls its weight.
+  - Gates with the model: gate 5 30/30 over seeds 1–3 (`gate5-20261024-232304.json`, `-232856`,
+    `-233215`); gates 2 and 3 pass on all five references (`gates-20261024-232110.json`).
 - **Not done:** timeless jewels (need PoB's seed tables; a specific seed isn't the feed's price
-  either), Voices' Sinister sockets, Split Personality (not priced), Baryanic Leylines,
-  Pathfinder's alternate starts (PoB doesn't path them), corrupted implicits on jewels. Recheck all
-  of it at 1.0.
+  either), Voices' Sinister sockets, Split Personality (not priced), Pathfinder's alternate starts
+  (PoB doesn't path them), corrupted implicits on jewels. Recheck all of it at 1.0.
 
 ### Phase 5 findings: shopping list, trade links, rare price calibration (2026-10-24)
 

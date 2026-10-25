@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-24T23:19:46",
+  "pob_dir": "C:\\PROJECTS\\PoE2 Builder\\.claude\\worktrees\\friendly-cartwright-cba5cd\\vendor\\PathOfBuilding-PoE2",
+  "boot_s": 1.2711871999781579,
+  "builds": {
+    "boneshatter_titan": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "lightning_arrow_deadeye": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "spark_stormweaver": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "zombie_infernalist": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75a": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75b": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75c": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75d": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    },
+    "ref:2b75e": {
+      "gate2_delta_cases": 24,
+      "gate2_delta": [],
+      "gate3_round_trip": []
+    }
+  }
+}
