@@ -591,8 +591,8 @@ of Phase 2. Full v1 arrives at the end of Phase 5.
   Ancestral Warrior Totem, Wind Serpent's Fury) and conditions (Hit and Run, Dauntless, Echoing Cry,
   Ancestral Aid, Catharsis, ...). On the same code otherwise, gate 4 on 2b75c went from 3.60M with
   both supports (on 1 Life, spending none) to 2.11M without them (`gate4-20261024-201650.json`,
-  `-200527`); both runs ended short of resistances, from an unrelated regression: Veil of the Night
-  ("You have no Elemental Resistances") on the final build.
+  `-200527`); both runs ended short of resistances, trapped by Veil of the Night ("You have no
+  Elemental Resistances"; fixed in 9364667, below).
 - **Not done:** Life sacrificed on use (Extraction, Guatelitzi's Ablation) isn't checked against
   recovery; "if possible" consumption bonuses (Ferocity, Abiding Hex) and infusion-consuming stat
   sets rely on how PoB conditions them; a requested main skill with a usage condition is still
