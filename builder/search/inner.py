@@ -141,6 +141,9 @@ class Search:
         build.phase = "seed"
         filters = ctx.compiled.filters
         build.call("loadXml", xml=codes.decode(ctx.request.seed_code))
+        # The code's configuration isn't trusted: a new build's, then the resolver turns on what
+        # the build sustains (the code's quest choices stay, choose_quests revisits them)
+        build.call("resetConfig")
         self.correct_passives()
         build.call("setLevel", level=ctx.level)
         notes = self.seed_notes
@@ -437,7 +440,11 @@ class Search:
         closer than the pass before, its weight goes up (Objective.escalate); on the second raise
         the passive tree is cleared and regrown under the new weights, since a tree grown for damage
         rarely walks over to, say, the Mana nodes one swap at a time. `best` is a snapshot the result
-        must not fall below (a seed's starting point)."""
+        must not fall below (a seed's starting point). Neither does it end below the state it started
+        from: a pass the deadline cuts short can stop inside a block, and before any pass had finished
+        without improving there was no snapshot to go back to (finalize's short polish ended worse
+        than the build the run had chosen)."""
+        start = self.build.snapshot()
         last_short = float("inf")
         while time.perf_counter() < deadline:
             improved = self.blocks(deadline)
@@ -451,6 +458,7 @@ class Search:
                 self.build.refresh()
                 if best is not None:
                     best["score"] = objective.score(best["stats"])
+                start["score"] = objective.score(start["stats"])
                 if self.escalations == 2:
                     self.tree.reset()
                 self.kicked.update({"gear", "supports"})
@@ -466,8 +474,9 @@ class Search:
             elif self.build.score < best["score"]:
                 self.build.restore(best)
             self.kick()
-        if best is not None and best["score"] > self.build.score:
-            self.build.restore(best)
+        top = max((s for s in (best, start) if s is not None), key=lambda s: s["score"])
+        if top["score"] > self.build.score + EPSILON:
+            self.build.restore(top)
         self.resolve()
 
     # Results -----------------------------------------------------------------------------------

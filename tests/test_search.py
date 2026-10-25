@@ -13,9 +13,8 @@ from builder.request.schema import BuildRequest
 from builder.search.conditions import CONDITIONS, Conditions, qualifies, stat_set_needs, text_evidence
 from builder.search.context import Context, make_payload
 from builder.search.objective import Objective
-from builder.search.gear import SlotSpec
 from builder.search.skeletons import (
-    DUAL_WIELD, enumerate_skeletons, offhand_types, offhand_weapon_types, swap_skills,
+    enumerate_skeletons, offhand_types, offhand_weapon_types, swap_skills,
 )
 from builder.search.tree import rooted_subsets
 
@@ -67,35 +66,43 @@ def test_button_cap_drops_skeletons_with_a_reason():
     assert skeletons == [] and any("buttons" in p for p in problems)
 
 
-def test_dual_wield_skeletons_follow_pobs_offhand_rules():
+def test_off_hand_skeletons_follow_the_games_rules_not_pobs():
+    """builder/data/game_rules.yaml: a spear is never dual wielded; the only weapon beside it is a
+    sceptre (PoB would also allow daggers, flails, axes, swords and maces there)."""
     ctx = context(main_skill="Explosive Spear", ascendancies=["Ritualist"], offhand="weapon")
     skeletons, _ = enumerate_skeletons(ctx, ["Explosive Spear"])
-    assert [(s.weapon, s.offhand) for s in skeletons] == [("Spear", DUAL_WIELD)]
-    assert skeletons[0].label.endswith("Spear + off-hand weapon")
-    # A Sceptre goes beside any one-handed weapon; other one-handers not beside a Wand or Sceptre,
-    # and a Spear never goes in the off hand
-    assert offhand_weapon_types(ctx, "Spear") == ["Claw", "Dagger", "Flail", "One Hand Axe", "One Hand Mace",
-                                                  "One Hand Sword", "Sceptre"]
-    assert offhand_weapon_types(ctx, "Wand") == ["Sceptre"]
-    assert offhand_weapon_types(ctx, "Bow") == []
-    banned = context(main_skill="Explosive Spear", offhand="weapon", forbid={"item_classes": ["Sceptre", "Dagger"]})
-    assert "Sceptre" not in offhand_weapon_types(banned, "Spear") and "Dagger" not in offhand_weapon_types(banned, "Spear")
+    assert [(s.weapon, s.offhand) for s in skeletons] == [("Spear", "Sceptre")]
+    assert skeletons[0].label.endswith("Spear + Sceptre")
+    assert offhand_weapon_types(ctx, "Spear") == ["Sceptre"]
+    assert offhand_weapon_types(ctx, "One Hand Mace") == ["Sceptre", "One Hand Mace"]
+    assert offhand_weapon_types(ctx, "Wand") == ["Sceptre"] and offhand_weapon_types(ctx, "Bow") == []
+    banned = context(main_skill="Explosive Spear", ascendancies=["Ritualist"], offhand="weapon",
+                     forbid={"item_classes": ["Sceptre"]})
+    skeletons, problems = enumerate_skeletons(banned, ["Explosive Spear"])
+    assert skeletons == [] and any("off hand takes only Shield, Focus" in p for p in problems)
 
 
-def test_offhand_any_includes_dual_wielding_and_two_handers_explain_why_not():
+def test_true_dual_wielding_is_two_one_handed_maces():
+    ctx = context(main_skill="Boneshatter", ascendancies=["Titan"], offhand="weapon")
+    skeletons, problems = enumerate_skeletons(ctx, ["Boneshatter"])
+    assert {s.label.split(" · ")[-1] for s in skeletons} == {"One Hand Mace + Sceptre", "One Hand Mace + One Hand Mace"}
+    assert any("Two Hand Mace takes no off-hand weapon" in p for p in problems)
+
+
+def test_offhand_any_offers_every_legal_off_hand_and_weapon_classes_not_in_the_game_never():
     ctx = context(main_skill="Explosive Spear", ascendancies=["Ritualist"])
     skeletons, _ = enumerate_skeletons(ctx, ["Explosive Spear"])
-    assert {s.offhand for s in skeletons} == {"Shield", "Focus", DUAL_WIELD}
+    assert {s.offhand for s in skeletons} == {"Shield", "Focus", "Sceptre"}
     ctx = context(main_skill="Ice Shot", ascendancies=["Deadeye"], offhand="weapon")
     skeletons, problems = enumerate_skeletons(ctx, ["Ice Shot"])
-    assert skeletons == [] and any("dual wielded" in p for p in problems)
+    assert skeletons == [] and any("off hand takes only Quiver" in p for p in problems)
+    claws = context(main_skill="Ice Shot", ascendancies=["Deadeye"], weapon_type="Claw")
+    assert any("Claws aren't in the game" in p for p in enumerate_skeletons(claws, ["Ice Shot"])[1])
 
 
-def test_offhand_weapon_slot_offers_every_legal_type():
-    ctx = context(main_skill="Explosive Spear", ascendancies=["Ritualist"], offhand="weapon")
-    types = offhand_types(ctx, "Spear", DUAL_WIELD)
-    spec = SlotSpec(types[0], None, types[1:])
-    assert set(spec.types) == set(offhand_weapon_types(ctx, "Spear"))
+def test_off_hand_slot_holds_the_skeletons_class():
+    ctx = context(main_skill="Explosive Spear")
+    assert offhand_types(ctx, "Spear", "Sceptre") == ("Sceptre",)
     assert offhand_types(ctx, "Spear", "Shield") == ("Shield",) and offhand_types(ctx, "Bow", None) == ()
 
 
@@ -502,3 +509,16 @@ def test_only_an_ascendancy_with_a_ring_slot_passive_gets_ring_three():
     ctx = context(main_skill="Explosive Spear")
     assert extra_ring_passive(ctx, "Ritualist") == "Unfurled Finger"
     assert extra_ring_passive(ctx, "Deadeye") is None
+
+
+def test_spirit_skills_go_in_at_the_highest_gem_level_the_build_can_use():
+    from builder.search.gems import highest_usable_level
+
+    # Elemental Conflux per PoB: level 20 needs character level 90 and 157 Intelligence
+    levels = [{"level": level, "levelRequirement": need, "str": 0, "dex": 0, "int": intelligence}
+              for level, need, intelligence in ((1, 0, 0), (10, 36, 65), (15, 64, 113), (20, 90, 157))]
+    assert highest_usable_level(levels, {"int": 200}, 95) == 20
+    assert highest_usable_level(levels, {"int": 120}, 95) == 15
+    assert highest_usable_level(levels, {"int": 200}, 80) == 15  # a level-80 character can't use level 20
+    assert highest_usable_level(levels, {}, 95) == 1
+    assert highest_usable_level([], {"int": 200}, 95) is None

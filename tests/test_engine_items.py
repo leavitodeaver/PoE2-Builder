@@ -1,4 +1,4 @@
-"""Item mechanics through a real engine: PoB's dual-wield rules, flask and charm slots. Boots one
+"""Item mechanics through a real engine: off-hand weapons, flask and charm slots. Boots one
 PoB engine for the module (a few seconds) and needs the game-data dump."""
 
 from __future__ import annotations
@@ -45,14 +45,17 @@ def base_of(ctx: Context, item_type: str) -> dict:
 
 
 @pytest.mark.parametrize("main", ["Spear", "Wand", "One Hand Mace"])
-def test_offhand_weapon_types_are_exactly_what_pob_accepts(engine, main):
+def test_off_hand_weapons_are_ones_pob_also_accepts(engine, main):
+    """The game's rules (game_rules.yaml) are stricter than PoB's: never offer what PoB rejects."""
     ctx = context(main_skill="Explosive Spear")
     engine.call("newBuild")
     engine.call("equip", slot="Weapon 1", raw=normal_item(base_of(ctx, main)), fields=[])
     weapons = sorted({b["type"] for b in ctx.data.bases if b["type"] in ctx.data.weapon_types})
     accepted = [t for t in weapons
                 if engine.call("validForSlot", raw=normal_item(base_of(ctx, t)), slot="Weapon 2")["valid"]]
-    assert accepted == offhand_weapon_types(ctx, main)
+    assert set(offhand_weapon_types(ctx, main)) <= set(accepted)
+    if main != "Wand":  # beside a wand PoB, too, takes only a sceptre
+        assert len(accepted) > len(offhand_weapon_types(ctx, main))  # PoB also takes daggers, flails, ...
 
 
 def test_flask_slots_switch_on_only_when_a_boss_fight_sustains_them(engine):
@@ -110,7 +113,6 @@ def test_a_required_skill_set_one_cant_use_goes_on_weapon_set_two(engine):
 def test_a_seed_keeps_what_the_request_allows_and_never_ends_below_its_start(engine):
     from builder import ROOT
     from builder.search.inner import optimize_task, seed_task
-    from builder.search.skeletons import DUAL_WIELD
 
     code = (ROOT / "benchmarks" / "reference" / "2b75c.txt").read_text(encoding="utf-8").strip()
     request = BuildRequest(class_name="Huntress", ascendancies=["Ritualist"], level=90, seed_code=code,
@@ -118,7 +120,7 @@ def test_a_seed_keeps_what_the_request_allows_and_never_ends_below_its_start(eng
     payload = make_payload(request)
     found = seed_task(engine, None, payload)
     skeleton = found["skeleton"]
-    assert skeleton["seeded"] and skeleton["main_skill"] == "Explosive Spear" and skeleton["offhand"] == DUAL_WIELD
+    assert skeleton["seeded"] and skeleton["main_skill"] == "Explosive Spear" and skeleton["offhand"] == "Sceptre"
     result = optimize_task(engine, None, payload, skeleton, 6, seed=1)
     start = result["seed_start"]
     assert result["score"] >= start["score"] - 1e-9
@@ -131,6 +133,30 @@ def test_a_seed_keeps_what_the_request_allows_and_never_ends_below_its_start(eng
     other = make_payload(BuildRequest(ascendancies=["Deadeye"], seed_code=code))
     found = seed_task(engine, None, other)
     assert found["skeleton"] is None and "Ritualist" in found["notes"][0]
+
+
+def test_a_seeds_own_configuration_is_not_evidence(engine):
+    """2b75c's config has the boss frozen and shocked at -100% elemental resistances, 6 Frenzy and
+    3 Power Charges. After setup_seed only what a new build has and what the resolver found stays."""
+    from builder import ROOT
+    from builder.search.inner import Search, seed_task
+
+    code = (ROOT / "benchmarks" / "reference" / "2b75c.txt").read_text(encoding="utf-8").strip()
+    payload = make_payload(BuildRequest(class_name="Huntress", ascendancies=["Ritualist"], level=90, seed_code=code,
+                                        objective="boss"))
+    engine.call("newBuild")
+    fresh = engine.call("getConfig")["input"]
+    skeleton = seed_task(engine, None, payload)["skeleton"]
+    loaded = engine.call("getConfig")["input"]
+    assert loaded["conditionEnemyFrozen"] and loaded["enemyFireResist"] == -100 and loaded["overrideFrenzyCharges"] == 6
+    search = Search(engine, None, payload, skeleton, 1)
+    search.setup_seed(quests=False)
+    config = engine.call("getConfig")["input"]
+    for var in ("conditionEnemyFrozen", "enemyFireResist", "enemyColdResist", "enemyLightningResist",
+                "overrideFrenzyCharges", "overridePowerCharges", "conditionUsingFlask"):
+        assert var not in config
+    changed = {var for var in set(config) | set(fresh) if config.get(var) != fresh.get(var) and not var.startswith("quest")}
+    assert changed <= set(search.conditions.active)
 
 
 def test_a_loaded_build_never_reads_the_previous_builds_cached_skills(engine):
@@ -181,3 +207,29 @@ def test_gem_requirements_per_level_match_pob(engine):
     assert conflux[1]["int"] == 0 and conflux[10]["int"] < conflux[20]["int"]
     herald = {entry["level"]: entry for entry in levels["Herald of Ice"]}
     assert herald[20]["dex"] == herald[20]["int"] == 86
+
+
+def test_a_search_never_ends_below_where_it_started(engine):
+    """A pass the deadline cuts short can stop inside a block; before any pass finished without
+    improving, nothing restored the start (finalize's short polish ended worse than the build the
+    run had chosen)."""
+    import time
+
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Spark", ascendancies=["Stormweaver"])
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0]
+    search = Search(engine, None, make_payload(ctx.request), skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    start = search.build.score
+
+    def interrupted_pass(deadline: float) -> bool:
+        main = next(g for g in search.build.groups() if g["main"])
+        search.build.set_group(index=main["index"], gems=[{"name": "Spark", "level": 1, "quality": 0}])  # half done
+        return True
+
+    search.blocks = interrupted_pass
+    search.build.objective.escalate = lambda stats: False  # keep the weights, so scores compare
+    search.run(time.perf_counter() + 0.3)
+    assert search.build.score >= start - 1e-9

@@ -7,14 +7,14 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 
+from builder.data.rules import OFF_HAND_ITEMS, rules as game_rules
 from builder.request.constraints import main_skill as facts_main_skill, meta_socketed, presses
 from builder.request.schema import Offhand, WeaponSwap
-from builder.search.context import TWO_HANDED, Context
+from builder.search.context import Context
 
 # Weapons a spell or minion caster might hold: (item type, sub-type; "" = plain caster staff)
 CASTER_WEAPONS = [("Wand", None), ("Sceptre", None), ("Staff", "")]
 MELEE_FALLBACK = ["One Hand Mace", "Two Hand Mace", "Spear", "Staff"]
-DUAL_WIELD = "Weapon"  # the offhand of a skeleton that holds a weapon in each hand
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ class Skeleton:
     main_skill: str
     weapon: str | None  # main-hand item type; None = unarmed
     weapon_sub: str | None  # "Warstaff" for quarterstaves, "" for caster staves, None = any
-    offhand: str | None  # "Shield", "Focus", "Quiver", DUAL_WIELD (an off-hand weapon) or None
+    offhand: str | None  # the off hand's item class: Shield, Focus, Quiver, Sceptre, One Hand Mace, ... or None
     granted_by: str | None = None  # "passive:<name>" or "unique:<name>" for skills only those grant
     # Weapon set 2 (weapon swap): its main hand, sub-type and off hand, like the fields above
     swap: bool = False
@@ -47,7 +47,6 @@ class Skeleton:
 
 def _hands(weapon: str | None, sub: str | None, offhand: str | None) -> str:
     name = "Quarterstaff" if sub == "Warstaff" else (weapon or "unarmed")
-    offhand = "off-hand weapon" if offhand == DUAL_WIELD else offhand
     return name + (f" + {offhand}" if offhand else "")
 
 
@@ -56,22 +55,15 @@ def is_button(gem: dict) -> bool:
 
 
 def offhand_weapon_types(ctx: Context, weapon: str | None) -> list[str]:
-    """Weapons PoB lets this main hand hold in the other hand (ItemsTab:IsItemValidForSlot): a
-    Sceptre beside any one-handed weapon; any other one-handed weapon except a Spear, but not beside
-    a Wand or Sceptre. Two-handed weapons dual wield only with keystones (Giant's Blood), not modeled."""
-    if weapon is None or weapon in TWO_HANDED:
-        return []
+    """Weapons the game lets this main hand hold in the other hand (builder/data/game_rules.yaml,
+    stricter than PoB): a sceptre beside a one-handed weapon other than a sceptre, and the same
+    martial class for dual wielding (in 0.5, only One Hand Mace + One Hand Mace)."""
     forbidden = ctx.compiled.filters.forbidden_item_classes
-    types = {"Sceptre"}
-    if weapon not in ("Wand", "Sceptre"):
-        types |= {b["type"] for b in ctx.data.bases if "one_hand_weapon" in (b.get("tags") or {}) and b["type"] != "Spear"}
-    return sorted(t for t in types if t not in forbidden)
+    return [t for t in game_rules().off_hand_weapons(weapon) if t not in forbidden]
 
 
 def offhand_types(ctx: Context, weapon: str | None, offhand: str | None) -> tuple[str, ...]:
     """Item types the off-hand slot of a skeleton takes."""
-    if offhand == DUAL_WIELD:
-        return tuple(offhand_weapon_types(ctx, weapon))
     return (offhand,) if offhand else ()
 
 
@@ -105,26 +97,34 @@ def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
             ([(fixed[0], fixed[1] or None)] if not attack else [])
         if not mains:
             problems.append(f"{skill} can't be used with {weapon_unique} ({option.type})")
+    rules = game_rules()
     if request.weapon_type and not swap:
+        if not rules.weapon_in_game(request.weapon_type):
+            problems.append(f"{request.weapon_type}s aren't in the game in patch {rules.patch}")
         mains = [m for m in mains if m[0] == request.weapon_type]
         if not mains:
             problems.append(f"{skill} can't be used with a {request.weapon_type}")
-    mains = [m for m in mains if m[0] is None or m[0] not in forbidden]
+    # Weapon classes PoB has bases for but the game doesn't drop yet are never a skeleton's weapons
+    mains = [m for m in mains if m[0] is None or (m[0] not in forbidden and rules.weapon_in_game(m[0]))]
 
     offhand_choice = Offhand.ANY if swap else Offhand(request.offhand)
     archetypes = []
     for weapon, sub in mains:
-        two_handed = weapon in TWO_HANDED
-        dual = bool(offhand_weapon_types(ctx, weapon))
+        # What the game lets this main hand hold in the off hand (game_rules.yaml)
+        allowed = [o for o in rules.off_hands(weapon) if o not in forbidden]
+        weapons = [o for o in allowed if o not in OFF_HAND_ITEMS]
         if offhand_choice == Offhand.WEAPON:
-            if dual:
-                archetypes.append((weapon, sub, DUAL_WIELD))
+            if weapons:
+                archetypes += [(weapon, sub, offhand) for offhand in weapons]
             else:
-                problems.append(f"a {weapon or 'bare hand'} can't be dual wielded (PoB needs a one-handed main weapon)"
-                                if two_handed or weapon is None else f"no off-hand weapon is allowed beside a {weapon}")
+                problems.append(f"beside a {weapon} the off hand takes only {', '.join(allowed) or 'nothing'} "
+                                f"(patch {rules.patch} rules and the request's bans)" if rules.off_hands(weapon) else
+                                f"a {weapon or 'bare hand'} takes no off-hand weapon (two-handed weapons dual "
+                                "wield only with Giant's Blood, not modeled)")
             continue
-        if two_handed or weapon is None:
-            if weapon == "Bow" and offhand_choice in (Offhand.ANY, Offhand.QUIVER) and "Quiver" not in forbidden:
+        if not rules.off_hands(weapon) or weapon == "Bow":
+            # Two-handed weapons and bare hands hold nothing else; a bow holds a quiver
+            if "Quiver" in allowed and offhand_choice in (Offhand.ANY, Offhand.QUIVER):
                 archetypes.append((weapon, sub, "Quiver"))
             elif offhand_choice in (Offhand.ANY, Offhand.NONE):
                 archetypes.append((weapon, sub, None))
@@ -132,13 +132,12 @@ def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
         if offhand_choice == Offhand.NONE:
             archetypes.append((weapon, sub, None))
         elif offhand_choice == Offhand.ANY:
-            # Shield and Focus both get a skeleton: which pays more (block and armour, or a
-            # focus's mana and energy shield) depends on the request
-            offhands = [o for o in ("Shield", "Focus") if o not in forbidden] + ([DUAL_WIELD] if dual else [])
-            archetypes += [(weapon, sub, offhand) for offhand in offhands or [None]]
+            # Every legal off hand gets a skeleton: which pays more (a shield's block and armour, a
+            # focus's mana and energy shield, a sceptre's Spirit, a second mace) depends on the request
+            archetypes += [(weapon, sub, offhand) for offhand in allowed or [None]]
         elif offhand_choice in (Offhand.SHIELD, Offhand.FOCUS):
             name = "Shield" if offhand_choice == Offhand.SHIELD else "Focus"
-            if name not in forbidden:
+            if name in allowed:
                 archetypes.append((weapon, sub, name))
     if not archetypes and not problems:
         problems.append(f"no weapon setup for {skill} satisfies the weapon, offhand and item-class rules")
@@ -192,7 +191,7 @@ def seed_hands(ctx: Context, items: dict[str, dict], main_slot: str, off_slot: s
     sub = None
     if kind == "Staff":
         sub = (ctx.bases_by_name.get(weapon["base"]) or {}).get("subType") or ""
-    offhand = None if off is None else off["type"] if off["type"] in ("Shield", "Focus", "Quiver") else DUAL_WIELD
+    offhand = None if off is None else off["type"]
     return kind, sub, offhand
 
 

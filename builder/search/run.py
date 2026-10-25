@@ -324,6 +324,11 @@ class Run:
             if isinstance(final, WorkerError):
                 return self.result_infeasible(problems + [f"finalizing failed: {str(final).strip().splitlines()[-1]}"])
             self.evals_done += final.get("evals", 0)
+            # The last "best" line is the delivered build: finalize measures PoB's Full DPS and polishes,
+            # while searching measured the main skill, so the two can differ
+            self.emit("best", skeleton=final["label"], dps=final["dps"], clear=final.get("clear"),
+                      value=self.goal_of(final), score=final["score"],
+                      deficits=[d["label"] for d in final["deficits"]], final=True)
             return self.result(final, problems)
 
     # Results -----------------------------------------------------------------------------------

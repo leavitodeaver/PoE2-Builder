@@ -13,6 +13,19 @@ from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS, SUPPO
 from builder.search.state import EPSILON, Build
 
 PERSISTENT_LABEL = "auto: persistent"
+ATTRIBUTES = {"str": "Str", "dex": "Dex", "int": "Int"}
+
+
+def highest_usable_level(levels: list[dict], attributes: dict[str, float], character_level: int) -> int | None:
+    """The highest gem level whose character level and Str/Dex/Int requirements (bridge
+    `gemRequirements`) the build meets, or None. A level-20 Elemental Conflux needs character level
+    90 and 157 Intelligence; offering only level 20 made every Spirit skill a requirement deficit."""
+    best = None
+    for entry in levels:
+        if entry["levelRequirement"] <= character_level and all(
+                entry[key] <= attributes.get(key, 0.0) for key in ATTRIBUTES):
+            best = entry["level"] if best is None else max(best, entry["level"])
+    return best
 SHORTLIST = 40
 DISCOVERY_TRIALS = 3  # supports tried for real per round because they could turn a condition on
 
@@ -27,6 +40,7 @@ class Gems:
         self.assumptions = None
         self.resolve = None  # re-resolves conditions and assumptions after a trial commit
         self.settle = None  # the same without choosing the calculated skill again (choose_active_skill)
+        self._requirements: dict[str, list[dict]] = {}  # gem -> requirements per level (gemRequirements)
 
     # Helpers ---------------------------------------------------------------------------------
 
@@ -251,8 +265,21 @@ class Gems:
 
     # Persistent skills -------------------------------------------------------------------------
 
+    def usable_level(self, name: str) -> int | None:
+        """The highest level of this gem the build's attributes and character level allow."""
+        if name not in self._requirements:
+            self._requirements.update(self.build.call("gemRequirements", names=[name], maxLevel=GEM_LEVEL)["gems"])
+        stats = self.build.stats
+        attributes = {key: float(stats.get(field) or 0.0) for key, field in ATTRIBUTES.items()}
+        return highest_usable_level(self._requirements[name], attributes, self.ctx.level)
+
+    def persistent_gem(self, name: str) -> list[dict]:
+        return [{"name": name, "level": self.usable_level(name) or GEM_LEVEL, "quality": GEM_QUALITY}]
+
     def persistent_round(self) -> bool:
-        """Add the best persistent skill that fits in spare Spirit, or drop one that doesn't pay."""
+        """Add the best persistent skill that fits in spare Spirit, raise one to a higher gem level
+        the attributes now allow, or drop one that doesn't pay. Each is offered at the highest gem
+        level the build can use."""
         build = self.build
         groups = build.groups()
         own = [g for g in groups if g["label"] == PERSISTENT_LABEL]
@@ -265,8 +292,12 @@ class Gems:
         # No Spirit at all (Embrace the Darkness: "You have no Spirit"): nothing new can fit
         if len(player_groups) < MAX_GEM_GROUPS and build.stats.get("Spirit"):
             names = [n for n in self.ctx.persistent_candidates if n not in present and self.affordable(n, 0.0, left)]
-            scored = build.gem_deltas([{"newGroup": [n], "level": GEM_LEVEL, "quality": GEM_QUALITY} for n in names],
-                                      skip_ehp=False)
+            missing = [n for n in names if n not in self._requirements]
+            if missing:
+                self._requirements.update(build.call("gemRequirements", names=missing, maxLevel=GEM_LEVEL)["gems"])
+            names = [n for n in names if self.usable_level(n)]
+            scored = build.gem_deltas([{"newGroup": [n], "level": self.usable_level(n), "quality": GEM_QUALITY}
+                                       for n in names], skip_ehp=False)
             for (score, stats), name in zip(scored, names):
                 spirit = stats.get("SpiritUnreserved")
                 if not (isinstance(spirit, (int, float)) and spirit >= spare_floor):
@@ -281,10 +312,10 @@ class Gems:
                 if score > build.score + EPSILON and (best is None or score > best[0]):
                     best = (score, "remove", group["index"])
         if best is None:
-            return False
+            return self.relevel_persistent(own)
         before = build.score
         if best[1] == "add":
-            added = build.set_group(gems=self.gem_list([best[2]]), label=PERSISTENT_LABEL)
+            added = build.set_group(gems=self.persistent_gem(best[2]), label=PERSISTENT_LABEL)
             if self.resolve is not None:
                 self.resolve()
             if build.worse(before):
@@ -298,16 +329,40 @@ class Gems:
             if self.resolve is not None:
                 self.resolve()  # its what-if can't see a condition it was the source of go
             if build.worse(before):
-                build.set_group(gems=self.gem_list([g["name"] for g in removed["gems"]]), label=PERSISTENT_LABEL)
+                build.set_group(gems=[{"name": g["name"], "level": g["level"], "quality": g["quality"]}
+                                      for g in removed["gems"]], label=PERSISTENT_LABEL)
                 if self.resolve is not None:
                     self.resolve()
                 return False
         return build.score > before + EPSILON
 
+    def relevel_persistent(self, own: list[dict]) -> bool:
+        """Raise the persistent skills the search added to the highest gem level the attributes
+        allow now (they went in at a lower one when the attributes were short)."""
+        build = self.build
+        improved = False
+        for group in own:
+            gem = group["gems"][0]
+            level = self.usable_level(gem["name"])
+            if not level or level <= gem["level"]:
+                continue
+            before = build.score
+            build.set_group(index=group["index"], gems=[{"name": gem["name"], "level": level, "quality": gem["quality"]}])
+            if self.resolve is not None:
+                self.resolve()
+            if build.worse(before):
+                build.set_group(index=group["index"], gems=[{"name": gem["name"], "level": gem["level"],
+                                                            "quality": gem["quality"]}])
+                if self.resolve is not None:
+                    self.resolve()
+                continue
+            improved = improved or build.score > before + EPSILON
+        return improved
+
     def trial_new_group(self, name: str) -> float:
         """Score adding a persistent skill for real: commit, resolve, read, undo."""
         build = self.build
-        added = build.set_group(gems=self.gem_list([name]), label=PERSISTENT_LABEL)
+        added = build.set_group(gems=self.persistent_gem(name), label=PERSISTENT_LABEL)
         if self.resolve is not None:
             self.resolve()
         score = build.score
