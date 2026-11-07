@@ -35,6 +35,28 @@ def _hit_recently(stats: dict) -> bool:
     return 1 - (1 - land) ** (RECENTLY / every) >= UPTIME
 
 
+WITHERED_MAX = 10  # "Withered applies 5% increased Chaos damage Taken, and can be inflicted up to 10 times" (poe2db)
+WITHER_CHANCE = re.compile(r"(\d+)% chance to inflict Withered for (\d+(?:\.\d+)?) seconds on Hit", re.I)
+WITHER_KEEP = re.compile(r"Withered does not expire on Enemies (Ignited by you|you Ignite)", re.I)
+
+
+def _withered_stacks(lines: list[str], stats: dict) -> tuple[float, str]:
+    """Withered stacks the build keeps on a boss: chance x hits per second x duration from its "chance to inflict Withered"
+    lines, up to 10; with Blackflame ("does not expire on Enemies you Ignite") and Ignite on the boss, all 10."""
+    rate = number(stats.get("Speed"))
+    stacks, sources = 0.0, []
+    for text in lines:
+        if m := WITHER_CHANCE.search(text):
+            stacks += float(m.group(1)) / 100 * rate * float(m.group(2))
+            sources.append(text)
+    if not sources:
+        return 0.0, ""
+    if any(WITHER_KEEP.search(t) for t in lines) and _uptime(stats, "IgniteChancePerHit"):
+        return float(WITHERED_MAX), f"{sources[0]}; and Withered never expires on the Ignited boss: {WITHERED_MAX} stacks"
+    stacks = min(float(WITHERED_MAX), stacks)
+    return float(int(stacks)), f"{'; '.join(sources)} at {rate:.2f} hits/s: {stacks:.1f} stacks kept up"
+
+
 def _blocked_recently(stats: dict) -> bool:
     every = number(stats.get("enemySkillTime")) or 0.7
     block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
@@ -81,6 +103,7 @@ class Condition:
     gem_types: tuple[str, ...] = ()  # an enabled gem of one of these skill types is evidence
     main_types: tuple[str, ...] = ()  # the main skill being one of these skill types is evidence
     value_field: str | None = None  # set the option to this stat instead of True (e.g. Rage)
+    value_fn: Callable[[list[str], dict], tuple[float, str]] | None = None  # the option's value and its basis from the build's lines and stats
     fields: tuple[str, ...] = ("Speed",)  # PoB numbers a stat rule reads, quoted as its evidence
 
     def patterns(self) -> tuple[list[re.Pattern], list[re.Pattern]]:
@@ -138,6 +161,8 @@ CONDITIONS: list[Condition] = [
               fields=("EnergyShield",)),
     # Grinning Immolation (Infernalist): "Become Ignited when you deal a Critical Hit": with crits landing you stay Ignited,
     # so every "while Ignited" line of the build counts (its self-damage is a drain outside the checked defences)
+    Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
+              fields=("Speed", "IgniteChancePerHit")),
     Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)",
               (r"become ignited when you deal a critical hit",)),
     Condition("conditionHitMeleeRecently", "Melee hit recently (a melee main skill)", main_types=("Melee",)),
@@ -226,6 +251,11 @@ class Conditions:
                     break
             if reason is None and condition.stat is not None and condition.stat(stats):
                 reason = "PoB: " + ", ".join(f"{k} {number(stats.get(k)):.3g}" for k in condition.fields)
+            if condition.value_fn is not None:
+                value, basis = condition.value_fn([line["text"] for line in lines], stats)
+                if value > 0:
+                    found[condition.var] = (value, basis)
+                continue
             if reason is None and condition.main_types and self.main_types & set(condition.main_types):
                 reason = "main skill: " + ", ".join(sorted(self.main_types & set(condition.main_types)))
             if reason is None and condition.gem_types:

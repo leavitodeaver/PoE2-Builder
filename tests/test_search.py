@@ -569,3 +569,14 @@ def test_a_chance_to_hinder_is_a_source_of_hinder():
     by_var = {c.var: c for c in CONDITIONS}
     assert text_evidence(by_var["conditionEnemyHindered"], "10% chance to Hinder Enemies on Hit with Spells")
     assert not text_evidence(by_var["conditionEnemyHindered"], "20% increased Damage against Hindered Enemies")
+
+
+def test_withered_stacks_from_the_builds_lines():
+    from builder.search.conditions import _withered_stacks
+
+    quill = "Spells have a 25% chance to inflict Withered for 4 seconds on Hit"
+    assert _withered_stacks([quill], {"Speed": 4.0})[0] == 4.0  # 0.25 x 4/s x 4 s
+    assert _withered_stacks([quill], {"Speed": 40.0})[0] == 10.0  # at most 10
+    keep = "Withered does not expire on Enemies Ignited by you"
+    assert _withered_stacks([quill, keep], {"Speed": 4.0, "IgniteChancePerHit": 100})[0] == 10.0
+    assert _withered_stacks([keep], {"Speed": 4.0, "IgniteChancePerHit": 100})[0] == 0.0  # no Withered source

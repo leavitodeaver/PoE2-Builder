@@ -496,3 +496,39 @@
   sources: ["https://poe2db.tw/us/Ancestral_Reach", "https://poe2db.tw/us/Left_Ventricle", "https://poe2db.tw/us/Close_Confines"]
   test_in_game: "Not needed for the calculated numbers."
   status: proposed
+
+
+# Area C of the coverage audit: uniques (7 Nov 2026) ----------------------------------------------------------------------------
+
+- id: withered-sources
+  title: Blackflame's lasting Withered and chances to inflict Withered (the condition resolver sets the stacks)
+  kind: pob_gap
+  match: '^(Withered does not expire on Enemies (Ignited by you|you Ignite)|Spells have a (\(\d+-\d+\)|\d+)% chance to inflict Withered for \d+ seconds on Hit)$'
+  replace: []
+  absorbed_by: "builder/search/conditions.py sets PoB's Withered stack count from these lines: chance x hits per second x duration, up to 10; all 10 with Blackflame on an Ignited boss"
+  confidence: theory
+  sources: ["https://poe2db.tw/us/Withered", "https://poe2db.tw/us/Blackflame", "https://poe2db.tw/us/The_Wicked_Quill"]
+  test_in_game: "Hit a boss for 10 s with the Withered source: count the Withered stacks on its debuff bar."
+  status: proposed
+
+- id: no-effect-enemy-death-and-recoup
+  title: Recovery when an enemy dies in your Presence, and recoup as Life (no deaths in the reference fight; recovery isn't checked)
+  kind: pob_gap
+  match: '^(Recover (\(\d+-\d+\)|\d+)% of your maximum (Life|Mana) when an Enemy dies in your Presence|(\(\d+-\d+\)|\d+)% of Physical Damage prevented Recouped as Life)$'
+  replace: []
+  confidence: verified_by_you
+  notes: "The reference fight is a single boss: nothing dies before it. Recoup is recovery, not a checked defence."
+  sources: ["https://poe2db.tw/us/Grip_of_Kulemak", "https://poe2db.tw/us/Heart_of_the_Well"]
+  test_in_game: "Not needed for the calculated numbers."
+  status: proposed
+
+- id: life-flask-effect-kept
+  title: Life flask effect not removed when Life is full (the flask model counts its whole duration already)
+  kind: pob_gap
+  match: '^Effect is not removed when Unreserved Life is Filled$'
+  replace: []
+  absorbed_by: "builder/search/flasks.py counts a flask's effect for its whole duration whenever charges allow"
+  confidence: reported
+  sources: ["https://poe2db.tw/us/Blood_of_the_Warrior"]
+  test_in_game: "Drink it at full Life: the effect stays for its full duration."
+  status: proposed
