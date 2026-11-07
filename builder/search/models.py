@@ -360,12 +360,11 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # 1 Energy per Power of the enemy it critically hits, scaled by the share of the enemy's Ailment
 # Threshold the hit deals, and its spells deal 20% less damage; the elemental-ailment metas gain 1
 # Energy per Power per Shock or Ignite (10 per Freeze, never assumed on a boss).
-# The others, from their 0.5 skill data (centienergy: 100 = 1 Energy): Cast on Block and Curse on Block 25 Energy per
-# block (cast_on_block_gain_X_centienergy_on_block 2500), counted at the boss's hits that land and are blocked;
-# Thundergod's Wrath 3 per Power per melee hit (cast_lightning_spell_on_hit_..._per_monster_power_on_hit 300); Spellslinger
-# 0.2 per 10 ms of the cast spell's base cast time (spellslinger_invocation_gain_X_centienergy_per_10ms_base_cast_time 20);
-# Cast on Melee Stun 10 per Power per Heavy Stun (light stuns, 2 per Power, not counted: PoB has no stun bar for a boss),
-# at Guided Hand's assumed Heavy Stun rate. Energy on kills (Cast on Melee Kill, Reaper's Invocation) and on minion deaths
+# The others, from their 0.5 skill data (centienergy: 100 = 1 Energy): Cast on Block (Svalinn) 25 Energy per block
+# (cast_on_block_gain_X_centienergy_on_block 2500), counted at the boss's hits that land and are blocked; Thundergod's
+# Wrath (Mjolner) 3 per Power per melee hit (cast_lightning_spell_on_hit_..._per_monster_power_on_hit 300); Spellslinger
+# (Dueling Wand) 0.2 per 10 ms of the cast spell's base cast time (spellslinger_invocation_gain_X_centienergy_per_10ms_base_cast_time
+# 20). Energy on kills (Reaper's Invocation) and on minion deaths
 # counts none on a boss. Barrier Invocation (poe2db): "When Hit by an Enemy, gain 1 Energy for each 10 Energy Shield lost to
 # damage taken" (barrier_invocation_gain_1_energy_per_X_energy_shield_damage_taken_when_hit 10): the boss's hits that land
 # per second x the damage each takes after mitigation (PoB's {Type}TakenHit at its boss preset), up to the Energy Shield
@@ -377,13 +376,16 @@ META_GEMS = {
     "Cast on Elemental Ailment": {"energy": 72.0, "gain": "ailment"},
     "Elemental Invocation": {"energy": 68.0, "gain": "ailment", "invocation": True},
     "Cast on Block": {"energy": 57.0, "gain": "block", "per": 25.0},
-    "Curse on Block": {"energy": 57.0, "gain": "block", "per": 25.0},
     "Thundergod's Wrath": {"energy": 72.0, "gain": "melee hit", "per": 3.0},
     "Spellslinger": {"energy": 72.0, "gain": "cast", "per": 0.2, "invocation": True},
-    "Cast on Melee Stun": {"energy": 0.0, "gain": "heavy stun", "per": 10.0},
     "Barrier Invocation": {"energy": 72.0, "gain": "energy shield lost", "per": 0.1, "invocation": True},
 }
-NO_ENERGY_ON_A_BOSS = {"Cast on Melee Kill": "kills", "Reaper's Invocation": "kills", "Cast on Minion Death": "minion deaths"}
+NO_ENERGY_ON_A_BOSS = {"Reaper's Invocation": "kills", "Cast on Minion Death": "minion deaths"}
+# In the 0.5 gem data (flagged item-granted) but granted by no unique, base, rune or passive there, and shown on poe2db
+# with no tier and no source: deprecated (MECH2, 7 Nov; the user found no Curse on Block in game). Never picked; a PoB
+# code that has one gets no triggers from it, said in the guide.
+DEPRECATED = {name: "no item, passive or gem grants it in 0.5 (deprecated)"
+              for name in ("Curse on Block", "Cast on Melee Stun", "Cast on Melee Kill")}
 NOT_MODELED_YET = {"Cast on Dodge": "the base dodge roll distance (2 Energy per metre) is in neither poe2db nor PoB's data"}
 ENERGY_INPUTS = ("MetaEnergy", "MetaEnergyCrit", "MetaEnergyMore", "EnergyRefund", "InvocationHalfCost")
 RECENTLY = 4.0  # seconds
@@ -423,13 +425,6 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         casts = number(stats.get("Speed"))
         return casts * each, (f"{main} is cast {casts:.2f} times per second for {each:.1f} Energy each ({per:g} per 10 ms of its "
                               f"{cast:g} s base cast time)")
-    if kind == "heavy stun":
-        if skill is not None and not skill.melee:
-            return 0.0, f"{main} is not a melee attack: no Energy"
-        physical = number(stats.get("PhysicalHitAverage")) > 0
-        every = HEAVY_STUN_EVERY[physical]
-        return per * BOSS_POWER / every, (f"one Heavy Stun of the boss every {every:g} s assumed (PoB has no stun bar for a boss) for "
-                                          f"{per * BOSS_POWER:g} Energy; light stuns not counted")
     crit = number(stats.get("CritChance")) / 100
     if kind == "crit":
         crits = crits_per_second(stats)
@@ -480,6 +475,7 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
             notes.append({"label": f"{meta.name} triggers per second ({names}; not counted)", "value": 0,
                           "basis": f"it gains Energy on {NO_ENERGY_ON_A_BOSS[meta.name]}: none on a single boss"
                           if meta.name in NO_ENERGY_ON_A_BOSS
+                          else f"{meta.name}: {DEPRECATED[meta.name]}" if meta.name in DEPRECATED
                           else f"not modeled yet: {NOT_MODELED_YET[meta.name]}" if meta.name in NOT_MODELED_YET
                           else "its Energy source isn't modeled yet" if meta.name not in META_GEMS
                           else "the main skill is one it triggers, so nothing else feeds its Energy",

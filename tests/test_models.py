@@ -174,11 +174,34 @@ def test_the_other_metas_gain_energy_from_their_own_events():
     # Spellslinger: 2 casts/s of a 0.7 s spell x 0.2 per 10 ms = 14 Energy each
     spark = Skill("Spark", group=1, spell=True, cast_time=0.7)
     assert rate("Spellslinger", spark) == pytest.approx(2 * 14 * 1.72 / 120, rel=1e-4)
-    # Cast on Melee Stun: one Heavy Stun per 30 s (Physical melee) x 200 Energy, no increased Energy on the gem
-    assert rate("Cast on Melee Stun", slam) == pytest.approx(200 / 30 / 120, rel=1e-4)
     # Energy on kills: none on a boss, and the guide says why
-    mods, notes, _ = models.energy_model(Inputs(), stats, [slam, Skill("Cast on Melee Kill", group=2, energy=True), comet], slam)
+    mods, notes, _ = models.energy_model(Inputs(), stats, [slam, Skill("Reaper's Invocation", group=2, energy=True), comet], slam)
     assert "none on a single boss" in notes[0]["basis"]
+
+
+def test_deprecated_metas_trigger_nothing_and_say_why():
+    """Curse on Block, Cast on Melee Stun, Cast on Melee Kill: in the 0.5 gem data, flagged item-granted, but no unique,
+    base, rune or passive grants them (the user found no Curse on Block in game, 7 Nov). A PoB code that has one gets no
+    triggers from it, and the search can't pick one."""
+    from builder.data import GameData
+
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
+    slam = Skill("Boneshatter", group=1, attack=True, melee=True)
+    stats = {"Speed": 2, "HitChance": 100, "enemySkillTime": 0.5, "EffectiveBlockChance": 50, "PhysicalHitAverage": 1000}
+    for name in models.DEPRECATED:
+        assert name not in models.META_GEMS
+        mods, notes, _ = models.energy_model(Inputs(), stats, [slam, Skill(name, group=2, energy=True), comet], slam)
+        assert next(m["value"] for m in mods if m.get("key") == "triggerRate") == 0.0
+        assert "deprecated" in notes[0]["basis"]
+    try:
+        data = GameData()
+    except FileNotFoundError:
+        return
+    granted = " ".join(str(part) for part in (data._part("uniques"), data._part("bases"), data._part("tree")))
+    for name in models.DEPRECATED:
+        assert f"Grants Skill: Level (1-20) {name}" not in granted and f"Grants Skill: {name}" not in granted
+    for name in ("Cast on Block", "Thundergod's Wrath", "Spellslinger", "Cast on Charm Use"):  # current item sources
+        assert f"Grants Skill: Level (1-20) {name}" in granted
 
 
 # Darkness ----------------------------------------------------------------------------------------

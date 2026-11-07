@@ -429,8 +429,8 @@ class Gems:
     # Meta gems the search picks by itself (PLAN.md "Meta-gem set-ups", first slice) -------------------------------
 
     def meta_round(self, deadline: float) -> bool:
-        """Try a meta gem that gains Energy from what the build already does (crits, ailments, blocks, melee hits, Heavy
-        Stuns: models.META_GEMS), with one spell it triggers, and keep the best that pays. The meta gems the build feeds
+        """Try a meta gem that gains Energy from what the build already does (crits, ailments, blocks, melee hits:
+        models.META_GEMS), with one spell it triggers, and keep the best that pays. The meta gems the build feeds
         most Energy are screened first; their spells by what PoB says each adds to Full DPS in the group (a self-cast rate,
         so only a ranking); the best META_TRIALS spells of each get a real trial, since the trigger rate (models.energy_model)
         shows only after a resolve. Not yet: supports in the meta group, several spells, Invocations (buttons)."""
