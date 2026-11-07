@@ -75,10 +75,47 @@ def dump_coverage(target: Path | None = None, pool=None) -> dict:
             return dump_coverage(target, own)
     pool.broadcast("newBuild")
     payload = pool.broadcast("auditCoverage")[0]
+    # Unique lines of variants the item's own parse doesn't select (Megalomaniac's notables, Grip of Kulemak's
+    # Abyssal lines ...), through the same parser; old "Pre 0.x" variants are left out
+    missing = unique_variant_lines(target, payload)
+    results = pool.broadcast("auditLines", lines=[m["line"] for m in missing])[0]["results"] if missing else []
+    payload["unique_variants"] = [{**m, **r} for m, r in zip(missing, results)]
+    # audit item (e): each active skill alone on a plain character
+    payload["skill_sweep"] = pool.broadcast("auditSkills")[0]["skills"]
     (target / "coverage.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     counts = {key: len(value) for key, value in payload.items()}
     print(f"coverage: {counts}", flush=True)
     return counts
+
+
+def unique_variant_lines(target: Path, payload: dict) -> list[dict]:
+    """Every current-variant line of every unique (uniques.json) that the audit's item parse didn't see."""
+    import re
+
+    seen: dict[str, set[str]] = {}
+    for line in payload.get("uniques", []):
+        seen.setdefault(line["unique"], set()).add(line["line"])
+    gaps = json.loads((target / "gaps.json").read_text(encoding="utf-8")) if (target / "gaps.json").exists() else {}
+    for line in gaps.get("uniques", []):
+        seen.setdefault(line["unique"], set()).add(line["line"])
+    found = []
+    for item in json.loads((target / "uniques.json").read_text(encoding="utf-8"))["uniques"]:
+        lines = item["raw"].splitlines()
+        variants = [line[9:] for line in lines if line.startswith("Variant: ")]
+        start = next((i + 1 for i, line in enumerate(lines) if line.startswith("Implicits:")), None)
+        if start is None:  # (flasks and charms: no Implicits line; the lines start after the header)
+            header = re.compile(r"^(Rarity|Variant|Selected Variant|Base Variant|Selected Base Variant|Requires|League|Source|"
+                                r"Quality|Sockets|LevelReq|Radius|Limited|Item Level)\b|^\{base:")
+            start = max([i + 1 for i, line in enumerate(lines) if header.search(line)] + [2])
+        for raw in lines[start:]:
+            m = re.match(r"^((?:\{[^}]*\})*)(.*)$", raw)
+            text = m.group(2).strip()
+            tag = re.search(r"\{variant:([\d,]+)\}", m.group(1))
+            names = [variants[int(v) - 1] if 0 < int(v) <= len(variants) else "?" for v in tag.group(1).split(",")] if tag else []
+            if not text or (names and all(n.startswith("Pre ") for n in names)) or text in seen.get(item["name"], ()):
+                continue
+            found.append({"unique": item["name"], "line": text, "variants": names})
+    return found
 
 
 class GameData:

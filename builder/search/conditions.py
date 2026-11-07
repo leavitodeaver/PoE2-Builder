@@ -23,8 +23,22 @@ AILMENT_WINDOW = 4.0  # seconds a boss stays affected after an application (shoc
 UPTIME = 0.9  # chance that at least one hit applied it within the window
 EVIDENCE_FIELDS = [
     "CritChance", "Speed", "ShockChancePerHit", "IgniteChancePerHit", "PoisonChancePerHit", "BleedChancePerHit",
-    "ChillChanceOnHit", "MaximumRage",
+    "ChillChanceOnHit", "MaximumRage", "EnergyShield", "EvadeChance", "EffectiveBlockChance", "enemySkillTime",
 ]
+RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
+
+
+def _hit_recently(stats: dict) -> bool:
+    """At least one boss hit lands in any 4 s with chance UPTIME (landing hits come one after another, about every 0.7 s)."""
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)
+    return 1 - (1 - land) ** (RECENTLY / every) >= UPTIME
+
+
+def _blocked_recently(stats: dict) -> bool:
+    every = number(stats.get("enemySkillTime")) or 0.7
+    block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
+    return 1 - (1 - block) ** (RECENTLY / every) >= UPTIME
 
 
 def _gen(subject: str) -> str:
@@ -64,6 +78,7 @@ class Condition:
     not_text: tuple[str, ...] = ()
     stat: Callable[[dict], bool] | None = None
     gem_types: tuple[str, ...] = ()  # an enabled gem of one of these skill types is evidence
+    main_types: tuple[str, ...] = ()  # the main skill being one of these skill types is evidence
     value_field: str | None = None  # set the option to this stat instead of True (e.g. Rage)
     fields: tuple[str, ...] = ("Speed",)  # PoB numbers a stat rule reads, quoted as its evidence
 
@@ -111,6 +126,17 @@ CONDITIONS: list[Condition] = [
     Condition("conditionEnemyArmourBroken", "Armour Broken", (r"\bbreaks? (?:\w+ )?armour\b", r"\bfully break\w* armour"),
               (r"against enemies with (?:fully )?broken armour|if (?:the )?enemy armour",)),
     Condition("conditionEnemyCursed", "Cursed", gem_types=("AppliesCurse",)),
+    # Sustained in any boss fight by the build's own numbers or skills (coverage audit item f, 6 Nov 2026: lines needing these
+    # counted 0 in every build because only a Configuration option sets them). Boss hit rate: PoB's boss config.
+    Condition("conditionUsedSkillRecently", "Used a skill recently", stat=lambda s: True, fields=()),
+    Condition("conditionBeenHitRecently", "Been hit recently (the boss's hits that land, in any 4 s)", stat=_hit_recently,
+              fields=("EvadeChance", "EffectiveBlockChance", "enemySkillTime")),
+    Condition("conditionBlockedRecently", "Blocked recently (a block in any 4 s of the boss's hits)", stat=_blocked_recently,
+              fields=("EffectiveBlockChance", "enemySkillTime")),
+    Condition("conditionHaveEnergyShield", "Have Energy Shield", stat=lambda s: number(s.get("EnergyShield")) > 0,
+              fields=("EnergyShield",)),
+    Condition("conditionHitMeleeRecently", "Melee hit recently (a melee main skill)", main_types=("Melee",)),
+    Condition("conditionAtCloseRange", "Enemy at close range (a melee main skill)", main_types=("Melee",)),
     _debuff("conditionEnemyBlinded", "Blinded", "blind"),
     _debuff("conditionEnemyMaimed", "Maimed", "maim"),
     _debuff("conditionEnemyHindered", "Hindered", "hinder"),
@@ -195,6 +221,8 @@ class Conditions:
                     break
             if reason is None and condition.stat is not None and condition.stat(stats):
                 reason = "PoB: " + ", ".join(f"{k} {number(stats.get(k)):.3g}" for k in condition.fields)
+            if reason is None and condition.main_types and self.main_types & set(condition.main_types):
+                reason = "main skill: " + ", ".join(sorted(self.main_types & set(condition.main_types)))
             if reason is None and condition.gem_types:
                 gem = next((n for n, types in gem_types.items() if types & set(condition.gem_types)), None)
                 if gem:

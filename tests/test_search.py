@@ -534,3 +534,16 @@ def test_a_feasible_result_always_outranks_one_that_misses_a_floor():
     veil = {"deficits": short, "dps": 3_602_315, "value": 3_602_315}
     feasible = {"deficits": [], "dps": 1_139_413, "value": 1_139_413}
     assert sorted([veil, feasible], key=rank_key)[0] is feasible
+
+
+def test_boss_fight_conditions_from_the_builds_own_numbers():
+    from builder.search import conditions as c
+
+    by_var = {x.var: x for x in c.CONDITIONS}
+    hit, block = by_var["conditionBeenHitRecently"].stat, by_var["conditionBlockedRecently"].stat
+    base = {"enemySkillTime": 0.7, "EvadeChance": 0, "EffectiveBlockChance": 0}
+    assert hit(base) and not block(base)  # the boss's hits land: hit recently; no block
+    assert not hit({**base, "EvadeChance": 95, "EffectiveBlockChance": 50})  # almost every hit avoided
+    assert block({**base, "EffectiveBlockChance": 40}) and not block({**base, "EffectiveBlockChance": 20})
+    assert by_var["conditionHaveEnergyShield"].stat({"EnergyShield": 1}) and not by_var["conditionHaveEnergyShield"].stat({})
+    assert by_var["conditionAtCloseRange"].main_types == ("Melee",)

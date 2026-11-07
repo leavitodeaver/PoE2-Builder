@@ -15,6 +15,7 @@ import time
 from typing import Any
 
 from builder.ledger.coverage import build_blind_spots
+from builder.ledger.parse_audit import GATED_FIELDS
 from builder.pob import codes
 from builder.request.constraints import FACT_FIELDS, meta_socketed
 from builder.request.schema import WeaponSwap
@@ -641,7 +642,9 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     blind_spots = build.call("unsupportedInBuild")["lines"]
     # and what the coverage audit finds beyond PoB's own gap list: no-op lines and unread gem stats
     blind_spots += build_blind_spots(build.call("sourceLines")["lines"],
-                                     [g["name"] for group in groups for g in group["gems"] if g.get("name")])
+                                     [g["name"] for group in groups for g in group["gems"] if g.get("name")],
+                                     config_on=set(search.conditions.active),
+                                     stats=build.call("stats", fields=GATED_FIELDS))
     # The tree as the exported code has it, checked against the game's allocation rules (bridge
     # treeCheck): every passive reachable from the class start or through a socketed jewel
     tree_check = reloaded["treeCheck"]

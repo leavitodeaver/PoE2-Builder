@@ -1564,6 +1564,42 @@ local function modNames(list, out)
 	return out
 end
 
+-- One parsed modifier in full, for the audit's checks of what a parse kept (name, type, value,
+-- flags, keyword flags, tags as "Type=var", "!Type=var" when negated; an inner modifier as `i`)
+local function modDesc(mod)
+	local tags = { }
+	for _, tag in ipairs(mod) do
+		local value = tag.var or (tag.varList and table.concat(tag.varList, "|")) or tag.skillType or tag.skillName
+			or tag.stat or (tag.statList and table.concat(tag.statList, "|")) or tag.keyword or tag.skillId
+		if tag.actor and tag.var then
+			value = tag.actor .. ":" .. tag.var
+		end
+		tags[#tags + 1] = (tag.neg and "!" or "") .. tostring(tag.type) .. (value ~= nil and ("=" .. tostring(value)) or "")
+	end
+	local value, inner = mod.value, nil
+	if type(value) == "table" then
+		if value.mod then
+			inner = modDesc(value.mod)
+			value = "mod"
+		elseif value.key then
+			value = "key:" .. tostring(value.key) .. (type(value.value) == "number" and ("=" .. value.value) or "")
+		else
+			value = "table"
+		end
+	end
+	return { n = mod.name, t = mod.type, v = value, f = mod.flags, k = mod.keywordFlags, g = tags, i = inner }
+end
+
+local function modDescs(list)
+	local out = { }
+	for _, mod in ipairs(list or { }) do
+		if mod.name then
+			out[#out + 1] = modDesc(mod)
+		end
+	end
+	return out
+end
+
 -- Every item affix, rune / Soul Core / Idol line and jewel mod, through the parser as the item
 -- does (ranges at their maximum); every gem's stats against its stat set's stat map (PoB's skills
 -- tab marks the same unmapped stats as unsupported); and the modifier names that passives,
@@ -1573,7 +1609,7 @@ function bridge.auditCoverage()
 		local resolved = itemLib.applyRange(line, 1.0)
 		local list, extra = modLib.parseMod(resolved)
 		local supported = list ~= nil and #list > 0 and not extra
-		return supported, modNames(list), extra
+		return supported, modNames(list), extra, modDescs(list)
 	end
 	local affixes = { }
 	for pool, mods in pairs(build.data.itemMods) do
@@ -1583,9 +1619,9 @@ function bridge.auditCoverage()
 					if type(mod) == "table" then
 						for _, part in ipairs({ mod, mod.bonded }) do
 							for i, line in ipairs(part) do
-								local supported, names = parse(line)
+								local supported, names, _, mods = parse(line)
 								affixes[#affixes + 1] = { pool = "Runes", id = name, slot = slot, bonded = part == mod.bonded or nil,
-									line = line, supported = supported, names = names, rune = mod.type }
+									line = line, supported = supported, names = names, rune = mod.type, mods = mods }
 							end
 						end
 					end
@@ -1594,9 +1630,9 @@ function bridge.auditCoverage()
 		else
 			for id, mod in pairs(mods) do
 				for i, line in ipairs(mod) do
-					local supported, names = parse(line)
+					local supported, names, _, mods = parse(line)
 					affixes[#affixes + 1] = { pool = pool, id = id, type = mod.type, line = line, supported = supported,
-						names = names, level = mod.level, tags = mod.modTags }
+						names = names, level = mod.level, tags = mod.modTags, mods = mods }
 				end
 			end
 		end
@@ -1661,7 +1697,7 @@ function bridge.auditCoverage()
 			local line = node.sd and node.sd[i]
 			if line and mod.list and #mod.list > 0 and not mod.extra then
 				passiveNames[#passiveNames + 1] = { id = id, node = node.dn, type = node.type, ascendancy = node.ascendancyName,
-					line = line, names = modNames(mod.list) }
+					line = line, names = modNames(mod.list), mods = modDescs(mod.list) }
 			end
 		end
 	end
@@ -1672,13 +1708,94 @@ function bridge.auditCoverage()
 				for _, modLine in ipairs(item[kind] or { }) do
 					if not modLine.extra and #(modLine.modList or { }) > 0 then
 						uniqueNames[#uniqueNames + 1] = { unique = item.title or name, line = modLine.line,
-							names = modNames(modLine.modList) }
+							names = modNames(modLine.modList), mods = modDescs(modLine.modList) }
 					end
 				end
 			end
 		end
 	end
-	return { affixes = affixes, skills = skills, passives = passiveNames, uniques = uniqueNames }
+	-- Timeless jewels' passives (the tree's legion data: the notables a conquered passive becomes and the lines it gains)
+	local legion = { }
+	local data = build.spec.tree.legion or { }
+	for _, kind in ipairs({ "nodes", "additions" }) do
+		for _, node in ipairs(data[kind] or { }) do
+			for _, line in ipairs(node.sd or { }) do
+				local supported, names, _, mods = parse(line)
+				legion[#legion + 1] = { kind = kind, id = node.id, node = node.dn, line = line, supported = supported, names = names,
+					mods = mods, keystone = node.ks or nil, notable = node["not"] or nil }
+			end
+		end
+	end
+	-- Modifiers every skill carries in its data regardless of stats (baseMods): conditions and flags they set
+	for _, skill in ipairs(skills) do
+		local effect = build.data.skills[skill.id]
+		local base = { }
+		for _, part in ipairs(tableConcat({ effect }, effect.statSets or { })) do
+			for _, mod in ipairs(part.baseMods or { }) do
+				if mod.name then
+					base[#base + 1] = modDesc(mod)
+				else
+					for _, inner in ipairs(mod) do
+						base[#base + 1] = modDesc(inner)
+					end
+				end
+			end
+		end
+		skill.baseMods = base
+	end
+	return { affixes = affixes, skills = skills, passives = passiveNames, uniques = uniqueNames, legion = legion }
+end
+
+-- Audit item (e): every active skill gem alone on a plain level-90 character (no gear, no passives), its
+-- damage as PoB calculates it; the skills that calculate 0 there are listed by the coverage audit
+function bridge.auditSkills(args)
+	bridge.newBuild()
+	bridge.setLevel({ level = 90 })
+	local fields = args.fields or { "CombinedDPS", "TotalDPS", "TotalDotDPS", "FullDPS", "AverageDamage" }
+	local out, index = { }, nil
+	local names = { }
+	for _, gem in pairs(build.data.gems) do
+		local effect = gem.grantedEffect
+		if effect and not effect.support and not names[gem.name] then
+			names[gem.name] = true
+		end
+	end
+	local sorted = { }
+	for name in pairs(names) do
+		sorted[#sorted + 1] = name
+	end
+	table.sort(sorted)
+	for _, name in ipairs(sorted) do
+		local ok, result = pcall(bridge.setGroup, { index = index, gems = { { name = name, level = 20, quality = 0 } }, main = true,
+			fields = fields })
+		if ok then
+			index = 1
+			local types = { }
+			local effect = gemByName(name).grantedEffect
+			for skillType in pairs(effect.skillTypes or { }) do
+				for typeName, value in pairs(SkillType) do
+					if value == skillType then
+						types[#types + 1] = typeName
+					end
+				end
+			end
+			out[#out + 1] = { name = name, stats = result.stats, types = types }
+		else
+			out[#out + 1] = { name = name, error = tostring(result) }
+		end
+	end
+	return { skills = out }
+end
+
+-- The coverage audit's parse of any lines (ranges at their maximum), as auditCoverage parses affixes: for the
+-- unique lines of variants an item's own parse doesn't select
+function bridge.auditLines(args)
+	local results = { }
+	for i, line in ipairs(args.lines or { }) do
+		local list, extra = modLib.parseMod(itemLib.applyRange(line, 1.0))
+		results[i] = { line = line, supported = list ~= nil and #list > 0 and not extra, names = modNames(list), mods = modDescs(list) }
+	end
+	return { results = results }
 end
 
 -- Does PoB's modifier parser understand these lines? For checking ledger translations.

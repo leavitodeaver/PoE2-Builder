@@ -40,7 +40,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from builder import ROOT
-from builder.ledger import entries, model_entry, translate
+from builder.ledger import entries, model_entry, parse_audit, translate
 
 POB_SRC = ROOT / "vendor" / "PathOfBuilding-PoE2" / "src"
 QUERIES = ("Sum", "More", "Flag", "Override", "List", "Max", "Min", "Tabulate", "HasMod", "GetCondition",
@@ -401,9 +401,84 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 add("unique-noop", line["unique"], "unique", line["line"], "none", None,
                     "parsed, but no calculation reads " + ", ".join(missing),
                     popularity.get(line["unique"], SOURCE_WEIGHT["unique"]))
+        # unique lines of variants the item parse didn't select, and Timeless jewels' passives: the same checks
+        for line in raw.get("unique_variants", []):
+            weight = popularity.get(line["unique"], SOURCE_WEIGHT["unique"])
+            if not line["supported"]:
+                status, entry, reason = ignored_line_status(line["line"], False)
+                add("unique", line["unique"], "unique", line["line"], status, entry, reason, weight, variant=line.get("variants"))
+            elif missing := unread(line.get("names") or [], reads):
+                add("unique-noop", line["unique"], "unique", line["line"], "none", None,
+                    "parsed, but no calculation reads " + ", ".join(missing), weight)
+        for line in raw.get("legion", []):
+            kind = "notable" if line.get("notable") or line.get("kind") == "nodes" else "small"
+            if not line["supported"]:
+                status, entry, reason = ignored_line_status(line["line"], False)
+                add("timeless", line["node"], kind, line["line"], status, entry,
+                    reason + " (a Timeless jewel's passive)", SOURCE_WEIGHT[kind] * 0.5)
+            elif missing := unread(line.get("names") or [], reads):
+                add("timeless-noop", line["node"], kind, line["line"], "none", None,
+                    "parsed, but no calculation reads " + ", ".join(missing), SOURCE_WEIGHT[kind] * 0.5)
+        # f. parsed lines whose condition nothing can switch on; g. parsed lines whose parse lost something
+        setters = parse_audit.Setters(raw)
+        parsed = ([("passive", l, passive_kind(l), SOURCE_WEIGHT[passive_kind(l)], l["node"]) for l in raw["passives"]]
+                  + [("unique", l, "unique", popularity.get(l["unique"], 1.0), l["unique"])
+                     for l in [*raw["uniques"], *[v for v in raw.get("unique_variants", []) if v["supported"]]]]
+                  + [("affix", l, POOLS.get(l["pool"], "affix"), SOURCE_WEIGHT[POOLS.get(l["pool"], "affix")],
+                      f"{l['pool']} {l['id']}") for l in raw["affixes"] if l["supported"]]
+                  + [("timeless", l, "small", 0.5, l["node"]) for l in raw.get("legion", []) if l["supported"]])
+        for source_type, line, kind, weight, source in parsed:
+            mods = line.get("mods") or []
+            if blocked := parse_audit.never_on(mods, setters):
+                add("never-on", source, kind, line["line"], "none", None,
+                    "parsed, but its condition can't switch on: "
+                    + "; ".join(f"{need} ({detail})" for need, _, detail in blocked), weight, of=source_type,
+                    needs=[need for need, _, _ in blocked], config_only=all(st == "config-off" for _, st, _ in blocked))
+            for finding in parse_audit.lost(line["line"], mods):
+                add("misparse", source, kind, line["line"], "none", None,
+                    f"PoB counts it, but its parse looks wrong ({finding['kind']}: {finding['detail']})",
+                    weight * (1.5 if finding["inflates"] else 1.0), of=source_type, finding=finding["kind"],
+                    inflates=finding["inflates"])
+    # e. skills that calculate 0 alone on a plain character (data/pob-*/skill_zero.json, scratch/zero_skills.py)
+    for skill in zero_skills(data_dir):
+        add("skill-zero", skill["name"], "active gem", skill["name"], skill["status"], skill.get("entry"), skill["reason"],
+            SOURCE_WEIGHT["active gem"], mechanic="damage")
 
     return {"data_dir": str(data_dir), "bridge_part": bool(raw), "records": records,
             "summary": summarize(records), "ranking": rank(records)}
+
+
+# Skills our own models give damage, or an assumption gives a trigger rate (builder/search/models.py, assumptions.py)
+MODELED_SKILLS = {"Iron Ward": "iron-ward-store", "Elemental Expression": "elemental-expression-trigger",
+                  "Transmutation Explosion": "assumption:remnants"}
+DAMAGE_STATS = ("CombinedDPS", "TotalDPS", "TotalDotDPS", "FullDPS", "AverageDamage")
+
+
+def zero_skills(data_dir: Path) -> list[dict]:
+    """Audit item (e): active skills that calculate no damage alone on a plain level-90 character (bridge auditSkills, in
+    coverage.json). Attacks need a weapon and buffs, auras, curses and minions deal none of their own (minion damage isn't read
+    here), so only the others that deal damage are listed: a damaging spell or totem that calculates 0 is a gap."""
+    path = data_dir / "coverage.json"
+    if not path.exists():
+        return []
+    sweep = json.loads(path.read_text(encoding="utf-8")).get("skill_sweep") or []
+    found = []
+    for skill in sweep:
+        if skill.get("error"):
+            found.append({"name": skill["name"], "status": "none", "reason": "PoB failed to calculate it: " + skill["error"][:120]})
+            continue
+        stats, types = skill.get("stats") or {}, set(skill.get("types") or [])
+        if any((stats.get(k) or 0) > 0 for k in DAMAGE_STATS):
+            continue
+        if "Attack" in types or types & {"Minion", "CreatesMinion", "Aura", "Buff", "Persistent", "HasReservation", "Meta"}                 or not types & {"Damage", "DamageOverTime", "Projectile", "AreaSpell", "Nova", "SummonsTotem", "SummonsAttackTotem"}:
+            continue
+        if entry := MODELED_SKILLS.get(skill["name"]):
+            found.append({"name": skill["name"], "status": "model", "entry": entry,
+                          "reason": "0 in PoB alone; a custom model or assumption gives it damage"})
+        else:
+            found.append({"name": skill["name"], "status": "none",
+                          "reason": "a damaging skill that calculates 0 on its own in PoB (types: %s)" % ", ".join(sorted(types)[:8])})
+    return found
 
 
 def summarize(records: list[dict]) -> dict:
@@ -503,13 +578,16 @@ def _build_index(data_dir: str) -> dict:
     reads, and each gem's stats PoB never reads (damage, defence, recovery or speed ones)."""
     path = Path(data_dir) / "coverage.json"
     if not path.exists():
-        return {"noops": {}, "gems": {}}
+        return {"noops": {}, "gems": {}, "mods": {}, "setters": None}
     raw = json.loads(path.read_text(encoding="utf-8"))
     reads = calc_reads()
     noops: dict[str, list[str]] = {}
-    for line in [*raw["passives"], *raw["uniques"], *raw["affixes"]]:
+    mods: dict[str, list[dict]] = {}  # template -> a parse of it, for the build's own condition checks
+    for line in [*raw["passives"], *raw["uniques"], *raw["affixes"], *raw.get("unique_variants", []), *raw.get("legion", [])]:
         if line.get("supported", True) and (missing := unread(line.get("names") or [], reads)):
             noops.setdefault(template(line["line"]), missing)
+        if line.get("supported", True) and line.get("mods"):
+            mods.setdefault(template(line["line"]), line["mods"])
     covered = stat_entries()
     gems: dict[str, list[tuple[str, str]]] = {}
     for skill in raw["skills"]:
@@ -529,23 +607,64 @@ def _build_index(data_dir: str) -> dict:
                     entry = gems.setdefault(gem, [])
                     if (name, reason) not in entry:
                         entry.append((name, reason))
-    return {"noops": noops, "gems": gems}
+    return {"noops": noops, "gems": gems, "mods": mods, "setters": parse_audit.Setters(raw)}
 
 
-def build_blind_spots(source_lines: list[dict], gem_names: list[str], data_dir: Path | None = None) -> list[dict]:
+def _off_in_build(mods: list[dict], setters, own: set[str], config_on: set[str]) -> list[str]:
+    """For a line of a build: its needs this build doesn't meet, when every modifier of the line has one."""
+    off_all, checked = [], 0
+    for mod in mods:
+        needs = [n for n in parse_audit.needs([mod]) if "{" not in n]
+        if not needs:
+            return []  # a part of the line counts unconditionally
+        checked += 1
+        off = []
+        for need in needs:
+            status, detail = setters.status(need)
+            if status == "calc":
+                continue  # PoB decides it from the build itself
+            if any(alt in own for alt in setters.alternatives(need)):
+                continue  # a line of this build sets it
+            if any(o in config_on or setters.options[o]["default"] for o in setters.options_for(need)):
+                continue  # a Configuration option that's on for this build
+            off.append(f"{need.split(':')[-1]} is on (" + ("nothing in this build sets it" if status in ("line", "never")
+                                                           else detail.replace("which the optimizer turns on",
+                                                                               "off for this build")) + ")")
+        if not off:
+            return []
+        off_all += [o for o in off if o not in off_all]
+    return off_all if checked else []
+
+
+def build_blind_spots(source_lines: list[dict], gem_names: list[str], data_dir: Path | None = None,
+                      config_on: set[str] | None = None, stats: dict | None = None) -> list[dict]:
     """What a build has that nothing counts beyond the lines PoB's parser ignores (bridge
-    `unsupportedInBuild`): lines PoB parses into modifiers no calculation reads, and stats of its
-    gems PoB never reads. Each comes with the reason, for the result's "not modeled" list."""
+    `unsupportedInBuild`): lines PoB parses into modifiers no calculation reads; lines whose condition is off in this
+    build (no line of it sets the condition, or only a Configuration option the optimizer has off: Guided Hand's
+    "Ancestrally Boosted Attacks" without a source of Ancestral Boost); and stats of its gems PoB never reads. Each comes
+    with the reason, for the result's "not modeled" list. config_on: the Configuration options on for this build (the
+    condition resolver's)."""
     from builder.data import data_dir as default_dir
 
     index = _build_index(str(data_dir or default_dir()))
     found = []
+    build_mods = [{"mods": index["mods"].get(template(line["text"])) or []} for line in source_lines]
+    own = parse_audit.line_setters(build_mods)
+    setters = index.get("setters")
     for line in source_lines:
         if not line["source"].startswith(("passive:", "item:")):
             continue
+        where = line["source"].replace(":", ": ", 1)
         if missing := index["noops"].get(template(line["text"])):
-            found.append({"source": line["source"].replace(":", ": ", 1), "line": line["text"], "kind": "no-op",
+            found.append({"source": where, "line": line["text"], "kind": "no-op",
                           "reason": "PoB parses this line, but no calculation reads " + ", ".join(missing)})
+        elif (need := parse_audit.gated(index["mods"].get(template(line["text"])) or [], stats or {})) and stats is not None:
+            found.append({"source": where, "line": line["text"], "kind": "condition off",
+                          "reason": f"PoB counts this line only while {need}; this build has none"})
+        elif setters is not None and (off := _off_in_build(index["mods"].get(template(line["text"])) or [], setters, own,
+                                                             config_on or set())):
+            found.append({"source": where, "line": line["text"], "kind": "condition off",
+                          "reason": "PoB counts this line only while " + "; ".join(off)})
     for gem in dict.fromkeys(gem_names):
         for stat, reason in index["gems"].get(gem, []):
             found.append({"source": f"gem: {gem}", "line": stat, "kind": "gem stat", "reason": reason})
