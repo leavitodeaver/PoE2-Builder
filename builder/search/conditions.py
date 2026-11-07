@@ -19,10 +19,15 @@ from dataclasses import dataclass
 from builder.search.objective import number
 from builder.search.state import EPSILON, Build
 
-AILMENT_WINDOW = 4.0  # seconds a boss stays affected after an application (shock, ignite, ...)
+AILMENT_WINDOW = 4.0  # seconds "recently" looks back for a crit
 UPTIME = 0.9  # chance that at least one hit applied it within the window
+# Each ailment's own base duration on an enemy, the 0.5 data's game constants as PoB reads them (Data/Misc.lua
+# BaseIgniteDuration ...): the fallback when PoB gives the skill no duration of its own ({Ailment}Duration, with the
+# build's duration modifiers). poe2db's ailment pages not yet read against these.
+AILMENT_DURATION = {"Ignite": 4.0, "Bleed": 5.0, "Poison": 2.0, "Shock": 8.0}
 EVIDENCE_FIELDS = [
     "CritChance", "Speed", "ShockChancePerHit", "IgniteChancePerHit", "PoisonChancePerHit", "BleedChancePerHit",
+    *(f"{a}Duration" for a in AILMENT_DURATION),
     "ChillChanceOnHit", "MaximumRage", "EnergyShield", "EvadeChance", "EffectiveBlockChance", "enemySkillTime",
     "HitChance", *(f"{c}Charges{f}" for c in ("Power", "Frenzy", "Endurance") for f in ("Max", "Duration")),
 ]
@@ -52,7 +57,7 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple[float, str]:
             sources.append(text)
     if not sources:
         return 0.0, ""
-    if any(WITHER_KEEP.search(t) for t in lines) and _uptime(stats, "IgniteChancePerHit"):
+    if any(WITHER_KEEP.search(t) for t in lines) and ailment_uptime(stats, "Ignite") >= UPTIME:
         return float(WITHERED_MAX), f"{sources[0]}; and Withered never expires on the Ignited boss: {WITHERED_MAX} stacks"
     stacks = min(float(WITHERED_MAX), stacks)
     return float(int(stacks)), f"{'; '.join(sources)} at {rate:.2f} hits/s: {stacks:.1f} stacks kept up"
@@ -163,6 +168,21 @@ def _uptime(stats: dict, chance_field: str) -> bool:
     return 1.0 - (1.0 - min(chance, 1.0)) ** (rate * AILMENT_WINDOW) >= UPTIME
 
 
+def ailment_uptime(stats: dict, ailment: str) -> float:
+    """Share of the fight the boss has the ailment: the chance that at least one hit applied it within its own duration
+    (hits that land: uses per second x hit chance)."""
+    chance = min(number(stats.get(f"{ailment}ChancePerHit")) / 100.0, 1.0)
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+    duration = number(stats.get(f"{ailment}Duration")) or AILMENT_DURATION[ailment]
+    if chance <= 0 or hits <= 0:
+        return 0.0
+    return 1.0 - (1.0 - chance) ** (hits * duration)
+
+
+def _ailment_up(ailment: str):
+    return lambda s: ailment_uptime(s, ailment) >= UPTIME
+
+
 @dataclass(frozen=True)
 class Condition:
     var: str
@@ -204,14 +224,14 @@ CONDITIONS: list[Condition] = [
     Condition("conditionSkillCritRecently", "Skills crit recently",
               stat=lambda s: _uptime({"CritRecently": s.get("CritChance"), "Speed": s.get("Speed")}, "CritRecently"),
               fields=("CritChance", "Speed")),
-    Condition("conditionEnemyShocked", "Shocked", stat=lambda s: _uptime(s, "ShockChancePerHit"),
-              fields=("ShockChancePerHit", "Speed")),
-    Condition("conditionEnemyIgnited", "Ignited", stat=lambda s: _uptime(s, "IgniteChancePerHit"),
-              fields=("IgniteChancePerHit", "Speed")),
-    Condition("conditionEnemyPoisoned", "Poisoned", stat=lambda s: _uptime(s, "PoisonChancePerHit"),
-              fields=("PoisonChancePerHit", "Speed")),
-    Condition("conditionEnemyBleeding", "Bleeding", stat=lambda s: _uptime(s, "BleedChancePerHit"),
-              fields=("BleedChancePerHit", "Speed")),
+    Condition("conditionEnemyShocked", "Shocked", stat=_ailment_up("Shock"),
+              fields=("ShockChancePerHit", "Speed", "HitChance", "ShockDuration")),
+    Condition("conditionEnemyIgnited", "Ignited", stat=_ailment_up("Ignite"),
+              fields=("IgniteChancePerHit", "Speed", "HitChance", "IgniteDuration")),
+    Condition("conditionEnemyPoisoned", "Poisoned", stat=_ailment_up("Poison"),
+              fields=("PoisonChancePerHit", "Speed", "HitChance", "PoisonDuration")),
+    Condition("conditionEnemyBleeding", "Bleeding", stat=_ailment_up("Bleed"),
+              fields=("BleedChancePerHit", "Speed", "HitChance", "BleedDuration")),
     Condition("conditionEnemyChilled", "Chilled", stat=lambda s: number(s.get("ChillChanceOnHit")) >= 100,
               fields=("ChillChanceOnHit",)),
     Condition("conditionEnemyFireExposure", "Fire Exposure", (_inflict("(?:fire|elemental) exposure"),)),

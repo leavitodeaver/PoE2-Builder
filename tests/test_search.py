@@ -620,3 +620,18 @@ def test_a_charge_source_is_worth_a_real_trial():
     assert not cond.could_source(by_var["overrideFrenzyCharges"], "20% chance to gain a Frenzy Charge on kill")
     assert cond.would_enable("Gain a Frenzy Charge on Critical Hit")  # the count is held below its maximum
     assert set(CHARGE_OVERRIDES) == {"overridePowerCharges", "overrideFrenzyCharges", "overrideEnduranceCharges"}
+
+
+def test_ailment_uptime_uses_each_ailments_own_duration_and_hits_that_land():
+    from builder.search.conditions import ailment_uptime
+
+    # Poison lasts 2 s (0.5 data): 30% chance at 1.5 hits/s gives 1 - 0.7^3 = 66% (a 4 s window said 88%)
+    assert ailment_uptime({"PoisonChancePerHit": 30, "Speed": 1.5}, "Poison") == pytest.approx(1 - 0.7 ** 3)
+    # Bleed lasts 5 s; PoB's own duration (the build's modifiers) wins over the base
+    assert ailment_uptime({"BleedChancePerHit": 40, "Speed": 1.2}, "Bleed") == pytest.approx(1 - 0.6 ** 6)
+    assert ailment_uptime({"BleedChancePerHit": 40, "Speed": 1.2, "BleedDuration": 10}, "Bleed") == pytest.approx(1 - 0.6 ** 12)
+    # misses apply nothing: 50% hit chance halves the hits
+    assert ailment_uptime({"IgniteChancePerHit": 50, "Speed": 2, "HitChance": 50}, "Ignite") == pytest.approx(1 - 0.5 ** 4)
+    assert ailment_uptime({"ShockChancePerHit": 0, "Speed": 2}, "Shock") == 0.0
+    shocked = next(c for c in CONDITIONS if c.var == "conditionEnemyShocked")
+    assert shocked.stat({"ShockChancePerHit": 20, "Speed": 2}) and not shocked.stat({"ShockChancePerHit": 2, "Speed": 2})
