@@ -112,7 +112,7 @@ run_turn() {   # $1: new or more, $2: the text
 		args+=(--resume "$(cat "$W/$JOB.id")")
 	fi
 	(cd "/c/PROJECTS/PoE2 Builder" && MSYS_NO_PATHCONV=1 env $CLEAR CLAUDE_CONFIG_DIR="C:\\Users\\conve\\.claude-account$ACCOUNT" \
-		"$EXE" "${args[@]}" > "$W/$JOB.last.json" 2>&1)
+		"$EXE" "${args[@]}" < /dev/null > "$W/$JOB.last.json" 2>&1)   # (no stdin: else it waits 3 s and prints a warning before the JSON)
 	local code=$?
 	cp -f "$W/$JOB.last.json" "$W/$JOB.turn_$(count turn_started).json" 2>/dev/null
 	python - "$W/$JOB.last.json" "$W/$JOB.id" "$JOB" "$ACCOUNT" "$code" <<'PY'
@@ -120,7 +120,7 @@ import json, sys
 path, idp, job, acct, code = sys.argv[1:6]
 text = open(path, encoding="utf-8", errors="replace").read()
 try:
-	d = json.loads(text)
+	d = json.loads(text[text.find("{"):])   # (a warning line may come before the JSON)
 	if d.get("session_id"):
 		open(idp, "w").write(d["session_id"])
 	print("%s on account %s: exit %s, error %s" % (job, acct, code, d.get("is_error")))
