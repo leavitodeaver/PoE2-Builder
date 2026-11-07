@@ -467,7 +467,8 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
         cost = sum(100 * (s.cast_time or 0.0) for s in spells)
         gain, gain_basis = energy_gain(meta.name, stats, main.name, main)
         rate = energy_rate(meta.name, x0, gain, cost, crits_recently, doubled)
-        groups.add(meta.group)
+        if rate > 0:  # (a group whose spells never trigger adds no damage, and mustn't change how the build is scored)
+            groups.add(meta.group)
 
         def relative(x: dict, meta_name: str = meta.name, gain: float = gain, cost: float = cost,
                      base: float = rate) -> float:
