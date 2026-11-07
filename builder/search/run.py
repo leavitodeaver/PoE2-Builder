@@ -474,7 +474,8 @@ MODEL_NAMES = {"archon": "Elemental Archon", "energy": "meta-skill Energy", "dar
                "traveller": "Traveller's Wisdom", "elemental_expression": "Elemental Expression",
                "leylines": "larger Time-Lost radius", "harmony": "Harmony Within",
                "resist_rings": "resistances per equipped item", "maelstrom": "Melting Maelstrom's pulses",
-               "guided_hand": "Guided Hand's Ancestral Boost", "sanguine": "Sanguine Tides"}
+               "guided_hand": "Guided Hand's Ancestral Boost", "sanguine": "Sanguine Tides",
+               "deadly_resolve": "Deadly Resolve's slashes"}
 
 
 def annotate_blind_spots(lines: list[dict]) -> list[dict]:

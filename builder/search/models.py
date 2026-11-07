@@ -989,6 +989,44 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
         "confidence": "theory", "entry": "guided-hand-boost"}]
 
 
+# Deadly Resolve (model: deadly_resolve) -----------------------------------------------------------------------------------
+# The support (poe2db, matching the 0.5 data): "Gain a stage every 1 second" while channelling the supported skill, "3
+# maximum stages", "Stage duration is 10 seconds"; "Expend a stage of Deadly Resolve when an enemy Hits you to Trigger a
+# deadly slash", "Can Trigger Deadly Resolve once every 0.3 seconds". PoB counts the slash at its own use rate (1 s at the
+# build's attack speed: 1.34 per second on 2b75d's reference). On a boss it comes at most once per stage, one per second
+# of channelling, and only when the boss hits you: hits that land (PoB's boss preset, one every 0.7 s, less those evaded
+# and blocked; poe2db doesn't say whether blocked or evaded hits count, so they're assumed not to). Channelled for the
+# whole fight while the supported skill is the main skill; otherwise not counted.
+
+DEADLY_RESOLVE = "Deadly Resolve"
+DEADLY_RESOLVE_STAGE_EVERY = 1.0  # seconds of channelling per stage
+DEADLY_RESOLVE_COOLDOWN = 0.3
+
+
+def deadly_resolve_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+    slashes = [s for s in skills if s.name == DEADLY_RESOLVE and s.triggered]
+    if not slashes:
+        return [], []
+    slash = slashes[0]
+    if main is None or slash.group != main.group:
+        return trigger_rate(DEADLY_RESOLVE, 0.0), [{
+            "label": "Deadly Resolve slashes per second", "value": 0,
+            "basis": "its channelled skill isn't the main skill, so it isn't channelled through the fight: not counted",
+            "confidence": "theory", "entry": "deadly-resolve-rate"}]
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)
+    hits = land / every
+    rate = min(1 / DEADLY_RESOLVE_STAGE_EVERY, hits, 1 / DEADLY_RESOLVE_COOLDOWN)
+    limit = "a stage per second of channelling" if rate < hits else "the boss's hits that land"
+    return trigger_rate(DEADLY_RESOLVE, rate), [{
+        "label": "Deadly Resolve slashes per second", "value": round(rate, 3),
+        "basis": f"one per stage (a stage per {DEADLY_RESOLVE_STAGE_EVERY:g} s of channelling {main.name}) when the boss hits you: "
+                 f"{hits:.2f} hits/s land (one every {every:g} s, {land:.0%} neither evaded nor blocked; blocked and evaded hits "
+                 f"assumed not to count); limited by {limit}. PoB alone counts it at its own use rate.",
+        "play": "Channel the supported skill through the fight and let the boss hit you; stepping out of its hits stops the slashes.",
+        "confidence": "theory", "entry": "deadly-resolve-rate"}]
+
+
 # Blood Mage's Sanguine Tides (model: sanguine) ----------------------------------------------------------------------------
 # "Gain 1 Life Flask Charge per 2% Life spent"; "On Hitting an Enemy while a Life Flask is at full Charges, 40% of its
 # Charges are consumed"; "Gain 1% of damage as Physical damage for 5 seconds per Charge consumed this way" (poe2db). In

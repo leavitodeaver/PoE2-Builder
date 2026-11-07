@@ -393,3 +393,20 @@ def test_sanguine_tides_gain_follows_the_life_spent():
     assert derived_fns(mods) == {"SanguineTides": "sanguine"}
     assert effective(models.sanguine_model(passive, {"Life": 2000})[0])[0][1] == 0
     assert models.sanguine_model(models.Inputs(), {"Life": 2000, "LifePerSecondCost": 100}) == ([], [])
+
+
+def test_deadly_resolve_slashes_once_per_stage_when_the_boss_hits():
+    shield = Skill("Resonating Shield", group=5, attack=True)
+    slash = Skill("Deadly Resolve", group=5, attack=True, triggered=True)
+    stats = {"enemySkillTime": 0.7, "EvadeChance": 4, "EffectiveBlockChance": 25}
+    mods, notes = models.deadly_resolve_model([shield, slash], stats, shield)
+    # 1/0.7 x 0.96 x 0.75 = 1.03 hits land per second; a stage per second of channelling caps it at 1
+    assert next(m["value"] for m in mods if m["key"] == "triggerRate") == pytest.approx(1.0)
+    assert "a stage per second" in notes[0]["basis"]
+    # a build that blocks half and evades half: 0.36 hits/s
+    few = models.deadly_resolve_model([shield, slash], {"enemySkillTime": 0.7, "EvadeChance": 50, "EffectiveBlockChance": 50}, shield)[0]
+    assert next(m["value"] for m in few if m["key"] == "triggerRate") == pytest.approx(0.25 / 0.7, rel=1e-3)
+    # not the main skill's group: not channelled through the fight
+    other = Skill("Boneshatter", group=1, attack=True, melee=True)
+    assert next(m["value"] for m in models.deadly_resolve_model([other, slash], stats, other)[0] if m["key"] == "triggerRate") == 0.0
+    assert models.deadly_resolve_model([shield], stats, shield) == ([], [])

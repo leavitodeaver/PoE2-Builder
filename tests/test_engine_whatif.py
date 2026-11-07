@@ -27,6 +27,7 @@ SEEN_BY_POB = {
     "traveller": "an attribute choice the attribute round tries for real",
     "elemental_expression": "trigger rate from crits; the expression group is in Full DPS",
     "leylines": "applied in the bridge for every calculation",
+    "deadly_resolve": "a trigger rate from the boss's hits and your evade and block at each resolve: a what-if that changes them counts from the next resolve",
     "harmony": "passive flag (flag:HarmonyWithin); the bridge tests Mana > Life again on every calculation",
     "guided_hand": "passive flag (flag:GuidedHand); the bridge works the boosted share out again from each what-if's speed",
     "sanguine": "passive flag (flag:SanguineTides); the bridge works the gain out again from each what-if's Life cost",

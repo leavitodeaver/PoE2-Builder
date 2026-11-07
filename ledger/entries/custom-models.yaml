@@ -335,3 +335,28 @@
             "PoB skill data: IronWardPlayer (warding_steel_* stats, unread) and IronWardNovaPlayer (no base damage)",
             "PoB Pinnacle boss config: enemy skill time 0.7 s, PhysicalEnemyDamage 979"]
   status: approved
+
+# Deadly Resolve (model: deadly_resolve) ---------------------------------------------------------
+# PoB counts the support's triggered slash at the slash's own use rate (1 s at the build's attack
+# speed), as if it were used by hand: 1.34 per second on gate 4's 2b75d reference, half its damage.
+
+- id: deadly-resolve-rate
+  title: Deadly Resolve slashes come once per stage when the boss hits you, not at their own use rate
+  kind: model
+  model: deadly_resolve
+  confidence: theory
+  notes: >-
+    Datamined (poe2db and the 0.5 data agree): a stage every 1 second of channelling the supported
+    skill, 3 at most, each lasting 10 seconds; a stage is expended when an enemy Hits you to trigger
+    the slash, at most once every 0.3 seconds. Rate = min(1 per second, the boss's hits that land,
+    1 / 0.3 s). Assumed: the boss hits at PoB's boss-config rate (one every 0.7 s), blocked and
+    evaded hits don't count (poe2db doesn't say), and the supported skill is channelled through the
+    fight while it is the main skill (otherwise 0). The slash's damage is PoB's own. Forbid this
+    entry in a request to switch the model off.
+  test_in_game: >-
+    Channel the supported skill in front of a boss for 30 s and count the slashes (or watch the
+    stage counter): about one per second while the boss's hits land, fewer while you block or
+    evade them.
+  sources: ["https://poe2db.tw/us/Deadly_Resolve",
+            "PoB skill data: SupportDeadlyResolvePlayer (gain_dangerous_resolve_stack_per_X_ms_channeling 1000, maximum_dangerous_resolve_stacks 3, dangerous_resolve_explosion_cooldown_ms 300)"]
+  status: proposed
