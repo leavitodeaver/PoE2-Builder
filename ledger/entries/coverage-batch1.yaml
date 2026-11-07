@@ -192,3 +192,29 @@
   sources: ["https://poe2db.tw/us/Lunar_Blessing"]
   test_in_game: "Use Lunar Blessing with full Rage and time the buff; compare with the 22 s cooldown."
   status: proposed
+
+- id: gem-more-damage-vs-unique
+  title: More damage against Unique enemies (High Velocity Rounds, Battershout; a boss is Unique)
+  kind: gem_stat
+  skill: [High Velocity Rounds, Battershout]
+  match: '^active_skill_damage_\+%_final_vs_unique_enemies$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  notes: >-
+    The gem's own stat at its level (game data PoB exports but maps to nothing). The optimizer's
+    damage is against a single Unique boss, so it always applies there; counted for that boss only,
+    not for clearing.
+  sources: ["https://poe2db.tw/us/High_Velocity_Rounds", "https://poe2db.tw/us/Battershout"]
+  test_in_game: "Compare one High Velocity Rounds hit on a rare monster with one on a map boss at the same resistances: the boss hit is larger by the gem's percentage."
+  status: proposed
+
+- id: gem-projectile-damage-if-pierced
+  title: Projectile damage after piercing an enemy (a lone boss leaves nothing to pierce first)
+  kind: gem_stat
+  skill: [Frostbolt, High Velocity Rounds]
+  match: '^active_skill_projectile_damage_\+%_final_if_pierced_enemy$'
+  replace: []
+  confidence: datamined
+  sources: ["https://poe2db.tw/us/Frostbolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed

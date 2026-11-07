@@ -444,7 +444,7 @@ poe.ninja listings), and how many sources share the line.
 | Unique lines PoB ignores | 422 | 349 |
 | Affix, rune, jewel lines PoB ignores | not measured | 1,459 of 10,958 (1,071 of them unique-only "exclusive" mods) |
 | Lines PoB parses into nothing a calculation reads | not measured | 159 (51 passive, 18 unique, 90 affix; e.g. increased Presence Area) |
-| Player gem stats PoB never reads or maps to nothing | not measured | 5,572 of 9,306 (522 about damage, 77 speed, 44 defence, 21 recovery; the rest behaviour or display) |
+| Player gem stats PoB never reads or maps to nothing | not measured | 5,566 of 9,305 (493 about damage, 77 speed, 44 defence, 21 recovery; the rest behaviour or display) |
 
 "Before" counts what the ledger translated then; "after" also counts the condition resolver's
 evidence lines (it reads ignored lines too) and unique roll ranges that only fail as range text.
