@@ -32,6 +32,11 @@ alongside `flag:` for the model's on/off inputs. The model reads the same lines 
 A `pob_wrong` entry is for a unique line PoB does calculate, but wrongly: the line is replaced in
 the item's text by the entry's single replacement line.
 
+A `gem_stat` entry is for a skill's stat PoB never reads: `skill` names the skill, `match` is a regex
+on the stat id, and `replace` lines (written with a magnitude of 1) are scaled by the stat's value at
+the gem's level × `factor`; `applies_to: build` gives them to the whole build (a buff), `skill` (the
+default) to that skill only. An empty `replace` records that the stat changes nothing calculated.
+
 `gap lists` come from PoB itself (bridge `auditUnsupported`, saved by the data dump as gaps.json):
 every passive and unique line its parser doesn't understand.
 """
@@ -154,6 +159,12 @@ def model_entry(line: str) -> Entry | None:
         if entry.raw.get("model") and entry.pattern is not None and entry.pattern.search(line):
             return entry
     return None
+
+
+def gem_stat_entries() -> list[Entry]:
+    """`gem_stat` entries: a gem stat PoB never reads (regex `match` on the stat id), translated into
+    modifier lines scaled by the stat's value (builder/search/models.py gem_stat_model)."""
+    return [e for e in entries() if e.kind == "gem_stat"]
 
 
 def conditions() -> list[dict]:

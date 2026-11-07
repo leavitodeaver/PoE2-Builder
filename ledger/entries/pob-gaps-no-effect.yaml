@@ -66,3 +66,104 @@
   confidence: reported
   sources: ["PoB parses the same modifier as 'Invocated Spells have …'; spells an Invocation triggers"]
   status: proposed
+
+# Coverage audit, first batch (2026-11-06; builder/ledger/coverage.py ranked these highest of
+# the lines nothing counted). Each only acts on other enemies, on debuffs on you that no checked
+# defence includes, or on something the optimizer already assumes at its maximum. They still
+# matter in game: clear speed (our own estimate, PLAN.md §5.5) doesn't count spreading either.
+
+- id: no-effect-spread-to-other-enemies
+  title: Ignites and curses that spread to other enemies (a single boss has no other enemy)
+  kind: pob_gap
+  match: '^(Ignites you inflict spread to other Enemies that stay within .*|Curses you inflict spread to enemies within [\d.]+ metres when Cursed enemy dies)$'
+  replace: []
+  confidence: datamined
+  notes: "The lines themselves say other enemies, or a cursed enemy's death; a boss fight has neither."
+  sources: ["https://poe2db.tw/us/Cracklecreep", "https://poe2db.tw/us/The_Searing_Touch", "https://poe2db.tw/us/Veilpiercer"]
+  test_in_game: "Not needed for boss damage; in a map, ignite one enemy in a pack and watch the ignite appear on those standing next to it."
+  status: proposed
+
+- id: no-effect-shatter-chilled
+  title: Chilled enemies can be Shattered (Shatter happens on kill)
+  kind: pob_gap
+  match: '^Enemies Chilled by your Hits can be Shattered as though Frozen$'
+  replace: []
+  confidence: community_confirmed
+  notes: "Shattering destroys a frozen enemy's body on kill; it adds no damage to a living boss."
+  sources: ["https://poe2db.tw/us/Polcirkeln", "https://www.poe2wiki.net/wiki/Shatter"]
+  test_in_game: "Kill a chilled (not frozen) white monster: its body shatters instead of leaving a corpse."
+  status: proposed
+
+- id: no-effect-spell-projectile-chain-fork
+  title: Spell projectiles chain or fork (chains and forks can't hit the same target again)
+  kind: pob_gap
+  match: '^Projectiles from Spells (Chain [+\d()-]+ times|Fork)$'
+  replace: []
+  confidence: community_confirmed
+  notes: "As no-effect-fork-projectile: a chain or fork looks for a different target."
+  sources: ["https://www.poe2wiki.net/wiki/Chain", "https://www.poe2wiki.net/wiki/Forking"]
+  test_in_game: "Cast a projectile spell at a lone boss with this on: the projectile doesn't hit the boss a second time."
+  status: proposed
+
+- id: no-effect-extra-charge-chance
+  title: Chance to gain an additional Power or Frenzy Charge (charges already count as at their maximum)
+  kind: pob_gap
+  match: '^\d+% chance when you gain a (Power|Frenzy|Endurance) Charge to gain an additional \1 Charge$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The condition resolver counts a charge at its maximum as soon as the build has a source of it
+    (PLAN.md §9 "Rules that are still assumed"), so a faster charge rate adds nothing to what's
+    calculated. It would matter once charge rates are modeled, and for builds that consume charges.
+  sources: ["https://poe2db.tw/us/Lust_for_Power", "https://poe2db.tw/us/Avidity", "builder/search/conditions.py (charges count as maximum)"]
+  test_in_game: "With a charge generator, check that the charge count on your buff bar sits at its maximum in a boss fight; if it doesn't, this entry and the charge rule are wrong."
+  status: proposed
+
+- id: no-effect-extra-combo-on-gain
+  title: Gain an additional Combo when you gain Combo (only speeds up Combo)
+  kind: pob_gap
+  match: '^When you gain Combo, gain an additional Combo$'
+  replace: []
+  confidence: reported
+  notes: "As no-effect-extra-combo: Combo consumers are calculated at the Combo they require."
+  sources: ["https://poe2db.tw/us/Martial_Adept", "https://poe2db.tw/us/Combo"]
+  test_in_game: "Use a Combo skill: it reaches its required Combo in half as many hits; its damage per use doesn't change."
+  status: proposed
+
+- id: no-effect-infinite-curse-duration
+  title: Curses you inflict have infinite duration (PoB already counts a curse as always applied)
+  kind: pob_gap
+  match: '^(Curses you inflict have infinite Duration|Withered you inflict has infinite Duration)$'
+  replace: []
+  confidence: reported
+  notes: >-
+    PoB applies a build's curses (and Withered, at the stacks its config sets) for the whole fight;
+    a longer duration only saves recasts. For Withered, the stack count is still set in PoB's
+    config, not from this line.
+  sources: ["https://poe2db.tw/us/Incessant_Cacophony", "https://poe2db.tw/us/Cospri%27s_Will"]
+  test_in_game: "Curse a boss once and check the curse never falls off."
+  status: proposed
+
+- id: no-effect-debuffs-on-you
+  title: Ailments, curses, bleeding and Armour Break on you (no checked defence includes them)
+  kind: pob_gap
+  match: '^(All Damage taken from Hits while (Bleeding|Poisoned) Contributes to Magnitude of Chill on you|[+(\d-]+\)?% reduced Duration of Curses on you|You take Fire Damage instead of Physical Damage from Bleeding|\d+% reduced Armour Break taken)$'
+  replace: []
+  confidence: verified_by_you
+  notes: >-
+    The optimizer checks life, energy shield, mana, resistances, maximum hit taken, block and
+    evade; none of these lines changes them. They do change how a fight goes.
+  sources: ["builder/request/constraints.py (the checked defences)", "https://poe2db.tw/us/Loreweave"]
+  test_in_game: "Not needed for the checked numbers."
+  status: proposed
+
+- id: no-effect-dodge-roll-avoid
+  title: Bulwark, Dodge Roll cannot avoid damage (dodge-roll avoidance isn't a checked defence)
+  kind: pob_gap
+  match: '^Dodge Roll cannot Avoid Damage$'
+  replace: []
+  confidence: verified_by_you
+  notes: "Bulwark's other lines (evasion as armour) are PoB's own; this one removes a dodge-roll benefit no number includes."
+  sources: ["https://poe2db.tw/us/Bulwark"]
+  test_in_game: "Not needed for the checked numbers; roll through a boss slam with Bulwark and take the hit."
+  status: proposed

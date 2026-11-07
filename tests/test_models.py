@@ -269,3 +269,17 @@ def test_iron_ward_model_switches_off_through_its_ledger_entry():
     from builder.ledger import entries
     entry = next(e for e in entries() if e.id == models.IRON_WARD_ENTRY)
     assert entry.raw["model"] == "iron_ward" and entry.raw["test_in_game"] and entry.confidence == "theory"
+
+
+def test_gem_stats_pob_never_reads_become_scaled_lines():
+    tempest = models.Skill("Mana Tempest", level_stats={
+        "non_skill_base_all_damage_%_to_gain_as_lightning_with_spells_from_buff": 78,
+        "mana_tempest_empowered_spells_split_to_X_additional_targets": 3})
+    mods, notes = models.gem_stat_model([models.Skill("Spark"), tempest])
+    assert mods == [{"kind": "Line", "line": "Gain 1% of Damage as Extra Lightning Damage with Spells",
+                     "scale": 70.2}]  # 78 x 0.9 uptime, for the whole build (a buff: no skill tag)
+    assert len(notes) == 1 and notes[0]["confidence"] == "theory" and "78" in notes[0]["basis"]
+    # switched off by forbidding the entry, and nothing without the skill
+    assert models.gem_stat_model([tempest], {"gem-mana-tempest-lightning"}) == ([], [])
+    assert models.gem_stat_model([models.Skill("Spark")]) == ([], [])
+    assert "Mana Tempest" in models.gem_stat_skills()

@@ -485,11 +485,13 @@ function renderResult(result) {
     }
     if (result.blind_spots?.length) {
       parts.push(el("div", { class: "result-section" },
-        el("h3", {}, `PoB ignores ${result.blind_spots.length} line${result.blind_spots.length === 1 ? "" : "s"} on this build`),
+        el("h3", {}, `PoB ignores ${result.blind_spots.length} line${result.blind_spots.length === 1 ? "" : "s"} or gem stat${result.blind_spots.length === 1 ? "" : "s"} on this build`),
         el("p", { class: "hint" }, "Path of Building can't calculate these, so the numbers above leave them out "
-          + "(they may help or hurt more than shown)."),
+          + "(they may help or hurt more than shown). Besides the lines PoB's parser ignores, this lists lines it "
+          + "parses into something no calculation reads (no-op) and gem stats it never reads (gem stat)."),
         simpleTable(["Where", "Line", "Correction"], result.blind_spots.map((b) => [b.source, b.line,
-          !b.corrected_by ? "not modeled" : b.as.length ? `* counted as: ${b.as.join("; ")} (${b.confidence})`
+          !b.corrected_by ? (b.kind ? `not modeled (${b.kind}): ${b.reason}` : "not modeled")
+            : b.as.length ? `* counted as: ${b.as.join("; ")} (${b.confidence})`
             : "no effect on the DPS or defences calculated here"]))));
     }
     if (result.conditions.length) {

@@ -625,3 +625,57 @@ def iron_ward_model(skills: list[Skill], stats: dict, enabled: bool = True) -> t
                  + (f"; at least {MIN_REDUCTION:g}% prevented assumed" if store.reduction < MIN_REDUCTION else ""),
         "confidence": "theory"}
     return mods, [note]
+
+
+# Gem stats PoB never reads (ledger kind gem_stat) ----------------------------------------------
+# A skill's stat that no stat map turns into a modifier (the coverage audit's "Iron Ward class",
+# builder/ledger/coverage.py) is translated by a `gem_stat` entry into modifier lines with a
+# magnitude of 1, scaled by the stat's value at the gem's level and quality × the entry's
+# `factor` (an uptime or count assumption). `applies_to: skill` tags them to the skill itself;
+# `build` gives them to the whole build while the skill is in use (a buff such as Mana Tempest).
+# `if:Name <line>` counts a line only while ledger condition Name is on.
+
+def gem_stat_skills() -> list[str]:
+    """Skills whose level stats the bridge must read for gem_stat entries."""
+    from builder.ledger import gem_stat_entries
+
+    return sorted({name for e in gem_stat_entries() for name in _skill_names(e)})
+
+
+def _skill_names(entry) -> list[str]:
+    names = entry.raw.get("skill") or []
+    return [names] if isinstance(names, str) else list(names)
+
+
+def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    from builder.ledger import SYNTAX, gem_stat_entries
+
+    mods: list[dict] = []
+    notes: list[dict] = []
+    for entry in gem_stat_entries():
+        if entry.id in forbidden or not entry.replace:
+            continue
+        names = _skill_names(entry)
+        factor = float(entry.raw.get("factor", 1.0))
+        own = entry.raw.get("applies_to", "skill") == "skill"
+        for skill in skills:
+            if skill.name not in names:
+                continue
+            name = skill.name
+            values = {stat: number(v) for stat, v in skill.level_stats.items()
+                      if entry.pattern is not None and entry.pattern.search(stat) and number(v)}
+            for stat, value in sorted(values.items()):
+                for text in entry.replace:
+                    m = SYNTAX.match(text)
+                    when = [{"var": m.group(2)}] if m and m.group(1) == "if" else None
+                    mods.append(line(m.group(3) if when else text, value * factor, when=when,
+                                     skill=name if own else None))
+                notes.append({
+                    "label": entry.title,
+                    "value": f"{value * factor:g}" + (f" ({value:g} × {factor:g})" if factor != 1 else ""),
+                    "basis": f"PoB never reads the gem stat {stat} ({value:g} at this level); counted as "
+                             + "; ".join(t.replace("1%", f"{value * factor:g}%") for t in entry.replace)
+                             + ("" if own else " for the whole build") + (f". {entry.notes.strip()}" if entry.notes else ""),
+                    "confidence": entry.confidence, "entry": entry.id})
+            names = [n for n in names if n != name]  # one copy of each skill (a buff applies once)
+    return mods, notes

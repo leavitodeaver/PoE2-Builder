@@ -1,0 +1,194 @@
+# Coverage audit, first batch (2026-11-06): the highest-ranked mechanics nothing counted
+# (builder/ledger/coverage.py), translated into lines PoB calculates. Research: poe2db.tw
+# (datamined from the game files), mainly its glossary https://poe2db.tw/us/Keywords. PoE2 0.5.x;
+# recheck every one at the 1.0 refresh (11 Dec 2026).
+
+# Conditions switched on by the build's skills ----------------------------------------------------
+
+- id: RepeatableSpell
+  title: Uses a spell that can Repeat
+  kind: condition
+  skills: '^(Fireball|Firebolt|Frostbolt|Spark|Arc|Ball Lightning|Lightning Bolt|Comet|Chaos Bolt|Bone Blast|Detonate Dead)$'
+  confidence: datamined
+  notes: "Part of poe2db's list of about 85 Repeating Skills; spells not named here count no Repeat (an undercount, never an overcount)."
+  sources: ["https://poe2db.tw/us/Repeating_Skills"]
+  status: proposed
+
+# Damage ----------------------------------------------------------------------------------------
+
+- id: aftershock-chance
+  title: Earthbreaker, chance for your Slams to cause an additional Aftershock
+  kind: pob_gap
+  match: '^(\d+)% chance for Slam Skills you use yourself to cause an additional Aftershock$'
+  replace: ['Slam Skills deal {1}% more Damage']
+  confidence: datamined
+  notes: >-
+    "If not otherwise specified, the Aftershock will deal the same damage as the initial impact,
+    in the same area" (poe2db glossary), so a boss inside the slam is hit again: the chance is
+    extra hits on average. One forum report says it doesn't trigger from Falling Thunder
+    (unverified).
+  sources: ["https://poe2db.tw/us/Titan", "https://poe2db.tw/us/Keywords (Aftershock)"]
+  test_in_game: "Slam a training dummy 20 times with Earthbreaker: about 5 slams show a second impact in the same place, for the same damage."
+  status: proposed
+
+- id: mountain-splitter
+  title: Mountain Splitter, every third Slam causes 3 Aftershocks ahead and to the sides
+  kind: pob_gap
+  match: "^Every Third Slam skill that doesn't create Fissures which you use yourself causes (\\d+) additional Aftershocks"
+  replace: ['Slam Skills deal 11% more Damage']
+  confidence: theory
+  notes: >-
+    The Aftershocks land ahead and to each side of the slam's area, not on it; a large boss is
+    assumed to stand in one of the three, so every third slam adds one full hit (33% more per
+    third slam, 11% over all slams). Slams that create Fissures don't count; the build's main
+    slam is assumed not to.
+  sources: ["https://poe2db.tw/us/Titan", "https://poe2db.tw/us/Keywords (Aftershock)"]
+  test_in_game: "On a large boss, watch every third slam: count how many of the 3 extra Aftershocks hit it."
+  status: proposed
+
+- id: now-and-again-repeat
+  title: Now and Again, chance for Repeatable spells to Repeat
+  kind: pob_gap
+  match: '^Repeatable Spells have (\d+)% chance to Repeat$'
+  replace: ['if:RepeatableSpell {g1*0.95}% more Spell Damage']
+  confidence: theory
+  notes: >-
+    A Repeat performs the part of the spell that fires its projectiles or effects again from the
+    same use (poe2db); assumed a full copy hitting the boss, so the chance is extra hits. "Skills
+    take 5% longer to perform for each time they Repeat" costs about 5% of the gain.
+  sources: ["https://poe2db.tw/us/Repeating_Skills", "https://poe2db.tw/us/Chronomancer"]
+  test_in_game: "Cast Spark (or another Repeatable spell) 50 times at a dummy: about 10 casts fire twice."
+  status: proposed
+
+- id: now-and-again-echo
+  title: Now and Again, chance for Cascadable spells to Echo (not counted yet)
+  kind: pob_gap
+  match: '^Cascadable Spells have (\d+)% chance to Echo$'
+  replace: []
+  confidence: theory
+  notes: >-
+    An Echo hits the same targeted location again after a delay, so it would add hits like a
+    Repeat; not counted yet, because which area spells are Cascadable isn't in the build data
+    (an undercount for those spells).
+  sources: ["https://poe2db.tw/us/Cascadable_Skills"]
+  test_in_game: "Cast an area spell at a dummy 50 times: about 10 casts hit the spot a second time."
+  status: proposed
+
+- id: blackflame-withered-fire
+  title: Blackflame, Withered also increases Fire Damage taken
+  kind: pob_gap
+  match: '^Withered you inflict also increases Fire Damage taken$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    Blackflame's Ignites deal Chaos instead of Fire, so the ring's own damage gains nothing from
+    it; other Fire damage would (not counted, an undercount).
+  sources: ["https://poe2db.tw/us/Blackflame"]
+  test_in_game: "Not needed for a Blackflame chaos-ignite build."
+  status: proposed
+
+- id: veilpiercer-dark-whisper
+  title: Veilpiercer, Dark Whispers while a cursed enemy is in your Presence
+  kind: pob_gap
+  match: '^Gain (\d+) Dark Whispers? every second there is a Cursed Enemy in your Presence$'
+  replace: ['40% increased Curse Magnitudes']
+  confidence: datamined
+  notes: >-
+    Each Dark Whisper gives 4% increased Curse Magnitudes, up to 10 (40%); they last 8 s, refreshed
+    on gain, so a cursed boss in your Presence keeps 10 after 10 s. When they expire you lose 3% of
+    Life, Mana and Energy Shield each over 4 s (not counted). Without a curse the line does nothing.
+  sources: ["https://poe2db.tw/us/Veilpiercer", "https://poe2db.tw/us/Dark_Whispers"]
+  test_in_game: "Curse a boss with Veilpiercer equipped and stay near it: the Dark Whisper buff reaches 10 stacks."
+  status: proposed
+
+- id: skysliver-min-or-max
+  title: Skysliver, damage rolls only its minimum or maximum (same average)
+  kind: pob_gap
+  match: '^Rolls only the minimum or maximum Damage value for each Damage Type$'
+  replace: []
+  confidence: datamined
+  notes: "50% minimum, 50% maximum for each damage type (poe2db glossary): the average is unchanged. Lucky damage would gain (not counted)."
+  sources: ["https://poe2db.tw/us/Keywords (Skysliver)"]
+  test_in_game: "Hit a dummy: each hit shows one of exactly two numbers per damage type."
+  status: proposed
+
+- id: decimating-strike
+  title: Decimating Strike, hits against full-life enemies remove 5-30% of life (once per fight)
+  kind: pob_gap
+  match: '^Decimating Strike$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    "Hits against Full Life Enemies remove between 5% and 30% of Life, before the damage of the
+    Hit is applied" (poe2db): one chunk at the start of a boss fight, so no sustained DPS. It does
+    shorten the fight (not counted).
+  sources: ["https://poe2db.tw/us/Decimating_Strike"]
+  test_in_game: "Hit a full-life boss once: a share of its life bar disappears before the hit's damage."
+  status: proposed
+
+# Defences --------------------------------------------------------------------------------------
+
+- id: harmony-within
+  title: Harmony Within, hit damage taken from Mana first while Mana is above Life
+  kind: pob_gap
+  match: '^Hit damage is taken from Mana before Life if your current Mana is higher than your current Life$'
+  replace: ['50% of Damage is taken from Mana before Life']
+  confidence: theory
+  notes: >-
+    Reads like 100% Mind over Matter for hits while Mana is above Life (poe2db; no cap stated).
+    Counted as 50% because whether the excess spills into Life is unknown (one forum claim says
+    the whole hit comes from one pool) and the condition fails once Mana drops below Life. Builds
+    with less Mana than Life get nothing in game, but this count gives them the 50% too.
+  sources: ["https://poe2db.tw/us/Oracle", "https://web.poecdn.com/forum/view-thread/3889065 (snippet only)"]
+  test_in_game: "With more Mana than Life, take a boss hit: check how much came off Mana and whether Life moved."
+  status: proposed
+
+# Gem stats PoB never reads (kind gem_stat, builder/search/models.py gem_stat_model) ------------
+
+- id: gem-mana-tempest-lightning
+  title: Mana Tempest, Empowered Spells gain damage as Lightning
+  kind: gem_stat
+  skill: Mana Tempest
+  applies_to: build
+  match: '^non_skill_base_all_damage_%_to_gain_as_lightning_with_spells_from_buff$'
+  replace: ['Gain 1% of Damage as Extra Lightning Damage with Spells']
+  factor: 0.9
+  confidence: theory
+  notes: >-
+    "Empowered Spells Gain (40-78)% of damage as Lightning Damage" (poe2db; 78% at level 20). It
+    empowers mana-costing spells while you stand in the storm, which ends when you leave it or run
+    out of Mana (effects linger 2 s). Assumed inside it 90% of a boss fight. Spells that cost no
+    Mana (triggered by a meta gem, Infernal Flame) get it in this count but not in game. The storm
+    drains Mana; sustain isn't checked against it.
+  sources: ["https://poe2db.tw/us/Mana_Tempest"]
+  test_in_game: "Hit a dummy with your spell outside and then inside the storm: the hits should be about 1.78x inside, with the gem at 20."
+  status: proposed
+
+- id: gem-mana-tempest-split
+  title: Mana Tempest, Empowered Spells split to additional targets (no other target on a boss)
+  kind: gem_stat
+  skill: Mana Tempest
+  match: '^mana_tempest_empowered_spells_split_to_X_additional_targets$'
+  replace: []
+  confidence: datamined
+  sources: ["https://poe2db.tw/us/Mana_Tempest"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-lunar-blessing-cold
+  title: Lunar Blessing, damage gained as Cold while the buff lasts
+  kind: gem_stat
+  skill: Lunar Blessing
+  applies_to: build
+  match: '^wolf_lunar_blessing_all_damage_%_to_gain_as_cold_damage$'
+  replace: ['Gain 1% of Damage as Extra Cold Damage while Shapeshifted']
+  factor: 0.5
+  confidence: theory
+  notes: >-
+    "Buff grants (40-59)% of damage Gained as Cold damage" (poe2db); the buff lasts 5 s plus 0.2 s
+    per Rage spent, and the 22 s cooldown recovers while it lasts (0.4.0c). At about 30 Rage that's
+    11 s of every 22 s: 50% uptime assumed. Counted while Shapeshifted. Wolf minions get it too
+    (not counted).
+  sources: ["https://poe2db.tw/us/Lunar_Blessing"]
+  test_in_game: "Use Lunar Blessing with full Rage and time the buff; compare with the 22 s cooldown."
+  status: proposed

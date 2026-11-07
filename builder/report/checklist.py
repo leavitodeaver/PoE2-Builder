@@ -25,7 +25,8 @@ def checklist(result: dict) -> list[dict]:
         if not b.get("corrected_by"):
             items.append({
                 "kind": "not modeled", "title": b["line"], "where": where,
-                "why": "PoB ignores this line, so no number in this result includes it.",
+                "why": (b["reason"] if b.get("reason") else "PoB ignores this line")
+                       + ", so no number in this result includes it.",
                 "how": "Compare your character sheet and the main skill's tooltip with and without it. A bonus "
                        "is extra on top of the result; a drawback makes the build weaker than shown.",
             })

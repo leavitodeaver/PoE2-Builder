@@ -59,3 +59,23 @@ def test_iron_ward_nova_deals_its_store_and_armour_speeds_it_up(engine):
     after = build.call("stats", fields=FIELDS)
     assert after["PhysicalDamageReduction"] > stats["PhysicalDamageReduction"]
     assert after["CombinedDPS"] > 2 * stats["CombinedDPS"]
+
+
+def spark_with(engine, forbid: list[str]) -> Search:
+    from builder.request.schema import Choices
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"],
+                                        require=Choices(skills=["Mana Tempest"]), forbid_ledger_entries=forbid))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    return search
+
+
+def test_mana_tempest_gem_stat_reaches_pob(engine):
+    """PoB never reads Mana Tempest's gain-as-Lightning stat; the gem_stat entry gives it to spells."""
+    off = spark_with(engine, ["gem-mana-tempest-lightning"]).build.call("stats", fields=FIELDS)["CombinedDPS"]
+    search = spark_with(engine, [])
+    on = search.build.call("stats", fields=FIELDS)["CombinedDPS"]
+    assert off > 0 and on > 1.2 * off
+    assert any(n.get("entry") == "gem-mana-tempest-lightning" for n in search.assumptions.active)
