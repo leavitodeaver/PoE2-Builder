@@ -42,3 +42,13 @@ def test_the_mechanics_page_serves():
     assert str(page.path).endswith("mechanics.html")
     assert web.mechanics_catalog()["summary"]["mechanics"] > 25
     assert 'href="/mechanics"' in (web.STATIC / "index.html").read_text(encoding="utf-8")
+
+
+def test_every_mechanic_with_lines_has_a_plan():
+    from builder.data import data_dir
+
+    if not (data_dir() / "coverage-report.json").exists():
+        pytest.skip("no coverage report")
+    cat = mechanics.build()
+    unplanned = [m["name"] for m in cat["mechanics"] if (m["lines"]["linked"] or m["gem_count"]) and not m.get("plan")]
+    assert not unplanned, f"mechanics with lines and no plan (add a catalog entry or a families.yaml pattern): {unplanned}"

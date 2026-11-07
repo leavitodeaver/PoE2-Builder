@@ -419,3 +419,131 @@
   guide_note: ""
   impact: 2
   effort: L
+
+# --- Families added 7 Nov 2026 (each covers many automatic mechanics: ledger/mechanics/families.yaml) ---------------------
+
+- id: buffs
+  name: Buffs you gain (Onslaught, Arcane Surge, Archons, Unholy Might ...)
+  category: your state
+  game: "Temporary buffs from skills, passives and items; each has its own source, duration and effect."
+  game_source: https://poe2db.tw/us/Buff
+  pob: config-only
+  pob_check: "Most are Configuration boxes (buffOnslaught, buffArcaneSurge ...); Archon buffs are PoB skills only for Chayula."
+  handling: "The condition resolver turns Onslaught and Arcane Surge on from text evidence; Elemental Archon is a custom model."
+  plan: {approach: condition resolver, how: "Each buff on when the build has a source it can keep up on a boss (rate x duration against the fight), its uptime a labelled assumption; buffs with a model (Archon) by their model.", inputs: [source rate, duration], sustain: "a source that triggers on a boss (no kills)"}
+  what_if: visible
+  guide_note: "Buff X counted (up Y% of the fight from source Z)."
+  impact: 4
+  effort: M
+
+- id: ground-effects
+  name: Ground effects (Shocked, Chilled, Ignited, Jagged Ground ...)
+  category: stun and ailments
+  game: "Ground surfaces created by skills and items that apply effects to those standing in them."
+  game_source: https://poe2db.tw/us/Ground_Effects
+  pob: config-only
+  pob_check: "Enemy on Shocked / Chilled / Ignited Ground are Configuration boxes."
+  handling: "Jagged Ground is a ledger condition; the rest off."
+  plan: {approach: labelled assumption, how: "On while the build creates the ground; the boss in it a share of the fight (it moves), 40% assumed as for Jagged Ground.", inputs: [ground source, duration]}
+  what_if: visible
+  guide_note: "Boss in your X Ground about 40% of the fight."
+  impact: 2
+  effort: S
+
+- id: defence-layers
+  name: Defence layers PoB calculates but the optimizer doesn't check (Guard, Runic Ward, Deflection, Block ...)
+  category: recovery and flasks
+  game: "Guard and Runic Ward absorb damage; Deflection and Block stop part of hits; Energy Shield recharge."
+  game_source: https://poe2db.tw/us/Guard
+  pob: partial
+  pob_check: "PoB calculates Ward, Block and Deflection; Guard from skills only partly; the optimizer checks pools, resistances, maximum hit, block and evade."
+  handling: "Their lines count where PoB parses them; maximum hit includes what PoB includes."
+  plan: {approach: labelled assumption, how: "An effective-life check against the boss's hits (Guard and Ward as buffers at their uptime, Deflection's share), so these layers count as defence.", inputs: [boss hit, buffer sizes, uptimes]}
+  what_if: visible
+  guide_note: "Guard / Ward counted as X effective Life."
+  impact: 3
+  effort: M
+
+- id: kill-and-consume
+  name: Kills, corpses, explosions and consuming
+  category: damage sources
+  game: "Effects on kill, corpse explosions, Volatility and consume-for-a-bonus mechanics."
+  game_source: https://poe2db.tw/us/Volatility
+  pob: partial
+  pob_check: "On-kill effects need config; corpse skills take a corpse life config; consumption isn't rated."
+  handling: "No kills on a single boss: on-kill lines count 0; corpse skills use PoB's config."
+  plan: {approach: labelled assumption, how: "Single boss: on-kill effects never (adds not counted); consume-for-a-bonus skills at the rate the build supplies what they consume (charges, ailments, corpses from its own skills).", inputs: [supply rate]}
+  what_if: invisible
+  guide_note: "On-kill effects not counted against a single boss."
+  impact: 3
+  effort: M
+
+- id: projectile-behaviour
+  name: Projectile behaviour (pierce, chain, fork, split, count)
+  category: damage sources
+  game: "Projectiles pierce, chain, fork and split; several projectiles can hit one large target."
+  game_source: https://poe2db.tw/us/Projectile
+  pob: partial
+  pob_check: "PoB has a 'projectiles hitting the target' skill part for some skills; chain, fork and split don't hit the same target."
+  handling: "Fork, chain and split recorded as no effect on a single boss; projectile count from PoB's skill part."
+  plan: {approach: labelled assumption, how: "Hits per use on a boss = projectiles that can reach it (count x overlap by boss size, a per-skill assumption); returning projectiles and Tornado Shot's copies as extra hits.", inputs: [projectile count, spread, boss size]}
+  what_if: visible
+  guide_note: "N of your M projectiles assumed to hit the boss."
+  impact: 3
+  effort: M
+
+- id: skill-families
+  name: Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)
+  category: damage sources
+  game: "Families of skills with shared rules, and hit rules (critical hits, Lucky and Unlucky, Impale, Overwhelm)."
+  game_source: https://poe2db.tw/us/Keywords
+  pob: partial
+  pob_check: "PoB calculates most; the lines it ignores or misparses are listed per mechanic."
+  handling: "PoB's own; ignored lines per mechanic."
+  plan: {approach: translation, how: "Line by line: each family's ignored and misparsed lines translated where PoB can express them; Lucky as an expected value (lucky-spell-crits).", inputs: []}
+  what_if: visible
+  guide_note: ""
+  impact: 2
+  effort: M
+
+- id: item-systems
+  name: Item systems (runes, Soul Cores, Idols, quality, corruption, Abyss, sockets)
+  category: items
+  game: "Socketables, quality, corruption and desecration change items; some items change what sockets give."
+  game_source: https://poe2db.tw/us/Runes
+  pob: partial
+  pob_check: "PoB applies runes and quality; 'as though it was a Body Armour', Abyssal Wasting and instilled modifiers are ignored lines."
+  handling: "Runes, Soul Cores and Idols are chosen by the search; ignored item lines listed."
+  plan: {approach: custom model, how: "Socket rules (Darkness Enthroned's body-armour rune values), corruption and desecration as crafting steps (PLAN section 9).", inputs: [item base, sockets]}
+  what_if: visible
+  guide_note: ""
+  impact: 2
+  effort: L
+
+- id: outside-the-fight
+  name: Outside the fight (rarity, experience, shrines, Breach, Ritual ...)
+  category: the fight
+  game: "Loot, experience and league mechanics: no effect on a build's damage or defence in a boss fight."
+  game_source: https://poe2db.tw/us/Keywords
+  pob: full
+  pob_check: "Nothing to calculate for a boss fight."
+  handling: "Not counted, on purpose."
+  plan: {approach: labelled assumption, how: "No effect on the optimizer's numbers; shown as such.", inputs: []}
+  what_if: n/a
+  guide_note: ""
+  impact: 1
+  effort: S
+
+- id: pob-calculates
+  name: Stats, attributes, weapon kinds and keystones PoB calculates
+  category: items
+  game: "Ordinary stats and the keystones whose rules PoB implements (Mind over Matter, Eldritch Battery, Resolute Technique ...)."
+  game_source: https://poe2db.tw/us/Keywords
+  pob: full
+  pob_check: "The keystones and stats parse into modifiers PoB's calculations read (coverage audit: counted); their few uncounted lines are listed under them."
+  handling: "PoB's own."
+  plan: {approach: translation, how: "None needed for the mechanic; each uncounted line under it is handled by the mechanic it depends on (its condition, its skill family).", inputs: []}
+  what_if: visible
+  guide_note: ""
+  impact: 1
+  effort: S

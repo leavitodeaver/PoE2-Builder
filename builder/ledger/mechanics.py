@@ -141,6 +141,23 @@ def build(data_dir: Path | None = None) -> dict:
                           "category": "game term (to plan)", "game": "", "origin": "capitalised term in the lines",
                           "names": [term], "plan": None})
 
+    # Families: a reviewed mechanic's plan covers the automatic mechanics its pattern names (ledger/mechanics/families.yaml)
+    families_path = MECH_DIR / "families.yaml"
+    families = yaml.safe_load(families_path.read_text(encoding="utf-8")) if families_path.exists() else {}
+    by_id = {m["id"]: m for m in mechanics if m["origin"] == "catalog"}
+    for mech in mechanics:
+        if mech["origin"] == "catalog":
+            continue
+        for family, pattern in (families or {}).items():
+            if family in by_id and re.fullmatch(pattern, mech["name"], re.I):
+                parent = by_id[family]
+                mech.update({"family": family, "plan": parent.get("plan"), "plan_from": parent["name"],
+                             "what_if": parent.get("what_if"), "guide_note": parent.get("guide_note"),
+                             "impact": parent.get("impact"), "effort": parent.get("effort")})
+                if "deprecated" not in mech["category"]:
+                    mech["category"] = parent["category"]
+                break
+
     # Link lines, gem stats, gems and Configuration options to each mechanic, and work out what PoB does
     for mech in mechanics:
         pat = _pattern(mech["names"])
@@ -199,6 +216,9 @@ def build(data_dir: Path | None = None) -> dict:
         "by_origin": dict(Counter(m["origin"] for m in mechanics)),
         "config_options": len(options), "config_options_on": sum(1 for o in options if o["var"] in turned_on),
         "keywords": len(keywords()),
+        "with_plan": sum(1 for m in mechanics if m.get("plan")),
+        "with_lines": sum(1 for m in mechanics if m["lines"]["linked"] or m["gem_count"]),
+        "with_lines_and_plan": sum(1 for m in mechanics if (m["lines"]["linked"] or m["gem_count"]) and m.get("plan")),
     }
     return {"data_dir": str(data_dir), "summary": summary, "mechanics": mechanics}
 
@@ -236,6 +256,10 @@ def markdown(cat: dict) -> str:
                 continue  # automatic entries with under 3 lines not counted are in the JSON and the page, not the document
             pob = m.get("pob") or m["pob_computed"]
             ln = m["lines"]
+            if m.get("plan_from"):
+                out.append(f"- **{m['name']}** — PoB: {pob}; {m['lines']['not_counted']} lines not counted; plan from family "
+                           f"*{m['plan_from']}*")
+                continue
             out.append(f"### {m['name']} — PoB: {pob}" + (f" (lines say: {m['pob_computed']})" if m.get("pob") and m.get("pob") != m["pob_computed"] else ""))
             out.append(f"Priority {m['priority']} · impact {m.get('impact', '?')} · effort {m.get('effort', '?')} · "
                        f"{ln['not_counted']} lines not counted of {ln['linked'] + ln['counted_by_pob_elsewhere']} linked · "
