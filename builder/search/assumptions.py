@@ -193,11 +193,15 @@ class Assumptions:
         self.active = notes
         build = self.build
         flagged = False
+        # (scored on Full DPS once there are extra groups: the main skill's group must count in it too, which a loaded
+        # build's own flags don't promise)
+        main = build.main_group() if self.extra_groups else None
+        wanted = {**({main["index"]: None} if main else {}), **self.extra_groups}
         for group in build.groups():
             index = group["index"]
-            if index not in self.extra_groups:
+            if index not in wanted:
                 continue
-            stat_set = self.extra_groups[index]
+            stat_set = wanted[index]
             if not group["fullDPS"] or (stat_set is not None and self.stat_sets.get(index) != stat_set):
                 build.set_group(index=index, fullDPS=True, **({"statSet": stat_set} if stat_set else {}))
                 if stat_set:
