@@ -16,11 +16,20 @@
 # the worker's lock (<JOB>.lock) runs the turns, one after another, until the inbox is empty. A "more" sent while the
 # worker is busy waits: it returns once the turn that carried it has ended.
 #
+# The user can write to a worker from Beastking's Workers page (http://127.0.0.1:8377; the user, 7 Nov: "can you set it
+# up to show the poe2 builder's worker on the workers page"). The page runs `worker.sh <2|3> <JOB> more -` with the
+# words in $WORKER_TEXT_FILE and WORKER_FROM_USER=1: the worker is told they are the user's own, and they are logged in
+# scratch/manager/workers/user_messages.log for the manager to file. Keep a new worker's brief opening with
+# "You are a worker on ... (job <JOB>)": that is how the page finds it.
+#
 # The whole script is one function, read in full before it runs, so changing this file never upsets a copy already
 # running.
 
 main() {
 ACCOUNT="$1"; JOB="$2"; MODE="$3"; TEXT="$4"
+if [ "$TEXT" = "-" ] && [ -f "$WORKER_TEXT_FILE" ]; then   # (the Workers page hands the user's words over in a file: no quoting trouble)
+	TEXT=$(cat "$WORKER_TEXT_FILE"); rm -f "$WORKER_TEXT_FILE"
+fi
 if [ -z "$TEXT" ] || { [ "$ACCOUNT" != "2" ] && [ "$ACCOUNT" != "3" ]; } || { [ "$MODE" != "new" ] && [ "$MODE" != "more" ]; } \
 	|| ! [[ "$JOB" =~ ^[A-Za-z0-9_]+$ ]]; then
 	echo "use: worker.sh <2|3> <JOB> new|more \"text\""; return 2
@@ -48,7 +57,9 @@ Anything heavy on the PC joins the shared queue: read C:\\PROJECTS\\PCQueue\\REA
 
 NEVER buy usage credits, turn on extra usage or touch any billing or plan setting on any account (the user, 2 Nov 2026: \"I don't ever want to see a charge pop up on any of my accounts that I didn't personally authorize\"). If this account runs out, stop and wait for its reset.
 
-Nothing may pop up or take focus on the user's screen: no windows, no browsers; headless or hidden only. You never question the user directly: questions go in your hand-back, and the manager asks them."
+Nothing may pop up or take focus on the user's screen: no windows, no browsers; headless or hidden only. You never question the user directly: questions go in your hand-back, and the manager asks them.
+
+The user may write to you directly from their Workers page: such a message starts \"THE USER wrote to you directly\". Answer it in plain English; the rule that you never question the user still holds (questions go in your hand-back)."
 	local n=$(( $(count turn_started) + 1 )); echo $n > "$W/$JOB.turn_started"
 	run_turn new "$TEXT"
 	echo $n > "$W/$JOB.turn_ended"
@@ -57,6 +68,14 @@ Nothing may pop up or take focus on the user's screen: no windows, no browsers; 
 fi
 
 # more: the message goes into the inbox first
+if [ "$WORKER_FROM_USER" = "1" ]; then
+	printf '=== %s  %s (account %s)\n%s\n\n' "$(date '+%Y-%m-%d %H:%M')" "$JOB" "$ACCOUNT" "$TEXT" >> "$W/user_messages.log"
+	TEXT="THE USER wrote to you directly, from the Workers page ($(date '+%-d %b, %H:%M')):
+
+\"$TEXT\"
+
+Answer them in plain English in your reply: they read it on the Workers page. Do what they ask within your job and the rules; where their words differ from your brief, theirs win (NEVER any charge on any account, still). Write their words and what you did about them into your report under \"The user's words\". The manager sees this too."
+fi
 local MSG="$INBOX/$(date +%s%N)_$$.txt"
 printf '%s' "$TEXT" > "$MSG.part" && mv "$MSG.part" "$MSG"
 if take_lock; then deliver; return 0; fi
