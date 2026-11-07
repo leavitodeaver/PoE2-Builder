@@ -1501,11 +1501,15 @@ function bridge.activeSkills(args)
 			group = activeSkill.socketGroup and groupIndex[activeSkill.socketGroup] or nil,
 		}
 		if wantStats[effect.name] and effect.statSets and effect.statSets[1] then
+			-- every stat set's stats (the first set's value wins where two share a stat); ledger
+			-- gem_stat entries read stats of any set
 			local stats = setmetatable({ }, { __jsontype = "object" })
-			local ok, built = pcall(calcLib.buildSkillInstanceStats, activeSkill.activeEffect, effect, effect.statSets[1])
-			for stat, value in pairs(ok and built or { }) do
-				if type(value) == "number" then
-					stats[stat] = value
+			for _, set in ipairs(effect.statSets) do
+				local ok, built = pcall(calcLib.buildSkillInstanceStats, activeSkill.activeEffect, effect, set)
+				for stat, value in pairs(ok and built or { }) do
+					if type(value) == "number" and stats[stat] == nil then
+						stats[stat] = value
+					end
 				end
 			end
 			skills[#skills].levelStats = stats
@@ -1540,6 +1544,141 @@ function bridge.auditUnsupported()
 		end
 	end
 	return { passives = passives, uniques = uniques }
+end
+
+-- Coverage audit (builder/ledger/coverage.py): what PoB's numbers can see beyond its own gap list.
+-- names(list): the modifier names a parsed modifier list produces, with those wrapped inside list
+-- modifiers (an enemy's or a minion's modifier) as "Outer>Inner"
+local function modNames(list, out)
+	out = out or { }
+	for _, mod in ipairs(list or { }) do
+		if mod.name then
+			local name = mod.name
+			local inner = type(mod.value) == "table" and mod.value.mod
+			if inner and inner.name then
+				name = name .. ">" .. inner.name
+			end
+			out[#out + 1] = name
+		end
+	end
+	return out
+end
+
+-- Every item affix, rune / Soul Core / Idol line and jewel mod, through the parser as the item
+-- does (ranges at their maximum); every gem's stats against its stat set's stat map (PoB's skills
+-- tab marks the same unmapped stats as unsupported); and the modifier names that passives,
+-- uniques, affixes and mapped gem stats produce, for the check against what calculations read.
+function bridge.auditCoverage()
+	local function parse(line)
+		local resolved = itemLib.applyRange(line, 1.0)
+		local list, extra = modLib.parseMod(resolved)
+		local supported = list ~= nil and #list > 0 and not extra
+		return supported, modNames(list), extra
+	end
+	local affixes = { }
+	for pool, mods in pairs(build.data.itemMods) do
+		if pool == "Runes" then
+			for name, rune in pairs(mods) do
+				for slot, mod in pairs(rune) do
+					if type(mod) == "table" then
+						for _, part in ipairs({ mod, mod.bonded }) do
+							for i, line in ipairs(part) do
+								local supported, names = parse(line)
+								affixes[#affixes + 1] = { pool = "Runes", id = name, slot = slot, bonded = part == mod.bonded or nil,
+									line = line, supported = supported, names = names, rune = mod.type }
+							end
+						end
+					end
+				end
+			end
+		else
+			for id, mod in pairs(mods) do
+				for i, line in ipairs(mod) do
+					local supported, names = parse(line)
+					affixes[#affixes + 1] = { pool = pool, id = id, type = mod.type, line = line, supported = supported,
+						names = names, level = mod.level, tags = mod.modTags }
+				end
+			end
+		end
+	end
+	local gemsOf = { }
+	for _, gem in pairs(build.data.gems) do
+		for _, effect in ipairs(gem.grantedEffectList or { gem.grantedEffect }) do
+			if effect and effect.id then
+				gemsOf[effect.id] = gemsOf[effect.id] or { }
+				table.insert(gemsOf[effect.id], gem.name)
+			end
+		end
+	end
+	local skills = { }
+	for id, effect in pairs(build.data.skills) do
+		local sets = { }
+		for setIndex, set in ipairs(effect.statSets or { }) do
+			local stats = { }
+			local function check(stat, source)
+				if type(stat) ~= "string" or stats[stat] then
+					return
+				end
+				local map = set.statMap[stat]
+				local names = { }
+				if map then
+					for _, modOrGroup in ipairs(map) do
+						if modOrGroup.name then
+							modNames({ modOrGroup }, names)
+						else
+							modNames(modOrGroup, names)
+						end
+					end
+				end
+				stats[stat] = { source = source, mapped = map ~= nil, names = names }
+			end
+			for _, stat in ipairs(set.stats or { }) do
+				check(stat, "level")
+			end
+			for _, constant in ipairs(set.constantStats or { }) do
+				check(constant[1], "constant")
+			end
+			for _, quality in ipairs(effect.qualityStats or { }) do
+				check(quality[1], "quality")
+			end
+			local list = { }
+			for stat, info in pairs(stats) do
+				info.stat = stat
+				list[#list + 1] = info
+			end
+			local flags = { }
+			for flag in pairs(set.baseFlags or { }) do
+				flags[#flags + 1] = flag
+			end
+			sets[#sets + 1] = { label = set.label, stats = list, baseFlags = flags }
+		end
+		skills[#skills + 1] = { id = id, name = effect.name, hidden = effect.hidden or nil, support = effect.support or nil,
+			gems = gemsOf[id], sets = sets }
+	end
+	local passiveNames, uniqueNames = { }, { }
+	for id, node in pairs(build.spec.tree.nodes) do
+		for i, mod in ipairs(node.mods or { }) do
+			local line = node.sd and node.sd[i]
+			if line and mod.list and #mod.list > 0 and not mod.extra then
+				passiveNames[#passiveNames + 1] = { id = id, node = node.dn, type = node.type, ascendancy = node.ascendancyName,
+					line = line, names = modNames(mod.list) }
+			end
+		end
+	end
+	for name, unique in pairs(main.uniqueDB.list) do
+		local ok, item = pcall(makeItem, unique.raw)
+		if ok and item then
+			for _, kind in ipairs({ "implicitModLines", "explicitModLines" }) do
+				for _, modLine in ipairs(item[kind] or { }) do
+					if not modLine.extra and #(modLine.modList or { }) > 0 then
+						uniqueNames[#uniqueNames + 1] = { unique = item.title or name, line = modLine.line,
+							names = modNames(modLine.modList) }
+					end
+				end
+			end
+		end
+	end
+	return { affixes = affixes, skills = skills, passives = passiveNames, uniques = uniqueNames }
 end
 
 -- Does PoB's modifier parser understand these lines? For checking ledger translations.

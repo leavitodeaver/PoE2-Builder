@@ -53,6 +53,7 @@ def dump(target: Path | None = None) -> Path:
         (target / "gaps.json").write_text(json.dumps(gaps, ensure_ascii=False), encoding="utf-8")
         counts["gaps"] = {key: len(value) for key, value in gaps.items()}
         print(f"gaps: {counts['gaps']} lines PoB can't calculate", flush=True)
+        counts["coverage"] = dump_coverage(target, pool)
     manifest = {
         "pob": pin(),
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -60,6 +61,24 @@ def dump(target: Path | None = None) -> Path:
     }
     (target / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return target
+
+
+def dump_coverage(target: Path | None = None, pool=None) -> dict:
+    """PoB's side of the coverage audit (bridge `auditCoverage`, builder/ledger/coverage.py): every
+    affix and rune line through the parser, every gem stat against its stat map, and the modifier
+    names each parsed line produces. One engine, about a minute."""
+    from builder.pob.pool import EnginePool
+
+    target = target or data_dir()
+    if pool is None:
+        with EnginePool(1) as own:
+            return dump_coverage(target, own)
+    pool.broadcast("newBuild")
+    payload = pool.broadcast("auditCoverage")[0]
+    (target / "coverage.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    counts = {key: len(value) for key, value in payload.items()}
+    print(f"coverage: {counts}", flush=True)
+    return counts
 
 
 class GameData:

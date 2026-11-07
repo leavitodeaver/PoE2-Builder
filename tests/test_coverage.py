@@ -57,3 +57,19 @@ def test_ranking_prefers_strong_and_shared_sources():
     assert order[0] == "Hits Ignore something"  # a keystone first
     assert order[1] == "#% more Damage" and ranked[1]["sources"] == 2  # then a line two notables share
     assert order.index("#% more Damage per thing") < order.index("#% increased Light Radius")  # flavour last
+
+
+def test_build_blind_spots_list_noops_and_unread_gem_stats():
+    from builder.data import data_dir
+
+    if not (data_dir() / "coverage.json").exists():
+        pytest.skip("no coverage.json; run `uv run python -m builder.ledger.coverage --refresh`")
+    found = coverage.build_blind_spots(
+        [{"source": "passive:Presence Area", "text": "10% increased Presence Area of Effect"},
+         {"source": "item:Ring 1", "text": "+30 to maximum Life"}],
+        ["Mana Tempest", "Ember Fusillade"])
+    kinds = {(b["kind"], b["line"]) for b in found}
+    assert ("no-op", "10% increased Presence Area of Effect") in kinds
+    assert ("gem stat", "ember_fusillade_damage_+%_final_per_ember_fired") in kinds
+    assert not any(b["source"] == "gem: Mana Tempest" for b in found)  # its stats are counted now
+    assert not any("maximum Life" in b["line"] for b in found)

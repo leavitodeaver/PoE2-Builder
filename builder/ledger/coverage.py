@@ -169,7 +169,8 @@ POOLS = {"Item": "affix", "Runes": "rune", "Jewel": "jewel", "Corruption": "corr
          "Exclusive": "exclusive", "Flask": "flask", "Charm": "charm", "IncursionLimb": "limb"}
 DISPLAY_STAT = re.compile(r"(^|_)(display|quality_display|visual|cosmetic|hidden|virtual|"
                           r"skill_is_|is_area_damage|base_deal_no_damage|active_skill_base|level_)|"
-                          r"_is_gem$|_display_|global_|_art_|_sound|_vfx", re.I)
+                          r"_is_gem$|_display_|global_|_art_|_sound|_vfx|show_average_damage|damage_prediction|"
+                          r"hit_effect_index", re.I)
 
 
 def mechanic(text: str) -> str:
@@ -186,10 +187,31 @@ def mechanic(text: str) -> str:
     return "flavour"
 
 
+STAT_BEHAVIOUR = re.compile(r"projectile_(uses|spread|maximum|minimum|distance|ballistic|speed)|spread|angle|offset|"
+                            r"animation|channel_|turn_duration|check_for_targets|base_is_projectile|modular|show_|"
+                            r"contact_|collide|variation|maintain_|precise_movement|range|action_distance|queue|"
+                            r"_delay_ms|spacing|number_of_.*_allowed|cannot_|can_be_|_override$|statset_index|"
+                            r"is_|_index|limitation|specifier|movement_speed|stun|knockback|show_|prediction|_distance|"
+                            r"repeat_interval|remnant_duration|_debuff_duration_ms|attack_duration_ms|ground_effect_area|"
+                            r"has_freeze_cull|radius|area_of_effect", re.I)
+STAT_KINDS = (
+    ("damage", r"damage|crit|penetrat|exposure|_as_|wither|shock|ignite|poison|bleed|impale|freeze|chill|"
+               r"electrocut|cull|additional_projectile|number_of_projectiles|chain|repeat|echo|_final"),
+    ("defence", r"armour|evasion|energy_shield|block|resist|damage_taken|maximum_life|ward|guard"),
+    ("recovery", r"leech|regen|recover|recoup|life_gain|mana_gain"),
+    ("speed", r"speed|cooldown|duration"),
+)
+
+
 def stat_mechanic(stat: str) -> str:
-    if DISPLAY_STAT.search(stat):
+    """What a gem stat is about, from its id: behaviour and display stats (how a projectile flies,
+    animation timing) are flavour for the numbers."""
+    if DISPLAY_STAT.search(stat) or (STAT_BEHAVIOUR.search(stat) and not re.search(r"damage|crit", stat)):
         return "flavour"
-    return mechanic(stat.replace("_", " ").replace("+%", " increased").replace("%", " percent "))
+    for name, pattern in STAT_KINDS:
+        if re.search(pattern, stat, re.I):
+            return name
+    return "flavour"
 
 
 def template(text: str) -> str:
@@ -276,9 +298,11 @@ def stat_entries() -> dict[str, tuple[str, str]]:
     return covered
 
 
-def gem_stat_pattern_entry(stat: str):
+def gem_stat_pattern_entry(stat: str, skill: str | None = None):
     for entry in entries():
-        if entry.kind == "gem_stat" and entry.pattern is not None and entry.pattern.search(stat):
+        if (entry.kind == "gem_stat" and entry.pattern is not None and entry.pattern.search(stat)
+                and (skill is None or not entry.raw.get("skill") or skill in (
+                    [entry.raw["skill"]] if isinstance(entry.raw["skill"], str) else entry.raw["skill"]))):
             return entry
     return None
 
@@ -336,8 +360,10 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             gems = skill.get("gems") or []
             if isinstance(gems, dict):
                 gems = list(gems.values())
-            kind = ("hidden" if not gems else "support gem" if skill.get("support") else "active gem") \
-                if gems or skill.get("hidden") else "granted skill"
+            if not gems and not skill["id"].endswith(("Player", "PlayerTwo", "PlayerThree")):
+                continue  # a monster's skill
+            kind = ("support gem" if skill.get("support") else "active gem") if gems else \
+                "hidden" if skill.get("hidden") else "granted skill"
             source = f"{skill['name']} ({skill['id']})"
             for set_ in skill.get("sets") or []:
                 stats = set_.get("stats") or []
@@ -349,8 +375,9 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     if name in covered:
                         status, entry = covered[name]
                         reason = "fed to a custom model" if status == "model" else "ledger entry"
-                    elif entry := gem_stat_pattern_entry(name):
-                        status, entry, reason = "ledger", entry.id, "no effect on what's calculated"
+                    elif found := gem_stat_pattern_entry(name, skill["name"]):
+                        status, entry = "ledger", found.id
+                        reason = "translated" if found.replace else "no effect on what's calculated"
                     elif not stat.get("mapped"):
                         status, entry, reason = "none", None, "PoB never reads this stat"
                     elif not names:
@@ -466,3 +493,60 @@ def main(argv: list[str]) -> None:
 
 if __name__ == "__main__":
     main(sys.argv[1:])
+
+
+# The blind spots of one build (the result's "not modeled" list) --------------------------------
+
+@lru_cache(maxsize=2)
+def _build_index(data_dir: str) -> dict:
+    """From the bridge part of the audit: the templates of lines PoB parses into names nothing
+    reads, and each gem's stats PoB never reads (damage, defence, recovery or speed ones)."""
+    path = Path(data_dir) / "coverage.json"
+    if not path.exists():
+        return {"noops": {}, "gems": {}}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    reads = calc_reads()
+    noops: dict[str, list[str]] = {}
+    for line in [*raw["passives"], *raw["uniques"], *raw["affixes"]]:
+        if line.get("supported", True) and (missing := unread(line.get("names") or [], reads)):
+            noops.setdefault(template(line["line"]), missing)
+    covered = stat_entries()
+    gems: dict[str, list[tuple[str, str]]] = {}
+    for skill in raw["skills"]:
+        names = skill.get("gems") or []
+        names = list(names.values()) if isinstance(names, dict) else names
+        for set_ in skill.get("sets") or []:
+            stats = set_.get("stats") or []
+            for stat in list(stats.values()) if isinstance(stats, dict) else stats:
+                name = stat["stat"]
+                if stat_mechanic(name) == "flavour" or name in covered or gem_stat_pattern_entry(name, skill["name"]):
+                    continue
+                if stat.get("mapped") and stat.get("names") and not unread(stat["names"], reads):
+                    continue
+                reason = "PoB never reads this gem stat" if not stat.get("mapped") else \
+                    "PoB maps this gem stat to nothing a calculation reads"
+                for gem in names:
+                    entry = gems.setdefault(gem, [])
+                    if (name, reason) not in entry:
+                        entry.append((name, reason))
+    return {"noops": noops, "gems": gems}
+
+
+def build_blind_spots(source_lines: list[dict], gem_names: list[str], data_dir: Path | None = None) -> list[dict]:
+    """What a build has that nothing counts beyond the lines PoB's parser ignores (bridge
+    `unsupportedInBuild`): lines PoB parses into modifiers no calculation reads, and stats of its
+    gems PoB never reads. Each comes with the reason, for the result's "not modeled" list."""
+    from builder.data import data_dir as default_dir
+
+    index = _build_index(str(data_dir or default_dir()))
+    found = []
+    for line in source_lines:
+        if not line["source"].startswith(("passive:", "item:")):
+            continue
+        if missing := index["noops"].get(template(line["text"])):
+            found.append({"source": line["source"].replace(":", ": ", 1), "line": line["text"], "kind": "no-op",
+                          "reason": "PoB parses this line, but no calculation reads " + ", ".join(missing)})
+    for gem in dict.fromkeys(gem_names):
+        for stat, reason in index["gems"].get(gem, []):
+            found.append({"source": f"gem: {gem}", "line": stat, "kind": "gem stat", "reason": reason})
+    return found
