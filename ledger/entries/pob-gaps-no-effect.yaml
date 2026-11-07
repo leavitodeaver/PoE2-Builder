@@ -108,7 +108,7 @@
 - id: no-effect-extra-charge-chance
   title: Chance to gain an additional Power or Frenzy Charge (charges already count as at their maximum)
   kind: pob_gap
-  match: '^\d+% chance when you gain a (Power|Frenzy|Endurance) Charge to gain an additional \1 Charge$'
+  match: '^\d+% chance when you gain an? (Power|Frenzy|Endurance) Charge to gain an additional \1 Charge$|^\d+% chance that if you would gain (?:Power|Frenzy|Endurance) Charges, you instead gain up to( your maximum number of (?:Power|Frenzy|Endurance) Charges)?$|^your maximum number of (?:Power|Frenzy|Endurance) Charges$'
   replace: []
   confidence: theory
   notes: >-

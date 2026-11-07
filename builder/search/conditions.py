@@ -59,7 +59,8 @@ def _inflict(subject: str) -> str:
 
 
 def _against(subject: str) -> str:
-    return rf"(?:against|to|on|of) (?:\w+ )?{subject}\w* (?:enemies|targets)|while {subject}|if {subject}|{subject}\w* enemies (?:deal|take)"
+    # (the past participle: "to Hindered Enemies" pays off on the debuff; "chance to Hinder Enemies" is a source of it)
+    return rf"(?:against|to|on|of) (?:\w+ )?{subject}e?d (?:enemies|targets)|while {subject}|if {subject}|{subject}e?d enemies (?:deal|take)"
 
 
 def _uptime(stats: dict, chance_field: str) -> bool:

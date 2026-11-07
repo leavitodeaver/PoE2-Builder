@@ -399,7 +399,7 @@
 - id: absorbed-rage-and-glory
   title: Rage regeneration and Glory generation (the assumptions already count Rage at its maximum and Glory skills on use)
   kind: pob_gap
-  match: '^(Regenerate \d+ Rage per second per \d+ Rage spent Recently|Banners gain \d+ Glory per second|Body Armour grants \d+% increased Glory generation)$'
+  match: '^(Regenerate \d+ Rage per second per \d+ Rage spent Recently|Banners gain \d+ Glory per second|Body Armour grants \d+% increased Glory generation|(Allies in your Presence have )?\d+% increased Glory generation)$'
   replace: []
   absorbed_by: "the condition resolver counts Rage at its maximum once the build has a source, and the Glory entries assume one use of a Glory skill per 6 s; faster generation would let them be used more often (not counted)"
   confidence: theory
@@ -446,4 +446,53 @@
   notes: "A drawback for sustain: the search's Life flask recovery should be 0 with it (not done yet: the sustain floor counts Mana)."
   sources: ["https://poe2db.tw/us/Blood_Mage"]
   test_in_game: "Drink a Life flask with Sanguine Tides: no Life comes back."
+  status: proposed
+
+
+# Area B of the coverage audit: notables (7 Nov 2026) --------------------------------------------------------------------------
+
+- id: aftershock-chance-mace
+  title: Mace Slams' chance to cause an additional Aftershock
+  kind: pob_gap
+  match: '^(\d+)% chance for Mace Slam Skills you use yourself to cause an additional Aftershock$'
+  replace: ['Slam Skills deal {1}% more Damage while wielding a Mace']
+  confidence: datamined
+  notes: "As aftershock-chance: an Aftershock repeats the slam's damage in the same area (poe2db glossary). 'while wielding a Mace' keeps PoB's Mace condition ('with Maces' parses without it)."
+  sources: ["https://poe2db.tw/us/Keywords (Aftershock)", "https://poe2db.tw/us/Split_the_Earth"]
+  test_in_game: "Slam a dummy 20 times with a mace: about the chance's share of slams show a second impact for the same damage."
+  status: proposed
+
+- id: aftershock-chance-shapeshift
+  title: Shapeshifted Slams' chance to cause an additional Aftershock
+  kind: pob_gap
+  match: '^(\d+)% chance for Shapeshift Slam Skills you use yourself to cause an additional Aftershock$'
+  replace: ['Slam Skills deal {1}% more Damage while Shapeshifted']
+  confidence: datamined
+  notes: "As aftershock-chance, for slams used while Shapeshifted."
+  sources: ["https://poe2db.tw/us/Keywords (Aftershock)", "https://poe2db.tw/us/Echoes_of_Ferocity"]
+  test_in_game: "Slam a dummy 20 times shapeshifted: about the chance's share of slams show a second impact."
+  status: proposed
+
+- id: aftershock-chance-any
+  title: Slams' chance to cause an additional Aftershock (any slam)
+  kind: pob_gap
+  match: '^(\d+)% chance for Slam Skills to cause an additional Aftershock$'
+  replace: ['Slam Skills deal {1}% more Damage']
+  confidence: datamined
+  notes: "As aftershock-chance."
+  sources: ["https://poe2db.tw/us/Keywords (Aftershock)", "https://poe2db.tw/us/Rhythm_of_Fire"]
+  test_in_game: "Slam a dummy 20 times: about the chance's share of slams show a second impact."
+  status: proposed
+
+- id: no-effect-placement-recoup-pierce
+  title: Totem placement range, recoup speed, piercing enemies near you (nothing calculated changes)
+  kind: pob_gap
+  match: '^(\d+% increased Totem Placement range|\d+% increased speed of Recoup Effects|\d+% chance for Projectiles to Pierce Enemies within \d+m distance of you)$'
+  replace: []
+  confidence: verified_by_you
+  notes: >-
+    Placement range is where a totem may go; recoup speed is how fast recouped Life or Energy Shield comes back (recovery,
+    not a checked defence); a pierced boss leaves nothing behind it to hit (as no-effect-fork-projectile).
+  sources: ["https://poe2db.tw/us/Ancestral_Reach", "https://poe2db.tw/us/Left_Ventricle", "https://poe2db.tw/us/Close_Confines"]
+  test_in_game: "Not needed for the calculated numbers."
   status: proposed
