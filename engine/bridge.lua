@@ -215,8 +215,193 @@ end
 -- effect for a calculation
 local installRadiusModel, radiusIncrease
 
+-- Model inputs the bridge works out on every calculation, so a what-if sees them without a trial
+-- (the what-if limit): set by setAssumptions as { kind = "Derived", name = n, fn = f, args = {...},
+-- value = v }. Each is PoB multiplier Ledger<n> (a whole number: fractions come x DERIVED_UNIT), read by
+-- the model's lines through `per = n`. fn "resistItems" counts the equipped items with a
+-- resistance modifier of args.element (Safrin's Resolve and its kin), from the calculation's own
+-- items; the others follow the output (DERIVED below): a what-if calculates once with the build's
+-- values and, if its own output moves them, once more with its own.
+local derivedInputs = { }
+local derivedValues = { }  -- name -> value in effect for output-derived inputs
+local DERIVED = { }
+
+local DERIVED_UNIT = 1000000  -- (models.UNIT)
+local RESIST_ELEMENTS = { "fire", "cold", "lightning", "chaos" }
+
+-- The user's rule (6 Nov 2026): its own element, all Elemental, a two-element modifier with it, or
+-- a socketed rune; never a maximum resistance line
+local function hasResistance(item, element)
+	for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
+		for _, modLine in ipairs(item[kind] or { }) do
+			local text = type(modLine.line) == "string" and modLine.line:lower() or ""
+			if not text:find("maximum", 1, true) then
+				if text:find("to all elemental resistance", 1, true) or text:find("to " .. element .. " resistance", 1, true) then
+					return true
+				end
+				for _, other in ipairs(RESIST_ELEMENTS) do
+					if text:find("to " .. element .. " and " .. other .. " resistance", 1, true)
+							or text:find("to " .. other .. " and " .. element .. " resistance", 1, true) then
+						return true
+					end
+				end
+			end
+		end
+	end
+	return false
+end
+
+local function resistItems(env, element)
+	local count = 0
+	for _, item in pairs(env.player and env.player.itemList or { }) do
+		if type(item) == "table" and hasResistance(item, element:lower()) then
+			count = count + 1
+		end
+	end
+	return count
+end
+
+local function num(value)
+	return type(value) == "number" and value == value and value or 0
+end
+
+-- Mana Tempest (models.mana_tempest_uptime): the storm drains 1% of maximum Mana per second plus
+-- args.spent of what you spend; it lasts while Mana lasts, then refills without it
+function DERIVED.manaTempest(out, a)
+	local mana, regen, spend = num(out.Mana), num(out.ManaRegenRecovery), num(out.ManaPerSecondCost)
+	if mana <= 0 then
+		return 0
+	end
+	local drain = 0.01 * mana + (a.spent or 0.3) * spend
+	local deficit = spend + drain - regen
+	if deficit <= 0 then
+		return DERIVED_UNIT
+	end
+	local refill = regen - spend
+	if refill <= 0 then
+		return 0
+	end
+	local on, off = mana / deficit, mana / refill
+	return math.floor(DERIVED_UNIT * on / (on + off) + 0.5)
+end
+
+-- Lunar Blessing (models.lunar_blessing_uptime): its duration plus args.perRage per Rage, against
+-- args.cooldown
+function DERIVED.lunarBlessing(out, a)
+	local length = (a.duration or 5) + (a.perRage or 0.2) * num(out.MaximumRage)
+	local cooldown = math.max(a.cooldown or 22, length)
+	return math.floor(DERIVED_UNIT * math.min(1, length / cooldown) + 0.5)
+end
+
+-- Sanguine Tides (models.sanguine_model): % of damage gained as Physical, x DERIVED_UNIT
+function DERIVED.sanguine(out, a)
+	local life, spent = num(out.Life), num(out.LifePerSecondCost)
+	if life <= 0 or spent <= 0 then
+		return 0
+	end
+	return math.floor(DERIVED_UNIT * (a.perPercent or 2.5) * spent / life * 100 + 0.5)
+end
+
+-- Guided Hand (models.guided_hand_model): share of attacks after a Heavy Stun every args.every s
+function DERIVED.guidedHand(out, a)
+	local speed = num(out.Speed)
+	if speed <= 0 then
+		return 0
+	end
+	return math.floor(DERIVED_UNIT * math.min(1, (1 / (a.every or 60)) / speed) + 0.5)
+end
+
+-- Harmony Within (models.harmony_model): on while unreserved Mana is above Life
+function DERIVED.harmony(out)
+	return num(out.ManaUnreserved) > num(out.Life) and 1 or 0
+end
+
+-- Melting Maelstrom (models.maelstrom_model): added boss DPS, not a modifier (reported as
+-- LedgerAddedDPS, which the objective adds)
+function DERIVED.maelstrom(out, a)
+	return math.floor(num(out.ManaPerSecondCost) * (a.share or 1) * (1 - (a.chaosResist or 0) / 100) * 100 + 0.5)
+end
+
+local function setDerived(env)
+	local modDB = env and env.modDB
+	if not modDB or #derivedInputs == 0 or env.build ~= build then
+		return
+	end
+	for _, input in ipairs(derivedInputs) do
+		local value
+		if input.fn == "resistItems" then
+			value = resistItems(env, input.args and input.args.element or "")
+		else
+			value = derivedValues[input.name] or input.value or 0
+		end
+		modDB.multipliers["Ledger" .. input.name] = value
+	end
+end
+
+local wrappedPerform
+local function installDerived()
+	local calcs = require("Modules.CalcBase")
+	if calcs.perform == wrappedPerform or not calcs.perform then
+		return
+	end
+	local perform = calcs.perform
+	wrappedPerform = function(env, ...)
+		setDerived(env)
+		return perform(env, ...)
+	end
+	calcs.perform = wrappedPerform
+end
+
+-- The output-derived inputs a what-if's own output gives (nil when there are none)
+local function deriveFrom(output)
+	local found
+	for _, input in ipairs(derivedInputs) do
+		local fn = DERIVED[input.fn]
+		if fn then
+			found = found or { }
+			found[input.name] = fn(output, input.args or { })
+		end
+	end
+	return found
+end
+
+-- A what-if's calculation with its own model inputs: `run` calculates with the build's values;
+-- if the output moves an output-derived input (beyond rounding), once more with its own. Adds
+-- LedgerAddedDPS (Melting Maelstrom's pulses) to the picked stats when a model reports one.
+local function derivedCalc(run, fields)
+	local output = run()
+	local found = deriveFrom(output)
+	if found then
+		local moved = false
+		for name, value in pairs(found) do
+			local was = derivedValues[name] or 0
+			if math.abs(value - was) > math.max(0.5, 0.005 * math.abs(was)) then
+				moved = true
+			end
+		end
+		if moved then
+			local saved = derivedValues
+			derivedValues = setmetatable(found, { __index = saved })
+			local ok, second = pcall(run)
+			derivedValues = saved
+			if not ok then
+				error(second, 0)
+			end
+			output = second
+		end
+	end
+	local picked = pickStats(output, fields)
+	for _, input in ipairs(derivedInputs) do
+		if input.fn == "maelstrom" then
+			picked.LedgerAddedDPS = (found and found[input.name] or derivedValues[input.name] or 0) / 100
+		end
+	end
+	return picked
+end
+
 local function calculator()
 	installRadiusModel()
+	installDerived()
 	local calcFunc, calcBase = build.calcsTab:GetMiscCalculator()
 	return calcFunc, calcBase
 end
@@ -224,6 +409,7 @@ end
 -- Full recalculation through PoB's normal path, as after any edit in the GUI
 local function recalc()
 	installRadiusModel()
+	installDerived()
 	build.buildFlag = true
 	runCallback("OnFrame")
 end
@@ -387,7 +573,7 @@ function bridge.nodeDeltas(args)
 			override.addNodes = override.addNodes or { }
 			override.addNodes[withAttribute(node, case.switch[2], true)] = true
 		end
-		results[i] = pickStats(calcFunc(override, useFullDPS), args.fields)
+		results[i] = derivedCalc(function() return calcFunc(override, useFullDPS) end, args.fields)
 	end
 	return { results = results, seconds = os.clock() - start }
 end
@@ -406,7 +592,7 @@ function bridge.itemDeltas(args)
 		if slot then
 			slot.active = case.active
 		end
-		results[i] = pickStats(calcFunc({ repSlotName = case.slot, repItem = item }, useFullDPS), args.fields)
+		results[i] = derivedCalc(function() return calcFunc({ repSlotName = case.slot, repItem = item }, useFullDPS) end, args.fields)
 		if slot then
 			slot.active = wasActive
 		end
@@ -1288,7 +1474,7 @@ function bridge.gemDeltas(args)
 				group.gemList[#group.gemList + 1] = gemInstance(gemByName(name), case.level, case.quality)
 			end
 			list[#list + 1] = group
-			ok, output = pcall(run)
+			ok, output = pcall(derivedCalc, run, args.fields)
 			table.remove(list)
 		else
 			local gemList = socketGroup(case.group).gemList
@@ -1296,7 +1482,7 @@ function bridge.gemDeltas(args)
 			if case.remove then
 				local enabled = current.enabled
 				current.enabled = false
-				ok, output = pcall(run)
+				ok, output = pcall(derivedCalc, run, args.fields)
 				current.enabled = enabled
 			elseif current then
 				local saved = { }
@@ -1309,13 +1495,13 @@ function bridge.gemDeltas(args)
 				current.level = case.level or gemData.naturalMaxLevel
 				current.displayEffect = nil
 				setGemRequirements(current)
-				ok, output = pcall(run)
+				ok, output = pcall(derivedCalc, run, args.fields)
 				for key, value in pairs(saved) do
 					current[key] = value
 				end
 			elseif case.slot == #gemList + 1 then
 				gemList[case.slot] = gemInstance(gemByName(case.gem), case.level)
-				ok, output = pcall(run)
+				ok, output = pcall(derivedCalc, run, args.fields)
 				gemList[case.slot] = nil
 			else
 				error("slot " .. tostring(case.slot) .. " is past the end of group " .. tostring(case.group))
@@ -1324,7 +1510,7 @@ function bridge.gemDeltas(args)
 		if not ok then
 			error(output)
 		end
-		results[i] = pickStats(output, args.fields)
+		results[i] = output
 	end
 	return { results = results, seconds = os.clock() - start }
 end
@@ -1461,6 +1647,14 @@ function bridge.setAssumptions(args)
 		end
 	end
 	assumedMods = mods
+	derivedInputs, derivedValues = { }, { }
+	for _, mod in ipairs(mods) do
+		if mod.kind == "Derived" then
+			derivedInputs[#derivedInputs + 1] = mod
+			derivedValues[mod.name] = mod.value or 0
+		end
+	end
+	installDerived()
 	installAssumptions()
 	recalc()
 	return { stats = pickStats(build.calcsTab.mainOutput, args.fields) }

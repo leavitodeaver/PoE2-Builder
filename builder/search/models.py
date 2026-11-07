@@ -76,6 +76,16 @@ def line(text: str, scale: float = 1.0, *, when: list | None = None, per: str | 
     return mod
 
 
+UNIT = 1_000_000  # a fraction as a bridge model input (PoB multipliers are whole numbers; engine/bridge.lua DERIVED_UNIT)
+
+
+def derived(name: str, fn: str, value: float, **args) -> dict:
+    """A model input the bridge works out again on every calculation (engine/bridge.lua DERIVED), so what-ifs see it
+    without a trial: PoB multiplier Ledger<name>, read by lines with per=name. `value` is the build's own (a whole number:
+    a fraction comes x UNIT); `fn` and `args` are how the bridge works it out from a what-if's own items or output."""
+    return {"kind": "Derived", "name": name, "fn": fn, "value": int(round(value)), "args": args}
+
+
 def trigger_rate(skill: str, rate: float) -> list[dict]:
     return [{"kind": "SkillData", "skill": skill, "key": "triggerRate", "value": _round(rate)},
             {"kind": "SkillData", "skill": skill, "key": "triggered", "value": True}]
@@ -347,19 +357,60 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # 1 Energy per Power of the enemy it critically hits, scaled by the share of the enemy's Ailment
 # Threshold the hit deals, and its spells deal 20% less damage; the elemental-ailment metas gain 1
 # Energy per Power per Shock or Ignite (10 per Freeze, never assumed on a boss).
+# The others, from their 0.5 skill data (centienergy: 100 = 1 Energy): Cast on Block and Curse on Block 25 Energy per
+# block (cast_on_block_gain_X_centienergy_on_block 2500), counted at the boss's hits that land and are blocked;
+# Thundergod's Wrath 3 per Power per melee hit (cast_lightning_spell_on_hit_..._per_monster_power_on_hit 300); Spellslinger
+# 0.2 per 10 ms of the cast spell's base cast time (spellslinger_invocation_gain_X_centienergy_per_10ms_base_cast_time 20);
+# Cast on Melee Stun 10 per Power per Heavy Stun (light stuns, 2 per Power, not counted: PoB has no stun bar for a boss),
+# at Guided Hand's assumed Heavy Stun rate. Energy on kills (Cast on Melee Kill, Reaper's Invocation) and on minion deaths
+# counts none on a boss; Cast on Dodge (per distance rolled), Barrier Invocation (per Energy Shield damage taken) and Cast
+# on Charm Use are not modeled yet.
 
 META_GEMS = {
     "Cast on Critical": {"energy": 57.0, "gain": "crit", "less": 20.0},
     "Cast on Elemental Ailment": {"energy": 72.0, "gain": "ailment"},
     "Elemental Invocation": {"energy": 68.0, "gain": "ailment", "invocation": True},
+    "Cast on Block": {"energy": 57.0, "gain": "block", "per": 25.0},
+    "Curse on Block": {"energy": 57.0, "gain": "block", "per": 25.0},
+    "Thundergod's Wrath": {"energy": 72.0, "gain": "melee hit", "per": 3.0},
+    "Spellslinger": {"energy": 72.0, "gain": "cast", "per": 0.2, "invocation": True},
+    "Cast on Melee Stun": {"energy": 0.0, "gain": "heavy stun", "per": 10.0},
 }
+NO_ENERGY_ON_A_BOSS = {"Cast on Melee Kill": "kills", "Reaper's Invocation": "kills", "Cast on Minion Death": "minion deaths"}
 ENERGY_INPUTS = ("MetaEnergy", "MetaEnergyCrit", "MetaEnergyMore", "EnergyRefund", "InvocationHalfCost")
 RECENTLY = 4.0  # seconds
 
 
-def energy_gain(meta: str, stats: dict, main: str) -> tuple[float, str]:
-    """Energy per second the main skill earns a meta skill against a boss, before Energy modifiers."""
-    kind = META_GEMS[meta]["gain"]
+def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -> tuple[float, str]:
+    """Energy per second the main skill (or the boss's hits) earns a meta skill against a boss, before Energy modifiers."""
+    kind, per = META_GEMS[meta]["gain"], META_GEMS[meta].get("per", 0.0)
+    if kind == "block":
+        every = number(stats.get("enemySkillTime")) or 0.7
+        land = 1 - min(number(stats.get("EvadeChance")), 100) / 100
+        block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
+        blocks = land * block / every
+        return blocks * per, (f"you block {blocks:.2f} of the boss's hits per second (one every {every:g} s, {land:.0%} not evaded, "
+                              f"{block:.0%} blocked) for {per:g} Energy each")
+    if kind == "melee hit":
+        if skill is not None and not skill.melee:
+            return 0.0, f"{main} is not a melee attack: no Energy"
+        hits = hits_per_second(stats)
+        return hits * per * BOSS_POWER, f"{main} hits {hits:.2f} times per second for {per * BOSS_POWER:g} Energy each ({per:g} per Power)"
+    if kind == "cast":
+        if skill is not None and not skill.spell:
+            return 0.0, f"{main} is not a spell: no Energy"
+        cast = skill.cast_time if skill is not None else 0.0
+        each = per * cast * 100
+        casts = number(stats.get("Speed"))
+        return casts * each, (f"{main} is cast {casts:.2f} times per second for {each:.1f} Energy each ({per:g} per 10 ms of its "
+                              f"{cast:g} s base cast time)")
+    if kind == "heavy stun":
+        if skill is not None and not skill.melee:
+            return 0.0, f"{main} is not a melee attack: no Energy"
+        physical = number(stats.get("PhysicalHitAverage")) > 0
+        every = HEAVY_STUN_EVERY[physical]
+        return per * BOSS_POWER / every, (f"one Heavy Stun of the boss every {every:g} s assumed (PoB has no stun bar for a boss) for "
+                                          f"{per * BOSS_POWER:g} Energy; light stuns not counted")
     crit = number(stats.get("CritChance")) / 100
     if kind == "crit":
         crits = crits_per_second(stats)
@@ -407,12 +458,14 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
             for spell in spells:  # PoB would count them as if cast by hand
                 mods += trigger_rate(spell.name, 0.0)
             notes.append({"label": f"{meta.name} triggers per second ({names}; not counted)", "value": 0,
-                          "basis": "its Energy source isn't modeled" if meta.name not in META_GEMS
+                          "basis": f"it gains Energy on {NO_ENERGY_ON_A_BOSS[meta.name]}: none on a single boss"
+                          if meta.name in NO_ENERGY_ON_A_BOSS
+                          else "its Energy source isn't modeled yet" if meta.name not in META_GEMS
                           else "the main skill is one it triggers, so nothing else feeds its Energy",
                           "confidence": "theory"})
             continue
         cost = sum(100 * (s.cast_time or 0.0) for s in spells)
-        gain, gain_basis = energy_gain(meta.name, stats, main.name)
+        gain, gain_basis = energy_gain(meta.name, stats, main.name, main)
         rate = energy_rate(meta.name, x0, gain, cost, crits_recently, doubled)
         groups.add(meta.group)
 
@@ -672,20 +725,31 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
             name = skill.name
             values = {stat: number(v) for stat, v in skill.level_stats.items()
                       if entry.pattern is not None and entry.pattern.search(stat) and number(v)}
-            play = ""
+            play, uptime = "", None
             if entry.raw.get("uptime") in UPTIMES:  # derived from the mechanic and the build's own numbers
                 factor, why, play = UPTIMES[entry.raw["uptime"]](skill, stats or {})
                 why = f"; uptime {factor:.0%}: {why}"
+                # (worked out again by the bridge on every calculation, so an item or passive that changes it shows)
+                uptime = "Uptime" + re.sub(r"\W", "", name)
+                fn, args = UPTIME_INPUTS[entry.raw["uptime"]](skill)
+                if values:
+                    mods.append(derived(uptime, fn, factor * UNIT, **args))
             else:
                 why = ""
             for stat, value in sorted(values.items()):
+                if uptime is not None:
+                    for text in entry.replace:
+                        m = SYNTAX.match(text)
+                        when = [{"var": m.group(2)}] if m and m.group(1) == "if" else None
+                        mods.append(line(m.group(3) if when else text, value / UNIT, when=when, per=uptime,
+                                         skill=name if own else None))
                 if value * factor == 0:
                     if why:  # an uptime of 0 from the build's own numbers: the guide says why
                         notes.append({"label": entry.title, "value": "not counted (uptime 0%)",
                                       "basis": f"{name} can't be kept up{why}", "confidence": entry.confidence,
                                       "entry": entry.id, **({"play": play} if play else {})})
                     continue
-                for text in entry.replace:
+                for text in entry.replace if uptime is None else ():
                     m = SYNTAX.match(text)
                     when = [{"var": m.group(2)}] if m and m.group(1) == "if" else None
                     mods.append(line(m.group(3) if when else text, value * factor, when=when,
@@ -714,14 +778,17 @@ def harmony_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]:
     if not inputs.has(HARMONY):
         return [], []
     mana, life = number(stats.get("ManaUnreserved")), number(stats.get("Life"))
-    if mana <= life:
-        return [], [{"label": "Harmony Within", "value": "not counted",
-                     "basis": f"unreserved Mana {mana:,.0f} is not above Life {life:,.0f}, so hits come off Life as usual",
-                     "confidence": "theory"}]
     when = inputs.condition(HARMONY, True)
     if when is None:
         return [], []
-    return [line("1% of Damage is taken from Mana before Life", 100, when=when)], [{
+    # (the bridge tests Mana > Life again on every calculation, so a what-if that crosses it shows)
+    mods = [line("1% of Damage is taken from Mana before Life", 100, when=when, per=HARMONY),
+            derived(HARMONY, "harmony", 1 if mana > life else 0)]
+    if mana <= life:
+        return mods, [{"label": "Harmony Within", "value": "not counted",
+                       "basis": f"unreserved Mana {mana:,.0f} is not above Life {life:,.0f}, so hits come off Life as usual",
+                       "confidence": "theory"}]
+    return mods, [{
         "label": "Harmony Within", "value": "hits taken from Mana first",
         "basis": f"unreserved Mana {mana:,.0f} is above Life {life:,.0f}: counted as 100% of damage taken from Mana before Life, "
                  "both pools full (a fight where Mana drains below Life, and overflow of a hit bigger than the Mana, are not "
@@ -770,13 +837,14 @@ def resist_rings_model(lines: list[dict]) -> tuple[list[dict], list[dict]]:
         first, second, element = m.group(2).title(), m.group(3).title(), m.group(4).title()
         slots = items_with_resistance(lines, element)
         total = value * len(slots)
-        if total:
-            mods.append(line(f"+1% to {first} and {second} Resistances", total))
+        # (the bridge counts the items again on every calculation, so a what-if that adds or drops one shows)
+        mods.append(line(f"+1% to {first} and {second} Resistances", value, per=f"ResistItems{element}"))
+        mods.append(derived(f"ResistItems{element}", "resistItems", len(slots), element=element))
         notes.append({"label": f"{entry['source'][5:]}: +{value}% {first} and {second} Resistance per item with {element} Resistance",
                       "value": f"+{total}% ({len(slots)} items)",
                       "basis": f"items with a {element} Resistance modifier (its own, all Elemental, two elements, or a socketed rune): "
-                               + (", ".join(slots) or "none") + ". PoB ignores the line; counted from the item lines, so a change of "
-                               "gear or runes counts from the next resolve.",
+                               + (", ".join(slots) or "none") + ". PoB ignores the line; counted from the item lines on every "
+                               "calculation, so a change of gear or runes shows in what-ifs.",
                       "confidence": "verified_by_you", "entry": RESIST_ENTRY})
     return mods, notes
 
@@ -788,9 +856,13 @@ MANA_TEMPEST_DRAIN = 0.01  # of maximum Mana per second (poe2db: "Cost 1% Mana p
 MANA_TEMPEST_SPENT = 0.30  # "30% of Mana and Life spent while in the storm is added to this Skill's Mana Cost per Second"
 
 
+def _mana_tempest_spent(skill: Skill) -> float:
+    return number(skill.level_stats.get("mana_tempest_mana_cost_%_to_add_to_cost_per_second")) / 100 or MANA_TEMPEST_SPENT
+
+
 def mana_tempest_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
     mana, regen, spend = number(stats.get("Mana")), number(stats.get("ManaRegenRecovery")), number(stats.get("ManaPerSecondCost"))
-    spent_share = number(skill.level_stats.get("mana_tempest_mana_cost_%_to_add_to_cost_per_second")) / 100 or MANA_TEMPEST_SPENT
+    spent_share = _mana_tempest_spent(skill)
     drain = MANA_TEMPEST_DRAIN * mana + spent_share * spend
     deficit = spend + drain - regen
     if mana <= 0:
@@ -810,12 +882,17 @@ def mana_tempest_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
         "Assumes you recast it whenever your Mana is full again and stand in it; recasting earlier gives shorter storms."
 
 
-def lunar_blessing_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
-    rage = number(stats.get("MaximumRage"))
+def _lunar_blessing_times(skill: Skill) -> tuple[float, float, float]:
+    """(duration, seconds per Rage, cooldown)"""
     duration = number(skill.level_stats.get("base_skill_effect_duration")) / 1000 or 5.0
     per_rage = number(skill.level_stats.get("skill_lunar_blessing_extend_buff_by_X_ms_per_rage")) / 1000 or 0.2
+    return duration, per_rage, (skill.cooldown or 22.0) / (skill.cooldown_recovery or 1.0)
+
+
+def lunar_blessing_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
+    rage = number(stats.get("MaximumRage"))
+    duration, per_rage, cooldown = _lunar_blessing_times(skill)
     length = duration + per_rage * rage
-    cooldown = (skill.cooldown or 22.0) / (skill.cooldown_recovery or 1.0)
     up = min(1.0, length / max(cooldown, length))
     return up, (f"lasts {duration:g} s + {per_rage:g} s per Rage spent ({rage:.0f} Rage: {length:.1f} s); its cooldown, {cooldown:.1f} s, "
                 "recovers while it lasts"), \
@@ -823,6 +900,11 @@ def lunar_blessing_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
 
 
 UPTIMES = {"mana_tempest": mana_tempest_uptime, "lunar_blessing": lunar_blessing_uptime}
+# the same uptimes as the bridge works them out (DERIVED.manaTempest, DERIVED.lunarBlessing): (fn, args) for a skill
+UPTIME_INPUTS = {
+    "mana_tempest": lambda skill: ("manaTempest", {"spent": _mana_tempest_spent(skill)}),
+    "lunar_blessing": lambda skill: ("lunarBlessing", dict(zip(("duration", "perRage", "cooldown"), _lunar_blessing_times(skill)))),
+}
 
 
 # Melting Maelstrom (model: maelstrom) -------------------------------------------------------------------------------------
@@ -859,6 +941,15 @@ def maelstrom_model(lines: list[dict], stats: dict, enemy_chaos_resist: float = 
     return 0.0, []
 
 
+def maelstrom_inputs(lines: list[dict], dps: float, enemy_chaos_resist: float = 0.0) -> list[dict]:
+    """The pulses as the bridge works them out again for each what-if (its LedgerAddedDPS, in hundredths)."""
+    for entry in lines:
+        m = MAELSTROM.match(entry["text"].strip()) if entry["source"].startswith("item:Flask") else None
+        if m:
+            return [derived("Maelstrom", "maelstrom", dps * 100, share=int(m.group(1)) / 100, chaosResist=enemy_chaos_resist)]
+    return []
+
+
 # Guided Hand (model: guided_hand) --------------------------------------------------------------------------------------
 # "The next Attack you use within 4 seconds after Heavy Stunning a Rare or Unique Enemy is Ancestrally Boosted" and
 # "Ancestrally Boosted Attacks deal 30% increased Damage" (passive tree). PoB parses the second line but scales it by an
@@ -886,7 +977,9 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
     when = inputs.condition(GUIDED_HAND, True)
     if when is None:
         return [], []
-    return [line("1% increased Attack Damage", boost * share, when=when)], [{
+    # (the share is worked out again by the bridge from each calculation's attack speed)
+    return [line("1% increased Attack Damage", boost / UNIT, when=when, per=GUIDED_HAND),
+            derived(GUIDED_HAND, "guidedHand", share * UNIT, every=every)], [{
         "label": "Guided Hand: Ancestrally Boosted attacks after a Heavy Stun",
         "value": f"{share:.1%} of attacks boosted ({boost}% increased Damage on those)",
         "basis": f"one Heavy Stun of the boss every {every:g} s assumed ({'a Physical melee' if physical_melee else 'not a Physical melee'} "
@@ -910,14 +1003,17 @@ def sanguine_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]
     if not inputs.has(SANGUINE):
         return [], []
     life, spent = number(stats.get("Life")), number(stats.get("LifePerSecondCost"))
-    if life <= 0 or spent <= 0:
-        return [], [{"label": "Sanguine Tides", "value": "not counted", "basis": "the build spends no Life on its skills",
-                     "confidence": "theory"}]
-    gain = SANGUINE_PER_PERCENT * spent / life * 100
     when = inputs.condition(SANGUINE, True)
     if when is None:
         return [], []
-    return [line("Gain 1% of Damage as Extra Physical Damage", gain, when=when)], [{
+    gain = SANGUINE_PER_PERCENT * spent / life * 100 if life > 0 and spent > 0 else 0.0
+    # (worked out again by the bridge from each calculation's Life and Life cost)
+    mods = [line("Gain 1% of Damage as Extra Physical Damage", 1 / UNIT, when=when, per=SANGUINE),
+            derived(SANGUINE, "sanguine", gain * UNIT, perPercent=SANGUINE_PER_PERCENT)]
+    if gain <= 0:
+        return mods, [{"label": "Sanguine Tides", "value": "not counted", "basis": "the build spends no Life on its skills",
+                       "confidence": "theory"}]
+    return mods, [{
         "label": "Sanguine Tides: damage gained as Physical", "value": f"{gain:.1f}%",
         "basis": f"the main skill spends {spent:,.0f} Life/s ({spent / life:.1%} of {life:,.0f} per second): 1 Life Flask charge per 2% spent, "
                  "each consumed charge 1% for 5 s; every charge filled assumed consumed (you hit the boss whenever the flask is full)",
@@ -925,17 +1021,14 @@ def sanguine_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]
 
 
 # What-ifs and the models (the what-if limit) ---------------------------------------------------------------------------
-# A model that reads item lines counts from the next resolve: a plain item what-if can't see it. Build.item_deltas re-scores
-# the best few candidates whose lines a model reads (or that replace such an item) with a real trial, models included.
+# Model inputs the bridge can work out (item counts, uptimes from Mana, Life and speed) are worked out again on every
+# calculation (derived(), engine/bridge.lua DERIVED), so plain what-ifs see them. An item that carries a model itself (a
+# resistance ring, Melting Maelstrom, model inputs on its lines) still counts from the next resolve: Build.item_deltas
+# re-scores the best few such candidates (or those that replace such an item) with a real trial, models included.
 
 def item_read_by_models(raw: str, build_texts: list[str]) -> bool:
-    """Does a model read this item's lines, given the build's own lines? (Its own model inputs, Melting Maelstrom, a
-    resistance ring; or a resistance modifier while the build wears a ring that counts them.)"""
+    """Does a model read this item's lines? (Its own model inputs, Melting Maelstrom, a resistance ring: the item carries
+    the model itself. The items a ring counts are counted by the bridge on every calculation; `build_texts` is kept for
+    models that read the build's lines.)"""
     lines = [l.strip() for l in (raw or "").splitlines() if l.strip()]
-    ring = any(RING_LINE.match(t.strip()) for t in build_texts)
-    for text in lines:
-        if model_entry(text) is not None or MAELSTROM.match(text) or RING_LINE.match(text):
-            return True
-        if ring and RESIST_LINE.search(text) and "maximum" not in text.lower():
-            return True
-    return False
+    return any(model_entry(text) is not None or MAELSTROM.match(text) or RING_LINE.match(text) for text in lines)

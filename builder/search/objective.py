@@ -184,11 +184,13 @@ class Objective:
 
     def dps(self, stats: dict) -> float:
         """Single-target boss DPS."""
+        # (a what-if's own Melting Maelstrom pulses, worked out by the bridge; the build's, from the last resolve)
+        added = number(stats["LedgerAddedDPS"]) if "LedgerAddedDPS" in stats else self.added_dps
         if self.full:
             full = number(stats.get("FullDPS"))
             if full > 0:
-                return max(full - self.excluded(stats)[0], 0.0) + self.added_dps
-        return main_dps(stats) + self.added_dps
+                return max(full - self.excluded(stats)[0], 0.0) + added
+        return main_dps(stats) + added
 
     def clear_damage(self, stats: dict) -> float:
         """Damage per target while clearing: like boss DPS, but on-death effects count (clearing

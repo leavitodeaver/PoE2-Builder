@@ -27,9 +27,9 @@ SEEN_BY_POB = {
     "traveller": "an attribute choice the attribute round tries for real",
     "elemental_expression": "trigger rate from crits; the expression group is in Full DPS",
     "leylines": "applied in the bridge for every calculation",
-    "harmony": "passive flag (flag:HarmonyWithin); its Mana > Life test re-runs at every re-scored item trial",
-    "guided_hand": "passive flag (flag:GuidedHand); attack speed changes re-score through models_on_stats",
-    "sanguine": "passive flag (flag:SanguineTides); Life cost changes re-score through models_on_stats",
+    "harmony": "passive flag (flag:HarmonyWithin); the bridge tests Mana > Life again on every calculation",
+    "guided_hand": "passive flag (flag:GuidedHand); the bridge works the boosted share out again from each what-if's speed",
+    "sanguine": "passive flag (flag:SanguineTides); the bridge works the gain out again from each what-if's Life cost",
 }
 
 
@@ -113,19 +113,25 @@ def test_what_if_agrees_with_commit(engine, name):
 
 
 def test_rescoring_cost(engine):
-    """The cost of the re-scores: item what-ifs per second with a model on the build's own numbers, against without."""
+    """The cost of the model inputs: item what-ifs per second on a build with a model on its own numbers (Mana Tempest's
+    uptime), worked out in the bridge (today), against the real trials it needed before (models_on_stats); and the
+    bridge's score against the trial's."""
     search = spark(engine, ["Mana Tempest"])
     build = search.build
-    cases = [{"slot": "Amulet", "raw": rare("Gold Amulet", f"+{n} to maximum Mana")} for n in range(10, 210, 10)]
-    reassume = build.reassume
-    build.reassume = None
-    started = time.perf_counter()
-    build.item_deltas(cases)
-    plain = time.perf_counter() - started
-    build.reassume = reassume
-    started = time.perf_counter()
-    build.item_deltas(cases)
-    with_rescore = time.perf_counter() - started
-    print(f"\n20 item what-ifs: {plain * 1000:.0f} ms plain, {with_rescore * 1000:.0f} ms with up to "
-          f"{build.RESCORE_TOP} real trials ({len(cases) / plain:.0f}/s vs {len(cases) / with_rescore:.0f}/s)")
-    assert with_rescore < plain + 5.0
+    cases = [{"slot": "Amulet", "raw": rare("Gold Amulet", f"+{n} to maximum Mana", f"Regenerate {n} Mana per second")}
+             for n in range(10, 210, 10)]
+
+    def timed() -> tuple[float, list[float]]:
+        started = time.perf_counter()
+        scores = [score for score, _ in build.item_deltas(cases)]
+        return time.perf_counter() - started, scores
+
+    in_bridge, bridge_scores = timed()
+    build.models_on_stats = True  # the old way: the best few what-ifs get a real trial
+    trials, trial_scores = timed()
+    build.models_on_stats = False
+    print(f"\n20 item what-ifs: {in_bridge * 1000:.0f} ms with the inputs in the bridge ({len(cases) / in_bridge:.0f}/s), "
+          f"{trials * 1000:.0f} ms with up to {build.RESCORE_TOP} real trials ({len(cases) / trials:.0f}/s)")
+    best = max(range(len(cases)), key=lambda i: trial_scores[i])  # the best is always among the trials
+    assert bridge_scores[best] == pytest.approx(trial_scores[best], rel=TOLERANCE)
+    assert in_bridge < trials

@@ -379,6 +379,17 @@ and every effect is listed in the result with its basis and confidence:
   block of lines per on/off state of its conditions. Allocating Archon of the Storm or an Energy
   node shows its worth in a plain node what-if (Stormweaver Spark: what-if and commit agree
   exactly). Inputs on items count from the next resolve.
+- **Inputs the bridge works out per calculation** (2026-11-07, the what-if limit): a model input
+  that follows the build's items or own numbers goes to the bridge as kind `Derived` (name, how,
+  the build's value; `models.derived`), PoB multiplier `Ledger<name>` set on every calculation
+  (`engine/bridge.lua` DERIVED, a `calcs.perform` wrapper). Item counts (Safrin's Resolve and its
+  kin: items with a resistance modifier of the element) come from the calculation's own items;
+  output-derived inputs (Mana Tempest and Lunar Blessing uptimes, Sanguine Tides' gain, Guided
+  Hand's boosted share, Harmony Within's Mana > Life, Melting Maelstrom's pulses as
+  `LedgerAddedDPS`) are worked out from a what-if's own output, and the what-if calculates once
+  more when they moved. Item, node and gem what-ifs all see them; the real trials are left for
+  items that carry a model themselves (a resistance ring, Melting Maelstrom, model inputs on
+  their lines: `Build.item_deltas`, top 3).
 - **Elemental Archon:** 25% more Elemental spell damage × effect × uptime, and Exhaust All Power's
   crit grants × effect × uptime; uptime = D / (D + R + wait), D = 10 s × duration, R = 20 s /
   recovery speed (0 with Dominion), wait by source (Seething Body 0; Archon of the Storm half the

@@ -156,6 +156,31 @@ def test_unmodeled_metas_count_nothing_rather_than_a_self_cast():
     assert groups == set() and "not counted" in notes[0]["label"]
 
 
+def test_the_other_metas_gain_energy_from_their_own_events():
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
+    stats = {"Speed": 2, "HitChance": 100, "enemySkillTime": 0.5, "EvadeChance": 20, "EffectiveBlockChance": 50,
+             "PhysicalHitAverage": 1000}
+
+    def rate(meta: str, main: Skill) -> float:
+        mods, notes, _ = models.energy_model(Inputs(), stats, [main, Skill(meta, group=2, energy=True), comet], main)
+        return next(m["value"] for m in mods if m.get("key") == "triggerRate")
+
+    # Cast on Block: 2 boss hits/s, 80% not evaded, 50% blocked = 0.8 blocks/s x 25 Energy, x1.57, over 120 Energy
+    assert rate("Cast on Block", SPARK) == pytest.approx(0.8 * 25 * 1.57 / 120, rel=1e-4)
+    # Thundergod's Wrath: 2 melee hits/s x 3 per Power x 20; nothing from a spell
+    slam = Skill("Boneshatter", group=1, attack=True, melee=True)
+    assert rate("Thundergod's Wrath", slam) == pytest.approx(2 * 60 * 1.72 / 120, rel=1e-4)
+    assert rate("Thundergod's Wrath", SPARK) == 0.0
+    # Spellslinger: 2 casts/s of a 0.7 s spell x 0.2 per 10 ms = 14 Energy each
+    spark = Skill("Spark", group=1, spell=True, cast_time=0.7)
+    assert rate("Spellslinger", spark) == pytest.approx(2 * 14 * 1.72 / 120, rel=1e-4)
+    # Cast on Melee Stun: one Heavy Stun per 30 s (Physical melee) x 200 Energy, no increased Energy on the gem
+    assert rate("Cast on Melee Stun", slam) == pytest.approx(200 / 30 / 120, rel=1e-4)
+    # Energy on kills: none on a boss, and the guide says why
+    mods, notes, _ = models.energy_model(Inputs(), stats, [slam, Skill("Cast on Melee Kill", group=2, energy=True), comet], slam)
+    assert "none on a single boss" in notes[0]["basis"]
+
+
 # Darkness ----------------------------------------------------------------------------------------
 
 
@@ -271,6 +296,17 @@ def test_iron_ward_model_switches_off_through_its_ledger_entry():
     assert entry.raw["model"] == "iron_ward" and entry.raw["test_in_game"] and entry.confidence == "theory"
 
 
+def effective(mods: list[dict]) -> list[tuple]:
+    """(line, value, when) of each model line, its bridge input (models.derived) applied: what PoB counts for the build."""
+    values = {m["name"]: m["value"] for m in mods if m["kind"] == "Derived"}
+    return [(m["line"], pytest.approx(m["scale"] * values[m["per"]] + m["base"] if "per" in m else m["scale"], rel=1e-3),
+             m.get("when")) for m in mods if m["kind"] == "Line"]
+
+
+def derived_fns(mods: list[dict]) -> dict[str, str]:
+    return {m["name"]: m["fn"] for m in mods if m["kind"] == "Derived"}
+
+
 def test_gem_stats_pob_never_reads_become_scaled_lines():
     tempest = models.Skill("Mana Tempest", level_stats={
         "non_skill_base_all_damage_%_to_gain_as_lightning_with_spells_from_buff": 78,
@@ -278,15 +314,16 @@ def test_gem_stats_pob_never_reads_become_scaled_lines():
     # regeneration covers the spell and the storm's drain (1% of 2000 + 30% of 100): up all the time
     rich = {"Mana": 2000, "ManaRegenRecovery": 200, "ManaPerSecondCost": 100}
     mods, notes = models.gem_stat_model([models.Skill("Spark"), tempest], stats=rich)
-    assert mods == [{"kind": "Line", "line": "Gain 1% of Damage as Extra Lightning Damage with Spells", "scale": 78.0}]
+    assert effective(mods) == [("Gain 1% of Damage as Extra Lightning Damage with Spells", 78.0, None)]
+    assert derived_fns(mods) == {"UptimeManaTempest": "manaTempest"}  # the bridge works the uptime out again per what-if
     assert len(notes) == 1 and notes[0]["confidence"] == "theory" and "uptime 100%" in notes[0]["basis"] and notes[0]["play"]
     # it can't keep it up: 2000 Mana last 2000/(100 + 50 - 120) = 66.7 s, then 2000/(120 - 100) = 100 s to refill
     mods, notes = models.gem_stat_model([tempest], stats={"Mana": 2000, "ManaRegenRecovery": 120, "ManaPerSecondCost": 100})
-    assert mods[0]["scale"] == pytest.approx(78 * 66.667 / 166.667, rel=1e-3)
+    assert effective(mods)[0][1] == pytest.approx(78 * 66.667 / 166.667, rel=1e-3)
     # switched off by forbidding the entry, and nothing without the skill or with no Mana
     assert models.gem_stat_model([tempest], {"gem-mana-tempest-lightning"}, rich) == ([], [])
     assert models.gem_stat_model([models.Skill("Spark")], stats=rich) == ([], [])
-    assert models.gem_stat_model([tempest], stats={})[0] == []
+    assert effective(models.gem_stat_model([tempest], stats={})[0])[0][1] == 0  # no Mana: 0 until a what-if gives some
     assert "Mana Tempest" in models.gem_stat_skills()
 
 
@@ -308,19 +345,20 @@ def test_resistance_rings_count_items_by_the_users_rule():
              {"source": "item:Amulet", "text": "+5% to Maximum Fire Resistance"},
              {"source": "passive:Somewhere", "text": "+10% to Fire Resistance"}]
     mods, notes = models.resist_rings_model(lines)
-    assert mods == [{"kind": "Line", "line": "+1% to Cold and Lightning Resistances", "scale": 28.0}]  # 4 items x 7
+    assert effective(mods) == [("+1% to Cold and Lightning Resistances", 28.0, None)]  # 4 items x 7
+    assert mods[1] == {"kind": "Derived", "name": "ResistItemsFire", "fn": "resistItems", "value": 4, "args": {"element": "Fire"}}
     assert notes[0]["confidence"] == "verified_by_you" and "Boots" in notes[0]["basis"]
     assert models.resist_rings_model(lines[1:]) == ([], [])
+    assert effective(models.resist_rings_model(lines[:1])[0])[0][1] == 0  # no items yet: what-ifs that add one see it
 
 
 def test_harmony_within_counts_only_while_unreserved_mana_is_above_life():
     passive = models.Inputs(flags={"HarmonyWithin"})
     mods, notes = models.harmony_model(passive, {"ManaUnreserved": 3000, "Life": 2000})
-    assert mods == [{"kind": "Line", "line": "1% of Damage is taken from Mana before Life", "scale": 100.0,
-                     "when": [{"var": "HarmonyWithin"}]}]
-    assert notes[0]["confidence"] == "theory"
+    assert effective(mods) == [("1% of Damage is taken from Mana before Life", 100.0, [{"var": "HarmonyWithin"}])]
+    assert notes[0]["confidence"] == "theory" and derived_fns(mods) == {"HarmonyWithin": "harmony"}
     mods, notes = models.harmony_model(passive, {"ManaUnreserved": 1500, "Life": 2000})
-    assert mods == [] and notes[0]["value"] == "not counted"
+    assert effective(mods)[0][1] == 0 and notes[0]["value"] == "not counted"
     assert models.harmony_model(models.Inputs(), {"ManaUnreserved": 3000, "Life": 2000}) == ([], [])
 
 
@@ -330,6 +368,8 @@ def test_melting_maelstrom_pulses_are_the_mana_you_spend():
     assert dps == pytest.approx(120.0) and notes[0]["confidence"] == "theory" and notes[0]["play"]
     assert models.maelstrom_model([line], {"ManaPerSecondCost": 120}, enemy_chaos_resist=25)[0] == pytest.approx(90.0)
     assert models.maelstrom_model([{**line, "source": "passive:X"}], {"ManaPerSecondCost": 120}) == (0.0, [])
+    assert models.maelstrom_inputs([line], 120.0) == [{"kind": "Derived", "name": "Maelstrom", "fn": "maelstrom", "value": 12000,
+                                                       "args": {"share": 1.0, "chaosResist": 0.0}}]
 
 
 def test_guided_hand_boosts_the_attacks_after_a_heavy_stun():
@@ -338,7 +378,8 @@ def test_guided_hand_boosts_the_attacks_after_a_heavy_stun():
     slam = models.Skill("Boneshatter", attack=True, melee=True)
     mods, notes = models.guided_hand_model(passive, lines, {"Speed": 2.0, "PhysicalHitAverage": 1000}, slam)
     # one Heavy Stun per 30 s against 2 attacks per second: 1/60 of attacks get 30% increased damage
-    assert mods == [{"kind": "Line", "line": "1% increased Attack Damage", "scale": 0.5, "when": [{"var": "GuidedHand"}]}]
+    assert effective(mods) == [("1% increased Attack Damage", 0.5, [{"var": "GuidedHand"}])]
+    assert mods[1]["fn"] == "guidedHand" and mods[1]["args"] == {"every": 30.0}
     assert "30 s" in notes[0]["basis"]
     spell = models.Skill("Spark", spell=True)
     assert models.guided_hand_model(passive, lines, {"Speed": 2.0}, spell) == ([], [])
@@ -348,7 +389,7 @@ def test_guided_hand_boosts_the_attacks_after_a_heavy_stun():
 def test_sanguine_tides_gain_follows_the_life_spent():
     passive = models.Inputs(flags={"SanguineTides"})
     mods, notes = models.sanguine_model(passive, {"Life": 2000, "LifePerSecondCost": 100})  # 5% of Life per second
-    assert mods == [{"kind": "Line", "line": "Gain 1% of Damage as Extra Physical Damage", "scale": 12.5,
-                     "when": [{"var": "SanguineTides"}]}]
-    assert models.sanguine_model(passive, {"Life": 2000})[0] == []
+    assert effective(mods) == [("Gain 1% of Damage as Extra Physical Damage", 12.5, [{"var": "SanguineTides"}])]
+    assert derived_fns(mods) == {"SanguineTides": "sanguine"}
+    assert effective(models.sanguine_model(passive, {"Life": 2000})[0])[0][1] == 0
     assert models.sanguine_model(models.Inputs(), {"Life": 2000, "LifePerSecondCost": 100}) == ([], [])

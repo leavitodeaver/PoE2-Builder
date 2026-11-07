@@ -20,6 +20,7 @@ included in it and the objective switches to Full DPS while any exist.
 from __future__ import annotations
 
 import math
+import os
 import re
 
 from builder.ledger import conditions
@@ -40,6 +41,9 @@ REMNANT_SOURCES = {
 COOLDOWN_SOURCES = {"Snap", "Frost Bomb"}  # their rate scales with their own cooldown recovery
 ADDITIONAL_REMNANT = re.compile(r"(\d+(?:\.\d+)?)% chance to create an additional Remnant", re.I)
 REMNANT_CONSUMERS = {"Transmutation Explosion"}
+
+
+RESCORE_MODELS = os.environ.get("BUILDER_RESCORE_MODELS") == "1"
 
 
 class Assumptions:
@@ -82,10 +86,13 @@ class Assumptions:
         sanguine_mods, sanguine_notes = models.sanguine_model(inputs, stats)
         hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
         pulse, pulse_notes = models.maelstrom_model(source_lines, stats) if models.MAELSTROM_ENTRY not in forbidden else (0.0, [])
-        build.objective.added_dps = pulse  # separately computed damage (Melting Maelstrom's pulses), counted from the next resolve
-        # models whose effect follows the build's own numbers (Mana and regeneration, Life spent, attack speed): any item
-        # can change them, so every item what-if is re-scored with a real trial (Build.item_deltas)
-        build.models_on_stats = bool(stat_notes or harmony_notes or hand_notes or sanguine_notes or pulse_notes)
+        build.objective.added_dps = pulse  # separately computed damage (Melting Maelstrom's pulses); what-ifs get their own
+        hand_mods += models.maelstrom_inputs(source_lines, pulse) if pulse_notes else []
+        # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
+        # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
+        # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.
+        # (BUILDER_RESCORE_MODELS=1 puts the trials back, to measure what they cost: benchmarks/rescore_cost.py)
+        build.models_on_stats = bool(stat_notes or harmony_notes or hand_notes or pulse_notes) and RESCORE_MODELS
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]
