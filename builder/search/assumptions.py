@@ -79,6 +79,8 @@ class Assumptions:
         harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
         ring_mods, ring_notes = models.resist_rings_model(source_lines) if models.RESIST_ENTRY not in forbidden else ([], [])
         hand_mods, hand_notes = models.guided_hand_model(inputs, source_lines, stats, main)
+        sanguine_mods, sanguine_notes = models.sanguine_model(inputs, stats)
+        hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
         pulse, pulse_notes = models.maelstrom_model(source_lines, stats) if models.MAELSTROM_ENTRY not in forbidden else (0.0, [])
         build.objective.added_dps = pulse  # separately computed damage (Melting Maelstrom's pulses), counted from the next resolve
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods

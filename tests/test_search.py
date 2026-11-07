@@ -557,3 +557,9 @@ def test_a_flask_that_applies_its_effect_constantly():
     assert uptime(info, Charges(), "Mana") == 1.0
     assert recovery_per_second(info, Charges(), "Mana") == pytest.approx(100.0)
     assert recovery_per_second({**info, "constant": False}, Charges(), "Mana") == 0.0  # no charges to use it otherwise
+
+
+def test_grinning_immolation_ignites_you():
+    by_var = {c.var: c for c in CONDITIONS}
+    line = "Become Ignited when you deal a Critical Hit, taking 15% of your maximum Life and Energy Shield as Fire Damage per second"
+    assert text_evidence(by_var["conditionIgnited"], line)

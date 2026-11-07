@@ -135,6 +135,10 @@ CONDITIONS: list[Condition] = [
               fields=("EffectiveBlockChance", "enemySkillTime")),
     Condition("conditionHaveEnergyShield", "Have Energy Shield", stat=lambda s: number(s.get("EnergyShield")) > 0,
               fields=("EnergyShield",)),
+    # Grinning Immolation (Infernalist): "Become Ignited when you deal a Critical Hit": with crits landing you stay Ignited,
+    # so every "while Ignited" line of the build counts (its self-damage is a drain outside the checked defences)
+    Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)",
+              (r"become ignited when you deal a critical hit",)),
     Condition("conditionHitMeleeRecently", "Melee hit recently (a melee main skill)", main_types=("Melee",)),
     Condition("conditionAtCloseRange", "Enemy at close range (a melee main skill)", main_types=("Melee",)),
     _debuff("conditionEnemyBlinded", "Blinded", "blind"),

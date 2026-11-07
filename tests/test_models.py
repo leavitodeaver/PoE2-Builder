@@ -343,3 +343,12 @@ def test_guided_hand_boosts_the_attacks_after_a_heavy_stun():
     spell = models.Skill("Spark", spell=True)
     assert models.guided_hand_model(passive, lines, {"Speed": 2.0}, spell) == ([], [])
     assert models.guided_hand_model(models.Inputs(), lines, {"Speed": 2.0}, slam) == ([], [])
+
+
+def test_sanguine_tides_gain_follows_the_life_spent():
+    passive = models.Inputs(flags={"SanguineTides"})
+    mods, notes = models.sanguine_model(passive, {"Life": 2000, "LifePerSecondCost": 100})  # 5% of Life per second
+    assert mods == [{"kind": "Line", "line": "Gain 1% of Damage as Extra Physical Damage", "scale": 12.5,
+                     "when": [{"var": "SanguineTides"}]}]
+    assert models.sanguine_model(passive, {"Life": 2000})[0] == []
+    assert models.sanguine_model(models.Inputs(), {"Life": 2000, "LifePerSecondCost": 100}) == ([], [])

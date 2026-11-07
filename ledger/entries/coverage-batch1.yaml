@@ -357,3 +357,93 @@
   sources: ["https://poe2db.tw/us/Heavy_Stun", "PoE2 0.2.0 patch notes (Primed for Stun at 70% for Unique monsters)"]
   test_in_game: "On a boss, count your Heavy Stuns over a minute of fighting; the result's share follows from that."
   status: proposed
+
+
+# Area A of the coverage audit: keystones and ascendancy passives (7 Nov 2026) ----------------------------------------------
+
+- id: force-of-will
+  title: Force of Will, Arcane Surge effect per ten percent missing Mana
+  kind: pob_gap
+  match: '^(\d+)% increased Effect of Arcane Surge on you per ten percent missing Mana$'
+  replace: ['{g1*2.5}% increased effect of Arcane Surge on you']
+  confidence: theory
+  notes: >-
+    Reasonable play: in a boss fight a caster runs between full and about half Mana, so 25% of it missing on average (2.5
+    tens). A build that sits at full Mana gets nothing, one that runs dry gets up to five tens. Counted only with Arcane
+    Surge up (PoB's own condition for it).
+  sources: ["https://poe2db.tw/us/Stormweaver"]
+  test_in_game: "Watch the Arcane Surge buff's effect in the tooltip at full Mana and at half Mana."
+  status: proposed
+
+- id: ancestral-bond
+  title: Ancestral Bond, your Totem Limit is doubled
+  kind: pob_gap
+  match: '^Your Totem Limit is doubled$'
+  replace: ['+1 to maximum number of Summoned Totems']
+  confidence: reported
+  notes: "The base limit is 1 totem; doubled is one more. A build with more totem limit from elsewhere gets more (not counted: an undercount)."
+  sources: ["https://poe2db.tw/us/Ancestral_Bond"]
+  test_in_game: "Place totems with Ancestral Bond: two of the same totem stay at once."
+  status: proposed
+
+- id: ancestral-bond-charges
+  title: Ancestral Bond, no charge requirement for placing totems (the optimizer doesn't check that requirement)
+  kind: pob_gap
+  match: '^No Charge requirement for placing Totems$'
+  replace: []
+  confidence: reported
+  sources: ["https://poe2db.tw/us/Ancestral_Bond"]
+  test_in_game: "Not needed for the calculated numbers."
+  status: proposed
+
+- id: absorbed-rage-and-glory
+  title: Rage regeneration and Glory generation (the assumptions already count Rage at its maximum and Glory skills on use)
+  kind: pob_gap
+  match: '^(Regenerate \d+ Rage per second per \d+ Rage spent Recently|Banners gain \d+ Glory per second|Body Armour grants \d+% increased Glory generation)$'
+  replace: []
+  absorbed_by: "the condition resolver counts Rage at its maximum once the build has a source, and the Glory entries assume one use of a Glory skill per 6 s; faster generation would let them be used more often (not counted)"
+  confidence: theory
+  sources: ["https://poe2db.tw/us/Primal_Hunger", "https://poe2db.tw/us/Tactician", "https://poe2db.tw/us/Smith_of_Kitava"]
+  test_in_game: "Not needed for the calculated numbers."
+  status: proposed
+
+- id: no-effect-dot-and-recoup-defences
+  title: Heartstopper's damage over time taken, Scarred Faith's Energy Shield recoup (not checked defences)
+  kind: pob_gap
+  match: "^(Take \\d+% (less|more) Damage over Time if you('ve| haven't) started taking Damage over Time in the past second|\\d+% of Physical Damage prevented Recouped as Energy Shield per enemy Power|You cannot Recover Energy Shield from Regeneration)$"
+  replace: []
+  confidence: verified_by_you
+  notes: >-
+    The optimizer checks pools, resistances, maximum hit, block and evade; damage over time taken and Energy Shield
+    recovery aren't among them. Scarred Faith also stops Energy Shield regeneration, which PoB still shows (a recovery
+    overcount outside the checked numbers).
+  sources: ["https://poe2db.tw/us/Heartstopper", "https://poe2db.tw/us/Scarred_Faith"]
+  test_in_game: "Not needed for the checked numbers."
+  status: proposed
+
+- id: sanguine-tides
+  title: Sanguine Tides, damage gained as Physical from Life Flask charges your Life spending fills (custom model)
+  kind: pob_gap
+  model: sanguine
+  match: '^(Gain \d+ Life Flask Charge per \d+% Life spent|On Hitting an Enemy while a Life Flask is at full Charges, \d+% of its Charges are consumed|Gain \d+% of damage as Physical damage for \d+ seconds per Charge consumed this way)$'
+  replace: ['flag:SanguineTides']
+  confidence: theory
+  notes: >-
+    builder/search/models.py sanguine_model: every 2% of Life spent fills a Life Flask charge, and hitting with the flask
+    full consumes 40% of its charges, each giving 1% of damage as Physical for 5 s. In steady state every charge filled is
+    consumed, so the gain is 5 s x the charges filled per second x 1%: 2.5 x the % of Life spent per second. Counted
+    from the build's Life cost per second at each resolve.
+  sources: ["https://poe2db.tw/us/Blood_Mage"]
+  test_in_game: "Spend Life on skills against a boss with a full Life Flask: check the buff's damage gained as Physical against 2.5 x your Life spent per second (as % of Life)."
+  status: proposed
+
+- id: sanguine-tides-no-flask-life
+  title: Sanguine Tides, Flasks do not recover Life
+  kind: pob_gap
+  match: '^Flasks do not recover Life$'
+  replace: []
+  confidence: datamined
+  notes: "A drawback for sustain: the search's Life flask recovery should be 0 with it (not done yet: the sustain floor counts Mana)."
+  sources: ["https://poe2db.tw/us/Blood_Mage"]
+  test_in_game: "Drink a Life flask with Sanguine Tides: no Life comes back."
+  status: proposed

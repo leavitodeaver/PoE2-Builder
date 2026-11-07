@@ -42,6 +42,8 @@ MODEL_FIELDS = sorted({
     "ManaRegenRecovery", "MaximumRage",
     # Guided Hand: what kind of damage the main skill deals
     "PhysicalHitAverage",
+    # Sanguine Tides: Life spent per second
+    "LifePerSecondCost",
 })
 
 
@@ -888,3 +890,32 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
                  f"main skill; PoB has no stun bar for a boss) against {speed:.2f} attacks per second",
         "play": "A build made to stun (more stun buildup, Physical melee slams) heavy-stuns more often and boosts more attacks.",
         "confidence": "theory", "entry": "guided-hand-boost"}]
+
+
+# Blood Mage's Sanguine Tides (model: sanguine) ----------------------------------------------------------------------------
+# "Gain 1 Life Flask Charge per 2% Life spent"; "On Hitting an Enemy while a Life Flask is at full Charges, 40% of its
+# Charges are consumed"; "Gain 1% of damage as Physical damage for 5 seconds per Charge consumed this way" (poe2db). In
+# steady state every charge filled is consumed, so the buff holds 5 s x charges per second x 1%: 2.5 x the % of Life spent
+# per second (the main skill's Life cost per second over maximum Life). Counted from the next resolve (PoB's Life cost per
+# second is worked out after the modifiers a what-if would re-read).
+
+SANGUINE = "SanguineTides"
+SANGUINE_PER_PERCENT = 5.0 / 2.0  # 5 s per charge, 1 charge per 2% of Life spent
+
+
+def sanguine_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]:
+    if not inputs.has(SANGUINE):
+        return [], []
+    life, spent = number(stats.get("Life")), number(stats.get("LifePerSecondCost"))
+    if life <= 0 or spent <= 0:
+        return [], [{"label": "Sanguine Tides", "value": "not counted", "basis": "the build spends no Life on its skills",
+                     "confidence": "theory"}]
+    gain = SANGUINE_PER_PERCENT * spent / life * 100
+    when = inputs.condition(SANGUINE, True)
+    if when is None:
+        return [], []
+    return [line("Gain 1% of Damage as Extra Physical Damage", gain, when=when)], [{
+        "label": "Sanguine Tides: damage gained as Physical", "value": f"{gain:.1f}%",
+        "basis": f"the main skill spends {spent:,.0f} Life/s ({spent / life:.1%} of {life:,.0f} per second): 1 Life Flask charge per 2% spent, "
+                 "each consumed charge 1% for 5 s; every charge filled assumed consumed (you hit the boss whenever the flask is full)",
+        "play": "Hitting less often than the flask fills, or a flask that never fills, lowers it.", "confidence": "theory"}]
