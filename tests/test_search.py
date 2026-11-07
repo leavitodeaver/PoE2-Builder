@@ -593,3 +593,30 @@ def test_charges_held_follow_the_builds_sources():
     assert _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats) == (0.0, _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats)[1])
     assert _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats)[1]  # sources, but none on a boss
     assert _charges_held("Power")(["+1 to Maximum Power Charges"], stats) == (0.0, "")  # not a source
+
+
+def test_charges_consumed_per_use_are_not_held():
+    from builder.search.conditions import _charges_held
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15}
+    source = ["Gain a Frenzy Charge on Critical Hit"]  # 1 per s
+    assert _charges_held("Frenzy")(source, stats)[0] == 3
+    spending = {**stats, "_consumers": {"Frenzy": {"Explosive Spear": 2.0}}}  # 2 uses per s, one charge each
+    count, basis = _charges_held("Frenzy")(source, spending)
+    assert count == 0.1 and "50%" in basis  # none left over; half its uses find a charge
+    slow = {**stats, "_consumers": {"Frenzy": {"Explosive Spear": 0.25}}}
+    assert _charges_held("Frenzy")(source, slow)[0] == 3  # 0.75/s left x 15 s, at most 3
+    starved = {**stats, "_consumers": {"Frenzy": {"Explosive Spear": 4.0}}}
+    assert _charges_held("Frenzy")(source, starved)[0] == 0  # a quarter of its uses: not counted as charged
+
+
+def test_a_charge_source_is_worth_a_real_trial():
+    from builder.search.conditions import CHARGE_OVERRIDES
+
+    by_var = {c.var: c for c in CONDITIONS}
+    cond = Conditions.__new__(Conditions)
+    cond.main_types, cond.active = {"Attack"}, {"overrideFrenzyCharges": {"value": 1.0}}
+    assert cond.could_source(by_var["overrideFrenzyCharges"], "Gain a Frenzy Charge on Critical Hit")
+    assert not cond.could_source(by_var["overrideFrenzyCharges"], "20% chance to gain a Frenzy Charge on kill")
+    assert cond.would_enable("Gain a Frenzy Charge on Critical Hit")  # the count is held below its maximum
+    assert set(CHARGE_OVERRIDES) == {"overridePowerCharges", "overrideFrenzyCharges", "overrideEnduranceCharges"}

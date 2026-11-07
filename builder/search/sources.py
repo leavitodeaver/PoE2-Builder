@@ -26,7 +26,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from builder.search.conditions import CONDITIONS, EVIDENCE_FIELDS, STAT_SET_NEEDS, Condition, Conditions
+from builder.search.conditions import CHARGE_OVERRIDES, CONDITIONS, EVIDENCE_FIELDS, STAT_SET_NEEDS, Condition, Conditions
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS
 from builder.search.flasks import is_flask_slot
 from builder.search.gems import PERSISTENT_LABEL, Gems
@@ -227,6 +227,21 @@ class Sources:
         base = build.score
         found = []
         for condition in CONDITIONS:
+            charge = CHARGE_OVERRIDES.get(condition.var)
+            held = self.conditions.active.get(condition.var)
+            if charge is not None:
+                # (charges below their maximum: what more sources would be worth, so a support or passive that adds a
+                # source of them is tried for real; the count is a Configuration value a plain what-if can't see)
+                most = number(build.call("stats", fields=[f"{charge}ChargesMax"]).get(f"{charge}ChargesMax"))
+                if held is None or f"use{charge}Charges" not in self.conditions.active or most <= 0 \
+                        or held["value"] >= most or not self.possible(condition):
+                    continue
+                build.set_config({condition.var: most})
+                gain = build.score - base
+                build.set_config({condition.var: held["value"]})
+                if gain >= MIN_GAIN:
+                    found.append((gain, condition))
+                continue
             if condition.var in self.conditions.active or not self.possible(condition):
                 continue
             value: object = True

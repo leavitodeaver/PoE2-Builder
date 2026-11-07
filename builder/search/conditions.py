@@ -108,10 +108,23 @@ def _charges_held(kind: str):
             return 0.0, ""
         most = number(stats.get(f"{kind}ChargesMax"))
         duration = number(stats.get(f"{kind}ChargesDuration")) or 15.0
-        count = min(most, rate * duration)
-        # (PoB reads the override only while its "use" box is on; 0 here leaves it to the box's own rule: no charges)
-        return round(count, 1), f"{rate:.2f}/s x {duration:g} s = {rate * duration:.1f}, at most {most:g}: " + "; ".join(how[:3])
+        # Skills that consume this charge per use (PoB skill types SkillConsumes<Kind>ChargesOnUse; one per use assumed):
+        # what they spend isn't held. A consumer finds a charge on a share generation / consumption of its uses.
+        spent = sum((stats.get("_consumers") or {}).get(kind, {}).values())
+        net = max(rate - spent, 0.0)
+        count = min(most, net * duration)
+        basis = f"{rate:.2f}/s x {duration:g} s"
+        if spent:
+            share = min(1.0, rate / spent)
+            basis = (f"{rate:.2f}/s made, {spent:.2f}/s spent by " + ", ".join(stats["_consumers"][kind]) +
+                     f" (one per use; {share:.0%} of their uses find a charge), {net:.2f}/s left x {duration:g} s")
+            if count <= 0 and share >= 0.5:
+                count = 0.1  # (held for an instant before it's spent: enough for PoB to count the charged use)
+        return round(count, 1), f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3])
     return held
+
+
+CHARGE_OVERRIDES = {f"override{kind}Charges": kind for kind in ("Power", "Frenzy", "Endurance")}
 
 
 def _blocked_recently(stats: dict) -> bool:
@@ -305,6 +318,16 @@ class Conditions:
             if line["source"].startswith("gem:"):
                 name = line["source"][4:]
                 gem_types[name] = set((self.build.ctx.gems.get(name) or {}).get("skillTypes") or [])
+        # Charge consumers and their uses per second (the main skill at its speed, any other at one use per 4 s)
+        consumers: dict[str, dict[str, float]] = {}
+        main_types = self.main_types
+        for kind in ("Power", "Frenzy", "Endurance"):
+            flag = f"SkillConsumes{kind}ChargesOnUse"
+            for name, types in gem_types.items():
+                if flag in types:
+                    uses = number(stats.get("Speed")) if types == main_types else 1 / CHARGE_DEFAULT_EVERY
+                    consumers.setdefault(kind, {})[name] = uses
+        stats = {**stats, "_consumers": consumers}
         found: dict[str, tuple[object, str]] = {}
         for condition in CONDITIONS:
             reason = None
@@ -378,12 +401,17 @@ class Conditions:
         the effect is enough to deserve a real trial."""
         if condition.text and text_evidence(condition, text) and qualifies(text, self.main_types):
             return True
+        if (kind := CHARGE_OVERRIDES.get(condition.var)) is not None:  # a generator of that charge a boss fight feeds
+            rate = _charge_rate(text, kind, {"Speed": 1.0, "HitChance": 100, "CritChance": 50, "EffectiveBlockChance": 30})
+            return rate is not None and rate[0] > 0
         return condition.stat is not None and any(
             word.lower() in text.lower() for word in TRIAL_WORDS.get(condition.var, ()))
 
     def would_enable(self, text: str) -> bool:
-        """Could adding something with this text turn on a condition that's off now?"""
-        return any(self.could_source(c, text) for c in CONDITIONS if c.var not in self.active)
+        """Could adding something with this text turn on a condition that's off now, or raise a charge count the build
+        holds? (Charge counts are Configuration values a plain what-if can't see: such a gem gets a real trial.)"""
+        return any(self.could_source(c, text) for c in CONDITIONS
+                   if c.var not in self.active or c.var in CHARGE_OVERRIDES)
 
     def allows(self, stat_set: str | None, assume: tuple[str, ...] = ()) -> bool:
         """May PoB calculate this stat set (STAT_SET_NEEDS)? `assume` counts as active, for what-ifs."""
