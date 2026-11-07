@@ -157,7 +157,7 @@ MECHANICS = (
     ("recovery", r"regenerat|leech|recover|recoup|flask|charm|life on|mana on|refill|restore"),
     ("speed", r"attack speed|cast speed|skill speed|cooldown|duration|warcry speed|reload|use speed"),
 )
-MECHANIC_WEIGHT = {"damage": 4.0, "defence": 3.0, "speed": 3.0, "recovery": 2.5, "flavour": 0.1}
+MECHANIC_WEIGHT = {"damage": 4.0, "defence": 3.0, "speed": 3.0, "recovery": 2.5, "behaviour": 1.5, "flavour": 0.1}
 FLAVOUR = re.compile(r"movement speed|rarity|quantity|light radius|experience|stun\b(?! threshold)|"
                      r"knockback|pickup|collected|cosmetic|display|visual|flask charges gained|"
                      r"charm charges|item rarity|reveal|currency|gold", re.I)
@@ -203,10 +203,21 @@ STAT_KINDS = (
 )
 
 
+# Gem behaviour that decides how many hits a use makes on a boss, or how often it's used: counts of projectiles, chains,
+# forks, pierces, splits, repeats, beams, waves, totems, minions, corpses, stacks, explosions, and cooldowns
+BEHAVIOUR_DAMAGE = re.compile(r"number_of|projectiles?_nova|projectile_count|additional_projectile|chain|fork|pierce|split|"
+                              r"hits?_allowed|hit_limit|repeat|_allowed|maximum_number|cooldown(?!_recovery_modifiers)|totem|"
+                              r"corpse|stacks|explosion|fissure|beams?\b|waves?\b|pustule|_per_second|per_minute", re.I)
+
+
 def stat_mechanic(stat: str) -> str:
     """What a gem stat is about, from its id: behaviour and display stats (how a projectile flies,
     animation timing) are flavour for the numbers."""
-    if DISPLAY_STAT.search(stat) or (STAT_BEHAVIOUR.search(stat) and not re.search(r"damage|crit", stat)):
+    if DISPLAY_STAT.search(stat) or re.search(r"animation|turn_duration|knockback|movement_speed|visual|_angle|recoil", stat):
+        return "flavour"
+    if BEHAVIOUR_DAMAGE.search(stat):  # how many hits a use makes, or how often: it changes damage on a boss
+        return "behaviour"
+    if STAT_BEHAVIOUR.search(stat) and not re.search(r"damage|crit", stat):
         return "flavour"
     for name, pattern in STAT_KINDS:
         if re.search(pattern, stat, re.I):

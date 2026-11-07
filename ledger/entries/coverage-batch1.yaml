@@ -166,6 +166,7 @@
   match: '^non_skill_base_all_damage_%_to_gain_as_lightning_with_spells_from_buff$'
   replace: ['Gain 1% of Damage as Extra Lightning Damage with Spells']
   uptime: mana_tempest
+  stats: [mana_tempest_mana_cost_%_to_add_to_cost_per_second]  # the storm's drain, read by the uptime model
   confidence: theory
   notes: >-
     "Empowered Spells Gain (40-78)% of damage as Lightning Damage" (poe2db; 78% at level 20), for mana-costing spells

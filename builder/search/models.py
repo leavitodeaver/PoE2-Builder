@@ -788,7 +788,8 @@ MANA_TEMPEST_SPENT = 0.30  # "30% of Mana and Life spent while in the storm is a
 
 def mana_tempest_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
     mana, regen, spend = number(stats.get("Mana")), number(stats.get("ManaRegenRecovery")), number(stats.get("ManaPerSecondCost"))
-    drain = MANA_TEMPEST_DRAIN * mana + MANA_TEMPEST_SPENT * spend
+    spent_share = number(skill.level_stats.get("mana_tempest_mana_cost_%_to_add_to_cost_per_second")) / 100 or MANA_TEMPEST_SPENT
+    drain = MANA_TEMPEST_DRAIN * mana + spent_share * spend
     deficit = spend + drain - regen
     if mana <= 0:
         return 0.0, "no Mana", ""
