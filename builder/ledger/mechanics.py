@@ -171,6 +171,10 @@ def build(data_dir: Path | None = None) -> dict:
             computed = "none"
         else:
             computed = "no lines"
+            if not gems_using and mech["origin"] != "catalog":
+                # poe2db's glossary keeps deprecated keywords, not always marked (the user, 7 Nov): one that no line,
+                # gem or option of the 0.5 data uses is flagged, not left looking like work
+                mech["category"] = "no lines in 0.5 data (possibly deprecated)"
         weight = sum(r["weight"] * {"damage": 4, "defence": 3, "speed": 3, "recovery": 2.5}.get(r["mechanic"], 0.3) for r in none)
         mech.update({
             "pob_computed": computed,
@@ -214,7 +218,7 @@ def markdown(cat: dict) -> str:
     groups = defaultdict(list)
     for m in cat["mechanics"]:
         groups[m["category"]].append(m)
-    order = sorted(groups, key=lambda g: ("stat keyword" in g, "to plan" in g, g))
+    order = sorted(groups, key=lambda g: ("possibly deprecated" in g, "stat keyword" in g, "to plan" in g, g))
     out.append("| Category | Mechanics |")
     out.append("|---|---|")
     out += [f"| {g} | {len(groups[g])} |" for g in order]
@@ -222,6 +226,11 @@ def markdown(cat: dict) -> str:
     for g in order:
         out.append(f"## {g}")
         out.append("")
+        if "possibly deprecated" in g:
+            out.append("poe2db keywords that no line, gem or Configuration option of the 0.5 data uses: "
+                       + ", ".join(sorted(m["name"] for m in groups[g])) + ".")
+            out.append("")
+            continue
         for m in groups[g]:
             if ("to plan" in g or "stat keyword" in g) and m["lines"]["not_counted"] < 3:
                 continue  # automatic entries with under 3 lines not counted are in the JSON and the page, not the document
