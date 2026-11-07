@@ -1765,10 +1765,34 @@ function bridge.auditSkills(args)
 		sorted[#sorted + 1] = name
 	end
 	table.sort(sorted)
+	-- an attack gets a plain weapon of the first kind it allows (Normal rarity, the highest base of that kind)
+	local weaponFor = { }
+	for baseName, base in pairs(build.data.itemBases) do
+		if base.type and base.weapon and not base.hidden then
+			local best = weaponFor[base.type]
+			if not best or (base.req and base.req.level or 0) > (best.req and best.req.level or 0) then
+				weaponFor[base.type] = { name = baseName, req = base.req }
+			end
+		end
+	end
 	for _, name in ipairs(sorted) do
+		local effect = gemByName(name).grantedEffect
+		local kinds = { }
+		for kind in pairs(effect.weaponTypes or { }) do
+			kinds[#kinds + 1] = kind
+		end
+		table.sort(kinds)
+		local weapon = kinds[1] and weaponFor[kinds[1]]
+		pcall(bridge.equip, { slot = "Weapon 1", raw = weapon and ("Rarity: NORMAL\n" .. weapon.name .. "\n" .. weapon.name) or nil })
+		if #build.skillsTab.socketGroupList == 0 then
+			index = nil  -- (a skill's setup can drop the group: start a new one)
+		end
 		local ok, result = pcall(bridge.setGroup, { index = index, gems = { { name = name, level = 20, quality = 0 } }, main = true,
 			fields = fields })
 		if ok then
+			local minion = build.calcsTab.mainOutput and build.calcsTab.mainOutput.Minion
+			result.stats.MinionDPS = minion and (minion.CombinedDPS or minion.TotalDPS) or nil
+			result.stats.weapon = weapon and weapon.name or nil
 			index = 1
 			local types = { }
 			local effect = gemByName(name).grantedEffect

@@ -458,8 +458,9 @@ DAMAGE_STATS = ("CombinedDPS", "TotalDPS", "TotalDotDPS", "FullDPS", "AverageDam
 
 def zero_skills(data_dir: Path) -> list[dict]:
     """Audit item (e): active skills that calculate no damage alone on a plain level-90 character (bridge auditSkills, in
-    coverage.json). Attacks need a weapon and buffs, auras, curses and minions deal none of their own (minion damage isn't read
-    here), so only the others that deal damage are listed: a damaging spell or totem that calculates 0 is a gap."""
+    coverage.json). Each attack is calculated with a plain weapon of the first kind it allows, and a minion skill by its
+    minion's damage; buffs, auras, curses and meta gems deal none of their own and aren't listed. An attack with no weapon
+    kind of its own (it uses whatever you hold) isn't checked."""
     path = data_dir / "coverage.json"
     if not path.exists():
         return []
@@ -470,9 +471,13 @@ def zero_skills(data_dir: Path) -> list[dict]:
             found.append({"name": skill["name"], "status": "none", "reason": "PoB failed to calculate it: " + skill["error"][:120]})
             continue
         stats, types = skill.get("stats") or {}, set(skill.get("types") or [])
-        if any((stats.get(k) or 0) > 0 for k in DAMAGE_STATS):
+        if any((stats.get(k) or 0) > 0 for k in (*DAMAGE_STATS, "MinionDPS")):
             continue
-        if "Attack" in types or types & {"Minion", "CreatesMinion", "Aura", "Buff", "Persistent", "HasReservation", "Meta"}                 or not types & {"Damage", "DamageOverTime", "Projectile", "AreaSpell", "Nova", "SummonsTotem", "SummonsAttackTotem"}:
+        minion = bool(types & {"Minion", "CreatesMinion"})
+        if ("Attack" in types and not stats.get("weapon") and not minion) \
+                or (not minion and types & {"Aura", "Buff", "Persistent", "HasReservation", "Meta"}) \
+                or not (minion or types & {"Damage", "DamageOverTime", "Projectile", "AreaSpell", "Nova", "SummonsTotem",
+                                           "SummonsAttackTotem", "Attack"}):
             continue
         if entry := MODELED_SKILLS.get(skill["name"]):
             found.append({"name": skill["name"], "status": "model", "entry": entry,

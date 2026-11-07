@@ -56,6 +56,11 @@ Resistances Duration Charges Charge Rare Recovery Regeneration Energy Avoid Shie
     "Skill Effect Duration", "Cooldown Recovery Rate", "Stun Threshold", "Deflection Rating", "Runic Ward", "Attribute Requirements"}
 
 
+# Game keywords that are stats or skill families PoB calculates: their uncounted lines depend on another mechanic
+STAT_KEYWORDS = {"Maximum", "Armour", "Power", "Attacks", "Melee", "Str", "Dex", "Int", "Spells", "Spirit", "Block", "Allies",
+                 "Hit Damage", "Strike", "Charges", "Stun", "Freeze"} - set()
+
+
 def _load_yaml(path: Path) -> list[dict]:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or [] if path.exists() else []
 
@@ -122,8 +127,9 @@ def build(data_dir: Path | None = None) -> dict:
         if kw["name"].lower() in covered_terms:
             continue
         covered_terms.add(kw["name"].lower())
+        generic = kw["name"] in PLAIN or kw["name"] in STAT_KEYWORDS
         mechanics.append({"id": "kw-" + re.sub(r"\W+", "-", kw["name"].lower()).strip("-"), "name": kw["name"],
-                          "category": "keyword (to plan)", "game": kw.get("definition", ""),
+                          "category": "stat keyword (its lines belong under their mechanics)" if generic else "keyword (to plan)", "game": kw.get("definition", ""),
                           "game_source": "https://poe2db.tw/us/Keywords" + (" [legacy]" if kw.get("legacy") else ""),
                           "origin": "poe2db keyword", "names": [kw["name"]], "plan": None})
     term_counts = Counter(t for r in records if r["status"] == "none" for t in terms_of(r["line"]))
@@ -208,7 +214,7 @@ def markdown(cat: dict) -> str:
     groups = defaultdict(list)
     for m in cat["mechanics"]:
         groups[m["category"]].append(m)
-    order = sorted(groups, key=lambda g: ("to plan" in g, g))
+    order = sorted(groups, key=lambda g: ("stat keyword" in g, "to plan" in g, g))
     out.append("| Category | Mechanics |")
     out.append("|---|---|")
     out += [f"| {g} | {len(groups[g])} |" for g in order]
@@ -217,8 +223,8 @@ def markdown(cat: dict) -> str:
         out.append(f"## {g}")
         out.append("")
         for m in groups[g]:
-            if "to plan" in g and not m["lines"]["not_counted"] and not m["gem_count"]:
-                continue  # automatic entries with nothing uncounted aren't listed in the document (they are in the JSON)
+            if ("to plan" in g or "stat keyword" in g) and m["lines"]["not_counted"] < 3:
+                continue  # automatic entries with under 3 lines not counted are in the JSON and the page, not the document
             pob = m.get("pob") or m["pob_computed"]
             ln = m["lines"]
             out.append(f"### {m['name']} — PoB: {pob}" + (f" (lines say: {m['pob_computed']})" if m.get("pob") and m.get("pob") != m["pob_computed"] else ""))

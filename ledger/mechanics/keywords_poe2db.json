@@ -1,0 +1,3841 @@
+{
+ "source": "https://poe2db.tw/us/Keywords",
+ "fetched": "2026-11-07",
+ "note": "Definitions paraphrased and shortened from poe2db's datamined keyword glossary; entries marked legacy there are flagged.",
+ "page_count_reported": [
+  "COUNT: 777",
+  "TRUNCATED: no (all six WebFetch chunks of the page were read verbatim, covering the whole page; the Ascendancy Points entry body was cut at one chunk boundary, but its heading is included; the \"Keywords /776\" page header vs. my 777 lines is because some names appear twice on the page, e.g. Bucklers, Arcane Surge, Enraged, Possessed, Irradiated, Power Rune, Reviving Minions, Siphons Mana and Deals Lightning Damage, and each duplicate is listed as its own line)"
+ ],
+ "keywords": [
+  {
+   "name": "Physical Damage",
+   "definition": "One of the five Damage Types; the most common, and the only one reduced by Armour rather than Resistance.",
+   "legacy": false
+  },
+  {
+   "name": "Fire Damage",
+   "definition": "One of the five Damage Types; reduced by Fire Resistance; Fire Hits inflict Flammability based on damage dealt.",
+   "legacy": false
+  },
+  {
+   "name": "Cold Damage",
+   "definition": "One of the five Damage Types; reduced by Cold Resistance; Cold Hits apply Chill and build Freeze but cannot build Heavy Stun.",
+   "legacy": false
+  },
+  {
+   "name": "Lightning Damage",
+   "definition": "One of the five Damage Types; reduced by Lightning Resistance; Lightning Hits have a chance to Shock based on damage dealt.",
+   "legacy": false
+  },
+  {
+   "name": "Chaos Damage",
+   "definition": "One of the five Damage Types; reduced by Chaos Resistance; least common, and removes twice as much Energy Shield as its value.",
+   "legacy": false
+  },
+  {
+   "name": "Ailments",
+   "definition": "Family of common Debuffs tied to damage types: Bleeding, Ignite, Chill, Freeze, Shock, Electrocute and Poison.",
+   "legacy": false
+  },
+  {
+   "name": "Attributes",
+   "definition": "Strength, Dexterity and Intelligence are the 3 primary attributes, mainly used to meet equipment and gem requirements.",
+   "legacy": false
+  },
+  {
+   "name": "Strength",
+   "definition": "Attribute required for Armour equipment and melee-aligned weapons and skills; \"+2 to maximum Life per 1 Strength\".",
+   "legacy": false
+  },
+  {
+   "name": "Dexterity",
+   "definition": "Attribute required for Evasion equipment and range-aligned weapons and skills; \"+8 to Accuracy Rating per 1 Dexterity\".",
+   "legacy": false
+  },
+  {
+   "name": "Intelligence",
+   "definition": "Attribute required for Energy Shield equipment and spell-aligned weapons and skills; \"+2 to maximum Mana per 1 Intelligence\".",
+   "legacy": false
+  },
+  {
+   "name": "Bleeding",
+   "definition": "Ailment dealing Physical damage over time, lasting 5 seconds by default; 100% extra damage while the target is moving or Aggravated.",
+   "legacy": false
+  },
+  {
+   "name": "Blind",
+   "definition": "Causes 20% less Accuracy and Evasion Rating, lasting 4 seconds unless specified.",
+   "legacy": false
+  },
+  {
+   "name": "Chill",
+   "definition": "Ailment that Slows the target, lasting 2 seconds on players or 8 on non-players by default; Magnitude minimum 30%, default maximum 50%.",
+   "legacy": false
+  },
+  {
+   "name": "Chilled Ground",
+   "definition": "Chills those standing in it; lasts 6 seconds by default.",
+   "legacy": false
+  },
+  {
+   "name": "Consecrated Ground",
+   "definition": "Allies standing in it Regenerate 5% of maximum Life per second, and Curses have 50% reduced effect on them.",
+   "legacy": false
+  },
+  {
+   "name": "Culling Strike",
+   "definition": "Kills Normal enemies at 35% Life or below; Magic 20%, Rare 10%, Unique 5%; checked before Hit damage is applied.",
+   "legacy": false
+  },
+  {
+   "name": "Decimating Strike",
+   "definition": "Hits against Full Life enemies remove between 5% and 30% of Life before the Hit damage is applied.",
+   "legacy": false
+  },
+  {
+   "name": "Damage Types",
+   "definition": "The damage types are Physical, Fire, Cold, Lightning and Chaos.",
+   "legacy": false
+  },
+  {
+   "name": "Damaging Ailments",
+   "definition": "Ailments that deal damage: Bleeding, Ignite and Poison.",
+   "legacy": false
+  },
+  {
+   "name": "Desecrated Ground",
+   "definition": "You take Chaos damage over time while standing in Desecrated Ground.",
+   "legacy": false
+  },
+  {
+   "name": "Elemental Ailments",
+   "definition": "Ignite, Chill, Freeze, Shock and Electrocute.",
+   "legacy": false
+  },
+  {
+   "name": "Freeze",
+   "definition": "Ailment that stops targets moving or acting, lasting 4 seconds by default; Cold Hits contribute to buildup until Frozen.",
+   "legacy": false
+  },
+  {
+   "name": "Hinder",
+   "definition": "Debuff that Slows movement speed by 30% unless specified; lasts 4 seconds unless specified.",
+   "legacy": false
+  },
+  {
+   "name": "Ignite",
+   "definition": "Ailment dealing Fire damage over time, lasting 4 seconds by default; Magnitude is 20% of the Hit's Fire damage.",
+   "legacy": false
+  },
+  {
+   "name": "Flammability",
+   "definition": "Debuff providing the chance for Hits to Ignite; base 1% chance per 5% of Ailment Threshold dealt as Fire; 8 seconds by default.",
+   "legacy": false
+  },
+  {
+   "name": "Ignoring Resistances",
+   "definition": "Your damage cannot be modified in any way by the target's Resistance stats.",
+   "legacy": false
+  },
+  {
+   "name": "Knockback",
+   "definition": "Pushes Enemies away when Hit.",
+   "legacy": false
+  },
+  {
+   "name": "Life Leech",
+   "definition": "Recovers Life as a percentage of damage dealt over one second; damage capped at 40,000 for the calculation; one instance at a time.",
+   "legacy": false
+  },
+  {
+   "name": "Low Energy Shield",
+   "definition": "You are on Low Energy Shield at 35% of maximum Energy Shield or less.",
+   "legacy": false
+  },
+  {
+   "name": "Low Life",
+   "definition": "A player or monster is on Low Life at 35% of maximum Life or less.",
+   "legacy": false
+  },
+  {
+   "name": "Low Mana",
+   "definition": "You are on Low Mana at 35% of maximum Mana or less.",
+   "legacy": false
+  },
+  {
+   "name": "Lucky",
+   "definition": "Lucky things are rolled twice and the better result used.",
+   "legacy": false
+  },
+  {
+   "name": "Maim",
+   "definition": "Maimed enemies suffer 30% Slower Movement Speed and 15% reduced Evasion Rating; lasts 4 seconds unless specified.",
+   "legacy": false
+  },
+  {
+   "name": "Mana Leech",
+   "definition": "Recovers Mana as a percentage of damage dealt over one second; same 40,000 cap; one instance at a time.",
+   "legacy": false
+  },
+  {
+   "name": "Rage Leech",
+   "definition": "Recovers Rage as a percentage of damage dealt over one second; same 40,000 cap.",
+   "legacy": false
+  },
+  {
+   "name": "Map Owner",
+   "definition": "The player who created the Map area.",
+   "legacy": false
+  },
+  {
+   "name": "Non-Damaging Ailments",
+   "definition": "Chill, Freeze, Shock and Electrocute.",
+   "legacy": false
+  },
+  {
+   "name": "Overkill",
+   "definition": "Hit damage in excess of the enemy's remaining Life when it is killed.",
+   "legacy": false
+  },
+  {
+   "name": "Poison",
+   "definition": "Ailment dealing Chaos damage over time, lasting 2 seconds by default; bypasses Energy Shield.",
+   "legacy": false
+  },
+  {
+   "name": "Rage",
+   "definition": "Grants 1% more Attack damage per Rage; default maximum 30; lose 1 Rage every 0.2 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Recently",
+   "definition": "Refers to the past 4 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Shapeshifting",
+   "definition": "Changes you into a non-human form; skills incompatible with the form shift you back to human.",
+   "legacy": false
+  },
+  {
+   "name": "Shock",
+   "definition": "Ailment causing targets to take 20% increased damage; 4 seconds on players, 8 on non-players; 1% chance per 4% of Ailment Threshold dealt as Lightning.",
+   "legacy": false
+  },
+  {
+   "name": "Smoke Clouds",
+   "definition": "Enemies standing in them are Blinded; radius 2 metres unless otherwise specified.",
+   "legacy": false
+  },
+  {
+   "name": "Player Stun Threshold",
+   "definition": "Base equal to maximum Life; a Hit dealing at least that stuns you; chance scales down linearly; under 10% treated as 0%.",
+   "legacy": false
+  },
+  {
+   "name": "Enemy Stun Threshold",
+   "definition": "The lower an enemy's Stun Threshold, the less Stun buildup is needed to Stun or Heavy Stun them.",
+   "legacy": false
+  },
+  {
+   "name": "Freeze Threshold",
+   "definition": "Determines how much Freeze buildup is needed to Freeze a target.",
+   "legacy": false
+  },
+  {
+   "name": "Electrocute Threshold",
+   "definition": "Determines how much Electrocute buildup is needed to Electrocute a target.",
+   "legacy": false
+  },
+  {
+   "name": "Unaffected",
+   "definition": "Debuffs you are Unaffected by can still be placed on you but will not apply their effect.",
+   "legacy": false
+  },
+  {
+   "name": "Uncapped Resistance",
+   "definition": "The value a Resistance would have ignoring Maximum Resistance; shown in parentheses on the Character Panel.",
+   "legacy": false
+  },
+  {
+   "name": "Overcapped Resistance",
+   "definition": "Amount by which Uncapped Resistance exceeds Maximum Resistance for that damage type.",
+   "legacy": false
+  },
+  {
+   "name": "Unlucky",
+   "definition": "Unlucky things are rolled twice and the worse result used.",
+   "legacy": false
+  },
+  {
+   "name": "Immobilised",
+   "definition": "A target that cannot move, e.g. due to being Frozen, Pinned, Heavy Stunned or Electrocuted.",
+   "legacy": false
+  },
+  {
+   "name": "Stun",
+   "definition": "Hits can Stun depending on damage dealt; two types: Light Stuns (brief, frequent) and Heavy Stuns (multi-second).",
+   "legacy": false
+  },
+  {
+   "name": "Light Stun",
+   "definition": "Any Hit can Light Stun; base chance up to 100% for Hits dealing 100% of max Life; chances under 15% treated as 0%.",
+   "legacy": false
+  },
+  {
+   "name": "Heavy Stun",
+   "definition": "Occurs when a Stun bar fills; interrupts action for a few seconds; Immobilised while stunned; players usually cannot be Heavily Stunned.",
+   "legacy": false
+  },
+  {
+   "name": "Player Heavy Stun",
+   "definition": "Players usually cannot be Heavily Stunned except while specific actions (raising Shield, Buckler Parry, mount); cannot Block, Deflect or Evade while Heavily Stunned.",
+   "legacy": false
+  },
+  {
+   "name": "Electrocution",
+   "definition": "Ailment interrupting actions and preventing any action, lasting 5 seconds by default; only specific Lightning sources build it.",
+   "legacy": false
+  },
+  {
+   "name": "Pinned",
+   "definition": "Built up by certain skills; Pinned for 3 seconds (no moving, being moved or Evading) and Light Stunned on becoming Pinned.",
+   "legacy": false
+  },
+  {
+   "name": "Overwhelm",
+   "definition": "Negates a certain amount of the target's Physical damage reduction, never more than they have.",
+   "legacy": false
+  },
+  {
+   "name": "Melee",
+   "definition": "Direct Strike or Slam hits dealing Melee damage; Projectiles created by them do not count as Melee.",
+   "legacy": false
+  },
+  {
+   "name": "Slams",
+   "definition": "Melee Attacks causing damaging areas of effect rather than Striking directly.",
+   "legacy": false
+  },
+  {
+   "name": "Chain",
+   "definition": "Effects redirect to another target after colliding; Projectile chain distance 6 metres, other effects 4 metres.",
+   "legacy": false
+  },
+  {
+   "name": "Pierce",
+   "definition": "Projectiles that Pierce pass through a target while still damaging them.",
+   "legacy": false
+  },
+  {
+   "name": "Fork",
+   "definition": "Projectiles that Fork split into two the first time they collide with an enemy.",
+   "legacy": false
+  },
+  {
+   "name": "Split",
+   "definition": "First collision splits the Projectile or beam into multiple, aimed at different targets within 6 metres.",
+   "legacy": false
+  },
+  {
+   "name": "Deflect",
+   "definition": "Deflection Rating gives a chance to Deflect Hits, preventing 40% of their damage; depends on attacker's Accuracy.",
+   "legacy": false
+  },
+  {
+   "name": "Suppress",
+   "definition": "50% of damage from Suppressed Hits and Ailments they inflict is prevented.",
+   "legacy": false
+  },
+  {
+   "name": "Block",
+   "definition": "Completely prevents an incoming Hit's damage; Stun still applies; cannot Block while Stunned or Frozen.",
+   "legacy": false
+  },
+  {
+   "name": "Chance to Block",
+   "definition": "Includes only explicitly chance-based modifiers; guaranteed Block (e.g. raising Shield) does not affect it.",
+   "legacy": false
+  },
+  {
+   "name": "Overcapped Block Chance",
+   "definition": "Amount by which Chance to Block would exceed maximum if uncapped.",
+   "legacy": false
+  },
+  {
+   "name": "Strike",
+   "definition": "A Melee attack that directly hits with weapons or body parts; Slams are not Strikes.",
+   "legacy": false
+  },
+  {
+   "name": "Projectile",
+   "definition": "A moving Attack or Spell that usually impacts targets; only one Projectile in a group can hit each target unless specified.",
+   "legacy": false
+  },
+  {
+   "name": "Resistances",
+   "definition": "Reduce damage of Fire, Cold, Lightning or Chaos up to a Maximum; Elemental Resistances are lowered as you progress.",
+   "legacy": false
+  },
+  {
+   "name": "Critical Hits",
+   "definition": "Deal +100% extra damage by default; Critical Damage Bonuses can further modify this.",
+   "legacy": false
+  },
+  {
+   "name": "Critical Damage Bonus",
+   "definition": "Multiplies damage dealt by Critical Hits; default +100%.",
+   "legacy": false
+  },
+  {
+   "name": "Jagged Ground",
+   "definition": "Slows enemies' movement speed in its area by 20%.",
+   "legacy": false
+  },
+  {
+   "name": "Totems",
+   "definition": "Allied constructs that use skills for you; not Minions; Totem Limit is shared between types by default.",
+   "legacy": false
+  },
+  {
+   "name": "Taunt",
+   "definition": "Taunted enemies can only target you and deal 10% less damage with Hits to anyone else; 3 seconds by default.",
+   "legacy": false
+  },
+  {
+   "name": "Empowered Skills",
+   "definition": "Do not have inherent bonuses, but specific stats and modifiers apply to them.",
+   "legacy": false
+  },
+  {
+   "name": "Monster Power",
+   "definition": "Number reflecting monster strength (average 1); multiplied by Rarity: Normal 1, Magic 2, Rare 5; Unique always 20.",
+   "legacy": false
+  },
+  {
+   "name": "Armour",
+   "definition": "Reduces damage taken from Hits; by default only applies to Physical; more effective against smaller hits.",
+   "legacy": false
+  },
+  {
+   "name": "Burning",
+   "definition": "Enemies taking Fire damage over time; usually because they are Ignited.",
+   "legacy": false
+  },
+  {
+   "name": "Frozen",
+   "definition": "A Frozen target cannot move or act; reached at 100% Freeze buildup.",
+   "legacy": false
+  },
+  {
+   "name": "Evasion",
+   "definition": "Evasion Rating grants a chance to Evade Hits; exact chance also depends on attacker's Accuracy.",
+   "legacy": false
+  },
+  {
+   "name": "Accuracy",
+   "definition": "Used to hit with Attacks and checked against Evasion; Player Attacks lose up to 90% Accuracy beyond 9 metres.",
+   "legacy": false
+  },
+  {
+   "name": "Energy Shield",
+   "definition": "Protects Life by taking damage instead; recharges if not lost for a short time; Chaos removes twice as much; Bleeding and Poison bypass it.",
+   "legacy": false
+  },
+  {
+   "name": "Primed for Electrocution",
+   "definition": "Normal enemies at 40% Electrocution buildup; Magic 50%, Rare 60%, Unique 70%.",
+   "legacy": false
+  },
+  {
+   "name": "Primed for Stun",
+   "definition": "Normal enemies at 40% Heavy Stun buildup; Magic 50%, Rare 60%, Unique 70%.",
+   "legacy": false
+  },
+  {
+   "name": "Primed for Freeze",
+   "definition": "Normal enemies at 40% Freeze buildup; Magic 50%, Rare 60%, Unique 70%.",
+   "legacy": false
+  },
+  {
+   "name": "Iron Reflexes",
+   "definition": "Converts all Evasion Rating to Armour.",
+   "legacy": false
+  },
+  {
+   "name": "Slow",
+   "definition": "Debuff modifiers making actions take longer; multiplicative; 15% less effect on Magic, 30% less on Rare, 50% less on Unique; minimum 25% of base speed.",
+   "legacy": false
+  },
+  {
+   "name": "Rarity",
+   "definition": "Items or monsters can be Normal, Magic, Rare or Unique; higher-rarity monsters are more difficult.",
+   "legacy": false
+  },
+  {
+   "name": "Faster Start of Energy Shield Recharge",
+   "definition": "Affects the delay before Energy Shield starts Recharging after losing it.",
+   "legacy": false
+  },
+  {
+   "name": "Energy Shield Recharge Rate",
+   "definition": "Affects how quickly Energy Shield is recovered once Recharging starts.",
+   "legacy": false
+  },
+  {
+   "name": "Hit Damage",
+   "definition": "Any damage that isn't damage over time.",
+   "legacy": false
+  },
+  {
+   "name": "Spells",
+   "definition": "Skills using raw magic; have their own base damage, cast speed and Critical Hit chance; Attacks are not Spells.",
+   "legacy": false
+  },
+  {
+   "name": "Attacks",
+   "definition": "Skills directly damaging enemies, usually using your Martial Weapon; Spells are not Attacks.",
+   "legacy": false
+  },
+  {
+   "name": "Traps",
+   "definition": "Two-Handed ranged weapons requiring Dexterity and Intelligence; placed on the ground and detonated or triggered by nearby enemies.",
+   "legacy": false
+  },
+  {
+   "name": "Withered",
+   "definition": "Applies 5% increased Chaos damage taken per stack; can be inflicted up to 10 times.",
+   "legacy": false
+  },
+  {
+   "name": "Crushed",
+   "definition": "Lowers Physical Damage Reduction by 15%; can make it negative.",
+   "legacy": false
+  },
+  {
+   "name": "Crushing Blows",
+   "definition": "Cause a Heavy Stun on enemies Primed for Stun.",
+   "legacy": false
+  },
+  {
+   "name": "Brittle",
+   "definition": "Hits have up to +6% Critical Hit Chance against Brittle enemies, based on the Hit's Cold damage, for 4 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Quest Item",
+   "definition": "Used to progress the story; cannot be sold or stashed; can be discarded and reobtained.",
+   "legacy": false
+  },
+  {
+   "name": "Swords",
+   "definition": "Melee weapons, One-Handed or Two-Handed; require Strength and Dexterity.",
+   "legacy": false
+  },
+  {
+   "name": "Maces",
+   "definition": "Melee weapons, One-Handed or Two-Handed; require Strength.",
+   "legacy": false
+  },
+  {
+   "name": "Sceptres",
+   "definition": "One-Handed weapons requiring Strength and Intelligence; grant Spirit and Ally bonuses; cannot be used to Attack.",
+   "legacy": false
+  },
+  {
+   "name": "Wands",
+   "definition": "One-Handed spellcasting weapons requiring Intelligence; cannot be Dual Wielded or used to Attack directly.",
+   "legacy": false
+  },
+  {
+   "name": "Axes",
+   "definition": "Melee weapons, One-Handed or Two-Handed; require Strength and Dexterity.",
+   "legacy": false
+  },
+  {
+   "name": "Bows",
+   "definition": "Two-Handed ranged weapons requiring Dexterity; allow a Quiver in the off hand.",
+   "legacy": false
+  },
+  {
+   "name": "Daggers",
+   "definition": "One-Handed Melee weapons requiring Dexterity and Intelligence; for ambushing or debilitating enemies.",
+   "legacy": false
+  },
+  {
+   "name": "Staves",
+   "definition": "Two-Handed spellcasting weapons requiring Intelligence; cannot be used to Attack.",
+   "legacy": false
+  },
+  {
+   "name": "Claws",
+   "definition": "One-Handed Melee weapons requiring Dexterity; can be Dual Wielded with another Claw; attacks are fast and cause Bleeding.",
+   "legacy": false
+  },
+  {
+   "name": "Talismans",
+   "definition": "Two-Handed Melee weapons requiring Strength and Intelligence; shapeshift you into a form and grant a basic Attack.",
+   "legacy": false
+  },
+  {
+   "name": "Shields",
+   "definition": "Off-hand defensive items usually granting Armour; passive chance to Block plus an active Block or Parry skill.",
+   "legacy": false
+  },
+  {
+   "name": "Armoured Shields",
+   "definition": "Any Shield that grants Armour, i.e. every type except Bucklers.",
+   "legacy": false
+  },
+  {
+   "name": "Bucklers",
+   "definition": "Shields granting no Armour; can Parry enemy skills instead of being raised to Block.",
+   "legacy": false
+  },
+  {
+   "name": "Foci",
+   "definition": "Off-hand Intelligence armour that can grant significant Energy Shield and spell bonuses.",
+   "legacy": false
+  },
+  {
+   "name": "Quarterstaves",
+   "definition": "Two-Handed Melee weapons requiring Dexterity and Intelligence; focused on high mobility.",
+   "legacy": false
+  },
+  {
+   "name": "Spears",
+   "definition": "One-Handed Melee weapons requiring Strength and Dexterity; cannot be Dual Wielded; often thrown.",
+   "legacy": false
+  },
+  {
+   "name": "Crossbows",
+   "definition": "Two-Handed ranged weapons requiring Strength and Dexterity; basic Attacks can be changed by Ammunition Skills.",
+   "legacy": false
+  },
+  {
+   "name": "Flails",
+   "definition": "One-Handed Melee weapons requiring Strength and Intelligence; cannot be Dual Wielded.",
+   "legacy": false
+  },
+  {
+   "name": "Flasks",
+   "definition": "Recover Life or Mana using charges; charges regained by killing enemies, at Checkpoints and at Wells.",
+   "legacy": false
+  },
+  {
+   "name": "Utility Flasks",
+   "definition": "Flasks giving a timed buff or combat ability; can be bound to action buttons.",
+   "legacy": false
+  },
+  {
+   "name": "Quivers",
+   "definition": "Off-hand items usable only with a Bow; provide bonuses to Bow Attacks.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit",
+   "definition": "Resource used to activate and maintain skills with permanent effects; managed in the Skills Panel.",
+   "legacy": false
+  },
+  {
+   "name": "One-Handed",
+   "definition": "Weapons occupying only the main weapon slot; some types can be Dual Wielded.",
+   "legacy": false
+  },
+  {
+   "name": "Two-Handed",
+   "definition": "Weapons occupying both weapon slots when equipped.",
+   "legacy": false
+  },
+  {
+   "name": "Allies",
+   "definition": "Other players, Minions or entities fighting alongside you; you are not your own Ally.",
+   "legacy": false
+  },
+  {
+   "name": "Dual Wielding",
+   "definition": "Using two Martial Weapons, one in each hand.",
+   "legacy": false
+  },
+  {
+   "name": "Minions",
+   "definition": "Summoned Allies that fight alongside you; Persistent Minions reserve some Spirit.",
+   "legacy": false
+  },
+  {
+   "name": "Warcries",
+   "definition": "Count enemy Power in their area and empower your subsequent Melee Attacks.",
+   "legacy": false
+  },
+  {
+   "name": "Curses",
+   "definition": "Significantly Debuff affected targets; one Curse per target by default; 15%/30%/50% less effect on Magic/Rare/Unique.",
+   "legacy": false
+  },
+  {
+   "name": "Dark Whispers",
+   "definition": "Each gives 4% increased Curse Magnitude (max 10); last 8 seconds; on expiry lose 3% of Life, Mana and Energy Shield each over 4 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Aftershocks",
+   "definition": "Area damage bursts after an Attack's initial impact; usually the same damage; Attack damage only.",
+   "legacy": false
+  },
+  {
+   "name": "Elusive",
+   "definition": "Buff granting increased Movement Speed and chance to avoid damage; effects fade over time.",
+   "legacy": false
+  },
+  {
+   "name": "Shocked Ground",
+   "definition": "Shocks those standing in it; lasts 6 seconds by default.",
+   "legacy": false
+  },
+  {
+   "name": "Energy Shield Leech",
+   "definition": "Recovers Energy Shield as a percentage of Hit damage over one second; same limits as Life Leech.",
+   "legacy": false
+  },
+  {
+   "name": "Unarmed",
+   "definition": "You are Unarmed while you have no equipped Martial or Caster Weapon.",
+   "legacy": false
+  },
+  {
+   "name": "Unarmed Attacks",
+   "definition": "Attacks performed while Unarmed that use base Unarmed Damage instead of a weapon's damage.",
+   "legacy": false
+  },
+  {
+   "name": "Unarmed Damage",
+   "definition": "Base Physical Attack Hit damage: minimum roll 2, maximum 5 to 8 depending on alignment with Strength.",
+   "legacy": false
+  },
+  {
+   "name": "Orb Skills",
+   "definition": "Create lasting effects at a location that damage enemies in an area.",
+   "legacy": false
+  },
+  {
+   "name": "Exposure",
+   "definition": "Debuff lowering Elemental Resistances by 20% for 4 seconds by default; reduced on higher-Rarity enemies.",
+   "legacy": false
+  },
+  {
+   "name": "Energy",
+   "definition": "Generated and consumed by some Meta Gem skills to trigger other effects based on use time.",
+   "legacy": false
+  },
+  {
+   "name": "Ice Crystals",
+   "definition": "Destructible ice blocks dealing Cold damage in an area when destroyed; block smaller monsters.",
+   "legacy": false
+  },
+  {
+   "name": "Ice Crystal Shattering",
+   "definition": "Freeze-consuming skills instantly shatter Ice Crystals, making them deal more damage in a larger area.",
+   "legacy": false
+  },
+  {
+   "name": "Returning",
+   "definition": "Projectiles that travel back to their originator after their travel or a final target.",
+   "legacy": false
+  },
+  {
+   "name": "Phasing",
+   "definition": "While Phasing you pass through enemies without being blocked by them.",
+   "legacy": false
+  },
+  {
+   "name": "Corpses",
+   "definition": "Left by slain enemies and used or consumed by some skills; Unique monster corpses cannot be destroyed or consumed.",
+   "legacy": false
+  },
+  {
+   "name": "Charges",
+   "definition": "Fuel many skills; Endurance, Frenzy and Power types; up to 3 of each by default; last 15 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Elemental Damage Types",
+   "definition": "The three Elemental damage types: Fire, Cold and Lightning.",
+   "legacy": false
+  },
+  {
+   "name": "Wells",
+   "definition": "Present in every Town; refill Flasks and restore Life and Mana when used.",
+   "legacy": false
+  },
+  {
+   "name": "Presence",
+   "definition": "Area around your character, 4 metres radius by default, where effects such as many Auras apply.",
+   "legacy": false
+  },
+  {
+   "name": "Light Radius",
+   "definition": "Distance illuminated in dark areas and the radius within which terrain and points of interest are revealed on the map.",
+   "legacy": false
+  },
+  {
+   "name": "Item Rarity",
+   "definition": "Normal, Magic (up to 2 Modifiers), Rare (up to 6) or Unique; more powerful enemies drop rarer items.",
+   "legacy": false
+  },
+  {
+   "name": "Shatter",
+   "definition": "Frozen enemies Shatter when killed, destroying their corpse.",
+   "legacy": false
+  },
+  {
+   "name": "Resistance Penetration",
+   "definition": "Lowers the target's Resistance for calculating damage from your Hits, not below 0% by default; does not affect Ailments.",
+   "legacy": false
+  },
+  {
+   "name": "Armour Break",
+   "definition": "Lowers a target's Armour; at 0 it is Fully Broken for 12 seconds (4 for players); non-players take 20% increased Physical from Hits.",
+   "legacy": false
+  },
+  {
+   "name": "Armour Break below 0",
+   "definition": "Armour broken below 0 becomes negative, so enemies take more Physical damage; capped by base Armour.",
+   "legacy": false
+  },
+  {
+   "name": "Channelling",
+   "definition": "Skills held down to gain power or continue for longer.",
+   "legacy": false
+  },
+  {
+   "name": "Remote Skills",
+   "definition": "Skills performed by another entity such as a Totem, Trap or Clone; Minions are not Remote Skills.",
+   "legacy": false
+  },
+  {
+   "name": "Ancestral Boost",
+   "definition": "Ancestrally Boosted Slam has 30% more damage and 25% increased area; Ancestrally Boosted Strike targets 2 additional Enemies; counts as Empowered.",
+   "legacy": false
+  },
+  {
+   "name": "Ancestral Boosted Spells",
+   "definition": "Boosted Spells have 30% more damage and 25% increased area; Triggered Skills cannot be boosted.",
+   "legacy": false
+  },
+  {
+   "name": "Buffs",
+   "definition": "Boost a stat for a duration or while a condition is met; same-type Buffs do not stack unless stated.",
+   "legacy": false
+  },
+  {
+   "name": "Debuffs",
+   "definition": "Negative effects that deal damage or penalise stats; same-type Debuffs do not stack unless stated.",
+   "legacy": false
+  },
+  {
+   "name": "Persistent Skills",
+   "definition": "Toggled in the Skills Panel and often reserve Spirit to stay active.",
+   "legacy": false
+  },
+  {
+   "name": "Effect Consumption",
+   "definition": "Consuming enemy effects for a benefit; one Consumption at a time; target immune to that Debuff for 1 second.",
+   "legacy": false
+  },
+  {
+   "name": "Orb of Alteration",
+   "definition": "Reforges a Magic item with new random modifiers.",
+   "legacy": false
+  },
+  {
+   "name": "Artificer's Orb",
+   "definition": "Adds an Augment socket to a Martial Weapon or Armour.",
+   "legacy": false
+  },
+  {
+   "name": "Auras",
+   "definition": "Apply Buffs to Allies or Debuffs to enemies within a radius of the Aura source.",
+   "legacy": false
+  },
+  {
+   "name": "Stormsurge",
+   "definition": "Each grants 3% of damage gained as extra Lightning damage for 5 seconds; maximum 10.",
+   "legacy": false
+  },
+  {
+   "name": "Reviving Minions",
+   "definition": "Heal after avoiding damage and automatically revive after a short delay when killed.",
+   "legacy": false
+  },
+  {
+   "name": "Quality",
+   "definition": "Adds small bonuses to items by type, up to a default maximum of 20%.",
+   "legacy": false
+  },
+  {
+   "name": "Support Gems",
+   "definition": "Socketed into Skill Gems to modify only that skill; limits on duplicates and per-category use apply.",
+   "legacy": false
+  },
+  {
+   "name": "Area of Effect Skills",
+   "definition": "Effect applies to every target in the area rather than chosen targets.",
+   "legacy": false
+  },
+  {
+   "name": "Duration Skills",
+   "definition": "Skills whose Duration can be modified.",
+   "legacy": false
+  },
+  {
+   "name": "Detonator Skills",
+   "definition": "Make flammable gas, Oil, explosives and similar effects explode on contact.",
+   "legacy": false
+  },
+  {
+   "name": "Nova Skills",
+   "definition": "Take effect in a circular area around their user.",
+   "legacy": false
+  },
+  {
+   "name": "Triggered Skills",
+   "definition": "Occur immediately without attack or cast time, usually targeting the trigger's cause; channelled skills cannot be Triggered.",
+   "legacy": false
+  },
+  {
+   "name": "Herald Skills",
+   "definition": "Persistent Buffs granting powerful effects when enemies are killed.",
+   "legacy": false
+  },
+  {
+   "name": "Recoup",
+   "definition": "Recovers a stated resource equal to a percentage of damage taken from Hits, over 8 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Thorns",
+   "definition": "Hit damage you deal when enemies hit you in melee; not Attack or Spell damage.",
+   "legacy": false
+  },
+  {
+   "name": "Ignited Ground",
+   "definition": "Repeatedly inflicts Flammability on standing enemies, Igniting them at 50%; 4 seconds and 2 metres radius by default.",
+   "legacy": false
+  },
+  {
+   "name": "Critical Weakness",
+   "definition": "Hits against affected targets gain +0.5% Critical Hit Chance per stack, up to 20 stacks, each lasting 4 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Elemental Ground Surfaces",
+   "definition": "Umbrella term for Shocked Ground, Chilled Ground and Ignited Ground.",
+   "legacy": false
+  },
+  {
+   "name": "Crossbow Ammunition Skills",
+   "definition": "Replace your Crossbow's basic Attack with the indicated skill; most that Hit enemies have Knockback.",
+   "legacy": false
+  },
+  {
+   "name": "Monster Modifiers",
+   "definition": "Magic monsters normally have one; Rare monsters up to 4 by default; each grants at least 100% increased Rarity of items dropped.",
+   "legacy": false
+  },
+  {
+   "name": "Unwavering Stance",
+   "definition": "Cannot be Light Stunned; cannot Dodge Roll or Sprint.",
+   "legacy": false
+  },
+  {
+   "name": "Eldritch Battery",
+   "definition": "Converts 100% of maximum Energy Shield to maximum Mana; doubles Mana costs.",
+   "legacy": false
+  },
+  {
+   "name": "Mind over Matter",
+   "definition": "All damage is taken from Mana before Life; 50% less Mana Recovery Rate.",
+   "legacy": false
+  },
+  {
+   "name": "Blood Magic",
+   "definition": "You have no Mana; skill Mana costs are converted to Life costs.",
+   "legacy": false
+  },
+  {
+   "name": "Giant's Blood",
+   "definition": "Wield Two-Handed Axes, Maces and Swords in one hand; triple attribute requirements; inherent Life from Strength halved.",
+   "legacy": false
+  },
+  {
+   "name": "Vaal Pact",
+   "definition": "50% more Life leeched; Leech Life 67% less quickly; cannot recover Life other than from Leech.",
+   "legacy": false
+  },
+  {
+   "name": "Pain Attunement",
+   "definition": "30% less Critical Damage Bonus on Full Life; 30% more on Low Life.",
+   "legacy": false
+  },
+  {
+   "name": "Hex Master",
+   "definition": "Can apply an additional Curse; double Activation Delay of Curses.",
+   "legacy": false
+  },
+  {
+   "name": "Glancing Blows",
+   "definition": "Chance to Evade is Unlucky; chance to Deflect is Lucky.",
+   "legacy": false
+  },
+  {
+   "name": "Ancestral Bond",
+   "definition": "Totem Limit doubled; no cost or Charge requirement to place Totems; Totems reserve 75 Spirit each.",
+   "legacy": false
+  },
+  {
+   "name": "Conduit",
+   "definition": "If you would gain a Charge, Allies in your Presence gain that Charge instead.",
+   "legacy": false
+  },
+  {
+   "name": "Resolute Technique",
+   "definition": "Accuracy Rating is doubled; never deal Critical Hits.",
+   "legacy": false
+  },
+  {
+   "name": "Whispers of Doom",
+   "definition": "Can apply an additional Curse; double Activation Delay of Curses.",
+   "legacy": false
+  },
+  {
+   "name": "Avatar of Fire",
+   "definition": "75% of damage converted to Fire damage; deal no Non-Fire damage.",
+   "legacy": false
+  },
+  {
+   "name": "Scarred Faith",
+   "definition": "5% of Physical damage prevented recouped as Energy Shield per enemy Power; Energy Shield does not Recharge.",
+   "legacy": false
+  },
+  {
+   "name": "Lord of the Wilds",
+   "definition": "Can equip a non-Unique Sceptre while wielding a Talisman; 50% less Spirit; Non-Minion skills have 50% less Reservation Efficiency.",
+   "legacy": false
+  },
+  {
+   "name": "Necromantic Talisman",
+   "definition": "All bonuses from equipped Amulet apply to your Minions instead of you.",
+   "legacy": false
+  },
+  {
+   "name": "Hollow Palm Technique",
+   "definition": "Can Attack as though using a Quarterstaff while both hand slots are empty; Unarmed Attacks change accordingly.",
+   "legacy": false
+  },
+  {
+   "name": "Chaos Inoculation",
+   "definition": "Maximum Life is 1; immune to Chaos damage and Bleeding.",
+   "legacy": false
+  },
+  {
+   "name": "Martial Weapons",
+   "definition": "Axes, Bows, Claws, Crossbows, Daggers, Flails, Maces, Quarterstaves, Spears, Swords and Talismans.",
+   "legacy": false
+  },
+  {
+   "name": "Sacrifice",
+   "definition": "Loss of a resource (Life, Mana or Energy Shield) that does not count as taking damage; cannot reduce you below 1 Life.",
+   "legacy": false
+  },
+  {
+   "name": "Travel Skills",
+   "definition": "Cover large distances without targeting; multiple Travel Skill cooldowns are shared.",
+   "legacy": false
+  },
+  {
+   "name": "Eternal Youth",
+   "definition": "Life Recharges instead of Energy Shield; 50% less Life Recovery from Flasks.",
+   "legacy": false
+  },
+  {
+   "name": "Support Gem Requirements",
+   "definition": "Each socketed Support Gem adds a cumulative Attribute requirement, generally 5 per gem; separate from skill and equipment requirements.",
+   "legacy": false
+  },
+  {
+   "name": "Buff/Debuff Magnitude",
+   "definition": "The values of stats a Buff or Debuff applies; modifiers come from whoever applies it.",
+   "legacy": false
+  },
+  {
+   "name": "Buff/Debuff Effect",
+   "definition": "Modifiers to Buff or Debuff effect usually come from the affected target.",
+   "legacy": false
+  },
+  {
+   "name": "Heartstopper",
+   "definition": "50% less damage over time if you started taking damage over time in the past second; 50% more if not.",
+   "legacy": false
+  },
+  {
+   "name": "Elemental Equilibrium",
+   "definition": "Creates Lightning Infusion Remnants instead of Fire, Cold Infusion instead of Lightning, Fire Infusion instead of Cold.",
+   "legacy": false
+  },
+  {
+   "name": "Oasis",
+   "definition": "Cannot use Charms; 30% more Recovery from Flasks.",
+   "legacy": false
+  },
+  {
+   "name": "Arcane Surge",
+   "definition": "Grants 15% increased Cast Speed and 20% more Mana Regeneration Rate; lasts 4 seconds by default.",
+   "legacy": false
+  },
+  {
+   "name": "Invoke",
+   "definition": "Invoked Skills are those Triggered by Invocation Skills.",
+   "legacy": false
+  },
+  {
+   "name": "Meta Gems",
+   "definition": "Skill Gems that other Skill Gems can be socketed into; they use or Trigger those gems; cannot be socketed into other Meta Gems.",
+   "legacy": false
+  },
+  {
+   "name": "Final Strike",
+   "definition": "The term used by skills for the last strike of their sequence.",
+   "legacy": false
+  },
+  {
+   "name": "Finality",
+   "definition": "Buff granting 100% increased Critical Hit Chance with Final Strikes; Strikes skip to their Final Strike; no Combo while active.",
+   "legacy": false
+  },
+  {
+   "name": "Corrupted Blood",
+   "definition": "Debuff dealing Physical damage over time; up to 10 per target; not Bleeding and not affected by Bleeding stats.",
+   "legacy": false
+  },
+  {
+   "name": "Aggravated Bleeding",
+   "definition": "Aggravated Bleeding always treats the target as moving (100% extra damage); remains Aggravated until its duration expires.",
+   "legacy": false
+  },
+  {
+   "name": "Aggravated Ignite",
+   "definition": "Ignite that has been Aggravated deals 100% extra damage; remains until its duration expires.",
+   "legacy": false
+  },
+  {
+   "name": "Allies Leech the same amount",
+   "definition": "Allies' leech amount is not affected by their own modifiers, as your modifiers have already applied to it.",
+   "legacy": false
+  },
+  {
+   "name": "Non-Stacking Effects",
+   "definition": "Does not stack; applying it again before the first expires refreshes the duration.",
+   "legacy": false
+  },
+  {
+   "name": "Mark",
+   "definition": "Family of Debuffs applying powerful effects to a single enemy; each enemy can have one Mark; Marks Activate and are Consumed.",
+   "legacy": false
+  },
+  {
+   "name": "Life Recharge",
+   "definition": "Lost Life recharges at 12.5% per second after a base delay of 4 seconds; further loss resets the delay.",
+   "legacy": false
+  },
+  {
+   "name": "Energy Shield Recharge",
+   "definition": "Lost Energy Shield recharges at 12.5% per second after a base delay of 4 seconds; further loss resets the delay.",
+   "legacy": false
+  },
+  {
+   "name": "Energy Shield Protecting Mana",
+   "definition": "Energy Shield only protects you from damage that would be dealt to Mana.",
+   "legacy": false
+  },
+  {
+   "name": "Onslaught",
+   "definition": "Grants 20% increased Skill Speed and 10% increased movement speed; lasts 4 seconds unless specified.",
+   "legacy": false
+  },
+  {
+   "name": "Druidic Prowess",
+   "definition": "Stacking Buff: 10% increased Skill Speed; Spell Hits grant 3 Rage per stack for 10 seconds; maximum 3 stacks.",
+   "legacy": false
+  },
+  {
+   "name": "Fear Incarnate",
+   "definition": "Each grants 10% increased Culling Strike Threshold for 10 seconds; maximum 20.",
+   "legacy": false
+  },
+  {
+   "name": "Fear Overwhelming",
+   "definition": "Each grants 5% increased Area of Effect for Attack Skills for 10 seconds; maximum 20.",
+   "legacy": false
+  },
+  {
+   "name": "Checkpoints",
+   "definition": "Save progress; refill Life, Mana, Flasks and Charms; on death you may revive in Town or at the last Checkpoint.",
+   "legacy": false
+  },
+  {
+   "name": "Checkpoints in Maps",
+   "definition": "Once all Checkpoints are activated and the Map is completed, remaining unfinished map content is revealed on the minimap.",
+   "legacy": false
+  },
+  {
+   "name": "Waypoints",
+   "definition": "Save progress and allow quick travel between areas; reaching one refills Life, Mana, Flasks and Charms.",
+   "legacy": false
+  },
+  {
+   "name": "Elemental Ailment Threshold",
+   "definition": "Higher threshold makes Elemental Ailments less likely and lowers Freeze and Electrocute buildup; default is half of Life.",
+   "legacy": false
+  },
+  {
+   "name": "Maximum Resistances",
+   "definition": "Default maximum for Elemental or Chaos Resistance is 75%; cannot be raised above 90%.",
+   "legacy": false
+  },
+  {
+   "name": "Resonance",
+   "definition": "Gain Power Charges instead of Frenzy, Frenzy instead of Endurance, Endurance instead of Power.",
+   "legacy": false
+  },
+  {
+   "name": "Sustained Skills",
+   "definition": "Cause many Hits over time, each rolling Critical Hits independently.",
+   "legacy": false
+  },
+  {
+   "name": "Daze",
+   "definition": "Some skills apply Daze on Hit; lasts 8 seconds; Dazed enemies take 50% more Stun Buildup.",
+   "legacy": false
+  },
+  {
+   "name": "Combo",
+   "definition": "Counter on some Skills gained by Striking enemies; lost after a short time or on swapping Weapon Sets.",
+   "legacy": false
+  },
+  {
+   "name": "Minion Death and Killing Minions",
+   "definition": "Expired or despawned Minions count as died, but effects that trigger on a Minion being Killed do not.",
+   "legacy": false
+  },
+  {
+   "name": "Surrounded",
+   "definition": "You are Surrounded if there are at least 5 enemies within 3 metres of you; the number cannot be reduced below 1.",
+   "legacy": false
+  },
+  {
+   "name": "Reservation",
+   "definition": "Sets aside part of a resource (usually Spirit) from other uses while active; does not change the maximum.",
+   "legacy": false
+  },
+  {
+   "name": "Low Infernal Flame",
+   "definition": "You are on Low Infernal Flame at 35% or less of maximum Infernal Flame.",
+   "legacy": false
+  },
+  {
+   "name": "Bulwark",
+   "definition": "Dodge Roll cannot Avoid Damage; take 30% less damage from Hits while Dodge Rolling.",
+   "legacy": false
+  },
+  {
+   "name": "Damage Conversion",
+   "definition": "Converts damage to another type, which then scales with the new type's modifiers; two-step process; Damage over time cannot be converted.",
+   "legacy": false
+  },
+  {
+   "name": "Damage Gained as extra X",
+   "definition": "Gained damage scales only with modifiers to the new type, not the source type (unless they match); Damage over time cannot benefit.",
+   "legacy": false
+  },
+  {
+   "name": "Tailwind",
+   "definition": "Stacking Buff (max 10): 1% increased movement speed, 2% Skill Speed, 10% Evasion Rating, prevents 1% of Deflected Hit damage per stack; all lost on Hit.",
+   "legacy": false
+  },
+  {
+   "name": "Jade",
+   "definition": "Stacking Buff (max 10) granting 1% additional Physical Damage Reduction per stack.",
+   "legacy": false
+  },
+  {
+   "name": "Concentration",
+   "definition": "Enemies have less Cooldown Recovery Rate the lower their Concentration, down to 50% less at 0%.",
+   "legacy": false
+  },
+  {
+   "name": "Flame of Chayula",
+   "definition": "Remnants: Red grants Life Leech of 20% max Life; Blue grants Mana Leech of 20% max Mana; Purple grants a stacking Chaos buff (7% of damage, 8 seconds, max 10 stacks).",
+   "legacy": false
+  },
+  {
+   "name": "Ancient Blooms",
+   "definition": "Remnants granting 5 Charges: Vivid to all Charms, Primal to all Mana Flasks, Wild to all Life Flasks.",
+   "legacy": false
+  },
+  {
+   "name": "Red Flames of Chayula",
+   "definition": "Leech 20% of maximum Life to you when collected.",
+   "legacy": false
+  },
+  {
+   "name": "Blue Flames of Chayula",
+   "definition": "Leech 20% of maximum Mana to you when collected.",
+   "legacy": false
+  },
+  {
+   "name": "Small Passives",
+   "definition": "Passive Skills that are not Notables, Keystones, Ascendancy Passive Skills or attribute-choice passives.",
+   "legacy": false
+  },
+  {
+   "name": "Valour",
+   "definition": "Fuels Banner Skills; gained by killing with Attacks and by Banners near Unique enemies; maximum 50 per Banner by default.",
+   "legacy": false
+  },
+  {
+   "name": "Intimidate",
+   "definition": "Debuff inflicting 10% increased damage taken and 10% reduced damage dealt.",
+   "legacy": false
+  },
+  {
+   "name": "Ballista Totems",
+   "definition": "Totems that use Projectile Attacks.",
+   "legacy": false
+  },
+  {
+   "name": "Soul Core",
+   "definition": "Vaal artifacts that function as Augments.",
+   "legacy": false
+  },
+  {
+   "name": "Abyssal Eye",
+   "definition": "Artifacts recovered from Abyssals that function as Augments.",
+   "legacy": false
+  },
+  {
+   "name": "Rune",
+   "definition": "Augments of Kalguuran origin.",
+   "legacy": false
+  },
+  {
+   "name": "Idol",
+   "definition": "Augments fashioned by the Azmeri.",
+   "legacy": false
+  },
+  {
+   "name": "Honour",
+   "definition": "Trial of the Sekhemas resource; a share of damage taken is removed from it; reaching zero fails the Trial.",
+   "legacy": false
+  },
+  {
+   "name": "Lightning Ailments",
+   "definition": "Shock and Electrocute.",
+   "legacy": false
+  },
+  {
+   "name": "Added Skill Use Time",
+   "definition": "Fixed extra use time that skill use speed stats do not modify.",
+   "legacy": false
+  },
+  {
+   "name": "Covered in Oil",
+   "definition": "Oiled enemies are slowed, gain Exposure and take 200% more Flammability Magnitude; Ignite removes the Oil.",
+   "legacy": false
+  },
+  {
+   "name": "Oil Ground",
+   "definition": "Enemies standing in Oil are slowed and gain Exposure; fire can Ignite the Oil.",
+   "legacy": false
+  },
+  {
+   "name": "Str",
+   "definition": "[DNT] placeholder entry (attribute).",
+   "legacy": false
+  },
+  {
+   "name": "Dex",
+   "definition": "[DNT] placeholder entry (attribute).",
+   "legacy": false
+  },
+  {
+   "name": "Int",
+   "definition": "[DNT] placeholder entry (attribute).",
+   "legacy": false
+  },
+  {
+   "name": "Str/Dex",
+   "definition": "[DNT] placeholder entry (hybrid attribute).",
+   "legacy": false
+  },
+  {
+   "name": "Str/Int",
+   "definition": "[DNT] placeholder entry (hybrid attribute).",
+   "legacy": false
+  },
+  {
+   "name": "Dex/Int",
+   "definition": "[DNT] placeholder entry (hybrid attribute).",
+   "legacy": false
+  },
+  {
+   "name": "Str/Dex/Int",
+   "definition": "[DNT] placeholder entry (triple attribute).",
+   "legacy": false
+  },
+  {
+   "name": "Two-Hander",
+   "definition": "[DNT] placeholder entry (weapon category).",
+   "legacy": false
+  },
+  {
+   "name": "Stat Totals",
+   "definition": "The final value of a stat after all calculations; modifiers to the total apply last.",
+   "legacy": false
+  },
+  {
+   "name": "Adding to Stat Totals",
+   "definition": "Flat additions to a stat total occur after all other calculations, so percentage modifiers do not apply.",
+   "legacy": false
+  },
+  {
+   "name": "Charms",
+   "definition": "Equippable trinkets that trigger defensive effects using charges, regained by killing monsters (half their Power); maximum 3 slots.",
+   "legacy": false
+  },
+  {
+   "name": "Zealot's Oath",
+   "definition": "Excess Life Recovery from Regeneration goes to Energy Shield instead; Energy Shield does not Recharge.",
+   "legacy": false
+  },
+  {
+   "name": "Unbound Fury",
+   "definition": "Chilling, Shocking or Igniting Enemies grants 1; Freezing or Electrocuting grants 6.",
+   "legacy": false
+  },
+  {
+   "name": "Stat Conversion",
+   "definition": "Converting stat A to B applies A's base value to B; the converted part scales only with B's percentage modifiers.",
+   "legacy": false
+  },
+  {
+   "name": "Life Loss",
+   "definition": "Not damage; cannot be mitigated or absorbed by Energy Shield; can still kill you.",
+   "legacy": false
+  },
+  {
+   "name": "Gaining Stats from other Stats",
+   "definition": "Gaining a percentage of stat A as stat B uses A's base value and scales only with B's percentage modifiers.",
+   "legacy": false
+  },
+  {
+   "name": "Overflow",
+   "definition": "Recovery exceeding the maximum can reach up to 1.5 times that maximum.",
+   "legacy": false
+  },
+  {
+   "name": "Minion Commands",
+   "definition": "Certain Minions can be told to carry out actions through Command skills.",
+   "legacy": false
+  },
+  {
+   "name": "Difficulty",
+   "definition": "Raises monster damage and life and improves drops; no additional effect above 4.",
+   "legacy": false
+  },
+  {
+   "name": "Revival Availability",
+   "definition": "Limits deaths in endgame areas; boss deaths may respawn all players; Waystone modifiers can reduce revivals.",
+   "legacy": false
+  },
+  {
+   "name": "Map Boss",
+   "definition": "Unique endgame boss with special mechanics; defeating it completes the Map.",
+   "legacy": false
+  },
+  {
+   "name": "Powerful Map Boss",
+   "definition": "Harder Map Boss that drops better rewards and often Waystones one Tier higher.",
+   "legacy": false
+  },
+  {
+   "name": "Empowerment",
+   "definition": "Upgrades a Map Boss into a Powerful Map Boss.",
+   "legacy": false
+  },
+  {
+   "name": "Waking Nightmare",
+   "definition": "Debuff: 10% increased damage taken and 10% reduced Light Radius per stack for 10 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Toughness",
+   "definition": "Each 100% of Toughness halves damage taken by a monster; negative Toughness increases damage taken.",
+   "legacy": false
+  },
+  {
+   "name": "Spreading Ailments",
+   "definition": "Spreading inflicts a matching Ailment on another target from the same source; never back to the same target twice.",
+   "legacy": false
+  },
+  {
+   "name": "Dance with Death",
+   "definition": "25% more Skill Speed while Off Hand is empty and a One-Handed Martial Weapon is in the Main Hand.",
+   "legacy": false
+  },
+  {
+   "name": "Damage Contributing to Ailments",
+   "definition": "Lets other damage types count toward specific Ailments' calculations.",
+   "legacy": false
+  },
+  {
+   "name": "Weapon Set Passive Skill Points",
+   "definition": "Passive points allocated separately in each Weapon Set's Passive Tree.",
+   "legacy": false
+  },
+  {
+   "name": "Runic Inscriptions",
+   "definition": "Created by ground-area Skills; Support Gems and Unique Items can interact with them.",
+   "legacy": false
+  },
+  {
+   "name": "Runic Bindings",
+   "definition": "Each gives 10% reduced Spell Damage and 2% reduced skill cost Efficiency; up to 10; last 10 seconds; cannot be gained while Shapeshifted.",
+   "legacy": false
+  },
+  {
+   "name": "Unbound Potential",
+   "definition": "Each gives 20% increased Damage, 10% increased Armour and 10% increased Energy Shield; up to 10; lose one every 5 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Offering Skills",
+   "definition": "Target active Skeleton Minions to create Offering Spikes that grant Buffs.",
+   "legacy": false
+  },
+  {
+   "name": "Payoff Skills",
+   "definition": "Gain extra effects when hitting enemies with specific Debuffs, often Consuming them.",
+   "legacy": false
+  },
+  {
+   "name": "Grenade Skills",
+   "definition": "Crossbow-only skills with cooldowns; generally high damage or powerful utility; fuse duration.",
+   "legacy": false
+  },
+  {
+   "name": "Stun Recovery",
+   "definition": "Increases how quickly you recover from being Stunned.",
+   "legacy": false
+  },
+  {
+   "name": "Grasping Vines",
+   "definition": "Stacking Debuff slowing movement by 8% per stack; moving gradually removes stacks.",
+   "legacy": false
+  },
+  {
+   "name": "Enraged",
+   "definition": "Buff granting 25% Toughness and 25% increased damage.",
+   "legacy": false
+  },
+  {
+   "name": "Volatiles",
+   "definition": "Homing orbs that move toward targets and explode after a duration or on close approach.",
+   "legacy": false
+  },
+  {
+   "name": "Petrify",
+   "definition": "Debuff turning targets to stone, unable to move or act.",
+   "legacy": false
+  },
+  {
+   "name": "Explosive Rhythm",
+   "definition": "Each Buff grants 10% increased Cooldown Recovery Rate to Grenade Skills.",
+   "legacy": false
+  },
+  {
+   "name": "Explosive Fervour",
+   "definition": "Buff granting 15% increased Attack Speed per different Grenade used Recently; Grenades ignore cooldown and explode on any impact.",
+   "legacy": false
+  },
+  {
+   "name": "Augment",
+   "definition": "Items placed into Augment sockets; can be replaced but not removed by normal means.",
+   "legacy": false
+  },
+  {
+   "name": "Black Scythe Training",
+   "definition": "Gain no inherent Strength bonus; 1% increased Energy Shield per 2 Strength.",
+   "legacy": false
+  },
+  {
+   "name": "Circular Teachings",
+   "definition": "Gain no inherent Dexterity bonus; 1% increased Armour per 2 Dexterity.",
+   "legacy": false
+  },
+  {
+   "name": "Knightly Tenets",
+   "definition": "Gain no inherent Intelligence bonus; 1% increased Evasion Rating per 2 Intelligence.",
+   "legacy": false
+  },
+  {
+   "name": "Sacred Water",
+   "definition": "Trial of the Sekhemas resource used to buy Boons and venerate Maraketh Shrines.",
+   "legacy": false
+  },
+  {
+   "name": "Boons",
+   "definition": "Positive Trial effects, Minor or Major.",
+   "legacy": false
+  },
+  {
+   "name": "Afflictions",
+   "definition": "Negative Trial effects, Minor or Major.",
+   "legacy": false
+  },
+  {
+   "name": "Enfeeble",
+   "definition": "Curse reducing damage dealt by 10% against unique targets and 20% against others by default.",
+   "legacy": false
+  },
+  {
+   "name": "Binding Chains",
+   "definition": "Stacking Debuff slowing movement speed by 8% per stack.",
+   "legacy": false
+  },
+  {
+   "name": "Trial of the Sekhema Keys",
+   "definition": "Bronze, Silver and Gold keys that open the Trial's caches.",
+   "legacy": false
+  },
+  {
+   "name": "Relics",
+   "definition": "Items placed on the Relic Altar before a Trial to influence it; they persist between Trials.",
+   "legacy": false
+  },
+  {
+   "name": "Slow Magnitude Modifier",
+   "definition": "Modifier scaling only the slow portion of a Debuff's Magnitude.",
+   "legacy": false
+  },
+  {
+   "name": "High Infernal Flame",
+   "definition": "You are on High Infernal Flame at 65% or more of maximum Infernal Flame.",
+   "legacy": false
+  },
+  {
+   "name": "Purple Flame of Chayula",
+   "definition": "Stacking Buff granting 7% of damage as extra Chaos damage; up to 10 stacks.",
+   "legacy": false
+  },
+  {
+   "name": "Skill Speed",
+   "definition": "Speeds all Skills; stacks additively with Attack, Cast, Warcry and similar speeds.",
+   "legacy": false
+  },
+  {
+   "name": "Wildwood Wisp",
+   "definition": "Grants 30% increased Tribute Gained to Players within 3 metres.",
+   "legacy": false
+  },
+  {
+   "name": "Close Range",
+   "definition": "Anywhere within 2 metres of your character; normal Melee Attacks are in Close Range.",
+   "legacy": false
+  },
+  {
+   "name": "Unleash",
+   "definition": "Spells accumulate Seals that let them reoccur when cast; limit of 2 Seals per Spell.",
+   "legacy": false
+  },
+  {
+   "name": "Link Skills",
+   "definition": "Skills that link you to Allies to provide Buffs while within a certain distance.",
+   "legacy": false
+  },
+  {
+   "name": "Guard",
+   "definition": "Buff absorbing damage before Life or Energy Shield until it expires or is depleted; only one at a time; maximum 200% of max Life.",
+   "legacy": false
+  },
+  {
+   "name": "Delirium",
+   "definition": "Delirium Mirror unleashes a rolling fog; monsters gain Delirium Modifiers; Rare or Unique monsters may manifest Delirium Demons; Fractured Mirrors may appear.",
+   "legacy": false
+  },
+  {
+   "name": "Expedition",
+   "definition": "Ancient Kalguuran burial sites with Verisium Remnants and dangers buried beneath the ground; opened with explosives.",
+   "legacy": false
+  },
+  {
+   "name": "Verisium Remnant",
+   "definition": "Fragments of stars with runes inscribed; craft rewards by fighting waves of Verisium-infused monsters.",
+   "legacy": false
+  },
+  {
+   "name": "Grand Expedition",
+   "definition": "Larger Expedition with many more explosives and special Remnants; found only in Ocean Biomes revealed by Logbooks.",
+   "legacy": false
+  },
+  {
+   "name": "Breach",
+   "definition": "Tears letting invaders from another world into ours; Unstable Breaches close by killing monsters; Breach Hives need Ailith.",
+   "legacy": false
+  },
+  {
+   "name": "Ritual",
+   "definition": "Ritual Altars absorb slain monsters; activating resurrects them; defeating them earns Tribute for Favours.",
+   "legacy": false
+  },
+  {
+   "name": "Irradiated",
+   "definition": "Area has +1 to Monster Level.",
+   "legacy": false
+  },
+  {
+   "name": "Abyss",
+   "definition": "Pit with fissures; monsters near it are weakened; closing it spawns Abyssal monsters; may lead to Abyssal Depths.",
+   "legacy": false
+  },
+  {
+   "name": "Tablets",
+   "definition": "Special items used in the Map Device to add more Endgame Mechanics to Maps.",
+   "legacy": false
+  },
+  {
+   "name": "Waystones",
+   "definition": "Items used to travel to Maps on the Atlas; higher tiers are harder and drop higher-level items.",
+   "legacy": false
+  },
+  {
+   "name": "Essence",
+   "definition": "Essence monsters trapped in crystallised corruption; breaking them free yields the Essence used to modify equipment.",
+   "legacy": false
+  },
+  {
+   "name": "Shrine",
+   "definition": "Precursor Artifacts that empower monsters within their Presence; defeat the worshipping monsters to gain the power.",
+   "legacy": false
+  },
+  {
+   "name": "Strongbox",
+   "definition": "Locked chests whose unlocking unleashes Packs of monsters that must be defeated for the items.",
+   "legacy": false
+  },
+  {
+   "name": "Precursor Towers",
+   "definition": "Ancient structures on the Atlas; complete by activating the Precursor Beacon after defeating the Map Boss.",
+   "legacy": false
+  },
+  {
+   "name": "Fracturing Mirrors",
+   "definition": "Structures in Delirium Fog that shatter when approached, spawning Delirium monsters.",
+   "legacy": false
+  },
+  {
+   "name": "Fracturing Mirror Shards",
+   "definition": "Fracturing Mirror types found at set depths in Delirium Fog with varied effects (Escalation, Deceptive, Capricious).",
+   "legacy": false
+  },
+  {
+   "name": "Acrobatics",
+   "definition": "Can Evade all Hits; 75% less Evasion Rating.",
+   "legacy": false
+  },
+  {
+   "name": "Basic Jewel",
+   "definition": "Rubies, Emeralds, Sapphires and Diamonds; do not affect nodes in a radius.",
+   "legacy": false
+  },
+  {
+   "name": "The Realmgate",
+   "definition": "Vaal Technology allowing use of Atlas mechanic keys to access deadly areas.",
+   "legacy": false
+  },
+  {
+   "name": "The Reliquary Vault",
+   "definition": "A Vaal Vault accessed using Reliquary Keys found across the Atlas.",
+   "legacy": false
+  },
+  {
+   "name": "Corruption",
+   "definition": "Contains Corruption, which may add a modifier to the area; corrupted areas cause slain monsters to Coalesce Corruption.",
+   "legacy": false
+  },
+  {
+   "name": "Unique Map",
+   "definition": "Contains a Unique Map layout with possible specialised rewards; cannot gain additional content.",
+   "legacy": false
+  },
+  {
+   "name": "Hideout",
+   "definition": "Can be fully cleared to unlock it for personal use; all monsters are at least Magic.",
+   "legacy": false
+  },
+  {
+   "name": "Wandering Trader",
+   "definition": "Contains a Wandering Trader who may offer powerful rewards.",
+   "legacy": false
+  },
+  {
+   "name": "Citadel",
+   "definition": "Three types (Copper, Iron, Stone) in different cities; complete one of each to access The Burning Monolith.",
+   "legacy": false
+  },
+  {
+   "name": "Copper Citadel",
+   "definition": "Endgame area accessed with a Tier 15+ Waystone; its boss drops a Faded Crisis Fragment.",
+   "legacy": false
+  },
+  {
+   "name": "Iron Citadel",
+   "definition": "Endgame area accessed with a Tier 15+ Waystone; its boss drops an Ancient Crisis Fragment.",
+   "legacy": false
+  },
+  {
+   "name": "Stone Citadel",
+   "definition": "Endgame area accessed with a Tier 15+ Waystone; its boss drops a Weathered Crisis Fragment.",
+   "legacy": false
+  },
+  {
+   "name": "The Burning Monolith",
+   "definition": "Houses the most dangerous foe in Wraeclast; requires three Crisis Fragments.",
+   "legacy": false
+  },
+  {
+   "name": "Map Node",
+   "definition": "Represents a Map accessed with a Waystone; failed Maps can be retried without extra content and cannot use Tablets.",
+   "legacy": false
+  },
+  {
+   "name": "Cooldown Recovery Rate",
+   "definition": "Speeds Skill cooldown restoration (100% increased halves cooldowns); affects nothing except Skill cooldowns.",
+   "legacy": false
+  },
+  {
+   "name": "Jewels",
+   "definition": "Socketed into Jewel Sockets on the Passive Skill Tree for bonuses; some modify nearby passives.",
+   "legacy": false
+  },
+  {
+   "name": "Iron Grip",
+   "definition": "Gain no inherent Strength bonus; 1% increased Projectile Attack damage per 2 Strength.",
+   "legacy": false
+  },
+  {
+   "name": "Iron Will",
+   "definition": "Gain no inherent Strength bonus; 1% increased Spell damage per 2 Strength.",
+   "legacy": false
+  },
+  {
+   "name": "Soul Eater",
+   "definition": "Eat Souls of enemies that die in your Presence; each grants 1% increased Skill Speed; up to 50.",
+   "legacy": false
+  },
+  {
+   "name": "Eaten Souls",
+   "definition": "Each Soul grants 1% increased Skill Speed; up to 50; one lost every 0.5 seconds without eating one in the past 4 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Leech",
+   "definition": "Recovers Life, Mana, Energy Shield or Rage over one second, based on Hit damage; one instance per resource at a time.",
+   "legacy": false
+  },
+  {
+   "name": "Historic Jewels",
+   "definition": "You can only have one Historic Jewel socketed.",
+   "legacy": false
+  },
+  {
+   "name": "Catalysts",
+   "definition": "Breach-exclusive currency adding Quality to Jewellery or Jewels.",
+   "legacy": false
+  },
+  {
+   "name": "Omens",
+   "definition": "Currency enabling exclusive meta-crafting effects.",
+   "legacy": false
+  },
+  {
+   "name": "An Audience With The King",
+   "definition": "Ritual drop allowing access to the Crux of Nothingness via the Realmgate.",
+   "legacy": false
+  },
+  {
+   "name": "Liquid Emotions",
+   "definition": "Delirium-exclusive currency that instils an amulet with a Notable Passive Skill.",
+   "legacy": false
+  },
+  {
+   "name": "Ancient Liquid Emotions",
+   "definition": "Liquid Emotion applying specific modifiers to Time-Lost Jewels.",
+   "legacy": false
+  },
+  {
+   "name": "Corrupted Items",
+   "definition": "Items corrupted by a Vaal Orb with unpredictable changes; most crafting cannot be used; no penalty for using them.",
+   "legacy": false
+  },
+  {
+   "name": "Mirrored Items",
+   "definition": "Copies of an item made with a Mirror of Kalandra; most crafting cannot be used.",
+   "legacy": false
+  },
+  {
+   "name": "Hexproof",
+   "definition": "You are Unaffected by Curses.",
+   "legacy": false
+  },
+  {
+   "name": "Runic Monsters",
+   "definition": "Powerful monsters encountered in Expeditions, commonly found using explosives on larger markers.",
+   "legacy": false
+  },
+  {
+   "name": "Coalesced Corruption",
+   "definition": "Monsters slain close together have a chance to merge and manifest powerful Monsters.",
+   "legacy": false
+  },
+  {
+   "name": "Perfect Timing",
+   "definition": "Certain Channelling skills have extra effects if released within a timing window.",
+   "legacy": false
+  },
+  {
+   "name": "Limit",
+   "definition": "Certain skills can only have a limited number of effects active; a new one removes the oldest.",
+   "legacy": false
+  },
+  {
+   "name": "Monster Soul Eater",
+   "definition": "Gains 1% increased Skill Speed and 1% less damage taken per Soul eaten, stacking up to 50.",
+   "legacy": false
+  },
+  {
+   "name": "Remnants",
+   "definition": "Lingering objects created by player Skills; walking over one collects it for a bonus.",
+   "legacy": false
+  },
+  {
+   "name": "Ascendancy Points",
+   "definition": "Allocated in the Ascendancy Skill Tree once you choose an Ascendancy; changing requires completing an Ascension Trial and an Ascendancy Altar interaction.",
+   "legacy": false
+  },
+  {
+   "name": "Honour Resistance",
+   "definition": "You lose this much less Honour; capped at 75% by default and cannot be higher than 90%.",
+   "legacy": false
+  },
+  {
+   "name": "Stage-Gaining Skills",
+   "definition": "Skills gain Stages passively or when attacking or casting them; Stages do not carry over between areas.",
+   "legacy": false
+  },
+  {
+   "name": "Primed for Pin",
+   "definition": "Normal enemies Primed at 40% Pin buildup; Magic 50%, Rare 60%, Unique 70%.",
+   "legacy": false
+  },
+  {
+   "name": "Elemental Surges",
+   "definition": "Consumed by non-Melee Projectile Attacks to make their Projectiles trigger a Surging Blast; maximum 6 of each type; last 15 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Chaos Surge",
+   "definition": "Behaves like Elemental Surges but causes a Chaos blast.",
+   "legacy": false
+  },
+  {
+   "name": "Banner Skills",
+   "definition": "Generate Glory when attacking monsters while active; a full Banner can be placed to create buffing areas; normally one Banner at a time.",
+   "legacy": false
+  },
+  {
+   "name": "Conditional Usage",
+   "definition": "Skills requiring a condition before use, such as recent kills or distance moved.",
+   "legacy": false
+  },
+  {
+   "name": "Whirlwinds",
+   "definition": "Blind and Slow enemies inside; collapse when the creator crosses the edge, dealing Melee damage and knockback.",
+   "legacy": false
+  },
+  {
+   "name": "Volatility",
+   "definition": "Explodes after 4 seconds dealing 100 Physical damage per stack; grants Volatile Power (1% of damage as Chaos); max 200 stacks.",
+   "legacy": false
+  },
+  {
+   "name": "Bloodstained",
+   "definition": "Bleeding enemies build the Bloodstained Debuff (after 6 seconds of Bleeding); builds 100% faster if the enemy is moving or Bleeding is Aggravated.",
+   "legacy": false
+  },
+  {
+   "name": "Revealing Weaknesses",
+   "definition": "Highlighted segments on enemy Life bars totalling 45% of max Life; an enemy whose current Life is in one has an Open Weakness.",
+   "legacy": false
+  },
+  {
+   "name": "Affinity",
+   "definition": "Fire, Cold and Lightning buffs from the Trinity skill; maximum 100 each; lose 10 per second after 8 seconds without gaining that type.",
+   "legacy": false
+  },
+  {
+   "name": "Incision",
+   "definition": "Debuff raising the chance for Hits to inflict Bleeding by 10% per stack (max 10); all stacks cleared when Bleeding is inflicted.",
+   "legacy": false
+  },
+  {
+   "name": "Retaliate with Thorns",
+   "definition": "Your inherent ability to deal Thorns damage to enemies that Hit you.",
+   "legacy": false
+  },
+  {
+   "name": "Companions",
+   "definition": "Reviving Minions that are more complex and powerful; by default one of each type at a time.",
+   "legacy": false
+  },
+  {
+   "name": "Monster Category",
+   "definition": "Every monster has one category: Humanoid, Beast, Undead, Construct, Demon or Eldritch.",
+   "legacy": false
+  },
+  {
+   "name": "Hobble",
+   "definition": "Lowers a target's Evasion; at 0 they are fully Hobbled for 12 seconds; players Hobble 3x vs Normal and 2x vs Magic.",
+   "legacy": false
+  },
+  {
+   "name": "Hazards",
+   "definition": "Objects created in the world that are destroyed when traversed by an enemy, dealing damage or applying an effect.",
+   "legacy": false
+  },
+  {
+   "name": "Unholy Might",
+   "definition": "Buff granting 30% of all damage as extra Chaos damage.",
+   "legacy": false
+  },
+  {
+   "name": "Impale",
+   "definition": "Debuff storing 30% of a Physical Hit's pre-mitigation damage, added to later Attack Hits; up to 60 Impales per target.",
+   "legacy": false
+  },
+  {
+   "name": "Blood Loss",
+   "definition": "All Physical damage over time taken by a target, including Bleeding, accumulates as Blood Loss.",
+   "legacy": false
+  },
+  {
+   "name": "Perfection Buff",
+   "definition": "Up to 4 stacks of 5% more damage, lasting 10 seconds; failing a Perfect Timing removes all stacks.",
+   "legacy": false
+  },
+  {
+   "name": "Killing Blow",
+   "definition": "Hit damage that reduces a target to zero Life; damage over time cannot cause one.",
+   "legacy": false
+  },
+  {
+   "name": "Bifurcated Critical Hits",
+   "definition": "Weapon rolls Critical Hit chance twice; either success is a Critical Hit; both successes apply the Critical Damage Bonus twice.",
+   "legacy": false
+  },
+  {
+   "name": "Pre-mitigation Damage",
+   "definition": "Hit damage after your modifiers but before the target's mitigation such as Armour, Resistances or Blocking.",
+   "legacy": false
+  },
+  {
+   "name": "Easy Target",
+   "definition": "Debuff making the next Projectile Attack hit against the target deal increased damage, then being consumed.",
+   "legacy": false
+  },
+  {
+   "name": "Expected Knockback",
+   "definition": "The distance a target would be Knocked Back were nothing impeding it.",
+   "legacy": false
+  },
+  {
+   "name": "Rogue Exile",
+   "definition": "Dangerous wandering foes with your kind of skills and gear; defeating them drops their full equipment; if they defeat you they portal away.",
+   "legacy": false
+  },
+  {
+   "name": "Azmeri Spirit",
+   "definition": "Wisp-like spirits of Azmeri Animal Guardians; Normal or Magic monsters become Spirit-Influenced, Rare or Unique become Possessed.",
+   "legacy": false
+  },
+  {
+   "name": "Possessed",
+   "definition": "Rare or Unique monster empowered by an Azmeri Spirit; summons spiritual animals; more rewarding after more Spirit-Influenced kills.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit-Influenced",
+   "definition": "Normal or Magic monster passed through by an Azmeri Spirit; defeating it makes the later Possessed monster more rewarding.",
+   "legacy": false
+  },
+  {
+   "name": "Extra Content",
+   "definition": "Random extras in Maps: Shrines, Strongboxes, Essences, Rogue Exiles, Azmeri Spirits and Summoning Circles.",
+   "legacy": false
+  },
+  {
+   "name": "Seeking Shrine",
+   "definition": "Grants increased Rarity of Items Found.",
+   "legacy": false
+  },
+  {
+   "name": "Enlightening Shrine",
+   "definition": "Grants increased Experience.",
+   "legacy": false
+  },
+  {
+   "name": "Gloom Shrine",
+   "definition": "Converts damage to extra Chaos; slain enemies can explode with Chaos damage based on their maximum Life.",
+   "legacy": false
+  },
+  {
+   "name": "Greed Shrine",
+   "definition": "Converts item drops to Gold and increases monsters' Gold drops.",
+   "legacy": false
+  },
+  {
+   "name": "Cartographer's Strongbox",
+   "definition": "Strongbox that drops Waystones.",
+   "legacy": false
+  },
+  {
+   "name": "Researcher's Strongbox",
+   "definition": "Strongbox that drops Currency items.",
+   "legacy": false
+  },
+  {
+   "name": "Ornate Strongbox",
+   "definition": "Strongbox with improved dropped Item Rarity.",
+   "legacy": false
+  },
+  {
+   "name": "Basic Strongbox",
+   "definition": "Strongbox named simply \"Strongbox\" that drops random items.",
+   "legacy": false
+  },
+  {
+   "name": "Effective Chance",
+   "definition": "The real chance of a result after roll-manipulating effects (e.g. Lucky: 20% becomes 36%) or forced outcomes are applied.",
+   "legacy": false
+  },
+  {
+   "name": "Crimson Assault",
+   "definition": "Your inflicted Bleeding is Aggravated, has a base 1 second duration and 50% more Magnitude.",
+   "legacy": false
+  },
+  {
+   "name": "Equipped",
+   "definition": "Weapon, Armour, Belt and Jewellery in Inventory equipment slots; Flasks, Skill Gems and Jewels are never Equipped.",
+   "legacy": false
+  },
+  {
+   "name": "Jewellery",
+   "definition": "Amulets and Rings.",
+   "legacy": false
+  },
+  {
+   "name": "Equipment",
+   "definition": "Items that can be Equipped.",
+   "legacy": false
+  },
+  {
+   "name": "Only Minimum or Maximum Damage",
+   "definition": "Hits roll only the minimum or maximum damage, 50% each, separately for each damage type.",
+   "legacy": false
+  },
+  {
+   "name": "Trusted Kinship",
+   "definition": "Allows two Companions of different types; 30% more Reservation Efficiency for Companion skills; 20% less for non-Companion skills.",
+   "legacy": false
+  },
+  {
+   "name": "Damage Absorption",
+   "definition": "Effects including Guard, Encased in Jade and Sorcery Ward.",
+   "legacy": false
+  },
+  {
+   "name": "Parry",
+   "definition": "Skill from Bucklers, Targes and dual-wielded Swords that Blocks an enemy Hit and retaliates, inflicting Parried.",
+   "legacy": false
+  },
+  {
+   "name": "Parried",
+   "definition": "Debuff from Parry: Parried enemies take more Attack damage and cannot Evade Attacks for a duration.",
+   "legacy": false
+  },
+  {
+   "name": "Everlasting Sacrifice",
+   "definition": "At full Energy Shield, sacrifice all of it for +5% to all Maximum Resistances for 4 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Aggravating any Bleeding",
+   "definition": "Triggers when a weapon Hit directly Aggravates at least one Bleeding Debuff on the target.",
+   "legacy": false
+  },
+  {
+   "name": "Detonation Time",
+   "definition": "Time after which skills with it detonate; duration modifiers do not affect it.",
+   "legacy": false
+  },
+  {
+   "name": "Waystone Tier Progression",
+   "definition": "Only the final Powerful Map Boss can drop a Waystone of higher tier than the Map; chance diminishes at higher tiers.",
+   "legacy": false
+  },
+  {
+   "name": "Map Objective Waystone Drops",
+   "definition": "The final Rare monster slain in a Map can drop a Waystone equal to the Map's tier.",
+   "legacy": false
+  },
+  {
+   "name": "Corrupted Nexus",
+   "definition": "A source of immense corruption guarded by a powerful Corrupted Boss.",
+   "legacy": false
+  },
+  {
+   "name": "Corrupted Boss",
+   "definition": "Guards a Corrupted Nexus; defeat it to cleanse the Nexus.",
+   "legacy": false
+  },
+  {
+   "name": "Retaliate against all Hits",
+   "definition": "Lets Thorns retaliate against any Hit type, not only Melee; never against enemy Thorns damage.",
+   "legacy": false
+  },
+  {
+   "name": "Take Mana Costs as Damage",
+   "definition": "Upfront Mana costs are taken as a single Hit; per-second costs are taken as damage over time.",
+   "legacy": false
+  },
+  {
+   "name": "Upfront Costs",
+   "definition": "A cost paid as a fixed amount rather than a per-second rate.",
+   "legacy": false
+  },
+  {
+   "name": "Account Bound",
+   "definition": "Cannot be traded to other players; can be shared between your own characters.",
+   "legacy": false
+  },
+  {
+   "name": "Essence of Delirium",
+   "definition": "Monsters empowered by it periodically summon demons from behind the Delirium Mirror.",
+   "legacy": false
+  },
+  {
+   "name": "Cleansed",
+   "definition": "Corruption-cleansed areas may gain an additional modifier and contain twisted monsters.",
+   "legacy": false
+  },
+  {
+   "name": "Delirious Players",
+   "definition": "Players assaulted by illusions; higher Delirium makes monsters stronger and improves their drops.",
+   "legacy": false
+  },
+  {
+   "name": "Chances in excess of 100%",
+   "definition": "Chances above 100% act as 100% unless an effect scales with the excess.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit Of The Owl",
+   "definition": "Possessing Spirit: 60% increased Energy Shield, 80% increased Damage, 20% of Damage as extra Cold; periodic Owl cold tornadoes.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit Of The Serpent",
+   "definition": "Possessing Spirit: all Hit damage contributes to Poison, always Poison on Hit, 80% increased Damage; Snakes strike enemies.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit Of The Primate",
+   "definition": "Possessing Spirit: all Hit damage contributes to Chill, 60% increased Freeze Buildup, 80% increased Damage; periodic Primate groups.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit Of The Bear",
+   "definition": "Possessing Spirit: 20% increased Maximum Life, 60% increased Stun Threshold and Stun Buildup, 20% reduced damage taken; Bear slams.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit Of The Boar",
+   "definition": "Possessing Spirit: 20% of Damage as extra Fire, always inflict Bleeding on Hit, 20% reduced damage taken; exploding Boars.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit Of The Ox",
+   "definition": "Possessing Spirit: 50% reduced Slowing Potency on you, 60% increased Elemental Ailment Threshold and Armour, 20% reduced damage taken; Ox stampedes.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit Of The Wolf",
+   "definition": "Possessing Spirit: 10% increased Skill Speed, 5% increased Movement Speed, Armour Break equal to 10% of Hit damage; Wolf maiming dashes.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit Of The Stag",
+   "definition": "Possessing Spirit: +30% to all Elemental Resistances, 30% increased Skill Speed, 15% increased Movement Speed, 20% of Damage as extra Lightning; Stag lightning bolts.",
+   "legacy": false
+  },
+  {
+   "name": "Spirit Of The Cat",
+   "definition": "Possessing Spirit: 60% increased Evasion Rating, 100% increased Critical Hit chance, 30% increased Skill Speed, 15% increased Movement Speed; Cat flurries.",
+   "legacy": false
+  },
+  {
+   "name": "Vulnerability",
+   "definition": "Curse that removes 191 Armour by default.",
+   "legacy": false
+  },
+  {
+   "name": "Despair",
+   "definition": "Curse lowering Chaos Resistance by 25% by default.",
+   "legacy": false
+  },
+  {
+   "name": "Temporal Chains",
+   "definition": "Curse slowing those affected by 26% by default; other effects on them expire more slowly.",
+   "legacy": false
+  },
+  {
+   "name": "Resisted by Other Value",
+   "definition": "Hits ignore the target's actual Resistance value and are mitigated by a specified value instead; Penetration does not apply to it.",
+   "legacy": false
+  },
+  {
+   "name": "Glory",
+   "definition": "Resource spent on certain Skills; generated equal to the monster's Power, once per 0.5 seconds per monster; lost at 2 per second after 15 seconds without gaining.",
+   "legacy": false
+  },
+  {
+   "name": "Mounting Greed",
+   "definition": "Increased Rarity of Items on kill, up to 100%; decays over time; higher-Rarity monsters grant more.",
+   "legacy": false
+  },
+  {
+   "name": "Obelisk of Corruption",
+   "definition": "Activates when approached; grants a 10 second Buff making enemies you kill explode for 10% of their life as Physical damage.",
+   "legacy": false
+  },
+  {
+   "name": "Obelisk of Cleansing",
+   "definition": "Activates when approached; 10 second Buff granting 100% Item Rarity, 50% increased Armour, Evasion and Energy Shield, and 30% of Damage as extra Lightning.",
+   "legacy": false
+  },
+  {
+   "name": "Immured Fury",
+   "definition": "Powerful monster that appears due to the Cleansing process; dangerous, with greatly increased rewards.",
+   "legacy": false
+  },
+  {
+   "name": "Fractured Modifiers",
+   "definition": "A modifier permanently locked onto an item; cannot be removed or altered.",
+   "legacy": false
+  },
+  {
+   "name": "Weapon Sets",
+   "definition": "Two independent Weapon Sets with their own dedicated Passive Skill Points; Skills use the active set or swap automatically.",
+   "legacy": false
+  },
+  {
+   "name": "Additional Projectiles",
+   "definition": "Monster fires 4 additional Projectiles.",
+   "legacy": false
+  },
+  {
+   "name": "Increased Area of Effect",
+   "definition": "Monster has 100% increased Area of Effect.",
+   "legacy": false
+  },
+  {
+   "name": "Breaks Armour",
+   "definition": "Monster Breaks Armour equal to 1000% of Physical damage dealt.",
+   "legacy": false
+  },
+  {
+   "name": "Bombardier",
+   "definition": "Monster periodically unleashes barrages of Fire projectiles.",
+   "legacy": false
+  },
+  {
+   "name": "Chaos Resistant",
+   "definition": "Monster has +50% to Chaos Resistance.",
+   "legacy": false
+  },
+  {
+   "name": "Cold Resistant",
+   "definition": "Monster has +50% to Cold Resistance and +10% to Maximum Cold Resistance.",
+   "legacy": false
+  },
+  {
+   "name": "Extra Crits",
+   "definition": "Monster has 300% increased chance to Critically Hit.",
+   "legacy": false
+  },
+  {
+   "name": "Extra Chaos Damage",
+   "definition": "Monster gains 40% of damage as extra Chaos damage.",
+   "legacy": false
+  },
+  {
+   "name": "Extra Cold Damage",
+   "definition": "Monster gains 40% of damage as extra Cold damage.",
+   "legacy": false
+  },
+  {
+   "name": "Extra Fire Damage",
+   "definition": "Monster gains 40% of damage as extra Fire damage.",
+   "legacy": false
+  },
+  {
+   "name": "Extra Lightning Damage",
+   "definition": "Monster gains 40% of damage as extra Lightning damage.",
+   "legacy": false
+  },
+  {
+   "name": "Energy Shield Aura",
+   "definition": "Aura granting Allies within 5 metres 20% of maximum Life as added Energy Shield.",
+   "legacy": false
+  },
+  {
+   "name": "Armoured",
+   "definition": "Monster gains extra Armour based on its Strength.",
+   "legacy": false
+  },
+  {
+   "name": "Extra Energy Shield",
+   "definition": "Monster gains 25% of maximum Life as added Energy Shield.",
+   "legacy": false
+  },
+  {
+   "name": "Evasive",
+   "definition": "Monster gains extra Evasion based on its Dexterity.",
+   "legacy": false
+  },
+  {
+   "name": "Fire Resistant",
+   "definition": "Monster has +50% to Fire Resistance and +10% to Maximum Fire Resistance.",
+   "legacy": false
+  },
+  {
+   "name": "Conjures Flamewalls",
+   "definition": "Monster creates circular walls of Fire that damage enemies standing in them.",
+   "legacy": false
+  },
+  {
+   "name": "Siphons Flask Charges",
+   "definition": "Aura removing 3 Flask and Charm charges from enemies every 3 seconds within 3.6 metres.",
+   "legacy": false
+  },
+  {
+   "name": "Conjures Ice Prisons",
+   "definition": "Monster creates circular walls of Ice around enemies.",
+   "legacy": false
+  },
+  {
+   "name": "Heals Allies and Suppresses Foe Recovery",
+   "definition": "Nova reducing enemy Life and Energy Shield Recovery Rate by 60%; Allies Regenerate 5.5% of max Life per second for 4 seconds within 5 metres every 8 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Hinder Aura",
+   "definition": "Aura that Hinders enemies within 3.6 metres.",
+   "legacy": false
+  },
+  {
+   "name": "Periodic Invulnerability Aura",
+   "definition": "Nova making Allies within 5 metres invulnerable for 5 seconds every 12 seconds while the monster is alive.",
+   "legacy": false
+  },
+  {
+   "name": "Empowered Periodic Invulnerability Aura",
+   "definition": "Nova making Allies within 5 metres invulnerable for 5 seconds every 12 seconds while the monster is alive.",
+   "legacy": false
+  },
+  {
+   "name": "Increased Life",
+   "definition": "Monster has 50% increased Life.",
+   "legacy": false
+  },
+  {
+   "name": "Slow Resistant",
+   "definition": "Monster has 50% reduced Slowing Potency of Debuffs on it.",
+   "legacy": false
+  },
+  {
+   "name": "Increased Stun Threshold",
+   "definition": "Monster cannot be Stunned.",
+   "legacy": false
+  },
+  {
+   "name": "Accurate",
+   "definition": "Monster has 200% increased Accuracy Rating.",
+   "legacy": false
+  },
+  {
+   "name": "Hasted",
+   "definition": "Monster has 30% increased Attack, Cast and Movement speed.",
+   "legacy": false
+  },
+  {
+   "name": "Haste Aura",
+   "definition": "Aura granting Allies within 5 metres 20% increased Attack and Cast speed and 10% increased Movement speed.",
+   "legacy": false
+  },
+  {
+   "name": "Regenerates Life",
+   "definition": "Monster regenerates 2% of maximum Life per second.",
+   "legacy": false
+  },
+  {
+   "name": "Lightning Mirage When Hit",
+   "definition": "Monster creates a Mirage when Hit that moves toward enemies and explodes with Lightning damage.",
+   "legacy": false
+  },
+  {
+   "name": "Lightning Mirages When Hit",
+   "definition": "Monster creates Mirages when Hit that move toward enemies and explode with Lightning damage.",
+   "legacy": false
+  },
+  {
+   "name": "Lightning Resistant",
+   "definition": "Monster has +50% to Lightning Resistance and +10% to Maximum Lightning Resistance.",
+   "legacy": false
+  },
+  {
+   "name": "Volatile Crystals",
+   "definition": "Monster creates Volatile Crystals when Hit, which explode with Chaos damage on the monster's death.",
+   "legacy": false
+  },
+  {
+   "name": "Magma Barrier",
+   "definition": "Monster creates a 90% damage absorption barrier that explodes with Fire damage after taking a certain amount.",
+   "legacy": false
+  },
+  {
+   "name": "Siphons Mana and Deals Lightning Damage",
+   "definition": "Circular effect draining Mana and dealing Lightning damage over time to enemies near its edge.",
+   "legacy": false
+  },
+  {
+   "name": "Damage Taken From Minions First",
+   "definition": "50% of damage taken by the monster is taken from its Pack Minions instead.",
+   "legacy": false
+  },
+  {
+   "name": "Empowered",
+   "definition": "Monster has 25% increased Damage and 50% increased Life.",
+   "legacy": false
+  },
+  {
+   "name": "Crit Resistant",
+   "definition": "Hits against this Monster have 80% reduced Critical Damage Bonus.",
+   "legacy": false
+  },
+  {
+   "name": "Periodically Enrages",
+   "definition": "Monster periodically Enrages: 30% increased Damage, 25% increased Skill and Movement Speed, 33% less damage taken for 5 seconds every 10 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Extra Physical Damage Aura",
+   "definition": "Aura granting Allies within 5 metres 40% increased Physical damage.",
+   "legacy": false
+  },
+  {
+   "name": "Prevents Recovery Above 50%",
+   "definition": "Aura Debuffing enemies within 4.2 metres so their Life and Energy Shield cannot recover past 50%.",
+   "legacy": false
+  },
+  {
+   "name": "Proximal Tangibility",
+   "definition": "Monster cannot be damaged by enemies further than 3 metres away.",
+   "legacy": false
+  },
+  {
+   "name": "Elemental Resistance Aura",
+   "definition": "Aura granting Allies within 5 metres +35% to all Elemental Resistances.",
+   "legacy": false
+  },
+  {
+   "name": "Empowered Reviving Minions",
+   "definition": "Monster periodically revives Pack Minions with increased Life and Damage.",
+   "legacy": false
+  },
+  {
+   "name": "Trail of Lightning",
+   "definition": "Monster leaves a trail of Shocked Ground as it moves.",
+   "legacy": false
+  },
+  {
+   "name": "Shroud Walker",
+   "definition": "Monster periodically teleports to an enemy it can see, creating a Smoke Cloud where it leaves and arrives.",
+   "legacy": false
+  },
+  {
+   "name": "Powerful Minions",
+   "definition": "Monster's Pack Minions have 25% increased Damage and 50% increased Life.",
+   "legacy": false
+  },
+  {
+   "name": "Stuns",
+   "definition": "Monster has 100% increased Stun buildup.",
+   "legacy": false
+  },
+  {
+   "name": "Stun Resistant",
+   "definition": "Monster has 250% increased Stun Threshold.",
+   "legacy": false
+  },
+  {
+   "name": "Temporal Bubble",
+   "definition": "Aura Debuffing enemies within 3.2 metres: Slowing by 25%, making effects expire 40% slower and reducing Cooldown Recovery Rate by 60%.",
+   "legacy": false
+  },
+  {
+   "name": "Volatile Plants",
+   "definition": "Monster periodically creates Volatile Plants, orbs that explode with Chaos damage near enemies.",
+   "legacy": false
+  },
+  {
+   "name": "Empowering Volatile Plants",
+   "definition": "Monster periodically creates Powerful Volatile Plants that explode with Chaos damage near enemies.",
+   "legacy": false
+  },
+  {
+   "name": "Volatile Crag",
+   "definition": "Monster periodically creates a Volatile Crag that moves toward enemies and explodes with Fire damage.",
+   "legacy": false
+  },
+  {
+   "name": "Empowering Volatile Crag",
+   "definition": "Monster periodically creates a Powerful Volatile Crag that moves toward enemies and explodes with Fire damage.",
+   "legacy": false
+  },
+  {
+   "name": "Pack",
+   "definition": "A Pack Monster or Minion naturally spawned in a Monster Pack; Pack Size modifiers can add an Additional Rare Monster.",
+   "legacy": false
+  },
+  {
+   "name": "Crescendo Arrows",
+   "definition": "Chain 6 additional times, each Chain dealing 60% increased Damage.",
+   "legacy": false
+  },
+  {
+   "name": "Splinter Arrows",
+   "definition": "Splintering Arrows Split towards 6 targets.",
+   "legacy": false
+  },
+  {
+   "name": "Reversing Arrows",
+   "definition": "Pierce all targets and Return to you.",
+   "legacy": false
+  },
+  {
+   "name": "Diamond Arrows",
+   "definition": "All Hits are Critical Hits with 60% increased Critical Damage Bonus.",
+   "legacy": false
+  },
+  {
+   "name": "Covetous Arrows",
+   "definition": "Enemies killed drop items with 600% increased Rarity.",
+   "legacy": false
+  },
+  {
+   "name": "Blunt Arrows",
+   "definition": "Cause 600% increased Stun Buildup.",
+   "legacy": false
+  },
+  {
+   "name": "Repeating Skills",
+   "definition": "Skills that can Repeat, firing projectiles or effects multiple times in quick succession; each repeat makes the skill take 5% longer; Triggered, Instant and Channelling skills cannot Repeat.",
+   "legacy": false
+  },
+  {
+   "name": "Guided Meteoric Shrine",
+   "definition": "\"Meteors rain down around you when in range of enemies.\"",
+   "legacy": false
+  },
+  {
+   "name": "Guided Tempest Shrine",
+   "definition": "Lightning bolts strike the ground around you when in range of enemies.",
+   "legacy": false
+  },
+  {
+   "name": "Guided Freezing Shrine",
+   "definition": "Freezing shards fire around you in a spiral when in range of enemies.",
+   "legacy": false
+  },
+  {
+   "name": "Dreaming Gloom Shrine",
+   "definition": "Slain enemies explode, dealing Chaos damage equal to a quarter of their maximum Life.",
+   "legacy": false
+  },
+  {
+   "name": "Abyssal Wasting",
+   "definition": "Reduces Life Regeneration Rate by 50% for 6 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Ancient Augment",
+   "definition": "Augments with powerful singular effects; only one of this type may be socketed at a time.",
+   "legacy": false
+  },
+  {
+   "name": "Equippable Armours",
+   "definition": "Helmets, Body Armours, Gloves, Boots, Shields and Foci.",
+   "legacy": false
+  },
+  {
+   "name": "Caster Weapons",
+   "definition": "Sceptres, Staves and Wands.",
+   "legacy": false
+  },
+  {
+   "name": "Spectral Fire",
+   "definition": "Ignite damage on affected targets feeds the debuff; it explodes for all absorbed damage within 1.8 metres when it expires.",
+   "legacy": false
+  },
+  {
+   "name": "Sanctified Items",
+   "definition": "Each modifier's value is multiplied by a random 78% to 122%; most crafting cannot be used on them.",
+   "legacy": false
+  },
+  {
+   "name": "Efficiency",
+   "definition": "Divisor modifiers that make the modified stat smaller (or larger, if reduced); e.g. 50% increased Reservation Efficiency gives 67% of base Reservation.",
+   "legacy": false
+  },
+  {
+   "name": "Blackflame Covenant",
+   "definition": "Converts 100% of Fire Spell damage to Chaos; Chaos from Fire Spells contributes to Flammability and Ignite magnitudes.",
+   "legacy": false
+  },
+  {
+   "name": "Ritual Cadence",
+   "definition": "Invocation Skills Trigger Spells every 2 seconds; they cannot gain Energy while doing so; invoked Spells consume 50% less Energy.",
+   "legacy": false
+  },
+  {
+   "name": "Elemental Weakness",
+   "definition": "Curse lowering Elemental Resistances by 30% for 20 seconds unless specified.",
+   "legacy": false
+  },
+  {
+   "name": "Debilitate",
+   "definition": "Debuff: 20% reduced movement speed and 10% reduced damage dealt; lasts 1 second unless specified.",
+   "legacy": false
+  },
+  {
+   "name": "Support Gem Categories",
+   "definition": "Every Support Gem is in one or more Categories; gems from the same Category cannot be socketed into the same skill.",
+   "legacy": false
+  },
+  {
+   "name": "Minimum Modifier Level",
+   "definition": "Random Modifiers added are at least this level; currency with it cannot be used on items below that item level.",
+   "legacy": false
+  },
+  {
+   "name": "Maximum Item Level",
+   "definition": "Currency cannot be used on items above this level.",
+   "legacy": false
+  },
+  {
+   "name": "Heat",
+   "definition": "Gained from specific Crossbow Skills; beneficial or detrimental depending on the Skill.",
+   "legacy": false
+  },
+  {
+   "name": "Elemental Infusions",
+   "definition": "Remnant-granted buffs lasting 20 seconds or until Consumed; up to 3 of each type by default.",
+   "legacy": false
+  },
+  {
+   "name": "Desecrated Modifiers",
+   "definition": "Desecrating adds an Unrevealed Desecrated modifier revealed at the Well of Souls; items cannot be Desecrated twice.",
+   "legacy": false
+  },
+  {
+   "name": "Unstable Desecration",
+   "definition": "Items that can be Desecrated with a Preserved Cranium, with an increasing chance of destruction each time.",
+   "legacy": false
+  },
+  {
+   "name": "Abyssal Modifiers",
+   "definition": "Modifiers stolen by Abyssal Monsters that can be upgraded; rarely into Lichborn Modifiers.",
+   "legacy": false
+  },
+  {
+   "name": "Abyssal Depths",
+   "definition": "Underground dungeon sometimes found after the final Abyss; all Rare monsters have an Abyssal Modifier; ends with a powerful Rare.",
+   "legacy": false
+  },
+  {
+   "name": "Marked for Death",
+   "definition": "Debuff causing you to take 50% increased damage.",
+   "legacy": false
+  },
+  {
+   "name": "Lineage Supports",
+   "definition": "Powerful Support Gems from maps or specific sources; only one copy of each may be socketed across all skills.",
+   "legacy": false
+  },
+  {
+   "name": "Naturally Spawning Monsters",
+   "definition": "Monsters spawned on first entering an area; excludes those from Strongboxes or Expeditions.",
+   "legacy": false
+  },
+  {
+   "name": "Gruelling Madness",
+   "definition": "First stack Slows movement by 15%; additional stacks raise Slowing Potency by 10%; maximum 10; one lost every 2 seconds without more.",
+   "legacy": false
+  },
+  {
+   "name": "Faerie Fire",
+   "definition": "Each Debuff makes Hits gain 2% of damage as extra random Element damage; lasts 8 seconds; up to 10.",
+   "legacy": false
+  },
+  {
+   "name": "Runefather's Challenge",
+   "definition": "Debuff raising the affected targets' Power by 5.",
+   "legacy": false
+  },
+  {
+   "name": "Runefather's Boast",
+   "definition": "Buff granting +1 Armour, +1 Evasion and +1 Stun Threshold per stack; up to 10,000; lost on death or area change.",
+   "legacy": false
+  },
+  {
+   "name": "Union of Souls",
+   "definition": "Pack monsters transfer their soul to another Pack monster on death, granting 6% Toughness and 2% increased damage.",
+   "legacy": false
+  },
+  {
+   "name": "Thaumaturgical Dynamism",
+   "definition": "Passively generates a Power, Frenzy or Endurance Charge every five seconds, based on the Attribute requirements of socketed Skills.",
+   "legacy": false
+  },
+  {
+   "name": "Armour Movement Penalties",
+   "definition": "Reduced movement speed penalties for equipped Body Armours and Shields depending on their Attribute requirement.",
+   "legacy": false
+  },
+  {
+   "name": "Merging",
+   "definition": "Crossbow bolt fragments hitting the same target at once combine their damage into a single Hit.",
+   "legacy": false
+  },
+  {
+   "name": "Pacification",
+   "definition": "Pacified enemies cannot deal damage.",
+   "legacy": false
+  },
+  {
+   "name": "Archon Buff",
+   "definition": "Archons significantly augment a skill type; last 10 seconds by default; 20-second recovery period before another can be gained.",
+   "legacy": false
+  },
+  {
+   "name": "Ice Archon",
+   "definition": "Grants 25% more Cold Spell damage, converts Elemental Spell damage to Cold, 100% more Freeze buildup from Spells; removed by a non-instant Attack.",
+   "legacy": false
+  },
+  {
+   "name": "Flame Archon",
+   "definition": "Grants 25% more Fire Spell damage, converts Elemental Spell damage to Fire, Spells have 100% more Flammability Magnitude; removed by a non-instant Attack.",
+   "legacy": false
+  },
+  {
+   "name": "Lightning Archon",
+   "definition": "Grants 25% more Lightning Spell damage, converts Elemental Spell damage to Lightning, Spell Hits have 100% more Shock chance; removed by a non-instant Attack.",
+   "legacy": false
+  },
+  {
+   "name": "Elemental Archon",
+   "definition": "Grants 25% more Elemental Spell damage; Freeze, Flammability and Shock from Spells doubled; removed by a non-instant Attack.",
+   "legacy": false
+  },
+  {
+   "name": "Nature's Archon",
+   "definition": "Grants 25% more Plant damage, Plants have 100% chance to Overgrow, 200% more Plant Skill Effect Duration, +2 Limit for Plant Skills.",
+   "legacy": false
+  },
+  {
+   "name": "Archon of Undeath",
+   "definition": "Grants 25% more Minion damage, 200% more Cooldown Recovery Rate for Command Skills, 100% more Limit for Temporary Minion Skills; revives Persistent Undead Minions.",
+   "legacy": false
+  },
+  {
+   "name": "Temporary Minion",
+   "definition": "A Minion that does not revive after it dies.",
+   "legacy": false
+  },
+  {
+   "name": "Minion Reforming",
+   "definition": "Revives Persistent Minions only when the \"Minion Reforming\" Buff timer ends while they are dead.",
+   "legacy": false
+  },
+  {
+   "name": "Gigantic",
+   "definition": "Minions with 20% more Maximum Life, 20% more Damage and 20% increased size.",
+   "legacy": false
+  },
+  {
+   "name": "Mark of the Abyssal Lord",
+   "definition": "Desecrating an item always removes this modifier, replacing it with a higher-tier Unrevealed Desecrated modifier.",
+   "legacy": false
+  },
+  {
+   "name": "Riven Armour",
+   "definition": "Debuff storing 5% of a Hit's pre-mitigation Physical damage, adding that much extra Physical damage to later Attacks; cannot be Armour Broken further.",
+   "legacy": false
+  },
+  {
+   "name": "Molten Fissures",
+   "definition": "Long-lasting fissures created by some Slams that can themselves be Slammed to cause Aftershocks.",
+   "legacy": false
+  },
+  {
+   "name": "Sands of Time",
+   "definition": "Skill Speed oscillates from 60% down to 1% and Area of Effect from 1% up to 60% over 10-second cycles.",
+   "legacy": false
+  },
+  {
+   "name": "Unravelling",
+   "definition": "Chaos damage randomly contributes to Freeze buildup, Flammability and Ignite, or Shock chance, changing every two seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Embankment Auras",
+   "definition": "Totems give players Auras: Artillery Ballista 20% Skill Speed; Siege Ballista 25% more damage vs Immobilised; Mortar Cannon 25% of damage as Fire; Shockwave Totem 30% AoE; Ancestral Warrior Totem 40% Glory generation; Dark Effigy 40% Damage over Time; Spell Totem 50% Critical Hit Chance.",
+   "legacy": false
+  },
+  {
+   "name": "Ice Fragments",
+   "definition": "Cold damage objects created by Skills that Detonate in an area; only one can damage a single enemy per Skill use.",
+   "legacy": false
+  },
+  {
+   "name": "Fragment of Divinity",
+   "definition": "Fragments consumed by certain Skills for extra effects; last 10 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Divinity",
+   "definition": "Resource spent on Skills like Mana; regenerates at 25% per second.",
+   "legacy": false
+  },
+  {
+   "name": "Broken Stance",
+   "definition": "Debuff storing 10% of a Hit's pre-mitigation Physical damage, adding it to later Hits; prevents re-Daze.",
+   "legacy": false
+  },
+  {
+   "name": "Umbral Souls",
+   "definition": "Buffs from replacing Skeletal Minions: Warriors 15% Attack Damage, Snipers 15% Projectile Speed, Clerics 30% Energy Shield Recharge Rate, Arsonists 15% AoE, Storm Mages 25% Spell Damage, Frost Mages 35% max Energy Shield, Brutes 60% Stun buildup, Reavers 6% Skill Speed.",
+   "legacy": false
+  },
+  {
+   "name": "Deadly Map Boss",
+   "definition": "Harder Powerful Map Bosses in specific Maps with better rewards; can drop items granting access to Pinnacle Bosses.",
+   "legacy": false
+  },
+  {
+   "name": "Pinnacle Boss",
+   "definition": "Endgame bosses accessed via specific keys or mechanic interactions.",
+   "legacy": false
+  },
+  {
+   "name": "Invocation",
+   "definition": "Persistent Skills that gain Energy and spend it to Trigger socketed Skills.",
+   "legacy": false
+  },
+  {
+   "name": "Sundered Armour",
+   "definition": "Debuff on fully Broken Armour enemies adding 20% more Physical damage taken, stacking with the normal Fully Broken effect.",
+   "legacy": false
+  },
+  {
+   "name": "Isolated",
+   "definition": "A target with none of its allies within 6 metres.",
+   "legacy": false
+  },
+  {
+   "name": "Overflowing Chalice",
+   "definition": "Buff making Life and Mana Flasks gain 2 charges per second and provide 30% increased recovery.",
+   "legacy": false
+  },
+  {
+   "name": "Withering Ground",
+   "definition": "Applies Withered every second to enemies standing in it.",
+   "legacy": false
+  },
+  {
+   "name": "Default Attack",
+   "definition": "Innate Attack skills from Martial Weapons and the unarmed \"Punch\"; never have a cost.",
+   "legacy": false
+  },
+  {
+   "name": "Default Attack Damage",
+   "definition": "Expected damage of a Default Attack, determined by Weapon damage and character level scaling.",
+   "legacy": false
+  },
+  {
+   "name": "Khatal's Rejuvenation",
+   "definition": "Stacks up to 8 times, granting 5% increased Cooldown Recovery Rate per stack; each stack lasts 10 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Helbrym's Composure",
+   "definition": "Stores damage taken; when it expires you gain Guard equal to 50% of the stored damage and Rage equal to 3%.",
+   "legacy": false
+  },
+  {
+   "name": "Connected Support Gems",
+   "definition": "Two gems are Connected if one is socketed into the other or both into a third gem; includes Meta Skill connections.",
+   "legacy": false
+  },
+  {
+   "name": "Summoning Circle",
+   "definition": "Activating it spawns a Boss; areas with several use runes to reactivate instead.",
+   "legacy": false
+  },
+  {
+   "name": "Adaptation",
+   "definition": "Gained from taking Elemental damage; reduces future damage of that type; 3 at a time by default; no duration.",
+   "legacy": false
+  },
+  {
+   "name": "Bear Form",
+   "definition": "Shapeshift granting Slams and Fire Attacks; +10 Armour per level; 30% of Armour applies to Elemental damage; an Endurance Charge per 15 Rage spent.",
+   "legacy": false
+  },
+  {
+   "name": "Werewolf Form",
+   "definition": "Shapeshift that drops to all fours after moving for a short time, gaining 30% increased movement speed when not Sprinting.",
+   "legacy": false
+  },
+  {
+   "name": "Wyvern Form",
+   "definition": "Shapeshift granting 50% increased Stun Threshold, 50% increased Elemental Ailment Threshold and 50% faster start of Energy Shield Recharge.",
+   "legacy": false
+  },
+  {
+   "name": "Plant Skills and Overgrowth",
+   "definition": "Plants created by Plant Skills can be Overgrown to gain power, using a different Skill or effect.",
+   "legacy": false
+  },
+  {
+   "name": "Inevitable Critical Hits",
+   "definition": "Hits that do not roll a Critical Hit re-roll until they succeed; 30% less Critical Damage Bonus per re-roll.",
+   "legacy": false
+  },
+  {
+   "name": "Monster Effectiveness",
+   "definition": "For every 2% increased Effectiveness: 2% more Toughness, 1% more Experience and 1% more item quantity.",
+   "legacy": false
+  },
+  {
+   "name": "Primal Hunger",
+   "definition": "100% more Maximum Rage; regenerate 1 Rage per second per 4 Rage spent Recently; no Rage effect.",
+   "legacy": false
+  },
+  {
+   "name": "Unique Culture",
+   "definition": "Unique items tied to certain cultures, indicated by an icon in their tooltip.",
+   "legacy": false
+  },
+  {
+   "name": "Wind Skills",
+   "definition": "Gain additional interactions with other specified Skills, typically Fire Skills.",
+   "legacy": false
+  },
+  {
+   "name": "Paths Not Taken",
+   "definition": "Reveals Oracle-only passive nodes after Ascending as an Oracle; The Unseen Path Ascendancy Notable allows allocating them.",
+   "legacy": false
+  },
+  {
+   "name": "Bonded Modifiers",
+   "definition": "Some Rune and Idol modifiers are available only to players who allocated the Shaman's Wisdom of the Maji Ascendancy Notable.",
+   "legacy": false
+  },
+  {
+   "name": "Vaal Siphoner",
+   "definition": "Requires a set number of kills; then a random modifier is downgraded in tier and the others improved.",
+   "legacy": false
+  },
+  {
+   "name": "Chance can Surpass 100%",
+   "definition": "Each full 100% triggers the event once; the remainder is rolled normally (e.g. 215% occurs twice plus a 15% roll).",
+   "legacy": false
+  },
+  {
+   "name": "Maximum Quality",
+   "definition": "The default maximum Quality is 20%.",
+   "legacy": false
+  },
+  {
+   "name": "Thorny Ground",
+   "definition": "Deals Spell damage on creation, then damages enemies moving over it, no more than twice per second.",
+   "legacy": false
+  },
+  {
+   "name": "Splash Damage",
+   "definition": "Strike Skills can deal Splash damage to enemies around the one hit; base radius 1.5 metres.",
+   "legacy": false
+  },
+  {
+   "name": "Activating Marks",
+   "definition": "Marks have a condition that makes them Activate; when activated, they cause an extra effect and are Consumed.",
+   "legacy": false
+  },
+  {
+   "name": "Rerolling Critical Hit Chance",
+   "definition": "Any mechanic rolling Critical Hit chance more than once for a single Hit (Lucky, Unlucky, Bifurcated, Inevitable); Sustained Skills' per-hit rolls are not rerolling.",
+   "legacy": false
+  },
+  {
+   "name": "Compounding Ignite",
+   "definition": "Igniting an already-Ignited target removes the existing Ignite to boost the new one, multiplying Magnitude by the number of Ignites compounded.",
+   "legacy": false
+  },
+  {
+   "name": "Drenched",
+   "definition": "Debuff making enemies easier to Shock and Freeze.",
+   "legacy": false
+  },
+  {
+   "name": "Storm Skills",
+   "definition": "Long-duration weather-based Skills with special interactions.",
+   "legacy": false
+  },
+  {
+   "name": "Maximum",
+   "definition": "The maximum value of a modifier is applied to the whole modifier, including the constant part.",
+   "legacy": false
+  },
+  {
+   "name": "Wildsurge Incantation",
+   "definition": "Storm and Plant Spells deal 50% more damage, have 75% less duration and 50% less cost.",
+   "legacy": false
+  },
+  {
+   "name": "Energised Crystal",
+   "definition": "Collected by energising Vaal Beacons; 6 are required to power the Temple Console.",
+   "legacy": false
+  },
+  {
+   "name": "Base Skill Attack Time",
+   "definition": "Base time to perform an Attack Skill, from the weapon's Attacks per Second and the gem's Base Attack Speed percentage.",
+   "legacy": false
+  },
+  {
+   "name": "Temple Destabilisation",
+   "definition": "Each Temple entry randomly Destabilises some rooms, removed on exit; completion destabilises more.",
+   "legacy": false
+  },
+  {
+   "name": "Restricted Room",
+   "definition": "Rooms placed using Xipocado's Console in the Architect's Chamber.",
+   "legacy": false
+  },
+  {
+   "name": "Juatalotli's Medallion",
+   "definition": "Prevents the next Destabilisation of a Room.",
+   "legacy": false
+  },
+  {
+   "name": "Hayoxi's Medallion",
+   "definition": "Rerolls a Restricted Room in the Temple.",
+   "legacy": false
+  },
+  {
+   "name": "Quipolatl's Medallion",
+   "definition": "Upgrades the Tier of a Room.",
+   "legacy": false
+  },
+  {
+   "name": "Uromoti's Medallion",
+   "definition": "Allows placing a specific Room in the Temple.",
+   "legacy": false
+  },
+  {
+   "name": "Xopec's Medallion",
+   "definition": "Increases Maximum Crystal Capacity by 6 (up to 60).",
+   "legacy": false
+  },
+  {
+   "name": "Azcapa's Medallion",
+   "definition": "Increases Maximum Medallion Capacity by 1 (up to 6).",
+   "legacy": false
+  },
+  {
+   "name": "Estazunti's Medallion",
+   "definition": "Allows an additional Restricted Room Card after defeating the Architect.",
+   "legacy": false
+  },
+  {
+   "name": "Puhuarte's Medallion",
+   "definition": "Allows rerolling the Room Cards available for placement.",
+   "legacy": false
+  },
+  {
+   "name": "Zantipi's Medallion",
+   "definition": "Adds one to the number of random Waystone Modifiers added to the Temple.",
+   "legacy": false
+  },
+  {
+   "name": "Power",
+   "definition": "Provided to connected Paths by Generator rooms; Powered Paths provide Power to adjacent rooms.",
+   "legacy": false
+  },
+  {
+   "name": "Limb Modification",
+   "definition": "Performed with a Transcension Device; replaces a body part with a modified version granting an extra stat; lost on resurrection.",
+   "legacy": false
+  },
+  {
+   "name": "Medallions",
+   "definition": "Obtained from Atziri's Temple; used to modify the Temple in various ways.",
+   "legacy": false
+  },
+  {
+   "name": "Ailment Application",
+   "definition": "Modifiers apply to Bleeding, Poison and Shock chance, and to Flammability, Freeze and Electrocution buildup.",
+   "legacy": false
+  },
+  {
+   "name": "Vaal Beacon",
+   "definition": "Energising Vaal Beacons energises Crystals, allowing access to Atziri's Temple.",
+   "legacy": false
+  },
+  {
+   "name": "Fragmented Mirror",
+   "definition": "Each Mirror offers a rare Ring or Amulet base type.",
+   "legacy": false
+  },
+  {
+   "name": "Soaring Ground",
+   "definition": "Grants 30% increased Evasion Rating, 40% increased damage on Full Life, and Onslaught; 6 second base duration.",
+   "legacy": false
+  },
+  {
+   "name": "Shrine Worship",
+   "definition": "Shrines are found with packs of monsters Worshipping them; other monsters affected by the Presence are not Worshippers.",
+   "legacy": false
+  },
+  {
+   "name": "Runic Ward",
+   "definition": "Absorbs fatal damage instead of Life, leaving you at 1 Life; regenerates 5% per second; monsters with it cannot be Culled.",
+   "legacy": false
+  },
+  {
+   "name": "Monster Rarity",
+   "definition": "Increases the chance for monsters to be Rare or Magic; also increases Monster Modifier Chance for Rare Monsters.",
+   "legacy": false
+  },
+  {
+   "name": "Item Armour",
+   "definition": "Uses the exact Armour value listed on the item, including Quality and local modifiers.",
+   "legacy": false
+  },
+  {
+   "name": "Item Evasion",
+   "definition": "Uses the exact Evasion value listed on the item, including Quality and local modifiers.",
+   "legacy": false
+  },
+  {
+   "name": "Item Energy Shield",
+   "definition": "Uses the exact Energy Shield value listed on the item, including Quality and local modifiers.",
+   "legacy": false
+  },
+  {
+   "name": "Free Rerolls",
+   "definition": "Ritual Free Rerolls allow rerolling Favours an additional time at no cost.",
+   "legacy": false
+  },
+  {
+   "name": "Monster Minions",
+   "definition": "Monsters in a Rare Monster Pack; each receives one modifier from each Rare Monster in the Pack.",
+   "legacy": false
+  },
+  {
+   "name": "Rogue Exile Hunting Ground",
+   "definition": "Contains 2 additional Rogue Exiles and 5 additional Packs of Rare Beasts.",
+   "legacy": false
+  },
+  {
+   "name": "Room Upgrades",
+   "definition": "Temple rooms may have their tier upgraded up to a default maximum of tier 3.",
+   "legacy": false
+  },
+  {
+   "name": "Additional Rare Monsters",
+   "definition": "Can spawn in Rare Monster Packs with larger pack sizes; each provides one modifier to the Pack's Minions.",
+   "legacy": false
+  },
+  {
+   "name": "Empowered Monster Minions",
+   "definition": "Deal increased damage and have increased health; Empowerment alone does not increase rewards.",
+   "legacy": false
+  },
+  {
+   "name": "Abandoned City",
+   "definition": "Monsters replaced by Undead (50% chance to drop non-equipment items); 25% increased Chests in the area.",
+   "legacy": false
+  },
+  {
+   "name": "Exceptional Item",
+   "definition": "Has Quality over maximum or an additional Augment Socket; some High Tier Rare items can drop as an Exceptional Normal Item.",
+   "legacy": false
+  },
+  {
+   "name": "Embrace of the Wild",
+   "definition": "Bear Spirit's Allies in its Presence gain 2% of maximum Life regenerated per second; 8% of their damage taken goes to the Bear Spirit.",
+   "legacy": false
+  },
+  {
+   "name": "Biome",
+   "definition": "Areas found across Endgame Maps; Grass, Forest, Swamp, Desert, Mountain and Water are common; Cities and special biomes are less likely.",
+   "legacy": false
+  },
+  {
+   "name": "Invaded City",
+   "definition": "Natural inhabitants plus 15 extra Packs of an invading faction (Ezomyte, Faridun or Vaal), gaining that faction's Biome bonuses.",
+   "legacy": false
+  },
+  {
+   "name": "Crafted Modifiers",
+   "definition": "Modifiers guaranteed by certain crafting methods; an item can only have one; shown in lighter blue.",
+   "legacy": false
+  },
+  {
+   "name": "Grand Mirror",
+   "definition": "Reflects the Map Boss; when bosses are defeated Delirium fog spreads to nearby Maps; at 100% one Map becomes a Simulacrum.",
+   "legacy": false
+  },
+  {
+   "name": "Mountain's Teachings",
+   "definition": "Ascendancy effect: attacks deal 15% more damage; hits of up to 30% of max Life deal 40% less; 50% more Stun Threshold; lost after 20 seconds without gaining any.",
+   "legacy": false
+  },
+  {
+   "name": "Wombgifts",
+   "definition": "Found in Breaches and grown on The Genesis Tree; four types: Lavish, Ornate, Banded and Signet.",
+   "legacy": false
+  },
+  {
+   "name": "Rite of the Nameless",
+   "definition": "Group of Maps with Ritual Altars and a Map Boss; completing all Ritual Altars drops an Effigy Piece.",
+   "legacy": false
+  },
+  {
+   "name": "Effigy",
+   "definition": "Effigy Pieces are placed on an incomplete Effigy in Caer Tarth to complete the Rite of the Nameless.",
+   "legacy": false
+  },
+  {
+   "name": "Low Runic Ward",
+   "definition": "You are on Low Runic Ward at 35% of maximum Runic Ward or less.",
+   "legacy": false
+  },
+  {
+   "name": "Savage Hit",
+   "definition": "A Hit that removes at least 15% of Maximum Life.",
+   "legacy": false
+  },
+  {
+   "name": "Foretold Proliferation",
+   "definition": "Completing this Map applies a specified Modifier to other Maps in the Rite of the Nameless.",
+   "legacy": false
+  },
+  {
+   "name": "Foretold Bounty",
+   "definition": "The first list of Favours at Ritual Altars in this Map will contain the specified Item.",
+   "legacy": false
+  },
+  {
+   "name": "Basic Maps",
+   "definition": "Maps with no special interaction with areas or access requirements; excludes Unique, Deadly Boss, Precursor Tower, Expedition and Quest Areas.",
+   "legacy": false
+  },
+  {
+   "name": "Base Type",
+   "definition": "An item's specific variety, granting inherent properties and often Level or Attribute requirements.",
+   "legacy": false
+  },
+  {
+   "name": "Mage's Legacy",
+   "definition": "A set of fourteen possible Legacies, each granting a different bonus; only one instance of each can apply at a time.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Amethyst",
+   "definition": "Mage's Legacy granting +45% to Chaos Resistance.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Basalt",
+   "definition": "Mage's Legacy granting 150% increased Armour.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Bismuth",
+   "definition": "Mage's Legacy granting +45% to all Elemental Resistances.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Diamond",
+   "definition": "Mage's Legacy granting 75% increased Critical Hit Chance.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Gold",
+   "definition": "Mage's Legacy granting 45% increased Rarity of Items found.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Granite",
+   "definition": "Mage's Legacy granting +2000 to Armour.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Jade",
+   "definition": "Mage's Legacy granting +2000 to Evasion Rating.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Quicksilver",
+   "definition": "Mage's Legacy granting 30% increased Movement Speed.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Ruby",
+   "definition": "Mage's Legacy granting +60% to Fire Resistance and +5% to Maximum Fire Resistance.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Sapphire",
+   "definition": "Mage's Legacy granting +60% to Cold Resistance and +5% to Maximum Cold Resistance.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Silver",
+   "definition": "Mage's Legacy granting 30% increased Skill Speed.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Stibnite",
+   "definition": "Mage's Legacy granting 150% increased Evasion Rating.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Sulphur",
+   "definition": "Mage's Legacy granting 60% increased Damage, and Consecrated Ground within 2.5 metres while stationary.",
+   "legacy": false
+  },
+  {
+   "name": "Legacy of Topaz",
+   "definition": "Mage's Legacy granting +60% to Lightning Resistance and +5% to Maximum Lightning Resistance.",
+   "legacy": false
+  },
+  {
+   "name": "Bonus Reward",
+   "definition": "Guaranteed rewards from some Remnant encounters, granted to nearby party members who have not claimed them.",
+   "legacy": false
+  },
+  {
+   "name": "Verisium Infusion",
+   "definition": "Substitute for any Elemental Infusion; lasts 20 seconds or until Consumed; maximum equal to the Elemental Infusion limit (3 by default).",
+   "legacy": false
+  },
+  {
+   "name": "Secured Strongbox",
+   "definition": "Strongbox guarded by additional Packs of Rare Monsters; may roll modifiers that add Monster Modifiers to those Rares.",
+   "legacy": false
+  },
+  {
+   "name": "Overencumbered",
+   "definition": "Debuff that Slows by 10%; reapplication stacks and refreshes its duration.",
+   "legacy": false
+  },
+  {
+   "name": "Broken Boss Faces",
+   "definition": "Boss Encounter icons on the World Screen can be broken by beating the encounter; Rare Monster icons give no bonus.",
+   "legacy": false
+  },
+  {
+   "name": "Sinister Jewel Sockets",
+   "definition": "Sockets entirely disconnected from the rest of the passive tree, so Jewel radius effects do not apply to them.",
+   "legacy": false
+  },
+  {
+   "name": "Socket-bound Augments",
+   "definition": "Augments that permanently fill any Augment Socket they are placed into; cannot be removed, replaced or extracted.",
+   "legacy": false
+  },
+  {
+   "name": "Cascadable Skills",
+   "definition": "Warcries and non-Channelling area or targeted Spells can Cascade or Echo; a Repeating Spell will not Cascade or Echo while Repeating.",
+   "legacy": false
+  },
+  {
+   "name": "Anaemia",
+   "definition": "Debuff allowing more than 10 Corrupted Blood debuffs to be applied to a target.",
+   "legacy": false
+  },
+  {
+   "name": "Phased Form",
+   "definition": "Chronomancer Ascendancy notable: take 30% less damage; 4 seconds after taking Enemy Hit damage, take 30% of that Hit's damage.",
+   "legacy": false
+  },
+  {
+   "name": "Kalguuran Support Gem Limit",
+   "definition": "Kalguuran Support Gems usable by level: 1 (Level 1+), 2 (17+), 3 (33+), 4 (45+), 5 (65+), 6 (80+).",
+   "legacy": false
+  },
+  {
+   "name": "Precursor Terraformer",
+   "definition": "Activating it changes nearby Basic Maps to the displayed Biome.",
+   "legacy": false
+  },
+  {
+   "name": "Ancient Modifiers",
+   "definition": "Fragments of Precursor power adding varied bonus effects to areas in the Precursor Fortress and beyond.",
+   "legacy": false
+  },
+  {
+   "name": "Congealed Mist",
+   "definition": "A mysterious Augment that \"shifts and shimmers.\"",
+   "legacy": false
+  },
+  {
+   "name": "Seals and Sealed Skills",
+   "definition": "Skills that gain Seals when used by you; using a Sealed Skill breaks its Seals for a benefit scaled to their number.",
+   "legacy": false
+  },
+  {
+   "name": "Raven-Touched",
+   "definition": "Items warped by Tangmazu that can be instilled with a Notable Passive at the Withered Willow.",
+   "legacy": false
+  },
+  {
+   "name": "Great Beast",
+   "definition": "Map Bosses marked by Hilda; defeating one earns Hilda's Favour.",
+   "legacy": false
+  },
+  {
+   "name": "Hilda's Favour",
+   "definition": "Reward of an Atlas Master point to spend on Atlas Keystones.",
+   "legacy": false
+  },
+  {
+   "name": "Temple Currency",
+   "definition": "Currency items found mainly in the Temple, typically interacting with Corrupted Items.",
+   "legacy": false
+  },
+  {
+   "name": "Anomaly Map",
+   "definition": "Maps with added access requirements; their bosses are Deadly and may drop an extra lineage support.",
+   "legacy": false
+  },
+  {
+   "name": "Landmark Area",
+   "definition": "Atlas areas that can be entered repeatedly and do not require a Waystone to access.",
+   "legacy": false
+  },
+  {
+   "name": "Hiveblood",
+   "definition": "Used to birth Wombgifts from The Genesis Tree; maximum 100,000.",
+   "legacy": false
+  },
+  {
+   "name": "Vivid Spirit",
+   "definition": "Azmeri Spirit type: increases Skill Speed of affected monsters; Possessed monsters drop Dexterity items.",
+   "legacy": false
+  },
+  {
+   "name": "Wild Spirit",
+   "definition": "Azmeri Spirit type: increases Toughness of affected monsters; Possessed monsters drop Strength items.",
+   "legacy": false
+  },
+  {
+   "name": "Primal Spirit",
+   "definition": "Azmeri Spirit type: increases damage of affected monsters; Possessed monsters drop Intelligence items.",
+   "legacy": false
+  },
+  {
+   "name": "Puppet Master",
+   "definition": "Stacking Buff (max 5): 10% increased Skill Speed and 10% reduced Movement Speed Penalty with Command Skills, Minions +10% damage with Command Skills; each stack lasts 8 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Aldur's Legacies",
+   "definition": "Augments based on Ezomyte or Kalguuran Uniques; only one of this type may be socketed at a time.",
+   "legacy": false
+  },
+  {
+   "name": "Corrupted Monsters",
+   "definition": "Monsters with an extra Corrupted Modifier that may raise difficulty and reward or make them easier to defeat.",
+   "legacy": false
+  },
+  {
+   "name": "Xesht's Fervour",
+   "definition": "Ailith skill increasing the Effectiveness of Monsters in Breach Hive encounters.",
+   "legacy": false
+  },
+  {
+   "name": "Dreamer's Sight",
+   "definition": "Ailith skill creating a zone that upgrades Breach Monster Rarity, up to Rare, once per monster.",
+   "legacy": false
+  },
+  {
+   "name": "Escalating Threats",
+   "definition": "Adds a Modifier to the Simulacrum area that applies to all remaining waves.",
+   "legacy": false
+  },
+  {
+   "name": "Apex Predators",
+   "definition": "Adds an extra Boss to the encounter, summoned into all remaining Simulacrum waves.",
+   "legacy": false
+  },
+  {
+   "name": "Pure Emotions",
+   "definition": "Adds additional monster packs to the encounter, carried into all remaining Simulacrum waves.",
+   "legacy": false
+  },
+  {
+   "name": "Otherworldly Nemesis",
+   "definition": "Ailith skill adding a Pack with a Rare Monster to each wave.",
+   "legacy": false
+  },
+  {
+   "name": "Dreamer's Inspiration",
+   "definition": "Ailith skill creating a zone that adds a Modifier to Rare Breach Monsters; a Rare can only have one added Modifier.",
+   "legacy": false
+  },
+  {
+   "name": "Dreamer's Gift",
+   "definition": "Ailith skill sacrificing half her life for 100% increased Item Rarity in Breach Hives.",
+   "legacy": false
+  },
+  {
+   "name": "Dreamer's Might",
+   "definition": "Ailith skill sacrificing half her life for 1000% more Damage and immunity to Damage for 10 seconds.",
+   "legacy": false
+  },
+  {
+   "name": "Verisium Sentry",
+   "definition": "Kalguuran remnants in Expeditions that follow the player, adding Runic Modifiers to monsters.",
+   "legacy": false
+  },
+  {
+   "name": "Power Rune",
+   "definition": "Upgrades all other Runic Modifiers on the Remnant to a more powerful variant.",
+   "legacy": false
+  },
+  {
+   "name": "Fire Rune",
+   "definition": "Monsters gain Extra Fire Damage.",
+   "legacy": false
+  },
+  {
+   "name": "Cold Rune",
+   "definition": "Monsters gain Extra Cold Damage.",
+   "legacy": false
+  },
+  {
+   "name": "Lightning Rune",
+   "definition": "Monsters gain Extra Lightning Damage.",
+   "legacy": false
+  },
+  {
+   "name": "Tempest Rune",
+   "definition": "Monsters cannot be Shocked or Chilled; all damage contributes to Shock and Chill magnitude.",
+   "legacy": false
+  },
+  {
+   "name": "Momentum Rune",
+   "definition": "Monsters gain Increased Movement Speed that cannot be Slowed below base.",
+   "legacy": false
+  },
+  {
+   "name": "Bloodletting Rune",
+   "definition": "Monsters gain Life Leech, cannot have Life Leeched from, and inflict Corrupted Blood on Hit.",
+   "legacy": false
+  },
+  {
+   "name": "Stone Rune",
+   "definition": "Monsters gain Armoured, increased Stun Threshold and Earthly Prison.",
+   "legacy": false
+  },
+  {
+   "name": "Adaptive Rune",
+   "definition": "Monsters gain Adaptation.",
+   "legacy": false
+  },
+  {
+   "name": "Arcane Rune",
+   "definition": "Monsters gain Extra Energy Shield and trigger a Stunning nova when Energy Shield is depleted.",
+   "legacy": false
+  },
+  {
+   "name": "Toxic Rune",
+   "definition": "Monsters gain a chance to Poison on Hit, Toxic Volatiles on death, and all damage contributes to Poison magnitude.",
+   "legacy": false
+  },
+  {
+   "name": "Electrocuting Rune",
+   "definition": "Monsters gain Extra Lightning Damage, Lightning Damage Electrocutes, and Shocked Ground Trails.",
+   "legacy": false
+  },
+  {
+   "name": "Protective Rune",
+   "definition": "Monsters periodically gain Verisium Proximity Shields.",
+   "legacy": false
+  },
+  {
+   "name": "Cyclonic Rune",
+   "definition": "Monsters gain a chance to inflict Exposure on Hit, Armour Break on Hit and Wither on Hit.",
+   "legacy": false
+  },
+  {
+   "name": "Vision Rune",
+   "definition": "Monsters gain Reflect Curses and chance to Reflect Shock and Chill.",
+   "legacy": false
+  },
+  {
+   "name": "Tidal Rune",
+   "definition": "The Remnant gains the ability to Conjure Tidal Waves.",
+   "legacy": false
+  },
+  {
+   "name": "Rebirth Rune",
+   "definition": "Monsters gain a chance to Rebirth on death.",
+   "legacy": false
+  },
+  {
+   "name": "Prismatic Rune",
+   "definition": "Monsters gain All Damage can Shock, Chill and Ignite, and Increased Elemental Resistances.",
+   "legacy": false
+  },
+  {
+   "name": "Gasp Rune",
+   "definition": "Volcanic Rune: monsters gain Extra Fire Damage, All Damage can Ignite, and Ignited Ground Trails.",
+   "legacy": false
+  },
+  {
+   "name": "Moon Rune",
+   "definition": "The Remnant gains the ability to Conjure moon beams.",
+   "legacy": false
+  },
+  {
+   "name": "Celestial Rune",
+   "definition": "Monsters gain a chance for Fire, Cold and Lightning Explosions on death.",
+   "legacy": false
+  },
+  {
+   "name": "Opulent Rune",
+   "definition": "Monsters gain Increased Monster Rarity.",
+   "legacy": false
+  },
+  {
+   "name": "Rage Rune",
+   "definition": "Monsters periodically Enrage.",
+   "legacy": false
+  },
+  {
+   "name": "Wisdom Rune",
+   "definition": "Monsters gain Increased Experience.",
+   "legacy": false
+  },
+  {
+   "name": "Sky Rune",
+   "definition": "The Remnant gains the ability to Conjure Elemental Tornados.",
+   "legacy": false
+  },
+  {
+   "name": "Earth Rune",
+   "definition": "The Remnant gains the ability to Conjure Earthly Spires.",
+   "legacy": false
+  },
+  {
+   "name": "Life Rune",
+   "definition": "Monsters gain Shared Life.",
+   "legacy": false
+  },
+  {
+   "name": "Bond Rune",
+   "definition": "Monsters may transfer a Mod on death; the Remnant gains increased chance to spawn Rare Monsters; Rare Monsters have more Monster Modifiers.",
+   "legacy": false
+  },
+  {
+   "name": "Ward Rune",
+   "definition": "Monsters are Protected by Runic Ward.",
+   "legacy": false
+  },
+  {
+   "name": "Soul Rune",
+   "definition": "Monsters gain Union of Souls.",
+   "legacy": false
+  },
+  {
+   "name": "Death Rune",
+   "definition": "Slain Monsters may merge into stronger Monsters.",
+   "legacy": false
+  },
+  {
+   "name": "Oath Rune",
+   "definition": "A Monster summons Allies.",
+   "legacy": false
+  },
+  {
+   "name": "Time Rune",
+   "definition": "Slain Monsters may respawn as a higher Rarity.",
+   "legacy": false
+  },
+  {
+   "name": "Ruin",
+   "definition": "Gained if you are hit by a Stalking Shade inside the Trial of Chaos; fail the Trials on reaching 7 Ruin.",
+   "legacy": false
+  },
+  {
+   "name": "Abyssal Fissure",
+   "definition": "A group of areas containing Abysses, all of one faction; the final area leads to that faction's boss; Abyssal monsters grow stronger further along.",
+   "legacy": false
+  },
+  {
+   "name": "Released Azmeri Spirits",
+   "definition": "Azmeri Spirits released from Possessed monsters; chance to manifest with a portion of the empowerment, at 1% per 2% empowerment.",
+   "legacy": false
+  },
+  {
+   "name": "Vaal Relics",
+   "definition": "Found in Frigid Bluffs Grand Expeditions and as a modifier on Expedition Tablets; unearthed like Verisium Remnants, with predefined modifiers.",
+   "legacy": false
+  }
+ ]
+}
