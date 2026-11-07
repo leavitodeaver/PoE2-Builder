@@ -13,6 +13,12 @@ from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS, SUPPO
 from builder.search.state import EPSILON, Build
 
 PERSISTENT_LABEL = "auto: persistent"
+META_LABEL = "auto: meta"
+META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
+META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
+# A spell triggered less often than this can't pay through its own damage; what PoB counts of it besides (a buff it
+# grants, at full) would be the only gain: such a meta group isn't kept (Profane Ritual at 0.0001 triggers/s gave +4%)
+META_MIN_RATE = 1 / 30
 ATTRIBUTES = {"str": "Str", "dex": "Dex", "int": "Int"}
 
 
@@ -419,3 +425,99 @@ class Gems:
                 break
             improved = True
         return improved
+
+    # Meta gems the search picks by itself (PLAN.md "Meta-gem set-ups", first slice) -------------------------------
+
+    def meta_round(self, deadline: float) -> bool:
+        """Try a meta gem that gains Energy from what the build already does (crits, ailments, blocks, melee hits, Heavy
+        Stuns: models.META_GEMS), with one spell it triggers, and keep the best that pays. The meta gems the build feeds
+        most Energy are screened first; their spells by what PoB says each adds to Full DPS in the group (a self-cast rate,
+        so only a ranking); the best META_TRIALS spells of each get a real trial, since the trigger rate (models.energy_model)
+        shows only after a resolve. Not yet: supports in the meta group, several spells, Invocations (buttons)."""
+        import time
+
+        from builder.search import models
+
+        build, ctx = self.build, self.ctx
+        groups = build.groups()
+        if any(g["label"] == META_LABEL for g in groups) or len([g for g in groups if not g["fromItem"]]) >= MAX_GEM_GROUPS:
+            return False
+        present = {g["name"] for group in groups for g in group["gems"]}
+        skills = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
+        if any(s.energy for s in skills):
+            return False  # the build has one already (required, granted, or from a seed)
+        main_group = build.main_group()
+        main = next((s for s in skills if main_group and s.group == main_group["index"] and not s.triggered), None)
+        if main is None:
+            return False
+        stats = build.call("stats", fields=models.MODEL_FIELDS)
+        left, usage = self.budget_left(), self.usage_stats()
+        metas = []
+        for name, info in models.META_GEMS.items():
+            if info.get("invocation") or name in present or not self._offered(name, left, usage):
+                continue
+            gain = models.energy_gain(name, stats, main.name, main)[0] * (1 + info["energy"] / 100)
+            if gain > 0:
+                metas.append((gain, name))
+        metas = [name for _, name in sorted(metas, reverse=True)[:META_GEMS_TRIED]]
+        if not metas:
+            return False
+        spells = [n for n, gem in ctx.gems.items() if not gem["support"] and n not in present
+                  and {"Spell", "Triggerable"} <= set(gem["skillTypes"]) and not {"Meta", "Persistent"} & set(gem["skillTypes"])
+                  and self._offered(n, left, usage)]
+        before = build.score
+        best: tuple[float, list[dict]] | None = None
+        for meta in metas:
+            if time.perf_counter() > deadline:
+                break
+            cases = [{"newGroup": [meta, n], "level": GEM_LEVEL, "quality": GEM_QUALITY, "fullDPS": True} for n in spells]
+            if not cases:
+                break
+            full = []
+            for start in range(0, len(cases), 50):
+                full += build.call("gemDeltas", cases=cases[start:start + 50], fields=["FullDPS"], fullDPS=True,
+                                   skipEHP=True)["results"]
+            ranked = sorted(zip((float(r.get("FullDPS") or 0) for r in full), spells), reverse=True)
+            for _, spell in ranked[:META_TRIALS]:
+                if time.perf_counter() > deadline:
+                    break
+                levels = [self.usable_level(n) for n in (meta, spell)]
+                if None in levels:
+                    continue
+                gems = [{"name": n, "level": level, "quality": GEM_QUALITY} for n, level in zip((meta, spell), levels)]
+                score = self.trial_meta(gems)
+                if score is not None and score > before + EPSILON and (best is None or score > best[0]):
+                    best = (score, gems)
+        if best is None:
+            return False
+        added = build.set_group(gems=best[1], label=META_LABEL, fullDPS=True)
+        if self.resolve is not None:
+            self.resolve()
+        if build.worse(before):
+            build.remove_group(added["index"])
+            if self.resolve is not None:
+                self.resolve()
+            return False
+        return build.score > before + EPSILON
+
+    def trial_meta(self, gems: list[dict]) -> float | None:
+        """Score a meta group for real: commit, resolve, read, undo. None when PoB doesn't let the meta trigger the spell
+        (it would count the spell as cast by hand) or the Energy model gives it no triggers."""
+        build = self.build
+        added = build.set_group(gems=gems, label=META_LABEL, fullDPS=True)
+        if self.resolve is not None:
+            self.resolve()
+        triggered = any(s["name"] == gems[1]["name"] and s.get("group") == added["index"] and s.get("triggered")
+                        for s in build.call("activeSkills")["skills"])
+        # (and the Energy model gives it a rate: a spell that never fires must not pay through anything PoB counts of it)
+        rates = [m["value"] for m in (self.assumptions.mods if self.assumptions is not None else [])
+                 if m.get("kind") == "SkillData" and m.get("skill") == gems[1]["name"] and m.get("key") == "triggerRate"]
+        triggered = triggered and bool(rates) and max(rates) >= META_MIN_RATE
+        score = build.score if triggered else None
+        build.remove_group(added["index"])
+        if self.resolve is not None:
+            self.resolve()
+        return score
+
+    def _offered(self, name: str, left: float, usage: dict | None) -> bool:
+        return name in self.ctx.gems and self.ctx.allowed_gem(name) and self.ctx.gem_price(name) is not None             and self.affordable(name, 0.0, left) and self.usable(name, usage)

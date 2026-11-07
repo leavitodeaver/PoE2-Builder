@@ -33,6 +33,7 @@ MODEL_FIELDS = sorted({
     "Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
     "Darkness", "Str", "Dex", "Int", *(f"{t}CritAverage" for t in DAMAGE_TYPES), *(f"{t}HitAverage" for t in DAMAGE_TYPES),
+    *(f"MainHand.{t}CritAverage" for t in DAMAGE_TYPES),
     # Iron Ward: the boss's physical hits and how much of them the build prevents
     "PhysicalEnemyDamage", "PhysicalDamageReduction", "PhysicalDamageReductionMax", "BasePhysicalDamageReductionWhenHit",
     "Armour", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
@@ -414,7 +415,8 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
     crit = number(stats.get("CritChance")) / 100
     if kind == "crit":
         crits = crits_per_second(stats)
-        crit_hit = sum(number(stats.get(f"{t}CritAverage")) for t in DAMAGE_TYPES)
+        # (a spell's per-type averages are PoB's top-level output; an attack's are its main hand's)
+        crit_hit = sum(number(stats.get(f"{t}CritAverage")) for t in DAMAGE_TYPES)             or sum(number(stats.get(f"MainHand.{t}CritAverage")) for t in DAMAGE_TYPES)
         threshold = number(stats.get("EnemyAilmentThreshold"))
         share = min(1.0, crit_hit / threshold) if threshold > 0 else 1.0
         per = BOSS_POWER * share

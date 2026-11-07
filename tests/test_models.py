@@ -410,3 +410,11 @@ def test_deadly_resolve_slashes_once_per_stage_when_the_boss_hits():
     other = Skill("Boneshatter", group=1, attack=True, melee=True)
     assert next(m["value"] for m in models.deadly_resolve_model([other, slash], stats, other)[0] if m["key"] == "triggerRate") == 0.0
     assert models.deadly_resolve_model([shield], stats, shield) == ([], [])
+
+
+def test_cast_on_critical_reads_an_attacks_crits_from_its_main_hand():
+    slam = Skill("Boneshatter", group=1, attack=True, melee=True)
+    stats = {"Speed": 2, "HitChance": 100, "CritChance": 50, "MainHand.PhysicalCritAverage": 50000,
+             "EnemyAilmentThreshold": 100000}
+    gain, basis = models.energy_gain("Cast on Critical", stats, "Boneshatter", slam)
+    assert gain == pytest.approx(1 * 20 * 0.5) and "50,000 critical hit" in basis

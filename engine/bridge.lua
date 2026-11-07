@@ -1469,7 +1469,7 @@ function bridge.gemDeltas(args)
 	for i, case in ipairs(args.cases) do
 		local ok, output
 		if case.newGroup then
-			local group = { label = "", enabled = true, gemList = { } }
+			local group = { label = "", enabled = true, gemList = { }, includeInFullDPS = case.fullDPS or nil }
 			for _, name in ipairs(case.newGroup) do
 				group.gemList[#group.gemList + 1] = gemInstance(gemByName(name), case.level, case.quality)
 			end

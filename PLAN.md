@@ -597,7 +597,22 @@ they land.
 
 **Builds the optimizer can't make yet**
 - Meta gems it picks by itself (Cast on X), supports for the spells a meta gem triggers, supports on
-  persistent skills.
+  persistent skills. Plan (2026-11-07; gate 4's 2b75d shows it is now the biggest damage the search
+  can't reach: the user's Thundergod's Wrath and Cast on Critical groups). More than a turn, in
+  slices:
+  1. *(started)* `Gems.meta_round` on sweep passes: the meta gems the build's own play feeds most
+     Energy (`models.energy_gain`: crits, ailments, blocks, melee hits, Heavy Stuns), two of them;
+     their spells screened by what PoB adds to Full DPS in the group (a self-cast rate: a ranking
+     only), the best three of each tried for real (the trigger rate shows only after a resolve), a
+     spell PoB won't let the meta trigger rejected (it would count as cast by hand); one meta
+     group with one spell, kept if it pays.
+  2. Supports for the meta group (the support round covers only the main group now): the same
+     sweep and shortlist on the meta group, with "supports the triggered spell" rules from PoB.
+  3. Several spells per meta (each adds to the Energy one round costs: a spell pays only if its
+     damage per Energy beats the others'), and Boundless Energy / Energy Retention supports.
+  4. Invocations (Spellslinger, Elemental Invocation: a button each, so within the button cap),
+     and Spirit for the persistent metas.
+  5. The meta round in kicks and seeds; gate 4's 2b75d as the test.
 - Weapon-set passive points.
 - Timeless jewels (need PoB's seed tables), Voices' Sinister sockets, Split Personality (unpriced),
   Pathfinder's alternate starts (PoB doesn't path them), corrupted jewel implicits.

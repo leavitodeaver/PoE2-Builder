@@ -370,6 +370,7 @@ class Search:
             ("conditions", self.conditions_round, ()),
             ("condition sources", self.sources.round, (deadline,)),
             ("persistent", self.gems.optimize_persistent, (deadline,)),
+            ("meta gems", self.gems.meta_round, (deadline,)),
             ("prune and regrow", self.tree.swap_round, (deadline,)),
         ]
         if self.skeleton.swap:
@@ -378,7 +379,7 @@ class Search:
         for phase, fn, args in steps:
             if time.perf_counter() > deadline:
                 break
-            if phase in ("ascendancy", "condition sources") and not sweep:
+            if phase in ("ascendancy", "condition sources", "meta gems") and not sweep:
                 continue
             improved = self.step(phase, fn, *args) or improved
         self.kicked.clear()

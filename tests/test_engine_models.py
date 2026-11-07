@@ -101,3 +101,21 @@ def test_a_builds_coverage_blind_spots(engine):
                               config_on=set(search.conditions.active), stats=build.call("stats", fields=GATED_FIELDS))
     assert isinstance(found, list) and all({"source", "line", "kind", "reason"} <= set(b) for b in found)
     assert not any(b["source"] == "gem: Mana Tempest" for b in found)  # its unread stat is counted by a gem_stat entry
+
+
+def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):
+    """A bare Boneshatter crits too rarely to feed Cast on Critical: every trial is turned down (no trigger once per 30 s),
+    so nothing PoB counts of the spell besides its damage (a buff at full) can make the group pay."""
+    import time
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    before = [[g["name"] for g in group["gems"]] for group in search.build.groups()]
+    tried = []
+    trial = search.gems.trial_meta
+    search.gems.trial_meta = lambda gems: tried.append(trial(gems)) or tried[-1]
+    assert search.gems.meta_round(time.perf_counter() + 60) is False
+    assert tried and all(score is None for score in tried)  # Cast on Critical was screened in and tried for real
+    assert [[g["name"] for g in group["gems"]] for group in search.build.groups()] == before
