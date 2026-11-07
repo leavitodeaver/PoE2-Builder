@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PoE2 Builder · Mechanics</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; }
+  .filters input[type=search] { min-width: 280px; }
+  .mech { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; margin: 8px 0; background: var(--surface); }
+  .mech h3 { margin: 0 0 4px; font-size: 1.05em; }
+  .mech .facts { color: var(--muted, #888); font-size: 0.9em; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 0.8em; margin-left: 6px; border: 1px solid var(--border); }
+  .pob-none { background: #5a1f1f; color: #fff; } .pob-wrong { background: #6b3a12; color: #fff; }
+  .pob-config-only { background: #5b4b12; color: #fff; } .pob-partial { background: #2f4a5c; color: #fff; }
+  .pob-full { background: #24502f; color: #fff; }
+  .mech ul { margin: 4px 0 0 18px; padding: 0; }
+  .mech details { margin-top: 6px; }
+  .lines li { font-family: ui-monospace, monospace; font-size: 0.85em; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <h1>PoE2 Builder · Mechanics</h1>
+  <a class="link" href="/">Back to the builder</a>
+</header>
+<main>
+  <section class="card">
+    <p id="summary">Loading…</p>
+    <div class="filters">
+      <input type="search" id="q" placeholder="Search mechanics, lines, gems…">
+      <label>PoB <select id="pob"><option value="">any</option><option>none</option><option>wrong</option><option>config-only</option><option>partial</option><option>full</option></select></label>
+      <label>Category <select id="cat"><option value="">any</option></select></label>
+      <label>Priority at least <input type="number" id="prio" value="0" min="0" style="width:6em"></label>
+      <label><input type="checkbox" id="planned"> reviewed only</label>
+      <span id="shown"></span>
+    </div>
+  </section>
+  <section id="list"></section>
+</main>
+<script src="/static/mechanics.js"></script>
+</body>
+</html>

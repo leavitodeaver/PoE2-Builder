@@ -110,6 +110,24 @@ def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/mechanics")
+def mechanics_page() -> FileResponse:
+    """The mechanics catalog (builder/ledger/mechanics.py): every mechanic PoB doesn't simulate, with its plan."""
+    return FileResponse(STATIC / "mechanics.html")
+
+
+@app.get("/api/mechanics")
+def mechanics_catalog() -> dict:
+    path = data.dir / "mechanics.json"
+    if not path.exists():
+        from builder.ledger import mechanics
+
+        catalog = mechanics.build(data.dir)
+        path.write_text(json.dumps(catalog, ensure_ascii=False), encoding="utf-8")
+        return catalog
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 @app.get("/api/options")
 def options() -> dict:
     passives = passive_names(data)
