@@ -13,3 +13,6 @@ legacy/*
 
 # Generated game data and price cache
 /data/
+
+# Manager and worker notes, turn logs (tools/manager/worker.sh)
+/scratch/
