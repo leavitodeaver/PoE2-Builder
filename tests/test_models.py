@@ -418,3 +418,14 @@ def test_cast_on_critical_reads_an_attacks_crits_from_its_main_hand():
              "EnemyAilmentThreshold": 100000}
     gain, basis = models.energy_gain("Cast on Critical", stats, "Boneshatter", slam)
     assert gain == pytest.approx(1 * 20 * 0.5) and "50,000 critical hit" in basis
+
+
+def test_barrier_invocation_gains_energy_from_the_energy_shield_the_boss_takes():
+    stats = {"EnergyShield": 3000, "enemySkillTime": 0.5, "EvadeChance": 0, "EffectiveBlockChance": 50,
+             "PhysicalTakenHit": 600, "FireTakenHit": 400}
+    gain, basis = models.energy_gain("Barrier Invocation", stats, "Spark", Skill("Spark", spell=True))
+    assert gain == pytest.approx(1.0 * 1000 * 0.1) and "1 Energy per 10 lost" in basis  # 1 hit/s lands, 1,000 ES each
+    assert models.energy_gain("Barrier Invocation", {**stats, "EnergyShield": 0}, "Spark")[0] == 0.0
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
+    _, notes, _ = models.energy_model(Inputs(), {}, [SPARK, Skill("Cast on Dodge", group=2, energy=True), comet], SPARK)
+    assert "dodge roll distance" in notes[0]["basis"]

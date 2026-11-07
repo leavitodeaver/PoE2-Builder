@@ -34,6 +34,8 @@ MODEL_FIELDS = sorted({
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
     "Darkness", "Str", "Dex", "Int", *(f"{t}CritAverage" for t in DAMAGE_TYPES), *(f"{t}HitAverage" for t in DAMAGE_TYPES),
     *(f"MainHand.{t}CritAverage" for t in DAMAGE_TYPES),
+    # Barrier Invocation: the Energy Shield each boss hit takes
+    *(f"{t}TakenHit" for t in DAMAGE_TYPES),
     # Iron Ward: the boss's physical hits and how much of them the build prevents
     "PhysicalEnemyDamage", "PhysicalDamageReduction", "PhysicalDamageReductionMax", "BasePhysicalDamageReductionWhenHit",
     "Armour", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
@@ -364,8 +366,11 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # 0.2 per 10 ms of the cast spell's base cast time (spellslinger_invocation_gain_X_centienergy_per_10ms_base_cast_time 20);
 # Cast on Melee Stun 10 per Power per Heavy Stun (light stuns, 2 per Power, not counted: PoB has no stun bar for a boss),
 # at Guided Hand's assumed Heavy Stun rate. Energy on kills (Cast on Melee Kill, Reaper's Invocation) and on minion deaths
-# counts none on a boss; Cast on Dodge (per distance rolled), Barrier Invocation (per Energy Shield damage taken) and Cast
-# on Charm Use are not modeled yet.
+# counts none on a boss. Barrier Invocation (poe2db): "When Hit by an Enemy, gain 1 Energy for each 10 Energy Shield lost to
+# damage taken" (barrier_invocation_gain_1_energy_per_X_energy_shield_damage_taken_when_hit 10): the boss's hits that land
+# per second x the damage each takes after mitigation (PoB's {Type}TakenHit at its boss preset), up to the Energy Shield
+# pool, while the build has Energy Shield. Cast on Dodge gains 2 Energy per metre rolled, but neither poe2db nor PoB has the
+# base dodge roll distance: not modeled (0, said in the guide) until a source gives it. Cast on Charm Use is item-only.
 
 META_GEMS = {
     "Cast on Critical": {"energy": 57.0, "gain": "crit", "less": 20.0},
@@ -376,8 +381,10 @@ META_GEMS = {
     "Thundergod's Wrath": {"energy": 72.0, "gain": "melee hit", "per": 3.0},
     "Spellslinger": {"energy": 72.0, "gain": "cast", "per": 0.2, "invocation": True},
     "Cast on Melee Stun": {"energy": 0.0, "gain": "heavy stun", "per": 10.0},
+    "Barrier Invocation": {"energy": 72.0, "gain": "energy shield lost", "per": 0.1, "invocation": True},
 }
 NO_ENERGY_ON_A_BOSS = {"Cast on Melee Kill": "kills", "Reaper's Invocation": "kills", "Cast on Minion Death": "minion deaths"}
+NOT_MODELED_YET = {"Cast on Dodge": "the base dodge roll distance (2 Energy per metre) is in neither poe2db nor PoB's data"}
 ENERGY_INPUTS = ("MetaEnergy", "MetaEnergyCrit", "MetaEnergyMore", "EnergyRefund", "InvocationHalfCost")
 RECENTLY = 4.0  # seconds
 
@@ -392,6 +399,17 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         blocks = land * block / every
         return blocks * per, (f"you block {blocks:.2f} of the boss's hits per second (one every {every:g} s, {land:.0%} not evaded, "
                               f"{block:.0%} blocked) for {per:g} Energy each")
+    if kind == "energy shield lost":
+        pool = number(stats.get("EnergyShield"))
+        if pool <= 0:
+            return 0.0, "the build has no Energy Shield: no Energy"
+        every = number(stats.get("enemySkillTime")) or 0.7
+        land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)
+        taken = min(sum(number(stats.get(f"{t}TakenHit")) for t in DAMAGE_TYPES), pool)
+        hits = land / every
+        return hits * taken * per, (f"the boss's hits land {hits:.2f} times per second (one every {every:g} s, {land:.0%} neither "
+                                    f"evaded nor blocked), each taking {taken:,.0f} Energy Shield after mitigation (PoB's boss "
+                                    f"preset): 1 Energy per 10 lost")
     if kind == "melee hit":
         if skill is not None and not skill.melee:
             return 0.0, f"{main} is not a melee attack: no Energy"
@@ -462,6 +480,7 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
             notes.append({"label": f"{meta.name} triggers per second ({names}; not counted)", "value": 0,
                           "basis": f"it gains Energy on {NO_ENERGY_ON_A_BOSS[meta.name]}: none on a single boss"
                           if meta.name in NO_ENERGY_ON_A_BOSS
+                          else f"not modeled yet: {NOT_MODELED_YET[meta.name]}" if meta.name in NOT_MODELED_YET
                           else "its Energy source isn't modeled yet" if meta.name not in META_GEMS
                           else "the main skill is one it triggers, so nothing else feeds its Energy",
                           "confidence": "theory"})
