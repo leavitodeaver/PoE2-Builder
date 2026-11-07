@@ -6,12 +6,21 @@
 # Conditions switched on by the build's skills ----------------------------------------------------
 
 - id: RepeatableSpell
-  title: Uses a spell that can Repeat
+  title: The main skill is a spell that can Repeat
   kind: condition
-  skills: '^(Fireball|Firebolt|Frostbolt|Spark|Arc|Ball Lightning|Lightning Bolt|Comet|Chaos Bolt|Bone Blast|Detonate Dead)$'
+  skill_types: [Spell, Multicastable]
   confidence: datamined
-  notes: "Part of poe2db's list of about 85 Repeating Skills; spells not named here count no Repeat (an undercount, never an overcount)."
-  sources: ["https://poe2db.tw/us/Repeating_Skills"]
+  notes: "PoB's skill type Multicastable is the game's Repeatable (poe2db's list of Repeating Skills: Spark, Fireball, Arc, Comet ...; channelled, instant and triggered spells can't Repeat). Bone Blast is on poe2db's list but not Multicastable in PoB's data: not counted (an undercount)."
+  sources: ["https://poe2db.tw/us/Repeating_Skills", "PoB skill data (skillTypes)"]
+  status: proposed
+
+- id: CascadableSpell
+  title: The main skill is a spell that can Echo (Cascadable)
+  kind: condition
+  skill_types: [Spell, Cascadable]
+  confidence: datamined
+  notes: "Cascadable: warcries and non-channelling spells that affect an area around you or a targeted location (poe2db)."
+  sources: ["https://poe2db.tw/us/Cascadable_Skills", "PoB skill data (skillTypes)"]
   status: proposed
 
 # Damage ----------------------------------------------------------------------------------------
@@ -61,16 +70,16 @@
   status: proposed
 
 - id: now-and-again-echo
-  title: Now and Again, chance for Cascadable spells to Echo (not counted yet)
+  title: Now and Again, chance for Cascadable spells to Echo
   kind: pob_gap
   match: '^Cascadable Spells have (\d+)% chance to Echo$'
-  replace: []
+  replace: ['if:CascadableSpell {g1*0.95}% more Spell Damage']
   confidence: theory
   notes: >-
-    An Echo hits the same targeted location again after a delay, so it would add hits like a
-    Repeat; not counted yet, because which area spells are Cascadable isn't in the build data
-    (an undercount for those spells).
-  sources: ["https://poe2db.tw/us/Cascadable_Skills"]
+    An Echo affects the same targeted location again after a delay (poe2db): against a boss standing in the area, one more
+    hit of the spell; the chance is extra hits on average, less 5% for the delay that moves it later. A spell that both
+    Repeats and Echoes gets both (assumed independent).
+  sources: ["https://poe2db.tw/us/Cascadable_Skills", "https://poe2db.tw/us/Chronomancer"]
   test_in_game: "Cast an area spell at a dummy 50 times: about 10 casts hit the spot a second time."
   status: proposed
 
@@ -113,17 +122,19 @@
   status: proposed
 
 - id: decimating-strike
-  title: Decimating Strike, hits against full-life enemies remove 5-30% of life (once per fight)
+  title: Decimating Strike, the first hit on a full-life boss removes 5-30% of its life
   kind: pob_gap
   match: '^Decimating Strike$'
-  replace: []
-  confidence: datamined
+  replace: ['21% more Damage']
+  confidence: theory
   notes: >-
-    "Hits against Full Life Enemies remove between 5% and 30% of Life, before the damage of the
-    Hit is applied" (poe2db): one chunk at the start of a boss fight, so no sustained DPS. It does
-    shorten the fight (not counted).
+    "Hits against Full Life Enemies remove between 5% and 30% of Life, before the damage of the Hit is applied" (poe2db).
+    Against a boss, once, at the start: the fight against the rest of its life is shorter by that share, so the boss dies
+    1/(1 - f) as fast. What decides 5% or 30% isn't published: the middle, 17.5%, is assumed, so x1.21 counted as the
+    equivalent 21% more Damage (5% would be x1.05, 30% x1.43). A boss that heals to full or has phases that reset to full
+    life would give it again (not counted).
   sources: ["https://poe2db.tw/us/Decimating_Strike"]
-  test_in_game: "Hit a full-life boss once: a share of its life bar disappears before the hit's damage."
+  test_in_game: "Hit a full-life map boss once with a weak skill: note how much of its life bar goes on that first hit, beyond the hit's own damage. Repeat on three bosses to see what decides the share."
   status: proposed
 
 # Defences --------------------------------------------------------------------------------------
@@ -131,14 +142,16 @@
 - id: harmony-within
   title: Harmony Within, hit damage taken from Mana first while Mana is above Life
   kind: pob_gap
+  model: harmony
   match: '^Hit damage is taken from Mana before Life if your current Mana is higher than your current Life$'
-  replace: ['50% of Damage is taken from Mana before Life']
+  replace: ['flag:HarmonyWithin']
   confidence: theory
   notes: >-
     Reads like 100% Mind over Matter for hits while Mana is above Life (poe2db; no cap stated).
-    Counted as 50% because whether the excess spills into Life is unknown (one forum claim says
-    the whole hit comes from one pool) and the condition fails once Mana drops below Life. Builds
-    with less Mana than Life get nothing in game, but this count gives them the 50% too.
+    Counted (builder/search/models.py harmony_model) as 100% of damage taken from Mana before Life,
+    only when the build's unreserved Mana is above its Life (the manager's ruling, 6 Nov 2026: the
+    line's own text decides it), both pools assumed full. Out of scope: a fight where Mana drains
+    below Life, and whether a hit bigger than the Mana overflows into Life.
   sources: ["https://poe2db.tw/us/Oracle", "https://web.poecdn.com/forum/view-thread/3889065 (snippet only)"]
   test_in_game: "With more Mana than Life, take a boss hit: check how much came off Mana and whether Life moved."
   status: proposed

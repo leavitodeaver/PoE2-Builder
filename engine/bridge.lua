@@ -2361,6 +2361,12 @@ function bridge.flaskData(args)
 			for _, key in ipairs(keys) do
 				entry[key] = data[key]
 			end
+			-- a flask that "cannot be Used but applies its Effect constantly" (Lavianga's Spirits): PoB has no rule for it
+			for _, modLine in ipairs(item.explicitModLines or { }) do
+				if modLine.line and modLine.line:lower():find("cannot be used but applies its effect constantly", 1, true) then
+					entry.constant = true
+				end
+			end
 		end
 		results[i] = entry
 	end

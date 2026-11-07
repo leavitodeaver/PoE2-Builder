@@ -67,6 +67,8 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
     `chargesUsed`, and each use lasts its duration."""
     if not info.get("kind") or KILL_TRIGGER in trigger.lower():
         return 0.0
+    if info.get("constant"):  # "cannot be Used but applies its Effect constantly" (Lavianga's Spirits)
+        return 1.0
     used = info.get("chargesUsed") or 0
     rate = charges_per_second(info, gain, pool)
     if used <= 0:
@@ -79,9 +81,13 @@ def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
     at a time: never faster than one per duration)."""
     total = info.get("lifeTotal" if pool == "Life" else "manaTotal") or 0
     used = info.get("chargesUsed") or 0
+    inc = gain.life_recovery_inc if pool == "Life" else gain.mana_recovery_inc
+    if info.get("constant") and total > 0:
+        # theory: its effect is its recovery, applied without a use, so the whole amount over every duration, end to end
+        length = info.get("duration") or 0
+        return total * (1 + inc / 100) / length if length > 0 else 0.0
     if total <= 0 or used <= 0:
         return 0.0
-    inc = gain.life_recovery_inc if pool == "Life" else gain.mana_recovery_inc
     uses = charges_per_second(info, gain, pool) / used
     length = info.get("duration") or 0
     if length > 0:

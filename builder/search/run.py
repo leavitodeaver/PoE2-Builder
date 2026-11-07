@@ -472,7 +472,7 @@ class Run:
 
 MODEL_NAMES = {"archon": "Elemental Archon", "energy": "meta-skill Energy", "darkness": "Darkness",
                "traveller": "Traveller's Wisdom", "elemental_expression": "Elemental Expression",
-               "leylines": "larger Time-Lost radius"}
+               "leylines": "larger Time-Lost radius", "harmony": "Harmony Within"}
 
 
 def annotate_blind_spots(lines: list[dict]) -> list[dict]:
@@ -491,6 +491,8 @@ def annotate_blind_spots(lines: list[dict]) -> list[dict]:
             entry, replacement = translated
             line = {**line, "corrected_by": entry.id, "as": [readable(r) for r in replacement],
                     "confidence": entry.confidence}
+            if not replacement and entry.raw.get("absorbed_by"):  # counted through an assumption already at its maximum
+                line["as"] = [f"already counted at its maximum by an assumption: {entry.raw['absorbed_by']}"]
         annotated.append(line)
     return annotated
 

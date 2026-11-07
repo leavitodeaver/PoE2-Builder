@@ -114,6 +114,7 @@
   replace: []
   confidence: reported
   sources: ["https://poe2db.tw/Chakra_of_Rhythm", "https://poe2db.tw/us/Combo"]
+  absorbed_by: "PoB calculates a Combo skill at the Combo it requires, as if always reached; faster Combo would let it be used more often (not counted: the use rate is PoB's)"
   status: approved
 
 - id: no-effect-presence-aggravate

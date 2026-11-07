@@ -79,3 +79,17 @@ def test_mana_tempest_gem_stat_reaches_pob(engine):
     on = search.build.call("stats", fields=FIELDS)["CombinedDPS"]
     assert off > 0 and on > 1.2 * off
     assert any(n.get("entry") == "gem-mana-tempest-lightning" for n in search.assumptions.active)
+
+
+def test_a_builds_coverage_blind_spots(engine):
+    """What finalize_task adds to a result's not-modeled list, on a real build: the calls it makes, and gem stats PoB never reads."""
+    from builder.ledger.coverage import build_blind_spots
+    from builder.ledger.parse_audit import GATED_FIELDS
+
+    search = spark_with(engine, [])
+    build = search.build
+    groups = build.groups()
+    found = build_blind_spots(build.call("sourceLines")["lines"], [g["name"] for group in groups for g in group["gems"] if g.get("name")],
+                              config_on=set(search.conditions.active), stats=build.call("stats", fields=GATED_FIELDS))
+    assert isinstance(found, list) and all({"source", "line", "kind", "reason"} <= set(b) for b in found)
+    assert not any(b["source"] == "gem: Mana Tempest" for b in found)  # its unread stat is counted by a gem_stat entry

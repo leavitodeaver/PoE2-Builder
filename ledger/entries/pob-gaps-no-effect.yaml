@@ -117,6 +117,7 @@
     calculated. It would matter once charge rates are modeled, and for builds that consume charges.
   sources: ["https://poe2db.tw/us/Lust_for_Power", "https://poe2db.tw/us/Avidity", "builder/search/conditions.py (charges count as maximum)"]
   test_in_game: "With a charge generator, check that the charge count on your buff bar sits at its maximum in a boss fight; if it doesn't, this entry and the charge rule are wrong."
+  absorbed_by: "the condition resolver counts charges at their maximum once the build has a source (an overcount where they drop)"
   status: proposed
 
 - id: no-effect-extra-combo-on-gain
@@ -128,6 +129,7 @@
   notes: "As no-effect-extra-combo: Combo consumers are calculated at the Combo they require."
   sources: ["https://poe2db.tw/us/Martial_Adept", "https://poe2db.tw/us/Combo"]
   test_in_game: "Use a Combo skill: it reaches its required Combo in half as many hits; its damage per use doesn't change."
+  absorbed_by: "PoB calculates a Combo skill at the Combo it requires, as if always reached; faster Combo would let it be used more often (not counted: the use rate is PoB's)"
   status: proposed
 
 - id: no-effect-infinite-curse-duration
@@ -142,6 +144,7 @@
     config, not from this line.
   sources: ["https://poe2db.tw/us/Incessant_Cacophony", "https://poe2db.tw/us/Cospri%27s_Will"]
   test_in_game: "Curse a boss once and check the curse never falls off."
+  absorbed_by: "PoB applies the build's curses for the whole fight"
   status: proposed
 
 - id: no-effect-debuffs-on-you

@@ -547,3 +547,13 @@ def test_boss_fight_conditions_from_the_builds_own_numbers():
     assert block({**base, "EffectiveBlockChance": 40}) and not block({**base, "EffectiveBlockChance": 20})
     assert by_var["conditionHaveEnergyShield"].stat({"EnergyShield": 1}) and not by_var["conditionHaveEnergyShield"].stat({})
     assert by_var["conditionAtCloseRange"].main_types == ("Melee",)
+
+
+def test_a_flask_that_applies_its_effect_constantly():
+    """Lavianga's Spirits: "This Flask cannot be Used but applies its Effect constantly" (PoB has no rule for it)."""
+    from builder.search.flasks import Charges, recovery_per_second, uptime
+
+    info = {"kind": "Flask", "chargesUsed": 0, "duration": 4.0, "manaTotal": 400, "constant": True}
+    assert uptime(info, Charges(), "Mana") == 1.0
+    assert recovery_per_second(info, Charges(), "Mana") == pytest.approx(100.0)
+    assert recovery_per_second({**info, "constant": False}, Charges(), "Mana") == 0.0  # no charges to use it otherwise

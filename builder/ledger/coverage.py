@@ -270,6 +270,8 @@ def ignored_line_status(line: str, on_passive: bool) -> tuple[str, str | None, s
         entry, lines = translated
         if entry.conditional and not on_passive:
             return "none", entry.id, "ledger entry is conditional, which applies on passives only"
+        if not lines and entry.raw.get("absorbed_by"):
+            return "ledger", entry.id, "absorbed by an assumption: " + entry.raw["absorbed_by"]
         return "ledger", entry.id, "no effect on what's calculated" if not lines else "translated"
     if condition := resolver_condition(line):
         return "model", f"condition:{condition.var}", f"a source of {condition.label} for the condition resolver"

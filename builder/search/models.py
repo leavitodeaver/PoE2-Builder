@@ -36,6 +36,8 @@ MODEL_FIELDS = sorted({
     # Iron Ward: the boss's physical hits and how much of them the build prevents
     "PhysicalEnemyDamage", "PhysicalDamageReduction", "PhysicalDamageReductionMax", "BasePhysicalDamageReductionWhenHit",
     "Armour", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
+    # Harmony Within: unreserved Mana against Life
+    "ManaUnreserved", "Life",
 })
 
 
@@ -679,3 +681,30 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset()) -> tu
                     "confidence": entry.confidence, "entry": entry.id})
             names = [n for n in names if n != name]  # one copy of each skill (a buff applies once)
     return mods, notes
+
+
+# Oracle's Harmony Within (model: harmony) --------------------------------------------------------
+# "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
+# 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
+# 6 Nov 2026). PoB has none of it. The line goes in only while the passive's ledger condition is on, so a what-if that
+# removes the passive drops it; a build with more Life than unreserved Mana gets nothing.
+
+HARMONY = "HarmonyWithin"
+
+
+def harmony_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]:
+    if not inputs.has(HARMONY):
+        return [], []
+    mana, life = number(stats.get("ManaUnreserved")), number(stats.get("Life"))
+    if mana <= life:
+        return [], [{"label": "Harmony Within", "value": "not counted",
+                     "basis": f"unreserved Mana {mana:,.0f} is not above Life {life:,.0f}, so hits come off Life as usual",
+                     "confidence": "theory"}]
+    when = inputs.condition(HARMONY, True)
+    if when is None:
+        return [], []
+    return [line("1% of Damage is taken from Mana before Life", 100, when=when)], [{
+        "label": "Harmony Within", "value": "hits taken from Mana first",
+        "basis": f"unreserved Mana {mana:,.0f} is above Life {life:,.0f}: counted as 100% of damage taken from Mana before Life, "
+                 "both pools full (a fight where Mana drains below Life, and overflow of a hit bigger than the Mana, are not "
+                 "counted)", "confidence": "theory"}]

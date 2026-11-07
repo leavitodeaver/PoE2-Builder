@@ -283,3 +283,14 @@ def test_gem_stats_pob_never_reads_become_scaled_lines():
     assert models.gem_stat_model([tempest], {"gem-mana-tempest-lightning"}) == ([], [])
     assert models.gem_stat_model([models.Skill("Spark")]) == ([], [])
     assert "Mana Tempest" in models.gem_stat_skills()
+
+
+def test_harmony_within_counts_only_while_unreserved_mana_is_above_life():
+    passive = models.Inputs(flags={"HarmonyWithin"})
+    mods, notes = models.harmony_model(passive, {"ManaUnreserved": 3000, "Life": 2000})
+    assert mods == [{"kind": "Line", "line": "1% of Damage is taken from Mana before Life", "scale": 100.0,
+                     "when": [{"var": "HarmonyWithin"}]}]
+    assert notes[0]["confidence"] == "theory"
+    mods, notes = models.harmony_model(passive, {"ManaUnreserved": 1500, "Life": 2000})
+    assert mods == [] and notes[0]["value"] == "not counted"
+    assert models.harmony_model(models.Inputs(), {"ManaUnreserved": 3000, "Life": 2000}) == ([], [])

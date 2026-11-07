@@ -74,8 +74,9 @@ class Assumptions:
         ward_mods, ward_notes = models.iron_ward_model(
             found, stats, enabled=models.IRON_WARD_ENTRY not in build.ctx.request.forbid_ledger_entries)
         stat_mods, stat_notes = models.gem_stat_model(found, set(build.ctx.request.forbid_ledger_entries))
-        mods += energy_mods + expression_mods + ward_mods + stat_mods
-        notes += energy_notes + expression_notes + ward_notes + stat_notes
+        harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
+        mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods
+        notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]
         if chosen:
             kinds = {4: "Damage", 5: "Armour, Evasion and Energy Shield", 6: "Cost Efficiency"}
@@ -156,11 +157,15 @@ class Assumptions:
         names = actives + [gem["name"] for group in self.build.groups() for gem in group["gems"]
                            if gem.get("enabled", True)]
         texts = [(self.build.ctx.all_gems.get(name) or {}).get("description") or "" for name in actives]
+        main = self.main_skill()
+        main_types = set((self.build.ctx.all_gems.get(main) or {}).get("skillTypes") or []) if main else set()
         found = []
         for condition in wanted:
             by_name = condition.get("skills") and any(re.search(condition["skills"], n, re.I) for n in names)
             by_text = condition.get("skill_text") and any(re.search(condition["skill_text"], t, re.I) for t in texts)
-            if by_name or by_text:
+            # skill_types: the main skill has every one of these PoB skill types (e.g. Spell and Multicastable: it can Repeat)
+            by_type = condition.get("skill_types") and set(condition["skill_types"]) <= main_types
+            if by_name or by_text or by_type:
                 found.append(condition["id"])
         return sorted(found)
 
