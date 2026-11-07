@@ -154,7 +154,9 @@ def test_a_seeds_own_configuration_is_not_evidence(engine):
     config = engine.call("getConfig")["input"]
     for var in ("conditionEnemyFrozen", "enemyFireResist", "enemyColdResist", "enemyLightningResist",
                 "overrideFrenzyCharges", "overridePowerCharges", "conditionUsingFlask"):
-        assert var not in config
+        # (a charge count may be there only as the resolver's own, from the build's sources: not the seed's 6)
+        active = search.conditions.active.get(var)
+        assert var not in config or (active is not None and config[var] == active["value"]), (var, config.get(var))
     changed = {var for var in set(config) | set(fresh) if config.get(var) != fresh.get(var) and not var.startswith("quest")}
     assert changed <= set(search.conditions.active)
 

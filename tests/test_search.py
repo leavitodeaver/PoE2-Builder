@@ -580,3 +580,16 @@ def test_withered_stacks_from_the_builds_lines():
     keep = "Withered does not expire on Enemies Ignited by you"
     assert _withered_stacks([quill, keep], {"Speed": 4.0, "IgniteChancePerHit": 100})[0] == 10.0
     assert _withered_stacks([keep], {"Speed": 4.0, "IgniteChancePerHit": 100})[0] == 0.0  # no Withered source
+
+
+def test_charges_held_follow_the_builds_sources():
+    from builder.search.conditions import _charges_held
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "PowerChargesDuration": 15,
+             "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15}
+    count, basis = _charges_held("Power")(["10% chance to gain a Power Charge on Critical Hit"], stats)
+    assert count == pytest.approx(1.5)  # 10% x 1 crit/s x 15 s
+    assert _charges_held("Power")(["Gain a Power Charge on Critical Hit"], stats)[0] == 3  # 1/s x 15 s, at most 3
+    assert _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats) == (0.0, _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats)[1])
+    assert _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats)[1]  # sources, but none on a boss
+    assert _charges_held("Power")(["+1 to Maximum Power Charges"], stats) == (0.0, "")  # not a source

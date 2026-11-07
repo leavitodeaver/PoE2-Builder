@@ -24,6 +24,7 @@ UPTIME = 0.9  # chance that at least one hit applied it within the window
 EVIDENCE_FIELDS = [
     "CritChance", "Speed", "ShockChancePerHit", "IgniteChancePerHit", "PoisonChancePerHit", "BleedChancePerHit",
     "ChillChanceOnHit", "MaximumRage", "EnergyShield", "EvadeChance", "EffectiveBlockChance", "enemySkillTime",
+    "HitChance", *(f"{c}Charges{f}" for c in ("Power", "Frenzy", "Endurance") for f in ("Max", "Duration")),
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -55,6 +56,62 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple[float, str]:
         return float(WITHERED_MAX), f"{sources[0]}; and Withered never expires on the Ignited boss: {WITHERED_MAX} stacks"
     stacks = min(float(WITHERED_MAX), stacks)
     return float(int(stacks)), f"{'; '.join(sources)} at {rate:.2f} hits/s: {stacks:.1f} stacks kept up"
+
+
+# Charges held (the mechanics catalog's first priority, 7 Nov 2026): PoB counts the maximum whenever its "use" box is on.
+# The count a build holds is min(maximum, generation per second x the charge's duration), from the build's own sources:
+# poe2db (https://poe2db.tw/us/Charges): charges last a duration (PoB: 15 s base, ChargeDuration) and come from specific
+# sources; on a single boss nothing dies, so on-kill sources give none. A source whose rate its line doesn't say (on use,
+# when you stun, on reaching something) is assumed once per 4 s, labelled.
+CHARGE_DEFAULT_EVERY = 4.0
+CHARGE_SOURCE = r"(?:(\d+(?:\.\d+)?)% chance (?:to|when you \w+ (?:a|an) \w+ Charge to)?\s*)?(?:gain|grants?)\w* (?:an? |\d+ )?(?:[\w, ]*?\b{kind}\b[\w, ]*?) Charges?(.*)$"
+
+
+def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
+    """(charges per second, how) from one line, or None if it isn't a source of that charge."""
+    m = re.search(CHARGE_SOURCE.format(kind=kind), text, re.I)
+    if not m or re.search(r"\bcannot gain\b|instead|allies|when you gain|if you would gain|per \w+ charge|lose", text, re.I):
+        return None
+    chance = float(m.group(1)) / 100 if m.group(1) else 1.0
+    when = m.group(2).lower()
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
+    crits = hits * number(stats.get("CritChance")) / 100
+    boss = 1 / (number(stats.get("enemySkillTime")) or 0.7)
+    if "kill" in when:
+        return 0.0, "on kill (nothing dies on a single boss)"
+    if re.search(r"when you (freeze|electrocute|pin|stun|immobilise|heavy stun)|freeze, electrocute or pin", when):
+        # a pinnacle boss is rarely immobilised (the catalog's Heavy Stun and buildup ailments: one per 30 s assumed)
+        return chance / 30.0, "when you freeze, electrocute, pin or stun the boss: one per 30 s assumed"
+    if "critical hit" in when and "take" not in when:
+        return chance * crits, f"{chance:.0%} x {crits:.2f} crits/s"
+    if "take a critical hit" in when:
+        return chance * boss * 0.05, "when the boss crits you (5% of its hits)"
+    if "block" in when:
+        block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
+        return chance * boss * block, f"{chance:.0%} x {boss * block:.2f} blocks/s"
+    if "on hit" in when or when.strip() in ("", "on hit") or "hit" in when:
+        return chance * hits, f"{chance:.0%} x {hits:.2f} hits/s"
+    if m2 := re.search(r"every (\d+(?:\.\d+)?)? ?seconds?|once per second|every second", when):
+        every = float(m2.group(1)) if m2.groups() and m2.group(1) else 1.0
+        return chance / every, f"one every {every:g} s"
+    return chance / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed"
+
+
+def _charges_held(kind: str):
+    def held(lines: list[str], stats: dict) -> tuple[float, str]:
+        rate, how = 0.0, []
+        for text in lines:
+            if (r := _charge_rate(text, kind, stats)) is not None:
+                rate += r[0]
+                how.append(f"{text[:60]} ({r[1]})")
+        if not how:
+            return 0.0, ""
+        most = number(stats.get(f"{kind}ChargesMax"))
+        duration = number(stats.get(f"{kind}ChargesDuration")) or 15.0
+        count = min(most, rate * duration)
+        # (PoB reads the override only while its "use" box is on; 0 here leaves it to the box's own rule: no charges)
+        return round(count, 1), f"{rate:.2f}/s x {duration:g} s = {rate * duration:.1f}, at most {most:g}: " + "; ".join(how[:3])
+    return held
 
 
 def _blocked_recently(stats: dict) -> bool:
@@ -161,6 +218,12 @@ CONDITIONS: list[Condition] = [
               fields=("EnergyShield",)),
     # Grinning Immolation (Infernalist): "Become Ignited when you deal a Critical Hit": with crits landing you stay Ignited,
     # so every "while Ignited" line of the build counts (its self-damage is a drain outside the checked defences)
+    Condition("overridePowerCharges", "Power Charges held", value_fn=_charges_held("Power"),
+              fields=("Speed", "CritChance", "PowerChargesMax", "PowerChargesDuration")),
+    Condition("overrideFrenzyCharges", "Frenzy Charges held", value_fn=_charges_held("Frenzy"),
+              fields=("Speed", "CritChance", "FrenzyChargesMax", "FrenzyChargesDuration")),
+    Condition("overrideEnduranceCharges", "Endurance Charges held", value_fn=_charges_held("Endurance"),
+              fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration")),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
               fields=("Speed", "IgniteChancePerHit")),
     Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)",
@@ -253,7 +316,7 @@ class Conditions:
                 reason = "PoB: " + ", ".join(f"{k} {number(stats.get(k)):.3g}" for k in condition.fields)
             if condition.value_fn is not None:
                 value, basis = condition.value_fn([line["text"] for line in lines], stats)
-                if value > 0:
+                if value > 0 or basis:  # (a basis with 0: the build has sources, none of which a boss fight feeds)
                     found[condition.var] = (value, basis)
                 continue
             if reason is None and condition.main_types and self.main_types & set(condition.main_types):
@@ -269,6 +332,17 @@ class Conditions:
                     if value <= 0:
                         continue
                 found[condition.var] = (value, reason)
+        # Charges held: PoB reads an override of 0 as "not set" (the maximum), so none held switches the "use" box off
+        for kind in ("Power", "Frenzy", "Endurance"):
+            held = found.get(f"override{kind}Charges")
+            if held is not None and not held[0]:
+                found.pop(f"override{kind}Charges")
+                if f"use{kind}Charges" in found:
+                    found[f"use{kind}Charges"] = (False, "sources, but none a boss fight feeds: " + held[1])
+            elif held is None:
+                pass
+            elif f"use{kind}Charges" not in found:
+                found.pop(f"override{kind}Charges")  # (no source the resolver accepts for the box itself)
         return found
 
     def resolve(self) -> bool:
@@ -277,6 +351,15 @@ class Conditions:
         changes: dict[str, object] = {}
         for condition in CONDITIONS:
             want = found.get(condition.var)
+            if want is not None and want[0] is False:
+                # explicitly off (charges whose sources a boss fight doesn't feed): switch it off and don't list it as on
+                self.off_reasons = getattr(self, "off_reasons", {})
+                self.off_reasons[condition.var] = want[1]
+                was_on = self.active.pop(condition.var, None) is not None
+                if was_on or condition.var not in getattr(self, "switched_off", set()):
+                    changes[condition.var] = False
+                    self.switched_off = getattr(self, "switched_off", set()) | {condition.var}
+                continue
             have = self.active.get(condition.var)
             if want is None and have is not None:
                 changes[condition.var] = False
