@@ -22,6 +22,8 @@ from multiprocessing.connection import Connection, wait
 from pathlib import Path
 from typing import Any
 
+from builder.pob import slots
+
 CANCEL = "cancel"
 # Watchdog for tasks: a worker over this much memory, or silent this long, is replaced and its
 # task reported as failed. Healthy workers sit at 0.5-1 GB and report about once a second.
@@ -30,7 +32,8 @@ TASK_SILENCE_LIMIT = 180.0
 
 
 def default_workers() -> int:
-    """The user's chosen worker count (builder/settings.py), or half the CPU threads."""
+    """The user's chosen worker count (builder/settings.py), or half the processors this process may use; inside the PC queue, the processors its
+    job gives, 6 at most."""
     from builder.settings import workers
 
     return workers()
@@ -144,6 +147,10 @@ class EnginePool:
         self.memory_limit = memory_limit
         self.silence_limit = silence_limit
         self.size = workers or default_workers()
+        if (room := slots.free()) is not None:  # inside the PC queue: within PoE2's 6 LuaJIT processes (builder/pob/slots.py)
+            if room < 1:
+                raise slots.PoolFull(f"no LuaJIT slot is free for a pool: {slots.POOL_MAX} processes of this run already have a PoB engine")
+            self.size = min(self.size, room)
         self._context = mp.get_context("spawn")
         self._pob_dir = pob_dir.resolve() if pob_dir else None
         self._conns: list[Connection] = []

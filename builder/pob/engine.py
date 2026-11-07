@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from builder import ENGINE_DIR, POB_DIR
+from builder.pob import slots
 from builder.pob.lua import LuaError, LuaState
 
 
@@ -23,6 +24,7 @@ class PobError(RuntimeError):
 
 class PobEngine:
     def __init__(self, pob_dir: Path = POB_DIR) -> None:
+        slots.take()  # inside the PC queue: one of PoE2's 6 LuaJIT slots for this process, or PoolFull
         pob_dir = pob_dir.resolve()  # before chdir, so relative paths mean what the caller meant
         src = pob_dir / "src"
         started = time.perf_counter()
