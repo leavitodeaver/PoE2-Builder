@@ -423,6 +423,13 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             elif missing := unread(line.get("names") or [], reads):
                 add("unique-noop", line["unique"], "unique", line["line"], "none", None,
                     "parsed, but no calculation reads " + ", ".join(missing), weight)
+        for line in raw.get("base_implicits", []):  # base items' implicit lines
+            if not line["supported"]:
+                status, entry, reason = ignored_line_status(line["line"], False)
+                add("base-implicit", line["base"], "affix", line["line"], status, entry, reason, SOURCE_WEIGHT["affix"])
+            elif missing := unread(line.get("names") or [], reads):
+                add("base-implicit-noop", line["base"], "affix", line["line"], "none", None,
+                    "parsed, but no calculation reads " + ", ".join(missing), SOURCE_WEIGHT["affix"])
         for line in raw.get("legion", []):
             kind = "notable" if line.get("notable") or line.get("kind") == "nodes" else "small"
             if not line["supported"]:

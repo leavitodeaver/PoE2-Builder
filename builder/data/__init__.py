@@ -80,6 +80,12 @@ def dump_coverage(target: Path | None = None, pool=None) -> dict:
     missing = unique_variant_lines(target, payload)
     results = pool.broadcast("auditLines", lines=[m["line"] for m in missing])[0]["results"] if missing else []
     payload["unique_variants"] = [{**m, **r} for m, r in zip(missing, results)]
+    # base items' implicit lines (bases.json), through the same parser
+    bases = json.loads((target / "bases.json").read_text(encoding="utf-8"))["bases"]
+    implicits = [{"base": b["name"], "line": line} for b in bases if not b.get("hidden")
+                 for line in (b.get("implicit") or "").splitlines() if line.strip()]
+    parsed = pool.broadcast("auditLines", lines=[i["line"] for i in implicits])[0]["results"] if implicits else []
+    payload["base_implicits"] = [{**i, **r} for i, r in zip(implicits, parsed)]
     # audit item (e): each active skill alone on a plain character
     payload["skill_sweep"] = pool.broadcast("auditSkills")[0]["skills"]
     (target / "coverage.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
