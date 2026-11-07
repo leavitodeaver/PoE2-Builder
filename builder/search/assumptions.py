@@ -76,8 +76,12 @@ class Assumptions:
         stat_mods, stat_notes = models.gem_stat_model(found, set(build.ctx.request.forbid_ledger_entries), stats)
         harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
         ring_mods, ring_notes = models.resist_rings_model(build.call("sourceLines")["lines"])             if models.RESIST_ENTRY not in build.ctx.request.forbid_ledger_entries else ([], [])
-        mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods
-        notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes
+        source_lines = build.call("sourceLines")["lines"]
+        hand_mods, hand_notes = models.guided_hand_model(inputs, source_lines, stats, main)
+        pulse, pulse_notes = models.maelstrom_model(source_lines, stats)             if models.MAELSTROM_ENTRY not in build.ctx.request.forbid_ledger_entries else (0.0, [])
+        build.objective.added_dps = pulse  # separately computed damage (Melting Maelstrom's pulses), counted from the next resolve
+        mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods
+        notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]
         if chosen:
             kinds = {4: "Damage", 5: "Armour, Evasion and Energy Shield", 6: "Cost Efficiency"}

@@ -40,6 +40,8 @@ MODEL_FIELDS = sorted({
     "ManaUnreserved", "Life",
     # buff uptimes from the mechanic: Mana Tempest's Mana, Lunar Blessing's Rage
     "ManaRegenRecovery", "MaximumRage",
+    # Guided Hand: what kind of damage the main skill deals
+    "PhysicalHitAverage",
 })
 
 
@@ -816,3 +818,73 @@ def lunar_blessing_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
 
 
 UPTIMES = {"mana_tempest": mana_tempest_uptime, "lunar_blessing": lunar_blessing_uptime}
+
+
+# Melting Maelstrom (model: maelstrom) -------------------------------------------------------------------------------------
+# "Every 3 seconds during Effect, deal 100% of Mana spent in those seconds as Chaos Damage to Enemies within 3 metres" and
+# "Deals 25% of current Mana as Chaos Damage to you when Effect ends" (poe2db). PoB has neither. Counted as a separate
+# damage source added to the boss DPS (Objective.added_dps): the Mana the build spends per second x the line's share,
+# reduced by the boss's chaos resistance (0 at PoB's Pinnacle preset). Assumed not scaled by your modifiers and unable to
+# crit (no source says either way), the boss within 3 metres, and the flask's effect up while the search has it on (it
+# switches a flask on only when charges keep it up most of the fight). Counted from the next resolve.
+
+MAELSTROM = re.compile(r"^Every 3 seconds during Effect, deal (\d+)% of Mana spent in those seconds as Chaos Damage to Enemies within 3 metres$", re.I)
+MAELSTROM_ENTRY = "melting-maelstrom-pulse"
+
+
+def maelstrom_model(lines: list[dict], stats: dict, enemy_chaos_resist: float = 0.0) -> tuple[float, list[dict]]:
+    """(added boss DPS, notes) for a Melting Maelstrom in an active flask slot."""
+    for entry in lines:
+        m = MAELSTROM.match(entry["text"].strip()) if entry["source"].startswith("item:Flask") else None
+        if not m:
+            continue
+        share = int(m.group(1)) / 100
+        spend = number(stats.get("ManaPerSecondCost"))
+        dps = spend * share * (1 - enemy_chaos_resist / 100)
+        return dps, [{
+            "label": "Melting Maelstrom's pulses (added to the boss DPS)",
+            "value": round(dps, 1),
+            "basis": f"every 3 s, {share:.0%} of the Mana spent in those 3 s as Chaos damage: the main skill spends {spend:,.1f} Mana/s; "
+                     f"boss chaos resistance {enemy_chaos_resist:g}% (PoB's boss preset). Assumed: not scaled by your damage "
+                     "modifiers and no crits (no source says), the boss within 3 metres, the flask's effect up while the search has "
+                     "the flask on. When the effect ends it deals 25% of your current Mana to you as Chaos damage (not counted in "
+                     "the checked defences).",
+            "play": "Stay within 3 metres of the boss; at range the pulses hit nothing.",
+            "confidence": "theory", "entry": MAELSTROM_ENTRY}]
+    return 0.0, []
+
+
+# Guided Hand (model: guided_hand) --------------------------------------------------------------------------------------
+# "The next Attack you use within 4 seconds after Heavy Stunning a Rare or Unique Enemy is Ancestrally Boosted" and
+# "Ancestrally Boosted Attacks deal 30% increased Damage" (passive tree). PoB parses the second line but scales it by an
+# Ancestral Boost uptime only its known sources set, so on its own the node does nothing. Share of attacks boosted = heavy
+# stuns per second / attacks per second. PoB has no stun bar for a boss (nor its life), so the heavy-stun rate is an
+# assumption by the build's own kind of damage (poe2db: player Physical damage and Melee each give 50% more stun buildup):
+# one Heavy Stun of the boss per 30 s with a Physical melee main skill, per 60 s otherwise. Counted as the equivalent
+# increased Attack Damage, only while the passive's ledger condition is on.
+
+GUIDED_HAND = "GuidedHand"
+BOOSTED_LINE = re.compile(r"^Ancestrally Boosted Attacks deal (\d+)% increased Damage$", re.I)
+HEAVY_STUN_EVERY = {True: 30.0, False: 60.0}  # seconds between Heavy Stuns of a pinnacle boss: Physical melee or not
+
+
+def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+    if not inputs.has(GUIDED_HAND) or main is None or not main.attack:
+        return [], []
+    boost = sum(int(m.group(1)) for entry in lines if (m := BOOSTED_LINE.match(entry["text"].strip())))
+    speed = number(stats.get("Speed"))
+    if boost <= 0 or speed <= 0:
+        return [], []
+    physical_melee = main.melee and number(stats.get("PhysicalHitAverage")) > 0
+    every = HEAVY_STUN_EVERY[physical_melee]
+    share = min(1.0, (1 / every) / speed)
+    when = inputs.condition(GUIDED_HAND, True)
+    if when is None:
+        return [], []
+    return [line("1% increased Attack Damage", boost * share, when=when)], [{
+        "label": "Guided Hand: Ancestrally Boosted attacks after a Heavy Stun",
+        "value": f"{share:.1%} of attacks boosted ({boost}% increased Damage on those)",
+        "basis": f"one Heavy Stun of the boss every {every:g} s assumed ({'a Physical melee' if physical_melee else 'not a Physical melee'} "
+                 f"main skill; PoB has no stun bar for a boss) against {speed:.2f} attacks per second",
+        "play": "A build made to stun (more stun buildup, Physical melee slams) heavy-stuns more often and boosts more attacks.",
+        "confidence": "theory", "entry": "guided-hand-boost"}]

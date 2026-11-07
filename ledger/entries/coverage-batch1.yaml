@@ -250,3 +250,110 @@
   test_in_game: "Equip the ring, then swap one item with a Fire Resistance modifier for one without: the ring's Cold and Lightning Resistance falls by its value."
   status: proposed
 
+
+# The user's own examples (screenshots, 6 Nov 2026) ----------------------------------------------------------------------------
+# Research 7 Nov 2026: poe2db.tw (datamined) for the item, passive and keyword texts.
+
+- id: melting-maelstrom-pulse
+  title: Melting Maelstrom, chaos damage pulses of the Mana you spend (custom model)
+  kind: pob_gap
+  model: maelstrom
+  match: '^Every 3 seconds during Effect, deal \d+% of Mana spent in those seconds as Chaos Damage to Enemies within 3 metres$'
+  replace: []
+  confidence: theory
+  notes: >-
+    builder/search/models.py maelstrom_model: the main skill's Mana spent per second x the share, less the boss's chaos
+    resistance, added to the boss DPS as a separate damage source. Whether your modifiers scale it, and whether it can
+    crit, isn't published: counted unscaled, no crits. 0.5.0 fixed it being "unable to hit enemies", so it is a hit.
+  sources: ["https://poe2db.tw/us/Melting_Maelstrom", "PoE2 0.4.0 and 0.5.0 patch notes (50% -> 100%; the fix)"]
+  test_in_game: "Use the flask next to a boss while casting, and compare the chaos hits every 3 s with the Mana you spent in those 3 s."
+  status: proposed
+
+- id: melting-maelstrom-self-damage
+  title: Melting Maelstrom, chaos damage to you when the effect ends (not a checked defence)
+  kind: pob_gap
+  match: '^Deals \d+% of current Mana as Chaos Damage to you when Effect ends$'
+  replace: []
+  confidence: datamined
+  notes: "Self-damage once per use; the optimizer checks pools, resistances and maximum hit, which it doesn't change. The result notes it with the pulses."
+  sources: ["https://poe2db.tw/us/Melting_Maelstrom"]
+  test_in_game: "Let the effect end at full Mana: you take a quarter of your current Mana as Chaos damage."
+  status: proposed
+
+- id: arakaalis-gift
+  title: Arakaali's Gift, a charm used when you become Poisoned (recovery from the other flask)
+  kind: pob_gap
+  match: '^(Used when you become Poisoned|Recover (Life|Mana) equal to (\(\d+-\d+\)|\d+)% of (Mana|Life) Flask''s Recovery Amount when used)$'
+  replace: []
+  confidence: reported
+  notes: >-
+    It is used only when you are Poisoned: a pinnacle boss's poison is rare (none found that poisons as a rule), so in the
+    reference fight it isn't used and its recovery and poison immunity count for nothing. Recovery isn't a checked defence
+    either. A build that poisons itself, or a poisoning boss, would use it (not counted).
+  sources: ["https://poe2db.tw/us/Arakaalis_Gift"]
+  test_in_game: "Get poisoned with the charm equipped: it triggers, grants poison immunity and recovers Life from your Mana flask's amount."
+  status: proposed
+
+- id: bastion-of-light-parried
+  title: Bastion of Light, Raise Shield inflicts Parried (50% more Attack damage taken, 2 s)
+  kind: pob_gap
+  match: '^Raise Shield inflicts Parried for (\d+) seconds on Hit$'
+  replace: ['25% more Attack Damage while holding a Shield']
+  confidence: theory
+  notes: >-
+    Parried: "Takes substantially more Attack damage and cannot Evade"; the stat is
+    attack_damage_taken_+%_final_from_parried, 50% more (poe2db Parry and Parried). From Raise Shield's hit it lasts 2 s.
+    Reasonable play (the user's rule): you raise the shield to keep the boss Blinded (Bastion of Light's other line, 4 s
+    Blind), so once every 4 s, and the boss is Parried 2 s of every 4: 50% more x half the time, counted as 25% more Attack
+    Damage while holding a Shield. Attacks only; the time spent raising the shield isn't taken off your attacks.
+  sources: ["https://poe2db.tw/us/Bastion_of_Light", "https://poe2db.tw/us/Parry", "https://poe2db.tw/us/Parried", "https://poe2db.tw/us/Blind"]
+  test_in_game: "Raise your shield into a boss and hit it within 2 s: the hit should be 1.5x one outside the window."
+  status: proposed
+
+- id: tribute-stat
+  title: Tribute (Undying Hate's conquered passives); only Grand Tribute and Twice Bled read it
+  kind: pob_gap
+  match: '^\+(\(\d+-\d+\)|\d+) to Tribute$'
+  replace: []
+  confidence: datamined
+  notes: "Conquered small passives give +5 Tribute, attribute passives +3 (poe2db Undying Hate). Its only readers are the two notables below, neither of which changes a calculated number."
+  sources: ["https://poe2db.tw/us/Undying_Hate"]
+  test_in_game: "Not needed for the calculated numbers."
+  status: proposed
+
+- id: grand-tribute
+  title: Grand Tribute, Remnants collected from further away (pickup range)
+  kind: pob_gap
+  match: '^Remnants can be collected from \d+% further away if you have at least \d+ Tribute$'
+  replace: []
+  confidence: verified_by_you
+  notes: "As no-effect-remnant-range: pickup range; the Remnant assumptions use creation rates."
+  sources: ["https://poe2db.tw/us/Grand_Tribute"]
+  test_in_game: "Not needed for the calculated numbers."
+  status: proposed
+
+- id: twice-bled
+  title: Twice Bled, Physical damage prevented recouped as Life (recovery isn't a checked defence)
+  kind: pob_gap
+  match: '^\d+% of Physical Damage prevented Recouped as Life if you have at least \d+ Tribute$'
+  replace: []
+  confidence: datamined
+  notes: "Recovery: the optimizer checks pools, resistances and maximum hit, which recoup doesn't change. It does keep you alive in a long fight (not counted)."
+  sources: ["https://poe2db.tw/us/Twice_Bled"]
+  test_in_game: "Take a big physical hit with 100 Tribute: a fifth of what Armour prevented comes back as Life over 4 s."
+  status: proposed
+
+- id: guided-hand-boost
+  title: Guided Hand, the next attack after a Heavy Stun is Ancestrally Boosted (custom model)
+  kind: pob_gap
+  model: guided_hand
+  match: '^The next Attack you use (within \d+ seconds )?after Heavy Stunning a Rare or Unique Enemy is Ancestrally Boosted$'
+  replace: ['flag:GuidedHand']
+  confidence: theory
+  notes: >-
+    builder/search/models.py guided_hand_model: share of attacks boosted = Heavy Stuns per second / attacks per second, at
+    an assumed one Heavy Stun of the boss per 30 s (Physical melee main skill) or 60 s (otherwise); PoB has no stun bar for
+    a boss. The boost's own line ("Ancestrally Boosted Attacks deal 30% increased Damage") is counted at that share.
+  sources: ["https://poe2db.tw/us/Heavy_Stun", "PoE2 0.2.0 patch notes (Primed for Stun at 70% for Unique monsters)"]
+  test_in_game: "On a boss, count your Heavy Stuns over a minute of fighting; the result's share follows from that."
+  status: proposed

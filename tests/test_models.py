@@ -322,3 +322,24 @@ def test_harmony_within_counts_only_while_unreserved_mana_is_above_life():
     mods, notes = models.harmony_model(passive, {"ManaUnreserved": 1500, "Life": 2000})
     assert mods == [] and notes[0]["value"] == "not counted"
     assert models.harmony_model(models.Inputs(), {"ManaUnreserved": 3000, "Life": 2000}) == ([], [])
+
+
+def test_melting_maelstrom_pulses_are_the_mana_you_spend():
+    line = {"source": "item:Flask 2", "text": "Every 3 seconds during Effect, deal 100% of Mana spent in those seconds as Chaos Damage to Enemies within 3 metres"}
+    dps, notes = models.maelstrom_model([line], {"ManaPerSecondCost": 120})
+    assert dps == pytest.approx(120.0) and notes[0]["confidence"] == "theory" and notes[0]["play"]
+    assert models.maelstrom_model([line], {"ManaPerSecondCost": 120}, enemy_chaos_resist=25)[0] == pytest.approx(90.0)
+    assert models.maelstrom_model([{**line, "source": "passive:X"}], {"ManaPerSecondCost": 120}) == (0.0, [])
+
+
+def test_guided_hand_boosts_the_attacks_after_a_heavy_stun():
+    passive = models.Inputs(flags={"GuidedHand"})
+    lines = [{"source": "passive:Guided Hand", "text": "Ancestrally Boosted Attacks deal 30% increased Damage"}]
+    slam = models.Skill("Boneshatter", attack=True, melee=True)
+    mods, notes = models.guided_hand_model(passive, lines, {"Speed": 2.0, "PhysicalHitAverage": 1000}, slam)
+    # one Heavy Stun per 30 s against 2 attacks per second: 1/60 of attacks get 30% increased damage
+    assert mods == [{"kind": "Line", "line": "1% increased Attack Damage", "scale": 0.5, "when": [{"var": "GuidedHand"}]}]
+    assert "30 s" in notes[0]["basis"]
+    spell = models.Skill("Spark", spell=True)
+    assert models.guided_hand_model(passive, lines, {"Speed": 2.0}, spell) == ([], [])
+    assert models.guided_hand_model(models.Inputs(), lines, {"Speed": 2.0}, slam) == ([], [])
