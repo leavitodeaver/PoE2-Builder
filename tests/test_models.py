@@ -149,7 +149,7 @@ def test_cast_on_critical_triggers_from_the_main_skills_crits():
 
 
 def test_unmodeled_metas_count_nothing_rather_than_a_self_cast():
-    dodge = Skill("Cast on Dodge", group=2, energy=True)
+    dodge = Skill("Feral Invocation", group=2, energy=True)
     comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
     mods, notes, groups = models.energy_model(Inputs(), {}, [SPARK, dodge, comet], SPARK)
     assert next(m["value"] for m in mods if m.get("key") == "triggerRate") == 0.0
@@ -174,6 +174,8 @@ def test_the_other_metas_gain_energy_from_their_own_events():
     # Spellslinger: 2 casts/s of a 0.7 s spell x 0.2 per 10 ms = 14 Energy each
     spark = Skill("Spark", group=1, spell=True, cast_time=0.7)
     assert rate("Spellslinger", spark) == pytest.approx(2 * 14 * 1.72 / 120, rel=1e-4)
+    # Cast on Dodge: one roll per 3 s of 4.6 m (the game files) x 2 Energy per metre, x1.57, over 120 Energy
+    assert rate("Cast on Dodge", slam) == pytest.approx(4.6 * 2 / 3 * 1.57 / 120, rel=1e-4)
     # Energy on kills: none on a boss, and the guide says why
     mods, notes, _ = models.energy_model(Inputs(), stats, [slam, Skill("Reaper's Invocation", group=2, energy=True), comet], slam)
     assert "none on a single boss" in notes[0]["basis"]
@@ -451,4 +453,24 @@ def test_barrier_invocation_gains_energy_from_the_energy_shield_the_boss_takes()
     assert models.energy_gain("Barrier Invocation", {**stats, "EnergyShield": 0}, "Spark")[0] == 0.0
     comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
     _, notes, _ = models.energy_model(Inputs(), {}, [SPARK, Skill("Cast on Dodge", group=2, energy=True), comet], SPARK)
-    assert "dodge roll distance" in notes[0]["basis"]
+    assert "4.6 m each" in notes[0]["basis"] and "up to you" in notes[0]["basis"]  # the guide says it's play-style
+
+
+def test_every_meta_gem_in_the_game_files_is_handled_or_says_why():
+    """Each Meta gem the game files reach (or can't place yet) has an Energy model or a labelled reason: none is dropped
+    silently (MECH1 had worked from a hand-kept list of six)."""
+    import json
+    from pathlib import Path
+
+    exports = sorted((Path(__file__).resolve().parents[1] / "data").glob("game-*/live.json"))
+    if not exports:
+        pytest.skip("no game-file export; run `python -m builder.data.gamefiles`")
+    gems = json.loads(exports[-1].read_text(encoding="utf-8"))["gems"]
+    metas = [n for n, e in gems.items() if e["meta"] and (e["status"] in ("live", "live (inferred)", "unresolved")
+                                                          or n in models.DEPRECATED)]
+    assert len(metas) >= 25
+    tables = (models.META_GEMS, models.NO_ENERGY_ON_A_BOSS, models.NOT_MODELED_YET, models.OTHER_METAS, models.DEPRECATED)
+    for name in metas:
+        assert sum(name in table for table in tables) == 1, name
+        modeled, why = models.meta_handling(name)
+        assert modeled or why, name

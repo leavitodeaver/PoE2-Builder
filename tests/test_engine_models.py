@@ -105,10 +105,12 @@ def test_a_builds_coverage_blind_spots(engine):
 
 def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):
     """A bare Boneshatter crits too rarely to feed Cast on Critical: every trial is turned down (no trigger once per 30 s),
-    so nothing PoB counts of the spell besides its damage (a buff at full) can make the group pay."""
+    so nothing PoB counts of the spell besides its damage (a buff at full) can make the group pay. Cast on Dodge, which
+    any build feeds (dodge rolls), is banned here to keep the test on Cast on Critical."""
     import time
 
-    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"],
+                                        forbid={"skills": ["Cast on Dodge"]}))
     skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
     search.setup(quests=False)

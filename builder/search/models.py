@@ -368,8 +368,11 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # counts none on a boss. Barrier Invocation (poe2db): "When Hit by an Enemy, gain 1 Energy for each 10 Energy Shield lost to
 # damage taken" (barrier_invocation_gain_1_energy_per_X_energy_shield_damage_taken_when_hit 10): the boss's hits that land
 # per second x the damage each takes after mitigation (PoB's {Type}TakenHit at its boss preset), up to the Energy Shield
-# pool, while the build has Energy Shield. Cast on Dodge gains 2 Energy per metre rolled, but neither poe2db nor PoB has the
-# base dodge roll distance: not modeled (0, said in the guide) until a source gives it. Cast on Charm Use is item-only.
+# pool, while the build has Energy Shield. Cast on Dodge: "Gain 2 Energy per metre travelled while dodge rolling" (its 0.5
+# description of cast_on_dodge_roll_gain_X_centienergy_per_unit_travelled_while_dodge_rolling 200, shown /100 per metre;
+# the stat's name says per unit, 10 units a metre, which would be ten times more: the game's own text is used), over the
+# dodge roll's base distance, dodge_roll_base_travel_distance 46 units = 4.6 m (DodgeRollPlayer's constant stats, shown
+# /10 as metres; the user had heard 3.7 m), at an assumed DODGE_EVERY seconds between rolls against a boss.
 
 META_GEMS = {
     "Cast on Critical": {"energy": 57.0, "gain": "crit", "less": 20.0},
@@ -379,14 +382,52 @@ META_GEMS = {
     "Thundergod's Wrath": {"energy": 72.0, "gain": "melee hit", "per": 3.0},
     "Spellslinger": {"energy": 72.0, "gain": "cast", "per": 0.2, "invocation": True},
     "Barrier Invocation": {"energy": 72.0, "gain": "energy shield lost", "per": 0.1, "invocation": True},
+    "Cast on Dodge": {"energy": 57.0, "gain": "dodge", "per": 2.0},
 }
+DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files, build 26476662); distance mods not counted
+DODGE_EVERY = 3.0  # seconds between dodge rolls against a boss: assumed (one per telegraphed big hit), said in the guide
 NO_ENERGY_ON_A_BOSS = {"Reaper's Invocation": "kills", "Cast on Minion Death": "minion deaths"}
-# In the 0.5 gem data (flagged item-granted) but granted by no unique, base, rune or passive there, and shown on poe2db
-# with no tier and no source: deprecated (MECH2, 7 Nov; the user found no Curse on Block in game). Never picked; a PoB
-# code that has one gets no triggers from it, said in the guide.
-DEPRECATED = {name: "no item, passive or gem grants it in 0.5 (deprecated)"
+# Gone from the game by two sources that agree (the rule for removing anything): the game files reach them by no source
+# (data/game-*/live.json: no uncut tier, base item, passive, or collection unique grants them) and poe2db shows them
+# with no tier or source; the user also found no Curse on Block in game (7 Nov). Never picked; a PoB code that has one
+# gets no triggers from it, said in the guide.
+DEPRECATED = {name: "removed from the game (the 0.5 game files and poe2db agree; deprecated)"
               for name in ("Curse on Block", "Cast on Melee Stun", "Cast on Melee Kill")}
-NOT_MODELED_YET = {"Cast on Dodge": "the base dodge roll distance (2 Energy per metre) is in neither poe2db nor PoB's data"}
+NOT_MODELED_YET = {
+    "Feral Invocation": "its Energy (1 per 20 Mana spent) needs the Mana the build spends per second",
+    "Cast on Charm Use": "its Energy (2 per charge used) needs the charm uses from the flask model",
+    "Fire Spell on Hit": "Heat of the Forge grants it at a level the model doesn't read yet (Energy as Thundergod's Wrath)",
+}
+# Meta skills that gain no Energy: what each does, and what the search needs to use it (PLAN.md "Meta gems, all of them").
+# Every Meta gem the game files mark live (data/game-*/live.json) is in exactly one of META_GEMS, NO_ENERGY_ON_A_BOSS,
+# NOT_MODELED_YET, OTHER_METAS or DEPRECATED (tests/test_models.py), so none is dropped silently.
+OTHER_METAS = {
+    "Blasphemy": "turns socketed Curses into Auras (60 Spirit per Curse): a Spirit choice, not a trigger",
+    "Pounce": "a Werewolf slam that triggers a socketed Mark on the highest-rarity enemy hit",
+    "Ferocious Roar": "a Bear Warcry that gains Rage per enemy Power and empowers socketed skills",
+    "Spell Totem": "a totem that casts socketed Spells, consuming 3 Power and/or Endurance Charges",
+    "Ancestral Warrior Totem": "a totem whose spirit warriors use socketed Attacks, consuming 3 Endurance Charges",
+    "Mortar Cannon": "a Ballista Totem that uses socketed Grenade skills",
+    "Hand of Chayula": "a Strike that triggers socketed Marks with increased effect",
+    "Mirage Archer": "dodge rolling creates a Mirage that uses socketed ranged Attacks",
+    "Mirage Deadeye": "Deadeye notable: a ranged Projectile Attack creates a Mirage",
+    "Called Shots": "Deadeye notable: applies a socketed Mark to an enemy every five seconds",
+    "Hollow Form": "Chayula Monk notable: consumes Power Charges to create extra images",
+    "Spirit Vessel": "Forgotten Warden's companion that uses copies of socketed Bear, Werewolf and Wyvern skills",
+    "Animus Splinters": "0.5 league content (Runic Ward cost); its source isn't read from the game files yet",
+}
+
+
+def meta_handling(name: str) -> tuple[bool, str]:
+    """(the Energy model triggers it, why not otherwise) for a Meta gem."""
+    if name in META_GEMS:
+        return True, ""
+    for table, why in ((NO_ENERGY_ON_A_BOSS, "it gains Energy on {}: none on a single boss"),
+                       (NOT_MODELED_YET, "not modeled yet: {}"), (OTHER_METAS, "not a trigger the search sets up yet: {}"),
+                       (DEPRECATED, "{}")):
+        if name in table:
+            return False, why.format(table[name])
+    return False, "a Meta gem the builder doesn't know yet"
 ENERGY_INPUTS = ("MetaEnergy", "MetaEnergyCrit", "MetaEnergyMore", "EnergyRefund", "InvocationHalfCost")
 RECENTLY = 4.0  # seconds
 
@@ -401,6 +442,11 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         blocks = land * block / every
         return blocks * per, (f"you block {blocks:.2f} of the boss's hits per second (one every {every:g} s, {land:.0%} not evaded, "
                               f"{block:.0%} blocked) for {per:g} Energy each")
+    if kind == "dodge":
+        energy = DODGE_ROLL_METRES * per
+        return energy / DODGE_EVERY, (f"one dodge roll every {DODGE_EVERY:g} s assumed against a boss (how often you roll is up to "
+                                      f"you), {DODGE_ROLL_METRES:g} m each (the game files' base distance; distance modifiers not "
+                                      f"counted) for {energy:g} Energy")
     if kind == "energy shield lost":
         pool = number(stats.get("EnergyShield"))
         if pool <= 0:

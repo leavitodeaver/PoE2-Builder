@@ -639,6 +639,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     search.resolve()
 
     search.gear.sync_flasks()
+    search.gems.meta_candidates()  # the Meta gems the search can't propose yet, with why, for the result
     facts = build.call("facts", fields=RESULT_FIELDS)
     xml = build.call("exportXml")["xml"]
     code = codes.encode(xml)
@@ -681,7 +682,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         "gear": {slot: option.describe() for slot, option in equipped.items()}, "spent": spent,
         "assumptions": assumptions, "flasks": search.gear.flask_report(),
         "verified": not mismatched, "verify_mismatch": mismatched,
-        "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": dict(search.jewels.left_out),
+        "tree_check": tree_check, "radius_jewels": reloaded["radiusJewels"], "left_out": {**search.jewels.left_out, **search.gems.left_out},
     }
 
 

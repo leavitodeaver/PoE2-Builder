@@ -34,10 +34,16 @@ read, are in `builder/data/liveness.py`'s docstring and are copied into `live.js
   - an ascendancy or tree node in the graph grants them;
   - a rollable modifier grants them;
   - a unique in the collection grants them. That unique's text comes from PoB's export, because which unique carries a
-    unique mod is server-side.
+    unique mod is server-side;
+  - another skill grants them (`GemEffects.AdditionalGrantedEffects`: Shred grants Ice Fragments).
 
-  A support that's live only by its `SupportGems` weight is "live (inferred)". A gem nothing reaches is "deprecated", or
-  "unresolved" when PoB still offers it as socketable.
+  A support that's live only by its `SupportGems` weight is "live (inferred)".
+- **Nothing is removed on the files' word alone**, because a rule that misses a source would silently drop a real
+  skill. A gem nothing reaches is:
+  - "deprecated" only when a second current source agrees (`GONE` in liveness.py: poe2db's patch notes, the user's
+    in-game check), or GGG marks it ([DNT], placeholders);
+  - "unresolved", and kept usable, when PoB's export carries it;
+  - "dead in files" when no source we use has it, so there's nothing to remove.
 - **Uniques** are live if they're in the unique collection layout.
 - **Mods** are rollable if they're a prefix or suffix, or have a spawn weight above 0. Unique mods are counted apart.
 
@@ -46,23 +52,30 @@ read, are in `builder/data/liveness.py`'s docstring and are copied into `live.js
 | | Count |
 |---|---|
 | Passives in the graph (of 9,731 rows) | 5,152 |
-| Gems live | 908, plus 74 inferred |
-| Gems unresolved | 30 |
+| Gems live | 909, plus 74 inferred |
+| Gems unresolved (kept usable) | 37 |
+| Gems dead in files (in no source we use) | 28 |
 | Metas live | 25 |
 | Uniques in the collection | 441 |
 
 - **PoB's tree** has no node outside the graph. The graph has 238 nodes PoB lacks.
-- **Gems PoB carries that the files mark dead**: Curse on Block, Cast on Melee Stun, Cast on Melee Kill,
-  Abyssal Apparition, Gelid Palm, Grenade, Ice Fragments, Requiem, Rite of Restoration, Smash to Smithereens and
-  Soaring Midnight. The last eight need a look: they may come through a source the rules don't read yet.
-- **The 30 unresolved gems** are 0.5 league content (Runic, Verisium and Kalguur skills, Remnants, Detonate Living,
-  Explosive Transmutation and others). Their source isn't read yet.
+- **Deprecated, the files and a second source agreeing**: Curse on Block, Cast on Melee Stun, Cast on Melee Kill,
+  and Cast on Shock, Freeze and Ignite.
+- **The 37 unresolved gems** stay usable. They're 0.5 league content (Runic, Verisium and Kalguur skills, Remnants,
+  Detonate Living, Explosive Transmutation and others), plus Abyssal Apparition, Gelid Palm, Grenade, Requiem,
+  Rite of Restoration, Smash to Smithereens and Soaring Midnight. Their sources aren't read yet.
 - **Live gems PoB lacks**: ascendancy-granted skills (Navira's, Kelari's and Ruzhan's skills, Queen's Procession) and
   Kulemak's unique skills. Also 40 supports that are live only by the inferred weight, which may be unreleased
   content (Ricochet III, Dazing Cry and others).
 - **Uniques**: 7 names differ between the collection and PoB, mostly spellings (Brynabas/Byrnabas,
   Splinter of Loratta/Lorrata). Eshtera's Path, Reverie, Safrin's Resolve, The Road Warrior and Zaida's Longevity are
   in PoB but not in the collection.
-- **poe2db's Meta list (39)**: 13 are dead in the files: Cast on Shock, Freeze and Ignite, Cast on Death,
-  Cast when Stunned, Cast when Damage Taken, Cast while Channelling, Cast on Melee Kill, Cast on Melee Stun,
-  Curse on Block, Demon Magus, Hydra Familiar and Summon Companion. Animus Splinters is unresolved.
+- **poe2db's Meta list (39)**:
+  - 6 are deprecated (above);
+  - 7 are dead in files and in no source we use: Cast on Death, Cast when Stunned, Cast when Damage Taken,
+    Cast while Channelling, Demon Magus, Hydra Familiar and Summon Companion;
+  - Animus Splinters is unresolved;
+  - 25 are live.
+- **The dodge roll**: `DodgeRollPlayer`'s `dodge_roll_base_travel_distance` is 46 units, which the game's own
+  description shows divided by ten: 4.6 m. Cast on Dodge's Energy stat (200 "centienergy per unit") reads in game as
+  "Gain 2 Energy per metre"; the model follows the in-game text.

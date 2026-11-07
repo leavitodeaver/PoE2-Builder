@@ -48,6 +48,7 @@ class Gems:
         self.settle = None  # the same without choosing the calculated skill again (choose_active_skill)
         self._requirements: dict[str, list[dict]] = {}  # gem -> requirements per level (gemRequirements)
         self.usage = None  # usage requirements (builder/search/usage.py), set by the search
+        self.left_out: dict[str, str] = {}  # meta gem -> why the search doesn't propose it (said in the result)
 
     # Helpers ---------------------------------------------------------------------------------
 
@@ -453,9 +454,10 @@ class Gems:
         stats = build.call("stats", fields=models.MODEL_FIELDS)
         left, usage = self.budget_left(), self.usage_stats()
         metas = []
-        for name, info in models.META_GEMS.items():
-            if info.get("invocation") or name in present or not self._offered(name, left, usage):
+        for name in self.meta_candidates():
+            if name in present or not self._offered(name, left, usage):
                 continue
+            info = models.META_GEMS[name]
             gain = models.energy_gain(name, stats, main.name, main)[0] * (1 + info["energy"] / 100)
             if gain > 0:
                 metas.append((gain, name))
@@ -499,6 +501,22 @@ class Gems:
                 self.resolve()
             return False
         return build.score > before + EPSILON
+
+    def meta_candidates(self) -> list[str]:
+        """Every Meta gem in the gem data, not a hand-kept list: those the meta round can propose (an Energy model, not
+        an Invocation), while the others go into left_out with the reason, said in the result."""
+        from builder.search import models
+
+        names = []
+        for name, gem in self.ctx.gems.items():
+            if "Meta" not in gem["skillTypes"] or not self.ctx.allowed_gem(name):
+                continue
+            modeled, why = models.meta_handling(name)
+            if not modeled or models.META_GEMS[name].get("invocation"):
+                self.left_out[name] = why or "an Invocation is a button you press: proposed within the button cap later"
+            else:
+                names.append(name)
+        return names
 
     def trial_meta(self, gems: list[dict]) -> float | None:
         """Score a meta group for real: commit, resolve, read, undo. None when PoB doesn't let the meta trigger the spell

@@ -20,9 +20,12 @@ GEMS      live if any of these reaches it (SkillGems, named by BaseItemTypes.Nam
           Names tagged [DNT] / [UNUSED] (GGG's "do not translate" and unused markers) and placeholder gems (base ids
           ...GemUnknownN, named "Coming Soon") are never live. The files also hold content not released yet, so a
           gem live only by the support weight is "live (inferred)", and the cross-check lists those PoB lacks.
-          A gem none of these reach is "deprecated" when PoB's export doesn't offer it as socketable either (it flags
-          it item-, tree-granted or legacy, or lacks it), and "unresolved" when PoB does: a source these rules don't
-          read yet (0.5's league content, quest rewards), so it is listed for follow-up, not called dead.
+          - another live skill: GemEffects.AdditionalGrantedEffects (Shred grants Ice Fragments).
+          Nothing is removed on the files' word alone (a rule that misses a source would drop a real skill). A gem none
+          of these reach is "deprecated" only when a second current source agrees (GONE: poe2db's patch notes, the
+          user's in-game check) or GGG marks it ([DNT], placeholders); "unresolved", and kept usable, when PoB's export
+          carries it (a source these rules don't read yet: 0.5's league content, uniques PoB's text names differently);
+          "dead in files" otherwise (in no current source we use, so nothing to remove).
 UNIQUES   live if in the unique collection layout (UniqueStashLayout -> Words.Text).
 MODS      rollable if Mods.GenerationType is prefix (1) or suffix (2) or any SpawnWeight_Values entry is above 0;
           essence-only if EssenceMods points at it; unique (3) mods are counted apart (carrier server-side).
@@ -40,6 +43,15 @@ RULES = __doc__.split("reads (also written into live.json so a result can cite t
 DEAD_TAG = re.compile(r"\[(DNT|UNUSED)[^\]]*\]", re.I)
 PLACEHOLDER = re.compile(r"GemUnknown\d+$")
 INFERRED = "support the game offers"
+# Gone by a second current source, besides the game files (the rule for calling anything deprecated)
+GONE = {
+    "Curse on Block": "poe2db: no tier, no source; the user found it in no item in game (7 Nov 2026)",
+    "Cast on Melee Stun": "poe2db: no tier, no source (legacy page, fixed level 8)",
+    "Cast on Melee Kill": "poe2db: no tier, no source (legacy page, fixed level 8)",
+    "Cast on Shock": "poe2db, version 0.3.0: merged into Cast on Elemental Ailment",
+    "Cast on Freeze": "poe2db, version 0.3.0: merged into Cast on Elemental Ailment",
+    "Cast on Ignite": "poe2db, version 0.3.0: merged into Cast on Elemental Ailment",
+}
 UNIQUE_MOD, PREFIX, SUFFIX = 3, 1, 2
 
 # poe2db's Meta gem tag page (https://poe2db.tw/us/Meta, 39 entries, read 7 Nov 2026), for the cross-check only
@@ -147,6 +159,16 @@ def analyse(out: Path, pob: Path | None = None) -> dict:
     by_mod: dict[int, list[dict]] = {}
     for r in t["ModGrantedSkills"]:
         by_mod.setdefault(r["Skill"], []).append(mods[r["Mod"]])
+    effect_gem = {}
+    for g in gems:
+        for e in as_list(g["GemEffects"]):
+            effect_gem.setdefault(t["GemEffects"][e]["GrantedEffect"], g["_index"])
+    granted_by: dict[int, list[str]] = {}
+    for g in gems:
+        for e in as_list(g["GemEffects"]):
+            for extra in as_list(t["GemEffects"][e].get("AdditionalGrantedEffects")):
+                if extra in effect_gem and effect_gem[extra] != g["_index"]:
+                    granted_by.setdefault(effect_gem[extra], []).append(base[g["BaseItemType"]]["Name"])
     by_passive: dict[int, list[dict]] = {}
     for p in passives:
         if p.get("GrantedSkill") is not None:
@@ -180,6 +202,8 @@ def analyse(out: Path, pob: Path | None = None) -> dict:
             sources.append(basic[g["_index"]])
         for item in inherent.get(g["_index"], []):
             sources.append(f"base item: {item}")
+        for other in granted_by.get(g["_index"], []):
+            sources.append(f"granted by the skill {other}")
         for p in by_passive.get(g["_index"], []):
             if live_passive[p["_index"]]:
                 sources.append(f"passive: {p['Name']} ({p['Id']})")
@@ -191,15 +215,18 @@ def analyse(out: Path, pob: Path | None = None) -> dict:
                     sources.append(f"unique: {', '.join(sorted(set(carriers)))} (mod {m['Id']})")
             elif kind in ("rollable", "essence"):
                 sources.append(f"{kind} mod {m['Id']}")
-    pob_offered: set[str] = set()
+    pob_carries: set[str] = set()  # any gem in PoB's export, socketable or granted (legacy ones aside)
     if pob is not None and (pob / "gems.json").exists():
-        pob_offered = {plain(g["name"]) for g in json.loads((pob / "gems.json").read_text(encoding="utf-8"))["gems"]
-                       if not (g.get("fromItem") or g.get("fromTree") or g.get("legacy"))}
+        pob_carries = {plain(g["name"]) for g in json.loads((pob / "gems.json").read_text(encoding="utf-8"))["gems"]
+                       if not g.get("legacy")}
     for name, entry in out_gems.items():
         entry["sources"] = list(dict.fromkeys(entry["sources"]))
         firm = [x for x in entry["sources"] if not x.startswith(INFERRED)]
-        entry["status"] = ("live" if firm else "live (inferred)" if entry["sources"]
-                           else "unresolved" if plain(name) in pob_offered and not DEAD_TAG.search(name) else "deprecated")
+        marked = bool(DEAD_TAG.search(name)) or bool(PLACEHOLDER.search(entry["ids"][-1]))
+        entry["status"] = ("live" if firm else "live (inferred)" if entry["sources"] else "deprecated" if marked or name in GONE
+                           else "unresolved" if plain(name) in pob_carries else "dead in files")
+        if name in GONE and not entry["sources"]:
+            entry["gone"] = GONE[name]
 
     kinds: dict[str, int] = {}
     for m in mods:

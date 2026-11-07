@@ -596,23 +596,34 @@ One list of every open item; the findings sections below have the details. Remov
 they land.
 
 **Builds the optimizer can't make yet**
-- Meta gems it picks by itself (Cast on X), supports for the spells a meta gem triggers, supports on
-  persistent skills. Plan (2026-11-07; gate 4's 2b75d shows it is now the biggest damage the search
-  can't reach: the user's Thundergod's Wrath and Cast on Critical groups). More than a turn, in
-  slices:
-  1. *(started)* `Gems.meta_round` on sweep passes: the meta gems the build's own play feeds most
-     Energy (`models.energy_gain`: crits, ailments, blocks, melee hits, Heavy Stuns), two of them;
-     their spells screened by what PoB adds to Full DPS in the group (a self-cast rate: a ranking
-     only), the best three of each tried for real (the trigger rate shows only after a resolve), a
-     spell PoB won't let the meta trigger rejected (it would count as cast by hand); one meta
-     group with one spell, kept if it pays.
-  2. Supports for the meta group (the support round covers only the main group now): the same
-     sweep and shortlist on the meta group, with "supports the triggered spell" rules from PoB.
-  3. Several spells per meta (each adds to the Energy one round costs: a spell pays only if its
-     damage per Energy beats the others'), and Boundless Energy / Energy Retention supports.
-  4. Invocations (Spellslinger, Elemental Invocation: a button each, so within the button cap),
-     and Spirit for the persistent metas.
-  5. The meta round in kicks and seeds; gate 4's 2b75d as the test.
+- Meta gems, all of them (plan rewritten 2026-11-07 by MECH2; the earlier one assumed most metas were item-only, which
+  was wrong). The 0.5 game files (docs/GAMEFILES.md) have 25 live Meta gems: 17 socketable, 4 from uniques or a base
+  item (Cast on Block: Svalinn, Thundergod's Wrath: Mjolner, Cast on Charm Use: Bijouborne, Spirit Vessel: Forgotten
+  Warden, Spellslinger: Dueling Wand), 4 from ascendancy notables (Called Shots, Mirage Deadeye, Hollow Form, Fire Spell
+  on Hit). Curse on Block, Cast on Melee Stun and Cast on Melee Kill are gone (the files and poe2db agree). The meta
+  round takes its candidates from the gem data (`Gems.meta_candidates`), and every Meta gem it can't propose yet goes
+  into the result with the reason (`models.meta_handling`; a test checks each live one has a model or a reason).
+  Slices, one per turn:
+  1. *(done)* Energy metas triggered by what the build already does, one spell each: Cast on Critical, Cast on
+     Elemental Ailment, Cast on Dodge (4.6 m rolls at an assumed one per 3 s).
+  2. Supports for the meta group: the same sweep and shortlist on the meta group, with PoB's "supports the triggered
+     spell" rules.
+  3. Several spells per meta (a spell pays only if its damage per Energy beats the others'), Boundless Energy and
+     Energy Retention.
+  4. Invocations within the button cap: Elemental, Barrier, and Feral Invocation (whose Energy is 1 per 20 Mana spent).
+     Reaper's Invocation and Cast on Minion Death gain nothing on a boss; they stay labelled.
+  5. Totems: Spell Totem (consumes 3 Power or Endurance Charges: the charge model), Ancestral Warrior Totem (3
+     Endurance Charges), Mortar Cannon (Grenade skills); what PoB counts for a totem's socketed skill, checked first.
+  6. Marks and strikes: Pounce (Werewolf slam), Hand of Chayula and Called Shots trigger socketed Marks.
+  7. Blasphemy in the Spirit round (curses as auras, 60 Spirit each); Mirage Archer and Mirage Deadeye (mirages, at
+     the dodge-roll rate of slice 1); Ferocious Roar (Bear warcry, Rage) with the shapeshift skills.
+  8. Granted metas when the build has their source: the item ones as unique proposals (Svalinn, Mjolner, Bijouborne,
+     Forgotten Warden, a Dueling Wand base), the ascendancy ones with their notable (Fire Spell on Hit's Energy as
+     Thundergod's Wrath's, at the notable's level). Hollow Form uses Power Charges.
+  9. The meta round in kicks and seeds; gate 4's 2b75d as the test.
+- Unresolved gems: 37 gems PoB carries but whose source the game-file rules don't read yet (0.5 league content such
+  as Explosive Transmutation, Detonate Living and the Runic and Verisium skills; Grenade, Requiem, Gelid Palm and
+  others). They stay usable. Find their sources (league tables, uniques whose PoB text names them differently).
 - Weapon-set passive points.
 - Timeless jewels (need PoB's seed tables), Voices' Sinister sockets, Split Personality (unpriced),
   Pathfinder's alternate starts (PoB doesn't path them), corrupted jewel implicits.

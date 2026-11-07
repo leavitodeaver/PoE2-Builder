@@ -38,8 +38,9 @@ def live() -> dict:
 def test_meta_gems_from_the_game_files(live):
     """Settles the three the user found missing in game (7 Nov) and the item sources MECH1 relied on."""
     gems = live["gems"]
-    for dead in ("Curse on Block", "Cast on Melee Stun", "Cast on Melee Kill", "Cast on Shock", "Cast while Channelling"):
-        assert gems[dead]["status"] == "deprecated", dead
+    for dead in ("Curse on Block", "Cast on Melee Stun", "Cast on Melee Kill", "Cast on Shock"):
+        assert gems[dead]["status"] == "deprecated" and gems[dead]["gone"], dead  # the files and a second source agree
+    assert gems["Cast while Channelling"]["status"] == "dead in files"  # in no source we use; nothing to remove
     assert any("Svalinn" in s for s in gems["Cast on Block"]["sources"])
     assert any("Mjolner" in s for s in gems["Thundergod's Wrath"]["sources"])
     assert "base item: Dueling Wand" in gems["Spellslinger"]["sources"]
@@ -54,6 +55,10 @@ def test_liveness_rules_on_the_rest(live):
     gems = live["gems"]
     assert gems["Bow Shot"]["status"] == "live"  # a weapon's basic skill
     assert gems["Coming Soon"]["status"] == "deprecated"  # placeholders
+    assert "granted by the skill Shred" in gems["Ice Fragments"]["sources"]
+    # No source found in the files, but PoB carries them: kept usable, never removed on the files' word alone
+    for kept in ("Explosive Transmutation", "Grenade", "Requiem", "Detonate Living"):
+        assert gems[kept]["status"] == "unresolved", kept
     assert live["passives"]["graph_nodes"] == live["passives"]["live"] > 4000
     check = live["crosscheck"]
     assert check["passive_nodes_in_pob_not_in_graph"] == 0  # every node PoB knows is in the current graph
