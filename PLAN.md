@@ -606,6 +606,25 @@ they land.
 - "Calibrate rare prices" and "Price unique versions" are user-started jobs; until they've run,
   those prices are rough.
 
+**The mechanics catalog (7 Nov 2026; the user: "we NEED an exhaustive list, so you can start planning how to model and
+plan for those missing mechanics when making a build")**: `uv run python -m builder.ledger.mechanics` groups the coverage
+audit's lines under the mechanic they depend on (`data/pob-*/mechanics.json`, `docs/MECHANICS.md`, and the web page's
+Mechanics page at /mechanics: search and filters). 899 mechanics from four sources: 27 reviewed systemic mechanics with
+plans (`ledger/mechanics/catalog.yaml`), poe2db's keyword glossary (766 keywords, `ledger/mechanics/keywords_poe2db.json`),
+capitalised game terms in every line and gem description, and PoB's 547 Configuration options (each linked to its
+mechanic, with whether the optimizer turns it on). PoB's status per mechanic comes from the audit's evidence: 134 none, 9
+wrong, 24 config-only, 258 partial, 95 full (379 keywords have no lines in the data). The catalog decides the order of the
+modeling work from now on; highest first: ailment uptimes, minions and totems, triggered skills, meta Energy, Infusions,
+'Recently' conditions, buildup ailments, charges, flasks and charms, Withered and curses, Presence, Glory, Heavy Stun.
+
+| Line-level holes closed (7 Nov) | Before | After |
+|---|---|---|
+| Attacks in the zero-damage sweep | not checked (no weapon) | 152 checked with a plain weapon of their kind |
+| Minion skills in the sweep | not read | 42 checked by their minion's damage |
+| Skills that calculate 0 alone | 23 (non-attack only) | 40 (attacks and minions included) |
+| Gem stats sorted as flavour | 4,931 | 4,516 (539 re-sorted as behaviour that changes damage) |
+| Base items' implicit lines | not read | 601 read, 135 PoB ignores |
+
 **Mechanics nothing counts (coverage audit, §6; ranked list in `data/pob-*/coverage-report.json`, split by area with
 `python -m builder.ledger.coverage --areas FILE`)**
 - PoB ignores: keystones and ascendancy passives (Ritual Cadence, Resonance, Necromantic Talisman, Elemental
