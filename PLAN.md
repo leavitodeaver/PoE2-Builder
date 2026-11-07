@@ -456,6 +456,32 @@ from 179 to 305 DPS on the bare test skeleton. Every result's "not modeled" list
 the build's no-op lines and unread gem stats, with the reason. `tests/test_engine_ledger.py`
 parses every ledger replacement line in PoB.
 
+**Second pass (6-7 Nov 2026, after the user: "make damn sure you're not taking its word on anything").** The audit now
+also covers (e) every active skill alone on a plain character (bridge `auditSkills`), (f) lines whose condition can never
+switch on (`builder/ledger/parse_audit.py`: who sets each condition and multiplier: lines, skills, PoB's calculations,
+Configuration options and whether the optimizer turns them on), (g) lines whose parse lost part of the text (more read
+as increased, a lost sign, number, condition or restriction), every current variant of every unique (905 lines the item
+parse didn't select: Megalomaniac, Grip of Kulemak, flasks and charms) and Timeless jewel passives (431). Every passive,
+affix and rune line in the data dump goes through the checks (checked against tree.json and mods.json). (h) Spot-check
+of PoB's data against poe2db: Spark, Fireball, Ice Nova, Arc, Lightning Arrow, Boneshatter, Iron Ward and Frostflame
+Nova at level 20, Feathered Raiment, Sapphire Ring, Astramentis, Headhunter and Ingenuity: all match.
+
+| Not counted (after the second pass) | Count |
+|---|---|
+| Lines whose condition never switches on (f) | 386 (431 before the condition resolver's new boss-fight rules) |
+| Lines whose parse looks wrong (g) | 87, to check by hand |
+| Damaging non-attack skills that calculate 0 alone (e) | 23 (+1 counted by a custom model) |
+| Unique lines PoB ignores, every current variant | 378 |
+| Timeless jewel lines PoB ignores | 36 |
+
+A result's not-modeled list adds, per build, lines whose condition is off in that build and lines PoB gates by an
+uptime it never works out (Guided Hand's Ancestral Boost). The condition resolver now turns on "been Hit / Blocked
+Recently" from the boss's hit rate and the build's evade and block, "Have Energy Shield", "used a Skill Recently", and
+"Melee Hit Recently" / "at Close Range" for a melee main skill. One-off and partial effects count against the fight
+(the manager's rule, 6 Nov): Decimating Strike as x1/(1 - f); entries an assumption already counts at its maximum say
+`absorbed_by`, not "no effect". Harmony Within is a model (only while unreserved Mana is above Life); Now and Again's
+Repeat and Echo come from the main skill's skill types; a flask that applies its effect constantly is up all the time.
+
 Not modeled yet: other Archons (Undeath, Nature's; Archon of Chayula is a PoB skill), Seething
 Body's hold at High Infernal Flame, Ritual Cadence, other meta gems, supports for spells a meta gem
 triggers, a meta gem the optimizer picks by itself, and hits per use (Spark's projectiles) for
@@ -580,19 +606,31 @@ they land.
 - "Calibrate rare prices" and "Price unique versions" are user-started jobs; until they've run,
   those prices are rough.
 
-**Mechanics nothing counts (coverage audit, §6; ranked list in `data/pob-*/coverage-report.json`)**
-- Highest open: increased/reduced Presence Area (PoB parses it, nothing reads it; matters for "in
-  your Presence" conditions), Blackflame's Withered stacks, Thorns on melee hit, Safrin's /
-  Eshtera's / Zaida's resistances per equipped item (needs an item-counting model; whether
-  all-resistance mods count is unknown), Ritual Cadence, Resonance, Necromantic Talisman,
-  Elemental Equilibrium, Ancestral Bond, Harmony Within done properly (only while Mana > Life).
-- Gem stats: Ember Fusillade per ember, Toxic Growth / Toxic Domain pustules, plant skills when Wet,
-  hazard damage, Flame Wall / Incinerate Energy, Tornado Shot's copied projectiles (PoB has no
-  copies at all), support-gem stats (gem_stat entries cover active skills only so far).
-- Affix lines aren't corrected in items yet: a ledger entry only labels them (e.g. "increased
-  Archon Buff duration" on rares is read by the Archon model, but the audit can't see it through a
-  roll range). Maximum Elemental Infusions, Glory generation, minion ailment magnitude.
-- Not counted yet: the audit's item (e): skills that calculate 0 on a plain character.
+**Mechanics nothing counts (coverage audit, §6; ranked list in `data/pob-*/coverage-report.json`, split by area in
+`scratch/ranked_split.py`'s output)**
+- PoB ignores: keystones and ascendancy passives (Ritual Cadence, Resonance, Necromantic Talisman, Elemental
+  Equilibrium, Ancestral Bond, Sanguine Tides), Blackflame's Withered stacks, Thorns on melee hit, Safrin's / Eshtera's /
+  Zaida's resistances per equipped item (an item-counting model; whether all-resistance mods count is unknown).
+- Never switches on (item f, 386 lines): conditions set only by a Configuration option the optimizer leaves off.
+  Biggest: Immobilised, Killed Recently, Moving / Stationary (one or the other, part of a fight: a line can't say how
+  much), Frozen, Ignited (yourself), Missing Runic Ward, Dazed, Mana Spent Recently. They need uptime rules in the
+  condition resolver (or a correction that scales the parsed line), each labelled.
+- Parsed but lost part (item g, 87 to check by hand), e.g. "25% chance on Shocking Enemies to create Shocked Ground"
+  parsed as 20%.
+- Damaging skills that calculate 0 alone (item e, 23): Bitter Dead / Volatile Dead (corpses), Elemental Storm,
+  Valako's Charge, Abyssal Apparition, the ballistas and Shockwave Totem, Dark Effigy, the empowering warcries. Attacks
+  weren't checked (they need a weapon), nor minions (their damage isn't read by the sweep yet).
+- The user's examples still open: Melting Maelstrom (damage pulses of Mana spent; self-damage when it ends),
+  Arakaali's Gift (a charm used when you're Poisoned; recovery from the other flask), Bastion of Light (Blind every
+  0.25 s with a shield raised; Parried, which poe2db gives no number for), Undying Hate's Tribute passives (Grand
+  Tribute: remnant range; Twice Bled: 20% of prevented Physical recouped as Life at 100 Tribute). Guided Hand: shown
+  per build as "condition off" (PoB has no uptime for "the next Attack after Heavy Stunning"); a heavy-stun rate model
+  would count it.
+- Increased / reduced Presence Area: PoB parses it and nothing reads it (only "in your Presence" conditions).
+- Gem stats: Ember Fusillade per ember, Toxic Growth / Toxic Domain pustules, plant skills when Wet, hazards, Flame Wall
+  / Incinerate Energy, Tornado Shot's copied projectiles (PoB has no copies at all), and support gems' stats
+  (gem_stat covers active skills only).
+- Affix lines aren't corrected in items yet: a ledger entry only labels them.
 
 **Ledger and exploits (Phase 4)**
 - The approval queue for proposed ledger entries, the calibration form for in-game numbers, and any
