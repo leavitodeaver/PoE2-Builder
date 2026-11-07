@@ -73,10 +73,11 @@ class Assumptions:
         expression_mods, expression_notes, expression_groups = models.expression_model(found, stats, main)
         ward_mods, ward_notes = models.iron_ward_model(
             found, stats, enabled=models.IRON_WARD_ENTRY not in build.ctx.request.forbid_ledger_entries)
-        stat_mods, stat_notes = models.gem_stat_model(found, set(build.ctx.request.forbid_ledger_entries))
+        stat_mods, stat_notes = models.gem_stat_model(found, set(build.ctx.request.forbid_ledger_entries), stats)
         harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
-        mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods
-        notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes
+        ring_mods, ring_notes = models.resist_rings_model(build.call("sourceLines")["lines"])             if models.RESIST_ENTRY not in build.ctx.request.forbid_ledger_entries else ([], [])
+        mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods
+        notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]
         if chosen:
             kinds = {4: "Damage", 5: "Armour, Evasion and Energy Shield", 6: "Cost Efficiency"}

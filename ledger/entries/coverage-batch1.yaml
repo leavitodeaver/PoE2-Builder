@@ -165,16 +165,17 @@
   applies_to: build
   match: '^non_skill_base_all_damage_%_to_gain_as_lightning_with_spells_from_buff$'
   replace: ['Gain 1% of Damage as Extra Lightning Damage with Spells']
-  factor: 0.9
+  uptime: mana_tempest
   confidence: theory
   notes: >-
-    "Empowered Spells Gain (40-78)% of damage as Lightning Damage" (poe2db; 78% at level 20). It
-    empowers mana-costing spells while you stand in the storm, which ends when you leave it or run
-    out of Mana (effects linger 2 s). Assumed inside it 90% of a boss fight. Spells that cost no
-    Mana (triggered by a meta gem, Infernal Flame) get it in this count but not in game. The storm
-    drains Mana; sustain isn't checked against it.
-  sources: ["https://poe2db.tw/us/Mana_Tempest"]
-  test_in_game: "Hit a dummy with your spell outside and then inside the storm: the hits should be about 1.78x inside, with the gem at 20."
+    "Empowered Spells Gain (40-78)% of damage as Lightning Damage" (poe2db; 78% at level 20), for mana-costing spells
+    while you stand in the storm. The storm costs 1% of maximum Mana per second plus 30% of the Mana spent in it, and
+    ends when you leave it or run out of Mana. Uptime from the build's own Mana, regeneration and spending
+    (models.mana_tempest_uptime, the user's rule of 6 Nov 2026): up for good if regeneration covers it all, otherwise
+    while the Mana lasts, recast once it has refilled. Spells that cost no Mana (triggered by a meta gem, Infernal Flame)
+    get it in this count but not in game.
+  sources: ["https://poe2db.tw/us/Mana_Tempest", "the user, 6 Nov 2026: uptimes from cooldowns, costs and regeneration"]
+  test_in_game: "Hit a dummy with your spell outside and then inside the storm: about 1.78x inside with the gem at 20. Time how long a storm lasts in a boss fight."
   status: proposed
 
 - id: gem-mana-tempest-split
@@ -195,15 +196,15 @@
   applies_to: build
   match: '^wolf_lunar_blessing_all_damage_%_to_gain_as_cold_damage$'
   replace: ['Gain 1% of Damage as Extra Cold Damage while Shapeshifted']
-  factor: 0.5
+  uptime: lunar_blessing
   confidence: theory
   notes: >-
-    "Buff grants (40-59)% of damage Gained as Cold damage" (poe2db); the buff lasts 5 s plus 0.2 s
-    per Rage spent, and the 22 s cooldown recovers while it lasts (0.4.0c). At about 30 Rage that's
-    11 s of every 22 s: 50% uptime assumed. Counted while Shapeshifted. Wolf minions get it too
-    (not counted).
-  sources: ["https://poe2db.tw/us/Lunar_Blessing"]
-  test_in_game: "Use Lunar Blessing with full Rage and time the buff; compare with the 22 s cooldown."
+    "Buff grants (40-59)% of damage Gained as Cold damage" (poe2db). The buff lasts 5 s plus 0.2 s per Rage spent (it
+    spends all your Rage), and its 22 s cooldown recovers while it lasts (0.4.0c). Uptime from the build's maximum Rage
+    and cooldown recovery (models.lunar_blessing_uptime): used off cooldown at full Rage. Counted while Shapeshifted.
+    Wolf minions get it too (not counted).
+  sources: ["https://poe2db.tw/us/Lunar_Blessing", "the user, 6 Nov 2026: uptimes from cooldowns, costs and regeneration"]
+  test_in_game: "Use Lunar Blessing with full Rage and time the buff; compare with its cooldown."
   status: proposed
 
 - id: gem-more-damage-vs-unique
@@ -231,3 +232,21 @@
   sources: ["https://poe2db.tw/us/Frostbolt"]
   test_in_game: "Not needed for boss damage."
   status: proposed
+
+# Safrin's Resolve, Eshtera's Path, Zaida's Longevity (model: resist_rings) ---------------------------------------------
+
+- id: resist-per-item
+  title: Resistances per equipped item with a resistance modifier of an element (Safrin's, Eshtera's, Zaida's)
+  kind: pob_gap
+  model: resist_rings
+  match: '^\+?(?:\(-?\d+--?\d+\)|-?\d+)% to (?:Fire|Cold|Lightning) and (?:Fire|Cold|Lightning) Resistances per Equipped Item with an? (?:Fire|Cold|Lightning) Resistance Modifier$'
+  replace: []
+  confidence: verified_by_you
+  notes: >-
+    builder/search/models.py resist_rings_model counts the equipped items with a resistance modifier of that element: its
+    own, "+% to all Elemental Resistances", a two-element one that includes it, or a socketed rune granting it (the user's
+    rule). Counted from the item lines at each resolve, so a gear or rune change shows from the next resolve.
+  sources: ["https://poe2db.tw/us/Safrins_Resolve", "the user, 6 Nov 2026: 'yes. you can also put a rune with fire resist into a piece of gear and it those rings will count that item'"]
+  test_in_game: "Equip the ring, then swap one item with a Fire Resistance modifier for one without: the ring's Cold and Lightning Resistance falls by its value."
+  status: proposed
+

@@ -73,12 +73,20 @@ def spark_with(engine, forbid: list[str]) -> Search:
 
 
 def test_mana_tempest_gem_stat_reaches_pob(engine):
-    """PoB never reads Mana Tempest's gain-as-Lightning stat; the gem_stat entry gives it to spells."""
-    off = spark_with(engine, ["gem-mana-tempest-lightning"]).build.call("stats", fields=FIELDS)["CombinedDPS"]
+    """PoB never reads Mana Tempest's gain-as-Lightning stat; the gem_stat entry gives it to spells, at the uptime the build's
+    own Mana allows (the bare skeleton can't even pay for its spell: 0%, and the guide says why)."""
     search = spark_with(engine, [])
-    on = search.build.call("stats", fields=FIELDS)["CombinedDPS"]
-    assert off > 0 and on > 1.2 * off
-    assert any(n.get("entry") == "gem-mana-tempest-lightning" for n in search.assumptions.active)
+    build = search.build
+    bare = build.call("stats", fields=FIELDS)["CombinedDPS"]
+    note = next(n for n in search.assumptions.active if n.get("entry") == "gem-mana-tempest-lightning")
+    assert note["value"].startswith("not counted") and "regenerated" in note["basis"]
+    amulet = "\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0", "+1000 to maximum Mana",
+                        "Regenerate 400 Mana per second"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    search.resolve()
+    rich = build.call("stats", fields=FIELDS)["CombinedDPS"]
+    note = next(n for n in search.assumptions.active if n.get("entry") == "gem-mana-tempest-lightning")
+    assert "uptime 100%" in note["basis"] and rich > 1.5 * bare
 
 
 def test_a_builds_coverage_blind_spots(engine):

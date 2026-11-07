@@ -38,6 +38,8 @@ MODEL_FIELDS = sorted({
     "Armour", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
     # Harmony Within: unreserved Mana against Life
     "ManaUnreserved", "Life",
+    # buff uptimes from the mechanic: Mana Tempest's Mana, Lunar Blessing's Rage
+    "ManaRegenRecovery", "MaximumRage",
 })
 
 
@@ -649,7 +651,7 @@ def _skill_names(entry) -> list[str]:
     return [names] if isinstance(names, str) else list(names)
 
 
-def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats: dict | None = None) -> tuple[list[dict], list[dict]]:
     from builder.ledger import SYNTAX, gem_stat_entries
 
     mods: list[dict] = []
@@ -666,7 +668,19 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset()) -> tu
             name = skill.name
             values = {stat: number(v) for stat, v in skill.level_stats.items()
                       if entry.pattern is not None and entry.pattern.search(stat) and number(v)}
+            play = ""
+            if entry.raw.get("uptime") in UPTIMES:  # derived from the mechanic and the build's own numbers
+                factor, why, play = UPTIMES[entry.raw["uptime"]](skill, stats or {})
+                why = f"; uptime {factor:.0%}: {why}"
+            else:
+                why = ""
             for stat, value in sorted(values.items()):
+                if value * factor == 0:
+                    if why:  # an uptime of 0 from the build's own numbers: the guide says why
+                        notes.append({"label": entry.title, "value": "not counted (uptime 0%)",
+                                      "basis": f"{name} can't be kept up{why}", "confidence": entry.confidence,
+                                      "entry": entry.id, **({"play": play} if play else {})})
+                    continue
                 for text in entry.replace:
                     m = SYNTAX.match(text)
                     when = [{"var": m.group(2)}] if m and m.group(1) == "if" else None
@@ -677,8 +691,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset()) -> tu
                     "value": f"{value * factor:g}" + (f" ({value:g} × {factor:g})" if factor != 1 else ""),
                     "basis": f"PoB never reads the gem stat {stat} ({value:g} at this level); counted as "
                              + "; ".join(t.replace("1%", f"{value * factor:g}%") for t in entry.replace)
-                             + ("" if own else " for the whole build") + (f". {entry.notes.strip()}" if entry.notes else ""),
-                    "confidence": entry.confidence, "entry": entry.id})
+                             + ("" if own else " for the whole build") + why + (f". {entry.notes.strip()}" if entry.notes else ""),
+                    "confidence": entry.confidence, "entry": entry.id, **({"play": play} if play else {})})
             names = [n for n in names if n != name]  # one copy of each skill (a buff applies once)
     return mods, notes
 
@@ -708,3 +722,97 @@ def harmony_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]:
         "basis": f"unreserved Mana {mana:,.0f} is above Life {life:,.0f}: counted as 100% of damage taken from Mana before Life, "
                  "both pools full (a fight where Mana drains below Life, and overflow of a hit bigger than the Mana, are not "
                  "counted)", "confidence": "theory"}]
+
+
+# Safrin's Resolve, Eshtera's Path, Zaida's Longevity (model: resist_rings) --------------------------------------------
+# "+(5-10)% to Cold and Lightning Resistances per Equipped Item with a Fire Resistance Modifier" (and the other two
+# elements; poe2db). PoB ignores the line. Which items count is the user's rule (6 Nov 2026, verified_by_you): an
+# equipped item with a resistance modifier of that element, a "+% to all Elemental Resistances" modifier, a
+# two-element resistance modifier that includes it, or a socketed rune (or other socketable) granting it.
+# Read from the build's item lines (bridge sourceLines, rune lines included), so it counts from the next resolve.
+
+RING_LINE = re.compile(r"^\+?(\d+)% to (Fire|Cold|Lightning) and (Fire|Cold|Lightning) Resistances per Equipped Item with an? "
+                       r"(Fire|Cold|Lightning) Resistance Modifier$", re.I)
+RESIST_LINE = re.compile(r"to (?:all Elemental|(?:Fire|Cold|Lightning|Chaos)(?: and (?:Fire|Cold|Lightning|Chaos))?) Resistances?\b", re.I)
+RESIST_ENTRY = "resist-per-item"
+
+
+def items_with_resistance(lines: list[dict], element: str) -> list[str]:
+    """The equipped item slots with a resistance modifier of that element (the user's rule), from bridge sourceLines."""
+    slots = set()
+    for entry in lines:
+        source, text = entry["source"], entry["text"]
+        if not source.startswith("item:") or "maximum" in text.lower():
+            continue
+        m = RESIST_LINE.search(text)
+        if not m:
+            continue
+        named = m.group(0).lower()
+        if "all elemental" in named or element.lower() in named:
+            slots.add(source[5:])
+    return sorted(slots)
+
+
+def resist_rings_model(lines: list[dict]) -> tuple[list[dict], list[dict]]:
+    mods, notes = [], []
+    for entry in lines:
+        if not entry["source"].startswith("item:"):
+            continue
+        m = RING_LINE.match(entry["text"].strip())
+        if not m:
+            continue
+        value, first, second, element = int(m.group(1)), m.group(2).title(), m.group(3).title(), m.group(4).title()
+        slots = items_with_resistance(lines, element)
+        total = value * len(slots)
+        if total:
+            mods.append(line(f"+1% to {first} and {second} Resistances", total))
+        notes.append({"label": f"{entry['source'][5:]}: +{value}% {first} and {second} Resistance per item with {element} Resistance",
+                      "value": f"+{total}% ({len(slots)} items)",
+                      "basis": f"items with a {element} Resistance modifier (its own, all Elemental, two elements, or a socketed rune): "
+                               + (", ".join(slots) or "none") + ". PoB ignores the line; counted from the item lines, so a change of "
+                               "gear or runes counts from the next resolve.",
+                      "confidence": "verified_by_you", "entry": RESIST_ENTRY})
+    return mods, notes
+
+
+# Buff uptimes from the mechanic and the build's own numbers (the user, 6 Nov 2026: "go off their cooldown times if they
+# have any, mana cost and regen, etc. ... assume reasonable numbers and leave a note about it in the build guide").
+
+MANA_TEMPEST_DRAIN = 0.01  # of maximum Mana per second (poe2db: "Cost 1% Mana per second")
+MANA_TEMPEST_SPENT = 0.30  # "30% of Mana and Life spent while in the storm is added to this Skill's Mana Cost per Second"
+
+
+def mana_tempest_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
+    mana, regen, spend = number(stats.get("Mana")), number(stats.get("ManaRegenRecovery")), number(stats.get("ManaPerSecondCost"))
+    drain = MANA_TEMPEST_DRAIN * mana + MANA_TEMPEST_SPENT * spend
+    deficit = spend + drain - regen
+    if mana <= 0:
+        return 0.0, "no Mana", ""
+    if deficit <= 0:
+        return 1.0, (f"Mana regenerates {regen:,.0f}/s, more than the main skill's {spend:,.0f}/s plus the storm's drain "
+                     f"{drain:,.0f}/s (1% of {mana:,.0f} Mana and 30% of what you spend): the storm lasts as long as you stay in it"), \
+            "Assumes you stand in the storm for the whole fight; every step out of it ends it."
+    on = mana / deficit
+    refill = regen - spend
+    if refill <= 0:
+        return 0.0, f"the main skill alone spends {spend:,.0f} Mana/s against {regen:,.0f}/s regenerated: no Mana left to keep a storm", ""
+    off = mana / refill
+    up = on / (on + off)
+    return up, (f"the storm drains {drain:,.0f} Mana/s on top of the main skill's {spend:,.0f}/s against {regen:,.0f}/s regenerated: "
+                f"{mana:,.0f} Mana lasts {on:.1f} s; then {off:.1f} s to refill without it, recast at full Mana"), \
+        "Assumes you recast it whenever your Mana is full again and stand in it; recasting earlier gives shorter storms."
+
+
+def lunar_blessing_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
+    rage = number(stats.get("MaximumRage"))
+    duration = number(skill.level_stats.get("base_skill_effect_duration")) / 1000 or 5.0
+    per_rage = number(skill.level_stats.get("skill_lunar_blessing_extend_buff_by_X_ms_per_rage")) / 1000 or 0.2
+    length = duration + per_rage * rage
+    cooldown = (skill.cooldown or 22.0) / (skill.cooldown_recovery or 1.0)
+    up = min(1.0, length / max(cooldown, length))
+    return up, (f"lasts {duration:g} s + {per_rage:g} s per Rage spent ({rage:.0f} Rage: {length:.1f} s); its cooldown, {cooldown:.1f} s, "
+                "recovers while it lasts"), \
+        "Assumes you use it off cooldown with full Rage; using it with less Rage shortens it by 0.2 s per Rage."
+
+
+UPTIMES = {"mana_tempest": mana_tempest_uptime, "lunar_blessing": lunar_blessing_uptime}

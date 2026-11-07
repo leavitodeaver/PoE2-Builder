@@ -17,7 +17,8 @@ def checklist(result: dict) -> list[dict]:
         items.append({
             "kind": "assumption", "title": f"{a['label']} *",
             "why": f"Assumed {_number(a['value'])} ({a['basis']}); PoB doesn't model it. Confidence: {a['confidence']}.",
-            "how": "Watch it in game (the skill's tooltip, or count it over a minute of play). If it's lower than "
+            "how": (a["play"] + " " if a.get("play") else "")
+                   + "Watch it in game (the skill's tooltip, or count it over a minute of play). If it's lower than "
                    "assumed, the damage marked * is lower in proportion. The PoB code doesn't carry this assumption.",
         })
     for b in result.get("blind_spots") or []:

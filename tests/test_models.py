@@ -275,14 +275,42 @@ def test_gem_stats_pob_never_reads_become_scaled_lines():
     tempest = models.Skill("Mana Tempest", level_stats={
         "non_skill_base_all_damage_%_to_gain_as_lightning_with_spells_from_buff": 78,
         "mana_tempest_empowered_spells_split_to_X_additional_targets": 3})
-    mods, notes = models.gem_stat_model([models.Skill("Spark"), tempest])
-    assert mods == [{"kind": "Line", "line": "Gain 1% of Damage as Extra Lightning Damage with Spells",
-                     "scale": 70.2}]  # 78 x 0.9 uptime, for the whole build (a buff: no skill tag)
-    assert len(notes) == 1 and notes[0]["confidence"] == "theory" and "78" in notes[0]["basis"]
-    # switched off by forbidding the entry, and nothing without the skill
-    assert models.gem_stat_model([tempest], {"gem-mana-tempest-lightning"}) == ([], [])
-    assert models.gem_stat_model([models.Skill("Spark")]) == ([], [])
+    # regeneration covers the spell and the storm's drain (1% of 2000 + 30% of 100): up all the time
+    rich = {"Mana": 2000, "ManaRegenRecovery": 200, "ManaPerSecondCost": 100}
+    mods, notes = models.gem_stat_model([models.Skill("Spark"), tempest], stats=rich)
+    assert mods == [{"kind": "Line", "line": "Gain 1% of Damage as Extra Lightning Damage with Spells", "scale": 78.0}]
+    assert len(notes) == 1 and notes[0]["confidence"] == "theory" and "uptime 100%" in notes[0]["basis"] and notes[0]["play"]
+    # it can't keep it up: 2000 Mana last 2000/(100 + 50 - 120) = 66.7 s, then 2000/(120 - 100) = 100 s to refill
+    mods, notes = models.gem_stat_model([tempest], stats={"Mana": 2000, "ManaRegenRecovery": 120, "ManaPerSecondCost": 100})
+    assert mods[0]["scale"] == pytest.approx(78 * 66.667 / 166.667, rel=1e-3)
+    # switched off by forbidding the entry, and nothing without the skill or with no Mana
+    assert models.gem_stat_model([tempest], {"gem-mana-tempest-lightning"}, rich) == ([], [])
+    assert models.gem_stat_model([models.Skill("Spark")], stats=rich) == ([], [])
+    assert models.gem_stat_model([tempest], stats={})[0] == []
     assert "Mana Tempest" in models.gem_stat_skills()
+
+
+def test_lunar_blessing_uptime_from_rage_and_cooldown():
+    skill = models.Skill("Lunar Blessing", cooldown=22.0, cooldown_recovery=1.0,
+                         level_stats={"base_skill_effect_duration": 5000, "skill_lunar_blessing_extend_buff_by_X_ms_per_rage": 200})
+    up, why, play = models.lunar_blessing_uptime(skill, {"MaximumRage": 30})
+    assert up == pytest.approx(11 / 22) and "30 Rage" in why and play
+    assert models.lunar_blessing_uptime(skill, {"MaximumRage": 100})[0] == 1.0  # 25 s outlasts its cooldown
+
+
+def test_resistance_rings_count_items_by_the_users_rule():
+    lines = [{"source": "item:Ring 1", "text": "+7% to Cold and Lightning Resistances per Equipped Item with a Fire Resistance Modifier"},
+             {"source": "item:Helmet", "text": "+30% to Fire Resistance"},
+             {"source": "item:Body Armour", "text": "+12% to all Elemental Resistances"},
+             {"source": "item:Gloves", "text": "+15% to Fire and Cold Resistances"},
+             {"source": "item:Boots", "text": "+14% to Fire Resistance"},  # a socketed rune's line: also an item line of the Boots
+             {"source": "item:Belt", "text": "+20% to Cold Resistance"},
+             {"source": "item:Amulet", "text": "+5% to Maximum Fire Resistance"},
+             {"source": "passive:Somewhere", "text": "+10% to Fire Resistance"}]
+    mods, notes = models.resist_rings_model(lines)
+    assert mods == [{"kind": "Line", "line": "+1% to Cold and Lightning Resistances", "scale": 28.0}]  # 4 items x 7
+    assert notes[0]["confidence"] == "verified_by_you" and "Boots" in notes[0]["basis"]
+    assert models.resist_rings_model(lines[1:]) == ([], [])
 
 
 def test_harmony_within_counts_only_while_unreserved_mana_is_above_life():
