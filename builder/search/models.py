@@ -735,7 +735,7 @@ def harmony_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]:
 # two-element resistance modifier that includes it, or a socketed rune (or other socketable) granting it.
 # Read from the build's item lines (bridge sourceLines, rune lines included), so it counts from the next resolve.
 
-RING_LINE = re.compile(r"^\+?(\d+)% to (Fire|Cold|Lightning) and (Fire|Cold|Lightning) Resistances per Equipped Item with an? "
+RING_LINE = re.compile(r"^\+?(\d+|\(\d+-\d+\))% to (Fire|Cold|Lightning) and (Fire|Cold|Lightning) Resistances per Equipped Item with an? "
                        r"(Fire|Cold|Lightning) Resistance Modifier$", re.I)
 RESIST_LINE = re.compile(r"to (?:all Elemental|(?:Fire|Cold|Lightning|Chaos)(?: and (?:Fire|Cold|Lightning|Chaos))?) Resistances?\b", re.I)
 RESIST_ENTRY = "resist-per-item"
@@ -765,7 +765,9 @@ def resist_rings_model(lines: list[dict]) -> tuple[list[dict], list[dict]]:
         m = RING_LINE.match(entry["text"].strip())
         if not m:
             continue
-        value, first, second, element = int(m.group(1)), m.group(2).title(), m.group(3).title(), m.group(4).title()
+        rolled = m.group(1).strip("()").split("-")  # an unrolled unique's range counts at its middle, as PoB reads it
+        value = round(sum(int(v) for v in rolled) / len(rolled))
+        first, second, element = m.group(2).title(), m.group(3).title(), m.group(4).title()
         slots = items_with_resistance(lines, element)
         total = value * len(slots)
         if total:
@@ -920,3 +922,20 @@ def sanguine_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]
         "basis": f"the main skill spends {spent:,.0f} Life/s ({spent / life:.1%} of {life:,.0f} per second): 1 Life Flask charge per 2% spent, "
                  "each consumed charge 1% for 5 s; every charge filled assumed consumed (you hit the boss whenever the flask is full)",
         "play": "Hitting less often than the flask fills, or a flask that never fills, lowers it.", "confidence": "theory"}]
+
+
+# What-ifs and the models (the what-if limit) ---------------------------------------------------------------------------
+# A model that reads item lines counts from the next resolve: a plain item what-if can't see it. Build.item_deltas re-scores
+# the best few candidates whose lines a model reads (or that replace such an item) with a real trial, models included.
+
+def item_read_by_models(raw: str, build_texts: list[str]) -> bool:
+    """Does a model read this item's lines, given the build's own lines? (Its own model inputs, Melting Maelstrom, a
+    resistance ring; or a resistance modifier while the build wears a ring that counts them.)"""
+    lines = [l.strip() for l in (raw or "").splitlines() if l.strip()]
+    ring = any(RING_LINE.match(t.strip()) for t in build_texts)
+    for text in lines:
+        if model_entry(text) is not None or MAELSTROM.match(text) or RING_LINE.match(text):
+            return True
+        if ring and RESIST_LINE.search(text) and "maximum" not in text.lower():
+            return True
+    return False

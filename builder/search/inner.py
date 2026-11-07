@@ -67,6 +67,7 @@ class Search:
         self.conditions = Conditions(self.build, self.skeleton.main_skill)
         self.gems.conditions = self.conditions
         self.assumptions = Assumptions(self.build)
+        self.build.reassume = self.assumptions.apply  # item what-ifs a model reads get a real trial (Build.item_deltas)
         self.gems.resolve = self.resolve
         self.gems.settle = self.settle
         self.gems.assumptions = self.assumptions

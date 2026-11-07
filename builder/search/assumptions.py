@@ -83,6 +83,9 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
         pulse, pulse_notes = models.maelstrom_model(source_lines, stats) if models.MAELSTROM_ENTRY not in forbidden else (0.0, [])
         build.objective.added_dps = pulse  # separately computed damage (Melting Maelstrom's pulses), counted from the next resolve
+        # models whose effect follows the build's own numbers (Mana and regeneration, Life spent, attack speed): any item
+        # can change them, so every item what-if is re-scored with a real trial (Build.item_deltas)
+        build.models_on_stats = bool(stat_notes or harmony_notes or hand_notes or sanguine_notes or pulse_notes)
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]

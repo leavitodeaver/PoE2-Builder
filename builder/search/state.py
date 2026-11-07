@@ -41,6 +41,10 @@ class Build:
         # Stats PoB doesn't calculate, added to every result before scoring (flask recovery per
         # second, builder/search/flasks.py); what-if cases may override them with an "extra" entry
         self.extra_stats: dict = {}
+        # The what-if limit: re-scoring item moves a model reads (set by the search; see item_deltas)
+        self.reassume: Callable[[], Any] | None = None  # re-applies the custom models to the current build
+        self.rescored = 0  # item candidates re-scored with a real trial
+        self._model_texts: tuple[int, list[str]] = (-1, [])
 
     def worse(self, before: float) -> bool:
         """After a commit a what-if said would gain: True (and counted) if it lost instead."""
@@ -127,7 +131,46 @@ class Build:
         return self._deltas("gemDeltas", cases, fill_from_base=skip_ehp, skipEHP=skip_ehp)
 
     def item_deltas(self, cases: list[dict]) -> list[tuple[float, dict]]:
-        return self._deltas("itemDeltas", cases)
+        scored = self._deltas("itemDeltas", cases)
+        if self.reassume is not None and cases:
+            scored = self._rescore_model_items(cases, scored)
+        return scored
+
+    RESCORE_TOP = 3  # model-read candidates per what-if call that get a real trial
+
+    def _build_texts(self) -> list[str]:
+        if self._model_texts[0] != self.commits:
+            self._model_texts = (self.commits, [l["text"] for l in self.call("sourceLines")["lines"]])
+        return self._model_texts[1]
+
+    def _rescore_model_items(self, cases: list[dict], scored: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
+        """A plain item what-if can't see a custom model that reads item lines (a resistance ring's count, Melting
+        Maelstrom, model inputs on items). The best few candidates such a model reads, or that replace an item it reads,
+        are re-scored with a real trial: equip, re-apply the models, score, then the old item and models back."""
+        from builder.search.models import item_read_by_models
+
+        texts = self._build_texts()
+        current = self.call("equipped")["slots"]
+        on_stats = getattr(self, "models_on_stats", False)
+        touched = [i for i, case in enumerate(cases)
+                   if on_stats or item_read_by_models(case.get("raw") or "", texts)
+                   or item_read_by_models(current.get(case["slot"]) or "", texts)]
+        if not touched:
+            return scored
+        best = sorted(touched, key=lambda i: -scored[i][0])[:self.RESCORE_TOP]
+        before = (self.score, dict(self.stats), self.commits)
+        for i in best:
+            case = cases[i]
+            old = current.get(case["slot"])
+            self.call("equip", slot=case["slot"], raw=case.get("raw"), fields=[])
+            self.reassume()
+            stats = self.objective.prepare({**self.call("stats", fields=self.objective.fields), **self.extra_stats})
+            scored[i] = (self.objective.score(stats), stats)
+            self.call("equip", slot=case["slot"], raw=old, fields=[])
+            self.rescored += 1
+        self.reassume()
+        self.score, self.stats = before[0], before[1]
+        return scored
 
     # Commits -----------------------------------------------------------------------------------
 
