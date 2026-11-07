@@ -15,11 +15,11 @@ from builder.pob import slots
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows named mutexes")
 
 HOLDER = """
-import sys, time
+import os, sys, time
 from builder.pob import slots
 slots.SLOT_NAME = sys.argv[1]
 slots.take()
-print("took", flush=True)
+print("took", os.getpid(), flush=True)
 time.sleep(60)
 """
 
@@ -46,18 +46,27 @@ def test_a_seventh_process_gets_no_engine_and_a_dead_ones_slot_comes_back(monkey
     holders = [subprocess.Popen([sys.executable, "-c", HOLDER, fresh], stdout=subprocess.PIPE, text=True, env=env)
                for _ in range(slots.POOL_MAX)]
     try:
-        assert all(p.stdout.readline().strip() == "took" for p in holders)
+        took = [p.stdout.readline().split() for p in holders]
+        assert all(t and t[0] == "took" for t in took)
         assert slots.free() == 0
         with pytest.raises(slots.PoolFull):
             slots.take()
+        # kill the process that holds the slot (a venv's python.exe may be a launcher with the interpreter as its child)
+        subprocess.run(["taskkill", "/F", "/T", "/PID", took[0][1]], capture_output=True)
         holders[0].kill()
         holders[0].wait()
+        end = time.time() + 5
+        while slots.free() != 1 and time.time() < end:
+            time.sleep(0.1)
         assert slots.free() == 1  # Windows frees a killed process's slot
         slots.take()
         assert slots.free() == 0  # this process's own slot doesn't count as free
     finally:
         for p in holders:
             p.kill()
+        for t in locals().get("took") or []:
+            if len(t) > 1:
+                subprocess.run(["taskkill", "/F", "/T", "/PID", t[1]], capture_output=True)
 
 
 def test_worker_counts_inside_the_queue_come_from_its_processors(monkeypatch):
