@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Read-only PoE2 game-file exporter (python -m builder.data.gamefiles)",
+  "dependencies": {
+    "pathofexile-dat": "16.0.1"
+  }
+}

@@ -16,3 +16,7 @@ legacy/*
 
 # Manager and worker notes, turn logs (tools/manager/worker.sh)
 /scratch/
+
+# Portable Node.js and the datamining packages (python -m builder.data.gamefiles)
+/tools/node/
+/tools/datamine/node_modules/
