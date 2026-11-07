@@ -606,8 +606,8 @@ they land.
 - "Calibrate rare prices" and "Price unique versions" are user-started jobs; until they've run,
   those prices are rough.
 
-**Mechanics nothing counts (coverage audit, §6; ranked list in `data/pob-*/coverage-report.json`, split by area in
-`scratch/ranked_split.py`'s output)**
+**Mechanics nothing counts (coverage audit, §6; ranked list in `data/pob-*/coverage-report.json`, split by area with
+`python -m builder.ledger.coverage --areas FILE`)**
 - PoB ignores: keystones and ascendancy passives (Ritual Cadence, Resonance, Necromantic Talisman, Elemental
   Equilibrium, Ancestral Bond, Sanguine Tides), Blackflame's Withered stacks, Thorns on melee hit, Safrin's / Eshtera's /
   Zaida's resistances per equipped item (an item-counting model; whether all-resistance mods count is unknown).

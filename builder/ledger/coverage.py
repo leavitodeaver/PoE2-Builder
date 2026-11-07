@@ -554,6 +554,36 @@ def print_summary(report: dict, top: int = 40) -> None:
               f"  ({group['sources']} sources: {', '.join(group['examples'][:3])})")
 
 
+AREAS = (
+    ("A. Keystones and ascendancy passives PoB ignores",
+     lambda g: g["category"] == "passive" and bool(set(g["source_kinds"]) & {"keystone", "ascendancy"})),
+    ("B. Notables and small passives PoB ignores", lambda g: g["category"] == "passive"),
+    ("C. Uniques PoB ignores (popular first, by poe.ninja listings)", lambda g: g["category"] == "unique"),
+    ("D. Gem stats PoB never reads", lambda g: g["category"] == "gem-stat"),
+    ("E. Affixes, runes and jewels PoB ignores", lambda g: g["category"] == "affix"),
+    ("F. Lines whose condition never switches on (item f)", lambda g: g["category"] == "never-on"),
+    ("G. Lines PoB parses but lost part of (item g; check each by hand)", lambda g: g["category"] == "misparse"),
+    ("H. Parsed into nothing a calculation reads", lambda g: g["category"].endswith("-noop")),
+    ("I. Damaging skills that calculate 0 alone (item e)", lambda g: g["category"] == "skill-zero"),
+    ("J. Timeless jewel passives", lambda g: g["category"].startswith("timeless")),
+)
+
+
+def areas_markdown(report: dict, top: int = 25) -> str:
+    """The ranked open list split by area (each can go to a different worker), flavour left out."""
+    used, out = set(), ["# Coverage audit: what nothing counts, by area", "",
+                        "Score = mechanic weight x sources, strongest first. "
+                        "From `python -m builder.ledger.coverage --areas FILE`.", ""]
+    for title, test in AREAS:
+        rows = [(i, g) for i, g in enumerate(report["ranking"]) if i not in used and g["mechanic"] != "flavour" and test(g)]
+        used.update(i for i, _ in rows)
+        out.append(f"## {title} ({len(rows)} open)")
+        out += [f"- [{g['score']:.1f}] {g['mechanic']}: `{g['template'][:110]}` ({g['sources']} sources: "
+                f"{', '.join(g['examples'][:3])})" for _, g in rows[:top]]
+        out.append("")
+    return "\n".join(out)
+
+
 def main(argv: list[str]) -> None:
     from builder.data import data_dir
 
@@ -566,6 +596,10 @@ def main(argv: list[str]) -> None:
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1, default=list), encoding="utf-8")
     print_summary(report, top=int(argv[argv.index("--top") + 1]) if "--top" in argv else 40)
     print(f"\nwrote {out}")
+    if "--areas" in argv:
+        areas = Path(argv[argv.index("--areas") + 1])
+        areas.write_text(areas_markdown(report), encoding="utf-8")
+        print(f"wrote {areas}")
 
 
 if __name__ == "__main__":
