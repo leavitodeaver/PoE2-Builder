@@ -1,4 +1,4 @@
-"""The queue for the PC: one line shared with the user's other projects (Beastking, CompanionVR). All of it is in C:\PROJECTS\PCQueue\pc_queue.py,
+r"""The queue for the PC: one line shared with the user's other projects (Beastking, CompanionVR). All of it is in C:\PROJECTS\PCQueue\pc_queue.py,
 whose head says how to use it. PoE2's line: tests only, one at a time, always booked --no-gpu (the queue sets it), at most 6 LuaJIT processes
 (builder/pob/slots.py) and 8 GB for the whole run (the queue's job object); paused on a hold, and while a measure runs.
 
