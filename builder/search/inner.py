@@ -84,6 +84,7 @@ class Search:
         self.kicks = 0
         self.kicks_kept = 0
         self.escalations = 0
+        self.feasible: dict | None = None  # the best build seen that meets every requirement (keep_feasible)
         self.timing: dict[str, list[float]] = {}  # phase -> [seconds, evaluations, gain]
         self.passes = 0
         self.kicked: set[str] = set()  # blocks a kick disturbed, swept fully on the next pass
@@ -460,9 +461,11 @@ class Search:
         `feasible_first` (finalize): the score lets a build trade a small shortfall for enough damage,
         but the delivered build never ends further from feasible than it started."""
         start = self.build.snapshot()
+        self.note_feasible()
         last_short = float("inf")
         while time.perf_counter() < deadline:
             improved = self.blocks(deadline)
+            self.note_feasible()
             if time.perf_counter() >= deadline:
                 break
             objective = self.build.objective
@@ -499,7 +502,25 @@ class Search:
             closest = min(kept, key=lambda snap: (round(self.shortfall(snap["stats"]), 6), -snap["score"]))
             if self.shortfall(closest["stats"]) < short - 1e-6:
                 self.build.restore(closest)
+        self.keep_feasible()
         self.resolve()
+
+    def note_feasible(self) -> None:
+        """Remember the build if it meets every requirement and beats the best such build on the goal."""
+        stats = self.build.stats
+        if self.shortfall(stats) > 0:
+            return
+        value = self.build.objective.value(stats)
+        if self.feasible is None or value > self.build.objective.value(self.feasible["stats"]) * (1 + 1e-9):
+            self.feasible = self.build.snapshot()
+
+    def keep_feasible(self) -> None:
+        """A build that ends short of a requirement goes back to the best one seen that met them all. The score
+        trades a small shortfall for enough damage, and the weights it trades with change as requirements escalate,
+        so the best-scoring build can be short while the search passed through a feasible one (gate 4, 2b75c
+        delivered 5 Cold resistance short). A requirement must never be broken for damage."""
+        if self.feasible is not None and self.shortfall(self.build.stats) > 0:
+            self.build.restore(self.feasible)
 
     def shortfall(self, stats: dict) -> float:
         """How far a build is from meeting every requirement (objective.shortfall)."""
@@ -546,6 +567,7 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
     except Cancelled:
         if start is not None and start["score"] > search.build.score:
             search.build.restore(start)
+        search.keep_feasible()
     summary = search.summary()
     if start is not None:
         objective = search.build.objective

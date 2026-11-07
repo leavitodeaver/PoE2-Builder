@@ -255,8 +255,8 @@ def test_a_search_that_raises_requirements_keeps_its_progress_and_ends_cleanly(e
 
 
 def test_finalize_never_trades_a_requirement_for_damage(engine):
-    """The score lets a build trade a small shortfall for enough damage; the delivered build (finalize's
-    feasible_first) never ends further from feasible than it started."""
+    """The score lets a build trade a small shortfall for enough damage; no search ends on such a build when it saw
+    one that met every requirement (keep_feasible; before 7 Nov only finalize's feasible_first held that)."""
     import time
 
     from builder.search.inner import Search
@@ -281,4 +281,4 @@ def test_finalize_never_trades_a_requirement_for_damage(engine):
         search.shortfall = lambda stats: 1.0 if search.build.objective.dps(stats) > start_dps * 1.0001 else 0.0
         search.run(time.perf_counter() + 0.3, escalate=False, feasible_first=feasible_first)
         end_dps = search.build.objective.dps(search.build.stats)
-        assert (end_dps == pytest.approx(start_dps)) if feasible_first else (end_dps > start_dps)
+        assert end_dps == pytest.approx(start_dps)

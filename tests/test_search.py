@@ -635,3 +635,44 @@ def test_ailment_uptime_uses_each_ailments_own_duration_and_hits_that_land():
     assert ailment_uptime({"ShockChancePerHit": 0, "Speed": 2}, "Shock") == 0.0
     shocked = next(c for c in CONDITIONS if c.var == "conditionEnemyShocked")
     assert shocked.stat({"ShockChancePerHit": 20, "Speed": 2}) and not shocked.stat({"ShockChancePerHit": 2, "Speed": 2})
+
+
+def test_a_search_that_ends_short_goes_back_to_the_best_feasible_build_it_saw():
+    """Gate 4 on 2b75c (7 Nov, after meta slice 1): the delivered build was 5 Cold resistance short. A search's best
+    by score can miss a floor (the score trades a small shortfall for damage) after it passed through builds that met
+    every requirement; the search must end on the best of those instead."""
+    from types import SimpleNamespace
+
+    from builder.search.inner import Search
+
+    class Objective:
+        def deficits(self, stats):
+            short = 75 - stats["ColdResist"]
+            return [("Cold resistance", short / 75, False)] if short > 0 else []
+
+        def value(self, stats):
+            return stats["dps"]
+
+    class Build:
+        objective = Objective()
+
+        def __init__(self):
+            self.stats = {}
+
+        def snapshot(self):
+            return {"stats": dict(self.stats)}
+
+        def restore(self, snap):
+            self.stats = dict(snap["stats"])
+
+    search = SimpleNamespace(build=Build(), feasible=None)
+    search.shortfall = lambda stats: Search.shortfall(search, stats)
+    for cold, dps in ((75, 1_000_000), (76, 1_200_000), (75, 900_000), (70, 3_000_000)):
+        search.build.stats = {"ColdResist": cold, "dps": dps}
+        Search.note_feasible(search)
+    assert search.feasible["stats"]["dps"] == 1_200_000  # the best feasible one; the short 3M is never kept
+    Search.keep_feasible(search)
+    assert search.build.stats == {"ColdResist": 76, "dps": 1_200_000}
+    search.build.stats = {"ColdResist": 80, "dps": 500_000}
+    Search.keep_feasible(search)  # a feasible ending stays as it is, even below the best feasible one's damage
+    assert search.build.stats["dps"] == 500_000
