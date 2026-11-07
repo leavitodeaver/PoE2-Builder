@@ -1,0 +1,24 @@
+{
+ "mode": "bridge",
+ "status": "ok",
+ "dps": {
+  "full": 2081840.8222242,
+  "main": 2081840.8222242,
+  "pob_full": 2081840.8222242,
+  "excluded": 0.0,
+  "excluded_from": []
+ },
+ "value": null,
+ "seconds": 603.1,
+ "evaluations": 213940,
+ "evals_per_second": 355,
+ "tempest": [
+  {
+   "label": "Mana Tempest, Empowered Spells gain damage as Lightning",
+   "value": "not counted (uptime 0%)",
+   "basis": "Mana Tempest can't be kept up; uptime 0%: the main skill alone spends 869 Mana/s against 92/s regenerated: no Mana left to keep a storm",
+   "confidence": "theory",
+   "entry": "gem-mana-tempest-lightning"
+  }
+ ]
+}

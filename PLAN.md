@@ -389,7 +389,15 @@ and every effect is listed in the result with its basis and confidence:
   `LedgerAddedDPS`) are worked out from a what-if's own output, and the what-if calculates once
   more when they moved. Item, node and gem what-ifs all see them; the real trials are left for
   items that carry a model themselves (a resistance ring, Melting Maelstrom, model inputs on
-  their lines: `Build.item_deltas`, top 3).
+  their lines: `Build.item_deltas`, top 3). Measured: 113 item what-ifs/s against 32/s with
+  the trials (Spark Stormweaver + Mana Tempest, same score, `tests/test_engine_whatif.py`); a
+  10-minute run of that request made 355 evaluations/s against 310/s with the trials (+14%),
+  2.08M against 2.19M DPS (one run each; both ended with the storm at 0% uptime, so the model
+  barely moved the score and the gap is run-to-run noise: `benchmarks/rescore_cost.py`).
+- **Scored on Full DPS, the main group counts in it** (2026-11-07): with extra groups the
+  objective scores Full DPS, and the main skill's group is now flagged for it too. A loaded
+  build's own flags didn't promise that: gate 4's 2b75d reference scored Living Lightning
+  alone (3,538) instead of 340,503, so its earlier ratios (x60) were inflated.
 - **Elemental Archon:** 25% more Elemental spell damage × effect × uptime, and Exhaust All Power's
   crit grants × effect × uptime; uptime = D / (D + R + wait), D = 10 s × duration, R = 20 s /
   recovery speed (0 with Dominion), wait by source (Seething Body 0; Archon of the Storm half the
