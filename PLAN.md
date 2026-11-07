@@ -423,6 +423,39 @@ and every effect is listed in the result with its basis and confidence:
 - **Extra damage sources count during the search:** while a build has spells a meta gem triggers
   or Elemental Expression, their groups are in Full DPS and the objective scores Full DPS.
 
+**Coverage audit (2026-11-06; `builder/ledger/coverage.py`, `python -m builder.ledger.coverage
+[--refresh]`).** PoB's gap list only holds lines its parser admits it ignores, so the audit checks
+every mechanic source itself and gives each line one status: counted by PoB, a ledger entry
+(translated, or recorded as no effect on what's calculated), a custom model or the condition
+resolver, or not counted. Sources: passive and unique lines PoB ignores (gaps.json); every affix,
+rune, Soul Core, Idol and jewel line through PoB's parser; every gem stat against its stat set's
+stat map (PoB's skills tab uses the same test; monster skills left out); and lines PoB parses into
+modifier names no calculation queries (the names PoB's Calc modules and classes pass to Sum, More,
+Flag, Override, List, Max, Tabulate, HasMod, calcLib.mod/val and Item.lua's calcLocal, read from its
+source as text; concatenated names count as wildcards). The PoB side is bridge `auditCoverage`
+(one engine, ~10 s, `coverage.json` in the data dump). What isn't counted is ranked by mechanic
+(damage, defence, speed, recovery, then flavour; behaviour stats such as projectile paths rank as
+flavour), source (keystones, ascendancy passives, notables before small passives; uniques by
+poe.ninja listings), and how many sources share the line.
+
+| Not counted | Before (2026-11-06) | After the first batch |
+|---|---|---|
+| Passive lines PoB ignores | 711 (184 on notables, 99 ascendancy, 21 keystones) | 677 (164 notable, 89 ascendancy, 19 keystone) |
+| Unique lines PoB ignores | 422 | 349 |
+| Affix, rune, jewel lines PoB ignores | not measured | 1,459 of 10,958 (1,071 of them unique-only "exclusive" mods) |
+| Lines PoB parses into nothing a calculation reads | not measured | 159 (51 passive, 18 unique, 90 affix; e.g. increased Presence Area) |
+| Player gem stats PoB never reads or maps to nothing | not measured | 5,572 of 9,309 (522 about damage, 77 speed, 44 defence, 21 recovery; the rest behaviour or display) |
+
+"Before" counts what the ledger translated then; "after" also counts the condition resolver's
+evidence lines (it reads ignored lines too) and unique roll ranges that only fail as range text.
+The first batch: 25 ledger entries (`ledger/entries/coverage-batch1.yaml`, the end of
+`pob-gaps-no-effect.yaml`) and a new ledger kind `gem_stat` (`models.gem_stat_model`): a stat no
+stat map reads becomes modifier lines scaled by its value at the gem's level × an uptime factor,
+for the skill or (a buff) the whole build. Mana Tempest's gain as Lightning alone takes Spark
+from 179 to 305 DPS on the bare test skeleton. Every result's "not modeled" list now also shows
+the build's no-op lines and unread gem stats, with the reason. `tests/test_engine_ledger.py`
+parses every ledger replacement line in PoB.
+
 Not modeled yet: other Archons (Undeath, Nature's; Archon of Chayula is a PoB skill), Seething
 Body's hold at High Infernal Flame, Ritual Cadence, other meta gems, supports for spells a meta gem
 triggers, a meta gem the optimizer picks by itself, and hits per use (Spark's projectiles) for
@@ -546,6 +579,20 @@ they land.
 - Megalomaniac and Against the Darkness versions are budgeted at poe.ninja's single price.
 - "Calibrate rare prices" and "Price unique versions" are user-started jobs; until they've run,
   those prices are rough.
+
+**Mechanics nothing counts (coverage audit, §6; ranked list in `data/pob-*/coverage-report.json`)**
+- Highest open: increased/reduced Presence Area (PoB parses it, nothing reads it; matters for "in
+  your Presence" conditions), Blackflame's Withered stacks, Thorns on melee hit, Safrin's /
+  Eshtera's / Zaida's resistances per equipped item (needs an item-counting model; whether
+  all-resistance mods count is unknown), Ritual Cadence, Resonance, Necromantic Talisman,
+  Elemental Equilibrium, Ancestral Bond, Harmony Within done properly (only while Mana > Life).
+- Gem stats: Ember Fusillade per ember, Toxic Growth / Toxic Domain pustules, plant skills when Wet,
+  hazard damage, Flame Wall / Incinerate Energy, Tornado Shot's copied projectiles (PoB has no
+  copies at all), support-gem stats (gem_stat entries cover active skills only so far).
+- Affix lines aren't corrected in items yet: a ledger entry only labels them (e.g. "increased
+  Archon Buff duration" on rares is read by the Archon model, but the audit can't see it through a
+  roll range). Maximum Elemental Infusions, Glory generation, minion ailment magnitude.
+- Not counted yet: the audit's item (e): skills that calculate 0 on a plain character.
 
 **Ledger and exploits (Phase 4)**
 - The approval queue for proposed ledger entries, the calibration form for in-game numbers, and any
