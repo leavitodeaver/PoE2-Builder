@@ -708,3 +708,21 @@ def test_hollow_form_images_follow_the_power_charges_the_build_makes():
     assert models.hollow_model(skills, {**stats, "PowerChargesMax": 0}, ["Gain a Power Charge every 2 seconds"], strike)[0] == []
     # the Attack outside Hollow Form: nothing
     assert models.hollow_model([models.Skill("Hollow Form", group=1), strike], stats, [], strike) == ([], [])
+
+
+def test_cast_on_charm_use_gains_energy_from_the_charm_charges_spent():
+    """Slice 8 (MECH11): Bijouborne's Cast on Charm Use gains 2 Energy per charm charge used (game files). A charm is
+    used as its generated charges allow, never again while its effect lasts, and never when it waits for a kill."""
+    from builder.search.flasks import Charges, charm_charges_used
+
+    gain = Charges(charm=1.0)
+    charm = {"kind": "Charm", "chargesUsed": 20, "duration": 4.0, "gainBase": 0}
+    # 1 charge/s pays for a use every 20 s (shorter than its 4 s effect): 1 charge spent per second
+    spent, basis = charm_charges_used([(charm, "Rarity: Magic\nThawing Charm\nUsed when you become Frozen")], gain)
+    assert spent == pytest.approx(1.0) and "Thawing Charm" in basis
+    # 10 charges/s would pay for a use every 2 s, but the effect lasts 4 s: one use per 4 s, 5 charges/s
+    assert charm_charges_used([(charm, "Rarity: Magic\nCharm")], Charges(charm=10.0))[0] == pytest.approx(5.0)
+    assert charm_charges_used([(charm, "Rarity: Magic\nGolden Charm\nUsed when you Kill a Rare or Unique Enemy")], gain)[0] == 0
+    energy, basis = models.energy_gain("Cast on Charm Use", {"_charm_charges": 1.5, "_charm_basis": "x"}, "Spark")
+    assert energy == pytest.approx(3.0) and "2 Energy per charge" in basis
+    assert models.energy_gain("Cast on Charm Use", {}, "Spark")[0] == 0.0

@@ -378,7 +378,8 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # (cast_on_block_gain_X_centienergy_on_block 2500), counted at the boss's hits that land and are blocked; Thundergod's
 # Wrath (Mjolner) 3 per Power per melee hit (cast_lightning_spell_on_hit_..._per_monster_power_on_hit 300); Spellslinger
 # (Dueling Wand) 0.2 per 10 ms of the cast spell's base cast time (spellslinger_invocation_gain_X_centienergy_per_10ms_base_cast_time
-# 20). Energy on kills (Reaper's Invocation) and on minion deaths
+# 20); Cast on Charm Use (Bijouborne) 2 per charm charge used (cast_on_using_charm_gain_X_centienergy_per_charm_charge_used_on_using_charm
+# 200), at the charges the equipped charms spend against a boss (flasks.charm_charges_used). Energy on kills (Reaper's Invocation) and on minion deaths
 # counts none on a boss. Barrier Invocation (poe2db): "When Hit by an Enemy, gain 1 Energy for each 10 Energy Shield lost to
 # damage taken" (barrier_invocation_gain_1_energy_per_X_energy_shield_damage_taken_when_hit 10): the boss's hits that land
 # per second x the damage each takes after mitigation (PoB's {Type}TakenHit at its boss preset), up to the Energy Shield
@@ -397,6 +398,7 @@ META_GEMS = {
     "Cast on Block": {"per_level": 3.0, "gain": "block", "per": 25.0},
     "Thundergod's Wrath": {"per_level": 3.0, "gain": "melee hit", "per": 3.0},
     "Spellslinger": {"per_level": 3.0, "gain": "cast", "per": 0.2, "invocation": True},
+    "Cast on Charm Use": {"per_level": 3.0, "gain": "charm", "per": 2.0},
     "Barrier Invocation": {"per_level": 3.0, "gain": "energy shield lost", "per": 0.1, "invocation": True},
     "Cast on Dodge": {"per_level": 3.0, "gain": "dodge", "per": 2.0},
     # Smith of Kitava's Heat of the Forge: the same stats as Thundergod's Wrath (cast_fire_spell_on_hit_gain_X_centienergy_
@@ -430,7 +432,6 @@ DEPRECATED = {name: "removed from the game (the 0.5 game files and poe2db agree;
 NOT_MODELED_YET = {
     "Feral Invocation": "a clone uses its socketed Attacks (Energy cost per 10 ms of base attack time; 1 Energy per 20 Mana "
                         "spent): the Energy model prices triggered Spells only so far",
-    "Cast on Charm Use": "its Energy (2 per charge used) needs the charm uses from the flask model",
 }
 # Meta skills that gain no Energy: what each does, and what the search needs to use it (PLAN.md "Meta gems, all of them").
 # Every Meta gem the game files mark live (data/game-*/live.json) is in exactly one of META_GEMS, NO_ENERGY_ON_A_BOSS,
@@ -938,6 +939,13 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
                                     f"preset; a hit of {hit:,.0f}, at most the {restored:,.0f} that returns between hits: "
                                     f"{regen:,.0f}/s regenerated, {recharge:,.0f}/s recharge after {delay:g} s): "
                                     f"1 Energy per 10 lost")
+    if kind == "charm":
+        spent = number(stats.get("_charm_charges"))
+        if spent <= 0:
+            return 0.0, "no charm is used against a boss (none equipped, or none makes the charges it needs): no Energy"
+        return spent * per, (f"charms spend {spent:.2f} charges per second, each used as soon as its generated charges allow "
+                             f"and not again while its effect lasts (the flask model: {stats.get('_charm_basis', '')}), for "
+                             f"{per:g} Energy per charge (game files)")
     if kind == "melee hit":
         if skill is not None and not skill.melee:
             return 0.0, f"{main} is not a melee attack: no Energy"

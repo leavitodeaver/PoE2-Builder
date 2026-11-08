@@ -46,6 +46,18 @@ REMNANT_CONSUMERS = {"Transmutation Explosion"}
 RESCORE_MODELS = os.environ.get("BUILDER_RESCORE_MODELS") == "1"
 
 
+def charm_stats(build: Build) -> dict:
+    """The charm charges the build's equipped charms spend per second against a boss (flasks.charm_charges_used), for
+    Cast on Charm Use (Bijouborne)."""
+    from builder.search.flasks import CHARM_SLOTS, Charges, charm_charges_used
+
+    gain = Charges.from_bridge(build.call("chargeGain"))
+    raws = [build.equipped[slot].raw for slot in CHARM_SLOTS[:gain.charm_limit] if build.equipped.get(slot) is not None]
+    infos = build.call("flaskData", raws=raws)["results"] if raws else []
+    spent, basis = charm_charges_used(list(zip(infos, raws)), gain)
+    return {"_charm_charges": spent, "_charm_basis": basis}
+
+
 class Assumptions:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -71,6 +83,8 @@ class Assumptions:
         main = next((s for s in found if group and s.group == group["index"] and s.name == name), None)
         main_gems = {g["name"] for g in group["gems"]} if group else set()
         stats = build.call("stats", fields=models.MODEL_FIELDS)
+        if any(s.name == "Cast on Charm Use" for s in found):  # (its Energy: charm charges spent, from the flask model)
+            stats = {**stats, **charm_stats(build)}
         source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
         forbidden = set(build.ctx.request.forbid_ledger_entries)
         inputs = models.read_inputs(source_lines)

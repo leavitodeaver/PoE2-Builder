@@ -700,7 +700,13 @@ they land.
      it), and Hollow Form is a Power Charge consumer at the Attack's speed, so those charges aren't held
      (conditions). Not counted: the Attack's own attack-time modifier (Hollow Form channels at 70% of the weapon's), a
      skill part on the moved Attack (reset), supports added later (the support rounds skip a granted main group). Not
-     yet: a second spell in a granted group, Bijouborne and Forgotten Warden (no model). *(Dueling Wand done, MECH11)*
+     yet: a second spell in a granted group, Forgotten Warden (no model). *(Bijouborne done, MECH11)* Cast on Charm Use
+     gains 2 Energy per charm charge used (game files: cast_on_using_charm_gain_X_centienergy_per_charm_charge_used 200),
+     at the charges the equipped charms spend against a boss (flasks.charm_charges_used: each used as its generated
+     charges allow, not again while its effect lasts, never when it waits for a kill; assumptions.charm_stats). Like the
+     flask model, a charm is assumed used as soon as it can be, whatever its trigger (Frozen, Stunned, ...): its trigger
+     on a boss isn't checked. Bijouborne is tried by the gear round's granted-meta trials (GRANTS_META, now that the
+     meta has a model); no gate build has charms that generate charges, so it brings no spell there yet. *(Dueling Wand done, MECH11)*
      The gear round's granted-meta trials also build a rare on each base whose implicit grants a meta (a Dueling Wand's
      Spellslinger: its bare base scores nothing for the meta, so the rare builder's base ranking never chose it) and
      try it with its group filled (gear.build_rare's base_name). Rares all read "Rare Wand": the trial tells them apart

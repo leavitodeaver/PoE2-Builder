@@ -76,6 +76,25 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
     return min(1.0, rate * duration(info, gain) / used)
 
 
+def charm_charges_used(charms: list[tuple[dict, str]], gain: Charges) -> tuple[float, str]:
+    """Charm charges spent per second against a boss (Cast on Charm Use's Energy): each charm is used as its generated
+    charges allow, never again while its effect lasts (as uptime), and not at all when it waits for a kill. `charms` is
+    [(flaskData info, item text)]."""
+    total, how = 0.0, []
+    for info, raw in charms:
+        used = info.get("chargesUsed") or 0
+        if info.get("kind") != "Charm" or used <= 0 or info.get("constant") or KILL_TRIGGER in raw.lower():
+            continue
+        uses = charges_per_second(info, gain, None) / used
+        length = duration(info, gain)
+        if length > 0:
+            uses = min(uses, 1 / length)
+        total += uses * used
+        name = next((line for line in raw.splitlines()[1:3] if line and ":" not in line), "a charm")
+        how.append(f"{name}: {uses:.3f} uses/s x {used:g} charges")
+    return total, "; ".join(how)
+
+
 def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
     """A Life or Mana flask's recovery per second at the rate its generated charges allow (one use
     at a time: never faster than one per duration)."""

@@ -558,3 +558,21 @@ def test_a_rare_dueling_wand_is_tried_for_its_spellslinger(engine):
     group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Spellslinger")
     assert group["fromItem"] and len([g for g in group["gems"] if not g["support"]]) == 2
     assert search.gems.buttons() == ["Spark", "Spellslinger"]
+
+
+def test_bijouborne_is_tried_and_its_cast_on_charm_use_gets_no_spell_without_charm_uses(engine):
+    """Slice 8 (MECH11): Bijouborne grants Cast on Charm Use, priced from the charm charges the build spends against a
+    boss (flasks.charm_charges_used). On a bare Spark build no charm is equipped: the belt is tried (it stays for its
+    other lines), but no spell goes into its group, as nothing would trigger it."""
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    payload["unique_prices"] = {"Bijouborne": [1.0, 50]}
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    search.gear.granted_meta_trials(float("inf"))
+    assert build.equipped["Belt"].name == "Bijouborne"
+    group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Cast on Charm Use")
+    assert len(group["gems"]) == 1
+    from builder.search.assumptions import charm_stats
+    assert charm_stats(build)["_charm_charges"] == 0
