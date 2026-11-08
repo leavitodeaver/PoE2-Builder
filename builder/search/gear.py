@@ -97,6 +97,7 @@ class Gear:
         self.resolve = None  # re-resolves conditions after a commit (set by the search)
 
     fill_granted = None  # fills an item's granted meta group with a spell (gems.granted_meta_round); set by the search
+    refill_main = None  # refills the main group's supports (gems.refill_main_supports); set by the search
     fit_requirements = None  # re-routes the tree to new gear's attribute requirements (tree.fit_requirements); set by the search
 
     def flask_rate(self, pool: str) -> tuple[float, float]:
@@ -458,6 +459,8 @@ class Gear:
             if slot in build.locked_slots or clock.now() > deadline:
                 continue
             current = build.equipped.get(slot)
+            if current is not None and GRANTS_META.search(current.raw) and self.reverse_meta_trial(slot, deadline):
+                improved, current = True, build.equipped.get(slot)
             options = [o for o in self.candidates(slot) if o.unique]
             # A base whose implicit grants one (a Dueling Wand's Spellslinger): a rare on it, built for the slot. Its
             # bare base scores nothing for the meta, so the rare builder's own base ranking never picks it. A base
@@ -497,6 +500,28 @@ class Gear:
                 build.restore(snap)
                 self.settle()
         return improved
+
+    def reverse_meta_trial(self, slot: str, deadline: float) -> bool:
+        """The reverse of a granted-meta trial: the slot's meta-granting item off for the best plain rare, the tree
+        re-routed to it and the main group's supports refilled (refill_main), kept if the build scores better. A meta
+        group kept early takes supports the main group then lacks (2b75b: a rare Absent Amulet's Cast on Dodge with 4
+        supports, the main group left 2-3), and nothing else asked whether the build does better without it."""
+        build = self.build
+        option = self.build_rare(slot, deadline)
+        if option is None or GRANTS_META.search(option.raw) or clock.now() > deadline:
+            return False
+        snap, before = build.snapshot(), build.score
+        self.put(slot, option)
+        self.settle()
+        if self.fit_requirements is not None:
+            self.fit_requirements(min(deadline, clock.now() + REQUIREMENT_FIT_SECONDS))
+        if self.refill_main is not None:
+            self.refill_main(min(deadline, clock.now() + REQUIREMENT_FIT_SECONDS))
+        if build.score > before + EPSILON:
+            return True
+        build.restore(snap)
+        self.settle()
+        return False
 
     def update_lambda(self) -> None:
         """Raise the budget weight while spending presses on the cap; relax it when there's room."""

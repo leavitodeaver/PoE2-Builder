@@ -79,6 +79,7 @@ class Search:
         self.tree.relevant_skill = self.assumptions.relevant
         self.tree.fill_granted = self.gems.fill_granted
         self.gear.fill_granted = self.gems.granted_meta_round
+        self.gear.refill_main = self.gems.refill_main_supports
         self.gear.fit_requirements = self.tree.fit_requirements
         self.gear.resolve = self.resolve
         self.usage = Usage(self.build, self.conditions, self.gear.flask_rate)

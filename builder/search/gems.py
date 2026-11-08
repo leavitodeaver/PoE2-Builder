@@ -684,6 +684,17 @@ class Gems:
         return [g for g in self.build.groups() if g["fromItem"] and g["enabled"] and g["gems"]
                 and g["gems"][0]["name"] in models.GRANTED_FILLED and any(not x["support"] for x in g["gems"][1:])]
 
+    def refill_main_supports(self, deadline: float, rounds: int = GRANTED_SUPPORT_ROUNDS) -> bool:
+        """A sweep of the main group's supports, then weakest-slot rounds, so an item taken off for the meta it granted
+        (gear.granted_meta_trials' reverse trial) is judged with the main group refilled: 2b75b's main group was left 2-3
+        supports while a rare Absent Amulet's Cast on Dodge held 4 (MECH15)."""
+        improved, sweep = False, True
+        for _ in range(rounds):
+            if clock.now() > deadline or not self.supports_round(full_sweep=sweep):
+                break
+            improved, sweep = True, False
+        return improved
+
     def fill_granted_supports(self, index: int, deadline: float, rounds: int = GRANTED_SUPPORT_ROUNDS) -> bool:
         """A sweep of supports for the granted group `index`, then weakest-slot rounds, so a unique tried for its
         granted meta (gear.granted_meta_trials) is judged with its spell supported."""

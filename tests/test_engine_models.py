@@ -141,6 +141,28 @@ def test_a_build_that_counts_on_cast_on_dodge_loses_its_rolling_time(engine):
     assert any("Time spent dodge rolling" in n["label"] for n in search.assumptions.active)
 
 
+def test_a_triggered_summon_counts_the_minions_alive_not_one_casting_nonstop(engine):
+    """MECH15: Wardbound Minions in Cast on Dodge (2b75b's Absent Amulet) summons a Temporary caster per use, 15 s and at
+    most 6 casts each; PoB counts one caster casting nonstop. The model counts the trigger rate times each one's life."""
+    from builder.search import models
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.set_group(gems=[{"name": "Cast on Dodge", "level": 20, "quality": 0},
+                          {"name": "Wardbound Minions", "level": 20, "quality": 0}], label="meta", fullDPS=True)
+    skill = next(models.Skill.of(s) for s in build.call("activeSkills")["skills"] if s["name"] == "Wardbound Minions")
+    assert skill.minion["duration"] == pytest.approx(15.0) and skill.minion["maxCasts"] == 6
+    assert skill.minion["castTime"] == 1 and skill.minion["limit"] >= 1
+    count, basis = models.minion_count(skill, 0.1)
+    assert count == pytest.approx(0.1 * 6 / skill.minion["speed"]) and "6 casts" in basis
+    search.resolve()
+    note = next(n for n in search.assumptions.active if "minions alive on average" in n["label"])
+    assert 0 < note["value"] < 1  # one roll per 2 s pays for a use every ~10 s: well under PoB's one caster
+
+
 def test_pob_gives_every_input_of_the_recovery_report(engine):
     """Recovery against a boss reads PoB's outputs by name: on a real build the boss's hits land and the build regenerates."""
     from builder.search.objective import RECOVERY_INPUTS, boss_recovery
@@ -472,6 +494,29 @@ def test_a_variant_base_gets_one_variant_per_rare(engine):
     gear.put("Amulet", rare)
     gear.settle()
     assert [g["gems"][0]["name"] for g in search.gems.granted_meta_groups()] == ["Cast on Critical"]
+
+
+def test_the_reverse_meta_trial_takes_a_meta_granting_item_off_when_the_build_does_better(engine):
+    """MECH15: 2b75b kept a rare Absent Amulet's Cast on Dodge and its main group was left 2-3 supports. The reverse trial
+    puts the best plain rare in its place, refills the main group and keeps that if better: on Boneshatter, Cast on Dodge's
+    rolls cost 37.5% of its speed."""
+    from builder.search.context import implicit_variants
+    from builder.search.gear import GRANTS_META
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gear = search.build, search.gear
+    implicit = gear.ctx.bases_by_name["Absent Amulet"]["implicit"]
+    dodge = next(v for v, text in implicit_variants(implicit) if "Cast on Dodge" in text)
+    gear.put("Amulet", gear.build_rare("Amulet", float("inf"), base_name="Absent Amulet", variant=dodge))
+    gear.settle()
+    search.gems.granted_meta_round(float("inf"))
+    assert "Cast on Dodge" in build.equipped["Amulet"].raw
+    before = build.score
+    assert gear.reverse_meta_trial("Amulet", float("inf"))
+    assert not GRANTS_META.search(build.equipped["Amulet"].raw) and build.score > before
 
 
 def test_an_item_granted_meta_gets_a_spell_and_a_unique_granting_one_is_tried(engine):

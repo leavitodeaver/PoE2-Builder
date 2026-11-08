@@ -205,6 +205,7 @@ class Skill:
     wrong_weapon: bool = False  # needs a weapon type in neither hand (PoB disables only Attacks for that)
     corpses: bool = False  # consumes or targets corpses (the game's skill types; corpse_model)
     level: int | None = None  # gem level of a meta skill that gains Energy (gem_energy)
+    minion: dict | None = None  # a triggered skill summoning Temporary minions: their duration, casts, limit (minion_count)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -212,7 +213,7 @@ class Skill:
                    bool(raw.get("melee")), bool(raw.get("triggered")), bool(raw.get("energy")),
                    number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0,
                    dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
-                   bool(raw.get("corpses")), raw.get("level"))
+                   bool(raw.get("corpses")), raw.get("level"), raw.get("minion"))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -1026,6 +1027,29 @@ def energy_rate(meta: str, x: dict, gain: float, cost: float, crits_recently: bo
     return gain * multiplier / spent if spent > 0 else 0.0
 
 
+def minion_count(spell: Skill, rate: float) -> tuple[float, str]:
+    """A triggered spell summoning Temporary minions (Wardbound Minions: "Spend all your Runic Ward to summon Temporary
+    Wardbound Casters", 15 s, at most 6 casts each, game files and PoB's data): PoB counts one minion casting nonstop
+    whatever the trigger rate. The minions alive on average are the rate times each one's life (its duration, or its
+    casts at its cast speed, whichever ends first), up to the skill's limit. One minion per use: the Runic Ward each use
+    spends for more isn't counted (assumed none)."""
+    info = spell.minion or {}
+    duration, casts, limit = number(info.get("duration")), info.get("maxCasts"), info.get("limit") or float("inf")
+    cast_time, speed = number(info.get("castTime")), number(info.get("speed")) or 1.0
+    life, how = duration, f"its {duration:g} s duration"
+    if casts and cast_time > 0 and casts * cast_time / speed < duration:
+        life = casts * cast_time / speed
+        how = (f"its {casts:g} casts at {speed / cast_time:.2f} per second ({cast_time:g} s base cast time, the minion "
+               f"modifiers' cast speed)")
+    if life <= 0:
+        return 1.0, "its minions' life isn't known: PoB's one minion casting nonstop is kept (assumed)"
+    count = min(rate * life, limit)
+    return count, (f"{rate:.3f} uses per second x {life:.2f} s each minion lives ({how})"
+                   + (f", capped at the limit of {limit:g}" if count >= limit else "")
+                   + "; one minion per use (the Runic Ward a use spends for more isn't counted); PoB counts one "
+                     "minion casting nonstop")
+
+
 def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill | None,
                  supports: dict[int, list[str]] | None = None) -> tuple[list, list, set[int]]:
     """Trigger rates for the spells socketed in meta skills that gain Energy, fed by the main skill. Every spell in a meta
@@ -1076,7 +1100,14 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
         keys = tuple(k for k in ENERGY_INPUTS if k != "MetaEnergyCrit" or crits_recently)
         for spell in spells:
             mods += trigger_rate(spell.name, rate)
-            if rate > 0:
+            if rate > 0 and spell.minion is not None:
+                count, basis = minion_count(spell, rate)
+                mods.append(line("Minions deal 1% more Damage", 100 * (count - 1), skill=spell.name))
+                notes.append({"label": f"{spell.name}'s minions alive on average ({meta.name})", "value": round(count, 3),
+                              "basis": basis, "confidence": "theory"})
+                if count < spell.minion.get("limit", float("inf")):  # (below the limit, the count goes with the rate)
+                    mods += more_lines("Minions deal 1% more Damage", relative, x, passive, keys, skill=spell.name)
+            elif rate > 0:
                 mods += more_lines("1% more Damage", relative, x, passive, keys, skill=spell.name)
             if META_GEMS[meta.name].get("less"):
                 mods.append(line("1% more Damage", -META_GEMS[meta.name]["less"], skill=spell.name))

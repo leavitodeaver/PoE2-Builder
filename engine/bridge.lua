@@ -1803,6 +1803,38 @@ function bridge.activeSkills(args)
 			end
 			skills[#skills].levelStats = stats
 		end
+		if activeSkill.minion and types[SkillType.Triggered] then
+			-- a triggered skill that summons Temporary minions (Wardbound Minions in a meta group): PoB counts one minion
+			-- casting nonstop, so what each one lives (models.minion_count) is reported. Only the main skill's minion
+			-- gets a full calculation, so its cast speed is the minion modifiers' (the skill's and yours) over its
+			-- skill's base cast time.
+			local ok, life = pcall(function()
+				local list, cfg = activeSkill.skillModList, activeSkill.skillCfg
+				local minionMods = new("ModList")
+				for _, value in ipairs(list:List(cfg, "MinionModifier")) do
+					minionMods:AddMod(value.mod)
+				end
+				local minionSkill = activeSkill.minion.mainSkill
+				local casts
+				for _, set in ipairs(effect.statSets or { }) do
+					local built = calcLib.buildSkillInstanceStats(activeSkill.activeEffect, effect, set)
+					for stat, value in pairs(built or { }) do
+						if stat:match("maximum_number_of_casts$") and type(value) == "number" then
+							casts = value
+						end
+					end
+				end
+				local base = (activeSkill.skillData.duration or 0) + list:Sum("BASE", cfg, "Duration", "PrimaryDuration")
+				return {
+					duration = base * calcLib.mod(list, cfg, "Duration", "PrimaryDuration"),
+					maxCasts = casts,
+					limit = math.floor(calcLib.val(list, activeSkill.minion.minionData.limit, cfg)),
+					castTime = minionSkill and minionSkill.activeEffect.grantedEffect.castTime or nil,
+					speed = calcLib.mod(minionMods, { flags = ModFlag.Cast }, "Speed"),
+				}
+			end)
+			skills[#skills].minion = ok and life or { failed = true }
+		end
 	end
 	-- the boss's base Armour (PoB's enemy preset), for Armour Break models (Ferocious Roar)
 	local enemyArmour = env and env.enemyDB and env.enemyDB:Sum("BASE", nil, "Armour") or 0
