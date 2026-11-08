@@ -79,6 +79,9 @@ class Assumptions:
                     for g in build.groups()}
         energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports)
         expression_mods, expression_notes, expression_groups = models.expression_model(found, stats, main)
+        levels = {g["name"]: g["level"] for grp in build.groups() for g in grp["gems"] if g.get("level")}
+        totem_mods, totem_notes = models.totem_model(found, stats, [e["text"] for e in source_lines], levels, main)
+        energy_mods, energy_notes = energy_mods + totem_mods, energy_notes + totem_notes
         ward_mods, ward_notes = models.iron_ward_model(
             found, stats, enabled=models.IRON_WARD_ENTRY not in build.ctx.request.forbid_ledger_entries)
         stat_mods, stat_notes = models.gem_stat_model(found, set(build.ctx.request.forbid_ledger_entries), stats)
@@ -96,7 +99,8 @@ class Assumptions:
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.
         # (BUILDER_RESCORE_MODELS=1 puts the trials back, to measure what they cost: benchmarks/rescore_cost.py)
-        build.models_on_stats = bool(stat_notes or harmony_notes or hand_notes or pulse_notes) and RESCORE_MODELS
+        build.models_on_stats = bool(stat_notes or harmony_notes or hand_notes or pulse_notes
+                                     or totem_notes) and RESCORE_MODELS
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]

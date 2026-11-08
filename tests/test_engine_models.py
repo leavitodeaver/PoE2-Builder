@@ -235,3 +235,23 @@ def test_invocations_are_offered_only_while_the_button_cap_has_room(engine):
     assert "Elemental Invocation" not in room.gems.left_out
     room.build.set_group(gems=[{"name": "Elemental Invocation"}, {"name": "Fireball"}], label=META_LABEL, fullDPS=True)
     assert room.gems.buttons() == ["Boneshatter", "Elemental Invocation"]
+
+
+def test_a_spell_totem_without_charges_deals_nothing(engine):
+    """Slice 5: PoB counts one Spell Totem casting the spell at 25% less cast speed whatever charges the build makes. With
+    no charges made, no totem goes up: the model takes its damage away, and the totem round doesn't propose it."""
+    payload = make_payload(BuildRequest(main_skill="Fireball", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    assert build.call("stats", fields=["FullDPS"])["FullDPS"] > 0
+    assert not search.gems.totem_round(float("inf"))
+    assert "Spell Totem" in search.gems.left_out
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
+    build.set_group(index=main["index"], gems=[{"name": "Spell Totem", "level": 20, "quality": 0}, *old])
+    search.resolve()
+    assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(0, abs=1e-6)
+    assert any(n["label"].startswith("Spell Totems up") and n["value"] == 0 for n in search.assumptions.active)
+    assert search.gems.buttons() == ["Spell Totem"]  # you press the totem, not the spell it casts

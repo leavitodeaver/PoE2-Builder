@@ -505,8 +505,48 @@ def test_every_meta_gem_in_the_game_files_is_handled_or_says_why():
     metas = [n for n, e in gems.items() if e["meta"] and (e["status"] in ("live", "live (inferred)", "unresolved")
                                                           or n in models.DEPRECATED)]
     assert len(metas) >= 25
-    tables = (models.META_GEMS, models.NO_ENERGY_ON_A_BOSS, models.NOT_MODELED_YET, models.OTHER_METAS, models.DEPRECATED)
+    tables = (models.META_GEMS, models.NO_ENERGY_ON_A_BOSS, models.NOT_MODELED_YET, models.TOTEM_METAS, models.OTHER_METAS,
+              models.DEPRECATED)
     for name in metas:
         assert sum(name in table for table in tables) == 1, name
         modeled, why = models.meta_handling(name)
         assert modeled or why, name
+
+
+def test_spell_totems_up_follow_the_charges_the_build_makes():
+    """Slice 5: Spell Totem's main spell. 3 charges per totem, 8 s each (+20% per Endurance Charge), 10% more damage per
+    Power Charge, 1/2/3 totems at gem levels 1/14/23 (game files). The totem's hits make no charges (assumed)."""
+    totem = models.Skill("Spell Totem", group=1)
+    fireball = models.Skill("Fireball", group=1, spell=True, cast_time=0.75)
+    skills = [totem, fireball]
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "EnduranceChargesMax": 3}
+    # a Power Charge every 2 s: 0.5/s x 8 s / 3 = 1.33 totems up; 30% more damage
+    mods, notes = models.totem_model(skills, stats, ["Gain a Power Charge every 2 seconds"], {"Spell Totem": 20}, fireball)
+    by_line = {m["line"]: m["scale"] for m in mods}
+    assert by_line["1% more Attack and Cast Speed"] == pytest.approx(33.333, rel=1e-3)
+    assert by_line["1% more Damage"] == pytest.approx(30.0)
+    assert notes[0]["value"] == pytest.approx(1.33)
+    # charges on your hits don't come from the totem's hits: no totem, no damage
+    mods, notes = models.totem_model(skills, stats, ["Gain a Power Charge on Critical Hit"], {"Spell Totem": 20}, fireball)
+    assert [(m["line"], m["scale"]) for m in mods] == [("1% more Damage", -100.0)]
+    # Endurance Charges: longer totems, no damage; gem level 10 allows one
+    mods, _ = models.totem_model(skills, stats, ["Gain an Endurance Charge every second"], {"Spell Totem": 10}, fireball)
+    assert mods == []  # 1 up (8 x 1.6 s x 1/s / 3, capped at 1): what PoB counts
+    mods, _ = models.totem_model(skills, stats, ["Gain an Endurance Charge every second"], {"Spell Totem": 23}, fireball)
+    assert {m["line"]: m["scale"] for m in mods}["1% more Attack and Cast Speed"] == pytest.approx(200.0)
+    assert models.totems_allowed(13) == 1 and models.totems_allowed(14) == 2 and models.totems_allowed(22) == 2
+    # a spell outside a totem: nothing
+    assert models.totem_model([fireball], stats, [], {}, fireball) == ([], [])
+
+
+def test_a_totems_crits_feed_no_meta_energy():
+    totem = models.Skill("Spell Totem", group=1)
+    fireball = models.Skill("Fireball", group=1, spell=True, cast_time=0.75)
+    meta = models.Skill("Cast on Critical", group=2, energy=True)
+    comet = models.Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.0)
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50}
+    inputs = models.read_inputs([])
+    mods, notes, groups = models.energy_model(inputs, stats, [totem, fireball, meta, comet], fireball)
+    assert not groups and "cast by a totem" in notes[0]["basis"]
+    _, _, groups = models.energy_model(inputs, stats, [fireball, meta, comet], fireball)
+    assert groups == {2}

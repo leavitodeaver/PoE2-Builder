@@ -144,8 +144,12 @@ class Gems:
             candidates = [c for c in shortlist if c in set(candidates)]
         left = self.budget_left()
 
-        # (a meta gem's spells take its sockets too: assumed, the cautious reading; see META_SPELLS_MAX)
-        used = len(names) - 1 if meta else len(supports)
+        # (a meta gem's spells take its sockets too: assumed, the cautious reading; see META_SPELLS_MAX. So does the main
+        # spell in a totem meta)
+        from builder.search.models import TOTEM_METAS
+
+        totem = any(n in TOTEM_METAS for n in names)
+        used = len(names) - 1 if meta or totem else len(supports)
         slots: list[int] = []
         if used < SUPPORT_SLOTS:
             slots.append(len(names) + 1)  # append into an empty socket
@@ -642,8 +646,8 @@ class Gems:
         room = cap is None or len(self.buttons()) < cap
         names = []
         for name, gem in self.ctx.gems.items():
-            if "Meta" not in gem["skillTypes"] or not self.ctx.allowed_gem(name):
-                continue
+            if "Meta" not in gem["skillTypes"] or not self.ctx.allowed_gem(name) or name in models.TOTEM_METAS:
+                continue  # (a totem meta is the totem round's)
             modeled, why = models.meta_handling(name)
             if not modeled:
                 self.left_out[name] = why
@@ -653,6 +657,62 @@ class Gems:
                 self.left_out.pop(name, None)
                 names.append(name)
         return names
+
+    def totem_round(self, deadline: float) -> bool:
+        """Socket the main spell in a totem meta (models.TOTEM_METAS: Spell Totem) and keep it if the build scores better,
+        with models.totem_model pricing how many totems its charges keep up. You press the totem instead of the spell, so
+        the buttons don't change. The totem's sockets hold the spell and its supports (assumed, as for every meta gem): the
+        weakest support goes when all are taken."""
+        import time
+
+        from builder.search import models
+
+        build = self.build
+        group = build.main_group()
+        if group is None or group["fromItem"] or time.perf_counter() > deadline:
+            return False
+        names = [g["name"] for g in group["gems"]]
+        if any(n in models.TOTEM_METAS for n in names):
+            return False
+        active = [g["name"] for g in group["gems"] if not g["support"]]
+        if len(active) != 1 or active[0] not in self.ctx.gems:
+            return False
+        types = set(self.ctx.gems[active[0]]["skillTypes"])
+        left, usage = self.budget_left(), self.usage_stats()
+        before = build.score
+        old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in group["gems"]]
+        improved = False
+        for totem in models.TOTEM_METAS:
+            if totem not in self.ctx.gems or not self.ctx.allowed_gem(totem):
+                continue
+            # (Spell Totem's support part in the game data: a Totemable Spell, not a Cooldown, Triggered, Persistent, Meta or
+            # conditional skill)
+            if not {"Spell", "Totemable"} <= types or types & {"Cooldown", "Triggered", "Persistent", "Meta", "HasUsageCondition"}:
+                self.left_out[totem] = f"{active[0]} isn't a Spell a totem can use (Totemable, no Cooldown)"
+                continue
+            level = self.usable_level(totem)
+            if level is None or not self._offered(totem, left, usage):
+                self.left_out[totem] = ("not usable: it needs the build to make Power or Endurance Charges (3 per totem), "
+                                        "or it isn't affordable or its attributes aren't met")
+                continue
+            gems = [dict(g) for g in old]
+            supports = [i for i, g in enumerate(group["gems"]) if g["support"] and g["name"] not in self.required_supports]
+            if len(old) - 1 >= SUPPORT_SLOTS and supports:
+                weakest = self.weakest_slot(group["index"], [i + 1 for i in supports])
+                del gems[weakest - 1]
+            build.set_group(index=group["index"], gems=[{"name": totem, "level": level, "quality": GEM_QUALITY}, *gems])
+            if self.resolve is not None:
+                self.resolve()
+            if build.score > before + EPSILON:
+                self.left_out.pop(totem, None)
+                self.shortlist = None  # (the spell is the totem's now: its supports get a full sweep)
+                improved = True
+                break
+            self.left_out[totem] = f"tried with {active[0]}: the build scored no better with it"
+            build.set_group(index=group["index"], gems=old)
+            if self.resolve is not None:
+                self.resolve()
+        return improved
 
     def buttons(self) -> list[str]:
         """The skills the build makes the player press (constraints.player_buttons' rule on the current groups): not

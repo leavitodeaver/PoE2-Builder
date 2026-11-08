@@ -30,6 +30,9 @@ NOT_A_BUTTON = {"Persistent", "Meta", "Triggered", "InbuiltTrigger"}
 # ... except Invocations: meta skills you press to release the Energy they stored ("Using the
 # Invocation once sufficient Energy is gathered will consume the Energy to trigger socketed Spells")
 PRESSED_META = "Invocation"
+# ... and totems: you raise a totem meta (Spell Totem, Ancestral Warrior Totem, Mortar Cannon) by pressing it, and the
+# totem uses the skills socketed in it
+PRESSED_TOTEM = "SummonsTotem"
 # ... and persistent buffs you press to release what they stored ("Using this Skill releases the
 # stored damage as a nova of spikes"): their buff reserves Spirit, their use is a button
 PRESSED_PERSISTENT = {"Iron Ward", "Plague Bearer", "Savage Fury"}
@@ -113,7 +116,7 @@ def presses(gem: dict) -> bool:
     persistent buffs released by using them are; other persistent, meta and triggered skills and
     supports aren't."""
     types = set(gem["skillTypes"])
-    return not gem["support"] and (PRESSED_META in types or gem["name"] in PRESSED_PERSISTENT
+    return not gem["support"] and (PRESSED_META in types or PRESSED_TOTEM in types or gem["name"] in PRESSED_PERSISTENT
                                    or not types & NOT_A_BUTTON)
 
 

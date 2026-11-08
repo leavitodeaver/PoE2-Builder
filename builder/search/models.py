@@ -40,6 +40,8 @@ MODEL_FIELDS = sorted({
     # Iron Ward: the boss's physical hits and how much of them the build prevents
     "PhysicalEnemyDamage", "PhysicalDamageReduction", "PhysicalDamageReductionMax", "BasePhysicalDamageReductionWhenHit",
     "Armour", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
+    # Spell Totem: how long PoB says a totem lasts, and the charges it can be raised with
+    "TotemDuration", "PowerChargesMax", "EnduranceChargesMax",
     # Harmony Within: unreserved Mana against Life
     "ManaUnreserved", "Life",
     # buff uptimes from the mechanic: Mana Tempest's Mana, Lunar Blessing's Rage
@@ -416,7 +418,6 @@ OTHER_METAS = {
     "Blasphemy": "turns socketed Curses into Auras (60 Spirit per Curse): a Spirit choice, not a trigger",
     "Pounce": "a Werewolf slam that triggers a socketed Mark on the highest-rarity enemy hit",
     "Ferocious Roar": "a Bear Warcry that gains Rage per enemy Power and empowers socketed skills",
-    "Spell Totem": "a totem that casts socketed Spells, consuming 3 Power and/or Endurance Charges",
     "Ancestral Warrior Totem": "a totem whose spirit warriors use socketed Attacks, consuming 3 Endurance Charges",
     "Mortar Cannon": "a Ballista Totem that uses socketed Grenade skills",
     "Hand of Chayula": "a Strike that triggers socketed Marks with increased effect",
@@ -429,12 +430,85 @@ OTHER_METAS = {
 }
 
 
+# Totem metas: the main skill goes into the totem (the search's totem round, gems.Gems.totem_round), and a model prices
+# what PoB doesn't (totem_model). Not an Energy trigger, so meta_handling leaves them to that round.
+TOTEM_METAS = {
+    "Spell Totem": "a totem that casts the main Spell, consuming 3 Power and/or Endurance Charges",
+}
+# Spell Totem in the game files (build 26476662, GrantedEffectStatSets SummonMetaTotemSpellTotemPlayer and its per-level
+# rows): a totem lasts 8 s (base_totem_duration 8000), 20% longer (final) per Endurance Charge consumed; its spells deal 10%
+# more damage (final) per Power Charge consumed; 3 charges per totem; base_number_of_totems_allowed 1 at gem levels 1-13,
+# 2 at 14-22, 3 from 23. PoB calculates one totem casting the spell at 25% less cast speed (the gem's support part), fixes
+# the limit at 2, and reads neither the charges nor how many totems are up.
+SPELL_TOTEM_CHARGES = 3
+SPELL_TOTEM_DURATION = 8.0
+SPELL_TOTEM_DURATION_PER_ENDURANCE = 0.20
+SPELL_TOTEM_DAMAGE_PER_POWER = 10.0
+SPELL_TOTEMS_ALLOWED = ((23, 3), (14, 2), (1, 1))  # (from gem level, totems)
+
+
+def totems_allowed(level: int) -> int:
+    return next(n for at, n in SPELL_TOTEMS_ALLOWED if level >= at)
+
+
+def cast_by_totem(skills: list[Skill], skill: Skill | None) -> bool:
+    """The skill is socketed in a totem meta (its group has one): the totem uses it, not you."""
+    return skill is not None and any(s.name in TOTEM_METAS and s.group == skill.group for s in skills)
+
+
+def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict[str, int],
+                main: Skill | None) -> tuple[list[dict], list[dict]]:
+    """Spell Totem with the main spell socketed: how many totems are up, from the Power and Endurance Charges the build
+    makes (3 per totem), and the damage its Power Charges add. PoB's DPS is one totem's."""
+    from builder.search.conditions import _charge_rate
+
+    if not cast_by_totem(skills, main) or not main.spell:
+        return [], []
+    # The totem's hits aren't yours (assumed, the cautious reading): charges made on your hits, crits or kills don't
+    # count, only those made on a timer, on blocking or on being hit.
+    yours = dict(stats, Speed=0.0)
+    rates = {}
+    for kind in ("Power", "Endurance"):
+        found = [r for r in (_charge_rate(t, kind, yours) for t in texts) if r is not None]
+        rates[kind] = sum(r[0] for r in found) if number(stats.get(f"{kind}ChargesMax")) > 0 else 0.0
+    made = rates["Power"] + rates["Endurance"]
+    power = rates["Power"] / made if made else 0.0  # (the charges are spent as they're made: their mix is the build's)
+    level = levels.get("Spell Totem", 20)
+    allowed = totems_allowed(level)
+    duration = (number(stats.get("TotemDuration")) or SPELL_TOTEM_DURATION) * (
+        1 +SPELL_TOTEM_DURATION_PER_ENDURANCE * SPELL_TOTEM_CHARGES * (1 - power))
+    up = min(float(allowed), made * duration / SPELL_TOTEM_CHARGES)
+    more = SPELL_TOTEM_DAMAGE_PER_POWER * SPELL_TOTEM_CHARGES * power
+    mods: list[dict] = []
+    if up <= 0:
+        mods.append(line("1% more Damage", -100.0, skill=main.name))
+    else:
+        if abs(up - 1) > 1e-9:
+            mods.append(line("1% more Attack and Cast Speed", 100 * (up - 1), skill=main.name))
+        if more:
+            mods.append(line("1% more Damage", more, skill=main.name))
+    basis = (f"{rates['Power']:.2f} Power and {rates['Endurance']:.2f} Endurance Charges made per second by what isn't "
+             f"{main.name}'s hits (the totem's hits aren't yours: assumed); {SPELL_TOTEM_CHARGES} per totem, which lasts "
+             f"{duration:.1f} s ({SPELL_TOTEM_DURATION_PER_ENDURANCE:.0%} longer per Endurance Charge consumed); "
+             f"{allowed} totems allowed at gem level {level} (game files; PoB fixes 2): {up:.2f} up on average, and PoB "
+             "counts one")
+    notes = [{"label": f"Spell Totems up on average ({main.name})", "value": round(up, 2), "basis": basis
+              + ("; no charges made, so no totem: no damage" if up <= 0 else "")
+              + (f"; {more:.0f}% more damage from the Power Charges consumed ({SPELL_TOTEM_DAMAGE_PER_POWER:g}% each, "
+                 "which PoB doesn't read)" if more and up > 0 else "")
+              + "; ignites don't add up across totems (only the strongest deals damage), so the extra totems count as "
+                "cast speed; raising a totem (0.5 s) isn't counted against your time",
+              "confidence": "theory"}]
+    return mods, notes
+
+
 def meta_handling(name: str) -> tuple[bool, str]:
     """(the Energy model triggers it, why not otherwise) for a Meta gem."""
     if name in META_GEMS:
         return True, ""
     for table, why in ((NO_ENERGY_ON_A_BOSS, "it gains Energy on {}: none on a single boss"),
-                       (NOT_MODELED_YET, "not modeled yet: {}"), (OTHER_METAS, "not a trigger the search sets up yet: {}"),
+                       (NOT_MODELED_YET, "not modeled yet: {}"), (TOTEM_METAS, "the totem round's, not a trigger: {}"),
+                       (OTHER_METAS, "not a trigger the search sets up yet: {}"),
                        (DEPRECATED, "{}")):
         if name in table:
             return False, why.format(table[name])
@@ -554,6 +628,8 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
             continue
         cost = sum(100 * (s.cast_time or 0.0) for s in spells)
         gain, gain_basis = energy_gain(meta.name, stats, main.name, main)
+        if cast_by_totem(skills, main) and META_GEMS[meta.name]["gain"] in ("crit", "ailment", "melee hit", "cast"):
+            gain, gain_basis = 0.0, f"{main.name} is cast by a totem, and the totem's hits and casts aren't yours (assumed)"
         x = dict(x0)
         own = [n for n in (supports or {}).get(meta.group, []) if n in META_SUPPORTS]
         for name in own:

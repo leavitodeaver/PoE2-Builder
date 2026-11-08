@@ -624,8 +624,15 @@ they land.
      nothing on a boss; they stay labelled.
      Barrier Invocation's Energy now counts only the Energy Shield that returns between landed hits (regeneration,
      recharge after the delay): it used to count a full hit every time, so a bare 40 ES Titan kept it.
-  5. Totems: Spell Totem (consumes 3 Power or Endurance Charges: the charge model), Ancestral Warrior Totem (3
-     Endurance Charges), Mortar Cannon (Grenade skills); what PoB counts for a totem's socketed skill, checked first.
+  5. Totems. *(done for Spell Totem)* PoB counts one totem casting the spell at 25% less cast speed, fixes the limit
+     at 2 and reads none of the charges. Step "totems" sockets the main spell in Spell Totem (a Totemable Spell, no
+     Cooldown) and keeps it if the build scores better; `models.totem_model` prices it from the game files: 3 charges
+     per totem, 8 s (+20% per Endurance Charge), 10% more damage per Power Charge, 1/2/3 totems at gem levels 1/14/23.
+     Totems up = charges made per second x duration / 3, capped at the limit; the extra totems count as cast speed (an
+     ignite doesn't add up across totems). The totem's hits and casts are not yours (assumed): they make no charges and
+     feed no meta's Energy. Totem metas count as buttons. Still open: Ancestral Warrior Totem (Attacks, 3 Endurance
+     Charges; needs attacks priced, as Feral Invocation) and Mortar Cannon (Grenade skills). Conditions the resolver
+     turns on from the main skill's hits (crit recently, etc.) still read the totem's hits as yours.
   6. Marks and strikes: Pounce (Werewolf slam), Hand of Chayula and Called Shots trigger socketed Marks.
   7. Blasphemy in the Spirit round (curses as auras, 60 Spirit each); Mirage Archer and Mirage Deadeye (mirages, at
      the dodge-roll rate of slice 1); Ferocious Roar (Bear warcry, Rage) with the shapeshift skills.
