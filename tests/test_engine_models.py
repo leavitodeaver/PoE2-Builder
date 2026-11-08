@@ -138,3 +138,17 @@ def test_a_build_that_counts_on_cast_on_dodge_loses_its_rolling_time(engine):
     after = build.call("stats", fields=["Speed"])["Speed"]
     assert after == pytest.approx(before * 0.625, rel=0.02)
     assert any("Time spent dodge rolling" in n["label"] for n in search.assumptions.active)
+
+
+def test_pob_gives_every_input_of_the_recovery_report(engine):
+    """Recovery against a boss reads PoB's outputs by name: on a real build the boss's hits land and the build regenerates."""
+    from builder.search.objective import RECOVERY_INPUTS, boss_recovery
+
+    search = spark_with(engine, [])
+    build = search.build
+    amulet = "\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                        "Regenerate 100 Life per second"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    stats = build.call("stats", fields=RECOVERY_INPUTS)
+    r = boss_recovery(stats)
+    assert r["incoming"] > 0 and r["parts"]["Life"] >= 100 * 0.99

@@ -676,3 +676,26 @@ def test_a_search_that_ends_short_goes_back_to_the_best_feasible_build_it_saw():
     search.build.stats = {"ColdResist": 80, "dps": 500_000}
     Search.keep_feasible(search)  # a feasible ending stays as it is, even below the best feasible one's damage
     assert search.build.stats["dps"] == 500_000
+
+
+def test_recovery_against_a_boss():
+    """The optional recovery floor (the user's choice, 7 Nov): sustained recovery, less skill costs, as a share of the
+    boss's damage per second after mitigation; Mana only for the damage Mind over Matter sends to it."""
+    from builder.search.objective import boss_recovery, with_boss_recovery
+
+    stats = {"enemySkillTime": 0.5, "EvadeChance": 50, "EffectiveBlockChance": 0,  # 1 hit lands per second
+             "PhysicalTakenHit": 800, "FireTakenHit": 200, "PhysicalLifeRecoup": 10,
+             "LifeRegenRecovery": 150, "LifeLeechRate": 100, "LifePerSecondCost": 50, "FlaskLifeRecoveryRate": 20,
+             "EnergyShieldRegenRecovery": 30, "ManaRegenRecovery": 500, "ManaPerSecondCost": 100, "sharedMindOverMatter": 20}
+    r = boss_recovery(stats)
+    assert r["incoming"] == pytest.approx(1000)
+    assert r["parts"]["Life"] == pytest.approx(150 + 100 + 20 + 80 - 50)  # recoup: 10% of 800 physical per second
+    assert r["parts"]["Mana"] == pytest.approx(200)  # 400 net, but MoM sends only 20% of 1,000 to Mana
+    assert r["share"] == pytest.approx((300 + 30 + 200) / 1000)
+    assert with_boss_recovery(dict(stats))["BossRecoveryPercent"] == pytest.approx(53.0)
+    assert with_boss_recovery({})["BossRecoveryPercent"] == 1000.0  # no landing hits: nothing to recover from
+    # the request: off by default, a floor when set
+    assert context().compiled.penalties and not any(p.stat == "BossRecoveryPercent" for p in context().compiled.penalties)
+    ctx = context(floors={"recovery": 60})
+    penalty = next(p for p in ctx.compiled.penalties if p.stat == "BossRecoveryPercent")
+    assert penalty.deficit({"BossRecoveryPercent": 53.0}) == pytest.approx(7 / 60)

@@ -95,7 +95,9 @@
           <label>Min block % <input id="floor-block" type="number" min="0" max="100" placeholder="None"></label>
           <label>Min evade % <input id="floor-evade" type="number" min="0" max="100" placeholder="None"></label>
           <label>Spare spirit <input id="floor-spare_spirit" type="number" min="0" placeholder="None"></label>
+          <label title="Optional, off when empty. The share of a boss's damage per second (after armour, evasion, block and resistances; PoB's boss preset) that the build gets back by recovery it can keep up in the fight: Life, Energy Shield and Mana regeneration, leech, recovery on hit, flasks at the rate a boss fight refills them, and recoup, minus what its skills cost. Mana counts only for damage Mind over Matter sends to Mana; Energy Shield recharge doesn't count. 100% means it heals as fast as the boss hurts it. Every result reports this number, required or not.">Min recovery % of boss damage <input id="floor-recovery" type="number" min="0" max="1000" placeholder="None"></label>
         </div>
+        <p class="hint">Recovery %: the share of the boss's damage per second, after mitigation, that sustained regeneration, leech, recovery on hit, flasks and recoup give back (minus skill costs). Off when empty; always reported in results.</p>
         <div class="subgrid">
           <div>
             <h4>Min resistances</h4>

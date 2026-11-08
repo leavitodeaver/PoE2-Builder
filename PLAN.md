@@ -138,7 +138,11 @@ One JSON request schema (`builder/request/schema.py`), saved per request, editab
 - **Weapons:** type or specific unique, handedness, offhand, weapon-swap policy (must/may/never).
 - **Defence:** style (Armour, Evasion, ES, hybrids, CI, MoM, etc.). Numeric floors for: life, ES,
   EHP, max hit per damage type, each resistance including chaos, block/evade/suppression, spare
-  Spirit. Every floor is optional and none is silently overridden.
+  Spirit, and (7 Nov 2026, the user's choice) recovery against a boss: sustained regeneration, leech,
+  on-hit recovery, flasks and recoup, less skill costs, as a % of the boss's damage per second after
+  mitigation (`objective.boss_recovery`; Mana only for damage Mind over Matter sends to it, Energy
+  Shield recharge not counted). It's reported in every result, required or not. Every floor is
+  optional and none is silently overridden.
 - **Budget:** divine cap plus gear tier (League start / Mid / Endgame / Mirror). The tier caps
   affix tiers, the number of premium affixes per rare, unique price, and whether corruption,
   desecration or omens are allowed. SSF mode ignores prices and uses the tier only.

@@ -63,6 +63,50 @@ SUSTAIN_POOLS = {
     "Mana": ("ManaPerSecondCost", ("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", RECOVERY_FIELDS["Mana"])),
     "Life": ("LifePerSecondCost", ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", RECOVERY_FIELDS["Life"])),
 }
+# Recovery against a boss (the request's optional recovery floor; always reported): the boss's damage per second after
+# mitigation is its hits that land (one every enemySkillTime, PoB's boss preset, less evade and block) times what each
+# takes after mitigation ({Type}TakenHit); recovery is each pool's regeneration, leech, on-hit recovery, flask recovery
+# (at the rate a boss fight refills them) and recoup (its % of the damage that pool's recoup takes back, per damage
+# type), less the skill costs paid from that pool. Mana counts only up to the share of damage Mind over Matter sends to
+# it. Energy Shield recharge isn't counted (a boss's hits keep interrupting it).
+RECOVERY_POOLS = {
+    "Life": (("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", RECOVERY_FIELDS["Life"]), "LifePerSecondCost"),
+    "EnergyShield": (("EnergyShieldRegenRecovery", "EnergyShieldLeechRate", "EnergyShieldOnHitRate"), None),
+    "Mana": (("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", RECOVERY_FIELDS["Mana"]), "ManaPerSecondCost"),
+}
+RECOVERY_DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
+RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in (*fields, cost) if f}
+                         - set(RECOVERY_FIELDS.values())
+                         | {f"{t}TakenHit" for t in RECOVERY_DAMAGE_TYPES}
+                         | {f"{t}{p}Recoup" for t in RECOVERY_DAMAGE_TYPES for p in RECOVERY_POOLS}
+                         | {"enemySkillTime", "EvadeChance", "EffectiveBlockChance", "sharedMindOverMatter"})
+
+
+def boss_recovery(stats: dict) -> dict:
+    """Recovery per second against a boss, the boss's damage per second after mitigation, and the share recovered."""
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)
+    hits = land / every
+    taken = {t: max(number(stats.get(f"{t}TakenHit")), 0.0) * hits for t in RECOVERY_DAMAGE_TYPES}
+    incoming = sum(taken.values())
+    parts = {}
+    for pool, (fields, cost) in RECOVERY_POOLS.items():
+        recoup = sum(taken[t] * number(stats.get(f"{t}{pool}Recoup")) / 100 for t in RECOVERY_DAMAGE_TYPES)
+        net = max(sum(number(stats.get(f)) for f in fields) + recoup - (number(stats.get(cost)) if cost else 0.0), 0.0)
+        if pool == "Mana":
+            net = min(net, incoming * min(number(stats.get("sharedMindOverMatter")), 100) / 100)
+        parts[pool] = net
+    recovery = sum(parts.values())
+    share = recovery / incoming if incoming > 0 else float("inf")
+    return {"recovery": recovery, "incoming": incoming, "share": share, "parts": parts, "hits": hits}
+
+
+def with_boss_recovery(stats: dict) -> dict:
+    """BossRecoveryPercent: the recovery floor's stat (capped at 1000%, also when the boss's hits never land)."""
+    stats["BossRecoveryPercent"] = min(boss_recovery(stats)["share"] * 100, 1000.0)
+    return stats
+
+
 # What PoB is asked for (the flask fields are the search's own, added by Build.extra_stats)
 SUSTAIN_FIELDS = sorted({f for cost, recovery in SUSTAIN_POOLS.values() for f in (cost, *recovery)}
                         - set(RECOVERY_FIELDS.values()))
@@ -166,7 +210,9 @@ class Objective:
         self.goal = Goal(goal or ctx.request.objective)
         # Clear fields in every mode, so a boss result can still show its clear estimate
         fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS)
-        self._fields = sorted(fields | {p.stat for p in self.penalties})
+        if any(p.stat == "BossRecoveryPercent" for p in self.penalties):
+            fields |= set(RECOVERY_INPUTS)
+        self._fields = sorted(fields | {p.stat for p in self.penalties} - {"BossRecoveryPercent"})
         self.on_death = {name for name, gem in ctx.gems.items() if ON_DEATH.search(gem.get("description") or "")}
 
     @property
@@ -179,8 +225,8 @@ class Objective:
 
     @staticmethod
     def prepare(stats: dict) -> dict:
-        """Corrections to PoB's stats that every score and check sees (Darkness in max hit)."""
-        return with_darkness(stats)
+        """Corrections to PoB's stats that every score and check sees (Darkness in max hit, recovery against a boss)."""
+        return with_boss_recovery(with_darkness(stats))
 
     def dps(self, stats: dict) -> float:
         """Single-target boss DPS."""

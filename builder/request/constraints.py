@@ -354,6 +354,7 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
         ("Mana", "Mana", floors.mana), ("Runic ward", "Ward", floors.ward),
         ("Block chance", "EffectiveBlockChance", floors.block),
         ("Evade chance", "EvadeChance", floors.evade), ("Spare spirit", "SpiritUnreserved", floors.spare_spirit),
+        ("Recovery vs boss damage %", "BossRecoveryPercent", floors.recovery),
     ):
         if floor is not None:
             penalties.append(Penalty(label, stat_name, floor))

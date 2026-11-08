@@ -96,6 +96,10 @@ class Floors(Model):
     block: int | None = Field(None, ge=0, le=100)
     evade: int | None = Field(None, ge=0, le=100)
     spare_spirit: int | None = Field(None, ge=0)
+    # Optional (off by default): recovery against a boss, as a % of the boss's damage per second after mitigation that
+    # the build's sustained recovery (Life, Energy Shield and Mana regeneration, leech, on-hit recovery, flasks at the
+    # rate a boss fight refills them, and recoup, less what skill costs use) gives back (objective.boss_recovery)
+    recovery: int | None = Field(None, ge=0, le=1000)
 
 
 class Budget(Model):

@@ -25,10 +25,21 @@ from builder.report.checklist import checklist
 from builder.report.shopping import shopping_list
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
-from builder.search.objective import PACK_SIZE, SUSTAIN_FLOOR, goal_value, rank_key, shortfall, sustain
+from builder.search.objective import PACK_SIZE, SUSTAIN_FLOOR, boss_recovery, goal_value, rank_key, shortfall, sustain
 from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skeletons, weapon_archetypes
 
 FINALIZE_SHARE = 0.12
+RECOVERY_NOTE = ("Life, Energy Shield and Mana regeneration, leech, on-hit recovery, flasks (at the rate a boss fight refills "
+                 "them) and recoup, less skill costs, against the boss's damage per second after mitigation (PoB's boss "
+                 "preset: its hits that land, after evade and block). Mana counts only for damage Mind over Matter sends to "
+                 "it; Energy Shield recharge isn't counted (the boss's hits keep interrupting it)")
+
+
+def recovery_text(recovery: dict) -> str:
+    if recovery["incoming"] <= 0:
+        return "the boss's hits never land"
+    parts = ", ".join(f"{pool} {value:,.0f}/s" for pool, value in recovery["parts"].items() if value > 0) or "none"
+    return f"{min(recovery['share'], 9.99):.0%} ({recovery['recovery']:,.0f}/s of {recovery['incoming']:,.0f}/s; {parts})"
 FINALIZE_MAX = 60.0
 MIN_PROBE = 15.0
 MAX_PROBE = 60.0
@@ -378,6 +389,14 @@ class Run:
                        + (f" of {pool}" if pool else ""), "ok": share >= SUSTAIN_FLOOR,
                        "note": "regeneration, leech, on-hit recovery and flasks (at the rate charge generation "
                                "refills them in a boss fight) against the per-second cost"})
+        if self.request.floors.recovery is None:  # always reported; a requirement only when the request sets one
+            recovery = boss_recovery(facts["stats"])
+            checks.append({"label": "Recovery vs boss damage %", "requested": "not required",
+                           "delivered": recovery_text(recovery), "ok": None, "note": RECOVERY_NOTE})
+        else:
+            for check in checks:
+                if check["label"] == "Recovery vs boss damage %":
+                    check.update(delivered=recovery_text(boss_recovery(facts["stats"])), note=RECOVERY_NOTE)
         failing = [c for c in checks if c["ok"] is False]
         reasons = [f"{c['label']}: requested {c['requested']}, delivered {c['delivered']}" for c in failing]
         reasons += final.get("problems") or []

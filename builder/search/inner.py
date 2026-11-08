@@ -26,7 +26,9 @@ from builder.search.gear import Gear, SlotSpec, extra_ring_passive
 from builder.search.gems import Gems
 from builder.search.jewels import Jewels
 from builder.search.models import MODEL_FIELDS
-from builder.search.objective import CLEAR_FIELDS, DARKNESS_FIELDS, SUSTAIN_FIELDS, Objective, main_dps, shortfall
+from builder.search.objective import (
+    CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, shortfall, with_boss_recovery,
+)
 from builder.search.skeletons import Skeleton, is_button, offhand_types, seed_skeleton, swap_skills
 from builder.search.sources import Sources
 from builder.search.state import EPSILON, Build
@@ -35,7 +37,8 @@ from builder.search.usage import Usage
 
 KICK_TREE_POINTS = (6, 16)
 SWEEP_EVERY = 3
-RESULT_FIELDS = sorted(set(FACT_FIELDS) | set(SUSTAIN_FIELDS) | set(MODEL_FIELDS) | set(DARKNESS_FIELDS) | set(CLEAR_FIELDS) | {
+RESULT_FIELDS = sorted(set(FACT_FIELDS) | set(SUSTAIN_FIELDS) | set(MODEL_FIELDS) | set(DARKNESS_FIELDS) | set(CLEAR_FIELDS)
+                       | set(RECOVERY_INPUTS) | {
     "TotalDPS", "TotalDotDPS", "Spirit", "TotalEHP", "Speed", "CritChance", "HitChance",
 })
 
@@ -662,6 +665,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     mismatched = [k for k in RESULT_FIELDS if facts["stats"].get(k) != reloaded["stats"].get(k)]
     facts["warnings"] = list(dict.fromkeys([*facts["warnings"], *reloaded["warnings"], *plain]))
     facts["stats"].update(build.extra_stats)  # flask recovery, for the sustain check
+    with_boss_recovery(facts["stats"])  # recovery against the boss, for the (optional) recovery floor and the report
     build.objective.prepare(facts["stats"])  # what the checks see: Darkness in maximum hit taken
     excluded, excluded_names = build.objective.excluded(build.stats)
     blind_spots = build.call("unsupportedInBuild")["lines"]
