@@ -32,10 +32,11 @@ from builder.search.rares import (
     socket_count, with_runes,
 )
 from builder.search.state import EPSILON, Build
-from builder.search.models import META_GEMS
+from builder.search.models import GRANTED_FILLED
 
-# A unique's line granting a meta skill with an Energy model (Mjolner: "Grants Skill: Level (1-20) Thundergod's Wrath")
-GRANTS_META = re.compile(r"Grants Skill: (?:Level \S+ )?(?:%s)\s*$" % "|".join(re.escape(n) for n in META_GEMS), re.M)
+# A unique's line granting a meta skill with an Energy model (Mjolner: "Grants Skill: Level (1-20) Thundergod's Wrath"),
+# or Forgotten Warden's Spirit Vessel
+GRANTS_META = re.compile(r"Grants Skill: (?:Level \S+ )?(?:%s)\s*$" % "|".join(re.escape(n) for n in GRANTED_FILLED), re.M)
 
 BASES_PER_SUBTYPE = 3  # normal armour/jewellery bases kept per sub-type, highest level first
 SHORTLIST = 6  # options per slot rescored between full rounds
@@ -438,7 +439,8 @@ class Gear:
         return improved
 
     def granted_meta_trials(self, deadline: float) -> bool:
-        """Slice 8: a unique granting a meta skill (GRANTS_META: Mjolner's Thundergod's Wrath, Svalinn's Cast on Block), or
+        """Slice 8: a unique granting a meta skill (GRANTS_META: Mjolner's Thundergod's Wrath, Svalinn's Cast on Block,
+        Forgotten Warden's Spirit Vessel), or
         a rare on a base whose implicit grants one (a Dueling Wand's Spellslinger),
         scores only its other lines until a spell is socketed in its group, so each one the build can afford is tried for
         real: equipped, its group filled (fill_granted: gems.granted_meta_round), kept if the build scores better.

@@ -668,18 +668,19 @@ class Gems:
 
     def granted_meta_groups(self) -> list[dict]:
         """Groups an item grants holding only a meta skill with an Energy model (Mjolner's Thundergod's Wrath, Svalinn's
-        Cast on Block, a Dueling Wand's Spellslinger), which trigger nothing until a spell is socketed in them."""
+        Cast on Block, a Dueling Wand's Spellslinger), which trigger nothing until a spell is socketed in them, or
+        Forgotten Warden's Spirit Vessel, whose companion does nothing until a shapeshift skill is."""
         from builder.search import models
 
         return [g for g in self.build.groups() if g["fromItem"] and g["enabled"] and g["gems"]
-                and g["gems"][0]["name"] in models.META_GEMS and not any(not x["support"] for x in g["gems"][1:])]
+                and g["gems"][0]["name"] in models.GRANTED_FILLED and not any(not x["support"] for x in g["gems"][1:])]
 
     def filled_granted_groups(self) -> list[dict]:
         """Groups an item or notable grants whose Energy meta holds a spell: their supports are the player's to choose."""
         from builder.search import models
 
         return [g for g in self.build.groups() if g["fromItem"] and g["enabled"] and g["gems"]
-                and g["gems"][0]["name"] in models.META_GEMS and any(not x["support"] for x in g["gems"][1:])]
+                and g["gems"][0]["name"] in models.GRANTED_FILLED and any(not x["support"] for x in g["gems"][1:])]
 
     def fill_granted_supports(self, index: int, deadline: float, rounds: int = GRANTED_SUPPORT_ROUNDS) -> bool:
         """A sweep of supports for the granted group `index`, then weakest-slot rounds, so a unique tried for its
@@ -695,12 +696,18 @@ class Gems:
     def granted_meta_round(self, deadline: float) -> bool:
         """Slice 8: a spell in each empty meta group an item grants, the best of the META_TRIALS spells PoB's what-if
         ranks first, kept if the build scores better (the trigger rate, models.energy_model, shows only after a resolve).
-        The group counts in Full DPS while it holds a spell."""
+        The group counts in Full DPS while it holds a spell. Spirit Vessel's group gets its shapeshift skills instead
+        (spirit_vessel_round)."""
+        from builder.search import models
+
         build = self.build
         improved = False
         for group in self.granted_meta_groups():
             if clock.now() > deadline:
                 break
+            if group["gems"][0]["name"] == models.SPIRIT_VESSEL:
+                improved = self.spirit_vessel_round(group, deadline) or improved
+                continue
             spells = self.meta_spells({g["name"] for grp in build.groups() for g in grp["gems"]}, self.budget_left(),
                                       self.usage_stats())
             if not spells:
@@ -733,6 +740,60 @@ class Gems:
             self.fill_granted_supports(index, deadline)
             improved = improved or build.score > before + EPSILON
         return improved
+
+    def spirit_vessel_round(self, group: dict, deadline: float) -> bool:
+        """Spirit Vessel (Forgotten Warden): its companion uses copies of the Bear, Werewolf and Wyvern skills socketed
+        with it, 20% more damage per different one (engine/bridge.lua installSpiritVessel), so they go in one at a time,
+        the best of the META_TRIALS PoB's what-if ranks first, while the build scores better; then its supports. The
+        socketed skills aren't yours to use (nor buttons: buttons()). The group counts in Full DPS while it holds one."""
+        from builder.search import models
+
+        build = self.build
+        index, start, full = group["index"], build.score, group["fullDPS"]
+        if models.SPIRIT_VESSEL in self.ctx.compiled.filters.forbidden_gems:
+            return False
+        build.set_group(index=index, fullDPS=True)  # (first: PoB's what-if counts the companion only then)
+        added = False
+        while clock.now() < deadline:
+            group = next(g for g in build.groups() if g["index"] == index)
+            gems = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in group["gems"]]
+            at = next((i for i, g in enumerate(group["gems"]) if g["support"]), len(gems)) + 1  # after the skills
+            present = {g["name"] for grp in build.groups() for g in grp["gems"]}
+            left, usage = self.budget_left(), self.usage_stats()
+            skills = [n for n, gem in self.ctx.gems.items() if not gem["support"] and n not in present
+                      and models.SPIRIT_VESSEL_TYPES & set(gem["skillTypes"]) and "Meta" not in gem["skillTypes"]
+                      and self._offered(n, left, usage)]
+            if len(gems) - 1 >= SUPPORT_SLOTS or not skills:
+                break
+            before = build.score
+            scored = build.gem_deltas([{"group": index, "slot": at, "gem": n} for n in skills])
+            best: tuple[float, list[dict]] | None = None
+            for _, name in sorted(zip((s for s, _ in scored), skills), reverse=True)[:META_TRIALS]:
+                level = self.usable_level(name)
+                if level is None or clock.now() > deadline:
+                    continue
+                trial = gems[:at - 1] + [{"name": name, "level": level, "quality": GEM_QUALITY}] + gems[at - 1:]
+                self._set_vessel(index, trial)
+                if build.score > before + EPSILON and (best is None or build.score > best[0]):
+                    best = (build.score, trial)
+                self._set_vessel(index, gems)
+            if best is None:
+                break
+            self._set_vessel(index, best[1])
+            if build.worse(before):
+                self._set_vessel(index, gems)
+                break
+            added = True
+        if not added:
+            build.set_group(index=index, fullDPS=full)
+            return False
+        self.fill_granted_supports(index, deadline)
+        return build.score > start + EPSILON
+
+    def _set_vessel(self, index: int, gems: list[dict]) -> None:
+        self.build.set_group(index=index, gems=gems)
+        if self.resolve is not None:
+            self.resolve()
 
     def meta_spell_round(self, deadline: float) -> bool:
         """One more spell in the meta group (slice 3). Every spell in the group triggers once per round and a round costs all

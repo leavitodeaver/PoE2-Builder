@@ -142,7 +142,8 @@ class Assumptions:
                 "confidence": "datamined"})
         if note := models.darkness_note(build.stats):
             notes.append(note)
-        return mods, notes, {**{g: None for g in energy_groups | mirage_groups}, **expression_groups}
+        vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
+        return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups}, **expression_groups}
 
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[models.IRON_WARD, models.FEROCIOUS_ROAR,

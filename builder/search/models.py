@@ -451,7 +451,8 @@ OTHER_METAS = {
     "Spirit Vessel": "Forgotten Warden's companion that uses copies of socketed Bear, Werewolf and Wyvern skills, 20% more "
                      "damage per different socketed skill; the socketed skills become unusable for you (game files). The "
                      "bridge adds its monster to PoB (210% damage and life, 1 s attacks, 25% increased attack speed, 5% "
-                     "crit), so PoB prices the companion (spirit_vessel_notes); the search doesn't propose it yet",
+                     "crit), so PoB prices the companion (spirit_vessel_notes); the gear round tries Forgotten Warden with the best "
+                     "shapeshift skills, then supports, in its group (gems.spirit_vessel_round)",
     "Animus Splinters": "0.5 league content (Runic Ward cost); its source isn't read from the game files yet",
 }
 
@@ -753,12 +754,23 @@ def corpse_supply(present: set[str]) -> float:
 
 
 SPIRIT_VESSEL = "Spirit Vessel"
+SPIRIT_VESSEL_TYPES = {"Bear", "Wolf", "Wyvern"}  # the skill types its companion copies (engine/bridge.lua)
+# Granted skills whose group the search fills (gems.granted_meta_round): an Energy meta's spell, Spirit Vessel's skills
+GRANTED_FILLED = {*META_GEMS, SPIRIT_VESSEL}
 SPIRIT_VESSEL_ASSUMED = (
     "the companion is PoB's minion for the game files' monster (210% damage and life, 1 s attacks, 25% increased attack "
-    "speed, 5% crit chance), 20% more damage per different socketed skill. ASSUMED, not in the game files or poe2db: "
-    "the copies are minion skills at the level PoB gives a minion of Spirit Vessel's gem level (2 per gem level), "
-    "scaled by minion modifiers, not yours; the group's supports apply to them as to any minion's skills; PoB's player "
+    "speed, 5% crit chance), 20% more damage per different socketed skill. Its level: the game files' "
+    "MinionGemLevelScaling, 2 per gem level (32 at gem level 16), the table every minion gem uses; that Spirit Vessel "
+    "uses it too is inferred, not confirmed (LOW confidence: the gem's ActorLevel, 70.4 at 16, is the curve 638 player "
+    "skills share, companions and summons included, so it doesn't set it). ASSUMED, not in the game files or poe2db: "
+    "the copies are minion skills scaled by minion modifiers, not yours; the group's supports apply to them as to any minion's skills; PoB's player "
     "Bear, Werewolf and Wyvern skills behave the same used by a minion; its damage spread is 20% and its resistances 0")
+
+
+def spirit_vessel_groups(skills: list[dict]) -> set[int]:
+    """Spirit Vessel groups holding a skill its companion uses: extra damage groups, counted through Full DPS."""
+    return {v["group"] for v in skills if v["name"] == SPIRIT_VESSEL and not v["disabled"]
+            and any(s.get("group") == v.get("group") and s["name"] != SPIRIT_VESSEL for s in skills)}
 
 
 def spirit_vessel_notes(skills: list[dict]) -> list[dict]:

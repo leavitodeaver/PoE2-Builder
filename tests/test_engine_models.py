@@ -613,6 +613,31 @@ def test_a_meta_kick_takes_the_meta_group_out_and_the_meta_steps_rechoose_it_in_
     assert not boneshatter(require={"skills": ["Cast on Dodge"]}).meta_kickable()
 
 
+def test_spirit_vessel_gets_the_best_shapeshift_skills_then_supports(engine):
+    """gems.spirit_vessel_round: Forgotten Warden's empty Spirit Vessel group is a granted group the granted metas step
+    fills, with Bear, Werewolf or Wyvern skills one at a time while the score rises, then supports; the group counts in
+    Full DPS, and the skills its companion uses aren't buttons."""
+    from builder.search.models import SPIRIT_VESSEL, SPIRIT_VESSEL_TYPES
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"))
+    payload["unique_prices"] = {"Forgotten Warden": [2.0, 50]}
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    option = next(o for o in search.gear.options("Body Armour") if o.unique and o.name == "Forgotten Warden")
+    search.gear.put("Body Armour", option)
+    search.gear.settle()
+    assert [g["gems"][0]["name"] for g in search.gems.granted_meta_groups()] == [SPIRIT_VESSEL]
+    before = build.score
+    assert search.gems.granted_meta_round(float("inf"))
+    group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == SPIRIT_VESSEL)
+    skills = [g["name"] for g in group["gems"][1:] if not g["support"]]
+    assert build.score > before and skills and group["fullDPS"]
+    assert all(SPIRIT_VESSEL_TYPES & set(search.ctx.gems[n]["skillTypes"]) for n in skills)
+    assert search.gems.filled_granted_groups() == [group] and not set(skills) & set(search.gems.buttons())
+
+
 def test_spirit_vessel_is_a_minion_using_the_socketed_shapeshift_skills_which_you_cant_use(engine):
     """engine/bridge.lua installSpiritVessel: Forgotten Warden's companion (game-file monster numbers), 20% more damage
     per different socketed skill, nothing when empty, and the socketed skills disabled for the player."""

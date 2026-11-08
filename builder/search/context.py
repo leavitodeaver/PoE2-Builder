@@ -212,9 +212,11 @@ class Context:
     def bases_by_name(self) -> dict[str, dict]:
         return {b["name"]: b for b in self.data.bases}
 
-    def _base_ok(self, base: dict) -> bool:
+    def _base_ok(self, base: dict, unique: bool = False) -> bool:
+        """PoB hides a base only a unique uses (Forgotten Warden's Primal Markings, Loreweave's Ornate Ringmail): never a
+        normal item, but its unique is (it's offered only with a market price, so only while it's in the game)."""
         req = base.get("req") or {}
-        return (not base.get("hidden") and (req.get("level") or 0) <= self.level
+        return ((unique or not base.get("hidden")) and (req.get("level") or 0) <= self.level
                 and base["type"] not in self.compiled.filters.forbidden_item_classes)
 
     def _style_ok(self, base: dict | None) -> bool:
@@ -291,7 +293,7 @@ class Context:
         floors = self.requested_floors
         for unique in self.data.uniques:
             base = self.bases_by_name.get(unique["base"])
-            if unique["name"] in forbidden or base is None or not self._base_ok(base) or not self._style_ok(base):
+            if unique["name"] in forbidden or base is None or not self._base_ok(base, unique=True) or not self._style_ok(base):
                 continue
             if rules.blocked_floors(unique["raw"]) & floors:
                 continue  # e.g. Veil of the Night under a resistance floor (game_rules.yaml floor_blockers)

@@ -343,8 +343,9 @@ local wrappedPerform
 -- skills socketed with it, 20% more damage per different socketed skill. PoB has neither its monster nor a minion list
 -- for it, so it prices nothing. The monster's numbers are the game files' (MonsterVarieties
 -- Metadata/Monsters/Companions/SpiritVessel: DamageMultiplier 210, LifeMultiplier 210, AttackSpeed 1000 ms,
--- AttackCrit 5%, mod UniqueSpiritVesselMonsterModAttackSpeed1 +25% attack speed). ASSUMED (the builder's guide says
--- so): the copies are minion skills at PoB's level for a minion of the gem's level, with the group's supports as PoB
+-- AttackCrit 5%, mod UniqueSpiritVesselMonsterModAttackSpeed1 +25% attack speed). Its level is PoB's minion rule, the
+-- game files' MinionGemLevelScaling (32 at gem level 16), inferred for Spirit Vessel. ASSUMED (the builder's guide says
+-- so): the copies are minion skills, with the group's supports as PoB
 -- gives any minion's skills; damage spread 20% (it only moves min and max, not the average); resistances 0.
 local SPIRIT_VESSEL_TYPES = { "Bear", "Wolf", "Wyvern" }
 local spiritVesselInstalled = false
