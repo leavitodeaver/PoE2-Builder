@@ -121,3 +121,20 @@ def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):
     assert search.gems.meta_round(time.perf_counter() + 60) is False
     assert tried and all(score is None for score in tried)  # Cast on Critical was screened in and tried for real
     assert [[g["name"] for g in group["gems"]] for group in search.build.groups()] == before
+
+
+def test_a_build_that_counts_on_cast_on_dodge_loses_its_rolling_time(engine):
+    """The user, 7 Nov: a build whose damage counts on Cast on Dodge loses the time its rolls take (0.75 s per roll, one
+    per 2 s: 37.5%) from its main skill; PoB applies the line to that skill's speed."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    before = build.call("stats", fields=["Speed"])["Speed"]
+    build.set_group(gems=[{"name": "Cast on Dodge", "level": 20, "quality": 0},
+                          {"name": "Fireball", "level": 20, "quality": 0}], label="meta", fullDPS=True)
+    search.resolve()
+    after = build.call("stats", fields=["Speed"])["Speed"]
+    assert after == pytest.approx(before * 0.625, rel=0.02)
+    assert any("Time spent dodge rolling" in n["label"] for n in search.assumptions.active)

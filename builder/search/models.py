@@ -372,7 +372,9 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # description of cast_on_dodge_roll_gain_X_centienergy_per_unit_travelled_while_dodge_rolling 200, shown /100 per metre;
 # the stat's name says per unit, 10 units a metre, which would be ten times more: the game's own text is used), over the
 # dodge roll's base distance, dodge_roll_base_travel_distance 46 units = 4.6 m (DodgeRollPlayer's constant stats, shown
-# /10 as metres; the user had heard 3.7 m), at an assumed DODGE_EVERY seconds between rolls against a boss.
+# /10 as metres; the user had heard 3.7 m, from an older source), at DODGE_EVERY seconds between rolls against a boss (the
+# user's default). A build whose damage counts on Cast on Dodge also loses the time its rolls take from its main skill
+# (the user, 7 Nov): DODGE_ROLL_SECONDS per roll, as less Attack and Cast Speed; other builds aren't charged.
 
 META_GEMS = {
     "Cast on Critical": {"energy": 57.0, "gain": "crit", "less": 20.0},
@@ -385,7 +387,8 @@ META_GEMS = {
     "Cast on Dodge": {"energy": 57.0, "gain": "dodge", "per": 2.0},
 }
 DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files, build 26476662); distance mods not counted
-DODGE_EVERY = 3.0  # seconds between dodge rolls against a boss: assumed (one per telegraphed big hit), said in the guide
+DODGE_EVERY = 2.0  # seconds between dodge rolls against a boss: the user's default (7 Nov 2026), said in the guide
+DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); faster rolls from movement speed not counted
 NO_ENERGY_ON_A_BOSS = {"Reaper's Invocation": "kills", "Cast on Minion Death": "minion deaths"}
 # Gone from the game by two sources that agree (the rule for removing anything): the game files reach them by no source
 # (data/game-*/live.json: no uncut tier, base item, passive, or collection unique grants them) and poe2db shows them
@@ -554,6 +557,15 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                      + f"; one round costs {cost:.0f} Energy (10 per 0.1s of base cast time)"
                      + (f"; its spells deal {info['less']:.0f}% less damage" if info.get("less") else ""),
             "confidence": "theory"})
+        if META_GEMS[meta.name]["gain"] == "dodge" and rate > 0:
+            busy = min(DODGE_ROLL_SECONDS / DODGE_EVERY, 0.95)
+            mods.append(line("1% more Attack and Cast Speed", -100 * busy, skill=main.name))
+            notes.append({
+                "label": f"Time spent dodge rolling ({main.name})", "value": f"{busy:.1%} less Attack and Cast Speed",
+                "basis": f"a build that counts on {meta.name} rolls every {DODGE_EVERY:g} s (assumed; how often you roll is up "
+                         f"to you), and each roll takes {DODGE_ROLL_SECONDS:g} s (the dodge roll's own cast time in the game "
+                         f"files) away from {main.name}; rolls sped up by movement speed aren't counted",
+                "confidence": "theory"})
     return mods, notes, groups
 
 

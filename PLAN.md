@@ -605,7 +605,7 @@ they land.
   into the result with the reason (`models.meta_handling`; a test checks each live one has a model or a reason).
   Slices, one per turn:
   1. *(done)* Energy metas triggered by what the build already does, one spell each: Cast on Critical, Cast on
-     Elemental Ailment, Cast on Dodge (4.6 m rolls at an assumed one per 3 s).
+     Elemental Ailment, Cast on Dodge (4.6 m rolls at the user's one per 2 s; a build counting on it loses the 0.75 s each roll takes).
   2. Supports for the meta group: the same sweep and shortlist on the meta group, with PoB's "supports the triggered
      spell" rules.
   3. Several spells per meta (a spell pays only if its damage per Energy beats the others'), Boundless Energy and

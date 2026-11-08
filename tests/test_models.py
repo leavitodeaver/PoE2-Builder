@@ -174,8 +174,14 @@ def test_the_other_metas_gain_energy_from_their_own_events():
     # Spellslinger: 2 casts/s of a 0.7 s spell x 0.2 per 10 ms = 14 Energy each
     spark = Skill("Spark", group=1, spell=True, cast_time=0.7)
     assert rate("Spellslinger", spark) == pytest.approx(2 * 14 * 1.72 / 120, rel=1e-4)
-    # Cast on Dodge: one roll per 3 s of 4.6 m (the game files) x 2 Energy per metre, x1.57, over 120 Energy
-    assert rate("Cast on Dodge", slam) == pytest.approx(4.6 * 2 / 3 * 1.57 / 120, rel=1e-4)
+    # Cast on Dodge: one roll per 2 s (the user's default) of 4.6 m (the game files) x 2 Energy per metre, x1.57, over 120
+    assert rate("Cast on Dodge", slam) == pytest.approx(4.6 * 2 / 2 * 1.57 / 120, rel=1e-4)
+    # ... and the build that counts on it loses the 0.75 s each roll takes from its main skill: 37.5% less speed
+    mods, notes, _ = models.energy_model(Inputs(), stats, [slam, Skill("Cast on Dodge", group=2, energy=True), comet], slam)
+    speed = [m for m in mods if m.get("line") == "1% more Attack and Cast Speed"]
+    assert len(speed) == 1 and speed[0]["scale"] == pytest.approx(-37.5) and "Time spent dodge rolling" in notes[-1]["label"]
+    mods, _, _ = models.energy_model(Inputs(), stats, [slam, Skill("Cast on Block", group=2, energy=True), comet], slam)
+    assert not [m for m in mods if m.get("line") == "1% more Attack and Cast Speed"]  # other builds aren't charged
     # Energy on kills: none on a boss, and the guide says why
     mods, notes, _ = models.energy_model(Inputs(), stats, [slam, Skill("Reaper's Invocation", group=2, energy=True), comet], slam)
     assert "none on a single boss" in notes[0]["basis"]
