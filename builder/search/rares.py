@@ -19,7 +19,7 @@ from functools import cached_property
 
 from builder.data import rare_prices
 from builder.request.schema import GearTier
-from builder.search.context import Context, ItemOption
+from builder.search.context import Context, ItemOption, implicit_variant
 
 # (item level, best affix tier allowed: 1 = top, roll within each range 0..1) per gear tier
 TIER_RULES = {
@@ -202,7 +202,7 @@ def conflicts(mods: list[dict]) -> list[tuple[dict, dict]]:
 
 
 def implicit_lines(base: dict, fraction: float = 0.5) -> list[str]:
-    implicit = base.get("implicit")
+    implicit = implicit_variant(base.get("implicit"))  # (build_rare puts a chosen variant's line in, untagged)
     return [roll(line, fraction) for line in implicit.splitlines()] if implicit else []
 
 

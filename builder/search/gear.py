@@ -21,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder import clock
-from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption
+from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption, implicit_variant, implicit_variants
 from builder.search.flasks import (
     ACTIVE_UPTIME, CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
     recovery_per_second, slot_pool,
@@ -266,11 +266,11 @@ class Gear:
     # Rares -----------------------------------------------------------------------------------
 
     def build_rare(self, slot: str, deadline: float, required: Callable[[Affix], bool] | None = None,
-                   base_name: str | None = None) -> ItemOption | None:
+                   base_name: str | None = None, variant: int | None = None) -> ItemOption | None:
         """The best rare for this slot within its budget, affix by affix (for a flask or charm, the
         best magic item: one prefix and one suffix). With `required`, the rare starts from the best
         affix that passes it (a condition's source, builder/search/sources.py), on the best base
-        that can roll one."""
+        that can roll one. With `variant`, the base's implicit is that variant's (Absent Amulet's Cast on Critical)."""
         bases = [o for o in self.options(slot) if not o.unique and (base_name is None or o.base == base_name)]
         if not bases or clock.now() > deadline:
             return None
@@ -285,6 +285,8 @@ class Gear:
                 break
         if base is None:
             return None
+        if variant is not None:
+            base = {**base, "implicit": implicit_variant(base.get("implicit"), variant)}
         limits = MAGIC_LIMIT if magic else AFFIX_LIMIT
         text, price_of = (magic_text, magic_price) if magic else (rare_text, rare_price)
         pool = pools.pool(base["name"])
@@ -454,16 +456,26 @@ class Gear:
             current = build.equipped.get(slot)
             options = [o for o in self.candidates(slot) if o.unique]
             # A base whose implicit grants one (a Dueling Wand's Spellslinger): a rare on it, built for the slot. Its
-            # bare base scores nothing for the meta, so the rare builder's own base ranking never picks it. Not yet a
-            # base whose implicit is one of several variants (Absent Amulet: Cast on Critical, on Dodge, ...): the rare
-            # text would carry every variant line.
+            # bare base scores nothing for the meta, so the rare builder's own base ranking never picks it. A base
+            # whose implicit is one of several variants (Absent Amulet: Cast on Elemental Ailment, on Critical, on
+            # Dodge): a rare for each variant granting one. (Its other variants, Archmage, Trinity, Rhoa Mount,
+            # Eternal Rage, and Lament and Portent Amulet's heralds, banners, Blink, Sacrifice, ..., aren't proposed
+            # yet: a plain rare on such a base carries none.)
             for base in self.options(slot):
+                if base.unique or clock.now() > deadline:
+                    continue
                 implicit = (self.ctx.bases_by_name.get(base.base) or {}).get("implicit") or ""
-                if (not base.unique and GRANTS_META.search(base.raw) and "{variant" not in implicit
-                        and clock.now() < deadline and not (current is not None and current.base == base.base)):
+                variants = implicit_variants(implicit)
+                if variants:
+                    for variant, line in variants:
+                        if (GRANTS_META.search(line) and clock.now() < deadline
+                                and not (current is not None and current.base == base.base and line in current.raw)):
+                            if option := self.build_rare(slot, deadline, base_name=base.base, variant=variant):
+                                options.append(option)
+                elif GRANTS_META.search(base.raw) and not (current is not None and current.base == base.base):
                     options.append(self.build_rare(slot, deadline, base_name=base.base) or base)
             for option in options:
-                if ((current is not None and (option.name == current.name if option.unique else option.base == current.base))
+                if ((current is not None and (option.name == current.name if option.unique else option.raw == current.raw))
                         or not GRANTS_META.search(option.raw) or clock.now() > deadline):
                     continue
                 snap = build.snapshot()

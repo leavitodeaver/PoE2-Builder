@@ -456,6 +456,24 @@ def test_heat_of_the_forge_fills_fire_spell_on_hit_and_prices_it_at_its_level(en
     assert f"at level {meta['level']}" in note["basis"] and note["value"] > 0
 
 
+def test_a_variant_base_gets_one_variant_per_rare(engine):
+    """Absent Amulet's implicit is one of 7 granted skills. PoB grants none while the text carries every {variant:n} line,
+    so a plain rare carries none (context.implicit_variant); the granted-meta trials build a rare per variant granting
+    an Energy meta (gear.build_rare(variant=...)), and PoB grants that one."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    gear = search.gear
+    base = next(o for o in gear.options("Amulet") if o.base == "Absent Amulet")
+    assert "Grants Skill" not in base.raw and "{variant" not in base.raw
+    rare = gear.build_rare("Amulet", float("inf"), base_name="Absent Amulet", variant=2)
+    assert "Cast on Critical" in rare.raw and "Cast on Dodge" not in rare.raw and "{variant" not in rare.raw
+    gear.put("Amulet", rare)
+    gear.settle()
+    assert [g["gems"][0]["name"] for g in search.gems.granted_meta_groups()] == ["Cast on Critical"]
+
+
 def test_an_item_granted_meta_gets_a_spell_and_a_unique_granting_one_is_tried(engine):
     """Slice 8 (MECH8): Mjolner's Thundergod's Wrath triggers nothing until a spell is socketed in it, so the granted metas
     step fills it (gems.granted_meta_round: PoB's what-if ranks spells only once the group counts in Full DPS). The gear
@@ -562,16 +580,22 @@ def test_a_rare_dueling_wand_is_tried_for_its_spellslinger(engine):
 
 def test_bijouborne_is_tried_and_its_cast_on_charm_use_gets_no_spell_without_charm_uses(engine):
     """Slice 8 (MECH11): Bijouborne grants Cast on Charm Use, priced from the charm charges the build spends against a
-    boss (flasks.charm_charges_used). On a bare Spark build no charm is equipped: the belt is tried (it stays for its
-    other lines), but no spell goes into its group, as nothing would trigger it."""
+    boss (flasks.charm_charges_used). On a bare Spark build no charm is equipped: the belt is a granted-meta trial,
+    but no spell goes into its group, as nothing would trigger it. (Whether the trial keeps the belt for its other
+    lines depends on what else the same pass keeps, an Absent Amulet's Cast on Critical say, so it's equipped here.)"""
+    from builder.search.gear import GRANTS_META
+
     payload = make_payload(BuildRequest(main_skill="Spark"))
     payload["unique_prices"] = {"Bijouborne": [1.0, 50]}
     skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
     search.setup()
     build = search.build
-    search.gear.granted_meta_trials(float("inf"))
-    assert build.equipped["Belt"].name == "Bijouborne"
+    belt = next(o for o in search.gear.candidates("Belt") if o.unique and o.name == "Bijouborne")
+    assert GRANTS_META.search(belt.raw)
+    search.gear.put("Belt", belt)
+    search.gear.settle()
+    search.gems.granted_meta_round(float("inf"))
     group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Cast on Charm Use")
     assert len(group["gems"]) == 1
     from builder.search.assumptions import charm_stats

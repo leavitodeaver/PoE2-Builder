@@ -68,9 +68,32 @@ class ItemOption:
         return described
 
 
+VARIANT_LINE = re.compile(r"^\{variant:([\d,]+)\}(.*)$")
+
+
+def implicit_variants(implicit: str | None) -> list[tuple[int, str]]:
+    """A base's implicit variants (Absent Amulet: one of 7 granted skills, Cast on Critical, Archmage, ...), each with its
+    line untagged."""
+    return [(int(k), m.group(2)) for line in (implicit or "").splitlines() if (m := VARIANT_LINE.match(line))
+            for k in m.group(1).split(",")]
+
+
+def implicit_variant(implicit: str | None, variant: int | None = None) -> str:
+    """The implicit with only `variant`'s line, untagged (none without one). PoB applies none of a variant base's
+    granted skills while the text carries every {variant:n} line (probe, 8 Nov), and one variant is all an item has."""
+    lines = []
+    for line in (implicit or "").splitlines():
+        m = VARIANT_LINE.match(line)
+        if m is None:
+            lines.append(line)
+        elif variant is not None and str(variant) in m.group(1).split(","):
+            lines.append(m.group(2))
+    return "\n".join(lines)
+
+
 def normal_item(base: dict) -> str:
     """A normal (white) base, with its implicit: PoB doesn't add implicits by itself."""
-    implicit = base.get("implicit")
+    implicit = implicit_variant(base.get("implicit"))
     if not implicit:
         return f"Rarity: Normal\n{base['name']}"
     lines = [re.sub(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)",
