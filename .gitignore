@@ -20,3 +20,6 @@ legacy/*
 # Portable Node.js and the datamining packages (python -m builder.data.gamefiles)
 /tools/node/
 /tools/datamine/node_modules/
+
+# Local notes for Claude sessions (manager handoff pointer)
+CLAUDE.local.md
