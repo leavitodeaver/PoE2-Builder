@@ -661,6 +661,9 @@ def test_skills_that_need_corpses_use_none_on_a_single_boss_whatever_triggers_th
     rates = {m["skill"]: m["value"] for m in mods if m["key"] == "triggerRate"}
     assert rates == {"Detonate Dead": 0, "Fireball": 1.5}  # the meta's rate replaced, the other spell's kept
     assert [n["label"] for n in notes] == ["Unearth: corpses", "Corpses per second for Detonate Dead"]
+    ritual = models.Skill("Ritual Sacrifice", group=4, corpses=True)
+    mods, notes = models.corpse_model([ritual], [])
+    assert mods == [] and "20% of maximum Life" in notes[0]["basis"]  # its Life option needs no corpse
     sacrifice = models.Skill("Sacrifice")
     _, notes = models.corpse_model([detonate, sacrifice], [])
     assert "Sacrifice" in notes[0]["basis"] and notes[0]["confidence"] == "theory"

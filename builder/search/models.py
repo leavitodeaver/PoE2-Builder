@@ -668,7 +668,18 @@ CORPSE_SOURCES = {"Sacrifice": "your undead Reviving Minions in place of corpses
 CORPSE_OPTIONAL = {
     "Raise Zombie": "consumes a Power Charge when there's no corpse; zombies from corpses not counted",
     "Unearth": "its bone spikes hit without corpses; its Bone Constructs (from corpses) not counted",
+    # (Ritualist's As the Whispers Demand grants it with head_hunt_without_a_corpse; RitualSacrificePlayer's
+    # head_hunt_%_life_to_remove_on_self_stab is 20: game files, build 26476662)
+    "Ritual Sacrifice": "used on yourself it takes 20% of maximum Life for one random Monster Modifier instead of a rare "
+                        "corpse's; random, so its buff isn't counted",
 }
+# Searched for other ways to pay Life instead of a corpse (8 Nov 2026, the user's question): stat descriptions, gem and
+# support texts, passives, ascendancies, mods and PoB's uniques. Besides Ritual Sacrifice above, none: Paquate's Pact
+# (a Warcry's Corrupted Blood at the cost of Life), Dark Pact / Abyssal Pact (a minion's Life as damage), Blood Magic-style
+# costs and Feast of Flesh's Life recovery don't stand in for a corpse; "Your Raised Zombies count as corpses" and
+# "permanent undead minions usable as corpses" are stat texts no mod, passive or skill carries (dead). Corpse
+# Conservation and the Corpses / Meat Recycling passives (a chance not to destroy a consumed corpse) multiply a supply
+# but make none.
 
 
 def corpse_supply(present: set[str]) -> float:
