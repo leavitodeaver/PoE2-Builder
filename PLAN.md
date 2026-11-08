@@ -610,8 +610,8 @@ they land.
   Slices, one per turn:
   1. *(done)* Energy metas triggered by what the build already does, one spell each: Cast on Critical, Cast on
      Elemental Ailment, Cast on Dodge (4.6 m rolls at the user's one per 2 s; a build counting on it loses the 0.75 s each roll takes).
-  2. Supports for the meta group: the same sweep and shortlist on the meta group, with PoB's "supports the triggered
-     spell" rules.
+  2. *(done)* Supports for the meta group: the supports step sweeps the meta group too (its own shortlist; PoB's
+     `supportCandidates` for the group; the meta gem and spell keep their levels), after the main group.
   3. Several spells per meta (a spell pays only if its damage per Energy beats the others'), Boundless Energy and
      Energy Retention.
   4. Invocations within the button cap: Elemental, Barrier, and Feral Invocation (whose Energy is 1 per 20 Mana spent).

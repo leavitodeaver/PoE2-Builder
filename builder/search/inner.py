@@ -294,7 +294,7 @@ class Search:
         return {
             "xml": snap["xml"], "equipped": snap["equipped"], "locked": sorted(self.build.locked_slots),
             "required": sorted(self.tree.required), "active": self.conditions.active,
-            "shortlist": self.gems.shortlist, "gear_shortlist": self.gear.shortlist, "attribute": self.tree.attribute,
+            "shortlist": self.gems.shortlist, "meta_shortlist": self.gems.meta_shortlist, "gear_shortlist": self.gear.shortlist, "attribute": self.tree.attribute,
             "multipliers": dict(self.build.objective.multipliers), "assumed_mods": self.assumptions.mods,
             "extra_groups": [[k, v] for k, v in sorted(self.assumptions.extra_groups.items())],
             "required_names": sorted(self.tree.required_names), "sources": sorted(self.tree.sources),
@@ -320,6 +320,7 @@ class Search:
         self.tree.attribute = state["attribute"]
         self.conditions.active = dict(state["active"])
         self.gems.shortlist = state["shortlist"]
+        self.gems.meta_shortlist = state.get("meta_shortlist")
         self.gear.shortlist = dict(state.get("gear_shortlist") or {})
         self.problems = list(state["problems"])
         self.gear.sync_flasks()

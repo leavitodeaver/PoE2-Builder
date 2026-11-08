@@ -152,3 +152,30 @@ def test_pob_gives_every_input_of_the_recovery_report(engine):
     stats = build.call("stats", fields=RECOVERY_INPUTS)
     r = boss_recovery(stats)
     assert r["incoming"] > 0 and r["parts"]["Life"] >= 100 * 0.99
+
+
+def test_supports_round_fills_the_meta_group(engine):
+    """Slice 2 of the meta plan: the supports sweep runs on the meta group too. Its candidates are PoB's for the group (they
+    support the triggered spell), it keeps the levels the meta gem and spell were set at, and the main group is untouched."""
+    from builder.search.gems import META_LABEL
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    build.objective.base_full = True
+    main_before = [[g["name"] for g in group["gems"]] for group in build.groups() if group["main"]]
+    build.set_group(gems=[{"name": "Cast on Dodge", "level": 12, "quality": 0}, {"name": "Fireball", "level": 9, "quality": 0}],
+                    label=META_LABEL, fullDPS=True)
+    search.resolve()
+    group = gems.supports_group(build.groups(), meta=True)
+    candidates = set(gems.candidates(group["index"], build.groups()))
+    assert candidates and gems.meta_shortlist is None
+    gems.supports_round(full_sweep=True, meta=True)
+    assert gems.meta_shortlist and set(gems.meta_shortlist) <= candidates
+    group = gems.supports_group(build.groups(), meta=True)
+    actives = {g["name"]: g["level"] for g in group["gems"] if not g["support"]}
+    assert actives == {"Cast on Dodge": 12, "Fireball": 9}
+    assert all(g["name"] in candidates for g in group["gems"] if g["support"])
+    assert [[g["name"] for g in group["gems"]] for group in build.groups() if group["main"]] == main_before
