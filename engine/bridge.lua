@@ -1684,6 +1684,9 @@ function bridge.activeSkills(args)
 			cooldown = activeSkill.skillData.cooldown,
 			cooldownRecovery = calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "CooldownRecovery"),
 			generatesRemnants = types[SkillType.GeneratesRemnants] and true or false,
+			-- it consumes or targets corpses (the game's skill types; models.corpse_model)
+			corpses = (types[SkillType.TargetsDestructibleCorpses] or types[SkillType.TargetsDestructibleRareCorpses]
+				or types[SkillType.CanTargetUnusableCorpse]) and true or nil,
 			triggered = types[SkillType.Triggered] and true or false,
 			disabled = activeSkill.skillFlags and activeSkill.skillFlags.disable or false,
 			-- for the custom models: what kind of skill, its base cast time, its group, and

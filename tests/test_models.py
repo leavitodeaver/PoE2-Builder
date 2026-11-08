@@ -650,3 +650,18 @@ def test_ferocious_roar_keeps_rage_on_average_and_breaks_armour_with_enough_per_
     shout = models.Skill("Infernal Cry", group=2, triggered=True)
     assert models.roar([slam, roar, shout]) == (roar, True) and models.roar_model([slam, roar, shout], {}, slam) == ([], [])
     assert models.roar([slam, models.Skill("Ferocious Roar", group=2, wrong_weapon=True)]) == (None, False)  # (no Talisman)
+
+
+def test_skills_that_need_corpses_use_none_on_a_single_boss_whatever_triggers_them():
+    detonate = models.Skill("Detonate Dead", group=2, spell=True, triggered=True, corpses=True)
+    unearth = models.Skill("Unearth", group=3, spell=True, corpses=True)
+    fireball = models.Skill("Fireball", group=2, spell=True, triggered=True)
+    given = models.trigger_rate("Detonate Dead", 1.5) + models.trigger_rate("Fireball", 1.5)
+    mods, notes = models.corpse_model([detonate, unearth, fireball], given)
+    rates = {m["skill"]: m["value"] for m in mods if m["key"] == "triggerRate"}
+    assert rates == {"Detonate Dead": 0, "Fireball": 1.5}  # the meta's rate replaced, the other spell's kept
+    assert [n["label"] for n in notes] == ["Unearth: corpses", "Corpses per second for Detonate Dead"]
+    sacrifice = models.Skill("Sacrifice")
+    _, notes = models.corpse_model([detonate, sacrifice], [])
+    assert "Sacrifice" in notes[0]["basis"] and notes[0]["confidence"] == "theory"
+    assert models.corpse_model([fireball], given) == (given, [])

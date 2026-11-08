@@ -203,13 +203,15 @@ class Skill:
     cooldown_recovery: float = 1.0
     level_stats: dict[str, float] = field(default_factory=dict)  # only for skills asked for (Iron Ward)
     wrong_weapon: bool = False  # needs a weapon type in neither hand (PoB disables only Attacks for that)
+    corpses: bool = False  # consumes or targets corpses (the game's skill types; corpse_model)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
         return cls(raw["name"], raw.get("group"), bool(raw.get("spell")), bool(raw.get("attack")),
                    bool(raw.get("melee")), bool(raw.get("triggered")), bool(raw.get("energy")),
                    number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0,
-                   dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")))
+                   dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
+                   bool(raw.get("corpses")))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -650,6 +652,56 @@ def roar_break(skill: Skill, enemy_armour: float) -> tuple[float, str]:
     return min(1.0, FULL_BREAK_DURATION / period), (
         basis + f": Fully Broken for {FULL_BREAK_DURATION:g} s, once per {period:.1f} s (the main skill's next hits after "
         "each roar assumed to land)")
+
+
+# Corpses ---------------------------------------------------------------------------------------
+# A skill the game types TargetsDestructibleCorpses, TargetsDestructibleRareCorpses or CanTargetUnusableCorpse (game files,
+# build 26476662: Detonate Dead, Volatile Dead, Bitter Dead, Decompose, Profane Ritual, Feast of Flesh, Devour, Kelari's
+# Malediction, Ritual Sacrifice, Unearth, Raise Zombie ...) needs a corpse each use. Nothing dies on a single boss, so
+# only the build's own source supplies them. The 0.5 game data has no player skill that creates corpses (Desecrate is a
+# monster skill only; the Bone Corpses and Corpse Walk lines grant skills the files no longer have). The one source left
+# is Sacrifice (undead Reviving Minions used in place of corpses); its rate, the minions' revive time, isn't modelled
+# yet, so it supplies 0 for now, said in the guide.
+CORPSE_TYPES = {"TargetsDestructibleCorpses", "TargetsDestructibleRareCorpses", "CanTargetUnusableCorpse"}
+CORPSE_SOURCES = {"Sacrifice": "your undead Reviving Minions in place of corpses (their revive rate isn't modelled yet)"}
+# Skills of those types that still work without a corpse: never set to 0, the part that needs corpses said in the guide
+CORPSE_OPTIONAL = {
+    "Raise Zombie": "consumes a Power Charge when there's no corpse; zombies from corpses not counted",
+    "Unearth": "its bone spikes hit without corpses; its Bone Constructs (from corpses) not counted",
+}
+
+
+def corpse_supply(present: set[str]) -> float:
+    """Corpses per second the build's own sources supply on a single boss (none is priced yet: CORPSE_SOURCES)."""
+    return 0.0
+
+
+def corpse_model(skills: list[Skill], mods: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Corpses per second for each skill that needs them, from the build's own sources (CORPSE_SOURCES) and none from
+    kills on a single boss: a skill with no supply uses 0 per second, wherever it is (main skill, meta group, totem),
+    replacing any trigger rate the other models gave it. Returns the new mods list and the notes."""
+    users = sorted({s.name for s in skills if s.corpses and not s.wrong_weapon} - set(CORPSE_OPTIONAL))
+    optional = sorted({s.name for s in skills if s.corpses} & set(CORPSE_OPTIONAL))
+    notes = [{"label": f"{name}: corpses", "value": 0, "basis": CORPSE_OPTIONAL[name] + " (no corpses on a single boss)",
+              "confidence": "datamined"} for name in optional]
+    if not users:
+        return mods, notes
+    present = {s.name for s in skills}
+    sources = [f"{name}: {why}" for name, why in CORPSE_SOURCES.items() if name in present]
+    supply = corpse_supply(present)
+    dropped = set(users)
+    mods = [m for m in mods if not (m.get("kind") == "SkillData" and m.get("skill") in dropped
+                                    and m.get("key") in ("triggerRate", "triggered"))]
+    for name in users:
+        mods += trigger_rate(name, supply)
+    notes.append({
+        "label": f"Corpses per second for {', '.join(users)}", "value": supply,
+        "basis": "they need a corpse each use, and nothing dies on a single boss; "
+                 + (f"source present but not priced: {'; '.join(sources)}" if sources
+                    else "the build has no corpse source of its own")
+                 + ", so they're counted 0 uses per second",
+        "confidence": "datamined" if not sources else "theory"})
+    return mods, notes
 
 
 def roar_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:

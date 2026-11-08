@@ -734,9 +734,13 @@ class Gems:
         return build.score > before + EPSILON
 
     def meta_spells(self, present: set[str], left: float, usage: dict | None) -> list[str]:
-        """Spells a meta skill can trigger that the build doesn't use yet."""
+        """Spells a meta skill can trigger that the build doesn't use yet (one that needs corpses only with a corpse
+        supply: models.corpse_model)."""
+        from builder.search import models
+
         return [n for n, gem in self.ctx.gems.items() if not gem["support"] and n not in present
                 and {"Spell", "Triggerable"} <= set(gem["skillTypes"]) and not {"Meta", "Persistent"} & set(gem["skillTypes"])
+                and not (models.CORPSE_TYPES & set(gem["skillTypes"]) and not models.corpse_supply(present))
                 and self._offered(n, left, usage)]
 
     def set_meta_gems(self, group: dict, names: list[str], at: int | None = None, spell: dict | None = None) -> None:

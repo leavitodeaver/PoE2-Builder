@@ -463,3 +463,20 @@ def test_an_item_granted_meta_gets_a_spell_and_a_unique_granting_one_is_tried(en
     assert build.equipped["Weapon 2"].name == "Svalinn" and build.score > before
     group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Cast on Block")
     assert len(group["gems"]) == 2
+
+
+def test_a_spell_that_needs_corpses_counts_nothing_without_a_corpse_source(engine):
+    """Nothing dies on a single boss, so Detonate Dead (the game types it TargetsDestructibleCorpses) has no corpse to
+    explode unless the build makes its own, and no 0.5 player skill does: 0 uses per second as the main skill and in a
+    meta group, said in the guide, and the meta round doesn't propose it."""
+    payload = make_payload(BuildRequest(main_skill="Detonate Dead", ascendancies=["Infernalist"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Detonate Dead"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    assert any(s["name"] == "Detonate Dead" and s.get("corpses") for s in build.call("activeSkills")["skills"])
+    assert build.call("stats", fields=["FullDPS"])["FullDPS"] < 1  # (a hundredth of a point from elsewhere)
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Corpses per second"))
+    assert note["value"] == 0 and "no corpse source" in note["basis"]
+    assert "Detonate Dead" not in search.gems.meta_spells(set(), float("inf"), None)
+    assert "Fireball" in search.gems.meta_spells(set(), float("inf"), None)

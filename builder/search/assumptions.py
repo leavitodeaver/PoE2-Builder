@@ -111,6 +111,8 @@ class Assumptions:
                                      or totem_notes) and RESCORE_MODELS
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
+        mods, corpse_notes = models.corpse_model(found, mods)  # last: it overrides the trigger rates above
+        notes += corpse_notes
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]
         if chosen:
             kinds = {4: "Damage", 5: "Armour, Evasion and Energy Shield", 6: "Cost Efficiency"}
@@ -166,6 +168,7 @@ class Assumptions:
         main = self.main_skill()
         info = next((s for s in skills if s["name"] == main), None)
         if (info is not None and main not in REMNANT_CONSUMERS and info.get("triggered") and info.get("cooldown")
+                and not info.get("corpses")  # (models.corpse_model rates those)
                 and (main in self.cooldown_fallback
                      or not self.build.call("stats", fields=["Speed"]).get("Speed"))):
             self.cooldown_fallback.add(main)
