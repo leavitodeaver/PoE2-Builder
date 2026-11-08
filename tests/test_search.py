@@ -724,3 +724,17 @@ def test_unique_prices_also_match_names_without_accents():
     payload = make_payload(BuildRequest(main_skill="Boneshatter"), table)
     assert payload["unique_prices"]["Mjolner"] == [0.07, 1458]
     assert payload["unique_prices"]["Mjölner"] == [0.07, 1458]
+
+
+def test_a_build_stops_its_search_once_past_its_hard_stop():
+    """Build.stop_at: the first evaluation after it raises OutOfTime, once, so the search's wrap-up runs to its end."""
+    from builder import clock
+    from builder.search.state import Build, OutOfTime
+
+    build = Build(None, None, None)
+    build.tick()  # no stop set
+    build.stop_at = clock.now() - 1.0
+    with pytest.raises(OutOfTime):
+        build.tick()
+    assert build.stop_at is None
+    build.tick()  # wrapping up isn't stopped again

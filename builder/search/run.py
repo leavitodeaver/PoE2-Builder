@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import math
+import time
 import random
 from collections.abc import Callable
 from typing import Any
@@ -41,6 +42,9 @@ def recovery_text(recovery: dict) -> str:
     parts = ", ".join(f"{pool} {value:,.0f}/s" for pool, value in recovery["parts"].items() if value > 0) or "none"
     return f"{min(recovery['share'], 9.99):.0%} ({recovery['recovery']:,.0f}/s of {recovery['incoming']:,.0f}/s; {parts})"
 FINALIZE_MAX = 60.0
+# What finalize does after its polish (export, reload check, blind spots, facts): 3-10 s in the gate runs of 8 Nov, so
+# the polish ends this much before the run's time is up and the whole run fits the time the user gave it
+FINALIZE_WRAP = 10.0
 MIN_PROBE = 15.0
 MAX_PROBE = 60.0
 SHORTLIST_SKILLS = 4
@@ -121,6 +125,11 @@ class Run:
             if result is None:
                 continue
             self.evals_done += result.get("evals", 0)
+            if result.get("overrun") or result.get("left_out", 0) > 1:
+                # steps that ran past the task's deadline (the hard stop caps them), and the time its clock left out
+                self.emit("overrun", skeleton=result["label"], phases=result.get("overrun", {}),
+                          wall=result.get("wall"), left_out=result.get("left_out"), ran=result.get("ran"),
+                          received=round(time.time(), 2))
             if result.get("seed_start") and self.seed_start is None:
                 self.seed_start = result["seed_start"]
             # Ranked on the request's goal, whichever the search had; its own goal picks the state
@@ -258,7 +267,7 @@ class Run:
 
     def plan(self, count: int) -> tuple[float, float]:
         """(probe seconds, finalize seconds) for `count` skeletons in the time left."""
-        finalize = min(FINALIZE_MAX, FINALIZE_SHARE * self.seconds)
+        finalize = min(FINALIZE_MAX, max(FINALIZE_SHARE * self.seconds, FINALIZE_WRAP + 5.0))
         search = max(self.remaining() - finalize, 10.0)
         waves = math.ceil(count / self.workers)
         probe = min(MAX_PROBE, max(MIN_PROBE, 0.4 * search / waves))
@@ -278,7 +287,11 @@ class Run:
                               "speed. Treat clear numbers as approximate (confidence: low).")
         self.emit("status", message=f"Starting {self.workers} PoB workers")
         with EnginePool(self.workers) as pool:
-            self.emit("status", message=f"Workers ready in {pool.startup_seconds:.1f}s")
+            self.emit("status", message=f"{pool.size} workers ready in {pool.startup_seconds:.1f}s")
+            # The plan is on the workers the pool has: inside the PC queue it gets only the LuaJIT slots still free (gate
+            # 4 boots an engine of its own first, so 5 of 6), and 6 searches on 5 workers ran in two waves, which doubled
+            # every stage: a 600 s gate run took about 966 s (8 Nov)
+            self.workers = pool.size
             skeletons, problems = self.skeletons(pool)
             if self.payload["request"].get("seed_code"):
                 skeletons = self.with_seed(pool, skeletons)
@@ -347,7 +360,8 @@ class Run:
             self.emit("status", message=f"Finalizing {best['label']} on Full DPS")
             final = None
             for attempt in range(2):  # a worker the watchdog replaced gets one retry
-                polish = 5.0 if attempt or self.should_cancel() else max(5.0, min(finalize, self.remaining()))
+                polish = (5.0 if attempt or self.should_cancel()
+                          else max(5.0, min(finalize, self.remaining()) - FINALIZE_WRAP))
                 final = pool.run_tasks([("builder.search.inner:finalize_task", {
                     "payload": self.payload, "skeleton": best["skeleton"], "state": best["state"], "seconds": polish})],
                     on_progress=self._progress())[0]

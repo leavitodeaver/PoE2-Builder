@@ -32,12 +32,16 @@ from builder.search.objective import (
 )
 from builder.search.skeletons import Skeleton, is_button, offhand_types, seed_skeleton, swap_skills
 from builder.search.sources import Sources
-from builder.search.state import EPSILON, Build
+from builder.search.state import EPSILON, Build, OutOfTime
 from builder.search.tree import Tree
 from builder.search.usage import Usage
 
 KICK_TREE_POINTS = (6, 16)
 SWEEP_EVERY = 3
+# How far past its deadline a search may run before its build stops it at the next evaluation (Build.stop_at): a share
+# of the task's time, at least STOP_GRACE_MIN seconds, so a step that watches the deadline itself finishes normally
+STOP_GRACE_SHARE = 0.01
+STOP_GRACE_MIN = 2.0
 RESULT_FIELDS = sorted(set(FACT_FIELDS) | set(SUSTAIN_FIELDS) | set(MODEL_FIELDS) | set(DARKNESS_FIELDS) | set(CLEAR_FIELDS)
                        | set(RECOVERY_INPUTS) | {
     "TotalDPS", "TotalDotDPS", "Spirit", "TotalEHP", "Speed", "CritChance", "HitChance",
@@ -94,6 +98,9 @@ class Search:
         self.escalations = 0
         self.feasible: dict | None = None  # the best build seen that meets every requirement (keep_feasible)
         self.timing: dict[str, list[float]] = {}  # phase -> [seconds, evaluations, gain]
+        self.deadline: float | None = None  # the running search's (Search.run)
+        self.overrun: dict[str, float] = {}  # phase -> the most seconds a step of it ran past the deadline
+        self.boundary: dict | None = None  # the build as the last step left it (a stop goes back to it)
         self.passes = 0
         self.kicked: set[str] = set()  # blocks a kick disturbed, swept fully on the next pass
 
@@ -357,11 +364,18 @@ class Search:
     def step(self, phase: str, fn, *args) -> bool:
         self.build.phase = phase
         before, evals, started = self.build.score, self.build.evals, clock.now()
-        fn(*args)
-        entry = self.timing.setdefault(phase, [0.0, 0, 0.0])
-        entry[0] += clock.now() - started
-        entry[1] += self.build.evals - evals
-        entry[2] += self.build.score - before
+        try:
+            fn(*args)
+        finally:
+            now = clock.now()
+            entry = self.timing.setdefault(phase, [0.0, 0, 0.0])
+            entry[0] += now - started
+            entry[1] += self.build.evals - evals
+            entry[2] += self.build.score - before
+            if self.deadline is not None and now > self.deadline:
+                self.overrun[phase] = round(max(self.overrun.get(phase, 0.0), now - max(started, self.deadline)), 2)
+        if self.deadline is not None and (self.boundary is None or self.build.score != before):
+            self.boundary = self.build.snapshot()
         return self.build.score > before + EPSILON
 
     def blocks(self, deadline: float) -> bool:
@@ -503,6 +517,38 @@ class Search:
         but the delivered build never ends further from feasible than it started."""
         start = self.build.snapshot()
         self.note_feasible()
+        try:
+            best, start = self._ascend(deadline, start, best, escalate)
+        except OutOfTime:
+            # Stopped inside a step, whose own bookkeeping (what's equipped, a trial under way) may not match the
+            # engine: back to where the last step left the build, then the usual best-of below
+            if self.boundary is not None:
+                self.build.restore(self.boundary)
+            best, start = self._kept
+        finally:
+            self.build.stop_at = None
+            self.deadline, self.boundary = None, None
+        kept = [snap for snap in (best, start) if snap is not None]
+        if kept:
+            top = max(kept, key=lambda snap: snap["score"])
+            if top["score"] > self.build.score + EPSILON:
+                self.build.restore(top)
+        if feasible_first and kept:
+            short = self.shortfall(self.build.stats)
+            closest = min(kept, key=lambda snap: (round(self.shortfall(snap["stats"]), 6), -snap["score"]))
+            if self.shortfall(closest["stats"]) < short - 1e-6:
+                self.build.restore(closest)
+        self.keep_feasible()
+        lost = "a required passive had gone from the tree during the search; it was put back"
+        if self.tree.ensure_required() and lost not in self.problems:
+            self.problems.append(lost)
+        self.resolve()
+
+    def _ascend(self, deadline: float, start: dict | None, best: dict | None,
+                escalate: bool) -> tuple[dict | None, dict | None]:
+        """Search.run's loop: (best, start) as it leaves them; `self._kept` holds them for a stop (OutOfTime)."""
+        self.deadline, self.boundary, self._kept = deadline, None, (best, start)
+        self.build.stop_at = deadline + max(STOP_GRACE_MIN, STOP_GRACE_SHARE * max(0.0, deadline - clock.now()))
         last_short = float("inf")
         while clock.now() < deadline:
             improved = self.blocks(deadline)
@@ -514,6 +560,7 @@ class Search:
             if escalate and short > 0 and short >= last_short - 1e-4 and objective.escalate(self.build.stats):
                 self.escalations += 1
                 start = None  # the search now trades score for requirements on purpose
+                self._kept = (best, start)
                 self.build.phase = "requirements"
                 self.build.refresh()
                 if best is not None:
@@ -530,24 +577,11 @@ class Search:
                 if best is not None:
                     self.kicks_kept += 1
                 best = self.build.snapshot()
+                self._kept = (best, start)
             elif self.build.score < best["score"]:
                 self.build.restore(best)
             self.kick()
-        kept = [snap for snap in (best, start) if snap is not None]
-        if kept:
-            top = max(kept, key=lambda snap: snap["score"])
-            if top["score"] > self.build.score + EPSILON:
-                self.build.restore(top)
-        if feasible_first and kept:
-            short = self.shortfall(self.build.stats)
-            closest = min(kept, key=lambda snap: (round(self.shortfall(snap["stats"]), 6), -snap["score"]))
-            if self.shortfall(closest["stats"]) < short - 1e-6:
-                self.build.restore(closest)
-        self.keep_feasible()
-        lost = "a required passive had gone from the tree during the search; it was put back"
-        if self.tree.ensure_required() and lost not in self.problems:
-            self.problems.append(lost)
-        self.resolve()
+        return best, start
 
     def note_feasible(self) -> None:
         """Remember the build if it meets every requirement and beats the best such build on the goal."""
@@ -585,6 +619,7 @@ class Search:
             "kicks": self.kicks, "kicks_kept": self.kicks_kept, "problems": self.problems, "reverts": build.reverts,
             "condition_sources": list(self.sources.kept),
             "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
+            "overrun": dict(self.overrun),
             "timing": {k: {"seconds": round(v[0], 2), "evals": v[1], "gain": round(v[2], 4)} for k, v in self.timing.items()},
         }
 
@@ -594,6 +629,7 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
     """`goal` overrides the request's (a balanced run's boss-DPS searches); the result's `value` is
     on that goal, so the run ranks results on its own goal from `dps` and `clear`."""
     deadline = clock.now() + seconds
+    wall, left_out = time.perf_counter(), clock.paused()
     search = Search(engine, report, payload, skeleton, seed, goal=goal)
     start = None
     if state is not None:
@@ -604,6 +640,8 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
         start = search.build.snapshot()
     else:
         search.setup()
+    if clock.now() > deadline:  # setup doesn't stop for the deadline: say so if it took the task's time
+        search.overrun["setup"] = round(clock.now() - deadline, 2)
     from builder.pob.pool import Cancelled
 
     try:
@@ -613,6 +651,10 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
             search.build.restore(start)
         search.keep_feasible()
     summary = search.summary()
+    # The task's wall time and what its clock left out as suspended (the queue's holds), to check the budget held
+    summary["wall"] = round(time.perf_counter() - wall, 2)
+    summary["ran"] = [round(time.time() - summary["wall"], 2), round(time.time(), 2)]  # when, across processes
+    summary["left_out"] = round(clock.paused() - left_out, 2)
     if start is not None:
         objective = search.build.objective
         summary["seed_start"] = {"dps": objective.dps(start["stats"]), "value": objective.value(start["stats"]),

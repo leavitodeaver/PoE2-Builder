@@ -282,3 +282,49 @@ def test_finalize_never_trades_a_requirement_for_damage(engine):
         search.run(time.perf_counter() + 0.3, escalate=False, feasible_first=feasible_first)
         end_dps = search.build.objective.dps(search.build.stats)
         assert end_dps == pytest.approx(start_dps)
+
+
+def test_a_step_that_ignores_the_deadline_is_stopped_on_time(engine, monkeypatch):
+    """Steps used to finish their own trials past the task's deadline, so a 600 s gate run took about 966 s
+    (8 Nov). A step that never looks at the clock is now stopped at its next evaluation a little past the
+    deadline, the build goes back to where the last step left it, and the task says which step ran over."""
+    from builder import clock
+    from builder.search.inner import STOP_GRACE_MIN, optimize_task
+    from builder.search.skeletons import enumerate_skeletons
+
+    def endless(self, deadline, full=True):
+        until = clock.now() + 60
+        while clock.now() < until:
+            self.build.refresh()
+
+    monkeypatch.setattr(Gear, "gear_round", endless)  # the first step of every pass
+    ctx = context(main_skill="Explosive Spear")
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0]
+    payload = make_payload(ctx.request)
+    started = clock.now()
+    result = optimize_task(engine, None, payload, skeleton.as_dict(), 8, seed=1)
+    took = clock.now() - started
+    assert took < 8 + STOP_GRACE_MIN + 5, took
+    assert "gear" in result["overrun"] and result["overrun"]["gear"] < STOP_GRACE_MIN + 2, result["overrun"]
+    assert result["score"] > float("-inf") and result["state"]["equipped"]
+
+
+def test_a_whole_run_fits_the_time_it_was_given(engine, monkeypatch):
+    """The user's minutes are the whole run, finalize's export and reload check included. Here the pool gets fewer
+    workers than asked for (in the PC queue it gets the LuaJIT slots still free): planned on the workers asked for,
+    the run's searches went in two waves and every stage took twice its time (a 600 s gate run, about 966 s)."""
+    import time
+
+    from builder.pob import slots
+    from builder.search.run import optimize
+
+    monkeypatch.setattr(slots, "free", lambda: 2)
+
+    request = BuildRequest(class_name="Huntress", ascendancies=["Ritualist"], level=90, main_skill="Explosive Spear",
+                           budget={"gear_tier": "endgame"}, objective="boss")
+    started = time.perf_counter()
+    result = optimize(request, workers=3, seconds=45)
+    took = time.perf_counter() - started
+    assert result["status"] != "invalid" and result.get("code")
+    assert result["workers"] == 2  # planned on the pool it got
+    assert took < 45 * 1.1 + 5, took  # 5 s for the two engines' start

@@ -63,9 +63,31 @@ class RunningClock:
             self._thread.start()
 
     def _run(self) -> None:
+        _raise_thread_priority()
         while True:
             time.sleep(TICK)
             self.tick()
+
+
+def _raise_thread_priority() -> None:
+    """The ticking thread runs ahead of everything else on the computer. PoB's workers run below normal priority, and a
+    tick that waited over PAUSE_GAP for a processor busy with other work would count as a suspension and slow the
+    worker's clock (suspected for gate 4's overruns on 8 Nov, which had another cause; kept as a safeguard). It only
+    sleeps and ticks, so the priority costs nothing."""
+    import os
+
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetCurrentThread.restype = ctypes.c_void_p
+        kernel32.SetThreadPriority.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        THREAD_PRIORITY_TIME_CRITICAL = 15
+        kernel32.SetThreadPriority(kernel32.GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL)
+    except Exception:
+        pass
 
 
 _CLOCK = RunningClock()
@@ -73,3 +95,8 @@ _CLOCK = RunningClock()
 
 def now() -> float:
     return _CLOCK.now()
+
+
+def paused() -> float:
+    """Seconds this process's clock has left out as suspended so far."""
+    return _CLOCK.paused()

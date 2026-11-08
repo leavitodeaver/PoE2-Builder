@@ -18,6 +18,12 @@ PROGRESS_INTERVAL = 1.0
 DELTA_CHUNK = 150  # what-ifs per engine call
 
 
+class OutOfTime(Exception):
+    """Raised once, at the first evaluation after `Build.stop_at`: a search step that doesn't watch
+    the deadline itself (or watches it only between long trials) stops there. Search.run catches it
+    and keeps the best build it holds, so a task ends on time with what it has."""
+
+
 class Build:
     def __init__(self, engine: Any, ctx: Context, objective: Objective, report: Callable | None = None,
                  label: str = "") -> None:
@@ -45,6 +51,9 @@ class Build:
         self.reassume: Callable[[], Any] | None = None  # re-applies the custom models to the current build
         self.rescored = 0  # item candidates re-scored with a real trial
         self._model_texts: tuple[int, list[str]] = (-1, [])
+        # The hard stop (Search.run sets it a little past the task's deadline): every step used to
+        # finish its own trials first, so a 600 s gate run took about 966 s (MECH15's runs, 8 Nov)
+        self.stop_at: float | None = None
 
     def worse(self, before: float) -> bool:
         """After a commit a what-if said would gain: True (and counted) if it lost instead."""
@@ -74,9 +83,12 @@ class Build:
 
     def tick(self, force: bool = False) -> None:
         """Stream progress about once a second; also where a cancelled task stops."""
+        now = clock.now()
+        if self.stop_at is not None and now > self.stop_at:
+            self.stop_at = None  # once: what the search does next to wrap up runs to its end
+            raise OutOfTime()
         if self.report is None:
             return
-        now = clock.now()
         if force or now - self._last_report >= PROGRESS_INTERVAL:
             self._last_report = now
             self.report(self.progress())
