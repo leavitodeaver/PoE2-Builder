@@ -449,9 +449,9 @@ OTHER_METAS = {
                    "consumed (the ascendancy round tries the notable with the main skill moved into it, gems.hollow_round; "
                    "hollow_model)",
     "Spirit Vessel": "Forgotten Warden's companion that uses copies of socketed Bear, Werewolf and Wyvern skills, 20% more "
-                     "damage per different socketed skill; the socketed skills become unusable for you (game files). PoB "
-                     "has no minion for it and prices nothing; the companion's monster (210% damage and life, 1 s "
-                     "attacks, 25% increased attack speed, 5% crit) isn't priced yet (PLAN.md \"Meta gems\" item 8)",
+                     "damage per different socketed skill; the socketed skills become unusable for you (game files). The "
+                     "bridge adds its monster to PoB (210% damage and life, 1 s attacks, 25% increased attack speed, 5% "
+                     "crit), so PoB prices the companion (spirit_vessel_notes); the search doesn't propose it yet",
     "Animus Splinters": "0.5 league content (Runic Ward cost); its source isn't read from the game files yet",
 }
 
@@ -750,6 +750,28 @@ CORPSE_OPTIONAL = {
 def corpse_supply(present: set[str]) -> float:
     """Corpses per second the build's own sources supply on a single boss (none is priced yet: CORPSE_SOURCES)."""
     return 0.0
+
+
+SPIRIT_VESSEL = "Spirit Vessel"
+SPIRIT_VESSEL_ASSUMED = (
+    "the companion is PoB's minion for the game files' monster (210% damage and life, 1 s attacks, 25% increased attack "
+    "speed, 5% crit chance), 20% more damage per different socketed skill. ASSUMED, not in the game files or poe2db: "
+    "the copies are minion skills at the level PoB gives a minion of Spirit Vessel's gem level (2 per gem level), "
+    "scaled by minion modifiers, not yours; the group's supports apply to them as to any minion's skills; PoB's player "
+    "Bear, Werewolf and Wyvern skills behave the same used by a minion; its damage spread is 20% and its resistances 0")
+
+
+def spirit_vessel_notes(skills: list[dict]) -> list[dict]:
+    """The guide's note for each Spirit Vessel group holding something it uses (engine/bridge.lua installSpiritVessel
+    adds the companion to PoB; the socketed skills show as disabled for you)."""
+    notes = []
+    for vessel in (s for s in skills if s["name"] == SPIRIT_VESSEL and not s["disabled"]):
+        copied = sorted({s["name"] for s in skills if s.get("group") == vessel.get("group") and s["name"] != SPIRIT_VESSEL})
+        if copied:
+            notes.append({"label": f"Spirit Vessel's companion uses {', '.join(copied)}", "value": len(copied),
+                          "basis": SPIRIT_VESSEL_ASSUMED + "; you can't use them yourself (its hidden support)",
+                          "confidence": "theory"})
+    return notes
 
 
 def corpse_model(skills: list[Skill], mods: list[dict]) -> tuple[list[dict], list[dict]]:

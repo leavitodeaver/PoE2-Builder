@@ -611,3 +611,32 @@ def test_a_meta_kick_takes_the_meta_group_out_and_the_meta_steps_rechoose_it_in_
     assert "meta gems" not in phases
 
     assert not boneshatter(require={"skills": ["Cast on Dodge"]}).meta_kickable()
+
+
+def test_spirit_vessel_is_a_minion_using_the_socketed_shapeshift_skills_which_you_cant_use(engine):
+    """engine/bridge.lua installSpiritVessel: Forgotten Warden's companion (game-file monster numbers), 20% more damage
+    per different socketed skill, nothing when empty, and the socketed skills disabled for the player."""
+    import json
+    from builder import ROOT
+
+    uniques = json.loads(next((ROOT / "data").glob("pob-*/uniques.json")).read_text(encoding="utf-8"))["uniques"]
+    raw = next(u["raw"] for u in uniques if u["name"] == "Forgotten Warden")
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Body Armour", raw=raw, fields=[])
+    vessel = next(g for g in engine.call("groups")["groups"] if any(x["name"] == "Spirit Vessel" for x in g["gems"]))
+    fields = ["Minion.TotalDPS", "Minion.AverageDamage", "FullDPS"]
+
+    def socket(*names):
+        gems = [{"name": "Spirit Vessel", "level": 16, "quality": 0}] + [{"name": n, "level": 20, "quality": 0} for n in names]
+        engine.call("setGroup", index=vessel["index"], gems=gems, main=True, fullDPS=True, fields=[])
+        return engine.call("stats", fields=fields)
+
+    assert not socket()["Minion.TotalDPS"]  # PoB would otherwise give an empty vessel a melee hit
+    one = socket("Cross Slash")
+    assert one["Minion.TotalDPS"] > 0 and one["FullDPS"] == pytest.approx(one["Minion.TotalDPS"])
+    skills = {s["name"]: s["disabled"] for s in engine.call("activeSkills")["skills"]}
+    assert skills == {"Spirit Vessel": False, "Cross Slash": True}
+    two = socket("Cross Slash", "Maul")  # the companion still uses Cross Slash first: 1.4 / 1.2 more (and Maul's buffs)
+    assert two["Minion.AverageDamage"] / one["Minion.AverageDamage"] == pytest.approx(1.4 / 1.2, rel=0.03)
+    engine.call("newBuild")

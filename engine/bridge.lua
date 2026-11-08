@@ -339,7 +339,90 @@ local function setDerived(env)
 end
 
 local wrappedPerform
+-- Spirit Vessel (Forgotten Warden's granted skill): a companion that uses copies of the Bear, Werewolf and Wyvern
+-- skills socketed with it, 20% more damage per different socketed skill. PoB has neither its monster nor a minion list
+-- for it, so it prices nothing. The monster's numbers are the game files' (MonsterVarieties
+-- Metadata/Monsters/Companions/SpiritVessel: DamageMultiplier 210, LifeMultiplier 210, AttackSpeed 1000 ms,
+-- AttackCrit 5%, mod UniqueSpiritVesselMonsterModAttackSpeed1 +25% attack speed). ASSUMED (the builder's guide says
+-- so): the copies are minion skills at PoB's level for a minion of the gem's level, with the group's supports as PoB
+-- gives any minion's skills; damage spread 20% (it only moves min and max, not the average); resistances 0.
+local SPIRIT_VESSEL_TYPES = { "Bear", "Wolf", "Wyvern" }
+local spiritVesselInstalled = false
+local function installSpiritVessel()
+	if spiritVesselInstalled or not (data and data.skills and data.minions and data.skills.SpiritVesselPlayer) then
+		return
+	end
+	spiritVesselInstalled = true
+	data.minions.SpiritVessel = {
+		name = "Spirit Vessel", monsterTags = { }, life = 2.1, damage = 2.1, damageSpread = 0.2, attackTime = 1,
+		attackRange = 6, accuracy = 1, critChance = 5, baseDamageIgnoresAttackSpeed = true,
+		fireResist = 0, coldResist = 0, lightningResist = 0, chaosResist = 0,
+		companionFireResist = 0, companionColdResist = 0, companionLightningResist = 0, companionChaosResist = 0,
+		weaponType1 = "None", baseMovementSpeed = 30, monsterCategory = "Construct", spawnLocation = { },
+		skillList = { },
+		modList = { modLib.createMod("Speed", "INC", 25, "Spirit Vessel", ModFlag.Attack) },
+	}
+	data.skills.SpiritVesselPlayer.minionList = { "SpiritVessel" }
+	local calcs = require("Modules.CalcBase")
+	local create = calcs.createMinionSkills
+	calcs.createMinionSkills = function(env, activeSkill)
+		local minion = activeSkill.minion
+		if not (minion and minion.type == "SpiritVessel" and activeSkill.socketGroup) then
+			return create(env, activeSkill)
+		end
+		local ids, seen = { }, { }
+		for _, gem in ipairs(activeSkill.socketGroup.gemList or { }) do
+			local effect = gem.enabled ~= false and ((gem.gemData and gem.gemData.grantedEffect) or gem.grantedEffect)
+			if effect and not effect.support and effect.skillTypes and not seen[effect.id] then
+				for _, kind in ipairs(SPIRIT_VESSEL_TYPES) do
+					if effect.skillTypes[SkillType[kind]] then
+						seen[effect.id] = true
+						ids[#ids + 1] = effect.id
+						break
+					end
+				end
+			end
+		end
+		minion.minionData.skillList = ids
+		create(env, activeSkill)
+		for _, minionSkill in ipairs(minion.activeSkillList) do
+			if #ids == 0 then  -- nothing socketed: the companion does nothing (PoB would give it a melee hit)
+				minionSkill.skillModList:NewMod("Damage", "MORE", -100, "Spirit Vessel: no socketed skill")
+			else
+				minionSkill.skillModList:NewMod("Damage", "MORE", 20 * #ids, "Spirit Vessel: per different socketed skill")
+			end
+		end
+	end
+	-- Its hidden support makes the socketed skills unusable for you (skill_unusable, which PoB doesn't read)
+	local buildModList = calcs.buildActiveSkillModList
+	calcs.buildActiveSkillModList = function(env, activeSkill)
+		buildModList(env, activeSkill)
+		local group = activeSkill.socketGroup
+		if activeSkill.actor ~= env.player or not group or activeSkill.activeEffect.grantedEffect.id == "SpiritVesselPlayer" then
+			return
+		end
+		local vessel = false
+		for _, gem in ipairs(group.gemList or { }) do
+			local effect = (gem.gemData and gem.gemData.grantedEffect) or gem.grantedEffect
+			vessel = vessel or (effect and effect.id == "SpiritVesselPlayer")
+		end
+		if not vessel then
+			return
+		end
+		for _, kind in ipairs(SPIRIT_VESSEL_TYPES) do
+			if activeSkill.skillTypes[SkillType[kind]] then
+				local flags = env.mode == "CALCS" and activeSkill.activeEffect.statSetCalcs.skillFlags
+					or activeSkill.activeEffect.statSet.skillFlags
+				flags.disable = true
+				activeSkill.disableReason = "Socketed in Spirit Vessel: only its companion uses it"
+				return
+			end
+		end
+	end
+end
+
 local function installDerived()
+	installSpiritVessel()
 	local calcs = require("Modules.CalcBase")
 	if calcs.perform == wrappedPerform or not calcs.perform then
 		return
@@ -1688,7 +1771,8 @@ function bridge.activeSkills(args)
 			corpses = (types[SkillType.TargetsDestructibleCorpses] or types[SkillType.TargetsDestructibleRareCorpses]
 				or types[SkillType.CanTargetUnusableCorpse]) and true or nil,
 			triggered = types[SkillType.Triggered] and true or false,
-			disabled = activeSkill.skillFlags and activeSkill.skillFlags.disable or false,
+			-- current PoB keeps the flags on the stat set (activeSkill.skillFlags is v0.23's)
+			disabled = (activeSkill.skillFlags or (activeSkill.activeEffect.statSet or { }).skillFlags or { }).disable or false,
 			-- for the custom models: what kind of skill, its base cast time, its group, and
 			-- whether it's a meta skill that gains Energy
 			spell = types[SkillType.Spell] and true or false,

@@ -128,7 +128,7 @@ class Assumptions:
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
         mods, corpse_notes = models.corpse_model(found, mods)  # last: it overrides the trigger rates above
-        notes += corpse_notes
+        notes += corpse_notes + models.spirit_vessel_notes(skills)
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]
         if chosen:
             kinds = {4: "Damage", 5: "Armour, Evasion and Energy Shield", 6: "Cost Efficiency"}

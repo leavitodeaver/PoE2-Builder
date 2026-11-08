@@ -726,3 +726,13 @@ def test_cast_on_charm_use_gains_energy_from_the_charm_charges_spent():
     energy, basis = models.energy_gain("Cast on Charm Use", {"_charm_charges": 1.5, "_charm_basis": "x"}, "Spark")
     assert energy == pytest.approx(3.0) and "2 Energy per charge" in basis
     assert models.energy_gain("Cast on Charm Use", {}, "Spark")[0] == 0.0
+
+
+def test_spirit_vessel_notes_name_the_copied_skills_and_the_assumptions():
+    skills = [{"name": "Spirit Vessel", "group": 3, "disabled": False},
+              {"name": "Cross Slash", "group": 3, "disabled": True}, {"name": "Maul", "group": 3, "disabled": True},
+              {"name": "Boneshatter", "group": 1, "disabled": False}]
+    notes = models.spirit_vessel_notes(skills)
+    assert len(notes) == 1 and notes[0]["value"] == 2 and "Cross Slash, Maul" in notes[0]["label"]
+    assert "ASSUMED" in notes[0]["basis"] and notes[0]["confidence"] == "theory"
+    assert models.spirit_vessel_notes(skills[:1] + skills[3:]) == []  # an empty vessel does nothing: no note
