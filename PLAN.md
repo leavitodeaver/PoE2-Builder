@@ -713,7 +713,11 @@ they land.
      by base. Spellslinger is an Invocation, so a button. Not yet: a base whose implicit is one of several variants
      (Absent Amulet: Cast on Elemental Ailment / Critical / Dodge, Archmage, ...): the rare text would carry every
      variant line, and which one PoB applies isn't checked.
-  9. The meta round in kicks and seeds; gate 4's 2b75d as the test.
+  9. *(done, MECH12)* The meta round in kicks and seeds. The meta round adds a group only when the build has none, so
+     the first meta it kept (or a seed's) stayed for the whole search, though later gear and tree change which meta
+     the build feeds most. Kicks now include "meta" (Search.kick_meta) while the build has a meta group the search
+     may take out: its own, or a seed's whose meta isn't required; never one an item or notable grants. The meta
+     steps then run in that same pass rather than at the next sweep; the run keeps the best build seen.
 - Unresolved gems: 37 gems PoB carries but whose source the game-file rules don't read yet (0.5 league content such
   as Explosive Transmutation, Detonate Living and the Runic and Verisium skills; Grenade, Requiem, Gelid Palm and
   others). They stay usable. Find their sources (league tables, uniques whose PoB text names them differently).
