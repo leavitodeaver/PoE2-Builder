@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import math
-import time
 import random
 from collections.abc import Callable
 from typing import Any
@@ -55,6 +54,17 @@ SCREEN_SHARE = 0.25  # most of the run the main-skill screen may take
 # there) are still found. Each goal's searches continue from that goal's best state; the final
 # pick ranks every result on the balanced value (PLAN.md §5.5).
 BOSS_EVERY = 3
+# The focus stage runs in rounds; after each but the last, a line far behind the best on its skeleton and goal starts
+# again from the best line's state with a new seed. Gate 4, 8 Nov (POE2T188): a run's five lines ended at 24K, 29K,
+# 414K, 414K and 582K, so two fifths of the run went into lines that could never win, and the result swung run to run
+FOCUS_ROUNDS = 2
+RESTART_BELOW = 0.5  # of the best line's value
+# The focus stage scores PoB's Full DPS, as the delivered build is (PLAN.md, Phase 0: main-skill DPS for screening,
+# Full DPS for finalists). On main-skill DPS, 2b75b's lines all ended on the same main group at 26-29K, and what
+# finalize then measured (x2.4-x8.7 the reference) rested on groups the search never weighed (POE2T189, 8 Nov).
+# OFF: one 2b75d run with it on gave x1.77 (lines within 30%, two of them stalled in the second round), against x2.91
+# with the restarts alone (POE2T190-191); a Full DPS what-if costs about twice as much. Needs more runs per build
+FOCUS_FULL_DPS = False
 
 
 def replica_goals(goal: str, count: int) -> list[str | None]:
@@ -125,11 +135,11 @@ class Run:
             if result is None:
                 continue
             self.evals_done += result.get("evals", 0)
-            if result.get("overrun") or result.get("left_out", 0) > 1:
-                # steps that ran past the task's deadline (the hard stop caps them), and the time its clock left out
-                self.emit("overrun", skeleton=result["label"], phases=result.get("overrun", {}),
-                          wall=result.get("wall"), left_out=result.get("left_out"), ran=result.get("ran"),
-                          received=round(time.time(), 2))
+            # Every search's result, for comparing a run's lines: where it ended, its main group, the steps that ran
+            # past the task's deadline (the hard stop caps them), its wall time and the time its clock left out
+            self.emit("task", skeleton=result["label"], dps=result["dps"], value=result.get("value"),
+                      main=result.get("main_gems"), phases=result.get("overrun", {}),
+                      wall=result.get("wall"), left_out=result.get("left_out"), ran=result.get("ran"))
             if result.get("seed_start") and self.seed_start is None:
                 self.seed_start = result["seed_start"]
             # Ranked on the request's goal, whichever the search had; its own goal picks the state
@@ -168,6 +178,31 @@ class Run:
                     best[key] = ((short, -value), result)
         for key, (_, result) in best.items():
             states[key] = result["state"]
+
+    def restart_behind(self, lines: dict, tasks: list[tuple[str, dict]], raw: list[Any]) -> int:
+        """Lines far behind the best line on their skeleton and goal (infeasible while it isn't, or under RESTART_BELOW
+        of its value) continue from that line's state; the best line goes on as it is. Returns how many restarted."""
+        ended: dict[tuple[str, str], list[tuple[tuple[float, float], int, dict]]] = {}
+        count: dict[str, int] = {}
+        for (_, args), result in zip(tasks, raw):
+            label = Skeleton(**args["skeleton"]).label
+            replica = count.get(label, 0)
+            count[label] = replica + 1
+            if isinstance(result, dict) and result.get("state") is not None:
+                value = result.get("search_value", result.get("value", result["dps"]))
+                key = (round(shortfall(result["deficits"]), 6), -value)
+                ended.setdefault((label, args.get("goal") or ""), []).append((key, replica, result))
+        restarted = 0
+        for (label, goal), entries in ended.items():
+            entries.sort(key=lambda e: e[0])
+            (top_short, top_value), _, top = entries[0]
+            for (short, value), replica, _ in entries[1:]:
+                if short > top_short or -value < RESTART_BELOW * -top_value:
+                    lines[(label, replica, goal)] = top["state"]
+                    restarted += 1
+        if restarted:
+            self.emit("status", message=f"{restarted} search(es) far behind the best continue from it")
+        return restarted
 
     @staticmethod
     def keep_lines(lines: dict, tasks: list[tuple[str, dict]], raw: list[Any]) -> None:
@@ -347,12 +382,23 @@ class Run:
                 goals = replica_goals(self.request.objective, replicas)
                 self.emit("status", message=f"Improving the best {len(alive)} skeleton(s) with {replicas} search(es) each "
                                             f"for {focus_seconds:.0f}s" + self.boss_share(goals))
-                tasks = [("builder.search.inner:optimize_task", {
-                    "payload": self.payload, "skeleton": s.as_dict(), "seconds": focus_seconds,
-                    "seed": 7919 * (r + 1) + i, "state": self.line_state(lines, states, s.label, r, goals[r]),
-                    "goal": goals[r]})
-                    for i, s in enumerate(alive) for r in range(replicas)]
-                self._record(self._tasks(pool, tasks))
+                end = self.elapsed() + focus_seconds
+                for focus_round in range(FOCUS_ROUNDS):
+                    seconds = (end - self.elapsed()) / (FOCUS_ROUNDS - focus_round)
+                    if seconds <= 5 or self.should_cancel():
+                        break
+                    tasks = [("builder.search.inner:optimize_task", {
+                        "payload": self.payload, "skeleton": s.as_dict(), "seconds": seconds,
+                        "seed": 7919 * (r + 1) + i + 104729 * focus_round,
+                        "state": self.line_state(lines, states, s.label, r, goals[r]), "goal": goals[r],
+                        "full": FOCUS_FULL_DPS})
+                        for i, s in enumerate(alive) for r in range(replicas)]
+                    raw = self._tasks(pool, tasks)
+                    self.keep_lines(lines, tasks, raw)
+                    results = self._record(raw)
+                    self.keep_states(states, results)
+                    if focus_round < FOCUS_ROUNDS - 1:
+                        self.restart_behind(lines, tasks, raw)
 
             if self.best is None:
                 return self.result_infeasible(problems + ["every search task failed"])

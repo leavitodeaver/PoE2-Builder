@@ -738,3 +738,28 @@ def test_a_build_stops_its_search_once_past_its_hard_stop():
         build.tick()
     assert build.stop_at is None
     build.tick()  # wrapping up isn't stopped again
+
+
+def test_lines_far_behind_the_best_continue_from_it_and_the_best_goes_on():
+    """Gate 4 (8 Nov): a run's five lines ended at 24K, 29K, 414K, 414K and 582K; the two far behind now continue
+    from the best line's state for the focus stage's second round, and the others keep their own."""
+    from types import SimpleNamespace
+
+    from builder.search.run import RESTART_BELOW, Run
+    from builder.search.skeletons import Skeleton
+
+    skeleton = Skeleton("Monk", "Acolyte of Chayula", "Explosive Transmutation", "Wand", None, "Shield").as_dict()
+    tasks = [("builder.search.inner:optimize_task", {"skeleton": skeleton, "goal": None}) for _ in range(5)]
+    values = [24e3, 582e3, 414e3, 29e3, 414e3 * RESTART_BELOW * 0.99]
+    raw = [{"dps": v, "search_value": v, "deficits": [], "state": {"xml": f"line {r}"}} for r, v in enumerate(values)]
+    lines = {(Skeleton(**skeleton).label, r, ""): {"xml": f"line {r}"} for r in range(5)}
+    events = []
+    run = SimpleNamespace(emit=lambda kind, **data: events.append((kind, data)))
+    assert Run.restart_behind(run, lines, tasks, raw) == 3
+    label = Skeleton(**skeleton).label
+    assert [lines[(label, r, "")]["xml"] for r in range(5)] == ["line 1", "line 1", "line 2", "line 1", "line 1"]
+    # a line short of a requirement restarts from a feasible best, however high its own damage
+    raw = [{"dps": 9e6, "search_value": 9e6, "deficits": [{"amount": 0.2, "hard": True}], "state": {"xml": "short"}},
+           {"dps": 1e5, "search_value": 1e5, "deficits": [], "state": {"xml": "feasible"}}]
+    lines = {}
+    assert Run.restart_behind(run, lines, tasks[:2], raw) == 1 and lines == {(label, 0, ""): {"xml": "feasible"}}

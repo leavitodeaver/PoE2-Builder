@@ -583,6 +583,17 @@ class Search:
             self.kick()
         return best, start
 
+    def include_in_full_dps(self) -> None:
+        """Damaging non-main groups join Full DPS where they raise the goal (PoB counts only groups flagged for it)."""
+        build = self.build
+        for group in build.groups():
+            if group["main"] or group["fromItem"] or not group["enabled"] or group["fullDPS"]:
+                continue
+            before = build.objective.value(build.stats)
+            build.set_group(index=group["index"], fullDPS=True)
+            if build.objective.value(build.stats) <= before * (1 + 1e-9):
+                build.set_group(index=group["index"], fullDPS=False)
+
     def note_feasible(self) -> None:
         """Remember the build if it meets every requirement and beats the best such build on the goal."""
         stats = self.build.stats
@@ -620,20 +631,24 @@ class Search:
             "condition_sources": list(self.sources.kept),
             "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
             "overrun": dict(self.overrun),
+            "main_gems": [g.get("name") for g in (build.main_group() or {}).get("gems", []) if g.get("name")],
             "timing": {k: {"seconds": round(v[0], 2), "evals": v[1], "gain": round(v[2], 4)} for k, v in self.timing.items()},
         }
 
 
 def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, seconds: float, seed: int = 0,
-                  state: dict | None = None, goal: str | None = None) -> dict:
+                  state: dict | None = None, goal: str | None = None, full: bool = False) -> dict:
     """`goal` overrides the request's (a balanced run's boss-DPS searches); the result's `value` is
-    on that goal, so the run ranks results on its own goal from `dps` and `clear`."""
+    on that goal, so the run ranks results on its own goal from `dps` and `clear`. `full`: scored on PoB's Full
+    DPS, as the delivered build is, the damaging non-main groups included (the run's focus stage)."""
     deadline = clock.now() + seconds
     wall, left_out = time.perf_counter(), clock.paused()
-    search = Search(engine, report, payload, skeleton, seed, goal=goal)
+    search = Search(engine, report, payload, skeleton, seed, goal=goal, full=full)
     start = None
     if state is not None:
         search.load(state)
+        if full:
+            search.include_in_full_dps()
     elif search.skeleton.seeded:
         # The search never ends below the PoB code it started from (PLAN.md §8, gate 4)
         search.setup_seed()
@@ -710,13 +725,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     search.load(state)
     build = search.build
     build.phase = "finalize"
-    for group in build.groups():
-        if group["main"] or group["fromItem"] or not group["enabled"] or group["fullDPS"]:
-            continue
-        before = build.objective.value(build.stats)
-        build.set_group(index=group["index"], fullDPS=True)
-        if build.objective.value(build.stats) <= before * (1 + 1e-9):
-            build.set_group(index=group["index"], fullDPS=False)
+    search.include_in_full_dps()
     try:
         search.conditions.choose_quests()
         search.run(deadline, escalate=False, feasible_first=True)
