@@ -416,7 +416,7 @@ NOT_MODELED_YET = {
 # Every Meta gem the game files mark live (data/game-*/live.json) is in exactly one of META_GEMS, NO_ENERGY_ON_A_BOSS,
 # NOT_MODELED_YET, OTHER_METAS or DEPRECATED (tests/test_models.py), so none is dropped silently.
 OTHER_METAS = {
-    "Blasphemy": "turns socketed Curses into Auras (60 Spirit per Curse): a Spirit choice, not a trigger",
+    "Blasphemy": "turns socketed Curses into Auras (60 Spirit per Curse): a Spirit choice, not a trigger (the Spirit step, gems.blasphemy_option)",
     "Pounce": "a Werewolf slam that triggers a socketed Mark on the highest-rarity enemy hit (the marks round, gems.mark_round)",
     "Ferocious Roar": "a Bear Warcry that gains Rage per enemy Power and empowers socketed skills",
     "Ancestral Warrior Totem": "a totem whose spirit warriors use socketed Attacks, consuming 3 Endurance Charges",

@@ -311,3 +311,28 @@ def test_the_mark_round_adds_a_mark_only_when_it_pays_and_fits_the_button_cap(en
     assert not added and not marks and search.build.score == pytest.approx(before)
     assert search.gems.left_out["Sniper's Mark"].startswith("tried")
     assert "Bloodhound's Mark" in search.gems.left_out
+
+
+def test_the_spirit_step_puts_a_curse_in_blasphemy(engine):
+    """Slice 7: the search never proposed Curses. The Spirit step now offers the best Curse in Blasphemy (an aura: no
+    button, always on the boss; PoB prices its 60 Spirit and its less Curse effect, as the game files). Taking it out
+    removes the whole group, never leaving the Curse as a button."""
+    from builder.search.gems import BLASPHEMY_LABEL
+
+    payload = make_payload(BuildRequest(main_skill="Ice Nova", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Ice Nova"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    print("PROBE", build.stats.get("Spirit"), build.stats.get("SpiritUnreserved"), build.stats.get("Int"))
+    before = build.score
+    present = {g["name"] for grp in build.groups() for g in grp["gems"]}
+    option = search.gems.blasphemy_option(present, search.gems.budget_left(), 0)
+    print("PROBE", option, before)
+    assert option is not None and option[0] > before
+    while search.gems.persistent_round():
+        pass
+    cursed = [g for g in build.groups() if g["label"] == BLASPHEMY_LABEL]
+    assert len(cursed) == 1 and [g["name"] for g in cursed[0]["gems"]][0] == "Blasphemy"
+    assert build.score > before
+    assert search.gems.buttons() == ["Ice Nova"]

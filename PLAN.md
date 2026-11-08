@@ -647,7 +647,12 @@ they land.
      ailment; not Bloodhound's) cast by you, in Pounce or Hand of Chayula, or in a Called Shots group the build has, and
      keeps the best if the build scores better and its buttons fit the cap. Hand of Chayula's increased Mark effect and
      Pounce's own damage aren't read.
-  7. Blasphemy in the Spirit round (curses as auras, 60 Spirit each); Mirage Archer and Mirage Deadeye (mirages, at
+  7. Blasphemy in the Spirit round (curses as auras, 60 Spirit each). *(Blasphemy done)* PoB prices it as the game
+     files do (60 Spirit per socketed Curse; the support's Curse effect -50% at gem level 1 to -41% at 20) and keeps the
+     aura's Curse on the boss. The search had never proposed a Curse: the Spirit step (gems.blasphemy_option) now offers
+     the best live Curse in Blasphemy when the Spirit left meets the floor (one Curse: the enemy's limit), and takes the
+     whole group out if that scores better (its Curse alone would be a button). Not raised later to a higher gem level
+     (relevel_persistent covers the plain persistent groups only). Still open in 7: Mirage Archer and Mirage Deadeye (mirages, at
      the dodge-roll rate of slice 1); Ferocious Roar (Bear warcry, Rage) with the shapeshift skills.
   8. Granted metas when the build has their source: the item ones as unique proposals (Svalinn, Mjolner, Bijouborne,
      Forgotten Warden, a Dueling Wand base), the ascendancy ones with their notable (Fire Spell on Hit's Energy as

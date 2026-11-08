@@ -14,6 +14,8 @@ from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS, SUPPO
 from builder.search.state import EPSILON, Build
 
 PERSISTENT_LABEL = "auto: persistent"
+BLASPHEMY_LABEL = "auto: blasphemy"
+BLASPHEMY = "Blasphemy"
 META_LABEL = "auto: meta"
 MARK_LABEL = "auto: mark"
 META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
@@ -416,16 +418,24 @@ class Gems:
                     score = self.trial_new_group(name)  # its effect only shows once assumptions update
                 if score > build.score + EPSILON and (best is None or score > best[0]):
                     best = (score, "add", name)
-        if own:
-            scored = build.gem_deltas([{"group": g["index"], "slot": 1, "remove": True} for g in own], skip_ehp=False)
-            for (score, _), group in zip(scored, own):
+            curse = self.blasphemy_option(present, left, spare_floor)
+            if curse is not None and curse[0] > build.score + EPSILON and (best is None or curse[0] > best[0]):
+                best = (curse[0], "curse", curse[1])
+        cursed = [g for g in groups if g["label"] == BLASPHEMY_LABEL]
+        if own or cursed:
+            # (a Blasphemy group goes as a whole: its Curse alone would be a button; disabling the Curse frees its Spirit)
+            scored = build.gem_deltas([{"group": g["index"], "slot": 1, "remove": True} for g in own]
+                                      + [{"group": g["index"], "slot": 2, "remove": True} for g in cursed], skip_ehp=False)
+            for (score, _), group in zip(scored, own + cursed):
                 if score > build.score + EPSILON and (best is None or score > best[0]):
                     best = (score, "remove", group["index"])
         if best is None:
             return self.relevel_persistent(own)
         before = build.score
-        if best[1] == "add":
-            added = build.set_group(gems=self.persistent_gem(best[2]), label=PERSISTENT_LABEL)
+        if best[1] in ("add", "curse"):
+            gems, label = ((self.persistent_gem(best[2]), PERSISTENT_LABEL) if best[1] == "add"
+                           else (self.blasphemy_gems(best[2]), BLASPHEMY_LABEL))
+            added = build.set_group(gems=gems, label=label)
             if self.resolve is not None:
                 self.resolve()
             if build.worse(before):
@@ -434,17 +444,55 @@ class Gems:
                     self.resolve()
                 return False
         else:
-            removed = next(g for g in own if g["index"] == best[2])
+            removed = next(g for g in own + cursed if g["index"] == best[2])
             build.remove_group(best[2])
             if self.resolve is not None:
                 self.resolve()  # its what-if can't see a condition it was the source of go
             if build.worse(before):
                 build.set_group(gems=[{"name": g["name"], "level": g["level"], "quality": g["quality"]}
-                                      for g in removed["gems"]], label=PERSISTENT_LABEL)
+                                      for g in removed["gems"]], label=removed["label"])
                 if self.resolve is not None:
                     self.resolve()
                 return False
         return build.score > before + EPSILON
+
+    def curse_candidates(self, present: set[str], left: float) -> list[str]:
+        """Curses (AppliesCurse spells) Blasphemy can turn into auras."""
+        return [n for n, gem in self.ctx.gems.items() if not gem["support"] and "AppliesCurse" in gem["skillTypes"]
+                and "Meta" not in gem["skillTypes"] and n not in present and self.ctx.allowed_gem(n)
+                and self.ctx.gem_price(n) is not None and self.affordable(n, 0.0, left) and self.usable(n)
+                and self.usable_level(n)]
+
+    def blasphemy_gems(self, curse: str) -> list[dict]:
+        return [{"name": BLASPHEMY, "level": self.usable_level(BLASPHEMY) or GEM_LEVEL, "quality": GEM_QUALITY},
+                {"name": curse, "level": self.usable_level(curse) or GEM_LEVEL, "quality": GEM_QUALITY}]
+
+    def blasphemy_option(self, present: set[str], left: float, spare_floor: float) -> tuple[float, str] | None:
+        """Slice 7: the best Curse in Blasphemy, which PoB prices (60 Spirit per socketed Curse, the support's less Curse
+        effect: -50% at gem level 1 to -41% at 20, as the game files): an aura, so no button and always on the boss.
+        One Curse: an enemy carries one unless the build raises the limit. (score, curse) or None."""
+        if BLASPHEMY in present or not self._offered(BLASPHEMY, left, None) or not self.usable_level(BLASPHEMY):
+            return None
+        curses = self.curse_candidates(present, left)
+        if not curses:
+            return None
+        level = min(self.usable_level(BLASPHEMY), *(self.usable_level(n) for n in curses))
+        scored = self.build.gem_deltas([{"newGroup": [BLASPHEMY, n], "level": level, "quality": GEM_QUALITY}
+                                        for n in curses], skip_ehp=False)
+        best = None
+        for (score, stats), name in zip(scored, curses):
+            spirit = stats.get("SpiritUnreserved")
+            if isinstance(spirit, (int, float)) and spirit >= spare_floor and (best is None or score > best[0]):
+                best = (score, name)
+        if best is not None and self.assumptions is not None and self.assumptions.relevant(best[1]):
+            added = self.build.set_group(gems=self.blasphemy_gems(best[1]), label=BLASPHEMY_LABEL)
+            if self.resolve is not None:
+                self.resolve()
+            best = (self.build.score, best[1])
+            self.build.remove_group(added["index"])
+            if self.resolve is not None:
+                self.resolve()
+        return best
 
     def relevel_persistent(self, own: list[dict]) -> bool:
         """Raise the persistent skills the search added to the highest gem level the attributes
