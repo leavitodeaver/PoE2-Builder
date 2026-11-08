@@ -660,7 +660,16 @@ they land.
      takes one 0.75 s dodge roll per 10 s from the main skill for Mirage Archer unless Cast on Dodge already rolls. Step
      "mirages" (gems.mirage_round) tries the best ranged Attacks the build doesn't use (ranked by PoB's Full DPS, top 3
      for real) in a Mirage Deadeye group the build has, else in a new Mirage Archer group within the spare-Spirit
-     floor. Still open in 7: Ferocious Roar (Bear warcry, Rage) with the shapeshift skills.
+     floor. *(Ferocious Roar done)* PoB reads none of the roar's own stats and counts Rage only for builds that can
+     gain it. `models.roar_model`: a roar on its 8 s cooldown gains 2 Rage per boss Power (40, capped at 30), held 4 s,
+     then 5 lost per second (game files' Rage keyword): 25 Rage on average, as 1% more Attack damage each (skipped if
+     PoB already counts Rage); the 1.1 s roar takes its share of the main skill's time. Its two Empowered hits (20 Power
+     / 8) Break 6147 Armour each at gem level 20: when that covers the boss's base Armour (PoB's preset, 8063 at
+     Pinnacle) the "Armour Broken" condition goes on (Fully Broken 12 s per 8 s; conditions.roar_evidence). Needs a
+     Talisman (PoB disables only Attacks for a wrong weapon: the bridge's wrongWeapon). Step "roar" (gems.roar_round)
+     tries it for an Attack main skill within the button cap. Not counted: loss paused by boss hits, Rage-per lines,
+     Bear-form changes, the Endurance Charge cooldown bypass, releveling (it goes in at the level usable then). A
+     socketed human-form Warcry (PoB prices the support) isn't proposed: the search has no Warcries yet.
   8. Granted metas when the build has their source: the item ones as unique proposals (Svalinn, Mjolner, Bijouborne,
      Forgotten Warden, a Dueling Wand base), the ascendancy ones with their notable (Fire Spell on Hit's Energy as
      Thundergod's Wrath's, at the notable's level). Hollow Form uses Power Charges.

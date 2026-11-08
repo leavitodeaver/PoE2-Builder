@@ -381,6 +381,7 @@ class Search:
             ("totems", self.gems.totem_round, (deadline,)),
             ("marks", self.gems.mark_round, (deadline,)),
             ("mirages", self.gems.mirage_round, (deadline,)),
+            ("roar", self.gems.roar_round, (deadline,)),
             ("prune and regrow", self.tree.swap_round, (deadline,)),
         ]
         if self.skeleton.swap:
@@ -389,7 +390,7 @@ class Search:
         for phase, fn, args in steps:
             if clock.now() > deadline:
                 break
-            if phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "mirages") and not sweep:
+            if phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "mirages", "roar") and not sweep:
                 continue
             improved = self.step(phase, fn, *args) or improved
         self.kicked.clear()

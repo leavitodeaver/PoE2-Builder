@@ -47,6 +47,8 @@ MODEL_FIELDS = sorted({
     "ManaUnreserved", "Life",
     # buff uptimes from the mechanic: Mana Tempest's Mana, Lunar Blessing's Rage
     "ManaRegenRecovery", "MaximumRage",
+    # Ferocious Roar: Rage PoB already counts (a build that can gain it)
+    "Rage",
     # Guided Hand: what kind of damage the main skill deals
     "PhysicalHitAverage",
     # Sanguine Tides: Life spent per second
@@ -200,13 +202,14 @@ class Skill:
     cooldown: float | None = None
     cooldown_recovery: float = 1.0
     level_stats: dict[str, float] = field(default_factory=dict)  # only for skills asked for (Iron Ward)
+    wrong_weapon: bool = False  # needs a weapon type in neither hand (PoB disables only Attacks for that)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
         return cls(raw["name"], raw.get("group"), bool(raw.get("spell")), bool(raw.get("attack")),
                    bool(raw.get("melee")), bool(raw.get("triggered")), bool(raw.get("energy")),
                    number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0,
-                   dict(raw.get("levelStats") or {}))
+                   dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -418,7 +421,8 @@ NOT_MODELED_YET = {
 OTHER_METAS = {
     "Blasphemy": "turns socketed Curses into Auras (60 Spirit per Curse): a Spirit choice, not a trigger (the Spirit step, gems.blasphemy_option)",
     "Pounce": "a Werewolf slam that triggers a socketed Mark on the highest-rarity enemy hit (the marks round, gems.mark_round)",
-    "Ferocious Roar": "a Bear Warcry that gains Rage per enemy Power and empowers socketed skills",
+    "Ferocious Roar": "a Bear Warcry: Rage per enemy Power and Armour Break (the roar round, gems.roar_round; roar_model), or a "
+                      "socketed human-form Warcry it triggers (PoB prices that as a support; the search doesn't propose Warcries yet)",
     "Ancestral Warrior Totem": "a totem whose spirit warriors use socketed Attacks, consuming 3 Endurance Charges",
     "Mortar Cannon": "a Ballista Totem that uses socketed Grenade skills",
     "Hand of Chayula": "a Strike that triggers socketed Marks with increased effect (the marks round; the increased effect isn't read)",
@@ -587,6 +591,94 @@ def mirage_model(skills: list[Skill], main: Skill | None, gems: dict[str, tuple[
 # - Bloodhound's Mark: consumed on Heavy Stun to trigger Blood Explosion; PoB adds nothing to the main skill's damage.
 MARK_DURATION = 8.0
 MARK_BUFF_DURATION = 10.0
+# Ferocious Roar (slice 7; model: roar_model, conditions.Conditions.roar_evidence) ----------------------------------------
+# Game files (build 26476662, FerociousRoarMetaPlayer): 1.1 s cast, 8 s cooldown; gains 200 centirage per enemy Power
+# (bear_warcry_gain_X_centirage_per_enemy_power, quality +5 per %); Empowers attacks, one per 8 Power (cap 64), to Break
+# X Armour on hit (warcry_grant_break_X_armour_on_hit: 6147 at gem level 20, 18273 at 40). With a human-form Warcry
+# socketed it triggers that Warcry instead (SupportFerociousRoarPlayer: +30% to +132% damage, +50% area), which PoB
+# prices as a support. Keyword texts (KeywordPopups): "Rage grants 1% more Attack damage per 1 Rage. By default, you have
+# 30 maximum Rage and lose 1 Rage every 0.2 seconds. Rage loss is paused for 4 seconds upon gaining Rage, or after taking
+# damage"; Armour brought to 0 "is Fully Broken for 12 seconds". PoB reads none of the roar's own stats (only its
+# description, which no condition takes: it names Warcries and Attacks), and counts Rage only for builds that can gain it.
+FEROCIOUS_ROAR = "Ferocious Roar"
+ROAR_COOLDOWN = 8.0
+ROAR_EMPOWER_PER_POWER, ROAR_EMPOWER_POWER_CAP = 8, 64
+RAGE_MAXIMUM, RAGE_HOLD, RAGE_LOSS = 30.0, 4.0, 5.0  # Rage, s without loss after gaining it, Rage lost per second
+FULL_BREAK_DURATION = 12.0
+
+
+def roar(skills: list[Skill]) -> tuple[Skill | None, bool]:
+    """The build's Ferocious Roar, and whether it triggers a socketed Warcry instead of its own effects."""
+    skill = next((s for s in skills if s.name == FEROCIOUS_ROAR and not s.wrong_weapon), None)  # (a Talisman skill)
+    if skill is None:
+        return None, False
+    return skill, any(s.group == skill.group and s.name != FEROCIOUS_ROAR for s in skills if skill.group is not None)
+
+
+def roar_period(skill: Skill) -> float:
+    return max((skill.cooldown or ROAR_COOLDOWN) / (skill.cooldown_recovery or 1.0), skill.cast_time)
+
+
+def roar_rage(skill: Skill) -> float:
+    per_power = number(skill.level_stats.get("bear_warcry_gain_X_centirage_per_enemy_power")) / 100 or 2.0
+    return per_power * BOSS_POWER
+
+
+def rage_average(gain: float, maximum: float, period: float) -> float:
+    """Average Rage over one roar to the next: full (capped) for RAGE_HOLD s, then RAGE_LOSS per second down to 0."""
+    top = min(gain, maximum)
+    if period <= 0 or top <= 0:
+        return 0.0
+    decay = min(max(period - RAGE_HOLD, 0.0), top / RAGE_LOSS)
+    held = min(period, RAGE_HOLD)
+    return (top * held + top * decay - RAGE_LOSS * decay * decay / 2) / period
+
+
+def roar_empowered() -> int:
+    return max(1, min(BOSS_POWER, ROAR_EMPOWER_POWER_CAP) // ROAR_EMPOWER_PER_POWER)
+
+
+def roar_break(skill: Skill, enemy_armour: float) -> tuple[float, str]:
+    """Share of the fight the boss's Armour is Fully Broken by the roar's Empowered hits, and its basis."""
+    per_hit = number(skill.level_stats.get("warcry_grant_break_X_armour_on_hit"))
+    hits, period = roar_empowered(), roar_period(skill)
+    broken = per_hit * hits
+    basis = (f"{FEROCIOUS_ROAR} Empowers {hits} Attacks per use (one per {ROAR_EMPOWER_PER_POWER} of the boss's "
+             f"{BOSS_POWER} Power), each Breaking {per_hit:,.0f} Armour: {broken:,.0f} against the boss's {enemy_armour:,.0f}")
+    if per_hit <= 0 or broken < enemy_armour:
+        return 0.0, basis + ": not Fully Broken"
+    return min(1.0, FULL_BREAK_DURATION / period), (
+        basis + f": Fully Broken for {FULL_BREAK_DURATION:g} s, once per {period:.1f} s (the main skill's next hits after "
+        "each roar assumed to land)")
+
+
+def roar_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+    """The Rage a Ferocious Roar used on cooldown keeps on average (PoB gives a build that can't gain Rage none), and the
+    time the roar takes from the main skill. Its Armour Break is a condition (conditions.Conditions.roar_evidence)."""
+    skill, warcry = roar(skills)
+    if skill is None or warcry or main is None or main is skill:
+        return [], []
+    period = roar_period(skill)
+    mods: list[dict] = []
+    notes: list[dict] = []
+    if main.attack and number(stats.get("Rage")) <= 0:
+        gain = roar_rage(skill)
+        rage = rage_average(gain, number(stats.get("MaximumRage")) or RAGE_MAXIMUM, period)
+        mods.append(line("1% more Attack Damage", rage))
+        notes.append({"label": f"{FEROCIOUS_ROAR}: average Rage", "value": round(rage, 1), "confidence": "theory",
+                      "basis": f"{gain:g} Rage per roar ({BOSS_POWER} Power x {gain / BOSS_POWER:g}), capped at "
+                               f"{number(stats.get('MaximumRage')) or RAGE_MAXIMUM:g}, used every {period:.1f} s; held "
+                               f"{RAGE_HOLD:g} s, then 1 lost per 0.2 s (game files); 1% more Attack damage each. "
+                               "Loss paused by the boss's hits isn't counted; Rage-per lines of the build aren't fed"})
+    lost = min(1.0, (skill.cast_time or 1.1) / period)
+    mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
+    notes.append({"label": f"{FEROCIOUS_ROAR}: time it takes from {main.name}", "value": round(lost, 3),
+                  "confidence": "theory",
+                  "basis": f"pressed on its cooldown: {skill.cast_time or 1.1:.2f} s every {period:.1f} s; changing to "
+                           "and from Bear form isn't counted"})
+    return mods, notes
+
+
 BOSS_AILMENT_EVERY = 30.0  # seconds between Freezes / Electrocutes of a pinnacle boss (assumed, as conditions.py)
 MARK_BUFFS = {"Voltaic Mark": "Electrocute", "Freezing Mark": "Freeze"}
 MARKS = ("Sniper's Mark", *MARK_BUFFS, "Bloodhound's Mark")

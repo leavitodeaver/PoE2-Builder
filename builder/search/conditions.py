@@ -375,6 +375,8 @@ class Conditions:
                     if value <= 0:
                         continue
                 found[condition.var] = (value, reason)
+        if "Ferocious Roar" in gem_types and "conditionEnemyArmourBroken" not in found and (roar := self.roar_evidence()):
+            found["conditionEnemyArmourBroken"] = roar
         # Charges held: PoB reads an override of 0 as "not set" (the maximum), so none held switches the "use" box off
         for kind in ("Power", "Frenzy", "Endurance"):
             held = found.get(f"override{kind}Charges")
@@ -387,6 +389,20 @@ class Conditions:
             elif f"use{kind}Charges" not in found:
                 found.pop(f"override{kind}Charges")  # (no source the resolver accepts for the box itself)
         return found
+
+    def roar_evidence(self) -> tuple[bool, str] | None:
+        """Ferocious Roar used on its cooldown, its Empowered hits Breaking the boss's Armour (models.roar_break): PoB
+        reads none of it. Evidence only if the main skill is an Attack and the Armour stays Fully Broken."""
+        from builder.search import models
+
+        if "Attack" not in self.main_types:
+            return None
+        raw = self.build.call("activeSkills", levelStats=[models.FEROCIOUS_ROAR])
+        skill, warcry = models.roar([models.Skill.of(s) for s in raw["skills"] if not s["disabled"]])
+        if skill is None or warcry:
+            return None
+        share, basis = models.roar_break(skill, number(raw.get("enemyArmour")))
+        return (True, f"gem:{models.FEROCIOUS_ROAR}: {basis}") if share >= UPTIME else None
 
     def resolve(self) -> bool:
         """Match the config to the evidence. Returns True if anything changed."""

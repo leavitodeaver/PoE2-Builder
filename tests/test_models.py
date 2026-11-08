@@ -628,3 +628,25 @@ def test_a_mirage_uses_its_attack_for_the_share_of_time_it_is_up():
     assert groups == {3} and [n["value"] for n in notes] == [0.5, 0.0]  # Deadeye's takes the shared cooldown
     spell = models.Skill("Fireball", group=1, spell=True)
     assert models.mirage_model([spell, eye, rain], spell, {"Mirage Deadeye": (20, 0)})[2] == set()
+
+
+def test_ferocious_roar_keeps_rage_on_average_and_breaks_armour_with_enough_per_hit():
+    """Slice 7: a roar every 8 s gains 2 Rage per boss Power (40, capped at 30), held 4 s, then 5 lost per second: 25 on
+    average (game files: 1% more Attack damage each). Two Empowered hits (20 Power / 8) Fully Break the boss's Armour if
+    their Break covers it, for 12 s. A socketed Warcry replaces its own effects (PoB prices that as a support)."""
+    assert models.rage_average(40, 30, 8.0) == 25.0
+    assert models.rage_average(40, 30, 4.0) == 30.0
+    assert models.rage_average(10, 30, 8.0) == pytest.approx((10 * 4 + 10 * 2 - 5 * 4 / 2) / 8)  # (gone after 2 s)
+    slam = models.Skill("Furious Slam", group=1, attack=True)
+    roar = models.Skill("Ferocious Roar", group=2, cast_time=1.1, cooldown=8.0,
+                        level_stats={"bear_warcry_gain_X_centirage_per_enemy_power": 200,
+                                     "warcry_grant_break_X_armour_on_hit": 6147})
+    mods, notes = models.roar_model([slam, roar], {"MaximumRage": 30}, slam)
+    assert [n["value"] for n in notes] == [25.0, round(1.1 / 8, 3)]
+    assert mods[0]["line"] == "1% more Attack Damage" and mods[0]["scale"] == 25.0
+    assert mods[1]["skill"] == "Furious Slam" and mods[1]["scale"] == pytest.approx(-100 * 1.1 / 8)
+    assert len(models.roar_model([slam, roar], {"Rage": 30, "MaximumRage": 30}, slam)[0]) == 1  # (PoB counts Rage)
+    assert models.roar_break(roar, 8063)[0] == 1.0 and models.roar_break(roar, 12295)[0] == 0.0
+    shout = models.Skill("Infernal Cry", group=2, triggered=True)
+    assert models.roar([slam, roar, shout]) == (roar, True) and models.roar_model([slam, roar, shout], {}, slam) == ([], [])
+    assert models.roar([slam, models.Skill("Ferocious Roar", group=2, wrong_weapon=True)]) == (None, False)  # (no Talisman)

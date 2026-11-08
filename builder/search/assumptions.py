@@ -94,6 +94,8 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + resolve_mods, hand_notes + resolve_notes
         mark_mods, mark_notes = models.mark_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + mark_mods, hand_notes + mark_notes
+        roar_mods, roar_notes = models.roar_model(found, stats, main)
+        hand_mods, hand_notes = hand_mods + roar_mods, hand_notes + roar_notes
         mirage_mods, mirage_notes, mirage_groups = models.mirage_model(
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))
@@ -125,7 +127,8 @@ class Assumptions:
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups}, **expression_groups}
 
     def wanted(self) -> tuple[list[dict], list[dict]]:
-        skills = self.build.call("activeSkills", levelStats=[models.IRON_WARD, *models.gem_stat_skills()])["skills"]
+        skills = self.build.call("activeSkills", levelStats=[models.IRON_WARD, models.FEROCIOUS_ROAR,
+                                                             *models.gem_stat_skills()])["skills"]
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:

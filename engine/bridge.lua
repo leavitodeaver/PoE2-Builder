@@ -1674,6 +1674,8 @@ function bridge.activeSkills(args)
 	for index, group in ipairs(build.skillsTab.socketGroupList) do
 		groupIndex[group] = index
 	end
+	local weapon1 = env and env.player.weaponData1 and env.player.weaponData1.type
+	local weapon2 = env and env.player.weaponData2 and env.player.weaponData2.type
 	for _, activeSkill in ipairs(env and env.player.activeSkillList or { }) do
 		local effect = activeSkill.activeEffect.grantedEffect
 		local types = activeSkill.skillTypes
@@ -1693,6 +1695,9 @@ function bridge.activeSkills(args)
 			castTime = effect.castTime,
 			energy = types[SkillType.GeneratesEnergy] and true or false,
 			group = activeSkill.socketGroup and groupIndex[activeSkill.socketGroup] or nil,
+			-- a weapon type it needs in neither hand (PoB disables only Attacks for that; Ferocious Roar needs a Talisman)
+			wrongWeapon = effect.weaponTypes and not (weapon1 and effect.weaponTypes[weapon1] or weapon2
+				and effect.weaponTypes[weapon2]) or nil,
 		}
 		if wantStats[effect.name] and effect.statSets and effect.statSets[1] then
 			-- every stat set's stats (the first set's value wins where two share a stat); ledger
@@ -1709,7 +1714,9 @@ function bridge.activeSkills(args)
 			skills[#skills].levelStats = stats
 		end
 	end
-	return { skills = skills }
+	-- the boss's base Armour (PoB's enemy preset), for Armour Break models (Ferocious Roar)
+	local enemyArmour = env and env.enemyDB and env.enemyDB:Sum("BASE", nil, "Armour") or 0
+	return { skills = skills, enemyArmour = enemyArmour }
 end
 
 -- What PoB can't calculate: every passive-tree line and unique-item line its modifier parser

@@ -360,3 +360,28 @@ def test_the_mirage_round_gives_a_bow_build_a_mirage_archer(engine):
     assert build.score > before and notes and notes[0]["value"] == round(share, 2)
     assert "Mirage Archer" not in search.gems.buttons()
     assert not search.gems.mirage_round(float("inf"))  # (it has its Attack)
+
+
+def test_the_roar_round_gives_an_attack_build_ferocious_roar(engine):
+    """Slice 7: PoB reads none of Ferocious Roar's own stats. The roar round adds it to a Bear Attack build: its average
+    Rage counts as more Attack damage (roar_model), and at gem level 20 its two Empowered hits (6147 each) Fully Break
+    the boss's Armour (PoB's Pinnacle preset), switched on as a condition. It's a button."""
+    from builder.search.gems import ROAR_LABEL
+
+    payload = make_payload(BuildRequest(main_skill="Furious Slam"))
+    skeleton = enumerate_skeletons(Context(payload), ["Furious Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    before = build.score
+    assert search.gems.roar_round(float("inf"))
+    roar = [g for g in build.groups() if g["label"] == ROAR_LABEL]
+    rage = [n for n in search.assumptions.active if n["label"] == "Ferocious Roar: average Rage"]
+    assert build.score > before and len(roar) == 1 and rage and rage[0]["value"] == 25.0
+    assert "Ferocious Roar" in search.gems.buttons()
+    assert not search.gems.roar_round(float("inf"))
+    build.set_group(index=roar[0]["index"], gems=[{"name": "Ferocious Roar", "level": 20, "quality": 0}])
+    search.gems.resolve()
+    broken = search.conditions.active.get("conditionEnemyArmourBroken")
+    print("PROBE", before, build.score, broken)
+    assert broken and "6,147" in broken["evidence"]

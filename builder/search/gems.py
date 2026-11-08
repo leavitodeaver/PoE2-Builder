@@ -19,6 +19,7 @@ BLASPHEMY = "Blasphemy"
 META_LABEL = "auto: meta"
 MARK_LABEL = "auto: mark"
 MIRAGE_LABEL = "auto: mirage"
+ROAR_LABEL = "auto: roar"
 MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what PoB says each adds to Full DPS)
 META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
 META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
@@ -898,6 +899,39 @@ class Gems:
         if self.resolve is not None:
             self.resolve()
         self.left_out.pop(meta, None)
+        return build.score > before + EPSILON
+
+    def roar_round(self, deadline: float) -> bool:
+        """Slice 7: Ferocious Roar on its own (its Rage, models.roar_model, and its Armour Break,
+        conditions.Conditions.roar_evidence; PoB reads neither), kept if the build scores better and its button fits the
+        cap. Only for an Attack main skill; PoB disables it without a Talisman. A Warcry socketed in it isn't proposed:
+        the search doesn't use Warcries yet."""
+        from builder.search import models
+
+        build = self.build
+        name = models.FEROCIOUS_ROAR
+        if (clock.now() > deadline or build.main_group() is None or self.conditions is None
+                or "Attack" not in self.conditions.main_types):
+            return False
+        if any(g["name"] == name for grp in build.groups() for g in grp["gems"]):
+            return False
+        if len([g for g in build.groups() if not g["fromItem"]]) >= MAX_GEM_GROUPS:
+            return False
+        level = self.usable_level(name)
+        if level is None or not self._offered(name, self.budget_left(), self.usage_stats()):
+            self.left_out[name] = "not usable: not affordable, or its attributes aren't met"
+            return False
+        before = build.score
+        place = {"gems": [{"name": name, "level": level, "quality": GEM_QUALITY}], "label": ROAR_LABEL}
+        score = self.trial_mark(place, self.ctx.request.max_buttons)
+        if score is None or score <= before + EPSILON:
+            self.left_out[name] = ("tried: its button doesn't fit the cap" if score is None
+                                   else "tried: no gain (no Talisman, or its Rage and Armour Break don't pay for the time it takes)")
+            return False
+        build.set_group(gems=place["gems"], label=ROAR_LABEL)
+        if self.resolve is not None:
+            self.resolve()
+        self.left_out.pop(name, None)
         return build.score > before + EPSILON
 
     def trial_mark(self, place: dict, cap: int | None) -> float | None:
