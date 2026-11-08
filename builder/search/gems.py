@@ -23,6 +23,7 @@ MIRAGE_LABEL = "auto: mirage"
 ROAR_LABEL = "auto: roar"
 # Groups the search adds whole: their skill and meta gems are raised as the attributes grow (relevel_added)
 ADDED_LABELS = (PERSISTENT_LABEL, BLASPHEMY_LABEL, META_LABEL, MARK_LABEL, MIRAGE_LABEL, ROAR_LABEL)
+GRANTED_SUPPORT_ROUNDS = 6  # support changes a granted meta group gets right after its spell (fill_granted_supports)
 GRANTED_FILL_SECONDS = 60.0  # time a granted meta's fill (fill_granted) may take within one ascendancy trial
 MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what PoB says each adds to Full DPS)
 META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
@@ -57,6 +58,7 @@ class Gems:
         self.required_supports = set(self.ctx.compiled.request.require.supports)
         self.shortlist: list[str] | None = None  # best supports at the last full sweep
         self.meta_shortlist: list[str] | None = None  # the same for the meta group's
+        self.granted_shortlists: dict[int, list[str]] = {}  # and for each item- or notable-granted meta group's
         self.conditions = None  # the condition resolver, when supports should be tried with it
         self.assumptions = None
         self.resolve = None  # re-resolves conditions and assumptions after a trial commit
@@ -128,19 +130,41 @@ class Gems:
             self.build.set_group(index=group["index"], gems=self.gem_list(names))
         return missing
 
-    def supports_group(self, groups: list[dict], meta: bool) -> dict | None:
+    def supports_group(self, groups: list[dict], meta: bool, index: int | None = None) -> dict | None:
         """The group a supports round fills: the main skill's, or the meta group (its supports go on the triggered spell,
-        by PoB's support rules through `supportCandidates`). None for a group a passive or item grants."""
+        by PoB's support rules through `supportCandidates`), or with `index` that granted meta group. None for any other
+        group a passive or item grants."""
+        if index is not None:
+            return next((g for g in groups if g["index"] == index), None)
         group = next((g for g in groups if (g["label"] == META_LABEL if meta else g["main"])), None)
         return None if group is None or group["fromItem"] else group
 
-    def supports_round(self, full_sweep: bool = False, meta: bool = False) -> bool:
-        """Improve one group's supports by one change: the main skill's, or with `meta` the meta group's. A full sweep
-        tries every candidate in every slot; otherwise only the weakest slot (or an empty one) is retried, against the
+    def _shortlist(self, meta: bool, index: int | None) -> list[str] | None:
+        if index is not None:
+            return self.granted_shortlists.get(index)
+        return self.meta_shortlist if meta else self.shortlist
+
+    def _set_shortlist(self, meta: bool, index: int | None, value: list[str] | None) -> None:
+        if index is not None:
+            if value is None:
+                self.granted_shortlists.pop(index, None)
+            else:
+                self.granted_shortlists[index] = value
+        elif meta:
+            self.meta_shortlist = value
+        else:
+            self.shortlist = value
+
+    def supports_round(self, full_sweep: bool = False, meta: bool = False, granted: int | None = None) -> bool:
+        """Improve one group's supports by one change: the main skill's, with `meta` the meta group's, or with `granted`
+        the meta group of that index an item or notable grants (the socketed spell's supports, as in the player's: the
+        reference 2b75d has Boundless Energy II and three others in Mjolner's Thundergod's Wrath). A full sweep tries
+        every candidate in every slot; otherwise only the weakest slot (or an empty one) is retried, against the
         shortlist from the last sweep (each group keeps its own)."""
         build = self.build
         groups = build.groups()
-        group = self.supports_group(groups, meta)
+        meta = meta or granted is not None
+        group = self.supports_group(groups, meta, granted)
         if group is None:
             return False  # none, or a skill a passive or item grants: its group isn't the player's to fill
         index = group["index"]
@@ -148,7 +172,7 @@ class Gems:
         first = next((i for i, g in enumerate(group["gems"]) if g["support"]), len(names))  # the actives come first
         supports = names[first:]
         required = set() if meta else self.required_supports
-        shortlist = self.meta_shortlist if meta else self.shortlist
+        shortlist = self._shortlist(meta, granted)
         stats = self.usage_stats()
         candidates = [c for c in self.candidates(index, groups) if self.usable(c, stats)]
         if not full_sweep and shortlist is not None:
@@ -193,27 +217,24 @@ class Gems:
             for _, (_, name) in ranked:
                 if name not in seen:
                     seen.append(name)
-            if meta:
-                self.meta_shortlist = seen[:SHORTLIST]
-            else:
-                self.shortlist = seen[:SHORTLIST]
+            self._set_shortlist(meta, granted, seen[:SHORTLIST])
         options = [(s, m) for (s, _), m in zip(scored, moves)]
         options += self.discover(index, names, options, group)
         if meta and full_sweep:
             options += self.energy_trials(index, names, options, group)
-        best_score, best_move = max(options, key=lambda x: x[0])
-        if best_score <= build.score + EPSILON:
-            return False
+        # The what-if can't see a meta group's trigger rate (models.energy_model works it out after a resolve), so there
+        # the next best moves get a real trial too when the first turns out worse
         before = build.score
-        self.commit(index, self.with_move(names, best_move), group)
-        if build.worse(before):
+        ranked = sorted(options, key=lambda x: -x[0])
+        tries = [m for i, (s, m) in enumerate(ranked) if s > before + EPSILON and m not in (x for _, x in ranked[:i])]
+        for move in tries[:META_TRIALS if meta else 1]:
+            self.commit(index, self.with_move(names, move), group)
+            if not build.worse(before):
+                return build.score > before + EPSILON
             self.commit(index, names, group)
-            if meta:
-                self.meta_shortlist = None
-            else:
-                self.shortlist = None
-            return False
-        return build.score > before + EPSILON
+        if tries:
+            self._set_shortlist(meta, granted, None)
+        return False
 
     @staticmethod
     def with_move(names: list[str], move: tuple[int, str]) -> list[str]:
@@ -321,15 +342,17 @@ class Gems:
 
     def optimize_supports(self, deadline: float, rounds: int = 12, allow_sweep: bool = True) -> bool:
         """Weakest-slot moves against the shortlist; once those run out (and if allowed), one
-        full sweep of every candidate in every slot. The main group first, then the meta group's."""
+        full sweep of every candidate in every slot. The main group first, then the meta group's, then each granted
+        meta group holding a spell."""
 
         improved = False
-        for meta in (False, True):
-            sweep = (self.meta_shortlist if meta else self.shortlist) is None
+        granted = [g["index"] for g in self.filled_granted_groups()]
+        for meta, index in [(False, None), (True, None), *((True, i) for i in granted)]:
+            sweep = self._shortlist(meta, index) is None
             for _ in range(rounds):
                 if clock.now() > deadline:
                     break
-                if not self.supports_round(full_sweep=sweep, meta=meta):
+                if not self.supports_round(full_sweep=sweep, meta=meta, granted=index):
                     if sweep or not allow_sweep:
                         break
                     sweep = True
@@ -652,6 +675,24 @@ class Gems:
         return [g for g in self.build.groups() if g["fromItem"] and g["enabled"] and g["gems"]
                 and g["gems"][0]["name"] in models.META_GEMS and not any(not x["support"] for x in g["gems"][1:])]
 
+    def filled_granted_groups(self) -> list[dict]:
+        """Groups an item or notable grants whose Energy meta holds a spell: their supports are the player's to choose."""
+        from builder.search import models
+
+        return [g for g in self.build.groups() if g["fromItem"] and g["enabled"] and g["gems"]
+                and g["gems"][0]["name"] in models.META_GEMS and any(not x["support"] for x in g["gems"][1:])]
+
+    def fill_granted_supports(self, index: int, deadline: float, rounds: int = GRANTED_SUPPORT_ROUNDS) -> bool:
+        """A sweep of supports for the granted group `index`, then weakest-slot rounds, so a unique tried for its
+        granted meta (gear.granted_meta_trials) is judged with its spell supported."""
+        self.granted_shortlists.pop(index, None)
+        improved, sweep = False, True
+        for _ in range(rounds):
+            if clock.now() > deadline or not self.supports_round(full_sweep=sweep, granted=index):
+                break
+            improved, sweep = True, False
+        return improved
+
     def granted_meta_round(self, deadline: float) -> bool:
         """Slice 8: a spell in each empty meta group an item grants, the best of the META_TRIALS spells PoB's what-if
         ranks first, kept if the build scores better (the trigger rate, models.energy_model, shows only after a resolve).
@@ -690,6 +731,7 @@ class Gems:
                 self.set_meta_gems(group, names)
                 build.set_group(index=index, fullDPS=group["fullDPS"])
                 continue
+            self.fill_granted_supports(index, deadline)
             improved = improved or build.score > before + EPSILON
         return improved
 

@@ -438,7 +438,7 @@ def test_ascendancy_round_takes_a_meta_granting_notable_with_its_group_filled(en
 def test_an_item_granted_meta_gets_a_spell_and_a_unique_granting_one_is_tried(engine):
     """Slice 8 (MECH8): Mjolner's Thundergod's Wrath triggers nothing until a spell is socketed in it, so the granted metas
     step fills it (gems.granted_meta_round: PoB's what-if ranks spells only once the group counts in Full DPS). The gear
-    round tries each meta-granting unique for real with its group filled (gear.granted_meta_trials); on a bare
+    round tries each meta-granting unique for real with its group filled, supports included (gear.granted_meta_trials); on a bare
     Boneshatter mace and shield build Svalinn's Cast on Block pays."""
     payload = make_payload(BuildRequest(main_skill="Boneshatter", weapon_unique="Mjolner"))
     skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
@@ -448,8 +448,9 @@ def test_an_item_granted_meta_gets_a_spell_and_a_unique_granting_one_is_tried(en
     before = build.score
     assert search.gems.granted_meta_round(float("inf"))
     group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Thundergod's Wrath")
-    assert build.score > before and len(group["gems"]) == 2 and group["fullDPS"]
-    assert not search.gems.granted_meta_groups()
+    assert build.score > before and len([g for g in group["gems"] if not g["support"]]) == 2 and group["fullDPS"]
+    assert any(g["support"] for g in group["gems"])  # its spell's supports chosen too (fill_granted_supports)
+    assert not search.gems.granted_meta_groups() and search.gems.filled_granted_groups() == [group]
 
     payload = make_payload(BuildRequest(main_skill="Boneshatter"))
     payload["unique_prices"] = {"Svalinn": [2.0, 50]}
@@ -462,7 +463,7 @@ def test_an_item_granted_meta_gets_a_spell_and_a_unique_granting_one_is_tried(en
     assert search.gear.granted_meta_trials(float("inf"))
     assert build.equipped["Weapon 2"].name == "Svalinn" and build.score > before
     group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Cast on Block")
-    assert len(group["gems"]) == 2
+    assert len([g for g in group["gems"] if not g["support"]]) == 2
 
 
 def test_a_spell_that_needs_corpses_counts_nothing_without_a_corpse_source(engine):
