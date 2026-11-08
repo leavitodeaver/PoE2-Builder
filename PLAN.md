@@ -616,8 +616,14 @@ they land.
      and costs all their Energy), up to 3 spells; a meta gem's spells and supports share its 5 sockets (assumed, the
      cautious reading). Boundless Energy I/II (+35/45% Energy) and Energy Retention (35% chance to refund half) are read
      from the meta group's supports (game files; PoB reads neither) and tried for real in the meta group's sweep.
-  4. Invocations within the button cap: Elemental, Barrier, and Feral Invocation (whose Energy is 1 per 20 Mana spent).
-     Reaper's Invocation and Cast on Minion Death gain nothing on a boss; they stay labelled.
+  4. *(done for Elemental and Barrier)* Invocations within the button cap: the meta round offers an Invocation only
+     while the build's buttons (`Gems.buttons`, constraints' rule) leave room, else it's left out with that reason.
+     Invocations are instant (game files), so pressing costs no time; assumed pressed before the 500 Energy store fills.
+     Still open: Feral Invocation (a clone uses its socketed Attacks, Energy cost per 10 ms of base attack time, 1 Energy
+     per 20 Mana spent): the Energy model prices triggered Spells only. Reaper's Invocation and Cast on Minion Death gain
+     nothing on a boss; they stay labelled.
+     Barrier Invocation's Energy now counts only the Energy Shield that returns between landed hits (regeneration,
+     recharge after the delay): it used to count a full hit every time, so a bare 40 ES Titan kept it.
   5. Totems: Spell Totem (consumes 3 Power or Endurance Charges: the charge model), Ancestral Warrior Totem (3
      Endurance Charges), Mortar Cannon (Grenade skills); what PoB counts for a totem's socketed skill, checked first.
   6. Marks and strikes: Pounce (Werewolf slam), Hand of Chayula and Called Shots trigger socketed Marks.

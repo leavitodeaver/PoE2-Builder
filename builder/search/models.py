@@ -31,6 +31,7 @@ DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
 # PoB stats the models read (beyond the objective's own fields)
 MODEL_FIELDS = sorted({
     "Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
+    "EnergyShieldRegenRecovery", "EnergyShieldRecharge",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
     "Darkness", "Str", "Dex", "Int", *(f"{t}CritAverage" for t in DAMAGE_TYPES), *(f"{t}HitAverage" for t in DAMAGE_TYPES),
     *(f"MainHand.{t}CritAverage" for t in DAMAGE_TYPES),
@@ -391,6 +392,7 @@ META_GEMS = {
 # "trigger_skills_refund_half_energy_spent_chance_%" 35. They count for the meta skill they support only.
 META_SUPPORTS = {"Boundless Energy I": ("MetaEnergy", 35.0), "Boundless Energy II": ("MetaEnergy", 45.0),
                  "Energy Retention": ("EnergyRefund", 35.0)}
+INVOCATION_MAX_ENERGY = 500  # generic_ongoing_trigger_maximum_energy of every Invocation (game files, build 26476662)
 DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files, build 26476662); distance mods not counted
 DODGE_EVERY = 2.0  # seconds between dodge rolls against a boss: the user's default (7 Nov 2026), said in the guide
 DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); faster rolls from movement speed not counted
@@ -402,7 +404,8 @@ NO_ENERGY_ON_A_BOSS = {"Reaper's Invocation": "kills", "Cast on Minion Death": "
 DEPRECATED = {name: "removed from the game (the 0.5 game files and poe2db agree; deprecated)"
               for name in ("Curse on Block", "Cast on Melee Stun", "Cast on Melee Kill")}
 NOT_MODELED_YET = {
-    "Feral Invocation": "its Energy (1 per 20 Mana spent) needs the Mana the build spends per second",
+    "Feral Invocation": "a clone uses its socketed Attacks (Energy cost per 10 ms of base attack time; 1 Energy per 20 Mana "
+                        "spent): the Energy model prices triggered Spells only so far",
     "Cast on Charm Use": "its Energy (2 per charge used) needs the charm uses from the flask model",
     "Fire Spell on Hit": "Heat of the Forge grants it at a level the model doesn't read yet (Energy as Thundergod's Wrath)",
 }
@@ -461,11 +464,22 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
             return 0.0, "the build has no Energy Shield: no Energy"
         every = number(stats.get("enemySkillTime")) or 0.7
         land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)
-        taken = min(sum(number(stats.get(f"{t}TakenHit")) for t in DAMAGE_TYPES), pool)
+        hit = sum(number(stats.get(f"{t}TakenHit")) for t in DAMAGE_TYPES)
         hits = land / every
+        if hits <= 0:
+            return 0.0, "none of the boss's hits land: no Energy"
+        # Over a fight, a hit can only take the Energy Shield that came back since the last one: regeneration, and
+        # recharge once the gap between landed hits outlasts the recharge delay (the first pool's worth isn't counted)
+        gap = 1 / hits
+        regen, recharge = number(stats.get("EnergyShieldRegenRecovery")), number(stats.get("EnergyShieldRecharge"))
+        delay = number(stats.get("EnergyShieldRechargeDelay"))
+        restored = regen * gap + recharge * max(0.0, gap - delay)
+        taken = min(hit, pool, restored)
         return hits * taken * per, (f"the boss's hits land {hits:.2f} times per second (one every {every:g} s, {land:.0%} neither "
                                     f"evaded nor blocked), each taking {taken:,.0f} Energy Shield after mitigation (PoB's boss "
-                                    f"preset): 1 Energy per 10 lost")
+                                    f"preset; a hit of {hit:,.0f}, at most the {restored:,.0f} that returns between hits: "
+                                    f"{regen:,.0f}/s regenerated, {recharge:,.0f}/s recharge after {delay:g} s): "
+                                    f"1 Energy per 10 lost")
     if kind == "melee hit":
         if skill is not None and not skill.melee:
             return 0.0, f"{main} is not a melee attack: no Energy"
@@ -570,6 +584,8 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                      + (f" (supported by {', '.join(own)})" if own else "")
                      + f"; one round costs {cost:.0f} Energy (10 per 0.1s of base cast time)"
                      + (f", {x['EnergyRefund']:.0f}% chance to refund half" if x["EnergyRefund"] else "")
+                     + ("; an Invocation: you press it to release its Energy (instant in the game files), assumed often "
+                        f"enough that its {INVOCATION_MAX_ENERGY} Energy store never fills" if info.get("invocation") else "")
                      + (f"; its spells deal {info['less']:.0f}% less damage" if info.get("less") else ""),
             "confidence": "theory"})
         if META_GEMS[meta.name]["gain"] == "dodge" and rate > 0:

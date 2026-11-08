@@ -494,7 +494,7 @@ class Gems:
         most Energy are screened first; their spells by what PoB says each adds to Full DPS in the group (a self-cast rate,
         so only a ranking); the best META_TRIALS spells of each get a real trial, since the trigger rate (models.energy_model)
         shows only after a resolve. The group's supports come after, in the supports step (optimize_supports, meta=True).
-        More spells come in meta_spell_round. Not yet: Invocations (buttons)."""
+        More spells come in meta_spell_round. An Invocation is a button: offered only while the cap has room."""
         import time
 
         from builder.search import models
@@ -633,19 +633,41 @@ class Gems:
         return score
 
     def meta_candidates(self) -> list[str]:
-        """Every Meta gem in the gem data, not a hand-kept list: those the meta round can propose (an Energy model, not
-        an Invocation), while the others go into left_out with the reason, said in the result."""
+        """Every Meta gem in the gem data, not a hand-kept list: those the meta round can propose (an Energy model; an
+        Invocation only while the button cap has room, since you press it), while the others go into left_out with the
+        reason, said in the result."""
         from builder.search import models
 
+        cap = self.ctx.request.max_buttons
+        room = cap is None or len(self.buttons()) < cap
         names = []
         for name, gem in self.ctx.gems.items():
             if "Meta" not in gem["skillTypes"] or not self.ctx.allowed_gem(name):
                 continue
             modeled, why = models.meta_handling(name)
-            if not modeled or models.META_GEMS[name].get("invocation"):
-                self.left_out[name] = why or "an Invocation is a button you press: proposed within the button cap later"
+            if not modeled:
+                self.left_out[name] = why
+            elif models.META_GEMS[name].get("invocation") and not room:
+                self.left_out[name] = f"an Invocation is a button you press, and the build's {cap} buttons are all taken"
             else:
+                self.left_out.pop(name, None)
                 names.append(name)
+        return names
+
+    def buttons(self) -> list[str]:
+        """The skills the build makes the player press (constraints.player_buttons' rule on the current groups): not
+        persistent, meta-triggered, triggered or item-granted; an Invocation is one."""
+        from builder.request.constraints import presses
+
+        names: list[str] = []
+        for group in self.build.groups():
+            if not group["enabled"] or group["fromItem"]:
+                continue
+            gems = [self.ctx.gems[g["name"]] for g in group["gems"] if g.get("enabled", True) and g["name"] in self.ctx.gems]
+            by_meta = any("Meta" in g["skillTypes"] for g in gems if not g["support"])
+            for gem in gems:
+                if presses(gem) and not (by_meta and "Meta" not in gem["skillTypes"]) and gem["name"] not in names:
+                    names.append(gem["name"])
         return names
 
     def trial_meta(self, gems: list[dict]) -> float | None:

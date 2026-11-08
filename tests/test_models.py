@@ -474,10 +474,19 @@ def test_cast_on_critical_reads_an_attacks_crits_from_its_main_hand():
 
 def test_barrier_invocation_gains_energy_from_the_energy_shield_the_boss_takes():
     stats = {"EnergyShield": 3000, "enemySkillTime": 0.5, "EvadeChance": 0, "EffectiveBlockChance": 50,
-             "PhysicalTakenHit": 600, "FireTakenHit": 400}
+             "PhysicalTakenHit": 600, "FireTakenHit": 400, "EnergyShieldRegenRecovery": 1500}
     gain, basis = models.energy_gain("Barrier Invocation", stats, "Spark", Skill("Spark", spell=True))
     assert gain == pytest.approx(1.0 * 1000 * 0.1) and "1 Energy per 10 lost" in basis  # 1 hit/s lands, 1,000 ES each
     assert models.energy_gain("Barrier Invocation", {**stats, "EnergyShield": 0}, "Spark")[0] == 0.0
+    # Only what comes back between hits can be lost again: 300/s regenerated, a hit every second, recharge never starts
+    # (2 s delay) -> 300 per hit. A bare 40 Energy Shield with no recovery gives nothing over a fight.
+    slow = {**stats, "EnergyShieldRegenRecovery": 300, "EnergyShieldRecharge": 600, "EnergyShieldRechargeDelay": 2}
+    assert models.energy_gain("Barrier Invocation", slow, "Spark")[0] == pytest.approx(300 * 0.1)
+    gaps = {**slow, "enemySkillTime": 1.5}  # a hit lands every 3 s: 3 × 300 regenerated + 1 s × 600 recharged
+    assert models.energy_gain("Barrier Invocation", gaps, "Spark")[0] == pytest.approx(1000 / 3 * 0.1)
+    bare = {"EnergyShield": 40, "enemySkillTime": 0.7, "EffectiveBlockChance": 25, "PhysicalTakenHit": 500,
+            "EnergyShieldRecharge": 50, "EnergyShieldRechargeDelay": 2}
+    assert models.energy_gain("Barrier Invocation", bare, "Boneshatter")[0] == 0.0
     comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
     _, notes, _ = models.energy_model(Inputs(), {}, [SPARK, Skill("Cast on Dodge", group=2, energy=True), comet], SPARK)
     assert "4.6 m each" in notes[0]["basis"] and "up to you" in notes[0]["basis"]  # the guide says it's play-style

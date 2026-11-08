@@ -208,3 +208,30 @@ def test_meta_spell_round_keeps_a_second_spell_only_if_it_pays(engine):
     actives = [(g["name"], g["level"]) for g in group["gems"] if not g["support"]]
     assert actives[:2] == [("Cast on Dodge", 12), ("Fireball", 9)] and len(group["gems"]) - 1 <= SUPPORT_SLOTS
     assert (len(actives) == 3) == kept and (build.score > before) == kept
+
+
+def test_invocations_are_offered_only_while_the_button_cap_has_room(engine):
+    """Slice 4: an Invocation is a button. With Boneshatter alone and a cap of 1, Elemental and Barrier Invocation are left
+    out with the reason; with a cap of 2 they are meta candidates, and adding one counts as a button."""
+    from builder.search.gems import META_LABEL
+
+    def search_with(cap: int) -> Search:
+        payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"], max_buttons=cap))
+        skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+        search = Search(engine, None, payload, skeleton.as_dict(), 0)
+        search.setup(quests=False)
+        return search
+
+    full = search_with(1)
+    assert full.gems.buttons() == ["Boneshatter"]
+    candidates = full.gems.meta_candidates()
+    assert "Elemental Invocation" not in candidates and "Barrier Invocation" not in candidates
+    assert "buttons are all taken" in full.gems.left_out["Elemental Invocation"]
+    assert "Cast on Critical" in candidates  # a meta that triggers by itself is no button
+
+    room = search_with(2)
+    candidates = room.gems.meta_candidates()
+    assert {"Elemental Invocation", "Barrier Invocation"} <= set(candidates)
+    assert "Elemental Invocation" not in room.gems.left_out
+    room.build.set_group(gems=[{"name": "Elemental Invocation"}, {"name": "Fireball"}], label=META_LABEL, fullDPS=True)
+    assert room.gems.buttons() == ["Boneshatter", "Elemental Invocation"]
