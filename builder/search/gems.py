@@ -74,7 +74,9 @@ class Gems:
         return set(gem.get("families") or [])
 
     def used_supports(self, groups: list[dict], except_group: int) -> set[str]:
-        return {g["name"] for group in groups if group["index"] != except_group and not group["fromItem"]
+        # (an item's or notable's group counts too: the supports in it are the player's gems, socketed with the granted
+        # skill; leaving them out let gate 4's 2b75b hold Rakiata's Flow in two groups, which PoB flags)
+        return {g["name"] for group in groups if group["index"] != except_group
                 for g in group["gems"] if g["support"]}
 
     def budget_left(self) -> float:

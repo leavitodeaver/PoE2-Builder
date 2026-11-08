@@ -736,3 +736,18 @@ def test_spirit_vessel_notes_name_the_copied_skills_and_the_assumptions():
     assert len(notes) == 1 and notes[0]["value"] == 2 and "Cross Slash, Maul" in notes[0]["label"]
     assert "ASSUMED" in notes[0]["basis"] and notes[0]["confidence"] == "theory"
     assert models.spirit_vessel_notes(skills[:1] + skills[3:]) == []  # an empty vessel does nothing: no note
+
+
+def test_supports_in_item_groups_count_as_used():
+    """Each support gem once per character, item-granted groups included: gate 4's 2b75b held Rakiata's Flow both in its
+    main group and in the Absent Amulet's Cast on Dodge group (PoB: too many Rakiata's Flow lineage supports)."""
+    from builder.search.gems import Gems
+
+    def group(index, from_item, active, *supports):
+        return {"index": index, "fromItem": from_item, "gems": [{"name": active, "support": False}]
+                + [{"name": n, "support": True} for n in supports]}
+
+    groups = [group(1, False, "Explosive Transmutation", "Concentrated Area"),
+              group(2, True, "Cast on Dodge", "Rakiata's Flow")]
+    assert Gems.used_supports(None, groups, 1) == {"Rakiata's Flow"}
+    assert Gems.used_supports(None, groups, 2) == {"Concentrated Area"}
