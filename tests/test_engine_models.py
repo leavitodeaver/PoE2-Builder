@@ -535,3 +535,26 @@ def test_hollow_form_takes_the_main_melee_attack_as_a_button_and_is_undone_witho
     assert not search.gems.hollow_round(float("inf"))
     assert build.score == pytest.approx(before) and build.main_group()["index"] == main["index"]
     assert search.gems.left_out["Hollow Form"].startswith("tried")
+
+
+def test_a_rare_dueling_wand_is_tried_for_its_spellslinger(engine):
+    """Slice 8 (MECH11): a Dueling Wand's implicit grants Spellslinger, worth nothing until a spell is socketed in it, so
+    the rare builder's base ranking never picks the base. The granted-meta trials build a rare on it and try it with its
+    group filled; Spellslinger is an Invocation, so it's a button. Rares share one name ("Rare Wand"): the trial tells
+    them apart by base."""
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = next(s for s in enumerate_skeletons(Context(payload), ["Spark"])[0] if "Wand" in s.label)
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build, gear = search.build, search.gear
+    other = next(o.base for o in gear.options("Weapon 1") if not o.unique and o.base != "Dueling Wand")
+    gear.put("Weapon 1", gear.build_rare("Weapon 1", float("inf"), base_name=other))
+    gear.settle()
+    before = build.score
+    assert search.gems.buttons() == ["Spark"]
+    assert gear.granted_meta_trials(float("inf"))
+    wand = build.equipped["Weapon 1"]
+    assert wand.base == "Dueling Wand" and wand.rare and build.score > before
+    group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Spellslinger")
+    assert group["fromItem"] and len([g for g in group["gems"] if not g["support"]]) == 2
+    assert search.gems.buttons() == ["Spark", "Spellslinger"]

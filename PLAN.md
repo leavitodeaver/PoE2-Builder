@@ -700,8 +700,13 @@ they land.
      it), and Hollow Form is a Power Charge consumer at the Attack's speed, so those charges aren't held
      (conditions). Not counted: the Attack's own attack-time modifier (Hollow Form channels at 70% of the weapon's), a
      skill part on the moved Attack (reset), supports added later (the support rounds skip a granted main group). Not
-     yet: a second spell in a granted group, Bijouborne and Forgotten Warden (no model), a Dueling Wand base for
-     Spellslinger.
+     yet: a second spell in a granted group, Bijouborne and Forgotten Warden (no model). *(Dueling Wand done, MECH11)*
+     The gear round's granted-meta trials also build a rare on each base whose implicit grants a meta (a Dueling Wand's
+     Spellslinger: its bare base scores nothing for the meta, so the rare builder's base ranking never chose it) and
+     try it with its group filled (gear.build_rare's base_name). Rares all read "Rare Wand": the trial tells them apart
+     by base. Spellslinger is an Invocation, so a button. Not yet: a base whose implicit is one of several variants
+     (Absent Amulet: Cast on Elemental Ailment / Critical / Dodge, Archmage, ...): the rare text would carry every
+     variant line, and which one PoB applies isn't checked.
   9. The meta round in kicks and seeds; gate 4's 2b75d as the test.
 - Unresolved gems: 37 gems PoB carries but whose source the game-file rules don't read yet (0.5 league content such
   as Explosive Transmutation, Detonate Living and the Runic and Verisium skills; Grenade, Requiem, Gelid Palm and

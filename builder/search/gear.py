@@ -264,12 +264,13 @@ class Gear:
 
     # Rares -----------------------------------------------------------------------------------
 
-    def build_rare(self, slot: str, deadline: float, required: Callable[[Affix], bool] | None = None) -> ItemOption | None:
+    def build_rare(self, slot: str, deadline: float, required: Callable[[Affix], bool] | None = None,
+                   base_name: str | None = None) -> ItemOption | None:
         """The best rare for this slot within its budget, affix by affix (for a flask or charm, the
         best magic item: one prefix and one suffix). With `required`, the rare starts from the best
         affix that passes it (a condition's source, builder/search/sources.py), on the best base
         that can roll one."""
-        bases = [o for o in self.options(slot) if not o.unique]
+        bases = [o for o in self.options(slot) if not o.unique and (base_name is None or o.base == base_name)]
         if not bases or clock.now() > deadline:
             return None
         magic = is_flask_slot(slot)
@@ -437,7 +438,8 @@ class Gear:
         return improved
 
     def granted_meta_trials(self, deadline: float) -> bool:
-        """Slice 8: a unique granting a meta skill (GRANTS_META: Mjolner's Thundergod's Wrath, Svalinn's Cast on Block)
+        """Slice 8: a unique granting a meta skill (GRANTS_META: Mjolner's Thundergod's Wrath, Svalinn's Cast on Block), or
+        a rare on a base whose implicit grants one (a Dueling Wand's Spellslinger),
         scores only its other lines until a spell is socketed in its group, so each one the build can afford is tried for
         real: equipped, its group filled (fill_granted: gems.granted_meta_round), kept if the build scores better.
         The tree is re-routed to the unique's attribute requirements first (fit_requirements): on 2b75d a tree tuned to
@@ -448,8 +450,18 @@ class Gear:
             if slot in build.locked_slots or clock.now() > deadline:
                 continue
             current = build.equipped.get(slot)
-            for option in self.candidates(slot):
-                if (not option.unique or (current is not None and option.name == current.name)
+            options = [o for o in self.candidates(slot) if o.unique]
+            # A base whose implicit grants one (a Dueling Wand's Spellslinger): a rare on it, built for the slot. Its
+            # bare base scores nothing for the meta, so the rare builder's own base ranking never picks it. Not yet a
+            # base whose implicit is one of several variants (Absent Amulet: Cast on Critical, on Dodge, ...): the rare
+            # text would carry every variant line.
+            for base in self.options(slot):
+                implicit = (self.ctx.bases_by_name.get(base.base) or {}).get("implicit") or ""
+                if (not base.unique and GRANTS_META.search(base.raw) and "{variant" not in implicit
+                        and clock.now() < deadline and not (current is not None and current.base == base.base)):
+                    options.append(self.build_rare(slot, deadline, base_name=base.base) or base)
+            for option in options:
+                if ((current is not None and (option.name == current.name if option.unique else option.base == current.base))
                         or not GRANTS_META.search(option.raw) or clock.now() > deadline):
                     continue
                 snap = build.snapshot()
