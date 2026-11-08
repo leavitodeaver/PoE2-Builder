@@ -75,7 +75,9 @@ class Assumptions:
         forbidden = set(build.ctx.request.forbid_ledger_entries)
         inputs = models.read_inputs(source_lines)
         mods, notes = models.archon_model(inputs, stats, main, main_gems)
-        energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main)
+        supports = {g["index"]: [x["name"] for x in g["gems"] if x["support"] and x.get("enabled", True)]
+                    for g in build.groups()}
+        energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports)
         expression_mods, expression_notes, expression_groups = models.expression_model(found, stats, main)
         ward_mods, ward_notes = models.iron_ward_model(
             found, stats, enabled=models.IRON_WARD_ENTRY not in build.ctx.request.forbid_ledger_entries)

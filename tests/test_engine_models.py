@@ -179,3 +179,32 @@ def test_supports_round_fills_the_meta_group(engine):
     assert actives == {"Cast on Dodge": 12, "Fireball": 9}
     assert all(g["name"] in candidates for g in group["gems"] if g["support"])
     assert [[g["name"] for g in group["gems"]] for group in build.groups() if group["main"]] == main_before
+
+
+def test_meta_spell_round_keeps_a_second_spell_only_if_it_pays(engine):
+    """Slice 3: meta_spell_round tries a second spell for real (the Energy model halves the first's rate) and keeps it only
+    if the build scores better; either way the group's first spell and levels stay, and the socket cap holds."""
+    import time
+
+    from builder.search.context import SUPPORT_SLOTS
+    from builder.search.gems import META_LABEL
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    build.objective.base_full = True
+    build.set_group(gems=[{"name": "Cast on Dodge", "level": 12, "quality": 0}, {"name": "Fireball", "level": 9, "quality": 0}],
+                    label=META_LABEL, fullDPS=True)
+    search.resolve()
+    before = build.score
+    tried = []
+    trial = gems.trial_meta_spell
+    gems.trial_meta_spell = lambda *a: tried.append(trial(*a)) or tried[-1]
+    kept = gems.meta_spell_round(time.perf_counter() + 120)
+    assert tried  # spells were tried for real
+    group = gems.supports_group(build.groups(), meta=True)
+    actives = [(g["name"], g["level"]) for g in group["gems"] if not g["support"]]
+    assert actives[:2] == [("Cast on Dodge", 12), ("Fireball", 9)] and len(group["gems"]) - 1 <= SUPPORT_SLOTS
+    assert (len(actives) == 3) == kept and (build.score > before) == kept

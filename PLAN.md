@@ -612,8 +612,10 @@ they land.
      Elemental Ailment, Cast on Dodge (4.6 m rolls at the user's one per 2 s; a build counting on it loses the 0.75 s each roll takes).
   2. *(done)* Supports for the meta group: the supports step sweeps the meta group too (its own shortlist; PoB's
      `supportCandidates` for the group; the meta gem and spell keep their levels), after the main group.
-  3. Several spells per meta (a spell pays only if its damage per Energy beats the others'), Boundless Energy and
-     Energy Retention.
+  3. *(done)* Several spells per meta: step "meta spells" tries one more spell for real (a round triggers every spell
+     and costs all their Energy), up to 3 spells; a meta gem's spells and supports share its 5 sockets (assumed, the
+     cautious reading). Boundless Energy I/II (+35/45% Energy) and Energy Retention (35% chance to refund half) are read
+     from the meta group's supports (game files; PoB reads neither) and tried for real in the meta group's sweep.
   4. Invocations within the button cap: Elemental, Barrier, and Feral Invocation (whose Energy is 1 per 20 Mana spent).
      Reaper's Invocation and Cast on Minion Death gain nothing on a boss; they stay labelled.
   5. Totems: Spell Totem (consumes 3 Power or Endurance Charges: the charge model), Ancestral Warrior Totem (3

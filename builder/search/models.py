@@ -386,6 +386,11 @@ META_GEMS = {
     "Barrier Invocation": {"energy": 72.0, "gain": "energy shield lost", "per": 0.1, "invocation": True},
     "Cast on Dodge": {"energy": 57.0, "gain": "dodge", "per": 2.0},
 }
+# Supports of a meta group that change its Energy, which PoB doesn't read (game files, build 26476662,
+# GrantedEffectStatSets): Boundless Energy I and II "energy_generated_+%" 35 and 45, Energy Retention
+# "trigger_skills_refund_half_energy_spent_chance_%" 35. They count for the meta skill they support only.
+META_SUPPORTS = {"Boundless Energy I": ("MetaEnergy", 35.0), "Boundless Energy II": ("MetaEnergy", 45.0),
+                 "Energy Retention": ("EnergyRefund", 35.0)}
 DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files, build 26476662); distance mods not counted
 DODGE_EVERY = 2.0  # seconds between dodge rolls against a boss: the user's default (7 Nov 2026), said in the guide
 DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); faster rolls from movement speed not counted
@@ -503,8 +508,11 @@ def energy_rate(meta: str, x: dict, gain: float, cost: float, crits_recently: bo
     return gain * multiplier / spent if spent > 0 else 0.0
 
 
-def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill | None) -> tuple[list, list, set[int]]:
-    """Trigger rates for the spells socketed in meta skills that gain Energy, fed by the main skill.
+def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill | None,
+                 supports: dict[int, list[str]] | None = None) -> tuple[list, list, set[int]]:
+    """Trigger rates for the spells socketed in meta skills that gain Energy, fed by the main skill. Every spell in a meta
+    group triggers once per round, and a round costs all their Energy: a second spell halves (about) the first's rate.
+    `supports` ({group: support names}) adds the meta group's own Energy supports (META_SUPPORTS).
     Returns (mods, notes, groups whose damage counts)."""
     mods: list[dict] = []
     notes: list[dict] = []
@@ -532,7 +540,12 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
             continue
         cost = sum(100 * (s.cast_time or 0.0) for s in spells)
         gain, gain_basis = energy_gain(meta.name, stats, main.name, main)
-        rate = energy_rate(meta.name, x0, gain, cost, crits_recently, doubled)
+        x = dict(x0)
+        own = [n for n in (supports or {}).get(meta.group, []) if n in META_SUPPORTS]
+        for name in own:
+            key, value = META_SUPPORTS[name]
+            x[key] += value
+        rate = energy_rate(meta.name, x, gain, cost, crits_recently, doubled)
         if rate > 0:  # (a group whose spells never trigger adds no damage, and mustn't change how the build is scored)
             groups.add(meta.group)
 
@@ -544,17 +557,19 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
         for spell in spells:
             mods += trigger_rate(spell.name, rate)
             if rate > 0:
-                mods += more_lines("1% more Damage", relative, x0, passive, keys, skill=spell.name)
+                mods += more_lines("1% more Damage", relative, x, passive, keys, skill=spell.name)
             if META_GEMS[meta.name].get("less"):
                 mods.append(line("1% more Damage", -META_GEMS[meta.name]["less"], skill=spell.name))
         info = META_GEMS[meta.name]
-        increased = info["energy"] + x0["MetaEnergy"] + (x0["MetaEnergyCrit"] if crits_recently else 0.0)
+        increased = info["energy"] + x["MetaEnergy"] + (x["MetaEnergyCrit"] if crits_recently else 0.0)
         notes.append({
             "label": f"{meta.name} triggers per second ({names})", "value": round(rate, 3),
             "basis": f"{gain_basis}; {increased:.0f}% increased Energy (gem {info['energy']:.0f}%)"
-                     + (f", {x0['MetaEnergyMore']:.0f}% more" if x0["MetaEnergyMore"] else "")
+                     + (f", {x['MetaEnergyMore']:.0f}% more" if x["MetaEnergyMore"] else "")
                      + (", doubled" if doubled else "")
+                     + (f" (supported by {', '.join(own)})" if own else "")
                      + f"; one round costs {cost:.0f} Energy (10 per 0.1s of base cast time)"
+                     + (f", {x['EnergyRefund']:.0f}% chance to refund half" if x["EnergyRefund"] else "")
                      + (f"; its spells deal {info['less']:.0f}% less damage" if info.get("less") else ""),
             "confidence": "theory"})
         if META_GEMS[meta.name]["gain"] == "dodge" and rate > 0:

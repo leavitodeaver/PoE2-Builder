@@ -19,6 +19,9 @@ META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
 # A spell triggered less often than this can't pay through its own damage; what PoB counts of it besides (a buff it
 # grants, at full) would be the only gain: such a meta group isn't kept (Profane Ritual at 0.0001 triggers/s gave +4%)
 META_MIN_RATE = 1 / 30
+# Spells per meta gem the search tries. A meta gem's spells and supports share its sockets (SUPPORT_SLOTS): assumed, the
+# cautious reading (PoB doesn't limit it); three spells leave two sockets for supports.
+META_SPELLS_MAX = 3
 ATTRIBUTES = {"str": "Str", "dex": "Dex", "int": "Int"}
 
 
@@ -141,11 +144,13 @@ class Gems:
             candidates = [c for c in shortlist if c in set(candidates)]
         left = self.budget_left()
 
+        # (a meta gem's spells take its sockets too: assumed, the cautious reading; see META_SPELLS_MAX)
+        used = len(names) - 1 if meta else len(supports)
         slots: list[int] = []
-        if len(supports) < SUPPORT_SLOTS:
+        if used < SUPPORT_SLOTS:
             slots.append(len(names) + 1)  # append into an empty socket
         replaceable = [i + first + 1 for i, name in enumerate(supports) if name not in required]
-        if full_sweep or len(supports) >= SUPPORT_SLOTS:
+        if full_sweep or used >= SUPPORT_SLOTS:
             if full_sweep:
                 slots += replaceable
             elif replaceable:
@@ -179,6 +184,8 @@ class Gems:
                 self.shortlist = seen[:SHORTLIST]
         options = [(s, m) for (s, _), m in zip(scored, moves)]
         options += self.discover(index, names, options, group)
+        if meta and full_sweep:
+            options += self.energy_trials(index, names, options, group)
         best_score, best_move = max(options, key=lambda x: x[0])
         if best_score <= build.score + EPSILON:
             return False
@@ -234,6 +241,24 @@ class Gems:
                          key=lambda x: -x[0])
         found = []
         for _, move in sources[:DISCOVERY_TRIALS]:
+            self.commit(index, self.with_move(names, move), group)
+            found.append((self.build.score, move))
+            self.commit(index, names, group)
+        return found
+
+    def energy_trials(self, index: int, names: list[str], options: list[tuple[float, tuple[int, str]]],
+                      group: dict) -> list:
+        """A support that changes the meta skill's Energy (models.META_SUPPORTS: Boundless Energy, Energy Retention) adds
+        nothing a what-if sees: the trigger rate is the Energy model's, which runs on a resolve. Each one's best move is
+        tried for real."""
+        from builder.search import models
+
+        best: dict[str, tuple[float, tuple[int, str]]] = {}
+        for score, move in options:
+            if move[1] in models.META_SUPPORTS and (move[1] not in best or score > best[move[1]][0]):
+                best[move[1]] = (score, move)
+        found = []
+        for _, move in best.values():
             self.commit(index, self.with_move(names, move), group)
             found.append((self.build.score, move))
             self.commit(index, names, group)
@@ -469,12 +494,12 @@ class Gems:
         most Energy are screened first; their spells by what PoB says each adds to Full DPS in the group (a self-cast rate,
         so only a ranking); the best META_TRIALS spells of each get a real trial, since the trigger rate (models.energy_model)
         shows only after a resolve. The group's supports come after, in the supports step (optimize_supports, meta=True).
-        Not yet: several spells, Invocations (buttons)."""
+        More spells come in meta_spell_round. Not yet: Invocations (buttons)."""
         import time
 
         from builder.search import models
 
-        build, ctx = self.build, self.ctx
+        build = self.build
         groups = build.groups()
         if any(g["label"] == META_LABEL for g in groups) or len([g for g in groups if not g["fromItem"]]) >= MAX_GEM_GROUPS:
             return False
@@ -499,9 +524,7 @@ class Gems:
         metas = [name for _, name in sorted(metas, reverse=True)[:META_GEMS_TRIED]]
         if not metas:
             return False
-        spells = [n for n, gem in ctx.gems.items() if not gem["support"] and n not in present
-                  and {"Spell", "Triggerable"} <= set(gem["skillTypes"]) and not {"Meta", "Persistent"} & set(gem["skillTypes"])
-                  and self._offered(n, left, usage)]
+        spells = self.meta_spells(present, left, usage)
         before = build.score
         best: tuple[float, list[dict]] | None = None
         for meta in metas:
@@ -537,6 +560,77 @@ class Gems:
                 self.resolve()
             return False
         return build.score > before + EPSILON
+
+    def meta_spell_round(self, deadline: float) -> bool:
+        """One more spell in the meta group (slice 3). Every spell in the group triggers once per round and a round costs all
+        their Energy, so a spell pays only if its damage per Energy beats what it takes from the others; that shows only
+        after a resolve (models.energy_model), so the best META_TRIALS spells by PoB's what-if get a real trial."""
+        import time
+
+        build = self.build
+        group = self.supports_group(build.groups(), meta=True)
+        if group is None or len(group["gems"]) - 1 >= SUPPORT_SLOTS:
+            return False
+        actives = [g for g in group["gems"] if not g["support"]]
+        if len(actives) - 1 >= META_SPELLS_MAX:
+            return False
+        present = {g["name"] for grp in build.groups() for g in grp["gems"]}
+        spells = self.meta_spells(present, self.budget_left(), self.usage_stats())
+        if not spells:
+            return False
+        index, names = group["index"], [g["name"] for g in group["gems"]]
+        at = len(actives) + 1  # after the group's spells, before its supports
+        scored = build.gem_deltas([{"group": index, "slot": len(names) + 1, "gem": n} for n in spells])
+        ranked = sorted(zip((s for s, _ in scored), spells), reverse=True)
+        before = build.score
+        best: tuple[float, dict] | None = None
+        for _, spell in ranked[:META_TRIALS]:
+            if time.perf_counter() > deadline:
+                break
+            level = self.usable_level(spell)
+            if level is None:
+                continue
+            gem = {"name": spell, "level": level, "quality": GEM_QUALITY}
+            score = self.trial_meta_spell(group, names, at, gem)
+            if score is not None and score > before + EPSILON and (best is None or score > best[0]):
+                best = (score, gem)
+        if best is None:
+            return False
+        self.set_meta_gems(group, names, at, best[1])
+        if build.worse(before):
+            self.set_meta_gems(group, names)
+            return False
+        return build.score > before + EPSILON
+
+    def meta_spells(self, present: set[str], left: float, usage: dict | None) -> list[str]:
+        """Spells a meta skill can trigger that the build doesn't use yet."""
+        return [n for n, gem in self.ctx.gems.items() if not gem["support"] and n not in present
+                and {"Spell", "Triggerable"} <= set(gem["skillTypes"]) and not {"Meta", "Persistent"} & set(gem["skillTypes"])
+                and self._offered(n, left, usage)]
+
+    def set_meta_gems(self, group: dict, names: list[str], at: int | None = None, spell: dict | None = None) -> None:
+        """The meta group's gems as `names` (their levels kept), with `spell` inserted at position `at` (1-based)."""
+        kept = {g["name"]: {"name": g["name"], "level": g["level"], "quality": g["quality"]}
+                for g in group["gems"] if not g["support"]}
+        gems = [kept.get(n) or {"name": n} for n in names]
+        if spell is not None:
+            gems.insert(at - 1, spell)
+        self.build.set_group(index=group["index"], gems=gems)
+        if self.resolve is not None:
+            self.resolve()
+
+    def trial_meta_spell(self, group: dict, names: list[str], at: int, spell: dict) -> float | None:
+        """Score the meta group with one more spell for real, then put it back. None when the new spell isn't triggered at
+        META_MIN_RATE or more (see trial_meta)."""
+        build = self.build
+        self.set_meta_gems(group, names, at, spell)
+        rates = [m["value"] for m in (self.assumptions.mods if self.assumptions is not None else [])
+                 if m.get("kind") == "SkillData" and m.get("skill") == spell["name"] and m.get("key") == "triggerRate"]
+        triggered = any(s["name"] == spell["name"] and s.get("group") == group["index"] and s.get("triggered")
+                        for s in build.call("activeSkills")["skills"])
+        score = build.score if triggered and rates and max(rates) >= META_MIN_RATE else None
+        self.set_meta_gems(group, names)
+        return score
 
     def meta_candidates(self) -> list[str]:
         """Every Meta gem in the gem data, not a hand-kept list: those the meta round can propose (an Energy model, not

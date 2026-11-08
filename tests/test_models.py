@@ -148,6 +148,27 @@ def test_cast_on_critical_triggers_from_the_main_skills_crits():
     assert moved == pytest.approx((0.8 * (1 + 8 / 157) - 1) * 100, rel=1e-3)
 
 
+def test_spells_share_a_round_and_the_groups_energy_supports_count():
+    """Slice 3: two spells in one meta group trigger once per round each, and a round costs both their Energy. Boundless
+    Energy II (45% increased) and Energy Retention (35% chance to refund half: the game files' stats, which PoB doesn't
+    read) count for the meta group they support only."""
+    coc = Skill("Cast on Critical", group=2, energy=True)
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
+    spark = Skill("Spark", group=2, spell=True, triggered=True, cast_time=0.7)
+    stats = {"Speed": 2, "HitChance": 100, "CritChance": 50, "LightningCritAverage": 50000,
+             "EnemyAilmentThreshold": 100000}
+    main = Skill("Arc", group=1, spell=True, cast_time=0.8)
+    rates = lambda mods: {m["skill"]: m["value"] for m in mods if m.get("key") == "triggerRate"}
+    mods, _, _ = models.energy_model(Inputs(), stats, [main, coc, comet, spark], main)
+    assert rates(mods) == {"Comet": pytest.approx(10 * 1.57 / 190, rel=1e-4), "Spark": pytest.approx(10 * 1.57 / 190, rel=1e-4)}
+    supported = {2: ["Boundless Energy II", "Energy Retention"], 1: ["Boundless Energy I"]}
+    mods, notes, _ = models.energy_model(Inputs(), stats, [main, coc, comet, spark], main, supported)
+    assert rates(mods)["Comet"] == pytest.approx(10 * 2.02 / (190 * (1 - 0.35 / 2)), rel=1e-4)
+    assert "Boundless Energy II, Energy Retention" in notes[0]["basis"] and "Boundless Energy I," not in notes[0]["basis"]
+    elsewhere, _, _ = models.energy_model(Inputs(), stats, [main, coc, comet, spark], main, {1: ["Boundless Energy II"]})
+    assert rates(elsewhere)["Comet"] == pytest.approx(10 * 1.57 / 190, rel=1e-4)
+
+
 def test_unmodeled_metas_count_nothing_rather_than_a_self_cast():
     dodge = Skill("Feral Invocation", group=2, energy=True)
     comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
