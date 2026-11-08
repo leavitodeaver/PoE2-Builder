@@ -687,7 +687,9 @@ they land.
      grants a meta, so Cast on Critical can join Thundergod's Wrath as in 2b75d. Mjolner had never been offered: the
      trade feed names it Mjölner (the payload now keys prices by the accent-free name too). *(MECH10)* A unique's trial
      first re-routes the tree to its attribute requirements (tree.fit_requirements): 2b75d's free search now takes
-     Mjolner (gate 4 x1.36, was x0.80). Every Energy meta's own Energy comes from its gem level (game files: 3% per
+     Mjolner (gate 4 x1.36, was x0.80). *(MECH13, gate 4 on 44b1f06)* 2b75d x0.41, FAILS: Mjolner not found this run
+     (every 2b75d pass had it: x1.18 to x1.90; every miss failed: x0.80, x0.41); 2b75b x2.81 (was x6.06: no Three
+     Dragons this time); 2b75e x24.54. 44b1f06 offers 24 more uniques and tries Forgotten Warden, which takes trial time. Every Energy meta's own Energy comes from its gem level (game files: 3% per
      level above 1, Elemental Invocation 3.6%; no quality bonus), read from the bridge: the fixed 72% (PoB's data) had
      counted Mjolner's level-11 Thundergod's Wrath (30%) more than twice over. *(Fire Spell on Hit done)* Smith of
      Kitava's Heat of the Forge is in tree.GRANTED_METAS; its group (PoB's skill: Fire Spell on Melee Hit, at PoB's level 20
