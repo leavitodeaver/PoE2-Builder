@@ -435,6 +435,27 @@ def test_ascendancy_round_takes_a_meta_granting_notable_with_its_group_filled(en
     assert "Sniper's Mark" not in search.gems.buttons()
 
 
+def test_heat_of_the_forge_fills_fire_spell_on_hit_and_prices_it_at_its_level(engine):
+    """Slice 8 (MECH10): Smith of Kitava's Heat of the Forge grants Fire Spell on Hit (PoB: Fire Spell on Melee Hit), priced
+    as Thundergod's Wrath (game files). The notable's trial fills its group with a spell through the granted-meta round
+    (gems.fill_granted), and the trigger rate reads the meta's own level from the bridge (models.gem_energy)."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Smith of Kitava"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    heat = next(i for i, n in search.ctx.nodes.items() if n.get("name") == "Heat of the Forge" and n.get("ascendancy"))
+    build.allocate(add=[heat])
+    search.gems.resolve()
+    assert search.gems.fill_granted("Fire Spell on Hit")
+    group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Fire Spell on Hit")  # (the skill is Fire Spell on Melee Hit)
+    assert group["fromItem"] and not group["gems"][1]["support"]
+    meta = next(s for s in build.call("activeSkills")["skills"] if s["name"] == "Fire Spell on Melee Hit")
+    assert meta["level"] >= 1
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Fire Spell on Melee Hit triggers"))
+    assert f"at level {meta['level']}" in note["basis"] and note["value"] > 0
+
+
 def test_an_item_granted_meta_gets_a_spell_and_a_unique_granting_one_is_tried(engine):
     """Slice 8 (MECH8): Mjolner's Thundergod's Wrath triggers nothing until a spell is socketed in it, so the granted metas
     step fills it (gems.granted_meta_round: PoB's what-if ranks spells only once the group counts in Full DPS). The gear

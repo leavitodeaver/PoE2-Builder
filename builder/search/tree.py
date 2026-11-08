@@ -35,8 +35,9 @@ FULL_EVERY = 12
 PAIR_POOL = 10
 ASCENDANCY_POINTS = 8
 # Meta skills ascendancy notables grant that the search fills (Tree.fill_granted): Deadeye's Called Shots (a Mark) and
-# Mirage Deadeye (a ranged Attack). Hollow Form and Fire Spell on Hit aren't yet (models.OTHER_METAS, NOT_MODELED_YET).
-GRANTED_METAS = ("Called Shots", "Mirage Deadeye")
+# Mirage Deadeye (a ranged Attack), Smith of Kitava's Fire Spell on Hit (a Fire spell, gems.granted_meta_round). Hollow Form
+# isn't yet (models.OTHER_METAS).
+GRANTED_METAS = ("Called Shots", "Mirage Deadeye", "Fire Spell on Hit")
 ASCENDANCY_CASES = 1500  # most allocations scored exactly in one round
 STRENGTH, DEXTERITY, INTELLIGENCE = 1, 2, 3
 GRANTS_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+)$")

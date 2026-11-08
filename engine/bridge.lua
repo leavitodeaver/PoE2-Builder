@@ -1697,6 +1697,8 @@ function bridge.activeSkills(args)
 			instant = (effect.castTime or 0) == 0 or nil,
 			castTime = effect.castTime,
 			energy = types[SkillType.GeneratesEnergy] and true or false,
+			-- an Energy meta's gem level: its own increased Energy comes from it (models.gem_energy)
+			level = types[SkillType.GeneratesEnergy] and activeSkill.activeEffect.level or nil,
 			group = activeSkill.socketGroup and groupIndex[activeSkill.socketGroup] or nil,
 			-- a weapon type it needs in neither hand (PoB disables only Attacks for that; Ferocious Roar needs a Talisman)
 			wrongWeapon = effect.weaponTypes and not (weapon1 and effect.weaponTypes[weapon1] or weapon2

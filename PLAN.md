@@ -685,9 +685,14 @@ they land.
      spells only then). Full gear rounds try each affordable unique granting one (gear.GRANTS_META: Mjolner, Svalinn)
      for real with its group filled (gear.granted_meta_trials). The meta round no longer stops because an item or notable
      grants a meta, so Cast on Critical can join Thundergod's Wrath as in 2b75d. Mjolner had never been offered: the
-     trade feed names it Mjölner (the payload now keys prices by the accent-free name too). Not yet: supports in a
-     granted group (supports_group skips them), a second spell there, Bijouborne and Forgotten Warden (no model),
-     Fire Spell on Hit, Hollow Form; spells needing corpses (Detonate Dead) aren't kept out of meta groups.
+     trade feed names it Mjölner (the payload now keys prices by the accent-free name too). *(MECH10)* A unique's trial
+     first re-routes the tree to its attribute requirements (tree.fit_requirements): 2b75d's free search now takes
+     Mjolner (gate 4 x1.36, was x0.80). Every Energy meta's own Energy comes from its gem level (game files: 3% per
+     level above 1, Elemental Invocation 3.6%; no quality bonus), read from the bridge: the fixed 72% (PoB's data) had
+     counted Mjolner's level-11 Thundergod's Wrath (30%) more than twice over. *(Fire Spell on Hit done)* Smith of
+     Kitava's Heat of the Forge is in tree.GRANTED_METAS; its group (PoB's skill: Fire Spell on Melee Hit, at PoB's level 20
+     for the notable) is filled by the granted-meta round and priced as Thundergod's Wrath. Not yet: a second spell in a
+     granted group, Bijouborne and Forgotten Warden (no model), Hollow Form, a Dueling Wand base for Spellslinger.
   9. The meta round in kicks and seeds; gate 4's 2b75d as the test.
 - Unresolved gems: 37 gems PoB carries but whose source the game-file rules don't read yet (0.5 league content such
   as Explosive Transmutation, Detonate Living and the Runic and Verisium skills; Grenade, Requiem, Gelid Palm and

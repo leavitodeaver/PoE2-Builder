@@ -623,8 +623,7 @@ class Gems:
         for name in self.meta_candidates():
             if name in present or not self._offered(name, left, usage):
                 continue
-            info = models.META_GEMS[name]
-            gain = models.energy_gain(name, stats, main.name, main)[0] * (1 + info["energy"] / 100)
+            gain = models.energy_gain(name, stats, main.name, main)[0] * (1 + models.gem_energy(name, None) / 100)
             if gain > 0:
                 metas.append((gain, name))
         metas = [name for _, name in sorted(metas, reverse=True)[:META_GEMS_TRIED]]
@@ -1028,9 +1027,16 @@ class Gems:
 
     def fill_granted(self, skill: str) -> bool:
         """Fill the group of a meta skill a notable grants (tree.GRANTED_METAS) with what it uses: a Mark in Called Shots,
-        a ranged Attack in Mirage Deadeye. For the ascendancy round's trial of the notable."""
+        a ranged Attack in Mirage Deadeye, a spell (with supports) in an Energy meta such as Fire Spell on Hit. For the
+        ascendancy round's trial of the notable."""
+        from builder.search import models
+
         deadline = clock.now() + GRANTED_FILL_SECONDS
-        return self.mark_round(deadline) if skill == "Called Shots" else self.mirage_round(deadline)
+        if skill == "Called Shots":
+            return self.mark_round(deadline)
+        if skill in models.META_GEMS:
+            return self.granted_meta_round(deadline)
+        return self.mirage_round(deadline)
 
     def roar_round(self, deadline: float) -> bool:
         """Slice 7: Ferocious Roar on its own (its Rage, models.roar_model, and its Armour Break,

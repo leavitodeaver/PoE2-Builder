@@ -204,6 +204,7 @@ class Skill:
     level_stats: dict[str, float] = field(default_factory=dict)  # only for skills asked for (Iron Ward)
     wrong_weapon: bool = False  # needs a weapon type in neither hand (PoB disables only Attacks for that)
     corpses: bool = False  # consumes or targets corpses (the game's skill types; corpse_model)
+    level: int | None = None  # gem level of a meta skill that gains Energy (gem_energy)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -211,7 +212,7 @@ class Skill:
                    bool(raw.get("melee")), bool(raw.get("triggered")), bool(raw.get("energy")),
                    number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0,
                    dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
-                   bool(raw.get("corpses")))
+                   bool(raw.get("corpses")), raw.get("level"))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -363,7 +364,11 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 
 
 # Meta-skill Energy -------------------------------------------------------------------------------
-# Energy at gem level 20, quality 20 ("energy_generated_+%" in PoB's skill data). Each triggered
+# Energy from the meta gem's level (game files, build 26476662, GrantedEffectStatSetsPerLevel "energy_generated_+%"): 3% per
+# level above 1 (57% at 20, 117% at 40) for every one below but Elemental Invocation, round(3.6% per level above 1) (68% at 20).
+# Quality adds none (GrantedEffectQualityStats has no row for any of them). PoB's data gave 72% at 20/20 to some, which counted
+# Thundergod's Wrath, Cast on Elemental Ailment, Spellslinger and Barrier Invocation 15 points high, and Mjolner's level-11
+# Thundergod's Wrath (30%) as 72%. A level the bridge doesn't report is taken as 20 (labelled). Each triggered
 # spell costs 10 Energy per 0.1 s of its base cast time (support stat
 # "generic_ongoing_trigger_1_maximum_energy_per_Xms_total_cast_time" = 10). Cast on Critical gains
 # 1 Energy per Power of the enemy it critically hits, scaled by the share of the enemy's Ailment
@@ -386,15 +391,26 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # (the user, 7 Nov): DODGE_ROLL_SECONDS per roll, as less Attack and Cast Speed; other builds aren't charged.
 
 META_GEMS = {
-    "Cast on Critical": {"energy": 57.0, "gain": "crit", "less": 20.0},
-    "Cast on Elemental Ailment": {"energy": 72.0, "gain": "ailment"},
-    "Elemental Invocation": {"energy": 68.0, "gain": "ailment", "invocation": True},
-    "Cast on Block": {"energy": 57.0, "gain": "block", "per": 25.0},
-    "Thundergod's Wrath": {"energy": 72.0, "gain": "melee hit", "per": 3.0},
-    "Spellslinger": {"energy": 72.0, "gain": "cast", "per": 0.2, "invocation": True},
-    "Barrier Invocation": {"energy": 72.0, "gain": "energy shield lost", "per": 0.1, "invocation": True},
-    "Cast on Dodge": {"energy": 57.0, "gain": "dodge", "per": 2.0},
+    "Cast on Critical": {"per_level": 3.0, "gain": "crit", "less": 20.0},
+    "Cast on Elemental Ailment": {"per_level": 3.0, "gain": "ailment"},
+    "Elemental Invocation": {"per_level": 3.6, "gain": "ailment", "invocation": True},
+    "Cast on Block": {"per_level": 3.0, "gain": "block", "per": 25.0},
+    "Thundergod's Wrath": {"per_level": 3.0, "gain": "melee hit", "per": 3.0},
+    "Spellslinger": {"per_level": 3.0, "gain": "cast", "per": 0.2, "invocation": True},
+    "Barrier Invocation": {"per_level": 3.0, "gain": "energy shield lost", "per": 0.1, "invocation": True},
+    "Cast on Dodge": {"per_level": 3.0, "gain": "dodge", "per": 2.0},
+    # Smith of Kitava's Heat of the Forge: the same stats as Thundergod's Wrath (cast_fire_spell_on_hit_gain_X_centienergy_
+    # per_monster_power_on_hit 300, the same level table; game files), Fire spells. The game and the tree call it Fire Spell
+    # on Hit, PoB's skill Fire Spell on Melee Hit; the notable gives no level, so PoB's is used (the bridge reports it).
+    "Fire Spell on Hit": {"per_level": 3.0, "gain": "melee hit", "per": 3.0},
+    "Fire Spell on Melee Hit": {"per_level": 3.0, "gain": "melee hit", "per": 3.0},
 }
+META_LEVEL_ASSUMED = 20  # a meta gem whose level the bridge doesn't report
+
+
+def gem_energy(meta: str, level: int | None) -> float:
+    """The meta gem's own increased Energy at its level (META_GEMS "per_level"; game files)."""
+    return float(int(META_GEMS[meta]["per_level"] * (max(level or META_LEVEL_ASSUMED, 1) - 1) + 0.5))
 # Supports of a meta group that change its Energy, which PoB doesn't read (game files, build 26476662,
 # GrantedEffectStatSets): Boundless Energy I and II "energy_generated_+%" 35 and 45, Energy Retention
 # "trigger_skills_refund_half_energy_spent_chance_%" 35. They count for the meta skill they support only.
@@ -415,7 +431,6 @@ NOT_MODELED_YET = {
     "Feral Invocation": "a clone uses its socketed Attacks (Energy cost per 10 ms of base attack time; 1 Energy per 20 Mana "
                         "spent): the Energy model prices triggered Spells only so far",
     "Cast on Charm Use": "its Energy (2 per charge used) needs the charm uses from the flask model",
-    "Fire Spell on Hit": "Heat of the Forge grants it at a level the model doesn't read yet (Energy as Thundergod's Wrath)",
 }
 # Meta skills that gain no Energy: what each does, and what the search needs to use it (PLAN.md "Meta gems, all of them").
 # Every Meta gem the game files mark live (data/game-*/live.json) is in exactly one of META_GEMS, NO_ENERGY_ON_A_BOSS,
@@ -908,10 +923,11 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
                                  "(the boss's Power)")
 
 
-def energy_rate(meta: str, x: dict, gain: float, cost: float, crits_recently: bool, doubled: bool) -> float:
+def energy_rate(meta: str, x: dict, gain: float, cost: float, crits_recently: bool, doubled: bool,
+                level: int | None = None) -> float:
     """Triggers per second: Energy gained per second over the Energy one round of triggers costs."""
     info = META_GEMS[meta]
-    increased = info["energy"] + x["MetaEnergy"] + (x["MetaEnergyCrit"] if crits_recently else 0.0)
+    increased = gem_energy(meta, level) + x["MetaEnergy"] + (x["MetaEnergyCrit"] if crits_recently else 0.0)
     multiplier = max(0.0, 1 + increased / 100) * max(0.0, 1 + x["MetaEnergyMore"] / 100) * (2.0 if doubled else 1.0)
     spent = cost * (1 - min(x["EnergyRefund"], 100.0) / 200)
     if info.get("invocation"):
@@ -958,13 +974,13 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
         for name in own:
             key, value = META_SUPPORTS[name]
             x[key] += value
-        rate = energy_rate(meta.name, x, gain, cost, crits_recently, doubled)
+        rate = energy_rate(meta.name, x, gain, cost, crits_recently, doubled, meta.level)
         if rate > 0:  # (a group whose spells never trigger adds no damage, and mustn't change how the build is scored)
             groups.add(meta.group)
 
         def relative(x: dict, meta_name: str = meta.name, gain: float = gain, cost: float = cost,
-                     base: float = rate) -> float:
-            return 100 * (energy_rate(meta_name, x, gain, cost, crits_recently, doubled) / base - 1) if base else 0.0
+                     base: float = rate, level: int | None = meta.level) -> float:
+            return 100 * (energy_rate(meta_name, x, gain, cost, crits_recently, doubled, level) / base - 1) if base else 0.0
 
         keys = tuple(k for k in ENERGY_INPUTS if k != "MetaEnergyCrit" or crits_recently)
         for spell in spells:
@@ -973,11 +989,11 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                 mods += more_lines("1% more Damage", relative, x, passive, keys, skill=spell.name)
             if META_GEMS[meta.name].get("less"):
                 mods.append(line("1% more Damage", -META_GEMS[meta.name]["less"], skill=spell.name))
-        info = META_GEMS[meta.name]
-        increased = info["energy"] + x["MetaEnergy"] + (x["MetaEnergyCrit"] if crits_recently else 0.0)
+        info, own_energy = META_GEMS[meta.name], gem_energy(meta.name, meta.level)
+        increased = own_energy + x["MetaEnergy"] + (x["MetaEnergyCrit"] if crits_recently else 0.0)
         notes.append({
             "label": f"{meta.name} triggers per second ({names})", "value": round(rate, 3),
-            "basis": f"{gain_basis}; {increased:.0f}% increased Energy (gem {info['energy']:.0f}%)"
+            "basis": f"{gain_basis}; {increased:.0f}% increased Energy (gem {own_energy:.0f}% at level {meta.level or f'{META_LEVEL_ASSUMED}, assumed'})"
                      + (f", {x['MetaEnergyMore']:.0f}% more" if x["MetaEnergyMore"] else "")
                      + (", doubled" if doubled else "")
                      + (f" (supported by {', '.join(own)})" if own else "")

@@ -120,6 +120,24 @@ def test_archon_costs_spells_their_non_elemental_damage():
 # Meta-skill Energy -------------------------------------------------------------------------------
 
 
+def test_gem_energy_from_level():
+    # game files: 3% per level above 1 (Elemental Invocation round(3.6%)); no level reported: 20, assumed
+    assert models.gem_energy("Thundergod's Wrath", 11) == 30.0
+    assert models.gem_energy("Thundergod's Wrath", 20) == models.gem_energy("Thundergod's Wrath", None) == 57.0
+    assert models.gem_energy("Cast on Critical", 40) == 117.0
+    assert (models.gem_energy("Elemental Invocation", 2), models.gem_energy("Elemental Invocation", 20)) == (4.0, 68.0)
+    stats = {"Speed": 2.0, "HitChance": 100}
+    slam = Skill("Boneshatter", group=1, attack=True, melee=True)
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
+    mods, notes, _ = models.energy_model(Inputs(), stats, [slam, Skill("Thundergod's Wrath", group=2, energy=True, level=11), comet], slam)
+    rate = next(m["value"] for m in mods if m.get("key") == "triggerRate")
+    assert rate == pytest.approx(2 * 60 * 1.30 / 120, rel=1e-4)  # Mjolner's level-11 Thundergod's Wrath
+    assert "30% at level 11" in notes[0]["basis"]
+    # Fire Spell on Hit (PoB: Fire Spell on Melee Hit) gains as Thundergod's Wrath (game files)
+    mods, _, _ = models.energy_model(Inputs(), stats, [slam, Skill("Fire Spell on Melee Hit", group=2, energy=True, level=11), comet], slam)
+    assert next(m["value"] for m in mods if m.get("key") == "triggerRate") == pytest.approx(rate)
+
+
 def test_energy_rate():
     x = {k: 0.0 for k in models.ENERGY_INPUTS}
     # Cast on Critical: 10 Energy/s, 57% increased at gem level 20, triggers at 70 Energy (Spark, 0.7 s)
@@ -190,11 +208,11 @@ def test_the_other_metas_gain_energy_from_their_own_events():
     assert rate("Cast on Block", SPARK) == pytest.approx(0.8 * 25 * 1.57 / 120, rel=1e-4)
     # Thundergod's Wrath: 2 melee hits/s x 3 per Power x 20; nothing from a spell
     slam = Skill("Boneshatter", group=1, attack=True, melee=True)
-    assert rate("Thundergod's Wrath", slam) == pytest.approx(2 * 60 * 1.72 / 120, rel=1e-4)
+    assert rate("Thundergod's Wrath", slam) == pytest.approx(2 * 60 * 1.57 / 120, rel=1e-4)
     assert rate("Thundergod's Wrath", SPARK) == 0.0
     # Spellslinger: 2 casts/s of a 0.7 s spell x 0.2 per 10 ms = 14 Energy each
     spark = Skill("Spark", group=1, spell=True, cast_time=0.7)
-    assert rate("Spellslinger", spark) == pytest.approx(2 * 14 * 1.72 / 120, rel=1e-4)
+    assert rate("Spellslinger", spark) == pytest.approx(2 * 14 * 1.57 / 120, rel=1e-4)
     # Cast on Dodge: one roll per 2 s (the user's default) of 4.6 m (the game files) x 2 Energy per metre, x1.57, over 120
     assert rate("Cast on Dodge", slam) == pytest.approx(4.6 * 2 / 2 * 1.57 / 120, rel=1e-4)
     # ... and the build that counts on it loses the 0.75 s each roll takes from its main skill: 37.5% less speed
