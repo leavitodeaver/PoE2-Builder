@@ -385,3 +385,25 @@ def test_the_roar_round_gives_an_attack_build_ferocious_roar(engine):
     broken = search.conditions.active.get("conditionEnemyArmourBroken")
     print("PROBE", before, build.score, broken)
     assert broken and "6,147" in broken["evidence"]
+
+
+def test_gems_the_search_added_are_raised_as_the_attributes_allow(engine):
+    """Task 0 (MECH8): every skill and meta gem the search adds goes in at the level usable then and is raised later, as
+    persistent skills were: a roar left at gem level 1 comes back up to the highest level the build can use."""
+    from builder.search.gems import ROAR_LABEL
+
+    payload = make_payload(BuildRequest(main_skill="Furious Slam"))
+    skeleton = enumerate_skeletons(Context(payload), ["Furious Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    assert search.gems.roar_round(float("inf"))
+    roar = next(g for g in build.groups() if g["label"] == ROAR_LABEL)
+    usable = search.gems.usable_level("Ferocious Roar")
+    assert usable and usable > 1
+    build.set_group(index=roar["index"], gems=[{"name": "Ferocious Roar", "level": 1, "quality": 0}])
+    search.gems.resolve()
+    search.gems.relevel_added()
+    roar = next(g for g in build.groups() if g["label"] == ROAR_LABEL)
+    assert roar["gems"][0]["level"] == usable
+    assert not search.gems.relevel_added()  # nothing left to raise

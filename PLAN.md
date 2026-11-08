@@ -651,8 +651,9 @@ they land.
      files do (60 Spirit per socketed Curse; the support's Curse effect -50% at gem level 1 to -41% at 20) and keeps the
      aura's Curse on the boss. The search had never proposed a Curse: the Spirit step (gems.blasphemy_option) now offers
      the best live Curse in Blasphemy when the Spirit left meets the floor (one Curse: the enemy's limit), and takes the
-     whole group out if that scores better (its Curse alone would be a button). Not raised later to a higher gem level
-     (relevel_persistent covers the plain persistent groups only). *(Mirages done)* PoB counts an Attack socketed in
+     whole group out if that scores better (its Curse alone would be a button). Raised later to a higher gem level, as
+     every skill and meta gem the search adds is (gems.relevel_added: persistent, Blasphemy, meta, Mark, Mirage and roar
+     groups and a totem meta; supports keep theirs). *(Mirages done)* PoB counts an Attack socketed in
      Mirage Archer / Mirage Deadeye as always used by you at the support's 30% / 50% less damage (its mirage code is PoE1's
      and never runs). `models.mirage_model` scales it to the share of time a Mirage is up (game files: the spawn skills'
      10 s cooldown, in one cooldown group for both, assumed shared, so Deadeye's, firing on every shot, takes it; 5000 /
@@ -668,7 +669,7 @@ they land.
      Pinnacle) the "Armour Broken" condition goes on (Fully Broken 12 s per 8 s; conditions.roar_evidence). Needs a
      Talisman (PoB disables only Attacks for a wrong weapon: the bridge's wrongWeapon). Step "roar" (gems.roar_round)
      tries it for an Attack main skill within the button cap. Not counted: loss paused by boss hits, Rage-per lines,
-     Bear-form changes, the Endurance Charge cooldown bypass, releveling (it goes in at the level usable then). A
+     Bear-form changes, the Endurance Charge cooldown bypass (raised to higher gem levels later: gems.relevel_added). A
      socketed human-form Warcry (PoB prices the support) isn't proposed: the search has no Warcries yet.
   8. Granted metas when the build has their source: the item ones as unique proposals (Svalinn, Mjolner, Bijouborne,
      Forgotten Warden, a Dueling Wand base), the ascendancy ones with their notable (Fire Spell on Hit's Energy as

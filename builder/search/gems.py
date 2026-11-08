@@ -20,6 +20,8 @@ META_LABEL = "auto: meta"
 MARK_LABEL = "auto: mark"
 MIRAGE_LABEL = "auto: mirage"
 ROAR_LABEL = "auto: roar"
+# Groups the search adds whole: their skill and meta gems are raised as the attributes grow (relevel_added)
+ADDED_LABELS = (PERSISTENT_LABEL, BLASPHEMY_LABEL, META_LABEL, MARK_LABEL, MIRAGE_LABEL, ROAR_LABEL)
 MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what PoB says each adds to Full DPS)
 META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
 META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
@@ -433,7 +435,7 @@ class Gems:
                 if score > build.score + EPSILON and (best is None or score > best[0]):
                     best = (score, "remove", group["index"])
         if best is None:
-            return self.relevel_persistent(own)
+            return self.relevel_added()
         before = build.score
         if best[1] in ("add", "curse"):
             gems, label = ((self.persistent_gem(best[2]), PERSISTENT_LABEL) if best[1] == "add"
@@ -497,23 +499,44 @@ class Gems:
                 self.resolve()
         return best
 
-    def relevel_persistent(self, own: list[dict]) -> bool:
-        """Raise the persistent skills the search added to the highest gem level the attributes
-        allow now (they went in at a lower one when the attributes were short)."""
+    def relevel_added(self) -> bool:
+        """Raise every skill and meta gem the search added (persistent skills, Blasphemy and its Curse, meta gems and their
+        spells, Marks, Mirages, the roar, a totem meta in the main group) to the highest gem level the attributes and
+        character level allow now: each went in at the level usable then, and a Ferocious Roar added at level 5 on a bare
+        build was too weak to break the boss's Armour. Supports keep theirs. One group at a time, kept if the build
+        scores no worse and the spare Spirit floor still holds."""
+        from builder.search import models
+
         build = self.build
+        spare_floor = max(0, self.ctx.request.floors.spare_spirit or 0)
         improved = False
-        for group in own:
-            gem = group["gems"][0]
-            level = self.usable_level(gem["name"])
-            if not level or level <= gem["level"]:
+        for group in build.groups():
+            if group["fromItem"]:
                 continue
-            before = build.score
-            build.set_group(index=group["index"], gems=[{"name": gem["name"], "level": level, "quality": gem["quality"]}])
+            if group["label"] in ADDED_LABELS:
+                raise_ = [i for i, g in enumerate(group["gems"]) if not g["support"]]
+            elif group["main"]:
+                raise_ = [i for i, g in enumerate(group["gems"]) if g["name"] in models.TOTEM_METAS]
+            else:
+                continue
+            old = [{"name": g["name"], "level": g["level"], "quality": g["quality"], "enabled": g["enabled"]}
+                   for g in group["gems"]]
+            new = [dict(g) for g in old]
+            for i in raise_:
+                level = self.usable_level(new[i]["name"]) if new[i]["name"] in self.ctx.gems else None
+                if level and level > new[i]["level"]:
+                    new[i]["level"] = level
+            if new == old:
+                continue
+            before, spirit_before = build.score, build.stats.get("SpiritUnreserved")
+            build.set_group(index=group["index"], gems=new)
             if self.resolve is not None:
                 self.resolve()
-            if build.worse(before):
-                build.set_group(index=group["index"], gems=[{"name": gem["name"], "level": gem["level"],
-                                                            "quality": gem["quality"]}])
+            spirit = build.stats.get("SpiritUnreserved")
+            short = (isinstance(spirit, (int, float)) and isinstance(spirit_before, (int, float))
+                     and spirit < spare_floor and spirit < spirit_before)
+            if build.worse(before) or short:
+                build.set_group(index=group["index"], gems=old)
                 if self.resolve is not None:
                     self.resolve()
                 continue
