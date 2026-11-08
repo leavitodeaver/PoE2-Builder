@@ -5,7 +5,7 @@ projects' managers set: at most 6 LuaJIT processes in all, on the processors the
 object enforces that, and the process count as a backstop).
 
 The 6 is held here, in code, not by convention: every process that boots a PoB engine first takes one of 6 named slots (Windows mutexes in this session,
-"Local\\PoE2Builder.queue.LuaJIT.<n>"). A process keeps its slot for its life, however many engines it boots (they share its one LuaJIT process), and
+"Local\\PoE2Builder.queue.LuaJIT.<n>"; a queue proof's own set, see slot_name). A process keeps its slot for its life, however many engines it boots (they share its one LuaJIT process), and
 Windows frees it when the process ends, even killed. A seventh process gets PoolFull instead of an engine. The pool sizes itself to the slots still free,
 so a script that boots an engine of its own before its pool still fits in 6.
 
@@ -16,10 +16,24 @@ the processors this process may use.
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import os
 
 POOL_MAX = 6
-SLOT_NAME = "Local\\PoE2Builder.queue.LuaJIT.%d"
+
+
+def slot_name() -> str:
+    """The slots' mutex names. A queue proof or test (PC_QUEUE_DIR set: the queue's state folder isn't the real one) gets
+    slots of its own, named from that folder, so it never shares the 6 with live PoE2 runs (7 Nov 2026: the proof's
+    p2pool scene found them all held by a gate run). Every process of a run inherits the variable, so they agree."""
+    folder = os.environ.get("PC_QUEUE_DIR")
+    if not folder:
+        return "Local\\PoE2Builder.queue.LuaJIT.%d"
+    tag = hashlib.sha1(os.path.normcase(os.path.abspath(folder)).encode("utf-8")).hexdigest()[:12]
+    return "Local\\PoE2Builder.proof." + tag + ".LuaJIT.%d"
+
+
+SLOT_NAME = slot_name()
 WAIT_OBJECT_0, WAIT_ABANDONED = 0x0, 0x80
 
 _held: int | None = None  # this process's slot handle, once taken

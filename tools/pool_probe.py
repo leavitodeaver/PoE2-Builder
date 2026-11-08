@@ -16,7 +16,13 @@ from builder.pob.pool import EnginePool  # noqa: E402
 
 def main() -> None:
     asked, stay = int(sys.argv[1]), float(sys.argv[2])
-    with EnginePool(asked) as pool:
+    try:
+        pool = EnginePool(asked)
+    except slots.PoolFull as e:  # (every slot held: say so on the line the proof reads, not with a traceback)
+        print("pool: " + json.dumps({"error": "PoolFull", "message": str(e), "asked": asked, "slots": slots.SLOT_NAME,
+                                     "free_slots": slots.free()}), flush=True)
+        sys.exit(3)
+    with pool:
         print("pool: " + json.dumps({"asked": asked, "size": pool.size, "pids": [p.pid for p in pool._procs], "orchestrator": os.getpid(),
                                      "processors": slots.available_processors(), "free_slots": slots.free()}), flush=True)
         try:
