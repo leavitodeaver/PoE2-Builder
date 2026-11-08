@@ -550,3 +550,45 @@ def test_a_totems_crits_feed_no_meta_energy():
     assert not groups and "cast by a totem" in notes[0]["basis"]
     _, _, groups = models.energy_model(inputs, stats, [fireball, meta, comet], fireball)
     assert groups == {2}
+
+
+def test_a_snipers_mark_adds_damage_to_one_crit_per_mark():
+    """Slice 6: PoB keeps every Mark up and unconsumed. Sniper's Mark is consumed by the next crit (6 s cooldown, game
+    files), so its extra crit damage lands on one crit per Mark; casting it (0.5 s) takes time from the main skill."""
+    mark = models.Skill("Sniper's Mark", group=2, cast_time=0.5, cooldown=6.0)
+    bow = models.Skill("Lightning Arrow", group=1, attack=True)
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50}  # 1 crit/s
+    mods, notes = models.mark_model([bow, mark], stats, bow)
+    by_line = {m["line"]: m for m in mods}
+    assert by_line["1% more Effect of your Curses"]["scale"] == pytest.approx(100 * (1 / 6 - 1), rel=1e-3)
+    assert by_line["1% more Effect of your Curses"]["skill"] == "Sniper's Mark"
+    assert by_line["1% more Attack and Cast Speed"]["scale"] == pytest.approx(-100 * 0.5 / 6, rel=1e-3)
+    assert notes[0]["value"] == pytest.approx(0.17)
+    # a crit every 10 s: every crit finds a Mark
+    mods, notes = models.mark_model([bow, mark], dict(stats, CritChance=5), bow)
+    assert [m["line"] for m in mods] == ["1% more Attack and Cast Speed"] and notes[0]["value"] == 1.0
+    # triggered by Called Shots every 5 s: no time lost, the 6 s cooldown still holds
+    triggered = models.Skill("Sniper's Mark", group=2, cast_time=0.5, cooldown=6.0, triggered=True)
+    mods, _ = models.mark_model([bow, models.Skill("Called Shots", group=2), triggered], stats, bow)
+    assert [m["line"] for m in mods] == ["1% more Effect of your Curses"]
+
+
+def test_voltaic_and_freezing_marks_buff_after_the_bosss_ailment():
+    """The buff (10 s) comes when the marked boss is Electrocuted / Frozen: once per 30 s assumed; never if the main skill
+    can't inflict it."""
+    mark = models.Skill("Voltaic Mark", group=2, cast_time=0.5, cooldown=0.5)
+    spell = models.Skill("Spark", group=1, spell=True)
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "ElectrocuteChanceOnHit": 20}
+    mods, notes = models.mark_model([spell, mark], stats, spell)
+    by_line = {m["line"]: m["scale"] for m in mods}
+    assert by_line["1% more Effect of your Curses"] == pytest.approx(100 * (10 / 30 - 1), rel=1e-3)
+    assert by_line["1% more Attack and Cast Speed"] == pytest.approx(-100 * 0.5 / 8, rel=1e-3)  # recast every 8 s
+    mods, notes = models.mark_model([spell, mark], dict(stats, ElectrocuteChanceOnHit=0), spell)
+    assert {m["line"]: m["scale"] for m in mods}["1% more Effect of your Curses"] == pytest.approx(-100)
+    assert notes[0]["value"] == 0
+    # triggered by Pounce (cooldown 12 s assumed here): marked 8 s of every 12
+    pounce = models.Skill("Pounce", group=2, attack=True, cooldown=12.0)
+    triggered = models.Skill("Freezing Mark", group=2, cast_time=0.5, cooldown=0.5, triggered=True)
+    mods, notes = models.mark_model([spell, pounce, triggered], dict(stats, FreezeChanceOnHit=5), spell)
+    assert notes[0]["value"] == pytest.approx(round(10 / 30 * 8 / 12, 2))
+    assert models.mark_model([spell], stats, spell) == ([], [])

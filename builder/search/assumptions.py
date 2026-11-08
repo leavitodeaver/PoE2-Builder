@@ -92,6 +92,8 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
         resolve_mods, resolve_notes = models.deadly_resolve_model(found, stats, main)             if "deadly-resolve-rate" not in forbidden else ([], [])
         hand_mods, hand_notes = hand_mods + resolve_mods, hand_notes + resolve_notes
+        mark_mods, mark_notes = models.mark_model(found, stats, main)
+        hand_mods, hand_notes = hand_mods + mark_mods, hand_notes + mark_notes
         pulse, pulse_notes = models.maelstrom_model(source_lines, stats) if models.MAELSTROM_ENTRY not in forbidden else (0.0, [])
         build.objective.added_dps = pulse  # separately computed damage (Melting Maelstrom's pulses); what-ifs get their own
         hand_mods += models.maelstrom_inputs(source_lines, pulse) if pulse_notes else []

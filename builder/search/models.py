@@ -33,6 +33,7 @@ MODEL_FIELDS = sorted({
     "Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
     "EnergyShieldRegenRecovery", "EnergyShieldRecharge",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
+    "FreezeChanceOnHit", "FreezeChanceOnCrit", "ElectrocuteChanceOnHit", "ElectrocuteChanceOnCrit",
     "Darkness", "Str", "Dex", "Int", *(f"{t}CritAverage" for t in DAMAGE_TYPES), *(f"{t}HitAverage" for t in DAMAGE_TYPES),
     *(f"MainHand.{t}CritAverage" for t in DAMAGE_TYPES),
     # Barrier Invocation: the Energy Shield each boss hit takes
@@ -499,6 +500,83 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
               + "; ignites don't add up across totems (only the strongest deals damage), so the extra totems count as "
                 "cast speed; raising a totem (0.5 s) isn't counted against your time",
               "confidence": "theory"}]
+    return mods, notes
+
+
+# Marks (slice 6) ---------------------------------------------------------------------------------
+# PoB applies a Mark from any enabled group as a debuff that is always up and never consumed (CalcPerform's curse slots,
+# EnemyMarkLimit 1), and a Mark's buff part (Voltaic's and Freezing's 30% gain as extra damage) as always yours. In the
+# game files (build 26476662, GrantedEffectsPerLevel and GrantedEffectStatSets *MarkPlayer): every Mark lasts 8 s
+# (base_skill_effect_duration 8000) and casts in 0.5 s; Sniper's Mark has a 6 s cooldown, the others 0.5 s.
+# - Sniper's Mark: the next Critical Hit the target takes consumes it (extra crit damage, a Frenzy Charge), so its bonus
+#   lands on one crit per Mark, not on every crit.
+# - Voltaic / Freezing Mark: when the marked target is Electrocuted / Frozen the Mark is consumed and you gain a buff for
+#   10 s (base_secondary_skill_effect_duration 10000): 30% of damage as extra Lightning / Cold. A pinnacle boss is
+#   electrocuted or frozen about once per 30 s (the catalog's buildup rule, conditions._charge_rate), assumed.
+# - Bloodhound's Mark: consumed on Heavy Stun to trigger Blood Explosion; PoB adds nothing to the main skill's damage.
+MARK_DURATION = 8.0
+MARK_BUFF_DURATION = 10.0
+BOSS_AILMENT_EVERY = 30.0  # seconds between Freezes / Electrocutes of a pinnacle boss (assumed, as conditions.py)
+MARK_BUFFS = {"Voltaic Mark": "Electrocute", "Freezing Mark": "Freeze"}
+MARKS = ("Sniper's Mark", *MARK_BUFFS, "Bloodhound's Mark")
+# Meta skills that apply a socketed Mark on a timer of their own (not the Mark's cooldown).
+MARK_TRIGGER_EVERY = {"Called Shots": 5.0}  # "applies a socketed Mark to an enemy every five seconds"
+
+
+def mark_period(mark: Skill, skills: list[Skill]) -> tuple[float, str]:
+    """Seconds between two applications of the Mark, and by what."""
+    own = (mark.cooldown or 0.0) / (mark.cooldown_recovery or 1.0)
+    if not mark.triggered:
+        return max(own, mark.cast_time), "cast by you as often as its cooldown allows"
+    trigger = next((s for s in skills if s.group == mark.group and s.name != mark.name
+                    and (s.name in MARK_TRIGGER_EVERY or s.cooldown)), None)
+    if trigger is None:
+        return own, "triggered as often as the Mark's cooldown allows (assumed: the trigger's own rate isn't read yet)"
+    every = MARK_TRIGGER_EVERY.get(trigger.name) or trigger.cooldown / (trigger.cooldown_recovery or 1.0)
+    return max(own, every), f"triggered by {trigger.name} every {every:.1f} s"
+
+
+def mark_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+    """Each Mark's effect scaled from PoB's always-up to what consumption on a boss leaves, and the time a Mark you cast
+    yourself takes from the main skill."""
+    mods: list[dict] = []
+    notes: list[dict] = []
+    marks = [s for s in skills if s.name in MARKS and s is not main]
+    for mark in marks[:1]:  # one Mark on an enemy at a time (number_of_marks_allowed_per_type 1, EnemyMarkLimit 1)
+        period, how = mark_period(mark, skills)
+        if mark.name == "Sniper's Mark":
+            crits = crits_per_second(stats)
+            period = max(period, min(1 / crits, MARK_DURATION) if crits else 0.0)  # (recast once consumed)
+            share = min(1.0, 1 / (period * crits)) if crits and period else 1.0
+            label, basis = "Sniper's Mark: share of crits it adds damage to", (
+                f"one Mark every {period:.1f} s ({how}) against {crits:.2f} crits/s; the next crit consumes it (PoB "
+                "counts its extra crit damage on every crit)")
+        elif mark.name in MARK_BUFFS:
+            ailment = MARK_BUFFS[mark.name]
+            inflicts = number(stats.get(f"{ailment}ChanceOnHit")) + number(stats.get(f"{ailment}ChanceOnCrit")) > 0
+            marked = 1.0 if not mark.triggered else min(1.0, MARK_DURATION / period) if period else 1.0
+            if not mark.triggered:
+                period = max(period, MARK_DURATION)  # recast as it runs out (its duration's modifiers aren't read)
+            share = min(1.0, MARK_BUFF_DURATION / BOSS_AILMENT_EVERY) * marked if inflicts else 0.0
+            label, basis = f"{mark.name}: buff uptime", (
+                (f"the boss {ailment.lower()}d once per {BOSS_AILMENT_EVERY:.0f} s while marked (assumed), "
+                 f"{MARK_BUFF_DURATION:.0f} s buff; marked {marked:.0%} of the time ({how})") if inflicts else
+                f"the main skill can't {ailment.lower()} the boss, so the Mark is never consumed and gives no buff"
+            ) + "; PoB counts the buff always up; its buildup part is scaled with it (assumed)"
+        else:
+            share, label, basis = 1.0, f"{mark.name}", "PoB adds nothing to the main skill's damage from it; Blood " \
+                "Explosion's damage on a Heavy Stun isn't counted"
+        if share < 1.0:
+            mods.append(line("1% more Effect of your Curses", 100 * (share - 1), skill=mark.name))
+        if not mark.triggered and main is not None and period:
+            lost = min(1.0, (mark.cast_time or 0.5) / period)
+            mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
+            basis += f"; casting it ({mark.cast_time or 0.5:.2f} s every {period:.1f} s) takes {lost:.0%} of {main.name}'s time"
+        notes.append({"label": label, "value": round(share, 2), "basis": basis, "confidence": "theory"})
+    if len(marks) > 1:
+        notes.append({"label": "Marks beyond the first", "value": len(marks) - 1,
+                      "basis": "an enemy carries one Mark at a time: " + ", ".join(m.name for m in marks[1:])
+                               + " not modelled (PoB keeps only one too)", "confidence": "theory"})
     return mods, notes
 
 

@@ -10,6 +10,7 @@ import pytest
 from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
+from builder.search import models
 from builder.search.inner import Search
 from builder.search.skeletons import enumerate_skeletons
 
@@ -255,3 +256,32 @@ def test_a_spell_totem_without_charges_deals_nothing(engine):
     assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(0, abs=1e-6)
     assert any(n["label"].startswith("Spell Totems up") and n["value"] == 0 for n in search.assumptions.active)
     assert search.gems.buttons() == ["Spell Totem"]  # you press the totem, not the spell it casts
+
+
+def test_a_snipers_marks_extra_crit_damage_is_scaled_to_the_crits_it_lands_on(engine):
+    """Slice 6: PoB counts Sniper's Mark's extra crit damage on every crit. The model scales the Mark's effect to one crit
+    per Mark (a skill-scoped "more Effect of your Curses" line, which PoB must apply to the Mark) and takes its casts out
+    of the main skill's time."""
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    parsed = build.call("parseLines", lines=["1% more Effect of your Curses"])["results"][0]
+    assert parsed["supported"]
+    without = build.call("stats", fields=["FullDPS", "CritChance"])
+    assert without["CritChance"] > 0
+    build.set_group(gems=[{"name": "Sniper's Mark", "level": 20, "quality": 0}], label="mark")
+    build.call("setAssumptions", mods=[], fields=build.objective.fields)
+    raw = build.call("stats", fields=["FullDPS"])["FullDPS"]
+    search.assumptions.mods = None
+    search.assumptions.apply()
+    modelled = build.call("stats", fields=["FullDPS"])["FullDPS"]
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Sniper's Mark"))
+    assert raw > without["FullDPS"]  # PoB's always-up Mark
+    assert modelled < raw
+    assert "takes" in note["basis"]
+    # the scaling line reaches the Mark: at -100% its effect is gone
+    build.call("setAssumptions", mods=[models.line("1% more Effect of your Curses", -100, skill="Sniper's Mark")],
+               fields=build.objective.fields)
+    assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(without["FullDPS"], rel=1e-6)

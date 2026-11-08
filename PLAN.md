@@ -633,7 +633,14 @@ they land.
      feed no meta's Energy. Totem metas count as buttons. Still open: Ancestral Warrior Totem (Attacks, 3 Endurance
      Charges; needs attacks priced, as Feral Invocation) and Mortar Cannon (Grenade skills). Conditions the resolver
      turns on from the main skill's hits (crit recently, etc.) still read the totem's hits as yours.
-  6. Marks and strikes: Pounce (Werewolf slam), Hand of Chayula and Called Shots trigger socketed Marks.
+  6. Marks and strikes: Pounce (Werewolf slam), Hand of Chayula and Called Shots trigger socketed Marks. *(the Mark
+     model done)* PoB keeps any enabled Mark up and unconsumed, its buff part always yours. `models.mark_model` scales
+     the Mark's effect (a skill-scoped "more Effect of your Curses" line) to what consumption leaves on a boss (game
+     files: 8 s Marks, 0.5 s casts, Sniper's 6 s cooldown, the others 0.5 s): Sniper's Mark lands on one crit per Mark;
+     Voltaic / Freezing Mark's 10 s buff comes once per 30 s Electrocute / Freeze of the boss (assumed; none if the main
+     skill can't inflict it), times the share of time the boss is marked. A Mark you cast takes 0.5 s per application
+     from the main skill. Triggered Marks run at the trigger's cooldown (Pounce) or 5 s (Called Shots); Hand of Chayula's
+     rate isn't read yet (the Mark's cooldown, labelled). Still open: the search proposing Marks in their metas.
   7. Blasphemy in the Spirit round (curses as auras, 60 Spirit each); Mirage Archer and Mirage Deadeye (mirages, at
      the dodge-roll rate of slice 1); Ferocious Roar (Bear warcry, Rage) with the shapeshift skills.
   8. Granted metas when the build has their source: the item ones as unique proposals (Svalinn, Mjolner, Bijouborne,
