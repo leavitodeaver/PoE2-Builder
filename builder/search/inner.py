@@ -24,7 +24,7 @@ from builder.search.assumptions import Assumptions
 from builder.search.conditions import Conditions
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
 from builder.search.gear import Gear, SlotSpec, extra_ring_passive
-from builder.search.gems import Gems
+from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
 from builder.search.models import MODEL_FIELDS
 from builder.search.objective import (
@@ -394,7 +394,9 @@ class Search:
         for phase, fn, args in steps:
             if clock.now() > deadline:
                 break
-            if phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "mirages", "roar") and not sweep:
+            if phase in ("meta gems", "meta spells") and "meta" in self.kicked:
+                pass  # a meta kick took the group out: the meta round re-chooses it now, not at the next sweep
+            elif phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "mirages", "roar") and not sweep:
                 continue
             improved = self.step(phase, fn, *args) or improved
         self.kicked.clear()
@@ -441,10 +443,12 @@ class Search:
     def kick(self) -> None:
         self.kicks += 1
         self.build.phase = "kick"
-        kind = self.rng.choice(["tree", "tree", "tree", "supports", "gear"])
+        kind = self.rng.choice(["tree", "tree", "tree", "supports", "gear"] + (["meta"] if self.meta_kickable() else []))
         self.kicked.add(kind)
         self.sources.forget()
-        if kind == "tree":
+        if kind == "meta":
+            self.kick_meta()
+        elif kind == "tree":
             self.tree.kick(self.rng.randint(*KICK_TREE_POINTS))
         elif kind == "gear":
             self.gear.kick()
@@ -458,6 +462,28 @@ class Search:
                 del names[self.rng.choice(removable)]
                 self.build.set_group(index=group["index"], gems=Gems.gem_list(names))
             self.gems.shortlist = None  # force a full sweep afterwards
+
+    def meta_groups(self) -> list[dict]:
+        """Meta groups a kick may take out: the meta round's own, or a seed's whose meta isn't required. Never one an
+        item or notable grants (gear and the ascendancy round own those)."""
+        from builder.search import models
+
+        required = set(self.ctx.request.require.skills)
+        return [g for g in self.build.groups() if g["enabled"] and not g["fromItem"] and g["gems"]
+                and (g["label"] == META_LABEL or g["gems"][0]["name"] in models.META_GEMS)
+                and g["gems"][0]["name"] not in required]
+
+    def meta_kickable(self) -> bool:
+        return bool(self.meta_groups())
+
+    def kick_meta(self) -> None:
+        """Slice 9: the meta round keeps the first meta group it finds for the rest of the search (it adds one only when
+        the build has none), so a meta chosen early, before the gear and tree that feed another meta's Energy, was
+        never revisited, nor was a seed's. This kick takes the group out; the meta steps then run in the same pass and
+        choose again for the build as it is now (the run keeps the best build seen, so a worse choice is undone)."""
+        for group in sorted(self.meta_groups(), key=lambda g: -g["index"]):
+            self.build.remove_group(group["index"])
+        self.gems.meta_shortlist = None
 
     def run(self, deadline: float, best: dict | None = None, escalate: bool = True,
             feasible_first: bool = False) -> None:

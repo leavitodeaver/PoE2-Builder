@@ -576,3 +576,38 @@ def test_bijouborne_is_tried_and_its_cast_on_charm_use_gets_no_spell_without_cha
     assert len(group["gems"]) == 1
     from builder.search.assumptions import charm_stats
     assert charm_stats(build)["_charm_charges"] == 0
+
+
+def test_a_meta_kick_takes_the_meta_group_out_and_the_meta_steps_rechoose_it_in_the_same_pass(engine):
+    """Slice 9: the meta round adds a group only when the build has none, so without this kick a meta chosen early (or
+    a seed's) stayed for the whole search. A required meta, or one an item grants, is never kicked."""
+    import time
+    from builder.search.gems import META_LABEL
+
+    def boneshatter(**body) -> Search:
+        payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"], **body))
+        skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+        search = Search(engine, None, payload, skeleton.as_dict(), 0)
+        search.setup(quests=False)
+        search.build.set_group(gems=[{"name": "Cast on Dodge", "level": 20, "quality": 0},
+                                     {"name": "Fireball", "level": 20, "quality": 0}], label=META_LABEL, fullDPS=True)
+        return search
+
+    search = boneshatter()
+    assert search.meta_kickable()
+    count = len(search.build.groups())
+    search.kick_meta()
+    assert len(search.build.groups()) == count - 1 and not search.meta_kickable()
+    assert search.build.main_group()["gems"][0]["name"] == "Boneshatter"
+
+    phases = []
+    search.step = lambda phase, fn, *args: phases.append(phase) or False
+    search.passes = 1  # not a sweep pass
+    search.kicked = {"meta"}
+    search.blocks(time.perf_counter() + 60)
+    assert "meta gems" in phases and "meta spells" in phases and "totems" not in phases
+    phases.clear()
+    search.blocks(time.perf_counter() + 60)  # the next pass between sweeps skips them again
+    assert "meta gems" not in phases
+
+    assert not boneshatter(require={"skills": ["Cast on Dodge"]}).meta_kickable()
