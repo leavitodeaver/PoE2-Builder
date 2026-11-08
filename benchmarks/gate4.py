@@ -7,7 +7,7 @@ Energy Shield, resistances (capped at 75%) and physical maximum hit. The target 
 reference's boss DPS with every floor met, within the time limit. Both sides are measured with
 the same objective (on-death damage left out).
 
-Usage: uv run python benchmarks/gate4.py [name-filter ...] [--seconds 600] [--workers N]
+Usage: uv run python benchmarks/gate4.py [name-filter ...] [--seconds 600] [--workers N] [--events FILE]
 """
 
 from __future__ import annotations
@@ -71,6 +71,7 @@ def main() -> None:
     parser.add_argument("names", nargs="*")
     parser.add_argument("--seconds", type=float, default=600)
     parser.add_argument("--workers", type=int)
+    parser.add_argument("--events", help="append the run's events (all but progress) to this JSONL file")
     args = parser.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -103,7 +104,13 @@ def main() -> None:
 
     rows = []
     for name, request, reference_dps in references:
-        result = optimize(request, prices=prices, workers=args.workers, seconds=args.seconds)
+        on_event = None
+        if args.events:
+            def on_event(event: dict, name: str = name) -> None:
+                if event["kind"] != "progress":
+                    with open(args.events, "a", encoding="utf-8") as log:
+                        log.write(json.dumps({"build": name, **event}) + "\n")
+        result = optimize(request, prices=prices, workers=args.workers, seconds=args.seconds, on_event=on_event)
         dps = (result.get("dps") or {}).get("full", 0.0)
         failing = [c["label"] for c in result.get("checks", []) if c["ok"] is False]
         passed = result.get("feasible", False) and dps >= reference_dps
