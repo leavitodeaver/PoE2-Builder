@@ -15,6 +15,7 @@ from builder.search.state import EPSILON, Build
 
 PERSISTENT_LABEL = "auto: persistent"
 META_LABEL = "auto: meta"
+MARK_LABEL = "auto: mark"
 META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
 META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
 # A spell triggered less often than this can't pay through its own damage; what PoB counts of it besides (a buff it
@@ -709,6 +710,95 @@ class Gems:
             if self.resolve is not None:
                 self.resolve()
         return improved
+
+    def mark_round(self, deadline: float) -> bool:
+        """Add a Mark (slice 6) and keep it if the build scores better, models.mark_model pricing what consumption on a boss
+        leaves of it: cast by you (a button), socketed in Pounce or Hand of Chayula (the meta is the button), or in a Called
+        Shots group the build already has (automatic; granted by a Deadeye notable, so never proposed). Only Marks the
+        model gives something on this build: Sniper's with crits, Voltaic / Freezing when the main skill can Electrocute /
+        Freeze; Bloodhound's adds nothing PoB counts. Any button must fit the cap."""
+        from builder.search import models
+
+        build = self.build
+        if clock.now() > deadline or self.build.main_group() is None:
+            return False
+        groups = [g for g in build.groups() if g["enabled"]]
+        if any(g["name"] in models.MARKS for grp in groups for g in grp["gems"]):
+            return False
+        player_groups = [g for g in build.groups() if not g["fromItem"]]
+        stats = build.call("stats", fields=["CritChance", "FreezeBuildupAvg", "ElectrocuteBuildupAvg"])
+        gives = {"Sniper's Mark": models.number(stats.get("CritChance")) > 0,
+                 **{m: models.number(stats.get(f"{a}BuildupAvg")) > 0 for m, a in models.MARK_BUFFS.items()}}
+        left, usage = self.budget_left(), self.usage_stats()
+        cap = self.ctx.request.max_buttons
+        before = build.score
+        called = next((g for g in groups if not g["fromItem"] and any(x["name"] == "Called Shots" for x in g["gems"])), None)
+        best: tuple[float, dict] | None = None
+        tried: list[str] = []
+        for mark in models.MARKS:
+            level = self.usable_level(mark)
+            if not gives.get(mark):
+                self.left_out[mark] = ("Bloodhound's Mark adds nothing PoB counts to the main skill" if mark not in gives
+                                       else "the model gives it nothing on this build (no crits, or the main skill can't "
+                                            "inflict its ailment)")
+                continue
+            if level is None or not self._offered(mark, left, usage):
+                self.left_out[mark] = "not usable: not affordable, or its attributes aren't met"
+                continue
+            gem = {"name": mark, "level": level, "quality": GEM_QUALITY}
+            placements: list[dict] = []
+            if called is not None:
+                placements.append({"index": called["index"],
+                                   "gems": [{"name": g["name"], "level": g["level"], "quality": g["quality"]}
+                                            for g in called["gems"]] + [gem]})
+            if len(player_groups) < MAX_GEM_GROUPS:
+                placements.append({"gems": [gem]})
+                for meta in ("Pounce", "Hand of Chayula"):
+                    meta_level = self.usable_level(meta)
+                    if meta_level is not None and self._offered(meta, left, usage):
+                        placements.append({"gems": [{"name": meta, "level": meta_level, "quality": GEM_QUALITY}, gem]})
+            for place in placements:
+                if clock.now() > deadline:
+                    break
+                score = self.trial_mark(place, cap)
+                if score is not None and score > before + EPSILON and (best is None or score > best[0]):
+                    best = (score, place)
+            tried.append(mark)
+        chosen = best[1]["gems"][-1]["name"] if best else None
+        for mark in tried:
+            if mark != chosen:
+                self.left_out[mark] = "tried: the build scored no better with it (or it needed a button over the cap)"
+        if best is None:
+            return False
+        place = best[1]
+        if "index" in place:
+            build.set_group(index=place["index"], gems=place["gems"])
+        else:
+            build.set_group(gems=place["gems"], label=MARK_LABEL)
+        if self.resolve is not None:
+            self.resolve()
+        self.left_out.pop(place["gems"][-1]["name"], None)
+        return build.score > before + EPSILON
+
+    def trial_mark(self, place: dict, cap: int | None) -> float | None:
+        """Score a Mark placement for real (commit, resolve, read, undo); None if its buttons go over the cap."""
+        build = self.build
+        if "index" in place:
+            old = next(g for g in build.groups() if g["index"] == place["index"])
+            old_gems = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in old["gems"]]
+            build.set_group(index=place["index"], gems=place["gems"])
+        else:
+            added = build.set_group(gems=place["gems"], label=MARK_LABEL)
+        if self.resolve is not None:
+            self.resolve()
+        score = build.score if cap is None or len(self.buttons()) <= cap else None
+        if "index" in place:
+            build.set_group(index=place["index"], gems=old_gems)
+        else:
+            build.remove_group(added["index"])
+        if self.resolve is not None:
+            self.resolve()
+        return score
 
     def buttons(self) -> list[str]:
         """The skills the build makes the player press (constraints.player_buttons' rule on the current groups): not

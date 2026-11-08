@@ -578,17 +578,34 @@ def test_voltaic_and_freezing_marks_buff_after_the_bosss_ailment():
     can't inflict it."""
     mark = models.Skill("Voltaic Mark", group=2, cast_time=0.5, cooldown=0.5)
     spell = models.Skill("Spark", group=1, spell=True)
-    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "ElectrocuteChanceOnHit": 20}
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "ElectrocuteBuildupAvg": 20}
     mods, notes = models.mark_model([spell, mark], stats, spell)
     by_line = {m["line"]: m["scale"] for m in mods}
     assert by_line["1% more Effect of your Curses"] == pytest.approx(100 * (10 / 30 - 1), rel=1e-3)
     assert by_line["1% more Attack and Cast Speed"] == pytest.approx(-100 * 0.5 / 8, rel=1e-3)  # recast every 8 s
-    mods, notes = models.mark_model([spell, mark], dict(stats, ElectrocuteChanceOnHit=0), spell)
+    mods, notes = models.mark_model([spell, mark], dict(stats, ElectrocuteBuildupAvg=0), spell)
     assert {m["line"]: m["scale"] for m in mods}["1% more Effect of your Curses"] == pytest.approx(-100)
     assert notes[0]["value"] == 0
     # triggered by Pounce (cooldown 12 s assumed here): marked 8 s of every 12
     pounce = models.Skill("Pounce", group=2, attack=True, cooldown=12.0)
     triggered = models.Skill("Freezing Mark", group=2, cast_time=0.5, cooldown=0.5, triggered=True)
-    mods, notes = models.mark_model([spell, pounce, triggered], dict(stats, FreezeChanceOnHit=5), spell)
+    mods, notes = models.mark_model([spell, pounce, triggered], dict(stats, FreezeBuildupAvg=5), spell)
     assert notes[0]["value"] == pytest.approx(round(10 / 30 * 8 / 12, 2))
     assert models.mark_model([spell], stats, spell) == ([], [])
+
+
+def test_the_skill_you_press_for_a_mark_takes_the_main_skills_time():
+    """Pounce (pressed, on its cooldown) and Hand of Chayula (pressed when the Mark is needed) cost their use time;
+    Called Shots is automatic."""
+    bow = models.Skill("Lightning Arrow", group=1, attack=True)
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50}
+    mark = models.Skill("Sniper's Mark", group=2, cast_time=0.5, cooldown=6.0, triggered=True)
+    pounce = models.Skill("Pounce", group=2, attack=True, cast_time=1.0, cooldown=10.0)
+    mods, notes = models.mark_model([bow, pounce, mark], stats, bow)
+    by_line = {m["line"]: m["scale"] for m in mods}
+    assert by_line["1% more Attack and Cast Speed"] == pytest.approx(-10.0)  # 1 s every 10 s
+    assert by_line["1% more Effect of your Curses"] == pytest.approx(-90.0)  # one crit of the 10 in 10 s
+    assert "Pounce" in notes[0]["basis"]
+    hand = models.Skill("Hand of Chayula", group=2, attack=True, cast_time=0.6)
+    mods, _ = models.mark_model([bow, hand, mark], stats, bow)
+    assert {m["line"]: m["scale"] for m in mods}["1% more Attack and Cast Speed"] == pytest.approx(-10.0)  # 0.6 s / 6 s

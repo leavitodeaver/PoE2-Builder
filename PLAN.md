@@ -640,7 +640,13 @@ they land.
      Voltaic / Freezing Mark's 10 s buff comes once per 30 s Electrocute / Freeze of the boss (assumed; none if the main
      skill can't inflict it), times the share of time the boss is marked. A Mark you cast takes 0.5 s per application
      from the main skill. Triggered Marks run at the trigger's cooldown (Pounce) or 5 s (Called Shots); Hand of Chayula's
-     rate isn't read yet (the Mark's cooldown, labelled). Still open: the search proposing Marks in their metas.
+     rate isn't read yet (used when the Mark is needed, labelled). The skill you press for a Mark (the Mark, Pounce on its
+     cooldown, Hand of Chayula) costs its use time. Freeze and Electrocute are read from PoB's FreezeBuildupAvg /
+     ElectrocuteBuildupAvg (its ...ChanceOnHit outputs are Ignite and Shock only). Step "marks" (gems.mark_round) tries
+     each Mark the model gives something (Sniper's with crits, Voltaic / Freezing when the main skill builds the
+     ailment; not Bloodhound's) cast by you, in Pounce or Hand of Chayula, or in a Called Shots group the build has, and
+     keeps the best if the build scores better and its buttons fit the cap. Hand of Chayula's increased Mark effect and
+     Pounce's own damage aren't read.
   7. Blasphemy in the Spirit round (curses as auras, 60 Spirit each); Mirage Archer and Mirage Deadeye (mirages, at
      the dodge-roll rate of slice 1); Ferocious Roar (Bear warcry, Rage) with the shapeshift skills.
   8. Granted metas when the build has their source: the item ones as unique proposals (Svalinn, Mjolner, Bijouborne,

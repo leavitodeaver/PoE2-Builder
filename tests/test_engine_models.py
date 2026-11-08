@@ -285,3 +285,29 @@ def test_a_snipers_marks_extra_crit_damage_is_scaled_to_the_crits_it_lands_on(en
     build.call("setAssumptions", mods=[models.line("1% more Effect of your Curses", -100, skill="Sniper's Mark")],
                fields=build.objective.fields)
     assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(without["FullDPS"], rel=1e-6)
+
+
+def test_the_mark_round_adds_a_mark_only_when_it_pays_and_fits_the_button_cap(engine):
+    """Slice 6: the search proposes a Mark (cast by you, or in Pounce / Hand of Chayula), priced by mark_model. A cold spell
+    freezes the boss now and then: Freezing Mark's buff pays for its casts. A 5% crit bow gains less from Sniper's Mark
+    than its casts cost. With one button allowed (the main skill), nothing pressed can come in."""
+    def round_on(skill, ascendancy, cap):
+        payload = make_payload(BuildRequest(main_skill=skill, ascendancies=[ascendancy], max_buttons=cap))
+        skeleton = enumerate_skeletons(Context(payload), [skill])[0][0]
+        search = Search(engine, None, payload, skeleton.as_dict(), 0)
+        search.setup(quests=False)
+        before = search.build.score
+        added = search.gems.mark_round(float("inf"))
+        names = {g["name"] for grp in search.build.groups() for g in grp["gems"]}
+        return search, before, added, names & set(models.MARKS)
+
+    search, before, added, marks = round_on("Ice Nova", "Stormweaver", None)
+    assert added and marks == {"Freezing Mark"} and search.build.score > before
+    assert any(n["label"].startswith("Freezing Mark") for n in search.assumptions.active)
+    search, before, added, marks = round_on("Ice Nova", "Stormweaver", 1)
+    assert not added and not marks and search.build.score == pytest.approx(before)
+    assert search.gems.buttons() == ["Ice Nova"]
+    search, before, added, marks = round_on("Lightning Arrow", "Deadeye", None)
+    assert not added and not marks and search.build.score == pytest.approx(before)
+    assert search.gems.left_out["Sniper's Mark"].startswith("tried")
+    assert "Bloodhound's Mark" in search.gems.left_out

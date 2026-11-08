@@ -33,7 +33,7 @@ MODEL_FIELDS = sorted({
     "Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
     "EnergyShieldRegenRecovery", "EnergyShieldRecharge",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
-    "FreezeChanceOnHit", "FreezeChanceOnCrit", "ElectrocuteChanceOnHit", "ElectrocuteChanceOnCrit",
+    "FreezeBuildupAvg", "ElectrocuteBuildupAvg",
     "Darkness", "Str", "Dex", "Int", *(f"{t}CritAverage" for t in DAMAGE_TYPES), *(f"{t}HitAverage" for t in DAMAGE_TYPES),
     *(f"MainHand.{t}CritAverage" for t in DAMAGE_TYPES),
     # Barrier Invocation: the Energy Shield each boss hit takes
@@ -417,14 +417,14 @@ NOT_MODELED_YET = {
 # NOT_MODELED_YET, OTHER_METAS or DEPRECATED (tests/test_models.py), so none is dropped silently.
 OTHER_METAS = {
     "Blasphemy": "turns socketed Curses into Auras (60 Spirit per Curse): a Spirit choice, not a trigger",
-    "Pounce": "a Werewolf slam that triggers a socketed Mark on the highest-rarity enemy hit",
+    "Pounce": "a Werewolf slam that triggers a socketed Mark on the highest-rarity enemy hit (the marks round, gems.mark_round)",
     "Ferocious Roar": "a Bear Warcry that gains Rage per enemy Power and empowers socketed skills",
     "Ancestral Warrior Totem": "a totem whose spirit warriors use socketed Attacks, consuming 3 Endurance Charges",
     "Mortar Cannon": "a Ballista Totem that uses socketed Grenade skills",
-    "Hand of Chayula": "a Strike that triggers socketed Marks with increased effect",
+    "Hand of Chayula": "a Strike that triggers socketed Marks with increased effect (the marks round; the increased effect isn't read)",
     "Mirage Archer": "dodge rolling creates a Mirage that uses socketed ranged Attacks",
     "Mirage Deadeye": "Deadeye notable: a ranged Projectile Attack creates a Mirage",
-    "Called Shots": "Deadeye notable: applies a socketed Mark to an enemy every five seconds",
+    "Called Shots": "Deadeye notable: applies a socketed Mark to an enemy every five seconds (the marks round fills a group the build has)",
     "Hollow Form": "Chayula Monk notable: consumes Power Charges to create extra images",
     "Spirit Vessel": "Forgotten Warden's companion that uses copies of socketed Bear, Werewolf and Wyvern skills",
     "Animus Splinters": "0.5 league content (Runic Ward cost); its source isn't read from the game files yet",
@@ -523,40 +523,56 @@ MARKS = ("Sniper's Mark", *MARK_BUFFS, "Bloodhound's Mark")
 MARK_TRIGGER_EVERY = {"Called Shots": 5.0}  # "applies a socketed Mark to an enemy every five seconds"
 
 
-def mark_period(mark: Skill, skills: list[Skill]) -> tuple[float, str]:
-    """Seconds between two applications of the Mark, and by what."""
+@dataclass
+class MarkUse:
+    period: float  # seconds between two applications
+    how: str
+    pressed: Skill | None = None  # the skill you press for it (the Mark, Pounce, Hand of Chayula), None if automatic
+    on_demand: bool = True  # applied when needed (recast as it runs out or is consumed), not on a fixed timer
+
+
+def mark_use(mark: Skill, skills: list[Skill]) -> MarkUse:
+    """How often the Mark is applied, and by what."""
     own = (mark.cooldown or 0.0) / (mark.cooldown_recovery or 1.0)
     if not mark.triggered:
-        return max(own, mark.cast_time), "cast by you as often as its cooldown allows"
-    trigger = next((s for s in skills if s.group == mark.group and s.name != mark.name
-                    and (s.name in MARK_TRIGGER_EVERY or s.cooldown)), None)
+        return MarkUse(max(own, mark.cast_time), "cast by you", mark)
+    trigger = next((s for s in skills if s.group == mark.group and s.name != mark.name), None)
     if trigger is None:
-        return own, "triggered as often as the Mark's cooldown allows (assumed: the trigger's own rate isn't read yet)"
-    every = MARK_TRIGGER_EVERY.get(trigger.name) or trigger.cooldown / (trigger.cooldown_recovery or 1.0)
-    return max(own, every), f"triggered by {trigger.name} every {every:.1f} s"
+        return MarkUse(own, "triggered by a skill the model doesn't know: assumed applied when needed, at no cost")
+    if trigger.name in MARK_TRIGGER_EVERY:
+        every = MARK_TRIGGER_EVERY[trigger.name]
+        return MarkUse(max(own, every), f"{trigger.name} applies it every {every:g} s", on_demand=False)
+    if trigger.cooldown:
+        every = trigger.cooldown / (trigger.cooldown_recovery or 1.0)
+        return MarkUse(max(own, every), f"triggered by {trigger.name}, used on its {every:.1f} s cooldown", trigger,
+                       on_demand=False)
+    return MarkUse(max(own, trigger.cast_time), f"triggered by {trigger.name}, used when the Mark is needed (assumed)",
+                   trigger)
 
 
 def mark_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
-    """Each Mark's effect scaled from PoB's always-up to what consumption on a boss leaves, and the time a Mark you cast
-    yourself takes from the main skill."""
+    """Each Mark's effect scaled from PoB's always-up to what consumption on a boss leaves, and the time the skill you
+    press for it (the Mark, Pounce, Hand of Chayula) takes from the main skill."""
     mods: list[dict] = []
     notes: list[dict] = []
     marks = [s for s in skills if s.name in MARKS and s is not main]
     for mark in marks[:1]:  # one Mark on an enemy at a time (number_of_marks_allowed_per_type 1, EnemyMarkLimit 1)
-        period, how = mark_period(mark, skills)
+        use = mark_use(mark, skills)
+        period, how = use.period, use.how
         if mark.name == "Sniper's Mark":
             crits = crits_per_second(stats)
-            period = max(period, min(1 / crits, MARK_DURATION) if crits else 0.0)  # (recast once consumed)
+            if use.on_demand:
+                period = max(period, min(1 / crits, MARK_DURATION) if crits else 0.0)  # (recast once consumed)
             share = min(1.0, 1 / (period * crits)) if crits and period else 1.0
             label, basis = "Sniper's Mark: share of crits it adds damage to", (
                 f"one Mark every {period:.1f} s ({how}) against {crits:.2f} crits/s; the next crit consumes it (PoB "
                 "counts its extra crit damage on every crit)")
         elif mark.name in MARK_BUFFS:
             ailment = MARK_BUFFS[mark.name]
-            inflicts = number(stats.get(f"{ailment}ChanceOnHit")) + number(stats.get(f"{ailment}ChanceOnCrit")) > 0
-            marked = 1.0 if not mark.triggered else min(1.0, MARK_DURATION / period) if period else 1.0
-            if not mark.triggered:
-                period = max(period, MARK_DURATION)  # recast as it runs out (its duration's modifiers aren't read)
+            inflicts = number(stats.get(f"{ailment}BuildupAvg")) > 0  # (PoB: a hit's average buildup, % of the threshold)
+            marked = 1.0 if use.on_demand or not period else min(1.0, MARK_DURATION / period)
+            if use.on_demand:
+                period = max(period, MARK_DURATION)  # reapplied as it runs out (its duration's modifiers aren't read)
             share = min(1.0, MARK_BUFF_DURATION / BOSS_AILMENT_EVERY) * marked if inflicts else 0.0
             label, basis = f"{mark.name}: buff uptime", (
                 (f"the boss {ailment.lower()}d once per {BOSS_AILMENT_EVERY:.0f} s while marked (assumed), "
@@ -564,14 +580,14 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
                 f"the main skill can't {ailment.lower()} the boss, so the Mark is never consumed and gives no buff"
             ) + "; PoB counts the buff always up; its buildup part is scaled with it (assumed)"
         else:
-            share, label, basis = 1.0, f"{mark.name}", "PoB adds nothing to the main skill's damage from it; Blood " \
-                "Explosion's damage on a Heavy Stun isn't counted"
+            share, label, basis = 1.0, f"{mark.name}", "PoB adds nothing to the main skill's damage from it; Blood "                 "Explosion's damage on a Heavy Stun isn't counted"
         if share < 1.0:
             mods.append(line("1% more Effect of your Curses", 100 * (share - 1), skill=mark.name))
-        if not mark.triggered and main is not None and period:
-            lost = min(1.0, (mark.cast_time or 0.5) / period)
+        if use.pressed is not None and main is not None and use.pressed is not main and period:
+            took = use.pressed.cast_time or 0.5
+            lost = min(1.0, took / period)
             mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
-            basis += f"; casting it ({mark.cast_time or 0.5:.2f} s every {period:.1f} s) takes {lost:.0%} of {main.name}'s time"
+            basis += f"; using {use.pressed.name} ({took:.2f} s every {period:.1f} s) takes {lost:.0%} of {main.name}'s time"
         notes.append({"label": label, "value": round(share, 2), "basis": basis, "confidence": "theory"})
     if len(marks) > 1:
         notes.append({"label": "Marks beyond the first", "value": len(marks) - 1,
