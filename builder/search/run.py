@@ -160,6 +160,22 @@ class Run:
         for key, (_, result) in best.items():
             states[key] = result["state"]
 
+    @staticmethod
+    def keep_lines(lines: dict, tasks: list[tuple[str, dict]], raw: list[Any]) -> None:
+        """Each finished task's state, as where its (skeleton, replica, goal) line continues (results come in task
+        order; replicas count from 0 within a skeleton, in the order the tasks list them)."""
+        count: dict[str, int] = {}
+        for (_, args), result in zip(tasks, raw):
+            label = Skeleton(**args["skeleton"]).label
+            replica = count.get(label, 0)
+            count[label] = replica + 1
+            if isinstance(result, dict) and result.get("state") is not None:
+                lines[(label, replica, args.get("goal") or "")] = result["state"]
+
+    def line_state(self, lines: dict, states: dict, label: str, replica: int, goal: str | None) -> dict | None:
+        """Where a replica's search continues: its own line, if it has one on this goal, else the skeleton's best."""
+        return lines.get((label, replica, goal or "")) or self.state_for(states, label, goal)
+
     def state_for(self, states: dict, label: str, goal: str | None) -> dict | None:
         return states.get((label, goal or self.request.objective)) or states.get((label, self.request.objective))
 
@@ -273,6 +289,11 @@ class Run:
 
             # Probes, then successive halving while there are more survivors than workers
             states: dict[tuple[str, str], dict] = {}  # (skeleton, goal) -> the state its searches continue from
+            # (skeleton, replica, goal) -> where that replica's own line of searches is. Each replica continues its own
+            # line, so a run keeps several independent searches to the end: gate 4 showed every replica restarting from
+            # the one best probe state, which was nearly unset (2b75b: 218 DPS after the probe), so the whole run took
+            # that one state's basin, and the result swung run to run (x0.21-x13.03 on the same code)
+            lines: dict[tuple[str, int, str], dict] = {}
             alive = skeletons
             round_index = 0
             while alive and not self.should_cancel():
@@ -284,11 +305,13 @@ class Run:
                                             + self.boss_share(goals))
                 tasks = [("builder.search.inner:optimize_task", {
                     "payload": self.payload, "skeleton": s.as_dict(), "seconds": probe,
-                    "seed": round_index * 1000 + 31 * r + i, "state": self.state_for(states, s.label, goals[r]),
+                    "seed": round_index * 1000 + 31 * r + i, "state": self.line_state(lines, states, s.label, r, goals[r]),
                     "goal": goals[r]})
                     for i, s in enumerate(alive) for r in range(replicas)]
                 best_of: dict[str, dict] = {}
-                results = self._record(self._tasks(pool, tasks))
+                raw = self._tasks(pool, tasks)
+                self.keep_lines(lines, tasks, raw)
+                results = self._record(raw)
                 for result in results:
                     if result["label"] not in best_of or rank_key(result) < rank_key(best_of[result["label"]]):
                         best_of[result["label"]] = result
@@ -313,7 +336,8 @@ class Run:
                                             f"for {focus_seconds:.0f}s" + self.boss_share(goals))
                 tasks = [("builder.search.inner:optimize_task", {
                     "payload": self.payload, "skeleton": s.as_dict(), "seconds": focus_seconds,
-                    "seed": 7919 * (r + 1) + i, "state": self.state_for(states, s.label, goals[r]), "goal": goals[r]})
+                    "seed": 7919 * (r + 1) + i, "state": self.line_state(lines, states, s.label, r, goals[r]),
+                    "goal": goals[r]})
                     for i, s in enumerate(alive) for r in range(replicas)]
                 self._record(self._tasks(pool, tasks))
 

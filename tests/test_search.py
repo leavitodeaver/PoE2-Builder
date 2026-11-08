@@ -315,6 +315,20 @@ def test_balanced_runs_some_searches_on_boss_dps_and_ranks_them_all_on_balanced(
     run.keep_states(states, results)
     assert run.state_for(states, "LA", "boss") == "lopsided"
     assert run.state_for(states, "LA", None) == "hard hitter"
+    # Each replica goes on from its own line; a replica without one (or a failed task) from the skeleton's best
+    from builder.pob.pool import WorkerError
+    from builder.search.skeletons import Skeleton
+
+    skeleton = Skeleton("Ranger", "Deadeye", "Lightning Arrow", "Bow", None, "Quiver").as_dict()
+    label = Skeleton(**skeleton).label
+    tasks = [("x", {"skeleton": skeleton, "goal": g}) for g in (None, "boss", None)]
+    lines = {}
+    run.keep_lines(lines, tasks, [{"state": "first"}, {"state": "second"}, WorkerError("lost")])
+    states = {(label, "balanced"): "best"}
+    assert run.line_state(lines, states, label, 0, None) == "first"
+    assert run.line_state(lines, states, label, 1, "boss") == "second"
+    assert run.line_state(lines, states, label, 2, None) == "best"
+    assert run.line_state(lines, states, label, 3, None) == "best"
 
 
 def test_feasibility_penalties_are_the_same_for_every_goal():

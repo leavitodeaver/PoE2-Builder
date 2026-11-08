@@ -543,6 +543,9 @@ class Search:
             if self.shortfall(closest["stats"]) < short - 1e-6:
                 self.build.restore(closest)
         self.keep_feasible()
+        lost = "a required passive had gone from the tree during the search; it was put back"
+        if self.tree.ensure_required() and lost not in self.problems:
+            self.problems.append(lost)
         self.resolve()
 
     def note_feasible(self) -> None:

@@ -137,6 +137,21 @@ class Tree:
         # Their paths stay too: removing a branch that cuts a required node off is never proposed
         return missing
 
+    def ensure_required(self) -> bool:
+        """Put back a required main-tree passive the build no longer has (with its path). The search's deficits don't
+        list required passives (only the delivered build's checks do), so one lost on the way went unseen: gate 4's
+        2b75d delivered a build without its required Chaos Inoculation once each replica kept its own line (run.py).
+        True if one had to go back."""
+        allocated = {n["id"] for n in self.build.call("allocatedNodes")["nodes"]}
+        names = {self.ctx.node_as(self.ctx.nodes[i], self.class_name, self.ascendancy).get("name")
+                 for i in allocated if i in self.ctx.nodes}
+        wanted = {n for n in self.required_names
+                  if any(not node.get("ascendancy") and node.get("name") == n for node in self.ctx.nodes.values())}
+        if self.required <= allocated and wanted <= names:
+            return False
+        self.allocate_required(self.class_name)
+        return True
+
     # Grow --------------------------------------------------------------------------------------
 
     def points_left(self) -> int:
