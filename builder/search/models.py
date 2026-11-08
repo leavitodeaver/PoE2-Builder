@@ -448,7 +448,10 @@ OTHER_METAS = {
     "Hollow Form": "Martial Artist (Monk) notable: a channelled meta whose images use the socketed melee Attack, 2 more per Power Charge "
                    "consumed (the ascendancy round tries the notable with the main skill moved into it, gems.hollow_round; "
                    "hollow_model)",
-    "Spirit Vessel": "Forgotten Warden's companion that uses copies of socketed Bear, Werewolf and Wyvern skills",
+    "Spirit Vessel": "Forgotten Warden's companion that uses copies of socketed Bear, Werewolf and Wyvern skills, 20% more "
+                     "damage per different socketed skill; the socketed skills become unusable for you (game files). PoB "
+                     "has no minion for it and prices nothing; the companion's monster (210% damage and life, 1 s "
+                     "attacks, 25% increased attack speed, 5% crit) isn't priced yet (PLAN.md \"Meta gems\" item 8)",
     "Animus Splinters": "0.5 league content (Runic Ward cost); its source isn't read from the game files yet",
 }
 
