@@ -10,9 +10,9 @@ normal bases only, and PoB's default configuration (no condition resolver, no qu
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
+from builder import clock
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, SUPPORT_SLOTS
 from builder.search.inner import Search
 from builder.search.objective import Objective, main_dps
@@ -63,7 +63,7 @@ def greedy_supports(search: Search) -> None:
 
 
 def baseline_task(engine: Any, report: Any, payload: dict, skeleton: dict) -> dict:
-    started = time.perf_counter()
+    started = clock.now()
     search = Search(engine, report, payload, skeleton, 0)
     build, sk = search.build, search.skeleton
     build.call("newBuild")
@@ -85,8 +85,8 @@ def baseline_task(engine: Any, report: Any, payload: dict, skeleton: dict) -> di
                         "score": build.objective.score(stats), "deficits": [d[0] for d in build.objective.deficits(stats)]}
 
     record("greedy")
-    search.gear.gear_round(time.perf_counter() + 600, full=True)
+    search.gear.gear_round(clock.now() + 600, full=True)
     record("greedy_uniques")
-    result["seconds"] = time.perf_counter() - started
+    result["seconds"] = clock.now() - started
     result["evals"] = build.evals
     return result

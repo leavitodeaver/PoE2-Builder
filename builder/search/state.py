@@ -6,10 +6,10 @@ evaluations and streams progress.
 from __future__ import annotations
 
 import math
-import time
 from collections.abc import Callable
 from typing import Any
 
+from builder import clock
 from builder.search.context import Context, ItemOption
 from builder.search.objective import CLEAR_FIELDS, EHP_FIELDS_PREFIXES, Objective
 
@@ -30,7 +30,7 @@ class Build:
         self.score = -math.inf
         self.evals = 0
         self.commits = 0
-        self.started = time.perf_counter()
+        self.started = clock.now()
         self.phase = "setup"
         self._last_report = 0.0
         # What the search put in each item slot, for prices and the result
@@ -76,7 +76,7 @@ class Build:
         """Stream progress about once a second; also where a cancelled task stops."""
         if self.report is None:
             return
-        now = time.perf_counter()
+        now = clock.now()
         if force or now - self._last_report >= PROGRESS_INTERVAL:
             self._last_report = now
             self.report(self.progress())
@@ -84,7 +84,7 @@ class Build:
             self.report(None)
 
     def progress(self) -> dict:
-        elapsed = time.perf_counter() - self.started
+        elapsed = clock.now() - self.started
         return {
             "skeleton": self.label, "phase": self.phase, "score": self.score,
             "dps": self.objective.dps(self.stats), "clear": self.objective.clear(self.stats)["score"],

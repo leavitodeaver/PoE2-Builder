@@ -29,6 +29,7 @@ import dataclasses
 import time
 from collections.abc import Callable
 
+from builder import clock
 from builder.data import unique_versions
 from builder.search.context import ItemOption
 from builder.search.radius import Variants, compact, miscalculated, tree_changing, unlocks, variants_of, with_variants
@@ -130,7 +131,7 @@ class Jewels:
             choice.append(i if i in usable and i not in choice else next(u for u in usable if u not in choice))
         ranked: list[int] | None = None
         for k in range(len(choice)):
-            if time.perf_counter() > deadline:
+            if clock.now() > deadline:
                 break
             others = set(choice[:k] + choice[k + 1:])
             pool = usable if ranked is None else ranked[:VARIANT_SCREEN] + [choice[k]]
@@ -158,7 +159,7 @@ class Jewels:
         for base_name in bases:
             base = self.ctx.bases_by_name.get(base_name)
             pool = self.pools.pool(base_name) if base else []
-            if not pool or time.perf_counter() > deadline:
+            if not pool or clock.now() > deadline:
                 continue
             scored = self.build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, [a])} for a in pool])
             ranked = [a for _, a in sorted(zip((s for s, _ in scored), pool), key=lambda x: -x[0])]
@@ -198,7 +199,7 @@ class Jewels:
             return None
         current = build.item_deltas([{"slot": slot, "raw": rare_text("Jewel", base, level, chosen)}])[0][0]
         current -= lam * rare_price("Jewel", chosen)
-        while time.perf_counter() < deadline:
+        while clock.now() < deadline:
             groups = {a.group for a in chosen}
             counts = {k: sum(1 for a in chosen if a.type == k and not a.crafted) for k in limits}
             candidates = (c for a in shortlist if a.group not in groups and counts[a.type] < limits[a.type]
@@ -280,14 +281,14 @@ class Jewels:
         self.full_rounds += 1 if full else 0
         sockets = self.sync()
         for index, socket in enumerate(sockets):
-            if time.perf_counter() > deadline:
+            if clock.now() > deadline:
                 break
             improved = self.fill(socket, deadline, rebuild=full and index == 0) or improved
-        if full and time.perf_counter() < deadline:
+        if full and clock.now() < deadline:
             improved = self.try_new_socket(deadline) or improved
-        if full and time.perf_counter() < deadline:
+        if full and clock.now() < deadline:
             improved = self.unlock_round(deadline) or improved
-        if full and time.perf_counter() < deadline:
+        if full and clock.now() < deadline:
             improved = self.radius_trial(deadline) or improved
         return improved
 
@@ -337,7 +338,7 @@ class Jewels:
         # A Time-Lost rare built for each socket with the larger radius in effect (its worth
         # depends on where it sits), offered beside the uniques
         for socket in sockets:
-            if time.perf_counter() > deadline:
+            if clock.now() > deadline:
                 break
             rare = self.build_rare(self.slot(socket), deadline, bases=RADIUS_BASES)
             if rare is not None:
@@ -393,7 +394,7 @@ class Jewels:
         opened_socket = None
         screened: list[tuple[float, int, ItemOption, int]] = []
         for socket, version in batch:
-            if time.perf_counter() > deadline:
+            if clock.now() > deadline:
                 break
             self.screened.add((version.name, socket, version.variants))
             if paths[socket] and opened_socket != socket:
@@ -413,7 +414,7 @@ class Jewels:
         build.restore(snap)
         screened.sort(key=lambda x: -x[0])
         for potential, socket, version, wanted in screened[:UNLOCK_TRIALS]:
-            if potential <= EPSILON or time.perf_counter() > deadline:
+            if potential <= EPSILON or clock.now() > deadline:
                 break
             if self.try_unlock(socket, version, wanted, paths[socket], deadline):
                 return True

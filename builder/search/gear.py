@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import dataclasses
 import random
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from builder import clock
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption
 from builder.search.flasks import (
     ACTIVE_UPTIME, CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
@@ -261,7 +261,7 @@ class Gear:
         affix that passes it (a condition's source, builder/search/sources.py), on the best base
         that can roll one."""
         bases = [o for o in self.options(slot) if not o.unique]
-        if not bases or time.perf_counter() > deadline:
+        if not bases or clock.now() > deadline:
             return None
         magic = is_flask_slot(slot)
         scored = self.deltas(slot, [o.raw for o in bases])
@@ -298,7 +298,7 @@ class Gear:
                 return None
             chosen.append(forced)
         current = self.deltas(slot, [text(slot, base, level, chosen)])[0][0]
-        while time.perf_counter() < deadline:
+        while clock.now() < deadline:
             groups = {a.group for a in chosen}
             counts = {kind: sum(1 for a in chosen if a.type == kind) for kind in limits}
             candidates = (c for a in shortlist if a.group not in groups and counts[a.type] < limits[a.type]
@@ -326,7 +326,7 @@ class Gear:
         build = self.build
         base = self.ctx.bases_by_name.get(option.base)
         count = socket_count(base, option.unique) if base else 0
-        if count == 0 or time.perf_counter() > deadline:
+        if count == 0 or clock.now() > deadline:
             return option
         raw = with_runes(option.raw, [])
         left = self.left_for(slot) - (option.price or 0.0)
@@ -378,7 +378,7 @@ class Gear:
         improved = False
         self.sync_flasks()
         for slot in self.slots:
-            if slot in build.locked_slots or time.perf_counter() > deadline:
+            if slot in build.locked_slots or clock.now() > deadline:
                 continue
             if slot in CHARM_SLOTS and CHARM_SLOTS.index(slot) >= self.charges.charm_limit:
                 if build.equipped.get(slot) is not None:  # the belt changed: a charm PoB no longer counts

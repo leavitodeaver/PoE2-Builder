@@ -21,11 +21,11 @@ from __future__ import annotations
 import math
 import random
 import re
-import time
 from collections import Counter, deque
 from dataclasses import dataclass
 from itertools import product
 
+from builder import clock
 from builder.search.state import EPSILON, Build
 
 SMALL_REACH = 3
@@ -182,7 +182,7 @@ class Tree:
         improved = False
         retried_full = False
         rejected: set[int] = set()  # targets whose commit lost what their what-if promised
-        while time.perf_counter() < deadline:
+        while clock.now() < deadline:
             left = self.points_left()
             if left <= 0:
                 break
@@ -260,7 +260,7 @@ class Tree:
     def swap_round(self, deadline: float, attempts: int = 4) -> bool:
         """Remove a weak branch and regrow its points; keep the change only if it pays."""
         for loss, branch in self.weakest_branches()[:attempts]:
-            if time.perf_counter() > deadline:
+            if clock.now() > deadline:
                 break
             snap = self.build.snapshot()
             before = self.build.score

@@ -14,6 +14,7 @@ import random
 import time
 from typing import Any
 
+from builder import clock
 from builder.ledger.coverage import build_blind_spots
 from builder.ledger.parse_audit import GATED_FIELDS
 from builder.pob import codes
@@ -351,10 +352,10 @@ class Search:
 
     def step(self, phase: str, fn, *args) -> bool:
         self.build.phase = phase
-        before, evals, started = self.build.score, self.build.evals, time.perf_counter()
+        before, evals, started = self.build.score, self.build.evals, clock.now()
         fn(*args)
         entry = self.timing.setdefault(phase, [0.0, 0, 0.0])
-        entry[0] += time.perf_counter() - started
+        entry[0] += clock.now() - started
         entry[1] += self.build.evals - evals
         entry[2] += self.build.score - before
         return self.build.score > before + EPSILON
@@ -384,7 +385,7 @@ class Search:
             steps.insert(2, ("weapon sets", self.weapon_set_round, ()))
         improved = False
         for phase, fn, args in steps:
-            if time.perf_counter() > deadline:
+            if clock.now() > deadline:
                 break
             if phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems") and not sweep:
                 continue
@@ -469,10 +470,10 @@ class Search:
         start = self.build.snapshot()
         self.note_feasible()
         last_short = float("inf")
-        while time.perf_counter() < deadline:
+        while clock.now() < deadline:
             improved = self.blocks(deadline)
             self.note_feasible()
-            if time.perf_counter() >= deadline:
+            if clock.now() >= deadline:
                 break
             objective = self.build.objective
             short = shortfall([{"amount": a, "hard": h} for _, a, h in objective.deficits(self.build.stats)])
@@ -543,7 +544,7 @@ class Search:
             "goal": build.objective.goal.value,
             "deficits": [{"label": label, "amount": amount, "hard": hard}
                          for label, amount, hard in build.objective.deficits(build.stats)],
-            "evals": build.evals, "commits": build.commits, "seconds": time.perf_counter() - build.started,
+            "evals": build.evals, "commits": build.commits, "seconds": clock.now() - build.started,
             "kicks": self.kicks, "kicks_kept": self.kicks_kept, "problems": self.problems, "reverts": build.reverts,
             "condition_sources": list(self.sources.kept),
             "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
@@ -555,7 +556,7 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
                   state: dict | None = None, goal: str | None = None) -> dict:
     """`goal` overrides the request's (a balanced run's boss-DPS searches); the result's `value` is
     on that goal, so the run ranks results on its own goal from `dps` and `clear`."""
-    deadline = time.perf_counter() + seconds
+    deadline = clock.now() + seconds
     search = Search(engine, report, payload, skeleton, seed, goal=goal)
     start = None
     if state is not None:
@@ -608,8 +609,8 @@ def screen_task(engine: Any, report: Any, payload: dict, skeletons: list[dict], 
                                 "error": "can't be used at will: " + "; ".join(blocked)})
                 continue
             search.setup(quests=False)
-            search.gear.gear_round(time.perf_counter() + seconds_each)
-            search.gems.optimize_supports(time.perf_counter() + seconds_each, rounds=4)
+            search.gear.gear_round(clock.now() + seconds_each)
+            search.gems.optimize_supports(clock.now() + seconds_each, rounds=4)
             build = search.build
             results.append({"skeleton": skeleton, "dps": main_dps(build.stats), "value": build.objective.value(build.stats),
                             "score": build.score})
@@ -625,7 +626,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     the build and reload the exported code to prove it reproduces the same numbers."""
     from builder.pob.pool import Cancelled
 
-    deadline = time.perf_counter() + seconds
+    deadline = clock.now() + seconds
     search = Search(engine, report, payload, skeleton, 1, full=True)
     search.load(state)
     build = search.build

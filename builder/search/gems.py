@@ -9,6 +9,7 @@ not buttons, so they never touch the button cap.
 
 from __future__ import annotations
 
+from builder import clock
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS, SUPPORT_SLOTS
 from builder.search.state import EPSILON, Build
 
@@ -311,13 +312,12 @@ class Gems:
     def optimize_supports(self, deadline: float, rounds: int = 12, allow_sweep: bool = True) -> bool:
         """Weakest-slot moves against the shortlist; once those run out (and if allowed), one
         full sweep of every candidate in every slot. The main group first, then the meta group's."""
-        import time
 
         improved = False
         for meta in (False, True):
             sweep = (self.meta_shortlist if meta else self.shortlist) is None
             for _ in range(rounds):
-                if time.perf_counter() > deadline:
+                if clock.now() > deadline:
                     break
                 if not self.supports_round(full_sweep=sweep, meta=meta):
                     if sweep or not allow_sweep:
@@ -481,11 +481,10 @@ class Gems:
         return score
 
     def optimize_persistent(self, deadline: float, rounds: int = 6) -> bool:
-        import time
 
         improved = False
         for _ in range(rounds):
-            if time.perf_counter() > deadline or not self.persistent_round():
+            if clock.now() > deadline or not self.persistent_round():
                 break
             improved = True
         return improved
@@ -499,7 +498,6 @@ class Gems:
         so only a ranking); the best META_TRIALS spells of each get a real trial, since the trigger rate (models.energy_model)
         shows only after a resolve. The group's supports come after, in the supports step (optimize_supports, meta=True).
         More spells come in meta_spell_round. An Invocation is a button: offered only while the cap has room."""
-        import time
 
         from builder.search import models
 
@@ -532,7 +530,7 @@ class Gems:
         before = build.score
         best: tuple[float, list[dict]] | None = None
         for meta in metas:
-            if time.perf_counter() > deadline:
+            if clock.now() > deadline:
                 break
             cases = [{"newGroup": [meta, n], "level": GEM_LEVEL, "quality": GEM_QUALITY, "fullDPS": True} for n in spells]
             if not cases:
@@ -543,7 +541,7 @@ class Gems:
                                    skipEHP=True)["results"]
             ranked = sorted(zip((float(r.get("FullDPS") or 0) for r in full), spells), reverse=True)
             for _, spell in ranked[:META_TRIALS]:
-                if time.perf_counter() > deadline:
+                if clock.now() > deadline:
                     break
                 levels = [self.usable_level(n) for n in (meta, spell)]
                 if None in levels:
@@ -569,7 +567,6 @@ class Gems:
         """One more spell in the meta group (slice 3). Every spell in the group triggers once per round and a round costs all
         their Energy, so a spell pays only if its damage per Energy beats what it takes from the others; that shows only
         after a resolve (models.energy_model), so the best META_TRIALS spells by PoB's what-if get a real trial."""
-        import time
 
         build = self.build
         group = self.supports_group(build.groups(), meta=True)
@@ -589,7 +586,7 @@ class Gems:
         before = build.score
         best: tuple[float, dict] | None = None
         for _, spell in ranked[:META_TRIALS]:
-            if time.perf_counter() > deadline:
+            if clock.now() > deadline:
                 break
             level = self.usable_level(spell)
             if level is None:
@@ -663,13 +660,12 @@ class Gems:
         with models.totem_model pricing how many totems its charges keep up. You press the totem instead of the spell, so
         the buttons don't change. The totem's sockets hold the spell and its supports (assumed, as for every meta gem): the
         weakest support goes when all are taken."""
-        import time
 
         from builder.search import models
 
         build = self.build
         group = build.main_group()
-        if group is None or group["fromItem"] or time.perf_counter() > deadline:
+        if group is None or group["fromItem"] or clock.now() > deadline:
             return False
         names = [g["name"] for g in group["gems"]]
         if any(n in models.TOTEM_METAS for n in names):

@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import math
 import random
-import time
 from collections.abc import Callable
 from typing import Any
 
+from builder import clock
 from builder.data import unique_versions
 from builder.data.trade import TradeClient
 from builder.pob import codes
@@ -76,7 +76,7 @@ class Run:
         self.seconds = seconds if seconds is not None else request.effort_minutes * 60.0
         self.on_event = on_event or (lambda event: None)
         self.should_cancel = should_cancel or (lambda: False)
-        self.started = time.perf_counter()
+        self.started = clock.now()
         self.notes: list[str] = []
         self.probes: dict[str, dict] = {}  # skeleton label -> latest result
         self.live: dict[int, dict] = {}  # task index -> latest progress
@@ -87,10 +87,10 @@ class Run:
     # Events ------------------------------------------------------------------------------------
 
     def emit(self, kind: str, **data: Any) -> None:
-        self.on_event({"kind": kind, "t": round(time.perf_counter() - self.started, 2), **data})
+        self.on_event({"kind": kind, "t": round(clock.now() - self.started, 2), **data})
 
     def elapsed(self) -> float:
-        return time.perf_counter() - self.started
+        return clock.now() - self.started
 
     def remaining(self) -> float:
         return self.seconds - self.elapsed()
@@ -100,7 +100,7 @@ class Run:
 
         def on_progress(index: int, payload: dict) -> None:
             self.live[index] = payload
-            now = time.perf_counter()
+            now = clock.now()
             if now - last[0] >= 1.0:
                 last[0] = now
                 rate = sum(p.get("evals_per_second", 0.0) for p in self.live.values())

@@ -22,10 +22,10 @@ committed build. Passives kept this way are protected from pruning (Tree.sources
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from builder import clock
 from builder.search.conditions import CHARGE_OVERRIDES, CONDITIONS, EVIDENCE_FIELDS, STAT_SET_NEEDS, Condition, Conditions
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS
 from builder.search.flasks import is_flask_slot
@@ -270,7 +270,7 @@ class Sources:
         start = build.snapshot()
         best = None
         for trial in self.trials(condition):
-            if time.perf_counter() > deadline:
+            if clock.now() > deadline:
                 break
             self.tried.add((condition.var, trial.kind, trial.key))
             if trial.apply(deadline):
@@ -292,7 +292,7 @@ class Sources:
     def round(self, deadline: float) -> bool:
         improved = False
         for _, condition in self.worth()[:CONDITIONS_PER_ROUND]:
-            if time.perf_counter() > deadline:
+            if clock.now() > deadline:
                 break
             improved = self.find(condition, deadline) or improved
         return improved

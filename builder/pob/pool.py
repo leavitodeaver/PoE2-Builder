@@ -15,13 +15,13 @@ from __future__ import annotations
 import importlib
 import multiprocessing as mp
 import os
-import time
 import traceback
 from collections.abc import Callable
 from multiprocessing.connection import Connection, wait
 from pathlib import Path
 from typing import Any
 
+from builder import clock
 from builder.pob import slots
 
 CANCEL = "cancel"
@@ -156,13 +156,13 @@ class EnginePool:
         self._conns: list[Connection] = []
         self._procs: list[mp.Process] = []
         self.replaced = 0  # workers the watchdog replaced
-        started = time.perf_counter()
+        started = clock.now()
         for _ in range(self.size):
             conn, proc = self._spawn()
             self._conns.append(conn)
             self._procs.append(proc)
         self.boot_seconds = [self._receive(conn) for conn in self._conns]
-        self.startup_seconds = time.perf_counter() - started
+        self.startup_seconds = clock.now() - started
 
     def _spawn(self) -> tuple[Connection, mp.Process]:
         parent, child = self._context.Pipe()
@@ -240,7 +240,7 @@ class EnginePool:
             name, kwargs = tasks[index]
             conn.send(("task:" + name, kwargs))
             busy[conn] = index
-            heard[conn] = time.perf_counter()
+            heard[conn] = clock.now()
 
         def finish(conn: Connection, result: Any) -> None:
             index = busy.pop(conn)
@@ -265,7 +265,7 @@ class EnginePool:
                     finish(conn, WorkerError("the worker process died"))
                     conn = self._replace(conn)
                 else:
-                    heard[conn] = time.perf_counter()
+                    heard[conn] = clock.now()
                     if status == "progress":
                         if on_progress:
                             on_progress(busy[conn], payload)
@@ -273,7 +273,7 @@ class EnginePool:
                     finish(conn, payload if status == "ok" else WorkerError(payload))
                 if pending and not cancelling:
                     dispatch(conn)
-            now = time.perf_counter()
+            now = clock.now()
             if now - last_check >= 2.0:
                 last_check = now
                 for conn in list(busy):
