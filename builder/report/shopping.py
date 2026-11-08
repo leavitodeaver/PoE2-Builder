@@ -28,6 +28,7 @@ from builder.data import GameData, rare_prices, unique_versions
 from builder.data.trade import TradeClient
 from builder.request.schema import GearTier
 from builder.search.radius import TAG, variants_of
+from builder.search import models
 from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, conflicts, mod_lines, roll
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
@@ -260,6 +261,16 @@ def version_entry(entry: dict, gear: dict, data: GameData, versions: dict | None
 
 # Shopping list ---------------------------------------------------------------------------------
 
+def granted_roll_note(raw: str) -> str | None:
+    """Which roll of a unique's 'Grants Skill: Level (a-b)' line the build assumes (models.granted_level_notes)."""
+    parts = [f"{skill} at level {level} of {low}-{high}" for level, low, high, skill
+             in map(models.granted_level, models.GRANTED_RANGE.finditer(raw)) if low != high]
+    if not parts:
+        return None
+    return (f"The build assumes {', '.join(parts)}; the price shown is poe.ninja's for the cheapest "
+            "copy of any roll, so a copy with that roll or higher may cost more.")
+
+
 def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, dict] | None = None,
                   variants: Callable[[str], str | None] | None = None) -> dict:
     """`prices`: {"augments": {name: divine}, "gems": {name: divine}, "league", "rare_model",
@@ -294,6 +305,9 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                 # The search chose these (builder/search/jewels.py); the feed's price is for any version
                 index = index if index is not None else stat_index(stats)
                 version_entry(entry, gear, data, prices.get("unique_versions"), index)
+            raw = gear.get("raw") or next((u["raw"] for u in data.uniques if u["name"] == gear["name"]), "")
+            if granted := granted_roll_note(raw):
+                entry["note"] = f"{entry['note']} {granted}" if entry.get("note") else granted
 
         elif kind in ("rare", "magic"):
             if kind == "rare":

@@ -761,11 +761,40 @@ GRANTED_FILLED = {*META_GEMS, SPIRIT_VESSEL}
 SPIRIT_VESSEL_ASSUMED = (
     "the companion is PoB's minion for the game files' monster (210% damage and life, 1 s attacks, 25% increased attack "
     "speed, 5% crit chance), 20% more damage per different socketed skill. Its level: the game files' "
-    "MinionGemLevelScaling, 2 per gem level (32 at gem level 16), the table every minion gem uses; that Spirit Vessel "
-    "uses it too is inferred, not confirmed (LOW confidence: the gem's ActorLevel, 70.4 at 16, is the curve 638 player "
-    "skills share, companions and summons included, so it doesn't set it). ASSUMED, not in the game files or poe2db: "
+    "MinionGemLevelScaling, 2 per gem level (32 at gem level 16), the table every minion gem uses; that Spirit Vessel's "
+    "companion takes its level from the gem level is the user's word and poe2db's (8 Nov 2026), the gem level being "
+    "Forgotten Warden's rolled 'Grants Skill: Level (1-20)' (granted_level_notes says which roll is assumed). ASSUMED, not in the game files or poe2db: "
     "the copies are minion skills scaled by minion modifiers, not yours; the group's supports apply to them as to any minion's skills; PoB's player "
     "Bear, Werewolf and Wyvern skills behave the same used by a minion; its damage spread is 20% and its resistances 0")
+
+
+GRANTED_RANGE = re.compile(r"^(?:\{range:([\d.]+)\})?(?:\{[^}]*\})*Grants Skill: Level \((\d+)-(\d+)\) (.+?)\s*$", re.M)
+
+
+def granted_level(m: re.Match) -> tuple[int, int, int, str]:
+    """(level, low, high, skill) for a GRANTED_RANGE match: the level PoB loads 'Grants Skill: Level (low-high)' at, the
+    line's {range:} or else the middle roll (defaultItemAffixQuality 0.5), rounded half up (Mjolner's (1-20)
+    Thundergod's Wrath at 11)."""
+    low, high = int(m.group(2)), int(m.group(3))
+    return int(low + (high - low) * float(m.group(1) or 0.5) + 0.5), low, high, m.group(4)
+
+
+def granted_level_notes(items: list[tuple[str, str]]) -> list[dict]:
+    """For each equipped unique ((name, its text)) granting a skill at a rolled level (Forgotten Warden's Spirit Vessel,
+    Mjolner's Thundergod's Wrath): which roll the build assumes. The user, 8 Nov 2026: the roll is the item's, so say it
+    in the guide and the shopping list (builder/report/shopping.py)."""
+    notes = []
+    for name, raw in items:
+        for m in GRANTED_RANGE.finditer(raw):
+            level, low, high, skill = granted_level(m)
+            if low == high:
+                continue
+            notes.append({"label": f"{name}'s {skill}: level {level} assumed", "value": level,
+                          "basis": f"the item rolls 'Grants Skill: Level ({low}-{high}) {skill}'; the build assumes the "
+                                   f"roll {level} (PoB's middle roll unless set). poe.ninja's price is the cheapest copy of any "
+                                   f"roll: a copy at {level} or more may cost more, and a lower roll does less",
+                          "confidence": "theory"})
+    return notes
 
 
 def spirit_vessel_groups(skills: list[dict]) -> set[int]:

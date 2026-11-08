@@ -678,3 +678,17 @@ def test_the_search_gets_current_version_prices_only(tmp_path, monkeypatch) -> N
     assert list(table) == [unique_versions.key("From Nothing", ["Hollow Palm Technique"])]
     assert set(next(iter(table.values()))) == {"name", "variants", "listed", "price", "priced_at"}
     assert version_prices(None) == {}
+
+
+def test_a_unique_granting_a_rolled_skill_level_says_which_roll_the_build_assumes(data: GameData) -> None:
+    """The user, 8 Nov 2026: Spirit Vessel's companion level follows its gem level, a roll on Forgotten Warden. The build
+    assumes PoB's middle roll (level 11 of 1-20, Mjolner's Thundergod's Wrath too); the guide and the shopping list say so."""
+    from builder.report.shopping import granted_roll_note
+    from builder.search import models
+
+    warden = raw_of(data, "Forgotten Warden")
+    assert "Spirit Vessel at level 11 of 1-20" in granted_roll_note(warden)
+    notes = models.granted_level_notes([("Forgotten Warden", warden), ("Mjolner", raw_of(data, "Mjolner"))])
+    assert [n["value"] for n in notes] == [11, 11] and "Thundergod's Wrath" in notes[1]["label"]
+    assert "Cast on Block at level 11 of 1-20" in granted_roll_note(raw_of(data, "Svalinn"))
+    assert granted_roll_note(raw_of(data, "Headhunter") if any(u["name"] == "Headhunter" for u in data.uniques) else "") is None
