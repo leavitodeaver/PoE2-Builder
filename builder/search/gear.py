@@ -41,6 +41,10 @@ GRANTS_META = re.compile(r"Grants Skill: (?:Level \S+ )?(?:%s)\s*$" % "|".join(r
 BASES_PER_SUBTYPE = 3  # normal armour/jewellery bases kept per sub-type, highest level first
 SHORTLIST = 6  # options per slot rescored between full rounds
 REQUIREMENT_FIT_SECONDS = 30.0  # tree re-routing a granted-meta unique's trial may take (fit_requirements)
+# Off since 8 Nov (MECH15): with a rare per variant of a variant base (Absent Amulet's Cast on Dodge, ...) proposed by
+# granted_meta_trials, every 2b75b gate run kept Cast on Dodge (~45% of its DPS) with 2-3 supports left in its main
+# group, and gate 4 fell from x2.81-13.03 to x0.21-0.70. Back on once the trap is fixed (a reverse trial, the model checked).
+VARIANT_META_TRIALS = False
 AFFIX_LIMIT = {"Prefix": 3, "Suffix": 3}
 
 
@@ -466,6 +470,8 @@ class Gear:
                     continue
                 implicit = (self.ctx.bases_by_name.get(base.base) or {}).get("implicit") or ""
                 variants = implicit_variants(implicit)
+                if variants and not VARIANT_META_TRIALS:
+                    continue
                 if variants:
                     for variant, line in variants:
                         if (GRANTS_META.search(line) and clock.now() < deadline
