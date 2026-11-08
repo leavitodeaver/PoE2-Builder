@@ -16,7 +16,7 @@ from collections import deque
 from dataclasses import dataclass
 from functools import cached_property
 
-from builder.data import GameData, rare_prices, unique_versions
+from builder.data import GameData, liveness, rare_prices, unique_versions
 from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, translate, wrong
 from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
@@ -404,6 +404,8 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
             price = prices.unique(name)
             if price is not None:
                 unique_prices[name] = [price.divine, price.listings]
+                # PoB names some uniques without the accent the trade feed has (Mjolner, Mjölner)
+                unique_prices.setdefault(liveness.plain(name), [price.divine, price.listings])
         for name, price in prices.exchange.items():
             if price.category == "LineageSupportGems":
                 gem_prices[name] = price.divine

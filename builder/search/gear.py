@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import dataclasses
 import random
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -31,6 +32,10 @@ from builder.search.rares import (
     socket_count, with_runes,
 )
 from builder.search.state import EPSILON, Build
+from builder.search.models import META_GEMS
+
+# A unique's line granting a meta skill with an Energy model (Mjolner: "Grants Skill: Level (1-20) Thundergod's Wrath")
+GRANTS_META = re.compile(r"Grants Skill: (?:Level \S+ )?(?:%s)\s*$" % "|".join(re.escape(n) for n in META_GEMS), re.M)
 
 BASES_PER_SUBTYPE = 3  # normal armour/jewellery bases kept per sub-type, highest level first
 SHORTLIST = 6  # options per slot rescored between full rounds
@@ -84,6 +89,8 @@ class Gear:
         self.charges = Charges()  # charge generation of the committed build (sync_flasks)
         self._flask_info: dict[str, dict] = {}  # item text -> PoB's flask/charm numbers
         self.resolve = None  # re-resolves conditions after a commit (set by the search)
+
+    fill_granted = None  # fills an item's granted meta group with a spell (gems.granted_meta_round); set by the search
 
     def flask_rate(self, pool: str) -> tuple[float, float]:
         """(charges generated per second, maximum charges) of the equipped flask for this pool, for
@@ -421,8 +428,36 @@ class Gear:
                 self.settle()
                 continue
             improved = improved or build.score > before + EPSILON
+        if full and self.fill_granted is not None:
+            improved = self.granted_meta_trials(deadline) or improved
         if full:
             self.update_lambda()
+        return improved
+
+    def granted_meta_trials(self, deadline: float) -> bool:
+        """Slice 8: a unique granting a meta skill (GRANTS_META: Mjolner's Thundergod's Wrath, Svalinn's Cast on Block)
+        scores only its other lines until a spell is socketed in its group, so each one the build can afford is tried for
+        real: equipped, its group filled (fill_granted: gems.granted_meta_round), kept if the build scores better."""
+        build = self.build
+        improved = False
+        for slot in self.slots:
+            if slot in build.locked_slots or clock.now() > deadline:
+                continue
+            current = build.equipped.get(slot)
+            for option in self.candidates(slot):
+                if (not option.unique or (current is not None and option.name == current.name)
+                        or not GRANTS_META.search(option.raw) or clock.now() > deadline):
+                    continue
+                snap = build.snapshot()
+                before = build.score
+                self.put(slot, option)
+                self.settle()
+                self.fill_granted(deadline)
+                if build.score > before + EPSILON:
+                    improved, current = True, option
+                    continue
+                build.restore(snap)
+                self.settle()
         return improved
 
     def update_lambda(self) -> None:

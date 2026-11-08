@@ -514,7 +514,8 @@ class Gems:
         improved = False
         for group in build.groups():
             if group["fromItem"]:
-                if not (group["gems"] and group["gems"][0]["name"] in GRANTED_METAS):
+                if not (group["gems"] and (group["gems"][0]["name"] in GRANTED_METAS
+                                           or group["gems"][0]["name"] in models.META_GEMS)):
                     continue
                 raise_ = [i for i, g in enumerate(group["gems"]) if i and not g["support"]]  # (not the granted gem)
             elif group["label"] in ADDED_LABELS:
@@ -586,8 +587,9 @@ class Gems:
             return False
         present = {g["name"] for group in groups for g in group["gems"]}
         skills = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
-        if any(s.energy for s in skills):
-            return False  # the build has one already (required, granted, or from a seed)
+        granted = {g["index"] for g in groups if g["fromItem"]}
+        if any(s.energy and s.group not in granted for s in skills):
+            return False  # the build has one already (required, or from a seed); an item's or notable's doesn't count
         main_group = build.main_group()
         main = next((s for s in skills if main_group and s.group == main_group["index"] and not s.triggered), None)
         if main is None:
@@ -641,6 +643,55 @@ class Gems:
                 self.resolve()
             return False
         return build.score > before + EPSILON
+
+    def granted_meta_groups(self) -> list[dict]:
+        """Groups an item grants holding only a meta skill with an Energy model (Mjolner's Thundergod's Wrath, Svalinn's
+        Cast on Block, a Dueling Wand's Spellslinger), which trigger nothing until a spell is socketed in them."""
+        from builder.search import models
+
+        return [g for g in self.build.groups() if g["fromItem"] and g["enabled"] and g["gems"]
+                and g["gems"][0]["name"] in models.META_GEMS and not any(not x["support"] for x in g["gems"][1:])]
+
+    def granted_meta_round(self, deadline: float) -> bool:
+        """Slice 8: a spell in each empty meta group an item grants, the best of the META_TRIALS spells PoB's what-if
+        ranks first, kept if the build scores better (the trigger rate, models.energy_model, shows only after a resolve).
+        The group counts in Full DPS while it holds a spell."""
+        build = self.build
+        improved = False
+        for group in self.granted_meta_groups():
+            if clock.now() > deadline:
+                break
+            spells = self.meta_spells({g["name"] for grp in build.groups() for g in grp["gems"]}, self.budget_left(),
+                                      self.usage_stats())
+            if not spells:
+                break
+            index, names = group["index"], [g["name"] for g in group["gems"]]
+            before = build.score
+            build.set_group(index=index, fullDPS=True)  # (first: PoB's what-if counts a spell in it only then)
+            full = build.call("gemDeltas", cases=[{"group": index, "slot": len(names) + 1, "gem": n} for n in spells],
+                              fields=["FullDPS"], fullDPS=True, skipEHP=True)["results"]
+            ranked = sorted(zip((float(r.get("FullDPS") or 0) for r in full), spells), reverse=True)
+            best: tuple[float, dict] | None = None
+            for _, spell in ranked[:META_TRIALS]:
+                if clock.now() > deadline:
+                    break
+                level = self.usable_level(spell)
+                if level is None:
+                    continue
+                gem = {"name": spell, "level": level, "quality": GEM_QUALITY}
+                score = self.trial_meta_spell(group, names, 2, gem)
+                if score is not None and score > before + EPSILON and (best is None or score > best[0]):
+                    best = (score, gem)
+            if best is None:
+                build.set_group(index=index, fullDPS=group["fullDPS"])
+                continue
+            self.set_meta_gems(group, names, 2, best[1])
+            if build.worse(before):
+                self.set_meta_gems(group, names)
+                build.set_group(index=index, fullDPS=group["fullDPS"])
+                continue
+            improved = improved or build.score > before + EPSILON
+        return improved
 
     def meta_spell_round(self, deadline: float) -> bool:
         """One more spell in the meta group (slice 3). Every spell in the group triggers once per round and a round costs all

@@ -433,3 +433,33 @@ def test_ascendancy_round_takes_a_meta_granting_notable_with_its_group_filled(en
     note = next(n for n in search.assumptions.active if n["label"].startswith("Sniper's Mark"))
     assert "Called Shots applies it every 5 s" in note["basis"] and "takes" not in note["basis"]  # (no button, no time)
     assert "Sniper's Mark" not in search.gems.buttons()
+
+
+def test_an_item_granted_meta_gets_a_spell_and_a_unique_granting_one_is_tried(engine):
+    """Slice 8 (MECH8): Mjolner's Thundergod's Wrath triggers nothing until a spell is socketed in it, so the granted metas
+    step fills it (gems.granted_meta_round: PoB's what-if ranks spells only once the group counts in Full DPS). The gear
+    round tries each meta-granting unique for real with its group filled (gear.granted_meta_trials); on a bare
+    Boneshatter mace and shield build Svalinn's Cast on Block pays."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", weapon_unique="Mjolner"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    before = build.score
+    assert search.gems.granted_meta_round(float("inf"))
+    group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Thundergod's Wrath")
+    assert build.score > before and len(group["gems"]) == 2 and group["fullDPS"]
+    assert not search.gems.granted_meta_groups()
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"))
+    payload["unique_prices"] = {"Svalinn": [2.0, 50]}
+    skeleton = next(s for s in enumerate_skeletons(Context(payload), ["Boneshatter"])[0]
+                    if "Shield" in s.label and "One Hand Mace" in s.label)
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    before = build.score
+    assert search.gear.granted_meta_trials(float("inf"))
+    assert build.equipped["Weapon 2"].name == "Svalinn" and build.score > before
+    group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Cast on Block")
+    assert len(group["gems"]) == 2

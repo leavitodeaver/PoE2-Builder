@@ -679,8 +679,15 @@ they land.
      (gems.fill_granted), kept if it beats the best allocation without it (tree.granted_trial). PoB gives a granted group
      a source (it reads as fromItem) and doesn't flag a Mark in Called Shots as triggered: the marks round now finds that
      group, and models.mark_use prices its Mark at one per 5 s, no button, no time taken from the main skill (it had
-     been priced as self-cast). Gems in those groups are raised later (gems.relevel_added). Still to do: the item
-     metas, Fire Spell on Hit, Hollow Form.
+     been priced as self-cast). Gems in those groups are raised later (gems.relevel_added). *(Item metas done)* Step
+     "granted metas" (gems.granted_meta_round) puts a spell in each empty meta group an item grants that has an Energy
+     model (Thundergod's Wrath, Cast on Block, Spellslinger), the group counting in Full DPS (PoB's what-if ranks its
+     spells only then). Full gear rounds try each affordable unique granting one (gear.GRANTS_META: Mjolner, Svalinn)
+     for real with its group filled (gear.granted_meta_trials). The meta round no longer stops because an item or notable
+     grants a meta, so Cast on Critical can join Thundergod's Wrath as in 2b75d. Mjolner had never been offered: the
+     trade feed names it Mjölner (the payload now keys prices by the accent-free name too). Not yet: supports in a
+     granted group (supports_group skips them), a second spell there, Bijouborne and Forgotten Warden (no model),
+     Fire Spell on Hit, Hollow Form; spells needing corpses (Detonate Dead) aren't kept out of meta groups.
   9. The meta round in kicks and seeds; gate 4's 2b75d as the test.
 - Unresolved gems: 37 gems PoB carries but whose source the game-file rules don't read yet (0.5 league content such
   as Explosive Transmutation, Detonate Living and the Runic and Verisium skills; Grenade, Requiem, Gelid Palm and

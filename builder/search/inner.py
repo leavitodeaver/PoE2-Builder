@@ -78,6 +78,7 @@ class Search:
         self.tree.resolve = self.resolve
         self.tree.relevant_skill = self.assumptions.relevant
         self.tree.fill_granted = self.gems.fill_granted
+        self.gear.fill_granted = self.gems.granted_meta_round
         self.gear.resolve = self.resolve
         self.usage = Usage(self.build, self.conditions, self.gear.flask_rate)
         self.gems.usage = self.usage
@@ -377,6 +378,7 @@ class Search:
             ("conditions", self.conditions_round, ()),
             ("condition sources", self.sources.round, (deadline,)),
             ("persistent", self.gems.optimize_persistent, (deadline,)),
+            ("granted metas", self.gems.granted_meta_round, (deadline,)),
             ("meta gems", self.gems.meta_round, (deadline,)),
             ("meta spells", self.gems.meta_spell_round, (deadline,)),
             ("totems", self.gems.totem_round, (deadline,)),

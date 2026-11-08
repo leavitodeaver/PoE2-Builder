@@ -699,3 +699,14 @@ def test_recovery_against_a_boss():
     ctx = context(floors={"recovery": 60})
     penalty = next(p for p in ctx.compiled.penalties if p.stat == "BossRecoveryPercent")
     assert penalty.deficit({"BossRecoveryPercent": 53.0}) == pytest.approx(7 / 60)
+
+
+def test_unique_prices_also_match_names_without_accents():
+    """The trade feed names it Mjölner and PoB Mjolner: without the accent-free key Mjolner had no price, so the
+    search never offered it (2b75d's weapon, which grants Thundergod's Wrath)."""
+    from builder.data.prices import Price, PriceTable
+
+    table = PriceTable("test", {}, {"Mjölner": [Price("Mjölner", 0.07, 1458, "UniqueWeapon")]}, 0.0)
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"), table)
+    assert payload["unique_prices"]["Mjolner"] == [0.07, 1458]
+    assert payload["unique_prices"]["Mjölner"] == [0.07, 1458]
