@@ -502,3 +502,36 @@ def test_a_spell_that_needs_corpses_counts_nothing_without_a_corpse_source(engin
     assert note["value"] == 0 and "no corpse source" in note["basis"]
     assert "Detonate Dead" not in search.gems.meta_spells(set(), float("inf"), None)
     assert "Fireball" in search.gems.meta_spells(set(), float("inf"), None)
+
+
+def test_hollow_form_takes_the_main_melee_attack_as_a_button_and_is_undone_without_power_charges(engine):
+    """Slice 8 (MECH11): Martial Artist's Hollow Form Technique grants Hollow Form (a group PoB gives a source: fromItem).
+    With the main melee Attack moved into it you press Hollow Form, not the Attack, at 30% less attack speed (PoB's
+    SupportHollowFormPlayer), and models.hollow_model counts the images. A bare build makes no Power Charges: one image
+    per use at the penalties scores worse, so the round puts the build back as it was."""
+    payload = make_payload(BuildRequest(main_skill="Falling Thunder", ascendancies=["Martial Artist"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Falling Thunder"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    node = next(i for i, n in search.ctx.nodes.items() if n.get("name") == "Hollow Form Technique" and n.get("ascendancy"))
+    build.allocate(add=[node])
+    search.gems.resolve()
+    before, speed, snap = build.score, build.stats.get("Speed"), build.snapshot()
+    main = build.main_group()
+    hollow = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Hollow Form")
+    assert hollow["fromItem"] and search.gems.buttons() == ["Falling Thunder"]
+    build.set_group(index=main["index"], enabled=False)
+    build.set_group(index=hollow["index"], gems=[{"name": "Hollow Form", "level": 20, "quality": 0},
+                                                 {"name": "Falling Thunder", "level": 20, "quality": 0}],
+                    main=True, mainActiveSkill=2)
+    search.gems.resolve()
+    assert search.gems.buttons() == ["Hollow Form"]
+    assert build.stats.get("Speed") == pytest.approx(0.7 * speed, rel=1e-3)
+    note = next(n for n in search.assumptions.active if n["label"] == "Hollow Form: images per use (Falling Thunder)")
+    assert note["value"] == 1 and "no Power Charges" in note["basis"]
+    build.restore(snap)
+    search.gems.resolve()
+    assert not search.gems.hollow_round(float("inf"))
+    assert build.score == pytest.approx(before) and build.main_group()["index"] == main["index"]
+    assert search.gems.left_out["Hollow Form"].startswith("tried")

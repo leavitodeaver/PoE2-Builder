@@ -1036,7 +1036,47 @@ class Gems:
             return self.mark_round(deadline)
         if skill in models.META_GEMS:
             return self.granted_meta_round(deadline)
+        if skill == models.HOLLOW_FORM:
+            return self.hollow_round(deadline)
         return self.mirage_round(deadline)
+
+    def hollow_round(self, deadline: float) -> bool:
+        """Slice 8: move the main skill (a melee Attack) and its supports into the Hollow Form group the notable grants,
+        so you channel Hollow Form and its images use it (models.hollow_model prices the images its Power Charges add),
+        the old group switched off. Kept if the build scores better within the button cap; undone otherwise."""
+        from builder.search import models
+
+        build = self.build
+        main = build.main_group()
+        if clock.now() > deadline or main is None or main["fromItem"]:
+            return False
+        hollow = next((g for g in build.groups() if g["enabled"] and g["fromItem"]
+                       and any(x["name"] == models.HOLLOW_FORM for x in g["gems"])), None)
+        if hollow is None or len(hollow["gems"]) > 1:
+            return False  # (no group, or it holds something already)
+        attack = next((g for g in main["gems"] if g.get("enabled", True) and g["name"] in self.ctx.gems
+                       and not self.ctx.gems[g["name"]]["support"]), None)
+        types = set(self.ctx.gems[attack["name"]]["skillTypes"]) if attack else set()
+        if attack is None or not {"Attack", "Melee"} <= types or types & models.HOLLOW_EXCLUDES:
+            self.left_out[models.HOLLOW_FORM] = "the main skill isn't a melee Attack Hollow Form can use"
+            return False
+        before, snap = build.score, build.snapshot()
+        moved = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]
+                 if g.get("enabled", True)]
+        keep = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in hollow["gems"]]
+        build.set_group(index=main["index"], enabled=False)
+        build.set_group(index=hollow["index"], gems=keep + moved, main=True, mainActiveSkill=2)
+        if self.resolve is not None:
+            self.resolve()
+        cap = self.ctx.request.max_buttons
+        if build.score <= before + EPSILON or (cap is not None and len(self.buttons()) > cap):
+            build.restore(snap)
+            if self.resolve is not None:
+                self.resolve()
+            self.left_out[models.HOLLOW_FORM] = "tried: the main skill in Hollow Form scored no better (or went over the cap)"
+            return False
+        self.left_out.pop(models.HOLLOW_FORM, None)
+        return True
 
     def roar_round(self, deadline: float) -> bool:
         """Slice 7: Ferocious Roar on its own (its Rage, models.roar_model, and its Armour Break,
@@ -1093,16 +1133,21 @@ class Gems:
 
     def buttons(self) -> list[str]:
         """The skills the build makes the player press (constraints.player_buttons' rule on the current groups): not
-        persistent, meta-triggered, triggered or item-granted; an Invocation is one."""
+        persistent, meta-triggered, triggered or item-granted; an Invocation is one, and so is a pressed meta a passive
+        or item grants (Hollow Form)."""
         from builder.request.constraints import presses
 
         names: list[str] = []
         for group in self.build.groups():
-            if not group["enabled"] or group["fromItem"]:
+            if not group["enabled"]:
                 continue
-            gems = [self.ctx.gems[g["name"]] for g in group["gems"] if g.get("enabled", True) and g["name"] in self.ctx.gems]
+            known = self.ctx.any_gems
+            gems = [known[g["name"]] for g in group["gems"] if g.get("enabled", True) and g["name"] in known]
             by_meta = any("Meta" in g["skillTypes"] for g in gems if not g["support"])
+            used = len([g for g in gems if not g["support"]]) > 1  # (a granted meta with nothing in it isn't pressed)
             for gem in gems:
+                if group["fromItem"] and not ("Meta" in gem["skillTypes"] and used):
+                    continue
                 if presses(gem) and not (by_meta and "Meta" not in gem["skillTypes"]) and gem["name"] not in names:
                     names.append(gem["name"])
         return names

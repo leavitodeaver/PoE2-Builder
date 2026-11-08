@@ -100,6 +100,8 @@ class Assumptions:
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))
         hand_mods, hand_notes = hand_mods + mirage_mods, hand_notes + mirage_notes
+        hollow_mods, hollow_notes = models.hollow_model(found, stats, [e["text"] for e in source_lines], main)
+        hand_mods, hand_notes = hand_mods + hollow_mods, hand_notes + hollow_notes
         pulse, pulse_notes = models.maelstrom_model(source_lines, stats) if models.MAELSTROM_ENTRY not in forbidden else (0.0, [])
         build.objective.added_dps = pulse  # separately computed damage (Melting Maelstrom's pulses); what-ifs get their own
         hand_mods += models.maelstrom_inputs(source_lines, pulse) if pulse_notes else []

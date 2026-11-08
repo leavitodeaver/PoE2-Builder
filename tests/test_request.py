@@ -78,8 +78,12 @@ def test_button_count_skips_persistent_meta_and_triggered():
         group(gem("Purity of Fire", "Aura", "Persistent")),
         group(gem("Cast on Elemental Ailment", "Meta", "Persistent"), gem("Ball Lightning", "Triggerable")),
         group(gem("Spear Throw", "Attack"), from_item=True),
+        group(gem("Thundergod's Wrath", "Meta", "Persistent"), gem("Spark", "Triggerable"), from_item=True),
+        # a channelled meta a notable grants is pressed; the Attack its images use isn't
+        group(gem("Hollow Form", "Meta", "Attack", "Channel"), gem("Falling Thunder", "Attack", "Melee"), from_item=True),
+        group(gem("Hollow Form", "Meta", "Attack", "Channel"), from_item=True),  # (empty: not pressed)
     ]}
-    assert player_buttons(facts) == ["Ice Shot", "Barrage", "Pinnacle of Power"]
+    assert player_buttons(facts) == ["Ice Shot", "Barrage", "Pinnacle of Power", "Hollow Form"]
 
 
 def test_meta_attacks_warcries_and_totems_are_pressed_but_what_they_trigger_is_not():

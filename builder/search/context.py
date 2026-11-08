@@ -132,6 +132,15 @@ class Context:
             gems.setdefault(gem["name"], gem)
         return gems
 
+    @cached_property
+    def any_gems(self) -> dict[str, dict]:
+        """Every gem by name, also those a passive or item grants (Hollow Form): for reading a group's skill types."""
+        gems = dict(self.gems)
+        for gem in self.data.gems:
+            if not gem.get("legacy"):
+                gems.setdefault(gem["name"], gem)
+        return gems
+
     def gem_price(self, name: str) -> tuple[float | None, str] | None:
         """Price of a gem that costs real currency (lineage supports); None if it can't be bought
         within the caps. Ordinary gems are cheap and priced at 0 ("found")."""

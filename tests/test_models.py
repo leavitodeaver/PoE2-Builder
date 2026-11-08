@@ -686,3 +686,25 @@ def test_skills_that_need_corpses_use_none_on_a_single_boss_whatever_triggers_th
     _, notes = models.corpse_model([detonate, sacrifice], [])
     assert "Sacrifice" in notes[0]["basis"] and notes[0]["confidence"] == "theory"
     assert models.corpse_model([fireball], given) == (given, [])
+
+
+def test_hollow_form_images_follow_the_power_charges_the_build_makes():
+    """Slice 8: Hollow Form's images use the socketed melee Attack; a use that consumes a Power Charge makes 2 more
+    images (game files, poe2db). One image per use without one (assumed), which is PoB's number."""
+    hollow = models.Skill("Hollow Form", group=2, attack=True, melee=True)
+    strike = models.Skill("Falling Thunder", group=2, attack=True, melee=True)
+    skills = [hollow, strike]
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3}
+    # a Power Charge every 2 s against 2 uses a second: a quarter of uses make 3 images, 1.5 on average
+    mods, notes = models.hollow_model(skills, stats, ["Gain a Power Charge every 2 seconds"], strike)
+    assert [(m["line"], m["scale"]) for m in mods] == [("1% more Damage", pytest.approx(50.0))]
+    assert notes[0]["value"] == pytest.approx(1.5)
+    # every use finds one (a charge on every crit at 50%, capped at all uses): 3 images
+    mods, _ = models.hollow_model(skills, stats, ["Gain a Power Charge on Critical Hit"] * 3, strike)
+    assert mods[0]["scale"] == pytest.approx(200.0)
+    # no Power Charges, or no room for them: PoB's one image
+    mods, notes = models.hollow_model(skills, stats, [], strike)
+    assert mods == [] and notes[0]["value"] == 1
+    assert models.hollow_model(skills, {**stats, "PowerChargesMax": 0}, ["Gain a Power Charge every 2 seconds"], strike)[0] == []
+    # the Attack outside Hollow Form: nothing
+    assert models.hollow_model([models.Skill("Hollow Form", group=1), strike], stats, [], strike) == ([], [])

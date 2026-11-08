@@ -339,13 +339,22 @@ class Conditions:
                 name = line["source"][4:]
                 gem_types[name] = set((self.build.ctx.gems.get(name) or {}).get("skillTypes") or [])
         # Charge consumers and their uses per second (the main skill at its speed, any other at one use per 4 s)
+        from builder.search.models import HOLLOW_FORM
+
+        # Hollow Form holding the main skill is channelled at its speed, and the Attack in it can't consume charges
+        # (models.hollow_model).
         consumers: dict[str, dict[str, float]] = {}
         main_types = self.main_types
+        group = self.build.main_group()
+        hollow = group is not None and any(g["name"] == HOLLOW_FORM for g in group["gems"])
         for kind in ("Power", "Frenzy", "Endurance"):
             flag = f"SkillConsumes{kind}ChargesOnUse"
             for name, types in gem_types.items():
                 if flag in types:
-                    uses = number(stats.get("Speed")) if types == main_types else 1 / CHARGE_DEFAULT_EVERY
+                    if hollow and types == main_types and name != HOLLOW_FORM:
+                        continue
+                    uses = (number(stats.get("Speed")) if types == main_types or (hollow and name == HOLLOW_FORM)
+                            else 1 / CHARGE_DEFAULT_EVERY)
                     consumers.setdefault(kind, {})[name] = uses
         stats = {**stats, "_consumers": consumers}
         found: dict[str, tuple[object, str]] = {}

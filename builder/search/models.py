@@ -444,7 +444,9 @@ OTHER_METAS = {
     "Mortar Cannon": "a Ballista Totem that uses socketed Grenade skills",
     "Hand of Chayula": "a Strike that triggers socketed Marks with increased effect (the marks round; the increased effect isn't read)",
     "Called Shots": "Deadeye notable: applies a socketed Mark to an enemy every five seconds (the ascendancy round tries the notable with a Mark from the marks round in it)",
-    "Hollow Form": "Chayula Monk notable: consumes Power Charges to create extra images",
+    "Hollow Form": "Martial Artist (Monk) notable: a channelled meta whose images use the socketed melee Attack, 2 more per Power Charge "
+                   "consumed (the ascendancy round tries the notable with the main skill moved into it, gems.hollow_round; "
+                   "hollow_model)",
     "Spirit Vessel": "Forgotten Warden's companion that uses copies of socketed Bear, Werewolf and Wyvern skills",
     "Animus Splinters": "0.5 league content (Runic Ward cost); its source isn't read from the game files yet",
 }
@@ -594,6 +596,50 @@ def mirage_model(skills: list[Skill], main: Skill | None, gems: dict[str, tuple[
                           "basis": f"one roll per Mirage, every {MIRAGE_COOLDOWN:g} s, takes {DODGE_ROLL_SECONDS:g} s (the "
                                    f"dodge roll's cast time in the game files) from {main.name}", "confidence": "theory"})
     return mods, notes, groups
+
+
+# Hollow Form (slice 8) ---------------------------------------------------------------------------
+# Martial Artist's (Monk) Hollow Form Technique grants Hollow Form, a channelled meta (a button: Meta + Attack). Game files (build
+# 26476662): MetaHollowFormPlayer channels at 70% of the weapon's attack speed (attackSpeedMultiplier -30) and consumes
+# a Power Charge per use (SkillConsumesPowerChargesOnUse) to create 2 more images
+# (mantra_of_illusions_bonus_illusions_when_consuming_power_charge 2); each image performs the socketed Melee Attack once.
+# SupportHollowFormPlayer gives that Attack 30% less attack speed and 15% less damage, and it can't consume charges
+# (cannot_consume_power_frenzy_endurance_charges). poe2db agrees ("Consumes a Power Charge to create 2 additional Images",
+# 15% less damage, 30% less attack speed). PoB prices the socketed Attack as used by you at those penalties and reads
+# neither the images nor the charges. No stat gives the images made per use without a charge: one is assumed, so PoB's
+# number stands for that, and the model adds the 2 per Power Charge on the share of uses that find one.
+HOLLOW_FORM = "Hollow Form"
+HOLLOW_IMAGES_PER_POWER = 2
+HOLLOW_EXCLUDES = {"HasUsageCondition", "Meta", "Triggered", "Persistent", "Channel"}  # (the support's excludeSkillTypes)
+
+
+def in_hollow_form(skills: list[Skill], skill: Skill | None) -> bool:
+    """The skill is the melee Attack socketed in Hollow Form: you channel Hollow Form and its images use it."""
+    return skill is not None and skill.attack and skill.melee and any(
+        s.name == HOLLOW_FORM and s.group == skill.group for s in skills)
+
+
+def hollow_model(skills: list[Skill], stats: dict, texts: list[str], main: Skill | None) -> tuple[list[dict], list[dict]]:
+    """The images Hollow Form's Power Charges add: 2 per use that finds a charge (one use per hit PoB counts)."""
+    from builder.search.conditions import _charge_rate
+
+    if not in_hollow_form(skills, main):
+        return [], []
+    uses = number(stats.get("Speed"))
+    found = [r for r in (_charge_rate(t, "Power", stats) for t in texts) if r is not None]
+    made = sum(r[0] for r in found) if number(stats.get("PowerChargesMax")) > 0 else 0.0
+    share = min(1.0, made / uses) if uses > 0 else 0.0
+    more = 100.0 * HOLLOW_IMAGES_PER_POWER * share
+    mods = [line("1% more Damage", more, skill=main.name)] if more else []
+    basis = (f"{made:.2f} Power Charges made per second against {uses:.2f} uses of Hollow Form (one per {main.name} PoB "
+             f"counts; Hollow Form channels at 70% attack speed, the socketed Attack at 30% less: assumed equal, the "
+             f"Attack's own attack-time modifier not counted); {share:.0%} of uses consume one for "
+             f"{HOLLOW_IMAGES_PER_POWER} more images (game files, poe2db); one image per use without a charge (assumed: no "
+             "stat gives it), which is what PoB's number counts; the images' hits are counted as yours (assumed, as "
+             "Mirages'); Power Charges spent this way aren't held (conditions' charge consumers)")
+    notes = [{"label": f"Hollow Form: images per use ({main.name})", "value": round(1 + HOLLOW_IMAGES_PER_POWER * share, 2),
+              "basis": basis + ("" if made else "; the build makes no Power Charges"), "confidence": "theory"}]
+    return mods, notes
 
 # Marks (slice 6) ---------------------------------------------------------------------------------
 # PoB applies a Mark from any enabled group as a debuff that is always up and never consumed (CalcPerform's curse slots,

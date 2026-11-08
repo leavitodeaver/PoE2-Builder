@@ -673,7 +673,7 @@ they land.
      socketed human-form Warcry (PoB prices the support) isn't proposed: the search has no Warcries yet.
   8. Granted metas when the build has their source: the item ones as unique proposals (Svalinn, Mjolner, Bijouborne,
      Forgotten Warden, a Dueling Wand base), the ascendancy ones with their notable (Fire Spell on Hit's Energy as
-     Thundergod's Wrath's, at the notable's level). Hollow Form uses Power Charges. *(Deadeye's done)* A notable granting
+     Thundergod's Wrath's, at the notable's level). Hollow Form (Martial Artist) uses Power Charges. *(Deadeye's done)* A notable granting
      a meta adds nothing until its group holds what it uses, so the ascendancy round tries the best allocation with each
      such notable (tree.GRANTED_METAS: Called Shots, Mirage Deadeye) with its group filled by the marks / mirages round
      (gems.fill_granted), kept if it beats the best allocation without it (tree.granted_trial). PoB gives a granted group
@@ -691,8 +691,17 @@ they land.
      level above 1, Elemental Invocation 3.6%; no quality bonus), read from the bridge: the fixed 72% (PoB's data) had
      counted Mjolner's level-11 Thundergod's Wrath (30%) more than twice over. *(Fire Spell on Hit done)* Smith of
      Kitava's Heat of the Forge is in tree.GRANTED_METAS; its group (PoB's skill: Fire Spell on Melee Hit, at PoB's level 20
-     for the notable) is filled by the granted-meta round and priced as Thundergod's Wrath. Not yet: a second spell in a
-     granted group, Bijouborne and Forgotten Warden (no model), Hollow Form, a Dueling Wand base for Spellslinger.
+     for the notable) is filled by the granted-meta round and priced as Thundergod's Wrath. *(Hollow Form done, MECH11)*
+     Hollow Form Technique is Martial Artist's (Monk), not Chayula's. Its trial moves the main melee Attack and its
+     supports into the Hollow Form group, the old group switched off (gems.hollow_round), kept if it scores better
+     within the cap. You press Hollow Form (a pressed meta in a granted group with something in it is now a button), and
+     PoB prices the Attack at the support's 30% less attack speed and 15% less damage. models.hollow_model adds 2 images
+     per use that finds a Power Charge (game files, poe2db); one image per use without one is assumed (no stat gives
+     it), and Hollow Form is a Power Charge consumer at the Attack's speed, so those charges aren't held
+     (conditions). Not counted: the Attack's own attack-time modifier (Hollow Form channels at 70% of the weapon's), a
+     skill part on the moved Attack (reset), supports added later (the support rounds skip a granted main group). Not
+     yet: a second spell in a granted group, Bijouborne and Forgotten Warden (no model), a Dueling Wand base for
+     Spellslinger.
   9. The meta round in kicks and seeds; gate 4's 2b75d as the test.
 - Unresolved gems: 37 gems PoB carries but whose source the game-file rules don't read yet (0.5 league content such
   as Explosive Transmutation, Detonate Living and the Runic and Verisium skills; Grenade, Requiem, Gelid Palm and

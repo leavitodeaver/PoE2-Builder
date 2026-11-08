@@ -137,15 +137,19 @@ def meta_socketed(names: list[str], gems: dict[str, dict]) -> set[str]:
 
 def player_buttons(facts: dict) -> list[str]:
     """Skills the player presses: Invocations, and active skills that aren't persistent, meta,
-    triggered (also by a meta skill in their group) or granted by an item."""
+    triggered (also by a meta skill in their group) or granted by an item. A pressed meta a passive or item grants
+    (Hollow Form, channelled) is one."""
     names: list[str] = []
     for group in facts["skillGroups"]:
-        if not group["enabled"] or group["fromItem"]:
+        if not group["enabled"]:
             continue
         gems = [g for g in group["gems"] if g["enabled"]]
         triggered_by_meta = any("Meta" in g["skillTypes"] for g in gems if not g["support"])
+        used = len([g for g in gems if not g["support"]]) > 1  # (a granted meta with nothing in it isn't pressed)
         for gem in gems:
             if not presses(gem) or (triggered_by_meta and "Meta" not in gem["skillTypes"]):
+                continue
+            if group["fromItem"] and not ("Meta" in gem["skillTypes"] and used):
                 continue
             if gem["name"] not in names:
                 names.append(gem["name"])
