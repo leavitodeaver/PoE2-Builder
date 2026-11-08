@@ -34,6 +34,9 @@ TOP_RECHECK = 8
 FULL_EVERY = 12
 PAIR_POOL = 10
 ASCENDANCY_POINTS = 8
+# Meta skills ascendancy notables grant that the search fills (Tree.fill_granted): Deadeye's Called Shots (a Mark) and
+# Mirage Deadeye (a ranged Attack). Hollow Form and Fire Spell on Hit aren't yet (models.OTHER_METAS, NOT_MODELED_YET).
+GRANTED_METAS = ("Called Shots", "Mirage Deadeye")
 ASCENDANCY_CASES = 1500  # most allocations scored exactly in one round
 STRENGTH, DEXTERITY, INTELLIGENCE = 1, 2, 3
 GRANTS_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+)$")
@@ -95,6 +98,8 @@ class Tree:
         self.ascendancy: str | None = None
         self.resolve = None  # re-resolves conditions and assumptions (set by the search)
         self.relevant_skill = None  # does granting this skill change an assumption?
+        # Fills the group of a meta skill a notable grants (GRANTED_METAS) with what it uses; set by the search
+        self.fill_granted = None
         # Nodes kept as a condition's source (builder/search/sources.py): a what-if removing one
         # can't see the condition go, so pruning leaves them alone until a reset or kick
         self.sources: set[int] = set()
@@ -369,19 +374,7 @@ class Tree:
                 for i in adjacency if not nodes[i].get("isMultipleChoiceOption")}
         required = {i for i in adjacency if nodes[i].get("name") in self.required_names}
 
-        allocations = self.allocations(start, core, options, required, adjacency)
-        if len(allocations) > ASCENDANCY_CASES:
-            ranked = self.rank_notables(start, core, options, required, adjacency, current)
-            for keep in range(len(ranked), 0, -1):
-                allowed = {start} | required
-                for notable in ranked[:keep]:
-                    allowed |= set(self.path_from(start, notable, core))
-                for node in list(required):
-                    allowed |= set(self.path_from(start, node, core))
-                narrowed = {i: [j for j in core[i] if j in allowed] for i in core if i in allowed}
-                allocations = self.allocations(start, narrowed, options, required, adjacency)
-                if len(allocations) <= ASCENDANCY_CASES:
-                    break
+        allocations = self.narrowed_allocations(start, core, options, required, adjacency, current)
         if not allocations:
             return False
         scored = build.node_deltas([{"add": ids, "remove": current} for ids in allocations])
@@ -402,6 +395,17 @@ class Tree:
                         best_score, best_ids = build.score, ids
                     build.allocate(remove=ids, add=previous)
                     self.resolve()
+        # A notable granting a meta skill adds nothing until its group holds what it uses (PLAN.md meta slice 8)
+        if self.fill_granted is not None and not required - set(current) - {start}:
+            for node in adjacency:
+                skill = next((m.group(1).strip() for line in (nodes[node].get("stats") or [])
+                              if (m := GRANTS_SKILL.match(line)) and m.group(1).strip() in GRANTED_METAS), None)
+                if skill is None or node in current or node in best_ids:
+                    continue
+                if self.granted_trial(skill, max(best_score, build.score),
+                                      self.narrowed_allocations(start, core, options, required | {node}, adjacency, current),
+                                      current):
+                    return True
         missing_required = bool(required - set(current) - {start})
         traveller = next((i for i in adjacency if nodes[i].get("name") == TRAVELLERS_WISDOM), None)
         if traveller is not None and traveller not in current and traveller not in best_ids:
@@ -422,6 +426,44 @@ class Tree:
                 self.resolve()
             return False
         return build.score > before + EPSILON or missing_required
+
+    def narrowed_allocations(self, start: int, core: dict[int, list[int]], options: dict[int, list[int]],
+                             required: set[int], adjacency: dict[int, list[int]], current: list[int]) -> list[list[int]]:
+        """allocations(), narrowed to the strongest notables when there are more than ASCENDANCY_CASES."""
+        allocations = self.allocations(start, core, options, required, adjacency)
+        if len(allocations) > ASCENDANCY_CASES:
+            ranked = self.rank_notables(start, core, options, required, adjacency, current)
+            for keep in range(len(ranked), 0, -1):
+                allowed = {start} | required
+                for notable in ranked[:keep]:
+                    allowed |= set(self.path_from(start, notable, core))
+                for node in list(required):
+                    allowed |= set(self.path_from(start, node, core))
+                narrowed = {i: [j for j in core[i] if j in allowed] for i in core if i in allowed}
+                allocations = self.allocations(start, narrowed, options, required, adjacency)
+                if len(allocations) <= ASCENDANCY_CASES:
+                    break
+        return allocations
+
+    def granted_trial(self, skill: str, beat: float, allocations: list[list[int]], current: list[int]) -> bool:
+        """Take the best allocation with the notable granting this meta skill, fill the skill's group (fill_granted:
+        the marks round for Called Shots, the mirages round for Mirage Deadeye), and keep it only if the build ends
+        better than `beat` (the best allocation without it, or the build as it is)."""
+        if not allocations:
+            return False
+        build = self.build
+        ids = max(zip((s for s, _ in build.node_deltas([{"add": a, "remove": current} for a in allocations])),
+                      allocations), key=lambda x: x[0])[1]
+        snap = build.snapshot()
+        build.allocate(remove=current, add=ids)
+        if self.resolve is not None:
+            self.resolve()
+        self.fill_granted(skill)
+        if build.score > beat + EPSILON:
+            self.round += 1
+            return True
+        build.restore(snap)
+        return False
 
     def traveller_trial(self, ids: list[int], current: list[int]) -> bool:
         """Take an ascendancy allocation with Traveller's Wisdom, let the attribute passives choose,

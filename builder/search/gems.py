@@ -12,6 +12,7 @@ from __future__ import annotations
 from builder import clock
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS, SUPPORT_SLOTS
 from builder.search.state import EPSILON, Build
+from builder.search.tree import GRANTED_METAS
 
 PERSISTENT_LABEL = "auto: persistent"
 BLASPHEMY_LABEL = "auto: blasphemy"
@@ -22,6 +23,7 @@ MIRAGE_LABEL = "auto: mirage"
 ROAR_LABEL = "auto: roar"
 # Groups the search adds whole: their skill and meta gems are raised as the attributes grow (relevel_added)
 ADDED_LABELS = (PERSISTENT_LABEL, BLASPHEMY_LABEL, META_LABEL, MARK_LABEL, MIRAGE_LABEL, ROAR_LABEL)
+GRANTED_FILL_SECONDS = 60.0  # time a granted meta's fill (fill_granted) may take within one ascendancy trial
 MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what PoB says each adds to Full DPS)
 META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
 META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
@@ -512,8 +514,10 @@ class Gems:
         improved = False
         for group in build.groups():
             if group["fromItem"]:
-                continue
-            if group["label"] in ADDED_LABELS:
+                if not (group["gems"] and group["gems"][0]["name"] in GRANTED_METAS):
+                    continue
+                raise_ = [i for i, g in enumerate(group["gems"]) if i and not g["support"]]  # (not the granted gem)
+            elif group["label"] in ADDED_LABELS:
                 raise_ = [i for i, g in enumerate(group["gems"]) if not g["support"]]
             elif group["main"]:
                 raise_ = [i for i, g in enumerate(group["gems"]) if g["name"] in models.TOTEM_METAS]
@@ -788,7 +792,7 @@ class Gems:
     def mark_round(self, deadline: float) -> bool:
         """Add a Mark (slice 6) and keep it if the build scores better, models.mark_model pricing what consumption on a boss
         leaves of it: cast by you (a button), socketed in Pounce or Hand of Chayula (the meta is the button), or in a Called
-        Shots group the build already has (automatic; granted by a Deadeye notable, so never proposed). Only Marks the
+        Shots group the build has (automatic; the Deadeye notable is tried by the ascendancy round, tree.granted_trial). Only Marks the
         model gives something on this build: Sniper's with crits, Voltaic / Freezing when the main skill can Electrocute /
         Freeze; Bloodhound's adds nothing PoB counts. Any button must fit the cap."""
         from builder.search import models
@@ -806,7 +810,8 @@ class Gems:
         left, usage = self.budget_left(), self.usage_stats()
         cap = self.ctx.request.max_buttons
         before = build.score
-        called = next((g for g in groups if not g["fromItem"] and any(x["name"] == "Called Shots" for x in g["gems"])), None)
+        # (PoB gives a group a notable grants a source, so it reads as fromItem)
+        called = next((g for g in groups if g["gems"] and g["gems"][0]["name"] == "Called Shots"), None)
         best: tuple[float, dict] | None = None
         tried: list[str] = []
         for mark in models.MARKS:
@@ -856,8 +861,8 @@ class Gems:
 
     def mirage_round(self, deadline: float) -> bool:
         """Slice 7: a ranged Attack for a Mirage, kept if the build scores better, models.mirage_model pricing the share
-        of time the Mirage is up (one per 10 s). In a Mirage Deadeye group the build has (granted by the notable, so never
-        proposed), else in a new Mirage Archer group (60 Spirit, within the spare-Spirit floor; persistent, so no button).
+        of time the Mirage is up (one per 10 s). In a Mirage Deadeye group the build has (the notable's; the ascendancy
+        round tries it, tree.granted_trial), else in a new Mirage Archer group (60 Spirit, within the spare-Spirit floor; persistent, so no button).
         The Attacks are ones the build doesn't use, ranked by what PoB adds to Full DPS (it counts the Attack as always
         on, so only a ranking); the best MIRAGE_TRIALS get a real trial."""
         from builder.search import models
@@ -923,6 +928,12 @@ class Gems:
             self.resolve()
         self.left_out.pop(meta, None)
         return build.score > before + EPSILON
+
+    def fill_granted(self, skill: str) -> bool:
+        """Fill the group of a meta skill a notable grants (tree.GRANTED_METAS) with what it uses: a Mark in Called Shots,
+        a ranged Attack in Mirage Deadeye. For the ascendancy round's trial of the notable."""
+        deadline = clock.now() + GRANTED_FILL_SECONDS
+        return self.mark_round(deadline) if skill == "Called Shots" else self.mirage_round(deadline)
 
     def roar_round(self, deadline: float) -> bool:
         """Slice 7: Ferocious Roar on its own (its Rage, models.roar_model, and its Armour Break,

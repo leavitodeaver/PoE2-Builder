@@ -407,3 +407,29 @@ def test_gems_the_search_added_are_raised_as_the_attributes_allow(engine):
     roar = next(g for g in build.groups() if g["label"] == ROAR_LABEL)
     assert roar["gems"][0]["level"] == usable
     assert not search.gems.relevel_added()  # nothing left to raise
+
+
+def test_ascendancy_round_takes_a_meta_granting_notable_with_its_group_filled(engine):
+    """Slice 8 (MECH8): a notable granting a meta skill adds nothing until its group holds what it uses, so the ascendancy
+    round tries it with the group filled (tree.granted_trial, gems.fill_granted). On a bare Deadeye Lightning Arrow build,
+    Mirage Deadeye with a ranged Attack in it beats the best allocation without it. Called Shots' group (PoB gives it a
+    source, so it reads as fromItem) takes a Mark from the marks round, priced at one per 5 s and no button (PoB doesn't
+    flag it triggered: models.mark_use looks for Called Shots in the group)."""
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    before = build.score
+    assert search.tree.ascendancy_round()
+    deadeye = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Mirage Deadeye")
+    assert build.score > before and len(deadeye["gems"]) == 2 and deadeye["fromItem"]
+    called = next(i for i, n in search.ctx.nodes.items() if n.get("name") == "Called Shots" and n.get("ascendancy"))
+    build.allocate(add=[called])
+    search.gems.resolve()
+    assert search.gems.mark_round(float("inf"))
+    group = next(g for g in build.groups() if g["gems"] and g["gems"][0]["name"] == "Called Shots")
+    assert [g["name"] for g in group["gems"]][1:] == ["Sniper's Mark"]
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Sniper's Mark"))
+    assert "Called Shots applies it every 5 s" in note["basis"] and "takes" not in note["basis"]  # (no button, no time)
+    assert "Sniper's Mark" not in search.gems.buttons()

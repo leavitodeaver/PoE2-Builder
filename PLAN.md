@@ -673,7 +673,14 @@ they land.
      socketed human-form Warcry (PoB prices the support) isn't proposed: the search has no Warcries yet.
   8. Granted metas when the build has their source: the item ones as unique proposals (Svalinn, Mjolner, Bijouborne,
      Forgotten Warden, a Dueling Wand base), the ascendancy ones with their notable (Fire Spell on Hit's Energy as
-     Thundergod's Wrath's, at the notable's level). Hollow Form uses Power Charges.
+     Thundergod's Wrath's, at the notable's level). Hollow Form uses Power Charges. *(Deadeye's done)* A notable granting
+     a meta adds nothing until its group holds what it uses, so the ascendancy round tries the best allocation with each
+     such notable (tree.GRANTED_METAS: Called Shots, Mirage Deadeye) with its group filled by the marks / mirages round
+     (gems.fill_granted), kept if it beats the best allocation without it (tree.granted_trial). PoB gives a granted group
+     a source (it reads as fromItem) and doesn't flag a Mark in Called Shots as triggered: the marks round now finds that
+     group, and models.mark_use prices its Mark at one per 5 s, no button, no time taken from the main skill (it had
+     been priced as self-cast). Gems in those groups are raised later (gems.relevel_added). Still to do: the item
+     metas, Fire Spell on Hit, Hollow Form.
   9. The meta round in kicks and seeds; gate 4's 2b75d as the test.
 - Unresolved gems: 37 gems PoB carries but whose source the game-file rules don't read yet (0.5 league content such
   as Explosive Transmutation, Detonate Living and the Runic and Verisium skills; Grenade, Requiem, Gelid Palm and

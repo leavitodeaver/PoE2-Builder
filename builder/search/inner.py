@@ -77,6 +77,7 @@ class Search:
         self.gems.assumptions = self.assumptions
         self.tree.resolve = self.resolve
         self.tree.relevant_skill = self.assumptions.relevant
+        self.tree.fill_granted = self.gems.fill_granted
         self.gear.resolve = self.resolve
         self.usage = Usage(self.build, self.conditions, self.gear.flask_rate)
         self.gems.usage = self.usage

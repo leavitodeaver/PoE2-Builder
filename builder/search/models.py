@@ -426,7 +426,7 @@ OTHER_METAS = {
     "Ancestral Warrior Totem": "a totem whose spirit warriors use socketed Attacks, consuming 3 Endurance Charges",
     "Mortar Cannon": "a Ballista Totem that uses socketed Grenade skills",
     "Hand of Chayula": "a Strike that triggers socketed Marks with increased effect (the marks round; the increased effect isn't read)",
-    "Called Shots": "Deadeye notable: applies a socketed Mark to an enemy every five seconds (the marks round fills a group the build has)",
+    "Called Shots": "Deadeye notable: applies a socketed Mark to an enemy every five seconds (the ascendancy round tries the notable with a Mark from the marks round in it)",
     "Hollow Form": "Chayula Monk notable: consumes Power Charges to create extra images",
     "Spirit Vessel": "Forgotten Warden's companion that uses copies of socketed Bear, Werewolf and Wyvern skills",
     "Animus Splinters": "0.5 league content (Runic Ward cost); its source isn't read from the game files yet",
@@ -519,7 +519,7 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
 MIRAGE_METAS = {
     "Mirage Archer": "dodge rolling creates a Mirage that uses the socketed ranged Attack (the mirage round, gems.mirage_round)",
     "Mirage Deadeye": "Deadeye notable: firing a ranged Projectile Attack creates a Mirage that uses the socketed ranged Attack "
-                      "(the mirage round fills a group the build has)",
+                      "(the ascendancy round tries the notable with a ranged Attack from the mirage round in it)",
 }
 MIRAGE_COOLDOWN = 10.0
 MIRAGE_BASE_MS = {"Mirage Archer": 5000.0, "Mirage Deadeye": 4000.0}
@@ -697,14 +697,16 @@ class MarkUse:
 def mark_use(mark: Skill, skills: list[Skill]) -> MarkUse:
     """How often the Mark is applied, and by what."""
     own = (mark.cooldown or 0.0) / (mark.cooldown_recovery or 1.0)
+    # (PoB doesn't flag a Mark in Called Shots, a notable's granted group, as triggered)
+    timer = next((s for s in skills if s.group == mark.group and s.name in MARK_TRIGGER_EVERY), None)
+    if timer is not None:
+        every = MARK_TRIGGER_EVERY[timer.name]
+        return MarkUse(max(own, every), f"{timer.name} applies it every {every:g} s", on_demand=False)
     if not mark.triggered:
         return MarkUse(max(own, mark.cast_time), "cast by you", mark)
     trigger = next((s for s in skills if s.group == mark.group and s.name != mark.name), None)
     if trigger is None:
         return MarkUse(own, "triggered by a skill the model doesn't know: assumed applied when needed, at no cost")
-    if trigger.name in MARK_TRIGGER_EVERY:
-        every = MARK_TRIGGER_EVERY[trigger.name]
-        return MarkUse(max(own, every), f"{trigger.name} applies it every {every:g} s", on_demand=False)
     if trigger.cooldown:
         every = trigger.cooldown / (trigger.cooldown_recovery or 1.0)
         return MarkUse(max(own, every), f"triggered by {trigger.name}, used on its {every:.1f} s cooldown", trigger,
