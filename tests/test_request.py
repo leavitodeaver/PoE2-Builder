@@ -82,6 +82,26 @@ def test_button_count_skips_persistent_meta_and_triggered():
     assert player_buttons(facts) == ["Ice Shot", "Barrage", "Pinnacle of Power"]
 
 
+def test_meta_attacks_warcries_and_totems_are_pressed_but_what_they_trigger_is_not():
+    """You press Pounce (a slam), Hand of Chayula (a Strike), Ferocious Roar (a warcry) and Spell Totem; the Marks, Warcry
+    and Spell socketed in them aren't buttons, and a Persistent meta (Called Shots) isn't one."""
+    def gem(name, *types):
+        return {"name": name, "support": False, "enabled": True, "skillTypes": list(types), "tags": []}
+
+    def group(*gems):
+        return {"enabled": True, "fromItem": False, "main": False, "gems": list(gems)}
+
+    facts = {"skillGroups": [
+        group(gem("Pounce", "Meta", "Attack", "Cooldown", "Shapeshift"), gem("Sniper's Mark", "Mark")),
+        group(gem("Hand of Chayula", "Meta", "Attack"), gem("Voltaic Mark", "Mark")),
+        group(gem("Ferocious Roar", "Meta", "Warcry", "Cooldown", "Shapeshift"), gem("Infernal Cry", "Warcry")),
+        group(gem("Spell Totem", "Meta", "SummonsTotem"), gem("Fireball", "Spell", "Totemable")),
+        group(gem("Called Shots", "Meta", "Persistent", "Buff"), gem("Freezing Mark", "Mark")),
+        group(gem("Cascading Strike", "Attack", "Triggered")),
+    ]}
+    assert player_buttons(facts) == ["Pounce", "Hand of Chayula", "Ferocious Roar", "Spell Totem"]
+
+
 def test_invocations_are_pressed_but_their_spells_are_not():
     def gem(name, *types):
         return {"name": name, "support": False, "enabled": True, "skillTypes": list(types), "tags": []}

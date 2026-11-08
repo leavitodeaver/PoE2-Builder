@@ -33,6 +33,9 @@ PRESSED_META = "Invocation"
 # ... and totems: you raise a totem meta (Spell Totem, Ancestral Warrior Totem, Mortar Cannon) by pressing it, and the
 # totem uses the skills socketed in it
 PRESSED_TOTEM = "SummonsTotem"
+# ... and meta Attacks and Warcries you use, which trigger what's socketed in them: Pounce (a Werewolf slam), Hand of
+# Chayula (a Strike), Ferocious Roar (a Bear warcry). A Persistent meta (Called Shots, Mirage Archer) is no button.
+PRESSED_META_USES = {"Attack", "Warcry"}
 # ... and persistent buffs you press to release what they stored ("Using this Skill releases the
 # stored damage as a nova of spikes"): their buff reserves Spirit, their use is a button
 PRESSED_PERSISTENT = {"Iron Ward", "Plague Bearer", "Savage Fury"}
@@ -117,6 +120,7 @@ def presses(gem: dict) -> bool:
     supports aren't."""
     types = set(gem["skillTypes"])
     return not gem["support"] and (PRESSED_META in types or PRESSED_TOTEM in types or gem["name"] in PRESSED_PERSISTENT
+                                   or ("Meta" in types and bool(types & PRESSED_META_USES) and "Persistent" not in types)
                                    or not types & NOT_A_BUTTON)
 
 
