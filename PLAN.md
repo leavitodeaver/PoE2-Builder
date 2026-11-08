@@ -652,8 +652,15 @@ they land.
      aura's Curse on the boss. The search had never proposed a Curse: the Spirit step (gems.blasphemy_option) now offers
      the best live Curse in Blasphemy when the Spirit left meets the floor (one Curse: the enemy's limit), and takes the
      whole group out if that scores better (its Curse alone would be a button). Not raised later to a higher gem level
-     (relevel_persistent covers the plain persistent groups only). Still open in 7: Mirage Archer and Mirage Deadeye (mirages, at
-     the dodge-roll rate of slice 1); Ferocious Roar (Bear warcry, Rage) with the shapeshift skills.
+     (relevel_persistent covers the plain persistent groups only). *(Mirages done)* PoB counts an Attack socketed in
+     Mirage Archer / Mirage Deadeye as always used by you at the support's 30% / 50% less damage (its mirage code is PoE1's
+     and never runs). `models.mirage_model` scales it to the share of time a Mirage is up (game files: the spawn skills'
+     10 s cooldown, in one cooldown group for both, assumed shared, so Deadeye's, firing on every shot, takes it; 5000 /
+     4000 ms + 50 per gem level and per quality %; duration modifiers not read), counts the group in the score, and
+     takes one 0.75 s dodge roll per 10 s from the main skill for Mirage Archer unless Cast on Dodge already rolls. Step
+     "mirages" (gems.mirage_round) tries the best ranged Attacks the build doesn't use (ranked by PoB's Full DPS, top 3
+     for real) in a Mirage Deadeye group the build has, else in a new Mirage Archer group within the spare-Spirit
+     floor. Still open in 7: Ferocious Roar (Bear warcry, Rage) with the shapeshift skills.
   8. Granted metas when the build has their source: the item ones as unique proposals (Svalinn, Mjolner, Bijouborne,
      Forgotten Warden, a Dueling Wand base), the ascendancy ones with their notable (Fire Spell on Hit's Energy as
      Thundergod's Wrath's, at the notable's level). Hollow Form uses Power Charges.

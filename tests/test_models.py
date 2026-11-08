@@ -505,8 +505,8 @@ def test_every_meta_gem_in_the_game_files_is_handled_or_says_why():
     metas = [n for n, e in gems.items() if e["meta"] and (e["status"] in ("live", "live (inferred)", "unresolved")
                                                           or n in models.DEPRECATED)]
     assert len(metas) >= 25
-    tables = (models.META_GEMS, models.NO_ENERGY_ON_A_BOSS, models.NOT_MODELED_YET, models.TOTEM_METAS, models.OTHER_METAS,
-              models.DEPRECATED)
+    tables = (models.META_GEMS, models.NO_ENERGY_ON_A_BOSS, models.NOT_MODELED_YET, models.TOTEM_METAS, models.MIRAGE_METAS,
+              models.OTHER_METAS, models.DEPRECATED)
     for name in metas:
         assert sum(name in table for table in tables) == 1, name
         modeled, why = models.meta_handling(name)
@@ -609,3 +609,22 @@ def test_the_skill_you_press_for_a_mark_takes_the_main_skills_time():
     hand = models.Skill("Hand of Chayula", group=2, attack=True, cast_time=0.6)
     mods, _ = models.mark_model([bow, hand, mark], stats, bow)
     assert {m["line"]: m["scale"] for m in mods}["1% more Attack and Cast Speed"] == pytest.approx(-10.0)  # 0.6 s / 6 s
+
+
+def test_a_mirage_uses_its_attack_for_the_share_of_time_it_is_up():
+    """Slice 7: one Mirage per 10 s (the spawn skills' cooldown, shared by both: game files), lasting 5000 / 4000 ms + 50
+    per gem level and per quality %. PoB counts the socketed Attack as always on: scaled to the share. Mirage Archer needs
+    one dodge roll (0.75 s) per Mirage unless the build already rolls for Cast on Dodge."""
+    shot = models.Skill("Lightning Arrow", group=1, attack=True)
+    archer, ice = models.Skill("Mirage Archer", group=2), models.Skill("Ice Shot", group=2, attack=True)
+    mods, notes, groups = models.mirage_model([shot, archer, ice], shot, {"Mirage Archer": (20, 20)})
+    assert groups == {2} and notes[0]["value"] == 0.7  # (6 s + 1 s of quality) / 10 s
+    assert mods[0]["skill"] == "Ice Shot" and abs(mods[0]["scale"] + 30) < 1e-6
+    assert len(mods) == 2 and "dodge rolling" in notes[1]["label"]
+    assert len(models.mirage_model([shot, archer, ice], shot, {"Mirage Archer": (20, 20)}, rolling=True)[0]) == 1
+    eye, rain = models.Skill("Mirage Deadeye", group=3), models.Skill("Rain of Arrows", group=3, attack=True)
+    mods, notes, groups = models.mirage_model([shot, archer, ice, eye, rain], shot,
+                                              {"Mirage Archer": (20, 0), "Mirage Deadeye": (20, 0)})
+    assert groups == {3} and [n["value"] for n in notes] == [0.5, 0.0]  # Deadeye's takes the shared cooldown
+    spell = models.Skill("Fireball", group=1, spell=True)
+    assert models.mirage_model([spell, eye, rain], spell, {"Mirage Deadeye": (20, 0)})[2] == set()

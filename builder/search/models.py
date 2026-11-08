@@ -422,8 +422,6 @@ OTHER_METAS = {
     "Ancestral Warrior Totem": "a totem whose spirit warriors use socketed Attacks, consuming 3 Endurance Charges",
     "Mortar Cannon": "a Ballista Totem that uses socketed Grenade skills",
     "Hand of Chayula": "a Strike that triggers socketed Marks with increased effect (the marks round; the increased effect isn't read)",
-    "Mirage Archer": "dodge rolling creates a Mirage that uses socketed ranged Attacks",
-    "Mirage Deadeye": "Deadeye notable: a ranged Projectile Attack creates a Mirage",
     "Called Shots": "Deadeye notable: applies a socketed Mark to an enemy every five seconds (the marks round fills a group the build has)",
     "Hollow Form": "Chayula Monk notable: consumes Power Charges to create extra images",
     "Spirit Vessel": "Forgotten Warden's companion that uses copies of socketed Bear, Werewolf and Wyvern skills",
@@ -502,6 +500,79 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
               "confidence": "theory"}]
     return mods, notes
 
+
+
+# Mirages (slice 7) -------------------------------------------------------------------------------
+# Mirage Archer (a 60 Spirit Persistent meta) creates a Mirage when you dodge roll; Mirage Deadeye (a Deadeye notable's)
+# when you fire a ranged Projectile Attack. The Mirage uses the socketed ranged Attack for its duration, then vanishes.
+# Game files (build 26476662): MirageArcherSpawnPlayer / MirageDeadeyeSpawnPlayer have a 10 s cooldown, 1 stored use,
+# in the same cooldown group (67) for both, so one Mirage per 10 s between them (a shared cooldown: assumed from the group);
+# Mirages last base_skill_effect_duration 5000 + 50 x gem level ms (Archer: 5.05 s at 1, 6 s at 20) and 4000 + 50 x level
+# (Deadeye), +50 ms per quality %; they deal 30% / 50% less damage (support_lingering_mirage_damage_+%_final). poe2db
+# agrees (cooldown, durations, less damage; several Mirages at once since 0.4.0). PoB prices the socketed Attack as if you
+# used it all the time at the less damage (its Mirage Archer code is PoE1's and never runs): the model scales it to the
+# share of time a Mirage is up.
+MIRAGE_METAS = {
+    "Mirage Archer": "dodge rolling creates a Mirage that uses the socketed ranged Attack (the mirage round, gems.mirage_round)",
+    "Mirage Deadeye": "Deadeye notable: firing a ranged Projectile Attack creates a Mirage that uses the socketed ranged Attack "
+                      "(the mirage round fills a group the build has)",
+}
+MIRAGE_COOLDOWN = 10.0
+MIRAGE_BASE_MS = {"Mirage Archer": 5000.0, "Mirage Deadeye": 4000.0}
+MIRAGE_MS_PER_LEVEL = 50.0
+MIRAGE_MS_PER_QUALITY = 50.0
+
+
+def mirage_duration(meta: str, level: int, quality: int) -> float:
+    return (MIRAGE_BASE_MS[meta] + MIRAGE_MS_PER_LEVEL * level + MIRAGE_MS_PER_QUALITY * quality) / 1000
+
+
+def mirage_model(skills: list[Skill], main: Skill | None, gems: dict[str, tuple[int, int]],
+                 rolling: bool = False) -> tuple[list[dict], list[dict], set[int]]:
+    """Each Mirage's Attack scaled from PoB's always-on to the share of time its Mirage is up, and the dodge roll Mirage
+    Archer needs. `gems` is {name: (level, quality)}; `rolling` when the build already counts on rolling every
+    DODGE_EVERY s (Cast on Dodge). Returns (mods, notes, groups whose damage counts)."""
+    mods: list[dict] = []
+    notes: list[dict] = []
+    groups: set[int] = set()
+    placed = []
+    for meta in ("Mirage Deadeye", "Mirage Archer"):  # (Deadeye's comes first: it fires on every shot)
+        source = next((s for s in skills if s.name == meta), None)
+        attack = source and next((s for s in skills if s.group == source.group and s.attack and s.name != meta), None)
+        if attack is not None:
+            placed.append((meta, source, attack))
+    for i, (meta, source, attack) in enumerate(placed):
+        level, quality = gems.get(meta, (20, 0))
+        duration = mirage_duration(meta, level, quality)
+        if i > 0:
+            up, basis = 0.0, (f"{placed[0][0]} takes every Mirage: the two share one cooldown (the game files' cooldown "
+                              f"group, assumed shared), and {placed[0][0]}'s comes first")
+        elif meta == "Mirage Deadeye" and not (main is not None and main.attack and not main.melee):
+            up, basis = 0.0, "nothing fires a ranged Attack to create the Mirage (the main skill isn't one)"
+        else:
+            period = MIRAGE_COOLDOWN
+            if meta == "Mirage Archer" and rolling:
+                period = math.ceil(MIRAGE_COOLDOWN / DODGE_EVERY) * DODGE_EVERY  # (the first roll after the cooldown)
+            up = min(1.0, duration / period)
+            how = ("on the first dodge roll after its cooldown" if meta == "Mirage Archer"
+                   else f"on the first shot of {main.name} after its cooldown")
+            basis = (f"one Mirage every {period:g} s ({how}; game files: 10 s cooldown), lasting {duration:.2f} s at gem "
+                     f"level {level}, quality {quality} (duration modifiers not counted); PoB counts {attack.name} as used "
+                     "all the time")
+        mods.append(line("1% more Damage", 100 * (up - 1), skill=attack.name))
+        if up > 0:
+            groups.add(source.group)
+        notes.append({"label": f"{meta}: share of time a Mirage uses {attack.name}", "value": round(up, 2),
+                      "basis": basis + "; the Mirage's hits are counted as yours by conditions (assumed); its Attack "
+                               "can't consume charges (game files), which PoB doesn't read", "confidence": "theory"})
+        if meta == "Mirage Archer" and up > 0 and not rolling and main is not None:
+            busy = DODGE_ROLL_SECONDS / MIRAGE_COOLDOWN
+            mods.append(line("1% more Attack and Cast Speed", -100 * busy, skill=main.name))
+            notes.append({"label": f"Time spent dodge rolling for Mirage Archer ({main.name})",
+                          "value": f"{busy:.1%} less Attack and Cast Speed",
+                          "basis": f"one roll per Mirage, every {MIRAGE_COOLDOWN:g} s, takes {DODGE_ROLL_SECONDS:g} s (the "
+                                   f"dodge roll's cast time in the game files) from {main.name}", "confidence": "theory"})
+    return mods, notes, groups
 
 # Marks (slice 6) ---------------------------------------------------------------------------------
 # PoB applies a Mark from any enabled group as a debuff that is always up and never consumed (CalcPerform's curse slots,
@@ -602,6 +673,7 @@ def meta_handling(name: str) -> tuple[bool, str]:
         return True, ""
     for table, why in ((NO_ENERGY_ON_A_BOSS, "it gains Energy on {}: none on a single boss"),
                        (NOT_MODELED_YET, "not modeled yet: {}"), (TOTEM_METAS, "the totem round's, not a trigger: {}"),
+                       (MIRAGE_METAS, "the mirage round's, not an Energy trigger: {}"),
                        (OTHER_METAS, "not a trigger the search sets up yet: {}"),
                        (DEPRECATED, "{}")):
         if name in table:

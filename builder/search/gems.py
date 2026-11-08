@@ -18,6 +18,8 @@ BLASPHEMY_LABEL = "auto: blasphemy"
 BLASPHEMY = "Blasphemy"
 META_LABEL = "auto: meta"
 MARK_LABEL = "auto: mark"
+MIRAGE_LABEL = "auto: mirage"
+MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what PoB says each adds to Full DPS)
 META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
 META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
 # A spell triggered less often than this can't pay through its own damage; what PoB counts of it besides (a buff it
@@ -692,8 +694,8 @@ class Gems:
         room = cap is None or len(self.buttons()) < cap
         names = []
         for name, gem in self.ctx.gems.items():
-            if "Meta" not in gem["skillTypes"] or not self.ctx.allowed_gem(name) or name in models.TOTEM_METAS:
-                continue  # (a totem meta is the totem round's)
+            if "Meta" not in gem["skillTypes"] or not self.ctx.allowed_gem(name) or name in {*models.TOTEM_METAS, *models.MIRAGE_METAS}:
+                continue  # (a totem meta is the totem round's, a Mirage the mirage round's)
             modeled, why = models.meta_handling(name)
             if not modeled:
                 self.left_out[name] = why
@@ -828,6 +830,76 @@ class Gems:
         self.left_out.pop(place["gems"][-1]["name"], None)
         return build.score > before + EPSILON
 
+    def mirage_round(self, deadline: float) -> bool:
+        """Slice 7: a ranged Attack for a Mirage, kept if the build scores better, models.mirage_model pricing the share
+        of time the Mirage is up (one per 10 s). In a Mirage Deadeye group the build has (granted by the notable, so never
+        proposed), else in a new Mirage Archer group (60 Spirit, within the spare-Spirit floor; persistent, so no button).
+        The Attacks are ones the build doesn't use, ranked by what PoB adds to Full DPS (it counts the Attack as always
+        on, so only a ranking); the best MIRAGE_TRIALS get a real trial."""
+        from builder.search import models
+
+        build = self.build
+        if clock.now() > deadline or build.main_group() is None:
+            return False
+        groups = [g for g in build.groups() if g["enabled"]]
+        skills = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
+        metas = {s.name: s for s in skills if s.name in models.MIRAGE_METAS}
+        if any(s.attack and s.name not in models.MIRAGE_METAS and s.group == m.group for m in metas.values() for s in skills):
+            return False  # a Mirage has its Attack already
+        present = {g["name"] for grp in groups for g in grp["gems"]}
+        left, usage = self.budget_left(), self.usage_stats()
+        deadeye = next((g for g in groups if any(x["name"] == "Mirage Deadeye" for x in g["gems"])), None)
+        if deadeye is None and (len([g for g in build.groups() if not g["fromItem"]]) >= MAX_GEM_GROUPS
+                                or "Mirage Archer" in present or not self._offered("Mirage Archer", left, usage)
+                                or self.usable_level("Mirage Archer") is None):
+            return False
+        meta = "Mirage Deadeye" if deadeye is not None else "Mirage Archer"
+        attacks = [n for n, gem in self.ctx.gems.items() if not gem["support"] and n not in present
+                   and "Attack" in gem["skillTypes"] and ({"RangedAttack", "CrossbowAmmoSkill"} & set(gem["skillTypes"]))
+                   and not {"Meta", "Persistent", "Triggered"} & set(gem["skillTypes"]) and self._offered(n, left, usage)]
+        if not attacks:
+            return False
+        spare_floor = max(0, self.ctx.request.floors.spare_spirit or 0)
+        cases = [{"newGroup": [meta, n], "level": GEM_LEVEL, "quality": GEM_QUALITY, "fullDPS": True} for n in attacks]
+        full = []
+        for start in range(0, len(cases), 50):
+            full += build.call("gemDeltas", cases=cases[start:start + 50], fields=["FullDPS", "SpiritUnreserved"],
+                               fullDPS=True, skipEHP=True)["results"]
+        base = models.number(build.stats.get("FullDPS"))
+        ranked = sorted(((float(r.get("FullDPS") or 0), n) for r, n in zip(full, attacks)
+                         if float(r.get("FullDPS") or 0) > base
+                         and (deadeye is not None or models.number(r.get("SpiritUnreserved")) >= spare_floor)), reverse=True)
+        before = build.score
+        best: tuple[float, dict] | None = None
+        for _, name in ranked[:MIRAGE_TRIALS]:
+            if clock.now() > deadline:
+                break
+            level = self.usable_level(name)
+            if level is None:
+                continue
+            gem = {"name": name, "level": level, "quality": GEM_QUALITY}
+            if deadeye is not None:
+                place = {"index": deadeye["index"], "gems": [{"name": g["name"], "level": g["level"], "quality": g["quality"]}
+                                                             for g in deadeye["gems"]] + [gem]}
+            else:
+                place = {"gems": [{"name": meta, "level": self.usable_level(meta), "quality": GEM_QUALITY}, gem],
+                         "label": MIRAGE_LABEL}
+            score = self.trial_mark(place, self.ctx.request.max_buttons)
+            if score is not None and score > before + EPSILON and (best is None or score > best[0]):
+                best = (score, place)
+        if best is None:
+            self.left_out[meta] = "tried: no ranged Attack in a Mirage scored better (or none fits the Spirit left)"
+            return False
+        place = best[1]
+        if "index" in place:
+            build.set_group(index=place["index"], gems=place["gems"])
+        else:
+            build.set_group(gems=place["gems"], label=MIRAGE_LABEL)
+        if self.resolve is not None:
+            self.resolve()
+        self.left_out.pop(meta, None)
+        return build.score > before + EPSILON
+
     def trial_mark(self, place: dict, cap: int | None) -> float | None:
         """Score a Mark placement for real (commit, resolve, read, undo); None if its buttons go over the cap."""
         build = self.build
@@ -836,7 +908,7 @@ class Gems:
             old_gems = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in old["gems"]]
             build.set_group(index=place["index"], gems=place["gems"])
         else:
-            added = build.set_group(gems=place["gems"], label=MARK_LABEL)
+            added = build.set_group(gems=place["gems"], label=place.get("label", MARK_LABEL))
         if self.resolve is not None:
             self.resolve()
         score = build.score if cap is None or len(self.buttons()) <= cap else None

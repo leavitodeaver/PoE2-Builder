@@ -336,3 +336,27 @@ def test_the_spirit_step_puts_a_curse_in_blasphemy(engine):
     assert len(cursed) == 1 and [g["name"] for g in cursed[0]["gems"]][0] == "Blasphemy"
     assert build.score > before
     assert search.gems.buttons() == ["Ice Nova"]
+
+
+def test_the_mirage_round_gives_a_bow_build_a_mirage_archer(engine):
+    """Slice 7: PoB counts an Attack in Mirage Archer as always on at 30% less damage; the mirage model scales it to one
+    Mirage per 10 s (5 s + 50 ms per gem level and quality %), and its group counts in the score. Persistent: no
+    button."""
+    from builder.search.gems import MIRAGE_LABEL
+
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build = search.build
+    before = build.score
+    assert search.gems.mirage_round(float("inf"))
+    mirage = [g for g in build.groups() if g["label"] == MIRAGE_LABEL]
+    assert len(mirage) == 1 and mirage[0]["gems"][0]["name"] == "Mirage Archer"
+    notes = [n for n in search.assumptions.active if n["label"].startswith("Mirage Archer: share")]
+    print("PROBE", before, build.score, [g["name"] for g in mirage[0]["gems"]], notes)
+    archer = mirage[0]["gems"][0]
+    share = models.mirage_duration("Mirage Archer", archer["level"], archer["quality"]) / models.MIRAGE_COOLDOWN
+    assert build.score > before and notes and notes[0]["value"] == round(share, 2)
+    assert "Mirage Archer" not in search.gems.buttons()
+    assert not search.gems.mirage_round(float("inf"))  # (it has its Attack)

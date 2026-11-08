@@ -94,6 +94,10 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + resolve_mods, hand_notes + resolve_notes
         mark_mods, mark_notes = models.mark_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + mark_mods, hand_notes + mark_notes
+        mirage_mods, mirage_notes, mirage_groups = models.mirage_model(
+            found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
+                          if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))
+        hand_mods, hand_notes = hand_mods + mirage_mods, hand_notes + mirage_notes
         pulse, pulse_notes = models.maelstrom_model(source_lines, stats) if models.MAELSTROM_ENTRY not in forbidden else (0.0, [])
         build.objective.added_dps = pulse  # separately computed damage (Melting Maelstrom's pulses); what-ifs get their own
         hand_mods += models.maelstrom_inputs(source_lines, pulse) if pulse_notes else []
@@ -118,7 +122,7 @@ class Assumptions:
                 "confidence": "datamined"})
         if note := models.darkness_note(build.stats):
             notes.append(note)
-        return mods, notes, {**{g: None for g in energy_groups}, **expression_groups}
+        return mods, notes, {**{g: None for g in energy_groups | mirage_groups}, **expression_groups}
 
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[models.IRON_WARD, *models.gem_stat_skills()])["skills"]
