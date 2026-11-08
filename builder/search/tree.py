@@ -279,6 +279,22 @@ class Tree:
             self.round += 1
         return False
 
+    def fit_requirements(self, deadline: float, attempts: int = 4) -> None:
+        """New gear's attribute requirements: re-pick the attribute passives, then while one is still short trade the
+        weakest branches for points grown under the deficit's penalty. For a gear trial (gear.granted_meta_trials),
+        which keeps or restores the whole build itself, so nothing here is checked for gain."""
+        self.attributes_round()
+        for _ in range(attempts):
+            if clock.now() > deadline or not any(label.endswith(" requirement") for label, _, hard
+                                                 in self.build.objective.deficits(self.build.stats) if hard):
+                return
+            branches = self.weakest_branches()
+            if not branches:
+                return
+            self.remove_branch(branches[0][1])
+            self.grow(deadline)
+            self.attributes_round()
+
     def remove_branch(self, branch: frozenset[int]) -> None:
         self.build.allocate(remove=sorted(branch))
         self.round += 1

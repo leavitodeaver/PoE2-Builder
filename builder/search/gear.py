@@ -39,6 +39,7 @@ GRANTS_META = re.compile(r"Grants Skill: (?:Level \S+ )?(?:%s)\s*$" % "|".join(r
 
 BASES_PER_SUBTYPE = 3  # normal armour/jewellery bases kept per sub-type, highest level first
 SHORTLIST = 6  # options per slot rescored between full rounds
+REQUIREMENT_FIT_SECONDS = 30.0  # tree re-routing a granted-meta unique's trial may take (fit_requirements)
 AFFIX_LIMIT = {"Prefix": 3, "Suffix": 3}
 
 
@@ -91,6 +92,7 @@ class Gear:
         self.resolve = None  # re-resolves conditions after a commit (set by the search)
 
     fill_granted = None  # fills an item's granted meta group with a spell (gems.granted_meta_round); set by the search
+    fit_requirements = None  # re-routes the tree to new gear's attribute requirements (tree.fit_requirements); set by the search
 
     def flask_rate(self, pool: str) -> tuple[float, float]:
         """(charges generated per second, maximum charges) of the equipped flask for this pool, for
@@ -437,7 +439,9 @@ class Gear:
     def granted_meta_trials(self, deadline: float) -> bool:
         """Slice 8: a unique granting a meta skill (GRANTS_META: Mjolner's Thundergod's Wrath, Svalinn's Cast on Block)
         scores only its other lines until a spell is socketed in its group, so each one the build can afford is tried for
-        real: equipped, its group filled (fill_granted: gems.granted_meta_round), kept if the build scores better."""
+        real: equipped, its group filled (fill_granted: gems.granted_meta_round), kept if the build scores better.
+        The tree is re-routed to the unique's attribute requirements first (fit_requirements): on 2b75d a tree tuned to
+        the old weapon left Mjolner 54-90% short of Strength or Intelligence, a hard deficit that sank every trial."""
         build = self.build
         improved = False
         for slot in self.slots:
@@ -452,6 +456,8 @@ class Gear:
                 before = build.score
                 self.put(slot, option)
                 self.settle()
+                if self.fit_requirements is not None:
+                    self.fit_requirements(min(deadline, clock.now() + REQUIREMENT_FIT_SECONDS))
                 self.fill_granted(deadline)
                 if build.score > before + EPSILON:
                     improved, current = True, option
