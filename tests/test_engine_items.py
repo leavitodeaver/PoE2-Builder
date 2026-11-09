@@ -312,6 +312,41 @@ def test_a_step_that_ignores_the_deadline_is_stopped_on_time(engine, monkeypatch
     assert result["score"] > float("-inf") and result["state"]["equipped"]
 
 
+def test_a_tree_step_the_hard_stop_cuts_keeps_the_passives_it_took(engine, monkeypatch):
+    """The stop goes back to the tree's last kept passive (Search.checkpoint), not to the step's start: a probe's tree
+    step cut by the stop lost all it had allocated, and the five lines of a gate run started round 1 at 7.8K
+    (POE2T225, x0.46)."""
+    from builder import clock
+    from builder.search.gems import Gems
+    from builder.search.inner import STOP_GRACE_MIN, optimize_task
+    from builder.search.skeletons import enumerate_skeletons
+    from builder.search.tree import Tree
+
+    grow, seen = Tree.grow, {}
+
+    def grow_then_hang(self, deadline):
+        if "grown" in seen:
+            return grow(self, deadline)
+        seen["before"] = self.build.score
+        grow(self, min(deadline, clock.now() + 3))
+        seen["grown"] = self.build.score
+        until = clock.now() + 60  # then a long what-if that never looks at the clock
+        while clock.now() < until:
+            self.build.refresh()
+
+    monkeypatch.setattr(Gear, "gear_round", lambda self, deadline, full=True: False)
+    monkeypatch.setattr(Gems, "optimize_supports", lambda self, deadline, *args: False)
+    monkeypatch.setattr(Tree, "grow", grow_then_hang)
+    ctx = context(main_skill="Explosive Spear")
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0]
+    started = clock.now()
+    result = optimize_task(engine, None, make_payload(ctx.request), skeleton.as_dict(), 8, seed=1)
+    assert clock.now() - started < 8 + STOP_GRACE_MIN + 5
+    assert "tree" in result["overrun"], result["overrun"]
+    assert seen["grown"] > seen["before"], seen
+    assert result["score"] >= seen["grown"] - 1e-9, (result["score"], seen)
+
+
 def test_a_whole_run_fits_the_time_it_was_given(engine, monkeypatch):
     """The user's minutes are the whole run, finalize's export and reload check included. Here the pool gets fewer
     workers than asked for (in the PC queue it gets the LuaJIT slots still free): planned on the workers asked for,

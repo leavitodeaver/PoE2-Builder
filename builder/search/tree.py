@@ -98,6 +98,7 @@ class Tree:
         self.class_name: str | None = None  # the skeleton's, set by the search: names follow it (Context.node_as)
         self.ascendancy: str | None = None
         self.resolve = None  # re-resolves conditions and assumptions (set by the search)
+        self.checkpoint = None  # marks a kept passive as where the hard stop goes back to (set by the search)
         self.relevant_skill = None  # does granting this skill change an assumption?
         # Fills the group of a meta skill a notable grants (GRANTED_METAS) with what it uses; set by the search
         self.fill_granted = None
@@ -252,6 +253,8 @@ class Tree:
                 self.allocations_since_full = FULL_EVERY
                 continue
             improved = improved or self.build.score > before + EPSILON
+            if self.checkpoint is not None:
+                self.checkpoint()
         return improved
 
     # Prune and regrow ---------------------------------------------------------------------------

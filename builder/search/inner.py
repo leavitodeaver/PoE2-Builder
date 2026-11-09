@@ -63,6 +63,7 @@ class Search:
         self.gems = Gems(self.build)
         self.tree = Tree(self.build, self.rng)
         self.tree.class_name, self.tree.ascendancy = self.skeleton.class_name, self.skeleton.ascendancy
+        self.tree.checkpoint = self.checkpoint
         weapon = SlotSpec(self.skeleton.weapon, self.skeleton.weapon_sub) if self.skeleton.weapon else None
         held = offhand_types(self.ctx, self.skeleton.weapon, self.skeleton.offhand)
         offhand = SlotSpec(held[0], None, held[1:]) if held else None
@@ -400,6 +401,13 @@ class Search:
             # state; all five of a gate run's lines then stuck at 15K with no main group (POE2T194, x0.09)
             self.build.stop_at = self.stop_at
         return self.build.score > before + EPSILON
+
+    def checkpoint(self) -> None:
+        """A step's commit that leaves the build whole (the tree's kept passive): the hard stop goes back here, not to
+        the step's start. A probe's tree step cut by the stop lost all it had allocated (POE2T225: 23 s, 1,740
+        evaluations, gain 0; the five lines started round 1 at 7.8K and ended x0.46)."""
+        if self.deadline is not None and self.build.stop_at is not None:
+            self.boundary = self.build.snapshot()
 
     def blocks(self, deadline: float) -> bool:
         """One pass over every block. Full sweeps (every support in every slot, every item, every
