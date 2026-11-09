@@ -115,8 +115,40 @@ RANGED_DISTANCE = 5.0
 NEAR_TYPES = {"Minion", "CreatesMinion", "SummonsTotem", "UsedByTotem"}
 
 
+# Lines whose effect depends on the boss's distance (PoB reads them against enemyDistance: ModParser's "enemies in your
+# presence", "against enemies within / further than N m", Surrounded; the distance also sets attack Accuracy and the
+# boss's own accuracy against your evasion, CalcDefence). A build with one has its distance chosen by score
+# (Search.choose_distance): close range if it leans into Presence or close-range lines, the defence checks at the same
+# distance since they're read from the same calculation.
+DISTANCE_LINE = re.compile(r"\bin your presence\b|\bclose range\b|\bwithin \d+(?:\.\d+)? ?m|\bfurther than (\d+(?:\.\d+)?) ?m|"
+                           r"\bsurrounded\b", re.I)
+
+
+def natural_distance(main_types: set[str]) -> float:
+    """The distance in metres a build stands at when nothing it has depends on it."""
+    return MELEE_DISTANCE if "Melee" in main_types or main_types & NEAR_TYPES else RANGED_DISTANCE
+
+
+def distance_candidates(lines: list[str], main_types: set[str]) -> list[float]:
+    """Distances worth a trial: the natural one first, close range, and just beyond any "further than N m" line."""
+    found = [natural_distance(main_types)]
+    for text in lines:
+        if m := DISTANCE_LINE.search(text):
+            found.append(MELEE_DISTANCE)
+            if m.group(1):
+                found.append(float(m.group(1)) + 0.5)
+    found = list(dict.fromkeys(found))
+    return found if len(found) > 1 else []
+
+
 def _boss_distance(lines: list[str], stats: dict) -> tuple[float, str]:
     types = stats.get("_main_types") or set()
+    chosen = stats.get("_distance_choice")
+    if chosen:
+        metres, why = chosen
+        radius = number(stats.get("PresenceRadius")) / 10
+        where = "in" if radius >= metres else "outside"
+        return metres * 10, f"{metres:g} m: {why}; your Presence radius is {radius:.1f} m, so the boss is {where} it"
     if "Melee" in types:
         metres, why = MELEE_DISTANCE, "a melee main skill"
     elif types & NEAR_TYPES:
@@ -362,6 +394,7 @@ class Conditions:
         self.build = build
         self.main_types = set((build.ctx.gems.get(main_skill) or {}).get("skillTypes") or [])
         self.active: dict[str, dict] = {}  # var -> {label, value, evidence}
+        self.distance: tuple[float, str] | None = None  # (metres, why) chosen by score (Search.choose_distance)
 
     def evidence(self) -> dict[str, tuple[object, str]]:
         """What the build can sustain now: var -> (value, evidence)."""
@@ -390,7 +423,7 @@ class Conditions:
                     uses = (number(stats.get("Speed")) if types == main_types or (hollow and name == HOLLOW_FORM)
                             else 1 / CHARGE_DEFAULT_EVERY)
                     consumers.setdefault(kind, {})[name] = uses
-        stats = {**stats, "_consumers": consumers, "_main_types": main_types}
+        stats = {**stats, "_consumers": consumers, "_main_types": main_types, "_distance_choice": self.distance}
         found: dict[str, tuple[object, str]] = {}
         for condition in CONDITIONS:
             reason = None
@@ -508,6 +541,9 @@ class Conditions:
                 active[condition.var] = {"label": condition.label, "value": value,
                                          "evidence": old.get("evidence", "restored")}
         self.active = active
+        metres = number(config.get("enemyDistance")) / 10
+        if self.distance and metres != self.distance[0]:  # (a restored build stands where its code says)
+            self.distance = None if metres == natural_distance(self.main_types) or not metres else (metres, "restored")
 
     def describe(self) -> list[dict]:
         return [{"var": var, **info} for var, info in sorted(self.active.items())]

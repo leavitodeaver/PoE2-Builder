@@ -53,6 +53,7 @@ def test_rows_for_player_and_fight_conditions_and_build_left_as_it_was():
     distance = by_var["enemyDistance"]
     assert distance["counted"] and distance["kind"] == "player"
     assert distance["dps_with"] == approx(1251.25) and distance["dps_without"] == approx(1001) and "at 5 m instead" in distance["label"]
+    assert distance["play"] == "stay within 2 m of the boss"
     low = by_var["conditionEnemyLowLife"]
     assert not low["counted"] and low["kind"] == "fight" and low["dps_with"] == approx(1876.875) and low["dps_without"] == approx(1251.25)
     assert rows[0]["var"] == "conditionEnemyLowLife"  # largest change first
@@ -64,3 +65,12 @@ def test_rows_for_player_and_fight_conditions_and_build_left_as_it_was():
 def test_every_classified_condition_is_known_and_build_is_the_default():
     assert play_guide.kind("conditionEnemyIgnited") == play_guide.BUILD
     assert play_guide.kind("enemyDistance") == play_guide.PLAYER
+
+
+def test_distance_candidates_follow_the_build_lines():
+    from builder.search.conditions import distance_candidates
+
+    assert distance_candidates(["10% increased Spell Damage"], {"Spell"}) == []
+    assert distance_candidates(["Enemies in your Presence have -10% to Fire Resistance"], {"Spell"}) == [5.0, 2.0]
+    assert distance_candidates(["20% more Damage against Enemies further than 6m"], {"Spell"}) == [5.0, 2.0, 6.5]
+    assert distance_candidates(["Enemies in your Presence are Blinded"], {"Melee", "Attack"}) == []  # already close

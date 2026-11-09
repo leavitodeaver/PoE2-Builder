@@ -21,7 +21,7 @@ from builder.pob import codes
 from builder.request.constraints import FACT_FIELDS, meta_socketed
 from builder.request.schema import WeaponSwap
 from builder.search.assumptions import Assumptions
-from builder.search.conditions import Conditions
+from builder.search.conditions import MELEE_DISTANCE, Conditions, distance_candidates
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
 from builder.search.gear import Gear, SlotSpec, extra_ring_passive
 from builder.search.gems import META_LABEL, Gems
@@ -368,10 +368,40 @@ class Search:
             self.gems.choose_active_skill()
         return changed
 
+    def choose_distance(self) -> bool:
+        """The boss distance is the player's choice (the play guide's spec, item 4): a build with lines that depend on it
+        (conditions.DISTANCE_LINE: Presence, close range, within / further than N m) stands where it scores best, the
+        defence floors included (the score reads them at the same distance), else at its natural range. Returns True if
+        the distance moved."""
+        conditions = self.conditions
+        lines = [line["text"] for line in self.build.call("sourceLines")["lines"]]
+        candidates = distance_candidates(lines, conditions.main_types)
+        before = conditions.distance
+        if not candidates:
+            conditions.distance = None
+            if before is not None:
+                self.settle()
+            return before is not None
+        natural = candidates[0]
+        scores = {}
+        for metres in candidates:
+            conditions.distance = None if metres == natural else (metres, "")
+            self.settle()
+            scores[metres] = self.build.score
+        best = max(candidates, key=lambda m: (scores[m], m == natural))
+        tried = ", ".join(f"{m:g} m {scores[m]:,.0f}" for m in candidates)
+        why = ("close range: the build leans into Presence or close-range lines" if best <= MELEE_DISTANCE
+               else "beyond its \"further than\" lines") + f" (score at {tried}, defence floors included)"
+        conditions.distance = None if best == natural else (best, why)
+        self.settle()
+        return conditions.distance != before
+
     def conditions_round(self) -> None:
         """Resolve, and choose the calculated skill and stat set again: which one scores best
         changes as the rest of the build grows (Explosive Spear's explosion overtakes its spear).
         Gems whose usage requirement lost its source go first (builder/search/usage.py)."""
+        if self.choose_distance():
+            self.gems.choose_active_skill()
         if self.gems.drop_unusable():
             return  # it resolved, which chose the stat set again
         if not self.resolve():
@@ -781,6 +811,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         search.run(deadline, escalate=False, feasible_first=True)
     except Cancelled:
         pass
+    search.choose_distance()
     search.resolve()
 
     search.gear.sync_flasks()

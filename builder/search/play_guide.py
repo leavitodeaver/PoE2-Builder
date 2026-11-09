@@ -82,6 +82,8 @@ def guide(search: Any) -> list[dict]:
         play = KINDS[var][1] if var in KINDS else OFF_OPTIONS[var][2]
         if var == "enemyDistance":
             label = f"Boss at {number(restore) / 10:g} m (at {number(trial) / 10:g} m instead)"
+            play = (f"stay within {number(restore) / 10:g} m of the boss" if number(restore) < number(trial)
+                    else f"keep about {number(restore) / 10:g} m from the boss")
         rows.append({
             "var": var, "label": label, "kind": k, "counted": counted, "play": play,
             "dps_with": dps if not counted else base, "dps_without": base if not counted else dps,
