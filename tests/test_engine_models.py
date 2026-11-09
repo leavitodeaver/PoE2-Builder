@@ -754,3 +754,41 @@ def test_presence_lines_need_the_boss_inside_the_presence_radius(engine):
         assert active["value"] == metres * 10
         assert ("so the boss is outside it" in active["evidence"]) == (metres > 4)
         assert engine.call("getConfig")["input"]["enemyDistance"] == metres * 10
+
+
+def test_main_sweep_moves_a_support_another_group_holds_only_if_it_pays(engine, monkeypatch):
+    """A support is socketed once per character, so one in another group never reached the main group's candidates:
+    2b75d's finalize sweep couldn't take Exploit Weakness from Thundergod's Wrath (POE2T280). A full sweep of the main
+    group offers it now; the trial moves it out of the other group and stays only if the build's score doesn't drop."""
+    from builder.search.gems import META_LABEL
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    build.set_group(gems=[{"name": "Cast on Dodge", "level": 12, "quality": 0}, {"name": "Fireball", "level": 9, "quality": 0}],
+                    label=META_LABEL, fullDPS=True)
+    main = gems.supports_group(build.groups(), meta=False)
+    meta = gems.supports_group(build.groups(), meta=True)
+    in_main = {g["name"] for g in main["gems"]}
+    both = sorted(set(build.call("supportCandidates", group=main["index"])["names"])
+                  & set(build.call("supportCandidates", group=meta["index"])["names"]) - in_main)
+    gem = next(n for n in both if gems.ctx.allowed_gem(n) and gems.usable(n))
+    build.set_group(index=meta["index"], gems=[*({"name": g["name"], "level": g["level"], "quality": g["quality"]}
+                                                 for g in meta["gems"]), {"name": gem}])
+    assert gem not in gems.candidates(main["index"], build.groups())
+
+    def names(meta_group: bool) -> list[str]:
+        return [g["name"] for g in gems.supports_group(build.groups(), meta=meta_group)["gems"]]
+
+    monkeypatch.setattr(build, "gem_deltas", lambda cases, **kw: [(build.score + (1.0 if c["gem"] == gem else 0.0), {})
+                                                                   for c in cases])
+    monkeypatch.setattr(build, "worse", lambda before: True)
+    before = (names(False), names(True))
+    gems.supports_round(full_sweep=True)
+    assert (names(False), names(True)) == before  # not kept: both groups as they were
+    monkeypatch.setattr(build, "worse", lambda before: False)
+    gems.supports_round(full_sweep=True)
+    assert gem in names(False) and gem not in names(True)
+    assert "Fireball" in names(True)

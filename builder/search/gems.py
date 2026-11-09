@@ -85,6 +85,19 @@ class Gems:
     def budget_left(self) -> float:
         return self.ctx.budget - self.build.spent()
 
+    def donors(self, groups: list[dict], index: int) -> dict[str, dict]:
+        """The supports other groups hold that could move into group `index`, each with the group holding it (the
+        player's own groups and the granted ones alike: their supports are the player's gems)."""
+        offered = set(self.build.call("supportCandidates", group=index)["names"])
+        return {g["name"]: group for group in groups if group["index"] != index
+                for g in group["gems"] if g["support"] and g["name"] in offered and self.ctx.allowed_gem(g["name"])}
+
+    def release(self, group: dict, name: str) -> None:
+        """Take support `name` out of `group`, its other gems as they were (the actives at their levels)."""
+        gems = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} if not g["support"] else {"name": g["name"]}
+                for g in group["gems"] if g["name"] != name]
+        self.build.set_group(index=group["index"], gems=gems)
+
     def affordable(self, name: str, freed: float, left: float) -> bool:
         priced = self.ctx.gem_price(name)
         return priced is not None and (priced[0] or 0.0) <= left + freed
@@ -186,6 +199,12 @@ class Gems:
         candidates = [c for c in offered if self.usable(c, stats)]
         if not full_sweep and shortlist is not None:
             candidates = [c for c in shortlist if c in set(candidates)]
+        # A full sweep of the main group also tries the supports another group holds (one copy of a support per
+        # character): a trial moves the gem, and the build's net score decides. 2b75d, 9 Nov: Exploit Weakness sat in
+        # Thundergod's Wrath's group, so finalize's sweep never offered it to Resonating Shield (281,561, POE2T280; the
+        # x1.91 run, 581,508, had it in the main group, POE2T267)
+        donors = self.donors(groups, index) if full_sweep and not meta else {}
+        candidates += [c for c in donors if c not in set(candidates) and self.usable(c, stats)]
         left = self.budget_left()
 
         # (a meta gem's spells take its sockets too: assumed, the cautious reading; see META_SPELLS_MAX. So does the main
@@ -213,7 +232,7 @@ class Gems:
             for candidate in candidates:
                 if candidate in names or (self.families(candidate) & taken):
                     continue
-                if not self.affordable(candidate, freed, left):
+                if candidate not in donors and not self.affordable(candidate, freed, left):
                     continue
                 cases.append({"group": index, "slot": slot, "gem": candidate})
                 moves.append((slot, candidate))
@@ -252,12 +271,20 @@ class Gems:
         ranked = sorted(options, key=lambda x: -x[0])
         tries = [m for i, (s, m) in enumerate(ranked) if s > before + EPSILON and m not in (x for _, x in ranked[:i])]
         snap = None
-        for move in tries[:META_TRIALS if meta else 1]:
+        # (a moved support's what-if still counts it in the group it leaves, so when that trial fails the next move gets one)
+        trials = META_TRIALS if meta else 1 + bool(tries and tries[0][1] in donors)
+        for move in tries[:trials]:
             snap = snap or build.snapshot()
+            donor = donors.get(move[1])
+            if donor is not None:
+                self.release(donor, move[1])
             self.commit(index, self.with_move(names, move), group)
             if not build.worse(before):
                 return build.score > before + EPSILON
-            self.take_back(index, names, group, before, snap)
+            if donor is not None:
+                build.restore(snap)  # (both groups back as they were)
+            else:
+                self.take_back(index, names, group, before, snap)
         if tries:
             self._set_shortlist(meta, granted, None)
         return False
