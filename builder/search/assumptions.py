@@ -297,11 +297,12 @@ class Assumptions:
         # model (it calculates 0 uses per second): assume it fires whenever the cooldown allows
         main = self.main_skill()
         info = next((s for s in skills if s["name"] == main), None)
-        flare = self.mana_flare(info) if main == models.MANA_FLARE and info is not None else None
+        flare = self.mana_flare(skills)
         if flare is not None:
             mods += flare[0]
             notes.append(flare[1])
-        elif (info is not None and main not in REMNANT_CONSUMERS and info.get("triggered") and info.get("cooldown")
+        if (not (flare is not None and main == models.MANA_FLARE)
+                and info is not None and main not in REMNANT_CONSUMERS and info.get("triggered") and info.get("cooldown")
                 and not info.get("corpses")  # (models.corpse_model rates those)
                 and (main in self.cooldown_fallback
                      or not self.build.call("stats", fields=["Speed"]).get("Speed"))):
@@ -336,18 +337,27 @@ class Assumptions:
         mods += [{"kind": "Condition", "name": name} for name in found]
         return mods, notes + condition_notes
 
-    def mana_flare(self, info: dict) -> tuple[list[dict], dict] | None:
-        """Mana Flare as the main skill (models.mana_flare): its rate from the supported spell's Critical Hits, and its
-        damage scaled to the mana it finds. The spell is calculated as the group's main skill for a moment for that.
-        None when the group has no other skill (then the cooldown fallback applies)."""
+    def mana_flare(self, skills: list[dict]) -> tuple[list[dict], dict] | None:
+        """Mana Flare in the main group (models.mana_flare), as its main skill or counted through Full DPS beside the
+        spell it supports: its rate from that spell's Critical Hits, and its damage scaled to the mana it finds. With the
+        flare as the main skill, the spell is calculated as the group's main skill for a moment for that. None when the
+        main group has no Mana Flare, or no other skill, or doesn't count it (a flare in another group isn't modelled:
+        2b75e's is in Ice Nova's own group)."""
         group = self.build.main_group()
         names = [s["name"] for s in (group or {}).get("skills", [])]
-        spell = next((i for i, name in enumerate(names, 1) if name != models.MANA_FLARE), None)
-        if spell is None:
+        info = next((s for s in skills if s["name"] == models.MANA_FLARE), None)
+        if models.MANA_FLARE not in names or info is None:
             return None
         index, current = group["index"], group["mainActiveSkill"]
-        stats = self.build.call("setGroup", index=index, mainActiveSkill=spell, fields=models.MANA_FLARE_FIELDS)["stats"]
-        self.build.call("setGroup", index=index, mainActiveSkill=current, fields=[])
+        flare = names.index(models.MANA_FLARE) + 1
+        spell = current if current != flare else next((i for i, n in enumerate(names, 1) if n != models.MANA_FLARE), None)
+        if spell is None or (current != flare and not group.get("fullDPS")):
+            return None
+        if current == spell:
+            stats = self.build.call("stats", fields=models.MANA_FLARE_FIELDS)
+        else:
+            stats = self.build.call("setGroup", index=index, mainActiveSkill=spell, fields=models.MANA_FLARE_FIELDS)["stats"]
+            self.build.call("setGroup", index=index, mainActiveSkill=current, fields=[])
         rate, share, basis = models.mana_flare(stats, info.get("cooldown") or 1.0, info.get("cooldownRecovery") or 1.0)
         mods = models.trigger_rate(models.MANA_FLARE, rate)
         if share < 1.0:  # (PoB calculates the flare at full mana)

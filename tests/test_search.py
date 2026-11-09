@@ -181,6 +181,23 @@ def test_objective_prefers_feasible_builds():
     assert any(hard for _, _, hard in objective.deficits(short_str))
 
 
+def test_a_resistance_floor_above_the_maximum_counts_as_fully_short():
+    """2b75e (POE2T294): a Rune of the Prism (+20% to all Elemental Resistances, -10% to all Maximum) held fire's maximum at
+    70 under a 72 floor, and dropping it alone cost 20% resistance, so every single-item trial kept it. A floor the
+    maximum can't reach now counts as fully short on top, so the build without the rune scores better."""
+    ctx = context(main_skill="Ice Shot", floors={"life": 0, "resists": {"fire": 72}})
+    objective = Objective(ctx)
+    assert "MissingFireResist" in objective.fields
+    base = {"CombinedDPS": 100000, "Spirit": 100, "SpiritUnreserved": 0}
+    prism = {**base, "FireResist": 70, "MissingFireResist": 0}  # 74 total, capped at a 70 maximum
+    plain = {**base, "FireResist": 54, "MissingFireResist": 26}  # 54 under an 80 maximum
+    labels = [label for label, _, _ in objective.deficits(prism)]
+    assert labels == ["Fire resistance", "Maximum Fire resistance"]
+    assert [label for label, _, _ in objective.deficits(plain)] == ["Fire resistance"]
+    assert objective.score(plain) > objective.score(prism)
+    assert objective.deficits({**base, "FireResist": 75, "MissingFireResist": 5}) == []
+
+
 def test_full_dps_leaves_out_damage_that_needs_enemies_to_die():
     ctx = context(main_skill="Spark")
     objective = Objective(ctx, full=True)

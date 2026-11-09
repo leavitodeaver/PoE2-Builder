@@ -212,6 +212,7 @@ class Objective:
         fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS)
         if any(p.stat == "BossRecoveryPercent" for p in self.penalties):
             fields |= set(RECOVERY_INPUTS)
+        fields |= {"Missing" + p.stat for p in self.penalties if p.stat in RESIST_FIELDS}  # (maximum_resist)
         self._fields = sorted(fields | {p.stat for p in self.penalties} - {"BossRecoveryPercent"})
         self.on_death = {name for name, gem in ctx.gems.items() if ON_DEATH.search(gem.get("description") or "")}
 
@@ -274,6 +275,13 @@ class Objective:
             amount = max(0.0, penalty.floor - number(stats.get(penalty.stat))) / max(penalty.floor, 1.0)
             if amount > 0:
                 found.append((penalty.label, amount, False))
+            # A resistance floor above the maximum can't be met by any amount of resistance, so it counts as fully short
+            # on top: else a modifier that trades maximum for resistance wins every single-item trial. 2b75e, 9 Nov:
+            # a Rune of the Prism (+20% to all Elemental Resistances, -10% to all Maximum) held fire at a 70% maximum
+            # under the 72% floor from the first result to the last; taking it out alone cost 20% (POE2T294)
+            top = maximum_resist(stats, penalty.stat)
+            if top is not None and top < penalty.floor:
+                found.append((f"Maximum {penalty.label}", 1.0 + (penalty.floor - top) / max(penalty.floor, 1.0), False))
         for attribute in ("Str", "Dex", "Int"):
             need = number(stats.get("Req" + attribute))
             have = number(stats.get(attribute))
@@ -324,6 +332,17 @@ class Objective:
 
     def score(self, stats: dict) -> float:
         return math.log1p(max(self.value(stats), 0.0)) - self.penalty(stats)
+
+
+RESIST_FIELDS = {"FireResist", "ColdResist", "LightningResist", "ChaosResist"}
+
+
+def maximum_resist(stats: dict, stat: str) -> float | None:
+    """The maximum of a resistance (PoB: Missing<X>Resist is maximum - resistance), or None for any other stat or when
+    the build's stats don't have it."""
+    if stat not in RESIST_FIELDS or ("Missing" + stat) not in stats:
+        return None
+    return number(stats.get(stat)) + number(stats.get("Missing" + stat))
 
 
 def shortfall(deficits: list[dict]) -> float:

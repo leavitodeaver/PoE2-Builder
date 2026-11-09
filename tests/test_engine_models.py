@@ -842,3 +842,10 @@ def test_mana_flare_rate_is_capped_by_crits_and_its_damage_by_the_mana_it_finds(
     assert any(m.get("skill") == "Mana Flare" and m.get("key") == "triggerRate" for m in mods)
     assert search.assumptions.main_skill() == "Mana Flare"  # (the spell was calculated for a moment, then put back)
     assert not any("cooldown allows" in n.get("basis", "") for n in notes)
+    # beside the spell it supports, counted through Full DPS (2b75e: Ice Nova's group), the same model; not counted, none
+    build.set_group(index=main["index"], mainActiveSkill=1, fullDPS=True)
+    mods, notes = search.assumptions.wanted()
+    assert [n["value"] for n in notes if n["label"].startswith("Mana Flare uses")] == [note["value"]]
+    build.set_group(index=main["index"], fullDPS=False)
+    mods, notes = search.assumptions.wanted()
+    assert not any(n["label"].startswith("Mana Flare uses") for n in notes)
