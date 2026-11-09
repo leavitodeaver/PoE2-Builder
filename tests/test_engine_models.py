@@ -734,3 +734,23 @@ def test_spirit_vessel_is_a_minion_using_the_socketed_shapeshift_skills_which_yo
     two = socket("Cross Slash", "Maul")  # the companion still uses Cross Slash first: 1.4 / 1.2 more (and Maul's buffs)
     assert two["Minion.AverageDamage"] / one["Minion.AverageDamage"] == pytest.approx(1.4 / 1.2, rel=0.03)
     engine.call("newBuild")
+
+
+def test_presence_lines_need_the_boss_inside_the_presence_radius(engine):
+    """'while a Rare or Unique Enemy is in your Presence' needs PoB's EnemyInPresence too (bridge), and the resolver sets
+    the boss's distance by play style: 5 m for a bow skill, outside the default 4 m Presence; 2 m for a melee one."""
+    line = "4% increased Attack Speed while a Rare or Unique Enemy is in your Presence"
+    tags = engine.call("parseLines", lines=[line])["results"][0]["parsed"][0]["tags"]
+    assert "Condition:EnemyInPresence" in tags
+    combined = engine.call("parseLines", lines=["10% chance to Aggravate Bleeding on targets you Hit with Attacks " + line])
+    gated = ["Condition:EnemyInPresence" in mod["tags"] for mod in combined["results"][0]["parsed"]]
+    assert gated.count(True) == 1 or not combined["results"][0]["supported"]
+    for skill, ascendancy, metres in (("Lightning Arrow", "Deadeye", 5.0), ("Boneshatter", "Titan", 2.0)):
+        payload = make_payload(BuildRequest(main_skill=skill, ascendancies=[ascendancy]))
+        skeleton = enumerate_skeletons(Context(payload), [skill])[0][0]
+        search = Search(engine, None, payload, skeleton.as_dict(), 0)
+        search.setup(quests=False)
+        active = search.conditions.active["enemyDistance"]
+        assert active["value"] == metres * 10
+        assert ("so the boss is outside it" in active["evidence"]) == (metres > 4)
+        assert engine.call("getConfig")["input"]["enemyDistance"] == metres * 10

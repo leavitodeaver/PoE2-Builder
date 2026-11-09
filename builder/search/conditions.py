@@ -30,6 +30,7 @@ EVIDENCE_FIELDS = [
     *(f"{a}Duration" for a in AILMENT_DURATION),
     "ChillChanceOnHit", "MaximumRage", "EnergyShield", "EvadeChance", "EffectiveBlockChance", "enemySkillTime",
     "HitChance", *(f"{c}Charges{f}" for c in ("Power", "Frenzy", "Endurance") for f in ("Max", "Duration")),
+    "PresenceRadius",
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -100,6 +101,32 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
         every = float(m2.group(1)) if m2.groups() and m2.group(1) else 1.0
         return chance / every, f"one every {every:g} s"
     return chance / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed"
+
+
+# The boss's distance: PoB's Configuration "Distance to enemy" (10 units a metre). PoB compares its Presence radius with it
+# (CalcPerform's EnemyInPresence; the game files' KeywordPopups Presence: a 4 m radius by default) and scales attack
+# Accuracy by it (KeywordPopups Accuracy: no penalty within 2 m, up to 90% less beyond 9 m). PoB's placeholder of 2 m for
+# every build put the boss in every build's Presence (an overcount for a build that stands back). The distance is a
+# play-style assumption, labelled: a melee main skill stands at 2 m, and so does one whose damage comes from minions or
+# totems (PoB reads the one distance for their Accuracy too, and they stand at the boss); any other at 5 m (the middle
+# of the 4-6 m the mechanics catalog's plan names for ranged).
+MELEE_DISTANCE = 2.0
+RANGED_DISTANCE = 5.0
+NEAR_TYPES = {"Minion", "CreatesMinion", "SummonsTotem", "UsedByTotem"}
+
+
+def _boss_distance(lines: list[str], stats: dict) -> tuple[float, str]:
+    types = stats.get("_main_types") or set()
+    if "Melee" in types:
+        metres, why = MELEE_DISTANCE, "a melee main skill"
+    elif types & NEAR_TYPES:
+        metres, why = MELEE_DISTANCE, ("minions or totems deal the main skill's damage at the boss (PoB reads the one "
+                                       "distance for their Accuracy too), so you're assumed as close")
+    else:
+        metres, why = RANGED_DISTANCE, "assumed for a non-melee main skill (attacks lose Accuracy beyond 2 m)"
+    radius = number(stats.get("PresenceRadius")) / 10
+    where = "in" if radius >= metres else "outside"
+    return metres * 10, f"{metres:g} m: {why}; your Presence radius is {radius:.1f} m, so the boss is {where} it"
 
 
 def _charges_held(kind: str):
@@ -261,6 +288,8 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "IgniteChancePerHit")),
     Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)",
               (r"become ignited when you deal a critical hit",)),
+    Condition("enemyDistance", "Boss distance (play-style assumption; 10 units a metre)", value_fn=_boss_distance,
+              fields=("PresenceRadius",)),
     Condition("conditionHitMeleeRecently", "Melee hit recently (a melee main skill)", main_types=("Melee",)),
     Condition("conditionAtCloseRange", "Enemy at close range (a melee main skill)", main_types=("Melee",)),
     _debuff("conditionEnemyBlinded", "Blinded", "blind"),
@@ -361,7 +390,7 @@ class Conditions:
                     uses = (number(stats.get("Speed")) if types == main_types or (hollow and name == HOLLOW_FORM)
                             else 1 / CHARGE_DEFAULT_EVERY)
                     consumers.setdefault(kind, {})[name] = uses
-        stats = {**stats, "_consumers": consumers}
+        stats = {**stats, "_consumers": consumers, "_main_types": main_types}
         found: dict[str, tuple[object, str]] = {}
         for condition in CONDITIONS:
             reason = None

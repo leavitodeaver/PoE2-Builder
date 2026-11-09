@@ -43,6 +43,53 @@ do
 	end
 end
 
+-- Correction to PoB's parse of "while a (Rare or) Unique Enemy is in your Presence" and "while a Pinnacle Atlas Boss is
+-- in your Presence" (Modules/ModParser.lua): PoB tags them with the enemy's rarity only, so a boss counted as in your
+-- Presence at any distance. Such a modifier also needs PoB's own EnemyInPresence condition (CalcPerform: the Presence
+-- radius against the Configuration's distance to the enemy, which the condition resolver sets). Added to the modifier
+-- itself (not to one nested for an enemy or a minion), on every parse from now on and on the passive trees parsed at
+-- startup. Only modifiers already tagged with the enemy's rarity are touched, so another line combined with it isn't.
+do
+	local function gate(list)
+		for _, mod in ipairs(list or { }) do
+			local rarity, gated = false, false
+			for _, tag in ipairs(mod) do
+				if tag.type == "ActorCondition" and tag.actor == "enemy" then
+					for _, var in ipairs(tag.varList or { tag.var }) do
+						rarity = rarity or var == "RareOrUnique" or var == "PinnacleBoss"
+					end
+				elseif tag.type == "Condition" and tag.var == "EnemyInPresence" then
+					gated = true
+				end
+			end
+			if rarity and not gated then
+				mod[#mod + 1] = { type = "Condition", var = "EnemyInPresence" }
+			end
+		end
+	end
+	local function bossInPresence(line)
+		local lower = type(line) == "string" and line:lower() or ""
+		return lower:find("unique enemy is in your presence", 1, true) or lower:find("pinnacle atlas boss is in your presence", 1, true)
+	end
+	local parse = modLib.parseMod
+	modLib.parseMod = function(line, ...)
+		local list, extra = parse(line, ...)
+		if list and bossInPresence(line) then
+			gate(list)
+		end
+		return list, extra
+	end
+	for _, tree in pairs(__mainObject__.main.tree or { }) do
+		for _, node in pairs(tree.nodes or { }) do
+			for i, entry in pairs(node.mods or { }) do
+				if node.sd and (bossInPresence(node.sd[i]) or bossInPresence(node.sd[i + 1])) then
+					gate(entry.list)
+				end
+			end
+		end
+	end
+end
+
 local DEFAULT_FIELDS = {
 	"FullDPS", "CombinedDPS", "TotalDPS", "TotalDotDPS", "Life", "EnergyShield", "Mana",
 	"TotalEHP", "Armour", "Evasion", "FireResist", "ColdResist", "LightningResist", "ChaosResist",

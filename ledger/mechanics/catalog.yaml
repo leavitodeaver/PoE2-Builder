@@ -261,12 +261,12 @@
   category: your state
   game: "An area around you; 'in your Presence' bonuses need the enemy inside it."
   game_source: https://poe2db.tw/us/Presence
-  pob: wrong
-  pob_check: "Presence Area lines parse into PresenceArea, which no calculation reads (coverage audit no-op); 'in your Presence' uses the enemy distance config."
-  handling: "Listed as no-op."
+  pob: partial
+  pob_check: "PoB does read Presence Area: CalcPerform's calcBuffRadius scales its 4 m radius (Misc base_presence_radius 40; the game files' KeywordPopups Presence: 4 m) and sets EnemyInPresence when the radius reaches the Configuration's distance to the enemy, whose placeholder is 2 m for every build, so every boss sat in every build's Presence. 'While a (Rare or) Unique Enemy / Pinnacle Atlas Boss is in your Presence' is tagged with the enemy's rarity only, true at any distance (checked 9 Nov, MECH21)."
+  handling: "The condition resolver sets the boss's distance (Configuration enemyDistance) by play style, labelled: 2 m for a melee main skill or one whose damage comes from minions or totems, 5 m for any other (the same distance drives attack Accuracy falloff, 2-9 m in the game files). PoB's own EnemyInPresence then decides the 'Enemies in your Presence' lines, and the bridge adds that condition to the rarity-only lines. Not done: lines PoB doesn't parse at all (Companions/Allies in your Presence with no enemy, Presence-seconds counters keep PoB's config defaults)."
   plan: {approach: translation, how: "Presence radius from base and increased area against an assumed boss distance (melee near, ranged 4-6 m); 'in Presence' on when inside.", inputs: [presence area, assumed distance]}
   what_if: visible
-  guide_note: "Boss in your Presence (assumed X m away)."
+  guide_note: "Boss distance: X m (play-style assumption); the boss is in / outside your Presence."
   impact: 2
   effort: S
 
