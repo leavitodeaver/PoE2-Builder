@@ -16,6 +16,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from builder.search import models
 from builder.search.objective import number
 from builder.search.state import EPSILON, Build
 
@@ -86,8 +87,10 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     if "kill" in when:
         return 0.0, "on kill (nothing dies on a single boss)"
     if re.search(r"when you (freeze|electrocute|pin|stun|immobilise|heavy stun)|freeze, electrocute or pin", when):
-        # a pinnacle boss is rarely immobilised (the catalog's Heavy Stun and buildup ailments: one per 30 s assumed)
-        return chance / 30.0, "when you freeze, electrocute, pin or stun the boss: one per 30 s assumed"
+        events = ({"freeze", "electrocute", "pin", "stun"} if "immobilise" in when
+                  else {e for e in ("freeze", "electrocute", "pin", "stun") if e in when})
+        rate, how = models.immobilise_rate(stats, events)
+        return chance * rate, f"{chance:.0%} x {rate:.3f}/s ({how})"
     if "critical hit" in when and "take" not in when:
         return chance * crits, f"{chance:.0%} x {crits:.2f} crits/s"
     if "take a critical hit" in when:
@@ -332,11 +335,11 @@ CONDITIONS: list[Condition] = [
     # Grinning Immolation (Infernalist): "Become Ignited when you deal a Critical Hit": with crits landing you stay Ignited,
     # so every "while Ignited" line of the build counts (its self-damage is a drain outside the checked defences)
     Condition("overridePowerCharges", "Power Charges held", value_fn=_charges_held("Power"),
-              fields=("Speed", "CritChance", "PowerChargesMax", "PowerChargesDuration")),
+              fields=("Speed", "CritChance", "PowerChargesMax", "PowerChargesDuration", *models.IMMOBILISE_FIELDS)),
     Condition("overrideFrenzyCharges", "Frenzy Charges held", value_fn=_charges_held("Frenzy"),
-              fields=("Speed", "CritChance", "FrenzyChargesMax", "FrenzyChargesDuration")),
+              fields=("Speed", "CritChance", "FrenzyChargesMax", "FrenzyChargesDuration", *models.IMMOBILISE_FIELDS)),
     Condition("overrideEnduranceCharges", "Endurance Charges held", value_fn=_charges_held("Endurance"),
-              fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration")),
+              fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration", *models.IMMOBILISE_FIELDS)),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
               fields=("Speed", "IgniteChancePerHit")),
     Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)",
@@ -541,7 +544,9 @@ class Conditions:
         if condition.var == "conditionStationary" and STATIONARY_LINE.search(text):
             return True  # (a stationary line gets a real trial: the resolver stands the build still with it)
         if (kind := CHARGE_OVERRIDES.get(condition.var)) is not None:  # a generator of that charge a boss fight feeds
-            rate = _charge_rate(text, kind, {"Speed": 1.0, "HitChance": 100, "CritChance": 50, "EffectiveBlockChance": 30})
+            rate = _charge_rate(text, kind, {"Speed": 1.0, "HitChance": 100, "CritChance": 50, "EffectiveBlockChance": 30,
+                                             "FreezeBuildupAvg": 10, "ElectrocuteBuildupAvg": 10,
+                                             "HeavyStunBuildupAvg": 10, "PhysicalHitAverage": 1})
             return rate is not None and rate[0] > 0
         return condition.stat is not None and any(
             word.lower() in text.lower() for word in TRIAL_WORDS.get(condition.var, ()))

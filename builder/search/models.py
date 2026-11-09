@@ -871,7 +871,6 @@ def roar_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
     return mods, notes
 
 
-BOSS_AILMENT_EVERY = 30.0  # seconds between Freezes / Electrocutes of a pinnacle boss (assumed, as conditions.py)
 MARK_BUFFS = {"Voltaic Mark": "Electrocute", "Freezing Mark": "Freeze"}
 MARKS = ("Sniper's Mark", *MARK_BUFFS, "Bloodhound's Mark")
 # Meta skills that apply a socketed Mark on a timer of their own (not the Mark's cooldown).
@@ -930,9 +929,11 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
             marked = 1.0 if use.on_demand or not period else min(1.0, MARK_DURATION / period)
             if use.on_demand:
                 period = max(period, MARK_DURATION)  # reapplied as it runs out (its duration's modifiers aren't read)
-            share = min(1.0, MARK_BUFF_DURATION / BOSS_AILMENT_EVERY) * marked if inflicts else 0.0
+            rate = buildup_rate(stats, ailment)
+            share = min(1.0, MARK_BUFF_DURATION * rate) * marked if inflicts else 0.0
             label, basis = f"{mark.name}: buff uptime", (
-                (f"the boss {ailment.lower()}d once per {BOSS_AILMENT_EVERY:.0f} s while marked (assumed), "
+                (f"the boss {ailment.lower()}d once per {(1 / rate) if rate else math.inf:.1f} s while marked (PoB's buildup per hit x "
+                 f"{hits_per_second(stats):.2f} hits/s, Arbiter of Ash threshold), "
                  f"{MARK_BUFF_DURATION:.0f} s buff; marked {marked:.0%} of the time ({how})") if inflicts else
                 f"the main skill can't {ailment.lower()} the boss, so the Mark is never consumed and gives no buff"
             ) + "; PoB counts the buff always up; its buildup part is scaled with it (assumed)"
@@ -1669,6 +1670,40 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     return 1 / every, basis
 
 
+
+AILMENT_BOSS = HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1]  # the Arbiter of Ash's threshold over PoB's Pinnacle one (as stun)
+PIN_EVERY = 30.0  # seconds between Pins of the boss (assumed: PoB works out no Pin buildup to rate it from)
+IMMOBILISE_FIELDS = ("Speed", "HitChance", "CritChance", "FreezeBuildupAvg", "ElectrocuteBuildupAvg",
+                     "HeavyStunBuildupAvg", *(f"{t}HitAverage" for t in DAMAGE_TYPES),
+                     *(f"{t}CritAverage" for t in DAMAGE_TYPES))
+
+
+def buildup_rate(stats: dict, ailment: str) -> float:
+    """Freezes or Electrocutes of the boss per second from the main skill's hits: PoB's average buildup per hit (% of the
+    threshold) x hits per second, with the Arbiter of Ash's threshold (AILMENT_BOSS). No window after each one in which
+    it can't be applied again is counted: an overcount if one exists."""
+    return hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * AILMENT_BOSS
+
+
+def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:
+    """Times per second the main skill freezes, electrocutes, pins or heavy-stuns the boss, summed over `events` (a
+    subset of freeze, electrocute, pin, stun), and how. Freeze and Electrocute from buildup_rate, stuns from
+    heavy_stun_rate (light stuns not counted), Pins one per PIN_EVERY s (assumed)."""
+    rate, parts = 0.0, []
+    for event, ailment in (("freeze", "Freeze"), ("electrocute", "Electrocute")):
+        if event in events:
+            r = buildup_rate(stats, ailment)
+            rate += r
+            parts.append(f"{ailment} {r:.3f}/s (PoB's buildup per hit, Arbiter of Ash threshold)")
+    if "stun" in events:
+        r, _ = heavy_stun_rate(stats)
+        rate += r
+        parts.append(f"Heavy Stun {r:.3f}/s (heavy_stun_rate; light stuns not counted)")
+    if "pin" in events:
+        rate += 1 / PIN_EVERY
+        parts.append(f"Pin one per {PIN_EVERY:.0f} s (assumed)")
+    return rate, "; ".join(parts)
+
 # Guided Hand (model: guided_hand) --------------------------------------------------------------------------------------
 # "The next Attack you use within 4 seconds after Heavy Stunning a Rare or Unique Enemy is Ancestrally Boosted" and
 # "Ancestrally Boosted Attacks deal 30% increased Damage" (passive tree). PoB parses the second line but scales it by an
@@ -1735,7 +1770,7 @@ def glory_events(stats: dict, main: Skill | None) -> dict[str, float]:
         "elemental hit": hits if any(hit[t] for t in ("Fire", "Cold", "Lightning")) else 0.0,
         "chaos hit": hits if hit["Chaos"] else 0.0,
         "heavy stun": heavy_stun_rate(stats)[0],
-        "freeze": hits * number(stats.get("FreezeBuildupAvg")) / 100 * HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1],
+        "freeze": buildup_rate(stats, "Freeze"),
         "ignite": hits * min(chance("Ignite"), 1.0),
         "shock": hits * min(chance("Shock"), 1.0),
     }

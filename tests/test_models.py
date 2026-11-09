@@ -643,14 +643,15 @@ def test_a_snipers_mark_adds_damage_to_one_crit_per_mark():
 
 
 def test_voltaic_and_freezing_marks_buff_after_the_bosss_ailment():
-    """The buff (10 s) comes when the marked boss is Electrocuted / Frozen: once per 30 s assumed; never if the main skill
-    can't inflict it."""
+    """The buff (10 s) comes when the marked boss is Electrocuted / Frozen: at models.buildup_rate (PoB's buildup per hit x
+    hits/s, the Arbiter of Ash's threshold; it was once per 30 s assumed); never if the main skill can't inflict it."""
     mark = models.Skill("Voltaic Mark", group=2, cast_time=0.5, cooldown=0.5)
     spell = models.Skill("Spark", group=1, spell=True)
-    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "ElectrocuteBuildupAvg": 20}
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "ElectrocuteBuildupAvg": 2}
+    every = 1 / (2.0 * 0.02 * models.AILMENT_BOSS)  # (about 33 s)
     mods, notes = models.mark_model([spell, mark], stats, spell)
     by_line = {m["line"]: m["scale"] for m in mods}
-    assert by_line["1% more Effect of your Curses"] == pytest.approx(100 * (10 / 30 - 1), rel=1e-3)
+    assert by_line["1% more Effect of your Curses"] == pytest.approx(100 * (10 / every - 1), rel=1e-3)
     assert by_line["1% more Attack and Cast Speed"] == pytest.approx(-100 * 0.5 / 8, rel=1e-3)  # recast every 8 s
     mods, notes = models.mark_model([spell, mark], dict(stats, ElectrocuteBuildupAvg=0), spell)
     assert {m["line"]: m["scale"] for m in mods}["1% more Effect of your Curses"] == pytest.approx(-100)
@@ -659,7 +660,7 @@ def test_voltaic_and_freezing_marks_buff_after_the_bosss_ailment():
     pounce = models.Skill("Pounce", group=2, attack=True, cooldown=12.0)
     triggered = models.Skill("Freezing Mark", group=2, cast_time=0.5, cooldown=0.5, triggered=True)
     mods, notes = models.mark_model([spell, pounce, triggered], dict(stats, FreezeBuildupAvg=5), spell)
-    assert notes[0]["value"] == pytest.approx(round(10 / 30 * 8 / 12, 2))
+    assert notes[0]["value"] == pytest.approx(round(min(1.0, 10 * 2.0 * 0.05 * models.AILMENT_BOSS) * 8 / 12, 2))
     assert models.mark_model([spell], stats, spell) == ([], [])
 
 
@@ -890,3 +891,24 @@ def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
     assert models.glory_uses(["Zerphi's Infamy"], {"LifePerSecondCost": 100}, slam)[0] == pytest.approx(5 / 50)
     assert models.glory_uses(["Skyfall"], stats, slam) == (0.0, "Skyfall: no source counted, never")
     assert models.glory_uses(["Spark"], stats, spell) == (0.0, "no Glory skill")
+
+
+def test_freezes_electrocutes_and_stuns_of_the_boss_are_rated_from_the_build_not_one_per_30_s():
+    """Charges on freeze / electrocute / pin / stun and Voltaic / Freezing Mark's buff took one such event per 30 s
+    (assumed). Now Freeze and Electrocute come from PoB's buildup per hit x hits/s at the Arbiter of Ash's threshold,
+    stuns from heavy_stun_rate; Pins keep one per 30 s (PoB works out no Pin buildup), labelled."""
+    from builder.search.conditions import _charge_rate
+
+    stats = {"Speed": 2.0, "HitChance": 100, "FreezeBuildupAvg": 10.0, "ColdHitAverage": 100.0}
+    freeze = models.buildup_rate(stats, "Freeze")
+    assert freeze == pytest.approx(2.0 * 0.10 * models.AILMENT_BOSS)
+    rate, how = _charge_rate("50% chance to gain a Power Charge when you Freeze an enemy", "Power", stats)
+    assert rate == pytest.approx(0.5 * freeze) and "Freeze" in how
+    rate, how = _charge_rate("Gain a Frenzy Charge when you Pin an enemy", "Frenzy", stats)
+    assert rate == pytest.approx(1 / models.PIN_EVERY) and "assumed" in how
+    rate, _ = _charge_rate("Gain an Endurance Charge when you Heavy Stun an enemy", "Endurance", stats)
+    assert rate == 0.0  # (all Cold: builds no Heavy Stun)
+    mark = Skill(name="Freezing Mark", cast_time=0.5)
+    _, notes = models.mark_model([mark], stats, None)
+    uptime = next(n for n in notes if n["label"] == "Freezing Mark: buff uptime")
+    assert f"once per {1 / freeze:.1f} s" in uptime["basis"]
