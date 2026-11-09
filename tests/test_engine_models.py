@@ -10,6 +10,7 @@ import pytest
 from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
+from builder.search import gems as gems_module
 from builder.search import models
 from builder.search.inner import Search
 from builder.search.skeletons import enumerate_skeletons
@@ -825,6 +826,29 @@ def test_a_support_whose_trial_fails_lets_the_next_one_be_tried_and_is_not_tried
     judged.clear()
     gems.supports_round(full_sweep=True)
     assert bad not in judged  # nothing changed since it failed
+    build.score += gems_module.RETRY_MOVE / 2
+    gems.supports_round(full_sweep=True)
+    assert bad not in judged  # other steps moved the score a little: still remembered (Deliberation, POE2T358)
+    build.score += gems_module.RETRY_MOVE
+    gems.supports_round(full_sweep=True)
+    assert bad in judged  # the build grew enough since: tried again
+
+
+def test_a_kept_support_move_is_where_the_hard_stop_goes_back_to(engine, monkeypatch):
+    """A probe's supports step cut by the hard stop went back to the step's start: gate 4's 2b75d had two of five probe
+    lines at 897 DPS with no support in the main group (POE2T358). Each kept round marks a checkpoint, as the tree's do."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    gems = search.gems
+    assert gems.checkpoint == search.checkpoint
+    rounds = iter([True, True, False])
+    monkeypatch.setattr(gems, "supports_round", lambda **kw: next(rounds, False))
+    marks = []
+    gems.checkpoint = lambda: marks.append(1)
+    gems.optimize_supports(float("inf"), rounds=3)
+    assert len(marks) == 2
 
 
 def test_a_support_a_sweep_move_takes_out_joins_the_shortlist(engine, monkeypatch):

@@ -69,6 +69,7 @@ class Search:
         self.tree = Tree(self.build, self.rng)
         self.tree.class_name, self.tree.ascendancy = self.skeleton.class_name, self.skeleton.ascendancy
         self.tree.checkpoint = self.checkpoint
+        self.gems.checkpoint = self.checkpoint
         weapon = SlotSpec(self.skeleton.weapon, self.skeleton.weapon_sub) if self.skeleton.weapon else None
         held = offhand_types(self.ctx, self.skeleton.weapon, self.skeleton.offhand)
         offhand = SlotSpec(held[0], None, held[1:]) if held else None

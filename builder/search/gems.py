@@ -11,6 +11,7 @@ not buttons, so they never touch the button cap.
 
 from __future__ import annotations
 
+import math
 import re
 from collections import Counter
 
@@ -66,6 +67,11 @@ META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only a
 # its trial every round, and with one trial a round no other support was ever tried: gate 4's 2b75d kept its starting
 # supports all run (x1.91, POE2T351; x2.86 when gear made the armour break, POE2T350)
 MAIN_TRIALS = 3
+# A move whose trial failed is tried again once the score has moved this far (ln units: 10% of the goal) since it
+# failed, with the group's gems unchanged. Keyed on the exact score, other steps' small changes cleared the memory every
+# round, and Deliberation ("move slower while using them, but granting more damage", GemEffects) failed every round of
+# gate 4's 2b75d (reverts supports 6-17 per task, POE2T358/359)
+RETRY_MOVE = math.log(1.10)
 META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
 # A spell triggered less often than this can't pay through its own damage; what PoB counts of it besides (a buff it
 # grants, at full) would be the only gain: such a meta group isn't kept (Profane Ritual at 0.0001 triggers/s gave +4%)
@@ -106,7 +112,8 @@ class Gems:
         self.required_supports = set(self.ctx.compiled.request.require.supports)
         self.shortlist: list[str] | None = None  # best supports at the last full sweep
         self.census: dict = {}  # the main group's last supports round (supports_round)
-        self.failed: dict[int, tuple[tuple, set]] = {}  # group -> (its gems and the score, the moves that failed there)
+        self.failed: dict[int, tuple[tuple, dict]] = {}  # group -> (its gems, {failed move: the score it failed at})
+        self.checkpoint = None  # marks a kept support move as where the hard stop goes back to (set by the search)
         self.sweeps = 0  # the main group's full sweeps so far, with how many cases the largest scored (census)
         self.swept_cases = 0
         self.meta_shortlist: list[str] | None = None  # the same for the meta group's
@@ -353,11 +360,11 @@ class Gems:
         before = build.score
         ranked = sorted(options, key=lambda x: -x[0])
         tries = [m for i, (s, m) in enumerate(ranked) if s > before + EPSILON and m not in (x for _, x in ranked[:i])]
-        # a move that failed on this very build (the group's gems and the score unchanged) isn't tried again
-        key = (tuple(names), round(before, 9))
-        failed = self.failed[index][1] if self.failed.get(index, (None,))[0] == key else set()
+        # a move that failed with the group's gems as they are isn't tried again until the score has moved RETRY_MOVE
+        key = tuple(names)
+        failed = self.failed[index][1] if self.failed.get(index, (None,))[0] == key else {}
         self.failed[index] = (key, failed)
-        tries = [m for m in tries if m not in failed]
+        tries = [m for m in tries if m not in failed or abs(before - failed[m]) > RETRY_MOVE]
         snap = None
         # (a moved support's what-if still counts it in the group it leaves, so when that trial fails the next move gets one)
         trials = META_TRIALS if meta else MAIN_TRIALS
@@ -376,7 +383,7 @@ class Gems:
                 if out and kept is not None and out not in kept:
                     self._set_shortlist(meta, granted, [*kept, out])
                 return build.score > before + EPSILON
-            failed.add(move)
+            failed[move] = before
             if donor is not None:
                 build.restore(snap)  # (both groups back as they were)
             else:
@@ -520,6 +527,11 @@ class Gems:
                     continue
                 improved = True
                 sweep = False
+                # A kept move is where the hard stop goes back to, as the tree's kept passives are: a probe's supports
+                # step the stop cut went back to the step's start, the main group with no support at all (gate 4's
+                # 2b75d, two of five probe lines at 897 DPS, POE2T358)
+                if self.checkpoint is not None:
+                    self.checkpoint()
         return improved
 
     # Main active skill -------------------------------------------------------------------------
