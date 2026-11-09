@@ -751,3 +751,43 @@ def test_supports_in_item_groups_count_as_used():
               group(2, True, "Cast on Dodge", "Rakiata's Flow")]
     assert Gems.used_supports(None, groups, 1) == {"Rakiata's Flow"}
     assert Gems.used_supports(None, groups, 2) == {"Concentrated Area"}
+
+
+def test_explosive_transmutation_counts_every_remnant_source_the_build_has():
+    """Every Remnant source the build has feeds the explosion (assumptions.REMNANT_SOURCES), not one: Lingering
+    Illusion's copies, Grim Feast with minions only, Storm's Recollection collecting each twice (the user's correction,
+    8 Nov: Into the Breach is not the only source on a lone boss)."""
+    from builder.search import assumptions
+    from builder.search.assumptions import REMNANT_SOURCES, Assumptions
+
+    def skill(name, **extra):
+        return {"name": name, "disabled": False, **extra}
+
+    def run(skills, lines=()):
+        class Build:
+            def call(self, method, **kw):
+                return {"activeSkills": {"skills": skills}, "sourceLines": {"lines": [{"text": t} for t in lines]},
+                        "stats": {}}[method]
+
+            def main_group(self):
+                return None
+
+        a = Assumptions(Build())
+        a.models = lambda skills: ([], [], {})
+        a.ledger_conditions = lambda skills: []
+        mods, notes = a.wanted()
+        return next(m["value"] for m in mods if m.get("key") == "triggerRate"), notes
+
+    explosion = skill("Transmutation Explosion", cooldown=0.0)
+    breach, illusion = REMNANT_SOURCES["Into the Breach"][0], REMNANT_SOURCES["Lingering Illusion"][0]
+    rate, notes = run([explosion, skill("Into the Breach"), skill("Lingering Illusion")])
+    assert rate == pytest.approx(breach + illusion)
+    assert "Lingering Illusion" in notes[-1]["basis"]
+    rate, _ = run([explosion, skill("Grim Feast")])
+    assert rate == 0.0  # no minions: no deaths to make Remnants
+    rate, _ = run([explosion, skill("Grim Feast"), skill("Raise Zombie", minions=True)])
+    assert rate == pytest.approx(REMNANT_SOURCES["Grim Feast"][0])
+    rate, notes = run([explosion, skill("Into the Breach")],
+                      ["Remnants you create reappear once, 1 second after being collected"])
+    assert rate == pytest.approx(2 * breach) and "twice" in notes[-1]["basis"]
+    assert assumptions.REMNANT_SOURCES["Siphon Elements"][0] == 0.0  # listed, labelled, not counted yet

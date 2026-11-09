@@ -1772,6 +1772,8 @@ function bridge.activeSkills(args)
 			corpses = (types[SkillType.TargetsDestructibleCorpses] or types[SkillType.TargetsDestructibleRareCorpses]
 				or types[SkillType.CanTargetUnusableCorpse]) and true or nil,
 			triggered = types[SkillType.Triggered] and true or false,
+			-- it summons minions (assumptions.NEEDS_MINIONS: Grim Feast's Remnants come from their deaths)
+			minions = types[SkillType.CreatesMinion] and true or nil,
 			-- current PoB keeps the flags on the stat set (activeSkill.skillFlags is v0.23's)
 			disabled = (activeSkill.skillFlags or (activeSkill.activeEffect.statSet or { }).skillFlags or { }).disable or false,
 			-- for the custom models: what kind of skill, its base cast time, its group, and

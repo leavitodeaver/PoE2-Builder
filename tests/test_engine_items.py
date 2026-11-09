@@ -449,7 +449,7 @@ def test_an_infused_stat_set_is_no_choice_and_the_result_says_so(engine):
 
 
 def test_a_support_sweep_where_nothing_changes_the_score_keeps_no_shortlist(engine, monkeypatch):
-    """Explosive Transmutation's first sweep ran before its Remnant source was in: every support scored exactly the
+    """Explosive Transmutation's first sweep ran before that build's Remnant source (Into the Breach) was in: every support scored exactly the
     same, and the shortlist kept was the alphabet's first names (POE2T206, 216). Such a sweep keeps none, so the
     next round sweeps again; a sweep that ranks something keeps its shortlist."""
     from builder.search.inner import Search

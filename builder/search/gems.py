@@ -235,7 +235,7 @@ class Gems:
                 if name not in seen:
                     seen.append(name)
             # A sweep where no support changes the score ranks nothing: on gate 4's 2b75b the first sweep of a line ran
-            # before the ascendancy step took Into the Breach (Explosive Transmutation's Remnant source), every support
+            # before the ascendancy step took Into the Breach (that build's Remnant source; assumptions.REMNANT_SOURCES lists them all), every support
             # scored exactly 0, and the shortlist kept was the alphabet's first names, so the line stayed at 15K with no
             # support until the next sweep (POE2T206, 216). Then no shortlist is kept, and the next round sweeps again
             spread = ranked[0][0][0] - ranked[-1][0][0] if ranked else 0.0

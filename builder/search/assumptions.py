@@ -29,7 +29,12 @@ from builder.search.conditions import INFUSED_SET
 from builder.search.usage import usage_rules
 from builder.search.state import Build
 
-# Remnants per second on a single boss, at gem level 20, while the stated condition holds
+# Remnants per second on a single boss, at gem level 20, while the stated condition holds. Rates are the game files'
+# level-20 stats (build 26476662, GrantedEffectStatSetsPerLevel; scratch search of 8 Nov, MECH18): Into the Breach's and
+# Wildwood's Gifts' breach_flame_spawn_rate_ms 1210, Life Remnants' on-hit 3000 ms, Mana Remnants' and Sanguine
+# Revelry's 2000 ms, Snap's 4 s and Frost Bomb's 6 s cooldowns, Orb of Storms' 12 s duration, Lingering Illusion's
+# 76% chance of an additional Remnant, Remnants of Kalguur's 50% on Stun. The kill-only sources (Rip, Runic Extraction)
+# make none on a lone boss. Where the files give no cadence on a boss, the rate is a labelled assumption.
 REMNANT_SOURCES = {
     "Into the Breach": (0.82645, "Acolyte of Chayula: Flames of Chayula in your Breach"),
     "Wildwood's Gifts": (0.82645, "The Hollow Mask: Ancient Blooms"),
@@ -38,8 +43,19 @@ REMNANT_SOURCES = {
     "Life Remnants": (0.3333, "on hit"),
     "Snap": (0.25, "per cast, before cooldown recovery"),
     "Frost Bomb": (0.1667, "per cast, before cooldown recovery"),
-    "Orb of Storms": (0.1, "roughly, in a normal cast cadence"),
+    "Lingering Illusion": (0.176, "assumed: the boss destroys one of your dodge-roll copies every 10 s, "
+                                  "1.76 Power Charge Remnants each"),
+    "Living Bomb": (0.2, "assumed: one seed detonated every 5 s"),
+    "Grim Feast": (0.1, "assumed: one Reviving minion dies every 10 s"),
+    "Orb of Storms": (0.0833, "one Orb kept up: a Remnant when each 12 s Orb expires"),
+    "Remnants of Kalguur": (0.5 / models.HEAVY_STUN_EVERY[False],
+                            "50% per Stun, assumed one Heavy Stun of the boss per 60 s"),
+    "Siphon Elements": (0.0, "not counted: Ignite and Shock make one only on a target without that ailment, which a "
+                             "boss you keep ailing rarely is, and Freeze (per Power) needs the Freeze buildup model; "
+                             "an undercount"),
 }
+NEEDS_MINIONS = {"Grim Feast"}  # its Remnants come from your minions' deaths
+REAPPEAR = re.compile(r"Remnants you create reappear once", re.I)  # Storm's Recollection: each is collected twice
 COOLDOWN_SOURCES = {"Snap", "Frost Bomb"}  # their rate scales with their own cooldown recovery
 INFUSED_NOTE = ("the Infused cast needs an Elemental Infusion, collected from a Remnant; how often you'd have one "
                 "isn't modelled yet, so only the plain cast counts (an undercount if you keep Infusions up)")
@@ -162,6 +178,9 @@ class Assumptions:
                 skill = present.get(name)
                 if skill is None:
                     continue
+                if name in NEEDS_MINIONS and not any(s.get("minions") for s in present.values()):
+                    used.append(f"{name} 0/s (no minions)")
+                    continue
                 if name in COOLDOWN_SOURCES:
                     rate *= skill.get("cooldownRecovery") or 1.0
                 supply += rate
@@ -169,6 +188,9 @@ class Assumptions:
             lines = self.build.call("sourceLines")["lines"]
             extra = sum(float(m.group(1)) for line in lines if (m := ADDITIONAL_REMNANT.search(line["text"]))) / 100.0
             supply *= 1.0 + extra
+            twice = any(REAPPEAR.search(line["text"]) for line in lines)
+            if twice:
+                supply *= 2.0
             cooldown = explosion.get("cooldown") or 0.0
             cap = (explosion.get("cooldownRecovery") or 1.0) / cooldown if cooldown else math.inf
             rate = min(supply, cap)
@@ -176,14 +198,15 @@ class Assumptions:
                 {"kind": "SkillData", "skill": "Transmutation Explosion", "key": "triggerRate", "value": rate},
                 {"kind": "SkillData", "skill": "Transmutation Explosion", "key": "triggered", "value": True},
             ]
-            basis = ", ".join(used) if used else "no Remnant source that works on a single boss"
+            basis = ", ".join(used) if used else "none of the build's skills makes Remnants on a lone boss"
             notes.append({
                 "label": "Explosive Transmutation explosions per second",
                 "value": round(rate, 3),
                 "basis": f"Remnants {supply:.2f}/s from {basis}"
                          + (f", +{extra:.0%} additional Remnants" if extra else "")
+                         + (", each collected twice (they reappear once)" if twice else "")
                          + f"; cooldown cap {cap:.2f}/s",
-                "confidence": "your audit of 0.5.4 (launch-test the pickup rate)",
+                "confidence": "game files' rates; assumed cadences as labelled (launch-test the pickup rate)",
             })
         # Fallback for any other triggered main skill with a cooldown whose trigger PoB doesn't
         # model (it calculates 0 uses per second): assume it fires whenever the cooldown allows
