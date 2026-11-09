@@ -13,6 +13,9 @@
   title: Uses a skill that requires Glory
   kind: condition
   skill_text: '\bGlory\b'
+  # Only a skill that spends Glory counts (its usage rule has this stat): the text alone also matched skills that build
+  # or mention Glory without using it, which switched on Call Upon the Deep and Thrill of the Fight (an overcount)
+  usage_stat: active_skill_requires_X_glory
   confidence: datamined
   sources: ["Glory skills' gem descriptions (Hammer of the Gods, Spear of Solaris, Banners, Ancestral Cry ...)"]
   status: approved

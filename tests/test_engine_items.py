@@ -411,3 +411,46 @@ def test_an_infused_stat_set_is_no_choice_and_the_result_says_so(engine):
     assert not search.conditions.allows("Cold-Infused") and not search.conditions.allows("Cold-Infused", ("x",))
     _, notes = search.assumptions.wanted()
     assert any("Cold-Infused cast not counted" in n["label"] for n in notes)
+
+
+def test_a_support_sweep_where_nothing_changes_the_score_keeps_no_shortlist(engine, monkeypatch):
+    """Explosive Transmutation's first sweep ran before its Remnant source was in: every support scored exactly the
+    same, and the shortlist kept was the alphabet's first names (POE2T206, 216). Such a sweep keeps none, so the
+    next round sweeps again; a sweep that ranks something keeps its shortlist."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Explosive Spear")
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    monkeypatch.setattr(build, "gem_deltas", lambda cases, **kw: [(build.score, {}) for _ in cases])
+    assert not gems.supports_round(full_sweep=True)
+    assert gems.shortlist is None
+    monkeypatch.setattr(build, "gem_deltas", lambda cases, **kw: [(build.score - 0.1 * i, {}) for i, _ in enumerate(cases)])
+    gems.supports_round(full_sweep=True)
+    assert gems.shortlist
+
+
+def test_only_a_skill_that_spends_glory_switches_on_the_glory_condition(engine):
+    """GlorySkill (Call Upon the Deep, Thrill of the Fight) matched any active skill whose description says "Glory", so
+    skills that build or mention Glory without spending it switched it on: an overcount. It needs the usage rule's
+    active_skill_requires_X_glory now."""
+    from builder.search.assumptions import Assumptions
+    from builder.search.usage import GLORY, usage_rules
+
+    ctx = context(main_skill="Explosive Spear")
+    engine.call("newBuild")
+    build = Build(engine, ctx, Objective(ctx))
+    rules = usage_rules(build)
+    named = [n for n, g in ctx.all_gems.items() if re.search(r"\bGlory\b", g.get("description") or "")
+             and not g.get("support")]
+    spenders = [n for n in named if GLORY in ((rules.get(n) or {}).get("stats") or {})]
+    others = [n for n in named if n not in spenders]
+    print("Glory spenders:", spenders, "| mention Glory only:", others)
+    assert spenders
+    assumptions = Assumptions(build)
+    assert "GlorySkill" in assumptions.ledger_conditions([{"name": spenders[0], "disabled": False}])
+    for name in others:
+        assert "GlorySkill" not in assumptions.ledger_conditions([{"name": name, "disabled": False}])

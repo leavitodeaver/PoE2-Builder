@@ -142,7 +142,7 @@ class Run:
                       main=result.get("main_gems"), phases=result.get("overrun", {}),
                       wall=result.get("wall"), left_out=result.get("left_out"), ran=result.get("ran"),
                       timing=result.get("timing"), escalations=result.get("escalations"),
-                      reverts=result.get("reverts"))
+                      reverts=result.get("reverts"), supports=result.get("support_census"))
             if result.get("seed_start") and self.seed_start is None:
                 self.seed_start = result["seed_start"]
             # Ranked on the request's goal, whichever the search had; its own goal picks the state

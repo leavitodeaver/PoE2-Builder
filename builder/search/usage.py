@@ -77,6 +77,14 @@ def requirements(name: str, rule: dict) -> list[Requirement]:
     return found
 
 
+def usage_rules(build) -> dict[str, dict]:
+    """The bridge's `usageRules` for every gem, read once."""
+    global _RULES
+    if _RULES is None:
+        _RULES = build.call("usageRules")["gems"]
+    return _RULES
+
+
 class Usage:
     def __init__(self, build, conditions, flask_rate: Callable[[str], tuple[float, float]] | None = None) -> None:
         """`flask_rate(pool)`: (charges generated per second, maximum charges) of that flask."""
@@ -86,10 +94,7 @@ class Usage:
 
     @property
     def rules(self) -> dict[str, dict]:
-        global _RULES
-        if _RULES is None:
-            _RULES = self.build.call("usageRules")["gems"]
-        return _RULES
+        return usage_rules(self.build)
 
     def blockers(self, name: str, stats: dict | None = None) -> list[str]:
         """Why this gem can't be used at the rate PoB calculates in the build as it is ([] if it can)."""

@@ -657,7 +657,7 @@ class Search:
             "kicks": self.kicks, "kicks_kept": self.kicks_kept, "problems": self.problems, "reverts": build.reverts,
             "condition_sources": list(self.sources.kept),
             "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
-            "overrun": dict(self.overrun),
+            "overrun": dict(self.overrun), "support_census": dict(self.gems.census),
             "main_gems": [g.get("name") for g in (build.main_group() or {}).get("gems", []) if g.get("name")],
             "timing": {k: {"seconds": round(v[0], 2), "evals": v[1], "gain": round(v[2], 4)} for k, v in self.timing.items()},
         }

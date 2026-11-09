@@ -57,6 +57,7 @@ class Gems:
         self.ctx = build.ctx
         self.required_supports = set(self.ctx.compiled.request.require.supports)
         self.shortlist: list[str] | None = None  # best supports at the last full sweep
+        self.census: dict = {}  # the main group's last supports round (supports_round)
         self.meta_shortlist: list[str] | None = None  # the same for the meta group's
         self.granted_shortlists: dict[int, list[str]] = {}  # and for each item- or notable-granted meta group's
         self.conditions = None  # the condition resolver, when supports should be tried with it
@@ -85,6 +86,9 @@ class Gems:
     def affordable(self, name: str, freed: float, left: float) -> bool:
         priced = self.ctx.gem_price(name)
         return priced is not None and (priced[0] or 0.0) <= left + freed
+
+    def blockers(self, name: str, stats: dict | None) -> list[str]:
+        return [] if self.usage is None else [str(b) for b in self.usage.blockers(name, stats)]
 
     def usable(self, name: str, stats: dict | None = None) -> bool:
         """Can the build use this gem at the rate PoB calculates (builder/search/usage.py)?"""
@@ -176,7 +180,8 @@ class Gems:
         required = set() if meta else self.required_supports
         shortlist = self._shortlist(meta, granted)
         stats = self.usage_stats()
-        candidates = [c for c in self.candidates(index, groups) if self.usable(c, stats)]
+        offered = self.candidates(index, groups)
+        candidates = [c for c in offered if self.usable(c, stats)]
         if not full_sweep and shortlist is not None:
             candidates = [c for c in shortlist if c in set(candidates)]
         left = self.budget_left()
@@ -210,16 +215,31 @@ class Gems:
                     continue
                 cases.append({"group": index, "slot": slot, "gem": candidate})
                 moves.append((slot, candidate))
+        if not meta:
+            # The main group's last round, for reading a run (the "task" event's `supports`): what each filter left and
+            # the best what-if against the score now. Gate 4's 2b75b lines sat at 15,004 with no support (POE2T206)
+            blocked = [c for c in offered if c not in set(candidates)]
+            self.census = {"offered": len(offered), "usable": len(candidates), "cases": len(cases),
+                           "slots": len(slots), "full": bool(full_sweep or shortlist is None),
+                           "blocked": blocked[:6], "blockers": sorted({b for c in blocked[:20] for b in self.blockers(c, stats)})}
         if not cases:
             return False
         scored = build.gem_deltas(cases)
+        if not meta:
+            top = max(range(len(scored)), key=lambda i: scored[i][0])
+            self.census.update(best=moves[top][1], best_gain=round(scored[top][0] - build.score, 4))
         if full_sweep or shortlist is None:
             ranked = sorted(zip(scored, moves), key=lambda x: -x[0][0])
             seen: list[str] = []
             for _, (_, name) in ranked:
                 if name not in seen:
                     seen.append(name)
-            self._set_shortlist(meta, granted, seen[:SHORTLIST])
+            # A sweep where no support changes the score ranks nothing: on gate 4's 2b75b the first sweep of a line ran
+            # before the ascendancy step took Into the Breach (Explosive Transmutation's Remnant source), every support
+            # scored exactly 0, and the shortlist kept was the alphabet's first names, so the line stayed at 15K with no
+            # support until the next sweep (POE2T206, 216). Then no shortlist is kept, and the next round sweeps again
+            spread = ranked[0][0][0] - ranked[-1][0][0] if ranked else 0.0
+            self._set_shortlist(meta, granted, seen[:SHORTLIST] if spread > EPSILON else None)
         options = [(s, m) for (s, _), m in zip(scored, moves)]
         options += self.discover(index, names, options, group)
         if meta and full_sweep:

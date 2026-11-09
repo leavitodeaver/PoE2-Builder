@@ -2748,6 +2748,14 @@ function bridge.usageRules()
 							end
 						end
 					end
+					-- Skyfall's Glory gate is a per-level stat, not a constant one: its value at level 20
+					for i, name in ipairs(statSet.stats or { }) do
+						if name == "active_skill_requires_X_glory" and stats[name] == nil then
+							local level = statSet.levels and (statSet.levels[20] or statSet.levels[1])
+							stats[name] = level and level[i] or 0
+							found = true
+						end
+					end
 				end
 				if effect.skillTypes and effect.skillTypes[SkillType.HasUsageCondition] then
 					rule.usageCondition = true

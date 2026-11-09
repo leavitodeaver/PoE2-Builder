@@ -26,6 +26,7 @@ import re
 from builder.ledger import conditions
 from builder.search import models
 from builder.search.conditions import INFUSED_SET
+from builder.search.usage import usage_rules
 from builder.search.state import Build
 
 # Remnants per second on a single boss, at gem level 20, while the stated condition holds
@@ -228,6 +229,10 @@ class Assumptions:
         for condition in wanted:
             by_name = condition.get("skills") and any(re.search(condition["skills"], n, re.I) for n in names)
             by_text = condition.get("skill_text") and any(re.search(condition["skill_text"], t, re.I) for t in texts)
+            if by_text and condition.get("usage_stat"):
+                rules = usage_rules(self.build)
+                by_text = any(condition["usage_stat"] in ((rules.get(name) or {}).get("stats") or {})
+                              for name, text in zip(actives, texts) if re.search(condition["skill_text"], text, re.I))
             # skill_types: the main skill has every one of these PoB skill types (e.g. Spell and Multicastable: it can Repeat)
             by_type = condition.get("skill_types") and set(condition["skill_types"]) <= main_types
             if by_name or by_text or by_type:
