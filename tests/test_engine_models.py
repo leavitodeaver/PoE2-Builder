@@ -851,6 +851,19 @@ def test_mana_flare_rate_is_capped_by_crits_and_its_damage_by_the_mana_it_finds(
     build.set_group(index=main["index"], fullDPS=False)
     mods, notes = search.assumptions.wanted()
     assert not any(n["label"].startswith("Mana Flare uses") for n in notes)
+    # in another group counted through Full DPS (MECH24): the same model, that group's spell calculated for a moment
+    gems.commit(main["index"], ["Fireball"])
+    other = build.set_group(gems=[{"name": "Fireball", "level": 20, "quality": 0},
+                                  {"name": "Mana Flare", "level": 20, "quality": 0}], fullDPS=True)
+    assert other["index"] != main["index"]
+    mods, notes = search.assumptions.wanted()
+    flares = [n for n in notes if n["label"].startswith("Mana Flare uses")]
+    assert len(flares) == 1 and f"socket group {other['index']}" in flares[0]["basis"]
+    assert any(m.get("skill") == "Mana Flare" and m.get("key") == "triggerRate" for m in mods)
+    assert build.main_group()["index"] == main["index"] and search.assumptions.main_skill() == "Fireball"
+    build.set_group(index=other["index"], fullDPS=False)
+    mods, notes = search.assumptions.wanted()
+    assert not any(n["label"].startswith("Mana Flare uses") for n in notes)
 
 
 def test_a_normal_support_may_sit_in_several_skills_and_a_lineage_one_once_or_three_times_with_solus_ipse(engine):
