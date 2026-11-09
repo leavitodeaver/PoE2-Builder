@@ -331,3 +331,21 @@ def test_a_whole_run_fits_the_time_it_was_given(engine, monkeypatch):
     assert result["status"] != "invalid" and result.get("code")
     assert result["workers"] == 2  # planned on the pool it got
     assert took < 45 * 1.1 + 5, took  # 5 s for the two engines' start
+
+
+def test_a_lines_requirement_raises_go_on_with_its_state(engine):
+    """A line's next task carries on its raise count: counted from 0 again, every task's second raise cleared and regrew
+    the passive tree (Search._ascend), so gate 4's lines spent each task regrowing it (POE2T194-197)."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Explosive Spear")
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0].as_dict()
+    payload = make_payload(ctx.request)
+    search = Search(engine, None, payload, skeleton, 0)
+    search.setup(quests=False)
+    search.escalations = 2
+    state = search.state()
+    later = Search(engine, None, payload, skeleton, 1)
+    later.load(state)
+    assert later.escalations == 2

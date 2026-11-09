@@ -309,6 +309,9 @@ class Search:
             "required": sorted(self.tree.required), "active": self.conditions.active,
             "shortlist": self.gems.shortlist, "meta_shortlist": self.gems.meta_shortlist, "gear_shortlist": self.gear.shortlist, "attribute": self.tree.attribute,
             "multipliers": dict(self.build.objective.multipliers), "assumed_mods": self.assumptions.mods,
+            # (the raises so far: a line's next task must not count from 0, or each task's second raise clears the
+            # tree again, as every task of gate 4's 2b75b runs did: lines at 15K with no supports, POE2T194-197)
+            "escalations": self.escalations,
             "extra_groups": [[k, v] for k, v in sorted(self.assumptions.extra_groups.items())],
             "required_names": sorted(self.tree.required_names), "sources": sorted(self.tree.sources),
             "extra_stats": dict(self.build.extra_stats),
@@ -321,6 +324,7 @@ class Search:
         self.build.equipped = dict(state["equipped"])
         self.build.locked_slots = set(state["locked"])
         self.build.objective.multipliers = dict(state.get("multipliers") or {})
+        self.escalations = state.get("escalations", 0)
         self.assumptions.mods = list(state.get("assumed_mods") or [])
         self.assumptions.extra_groups = {k: v for k, v in state.get("extra_groups") or []}
         self.build.objective.extra = bool(self.assumptions.extra_groups)
