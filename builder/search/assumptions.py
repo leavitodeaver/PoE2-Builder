@@ -328,8 +328,9 @@ class Assumptions:
             if chosen is None or label != chosen["label"]:
                 notes.append({"label": f"{main}: {label} cast not counted", "value": 0,
                               "basis": self.infused_skipped.get(label, INFUSED_NOTE), "confidence": "theory"})
-        mods += [{"kind": "Condition", "name": name} for name in self.ledger_conditions(skills)]
-        return mods, notes
+        found, condition_notes = self.ledger_conditions(skills)
+        mods += [{"kind": "Condition", "name": name} for name in found]
+        return mods, notes + condition_notes
 
     def infusion_share(self, element: str, ailments: set[str]) -> tuple[float, str]:
         """The share of the main skill's casts that find an Elemental Infusion of `element` (one consumed per cast):
@@ -347,18 +348,19 @@ class Assumptions:
                  + (f", {keep:.0%} of casts keeping theirs" if keep else ""))
         return share, basis
 
-    def ledger_conditions(self, skills: list[dict]) -> list[str]:
-        """Ledger conditions the build's skills switch on (e.g. it uses a skill that requires Glory)."""
+    def ledger_conditions(self, skills: list[dict]) -> tuple[list[str], list[dict]]:
+        """Ledger conditions the build's skills switch on (e.g. it uses a skill that requires Glory), and notes on those
+        that need a rate (glory_every: one use of a Glory skill per that many seconds, models.glory_uses)."""
         wanted = conditions()
         if not wanted:
-            return []
+            return [], []
         actives = [s["name"] for s in skills if not s["disabled"]]
         names = actives + [gem["name"] for group in self.build.groups() for gem in group["gems"]
                            if gem.get("enabled", True)]
         texts = [(self.build.ctx.all_gems.get(name) or {}).get("description") or "" for name in actives]
         main = self.main_skill()
         main_types = set((self.build.ctx.all_gems.get(main) or {}).get("skillTypes") or []) if main else set()
-        found = []
+        found, notes = [], []
         for condition in wanted:
             by_name = condition.get("skills") and any(re.search(condition["skills"], n, re.I) for n in names)
             by_text = condition.get("skill_text") and any(re.search(condition["skill_text"], t, re.I) for t in texts)
@@ -368,9 +370,20 @@ class Assumptions:
                               for name, text in zip(actives, texts) if re.search(condition["skill_text"], text, re.I))
             # skill_types: the main skill has every one of these PoB skill types (e.g. Spell and Multicastable: it can Repeat)
             by_type = condition.get("skill_types") and set(condition["skill_types"]) <= main_types
+            if (by_name or by_text or by_type) and condition.get("glory_every"):
+                stats = self.build.call("stats", fields=models.MODEL_FIELDS)
+                main_skill = next((models.Skill.of(s) for s in skills if not s["disabled"] and s["name"] == main), None)
+                uses, how = models.glory_uses(names, stats, main_skill)
+                every = condition["glory_every"]
+                notes.append({"label": f"{condition['title']}: Glory skill uses on a boss",
+                              "value": f"one per {1 / uses:.1f} s" if uses > 0 else "none",
+                              "basis": f"{how}; its ledger lines assume one per {every:g} s, so they count only at that "
+                                       "rate or faster", "confidence": "theory"})
+                if uses * every < 1:
+                    continue
             if by_name or by_text or by_type:
                 found.append(condition["id"])
-        return sorted(found)
+        return sorted(found), notes
 
     def apply(self) -> bool:
         """Match PoB's assumed modifiers to the build. True if they changed."""

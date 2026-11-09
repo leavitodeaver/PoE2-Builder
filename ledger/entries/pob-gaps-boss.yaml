@@ -16,6 +16,10 @@
   # Only a skill that spends Glory counts (its usage rule has this stat): the text alone also matched skills that build
   # or mention Glory without using it, which switched on Call Upon the Deep and Thrill of the Fight (an overcount)
   usage_stat: active_skill_requires_X_glory
+  # and only while the build's own Glory pays for one use per 6 s on a boss, the rate Call Upon the Deep and Thrill of
+  # the Fight assume (models.glory_uses, from the game files' Glory sources; Thrill's one per 12 s is then undercounted
+  # between one per 12 s and one per 6 s)
+  glory_every: 6
   confidence: datamined
   sources: ["Glory skills' gem descriptions (Hammer of the Gods, Spear of Solaris, Banners, Ancestral Cry ...)"]
   status: approved

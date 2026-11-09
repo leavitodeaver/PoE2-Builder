@@ -825,7 +825,7 @@ def test_explosive_transmutation_counts_every_remnant_source_the_build_has():
 
         a = Assumptions(Build())
         a.models = lambda skills: ([], [], {})
-        a.ledger_conditions = lambda skills: []
+        a.ledger_conditions = lambda skills: ([], [])
         mods, notes = a.wanted()
         return next(m["value"] for m in mods if m.get("key") == "triggerRate"), notes
 
@@ -865,3 +865,20 @@ def test_infusion_supply_counts_each_element_from_the_build_s_sources():
     assert supply["Lightning"] == pytest.approx(fire)
     assert supply["Fire"] == pytest.approx(fire * 0.2) and supply["Cold"] == pytest.approx(fire * 0.2)
     assert supply["Any"] == pytest.approx(1.2 / 5)
+
+
+def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
+    """Game files (GrantedEffectStatSets, 9 Nov): Hammer of the Gods costs 20 Glory and gains 100% of the boss's Power
+    (20) per Heavy Stun; a Banner costs 200 and gains 20 per attack hit; Zerphi's Infamy turns 5% of Life spent into
+    Glory against 50 per use. The ledger's GlorySkill lines (one use per 6 s) count only at that rate or faster."""
+    slam = models.Skill("Boneshatter", attack=True, melee=True)
+    stats = {"Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000, "HeavyStunBuildupAvg": 10.0}
+    stuns = models.heavy_stun_rate(stats)[0]
+    assert models.glory_uses(["Hammer of the Gods"], stats, slam)[0] == pytest.approx(stuns)  # one per 22.8 s
+    assert models.glory_uses(["War Banner"], stats, slam)[0] == pytest.approx(2.0 * 20 / 200)  # one per 5 s
+    spell = models.Skill("Spark", spell=True)
+    uses, how = models.glory_uses(["War Banner"], {**stats, "PhysicalHitAverage": 0, "LightningHitAverage": 1000}, spell)
+    assert uses == 0 and "never" in how  # a spell makes no attack hits
+    assert models.glory_uses(["Zerphi's Infamy"], {"LifePerSecondCost": 100}, slam)[0] == pytest.approx(5 / 50)
+    assert models.glory_uses(["Skyfall"], stats, slam) == (0.0, "Skyfall: no source counted, never")
+    assert models.glory_uses(["Spark"], stats, spell) == (0.0, "no Glory skill")

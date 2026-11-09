@@ -59,7 +59,7 @@ Priority 1464.7 · impact 4 · effort M · 62 lines not counted of 84 linked · 
 
 - **Game:** Glory builds from specific actions (hitting with certain skills, Rage at maximum ...); skills that require Glory spend it. (https://poe2db.tw/us/Glory)
 - **PoB (checked):** PoB calculates Glory skills as if usable at will; no Glory generation rate.
-- **Now:** Ledger entries assume one use of a Glory skill per 6 s; Glory generation lines are absorbed by that assumption.
+- **Now:** models.glory_uses (9 Nov): each Glory skill's cost and sources from the game files (per hit, Heavy Stun, Freeze, Ignite, Shock, Life spent; 20 Glory per event at a boss's Power of 20), events from the main skill. The ledger's GlorySkill lines (one use per 6 s) count only when the build's Glory pays for that rate. Glory skills as main skills stay blocked unless Life-built (usage.py). Not counted: other skills' hits, armour breaks, Ward spent, increased Glory generation, Daresso's Passion.
 - **Plan:** custom model: Uses per second = Glory generated per second / Glory per use, from the build's generators; the Glory skill's damage x its use rate. Inputs: Glory per hit, hits per second, Glory per use.
 - **Guide note:** Glory skill used every X s from your Glory generation.
 - **Lines:** `Recover 1% of maximum Life per Glory consumed` (Invigorating Grandeur); `20% increased Glory generation for Banner Skills` (Banner Glory Gained); `20% increased Glory generation for Banner Skills` (Banner Glory Gained); `Skills have a 15% chance to not consume Glory` (Everlasting Glory)

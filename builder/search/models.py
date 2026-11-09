@@ -1702,6 +1702,65 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
         "confidence": "theory", "entry": "guided-hand-boost"}]
 
 
+# Glory on a boss (glory_uses) --------------------------------------------------------------------------------------------
+# Each Glory skill's cost and what builds its Glory, from the game files (build 26476662, GrantedEffectStatSets, level 20;
+# 9 Nov, MECH20): active_skill_requires_X_glory and active_skill_generates_mp_%_glory_per_<event> (that % of the target's
+# monster Power per event; a pinnacle boss's Power is 20, as PoB's Multiplier:EnemyPower) or
+# active_skill_hundred_times_generates_glory_per_<event> (/100 Glory per event). Events come from the main skill: its hits
+# (attack, elemental or chaos hits), the boss's Heavy Stuns (heavy_stun_rate), Freezes (PoB's per-hit Freeze buildup, the
+# same Xesht threshold correction, no re-freeze window: an overcount if one exists), Ignites and Shocks (PoB's chance per
+# hit). Not counted (undercounts, labelled): Glory from other skills' hits, armour breaks (Molten Blast), Ward spent
+# (Skyfall), Walking Calamity's own source, increased Glory generation and Daresso's Passion's lower cost.
+BOSS_POWER = 20
+GLORY_SKILLS = {  # skill: (Glory per use, {event: Glory per event on a boss})
+    "War Banner": (200, {"attack hit": 20}), "Defiance Banner": (200, {"attack hit": 20}),
+    "Dread Banner": (200, {"attack hit": 20}),
+    "Spear of Solaris": (20, {"freeze": 20, "ignite": 1, "shock": 1}), "Starborn Onslaught": (20, {"freeze": 20}),
+    "Ancestral Cry": (100, {"ignite": 20}), "Apocalypse": (100, {"elemental hit": 20}),
+    "Archon of Chayula": (100, {"chaos hit": 20}), "Hammer of the Gods": (20, {"heavy stun": 20}),
+    "Molten Blast": (20, {"ignite": 20}), "Walking Calamity": (50, {}), "Skyfall": (270, {}),
+}
+GLORY_FROM_LIFE = {"Zerphi's Infamy": (50, 0.05)}  # Glory per use, share of Life spent on skills that becomes Glory
+
+
+def glory_events(stats: dict, main: Skill | None) -> dict[str, float]:
+    """Glory-building events per second from the main skill on the boss."""
+    hits = hits_per_second(stats)
+    crit = min(number(stats.get("CritChance")), 100) / 100
+    hit = {t: number(stats.get(f"{t}HitAverage")) > 0 for t in DAMAGE_TYPES}
+    chance = lambda a: (number(stats.get(f"{a}ChanceOnHit")) * (1 - crit) + number(stats.get(f"{a}ChanceOnCrit")) * crit) / 100
+    return {
+        "attack hit": hits if main is not None and main.attack else 0.0,
+        "elemental hit": hits if any(hit[t] for t in ("Fire", "Cold", "Lightning")) else 0.0,
+        "chaos hit": hits if hit["Chaos"] else 0.0,
+        "heavy stun": heavy_stun_rate(stats)[0],
+        "freeze": hits * number(stats.get("FreezeBuildupAvg")) / 100 * HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1],
+        "ignite": hits * min(chance("Ignite"), 1.0),
+        "shock": hits * min(chance("Shock"), 1.0),
+    }
+
+
+def glory_uses(names: list[str], stats: dict, main: Skill | None) -> tuple[float, str]:
+    """Uses per second of the build's Glory skills on a boss, all together, and how."""
+    events = glory_events(stats, main)
+    total, parts = 0.0, []
+    for name in names:
+        if name in GLORY_SKILLS:
+            cost, gains = GLORY_SKILLS[name]
+            glory = sum(events[e] * g for e, g in gains.items())
+            how = " + ".join(f"{events[e]:.2f} {e}s/s x {g}" for e, g in gains.items()) or "no source counted"
+        elif name in GLORY_FROM_LIFE:
+            cost, share = GLORY_FROM_LIFE[name]
+            glory = share * number(stats.get("LifePerSecondCost"))
+            how = f"{share:.0%} of {number(stats.get('LifePerSecondCost')):.0f} Life spent/s"
+        else:
+            continue
+        total += glory / cost
+        parts.append(f"{name}: {how} Glory against {cost} per use = one per {cost / glory:.1f} s" if glory > 0
+                     else f"{name}: {how}, never")
+    return total, "; ".join(parts) or "no Glory skill"
+
+
 # Deadly Resolve (model: deadly_resolve) -----------------------------------------------------------------------------------
 # The support (poe2db, matching the 0.5 data): "Gain a stage every 1 second" while channelling the supported skill, "3
 # maximum stages", "Stage duration is 10 seconds"; "Expend a stage of Deadly Resolve when an enemy Hits you to Trigger a

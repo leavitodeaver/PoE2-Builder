@@ -548,10 +548,11 @@ def test_a_support_sweep_where_nothing_changes_the_score_keeps_no_shortlist(engi
     assert gems.shortlist
 
 
-def test_only_a_skill_that_spends_glory_switches_on_the_glory_condition(engine):
+def test_only_a_skill_that_spends_glory_switches_on_the_glory_condition(engine, monkeypatch):
     """GlorySkill (Call Upon the Deep, Thrill of the Fight) matched any active skill whose description says "Glory", so
     skills that build or mention Glory without spending it switched it on: an overcount. It needs the usage rule's
     active_skill_requires_X_glory now."""
+    from builder.search import models
     from builder.search.assumptions import Assumptions
     from builder.search.usage import GLORY, usage_rules
 
@@ -566,6 +567,12 @@ def test_only_a_skill_that_spends_glory_switches_on_the_glory_condition(engine):
     print("Glory spenders:", spenders, "| mention Glory only:", others)
     assert spenders
     assumptions = Assumptions(build)
-    assert "GlorySkill" in assumptions.ledger_conditions([{"name": spenders[0], "disabled": False}])
+    # and only while the build's Glory pays for one use per 6 s (models.glory_uses; this bare build makes none)
+    found, notes = assumptions.ledger_conditions([{"name": spenders[0], "disabled": False}])
+    assert notes and "Glory skill uses on a boss" in notes[0]["label"]
+    monkeypatch.setattr(models, "glory_uses", lambda names, stats, main: (1 / 7, "too slow"))
+    assert "GlorySkill" not in assumptions.ledger_conditions([{"name": spenders[0], "disabled": False}])[0]
+    monkeypatch.setattr(models, "glory_uses", lambda names, stats, main: (1 / 5, "enough"))
+    assert "GlorySkill" in assumptions.ledger_conditions([{"name": spenders[0], "disabled": False}])[0]
     for name in others:
-        assert "GlorySkill" not in assumptions.ledger_conditions([{"name": name, "disabled": False}])
+        assert "GlorySkill" not in assumptions.ledger_conditions([{"name": name, "disabled": False}])[0]
