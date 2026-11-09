@@ -648,7 +648,7 @@ def test_voltaic_and_freezing_marks_buff_after_the_bosss_ailment():
     mark = models.Skill("Voltaic Mark", group=2, cast_time=0.5, cooldown=0.5)
     spell = models.Skill("Spark", group=1, spell=True)
     stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "ElectrocuteBuildupAvg": 2}
-    every = 1 / (2.0 * 0.02 * models.AILMENT_BOSS)  # (about 33 s)
+    every = 1 / models.buildup_rate(stats, "Electrocute")  # (about 47 s: 33 s to fill, x6 for the first 15 s)
     mods, notes = models.mark_model([spell, mark], stats, spell)
     by_line = {m["line"]: m["scale"] for m in mods}
     assert by_line["1% more Effect of your Curses"] == pytest.approx(100 * (10 / every - 1), rel=1e-3)
@@ -660,7 +660,8 @@ def test_voltaic_and_freezing_marks_buff_after_the_bosss_ailment():
     pounce = models.Skill("Pounce", group=2, attack=True, cooldown=12.0)
     triggered = models.Skill("Freezing Mark", group=2, cast_time=0.5, cooldown=0.5, triggered=True)
     mods, notes = models.mark_model([spell, pounce, triggered], dict(stats, FreezeBuildupAvg=5), spell)
-    assert notes[0]["value"] == pytest.approx(round(min(1.0, 10 * 2.0 * 0.05 * models.AILMENT_BOSS) * 8 / 12, 2))
+    rate = models.buildup_rate(dict(stats, FreezeBuildupAvg=5), "Freeze")
+    assert notes[0]["value"] == pytest.approx(round(min(1.0, 10 * rate) * 8 / 12, 2))
     assert models.mark_model([spell], stats, spell) == ([], [])
 
 
@@ -901,7 +902,10 @@ def test_freezes_electrocutes_and_stuns_of_the_boss_are_rated_from_the_build_not
 
     stats = {"Speed": 2.0, "HitChance": 100, "FreezeBuildupAvg": 10.0, "ColdHitAverage": 100.0}
     freeze = models.buildup_rate(stats, "Freeze")
-    assert freeze == pytest.approx(2.0 * 0.10 * models.AILMENT_BOSS)
+    t = 1 / (2.0 * 0.10 * models.AILMENT_BOSS)  # (6.6 s to fill; x6 = 39.5 s, past the 14 s window)
+    assert freeze == pytest.approx(1 / (14.0 + (1 - 14.0 / (6 * t)) * t))
+    fast = dict(stats, Speed=40.0)  # (0.33 s to fill: x6 = 2 s, inside the window)
+    assert models.buildup_rate(fast, "Freeze") == pytest.approx(1 / (6 / (40.0 * 0.10 * models.AILMENT_BOSS)))
     rate, how = _charge_rate("50% chance to gain a Power Charge when you Freeze an enemy", "Power", stats)
     assert rate == pytest.approx(0.5 * freeze) and "Freeze" in how
     rate, how = _charge_rate("Gain a Frenzy Charge when you Pin an enemy", "Frenzy", stats)

@@ -933,7 +933,8 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
             share = min(1.0, MARK_BUFF_DURATION * rate) * marked if inflicts else 0.0
             label, basis = f"{mark.name}: buff uptime", (
                 (f"the boss {ailment.lower()}d once per {(1 / rate) if rate else math.inf:.1f} s while marked (PoB's buildup per hit x "
-                 f"{hits_per_second(stats):.2f} hits/s, Arbiter of Ash threshold), "
+                 f"{hits_per_second(stats):.2f} hits/s, Arbiter of Ash threshold, x6 for "
+                 f"{AILMENT_REPEAT[ailment][1]:g} s after each), "
                  f"{MARK_BUFF_DURATION:.0f} s buff; marked {marked:.0%} of the time ({how})") if inflicts else
                 f"the main skill can't {ailment.lower()} the boss, so the Mark is never consumed and gives no buff"
             ) + "; PoB counts the buff always up; its buildup part is scaled with it (assumed)"
@@ -1647,6 +1648,13 @@ HEAVY_STUN_REPEAT = (6.0, 16.5)  # threshold x(1 + 500%) for 16.5 s after a Heav
 HEAVY_STUN_PHYSICAL = 1.5  # player Physical damage's 50% more buildup (weighting the Cold share)
 
 
+def repeat_every(t: float, times: float, window: float) -> float:
+    """Seconds between one Heavy Stun / Freeze / Electrocute and the next when the bar fills in `t` s at the plain
+    threshold and the threshold is x`times` for `window` s after each one: 6t if that ends inside the window, else the
+    window and the rest of the bar at the plain threshold."""
+    return times * t if times * t <= window else window + (1 - window / (times * t)) * t
+
+
 def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     """Heavy Stuns of the boss per second from the main skill's hits, and how it was worked out."""
     per_hit = number(stats.get("HeavyStunBuildupAvg")) / 100
@@ -1662,8 +1670,7 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     if fill <= 0:
         return 0.0, "Cold hits build no Heavy Stun (the game's Cold text; PoB counts them)"
     t = 1 / fill
-    times, window = HEAVY_STUN_REPEAT
-    every = times * t if times * t <= window else window + (1 - window / (times * t)) * t
+    every = repeat_every(t, *HEAVY_STUN_REPEAT)
     basis = (f"{per_hit:.2%} of the boss's Stun bar per hit (PoB){f', {1 - uncold:.0%} of it Cold, which builds none' if uncold < 1 else ''}, "
              f"x{HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1]:.2f} for the Arbiter of Ash's threshold (the game files; the boss the user chose), {hits:.2f} hits/s: "
              f"full in {t:.1f} s, then +500% threshold for 16.5 s after each stun: one every {every:.1f} s")
@@ -1672,6 +1679,10 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
 
 
 AILMENT_BOSS = HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1]  # the Arbiter of Ash's threshold over PoB's Pinnacle one (as stun)
+# Again afterwards (game files, GameConstants rows 38-39, 43-44): FreezeThresholdModifier 500 / FreezeModifierDuration 14 s,
+# ElectrocuteThresholdModifier 500 / ElectrocuteModifierDuration 15 s, read as Heavy Stun's are (+500% threshold for that
+# long after each one; PoB doesn't use them). PinThresholdModifier 500 / 13 s also exists; Pins aren't rated from buildup.
+AILMENT_REPEAT = {"Freeze": (6.0, 14.0), "Electrocute": (6.0, 15.0)}
 PIN_EVERY = 30.0  # seconds between Pins of the boss (assumed: PoB works out no Pin buildup to rate it from)
 IMMOBILISE_FIELDS = ("Speed", "HitChance", "CritChance", "FreezeBuildupAvg", "ElectrocuteBuildupAvg",
                      "HeavyStunBuildupAvg", *(f"{t}HitAverage" for t in DAMAGE_TYPES),
@@ -1680,9 +1691,10 @@ IMMOBILISE_FIELDS = ("Speed", "HitChance", "CritChance", "FreezeBuildupAvg", "El
 
 def buildup_rate(stats: dict, ailment: str) -> float:
     """Freezes or Electrocutes of the boss per second from the main skill's hits: PoB's average buildup per hit (% of the
-    threshold) x hits per second, with the Arbiter of Ash's threshold (AILMENT_BOSS). No window after each one in which
-    it can't be applied again is counted: an overcount if one exists."""
-    return hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * AILMENT_BOSS
+    threshold) x hits per second, with the Arbiter of Ash's threshold (AILMENT_BOSS), and the threshold x6 for 14 / 15 s
+    after each one (AILMENT_REPEAT, repeat_every). Buildup decay between hits isn't modelled (as Heavy Stun's)."""
+    fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * AILMENT_BOSS
+    return 1 / repeat_every(1 / fill, *AILMENT_REPEAT[ailment]) if fill > 0 else 0.0
 
 
 def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:
@@ -1694,7 +1706,8 @@ def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:
         if event in events:
             r = buildup_rate(stats, ailment)
             rate += r
-            parts.append(f"{ailment} {r:.3f}/s (PoB's buildup per hit, Arbiter of Ash threshold)")
+            parts.append(f"{ailment} {r:.3f}/s (PoB's buildup per hit, Arbiter of Ash threshold, x6 for "
+                         f"{AILMENT_REPEAT[ailment][1]:g} s after each)")
     if "stun" in events:
         r, _ = heavy_stun_rate(stats)
         rate += r

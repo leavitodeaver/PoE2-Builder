@@ -918,3 +918,28 @@ def test_the_global_benefit_supports_are_the_game_files_flagged_ones():
     support, skill, base = load("SupportGems.json"), load("SkillGems.json"), load("BaseItemTypes.json")
     flagged = {base[skill[row["SkillGem"]]["BaseItemType"]]["Name"] for row in support if row["_unnamed8"]}
     assert flagged == set(GLOBAL_BENEFIT_SUPPORTS)
+
+
+def test_a_glory_skill_as_the_main_skill_is_used_as_often_as_the_build_makes_its_glory(engine):
+    """PoB calculates a Glory skill at will; Assumptions.glory_main rates its uses from the Glory another skill's hits
+    build (models.glory_uses), or from its own hits when there's no other skill (at will or never), as its trigger rate."""
+    payload = make_payload(BuildRequest(main_skill="Hammer of the Gods"))
+    skeleton = enumerate_skeletons(Context(payload), ["Hammer of the Gods"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    assert search.assumptions.main_skill() == "Hammer of the Gods"
+    mods, notes = search.assumptions.wanted()
+    note = next(n for n in notes if n["label"] == "Hammer of the Gods uses per second (Glory)")
+    print(note["value"], "|", note["basis"])
+    assert "no other skill" in note["basis"]
+    assert any(m.get("skill") == "Hammer of the Gods" and m.get("key") == "triggerRate" for m in mods)
+    assert not any("cooldown allows" in n.get("basis", "") for n in notes)
+    main = build.main_group()
+    other = build.set_group(gems=[{"name": "Fireball", "level": 20, "quality": 0}], fullDPS=True)
+    mods, notes = search.assumptions.wanted()
+    note = next(n for n in notes if n["label"] == "Hammer of the Gods uses per second (Glory)")
+    print(note["value"], "|", note["basis"])
+    assert "Fireball" in note["basis"] and note["value"] >= 0.0
+    assert build.main_group()["index"] == main["index"] and search.assumptions.main_skill() == "Hammer of the Gods"
+    build.remove_group(other["index"])

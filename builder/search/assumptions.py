@@ -301,7 +301,11 @@ class Assumptions:
         if flare is not None:
             mods += flare[0]
             notes.append(flare[1])
-        if (not (flare is not None and main == models.MANA_FLARE)
+        glory = self.glory_main(skills, main)
+        if glory is not None:
+            mods += glory[0]
+            notes.append(glory[1])
+        if (not (flare is not None and main == models.MANA_FLARE) and glory is None
                 and info is not None and main not in REMNANT_CONSUMERS and info.get("triggered") and info.get("cooldown")
                 and not info.get("corpses")  # (models.corpse_model rates those)
                 and (main in self.cooldown_fallback
@@ -337,6 +341,67 @@ class Assumptions:
         mods += [{"kind": "Condition", "name": name} for name in found]
         return mods, notes + condition_notes
 
+    def stats_as_main(self, group: dict, position: int, main_index: int, fields: list[str]) -> dict:
+        """PoB's stats with the skill at `position` in `group` calculated as the main skill for a moment (its group made
+        the main group if it isn't), then the group's main skill and the main group put back."""
+        index, current = group["index"], group.get("mainActiveSkill") or 1
+        if index == main_index and current == position:
+            return self.build.call("stats", fields=fields)
+        if index == main_index:
+            stats = self.build.call("setGroup", index=index, mainActiveSkill=position, fields=fields)["stats"]
+            self.build.call("setGroup", index=index, mainActiveSkill=current, fields=[])
+            return stats
+        stats = self.build.call("setGroup", index=index, main=True, mainActiveSkill=position, fields=fields)["stats"]
+        if position != current:
+            self.build.call("setGroup", index=index, mainActiveSkill=current, fields=[])
+        self.build.call("setGroup", index=main_index, main=True, fields=[])
+        return stats
+
+    def glory_main(self, skills: list[dict], main: str | None) -> tuple[list[dict], dict] | None:
+        """A Glory skill as the main skill (models.GLORY_SKILLS): PoB calculates it at will; it's used as often as the
+        build makes its Glory. The Glory comes from another skill's hits (the first other enabled skill in the main
+        group, else in a Full DPS group), calculated as the main skill for a moment, through models.glory_uses; with no
+        other skill, from its own hits (assumed to count for it), at will if a use builds its own cost, else never. Its
+        uses per second become its trigger rate (capped at one per cast time). None for any other main skill."""
+        if main not in models.GLORY_SKILLS:
+            return None
+        info = next((s for s in skills if s["name"] == main and not s["disabled"]), None)
+        if info is None:
+            return None
+        listing = self.build.call("groups")
+        main_index = listing["mainSocketGroup"]
+        builder = None
+        for group in sorted(listing["groups"], key=lambda g: g["index"] != main_index):
+            if not group.get("enabled", True) or not (group["index"] == main_index or group.get("fullDPS")):
+                continue
+            names = [s["name"] for s in group.get("skills") or []]
+            position = next((i for i, n in enumerate(names, 1) if n != main and n not in models.GLORY_SKILLS
+                             and any(s["name"] == n and not s["disabled"] for s in skills)), None)
+            if position is not None:
+                builder = (group, position, names[position - 1])
+                break
+        skill = models.Skill.of(info)
+        cap = 1 / skill.cast_time if skill.cast_time else math.inf
+        if builder is not None:
+            group, position, name = builder
+            stats = self.stats_as_main(group, position, main_index, models.MODEL_FIELDS)
+            source = next((models.Skill.of(s) for s in skills if s["name"] == name), None)
+            uses, how = models.glory_uses([main], stats, source)
+            rate, basis = min(uses, cap), f"Glory from {name}'s hits: {how}"
+        else:
+            stats = self.build.call("stats", fields=models.MODEL_FIELDS)
+            # (at one use per second, so the rate this model set before doesn't decide it)
+            per_use, how = models.glory_uses([main], dict(stats, Speed=1.0), skill)
+            rate = cap if per_use >= 1.0 else 0.0
+            basis = (f"no other skill builds its Glory; its own hits (assumed to count for it), per use at one use/s: "
+                     f"{how}: " + ("a use builds its own cost: at will" if rate else "less than a use's cost: never"))
+        return models.trigger_rate(main, rate), {
+            "label": f"{main} uses per second (Glory)", "value": round(rate, 3),
+            "basis": basis + "; the time spent on the skill that builds it isn't taken from that skill's own DPS",
+            "play": f"Use {main} whenever you have the Glory for it.",
+            "confidence": "theory: game files' Glory costs and gains; event rates as glory_uses labels them",
+        }
+
     def mana_flare(self, skills: list[dict]) -> tuple[list[dict], dict] | None:
         """Mana Flare (models.mana_flare), as the main group's main skill or counted through Full DPS beside the spell it
         supports, in the main group or another one (2b75e: in Ice Nova's own group): its rate from that spell's Critical
@@ -367,17 +432,7 @@ class Assumptions:
             return None
         group, spell, current = counted[0]
         index, names = group["index"], [s["name"] for s in group["skills"]]
-        if group["index"] == main_index and current == spell:
-            stats = self.build.call("stats", fields=models.MANA_FLARE_FIELDS)
-        elif group["index"] == main_index:
-            stats = self.build.call("setGroup", index=index, mainActiveSkill=spell, fields=models.MANA_FLARE_FIELDS)["stats"]
-            self.build.call("setGroup", index=index, mainActiveSkill=current, fields=[])
-        else:
-            stats = self.build.call("setGroup", index=index, main=True, mainActiveSkill=spell,
-                                    fields=models.MANA_FLARE_FIELDS)["stats"]
-            if spell != current:
-                self.build.call("setGroup", index=index, mainActiveSkill=current, fields=[])
-            self.build.call("setGroup", index=main_index, main=True, fields=[])
+        stats = self.stats_as_main(group, spell, main_index, models.MANA_FLARE_FIELDS)
         rate, share, basis = models.mana_flare(stats, info.get("cooldown") or 1.0, info.get("cooldownRecovery") or 1.0)
         mods = models.trigger_rate(models.MANA_FLARE, rate)
         if share < 1.0:  # (PoB calculates the flare at full mana)

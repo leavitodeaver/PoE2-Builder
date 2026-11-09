@@ -30,7 +30,7 @@ from builder.search.gear import Gear, SlotSpec, extra_ring_passive
 from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
 from builder.search import play_guide
-from builder.search.models import MODEL_FIELDS
+from builder.search.models import GLORY_SKILLS, MODEL_FIELDS
 from builder.search.objective import (
     CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, shortfall, with_boss_recovery,
 )
@@ -847,6 +847,8 @@ def screen_task(engine: Any, report: Any, payload: dict, skeletons: list[dict], 
         try:
             main = search.skeleton.main_skill
             blocked = [] if main == search.ctx.request.main_skill else search.usage.blockers(main)
+            if main in GLORY_SKILLS:  # (its uses are rated from the build's Glory: Assumptions.glory_main)
+                blocked = [b for b in blocked if "glory" not in b.lower()]
             if blocked:  # PoB would calculate it at will; only a request that names it gets it anyway
                 results.append({"skeleton": skeleton, "dps": 0.0, "value": 0.0, "score": float("-inf"),
                                 "error": "can't be used at will: " + "; ".join(blocked)})
