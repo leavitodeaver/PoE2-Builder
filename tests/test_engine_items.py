@@ -391,3 +391,23 @@ def test_a_support_trial_taken_back_below_where_it_was_restores_the_build(engine
     search.gems.take_back(group["index"], names, group, snap["score"] + 1.0, snap)
     assert build.reverts.get("support take-back") == 1
     assert abs(build.score - snap["score"]) < 1e-6
+
+
+def test_an_infused_stat_set_is_no_choice_and_the_result_says_so(engine):
+    """Spark's Cold-Infused cast needs an Elemental Infusion from a Remnant, a supply not modelled yet: chosen by score
+    alone it counted every cast as Infused. It's no choice now, and the assumptions name what isn't counted."""
+    from builder.search.conditions import stat_set_needs
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    assert stat_set_needs("Cold-Infused") == [None] and stat_set_needs("Verisium-Infused") == []
+    ctx = context(main_skill="Spark")
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    group = search.build.main_group()
+    labels = [label for skill in group["skills"] for label in skill.get("statSets") or []]
+    assert "Cold-Infused" in labels
+    assert not search.conditions.allows("Cold-Infused") and not search.conditions.allows("Cold-Infused", ("x",))
+    _, notes = search.assumptions.wanted()
+    assert any("Cold-Infused cast not counted" in n["label"] for n in notes)

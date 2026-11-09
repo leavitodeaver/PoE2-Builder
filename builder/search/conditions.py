@@ -287,6 +287,11 @@ STAT_SET_NEEDS = [
     (re.compile(r"\bpower-charged\b", re.I), "usePowerCharges"),
     (re.compile(r"\bendurance-charged\b", re.I), "useEnduranceCharges"),
     (re.compile(r"\bvs frozen\b", re.I), None),
+    # An Infused cast (Ball Lightning's, Comet's, Frost Wall's, Ice Nova's, Spark's Fire-, Cold- or Lightning-Infused set)
+    # consumes an Elemental Infusion, which comes from collecting a Remnant. Until the supply is modelled (docs/
+    # MECHANICS.md "Elemental Infusions and Remnants") it isn't a choice: chosen by score alone, it counted every cast
+    # as Infused, an overcount. The result says so (assumptions.INFUSED_NOTE)
+    (INFUSED_SET := re.compile(r"\b(?:fire|cold|lightning)-infused\b", re.I), None),
 ]
 
 

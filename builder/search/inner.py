@@ -376,14 +376,21 @@ class Search:
     def step(self, phase: str, fn, *args) -> bool:
         self.build.phase = phase
         before, evals, started = self.build.score, self.build.evals, clock.now()
+        stopped = False
         try:
             fn(*args)
+        except OutOfTime:
+            stopped = True
+            raise
         finally:
             now = clock.now()
             entry = self.timing.setdefault(phase, [0.0, 0, 0.0])
             entry[0] += now - started
             entry[1] += self.build.evals - evals
-            entry[2] += self.build.score - before
+            # (a step the hard stop cut ends inside a trial: its score isn't the build's, which goes back to the last
+            # boundary; counted, it showed as losses of ln 10-13 in steps that keep only gains, POE2T205)
+            if not stopped:
+                entry[2] += self.build.score - before
             if self.deadline is not None and now > self.deadline:
                 self.overrun[phase] = round(max(self.overrun.get(phase, 0.0), now - max(started, self.deadline)), 2)
         if self.deadline is not None and (self.boundary is None or self.build.score != before):

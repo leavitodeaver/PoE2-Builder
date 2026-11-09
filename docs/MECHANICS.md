@@ -36,7 +36,7 @@ Priority 2896.4 · impact 4 · effort M · 187 lines not counted of 237 linked �
 
 - **Game:** Some skills create Remnants that grant an Infusion when collected; Infused skills consume it for a stronger version. (https://poe2db.tw/us/Elemental_Infusion)
 - **PoB (checked):** Infused stat sets are PoB stat sets the user picks; no Infusion supply.
-- **Now:** Infused stat sets are chosen by score without checking a source (PLAN §9 'still assumed'); Explosive Transmutation's Remnant rates are the user's audit.
+- **Now:** Fire-, Cold- and Lightning-Infused stat sets (Ball Lightning, Comet, Frost Wall, Ice Nova, Spark) are never chosen until the Infusion supply is modelled; the result says the Infused cast isn't counted (conditions.STAT_SET_NEEDS, assumptions.INFUSED_NOTE; was an overcount, chosen by score alone). Explosive Transmutation's Remnant rates are the user's audit.
 - **Plan:** custom model: Infusions per second from the build's Remnant sources (rates per source, as Explosive Transmutation's); an Infused stat set counts at uses per second = min(supply, use rate). Inputs: Remnant sources, pickup assumption.
 - **Guide note:** Infused casts counted at X per second from your Remnants (you walk over them).
 - **PoB options:** `arcLightningInfused` (off), `flameWallInfused` (off), `infusedChannellingInfusion` (off), `conditionInfusionConsumedRecently` (off)
@@ -268,7 +268,7 @@ Priority 0.0 · impact 3 · effort M · 0 lines not counted of 0 linked · 0 gem
 
 - **Game:** Effects on kill, corpse explosions, Volatility and consume-for-a-bonus mechanics. (https://poe2db.tw/us/Volatility)
 - **PoB (checked):** On-kill effects need config; corpse skills take a corpse life config; consumption isn't rated.
-- **Now:** No kills on a single boss: on-kill lines count 0; corpse skills use PoB's config.
+- **Now:** No kills on a single boss: on-kill lines count 0. Skills that need corpses (the game's TargetsDestructibleCorpses types: Detonate Dead, Volatile Dead ...) use 0 per second unless the build supplies corpses (models.corpse_model; no 0.5 player skill creates them, Sacrifice's rate not priced yet), said in the guide.
 - **Plan:** labelled assumption: Single boss: on-kill effects never (adds not counted); consume-for-a-bonus skills at the rate the build supplies what they consume (charges, ailments, corpses from its own skills). Inputs: supply rate.
 - **Guide note:** On-kill effects not counted against a single boss.
 

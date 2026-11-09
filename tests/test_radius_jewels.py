@@ -290,6 +290,11 @@ def test_the_search_pairs_leylines_with_a_time_lost_jewel(disciple, monkeypatch)
 
     build, tree, jewels = disciple.build, disciple.tree, disciple.jewels
     tree.ascendancy_round()  # nothing in the socket yet: Leylines is worth nothing
+    if 36891 in {p["id"] for p in build.call("facts", fields=[])["passives"]}:
+        # (every point is spent, so a worthless node can fill a full allocation: Spark's plain cast, once its
+        # Cold-Infused set was no choice, left Leylines in the best one)
+        assert build.node_deltas([{"remove": [36891]}])[0][0] >= build.score - 1e-6
+        build.allocate(remove=[36891])
     assert 36891 not in {p["id"] for p in build.call("facts", fields=[])["passives"]}
     strong = "\n".join(["Rarity: Rare", "Optimizer Jewel", "Time-Lost Ruby", "Item Level: 80", "Radius: Small",
                         "Implicits: 0", "Small Passive Skills in Radius also grant 40% increased Damage"])

@@ -25,6 +25,7 @@ import re
 
 from builder.ledger import conditions
 from builder.search import models
+from builder.search.conditions import INFUSED_SET
 from builder.search.state import Build
 
 # Remnants per second on a single boss, at gem level 20, while the stated condition holds
@@ -39,6 +40,8 @@ REMNANT_SOURCES = {
     "Orb of Storms": (0.1, "roughly, in a normal cast cadence"),
 }
 COOLDOWN_SOURCES = {"Snap", "Frost Bomb"}  # their rate scales with their own cooldown recovery
+INFUSED_NOTE = ("the Infused cast needs an Elemental Infusion, collected from a Remnant; how often you'd have one "
+                "isn't modelled yet, so only the plain cast counts (an undercount if you keep Infusions up)")
 ADDITIONAL_REMNANT = re.compile(r"(\d+(?:\.\d+)?)% chance to create an additional Remnant", re.I)
 REMNANT_CONSUMERS = {"Transmutation Explosion"}
 
@@ -201,6 +204,12 @@ class Assumptions:
                          "assumes the build provides the trigger often enough)",
                 "confidence": "theory",
             })
+        group = self.build.main_group()
+        infused = sorted({label for skill in (group or {}).get("skills", []) for label in skill.get("statSets") or []
+                          if INFUSED_SET.search(label)})
+        if infused:
+            notes.append({"label": f"{main}: {', '.join(infused)} cast not counted", "value": 0,
+                          "basis": INFUSED_NOTE, "confidence": "theory"})
         mods += [{"kind": "Condition", "name": name} for name in self.ledger_conditions(skills)]
         return mods, notes
 
