@@ -9,7 +9,8 @@ resolver never sets that a fight decides or a player chooses:
 - build: applied by the build's own rates (ailments, debuffs, charges, Rage, Withered). They keep their modelled uptime
   and get no row.
 - fight: decided by the boss (being hit, its life %). A row gives the range: without it if the headline counts it,
-  with it if the headline doesn't (enemy life %: not weighted into the headline yet, labelled).
+  with it if the headline doesn't. The boss's Low Life is weighted into the headline by its share of the boss's life
+  (Search.weigh_life); its row gives DPS above and below 35%.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ MIN_CHANGE = 0.005  # a row only when the condition moves the DPS by at least 0.
 KINDS: dict[str, tuple[str, str]] = {
     "enemyDistance": (PLAYER, "stand at the distance assumed"),
     "conditionAtCloseRange": (PLAYER, "fight the boss at close range"),
+    "conditionStationary": (PLAYER, "stand still while attacking or casting"),
     "conditionHitMeleeRecently": (PLAYER, "land a melee hit at least every 4 s"),
     "conditionBeenHitRecently": (FIGHT, "the boss lands a hit on you at least every 4 s (your evasion and block allow it)"),
     "conditionBlockedRecently": (FIGHT, "you block one of the boss's hits at least every 4 s"),
@@ -35,9 +37,10 @@ KINDS: dict[str, tuple[str, str]] = {
 OFF_OPTIONS: dict[str, tuple[str, str, str]] = {
     "conditionStationary": ("Standing still", PLAYER, "stand still while attacking or casting (not counted in the headline)"),
     "conditionEnemyLowLife": ("Boss on Low Life (its last 35%)", FIGHT,
-                              "the execute range: the last 35% of the boss's life (not weighted into the headline yet)"),
+                              "the execute range: the last 35% of the boss's life (not weighted into the headline)"),
     "conditionEnemyFullLife": ("Boss on Full Life", FIGHT,
-                               "only the opening hit, before the boss takes damage (not weighted into the headline yet)"),
+                               "only the opening hit, before the boss takes damage (not weighted into the headline: one "
+                               "hit is a negligible share of a boss's life)"),
 }
 assert all(var in {c.var for c in CONDITIONS} for var in KINDS), "KINDS names a condition the resolver doesn't know"
 
@@ -53,11 +56,17 @@ def _other_distance(value: object) -> float:
 
 def guide(search: Any) -> list[dict]:
     """One row per player- or fight-decided condition that moves the finished build's DPS: switch it (one
-    recalculation, the assumptions re-applied), read the DPS on the headline's basis, put it back."""
+    recalculation, the assumptions re-applied), read the DPS on the headline's basis, put it back. The trials read the DPS
+    before the Low Life weighting (objective.life_factor), which is then applied to every row but the Low Life one: that
+    row gives the range (above 35% of the boss's life, and below it)."""
     build, active = search.build, search.conditions.active
     labels = {c.var: c.label for c in CONDITIONS}
+    headline = build.objective.dps(build.stats)
+    factor = getattr(build.objective, "life_factor", 1.0)
+    build.objective.life_factor = 1.0
     base = build.objective.dps(build.stats)
     if base <= 0:
+        build.objective.life_factor = factor
         return []
     trials: list[tuple[str, str, str, object, object, bool]] = []  # var, label, kind, trial value, restore value, counted
     for var, info in active.items():
@@ -80,17 +89,26 @@ def guide(search: Any) -> list[dict]:
         if abs(dps - base) < MIN_CHANGE * base:
             continue
         play = KINDS[var][1] if var in KINDS else OFF_OPTIONS[var][2]
+        if var == "conditionEnemyLowLife":
+            weighted = factor != 1.0
+            rows.append({"var": var, "label": label, "kind": k, "counted": weighted,
+                         "play": ("the execute range: the last 35% of the boss's life, weighted 35% into the headline "
+                                  f"(x{factor:.3f})" if weighted else play),
+                         "dps_with": dps, "dps_without": base, "change": (dps - base) / base, "confidence": "theory"})
+            continue
+        dps, scaled = dps * factor, base * factor
         if var == "enemyDistance":
             label = f"Boss at {number(restore) / 10:g} m (at {number(trial) / 10:g} m instead)"
             play = (f"stay within {number(restore) / 10:g} m of the boss" if number(restore) < number(trial)
                     else f"keep about {number(restore) / 10:g} m from the boss")
         rows.append({
             "var": var, "label": label, "kind": k, "counted": counted, "play": play,
-            "dps_with": dps if not counted else base, "dps_without": base if not counted else dps,
-            "change": (dps - base) / base,
+            "dps_with": dps if not counted else scaled, "dps_without": scaled if not counted else dps,
+            "change": (dps - scaled) / scaled,
             "confidence": "modelled" if k == PLAYER else "theory",
         })
-    after = build.objective.dps(build.stats)
+    build.objective.life_factor = factor
+    after, base = build.objective.dps(build.stats), headline
     if abs(after - base) > 1e-6 * base:  # the switches must leave the build as it was; say so if they didn't
         rows.append({"var": "", "label": "(restore check)", "kind": BUILD, "counted": False, "play": "",
                      "dps_with": base, "dps_without": after, "change": (after - base) / base,

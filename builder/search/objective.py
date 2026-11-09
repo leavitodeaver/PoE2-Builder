@@ -203,6 +203,9 @@ class Objective:
         self.base_full = full  # finalists: Full DPS throughout
         self.extra = False  # the build has triggered damage outside the main skill (see module doc)
         self.added_dps = 0.0  # damage a custom model computes outside PoB (Melting Maelstrom's pulses), set at each resolve
+        # The boss's Low Life share of the fight (Search.weigh_life): 1 / (0.65 + 0.35 / (DPS on Low Life / DPS above it)),
+        # set at each conditions round from one extra recalculation; 1 for a build with no Low Life lines
+        self.life_factor = 1.0
         self.multipliers: dict[str, float] = dict(multipliers or {})  # requirement label -> weight factor
         self.penalties = ctx.compiled.penalties
         self.style = DefenceStyle(ctx.request.defence)
@@ -236,8 +239,8 @@ class Objective:
         if self.full:
             full = number(stats.get("FullDPS"))
             if full > 0:
-                return max(full - self.excluded(stats)[0], 0.0) + added
-        return main_dps(stats) + added
+                return (max(full - self.excluded(stats)[0], 0.0) + added) * self.life_factor
+        return (main_dps(stats) + added) * self.life_factor
 
     def clear_damage(self, stats: dict) -> float:
         """Damage per target while clearing: like boss DPS, but on-death effects count (clearing

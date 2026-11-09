@@ -141,6 +141,27 @@ def distance_candidates(lines: list[str], main_types: set[str]) -> list[float]:
     return found if len(found) > 1 else []
 
 
+# Lines that depend on standing still (PoB's conditionStationary). A build with one has standing still chosen by score
+# (Search.choose_stationary), unless its dodge rolls keep it moving more than 1 - UPTIME of the time.
+STATIONARY_LINE = re.compile(r"\bstationary\b|\bstand(?:ing)? still\b", re.I)
+
+
+LOW_LIFE_LINE = re.compile(r"low life", re.I)  # (the player's own Low Life lines match too: the boss's then changes nothing)
+LOW_LIFE_SHARE = 0.35  # "A player or monster is on Low Life if it has 35% of its Maximum Life or less" (KeywordPopups)
+
+
+def _standing_still(lines: list[str], stats: dict) -> tuple[float, str]:
+    """On for a build with a stationary line, unless Search.choose_stationary switched it off (its dodge rolls, or moving
+    scored better): a real trial of a new stationary line sees its gain."""
+    if stats.get("_stationary_off") or not any(STATIONARY_LINE.search(t) for t in lines):
+        return 0.0, ""
+    rolling = number(stats.get("_rolling"))
+    return True, ("stand still while attacking or casting (the build has stationary lines; a play-style choice, kept while "
+                  "it scores better than moving, sustain and defence floors included)"
+                  + (f"; dodge rolls take {rolling:.0%} of the fight, under the {1 - UPTIME:.0%} that still counts as always"
+                     if rolling else ""))
+
+
 def _boss_distance(lines: list[str], stats: dict) -> tuple[float, str]:
     types = stats.get("_main_types") or set()
     chosen = stats.get("_distance_choice")
@@ -322,6 +343,7 @@ CONDITIONS: list[Condition] = [
               (r"become ignited when you deal a critical hit",)),
     Condition("enemyDistance", "Boss distance (play-style assumption; 10 units a metre)", value_fn=_boss_distance,
               fields=("PresenceRadius",)),
+    Condition("conditionStationary", "Standing still (play-style choice)", value_fn=_standing_still, fields=()),
     Condition("conditionHitMeleeRecently", "Melee hit recently (a melee main skill)", main_types=("Melee",)),
     Condition("conditionAtCloseRange", "Enemy at close range (a melee main skill)", main_types=("Melee",)),
     _debuff("conditionEnemyBlinded", "Blinded", "blind"),
@@ -395,6 +417,8 @@ class Conditions:
         self.main_types = set((build.ctx.gems.get(main_skill) or {}).get("skillTypes") or [])
         self.active: dict[str, dict] = {}  # var -> {label, value, evidence}
         self.distance: tuple[float, str] | None = None  # (metres, why) chosen by score (Search.choose_distance)
+        self.stationary_off: str | None = None  # why a build with stationary lines doesn't stand still (choose_stationary)
+        self.rolling = 0.0  # share of the fight spent dodge rolling (Search.rolling_share)
 
     def evidence(self) -> dict[str, tuple[object, str]]:
         """What the build can sustain now: var -> (value, evidence)."""
@@ -423,7 +447,8 @@ class Conditions:
                     uses = (number(stats.get("Speed")) if types == main_types or (hollow and name == HOLLOW_FORM)
                             else 1 / CHARGE_DEFAULT_EVERY)
                     consumers.setdefault(kind, {})[name] = uses
-        stats = {**stats, "_consumers": consumers, "_main_types": main_types, "_distance_choice": self.distance}
+        stats = {**stats, "_consumers": consumers, "_main_types": main_types, "_distance_choice": self.distance,
+                 "_stationary_off": self.stationary_off, "_rolling": self.rolling}
         found: dict[str, tuple[object, str]] = {}
         for condition in CONDITIONS:
             reason = None
@@ -513,6 +538,8 @@ class Conditions:
         the effect is enough to deserve a real trial."""
         if condition.text and text_evidence(condition, text) and qualifies(text, self.main_types):
             return True
+        if condition.var == "conditionStationary" and STATIONARY_LINE.search(text):
+            return True  # (a stationary line gets a real trial: the resolver stands the build still with it)
         if (kind := CHARGE_OVERRIDES.get(condition.var)) is not None:  # a generator of that charge a boss fight feeds
             rate = _charge_rate(text, kind, {"Speed": 1.0, "HitChance": 100, "CritChance": 50, "EffectiveBlockChance": 30})
             return rate is not None and rate[0] > 0

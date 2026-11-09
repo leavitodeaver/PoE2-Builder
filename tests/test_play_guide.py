@@ -74,3 +74,71 @@ def test_distance_candidates_follow_the_build_lines():
     assert distance_candidates(["Enemies in your Presence have -10% to Fire Resistance"], {"Spell"}) == [5.0, 2.0]
     assert distance_candidates(["20% more Damage against Enemies further than 6m"], {"Spell"}) == [5.0, 2.0, 6.5]
     assert distance_candidates(["Enemies in your Presence are Blinded"], {"Melee", "Attack"}) == []  # already close
+
+
+class FakeObjective:
+    def __init__(self):
+        self.life_factor = 1.0
+
+    def dps(self, stats):
+        return stats["dps"] * self.life_factor
+
+    def score(self, stats):
+        return self.dps(stats)
+
+
+class FakeSearchBuild(FakeBuild):
+    def __init__(self, config, lines):
+        super().__init__(config)
+        self.objective = FakeObjective()
+        self.lines = lines
+        self.score = 0.0
+
+    def call(self, method, **kwargs):
+        if method == "sourceLines":
+            return {"lines": [{"source": "tree", "text": t} for t in self.lines]}
+        return super().call(method, **kwargs)
+
+
+def fake_search(lines, notes=()):
+    from builder.search.inner import Search
+
+    search = SimpleNamespace(build=FakeSearchBuild({}, lines), play_notes={},
+                             assumptions=SimpleNamespace(apply=lambda: False, active=list(notes)),
+                             conditions=SimpleNamespace(stationary_off=None, rolling=0.0, active={}), settle=lambda: False)
+    for name in ("weigh_life", "choose_stationary", "rolling_share"):
+        setattr(search, name, getattr(Search, name).__get__(search))
+    return search
+
+
+def test_low_life_is_weighted_by_its_share_of_the_boss_life():
+    search = fake_search(["30% more Damage against Enemies on Low Life"])
+    search.weigh_life()
+    # 1000 above 35%, 1500 below: 1 / (0.65 + 0.35 / 1.5)
+    assert search.build.objective.life_factor == approx(1 / (0.65 + 0.35 / 1.5))
+    assert search.build.score == approx(1000 / (0.65 + 0.35 / 1.5))
+    assert not search.build.config["conditionEnemyLowLife"] and "low_life" in search.play_notes
+    rows = play_guide.guide(SimpleNamespace(build=search.build, conditions=SimpleNamespace(active={}),
+                                            assumptions=search.assumptions))
+    low = next(r for r in rows if r["var"] == "conditionEnemyLowLife")
+    assert low["counted"] and low["dps_with"] == approx(1500) and low["dps_without"] == approx(1000)
+    assert search.build.objective.life_factor == approx(1 / (0.65 + 0.35 / 1.5))  # put back after the trials
+    plain = fake_search(["10% increased Spell Damage"])
+    plain.weigh_life()
+    assert plain.build.objective.life_factor == 1.0 and not plain.play_notes
+
+
+def test_dodge_rolls_keep_a_build_from_counting_standing_still():
+    rolling = fake_search(["20% more Damage while Stationary"],
+                          [{"label": "Time spent dodge rolling (Spark)", "value": "37.5% less Attack and Cast Speed"}])
+    assert rolling.rolling_share() == approx(0.375)
+    rolling.choose_stationary()
+    assert rolling.conditions.stationary_off == "dodge rolls" and "dodge rolls 38%" in rolling.play_notes["stationary"]["basis"]
+
+
+def test_standing_still_is_on_for_a_build_with_stationary_lines():
+    from builder.search.conditions import _standing_still
+
+    assert _standing_still(["20% more Damage while Stationary"], {})[0] is True
+    assert _standing_still(["20% more Damage while Stationary"], {"_stationary_off": "dodge rolls"})[0] == 0
+    assert _standing_still(["10% increased Spell Damage"], {})[0] == 0

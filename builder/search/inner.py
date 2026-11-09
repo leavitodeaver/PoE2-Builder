@@ -11,6 +11,7 @@ Worker tasks (called through EnginePool.run_tasks):
 from __future__ import annotations
 
 import random
+import re
 import time
 from typing import Any
 
@@ -21,7 +22,9 @@ from builder.pob import codes
 from builder.request.constraints import FACT_FIELDS, meta_socketed
 from builder.request.schema import WeaponSwap
 from builder.search.assumptions import Assumptions
-from builder.search.conditions import MELEE_DISTANCE, Conditions, distance_candidates
+from builder.search.conditions import (
+    LOW_LIFE_LINE, LOW_LIFE_SHARE, MELEE_DISTANCE, STATIONARY_LINE, UPTIME, Conditions, distance_candidates,
+)
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
 from builder.search.gear import Gear, SlotSpec, extra_ring_passive
 from builder.search.gems import META_LABEL, Gems
@@ -81,6 +84,7 @@ class Search:
         self.swap_locked = set(swap_skills(self.ctx, sk)) if sk.swap else set()  # skills only set 2 can use
         self.jewels = Jewels(self.build, self.tree, self.gear)
         self.conditions = Conditions(self.build, self.skeleton.main_skill)
+        self.play_notes: dict[str, dict] = {}  # notes from choose_stationary and weigh_life, for the result
         self.gems.conditions = self.conditions
         self.assumptions = Assumptions(self.build)
         self.build.reassume = self.assumptions.apply  # item what-ifs a model reads get a real trial (Build.item_deltas)
@@ -396,11 +400,84 @@ class Search:
         self.settle()
         return conditions.distance != before
 
+    def rolling_share(self) -> float:
+        """The share of the fight the build spends dodge rolling, from the dodge-roll notes of the models (Cast on Dodge,
+        Mirage Archer: models.DODGE_ROLL_SECONDS per roll)."""
+        share = 0.0
+        for note in self.assumptions.active:
+            if note.get("label", "").startswith("Time spent dodge rolling") and (m := re.match(r"([\d.]+)%", str(note.get("value")))):
+                share += float(m.group(1)) / 100
+        return min(share, 1.0)
+
+    def choose_stationary(self) -> bool:
+        """Standing still is the player's choice (the play guide's spec, item 1a). A build with a line that depends on it
+        (conditions.STATIONARY_LINE) stands still (the resolver's default, so a trial of a new stationary line sees it),
+        unless moving scores better on the full score (mana sustain and the defence floors included: Ether Flow's
+        regeneration is lower while stationary), or the build dodge rolls so much that standing still holds under UPTIME
+        of the fight (noted). Returns True if the choice changed."""
+        conditions, before = self.conditions, self.conditions.stationary_off
+        self.play_notes.pop("stationary", None)
+        conditions.rolling = self.rolling_share()
+        lines = [line["text"] for line in self.build.call("sourceLines")["lines"]]
+        if not any(STATIONARY_LINE.search(t) for t in lines):
+            conditions.stationary_off = None
+        elif 1.0 - conditions.rolling < UPTIME:
+            conditions.stationary_off = "dodge rolls"
+            self.play_notes["stationary"] = {
+                "label": "Standing still: not counted", "value": f"{1 - conditions.rolling:.0%} of the fight",
+                "basis": f"the build dodge rolls {conditions.rolling:.0%} of the time (the models' dodge-roll time), so its "
+                         f"stationary lines would hold under {UPTIME:.0%} of the fight", "confidence": "theory"}
+        else:
+            conditions.stationary_off = None
+            self.settle()
+            still = self.build.score
+            conditions.stationary_off = "moving scored better"
+            self.settle()
+            if self.build.score < still:
+                conditions.stationary_off = None
+                self.settle()
+            return conditions.stationary_off != before
+        if conditions.stationary_off != before:
+            self.settle()
+        return conditions.stationary_off != before
+
+    def weigh_life(self) -> None:
+        """The boss's Low Life is fight-decided (the spec, item 1c): its last 35% of life ("Low Life if it has 35% of its
+        Maximum Life or less", KeywordPopups) takes 0.35 / (DPS on Low Life) of the time per unit of life, so the headline is
+        the time-weighted 1 / (0.65 / D + 0.35 / D_low) (objective.life_factor). Full Life holds only for the opening hit:
+        not weighted (labelled in the guide). One extra recalculation, only for a build with a Low Life line."""
+        objective = self.build.objective
+        self.play_notes.pop("low_life", None)
+        lines = [line["text"] for line in self.build.call("sourceLines")["lines"]]
+        objective.life_factor = 1.0
+        if any(LOW_LIFE_LINE.search(t) for t in lines):
+            above = objective.dps(self.build.stats)
+            self.build.set_config({"conditionEnemyLowLife": True})
+            self.assumptions.apply()
+            low = objective.dps(self.build.stats)
+            self.build.set_config({"conditionEnemyLowLife": False})
+            self.assumptions.apply()
+            if above > 0 and low > 0 and abs(low - above) > 0.001 * above:
+                objective.life_factor = 1.0 / (1.0 - LOW_LIFE_SHARE + LOW_LIFE_SHARE * above / low)
+                self.play_notes["low_life"] = {
+                    "label": "Boss on Low Life (its last 35% of life), weighted into the DPS",
+                    "value": f"x{objective.life_factor:.3f}",
+                    "basis": f"{above:,.0f} DPS above 35% of the boss's life, {low:,.0f} below; the time to kill weighs "
+                             f"them 65% / 35% of its life", "confidence": "theory"}
+        self.build.score = objective.score(self.build.stats)
+
+    def choose_play(self) -> bool:
+        """The play-style choices and fight weights (play_guide's spec): distance, standing still, Low Life."""
+        changed = self.choose_distance()
+        changed = self.choose_stationary() or changed
+        self.weigh_life()
+        return changed
+
     def conditions_round(self) -> None:
         """Resolve, and choose the calculated skill and stat set again: which one scores best
         changes as the rest of the build grows (Explosive Spear's explosion overtakes its spear).
         Gems whose usage requirement lost its source go first (builder/search/usage.py)."""
-        if self.choose_distance():
+        if self.choose_play():
             self.gems.choose_active_skill()
         if self.gems.drop_unusable():
             return  # it resolved, which chose the stat set again
@@ -811,7 +888,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         search.run(deadline, escalate=False, feasible_first=True)
     except Cancelled:
         pass
-    search.choose_distance()
+    search.choose_play()
     search.resolve()
 
     search.gear.sync_flasks()
@@ -852,6 +929,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     # treeCheck): every passive reachable from the class start or through a socketed jewel
     tree_check = reloaded["treeCheck"]
     assumptions += search.jewels.radius_notes()  # the larger Time-Lost radius (custom model)
+    assumptions += list(search.play_notes.values())  # standing still not counted, the Low Life weighting
     return {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
         "play_guide": play,
