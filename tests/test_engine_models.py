@@ -813,3 +813,32 @@ def test_a_support_a_sweep_move_takes_out_joins_the_shortlist(engine, monkeypatc
     names = [g["name"] for g in gems.supports_group(build.groups(), meta=False)["gems"]]
     assert names == ["Boneshatter", into]
     assert out in gems.shortlist
+
+
+def test_mana_flare_rate_is_capped_by_crits_and_its_damage_by_the_mana_it_finds(engine):
+    """Mana Flare fires on the supported spell's Critical Hits, once per 1 s cooldown at most, and takes 25% of current
+    mana (game files). PoB gives it no rate and full mana; the cooldown fallback assumed one per second."""
+    rate, share, _ = models.mana_flare({"Speed": 2.0, "HitChance": 100, "CritChance": 20, "Mana": 1000,
+                                        "ManaRegenRecovery": 50, "ManaPerSecondCost": 30}, 1.0, 1.0)
+    assert rate == pytest.approx(0.4) and share == pytest.approx(20 / (0.25 * 0.4) / 1000)
+    rate, share, _ = models.mana_flare({"Speed": 3.0, "CritChance": 100, "Mana": 100, "ManaRegenRecovery": 50}, 1.0, 1.0)
+    assert rate == pytest.approx(1.0) and share == 1.0
+    assert models.mana_flare({"Speed": 3.0, "CritChance": 50, "Mana": 100, "ManaRegenRecovery": 5,
+                              "ManaPerSecondCost": 9}, 1.0, 1.0)[1] == 0.0
+
+    payload = make_payload(BuildRequest(main_skill="Fireball"))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    main = build.main_group()
+    gems.commit(main["index"], ["Fireball", "Mana Flare"])
+    build.set_group(index=main["index"], mainActiveSkill=2)
+    assert search.assumptions.main_skill() == "Mana Flare"
+    mods, notes = search.assumptions.wanted()
+    note = next(n for n in notes if n["label"].startswith("Mana Flare uses per second"))
+    print(note["label"], note["value"], "|", note["basis"], "|", [m for m in mods if m.get("skill") == "Mana Flare"])
+    assert "Fireball" in note["label"] and 0.0 <= note["value"] <= 1.0
+    assert any(m.get("skill") == "Mana Flare" and m.get("key") == "triggerRate" for m in mods)
+    assert search.assumptions.main_skill() == "Mana Flare"  # (the spell was calculated for a moment, then put back)
+    assert not any("cooldown allows" in n.get("basis", "") for n in notes)

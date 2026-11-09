@@ -323,7 +323,7 @@
   game_source: https://poe2db.tw/us/Trigger
   pob: partial
   pob_check: "PoB grants some item skills (Grants Skill lines parse) but not most 'Trigger X Skill on' lines."
-  handling: "Elemental Expression's model; the rest not counted."
+  handling: "Elemental Expression's model. Mana Flare (a support's triggered spell; PoB has no trigger and calculates it at full mana): fires at the lower of its 1 s cooldown and the supported spell's Critical Hits per second, and its damage is scaled to the mana it finds before each flare (25% of current mana taken per flare, put back by regen less the spell's cost; models.mana_flare). Any other triggered main skill with a cooldown that PoB gives no rate: once per cooldown, labelled theory. The rest not counted."
   plan: {approach: custom model, how: "Add the granted skill to Full DPS with a trigger rate from its condition (crits/s, casts/s, kills: none on a boss) capped by its cooldown, like expression_model.", inputs: [condition rate, cooldown]}
   what_if: visible
   guide_note: "Triggered skill counted at X per second."

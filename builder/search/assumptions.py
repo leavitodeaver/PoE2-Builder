@@ -297,7 +297,11 @@ class Assumptions:
         # model (it calculates 0 uses per second): assume it fires whenever the cooldown allows
         main = self.main_skill()
         info = next((s for s in skills if s["name"] == main), None)
-        if (info is not None and main not in REMNANT_CONSUMERS and info.get("triggered") and info.get("cooldown")
+        flare = self.mana_flare(info) if main == models.MANA_FLARE and info is not None else None
+        if flare is not None:
+            mods += flare[0]
+            notes.append(flare[1])
+        elif (info is not None and main not in REMNANT_CONSUMERS and info.get("triggered") and info.get("cooldown")
                 and not info.get("corpses")  # (models.corpse_model rates those)
                 and (main in self.cooldown_fallback
                      or not self.build.call("stats", fields=["Speed"]).get("Speed"))):
@@ -331,6 +335,31 @@ class Assumptions:
         found, condition_notes = self.ledger_conditions(skills)
         mods += [{"kind": "Condition", "name": name} for name in found]
         return mods, notes + condition_notes
+
+    def mana_flare(self, info: dict) -> tuple[list[dict], dict] | None:
+        """Mana Flare as the main skill (models.mana_flare): its rate from the supported spell's Critical Hits, and its
+        damage scaled to the mana it finds. The spell is calculated as the group's main skill for a moment for that.
+        None when the group has no other skill (then the cooldown fallback applies)."""
+        group = self.build.main_group()
+        names = [s["name"] for s in (group or {}).get("skills", [])]
+        spell = next((i for i, name in enumerate(names, 1) if name != models.MANA_FLARE), None)
+        if spell is None:
+            return None
+        index, current = group["index"], group["mainActiveSkill"]
+        stats = self.build.call("setGroup", index=index, mainActiveSkill=spell, fields=models.MANA_FLARE_FIELDS)["stats"]
+        self.build.call("setGroup", index=index, mainActiveSkill=current, fields=[])
+        rate, share, basis = models.mana_flare(stats, info.get("cooldown") or 1.0, info.get("cooldownRecovery") or 1.0)
+        mods = models.trigger_rate(models.MANA_FLARE, rate)
+        if share < 1.0:  # (PoB calculates the flare at full mana)
+            mods.append(models.line("1% more Damage", 100.0 * (share - 1.0), skill=models.MANA_FLARE))
+        return mods, {
+            "label": f"Mana Flare uses per second (supporting {names[spell - 1]})", "value": round(rate, 3),
+            "basis": basis,
+            "play": "Mana Flare fires on the supported spell's Critical Hits, at most once a second, and spends a "
+                    "quarter of the mana you have: keep casting the spell, and its damage depends on how much mana "
+                    "you keep.",
+            "confidence": "game files' trigger, cooldown and mana share; Critical Hits taken at their average rate",
+        }
 
     def infusion_share(self, element: str, ailments: set[str]) -> tuple[float, str]:
         """The share of the main skill's casts that find an Elemental Infusion of `element` (one consumed per cast):

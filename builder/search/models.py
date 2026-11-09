@@ -1741,6 +1741,39 @@ def glory_events(stats: dict, main: Skill | None) -> dict[str, float]:
     }
 
 
+MANA_FLARE = "Mana Flare"  # the support's triggered spell (game files: TriggeredManaFlarePlayer, GrantedEffects 734)
+MANA_FLARE_SHARE = 0.25  # stat set 878: support_mana_flare_%_of_current_mana_consumed 25
+MANA_FLARE_FIELDS = ["Speed", "HitChance", "CritChance", "ManaPerSecondCost", "ManaRegenRecovery", "Mana"]
+
+
+def mana_flare(spell: dict, cooldown: float, recovery: float) -> tuple[float, float, str]:
+    """Mana Flare's uses per second and the share of maximum mana it finds. Game files: "Supported Skills trigger Mana
+    Flare on Critical Hit", a 1 s cooldown (StoredUses 1), and each flare consumes 25% of current mana. PoB has no trigger
+    for it (no rate) and calculates it at full mana (config multiplierCurrentManaPercentage, default 100): two overcounts.
+    `spell`: the supported spell's own output (MANA_FLARE_FIELDS), calculated as the main skill.
+    - rate = the lower of the cooldown's (recovery / cooldown) and the spell's Critical Hits per second (casts x hit chance
+      x crit chance; one hit per cast counted, so a spell that hits several times per cast is undercounted)
+    - mana: each flare takes 25% of current mana, and the mana regenerated between flares, (regen - the spell's mana per
+      second) / rate, puts it back. Before each flare that settles at m = (regen - cost) / (0.25 x rate), capped at maximum
+      mana; none if the spell costs more than regen gives."""
+    casts = float(spell.get("Speed") or 0.0)
+    crits = casts * min(1.0, float(spell.get("HitChance") or 100.0) / 100.0) * min(1.0, float(spell.get("CritChance") or 0.0) / 100.0)
+    cap = recovery / cooldown if cooldown else math.inf
+    rate = min(cap, crits)
+    mana = float(spell.get("Mana") or 0.0)
+    net = float(spell.get("ManaRegenRecovery") or 0.0) - float(spell.get("ManaPerSecondCost") or 0.0)
+    if rate <= 0.0 or mana <= 0.0:
+        share = 1.0 if mana > 0.0 else 0.0
+    else:
+        share = min(1.0, max(0.0, net) / (MANA_FLARE_SHARE * rate) / mana)
+    basis = (f"the lower of its cooldown ({cap:.2f}/s) and the supported spell's Critical Hits ({casts:.2f} casts/s x "
+             f"{min(1.0, float(spell.get('CritChance') or 0.0) / 100.0):.0%} crit = {crits:.2f}/s; one hit per cast); "
+             f"mana before each flare {share:.0%} of maximum (regen {float(spell.get('ManaRegenRecovery') or 0.0):.1f}/s "
+             f"less the spell's {float(spell.get('ManaPerSecondCost') or 0.0):.1f}/s, 25% of current mana taken per flare"
+             + ("; the spell costs more than regen gives, so the flare finds none" if net <= 0.0 else "") + ")")
+    return rate, share, basis
+
+
 def glory_uses(names: list[str], stats: dict, main: Skill | None) -> tuple[float, str]:
     """Uses per second of the build's Glory skills on a boss, all together, and how."""
     events = glory_events(stats, main)
