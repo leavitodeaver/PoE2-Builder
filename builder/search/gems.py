@@ -60,6 +60,12 @@ GLOBAL_BENEFIT_SUPPORTS = frozenset({
     "Direstrike II", "Upwelling I", "Upwelling II", "Warm Blooded", "Cool Headed", "Strong Hearted"})
 LINEAGE_COPIES = re.compile(r"You can Socket (an|\d+) additional cop(?:y|ies) of each Lineage Support Gem", re.I)
 META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
+# Moves per round of the main group's supports that get a real trial, the next when one turns out worse. The what-if
+# doesn't resolve conditions: Exploit Weakness ("more Damage against enemies with Broken Armour but preventing them from
+# Breaking Armour themselves", GemEffects) kept the armour break it takes away, ranked first at +0.20 every round, failed
+# its trial every round, and with one trial a round no other support was ever tried: gate 4's 2b75d kept its starting
+# supports all run (x1.91, POE2T351; x2.86 when gear made the armour break, POE2T350)
+MAIN_TRIALS = 3
 META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
 # A spell triggered less often than this can't pay through its own damage; what PoB counts of it besides (a buff it
 # grants, at full) would be the only gain: such a meta group isn't kept (Profane Ritual at 0.0001 triggers/s gave +4%)
@@ -100,6 +106,7 @@ class Gems:
         self.required_supports = set(self.ctx.compiled.request.require.supports)
         self.shortlist: list[str] | None = None  # best supports at the last full sweep
         self.census: dict = {}  # the main group's last supports round (supports_round)
+        self.failed: dict[int, tuple[tuple, set]] = {}  # group -> (its gems and the score, the moves that failed there)
         self.sweeps = 0  # the main group's full sweeps so far, with how many cases the largest scored (census)
         self.swept_cases = 0
         self.meta_shortlist: list[str] | None = None  # the same for the meta group's
@@ -346,9 +353,14 @@ class Gems:
         before = build.score
         ranked = sorted(options, key=lambda x: -x[0])
         tries = [m for i, (s, m) in enumerate(ranked) if s > before + EPSILON and m not in (x for _, x in ranked[:i])]
+        # a move that failed on this very build (the group's gems and the score unchanged) isn't tried again
+        key = (tuple(names), round(before, 9))
+        failed = self.failed[index][1] if self.failed.get(index, (None,))[0] == key else set()
+        self.failed[index] = (key, failed)
+        tries = [m for m in tries if m not in failed]
         snap = None
         # (a moved support's what-if still counts it in the group it leaves, so when that trial fails the next move gets one)
-        trials = META_TRIALS if meta else 1 + bool(tries and tries[0][1] in donors)
+        trials = META_TRIALS if meta else MAIN_TRIALS
         for move in tries[:trials]:
             snap = snap or build.snapshot()
             donor = donors.get(move[1])
@@ -364,6 +376,7 @@ class Gems:
                 if out and kept is not None and out not in kept:
                     self._set_shortlist(meta, granted, [*kept, out])
                 return build.score > before + EPSILON
+            failed.add(move)
             if donor is not None:
                 build.restore(snap)  # (both groups back as they were)
             else:

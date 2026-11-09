@@ -791,9 +791,40 @@ def test_main_sweep_moves_a_support_another_group_holds_only_if_it_pays(engine, 
     gems.supports_round(full_sweep=True)
     assert (names(False), names(True)) == before  # not kept: both groups as they were
     monkeypatch.setattr(build, "worse", lambda before: False)
+    gems.failed.clear()  # (as if the build had changed: a move that failed on the same build isn't tried again)
     gems.supports_round(full_sweep=True)
     assert gem in names(False) and gem not in names(True)
     assert "Fireball" in names(True)
+
+
+def test_a_support_whose_trial_fails_lets_the_next_one_be_tried_and_is_not_tried_again(engine, monkeypatch):
+    """The what-if doesn't resolve conditions, so a support can rank first and lose in its trial every round (Exploit
+    Weakness took away the armour break it counted, 2b75d, POE2T351). The next moves get a trial (MAIN_TRIALS), and a move
+    that failed on the same build isn't tried again."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    main = gems.supports_group(build.groups(), meta=False)
+    held = {g["name"] for g in main["gems"]}
+    offered = [n for n in gems.candidates(main["index"], build.groups()) if n not in held and gems.usable(n)]
+    taken = set().union(*(gems.families(n) for n in held))
+    bad, good = [n for n in offered if not gems.families(n) & taken][:2]
+    gains = {bad: 1.0, good: 0.5}
+    monkeypatch.setattr(build, "gem_deltas", lambda cases, **kw: [(build.score + gains.get(c["gem"], 0.0), {}) for c in cases])
+    tried = []
+    monkeypatch.setattr(gems, "commit", lambda index, names, group=None: tried.append(
+        next((n for n in names if n not in held), None)))
+    judged = []  # the trials (discover's own measuring commits aren't judged)
+    monkeypatch.setattr(build, "worse", lambda before: judged.append(tried[-1]) or tried[-1] == bad)
+    monkeypatch.setattr(gems, "take_back", lambda *a, **kw: None)
+    gems.supports_round(full_sweep=True)
+    assert judged == [bad, good]  # the failed first move didn't use up the round
+    gains.pop(good)
+    judged.clear()
+    gems.supports_round(full_sweep=True)
+    assert bad not in judged  # nothing changed since it failed
 
 
 def test_a_support_a_sweep_move_takes_out_joins_the_shortlist(engine, monkeypatch):
