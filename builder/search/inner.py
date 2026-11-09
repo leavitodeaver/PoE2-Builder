@@ -414,8 +414,10 @@ class Search:
             gear_deadline = min(deadline, now + GEAR_SHARE * max(0.0, deadline - now))
         steps = [
             ("gear", self.gear.gear_round, (gear_deadline, full_gear)),
-            ("supports", self.gems.optimize_supports, (deadline, 12, sweep or "supports" in self.kicked)),
+            # (ascendancy before supports: Into the Breach is Explosive Transmutation's Remnant source, and supports
+            # swept before it scored all alike; a line's one pass of focus round 1 then ended support-less, POE2T220)
             ("ascendancy", self.tree.ascendancy_round, ()),
+            ("supports", self.gems.optimize_supports, (deadline, 12, sweep or "supports" in self.kicked)),
             ("tree", self.tree.grow, (deadline,)),
             ("attributes", self.tree.attributes_round, ()),
             ("jewels", self.jewels.jewel_round, (deadline, sweep or "gear" in self.kicked)),
@@ -432,7 +434,7 @@ class Search:
             ("prune and regrow", self.tree.swap_round, (deadline,)),
         ]
         if self.skeleton.swap:
-            steps.insert(2, ("weapon sets", self.weapon_set_round, ()))
+            steps.insert(3, ("weapon sets", self.weapon_set_round, ()))
         improved = False
         for phase, fn, args in steps:
             if clock.now() > deadline:
