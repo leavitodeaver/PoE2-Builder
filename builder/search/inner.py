@@ -323,6 +323,7 @@ class Search:
             "extra_groups": [[k, v] for k, v in sorted(self.assumptions.extra_groups.items())],
             "required_names": sorted(self.tree.required_names), "sources": sorted(self.tree.sources),
             "extra_stats": dict(self.build.extra_stats),
+            "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
         }
 
@@ -337,6 +338,8 @@ class Search:
         self.assumptions.extra_groups = {k: v for k, v in state.get("extra_groups") or []}
         self.build.objective.extra = bool(self.assumptions.extra_groups)
         self.build.extra_stats = dict(state.get("extra_stats") or {})
+        self.assumptions.infused = state.get("infused")  # (the Infused set the XML calculates, at its share)
+        self.assumptions.infused_skipped = dict(state.get("infused_skipped") or {})
         self.assumptions.reinstall()
         self.build.refresh()
         self.tree.required = set(state["required"])

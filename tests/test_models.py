@@ -791,3 +791,26 @@ def test_explosive_transmutation_counts_every_remnant_source_the_build_has():
                       ["Remnants you create reappear once, 1 second after being collected"])
     assert rate == pytest.approx(2 * breach) and "twice" in notes[-1]["basis"]
     assert assumptions.REMNANT_SOURCES["Siphon Elements"][0] == 0.0  # listed, labelled, not counted yet
+
+
+def test_infusion_supply_counts_each_element_from_the_build_s_sources():
+    """Elemental Infusions per second by element (assumptions.infusion_supply): Frost Bomb Cold with its cooldown
+    recovery, Orb of Storms Lightning, Snap split between the ailments the build keeps up, Elemental Equilibrium's shift,
+    extra Infusion Remnants and Infusions, another different Infusion, and timed Verisium Infusions (any element)."""
+    from builder.search.assumptions import REMNANT_SOURCES, infusion_supply
+
+    bomb, orb, snap = REMNANT_SOURCES["Frost Bomb"][0], REMNANT_SOURCES["Orb of Storms"][0], REMNANT_SOURCES["Snap"][0]
+    present = {"Frost Bomb": {"cooldownRecovery": 1.5}, "Orb of Storms": {}, "Snap": {}, "Siphon Elements": {}}
+    supply, used = infusion_supply(present, [], {"conditionEnemyIgnited", "conditionEnemyShocked"})
+    assert supply["Cold"] == pytest.approx(bomb * 1.5)
+    assert supply["Lightning"] == pytest.approx(orb + snap / 2) and supply["Fire"] == pytest.approx(snap / 2)
+    assert any("Siphon Elements" in u and "undercount" in u for u in used)
+    assert infusion_supply({"Snap": {}}, [], set())[0]["Fire"] == 0  # no ailment to consume
+    lines = ["Create Lightning Infusion Remnants instead of Fire", "50% chance to spawn an additional Infusion Remnant",
+             "20% chance to gain an additional Infusion", "40% chance when collecting an Elemental Infusion to gain another "
+             "different Elemental Infusion", "Every 5 seconds, gain a Verisium Infusion"]
+    supply, _ = infusion_supply({"Living Bomb": {}}, lines, set())
+    fire = REMNANT_SOURCES["Living Bomb"][0] * 1.5 * 1.2  # made as Lightning (Equilibrium)
+    assert supply["Lightning"] == pytest.approx(fire)
+    assert supply["Fire"] == pytest.approx(fire * 0.2) and supply["Cold"] == pytest.approx(fire * 0.2)
+    assert supply["Any"] == pytest.approx(1.2 / 5)

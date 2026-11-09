@@ -57,8 +57,85 @@ REMNANT_SOURCES = {
 NEEDS_MINIONS = {"Grim Feast"}  # its Remnants come from your minions' deaths
 REAPPEAR = re.compile(r"Remnants you create reappear once", re.I)  # Storm's Recollection: each is collected twice
 COOLDOWN_SOURCES = {"Snap", "Frost Bomb"}  # their rate scales with their own cooldown recovery
-INFUSED_NOTE = ("the Infused cast needs an Elemental Infusion, collected from a Remnant; how often you'd have one "
-                "isn't modelled yet, so only the plain cast counts (an undercount if you keep Infusions up)")
+INFUSED_NOTE = ("the Infused cast needs an Elemental Infusion of its element, collected from a Remnant, and none of the "
+                "build's skills makes that element's Infusions on a lone boss, so only the plain cast counts")
+# Elemental Infusions per second on a single boss, by element (game files, build 26476662: the skills whose description
+# leaves an Infusion Remnant, ActiveSkills search of 9 Nov, MECH19): Frost Bomb Cold, Orb of Storms Lightning, Living Bomb
+# Fire, Snap the element of the ailment it consumes; rates as REMNANT_SOURCES. Siphon Elements and Powered by Verisium
+# make some too, not counted yet (reasons below). The other Remnant sources (Into the Breach, Life, Mana, Power Charge
+# Remnants) make no Infusions.
+INFUSION_SOURCES = {
+    "Frost Bomb": "Cold", "Orb of Storms": "Lightning", "Living Bomb": "Fire", "Snap": None,
+}
+INFUSION_UNCOUNTED = {
+    "Siphon Elements": "Siphon Elements' Infusions (on Freeze, or Ignite/Shock of a target without that ailment) aren't "
+                       "counted yet: an undercount",
+    "Powered by Verisium": "Powered by Verisium's Infusions (from Ward spent) aren't counted yet: an undercount",
+}
+SNAP_AILMENTS = {"conditionEnemyIgnited": "Fire", "conditionEnemyShocked": "Lightning", "conditionEnemyFrozen": "Cold"}
+EQUILIBRIUM = re.compile(r"Create Lightning Infusion Remnants instead of Fire", re.I)  # Elemental Equilibrium
+EQUILIBRIUM_SHIFT = {"Fire": "Lightning", "Lightning": "Cold", "Cold": "Fire"}
+EXTRA_INFUSION_REMNANT = re.compile(r"(\d+(?:\.\d+)?)% chance to spawn an additional Infusion Remnant", re.I)
+EXTRA_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance to gain an additional Infusion$", re.I)
+OTHER_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance when collecting an Elemental Infusion to gain another different", re.I)
+KEEP_INFUSION = re.compile(r"^(\d+(?:\.\d+)?)% chance to not remove an Infusion but still count as consuming", re.I)
+VERISIUM_EVERY = re.compile(r"Every (?:(\d+(?:\.\d+)?) )?seconds?, gain an? Verisium Infusion", re.I)
+INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
+
+
+def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str]) -> tuple[dict[str, float], list[str]]:
+    """Elemental Infusions per second by element ("Any": Verisium Infusions, usable as any element), and what makes them.
+    `present`: the build's enabled skills by name; `lines`: its modifier lines; `ailments`: the resolver's active
+    condition vars (which ailment Snap consumes)."""
+    supply = {"Fire": 0.0, "Cold": 0.0, "Lightning": 0.0, "Any": 0.0}
+    used: list[str] = []
+    made: dict[str, float] = {}
+    for name, element in INFUSION_SOURCES.items():
+        skill = present.get(name)
+        if skill is None:
+            continue
+        rate = REMNANT_SOURCES[name][0] * ((skill.get("cooldownRecovery") or 1.0) if name in COOLDOWN_SOURCES else 1.0)
+        if element is None:  # Snap: the element of the ailment it consumes, split evenly between those the build keeps up
+            elements = [SNAP_AILMENTS[var] for var in sorted(ailments) if var in SNAP_AILMENTS]
+            if not elements:
+                used.append(f"{name} 0/s (no Ignite, Shock or Freeze on the boss to consume)")
+                continue
+            for e in elements:
+                made[e] = made.get(e, 0.0) + rate / len(elements)
+            used.append(f"{name} {rate:.2f}/s ({'/'.join(elements)}, its consumed ailment{'s split evenly' if len(elements) > 1 else ''})")
+        else:
+            made[element] = made.get(element, 0.0) + rate
+            used.append(f"{name} {rate:.2f}/s {element}")
+    used += [why for name, why in INFUSION_UNCOUNTED.items() if name in present]
+    texts = [t.strip() for t in lines]
+    if any(EQUILIBRIUM.search(t) for t in texts):
+        made = {EQUILIBRIUM_SHIFT[e]: r for e, r in made.items()}
+        used.append("Elemental Equilibrium shifts each Remnant's element (Fire to Lightning, Lightning to Cold, Cold to Fire)")
+    remnants = 1.0 + sum(float(m.group(1)) for t in texts if (m := EXTRA_INFUSION_REMNANT.search(t))) / 100.0
+    if any(REAPPEAR.search(t) for t in texts):
+        remnants *= 2.0
+    gain = 1.0 + sum(float(m.group(1)) for t in texts if "weapon" not in t.lower() and (m := EXTRA_INFUSION.search(t))) / 100.0
+    other = sum(float(m.group(1)) for t in texts if (m := OTHER_INFUSION.search(t))) / 100.0
+    for e, rate in made.items():
+        rate *= remnants * gain
+        supply[e] += rate
+        for o in ("Fire", "Cold", "Lightning"):  # "another different" one: assumed either other element, evenly
+            if o != e:
+                supply[o] += rate * other / 2
+    for t in texts:
+        if m := VERISIUM_EVERY.search(t):
+            every = float(m.group(1) or 1.0)
+            supply["Any"] += gain / every
+            used.append(f"a Verisium Infusion every {every:g} s (any element)")
+    if remnants != 1.0:
+        used.append(f"x{remnants:g} Infusion Remnants (additional ones, or collected twice)")
+    if gain != 1.0:
+        used.append(f"+{gain - 1:.0%} chance of an additional Infusion")
+    if other:
+        used.append(f"{other:.0%} chance of another, different Infusion (assumed either other element, evenly)")
+    return supply, used
+
+
 ADDITIONAL_REMNANT = re.compile(r"(\d+(?:\.\d+)?)% chance to create an additional Remnant", re.I)
 REMNANT_CONSUMERS = {"Transmutation Explosion"}
 
@@ -86,6 +163,10 @@ class Assumptions:
         self.cooldown_fallback: set[str] = set()  # triggered main skills PoB gave no rate
         self.extra_groups: dict[int, int | None] = {}  # groups whose triggered skills count through Full DPS
         self.stat_sets: dict[int, int] = {}  # stat sets chosen for them
+        # The main skill's Infused stat set while it's the calculated one (Gems.choose_active_skill): label, factor (its
+        # damage scaled to plain + share x (Infused - plain)), share, basis. `infused_skipped`: label -> why it isn't
+        self.infused: dict | None = None
+        self.infused_skipped: dict[str, str] = {}
 
     def main_skill(self) -> str | None:
         group = self.build.main_group()
@@ -231,11 +312,36 @@ class Assumptions:
         group = self.build.main_group()
         infused = sorted({label for skill in (group or {}).get("skills", []) for label in skill.get("statSets") or []
                           if INFUSED_SET.search(label)})
-        if infused:
-            notes.append({"label": f"{main}: {', '.join(infused)} cast not counted", "value": 0,
-                          "basis": INFUSED_NOTE, "confidence": "theory"})
+        chosen = self.infused if self.infused is not None and self.infused["label"] in infused else None
+        if chosen is not None:
+            mods.append(models.line("1% more Damage", 100.0 * (chosen["factor"] - 1.0), skill=main))
+            notes.append({"label": f"{main}: share of casts that are {chosen['label']}", "value": round(chosen["share"], 2),
+                          "basis": chosen["basis"] + "; the rest are the plain cast, so its damage counts as plain + "
+                                   f"{chosen['share']:.0%} of the Infused cast's gain",
+                          "play": "Collect each Infusion Remnant as it appears; one left lying stops counting.",
+                          "confidence": "game files' rates; assumed cadences as labelled (launch-test the pickup rate)"})
+        for label in infused:
+            if chosen is None or label != chosen["label"]:
+                notes.append({"label": f"{main}: {label} cast not counted", "value": 0,
+                              "basis": self.infused_skipped.get(label, INFUSED_NOTE), "confidence": "theory"})
         mods += [{"kind": "Condition", "name": name} for name in self.ledger_conditions(skills)]
         return mods, notes
+
+    def infusion_share(self, element: str, ailments: set[str]) -> tuple[float, str]:
+        """The share of the main skill's casts that find an Elemental Infusion of `element` (one consumed per cast):
+        the build's supply (infusion_supply) over its casts per second, less those that keep the Infusion."""
+        build = self.build
+        present = {s["name"]: s for s in build.call("activeSkills")["skills"] if not s["disabled"]}
+        lines = [line["text"] for line in build.call("sourceLines")["lines"]]
+        supply, used = infusion_supply(present, lines, ailments)
+        keep = min(1.0, sum(float(m.group(1)) for t in lines if (m := KEEP_INFUSION.search(t.strip()))) / 100.0)
+        uses = float(build.call("stats", fields=["Speed"]).get("Speed") or 0.0)
+        have = supply[element] + supply["Any"]
+        needed = uses * (1.0 - keep)
+        share = min(1.0, have / needed) if needed > 0 else float(have > 0)
+        basis = (f"{have:.2f} {element} Infusions/s from {', '.join(used) or 'nothing'} for {uses:.2f} casts/s"
+                 + (f", {keep:.0%} of casts keeping theirs" if keep else ""))
+        return share, basis
 
     def ledger_conditions(self, skills: list[dict]) -> list[str]:
         """Ledger conditions the build's skills switch on (e.g. it uses a skill that requires Glory)."""

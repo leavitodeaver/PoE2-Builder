@@ -447,9 +447,9 @@ def test_a_support_trial_taken_back_below_where_it_was_restores_the_build(engine
     assert abs(build.score - snap["score"]) < 1e-6
 
 
-def test_an_infused_stat_set_is_no_choice_and_the_result_says_so(engine):
-    """Spark's Cold-Infused cast needs an Elemental Infusion from a Remnant, a supply not modelled yet: chosen by score
-    alone it counted every cast as Infused. It's no choice now, and the assumptions name what isn't counted."""
+def test_an_infused_stat_set_is_no_choice_without_a_source_and_the_result_says_so(engine):
+    """Spark's Cold-Infused cast needs a Cold Infusion from a Remnant: chosen by score alone it counted every cast as
+    Infused. With no source in the build it's no choice, and the assumptions name what isn't counted."""
     from builder.search.conditions import stat_set_needs
     from builder.search.inner import Search
     from builder.search.skeletons import enumerate_skeletons
@@ -465,6 +465,37 @@ def test_an_infused_stat_set_is_no_choice_and_the_result_says_so(engine):
     assert not search.conditions.allows("Cold-Infused") and not search.conditions.allows("Cold-Infused", ("x",))
     _, notes = search.assumptions.wanted()
     assert any("Cold-Infused cast not counted" in n["label"] for n in notes)
+
+
+def test_an_infused_stat_set_counts_at_the_share_of_casts_its_source_covers(engine):
+    """With Frost Bomb in the build (Cold Infusions, one per 6 s cooldown) Spark's Cold-Infused set is a choice, its
+    damage counted as plain + share x the Infused gain, share = Infusions per second / casts per second."""
+    from builder.search.assumptions import REMNANT_SOURCES
+    from builder.search.inner import Search
+    from builder.search.objective import main_dps
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Spark")
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    build, assumptions = search.build, search.assumptions
+    build.set_group(gems=[{"name": "Frost Bomb", "level": 20, "quality": 0}])
+    search.gems.choose_active_skill()
+    speed = build.call("stats", fields=["Speed"])["Speed"]
+    infused = assumptions.infused
+    if infused is None:  # the plain cast won: the reason names the source and the share
+        assert "Frost Bomb" in assumptions.infused_skipped["Cold-Infused"]
+        return
+    assert infused["label"] == "Cold-Infused" and "Frost Bomb" in infused["basis"]
+    assert infused["share"] == pytest.approx(min(1.0, REMNANT_SOURCES["Frost Bomb"][0] / speed), rel=0.05)
+    blended = main_dps(build.stats)
+    _, notes = assumptions.wanted()
+    assert any("share of casts that are Cold-Infused" in n["label"] for n in notes)
+    assumptions.infused = None
+    assumptions.apply()
+    raw = main_dps(build.stats)  # every cast Infused, PoB's own number
+    assert raw > blended and blended / raw == pytest.approx(infused["factor"], rel=0.02)
 
 
 def test_a_support_sweep_where_nothing_changes_the_score_keeps_no_shortlist(engine, monkeypatch):

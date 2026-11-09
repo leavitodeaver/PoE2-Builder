@@ -10,7 +10,9 @@ not buttons, so they never touch the button cap.
 from __future__ import annotations
 
 from builder import clock
+from builder.search.assumptions import INFUSED_ELEMENT, INFUSED_NOTE
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS, SUPPORT_SLOTS
+from builder.search.objective import main_dps
 from builder.search.state import EPSILON, Build
 from builder.search.tree import GRANTED_METAS
 
@@ -425,17 +427,54 @@ class Gems:
         if len(options) <= 1:
             return
         settle_fn = self.settle if settle else None
+        assumptions = self.assumptions
+        if assumptions is not None:
+            assumptions.infused, assumptions.infused_skipped = None, {}
         best = None
+        plain: dict[int, float] = {}  # each skill's plain cast's main-skill DPS, for its Infused sets
+        tried: list[dict] = []
         for active, part, stat_set, label in options:
-            if self.conditions is not None and not self.conditions.allows(label, assume):
+            infused = None
+            element = INFUSED_ELEMENT.search(label or "")
+            if element is not None:
+                # An Infused set (Elemental Infusions): a choice only with that element's Infusions coming in, at the
+                # share of casts they cover (Assumptions.infusion_share); its damage counts as plain + share x the gain
+                if settle_fn is None or assumptions is None or active not in plain:
+                    continue
+                if self.conditions is not None and not self.conditions.allows(label.replace(element.group(0), ""), assume):
+                    continue  # (whatever else the set needs, e.g. Frenzy-Charged)
+                element = element.group(1).capitalize()
+                build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part, statSet=stat_set)
+                settle_fn()
+                share, basis = assumptions.infusion_share(element, set(self.conditions.active) if self.conditions else set())
+                if share <= 0:
+                    assumptions.infused_skipped[label] = INFUSED_NOTE + f" ({basis})"
+                    continue
+                raw = main_dps(build.stats)
+                factor = (plain[active] + share * (raw - plain[active])) / raw if raw > 0 else 1.0
+                infused = {"label": label, "factor": factor, "share": share, "basis": basis}
+                assumptions.infused = infused
+            elif self.conditions is not None and not self.conditions.allows(label, assume):
                 continue
-            build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part, statSet=stat_set)
+            else:
+                build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part, statSet=stat_set)
             if settle_fn is not None:
                 settle_fn()
+            if infused is None and active not in plain:
+                plain[active] = main_dps(build.stats)
             if best is None or build.score > best[0]:
-                best = (build.score, active, part, stat_set)
+                best = (build.score, active, part, stat_set, infused)
+            if infused is not None:
+                tried.append(infused)
+                assumptions.infused = None
         if best is None:
-            best = (None, *options[0][:3])
+            best = (None, *options[0][:3], None)
+        if assumptions is not None:
+            assumptions.infused = best[4]
+            for infused in tried:
+                if infused is not best[4]:
+                    assumptions.infused_skipped[infused["label"]] = (
+                        f"scores lower than another cast with {infused['share']:.0%} of casts Infused ({infused['basis']})")
         build.set_group(index=group["index"], mainActiveSkill=best[1], skillPart=best[2], statSet=best[3])
         if settle_fn is not None:
             settle_fn()
