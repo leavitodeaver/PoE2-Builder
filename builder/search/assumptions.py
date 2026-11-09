@@ -48,12 +48,13 @@ REMNANT_SOURCES = {
     "Living Bomb": (0.2, "assumed: one seed detonated every 5 s"),
     "Grim Feast": (0.1, "assumed: one Reviving minion dies every 10 s"),
     "Orb of Storms": (0.0833, "one Orb kept up: a Remnant when each 12 s Orb expires"),
-    "Remnants of Kalguur": (0.5 / models.HEAVY_STUN_EVERY[False],
-                            "50% per Stun, assumed one Heavy Stun of the boss per 60 s"),
+    "Remnants of Kalguur": (0.0, "50% per Stun: the boss's Heavy Stuns (models.heavy_stun_rate, from the build's "
+                                 "own buildup; light stuns of a boss not counted)"),
     "Siphon Elements": (0.0, "not counted: Ignite and Shock make one only on a target without that ailment, which a "
                              "boss you keep ailing rarely is, and Freeze (per Power) needs the Freeze buildup model; "
                              "an undercount"),
 }
+KALGUUR, KALGUUR_CHANCE = "Remnants of Kalguur", 0.5  # its rate is the boss's Heavy Stuns, worked out per build
 NEEDS_MINIONS = {"Grim Feast"}  # its Remnants come from your minions' deaths
 REAPPEAR = re.compile(r"Remnants you create reappear once", re.I)  # Storm's Recollection: each is collected twice
 COOLDOWN_SOURCES = {"Snap", "Frost Bomb"}  # their rate scales with their own cooldown recovery
@@ -264,6 +265,9 @@ class Assumptions:
                     continue
                 if name in COOLDOWN_SOURCES:
                     rate *= skill.get("cooldownRecovery") or 1.0
+                if name == KALGUUR:
+                    stuns, how = models.heavy_stun_rate(self.build.call("stats", fields=models.MODEL_FIELDS))
+                    rate, condition = KALGUUR_CHANCE * stuns, f"50% per Stun, {how}"
                 supply += rate
                 used.append(f"{name} {rate:.2f}/s ({condition})")
             lines = self.build.call("sourceLines")["lines"]

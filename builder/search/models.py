@@ -33,7 +33,7 @@ MODEL_FIELDS = sorted({
     "Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
     "EnergyShieldRegenRecovery", "EnergyShieldRecharge",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
-    "FreezeBuildupAvg", "ElectrocuteBuildupAvg",
+    "FreezeBuildupAvg", "ElectrocuteBuildupAvg", "HeavyStunBuildupAvg",
     "Darkness", "Str", "Dex", "Int", *(f"{t}CritAverage" for t in DAMAGE_TYPES), *(f"{t}HitAverage" for t in DAMAGE_TYPES),
     *(f"MainHand.{t}CritAverage" for t in DAMAGE_TYPES),
     # Barrier Invocation: the Energy Shield each boss hit takes
@@ -1623,18 +1623,60 @@ def maelstrom_inputs(lines: list[dict], dps: float, enemy_chaos_resist: float = 
     return []
 
 
+# Heavy Stuns of the boss (heavy_stun_rate) ------------------------------------------------------------------------------
+# The game's keyword text (KeywordPopups HeavyStun, Stun, Cold; build 26476662): hits build up the target's Stun bar by
+# the damage they deal, a Heavy Stun when it fills; player Physical and Melee damage each build 50% more; "Cold hits ...
+# cannot build up Heavy Stun"; and "it will also be harder to Heavy Stun them again for a short time afterwards". PoB
+# works out a hit's average buildup (HeavyStunBuildupAvg, % of the bar, Physical and Melee bonuses and the build's own
+# stun buildup modifiers in) against its Pinnacle preset, and three things are corrected here:
+# - Cold: PoB's buildup counts Cold damage (Data.lua buildupTypes.HeavyStun lists it), the game says it builds none; the
+#   Cold share of the weighted hit (Physical x1.5) is taken out.
+# - The threshold: PoB's Pinnacle preset is the level's monster threshold (DefaultMonsterStats.PoiseThreshold, which PoB's
+#   table matches: 236,905 at 82) x6 unique (MonsterUnique2, +500% final, as the files) x9.38 "Xesht" (+838%). The game
+#   files' Xesht (MonsterVarieties ItThatReturned, row 1946) has PoiseThreshold 1700, read as x17.00 (the column is 100
+#   for 1,008 of 2,794 varieties): buildup x9.38/17.00. The Arbiter of Ash is x12.35 (rows 1954-1955).
+# - Again afterwards: the game constants HeavyStunThresholdModifier 500 and HeavyStunModifierDuration 16.5 (as PoB's
+#   Data/Misc.lua reads them; PoB doesn't use them), read as +500% threshold for 16.5 s after each Heavy Stun. With t the
+#   time to fill the bar at the plain threshold, a stun comes every 6t if 6t <= 16.5 s, else every 16.5 + (1 - 16.5/6t)t.
+# Only the main skill's hits count (other skills' buildup is an undercount); the bar's decay between hits isn't modelled
+# (a main skill hits more often than any decay delay); the first stun's shorter wait isn't counted.
+HEAVY_STUN_BOSS = (9.38, 17.00)  # PoB's Pinnacle (Xesht) threshold multiplier, the game files' Xesht variety
+HEAVY_STUN_REPEAT = (6.0, 16.5)  # threshold x(1 + 500%) for 16.5 s after a Heavy Stun
+HEAVY_STUN_PHYSICAL = 1.5  # player Physical damage's 50% more buildup (weighting the Cold share)
+
+
+def heavy_stun_rate(stats: dict) -> tuple[float, str]:
+    """Heavy Stuns of the boss per second from the main skill's hits, and how it was worked out."""
+    per_hit = number(stats.get("HeavyStunBuildupAvg")) / 100
+    hits = hits_per_second(stats)
+    if per_hit <= 0 or hits <= 0:
+        return 0.0, "the main skill's hits build no Heavy Stun"
+    crit = min(number(stats.get("CritChance")), 100) / 100
+    weight = {t: (number(stats.get(f"{t}HitAverage")) * (1 - crit) + number(stats.get(f"{t}CritAverage")) * crit)
+              * (HEAVY_STUN_PHYSICAL if t == "Physical" else 1.0) for t in DAMAGE_TYPES}
+    total = sum(weight.values())
+    uncold = 1 - weight["Cold"] / total if total > 0 else 1.0
+    fill = per_hit * uncold * HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1] * hits  # bars per second at the plain threshold
+    if fill <= 0:
+        return 0.0, "Cold hits build no Heavy Stun (the game's Cold text; PoB counts them)"
+    t = 1 / fill
+    times, window = HEAVY_STUN_REPEAT
+    every = times * t if times * t <= window else window + (1 - window / (times * t)) * t
+    basis = (f"{per_hit:.2%} of the boss's Stun bar per hit (PoB){f', {1 - uncold:.0%} of it Cold, which builds none' if uncold < 1 else ''}, "
+             f"x{HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1]:.2f} for the game files' Xesht threshold, {hits:.2f} hits/s: "
+             f"full in {t:.1f} s, then +500% threshold for 16.5 s after each stun: one every {every:.1f} s")
+    return 1 / every, basis
+
+
 # Guided Hand (model: guided_hand) --------------------------------------------------------------------------------------
 # "The next Attack you use within 4 seconds after Heavy Stunning a Rare or Unique Enemy is Ancestrally Boosted" and
 # "Ancestrally Boosted Attacks deal 30% increased Damage" (passive tree). PoB parses the second line but scales it by an
-# Ancestral Boost uptime only its known sources set, so on its own the node does nothing. Share of attacks boosted = heavy
-# stuns per second / attacks per second. PoB has no stun bar for a boss (nor its life), so the heavy-stun rate is an
-# assumption by the build's own kind of damage (poe2db: player Physical damage and Melee each give 50% more stun buildup):
-# one Heavy Stun of the boss per 30 s with a Physical melee main skill, per 60 s otherwise. Counted as the equivalent
+# Ancestral Boost uptime only its known sources set, so on its own the node does nothing. Share of attacks boosted = Heavy
+# Stuns per second (heavy_stun_rate, from the main skill's own buildup) / attacks per second. Counted as the equivalent
 # increased Attack Damage, only while the passive's ledger condition is on.
 
 GUIDED_HAND = "GuidedHand"
 BOOSTED_LINE = re.compile(r"^Ancestrally Boosted Attacks deal (\d+)% increased Damage$", re.I)
-HEAVY_STUN_EVERY = {True: 30.0, False: 60.0}  # seconds between Heavy Stuns of a pinnacle boss: Physical melee or not
 
 
 def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
@@ -1644,19 +1686,18 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
     speed = number(stats.get("Speed"))
     if boost <= 0 or speed <= 0:
         return [], []
-    physical_melee = main.melee and number(stats.get("PhysicalHitAverage")) > 0
-    every = HEAVY_STUN_EVERY[physical_melee]
-    share = min(1.0, (1 / every) / speed)
+    stuns, basis = heavy_stun_rate(stats)
+    share = min(1.0, stuns / speed)
     when = inputs.condition(GUIDED_HAND, True)
     if when is None:
         return [], []
-    # (the share is worked out again by the bridge from each calculation's attack speed)
+    # (the bridge works the share out again from each calculation's own buildup and attack speed)
     return [line("1% increased Attack Damage", boost / UNIT, when=when, per=GUIDED_HAND),
-            derived(GUIDED_HAND, "guidedHand", share * UNIT, every=every)], [{
+            derived(GUIDED_HAND, "guidedHand", share * UNIT, boss=HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1],
+                    physical=HEAVY_STUN_PHYSICAL, times=HEAVY_STUN_REPEAT[0], window=HEAVY_STUN_REPEAT[1])], [{
         "label": "Guided Hand: Ancestrally Boosted attacks after a Heavy Stun",
         "value": f"{share:.1%} of attacks boosted ({boost}% increased Damage on those)",
-        "basis": f"one Heavy Stun of the boss every {every:g} s assumed ({'a Physical melee' if physical_melee else 'not a Physical melee'} "
-                 f"main skill; PoB has no stun bar for a boss) against {speed:.2f} attacks per second",
+        "basis": f"{basis}; against {speed:.2f} attacks per second",
         "play": "A build made to stun (more stun buildup, Physical melee slams) heavy-stuns more often and boosts more attacks.",
         "confidence": "theory", "entry": "guided-hand-boost"}]
 

@@ -302,13 +302,35 @@ function DERIVED.sanguine(out, a)
 	return math.floor(DERIVED_UNIT * (a.perPercent or 2.5) * spent / life * 100 + 0.5)
 end
 
--- Guided Hand (models.guided_hand_model): share of attacks after a Heavy Stun every args.every s
+-- Guided Hand (models.guided_hand_model): share of attacks after a Heavy Stun, the boss's Heavy Stuns per second as
+-- models.heavy_stun_rate works them out (the hit's buildup less its Cold share, the game files' threshold, +500% for
+-- a.window s after each stun)
+local HEAVY_STUN_TYPES = { "Physical", "Fire", "Cold", "Lightning", "Chaos" }
+
 function DERIVED.guidedHand(out, a)
 	local speed = num(out.Speed)
-	if speed <= 0 then
+	local hits = speed * num(out.HitChance) / 100
+	local perHit = num(out.HeavyStunBuildupAvg) / 100
+	if speed <= 0 or hits <= 0 or perHit <= 0 then
 		return 0
 	end
-	return math.floor(DERIVED_UNIT * math.min(1, (1 / (a.every or 60)) / speed) + 0.5)
+	local crit = math.min(num(out.CritChance), 100) / 100
+	local total, cold = 0, 0
+	for _, t in ipairs(HEAVY_STUN_TYPES) do
+		local w = (num(out[t .. "HitAverage"]) * (1 - crit) + num(out[t .. "CritAverage"]) * crit) * (t == "Physical" and a.physical or 1)
+		total = total + w
+		if t == "Cold" then
+			cold = w
+		end
+	end
+	local uncold = total > 0 and 1 - cold / total or 1
+	local fill = perHit * uncold * a.boss * hits
+	if fill <= 0 then
+		return 0
+	end
+	local t = 1 / fill
+	local every = a.times * t <= a.window and a.times * t or a.window + (1 - a.window / (a.times * t)) * t
+	return math.floor(DERIVED_UNIT * math.min(1, (1 / every) / speed) + 0.5)
 end
 
 -- Harmony Within (models.harmony_model): on while unreserved Mana is above Life

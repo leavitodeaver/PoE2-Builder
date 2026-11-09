@@ -352,10 +352,11 @@
   replace: ['flag:GuidedHand']
   confidence: theory
   notes: >-
-    builder/search/models.py guided_hand_model: share of attacks boosted = Heavy Stuns per second / attacks per second, at
-    an assumed one Heavy Stun of the boss per 30 s (Physical melee main skill) or 60 s (otherwise); PoB has no stun bar for
-    a boss. The boost's own line ("Ancestrally Boosted Attacks deal 30% increased Damage") is counted at that share.
-  sources: ["https://poe2db.tw/us/Heavy_Stun", "PoE2 0.2.0 patch notes (Primed for Stun at 70% for Unique monsters)"]
+    builder/search/models.py guided_hand_model: share of attacks boosted = Heavy Stuns per second / attacks per second,
+    the stuns from models.heavy_stun_rate (the main skill's own buildup: PoB's per-hit buildup less its Cold share, at the
+    game files' Xesht threshold, +500% threshold for 16.5 s after each stun). The boost's own line ("Ancestrally Boosted Attacks deal 30% increased Damage") is counted at that share.
+  sources: ["https://poe2db.tw/us/Heavy_Stun", "PoE2 0.2.0 patch notes (Primed for Stun at 70% for Unique monsters)",
+            "game files build 26476662: KeywordPopups HeavyStun/Stun/Cold, DefaultMonsterStats, MonsterVarieties, Mods MonsterUnique2"]
   test_in_game: "On a boss, count your Heavy Stuns over a minute of fighting; the result's share follows from that."
   status: proposed
 

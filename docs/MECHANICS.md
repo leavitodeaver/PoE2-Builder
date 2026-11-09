@@ -529,8 +529,8 @@ Priority 1817.2 · impact 3 · effort S · 137 lines not counted of 702 linked �
 Priority 1266.1 · impact 4 · effort L · 90 lines not counted of 648 linked · 33 gems mention it · what-ifs: invisible
 
 - **Game:** Hits build stun on the target relative to its stun threshold (Physical and melee 50% more each); a Unique is Primed at 70%; a Heavy Stun follows when full. (https://poe2db.tw/us/Heavy_Stun)
-- **PoB (checked):** conditionEnemyHeavyStunned is a box; PoB computes stun durations but no buildup on a boss, and no boss life or threshold.
-- **Now:** Guided Hand assumes one Heavy Stun of a pinnacle boss per 30 s (Physical melee) or 60 s; 'against Heavy Stunned' lines need the box.
+- **PoB (checked):** conditionEnemyHeavyStunned is a box. PoB computes a hit's buildup (HeavyStunBuildupAvg) against its Pinnacle preset's threshold, but counts Cold (the game says Cold builds none), uses x9.38 for Xesht where the game files' variety has x17.00, and ignores the +500% threshold for 16.5 s after a Heavy Stun (game constants HeavyStunThresholdModifier/ModifierDuration).
+- **Now:** models.heavy_stun_rate (9 Nov): Heavy Stuns per second from the main skill's own buildup, PoB's three faults corrected; used by Guided Hand and Remnants of Kalguur. Other skills' buildup, the bar's decay and the first stun's shorter wait aren't counted; 'against Heavy Stunned' / Primed lines still need the box.
 - **Plan:** custom model: Buildup per second = hit damage x buildup modifiers / the boss's stun threshold (the boss's life from a table by area level, a labelled assumption); Heavy Stuns per second and their duration give the uptime of 'Heavy Stunned' and 'Primed'. Inputs: hit damage, buildup modifiers, boss life table. On while: enough buildup to fill the bar.
 - **Guide note:** Boss Heavy Stunned X% of the fight (one per Y s) at your stun buildup.
 - **PoB options:** `conditionHitsAlwaysHeavyStun` (off), `conditionEnemyDazed` (off), `conditionEnemyHeavyStunned` (off)

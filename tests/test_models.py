@@ -442,18 +442,69 @@ def test_melting_maelstrom_pulses_are_the_mana_you_spend():
                                                        "args": {"share": 1.0, "chaosResist": 0.0}}]
 
 
+def test_heavy_stuns_come_from_the_hits_buildup_less_cold_at_the_game_files_threshold():
+    """The boss's Heavy Stuns per second from PoB's per-hit buildup (POE2 9 Nov, MECH20): x9.38/17.00 for the game
+    files' Xesht threshold, Cold's share taken out (the game's Cold text), +500% threshold for 16.5 s after each stun."""
+    phys = {"HeavyStunBuildupAvg": 10.0, "Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000}
+    stuns, basis = models.heavy_stun_rate(phys)
+    t = 1 / (0.10 * 9.38 / 17.0 * 2.0)  # 9.06 s to fill at the plain threshold; 6t > 16.5 s
+    assert stuns == pytest.approx(1 / (16.5 + (1 - 16.5 / (6 * t)) * t)) and "one every 22.8 s" in basis
+    fast = {**phys, "HeavyStunBuildupAvg": 50.0}  # 6t = 10.9 s: within the +500% window
+    assert models.heavy_stun_rate(fast)[0] == pytest.approx(0.50 * 9.38 / 17.0 * 2.0 / 6)
+    # half the weighted hit Cold (Physical counts x1.5): Cold's share builds none
+    mixed = {**phys, "PhysicalHitAverage": 1000, "ColdHitAverage": 1500}
+    t = 1 / (0.10 * 0.5 * 9.38 / 17.0 * 2.0)
+    assert models.heavy_stun_rate(mixed)[0] == pytest.approx(1 / (16.5 + (1 - 16.5 / (6 * t)) * t))
+    assert models.heavy_stun_rate({**phys, "PhysicalHitAverage": 0, "ColdHitAverage": 1000})[0] == 0
+    assert models.heavy_stun_rate({"Speed": 2.0, "HitChance": 100})[0] == 0
+
+
 def test_guided_hand_boosts_the_attacks_after_a_heavy_stun():
     passive = models.Inputs(flags={"GuidedHand"})
     lines = [{"source": "passive:Guided Hand", "text": "Ancestrally Boosted Attacks deal 30% increased Damage"}]
     slam = models.Skill("Boneshatter", attack=True, melee=True)
-    mods, notes = models.guided_hand_model(passive, lines, {"Speed": 2.0, "PhysicalHitAverage": 1000}, slam)
-    # one Heavy Stun per 30 s against 2 attacks per second: 1/60 of attacks get 30% increased damage
-    assert effective(mods) == [("1% increased Attack Damage", 0.5, [{"var": "GuidedHand"}])]
-    assert mods[1]["fn"] == "guidedHand" and mods[1]["args"] == {"every": 30.0}
-    assert "30 s" in notes[0]["basis"]
+    stats = {"Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000, "HeavyStunBuildupAvg": 10.0}
+    mods, notes = models.guided_hand_model(passive, lines, stats, slam)
+    stuns = models.heavy_stun_rate(stats)[0]  # one per 22.8 s against 2 attacks per second
+    (text, value, when), = effective(mods)
+    assert text == "1% increased Attack Damage" and value == 30 * stuns / 2.0 and when == [{"var": "GuidedHand"}]
+    assert mods[1]["fn"] == "guidedHand" and mods[1]["value"] == round(stuns / 2.0 * models.UNIT)
+    assert "22.8 s" in notes[0]["basis"]
+    # no buildup (a Cold attack): nothing boosted
+    cold = models.guided_hand_model(passive, lines, {**stats, "PhysicalHitAverage": 0, "ColdHitAverage": 1000}, slam)
+    assert effective(cold[0])[0][1] == 0.0
     spell = models.Skill("Spark", spell=True)
     assert models.guided_hand_model(passive, lines, {"Speed": 2.0}, spell) == ([], [])
     assert models.guided_hand_model(models.Inputs(), lines, {"Speed": 2.0}, slam) == ([], [])
+
+
+def test_the_bridge_works_guided_hands_share_out_as_the_model_does():
+    """engine/bridge.lua's DERIVED.guidedHand, run on PoB's LuaJIT alone, against models.guided_hand_model."""
+    import re as _re
+
+    from builder import ENGINE_DIR, POB_DIR
+    from builder.pob.lua import LuaState
+
+    source = (ENGINE_DIR / "bridge.lua").read_text(encoding="utf-8")
+    block = _re.search(r"local HEAVY_STUN_TYPES.*?\nend\n", source, _re.S).group(0)
+    passive = models.Inputs(flags={"GuidedHand"})
+    lines = [{"source": "passive:Guided Hand", "text": "Ancestrally Boosted Attacks deal 30% increased Damage"}]
+    slam = models.Skill("Boneshatter", attack=True, melee=True)
+    lua = LuaState(POB_DIR / "runtime")
+    try:
+        for stats in ({"Speed": 2.0, "HitChance": 90, "PhysicalHitAverage": 1000, "ColdHitAverage": 400,
+                       "PhysicalCritAverage": 2500, "CritChance": 20, "HeavyStunBuildupAvg": 10.0},
+                      {"Speed": 1.5, "HitChance": 100, "PhysicalHitAverage": 1000, "HeavyStunBuildupAvg": 60.0},
+                      {"Speed": 1.5, "HitChance": 100, "ColdHitAverage": 1000, "HeavyStunBuildupAvg": 60.0}):
+            derived = models.guided_hand_model(passive, lines, stats, slam)[0][1]
+            out = ", ".join(f"{k} = {v}" for k, v in stats.items())
+            args = ", ".join(f"{k} = {v!r}" for k, v in derived["args"].items())
+            code = ("local DERIVED, DERIVED_UNIT = { }, 1000000\n"
+                    "local function num(v) return type(v) == 'number' and v == v and v or 0 end\n"
+                    f"{block}return tostring(DERIVED.guidedHand({{ {out} }}, {{ {args} }}))")
+            assert int(float(lua.run(code, "guided")[0])) == derived["value"]
+    finally:
+        lua.close()
 
 
 def test_sanguine_tides_gain_follows_the_life_spent():
