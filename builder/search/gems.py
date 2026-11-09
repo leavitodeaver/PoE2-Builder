@@ -280,6 +280,13 @@ class Gems:
                 self.release(donor, move[1])
             self.commit(index, self.with_move(names, move), group)
             if not build.worse(before):
+                # The support a move takes out was in the group during the sweep, so it was never ranked: it joins the
+                # shortlist, for the next round's weakest slot. 2b75d, 9 Nov: finalize's sweep put Deadly Resolve in
+                # Exploit Weakness's slot, and Exploit Weakness never came back for Heft's (261,304, POE2T285; with both,
+                # 581,508, POE2T286)
+                out, kept = (names[move[0] - 1] if move[0] <= len(names) else None), self._shortlist(meta, granted)
+                if out and kept is not None and out not in kept:
+                    self._set_shortlist(meta, granted, [*kept, out])
                 return build.score > before + EPSILON
             if donor is not None:
                 build.restore(snap)  # (both groups back as they were)

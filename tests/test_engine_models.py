@@ -792,3 +792,24 @@ def test_main_sweep_moves_a_support_another_group_holds_only_if_it_pays(engine, 
     gems.supports_round(full_sweep=True)
     assert gem in names(False) and gem not in names(True)
     assert "Fireball" in names(True)
+
+
+def test_a_support_a_sweep_move_takes_out_joins_the_shortlist(engine, monkeypatch):
+    """The support a sweep's move replaces was never ranked (it was in the group), so later weakest-slot rounds couldn't
+    put it back in another slot: 2b75d's finalize swapped Exploit Weakness for Deadly Resolve and stopped there (POE2T285)."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    main = gems.supports_group(build.groups(), meta=False)
+    offered = [c for c in gems.candidates(main["index"], build.groups()) if gems.usable(c)]
+    out, into = offered[0], next(c for c in offered[1:] if not gems.families(c) & gems.families(offered[0]))
+    gems.commit(main["index"], ["Boneshatter", out])
+    monkeypatch.setattr(build, "gem_deltas", lambda cases, **kw: [
+        (build.score + (1.0 if (c["slot"], c["gem"]) == (2, into) else -0.001 * i), {}) for i, c in enumerate(cases)])
+    monkeypatch.setattr(build, "worse", lambda before: False)
+    gems.supports_round(full_sweep=True)
+    names = [g["name"] for g in gems.supports_group(build.groups(), meta=False)["gems"]]
+    assert names == ["Boneshatter", into]
+    assert out in gems.shortlist
