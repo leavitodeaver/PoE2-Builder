@@ -137,8 +137,11 @@ class Run:
             self.evals_done += result.get("evals", 0)
             # Every search's result, for comparing a run's lines: where it ended, its main group, the steps that ran
             # past the task's deadline (the hard stop caps them), its wall time, the time its clock left out, each
-            # phase's seconds, evaluations and gain, its requirement raises and its reverts
+            # phase's seconds, evaluations and gain, its requirement raises and its reverts; the requirements
+            # its build still misses (empty: it met every floor) and their weighted shortfall
             self.emit("task", skeleton=result["label"], dps=result["dps"], value=result.get("value"),
+                      deficits=[d["label"] for d in result["deficits"]],
+                      shortfall=round(shortfall(result["deficits"]), 6),
                       main=result.get("main_gems"), phases=result.get("overrun", {}),
                       wall=result.get("wall"), left_out=result.get("left_out"), ran=result.get("ran"),
                       timing=result.get("timing"), escalations=result.get("escalations"),

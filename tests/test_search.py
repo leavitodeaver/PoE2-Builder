@@ -763,3 +763,23 @@ def test_lines_far_behind_the_best_continue_from_it_and_the_best_goes_on():
            {"dps": 1e5, "search_value": 1e5, "deficits": [], "state": {"xml": "feasible"}}]
     lines = {}
     assert Run.restart_behind(run, lines, tasks[:2], raw) == 1 and lines == {(label, 0, ""): {"xml": "feasible"}}
+
+
+def test_each_task_event_names_the_requirements_its_build_still_misses():
+    """POE2T244 (9 Nov): whether any line ever met every floor had to be argued from the ranking; each task's event
+    now carries its build's deficits and their weighted shortfall, empty and 0 when it met every floor."""
+    from builder.search.run import Run
+
+    events = []
+    run = Run.__new__(Run)
+    run.on_event, run.started, run.notes, run.probes, run.best, run.live = events.append, 0.0, [], {}, None, {}
+    run.evals_done, run.seed_start = 0, None
+    run.goal_of = lambda result: result["dps"]
+    short = {"label": "Skeleton A", "dps": 2e6, "score": 1.0,
+             "deficits": [{"label": "Cold resistance 70%", "amount": 0.1, "hard": False},
+                          {"label": "Life", "amount": 0.05, "hard": True}]}
+    feasible = {"label": "Skeleton A", "dps": 1e6, "score": 1.0, "deficits": []}
+    Run._record(run, [short, feasible])
+    tasks = [data for data in events if data["kind"] == "task"]
+    assert tasks[0]["deficits"] == ["Cold resistance 70%", "Life"] and tasks[0]["shortfall"] == pytest.approx(0.6)
+    assert tasks[1]["deficits"] == [] and tasks[1]["shortfall"] == 0
