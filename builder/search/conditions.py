@@ -31,7 +31,7 @@ EVIDENCE_FIELDS = [
     *(f"{a}Duration" for a in AILMENT_DURATION),
     "ChillChanceOnHit", "MaximumRage", "EnergyShield", "EvadeChance", "EffectiveBlockChance", "enemySkillTime",
     "HitChance", *(f"{c}Charges{f}" for c in ("Power", "Frenzy", "Endurance") for f in ("Max", "Duration")),
-    "PresenceRadius",
+    "PresenceRadius", "Ward", *models.IMMOBILISE_FIELDS,
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -385,6 +385,91 @@ def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     return (True if up >= UPTIME else False), basis
 
 
+# Armour Broken (MECH28, 9 Nov 2026; before, any line that Breaks Armour turned the box on, partial breaks too). The game
+# files' KeywordPopups ArmourBreak: Breaking lowers a target's Armour; at 0 it is Fully Broken for 12 seconds (non-players;
+# then +20% Physical damage taken from Hits, which is what PoB's box applies). Each line's Armour broken per second, from
+# the main skill's hits (PoB's average hit and crit per damage type), against the boss's Armour (PoB's enemy Armour): it
+# takes armour / rate s to Fully Break, then 12 s Broken, so up 12 / (12 + that). Partial Break assumed not to wear off
+# before it's full (the game files give it no duration). Full Breaks on Heavy Stun at heavy_stun_rate; "Break #% of Armour
+# when Freezing or Electrocuting" at buildup_rate. Minions' breaks, Parried, Maimed and Poison wordings, and Frenzy Charge
+# consumption: not rated (0, labelled). The box is on at UPTIME, else explicitly off with its basis.
+ARMOUR_BREAK_LINE = re.compile(r"\bbreaks? (?:enemy )?armour\b|\bbreaks? [\d,.]+ armour|\bfully break\w* armour|"
+                               r"\bbreak [\d.]+% of armour", re.I)
+ARMOUR_BREAK_NOT_SOURCE = re.compile(r"to below 0|when this weapon fully breaks|cannot break|dnt-unused", re.I)
+# The main skill's own and its supports' stats that Break Armour, as the line each would be (Armour Break I-III, Chaos
+# Mastery-style "Chaos damage Breaks Armour", the flat apply_X_armour_break_on_hit); gem descriptions aren't read
+BREAK_STATS = {
+    "armour_break_physical_damage_%_dealt_as_armour_break": "Break Armour equal to {}% of Physical Damage dealt",
+    "armour_break_damage_%_dealt_as_armour_break": "Break Armour equal to {}% of Hit Damage dealt",
+    "armour_break_fire_damage_%_dealt_as_armour_break": "Break Armour equal to {}% of Fire Damage dealt",
+    "chaos_damage_%_dealt_as_armour_break": "Break Armour equal to {}% of Chaos Damage dealt",
+    "apply_X_armour_break_on_hit": "Hits Break {} Armour",
+}
+BREAK_DAMAGE = {"physical": ("Physical",), "fire": ("Fire",), "chaos": ("Chaos",), "hit": models.DAMAGE_TYPES,
+                "damage from hits": models.DAMAGE_TYPES}
+
+
+def _hit_average(stats: dict, types: tuple[str, ...], crit_only: bool = False) -> float:
+    crit = 1.0 if crit_only else min(number(stats.get("CritChance")), 100) / 100
+    return sum(number(stats.get(f"{t}HitAverage")) * (1 - crit) + number(stats.get(f"{t}CritAverage")) * crit for t in types)
+
+
+def _armour_break_source(text: str, stats: dict) -> tuple[float, float, float, str] | None:
+    """(Armour broken per second, share of the Armour broken per second, Full Breaks per second, how) of one line, or None
+    if it isn't a source for you."""
+    if not ARMOUR_BREAK_LINE.search(text) or ARMOUR_BREAK_NOT_SOURCE.search(text):
+        return None
+    low = text.lower()
+    if re.match(r"minions?\b", low):
+        return 0.0, 0.0, 0.0, "Minions' breaks: not counted (0)"
+    if re.search(r"parried|maim|poison|frenzy charge", low):
+        return 0.0, 0.0, 0.0, "its rate isn't modelled (0, labelled)"
+    if "heavy stun" in low and "fully break" in low:
+        rate = models.heavy_stun_rate(stats)[0]
+        return 0.0, 0.0, rate, f"a Full Break per Heavy Stun, {rate:.3f}/s (heavy_stun_rate)"
+    if m := re.search(r"break ([\d.]+)% of armour when (?:freezing|electrocuting)", low):
+        rate = models.buildup_rate(stats, "Freeze") + models.buildup_rate(stats, "Electrocute")
+        share = float(m.group(1)) / 100
+        return 0.0, share * rate, 0.0, f"{share:.0%} of the Armour per Freeze or Electrocute, {rate:.3f}/s"
+    crit_only = "critical hit" in low
+    events = models.crits_per_second(stats) if crit_only else models.hits_per_second(stats)
+    if m := re.search(r"([\d.]+)% of maximum runic ward", low):
+        per = float(m.group(1)) / 100 * number(stats.get("Ward"))
+        what = "of your Runic Ward (PoB)"
+    elif m := re.search(r"equal to (?:\(?[\d.]+-)?([\d.]+)\)?% of (physical|fire|chaos|hit|damage from hits)", low):
+        per = float(m.group(1)) / 100 * _hit_average(stats, BREAK_DAMAGE[m.group(2)], crit_only)
+        what = f"of its {m.group(2).replace('damage from hits', 'hit')} damage (PoB)"
+    elif m := re.search(r"breaks? ([\d,.]+) armour", low):
+        per, what = float(m.group(1).replace(",", "")), "flat"
+        if "stunning" in low:
+            events = models.heavy_stun_rate(stats)[0]
+            what += ", per Heavy Stun (light stuns not counted)"
+    else:
+        return 0.0, 0.0, 0.0, "its amount isn't read (0, labelled)"
+    return per * events, 0.0, 0.0, f"{per:,.0f} per {'crit' if crit_only else 'hit'} {what} x {events:.2f}/s"
+
+
+def armour_broken_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
+    """(True / False, basis) for the Armour Broken box, or (0.0, "") if no line Breaks Armour for you."""
+    main_types = stats.get("_main_types") or set()
+    armour = number(stats.get("_enemy_armour"))
+    rate, share, full, how = 0.0, 0.0, 0.0, []
+    for text in lines:
+        if not qualifies(text, main_types) or (r := _armour_break_source(text, stats)) is None:
+            continue
+        rate, share, full = rate + r[0], share + r[1], full + r[2]
+        how.append(f"{text[:60]} ({r[3]})")
+    if not how:
+        return 0.0, ""
+    rate += share * armour
+    to_break = 0.0 if armour <= 0 else (armour / rate if rate > 0 else float("inf"))
+    up = models.FULL_BREAK_DURATION / (models.FULL_BREAK_DURATION + to_break)
+    up = 1 - (1 - up) * (1 - min(1.0, full * models.FULL_BREAK_DURATION))
+    basis = (f"Armour Fully Broken {up:.0%} of the fight ({UPTIME:.0%} needed): {rate:,.0f} Armour broken/s against the "
+             f"boss's {armour:,.0f} (PoB), {models.FULL_BREAK_DURATION:g} s each Full Break: " + "; ".join(how[:3]))
+    return (True if up >= UPTIME else False), basis
+
+
 def _blocked_recently(stats: dict) -> bool:
     every = number(stats.get("enemySkillTime")) or 0.7
     block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
@@ -492,8 +577,7 @@ CONDITIONS: list[Condition] = [
     Condition("conditionEnemyFireExposure", "Fire Exposure", (_inflict("(?:fire|elemental) exposure"),)),
     Condition("conditionEnemyColdExposure", "Cold Exposure", (_inflict("(?:cold|elemental) exposure"),)),
     Condition("conditionEnemyLightningExposure", "Lightning Exposure", (_inflict("(?:lightning|elemental) exposure"),)),
-    Condition("conditionEnemyArmourBroken", "Armour Broken", (r"\bbreaks? (?:\w+ )?armour\b", r"\bfully break\w* armour"),
-              (r"against enemies with (?:fully )?broken armour|if (?:the )?enemy armour",)),
+    Condition("conditionEnemyArmourBroken", "Armour Broken"),  # (armour_broken_uptime, Conditions.evidence)
     Condition("conditionEnemyCursed", "Cursed", gem_types=("AppliesCurse",)),
     # Sustained in any boss fight by the build's own numbers or skills (coverage audit item f, 6 Nov 2026: lines needing these
     # counted 0 in every build because only a Configuration option sets them). Boss hit rate: PoB's boss config.
@@ -567,6 +651,7 @@ QUALIFIERS = [
     (re.compile(r"\battacks?\b", re.I), {"Attack"}),
     (re.compile(r"\bwarcr(?:y|ies)\b", re.I), {"Warcry"}),
     (re.compile(r"\btotems?\b", re.I), {"Totem"}),
+    (re.compile(r"\bshield skills?\b", re.I), {"RequiresShield"}),
     (re.compile(r"\bminions?\b", re.I), set()),
 ]
 
@@ -664,8 +749,17 @@ class Conditions:
                     if value <= 0:
                         continue
                 found[condition.var] = (value, reason)
-        if "Ferocious Roar" in gem_types and "conditionEnemyArmourBroken" not in found and (roar := self.roar_evidence()):
+        if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             found["conditionEnemyArmourBroken"] = roar
+        elif any(ARMOUR_BREAK_LINE.search(line["text"]) for line in lines):
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(BREAK_STATS))
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            gem_lines = [BREAK_STATS[stat].format(f"{value:g}") for part in ("levelStats", "supportStats")
+                         for stat, value in (main.get(part) or {}).items() if stat in BREAK_STATS and value]
+            texts = [line["text"] for line in lines if not line["source"].startswith("gem:")] + gem_lines
+            up, basis = armour_broken_uptime(texts, {**stats, "_enemy_armour": number(raw.get("enemyArmour"))})
+            if basis:
+                found["conditionEnemyArmourBroken"] = (up, basis)
         # Charges held: PoB reads an override of 0 as "not set" (the maximum), so none held switches the "use" box off
         for kind in ("Power", "Frenzy", "Endurance"):
             held = found.get(f"override{kind}Charges")
@@ -726,6 +820,8 @@ class Conditions:
         the effect is enough to deserve a real trial."""
         if condition.text and text_evidence(condition, text) and qualifies(text, self.main_types):
             return True
+        if condition.var == "conditionEnemyArmourBroken" and ARMOUR_BREAK_LINE.search(text):
+            return True  # (armour_broken_uptime rates it in the real trial)
         if condition.var == "conditionStationary" and STATIONARY_LINE.search(text):
             return True  # (a stationary line gets a real trial: the resolver stands the build still with it)
         if (kind := CHARGE_OVERRIDES.get(condition.var)) is not None:  # a generator of that charge a boss fight feeds

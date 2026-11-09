@@ -1874,6 +1874,23 @@ function bridge.activeSkills(args)
 			end
 			skills[#skills].levelStats = stats
 		end
+		if args and args.supportStats then
+			-- the named stats of the supports on this skill, summed (conditions.armour_broken_uptime: Armour Break supports)
+			local stats = setmetatable({ }, { __jsontype = "object" })
+			for _, support in ipairs(activeSkill.effectList or { }) do
+				local granted = support.grantedEffect
+				if granted and granted.support and granted.statSets and granted.statSets[1] then
+					local ok, built = pcall(calcLib.buildSkillInstanceStats, support, granted, granted.statSets[1])
+					for _, stat in ipairs(args.supportStats) do
+						local value = ok and built and built[stat]
+						if type(value) == "number" then
+							stats[stat] = (stats[stat] or 0) + value
+						end
+					end
+				end
+			end
+			skills[#skills].supportStats = stats
+		end
 		if activeSkill.minion and types[SkillType.Triggered] then
 			-- a triggered skill that summons Temporary minions (Wardbound Minions in a meta group): PoB counts one minion
 			-- casting nonstop, so what each one lives (models.minion_count) is reported. Only the main skill's minion

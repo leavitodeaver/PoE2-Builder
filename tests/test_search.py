@@ -855,3 +855,26 @@ def test_each_task_event_names_the_requirements_its_build_still_misses():
     tasks = [data for data in events if data["kind"] == "task"]
     assert tasks[0]["deficits"] == ["Cold resistance 70%", "Life"] and tasks[0]["shortfall"] == pytest.approx(0.6)
     assert tasks[1]["deficits"] == [] and tasks[1]["shortfall"] == 0
+
+
+def test_armour_broken_on_only_when_breaks_keep_it_fully_broken():
+    """KeywordPopups ArmourBreak: Fully Broken at 0 Armour for 12 s. A partial Break no longer turns the box on (MECH28)."""
+    from builder.search.conditions import armour_broken_uptime
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 0, "PhysicalHitAverage": 1000, "FireHitAverage": 1000,
+             "_enemy_armour": 1000, "_main_types": {"Attack"}}
+    # 10% of 1000 Physical x 2 hits/s = 200/s: 5 s to break, up 12 / 17
+    low = armour_broken_uptime(["Break Armour equal to 10% of Physical Damage dealt"], stats)
+    assert low[0] is False and "71%" in low[1]
+    # 50% of the whole hit (2000) x 2/s: under 1 s to break
+    assert armour_broken_uptime(["Break Armour equal to 50% of Hit Damage dealt"], stats)[0] is True
+    # Spell crits only: an Attack build has none to give
+    assert armour_broken_uptime(["Break Armour on Critical Hit with Spells equal to 12% of Physical Damage dealt"],
+                                stats) == (0.0, "")
+    for line in ("Inflicts Elemental Exposure when this Weapon Fully Breaks Armour", "You can Break Enemy Armour to below 0"):
+        assert armour_broken_uptime([line], stats) == (0.0, "")  # (not sources; both turned the box on before)
+    assert armour_broken_uptime(["Minions Break Armour equal to (2-4)% of Physical damage dealt"], stats) == (0.0, "")
+    assert armour_broken_uptime(["Shield Skills fully Break Armour when they Heavy Stun targets"], stats) == (0.0, "")
+    assert armour_broken_uptime(["Hits Break 600 Armour"], stats)[0] is True  # 1200/s
+    # a support's stat, as its line (BREAK_STATS): Chaos damage as break, none here
+    assert armour_broken_uptime(["Break Armour equal to 50% of Chaos Damage dealt"], stats)[0] is False
