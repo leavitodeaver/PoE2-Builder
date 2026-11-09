@@ -757,9 +757,9 @@ def test_presence_lines_need_the_boss_inside_the_presence_radius(engine):
 
 
 def test_main_sweep_moves_a_support_another_group_holds_only_if_it_pays(engine, monkeypatch):
-    """A support is socketed once per character, so one in another group never reached the main group's candidates:
-    2b75d's finalize sweep couldn't take Exploit Weakness from Thundergod's Wrath (POE2T280). A full sweep of the main
-    group offers it now; the trial moves it out of the other group and stays only if the build's score doesn't drop."""
+    """A lineage support is socketed once per character, so one in another group never reaches the main group's
+    candidates. A full sweep of the main group offers it; the trial moves it out of the other group and stays only if
+    the build's score doesn't drop."""
     from builder.search.gems import META_LABEL
 
     payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
@@ -774,7 +774,9 @@ def test_main_sweep_moves_a_support_another_group_holds_only_if_it_pays(engine, 
     in_main = {g["name"] for g in main["gems"]}
     both = sorted(set(build.call("supportCandidates", group=main["index"])["names"])
                   & set(build.call("supportCandidates", group=meta["index"])["names"]) - in_main)
-    gem = next(n for n in both if gems.ctx.allowed_gem(n) and gems.usable(n))
+    gem = next(n for n in both if gems.ctx.allowed_gem(n) and gems.usable(n) and gems.ctx.gem_price(n) is not None)
+    limit = gems.copies_allowed
+    monkeypatch.setattr(gems, "copies_allowed", lambda name: 1 if name == gem else limit(name))  # as a lineage support
     build.set_group(index=meta["index"], gems=[*({"name": g["name"], "level": g["level"], "quality": g["quality"]}
                                                  for g in meta["gems"]), {"name": gem}])
     assert gem not in gems.candidates(main["index"], build.groups())
@@ -849,3 +851,57 @@ def test_mana_flare_rate_is_capped_by_crits_and_its_damage_by_the_mana_it_finds(
     build.set_group(index=main["index"], fullDPS=False)
     mods, notes = search.assumptions.wanted()
     assert not any(n["label"].startswith("Mana Flare uses") for n in notes)
+
+
+def test_a_normal_support_may_sit_in_several_skills_and_a_lineage_one_once_or_three_times_with_solus_ipse(engine):
+    """The 0.5 rule (game files, KeywordPopups SupportGem, SupportGemCategory, LineageSupports): supports of one category
+    once per skill, a normal support in any number of skills, a lineage support (and the 21 global-benefit ones) in one
+    skill, or three with Solus Ipse ("You can Socket 2 additional copies of each Lineage Support Gem, in different
+    Skills"). The search had every support once per character (e4767b1)."""
+    from types import SimpleNamespace
+
+    from builder.search.gems import META_LABEL
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    build.set_group(gems=[{"name": "Cast on Dodge", "level": 12, "quality": 0}, {"name": "Fireball", "level": 9, "quality": 0}],
+                    label=META_LABEL, fullDPS=True)
+    main = gems.supports_group(build.groups(), meta=False)
+    meta = gems.supports_group(build.groups(), meta=True)
+    both = sorted(set(build.call("supportCandidates", group=main["index"])["names"])
+                  & set(build.call("supportCandidates", group=meta["index"])["names"]))
+    normal = next(n for n in both if gems.copies_allowed(n) is None and gems.ctx.allowed_gem(n)
+                  and gems.ctx.gem_price(n) is not None and n not in {g["name"] for g in main["gems"]})
+    lineage = next(n for n in build.call("supportCandidates", group=meta["index"])["names"]
+                   if gems.ctx.gems[n].get("lineage") and n not in {g["name"] for g in main["gems"]})
+    actives = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in meta["gems"]]
+    build.set_group(index=meta["index"], gems=[*actives, {"name": normal}, {"name": lineage}])
+    assert normal in gems.candidates(main["index"], build.groups())
+    assert gems.used_supports(build.groups(), main["index"]) == {lineage}
+    assert gems.copies_allowed("Precision I") == 1 and gems.copies_allowed(lineage) == 1
+    build.equipped = {**build.equipped, "Helmet": SimpleNamespace(
+        raw="Solus Ipse\nGrand Visage\nYou can Socket 2 additional copies of each Lineage Support Gem, in different Skills")}
+    assert gems.copies_allowed(lineage) == 3 and gems.copies_allowed("Precision I") == 1
+    assert gems.used_supports(build.groups(), main["index"]) == set()
+
+
+def test_the_global_benefit_supports_are_the_game_files_flagged_ones():
+    """GLOBAL_BENEFIT_SUPPORTS against SupportGems' last column, when the exported tables are here (data/ is not in git)."""
+    import glob
+    import json
+
+    from builder.search.gems import GLOBAL_BENEFIT_SUPPORTS
+
+    from pathlib import Path
+
+    found = sorted(glob.glob(str(Path(__file__).resolve().parents[1] / "data" / "game-*" / "tables" / "SupportGems.json")))
+    if not found:
+        pytest.skip("no exported game tables")
+    folder = found[-1].rsplit("SupportGems.json", 1)[0]
+    load = lambda name: json.load(open(folder + name, encoding="utf-8"))
+    support, skill, base = load("SupportGems.json"), load("SkillGems.json"), load("BaseItemTypes.json")
+    flagged = {base[skill[row["SkillGem"]]["BaseItemType"]]["Name"] for row in support if row["_unnamed8"]}
+    assert flagged == set(GLOBAL_BENEFIT_SUPPORTS)

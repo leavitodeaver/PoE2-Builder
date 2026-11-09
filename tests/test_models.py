@@ -790,7 +790,7 @@ def test_spirit_vessel_notes_name_the_copied_skills_and_the_assumptions():
 
 
 def test_supports_in_item_groups_count_as_used():
-    """Each support gem once per character, item-granted groups included: gate 4's 2b75b held Rakiata's Flow both in its
+    """A lineage support once per character, item-granted groups included: gate 4's 2b75b held Rakiata's Flow both in its
     main group and in the Absent Amulet's Cast on Dodge group (PoB: too many Rakiata's Flow lineage supports)."""
     from builder.search.gems import Gems
 
@@ -800,8 +800,13 @@ def test_supports_in_item_groups_count_as_used():
 
     groups = [group(1, False, "Explosive Transmutation", "Concentrated Area"),
               group(2, True, "Cast on Dodge", "Rakiata's Flow")]
-    assert Gems.used_supports(None, groups, 1) == {"Rakiata's Flow"}
-    assert Gems.used_supports(None, groups, 2) == {"Concentrated Area"}
+    # (0.5's rule: only a lineage support, like Rakiata's Flow, and the global-benefit ones are limited; a normal one,
+    # like Concentrated Area, may sit in every group)
+    from types import SimpleNamespace
+
+    gems = SimpleNamespace(copies_allowed=lambda name: 1 if name == "Rakiata's Flow" else None)
+    assert Gems.used_supports(gems, groups, 1) == {"Rakiata's Flow"}
+    assert Gems.used_supports(gems, groups, 2) == set()
 
 
 def test_explosive_transmutation_counts_every_remnant_source_the_build_has():

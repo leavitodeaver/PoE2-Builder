@@ -1,13 +1,17 @@
 """Gems block: the main skill's supports, then persistent skills under the Spirit budget.
 
 Supports are scored with PoB's accelerated gem path (bridge `gemDeltas`). Hard limits hold at the
-source: at most SUPPORT_SLOTS supports, each support gem used once per character, no two supports
+source: at most SUPPORT_SLOTS supports, a lineage or global-benefit support in one skill only (three
+with Solus Ipse; GLOBAL_BENEFIT_SUPPORTS), a normal one in any number, no two supports
 of one family in a group (PoB would let one supersede the other), at most MAX_GEM_GROUPS non-item
 groups, Spirit never over-reserved, and required supports never removed. Persistent skills are
 not buttons, so they never touch the button cap.
 """
 
 from __future__ import annotations
+
+import re
+from collections import Counter
 
 from builder import clock
 from builder.search.assumptions import INFUSED_ELEMENT, INFUSED_NOTE
@@ -28,6 +32,22 @@ ADDED_LABELS = (PERSISTENT_LABEL, BLASPHEMY_LABEL, META_LABEL, MARK_LABEL, MIRAG
 GRANTED_SUPPORT_ROUNDS = 6  # support changes a granted meta group gets right after its spell (fill_granted_supports)
 GRANTED_FILL_SECONDS = 60.0  # time a granted meta's fill (fill_granted) may take within one ascendancy trial
 MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what PoB says each adds to Full DPS)
+# How many skills may hold a copy of the same support (game files, KeywordPopups, 0.5): "Support Gems from the same
+# Category cannot be socketed into the same skill simultaneously, but can be used across multiple skills"
+# (SupportGemCategory; Gems.families keeps one per category in a group), and "You cannot use multiple copies of the exact
+# same Lineage Support across multiple Skills, or for Supports that grant global benefits to persistent reservation
+# Skills while active" (SupportGem). So a normal support may sit in every group; a lineage one (SupportGems.IsLineage, which
+# PoB's isLineage matches for all 565 shared supports) and those below once per character. These 21 are the SupportGems
+# rows whose last, unnamed column is true (exported 9 Nov, build 26476662): an inference that it is that flag, since
+# they are exactly the persistent-buff supports. Solus Ipse (Grand Visage; Mods UniqueSupportGemLimit1, the one mod with
+# lineage_support_gem_limit_+, searched over every Mods stat column; no passive has it) allows 2 more copies of each
+# Lineage Support "in different Skills". The Kalguuran Support Gem limit (by level, 6 from 80) isn't modelled: no column
+# marks which supports are Kalguuran.
+GLOBAL_BENEFIT_SUPPORTS = frozenset({
+    "Precision I", "Precision II", "Clarity I", "Clarity II", "Vitality I", "Vitality II", "Herbalism I", "Herbalism II",
+    "Cannibalism I", "Cannibalism II", "Thornskin I", "Thornskin II", "Mysticism I", "Mysticism II", "Direstrike I",
+    "Direstrike II", "Upwelling I", "Upwelling II", "Warm Blooded", "Cool Headed", "Strong Hearted"})
+LINEAGE_COPIES = re.compile(r"You can Socket (an|\d+) additional cop(?:y|ies) of each Lineage Support Gem", re.I)
 META_TRIALS = 3  # spells per meta gem tried for real (trigger rates show only after a resolve)
 META_GEMS_TRIED = 2  # meta gems tried, those the build feeds most Energy first
 # A spell triggered less often than this can't pay through its own damage; what PoB counts of it besides (a buff it
@@ -60,6 +80,8 @@ class Gems:
         self.required_supports = set(self.ctx.compiled.request.require.supports)
         self.shortlist: list[str] | None = None  # best supports at the last full sweep
         self.census: dict = {}  # the main group's last supports round (supports_round)
+        self.sweeps = 0  # the main group's full sweeps so far, with how many cases the largest scored (census)
+        self.swept_cases = 0
         self.meta_shortlist: list[str] | None = None  # the same for the meta group's
         self.granted_shortlists: dict[int, list[str]] = {}  # and for each item- or notable-granted meta group's
         self.conditions = None  # the condition resolver, when supports should be tried with it
@@ -76,21 +98,45 @@ class Gems:
         gem = self.ctx.gems.get(name) or {}
         return set(gem.get("families") or [])
 
+    def copies_allowed(self, name: str) -> int | None:
+        """How many skills may hold support `name` at once (GLOBAL_BENEFIT_SUPPORTS); None for no limit."""
+        if name in GLOBAL_BENEFIT_SUPPORTS:
+            return 1
+        if (self.ctx.gems.get(name) or {}).get("lineage"):
+            return 1 + self.lineage_bonus()
+        return None
+
+    def lineage_bonus(self) -> int:
+        """Additional copies of each Lineage Support the build's items allow (Solus Ipse: 2)."""
+        bonus = 0
+        for option in self.build.equipped.values():
+            for m in LINEAGE_COPIES.finditer(getattr(option, "raw", "") or ""):
+                bonus += 1 if m.group(1).lower() == "an" else int(m.group(1))
+        return bonus
+
     def used_supports(self, groups: list[dict], except_group: int) -> set[str]:
-        # (an item's or notable's group counts too: the supports in it are the player's gems, socketed with the granted
-        # skill; leaving them out let gate 4's 2b75b hold Rakiata's Flow in two groups, which PoB flags)
-        return {g["name"] for group in groups if group["index"] != except_group
-                for g in group["gems"] if g["support"]}
+        """The supports group `except_group` can't take because other groups hold as many copies as the game allows
+        (copies_allowed: lineage supports and the global-benefit ones). A normal support may sit in every group.
+        (an item's or notable's group counts too: the supports in it are the player's gems, socketed with the granted
+        skill; leaving them out let gate 4's 2b75b hold Rakiata's Flow, a lineage support, in two groups)"""
+        held = Counter(g["name"] for group in groups if group["index"] != except_group
+                       for g in group["gems"] if g["support"])
+        return {name for name, count in held.items()
+                if (limit := self.copies_allowed(name)) is not None and count >= limit}
 
     def budget_left(self) -> float:
         return self.ctx.budget - self.build.spent()
 
     def donors(self, groups: list[dict], index: int) -> dict[str, dict]:
-        """The supports other groups hold that could move into group `index`, each with the group holding it (the
-        player's own groups and the granted ones alike: their supports are the player's gems)."""
+        """The limited supports (copies_allowed) other groups hold up to their limit that could move into group
+        `index`, each with the group holding it (the player's own groups and the granted ones alike)."""
+        blocked = self.used_supports(groups, index)  # (any other support can simply be socketed here too)
+        if not blocked:
+            return {}
         offered = set(self.build.call("supportCandidates", group=index)["names"])
         return {g["name"]: group for group in groups if group["index"] != index
-                for g in group["gems"] if g["support"] and g["name"] in offered and self.ctx.allowed_gem(g["name"])}
+                for g in group["gems"] if g["support"] and g["name"] in blocked and g["name"] in offered
+                and self.ctx.allowed_gem(g["name"])}
 
     def release(self, group: dict, name: str) -> None:
         """Take support `name` out of `group`, its other gems as they were (the actives at their levels)."""
@@ -199,10 +245,10 @@ class Gems:
         candidates = [c for c in offered if self.usable(c, stats)]
         if not full_sweep and shortlist is not None:
             candidates = [c for c in shortlist if c in set(candidates)]
-        # A full sweep of the main group also tries the supports another group holds (one copy of a support per
-        # character): a trial moves the gem, and the build's net score decides. 2b75d, 9 Nov: Exploit Weakness sat in
-        # Thundergod's Wrath's group, so finalize's sweep never offered it to Resonating Shield (281,561, POE2T280; the
-        # x1.91 run, 581,508, had it in the main group, POE2T267)
+        # A full sweep of the main group also tries the limited supports (copies_allowed: lineage and global-benefit
+        # ones) other groups hold up to their limit: a trial moves the gem, and the build's net score decides. Any other
+        # support is a candidate anyway (it may sit in every group). 2b75d, 9 Nov, when every support was wrongly limited
+        # to one copy: Exploit Weakness sat in Thundergod's Wrath's group, so Resonating Shield never got it (POE2T280)
         donors = self.donors(groups, index) if full_sweep and not meta else {}
         candidates += [c for c in donors if c not in set(candidates) and self.usable(c, stats)]
         left = self.budget_left()
@@ -240,7 +286,10 @@ class Gems:
             # The main group's last round, for reading a run (the "task" event's `supports`): what each filter left and
             # the best what-if against the score now. Gate 4's 2b75b lines sat at 15,004 with no support (POE2T206)
             blocked = [c for c in offered if c not in set(candidates)]
-            self.census = {"offered": len(offered), "usable": len(candidates), "cases": len(cases),
+            if full_sweep or shortlist is None:
+                self.sweeps += 1
+                self.swept_cases = max(self.swept_cases, len(cases))
+            self.census = {"sweeps": self.sweeps, "swept_cases": self.swept_cases, "offered": len(offered), "usable": len(candidates), "cases": len(cases),
                            "slots": len(slots), "full": bool(full_sweep or shortlist is None),
                            "blocked": blocked[:6], "blockers": sorted({b for c in blocked[:20] for b in self.blockers(c, stats)})}
         if not cases:

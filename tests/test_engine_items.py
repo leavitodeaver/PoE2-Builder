@@ -300,7 +300,9 @@ def test_finalize_sweeps_supports_on_full_dps_despite_the_search_shortlist(engin
     state["shortlist"] = ["Fork"]  # a shortlist from the search: without the sweep only its moves are tried
     monkeypatch.setattr(Search, "run", lambda self, *args, **kwargs: None)  # only finalize's own support step runs
     out = finalize_task(engine, None, payload, skeleton, state, inner.FINALIZE_SWEEP_MIN + 10)
-    assert out["support_census"]["full"] and out["support_census"]["cases"] > 50
+    # (counted over finalize's rounds: a sweep that finds a move is followed by shortlist rounds, which the census's
+    # last-round fields describe)
+    assert out["support_census"]["sweeps"] >= 1 and out["support_census"]["swept_cases"] > 50
 
 
 def test_a_step_that_ignores_the_deadline_is_stopped_on_time(engine, monkeypatch):
