@@ -1634,13 +1634,14 @@ def maelstrom_inputs(lines: list[dict], dps: float, enemy_chaos_resist: float = 
 # - The threshold: PoB's Pinnacle preset is the level's monster threshold (DefaultMonsterStats.PoiseThreshold, which PoB's
 #   table matches: 236,905 at 82) x6 unique (MonsterUnique2, +500% final, as the files) x9.38 "Xesht" (+838%). The game
 #   files' Xesht (MonsterVarieties ItThatReturned, row 1946) has PoiseThreshold 1700, read as x17.00 (the column is 100
-#   for 1,008 of 2,794 varieties): buildup x9.38/17.00. The Arbiter of Ash is x12.35 (rows 1954-1955).
+#   for 1,008 of 2,794 varieties). The Arbiter of Ash is x12.35 (rows 1954-1955), the boss the user chose (9 Nov): buildup
+#   x9.38/12.35 (Freeze buildup below uses the same boss).
 # - Again afterwards: the game constants HeavyStunThresholdModifier 500 and HeavyStunModifierDuration 16.5 (as PoB's
 #   Data/Misc.lua reads them; PoB doesn't use them), read as +500% threshold for 16.5 s after each Heavy Stun. With t the
 #   time to fill the bar at the plain threshold, a stun comes every 6t if 6t <= 16.5 s, else every 16.5 + (1 - 16.5/6t)t.
 # Only the main skill's hits count (other skills' buildup is an undercount); the bar's decay between hits isn't modelled
 # (a main skill hits more often than any decay delay); the first stun's shorter wait isn't counted.
-HEAVY_STUN_BOSS = (9.38, 17.00)  # PoB's Pinnacle (Xesht) threshold multiplier, the game files' Xesht variety
+HEAVY_STUN_BOSS = (9.38, 12.35)  # PoB's Pinnacle (Xesht) threshold multiplier, the game files' Arbiter of Ash (user, 9 Nov)
 HEAVY_STUN_REPEAT = (6.0, 16.5)  # threshold x(1 + 500%) for 16.5 s after a Heavy Stun
 HEAVY_STUN_PHYSICAL = 1.5  # player Physical damage's 50% more buildup (weighting the Cold share)
 
@@ -1663,7 +1664,7 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     times, window = HEAVY_STUN_REPEAT
     every = times * t if times * t <= window else window + (1 - window / (times * t)) * t
     basis = (f"{per_hit:.2%} of the boss's Stun bar per hit (PoB){f', {1 - uncold:.0%} of it Cold, which builds none' if uncold < 1 else ''}, "
-             f"x{HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1]:.2f} for the game files' Xesht threshold, {hits:.2f} hits/s: "
+             f"x{HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1]:.2f} for the Arbiter of Ash's threshold (the game files; the boss the user chose), {hits:.2f} hits/s: "
              f"full in {t:.1f} s, then +500% threshold for 16.5 s after each stun: one every {every:.1f} s")
     return 1 / every, basis
 
@@ -1708,7 +1709,7 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
 # monster Power per event; a pinnacle boss's Power is 20, as PoB's Multiplier:EnemyPower) or
 # active_skill_hundred_times_generates_glory_per_<event> (/100 Glory per event). Events come from the main skill: its hits
 # (attack, elemental or chaos hits), the boss's Heavy Stuns (heavy_stun_rate), Freezes (PoB's per-hit Freeze buildup, the
-# same Xesht threshold correction, no re-freeze window: an overcount if one exists), Ignites and Shocks (PoB's chance per
+# same Arbiter of Ash threshold correction, no re-freeze window: an overcount if one exists), Ignites and Shocks (PoB's chance per
 # hit). Not counted (undercounts, labelled): Glory from other skills' hits, armour breaks (Molten Blast), Ward spent
 # (Skyfall), Walking Calamity's own source, increased Glory generation and Daresso's Passion's lower cost.
 BOSS_POWER = 20

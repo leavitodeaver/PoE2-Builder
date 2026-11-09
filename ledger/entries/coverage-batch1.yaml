@@ -354,7 +354,7 @@
   notes: >-
     builder/search/models.py guided_hand_model: share of attacks boosted = Heavy Stuns per second / attacks per second,
     the stuns from models.heavy_stun_rate (the main skill's own buildup: PoB's per-hit buildup less its Cold share, at the
-    game files' Xesht threshold, +500% threshold for 16.5 s after each stun). The boost's own line ("Ancestrally Boosted Attacks deal 30% increased Damage") is counted at that share.
+    game files' Arbiter of Ash threshold, the boss the user chose on 9 Nov, +500% threshold for 16.5 s after each stun). The boost's own line ("Ancestrally Boosted Attacks deal 30% increased Damage") is counted at that share.
   sources: ["https://poe2db.tw/us/Heavy_Stun", "PoE2 0.2.0 patch notes (Primed for Stun at 70% for Unique monsters)",
             "game files build 26476662: KeywordPopups HeavyStun/Stun/Cold, DefaultMonsterStats, MonsterVarieties, Mods MonsterUnique2"]
   test_in_game: "On a boss, count your Heavy Stuns over a minute of fighting; the result's share follows from that."

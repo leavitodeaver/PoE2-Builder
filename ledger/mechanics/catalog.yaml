@@ -110,7 +110,7 @@
   game_source: https://poe2db.tw/us/Heavy_Stun
   pob: config-only
   pob_check: "conditionEnemyHeavyStunned is a box. PoB computes a hit's buildup (HeavyStunBuildupAvg) against its Pinnacle preset's threshold, but counts Cold (the game says Cold builds none), uses x9.38 for Xesht where the game files' variety has x17.00, and ignores the +500% threshold for 16.5 s after a Heavy Stun (game constants HeavyStunThresholdModifier/ModifierDuration)."
-  handling: "models.heavy_stun_rate (9 Nov): Heavy Stuns per second from the main skill's own buildup, PoB's three faults corrected; used by Guided Hand and Remnants of Kalguur. Other skills' buildup, the bar's decay and the first stun's shorter wait aren't counted; 'against Heavy Stunned' / Primed lines still need the box."
+  handling: "models.heavy_stun_rate (9 Nov): Heavy Stuns per second from the main skill's own buildup, PoB's three faults corrected; used by Guided Hand, Remnants of Kalguur and Glory from Heavy Stuns. The boss is the Arbiter of Ash (the game files' x12.35 threshold; the user's choice, 9 Nov), not Xesht's x17.00. Other skills' buildup, the bar's decay and the first stun's shorter wait aren't counted; 'against Heavy Stunned' / Primed lines still need the box."
   plan: {approach: custom model, how: "Buildup per second = hit damage x buildup modifiers / the boss's stun threshold (the boss's life from a table by area level, a labelled assumption); Heavy Stuns per second and their duration give the uptime of 'Heavy Stunned' and 'Primed'.", inputs: [hit damage, buildup modifiers, boss life table], sustain: "enough buildup to fill the bar"}
   what_if: invisible
   guide_note: "Boss Heavy Stunned X% of the fight (one per Y s) at your stun buildup."

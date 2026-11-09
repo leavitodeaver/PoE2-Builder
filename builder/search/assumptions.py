@@ -43,7 +43,7 @@ REMNANT_SOURCES = {
     "Life Remnants": (0.3333, "on hit"),
     "Snap": (0.25, "per cast, before cooldown recovery"),
     "Frost Bomb": (0.1667, "per cast, before cooldown recovery"),
-    "Lingering Illusion": (0.176, "assumed: the boss destroys one of your dodge-roll copies every 10 s, "
+    "Lingering Illusion": (0.352, "the boss destroys one of your dodge-roll copies every 5 s (the user's rate, 9 Nov), "
                                   "1.76 Power Charge Remnants each"),
     "Living Bomb": (0.2, "assumed: one seed detonated every 5 s"),
     "Grim Feast": (0.1, "assumed: one Reviving minion dies every 10 s"),
@@ -120,7 +120,7 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
     for e, rate in made.items():
         rate *= remnants * gain
         supply[e] += rate
-        for o in ("Fire", "Cold", "Lightning"):  # "another different" one: assumed either other element, evenly
+        for o in ("Fire", "Cold", "Lightning"):  # "another different" one: randomly either other element (the user, 9 Nov): evenly, its average
             if o != e:
                 supply[o] += rate * other / 2
     for t in texts:
@@ -133,7 +133,7 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
     if gain != 1.0:
         used.append(f"+{gain - 1:.0%} chance of an additional Infusion")
     if other:
-        used.append(f"{other:.0%} chance of another, different Infusion (assumed either other element, evenly)")
+        used.append(f"{other:.0%} chance of another, different Infusion (randomly either other element, the user's word of 9 Nov: counted evenly, its average)")
     return supply, used
 
 

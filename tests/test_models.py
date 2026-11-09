@@ -443,17 +443,17 @@ def test_melting_maelstrom_pulses_are_the_mana_you_spend():
 
 
 def test_heavy_stuns_come_from_the_hits_buildup_less_cold_at_the_game_files_threshold():
-    """The boss's Heavy Stuns per second from PoB's per-hit buildup (POE2 9 Nov, MECH20): x9.38/17.00 for the game
-    files' Xesht threshold, Cold's share taken out (the game's Cold text), +500% threshold for 16.5 s after each stun."""
+    """The boss's Heavy Stuns per second from PoB's per-hit buildup (POE2 9 Nov, MECH20): x9.38/12.35 for the game
+    files' Arbiter of Ash threshold (the user's boss, 9 Nov), Cold's share taken out (the game's Cold text), +500% threshold for 16.5 s after each stun."""
     phys = {"HeavyStunBuildupAvg": 10.0, "Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000}
     stuns, basis = models.heavy_stun_rate(phys)
-    t = 1 / (0.10 * 9.38 / 17.0 * 2.0)  # 9.06 s to fill at the plain threshold; 6t > 16.5 s
-    assert stuns == pytest.approx(1 / (16.5 + (1 - 16.5 / (6 * t)) * t)) and "one every 22.8 s" in basis
-    fast = {**phys, "HeavyStunBuildupAvg": 50.0}  # 6t = 10.9 s: within the +500% window
-    assert models.heavy_stun_rate(fast)[0] == pytest.approx(0.50 * 9.38 / 17.0 * 2.0 / 6)
+    t = 1 / (0.10 * 9.38 / 12.35 * 2.0)  # 6.58 s to fill at the plain threshold; 6t > 16.5 s
+    assert stuns == pytest.approx(1 / (16.5 + (1 - 16.5 / (6 * t)) * t)) and "one every 20.3 s" in basis
+    fast = {**phys, "HeavyStunBuildupAvg": 50.0}  # 6t = 7.9 s: within the +500% window
+    assert models.heavy_stun_rate(fast)[0] == pytest.approx(0.50 * 9.38 / 12.35 * 2.0 / 6)
     # half the weighted hit Cold (Physical counts x1.5): Cold's share builds none
     mixed = {**phys, "PhysicalHitAverage": 1000, "ColdHitAverage": 1500}
-    t = 1 / (0.10 * 0.5 * 9.38 / 17.0 * 2.0)
+    t = 1 / (0.10 * 0.5 * 9.38 / 12.35 * 2.0)
     assert models.heavy_stun_rate(mixed)[0] == pytest.approx(1 / (16.5 + (1 - 16.5 / (6 * t)) * t))
     assert models.heavy_stun_rate({**phys, "PhysicalHitAverage": 0, "ColdHitAverage": 1000})[0] == 0
     assert models.heavy_stun_rate({"Speed": 2.0, "HitChance": 100})[0] == 0
@@ -465,11 +465,11 @@ def test_guided_hand_boosts_the_attacks_after_a_heavy_stun():
     slam = models.Skill("Boneshatter", attack=True, melee=True)
     stats = {"Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000, "HeavyStunBuildupAvg": 10.0}
     mods, notes = models.guided_hand_model(passive, lines, stats, slam)
-    stuns = models.heavy_stun_rate(stats)[0]  # one per 22.8 s against 2 attacks per second
+    stuns = models.heavy_stun_rate(stats)[0]  # one per 20.3 s against 2 attacks per second
     (text, value, when), = effective(mods)
     assert text == "1% increased Attack Damage" and value == 30 * stuns / 2.0 and when == [{"var": "GuidedHand"}]
     assert mods[1]["fn"] == "guidedHand" and mods[1]["value"] == round(stuns / 2.0 * models.UNIT)
-    assert "22.8 s" in notes[0]["basis"]
+    assert "20.3 s" in notes[0]["basis"]
     # no buildup (a Cold attack): nothing boosted
     cold = models.guided_hand_model(passive, lines, {**stats, "PhysicalHitAverage": 0, "ColdHitAverage": 1000}, slam)
     assert effective(cold[0])[0][1] == 0.0
@@ -842,6 +842,8 @@ def test_explosive_transmutation_counts_every_remnant_source_the_build_has():
                       ["Remnants you create reappear once, 1 second after being collected"])
     assert rate == pytest.approx(2 * breach) and "twice" in notes[-1]["basis"]
     assert assumptions.REMNANT_SOURCES["Siphon Elements"][0] == 0.0  # listed, labelled, not counted yet
+    # the user's rate (9 Nov): a dodge-roll copy destroyed every 5 s, 1.76 Power Charge Remnants each
+    assert REMNANT_SOURCES["Lingering Illusion"][0] == pytest.approx(1.76 / 5)
 
 
 def test_infusion_supply_counts_each_element_from_the_build_s_sources():
@@ -860,11 +862,12 @@ def test_infusion_supply_counts_each_element_from_the_build_s_sources():
     lines = ["Create Lightning Infusion Remnants instead of Fire", "50% chance to spawn an additional Infusion Remnant",
              "20% chance to gain an additional Infusion", "40% chance when collecting an Elemental Infusion to gain another "
              "different Elemental Infusion", "Every 5 seconds, gain a Verisium Infusion"]
-    supply, _ = infusion_supply({"Living Bomb": {}}, lines, set())
+    supply, used = infusion_supply({"Living Bomb": {}}, lines, set())
     fire = REMNANT_SOURCES["Living Bomb"][0] * 1.5 * 1.2  # made as Lightning (Equilibrium)
     assert supply["Lightning"] == pytest.approx(fire)
     assert supply["Fire"] == pytest.approx(fire * 0.2) and supply["Cold"] == pytest.approx(fire * 0.2)
     assert supply["Any"] == pytest.approx(1.2 / 5)
+    assert any("the user's word" in u for u in used)  # Refracted Infusion's random other element: the user's, 9 Nov
 
 
 def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
