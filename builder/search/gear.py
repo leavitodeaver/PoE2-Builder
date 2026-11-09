@@ -75,6 +75,7 @@ class Gear:
         self.ctx = build.ctx
         self.rng = rng
         self.slots: dict[str, SlotSpec] = {}
+        self.resume: str | None = None  # the slot a full round stopped at (Search.blocks caps its time)
         for slot, spec in zip(("Weapon 1", "Weapon 2", "Weapon 1 Swap", "Weapon 2 Swap"), (weapon, offhand, *swap)):
             if spec:
                 self.slots[slot] = spec
@@ -395,8 +396,17 @@ class Gear:
         build = self.build
         improved = False
         self.sync_flasks()
-        for slot in self.slots:
-            if slot in build.locked_slots or clock.now() > deadline:
+        slots = list(self.slots)
+        if full:  # a full round that ran out of time last task goes on from the slot it stopped at
+            start = slots.index(self.resume) if self.resume in slots else 0
+            slots = slots[start:] + slots[:start]
+            self.resume = None
+        for slot in slots:
+            if clock.now() > deadline:
+                if full and self.resume is None:
+                    self.resume = slot
+                continue
+            if slot in build.locked_slots:
                 continue
             if slot in CHARM_SLOTS and CHARM_SLOTS.index(slot) >= self.charges.charm_limit:
                 if build.equipped.get(slot) is not None:  # the belt changed: a charm PoB no longer counts

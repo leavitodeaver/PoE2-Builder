@@ -349,3 +349,45 @@ def test_a_lines_requirement_raises_go_on_with_its_state(engine):
     later = Search(engine, None, payload, skeleton, 1)
     later.load(state)
     assert later.escalations == 2
+
+
+def test_a_full_gear_round_stopped_by_its_time_goes_on_from_that_slot(engine):
+    """A full gear round capped by its share of the time (inner.GEAR_SHARE) remembers the slot it stopped at, the line's
+    next task carries it, and the next full round starts there: on gate 4's 2b75b one full round took all of a 240 s
+    task, and no other step ran (POE2T202)."""
+    from builder import clock
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Explosive Spear")
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0].as_dict()
+    payload = make_payload(ctx.request)
+    search = Search(engine, None, payload, skeleton, 0)
+    search.setup(quests=False)
+    first = list(search.gear.slots)[0]
+    search.gear.gear_round(clock.now() - 1.0, full=True)  # out of time before the first slot
+    assert search.gear.resume == first
+    later = Search(engine, None, payload, skeleton, 1)
+    later.load(search.state())
+    assert later.gear.resume == first
+    later.gear.gear_round(clock.now() - 1.0, full=False)  # a shortlist round leaves it alone
+    assert later.gear.resume == first
+
+
+def test_a_support_trial_taken_back_below_where_it_was_restores_the_build(engine):
+    """Setting a group's old gems again after a trial can leave the build lower than before it (the supports step lost
+    score on every line of POE2T202's first focus round): then the snapshot goes back, counted in the reverts."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Explosive Spear")
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    build = search.build
+    group = build.main_group()
+    names = [g["name"] for g in group["gems"]]
+    snap = build.snapshot()
+    search.gems.take_back(group["index"], names, group, snap["score"] + 1.0, snap)
+    assert build.reverts.get("support take-back") == 1
+    assert abs(build.score - snap["score"]) < 1e-6

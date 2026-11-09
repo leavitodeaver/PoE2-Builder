@@ -229,11 +229,13 @@ class Gems:
         before = build.score
         ranked = sorted(options, key=lambda x: -x[0])
         tries = [m for i, (s, m) in enumerate(ranked) if s > before + EPSILON and m not in (x for _, x in ranked[:i])]
+        snap = None
         for move in tries[:META_TRIALS if meta else 1]:
+            snap = snap or build.snapshot()
             self.commit(index, self.with_move(names, move), group)
             if not build.worse(before):
                 return build.score > before + EPSILON
-            self.commit(index, names, group)
+            self.take_back(index, names, group, before, snap)
         if tries:
             self._set_shortlist(meta, granted, None)
         return False
@@ -263,6 +265,15 @@ class Gems:
         elif self.conditions is not None:
             self.conditions.resolve()
 
+    def take_back(self, index: int, names: list[str], group: dict | None, before: float, snap: dict) -> None:
+        """Undo a trial move. Setting the old gems again can leave the build below where it was (the main gem goes back
+        in at GEM_LEVEL, conditions re-resolve with the trial's sources gone): then the snapshot from before the trial
+        goes back, and the build's reverts count it under "support take-back"."""
+        self.commit(index, names, group)
+        if self.build.score < before - EPSILON:
+            self.build.reverts["support take-back"] = self.build.reverts.get("support take-back", 0) + 1
+            self.build.restore(snap)
+
     def discover(self, index: int, names: list[str], options: list[tuple[float, tuple[int, str]]],
                  group: dict | None = None) -> list:
         """A support that is the build's first source of a condition (exposure, onslaught, a
@@ -278,10 +289,12 @@ class Gems:
                           if self.conditions.would_enable((self.ctx.gems.get(name) or {}).get("description") or "")),
                          key=lambda x: -x[0])
         found = []
+        before, snap = self.build.score, None
         for _, move in sources[:DISCOVERY_TRIALS]:
+            snap = snap or self.build.snapshot()
             self.commit(index, self.with_move(names, move), group)
             found.append((self.build.score, move))
-            self.commit(index, names, group)
+            self.take_back(index, names, group, before, snap)
         return found
 
     def energy_trials(self, index: int, names: list[str], options: list[tuple[float, tuple[int, str]]],
@@ -295,11 +308,12 @@ class Gems:
         for score, move in options:
             if move[1] in models.META_SUPPORTS and (move[1] not in best or score > best[move[1]][0]):
                 best[move[1]] = (score, move)
-        found = []
+        found, before, snap = [], self.build.score, None
         for _, move in best.values():
+            snap = snap or self.build.snapshot()
             self.commit(index, self.with_move(names, move), group)
             found.append((self.build.score, move))
-            self.commit(index, names, group)
+            self.take_back(index, names, group, before, snap)
         return found
 
     def drop_unusable(self) -> bool:

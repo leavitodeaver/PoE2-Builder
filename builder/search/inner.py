@@ -38,6 +38,11 @@ from builder.search.usage import Usage
 
 KICK_TREE_POINTS = (6, 16)
 SWEEP_EVERY = 3
+# A full gear round on a build that has gear gets this share of the time left, and the next full round goes on from the
+# slot it stopped at: on gate 4's 2b75b one full round took a whole 240 s focus task (all of round 2), so no support,
+# tree or jewel step ran there (POE2T202). A fresh build's first round (nothing equipped) has no cap: without it the
+# build has no DPS to search from
+GEAR_SHARE = 0.4
 # How far past its deadline a search may run before its build stops it at the next evaluation (Build.stop_at): a share
 # of the task's time, at least STOP_GRACE_MIN seconds, so a step that watches the deadline itself finishes normally
 STOP_GRACE_SHARE = 0.01
@@ -308,6 +313,7 @@ class Search:
             "xml": snap["xml"], "equipped": snap["equipped"], "locked": sorted(self.build.locked_slots),
             "required": sorted(self.tree.required), "active": self.conditions.active,
             "shortlist": self.gems.shortlist, "meta_shortlist": self.gems.meta_shortlist, "gear_shortlist": self.gear.shortlist, "attribute": self.tree.attribute,
+            "gear_resume": self.gear.resume,
             "multipliers": dict(self.build.objective.multipliers), "assumed_mods": self.assumptions.mods,
             # (the raises so far: a line's next task must not count from 0, or each task's second raise clears the
             # tree again, as every task of gate 4's 2b75b runs did: lines at 15K with no supports, POE2T194-197)
@@ -339,6 +345,7 @@ class Search:
         self.gems.shortlist = state["shortlist"]
         self.gems.meta_shortlist = state.get("meta_shortlist")
         self.gear.shortlist = dict(state.get("gear_shortlist") or {})
+        self.gear.resume = state.get("gear_resume")
         self.problems = list(state["problems"])
         self.gear.sync_flasks()
 
@@ -393,8 +400,13 @@ class Search:
         passes in between rescore shortlists."""
         sweep = self.passes % SWEEP_EVERY == 0
         self.passes += 1
+        full_gear = sweep or "gear" in self.kicked
+        gear_deadline = deadline
+        if full_gear and any(item is not None for item in self.build.equipped.values()):
+            now = clock.now()
+            gear_deadline = min(deadline, now + GEAR_SHARE * max(0.0, deadline - now))
         steps = [
-            ("gear", self.gear.gear_round, (deadline, sweep or "gear" in self.kicked)),
+            ("gear", self.gear.gear_round, (gear_deadline, full_gear)),
             ("supports", self.gems.optimize_supports, (deadline, 12, sweep or "supports" in self.kicked)),
             ("ascendancy", self.tree.ascendancy_round, ()),
             ("tree", self.tree.grow, (deadline,)),
