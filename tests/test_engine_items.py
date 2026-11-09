@@ -498,6 +498,36 @@ def test_an_infused_stat_set_counts_at_the_share_of_casts_its_source_covers(engi
     assert raw > blended and blended / raw == pytest.approx(infused["factor"], rel=0.02)
 
 
+def test_a_skill_tried_on_an_infused_set_and_not_chosen_goes_back_to_its_plain_cast(engine, monkeypatch):
+    """A stat set stays on its skill when another skill of the group becomes the calculated one, and Full DPS counts
+    it: 2b75e (POE2T244) delivered Mana Flare as the main skill with Ice Nova left Cold-Infused from its trial, every
+    cast Infused with no source (2,267,697 against 741,063 plain). Here the lowest DPS scores best, so Mana Flare wins
+    and Spark's Infused trial loses."""
+    from builder.search.inner import Search
+    from builder.search.objective import main_dps
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Spark")
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    build, assumptions = search.build, search.assumptions
+    main = build.main_group()
+    build.set_group(index=main["index"], gems=[{"name": "Spark", "level": 20, "quality": 0},
+                                               {"name": "Mana Flare", "level": 20, "quality": 0}])
+    build.set_group(gems=[{"name": "Frost Bomb", "level": 20, "quality": 0}])
+    monkeypatch.setattr(assumptions, "infusion_share", lambda element, ailments: (0.5, "half"))
+    monkeypatch.setattr(build.objective, "score", lambda stats: -main_dps(stats))
+    search.gems.choose_active_skill()
+    group = build.main_group()
+    assert group["mainActiveSkill"] == 2 and assumptions.infused is None and "Cold-Infused" in assumptions.infused_skipped
+    full = build.call("stats", fields=["FullDPS"])["FullDPS"]
+    chosen = group["mainActiveSkill"]
+    build.set_group(index=group["index"], mainActiveSkill=1, statSet=1)  # Spark on its plain cast, explicitly
+    build.set_group(index=group["index"], mainActiveSkill=chosen)
+    assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(full)
+
+
 def test_a_support_sweep_where_nothing_changes_the_score_keeps_no_shortlist(engine, monkeypatch):
     """Explosive Transmutation's first sweep ran before that build's Remnant source (Into the Breach) was in: every support scored exactly the
     same, and the shortlist kept was the alphabet's first names (POE2T206, 216). Such a sweep keeps none, so the

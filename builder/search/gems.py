@@ -432,6 +432,7 @@ class Gems:
             assumptions.infused, assumptions.infused_skipped = None, {}
         best = None
         plain: dict[int, float] = {}  # each skill's plain cast's main-skill DPS, for its Infused sets
+        plain_set: dict[int, tuple] = {}  # and its (part, stat set), to put back on a skill left on an Infused trial
         tried: list[dict] = []
         for active, part, stat_set, label in options:
             infused = None
@@ -465,7 +466,7 @@ class Gems:
             if settle_fn is not None:
                 settle_fn()
             if infused is None and active not in plain:
-                plain[active] = main_dps(build.stats)
+                plain[active], plain_set[active] = main_dps(build.stats), (part, stat_set)
             if best is None or build.score > best[0]:
                 best = (build.score, active, part, stat_set, infused)
             if infused is not None:
@@ -479,6 +480,14 @@ class Gems:
                 if infused is not best[4]:
                     assumptions.infused_skipped[infused["label"]] = (
                         f"scores lower than another cast with {infused['share']:.0%} of casts Infused ({infused['basis']})")
+        # A skill with an Infused set that isn't the calculated one goes back to its plain cast: the stat set stays on
+        # the skill (from this choice's trial or an earlier choice) when another becomes the calculated one, and Full
+        # DPS counted it as Infused at every cast (2b75e, POE2T244: Mana Flare chosen, Ice Nova left Cold-Infused with no
+        # source, 2,267,697 delivered against 741,063 plain)
+        for skill, (part, stat_set) in plain_set.items():
+            labels = group["skills"][skill - 1].get("statSets") or []
+            if skill != best[1] and any(INFUSED_ELEMENT.search(label) for label in labels):
+                build.set_group(index=group["index"], mainActiveSkill=skill, skillPart=part, statSet=stat_set)
         build.set_group(index=group["index"], mainActiveSkill=best[1], skillPart=best[2], statSet=best[3])
         if settle_fn is not None:
             settle_fn()
