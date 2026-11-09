@@ -43,6 +43,7 @@ SWEEP_EVERY = 3
 # tree or jewel step ran there (POE2T202). A fresh build's first round (nothing equipped) has no cap: without it the
 # build has no DPS to search from
 GEAR_SHARE = 0.4
+FINALIZE_SWEEP_MIN = 20.0  # finalize's polish sweeps supports on Full DPS first when it has this long (finalize_task)
 # How far past its deadline a search may run before its build stops it at the next evaluation (Build.stop_at): a share
 # of the task's time, at least STOP_GRACE_MIN seconds, so a step that watches the deadline itself finishes normally
 STOP_GRACE_SHARE = 0.01
@@ -763,8 +764,16 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     build = search.build
     build.phase = "finalize"
     search.include_in_full_dps()
+    # The search's support shortlists were ranked on the main skill's DPS, which never counts a skill a support grants
+    # (Deadly Resolve's slash): with them, finalize spent its polish on shortlist moves and its sweep came too late or
+    # not at all. 2b75d, 8 Nov: the same build went 264,520 -> 575,512 on Close Combat II + Deadly Resolve when the
+    # sweep ran (POE2T207) and stayed at 264,520 when it didn't (POE2T231-232). So supports are swept on Full DPS first.
+    search.gems.shortlist = search.gems.meta_shortlist = None
+    search.gems.granted_shortlists.clear()
     try:
         search.conditions.choose_quests()
+        if deadline - clock.now() >= FINALIZE_SWEEP_MIN:  # (a sweep isn't cut by the deadline: 12-25 s on gate 4)
+            search.step("supports", search.gems.optimize_supports, deadline, 12, True)
         search.run(deadline, escalate=False, feasible_first=True)
     except Cancelled:
         pass

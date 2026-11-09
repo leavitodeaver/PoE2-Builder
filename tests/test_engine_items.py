@@ -284,6 +284,25 @@ def test_finalize_never_trades_a_requirement_for_damage(engine):
         assert end_dps == pytest.approx(start_dps)
 
 
+def test_finalize_sweeps_supports_on_full_dps_despite_the_search_shortlist(engine, monkeypatch):
+    """The search's shortlist was ranked on the main skill's DPS, blind to a skill a support grants (Deadly Resolve's
+    slash): finalize sweeps every support on Full DPS first instead of moving within it (2b75d, POE2T207 vs 231-232)."""
+    from builder.search import inner
+    from builder.search.inner import Search, finalize_task
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Spark", ascendancies=["Stormweaver"])
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0].as_dict()
+    payload = make_payload(ctx.request)
+    search = Search(engine, None, payload, skeleton, 0)
+    search.setup(quests=False)
+    state = search.state()
+    state["shortlist"] = ["Fork"]  # a shortlist from the search: without the sweep only its moves are tried
+    monkeypatch.setattr(Search, "run", lambda self, *args, **kwargs: None)  # only finalize's own support step runs
+    out = finalize_task(engine, None, payload, skeleton, state, inner.FINALIZE_SWEEP_MIN + 10)
+    assert out["support_census"]["full"] and out["support_census"]["cases"] > 50
+
+
 def test_a_step_that_ignores_the_deadline_is_stopped_on_time(engine, monkeypatch):
     """Steps used to finish their own trials past the task's deadline, so a 600 s gate run took about 966 s
     (8 Nov). A step that never looks at the clock is now stopped at its next evaluation a little past the
