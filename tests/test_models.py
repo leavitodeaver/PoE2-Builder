@@ -806,7 +806,7 @@ def test_supports_in_item_groups_count_as_used():
     # like Concentrated Area, may sit in every group)
     from types import SimpleNamespace
 
-    gems = SimpleNamespace(copies_allowed=lambda name: 1 if name == "Rakiata's Flow" else None)
+    gems = SimpleNamespace(copies_allowed=lambda name: 1 if name == "Rakiata's Flow" else None, ctx=SimpleNamespace(level=90))
     assert Gems.used_supports(gems, groups, 1) == {"Rakiata's Flow"}
     assert Gems.used_supports(gems, groups, 2) == set()
 

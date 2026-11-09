@@ -2,7 +2,8 @@
 
 Supports are scored with PoB's accelerated gem path (bridge `gemDeltas`). Hard limits hold at the
 source: at most SUPPORT_SLOTS supports, a lineage or global-benefit support in one skill only (three
-with Solus Ipse; GLOBAL_BENEFIT_SUPPORTS), a normal one in any number, no two supports
+with Solus Ipse; GLOBAL_BENEFIT_SUPPORTS), a normal one in any number, Kalguuran supports up to the character
+level's limit (KALGUURAN_LIMITS), no two supports
 of one family in a group (PoB would let one supersede the other), at most MAX_GEM_GROUPS non-item
 groups, Spirit never over-reserved, and required supports never removed. Persistent skills are
 not buttons, so they never touch the button cap.
@@ -41,8 +42,18 @@ MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what Po
 # rows whose last, unnamed column is true (exported 9 Nov, build 26476662): an inference that it is that flag, since
 # they are exactly the persistent-buff supports. Solus Ipse (Grand Visage; Mods UniqueSupportGemLimit1, the one mod with
 # lineage_support_gem_limit_+, searched over every Mods stat column; no passive has it) allows 2 more copies of each
-# Lineage Support "in different Skills". The Kalguuran Support Gem limit (by level, 6 from 80) isn't modelled: no column
-# marks which supports are Kalguuran.
+# Lineage Support "in different Skills".
+# The Kalguuran Support Gem limit (KeywordPopups KalguuranSupportGemLimit): "The number of Kalguuran Support Gems you can
+# use is limited by your character level" (KALGUURAN_LIMITS), counted over every group. No SupportGems column marks them;
+# the gem base items' BaseItemTypes tag "runeforged" does (9 of the 637 supports, every BaseItemTypes row searched, 9 Nov,
+# build 26476662). That they are the Kalguuran ones is an inference: poe2db's 0.5.0 notes name 8 Kalguuran supports
+# ("Concussive Runes, Fist of Kalguur, Healing Runes, Kalguuran Conviction, Runeforged Blades, Runic Extraction, Runic
+# Infusion and Scouring Flame"; Kalguuran Conviction reads as today's Olroth's Conviction), and Olroth's Hubris carries
+# the same tag, so it counts too (the cautious reading).
+KALGUURAN_SUPPORTS = frozenset({
+    "Concussive Runes", "Fist Of Kalguur", "Healing Runes", "Olroth's Conviction", "Olroth's Hubris", "Runeforged Blades",
+    "Runic Extraction", "Runic Infusion", "Scouring Flame"})
+KALGUURAN_LIMITS = ((80, 6), (65, 5), (45, 4), (33, 3), (17, 2), (1, 1))  # (character level from, Kalguuran supports)
 GLOBAL_BENEFIT_SUPPORTS = frozenset({
     "Precision I", "Precision II", "Clarity I", "Clarity II", "Vitality I", "Vitality II", "Herbalism I", "Herbalism II",
     "Cannibalism I", "Cannibalism II", "Thornskin I", "Thornskin II", "Mysticism I", "Mysticism II", "Direstrike I",
@@ -57,6 +68,15 @@ META_MIN_RATE = 1 / 30
 # cautious reading (PoB doesn't limit it); three spells leave two sockets for supports.
 META_SPELLS_MAX = 3
 ATTRIBUTES = {"str": "Str", "dex": "Dex", "int": "Int"}
+
+
+def is_kalguuran(name: str) -> bool:
+    return name.lower() in {n.lower() for n in KALGUURAN_SUPPORTS}  # (PoB writes "Fist Of Kalguur", the notes "of")
+
+
+def kalguuran_limit(character_level: int) -> int:
+    """How many Kalguuran supports a character of this level may use (KALGUURAN_LIMITS)."""
+    return next((n for level, n in KALGUURAN_LIMITS if character_level >= level), 0)
 
 
 def highest_usable_level(levels: list[dict], attributes: dict[str, float], character_level: int) -> int | None:
@@ -121,8 +141,15 @@ class Gems:
         skill; leaving them out let gate 4's 2b75b hold Rakiata's Flow, a lineage support, in two groups)"""
         held = Counter(g["name"] for group in groups if group["index"] != except_group
                        for g in group["gems"] if g["support"])
-        return {name for name, count in held.items()
-                if (limit := self.copies_allowed(name)) is not None and count >= limit}
+        blocked = {name for name, count in held.items()
+                   if (limit := self.copies_allowed(name)) is not None and count >= limit}
+        # The Kalguuran limit counts every group, this one too: at the limit no other Kalguuran support may come in (a
+        # swap of one for another within this group is blocked as well, the cautious side)
+        here = {g["name"] for group in groups if group["index"] == except_group for g in group["gems"] if g["support"]}
+        kalguuran = sum(n for name, n in held.items() if is_kalguuran(name)) + sum(map(is_kalguuran, here))
+        if kalguuran >= kalguuran_limit(self.ctx.level):
+            blocked |= {name for name in KALGUURAN_SUPPORTS if name not in here}
+        return blocked
 
     def budget_left(self) -> float:
         return self.ctx.budget - self.build.spent()

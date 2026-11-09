@@ -920,6 +920,44 @@ def test_the_global_benefit_supports_are_the_game_files_flagged_ones():
     assert flagged == set(GLOBAL_BENEFIT_SUPPORTS)
 
 
+def test_the_kalguuran_supports_are_the_game_files_runeforged_ones():
+    """KALGUURAN_SUPPORTS against the supports whose base item carries the "runeforged" tag, when the tables are here."""
+    import glob
+    import json
+    from pathlib import Path
+
+    from builder.search.gems import KALGUURAN_SUPPORTS
+
+    found = sorted(glob.glob(str(Path(__file__).resolve().parents[1] / "data" / "game-*" / "tables" / "SupportGems.json")))
+    if not found:
+        pytest.skip("no exported game tables")
+    folder = found[-1].rsplit("SupportGems.json", 1)[0]
+    load = lambda name: json.load(open(folder + name, encoding="utf-8"))
+    support, skill, base, tags = load("SupportGems.json"), load("SkillGems.json"), load("BaseItemTypes.json"), load("Tags.json")
+    tag = next(i for i, t in enumerate(tags) if t["Id"] == "runeforged")
+    tagged = {base[b]["Name"] for b in (skill[row["SkillGem"]]["BaseItemType"] for row in support) if tag in base[b]["Tags"]}
+    assert tagged == set(KALGUURAN_SUPPORTS)
+
+
+def test_kalguuran_supports_are_limited_by_character_level():
+    """KeywordPopups KalguuranSupportGemLimit: 1 from level 1, 2 from 17, ... 6 from 80, over every group together."""
+    from types import SimpleNamespace
+
+    from builder.search.gems import Gems, kalguuran_limit
+
+    assert [kalguuran_limit(level) for level in (1, 16, 17, 33, 45, 64, 65, 79, 80, 100)] == [1, 1, 2, 3, 4, 4, 5, 5, 6, 6]
+    gems = Gems.__new__(Gems)
+    gems.build = SimpleNamespace(equipped={})
+    gems.ctx = SimpleNamespace(level=20, gems={})
+    group = lambda index, *names: {"index": index, "gems": [{"name": n, "support": True} for n in names]}
+    groups = [group(0, "Fist Of Kalguur"), group(1, "Healing Runes"), group(2)]
+    blocked = gems.used_supports(groups, 2)  # two held at level 20 (limit 2): no third, in any group
+    assert {"Runic Infusion", "Scouring Flame", "Fist Of Kalguur", "Healing Runes"} <= blocked
+    assert "Runic Infusion" in gems.used_supports(groups, 0)  # nor a swap within a holder (the cautious side)
+    gems.ctx.level = 33
+    assert gems.used_supports(groups, 2) == set()  # a normal support or a third Kalguuran one is fine at 33
+
+
 def test_a_glory_skill_as_the_main_skill_is_used_as_often_as_the_build_makes_its_glory(engine):
     """PoB calculates a Glory skill at will; Assumptions.glory_main rates its uses from the Glory another skill's hits
     build (models.glory_uses), or from its own hits when there's no other skill (at will or never), as its trigger rate."""
