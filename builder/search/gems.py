@@ -444,12 +444,16 @@ class Gems:
                 if self.conditions is not None and not self.conditions.allows(label.replace(element.group(0), ""), assume):
                     continue  # (whatever else the set needs, e.g. Frenzy-Charged)
                 element = element.group(1).capitalize()
-                build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part, statSet=stat_set)
-                settle_fn()
-                share, basis = assumptions.infusion_share(element, set(self.conditions.active) if self.conditions else set())
+                ailments = set(self.conditions.active) if self.conditions else set()
+                # (any supply at all first, on the plain cast's numbers: a build without a source pays no evaluation for
+                # the set; the share itself is read on the Infused cast, whose casts per second differ)
+                share, basis = assumptions.infusion_share(element, ailments)
                 if share <= 0:
                     assumptions.infused_skipped[label] = INFUSED_NOTE + f" ({basis})"
                     continue
+                build.set_group(index=group["index"], mainActiveSkill=active, skillPart=part, statSet=stat_set)
+                settle_fn()
+                share, basis = assumptions.infusion_share(element, ailments)
                 raw = main_dps(build.stats)
                 factor = (plain[active] + share * (raw - plain[active])) / raw if raw > 0 else 1.0
                 infused = {"label": label, "factor": factor, "share": share, "basis": basis}
