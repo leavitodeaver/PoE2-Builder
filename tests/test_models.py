@@ -877,6 +877,45 @@ def test_infusion_supply_counts_each_element_from_the_build_s_sources():
     assert any("the user's word" in u for u in used)  # Refracted Infusion's random other element: the user's, 9 Nov
 
 
+def test_remnant_rates_from_freezes_stuns_and_doubled_pickups(monkeypatch):
+    """Game files, build 26476662: Remnants of Kalguur at most one per 3 s (ward_remnants_spawn_remnant_on_stun_cooldown_ms
+    3000; uncapped it was an overcount); Siphon Elements a Cold Remnant per Freeze (5% per Power, a boss's 20 Power), the
+    Freezes from models.buildup_rate; "chance for Remnants you pick up to count as picking up an additional Remnant"
+    (created_remnants_have_%_chance_to_duplicate_pick_up_results) multiplies both the explosion's Remnants and Infusions."""
+    from builder.search import assumptions
+    from builder.search.assumptions import REMNANT_SOURCES, infusion_supply, kalguur_rate, siphon_freezes
+
+    assert kalguur_rate(0.0) == 0.0
+    assert kalguur_rate(0.01) == pytest.approx(0.005, rel=0.02)  # rare stuns: 50% of them
+    assert kalguur_rate(100.0) < 1 / 3 and kalguur_rate(100.0) == pytest.approx(1 / 3, rel=0.01)  # the cap
+    monkeypatch.setattr(assumptions.models, "buildup_rate", lambda stats, ailment: 0.2 if ailment == "Freeze" else 0.0)
+    rate, how = siphon_freezes({})
+    assert rate == pytest.approx(0.2) and "20 Power" in how
+    supply, used = infusion_supply({"Siphon Elements": {}}, [], set(), (rate, how))
+    assert supply["Cold"] == pytest.approx(0.2) and any("Fire and Lightning" in u for u in used)
+    assert infusion_supply({}, [], set(), (rate, how))[0]["Cold"] == 0.0  # only with the skill
+    lines = ["20% chance for Remnants you pick up to count as picking up an additional"]  # (PoB's line, split)
+    supply, _ = infusion_supply({"Orb of Storms": {}}, lines, set())
+    assert supply["Lightning"] == pytest.approx(REMNANT_SOURCES["Orb of Storms"][0] * 1.2)
+
+    class Build:
+        def call(self, method, **kw):
+            return {"activeSkills": {"skills": [{"name": "Transmutation Explosion", "disabled": False, "cooldown": 0.0},
+                                                {"name": "Siphon Elements", "disabled": False}]},
+                    "sourceLines": {"lines": [{"text": "15% chance for Remnants you create to grant their effects twice"}]},
+                    "stats": {}}[method]
+
+        def main_group(self):
+            return None
+
+    a = assumptions.Assumptions(Build())
+    a.models = lambda skills: ([], [], {})
+    a.ledger_conditions = lambda skills: ([], [])
+    mods, notes = a.wanted()
+    assert next(m["value"] for m in mods if m.get("key") == "triggerRate") == pytest.approx(0.2 * 1.15)
+    assert "15% of pickups counting twice" in notes[-1]["basis"]
+
+
 def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
     """Game files (GrantedEffectStatSets, 9 Nov): Hammer of the Gods costs 20 Glory and gains 100% of the boss's Power
     (20) per Heavy Stun; a Banner costs 200 and gains 20 per attack hit; Zerphi's Infamy turns 5% of Life spent into

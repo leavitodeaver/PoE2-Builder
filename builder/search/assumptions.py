@@ -48,13 +48,45 @@ REMNANT_SOURCES = {
     "Living Bomb": (0.2, "assumed: one seed detonated every 5 s"),
     "Grim Feast": (0.1, "assumed: one Reviving minion dies every 10 s"),
     "Orb of Storms": (0.0833, "one Orb kept up: a Remnant when each 12 s Orb expires"),
-    "Remnants of Kalguur": (0.0, "50% per Stun: the boss's Heavy Stuns (models.heavy_stun_rate, from the build's "
-                                 "own buildup; light stuns of a boss not counted)"),
-    "Siphon Elements": (0.0, "not counted: Ignite and Shock make one only on a target without that ailment, which a "
-                             "boss you keep ailing rarely is, and Freeze (per Power) needs the Freeze buildup model; "
-                             "an undercount"),
+    "Remnants of Kalguur": (0.0, "50% per Stun, at most one per 3 s: the boss's Heavy Stuns (models.heavy_stun_rate, "
+                                 "from the build's own buildup; light stuns of a boss not counted)"),
+    "Siphon Elements": (0.0, "a Cold Remnant on each Freeze (5% per Power, a boss's 20 Power: 100%), the boss's Freezes "
+                             "from the main skill's buildup (models.buildup_rate); Ignite and Shock make one only on a "
+                             "target without that ailment, which a boss you keep ailing rarely is: not counted, an "
+                             "undercount"),
 }
-KALGUUR, KALGUUR_CHANCE = "Remnants of Kalguur", 0.5  # its rate is the boss's Heavy Stuns, worked out per build
+# Remnants of Kalguur (MetaRemnantsOfKalguurPlayer, build 26476662): ward_remnants_chance_to_spawn_remnant_on_stun_% 50,
+# ward_remnants_spawn_remnant_on_stun_cooldown_ms 3000 ("no more than once every # seconds"): a Remnant every
+# 3 s + the wait for the next successful Stun. Without the cap a fast stunner counted 50% of every Stun, an overcount
+KALGUUR, KALGUUR_CHANCE, KALGUUR_COOLDOWN = "Remnants of Kalguur", 0.5, 3.0
+# Siphon Elements (SiphonElementsPlayer): infusion_remnants_%_chance_to_spawn_cold_infusion_on_freezing_an_enemy 5, "per
+# Power" (skill_stat_descriptions); "Unique monsters always have 20 Power" (KeywordPopups Power)
+SIPHON, SIPHON_FREEZE_PER_POWER = "Siphon Elements", 0.05
+# created_remnants_have_%_chance_to_duplicate_pick_up_results (the Empowering Remnants passive, the "of Accumulation" to
+# "of Multiplication" item suffixes): "#% chance for Remnants you pick up to count as picking up an additional Remnant"
+# (stat_descriptions), "... you create to grant their effects twice" (passive_skill_stat_descriptions): one stat, both
+# wordings. Counted as that share of pickups counting twice (a second Infusion, a second explosion trigger)
+DUPLICATE_PICKUP = re.compile(r"(\d+(?:\.\d+)?)% chance for Remnants you (?:pick up to count as picking up an "
+                              r"additional|create to grant their effects twice)", re.I)  # (PoB splits the line before "Remnant")
+
+
+def kalguur_rate(stuns: float) -> float:
+    """Remnants of Kalguur per second from `stuns` Stuns per second: one per KALGUUR_COOLDOWN + the expected wait for
+    the next Stun that makes one (KALGUUR_CHANCE each)."""
+    return 1.0 / (KALGUUR_COOLDOWN + 1.0 / (KALGUUR_CHANCE * stuns)) if stuns > 0 else 0.0
+
+
+def siphon_freezes(stats: dict) -> tuple[float, str]:
+    """Siphon Elements' Cold Remnants per second: the boss's Freezes (models.buildup_rate) x the chance per Freeze."""
+    freezes = models.buildup_rate(stats, "Freeze")
+    chance = min(1.0, SIPHON_FREEZE_PER_POWER * models.BOSS_POWER)
+    return freezes * chance, (f"{chance:.0%} per Freeze (5% per Power, 20 Power), the boss frozen {freezes:.3f}/s by the "
+                              "main skill's buildup; Ignite and Shock Remnants not counted (an undercount)")
+
+
+def duplicate_pickups(texts: list[str]) -> float:
+    """The share of Remnant pickups that count twice (DUPLICATE_PICKUP), capped at 1."""
+    return min(1.0, sum(float(m.group(1)) for t in texts if (m := DUPLICATE_PICKUP.search(t))) / 100.0)
 NEEDS_MINIONS = {"Grim Feast"}  # its Remnants come from your minions' deaths
 REAPPEAR = re.compile(r"Remnants you create reappear once", re.I)  # Storm's Recollection: each is collected twice
 COOLDOWN_SOURCES = {"Snap", "Frost Bomb"}  # their rate scales with their own cooldown recovery
@@ -62,15 +94,15 @@ INFUSED_NOTE = ("the Infused cast needs an Elemental Infusion of its element, co
                 "build's skills makes that element's Infusions on a lone boss, so only the plain cast counts")
 # Elemental Infusions per second on a single boss, by element (game files, build 26476662: the skills whose description
 # leaves an Infusion Remnant, ActiveSkills search of 9 Nov, MECH19): Frost Bomb Cold, Orb of Storms Lightning, Living Bomb
-# Fire, Snap the element of the ailment it consumes; rates as REMNANT_SOURCES. Siphon Elements and Powered by Verisium
-# make some too, not counted yet (reasons below). The other Remnant sources (Into the Breach, Life, Mana, Power Charge
+# Fire, Snap the element of the ailment it consumes; rates as REMNANT_SOURCES. Siphon Elements' Cold ones on Freeze
+# (siphon_freezes); its Fire and Lightning ones and Powered by Verisium's aren't counted yet (reasons below). The other Remnant sources (Into the Breach, Life, Mana, Power Charge
 # Remnants) make no Infusions.
 INFUSION_SOURCES = {
     "Frost Bomb": "Cold", "Orb of Storms": "Lightning", "Living Bomb": "Fire", "Snap": None,
 }
 INFUSION_UNCOUNTED = {
-    "Siphon Elements": "Siphon Elements' Infusions (on Freeze, or Ignite/Shock of a target without that ailment) aren't "
-                       "counted yet: an undercount",
+    "Siphon Elements": "Siphon Elements' Fire and Lightning Infusions (Ignite/Shock of a target without that ailment) "
+                       "aren't counted: an undercount",
     "Powered by Verisium": "Powered by Verisium's Infusions (from Ward spent) aren't counted yet: an undercount",
 }
 SNAP_AILMENTS = {"conditionEnemyIgnited": "Fire", "conditionEnemyShocked": "Lightning", "conditionEnemyFrozen": "Cold"}
@@ -84,10 +116,12 @@ VERISIUM_EVERY = re.compile(r"Every (?:(\d+(?:\.\d+)?) )?seconds?, gain an? Veri
 INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
 
 
-def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str]) -> tuple[dict[str, float], list[str]]:
+def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str],
+                    siphon: tuple[float, str] = (0.0, "")) -> tuple[dict[str, float], list[str]]:
     """Elemental Infusions per second by element ("Any": Verisium Infusions, usable as any element), and what makes them.
     `present`: the build's enabled skills by name; `lines`: its modifier lines; `ailments`: the resolver's active
-    condition vars (which ailment Snap consumes)."""
+    condition vars (which ailment Snap consumes); `siphon`: Siphon Elements' Cold Remnants per second and how
+    (siphon_freezes), used when the build has it."""
     supply = {"Fire": 0.0, "Cold": 0.0, "Lightning": 0.0, "Any": 0.0}
     used: list[str] = []
     made: dict[str, float] = {}
@@ -107,6 +141,9 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
         else:
             made[element] = made.get(element, 0.0) + rate
             used.append(f"{name} {rate:.2f}/s {element}")
+    if SIPHON in present:
+        made["Cold"] = made.get("Cold", 0.0) + siphon[0]
+        used.append(f"{SIPHON} {siphon[0]:.2f}/s Cold ({siphon[1]})")
     used += [why for name, why in INFUSION_UNCOUNTED.items() if name in present]
     texts = [t.strip() for t in lines]
     if any(EQUILIBRIUM.search(t) for t in texts):
@@ -115,6 +152,7 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
     remnants = 1.0 + sum(float(m.group(1)) for t in texts if (m := EXTRA_INFUSION_REMNANT.search(t))) / 100.0
     if any(REAPPEAR.search(t) for t in texts):
         remnants *= 2.0
+    remnants *= 1.0 + duplicate_pickups(texts)
     gain = 1.0 + sum(float(m.group(1)) for t in texts if "weapon" not in t.lower() and (m := EXTRA_INFUSION.search(t))) / 100.0
     other = sum(float(m.group(1)) for t in texts if (m := OTHER_INFUSION.search(t))) / 100.0
     for e, rate in made.items():
@@ -129,7 +167,7 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
             supply["Any"] += gain / every
             used.append(f"a Verisium Infusion every {every:g} s (any element)")
     if remnants != 1.0:
-        used.append(f"x{remnants:g} Infusion Remnants (additional ones, or collected twice)")
+        used.append(f"x{remnants:g} Infusion Remnants (additional ones, collected twice, or pickups counting twice)")
     if gain != 1.0:
         used.append(f"+{gain - 1:.0%} chance of an additional Infusion")
     if other:
@@ -267,7 +305,9 @@ class Assumptions:
                     rate *= skill.get("cooldownRecovery") or 1.0
                 if name == KALGUUR:
                     stuns, how = models.heavy_stun_rate(self.build.call("stats", fields=models.MODEL_FIELDS))
-                    rate, condition = KALGUUR_CHANCE * stuns, f"50% per Stun, {how}"
+                    rate, condition = kalguur_rate(stuns), f"50% per Stun, at most one per 3 s, {how}"
+                elif name == SIPHON:
+                    rate, condition = siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS))
                 supply += rate
                 used.append(f"{name} {rate:.2f}/s ({condition})")
             lines = self.build.call("sourceLines")["lines"]
@@ -276,6 +316,8 @@ class Assumptions:
             twice = any(REAPPEAR.search(line["text"]) for line in lines)
             if twice:
                 supply *= 2.0
+            duplicate = duplicate_pickups([line["text"] for line in lines])
+            supply *= 1.0 + duplicate
             cooldown = explosion.get("cooldown") or 0.0
             cap = (explosion.get("cooldownRecovery") or 1.0) / cooldown if cooldown else math.inf
             rate = min(supply, cap)
@@ -290,6 +332,7 @@ class Assumptions:
                 "basis": f"Remnants {supply:.2f}/s from {basis}"
                          + (f", +{extra:.0%} additional Remnants" if extra else "")
                          + (", each collected twice (they reappear once)" if twice else "")
+                         + (f", {duplicate:.0%} of pickups counting twice" if duplicate else "")
                          + f"; cooldown cap {cap:.2f}/s",
                 "confidence": "game files' rates; assumed cadences as labelled (launch-test the pickup rate)",
             })
@@ -455,7 +498,8 @@ class Assumptions:
         build = self.build
         present = {s["name"]: s for s in build.call("activeSkills")["skills"] if not s["disabled"]}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
-        supply, used = infusion_supply(present, lines, ailments)
+        siphon = siphon_freezes(build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present else (0.0, "")
+        supply, used = infusion_supply(present, lines, ailments, siphon)
         keep = min(1.0, sum(float(m.group(1)) for t in lines if (m := KEEP_INFUSION.search(t.strip()))) / 100.0)
         uses = float(build.call("stats", fields=["Speed"]).get("Speed") or 0.0)
         have = supply[element] + supply["Any"]
