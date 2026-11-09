@@ -101,6 +101,7 @@ class Search:
         self.deadline: float | None = None  # the running search's (Search.run)
         self.overrun: dict[str, float] = {}  # phase -> the most seconds a step of it ran past the deadline
         self.boundary: dict | None = None  # the build as the last step left it (a stop goes back to it)
+        self.stop_at: float | None = None  # the hard stop the build gets once a step has finished (Build.stop_at)
         self.passes = 0
         self.kicked: set[str] = set()  # blocks a kick disturbed, swept fully on the next pass
 
@@ -376,6 +377,10 @@ class Search:
                 self.overrun[phase] = round(max(self.overrun.get(phase, 0.0), now - max(started, self.deadline)), 2)
         if self.deadline is not None and (self.boundary is None or self.build.score != before):
             self.boundary = self.build.snapshot()
+            # The hard stop is armed once a step has finished: before that there is no boundary to go back to, and a
+            # stop inside a fresh build's first gear round (it takes longer than a 60 s probe) handed on a half-done
+            # state; all five of a gate run's lines then stuck at 15K with no main group (POE2T194, x0.09)
+            self.build.stop_at = self.stop_at
         return self.build.score > before + EPSILON
 
     def blocks(self, deadline: float) -> bool:
@@ -522,11 +527,10 @@ class Search:
         except OutOfTime:
             # Stopped inside a step, whose own bookkeeping (what's equipped, a trial under way) may not match the
             # engine: back to where the last step left the build, then the usual best-of below
-            if self.boundary is not None:
-                self.build.restore(self.boundary)
+            self.build.restore(self.boundary)  # (armed only once there is one)
             best, start = self._kept
         finally:
-            self.build.stop_at = None
+            self.build.stop_at = self.stop_at = None
             self.deadline, self.boundary = None, None
         kept = [snap for snap in (best, start) if snap is not None]
         if kept:
@@ -548,7 +552,7 @@ class Search:
                 escalate: bool) -> tuple[dict | None, dict | None]:
         """Search.run's loop: (best, start) as it leaves them; `self._kept` holds them for a stop (OutOfTime)."""
         self.deadline, self.boundary, self._kept = deadline, None, (best, start)
-        self.build.stop_at = deadline + max(STOP_GRACE_MIN, STOP_GRACE_SHARE * max(0.0, deadline - clock.now()))
+        self.stop_at = deadline + max(STOP_GRACE_MIN, STOP_GRACE_SHARE * max(0.0, deadline - clock.now()))
         last_short = float("inf")
         while clock.now() < deadline:
             improved = self.blocks(deadline)

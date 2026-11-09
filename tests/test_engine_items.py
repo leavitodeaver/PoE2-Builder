@@ -289,15 +289,18 @@ def test_a_step_that_ignores_the_deadline_is_stopped_on_time(engine, monkeypatch
     (8 Nov). A step that never looks at the clock is now stopped at its next evaluation a little past the
     deadline, the build goes back to where the last step left it, and the task says which step ran over."""
     from builder import clock
+    from builder.search.gems import Gems
     from builder.search.inner import STOP_GRACE_MIN, optimize_task
     from builder.search.skeletons import enumerate_skeletons
 
-    def endless(self, deadline, full=True):
+    def endless(self, deadline, *args):
         until = clock.now() + 60
         while clock.now() < until:
             self.build.refresh()
 
-    monkeypatch.setattr(Gear, "gear_round", endless)  # the first step of every pass
+    # Gear goes first and finishes at once (the stop is armed only after a finished step); supports never stop
+    monkeypatch.setattr(Gear, "gear_round", lambda self, deadline, full=True: False)
+    monkeypatch.setattr(Gems, "optimize_supports", endless)
     ctx = context(main_skill="Explosive Spear")
     skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0]
     payload = make_payload(ctx.request)
@@ -305,7 +308,7 @@ def test_a_step_that_ignores_the_deadline_is_stopped_on_time(engine, monkeypatch
     result = optimize_task(engine, None, payload, skeleton.as_dict(), 8, seed=1)
     took = clock.now() - started
     assert took < 8 + STOP_GRACE_MIN + 5, took
-    assert "gear" in result["overrun"] and result["overrun"]["gear"] < STOP_GRACE_MIN + 2, result["overrun"]
+    assert "supports" in result["overrun"] and result["overrun"]["supports"] < STOP_GRACE_MIN + 2, result["overrun"]
     assert result["score"] > float("-inf") and result["state"]["equipped"]
 
 
