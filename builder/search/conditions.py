@@ -215,6 +215,109 @@ def _charges_held(kind: str):
 CHARGE_OVERRIDES = {f"override{kind}Charges": kind for kind in ("Power", "Frenzy", "Endurance")}
 
 
+# Rage held (MECH27, 9 Nov 2026; before, any Rage source set the maximum, on-kill ones too). The game files' KeywordPopups
+# Rage (build 26476662): "you have 30 maximum Rage and lose 1 Rage every 0.2 seconds. Rage loss is paused for 4 seconds
+# upon gaining Rage, or after taking damage. Only one Hit every 0.5 seconds can cause you to gain Rage." Gains come from
+# the build's lines (every "gain # Rage" wording of the stat descriptions; nothing dies on a single boss, so on-kill gains
+# are 0), spends from the skills that spend it (GrantedEffectStatSets / GrantedEffectsPerLevel costs below). The maximum
+# is held while gains outrun spends and gains or the boss's landing hits come at least once per 4 s; else the average of
+# each gain held 4 s and then decaying. A source whose rate its line doesn't say (Warcry, Life Flask, on use, Mana spent)
+# is assumed once per CHARGE_DEFAULT_EVERY s, labelled.
+RAGE_PAUSE, RAGE_DECAY, RAGE_HIT_EVERY = 4.0, 5.0, 0.5
+RAGE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\bgain (\d+|an?)? ?Rage\b(.*)$", re.I)
+RAGE_REGEN = re.compile(r"\bregenerate (\d+(?:\.\d+)?)(%)?(?: of your maximum)? Rage per second(.*)$|"
+                        r"\b1 Rage Regenerated for every", re.I)
+RAGE_NOT_SOURCE = re.compile(r"cannot gain|instead|\ballies\b|companions|benefits|per (?:\d+ )?Rage|when you lose|"
+                             r"per enemy power|if you have gained", re.I)
+# Rage spent per use (molten_crash_optionally_consume_X_rage_for_fissures 10, bear_slam_spend_X_rage_for_stronger_slam 10,
+# support_rageforged_consumes_X_rage_to_enrage_skill_use 10; Fury of the Mountain's own amount isn't in its stat set: 10
+# assumed like the others) and per second while channelled (CostAmounts: Rampage 300, Flame Breath 360 Rage a minute;
+# both "skill_cannot_gain_rage_during_use", so the main skill's own hits gain none while it's one of them).
+RAGE_PER_USE = {"Molten Crash": 10, "Furious Slam": 10, "Fury of the Mountain": 10, "Rageforged I": 10, "Rageforged II": 10}
+RAGE_PER_SECOND = {"Rampage": 5.0, "Flame Breath": 6.0}
+
+
+def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, str] | None:
+    """(Rage per second, gains per second, how) from one line, or None if it isn't a source of Rage."""
+    if m := RAGE_REGEN.search(text):  # (Rage regenerated counted as gained for the pause, assumed)
+        if re.search(r"per \d+ Rage spent|\ballies\b", text, re.I):
+            return None
+        if not m.group(1) or "for every" in (m.group(3) or ""):
+            return 1.0, 1.0, "regenerated at a rate set by Life or Mana regeneration: 1/s assumed"
+        r = float(m.group(1)) * (number(stats.get("MaximumRage")) / 100 if m.group(2) else 1.0)
+        return r, 1.0, f"{r:g}/s regenerated"
+    m = RAGE_SOURCE.search(text)
+    if not m or RAGE_NOT_SOURCE.search(text):
+        return None
+    chance = float(m.group(1)) / 100 if m.group(1) else 1.0
+    amount = float(m.group(2)) if m.group(2) and m.group(2).isdigit() else 1.0
+    when = m.group(3).lower()
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = ((1 - min(number(stats.get("EvadeChance")), 100) / 100) *
+            (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)) / every
+    if "kill" in when:
+        return 0.0, 0.0, "on kill (nothing dies on a single boss)"
+    if "critically hit" in when or "critical|critically hit" in when:
+        events, how = land * 0.05, "when the boss crits you (5% of its hits that land)"
+    elif "hit] by" in when or "hit by" in when:
+        events, how = land, f"the boss's hits that land, {land:.2f}/s"
+    else:
+        if not own_hits and re.search(r"hit", when):
+            return 0.0, 0.0, "on your hits, but the main skill can't gain Rage while used"
+        if "ignite" in when:
+            events = hits * min(number(stats.get("IgniteChancePerHit")), 100) / 100
+            how = f"{events:.2f} Ignites/s"
+        elif "critical" in when:
+            events = hits * number(stats.get("CritChance")) / 100
+            how = f"{events:.2f} crits/s"
+        elif "hit" in when:
+            events, how = hits, f"{hits:.2f} hits/s"
+        else:
+            events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed"
+    events = min(events * chance, 1 / RAGE_HIT_EVERY)  # (one Hit every 0.5 s can gain Rage)
+    if cap := re.search(r"no more than once every (\d+(?:\.\d+)?) seconds?", when):
+        events = min(events, 1 / float(cap.group(1)))
+    return events * amount, events, f"{chance:.0%} x {amount:g} Rage, {how}, {events:.2f} gains/s"
+
+
+def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
+    main_types = stats.get("_main_types") or set()
+    spend = stats.get("_rage_spend") or {}
+    own_hits = not (stats.get("_main_channel_rage") or False)
+    gain, events, how = 0.0, 0.0, []
+    for text in lines:
+        if not qualifies(text, main_types) or (r := _rage_gain(text, stats, own_hits)) is None:
+            continue
+        gain, events = gain + r[0], events + r[1]
+        how.append(f"{text[:60]} ({r[2]})")
+    if not how:
+        return 0.0, ""
+    most = number(stats.get("MaximumRage"))
+    spent = sum(spend.values())
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = ((1 - min(number(stats.get("EvadeChance")), 100) / 100) *
+            (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)) / every
+    basis = f"{gain:.2f} Rage/s gained"
+    if spent:
+        basis += f", {spent:.2f}/s spent by " + ", ".join(f"{n} {v:.2f}/s" for n, v in spend.items())
+    net = gain - spent
+    if net <= 0 or most <= 0:
+        held = 0.0
+        basis += " (spent as fast as it comes: none held)" if gain > 0 else " (no gain a boss fight feeds)"
+    elif events * RAGE_PAUSE >= 1 or land * RAGE_PAUSE >= 1:
+        held = most
+        basis += f", its loss paused (gains {events:.2f}/s, boss hits landing {land:.2f}/s, one per 4 s needed): the maximum"
+    else:
+        level = min(most, net / events)  # (each gain, held 4 s, then lost 1 per 0.2 s)
+        gap = 1 / events
+        down = min(level / RAGE_DECAY, gap - RAGE_PAUSE)
+        held = (level * RAGE_PAUSE + level * down - RAGE_DECAY * down * down / 2) / gap
+        basis += f", one gain every {gap:.1f} s of {level:.0f} Rage held 4 s then lost 5/s: {held:.1f} on average"
+    held = float(int(held))
+    return held, f"{basis} = {held:.0f} held, at most {most:g}: " + "; ".join(how[:3])
+
+
 def _blocked_recently(stats: dict) -> bool:
     every = number(stats.get("enemySkillTime")) or 0.7
     block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
@@ -298,7 +401,8 @@ CONDITIONS: list[Condition] = [
     _charge("useEnduranceCharges", "endurance"),
     Condition("buffOnslaught", "Onslaught", (_gen("onslaught"),), (_consumer("onslaught"),)),
     Condition("buffArcaneSurge", "Arcane Surge", (_gen("arcane surge"),), (_consumer("arcane surge"),)),
-    Condition("multiplierRage", "Rage", (_gen("rage"),), (_consumer("rage"),), value_field="MaximumRage"),
+    Condition("multiplierRage", "Rage held", value_fn=lambda lines, stats: rage_held(lines, stats),
+              fields=("Speed", "HitChance", "CritChance", "MaximumRage", "enemySkillTime", "EvadeChance")),
     Condition("conditionLeeching", "Leeching", (r"\bleech\w*\b[^.;]*\b(?:life|mana|energy shield)\b",),
               (r"while leeching|if you are leeching|leech\w* is instant",)),
     Condition("conditionCritRecently", "Crit recently",
@@ -417,6 +521,7 @@ def text_evidence(condition: Condition, line: str) -> bool:
 class Conditions:
     def __init__(self, build: Build, main_skill: str) -> None:
         self.build = build
+        self.main_skill = main_skill
         self.main_types = set((build.ctx.gems.get(main_skill) or {}).get("skillTypes") or [])
         self.active: dict[str, dict] = {}  # var -> {label, value, evidence}
         self.distance: tuple[float, str] | None = None  # (metres, why) chosen by score (Search.choose_distance)
@@ -450,7 +555,19 @@ class Conditions:
                     uses = (number(stats.get("Speed")) if types == main_types or (hollow and name == HOLLOW_FORM)
                             else 1 / CHARGE_DEFAULT_EVERY)
                     consumers.setdefault(kind, {})[name] = uses
-        stats = {**stats, "_consumers": consumers, "_main_types": main_types, "_distance_choice": self.distance,
+        # Rage spenders (RAGE_PER_USE / RAGE_PER_SECOND): the main skill, or a support in its group, at the main skill's
+        # uses per second; any other at one use per CHARGE_DEFAULT_EVERY s
+        main_gems = {g["name"] for g in group["gems"]} if group is not None else set()
+        rage_spend: dict[str, float] = {}
+        for name in gem_types:
+            uses = number(stats.get("Speed")) if name == self.main_skill or (
+                name in main_gems and name.startswith("Rageforged")) else 1 / CHARGE_DEFAULT_EVERY
+            if name in RAGE_PER_USE:
+                rage_spend[name] = RAGE_PER_USE[name] * uses
+            elif name in RAGE_PER_SECOND:
+                rage_spend[name] = RAGE_PER_SECOND[name] * (1.0 if name == self.main_skill else 1 / CHARGE_DEFAULT_EVERY)
+        stats = {**stats, "_consumers": consumers, "_rage_spend": rage_spend,
+                 "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_distance_choice": self.distance,
                  "_stationary_off": self.stationary_off, "_rolling": self.rolling}
         found: dict[str, tuple[object, str]] = {}
         for condition in CONDITIONS:

@@ -32,7 +32,7 @@
   game_source: https://poe2db.tw/us/Rage
   pob: config-only
   pob_check: "ConfigOptions multiplierRage: a number the user sets."
-  handling: "The resolver sets Rage to its maximum once the build has a source."
+  handling: "conditions.rage_held (MECH27, 9 Nov): Rage held from the build's gains and spends, by the game files' rule (KeywordPopups Rage: 1 lost per 0.2 s, the loss paused 4 s on a gain or a hit taken, one Hit per 0.5 s gains). Gains per line: on hit / crit / Ignite from the main skill's rates, capped at 2 a second and by 'no more than once every # s'; when hit or crit by the boss from its hits that land; regeneration; on kill 0; Warcry, Life Flask, on use and Mana-spent gains once per 4 s (assumed, labelled). Spends: Molten Crash, Furious Slam and Rageforged 10 per use, Fury of the Mountain 10 (assumed), Rampage 5/s and Flame Breath 6/s while channelled (and their own hits gain none), at the main skill's uses per second, any other at one per 4 s. The maximum is held while gains outrun spends and gains or landed boss hits come at least once per 4 s; else each gain held 4 s then decaying, averaged; none if spends eat it. Not counted: 'No inherent loss of Rage' lines, Rage Leech, Primal Hunger's regeneration from Rage spent, Rage cost of Vaal skills."
   plan: {approach: custom model, how: "Rage held = min(maximum, gain per hit x hits/s x the time to decay); spending skills reduce it per use.", inputs: [hits per second, Rage per hit, spend per use]}
   what_if: invisible
   guide_note: "Rage counted at its maximum while you keep hitting."

@@ -410,8 +410,6 @@ RULES = {c.var: c for c in CONDITIONS}
     ("usePowerCharges", "Gain Power Charges instead of Frenzy Charges", {"Attack"}, False),
     ("useFrenzyCharges", "While active, grants you a Frenzy Charge when you Freeze, Electrocute or Pin an enemy",
      {"Attack"}, True),
-    ("multiplierRage", "Gain 1 Rage on Melee Hit", {"Attack", "Projectile"}, False),
-    ("multiplierRage", "Gain 1 Rage on Melee Hit", {"Attack", "Melee"}, True),
     ("buffOnslaught", "Minions gain Onslaught", {"Attack"}, False),
     ("conditionEnemyBlinded", "20% more Damage against Blinded Enemies", {"Attack"}, False),
     ("conditionEnemyBlinded", "Blind Targets when you Poison them", {"Attack"}, True),
@@ -624,6 +622,35 @@ def test_charges_held_follow_the_builds_sources():
     assert _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats) == (0.0, _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats)[1])
     assert _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats)[1]  # sources, but none on a boss
     assert _charges_held("Power")(["+1 to Maximum Power Charges"], stats) == (0.0, "")  # not a source
+
+
+def test_rage_held_from_gains_spends_and_its_decay():
+    """KeywordPopups Rage: 1 lost per 0.2 s, the loss paused 4 s on a gain or a hit taken, one Hit per 0.5 s gains."""
+    from builder.search.conditions import rage_held
+
+    melee = {"Speed": 3.0, "HitChance": 100, "CritChance": 0, "MaximumRage": 30, "enemySkillTime": 0.7,
+             "EvadeChance": 100, "_main_types": {"Attack", "Melee"}}
+    held, basis = rage_held(["Gain 1 Rage on Melee Hit"], melee)
+    assert held == 30 and "2.00 gains/s" in basis  # 3 hits/s, capped at 2 gains/s: the maximum
+    assert rage_held(["Gain 1 Rage on Melee Hit"], {**melee, "_main_types": {"Attack", "Projectile"}}) == (0.0, "")
+    kill = rage_held(["Gain 10 Rage when you kill an enemy"], melee)
+    assert kill[0] == 0 and "on kill" in kill[1]  # (was the maximum before MECH27)
+    # A gain once per 10 s with no hit taken: 3 Rage held 4 s, then lost over 0.6 s: (12 + 0.9) / 10
+    rare = rage_held(["Gain 3 Rage on Hit with Attacks, no more than once every 10 seconds"], melee)
+    assert rare[0] == 1
+    # Taking the boss's hits pauses the loss too: the same gain keeps the maximum
+    assert rage_held(["Gain 3 Rage on Hit with Attacks, no more than once every 10 seconds"],
+                     {**melee, "EvadeChance": 0})[0] == 30
+    # Spenders: Molten Crash at 3 uses/s spends 30/s, more than the 2/s gained
+    spent = rage_held(["Gain 1 Rage on Melee Hit"], {**melee, "_rage_spend": {"Molten Crash": 30.0}})
+    assert spent[0] == 0 and "Molten Crash" in spent[1]
+    # A channelled spender as the main skill gains nothing from its own hits; the boss's hits still give Rage
+    channel = {**melee, "_main_channel_rage": True, "EvadeChance": 0}
+    assert rage_held(["Gain 1 Rage on Melee Hit"], channel)[0] == 0
+    assert rage_held(["Gain 5 Rage when Hit by an Enemy"], channel)[0] == 30
+    # Regeneration gains every second (pause kept); Primal Hunger's regeneration needs Rage spent, so it's no source
+    assert rage_held(["Regenerate 5 Rage per second"], melee)[0] == 30
+    assert rage_held(["Regenerate 1 Rage per second per 4 Rage spent Recently"], melee) == (0.0, "")
 
 
 def test_charges_consumed_per_use_are_not_held():
