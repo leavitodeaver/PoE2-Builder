@@ -21,6 +21,17 @@ def checklist(result: dict) -> list[dict]:
                    + "Watch it in game (the skill's tooltip, or count it over a minute of play). If it's lower than "
                    "assumed, the damage marked * is lower in proportion. The PoB code doesn't carry this assumption.",
         })
+    for row in result.get("play_guide") or []:
+        if not row.get("var"):
+            continue
+        counted = row.get("counted")
+        items.append({
+            "kind": "how to play it *", "title": f"{row['label']} *",
+            "why": (f"The headline DPS counts it: {_number(row['dps_with'])} with it, {_number(row['dps_without'])} without "
+                    if counted else f"The headline DPS doesn't count it: {_number(row['dps_without'])} without it, "
+                    f"{_number(row['dps_with'])} with it ") + f"({row['change']:+.0%}). Confidence: {row['confidence']}.",
+            "how": f"In play: {row['play']}. If you can't, expect the 'without' figure.",
+        })
     for b in result.get("blind_spots") or []:
         where = b.get("source", "")
         if not b.get("corrected_by"):

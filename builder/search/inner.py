@@ -26,6 +26,7 @@ from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, 
 from builder.search.gear import Gear, SlotSpec, extra_ring_passive
 from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
+from builder.search import play_guide
 from builder.search.models import MODEL_FIELDS
 from builder.search.objective import (
     CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, shortfall, with_boss_recovery,
@@ -784,6 +785,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
 
     search.gear.sync_flasks()
     search.gems.meta_candidates()  # the Meta gems the search can't propose yet, with why, for the result
+    play = play_guide.guide(search)  # "How to play it": the DPS without each condition the player or fight decides
     facts = build.call("facts", fields=RESULT_FIELDS)
     xml = build.call("exportXml")["xml"]
     code = codes.encode(xml)
@@ -821,6 +823,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     assumptions += search.jewels.radius_notes()  # the larger Time-Lost radius (custom model)
     return {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
+        "play_guide": play,
         "pob_full_dps": facts["stats"].get("FullDPS"), "excluded_dps": excluded, "excluded_from": excluded_names,
         "clear_estimate": build.objective.clear(build.stats),
         "blind_spots": blind_spots,

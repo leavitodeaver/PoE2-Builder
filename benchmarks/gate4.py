@@ -116,7 +116,8 @@ def main() -> None:
         passed = result.get("feasible", False) and dps >= reference_dps
         rows.append({"name": name, "skeleton": result.get("label"), "reference_dps": reference_dps, "dps": dps,
                      "ratio": dps / reference_dps, "feasible": result.get("feasible"), "failing": failing,
-                     "passed": passed, "request": request.model_dump(mode="json"), "code": result.get("code")})
+                     "passed": passed, "request": request.model_dump(mode="json"), "code": result.get("code"),
+                     "play_guide": result.get("play_guide")})
         print(f"[{'PASS' if passed else 'FAIL'}] {name} {result.get('label')}: {dps:,.0f} vs reference "
               f"{reference_dps:,.0f} (x{dps / reference_dps:.2f}); "
               + ("all floors met" if result.get("feasible") else "short: " + ", ".join(failing)), flush=True)

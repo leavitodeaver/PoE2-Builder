@@ -556,6 +556,7 @@ class Run:
                                "PoB doesn't model clear speed"},
             "stats": facts["stats"], "checks": checks, "code": final["code"], "verified": final["verified"],
             "gear": final["gear"], "spent": spent, "groups": final["groups"], "conditions": final["conditions"],
+            "play_guide": final.get("play_guide") or [],
             "quests": final["quests"], "warnings": facts["warnings"], "skeleton_problems": problems,
             "assumptions": final.get("assumptions") or [], "flasks": final.get("flasks") or [],
             "seed": self.seed_start,

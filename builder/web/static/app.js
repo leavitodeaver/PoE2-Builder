@@ -499,6 +499,16 @@ function renderResult(result) {
         simpleTable(["Condition", "Evidence"], result.conditions.map((c) => [
           c.label + (c.value === true ? "" : ` = ${formatNumber(c.value)}`), c.evidence]))));
     }
+    if (result.play_guide?.length) {
+      parts.push(el("div", { class: "result-section" }, el("h3", {}, "How to play it *"),
+        el("p", { class: "hint" }, "Conditions the player or the fight decides, each switched for one recalculation of "
+          + "the finished build. Rows the headline DPS counts give the DPS without them; the others give the DPS if "
+          + "they hold. Player-controlled ones are assumed played as shown."),
+        simpleTable(["Condition", "Kind", { label: "DPS with", num: true }, { label: "DPS without", num: true },
+          "In the headline", "What you do", "Confidence"], result.play_guide.map((r) => [
+          r.label + " *", r.kind, formatNumber(r.dps_with), formatNumber(r.dps_without), r.counted ? "yes" : "no",
+          r.play, r.confidence]))));
+    }
     const quests = Object.entries(result.quests || {}).filter(([, v]) => v !== "None");
     if (quests.length) {
       parts.push(el("div", { class: "result-section" }, el("h3", {}, "Campaign reward choices"),
