@@ -874,7 +874,7 @@ Priority 0.0 · impact 4 · effort M · 0 lines not counted of 0 linked · 0 gem
 
 - **Game:** Temporary buffs from skills, passives and items; each has its own source, duration and effect. (https://poe2db.tw/us/Buff)
 - **PoB (checked):** Most are Configuration boxes (buffOnslaught, buffArcaneSurge ...); Archon buffs are PoB skills only for Chayula.
-- **Now:** The condition resolver turns Onslaught and Arcane Surge on from text evidence; Elemental Archon is a custom model.
+- **Now:** Onslaught (conditions.onslaught_uptime, MECH27, 9 Nov): on only while its sources keep it up 90% of the fight (as ailments and flasks), by the game files' rule (KeywordPopups Onslaught: 4 s unless the line says). Each source's uptime = 1 - (1 - chance)^(events x duration), combined as independent: hits and crits from the main skill, the boss's landing hits for 'when Hit'; on kill and Culling Strike 0; a Minion dying and a Vaal skill's use 0 (rates not modelled, labelled); Marks activating once per 4 s (assumed); 'during effect' on (the flask model decides the flask); 'while at maximum Frenzy Charges' only when the Frenzy Charges held reach it. Companions', allies', enemies' and granted-skill-name lines aren't sources. Arcane Surge still turns on from text evidence (an overcount: its crit-chance sources aren't rated yet); Elemental Archon is a custom model.
 - **Plan:** condition resolver: Each buff on when the build has a source it can keep up on a boss (rate x duration against the fight), its uptime a labelled assumption; buffs with a model (Archon) by their model. Inputs: source rate, duration. On while: a source that triggers on a boss (no kills).
 - **Guide note:** Buff X counted (up Y% of the fight from source Z).
 

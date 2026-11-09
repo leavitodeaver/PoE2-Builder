@@ -77,7 +77,7 @@ CHARGE_SOURCE = r"(?:(\d+(?:\.\d+)?)% chance (?:to|when you \w+ (?:a|an) \w+ Cha
 def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     """(charges per second, how) from one line, or None if it isn't a source of that charge."""
     m = re.search(CHARGE_SOURCE.format(kind=kind), text, re.I)
-    if not m or re.search(r"\bcannot gain\b|instead|allies|when you gain|if you would gain|per \w+ charge|lose", text, re.I):
+    if not m or re.search(r"\bcannot gain\b|instead|allies|when you gain|if you would gain|per \w+ charge|lose|at maximum \w+ charges", text, re.I):
         return None
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     when = m.group(2).lower()
@@ -318,6 +318,73 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     return held, f"{basis} = {held:.0f} held, at most {most:g}: " + "; ".join(how[:3])
 
 
+# Onslaught's uptime (MECH27, 9 Nov 2026; before, any line that gains Onslaught turned it on, on-kill ones, Companions'
+# and "grant Onslaught to nearby Enemies" too). The game files' KeywordPopups Onslaught: "20% increased Skill Speed ...
+# Unless specified, Onslaught lasts 4 seconds." Each source's uptime is the chance at least one of its events falls in
+# the last duration (1 - (1 - chance)^(events x duration)); sources combine as independent; PoB's box is on at UPTIME
+# (90%, as for ailments and flasks). Events: hits, crits from the main skill; the boss's landing hits for "when Hit"; on
+# kill / Culling Strike 0 (nothing dies before the boss); a Minion dying 0 and a Vaal skill's use 0 (rates not modelled,
+# labelled); Marks activating once per CHARGE_DEFAULT_EVERY s (assumed); "during effect" (a flask or charm) on (the flask
+# model decides whether the flask counts). "While at maximum Frenzy Charges": only when the Frenzy Charges held reach it.
+ONSLAUGHT_DURATION = 4.0
+ONSLAUGHT_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\b(?:you )?(?:gain|grants?)\b (?:you )?Onslaught\b(.*)$", re.I)
+ONSLAUGHT_NOT_SOURCE = re.compile(r"companions|minions (?:have|gain)|onslaught to (?:nearby )?enemies|enemies gain|\ballies\b|"
+                                  r"grants skill|per onslaught|"
+                                  r"while you have onslaught|instead", re.I)
+
+
+def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
+    """(uptime, how) of one line, or None if it isn't a source of Onslaught for you."""
+    m = ONSLAUGHT_SOURCE.search(text)
+    if not m or ONSLAUGHT_NOT_SOURCE.search(text):
+        return None
+    chance = float(m.group(1)) / 100 if m.group(1) else 1.0
+    when = m.group(2).lower()
+    d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
+    duration = float(d.group(1)) if d else ONSLAUGHT_DURATION
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
+    every = number(stats.get("enemySkillTime")) or 0.7
+    land = ((1 - min(number(stats.get("EvadeChance")), 100) / 100) *
+            (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)) / every
+    if re.search(r"\bkill|culling strike", when):
+        return 0.0, "on kill (nothing dies on a single boss)"
+    if "minion dies" in when or "vaal skill" in when:
+        return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
+    if "during effect" in when or not when.strip():
+        return 1.0, "during its effect (the flask or charm model decides its uptime)"
+    if "maximum frenzy" in when:
+        held = _charges_held("Frenzy")(lines, stats)[0]
+        most = number(stats.get("FrenzyChargesMax"))
+        if most <= 0 or held < most:
+            return 0.0, f"needs maximum Frenzy Charges ({held:g} of {most:g} held)"
+    if "when hit" in when:
+        events, how = land, f"the boss's hits that land, {land:.2f}/s"
+    elif "critical" in when:
+        events = hits * number(stats.get("CritChance")) / 100
+        how = f"{events:.2f} crits/s"
+    elif "hit" in when:
+        events, how = hits, f"{hits:.2f} hits/s"
+    else:
+        events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed"
+    up = 1 - (1 - min(chance, 1.0)) ** (events * duration) if chance < 1 else (1.0 if events * duration >= 1 else events * duration)
+    return up, f"{chance:.0%} x {how}, {duration:g} s: {up:.0%} up"
+
+
+def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
+    main_types = stats.get("_main_types") or set()
+    down, how = 1.0, []
+    for text in lines:
+        if not qualifies(text, main_types) or (r := _onslaught_source(text, lines, stats)) is None:
+            continue
+        down *= 1 - r[0]
+        how.append(f"{text[:60]} ({r[1]})")
+    if not how:
+        return 0.0, ""
+    up = 1 - down
+    basis = f"Onslaught up {up:.0%} of the fight ({UPTIME:.0%} needed): " + "; ".join(how[:3])
+    return (True if up >= UPTIME else False), basis
+
+
 def _blocked_recently(stats: dict) -> bool:
     every = number(stats.get("enemySkillTime")) or 0.7
     block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
@@ -399,7 +466,8 @@ CONDITIONS: list[Condition] = [
     _charge("usePowerCharges", "power"),
     _charge("useFrenzyCharges", "frenzy"),
     _charge("useEnduranceCharges", "endurance"),
-    Condition("buffOnslaught", "Onslaught", (_gen("onslaught"),), (_consumer("onslaught"),)),
+    Condition("buffOnslaught", "Onslaught", value_fn=lambda lines, stats: onslaught_uptime(lines, stats),
+              fields=("Speed", "HitChance", "CritChance", "enemySkillTime", "EvadeChance")),
     Condition("buffArcaneSurge", "Arcane Surge", (_gen("arcane surge"),), (_consumer("arcane surge"),)),
     Condition("multiplierRage", "Rage held", value_fn=lambda lines, stats: rage_held(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "MaximumRage", "enemySkillTime", "EvadeChance")),

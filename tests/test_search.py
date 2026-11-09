@@ -653,6 +653,34 @@ def test_rage_held_from_gains_spends_and_its_decay():
     assert rage_held(["Regenerate 1 Rage per second per 4 Rage spent Recently"], melee) == (0.0, "")
 
 
+def test_onslaught_on_only_when_its_sources_keep_it_up():
+    """KeywordPopups Onslaught: 4 s unless specified; on kill nothing on a lone boss; the box on at 90% uptime."""
+    from builder.search.conditions import onslaught_uptime
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "enemySkillTime": 0.7, "EvadeChance": 100,
+             "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15, "_main_types": {"Attack"}}
+    on, basis = onslaught_uptime(["30% chance to gain Onslaught for 4 seconds on Hit"], stats)
+    assert on is True and "94%" in basis  # 1 - 0.7^8 (2 hits/s x 4 s)
+    up = onslaught_uptime(["10% chance to gain Onslaught for 4 seconds on Hit"], stats)
+    assert up[0] is False and "57%" in up[1]  # 1 - 0.9^8
+    kill = onslaught_uptime(["You gain Onslaught for 8 seconds on Kill"], stats)
+    assert kill[0] is False and "on kill" in kill[1]  # (was on before MECH27)
+    for line in ("Companions have 50% chance to gain Onslaught on Kill", "5% chance to grant Onslaught to nearby Enemies on Kill",
+                 "Grants Skill: Level 20 Starborn Onslaught"):
+        assert onslaught_uptime([line], stats) == (0.0, "")
+    # 2 hits/s x 10% crits = 0.2 crits/s: a 4 s Onslaught per crit is up 0.8 of the time
+    assert onslaught_uptime(["You gain Onslaught for 4 seconds on Critical Hit"], stats)[0] is False
+    assert onslaught_uptime(["You gain Onslaught for 6 seconds when Hit"], {**stats, "EvadeChance": 0})[0] is True
+    # At maximum Frenzy Charges only when they're held at the maximum
+    frenzy = "Gain Onslaught for 4 seconds on Hit while at maximum Frenzy Charges"
+    assert onslaught_uptime([frenzy], stats)[0] is False
+    assert onslaught_uptime([frenzy, "Gain a Frenzy Charge on Hit"], stats)[0] is True
+    # (a "while at maximum ... Charges" line pays off on the charges; it was read as a source of them)
+    from builder.search.conditions import _charges_held
+    assert _charges_held("Power")(["Gain 10% of Physical Damage as Extra Chaos Damage while at maximum Power Charges"],
+                                  {**stats, "PowerChargesMax": 3}) == (0.0, "")
+
+
 def test_charges_consumed_per_use_are_not_held():
     from builder.search.conditions import _charges_held
 
