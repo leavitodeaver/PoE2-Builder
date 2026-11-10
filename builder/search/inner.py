@@ -89,7 +89,7 @@ class Search:
         self.play_notes: dict[str, dict] = {}  # notes from choose_stationary and weigh_life, weigh_uptimes, for the result
         self.uptime_rows: list[dict] = []  # weigh_uptimes' effects, for the play guide
         self.uptime_cache: dict[str, tuple[float, dict]] = {}  # var -> (DPS without it / with it, stats deltas) (follow_uptimes)
-        self.uptime_floor: tuple[frozenset, dict] | None = None  # (effects, stats deltas with all of them off) (floor_without)
+        self.uptime_floor: dict[frozenset, dict] = {}  # effects -> stats deltas with all of them off (floor_without)
         self.gems.conditions = self.conditions
         self.assumptions = Assumptions(self.build)
         self.build.reassume = self.assumptions.apply  # item what-ifs a model reads get a real trial (Build.item_deltas)
@@ -508,7 +508,7 @@ class Search:
         defence kept in its play note. Refreshed each conditions round and reused between them (as weigh_life); exact at finalize."""
         objective, conditions = self.build.objective, self.conditions
         objective.uptime_factor, objective.floor_deltas = 1.0, []
-        self.uptime_rows, self.uptime_cache, self.uptime_floor = [], {}, None
+        self.uptime_rows, self.uptime_cache, self.uptime_floor = [], {}, {}
         for key in [k for k in self.play_notes if k.startswith("uptime:")]:
             del self.play_notes[key]
         if conditions.uptimes:
@@ -544,20 +544,20 @@ class Search:
     def floor_without(self, live: dict, on_stats: dict | None) -> list[dict]:
         """The stats that change with every part-time effect off at once (the floors count an effect only at full uptime,
         the user, 9 Nov 2026: one recalculation, not one per effect, so two effects that each carry part of a floor
-        can't hide each other). Cached per set of effects until the next conditions round; one effect reuses its own
-        deltas (uptime_cache)."""
+        can't hide each other). Cached per set of effects until the next conditions round (trials flip effects on and
+        off: a one-entry cache recalculated at every flip); one effect reuses its own deltas (uptime_cache)."""
         names = frozenset(live)
         if not names:
             return []
         if len(names) == 1 and next(iter(names)) in self.uptime_cache:
             deltas = self.uptime_cache[next(iter(names))][1]
             return [deltas] if deltas else []
-        cached = self.uptime_floor
-        if cached is None or cached[0] != names:
+        if names not in self.uptime_floor:
             stats = dict(self.build.stats) if on_stats is None else on_stats
             infos = {var: self.conditions.active[var] for var in names}
-            cached = self.uptime_floor = (names, _all_off(self, infos, stats))
-        return [cached[1]] if cached[1] else []
+            self.uptime_floor[names] = _all_off(self, infos, stats)
+        deltas = self.uptime_floor[names]
+        return [deltas] if deltas else []
 
     def choose_play(self) -> bool:
         """The play-style choices and fight weights (play_guide's spec): distance, standing still, Low Life."""
