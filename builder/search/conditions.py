@@ -31,7 +31,7 @@ EVIDENCE_FIELDS = [
     *(f"{a}Duration" for a in AILMENT_DURATION),
     "ChillChanceOnHit", "MaximumRage", "EnergyShield", "EvadeChance", "EffectiveBlockChance", "enemySkillTime",
     "HitChance", *(f"{c}Charges{f}" for c in ("Power", "Frenzy", "Endurance") for f in ("Max", "Duration")),
-    "PresenceRadius", "Ward", *models.IMMOBILISE_FIELDS,
+    "PresenceRadius", "Ward", "Mana", "ManaPerSecondCost", "Devotion", *models.IMMOBILISE_FIELDS,
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -385,6 +385,88 @@ def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     return (True if up >= UPTIME else False), basis
 
 
+# Arcane Surge's uptime (MECH29, 9 Nov 2026; before, any line that gains it turned it on, crit-chance and Minion-death
+# ones too). The game files' KeywordPopups ArcaneSurgeDuration: "It lasts for 4 seconds by default." Each source's uptime
+# as Onslaught's (1 - (1 - chance)^(events x duration)), combined as independent; PoB's box is on at UPTIME. Events: the
+# main skill's crits and hits ("with Spells": QUALIFIERS needs a Spell); "if you have at least N Devotion" by PoB's
+# Devotion; "while at maximum Power Charges" only when the Power Charges held reach it; "after Channelling for 1 second"
+# when the main skill channels; a kill, a Minion dying, Shapeshifting back, a Mine or Trap: 0 (no rate modelled,
+# labelled); a Totem summoned: once per CHARGE_DEFAULT_EVERY s (assumed). The Arcane Surge support (GrantedEffectStatSets
+# SupportArcaneSurgePlayer: 10 s after spending 100% of maximum Mana on Supported Skills) on the main skill: PoB's mana
+# spent per second (ManaPerSecondCost) against the threshold; counting assumed to go on while the buff is up, so
+# up = min(1, duration / time to spend it). Its effect and duration modifiers aren't read (labelled).
+ARCANE_SURGE_DURATION = 4.0
+ARCANE_SURGE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\b(?:you )?(?:gain|grants?|have)\b (?:you )?Arcane Surge\b(.*)$", re.I)
+ARCANE_SURGE_NOT_SOURCE = re.compile(r"companions|minions (?:have|gain)|\ballies\b|grants skill|instead|"
+                                     r"(?:while|if) you have arcane surge|effect of arcane surge", re.I)
+ARCANE_SURGE_SUPPORT_STATS = ("support_arcane_surge_gain_buff_on_%_of_maximum_mana_use_threshold",
+                              "support_arcane_surge_base_duration_ms")
+
+
+def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
+    """(uptime, how) of one line, or None if it isn't a source of Arcane Surge for you."""
+    m = ARCANE_SURGE_SOURCE.search(text)
+    if not m or ARCANE_SURGE_NOT_SOURCE.search(text):
+        return None
+    chance = float(m.group(1)) / 100 if m.group(1) else 1.0
+    when = m.group(2).lower()
+    d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
+    duration = float(d.group(1)) if d else ARCANE_SURGE_DURATION
+    if not when.strip(" .") or re.fullmatch(r"\s*on you\W*", when):
+        return 1.0, "always (the line grants it)"
+    if spend := re.search(r"spending a total of (\d+(?:\.\d+)?)(%? of your maximum mana| mana)", when):
+        mana = float(spend.group(1)) * (number(stats.get("Mana")) / 100 if "%" in spend.group(2) else 1)
+        rate = number(stats.get("ManaPerSecondCost"))
+        if rate <= 0 or mana <= 0:
+            return 0.0, f"needs {mana:.0f} Mana spent, the main skill spends none"
+        up = min(1.0, duration * rate / mana)
+        return up, f"{mana:.0f} Mana spent every {mana / rate:.1f} s ({rate:.1f}/s), {duration:g} s each: {up:.0%} up"
+    if dev := re.search(r"at least (\d+) devotion", when):
+        if number(stats.get("Devotion")) < float(dev.group(1)):
+            return 0.0, f"needs {dev.group(1)} Devotion ({number(stats.get('Devotion')):g} held)"
+    if "maximum power" in when:
+        held = _charges_held("Power")(lines, stats)[0]
+        most = number(stats.get("PowerChargesMax"))
+        if most <= 0 or held < most:
+            return 0.0, f"needs maximum Power Charges ({held:g} of {most:g} held)"
+    if "channelling" in when:
+        up = 1.0 if "Channel" in (stats.get("_main_types") or set()) else 0.0
+        return up, "the main skill channels" if up else "the main skill doesn't channel"
+    if re.search(r"\bkill|minion|shapeshift|\bmines?\b|\btraps?\b", when):
+        return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
+    hits = models.hits_per_second(stats)
+    if "critical" in when:
+        events, how = models.crits_per_second(stats), "crits"
+    elif "hit" in when:
+        events, how = hits, "hits"
+    else:
+        events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed"
+    n = events * duration
+    up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
+    return up, f"{chance:.0%} x {events:.2f} {how}/s, {duration:g} s: {up:.0%} up"
+
+
+def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
+    main_types = stats.get("_main_types") or set()
+    support = stats.get("_arcane_surge_support")
+    if support:  # (the support on the main skill, as the line it would be)
+        lines = [*lines, f"Gain Arcane Surge for {support[1]:g} seconds after Spending a total of {support[0]:g}% of "
+                         f"your Maximum Mana on Supported Skills"]
+    down, how = 1.0, []
+    for text in lines:
+        # ("when a Minion Dies" is yours, not a minion's line: kept, so it's labelled rather than dropped)
+        own = re.sub(r"when a minion dies", "", text, flags=re.I)
+        if not qualifies(own, main_types) or (r := _arcane_surge_source(text, lines, stats)) is None:
+            continue
+        down *= 1 - r[0]
+        how.append(f"{text[:60]} ({r[1]})")
+    if not how:
+        return 0.0, ""
+    up = 1 - down
+    basis = f"Arcane Surge up {up:.0%} of the fight ({UPTIME:.0%} needed): " + "; ".join(how[:3])
+    return (True if up >= UPTIME else False), basis
+
+
 # Armour Broken (MECH28, 9 Nov 2026; before, any line that Breaks Armour turned the box on, partial breaks too). The game
 # files' KeywordPopups ArmourBreak: Breaking lowers a target's Armour; at 0 it is Fully Broken for 12 seconds (non-players;
 # then +20% Physical damage taken from Hits, which is what PoB's box applies). Each line's Armour broken per second, from
@@ -624,7 +706,8 @@ CONDITIONS: list[Condition] = [
     _charge("useEnduranceCharges", "endurance"),
     Condition("buffOnslaught", "Onslaught", value_fn=lambda lines, stats: onslaught_uptime(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "enemySkillTime", "EvadeChance")),
-    Condition("buffArcaneSurge", "Arcane Surge", (_gen("arcane surge"),), (_consumer("arcane surge"),)),
+    Condition("buffArcaneSurge", "Arcane Surge", value_fn=lambda lines, stats: arcane_surge_uptime(lines, stats),
+              fields=("Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "Devotion")),
     Condition("multiplierRage", "Rage held", value_fn=lambda lines, stats: rage_held(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "MaximumRage", "enemySkillTime", "EvadeChance")),
     Condition("conditionLeeching", "Leeching", (r"\bleech\w*\b[^.;]*\b(?:life|mana|energy shield)\b",),
@@ -796,6 +879,12 @@ class Conditions:
         stats = {**stats, "_consumers": consumers, "_rage_spend": rage_spend,
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_distance_choice": self.distance,
                  "_stationary_off": self.stationary_off, "_rolling": self.rolling}
+        if "Arcane Surge" in main_gems:  # (the support: its threshold and duration from the gem, arcane_surge_uptime)
+            raw = self.build.call("activeSkills", supportStats=list(ARCANE_SURGE_SUPPORT_STATS))
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            got = main.get("supportStats") or {}
+            if all(got.get(stat) for stat in ARCANE_SURGE_SUPPORT_STATS):
+                stats["_arcane_surge_support"] = (got[ARCANE_SURGE_SUPPORT_STATS[0]], got[ARCANE_SURGE_SUPPORT_STATS[1]] / 1000)
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             broken, stats["_full_break_rate"] = roar[:2], roar[2] / models.FULL_BREAK_DURATION
@@ -902,6 +991,10 @@ class Conditions:
         element = condition.var[len("conditionEnemy"):-len("Exposure")].lower()
         if condition.var.endswith("Exposure") and (m := EXPOSURE_SOURCE.search(text)) and m.group(2).lower() in ("elemental", element):
             return True  # (_exposure_uptime rates it in the real trial)
+        if condition.var == "buffArcaneSurge" and (
+                (ARCANE_SURGE_SOURCE.search(text) and not ARCANE_SURGE_NOT_SOURCE.search(text))
+                or "spending enough mana grants" in text.lower()):
+            return True  # (arcane_surge_uptime rates it in the real trial; the support by its description)
         if condition.var == "conditionEnemyArmourBroken" and ARMOUR_BREAK_LINE.search(text):
             return True  # (armour_broken_uptime rates it in the real trial)
         if condition.var == "conditionStationary" and STATIONARY_LINE.search(text):

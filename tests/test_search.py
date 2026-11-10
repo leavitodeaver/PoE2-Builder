@@ -903,3 +903,26 @@ def test_exposure_on_only_when_its_events_keep_it_up():
     front = "Inflict Elemental Exposure to Enemies 3 metres in front of you"
     assert fire([front], stats)[0] is True  # a melee build stands close
     assert fire([front], {**stats, "_main_types": {"Spell"}})[0] is False
+
+
+def test_arcane_surge_on_only_when_its_sources_keep_it_up():
+    """KeywordPopups ArcaneSurgeDuration: 4 s by default; the box on at 90% uptime (MECH29; any gaining line turned it on)."""
+    from builder.search.conditions import arcane_surge_uptime
+
+    spell = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "Mana": 1000, "ManaPerSecondCost": 50,
+             "_main_types": {"Spell"}}
+    # 10% x 0.2 crits/s x 4 s: 1 - 0.9^0.8 = 8%
+    crit = arcane_surge_uptime(["10% chance to Gain Arcane Surge when you deal a Critical Hit"], spell)
+    assert crit[0] is False and "8%" in crit[1]
+    minion = arcane_surge_uptime(["Gain Arcane Surge when a Minion Dies"], spell)
+    assert minion[0] is False and "isn't modelled" in minion[1]
+    assert arcane_surge_uptime(["You have Arcane Surge"], spell)[0] is True
+    assert arcane_surge_uptime(["15% increased Spell Damage while you have Arcane Surge"], spell) == (0.0, "")
+    devotion = "Gain Arcane Surge on Hit with Spells if you have at least 150 Devotion"
+    assert arcane_surge_uptime([devotion], {**spell, "Devotion": 150})[0] is True
+    assert arcane_surge_uptime([devotion], {**spell, "Devotion": 100})[0] is False
+    assert arcane_surge_uptime([devotion], {**spell, "Devotion": 150, "_main_types": {"Attack"}}) == (0.0, "")
+    # the support: 100% of 1000 Mana every 20 s at 50/s, 10 s each: 50%; at 100/s, up throughout
+    support = {**spell, "_arcane_surge_support": (100, 10.0)}
+    assert arcane_surge_uptime([], support)[0] is False and "50%" in arcane_surge_uptime([], support)[1]
+    assert arcane_surge_uptime([], {**support, "ManaPerSecondCost": 100})[0] is True
