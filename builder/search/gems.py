@@ -46,14 +46,14 @@ MIRAGE_TRIALS = 3  # ranged Attacks per Mirage tried for real (ranked by what Po
 # Lineage Support "in different Skills".
 # The Kalguuran Support Gem limit (KeywordPopups KalguuranSupportGemLimit): "The number of Kalguuran Support Gems you can
 # use is limited by your character level" (KALGUURAN_LIMITS), counted over every group. No SupportGems column marks them;
-# the gem base items' BaseItemTypes tag "runeforged" does (9 of the 637 supports, every BaseItemTypes row searched, 9 Nov,
-# build 26476662). That they are the Kalguuran ones is an inference: poe2db's 0.5.0 notes name 8 Kalguuran supports
-# ("Concussive Runes, Fist of Kalguur, Healing Runes, Kalguuran Conviction, Runeforged Blades, Runic Extraction, Runic
-# Infusion and Scouring Flame"; Kalguuran Conviction reads as today's Olroth's Conviction), and Olroth's Hubris carries
-# the same tag, so it counts too (the cautious reading).
+# the gem base items' BaseItemTypes tag "runeforged" marks 9 of the 637 supports (every BaseItemTypes row searched, 9 Nov,
+# build 26476662), and two of those, Olroth's Conviction and Olroth's Hubris, are SupportGems.IsLineage (limited by the
+# Lineage rule instead). The Kalguuran set is runeforged and not Lineage: the 7 poe2db lists, and the user (9 Nov: "I
+# don't think olroth's hubris or conviction count for the kalguuran support limit ... it only lists 7 kalguuran
+# supports"). (Before, MECH25 counted the Olroth's gems too.)
 KALGUURAN_SUPPORTS = frozenset({
-    "Concussive Runes", "Fist Of Kalguur", "Healing Runes", "Olroth's Conviction", "Olroth's Hubris", "Runeforged Blades",
-    "Runic Extraction", "Runic Infusion", "Scouring Flame"})
+    "Concussive Runes", "Fist Of Kalguur", "Healing Runes", "Runeforged Blades", "Runic Extraction", "Runic Infusion",
+    "Scouring Flame"})
 KALGUURAN_LIMITS = ((80, 6), (65, 5), (45, 4), (33, 3), (17, 2), (1, 1))  # (character level from, Kalguuran supports)
 GLOBAL_BENEFIT_SUPPORTS = frozenset({
     "Precision I", "Precision II", "Clarity I", "Clarity II", "Vitality I", "Vitality II", "Herbalism I", "Herbalism II",

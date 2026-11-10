@@ -976,7 +976,8 @@ def test_the_global_benefit_supports_are_the_game_files_flagged_ones():
 
 
 def test_the_kalguuran_supports_are_the_game_files_runeforged_ones():
-    """KALGUURAN_SUPPORTS against the supports whose base item carries the "runeforged" tag, when the tables are here."""
+    """KALGUURAN_SUPPORTS against the supports whose base item carries the "runeforged" tag and that aren't Lineage
+    (Olroth's Conviction and Hubris are), when the tables are here: the 7 poe2db and the user list."""
     import glob
     import json
     from pathlib import Path
@@ -990,8 +991,11 @@ def test_the_kalguuran_supports_are_the_game_files_runeforged_ones():
     load = lambda name: json.load(open(folder + name, encoding="utf-8"))
     support, skill, base, tags = load("SupportGems.json"), load("SkillGems.json"), load("BaseItemTypes.json"), load("Tags.json")
     tag = next(i for i, t in enumerate(tags) if t["Id"] == "runeforged")
-    tagged = {base[b]["Name"] for b in (skill[row["SkillGem"]]["BaseItemType"] for row in support) if tag in base[b]["Tags"]}
-    assert tagged == set(KALGUURAN_SUPPORTS)
+    tagged = {base[b]["Name"]: row["IsLineage"] for row in support
+              for b in (skill[row["SkillGem"]]["BaseItemType"],) if tag in base[b]["Tags"]}
+    assert {name for name, lineage in tagged.items() if lineage} == {"Olroth's Conviction", "Olroth's Hubris"}
+    assert {name for name, lineage in tagged.items() if not lineage} == set(KALGUURAN_SUPPORTS)
+    assert len(KALGUURAN_SUPPORTS) == 7
 
 
 def test_kalguuran_supports_are_limited_by_character_level():
