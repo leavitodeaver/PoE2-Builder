@@ -26,13 +26,14 @@ UPTIME = 0.9  # chance that at least one hit applied it within the window
 # at their real share of the fight, not all or nothing at UPTIME (the user, 9 Nov 2026: "Count the real share"). The box
 # is on when the effect is up at least MIN_UPTIME of the fight; under FULL_UPTIME the headline blends it with a
 # recalculation without it (Search.weigh_uptimes, objective.uptime_factor). Both cut-offs are labelled assumptions.
-MIN_UPTIME = 0.005  # under 0.5% of the fight: off
-# An effect that is off switches on only from SWITCH_ON; once on, it stays on down to MIN_UPTIME (resolve). Without the
-# gap, an effect hovering just above MIN_UPTIME flipped with every trial: 2b75b's Ignite at 0.6-1.2% of the fight flipped
-# 28 times in a 60 s probe's supports step, and each flip chose the main skill again (11 s of its 22 s), so the probe
-# never reached the tree and the run fell from x5.18 to x2.60 (MECH31, POE2T399-401). Labelled: an effect that rises from
-# off is left out under 2% of the fight, an undercount of at most 2% of its gain.
-SWITCH_ON = 0.02
+MIN_UPTIME = 0.05  # under 5% of the fight: off
+# An effect that is off switches on only from SWITCH_ON; once on, it stays on down to MIN_UPTIME (resolve). The user, 9 Nov
+# 2026: "if something isn't active at least 7% of the time, it's basically worthless". The gap keeps an effect near the
+# line from flipping with every trial: 2b75b's Ignite at 0.6-1.2% of the fight flipped 28 times in a 60 s probe's
+# supports step, and each flip chose the main skill again (11 s of its 22 s), so the probe never reached the tree and the
+# run fell from x5.18 to x2.60 (MECH31, POE2T399-401). Labelled: an effect up less than 7% of the fight (5% once on) is
+# left out, an undercount of at most that share of its gain.
+SWITCH_ON = 0.07
 FULL_UPTIME = 0.995  # from 99.5%: simply on (and its defences count toward the floors)
 # Each ailment's own base duration on an enemy, the 0.5 data's game constants as PoB reads them (Data/Misc.lua
 # BaseIgniteDuration ...): the fallback when PoB gives the skill no duration of its own ({Ailment}Duration, with the
@@ -1086,7 +1087,7 @@ class Conditions:
     def resolve(self) -> bool:
         """Match the config to the evidence. Returns True if anything changed."""
         found = self.evidence()
-        for var, up in self.found_uptimes.items():  # (SWITCH_ON: off ones switch on only from 2% of the fight)
+        for var, up in self.found_uptimes.items():  # (SWITCH_ON: off ones switch on only from 7% of the fight)
             if var not in self.active and up < SWITCH_ON and var in found and found[var][0] is not False:
                 del found[var]
         changes: dict[str, object] = {}

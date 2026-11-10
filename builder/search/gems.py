@@ -122,6 +122,11 @@ class Gems:
         self.conditions = None  # the condition resolver, when supports should be tried with it
         self.assumptions = None
         self.resolve = None  # re-resolves conditions and assumptions after a trial commit
+        # Set during a scouting trial (discover, energy_trials) and its take-back: a condition the trial flips doesn't
+        # choose the main skill again (Search.resolve). Its score only ranks the move; the move then gets a real trial
+        # with the full choice, and the take-back puts back the gems the skill was chosen for. 2b75b's probe: Poisoned
+        # flipped with each Poison II trial, and the choices took 8.8 s of the supports step's 19.5 s (MECH31, POE2T406)
+        self.scouting = False
         self.settle = None  # the same without choosing the calculated skill again (choose_active_skill)
         self._requirements: dict[str, list[dict]] = {}  # gem -> requirements per level (gemRequirements)
         self.usage = None  # usage requirements (builder/search/usage.py), set by the search
@@ -445,9 +450,13 @@ class Gems:
         before, snap = self.build.score, None
         for _, move in sources[:DISCOVERY_TRIALS]:
             snap = snap or self.build.snapshot()
-            self.commit(index, self.with_move(names, move), group)
-            found.append((self.build.score, move))
-            self.take_back(index, names, group, before, snap)
+            self.scouting = True
+            try:
+                self.commit(index, self.with_move(names, move), group)
+                found.append((self.build.score, move))
+                self.take_back(index, names, group, before, snap)
+            finally:
+                self.scouting = False
         return found
 
     def energy_trials(self, index: int, names: list[str], options: list[tuple[float, tuple[int, str]]],
@@ -464,9 +473,13 @@ class Gems:
         found, before, snap = [], self.build.score, None
         for _, move in best.values():
             snap = snap or self.build.snapshot()
-            self.commit(index, self.with_move(names, move), group)
-            found.append((self.build.score, move))
-            self.take_back(index, names, group, before, snap)
+            self.scouting = True
+            try:
+                self.commit(index, self.with_move(names, move), group)
+                found.append((self.build.score, move))
+                self.take_back(index, names, group, before, snap)
+            finally:
+                self.scouting = False
         return found
 
     def drop_unusable(self) -> bool:

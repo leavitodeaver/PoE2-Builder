@@ -399,7 +399,7 @@ class Search:
         """Conditions and assumptions follow the build; if either changed (e.g. a Remnant or Frenzy
         Charge source arrived), the main group's calculated skill and stat set are chosen again."""
         changed = self.settle()
-        if changed:
+        if changed and not self.gems.scouting:  # (a scouting trial's flip: no new choice, Gems.scouting)
             self.gems.choose_active_skill()
         return changed
 

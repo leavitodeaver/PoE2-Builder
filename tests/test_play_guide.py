@@ -229,9 +229,10 @@ def test_an_effect_switched_on_between_rounds_counts_at_its_share():
     assert build.objective.uptime_factor == approx(shocked) and build.score == approx(1200 * shocked)
 
 
-def test_an_effect_switches_on_from_two_percent_and_off_under_half_a_percent():
+def test_an_effect_switches_on_from_seven_percent_and_off_under_five():
     """MECH31: 2b75b's Ignite at 0.6-1.2% of the fight flipped with every support trial, and each flip chose the main
-    skill again. Off, an effect switches on only from SWITCH_ON (2%); on, it stays down to MIN_UPTIME (0.5%)."""
+    skill again. Off, an effect switches on only from SWITCH_ON (7%, the user: "if something isn't active at least 7% of
+    the time, it's basically worthless"); on, it stays down to MIN_UPTIME (5%)."""
     from builder.search.conditions import Conditions
 
     sets = []
@@ -244,10 +245,21 @@ def test_an_effect_switches_on_from_two_percent_and_off_under_half_a_percent():
         return run
 
     resolve = Conditions.resolve.__get__(conditions)
-    conditions.evidence = evidence(0.012)
-    assert resolve() is False and "conditionEnemyIgnited" not in conditions.active  # off at 1.2%: stays off
-    conditions.evidence = evidence(0.03)
-    assert resolve() is True and conditions.uptimes == {"conditionEnemyIgnited": 0.03}
-    conditions.evidence = evidence(0.012)
-    assert resolve() is False and conditions.uptimes == {"conditionEnemyIgnited": 0.012}  # on: stays on at 1.2%
+    conditions.evidence = evidence(0.06)
+    assert resolve() is False and "conditionEnemyIgnited" not in conditions.active  # off at 6%: stays off
+    conditions.evidence = evidence(0.08)
+    assert resolve() is True and conditions.uptimes == {"conditionEnemyIgnited": 0.08}
+    conditions.evidence = evidence(0.06)
+    assert resolve() is False and conditions.uptimes == {"conditionEnemyIgnited": 0.06}  # on: stays on at 6%
     assert sets == [{"conditionEnemyIgnited": True}]
+
+
+def test_a_scouting_trials_condition_flip_does_not_choose_the_main_skill_again():
+    """MECH31: discover's and energy_trials' trials only rank a move; a flip there doesn't re-choose the main skill."""
+    from builder.search.inner import Search
+
+    chosen = []
+    search = SimpleNamespace(settle=lambda: True, gems=SimpleNamespace(scouting=True, choose_active_skill=lambda: chosen.append(1)))
+    assert Search.resolve.__get__(search)() is True and chosen == []
+    search.gems.scouting = False
+    assert Search.resolve.__get__(search)() is True and chosen == [1]
