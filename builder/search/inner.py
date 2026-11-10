@@ -88,6 +88,7 @@ class Search:
         self.conditions = Conditions(self.build, self.skeleton.main_skill)
         self.play_notes: dict[str, dict] = {}  # notes from choose_stationary and weigh_life, weigh_uptimes, for the result
         self.uptime_rows: list[dict] = []  # weigh_uptimes' effects, for the play guide
+        self.uptime_cache: dict[str, tuple[float, dict]] = {}  # var -> (DPS without it / with it, stats deltas) (follow_uptimes)
         self.gems.conditions = self.conditions
         self.assumptions = Assumptions(self.build)
         self.build.reassume = self.assumptions.apply  # item what-ifs a model reads get a real trial (Build.item_deltas)
@@ -363,9 +364,36 @@ class Search:
         self.gear.sync_flasks()
 
     def settle(self) -> bool:
-        """Conditions and assumptions follow the build."""
+        """Conditions and assumptions follow the build, and the part-time effects' weights follow them (follow_uptimes)."""
         changed = self.conditions.resolve()
-        return self.assumptions.apply() or changed
+        changed = self.assumptions.apply() or changed
+        self.follow_uptimes()
+        return changed
+
+    def follow_uptimes(self) -> None:
+        """Between conditions rounds, a commit or trial can switch on an effect kept up for part of the fight, or move an
+        uptime. Its weight follows at once: each effect's ratio (DPS without it / with it) and floor deltas come from the
+        last round (weigh_uptimes), and an effect the round didn't see gets its own one-off recalculation (cached until the
+        next round), so a trial that raises an effect from 0% counts it at its share, not fully up (MECH31). The uptimes
+        are the current ones; the ratios are the round's (an estimate between rounds; exact at finalize)."""
+        objective, conditions = self.build.objective, self.conditions
+        cache = self.uptime_cache
+        live = {var: up for var, up in conditions.uptimes.items() if var in conditions.active}
+        missing = [var for var in sorted(live) if var not in cache]
+        if missing:
+            on_stats = dict(self.build.stats)
+            on = objective.dps(on_stats)
+            if on <= 0:
+                return
+            for var in missing:
+                cache[var] = _without(self, var, conditions.active[var], on_stats, on)[:2]
+        factor = 1.0
+        for var in sorted(live):
+            factor *= live[var] + (1.0 - live[var]) * cache[var][0]
+        floor_deltas = [cache[var][1] for var in sorted(live) if cache[var][1]]
+        if factor != objective.uptime_factor or floor_deltas != objective.floor_deltas:
+            objective.uptime_factor, objective.floor_deltas = factor, floor_deltas
+            self.build.score = objective.score(self.build.stats)
 
     def resolve(self) -> bool:
         """Conditions and assumptions follow the build; if either changed (e.g. a Remnant or Frenzy
@@ -479,7 +507,7 @@ class Search:
         off. Refreshed each conditions round and reused between them (as weigh_life); exact at finalize."""
         objective, conditions = self.build.objective, self.conditions
         objective.uptime_factor, objective.floor_deltas = 1.0, []
-        self.uptime_rows = []
+        self.uptime_rows, self.uptime_cache = [], {}
         for key in [k for k in self.play_notes if k.startswith("uptime:")]:
             del self.play_notes[key]
         if conditions.uptimes:
@@ -490,16 +518,10 @@ class Search:
                 info = conditions.active.get(var)
                 if info is None or on <= 0:
                     continue
-                self.build.set_config({var: False})
-                self.assumptions.apply()
-                off_stats = dict(self.build.stats)
-                self.build.set_config({var: info["value"]})
-                self.assumptions.apply()
-                ratio = max(objective.dps(off_stats), 0.0) / on
+                ratio, deltas, off_stats = _without(self, var, info, on_stats, on)
+                self.uptime_cache[var] = (ratio, deltas)
                 share = up + (1.0 - up) * ratio
                 factor *= share
-                deltas = {k: number(v) - number(on_stats.get(k)) for k, v in off_stats.items()
-                          if isinstance(v, (int, float)) and number(v) != number(on_stats.get(k))}
                 if deltas:
                     objective.floor_deltas.append(deltas)
                 floors = [(p.label, number(on_stats.get(p.stat)), number(on_stats.get(p.stat)) + deltas[p.stat])
@@ -839,6 +861,20 @@ class Search:
             "main_gems": [g.get("name") for g in (build.main_group() or {}).get("gems", []) if g.get("name")],
             "timing": {k: {"seconds": round(v[0], 2), "evals": v[1], "gain": round(v[2], 4)} for k, v in self.timing.items()},
         }
+
+
+def _without(search: Any, var: str, info: dict, on_stats: dict, on: float) -> tuple[float, dict, dict]:
+    """One recalculation with a part-time effect off, then back on: (DPS without it / with it, the stats it changes
+    (off - on), the stats without it). (Search.weigh_uptimes and follow_uptimes)"""
+    objective = search.build.objective
+    search.build.set_config({var: False})
+    search.assumptions.apply()
+    off_stats = dict(search.build.stats)
+    search.build.set_config({var: info["value"]})
+    search.assumptions.apply()
+    deltas = {k: number(v) - number(on_stats.get(k)) for k, v in off_stats.items()
+              if isinstance(v, (int, float)) and number(v) != number(on_stats.get(k))}
+    return max(objective.dps(off_stats), 0.0) / on, deltas, off_stats
 
 
 def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, seconds: float, seed: int = 0,

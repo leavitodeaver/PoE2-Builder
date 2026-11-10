@@ -188,3 +188,42 @@ def test_partial_uptimes_count_at_their_share_and_floors_without_them():
     assert shock["dps_share"] == approx(100 / 1100) and "conditionEnemyIntimidated" not in rows  # no DPS: no row
     item = next(i for i in checklist({"play_guide": [shock]}) if i["kind"] == "how to play it *")
     assert "50% of the fight" in item["why"] and "9% of the headline" in item["why"]
+
+
+def test_an_effect_switched_on_between_rounds_counts_at_its_share():
+    """MECH31: a trial that raises an effect from 0% between conditions rounds was scored as if it were fully up (the
+    factor came only from the round). follow_uptimes weighs it at once, with one recalculation of its own."""
+    from builder.search.inner import Search
+
+    class Build(UptimeBuild):
+        @property
+        def stats(self):
+            stats = UptimeBuild.stats.fget(self)
+            return {**stats, "dps": stats["dps"] * (1.5 if self.config.get("conditionEnemyWithered") else 1.0)}
+
+    build = Build({"conditionEnemyShocked": True})
+    build.objective, build.score = UptimeObjective(), 0.0
+    active = {"conditionEnemyShocked": {"label": "Shocked", "value": True}}
+    search = SimpleNamespace(build=build, play_notes={}, uptime_rows=[], uptime_cache={},
+                             assumptions=SimpleNamespace(apply=lambda: False),
+                             conditions=SimpleNamespace(active=active, uptimes={"conditionEnemyShocked": 0.5}))
+    for name in ("weigh_uptimes", "follow_uptimes"):
+        setattr(search, name, getattr(Search, name).__get__(search))
+    search.weigh_uptimes()
+    shocked = 0.5 + 0.5 * 1000 / 1200
+    assert build.objective.uptime_factor == approx(shocked)
+    # a trial switches Withered on, up 20% of the fight: x1.5 while up, so x(0.2 + 0.8 / 1.5), not x1.5
+    build.config["conditionEnemyWithered"] = True
+    active["conditionEnemyWithered"] = {"label": "Withered", "value": True}
+    search.conditions.uptimes = {"conditionEnemyShocked": 0.5, "conditionEnemyWithered": 0.2}
+    search.follow_uptimes()
+    assert build.objective.uptime_factor == approx(shocked * (0.2 + 0.8 / 1.5))
+    assert build.score == approx(1800 * shocked * (0.2 + 0.8 / 1.5)) and build.config["conditionEnemyWithered"] is True
+    # its uptime moves (no recalculation: the cached ratio), then the trial is undone
+    search.conditions.uptimes = {"conditionEnemyShocked": 0.5, "conditionEnemyWithered": 0.6}
+    search.follow_uptimes()
+    assert build.objective.uptime_factor == approx(shocked * (0.6 + 0.4 / 1.5))
+    del build.config["conditionEnemyWithered"], active["conditionEnemyWithered"]
+    search.conditions.uptimes = {"conditionEnemyShocked": 0.5}
+    search.follow_uptimes()
+    assert build.objective.uptime_factor == approx(shocked) and build.score == approx(1200 * shocked)
