@@ -518,6 +518,13 @@ DEBUFF_NOT_SOURCE = re.compile(r"\b(?:increased|reduced|more|less)\b|\bagainst\b
                                r"\ballies\b|minions|companions|summoned|grants skill|\bif you'?ve\b", re.I)
 
 
+def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None = None) -> list[models.CurseUse]:
+    """The build's curses and how it applies each (models.curse_uses), the boss at `metres` or the config's distance."""
+    if metres is None:
+        metres = number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(set())
+    return models.curse_uses(build.groups(), build.ctx.gems, stats, metres, texts)
+
+
 def _debuff_pattern(var: str) -> re.Pattern:
     verb, participle = DEBUFFS[var]
     target = r"(?:rare or unique )?(?:enemies|targets|them)"
@@ -543,8 +550,7 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         up = 1.0 if radius >= metres else 0.0
         return up, f"the boss {metres:g} m away, your Presence {radius:.1f} m"
     if "you curse" in when:
-        up = 1.0 if stats.get("_curses") else 0.0
-        return up, "a curse gem in the build (as the Cursed box)" if up else "no curse gem in the build"
+        return models.curse_share(stats.get("_curse_uses") or [])
     if "fully armour break" in when or "fully break" in when:  # (armour_broken's Full Breaks, as Exposure's)
         events = number(stats.get("_full_break_rate"))
         up = 1 - (1 - min(chance, 1.0)) ** (events * duration) if chance < 1 else min(1.0, events * duration)
@@ -806,6 +812,16 @@ def _box(up: float, basis: str) -> tuple[bool, str, float]:
     return up >= MIN_UPTIME, basis, up
 
 
+def _cursed(stats: dict) -> tuple[object, str]:
+    """The Cursed box at the share of the fight the boss carries one of your curses (models.curse_uses; PoB sets the
+    enemy Cursed with any curse or Mark anyway, so models.curse_model scales what leans on it)."""
+    uses = stats.get("_curse_uses") or []
+    if not uses:
+        return 0.0, ""
+    share, how = models.curse_share(uses)
+    return _box(share, f"Cursed {share:.0%} of the fight ({shared(share)}): {how}")
+
+
 @dataclass(frozen=True)
 class Condition:
     var: str
@@ -864,7 +880,8 @@ CONDITIONS: list[Condition] = [
     Condition("conditionEnemyLightningExposure", "Lightning Exposure", value_fn=_exposure_uptime("Lightning"),
               fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
     Condition("conditionEnemyArmourBroken", "Armour Broken"),  # (armour_broken_uptime, Conditions.evidence)
-    Condition("conditionEnemyCursed", "Cursed", gem_types=("AppliesCurse",)),
+    Condition("conditionEnemyCursed", "Cursed", value_fn=lambda lines, stats: _cursed(stats),
+              fields=("PresenceRadius",)),
     # Sustained in any boss fight by the build's own numbers or skills (coverage audit item f, 6 Nov 2026: lines needing these
     # counted 0 in every build because only a Configuration option sets them). Boss hit rate: PoB's boss config.
     Condition("conditionUsedSkillRecently", "Used a skill recently", stat=lambda s: True, fields=()),
@@ -1006,10 +1023,13 @@ class Conditions:
                 rage_spend[name] = RAGE_PER_USE[name] * uses
             elif name in RAGE_PER_SECOND:
                 rage_spend[name] = RAGE_PER_SECOND[name] * (1.0 if name == self.main_skill else 1 / CHARGE_DEFAULT_EVERY)
+        texts = [line["text"] for line in lines]
         stats = {**stats, "_consumers": consumers, "_rage_spend": rage_spend,
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_distance_choice": self.distance,
                  "_stationary_off": self.stationary_off, "_rolling": self.rolling,
-                 "_curses": sorted(n for n, types in gem_types.items() if "AppliesCurse" in types)}
+                 "_curse_uses": curse_uses(self.build, stats, texts, (self.distance or (natural_distance(main_types), ""))[0])
+                 if any("AppliesCurse" in types for types in gem_types.values())
+                 or any(models.CURSE_ON_HIT.search(t) for t in texts) else []}
         if "Arcane Surge" in main_gems:  # (the support: its threshold and duration from the gem, arcane_surge_uptime)
             raw = self.build.call("activeSkills", supportStats=list(ARCANE_SURGE_SUPPORT_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})

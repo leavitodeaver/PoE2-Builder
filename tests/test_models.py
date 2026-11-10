@@ -964,3 +964,41 @@ def test_freezes_electrocutes_and_stuns_of_the_boss_are_rated_from_the_build_not
     _, notes = models.mark_model([mark], stats, None)
     uptime = next(n for n in notes if n["label"] == "Freezing Mark: buff uptime")
     assert f"once per {1 / freeze:.1f} s" in uptime["basis"]
+
+
+def test_a_curse_is_up_by_how_the_build_applies_it():
+    """MECH33: cast by hand it is recast each 7.4 s (game files) and costs the main skill its cast time; through
+    Blasphemy it is up while the boss stands in your Presence; PoB counts every curse always up."""
+    gems = {"Elemental Weakness": {"skillTypes": ["Spell", "AppliesCurse"]}, "Blasphemy": {"skillTypes": ["Aura"]},
+            "Cast on Critical": {"skillTypes": ["Meta"]}, "Temporal Chains": {"skillTypes": ["AppliesCurse"]}}
+    stats = {"PresenceRadius": 40, "Speed": 2.0, "HitChance": 100}
+    hand = [{"enabled": True, "gems": [{"name": "Elemental Weakness", "support": False}]}]
+    aura = [{"enabled": True, "gems": [{"name": "Temporal Chains", "support": False},
+                                       {"name": "Blasphemy", "support": True}]}]
+    (use,) = models.curse_uses(hand, gems, stats, 8.0)
+    assert use.share == 1.0 and use.by_hand
+    assert models.curse_uses(aura, gems, stats, 4.0)[0].share == 1.0  # inside 4 m of Presence
+    assert models.curse_uses(aura, gems, stats, 8.0)[0].share == 0.0  # outside it
+    assert models.curse_uses([{**aura[0], "enabled": False}], gems, stats, 4.0) == []
+    meta = [{"gems": [{"name": "Cast on Critical", "support": False}, {"name": "Elemental Weakness", "support": False}]}]
+    assert "triggered" in models.curse_uses(meta, gems, stats, 8.0)[0].how
+    (hit,) = models.curse_uses([], gems, stats, 8.0, ["Curse Non-Cursed Enemies with Enfeeble on Hit"])
+    assert hit.name == "Enfeeble" and hit.share == 1.0
+
+    bow = models.Skill("Lightning Arrow", group=1, attack=True)
+    weakness = models.Skill("Elemental Weakness", group=2, spell=True, cast_time=0.7)
+    lines = [{"text": "Enemies you Curse take 10% increased Damage"}]
+    mods, notes = models.curse_model([use], [bow, weakness], bow, lines)
+    by_line = {m["line"]: m["scale"] for m in mods}
+    assert by_line["1% more Attack and Cast Speed"] == pytest.approx(-100 * 0.7 / 7.4, rel=1e-3)
+    assert "Enemies you Curse take 1% increased Damage" not in by_line  # cursed all fight
+    chains = models.Skill("Temporal Chains", group=3, spell=True)
+    outside = models.curse_uses(aura, gems, stats, 8.0)
+    mods, notes = models.curse_model(outside, [bow, chains], bow, lines)
+    by_line = {m["line"]: m["scale"] for m in mods}
+    assert by_line["1% more Effect of your Curses"] == pytest.approx(-100.0)
+    assert by_line["Enemies you Curse take 1% increased Damage"] == pytest.approx(-10.0)
+    assert "1% more Attack and Cast Speed" not in by_line  # an Aura isn't cast
+    # a Mark alone: PoB sets the enemy Cursed, but nothing curses it
+    mods, notes = models.curse_model([], [bow], bow, lines)
+    assert {m["line"]: m["scale"] for m in mods}["Enemies you Curse take 1% increased Damage"] == pytest.approx(-10.0)

@@ -25,7 +25,7 @@ import re
 
 from builder.ledger import conditions
 from builder.search import models
-from builder.search.conditions import INFUSED_SET
+from builder.search.conditions import INFUSED_SET, curse_uses
 from builder.search.usage import usage_rules
 from builder.search.state import Build
 
@@ -248,6 +248,11 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + resolve_mods, hand_notes + resolve_notes
         mark_mods, mark_notes = models.mark_model(found, stats, main, source_lines)
         hand_mods, hand_notes = hand_mods + mark_mods, hand_notes + mark_notes
+        curses = curse_uses(build, stats, [e["text"] for e in source_lines])
+        if curses or any(models.CURSED_UNSCALED.search(e["text"]) or p.search(e["text"])
+                         for e in source_lines for p, _ in models.CURSED_LINES):
+            curse_mods, curse_notes = models.curse_model(curses, found, main, source_lines)
+            hand_mods, hand_notes = hand_mods + curse_mods, hand_notes + curse_notes
         roar_mods, roar_notes = models.roar_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + roar_mods, hand_notes + roar_notes
         mirage_mods, mirage_notes, mirage_groups = models.mirage_model(

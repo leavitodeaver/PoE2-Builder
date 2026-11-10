@@ -10,6 +10,7 @@ import pytest
 
 from builder.data import GameData
 from builder.request.schema import BuildRequest
+from builder.search import models
 from builder.search.conditions import CONDITIONS, Conditions, qualifies, stat_set_needs, text_evidence
 from builder.search.context import Context, make_payload
 from builder.search.objective import Objective
@@ -948,7 +949,7 @@ def test_debuffs_on_only_when_their_sources_keep_them_up():
     declaration = "Supports Persistent Buff Skills, causing enemies that enter your Presence to become Intimidated"
     assert intimidated([declaration], {**stats, "PresenceRadius": 0})[2] < 0.9
     assert intimidated(["Enemies you Curse are Intimidated"], stats)[2] < 0.9
-    assert intimidated(["Enemies you Curse are Intimidated"], {**stats, "_curses": ["Vulnerability"]})[2] >= 0.9
+    assert intimidated(["Enemies you Curse are Intimidated"], {**stats, "_curse_uses": [models.CurseUse("Vulnerability", 1.0, "cast by hand")]})[2] >= 0.9
     stun = intimidated(["Enemies you Heavy Stun while Shapeshifted are Intimidated for 6 seconds"], stats)
     assert stun[2] < 0.9 and "isn't modelled" in stun[1]
     assert intimidated(["20% more Damage against Intimidated Enemies"], stats) == (0.0, "")

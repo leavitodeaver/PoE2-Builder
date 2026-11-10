@@ -31,7 +31,7 @@ DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
 # PoB stats the models read (beyond the objective's own fields)
 MODEL_FIELDS = sorted({
     "Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
-    "EnergyShieldRegenRecovery", "EnergyShieldRecharge",
+    "EnergyShieldRegenRecovery", "EnergyShieldRecharge", "PresenceRadius",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
     "FreezeBuildupAvg", "ElectrocuteBuildupAvg", "HeavyStunBuildupAvg",
     "Darkness", "Str", "Dex", "Int", *(f"{t}CritAverage" for t in DAMAGE_TYPES), *(f"{t}HitAverage" for t in DAMAGE_TYPES),
@@ -989,6 +989,124 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
         notes.append({"label": "Marks beyond the first", "value": len(marks) - 1,
                       "basis": "an enemy carries one Mark at a time: " + ", ".join(m.name for m in marks[1:])
                                + " not modelled (PoB keeps only one too)", "confidence": "theory"})
+    return mods, notes
+
+
+# Curses (MECH33) ---------------------------------------------------------------------------------
+# PoB applies every enabled curse as always up and sets the enemy Cursed whenever a curse slot holds a curse or a Mark
+# (CalcPerform 3166-3168), so "Enemies you Curse ..." lines count with a Mark alone. In the game files (build 26476662):
+# the 10 gems of skill type AppliesCurse (ActiveSkills: Conductivity, Despair, Elemental Weakness, Enfeeble,
+# Flammability, Hypothermia, Punishment, Repulsion, Temporal Chains, Vulnerability) last base_skill_effect_duration 6 s
+# at level 1 to 7.4 s at 20, land curse_delay_duration_ms 1.5 s after the cast, and under level 18 can't curse targets
+# above a level (skill_curses_cannot_apply_to_targets_above_level, 74 at 15: not checked, our gems are level 20).
+# How the build applies each (curse_uses):
+# - in a Blasphemy group: an Aura on "all nearby enemies" (the gem's description), taken as your Presence: up while the
+#   boss stands inside it (the build's distance); the support's base radius stat isn't read;
+# - with a Meta gem in its group: triggered, assumed applied when needed (its trigger rate isn't read, labelled);
+# - else cast by hand, recast each duration (1.5 s before it runs out, so always up after the fight's first 1.5 s,
+#   not counted), which takes its cast time from the main skill (duration modifiers aren't read);
+# - "Curse ... with X on Hit" item lines: up while the main skill hits.
+CURSE_DURATION = 7.4
+CURSE_DELAY = 1.5
+CURSE_ON_HIT = re.compile(r"\bcurse (?:non-cursed )?enemies with (.+?) on hit\b", re.I)
+# Lines that apply only while the boss is cursed, each scaled to the share of the fight it is (exact for the taken and
+# resistance ones, linear for the ailment duration one: an approximation)
+CURSED_LINES = (
+    (re.compile(r"Enemies you Curse take (\d+)% increased Damage", re.I), "Enemies you Curse take 1% increased Damage"),
+    (re.compile(r"Enemies you Curse have ([+-]?\d+)% to Chaos Resistance", re.I),
+     "Enemies you Curse have 1% to Chaos Resistance"),
+    (re.compile(r"(\d+)% increased duration of Ailments you inflict against Cursed Enemies", re.I),
+     "1% increased duration of Ailments you inflict against Cursed Enemies"),
+)
+# Chance lines against a cursed enemy: not scaled (a chance doesn't scale linearly), listed in the note
+CURSED_UNSCALED = re.compile(r"against cursed enemies|hitting cursed enemies|poison cursed enemies", re.I)
+
+
+@dataclass(frozen=True)
+class CurseUse:
+    name: str
+    share: float  # of the fight the boss carries it
+    how: str
+    by_hand: bool = False  # cast by hand: one cast per CURSE_DURATION
+
+
+def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
+               lines: list[str] = ()) -> list[CurseUse]:
+    """How the build applies each of its curses, and the share of the fight each is on the boss."""
+    uses = []
+    radius = number(stats.get("PresenceRadius")) / 10
+    for group in groups:
+        if group.get("enabled") is False:
+            continue
+        present = [g for g in group["gems"] if g.get("enabled", True)]
+        types = {g["name"]: set((gems.get(g["name"]) or {}).get("skillTypes") or []) for g in present}
+        meta = next((n for n, t in types.items() if "Meta" in t), None)
+        for gem in present:
+            name = gem["name"]
+            if gem.get("support") or "AppliesCurse" not in types[name]:
+                continue
+            if "Blasphemy" in types:
+                up = 1.0 if radius >= metres else 0.0
+                how = (f"an Aura (Blasphemy) on enemies nearby, taken as your Presence ({radius:.1f} m) with the boss "
+                       f"{metres:g} m away: {'inside' if up else 'outside'} it")
+                uses.append(CurseUse(name, up, how))
+            elif meta is not None:
+                uses.append(CurseUse(name, 1.0, f"triggered by {meta}: assumed applied when needed (its trigger rate "
+                                                "isn't read)"))
+            else:
+                uses.append(CurseUse(name, 1.0, f"cast by hand every {CURSE_DURATION:g} s (its duration; recast "
+                                                f"{CURSE_DELAY:g} s before it runs out, the curse delay)", True))
+    hits = hits_per_second(stats) > 0
+    for text in lines:
+        if m := CURSE_ON_HIT.search(text):
+            uses.append(CurseUse(m.group(1), 1.0 if hits else 0.0, f"'{text[:50]}': "
+                                 + ("up while the main skill hits" if hits else "the main skill doesn't hit")))
+    return uses
+
+
+def curse_share(uses: list[CurseUse]) -> tuple[float, str]:
+    """(share of the fight the boss carries one of your curses, basis)."""
+    if not uses:
+        return 0.0, "no curse in the build"
+    best = max(uses, key=lambda u: u.share)
+    return best.share, f"{best.name} {best.how}"
+
+
+def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
+                lines: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """Each curse's effect scaled from PoB's always-up to its share, the time casting it by hand takes from the main
+    skill, and the build's "Enemies you Curse ..." lines scaled to the share of the fight the boss is cursed (CURSED_LINES;
+    PoB counts them with any curse or Mark)."""
+    mods: list[dict] = []
+    notes: list[dict] = []
+    by_name = {s.name: s for s in skills}
+    for use in uses:
+        basis = use.how
+        if use.share < 1.0 and use.name in by_name:
+            mods.append(line("1% more Effect of your Curses", 100 * (use.share - 1), skill=use.name))
+        cast = by_name.get(use.name)
+        if use.by_hand and main is not None and cast is not None and cast is not main:
+            took = cast.cast_time or 0.7
+            lost = min(1.0, took / CURSE_DURATION)
+            mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
+            basis += f"; casting it ({took:.2f} s every {CURSE_DURATION:g} s) takes {lost:.0%} of {main.name}'s time"
+        notes.append({"label": f"{use.name}: share of the fight on the boss", "value": round(use.share, 2),
+                      "basis": basis + " (PoB counts every curse always up)", "confidence": "theory"})
+    share, how = curse_share(uses)
+    found, unscaled = [], []
+    for pattern, text in CURSED_LINES:
+        total = sum(float(m.group(1)) for entry in lines or [] if (m := pattern.search(entry["text"])))
+        if total and share < 1.0:
+            mods.append(line(text, -total * (1.0 - share)))
+            found.append(text.replace("1%", f"{total:g}%"))
+    unscaled = [entry["text"] for entry in lines or [] if CURSED_UNSCALED.search(entry["text"])]
+    if found or (unscaled and share < 1.0):
+        notes.append({"label": "Lines while the boss is Cursed: share of the fight", "value": round(share, 2),
+                      "basis": f"cursed {share:.0%} of the fight ({how}); " + (
+                          f"{'; '.join(found)} count at that share (PoB counts the enemy Cursed with any curse or "
+                          "Mark)" if found else "") + (
+                          f"; not scaled (chances, counted as PoB does): {'; '.join(t[:50] for t in unscaled[:3])}"
+                          if unscaled and share < 1.0 else ""), "confidence": "theory"})
     return mods, notes
 
 

@@ -411,6 +411,9 @@ class Search:
         the distance moved."""
         conditions = self.conditions
         lines = [line["text"] for line in self.build.call("sourceLines")["lines"]]
+        if any(g["name"] == "Blasphemy" and g.get("enabled", True) for grp in self.build.groups()
+               if grp.get("enabled", True) for g in grp["gems"]):
+            lines.append("Blasphemy: Curse Auras on enemies in your Presence (models.curse_uses)")
         candidates = distance_candidates(lines, conditions.main_types)
         before = conditions.distance
         if not candidates:

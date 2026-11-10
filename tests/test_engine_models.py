@@ -365,6 +365,9 @@ def test_the_spirit_step_puts_a_curse_in_blasphemy(engine):
         pass
     cursed = [g for g in build.groups() if g["label"] == BLASPHEMY_LABEL]
     assert len(cursed) == 1 and [g["name"] for g in cursed[0]["gems"]][0] == "Blasphemy"
+    # MECH33: the Aura reaches the boss only inside your Presence, so a caster at range gains once it stands close
+    search.choose_distance()
+    assert search.conditions.distance and search.conditions.distance[0] <= 2.0
     assert build.score > before
     assert search.gems.buttons() == ["Ice Nova"]
 
@@ -1048,3 +1051,33 @@ def test_a_glory_skill_as_the_main_skill_is_used_as_often_as_the_build_makes_its
     assert "Fireball" in note["basis"] and note["value"] >= 0.0
     assert build.main_group()["index"] == main["index"] and search.assumptions.main_skill() == "Hammer of the Gods"
     build.remove_group(other["index"])
+
+
+def test_a_curse_is_scaled_to_its_share_and_cast_by_hand_costs_time(engine):
+    """MECH33: PoB counts a curse always up and the enemy Cursed with any curse. A skill-scoped "more Effect of your
+    Curses" line reaches a curse gem, "Enemies you Curse take ..." is scaled like the Marked lines, and a curse cast by
+    hand takes its cast time from the main skill."""
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    without = build.call("stats", fields=["FullDPS"])["FullDPS"]
+    build.set_group(gems=[{"name": "Elemental Weakness", "level": 20, "quality": 0}], label="curse")
+    build.call("setAssumptions", mods=[], fields=build.objective.fields)
+    raw = build.call("stats", fields=["FullDPS"])["FullDPS"]
+    assert raw > without  # PoB's always-up curse
+    build.call("setAssumptions", mods=[models.line("1% more Effect of your Curses", -100, skill="Elemental Weakness")],
+               fields=build.objective.fields)
+    assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(without, rel=1e-6)
+    taken = "Enemies you Curse take 1% increased Damage"
+    def dps(*scales):
+        build.call("setAssumptions", mods=[models.line(taken, k) for k in scales], fields=build.objective.fields)
+        return build.call("stats", fields=["FullDPS"])["FullDPS"]
+    assert dps(50) > dps(1) > raw
+    assert dps(50, -50) == pytest.approx(raw, rel=1e-6)
+    search.assumptions.mods = None
+    search.assumptions.apply()
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Elemental Weakness"))
+    assert note["value"] == 1.0 and "takes" in note["basis"]
+    assert build.call("stats", fields=["FullDPS"])["FullDPS"] < raw
