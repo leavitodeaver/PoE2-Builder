@@ -61,9 +61,14 @@ WITHER_CHANCE = re.compile(r"(\d+)% chance to inflict Withered for (\d+(?:\.\d+)
 WITHER_KEEP = re.compile(r"Withered does not expire on Enemies (Ignited by you|you Ignite)", re.I)
 
 
-def _withered_stacks(lines: list[str], stats: dict) -> tuple[float, str]:
+def _withered_stacks(lines: list[str], stats: dict) -> tuple:
     """Withered stacks the build keeps on a boss: chance x hits per second x duration from its "chance to inflict Withered"
-    lines, up to 10; with Blackflame ("does not expire on Enemies you Ignite") and Ignite on the boss, all 10."""
+    lines, up to 10. With Blackflame ("does not expire on Enemies you Ignite"), all 10 while the boss is Ignited: counted
+    at Ignite's real share of the fight (the user, 9 Nov 2026: "Count the real share"; under SWITCH_ON, 7%, left out),
+    the chance-line stacks the rest of it (the 4th value: the box's setting with the effect off, Search.weigh_uptimes).
+    PoB reads the count whole (ModStore floors a Multiplier), so the time weighting is done by the uptime machinery, not
+    a fractional count. Labelled: stacks that outlast an Ignite by their own duration aren't counted (a small undercount),
+    and the build-up to 10 at the fight's start is taken as instant."""
     rate = number(stats.get("Speed"))
     stacks, sources = 0.0, []
     for text in lines:
@@ -72,10 +77,15 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple[float, str]:
             sources.append(text)
     if not sources:
         return 0.0, ""
-    if any(WITHER_KEEP.search(t) for t in lines) and ailment_uptime(stats, "Ignite") >= UPTIME:
-        return float(WITHERED_MAX), f"{sources[0]}; and Withered never expires on the Ignited boss: {WITHERED_MAX} stacks"
     stacks = min(float(WITHERED_MAX), stacks)
-    return float(int(stacks)), f"{'; '.join(sources)} at {rate:.2f} hits/s: {stacks:.1f} stacks kept up"
+    basis = f"{'; '.join(sources)} at {rate:.2f} hits/s: {stacks:.1f} stacks kept up"
+    up = ailment_uptime(stats, "Ignite") if any(WITHER_KEEP.search(t) for t in lines) else 0.0
+    if up >= FULL_UPTIME:
+        return float(WITHERED_MAX), f"{sources[0]}; and Withered never expires on the Ignited boss: {WITHERED_MAX} stacks"
+    if up >= SWITCH_ON:
+        return (float(WITHERED_MAX), f"{sources[0]}; and Withered never expires on the Ignited boss: {WITHERED_MAX} "
+                f"stacks while it is Ignited ({up:.0%} of the fight, {shared(up)}), else {basis}", up, int(stacks) or False)
+    return float(int(stacks)), basis
 
 
 # Charges held (the mechanics catalog's first priority, 7 Nov 2026): PoB counts the maximum whenever its "use" box is on.
@@ -873,7 +883,7 @@ CONDITIONS: list[Condition] = [
     Condition("overrideEnduranceCharges", "Endurance Charges held", value_fn=_charges_held("Endurance"),
               fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration", *models.IMMOBILISE_FIELDS)),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
-              fields=("Speed", "IgniteChancePerHit")),
+              fields=("Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration")),
     Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)",
               (r"become ignited when you deal a critical hit",)),
     Condition("enemyDistance", "Boss distance (play-style assumption; 10 units a metre)", value_fn=_boss_distance,
@@ -1022,6 +1032,7 @@ class Conditions:
                 stats["_full_break_rate"] = up / models.FULL_BREAK_DURATION
         found: dict[str, tuple[object, str]] = {}
         uptimes: dict[str, float] = {}  # var -> share of the fight, for the effects the build keeps up at a rate
+        self.off_values: dict[str, object] = {}  # var -> its box with the effect off, if not False (Withered's base stacks)
         for condition in CONDITIONS:
             reason = None
             for line in lines:
@@ -1039,6 +1050,8 @@ class Conditions:
                     found[condition.var] = (value, basis)
                     if share:
                         uptimes[condition.var] = share[0]
+                    if share[1:]:
+                        self.off_values[condition.var] = share[1]
                 continue
             if reason is None and condition.main_types and self.main_types & set(condition.main_types):
                 reason = "main skill: " + ", ".join(sorted(self.main_types & set(condition.main_types)))
@@ -1110,6 +1123,8 @@ class Conditions:
                 changes[condition.var] = want[0]
             if want is not None:
                 self.active[condition.var] = {"label": condition.label, "value": want[0], "evidence": want[1]}
+                if condition.var in getattr(self, "off_values", {}):
+                    self.active[condition.var]["off"] = self.off_values[condition.var]
         # Effects on for part of the fight, weighed into the headline by Search.weigh_uptimes
         self.uptimes = {var: up for var, up in self.found_uptimes.items() if var in self.active and up < FULL_UPTIME}
         if changes:

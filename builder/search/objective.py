@@ -209,8 +209,8 @@ class Objective:
         # Effects the build keeps up for part of the fight (conditions.MIN_UPTIME .. FULL_UPTIME; Search.weigh_uptimes): the
         # product over them of (u + (1 - u) x DPS without it / DPS with all on), refreshed each conditions round
         self.uptime_factor = 1.0
-        # and per such effect, the stats that change without it (off - on): the floors are hard requirements, so a
-        # defence that leans on one counts only with it off (deficits takes the worst of these)
+        # and the stats that change with all such effects off at once (off - on; Search.floor_without): the floors count
+        # an effect only at full uptime, so a defence that leans on them counts only with them off (deficits takes the worst)
         self.floor_deltas: list[dict[str, float]] = []
         self.multipliers: dict[str, float] = dict(multipliers or {})  # requirement label -> weight factor
         self.penalties = ctx.compiled.penalties
@@ -279,7 +279,7 @@ class Objective:
 
     def deficits(self, stats: dict) -> list[tuple[str, float, bool]]:
         """(label, normalized deficit, hard) for everything currently short: the worst of the build as it is and the
-        build without each effect it keeps up for only part of the fight (floor_deltas)."""
+        build without the effects it keeps up for only part of the fight (floor_deltas: all of them off at once)."""
         found = self._deficits(stats)
         for deltas in self.floor_deltas:
             without = self._deficits({**stats, **{k: number(stats.get(k)) + d for k, d in deltas.items()}})

@@ -175,11 +175,13 @@ def test_partial_uptimes_count_at_their_share_and_floors_without_them():
     search = SimpleNamespace(build=build, play_notes={}, uptime_rows=[], assumptions=SimpleNamespace(apply=lambda: False),
                              conditions=SimpleNamespace(active=active, uptimes={"conditionEnemyShocked": 0.5,
                                                                                 "conditionEnemyIntimidated": 0.8}))
+    search.floor_without = Search.floor_without.__get__(search)
     Search.weigh_uptimes.__get__(search)()
     assert build.objective.uptime_factor == approx(0.5 + 0.5 * 1000 / 1200)
     assert build.score == approx(1100)
     assert build.config == config  # put back
-    assert build.objective.floor_deltas == [{"Life": -500.0}, {"dps": -200.0}]
+    # the floors: every part-time effect off at once (the user, 9 Nov: a floor counts one only at full uptime)
+    assert build.objective.floor_deltas == [{"Life": -500.0, "dps": -200.0}]
     intimidated = next(r for r in search.uptime_rows if r["var"] == "conditionEnemyIntimidated")
     assert "1,900 time-weighted" in intimidated["defence"] and "uptime:conditionEnemyShocked" in search.play_notes
     rows = {r["var"]: r for r in play_guide.guide(search)}
@@ -207,7 +209,7 @@ def test_an_effect_switched_on_between_rounds_counts_at_its_share():
     search = SimpleNamespace(build=build, play_notes={}, uptime_rows=[], uptime_cache={},
                              assumptions=SimpleNamespace(apply=lambda: False),
                              conditions=SimpleNamespace(active=active, uptimes={"conditionEnemyShocked": 0.5}))
-    for name in ("weigh_uptimes", "follow_uptimes"):
+    for name in ("weigh_uptimes", "follow_uptimes", "floor_without"):
         setattr(search, name, getattr(Search, name).__get__(search))
     search.weigh_uptimes()
     shocked = 0.5 + 0.5 * 1000 / 1200
@@ -227,6 +229,32 @@ def test_an_effect_switched_on_between_rounds_counts_at_its_share():
     search.conditions.uptimes = {"conditionEnemyShocked": 0.5}
     search.follow_uptimes()
     assert build.objective.uptime_factor == approx(shocked) and build.score == approx(1200 * shocked)
+
+
+def test_floors_are_checked_with_every_part_time_effect_off_at_once():
+    """The user, 9 Nov 2026: a defence floor counts a part-time effect only at full uptime. Two effects that each carry
+    300 Life: off one at a time, each leaves the other's 300 standing; the floors see both gone. B is a count (2 on, 1 off,
+    like Withered's chance-line stacks without Ignite: its "off" setting), so off it keeps 150."""
+    from builder.search.inner import Search
+
+    class Build(FakeBuild):
+        @property
+        def stats(self):
+            return {"dps": 1000.0, "Life": 1000.0 + 300.0 * bool(self.config.get("a")) + 150.0 * (self.config.get("b") or 0)}
+
+    build = Build({"a": True, "b": 2})
+    build.objective, build.score = UptimeObjective(), 0.0
+    active = {"a": {"label": "A", "value": True}, "b": {"label": "B", "value": 2, "off": 1}}
+    search = SimpleNamespace(build=build, play_notes={}, uptime_rows=[], assumptions=SimpleNamespace(apply=lambda: False),
+                             conditions=SimpleNamespace(active=active, uptimes={"a": 0.5, "b": 0.5}))
+    for name in ("weigh_uptimes", "follow_uptimes", "floor_without"):
+        setattr(search, name, getattr(Search, name).__get__(search))
+    search.weigh_uptimes()
+    assert build.objective.floor_deltas == [{"Life": -450.0}] and build.config == {"a": True, "b": 2}
+    assert "1,450 time-weighted" in next(r for r in search.uptime_rows if r["var"] == "a")["defence"]
+    assert "1,525 time-weighted" in next(r for r in search.uptime_rows if r["var"] == "b")["defence"]
+    search.follow_uptimes()  # same effects: the cached deltas, no recalculation
+    assert build.objective.floor_deltas == [{"Life": -450.0}]
 
 
 def test_an_effect_switches_on_from_seven_percent_and_off_under_five():

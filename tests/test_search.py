@@ -601,6 +601,11 @@ def test_withered_stacks_from_the_builds_lines():
     keep = "Withered does not expire on Enemies Ignited by you"
     assert _withered_stacks([quill, keep], {"Speed": 4.0, "IgniteChancePerHit": 100})[0] == 10.0
     assert _withered_stacks([keep], {"Speed": 4.0, "IgniteChancePerHit": 100})[0] == 0.0  # no Withered source
+    # Ignite up part of the fight (the user's rule, 9 Nov: the real share): 10 stacks at Ignite's uptime, the chance-line
+    # stacks (here 4) with it off; under 7%, only the chance-line stacks
+    value, basis, up, off = _withered_stacks([quill, keep], {"Speed": 4.0, "IgniteChancePerHit": 5, "IgniteDuration": 4})
+    assert value == 10.0 and off == 4 and up == pytest.approx(1 - 0.95 ** 16) and "while it is Ignited" in basis
+    assert _withered_stacks([quill, keep], {"Speed": 4.0, "IgniteChancePerHit": 0.1, "IgniteDuration": 4}) == (4.0, _withered_stacks([quill], {"Speed": 4.0})[1])
 
 
 def test_charges_held_follow_the_builds_sources():

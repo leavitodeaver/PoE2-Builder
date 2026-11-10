@@ -89,6 +89,7 @@ class Search:
         self.play_notes: dict[str, dict] = {}  # notes from choose_stationary and weigh_life, weigh_uptimes, for the result
         self.uptime_rows: list[dict] = []  # weigh_uptimes' effects, for the play guide
         self.uptime_cache: dict[str, tuple[float, dict]] = {}  # var -> (DPS without it / with it, stats deltas) (follow_uptimes)
+        self.uptime_floor: tuple[frozenset, dict] | None = None  # (effects, stats deltas with all of them off) (floor_without)
         self.gems.conditions = self.conditions
         self.assumptions = Assumptions(self.build)
         self.build.reassume = self.assumptions.apply  # item what-ifs a model reads get a real trial (Build.item_deltas)
@@ -390,7 +391,7 @@ class Search:
         factor = 1.0
         for var in sorted(live):
             factor *= live[var] + (1.0 - live[var]) * cache[var][0]
-        floor_deltas = [cache[var][1] for var in sorted(live) if cache[var][1]]
+        floor_deltas = self.floor_without(live, on_stats=None)
         if factor != objective.uptime_factor or floor_deltas != objective.floor_deltas:
             objective.uptime_factor, objective.floor_deltas = factor, floor_deltas
             self.build.score = objective.score(self.build.stats)
@@ -503,11 +504,11 @@ class Search:
         DPS is D; one recalculation with effect c off gives r_c = D(c off) / D; the headline is D x the product of
         (u_c + (1 - u_c) x r_c) (objective.uptime_factor): n + 1 calculations, not 2^n, the effects taken as independent
         (labelled: effects that add into one pool, like Shock's and Intimidate's damage taken, interact a little). The
-        same recalculations give each one's stats without it (objective.floor_deltas): the floors are checked with it
-        off. Refreshed each conditions round and reused between them (as weigh_life); exact at finalize."""
+        floors are checked with all of them off at once (floor_without: one more recalculation), each one's time-weighted
+        defence kept in its play note. Refreshed each conditions round and reused between them (as weigh_life); exact at finalize."""
         objective, conditions = self.build.objective, self.conditions
         objective.uptime_factor, objective.floor_deltas = 1.0, []
-        self.uptime_rows, self.uptime_cache = [], {}
+        self.uptime_rows, self.uptime_cache, self.uptime_floor = [], {}, None
         for key in [k for k in self.play_notes if k.startswith("uptime:")]:
             del self.play_notes[key]
         if conditions.uptimes:
@@ -522,12 +523,11 @@ class Search:
                 self.uptime_cache[var] = (ratio, deltas)
                 share = up + (1.0 - up) * ratio
                 factor *= share
-                if deltas:
-                    objective.floor_deltas.append(deltas)
                 floors = [(p.label, number(on_stats.get(p.stat)), number(on_stats.get(p.stat)) + deltas[p.stat])
                           for p in objective.penalties if p.stat in deltas]
                 defence = "; ".join(f"{label} {a:,.4g} with it, {b:,.4g} without, {up * a + (1 - up) * b:,.4g} "
-                                    f"time-weighted (the floor is checked without it)" for label, a, b in floors[:3])
+                                    f"time-weighted (the floors are checked with "
+                                    f"every part-time effect off)" for label, a, b in floors[:3])
                 self.uptime_rows.append({"var": var, "label": info["label"], "uptime": up, "ratio": ratio, "factor": share,
                                          "defence": defence})
                 self.play_notes[f"uptime:{var}"] = {
@@ -537,7 +537,27 @@ class Search:
                              f"of each other" + (f". Defences: {defence}" if defence else ""),
                     "confidence": "theory"}
             objective.uptime_factor = factor
+            objective.floor_deltas = self.floor_without(
+                {var: up for var, up in conditions.uptimes.items() if var in conditions.active}, on_stats)
         self.build.score = objective.score(self.build.stats)
+
+    def floor_without(self, live: dict, on_stats: dict | None) -> list[dict]:
+        """The stats that change with every part-time effect off at once (the floors count an effect only at full uptime,
+        the user, 9 Nov 2026: one recalculation, not one per effect, so two effects that each carry part of a floor
+        can't hide each other). Cached per set of effects until the next conditions round; one effect reuses its own
+        deltas (uptime_cache)."""
+        names = frozenset(live)
+        if not names:
+            return []
+        if len(names) == 1 and next(iter(names)) in self.uptime_cache:
+            deltas = self.uptime_cache[next(iter(names))][1]
+            return [deltas] if deltas else []
+        cached = self.uptime_floor
+        if cached is None or cached[0] != names:
+            stats = dict(self.build.stats) if on_stats is None else on_stats
+            infos = {var: self.conditions.active[var] for var in names}
+            cached = self.uptime_floor = (names, _all_off(self, infos, stats))
+        return [cached[1]] if cached[1] else []
 
     def choose_play(self) -> bool:
         """The play-style choices and fight weights (play_guide's spec): distance, standing still, Low Life."""
@@ -867,7 +887,7 @@ def _without(search: Any, var: str, info: dict, on_stats: dict, on: float) -> tu
     """One recalculation with a part-time effect off, then back on: (DPS without it / with it, the stats it changes
     (off - on), the stats without it). (Search.weigh_uptimes and follow_uptimes)"""
     objective = search.build.objective
-    search.build.set_config({var: False})
+    search.build.set_config({var: info.get("off", False)})
     search.assumptions.apply()
     off_stats = dict(search.build.stats)
     search.build.set_config({var: info["value"]})
@@ -875,6 +895,17 @@ def _without(search: Any, var: str, info: dict, on_stats: dict, on: float) -> tu
     deltas = {k: number(v) - number(on_stats.get(k)) for k, v in off_stats.items()
               if isinstance(v, (int, float)) and number(v) != number(on_stats.get(k))}
     return max(objective.dps(off_stats), 0.0) / on, deltas, off_stats
+
+
+def _all_off(search: Any, infos: dict[str, dict], on_stats: dict) -> dict:
+    """One recalculation with every given part-time effect off, then back on: the stats that change (off - on)."""
+    search.build.set_config({var: info.get("off", False) for var, info in infos.items()})
+    search.assumptions.apply()
+    off_stats = dict(search.build.stats)
+    search.build.set_config({var: info["value"] for var, info in infos.items()})
+    search.assumptions.apply()
+    return {k: number(v) - number(on_stats.get(k)) for k, v in off_stats.items()
+            if isinstance(v, (int, float)) and number(v) != number(on_stats.get(k))}
 
 
 def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, seconds: float, seed: int = 0,
