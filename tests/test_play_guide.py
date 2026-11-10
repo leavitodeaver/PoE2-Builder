@@ -227,3 +227,27 @@ def test_an_effect_switched_on_between_rounds_counts_at_its_share():
     search.conditions.uptimes = {"conditionEnemyShocked": 0.5}
     search.follow_uptimes()
     assert build.objective.uptime_factor == approx(shocked) and build.score == approx(1200 * shocked)
+
+
+def test_an_effect_switches_on_from_two_percent_and_off_under_half_a_percent():
+    """MECH31: 2b75b's Ignite at 0.6-1.2% of the fight flipped with every support trial, and each flip chose the main
+    skill again. Off, an effect switches on only from SWITCH_ON (2%); on, it stays down to MIN_UPTIME (0.5%)."""
+    from builder.search.conditions import Conditions
+
+    sets = []
+    conditions = SimpleNamespace(active={}, found_uptimes={}, build=SimpleNamespace(set_config=sets.append))
+
+    def evidence(up):
+        def run():
+            conditions.found_uptimes = {"conditionEnemyIgnited": up}
+            return {"conditionEnemyIgnited": (True, "ignite")}
+        return run
+
+    resolve = Conditions.resolve.__get__(conditions)
+    conditions.evidence = evidence(0.012)
+    assert resolve() is False and "conditionEnemyIgnited" not in conditions.active  # off at 1.2%: stays off
+    conditions.evidence = evidence(0.03)
+    assert resolve() is True and conditions.uptimes == {"conditionEnemyIgnited": 0.03}
+    conditions.evidence = evidence(0.012)
+    assert resolve() is False and conditions.uptimes == {"conditionEnemyIgnited": 0.012}  # on: stays on at 1.2%
+    assert sets == [{"conditionEnemyIgnited": True}]
