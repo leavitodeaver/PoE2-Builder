@@ -171,8 +171,8 @@
   game_source: https://poe2db.tw/us/Withered
   pob: partial
   pob_check: "PoB applies curses the build has; Exposure and Withered are Configuration options."
-  handling: "Exposure from text evidence; Withered stacks from the build's lines (chance x hits x duration; 10 with Blackflame)."
-  plan: {approach: condition resolver, how: "Done for Withered; Exposure duration vs application rate next.", inputs: [application rate, duration]}
+  handling: "Exposure (MECH28, 9 Nov 2026): conditions._exposure_uptime rates each line's uptime per element, 1 - (1 - chance)^(events x 4 s) (KeywordPopups Exposure: -20%, 4 s by default), events from the main skill's hits, crits, Shocks and Ignites (PoB's chance per hit), Full Breaks of the boss's Armour (armour_broken_share), and 'to Enemies 3 metres in front of you' while the boss stands that close; 'Elemental Exposure' counts for all three; box on at 90% uptime, else off with its basis. Not read (labelled): Exposure duration modifiers, other trigger wordings (0); a line's own condition (Devotion, socketed jewels) is left to PoB, which applies the box only with a source it accepts. Withered stacks from the build's lines (chance x hits x duration; 10 with Blackflame)."
+  plan: {approach: condition resolver, how: "Done for Withered and Exposure; Exposure duration modifiers next.", inputs: [application rate, duration]}
   what_if: invisible
   guide_note: "Withered N stacks; Exposure up X%."
   impact: 3

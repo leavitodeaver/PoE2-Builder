@@ -518,8 +518,8 @@ Priority 1817.2 · impact 3 · effort S · 137 lines not counted of 702 linked �
 
 - **Game:** Debuffs that raise damage taken or lower resistances; Withered stacks to 10 (5% chaos damage taken each). (https://poe2db.tw/us/Withered)
 - **PoB (checked):** PoB applies curses the build has; Exposure and Withered are Configuration options.
-- **Now:** Exposure from text evidence; Withered stacks from the build's lines (chance x hits x duration; 10 with Blackflame).
-- **Plan:** condition resolver: Done for Withered; Exposure duration vs application rate next. Inputs: application rate, duration.
+- **Now:** Exposure (MECH28, 9 Nov 2026): conditions._exposure_uptime rates each line's uptime per element, 1 - (1 - chance)^(events x 4 s) (KeywordPopups Exposure: -20%, 4 s by default), events from the main skill's hits, crits, Shocks and Ignites (PoB's chance per hit), Full Breaks of the boss's Armour (armour_broken_share), and 'to Enemies 3 metres in front of you' while the boss stands that close; 'Elemental Exposure' counts for all three; box on at 90% uptime, else off with its basis. Not read (labelled): Exposure duration modifiers, other trigger wordings (0); a line's own condition (Devotion, socketed jewels) is left to PoB, which applies the box only with a source it accepts. Withered stacks from the build's lines (chance x hits x duration; 10 with Blackflame).
+- **Plan:** condition resolver: Done for Withered and Exposure; Exposure duration modifiers next. Inputs: application rate, duration.
 - **Guide note:** Withered N stacks; Exposure up X%.
 - **PoB options:** `curseOverlaps` (off), `multiplierHexDoom` (off), `deathmarkDeathmarkActive` (off), `raiseSpectreEnableCurses` (off), `summonCompanionEnableCurses` (off), `conditionCanBeCurseImmune` (off)
 - **Lines:** `Remove a Curse when you use a Mana Flask` (Warding Potions); `Remove a Curse after Channelling for 2 seconds` (Draiocht Cleansing); `Withered also causes enemies to deal 1% reduced Damage` (Dark Entropy); `Enemies near Enemies you Mark are Blinded` (Unsight)

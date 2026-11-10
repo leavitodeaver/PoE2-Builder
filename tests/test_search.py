@@ -878,3 +878,28 @@ def test_armour_broken_on_only_when_breaks_keep_it_fully_broken():
     assert armour_broken_uptime(["Hits Break 600 Armour"], stats)[0] is True  # 1200/s
     # a support's stat, as its line (BREAK_STATS): Chaos damage as break, none here
     assert armour_broken_uptime(["Break Armour equal to 50% of Chaos Damage dealt"], stats)[0] is False
+
+
+def test_exposure_on_only_when_its_events_keep_it_up():
+    """KeywordPopups Exposure: 4 s by default; the box on at 90% uptime (MECH28; any inflicting line turned it on)."""
+    from builder.search.conditions import _exposure_uptime
+
+    fire, cold, lightning = (_exposure_uptime(e) for e in ("Fire", "Cold", "Lightning"))
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 5, "ShockChancePerHit": 50, "IgniteChancePerHit": 0,
+             "_main_types": {"Attack", "Melee"}}
+    hit = "Inflict Elemental Exposure on Hit, lowering Total Elemental Resistances by 25%"
+    assert fire([hit], stats)[0] is True and cold([hit], stats)[0] is True
+    # 10% x 2 hits/s x 4 s: 1 - 0.9^8 = 57%
+    devotion = lightning(["10% chance to inflict Lightning Exposure on Hit if you have at least 150 Devotion"], stats)
+    assert devotion[0] is False and "57%" in devotion[1]
+    assert fire(["Inflict Fire Exposure on Shocking an Enemy"], stats)[0] is True  # 1 Shock/s
+    assert cold(["Inflict Cold Exposure on Igniting an Enemy"], stats)[0] is False  # no Ignites
+    assert lightning(["Inflict Lightning Exposure on Critical Hit"], stats)[0] is False  # 0.1 crits/s
+    assert cold(["Inflict Fire Exposure on Shocking an Enemy"], stats) == (0.0, "")
+    # a Full Break every 12 s of a 12/13 share: one per 13 s, 4 s each
+    breaks = "Inflicts Elemental Exposure when this Weapon Fully Breaks Armour"
+    assert fire([breaks], {**stats, "_full_break_rate": 1 / 13})[0] is False
+    assert fire([breaks], stats)[0] is False
+    front = "Inflict Elemental Exposure to Enemies 3 metres in front of you"
+    assert fire([front], stats)[0] is True  # a melee build stands close
+    assert fire([front], {**stats, "_main_types": {"Spell"}})[0] is False

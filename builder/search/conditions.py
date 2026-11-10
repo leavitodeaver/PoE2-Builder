@@ -449,8 +449,8 @@ def _armour_break_source(text: str, stats: dict) -> tuple[float, float, float, s
     return per * events, 0.0, 0.0, f"{per:,.0f} per {'crit' if crit_only else 'hit'} {what} x {events:.2f}/s"
 
 
-def armour_broken_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
-    """(True / False, basis) for the Armour Broken box, or (0.0, "") if no line Breaks Armour for you."""
+def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(share of the fight Fully Broken, basis), or (0.0, "") if no line Breaks Armour for you."""
     main_types = stats.get("_main_types") or set()
     armour = number(stats.get("_enemy_armour"))
     rate, share, full, how = 0.0, 0.0, 0.0, []
@@ -465,9 +465,80 @@ def armour_broken_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     to_break = 0.0 if armour <= 0 else (armour / rate if rate > 0 else float("inf"))
     up = models.FULL_BREAK_DURATION / (models.FULL_BREAK_DURATION + to_break)
     up = 1 - (1 - up) * (1 - min(1.0, full * models.FULL_BREAK_DURATION))
-    basis = (f"Armour Fully Broken {up:.0%} of the fight ({UPTIME:.0%} needed): {rate:,.0f} Armour broken/s against the "
-             f"boss's {armour:,.0f} (PoB), {models.FULL_BREAK_DURATION:g} s each Full Break: " + "; ".join(how[:3]))
+    return up, (f"Armour Fully Broken {up:.0%} of the fight ({UPTIME:.0%} needed): {rate:,.0f} Armour broken/s against "
+                f"the boss's {armour:,.0f} (PoB), {models.FULL_BREAK_DURATION:g} s each Full Break: " + "; ".join(how[:3]))
+
+
+def armour_broken_share(lines: list[str], stats: dict) -> float:
+    """Share of the fight the boss's Armour is Fully Broken (one Full Break per 12 s of it)."""
+    return _armour_broken(lines, stats)[0]
+
+
+def armour_broken_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
+    """(True / False, basis) for the Armour Broken box, or (0.0, "") if no line Breaks Armour for you."""
+    up, basis = _armour_broken(lines, stats)
+    if not basis:
+        return 0.0, ""
     return (True if up >= UPTIME else False), basis
+
+
+# Exposure's uptime (MECH28, 9 Nov 2026; before, any line inflicting it turned the box on). The game files' KeywordPopups
+# Exposure: -20% to the element's Resistance, 4 seconds by default (PoB's box applies the -20%, and only when PoB
+# itself sees a source: CanApply<Element>Exposure). Each line's uptime is the chance at least one of its events falls in
+# the last 4 s (1 - (1 - chance)^(events x 4)); "Elemental Exposure" counts for all three; sources combine as
+# independent; the box is on at UPTIME, else explicitly off with its basis. Events: the main skill's hits, crits,
+# Shocks / Ignites (PoB's chance per hit), Fully Breaking Armour (armour_broken_share's Full Breaks), "to Enemies 3
+# metres in front of you" while the boss stands that close (the build's distance). A line's own condition (Devotion,
+# socketed jewels) is left to PoB, which applies the box only with a source it accepts. Exposure duration modifiers
+# aren't read (4 s, labelled).
+EXPOSURE_DURATION = 4.0
+EXPOSURE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\b(?:inflict|apply|cause)s? (fire|cold|lightning|elemental) exposure\b(.*)$", re.I)
+
+
+def _exposure_source(text: str, element: str, stats: dict) -> tuple[float, str] | None:
+    """(uptime, how) of one line for `element`'s Exposure, or None if it isn't a source of it."""
+    m = EXPOSURE_SOURCE.search(text)
+    if not m or m.group(2).lower() not in (element.lower(), "elemental"):
+        return None
+    chance = float(m.group(1)) / 100 if m.group(1) else 1.0
+    when = m.group(3).lower()
+    hits = models.hits_per_second(stats)
+    if "fully breaks armour" in when:
+        events, how = number(stats.get("_full_break_rate")), "Full Breaks of the boss's Armour"
+    elif near := re.search(r"(\d+(?:\.\d+)?) metres in front", when):
+        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set()), ""))[0]
+        up = 1.0 if metres <= float(near.group(1)) else 0.0
+        return up, f"the boss {metres:g} m away ({near.group(1)} m needed)"
+    elif "shock" in when:
+        events, how = hits * min(number(stats.get("ShockChancePerHit")), 100) / 100, "Shocks (PoB's chance per hit)"
+    elif "ignit" in when:
+        events, how = hits * min(number(stats.get("IgniteChancePerHit")), 100) / 100, "Ignites (PoB's chance per hit)"
+    elif "critical" in when:
+        events, how = models.crits_per_second(stats), "crits"
+    elif "on hit" in when:
+        events, how = hits, "hits"
+    else:
+        return 0.0, f"'{when.strip()[:40]}': its rate isn't modelled (0, labelled)"
+    n = events * EXPOSURE_DURATION
+    up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
+    return up, f"{chance:.0%} x {events:.2f} {how}/s, {EXPOSURE_DURATION:g} s: {up:.0%} up"
+
+
+def _exposure_uptime(element: str) -> Callable[[list[str], dict], tuple[object, str]]:
+    def uptime(lines: list[str], stats: dict) -> tuple[object, str]:
+        main_types = stats.get("_main_types") or set()
+        down, how = 1.0, []
+        for text in lines:
+            if not qualifies(text, main_types) or (r := _exposure_source(text, element, stats)) is None:
+                continue
+            down *= 1 - r[0]
+            how.append(f"{text[:60]} ({r[1]})")
+        if not how:
+            return 0.0, ""
+        up = 1 - down
+        basis = f"{element} Exposure up {up:.0%} of the fight ({UPTIME:.0%} needed): " + "; ".join(how[:3])
+        return (True if up >= UPTIME else False), basis
+    return uptime
 
 
 def _blocked_recently(stats: dict) -> bool:
@@ -574,9 +645,12 @@ CONDITIONS: list[Condition] = [
               fields=("BleedChancePerHit", "Speed", "HitChance", "BleedDuration")),
     Condition("conditionEnemyChilled", "Chilled", stat=lambda s: number(s.get("ChillChanceOnHit")) >= 100,
               fields=("ChillChanceOnHit",)),
-    Condition("conditionEnemyFireExposure", "Fire Exposure", (_inflict("(?:fire|elemental) exposure"),)),
-    Condition("conditionEnemyColdExposure", "Cold Exposure", (_inflict("(?:cold|elemental) exposure"),)),
-    Condition("conditionEnemyLightningExposure", "Lightning Exposure", (_inflict("(?:lightning|elemental) exposure"),)),
+    Condition("conditionEnemyFireExposure", "Fire Exposure", value_fn=_exposure_uptime("Fire"),
+              fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
+    Condition("conditionEnemyColdExposure", "Cold Exposure", value_fn=_exposure_uptime("Cold"),
+              fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
+    Condition("conditionEnemyLightningExposure", "Lightning Exposure", value_fn=_exposure_uptime("Lightning"),
+              fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
     Condition("conditionEnemyArmourBroken", "Armour Broken"),  # (armour_broken_uptime, Conditions.evidence)
     Condition("conditionEnemyCursed", "Cursed", gem_types=("AppliesCurse",)),
     # Sustained in any boss fight by the build's own numbers or skills (coverage audit item f, 6 Nov 2026: lines needing these
@@ -722,6 +796,20 @@ class Conditions:
         stats = {**stats, "_consumers": consumers, "_rage_spend": rage_spend,
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_distance_choice": self.distance,
                  "_stationary_off": self.stationary_off, "_rolling": self.rolling}
+        broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
+        if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
+            broken, stats["_full_break_rate"] = roar[:2], roar[2] / models.FULL_BREAK_DURATION
+        elif any(ARMOUR_BREAK_LINE.search(line["text"]) for line in lines):
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(BREAK_STATS))
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            gem_lines = [BREAK_STATS[stat].format(f"{value:g}") for part in ("levelStats", "supportStats")
+                         for stat, value in (main.get(part) or {}).items() if stat in BREAK_STATS and value]
+            texts = [line["text"] for line in lines if not line["source"].startswith("gem:")] + gem_lines
+            armour_stats = {**stats, "_enemy_armour": number(raw.get("enemyArmour"))}
+            up, basis = _armour_broken(texts, armour_stats)
+            if basis:
+                broken = (True if up >= UPTIME else False), basis
+                stats["_full_break_rate"] = up / models.FULL_BREAK_DURATION
         found: dict[str, tuple[object, str]] = {}
         for condition in CONDITIONS:
             reason = None
@@ -749,17 +837,8 @@ class Conditions:
                     if value <= 0:
                         continue
                 found[condition.var] = (value, reason)
-        if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
-            found["conditionEnemyArmourBroken"] = roar
-        elif any(ARMOUR_BREAK_LINE.search(line["text"]) for line in lines):
-            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(BREAK_STATS))
-            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
-            gem_lines = [BREAK_STATS[stat].format(f"{value:g}") for part in ("levelStats", "supportStats")
-                         for stat, value in (main.get(part) or {}).items() if stat in BREAK_STATS and value]
-            texts = [line["text"] for line in lines if not line["source"].startswith("gem:")] + gem_lines
-            up, basis = armour_broken_uptime(texts, {**stats, "_enemy_armour": number(raw.get("enemyArmour"))})
-            if basis:
-                found["conditionEnemyArmourBroken"] = (up, basis)
+        if broken is not None:
+            found["conditionEnemyArmourBroken"] = broken
         # Charges held: PoB reads an override of 0 as "not set" (the maximum), so none held switches the "use" box off
         for kind in ("Power", "Frenzy", "Endurance"):
             held = found.get(f"override{kind}Charges")
@@ -773,7 +852,7 @@ class Conditions:
                 found.pop(f"override{kind}Charges")  # (no source the resolver accepts for the box itself)
         return found
 
-    def roar_evidence(self) -> tuple[bool, str] | None:
+    def roar_evidence(self) -> tuple[bool, str, float] | None:
         """Ferocious Roar used on its cooldown, its Empowered hits Breaking the boss's Armour (models.roar_break): PoB
         reads none of it. Evidence only if the main skill is an Attack and the Armour stays Fully Broken."""
         from builder.search import models
@@ -785,7 +864,7 @@ class Conditions:
         if skill is None or warcry:
             return None
         share, basis = models.roar_break(skill, number(raw.get("enemyArmour")))
-        return (True, f"gem:{models.FEROCIOUS_ROAR}: {basis}") if share >= UPTIME else None
+        return (True, f"gem:{models.FEROCIOUS_ROAR}: {basis}", share) if share >= UPTIME else None
 
     def resolve(self) -> bool:
         """Match the config to the evidence. Returns True if anything changed."""
@@ -820,6 +899,9 @@ class Conditions:
         the effect is enough to deserve a real trial."""
         if condition.text and text_evidence(condition, text) and qualifies(text, self.main_types):
             return True
+        element = condition.var[len("conditionEnemy"):-len("Exposure")].lower()
+        if condition.var.endswith("Exposure") and (m := EXPOSURE_SOURCE.search(text)) and m.group(2).lower() in ("elemental", element):
+            return True  # (_exposure_uptime rates it in the real trial)
         if condition.var == "conditionEnemyArmourBroken" and ARMOUR_BREAK_LINE.search(text):
             return True  # (armour_broken_uptime rates it in the real trial)
         if condition.var == "conditionStationary" and STATIONARY_LINE.search(text):
