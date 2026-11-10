@@ -633,6 +633,15 @@ def test_a_snipers_mark_adds_damage_to_one_crit_per_mark():
     assert by_line["1% more Effect of your Curses"]["skill"] == "Sniper's Mark"
     assert by_line["1% more Attack and Cast Speed"]["scale"] == pytest.approx(-100 * 0.5 / 6, rel=1e-3)
     assert notes[0]["value"] == pytest.approx(0.17)
+    # MECH32: "Enemies you Mark take X% increased Damage" counts while the boss carries the Mark: applied every 6 s, consumed
+    # by the next crit 1 s later, so marked 1/6 of the fight (PoB: always Marked)
+    lines = [{"source": "tree:Marked for Sickness", "text": "Enemies you Mark take 20% increased Damage"},
+             {"source": "item:Ring", "text": "45% increased Critical Hit Chance against Marked Enemies"}]
+    mods, notes = models.mark_model([bow, mark], stats, bow, lines)
+    by_line = {m["line"]: m for m in mods}
+    assert by_line["Enemies you Mark take 1% increased Damage"]["scale"] == pytest.approx(-20 * 5 / 6, rel=1e-3)
+    assert by_line["1% increased Critical Hit Chance against Marked Enemies"]["scale"] == pytest.approx(-45 * 5 / 6, rel=1e-3)
+    assert "marked 17% of the fight" in notes[-1]["basis"]
     # a crit every 10 s: every crit finds a Mark
     mods, notes = models.mark_model([bow, mark], dict(stats, CritChance=5), bow)
     assert [m["line"] for m in mods] == ["1% more Attack and Cast Speed"] and notes[0]["value"] == 1.0

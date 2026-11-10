@@ -1739,6 +1739,10 @@ local function lineMods(mod)
 		local copy = copyTable(parsed)
 		if mod.scale and type(copy.value) == "number" then
 			copy.value = copy.value * mod.scale
+		elseif mod.scale and type(copy.value) == "table" and type(copy.value.mod) == "table"
+				and type(copy.value.mod.value) == "number" then
+			-- a LIST of one nested mod (EnemyModifier: "Enemies you Mark take 1% increased damage"): scale the inner value
+			copy.value.mod.value = copy.value.mod.value * mod.scale
 		end
 		for _, condition in ipairs(mod.when or { }) do
 			if condition.any then

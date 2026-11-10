@@ -246,7 +246,7 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
         resolve_mods, resolve_notes = models.deadly_resolve_model(found, stats, main)             if "deadly-resolve-rate" not in forbidden else ([], [])
         hand_mods, hand_notes = hand_mods + resolve_mods, hand_notes + resolve_notes
-        mark_mods, mark_notes = models.mark_model(found, stats, main)
+        mark_mods, mark_notes = models.mark_model(found, stats, main, source_lines)
         hand_mods, hand_notes = hand_mods + mark_mods, hand_notes + mark_notes
         roar_mods, roar_notes = models.roar_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + roar_mods, hand_notes + roar_notes

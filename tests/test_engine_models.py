@@ -308,6 +308,14 @@ def test_a_snipers_marks_extra_crit_damage_is_scaled_to_the_crits_it_lands_on(en
     build.call("setAssumptions", mods=[models.line("1% more Effect of your Curses", -100, skill="Sniper's Mark")],
                fields=build.objective.fields)
     assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(without["FullDPS"], rel=1e-6)
+    # MECH32: an EnemyModifier line ("Enemies you Mark take ...", a LIST holding one nested mod) is scaled too, so the
+    # Marked share's correction line cancels the line it scales (the model's -X x (1 - marked))
+    taken = "Enemies you Mark take 1% increased Damage"
+    def dps(*scales):
+        build.call("setAssumptions", mods=[models.line(taken, k) for k in scales], fields=build.objective.fields)
+        return build.call("stats", fields=["FullDPS"])["FullDPS"]
+    assert dps(50) > dps(1) > raw
+    assert dps(50, -50) == pytest.approx(raw, rel=1e-6)
 
 
 def test_the_mark_round_adds_a_mark_only_when_it_pays_and_fits_the_button_cap(engine):

@@ -906,20 +906,40 @@ def mark_use(mark: Skill, skills: list[Skill]) -> MarkUse:
                    trigger)
 
 
-def mark_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
-    """Each Mark's effect scaled from PoB's always-up to what consumption on a boss leaves, and the time the skill you
-    press for it (the Mark, Pounce, Hand of Chayula) takes from the main skill."""
+# Lines that apply only while the boss carries your Mark (PoB: ActorCondition Marked on the enemy, which CalcPerform sets
+# whenever a Mark is in a curse slot, so always). Each is scaled to the share of the fight the boss is marked
+# (mark_model): the damage-taken one adds into the enemy's DamageTaken INC, so scaling it is exactly its time-weighted
+# DPS; the crit chance and ailment magnitude ones are scaled the same way (an approximation, labelled).
+MARKED_LINES = (
+    (re.compile(r"Enemies you Mark take (\d+)% increased Damage", re.I), "Enemies you Mark take 1% increased Damage"),
+    (re.compile(r"(\d+)% increased Critical Hit Chance against Marked Enemies", re.I),
+     "1% increased Critical Hit Chance against Marked Enemies"),
+    (re.compile(r"(\d+)% increased Magnitude of Ailments you inflict against Marked Enemies", re.I),
+     "1% increased Magnitude of Ailments you inflict against Marked Enemies"),
+    (re.compile(r"Companions deal (\d+)% increased damage to your Marked targets", re.I),
+     "Companions deal 1% increased damage to your Marked targets"),
+)
+
+
+def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
+               lines: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """Each Mark's effect scaled from PoB's always-up to what consumption on a boss leaves, the build's "Enemies you Mark
+    take ..." and "against Marked Enemies" lines scaled to the share of the fight the boss carries the Mark (MARKED_LINES),
+    and the time the skill you press for it (the Mark, Pounce, Hand of Chayula) takes from the main skill."""
     mods: list[dict] = []
     notes: list[dict] = []
     marks = [s for s in skills if s.name in MARKS and s is not main]
     for mark in marks[:1]:  # one Mark on an enemy at a time (number_of_marks_allowed_per_type 1, EnemyMarkLimit 1)
         use = mark_use(mark, skills)
         period, how = use.period, use.how
+        # the time a Mark stays on the boss after each application: until consumed, at most its duration
+        held, consumed_by = MARK_DURATION, "Bloodhound's Mark's consumption on a Heavy Stun isn't rated (held its full duration)"
         if mark.name == "Sniper's Mark":
             crits = crits_per_second(stats)
             if use.on_demand:
                 period = max(period, min(1 / crits, MARK_DURATION) if crits else 0.0)  # (recast once consumed)
             share = min(1.0, 1 / (period * crits)) if crits and period else 1.0
+            held, consumed_by = min(1 / crits, MARK_DURATION) if crits else MARK_DURATION, "the next crit consumes it"
             label, basis = "Sniper's Mark: share of crits it adds damage to", (
                 f"one Mark every {period:.1f} s ({how}) against {crits:.2f} crits/s; the next crit consumes it (PoB "
                 "counts its extra crit damage on every crit)")
@@ -931,6 +951,10 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
                 period = max(period, MARK_DURATION)  # reapplied as it runs out (its duration's modifiers aren't read)
             rate = buildup_rate(stats, ailment)
             share = min(1.0, MARK_BUFF_DURATION * rate) * marked if inflicts else 0.0
+            if inflicts and rate:
+                held, consumed_by = min(1 / rate, MARK_DURATION), f"the boss's next {ailment} consumes it"
+            else:
+                consumed_by = f"never consumed (no {ailment})"
             label, basis = f"{mark.name}: buff uptime", (
                 (f"the boss {ailment.lower()}d once per {(1 / rate) if rate else math.inf:.1f} s while marked (PoB's buildup per hit x "
                  f"{hits_per_second(stats):.2f} hits/s, Arbiter of Ash threshold, x6 for "
@@ -948,6 +972,19 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
             mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
             basis += f"; using {use.pressed.name} ({took:.2f} s every {period:.1f} s) takes {lost:.0%} of {main.name}'s time"
         notes.append({"label": label, "value": round(share, 2), "basis": basis, "confidence": "theory"})
+        marked = min(1.0, held / period) if period else 1.0
+        found = []
+        for pattern, text in MARKED_LINES:
+            total = sum(float(m.group(1)) for entry in lines or [] if (m := pattern.search(entry["text"])))
+            if total and marked < 1.0:
+                mods.append(line(text, -total * (1.0 - marked)))
+                found.append(f"{text.replace('1%', f'{total:g}%')}")
+        if found:
+            notes.append({"label": "Lines while the boss is Marked: share of the fight", "value": round(marked, 2),
+                          "basis": f"{mark.name} applied every {period:.1f} s ({how}), held {held:.1f} s ({consumed_by}): "
+                                   f"marked {marked:.0%} of the fight, so {'; '.join(found)} count at that share (PoB "
+                                   "counts the enemy always Marked; crit chance and ailment magnitude scaled linearly, "
+                                   "an approximation)", "confidence": "theory"})
     if len(marks) > 1:
         notes.append({"label": "Marks beyond the first", "value": len(marks) - 1,
                       "basis": "an enemy carries one Mark at a time: " + ", ".join(m.name for m in marks[1:])
