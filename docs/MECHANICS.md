@@ -69,7 +69,7 @@ Priority 698.2 · impact 3 · effort M · 65 lines not counted of 80 linked · 1
 
 - **Game:** Combo builds on hits with certain skills (Monk); Combo-consuming skills require a number of Combo to use. (https://poe2db.tw/us/Combo)
 - **PoB (checked):** PoB calculates Combo consumers at the Combo they require, as if always reached; no build rate.
-- **Now:** Extra-Combo lines are absorbed (absorbed_by).
+- **Now:** Checked 9 Nov (MECH29): no Combo count is assumed reached. Skills and supports that need Combo built by other skills (Tempest Bell 4, Mantra of Destruction 8, Combo Finisher I/II 3/5: GrantedEffectStatSets *required_number_of_combo_stacks) are never chosen (usage.py: their use rate isn't modelled; an undercount). PoB's Combo box (multiplierCombo) is never set, so the per-Combo payoffs count 0: Culmination I/II's more Damage per Combo, 'increased Damage per Combo consumed' (also 0 in game while the main skill is used back to back: other Strikes build it); Vruun's Inevitability's area per Combo isn't mapped in PoB either. Extra-Combo lines are absorbed (absorbed_by): nothing they speed up is counted. Undercount until the rotation model (plan) exists.
 - **Plan:** custom model: Consumer uses per second = Combo per second / Combo required; damage x that rate in Full DPS. Inputs: hits per second, Combo per hit, required Combo.
 - **Guide note:** Combo skill used every X s at your hit rate.
 - **PoB options:** `multiplierCombo` (off)
