@@ -411,8 +411,6 @@ RULES = {c.var: c for c in CONDITIONS}
     ("useFrenzyCharges", "While active, grants you a Frenzy Charge when you Freeze, Electrocute or Pin an enemy",
      {"Attack"}, True),
     ("buffOnslaught", "Minions gain Onslaught", {"Attack"}, False),
-    ("conditionEnemyBlinded", "20% more Damage against Blinded Enemies", {"Attack"}, False),
-    ("conditionEnemyBlinded", "Blind Targets when you Poison them", {"Attack"}, True),
 ])
 def test_condition_evidence(var, line, types, expected):
     assert (text_evidence(RULES[var], line) and qualifies(line, types)) is expected
@@ -592,12 +590,6 @@ def test_grinning_immolation_ignites_you():
     by_var = {c.var: c for c in CONDITIONS}
     line = "Become Ignited when you deal a Critical Hit, taking 15% of your maximum Life and Energy Shield as Fire Damage per second"
     assert text_evidence(by_var["conditionIgnited"], line)
-
-
-def test_a_chance_to_hinder_is_a_source_of_hinder():
-    by_var = {c.var: c for c in CONDITIONS}
-    assert text_evidence(by_var["conditionEnemyHindered"], "10% chance to Hinder Enemies on Hit with Spells")
-    assert not text_evidence(by_var["conditionEnemyHindered"], "20% increased Damage against Hindered Enemies")
 
 
 def test_withered_stacks_from_the_builds_lines():
@@ -926,3 +918,40 @@ def test_arcane_surge_on_only_when_its_sources_keep_it_up():
     support = {**spell, "_arcane_surge_support": (100, 10.0)}
     assert arcane_surge_uptime([], support)[0] is False and "50%" in arcane_surge_uptime([], support)[1]
     assert arcane_surge_uptime([], {**support, "ManaPerSecondCost": 100})[0] is True
+
+
+def test_debuffs_on_only_when_their_sources_keep_them_up():
+    """KeywordPopups Blind / Maim / Hinder: 4 s; Intimidate, Ash, Frost 4 s assumed; on at 90% uptime (MECH29; any
+    inflicting line turned them on)."""
+    from builder.search.conditions import debuff_uptime
+
+    intimidated, hindered, blinded = (debuff_uptime(f"conditionEnemy{d}") for d in ("Intimidated", "Hindered", "Blinded"))
+    ash = debuff_uptime("conditionEnemyCoveredInAsh")
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "enemySkillTime": 1.0, "EvadeChance": 0,
+             "EffectiveBlockChance": 25, "PresenceRadius": 40, "_main_types": {"Attack", "Melee"}}
+    # 30% x 2 hits/s x 4 s: 1 - 0.7^8 = 94%
+    assert intimidated(["30% chance to Intimidate Enemies for 4 seconds on Hit"], stats)[0] is True
+    low = intimidated(["10% chance to Intimidate Enemies for 4 seconds on Hit"], stats)
+    assert low[0] is False and "57%" in low[1]
+    assert intimidated(["Permanently Intimidate enemies on Block"], stats)[0] is True
+    assert intimidated(["Permanently Intimidate enemies on Block"], {**stats, "EffectiveBlockChance": 0})[0] is False
+    # 25% Blocked x 1 hit/s x 8 s: 2 Blocks in 8 s, up throughout
+    assert intimidated(["Intimidate Enemies on Block for 8 seconds"], stats)[0] is True
+    assert intimidated(["Enemies in your Presence are Intimidated"], stats)[0] is True  # melee: inside 4 m
+    declaration = "Supports Persistent Buff Skills, causing enemies that enter your Presence to become Intimidated"
+    assert intimidated([declaration], {**stats, "PresenceRadius": 0})[0] is False
+    assert intimidated(["Enemies you Curse are Intimidated"], stats)[0] is False
+    assert intimidated(["Enemies you Curse are Intimidated"], {**stats, "_curses": ["Vulnerability"]})[0] is True
+    stun = intimidated(["Enemies you Heavy Stun while Shapeshifted are Intimidated for 6 seconds"], stats)
+    assert stun[0] is False and "isn't modelled" in stun[1]
+    assert intimidated(["20% more Damage against Intimidated Enemies"], stats) == (0.0, "")
+    assert hindered(["10% chance to Hinder Enemies on Hit with Spells"], stats) == (0.0, "")  # not a Spell
+    assert hindered(["10% chance to Hinder Enemies on Hit with Spells"], {**stats, "_main_types": {"Spell"}})[0] is False
+    assert hindered(["20% increased Hinder Duration"], stats) == (0.0, "")
+    assert blinded(["(30-50)% increased Blind Effect"], stats) == (0.0, "")
+    # a Full Break every 13 s, Maimed 4 s of it
+    maimed = debuff_uptime("conditionEnemyMaimed")
+    assert maimed(["Enemies you Fully Armour Break are Maimed"], {**stats, "_full_break_rate": 1 / 13})[0] is False
+    assert maimed(["Enemies you Fully Armour Break are Maimed"], {**stats, "_full_break_rate": 0.5})[0] is True
+    assert ash(["Cover Enemies in Ash on Hit"], stats)[0] is True
+    assert debuff_uptime("conditionEnemyCoveredInFrost")(["Cover Enemies in Ash on Hit"], stats) == (0.0, "")

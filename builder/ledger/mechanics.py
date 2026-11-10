@@ -280,6 +280,8 @@ def markdown(cat: dict) -> str:
                 out.append("- **Plan:** to plan")
             if m.get("guide_note"):
                 out.append(f"- **Guide note:** {m['guide_note']}")
+            if m.get("test_in_game"):
+                out.append(f"- **Test in game:** {m['test_in_game']}")
             if m["configs"]:
                 out.append("- **PoB options:** " + ", ".join(f"`{c['var']}` ({c['optimizer']})" for c in m["configs"][:6]))
             if m["examples"]:

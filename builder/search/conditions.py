@@ -393,7 +393,8 @@ def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # when the main skill channels; a kill, a Minion dying, Shapeshifting back, a Mine or Trap: 0 (no rate modelled,
 # labelled); a Totem summoned: once per CHARGE_DEFAULT_EVERY s (assumed). The Arcane Surge support (GrantedEffectStatSets
 # SupportArcaneSurgePlayer: 10 s after spending 100% of maximum Mana on Supported Skills) on the main skill: PoB's mana
-# spent per second (ManaPerSecondCost) against the threshold; counting assumed to go on while the buff is up, so
+# spent per second (ManaPerSecondCost) against the threshold; counting assumed to go on while the buff is up (UNVERIFIED:
+# poe2db and the game files say nothing on it; guides report 100% uptime on fast casters, only possible so), so
 # up = min(1, duration / time to spend it). Its effect and duration modifiers aren't read (labelled).
 ARCANE_SURGE_DURATION = 4.0
 ARCANE_SURGE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\b(?:you )?(?:gain|grants?|have)\b (?:you )?Arcane Surge\b(.*)$", re.I)
@@ -420,7 +421,7 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
         if rate <= 0 or mana <= 0:
             return 0.0, f"needs {mana:.0f} Mana spent, the main skill spends none"
         up = min(1.0, duration * rate / mana)
-        return up, f"{mana:.0f} Mana spent every {mana / rate:.1f} s ({rate:.1f}/s), {duration:g} s each: {up:.0%} up"
+        return up, f"{mana:.0f} Mana spent every {mana / rate:.1f} s ({rate:.1f}/s), {duration:g} s each: {up:.0%} up (mana spent during the buff assumed to count: unverified)"
     if dev := re.search(r"at least (\d+) devotion", when):
         if number(stats.get("Devotion")) < float(dev.group(1)):
             return 0.0, f"needs {dev.group(1)} Devotion ({number(stats.get('Devotion')):g} held)"
@@ -465,6 +466,107 @@ def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     up = 1 - down
     basis = f"Arcane Surge up {up:.0%} of the fight ({UPTIME:.0%} needed): " + "; ".join(how[:3])
     return (True if up >= UPTIME else False), basis
+
+
+# Debuffs you inflict on the boss (MECH29, 9 Nov 2026; before, any line that inflicts one turned its box on): Blinded,
+# Maimed, Hindered (KeywordPopups Blind / Maim / Hinder: 4 s unless the line says), Intimidated (KeywordPopups Intimidate
+# gives no duration; every live line gives 4 s but the Block one, so 4 s assumed), Unnerved (no KeywordPopups entry and
+# no line in PoB's mods, tree or gems: only old stat descriptions, all 4 s), Covered in Ash / Frost (no popup; 4 s
+# assumed). PoB puts Intimidated (DamageTaken INC 10), Unnerved (Spell DamageTaken INC 10, CalcSetup 75-80) and Ash /
+# Frost (Fire / Cold DamageTaken INC 20, CalcPerform 819-826) in the enemy's taken pool. Each line's uptime as
+# Onslaught's (1 - (1 - chance)^(events x duration)), combined as independent, on at UPTIME: the main skill's hits and
+# crits; the boss's hits that land ("when they Hit you") or that you Block ("Permanently ... on Block": on with any
+# Block); "Enemies in your Presence" while the boss stands inside it (the build's distance); "Enemies you Curse" with a
+# curse gem in the build (the Cursed box's own evidence); "while at maximum Endurance Charges" by the charges held;
+# "Enemies you Fully Armour Break" at armour_broken's Full Break rate. A
+# kill, Heavy Stun, Immobilise, Shapeshift, Burning, a socketed jewel or a gem's own effect: rate not modelled (0,
+# labelled). Duration modifiers and Blind / Maim effect aren't read.
+DEBUFF_DURATION = 4.0
+DEBUFFS = {  # var: (the verb, the participle)
+    "conditionEnemyBlinded": ("blind", "blinded"),
+    "conditionEnemyMaimed": ("maim", "maimed"),
+    "conditionEnemyHindered": ("hinder", "hindered"),
+    "conditionEnemyIntimidated": ("intimidate", "intimidated"),
+    "conditionEnemyUnnerved": ("unnerve", "unnerved"),
+    "conditionEnemyCoveredInAsh": ("cover", "covered in ash"),
+    "conditionEnemyCoveredInFrost": ("cover", "covered in frost"),
+}
+DEBUFF_NOT_SOURCE = re.compile(r"\b(?:increased|reduced|more|less)\b|\bagainst\b|\bcannot\b|immun|\byou are (?!burning)|"
+                               r"\ballies\b|minions|companions|summoned|grants skill|\bif you'?ve\b", re.I)
+
+
+def _debuff_pattern(var: str) -> re.Pattern:
+    verb, participle = DEBUFFS[var]
+    target = r"(?:rare or unique )?(?:enemies|targets|them)"
+    where = f" {target} in {participle.split(' in ')[1]}" if " in " in participle else f"(?: {target})?"
+    return re.compile(rf"(?:(\d+(?:\.\d+)?)% (?:global )?chance to )?\b(?:permanently )?{verb}\b{where}(.*)$|"
+                      rf"\benemies\b(.*?)\b(?:are|become) {participle}\b(.*)$", re.I)
+
+
+def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
+    """(uptime, how) of one line for this debuff, or None if it isn't a source of it."""
+    m = _debuff_pattern(var).search(text)
+    if not m or DEBUFF_NOT_SOURCE.search(text):
+        return None
+    chance = float(m.group(1)) / 100 if m.group(1) else 1.0
+    when = (m.group(2) if m.group(2) is not None else f"{m.group(3)} {m.group(4)}").lower()
+    d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
+    duration = float(d.group(1)) if d else DEBUFF_DURATION
+    every = number(stats.get("enemySkillTime")) or 0.7
+    block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
+    if "presence" in when:
+        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set()), ""))[0]
+        radius = number(stats.get("PresenceRadius")) / 10
+        up = 1.0 if radius >= metres else 0.0
+        return up, f"the boss {metres:g} m away, your Presence {radius:.1f} m"
+    if "you curse" in when:
+        up = 1.0 if stats.get("_curses") else 0.0
+        return up, "a curse gem in the build (as the Cursed box)" if up else "no curse gem in the build"
+    if "fully armour break" in when or "fully break" in when:  # (armour_broken's Full Breaks, as Exposure's)
+        events = number(stats.get("_full_break_rate"))
+        up = 1 - (1 - min(chance, 1.0)) ** (events * duration) if chance < 1 else min(1.0, events * duration)
+        return up, f"{events:.2f} Full Breaks of the boss's Armour/s, {duration:g} s: {up:.0%} up"
+    if re.search(r"\bkill|heavy stun|immobilis|shapeshift|burning|socketed|\bfrozen by\b", when):
+        return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
+    if "maximum endurance" in when:
+        held = _charges_held("Endurance")(lines, stats)[0]
+        most = number(stats.get("EnduranceChargesMax"))
+        if most <= 0 or held < most:
+            return 0.0, f"needs maximum Endurance Charges ({held:g} of {most:g} held)"
+    if "block" in when:
+        events, how = block / every, "the boss's hits you Block"
+        if "permanently" in text.lower():
+            return (1.0, "permanent after a Block") if events > 0 else (0.0, "no Block chance")
+    elif "hit you" in when:
+        land = ((1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - block)) / every
+        events, how = land, "the boss's hits that land"
+    elif "critical" in when:
+        events, how = models.crits_per_second(stats), "crits"
+    elif "on hit" in when:
+        events, how = models.hits_per_second(stats), "hits"
+    else:
+        return 0.0, f"'{when.strip()[:40]}': its rate isn't modelled (0, labelled)"
+    n = events * duration
+    up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
+    return up, f"{chance:.0%} x {events:.2f} {how}/s, {duration:g} s: {up:.0%} up"
+
+
+def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
+    def uptime(lines: list[str], stats: dict) -> tuple[object, str]:
+        main_types = stats.get("_main_types") or set()
+        down, how = 1.0, []
+        for text in lines:
+            if not qualifies(text, main_types) or (r := _debuff_source(text, var, lines, stats)) is None:
+                continue
+            down *= 1 - r[0]
+            how.append(f"{text[:60]} ({r[1]})")
+        if not how:
+            return 0.0, ""
+        up = 1 - down
+        name = DEBUFFS[var][1].capitalize()
+        basis = f"{name} up {up:.0%} of the fight ({UPTIME:.0%} needed): " + "; ".join(how[:3])
+        return (True if up >= UPTIME else False), basis
+    return uptime
 
 
 # Armour Broken (MECH28, 9 Nov 2026; before, any line that Breaks Armour turned the box on, partial breaks too). The game
@@ -642,15 +744,6 @@ def _consumer(subject: str) -> str:
             rf"|would gain[^.;]*{subject}|instead of {subject}|{subject}\w* instead")
 
 
-def _inflict(subject: str) -> str:
-    return rf"\b(?:inflict|inflicts|inflicting|apply|applies|applying|cause|causes|causing)\b[^.;]*\b{subject}|\b{subject}\w* (?:enemies|targets|on hit)"
-
-
-def _against(subject: str) -> str:
-    # (the past participle: "to Hindered Enemies" pays off on the debuff; "chance to Hinder Enemies" is a source of it)
-    return rf"(?:against|to|on|of) (?:\w+ )?{subject}e?d (?:enemies|targets)|while {subject}|if {subject}|{subject}e?d enemies (?:deal|take)"
-
-
 def _uptime(stats: dict, chance_field: str) -> bool:
     chance = number(stats.get(chance_field)) / 100.0
     rate = number(stats.get("Speed"))
@@ -694,10 +787,6 @@ class Condition:
 def _charge(var: str, name: str) -> Condition:
     subject = f"{name} charges?"
     return Condition(var, f"{name.capitalize()} Charges", (_gen(subject),), (_consumer(subject),))
-
-
-def _debuff(var: str, label: str, word: str) -> Condition:
-    return Condition(var, label, (_inflict(word),), (_against(word),))
 
 
 CONDITIONS: list[Condition] = [
@@ -762,13 +851,12 @@ CONDITIONS: list[Condition] = [
     Condition("conditionStationary", "Standing still (play-style choice)", value_fn=_standing_still, fields=()),
     Condition("conditionHitMeleeRecently", "Melee hit recently (a melee main skill)", main_types=("Melee",)),
     Condition("conditionAtCloseRange", "Enemy at close range (a melee main skill)", main_types=("Melee",)),
-    _debuff("conditionEnemyBlinded", "Blinded", "blind"),
-    _debuff("conditionEnemyMaimed", "Maimed", "maim"),
-    _debuff("conditionEnemyHindered", "Hindered", "hinder"),
-    _debuff("conditionEnemyIntimidated", "Intimidated", "intimidate"),
-    _debuff("conditionEnemyUnnerved", "Unnerved", "unnerve"),
-    Condition("conditionEnemyCoveredInAsh", "Covered in Ash", (r"\bcover\w*\b[^.;]*\bin ash\b",)),
-    Condition("conditionEnemyCoveredInFrost", "Covered in Frost", (r"\bcover\w*\b[^.;]*\bin frost\b",)),
+    *(Condition(var, label, value_fn=debuff_uptime(var),
+                fields=("Speed", "HitChance", "CritChance", "enemySkillTime", "EvadeChance", "EffectiveBlockChance"))
+      for var, label in (("conditionEnemyBlinded", "Blinded"), ("conditionEnemyMaimed", "Maimed"),
+                         ("conditionEnemyHindered", "Hindered"), ("conditionEnemyIntimidated", "Intimidated"),
+                         ("conditionEnemyUnnerved", "Unnerved"), ("conditionEnemyCoveredInAsh", "Covered in Ash"),
+                         ("conditionEnemyCoveredInFrost", "Covered in Frost"))),
 ]
 _PATTERNS = {c.var: c.patterns() for c in CONDITIONS}
 # Words that make a support worth a real trial for conditions decided by PoB's numbers
@@ -878,7 +966,8 @@ class Conditions:
                 rage_spend[name] = RAGE_PER_SECOND[name] * (1.0 if name == self.main_skill else 1 / CHARGE_DEFAULT_EVERY)
         stats = {**stats, "_consumers": consumers, "_rage_spend": rage_spend,
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_distance_choice": self.distance,
-                 "_stationary_off": self.stationary_off, "_rolling": self.rolling}
+                 "_stationary_off": self.stationary_off, "_rolling": self.rolling,
+                 "_curses": sorted(n for n, types in gem_types.items() if "AppliesCurse" in types)}
         if "Arcane Surge" in main_gems:  # (the support: its threshold and duration from the gem, arcane_surge_uptime)
             raw = self.build.call("activeSkills", supportStats=list(ARCANE_SURGE_SUPPORT_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
@@ -991,6 +1080,8 @@ class Conditions:
         element = condition.var[len("conditionEnemy"):-len("Exposure")].lower()
         if condition.var.endswith("Exposure") and (m := EXPOSURE_SOURCE.search(text)) and m.group(2).lower() in ("elemental", element):
             return True  # (_exposure_uptime rates it in the real trial)
+        if condition.var in DEBUFFS and _debuff_pattern(condition.var).search(text) and not DEBUFF_NOT_SOURCE.search(text):
+            return True  # (debuff_uptime rates it in the real trial)
         if condition.var == "buffArcaneSurge" and (
                 (ARCANE_SURGE_SOURCE.search(text) and not ARCANE_SURGE_NOT_SOURCE.search(text))
                 or "spending enough mana grants" in text.lower()):
