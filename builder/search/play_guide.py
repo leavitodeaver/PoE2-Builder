@@ -6,8 +6,9 @@ Every Configuration condition the resolver can set (conditions.CONDITIONS) is cl
 resolver never sets that a fight decides or a player chooses:
 - player: the player's choice (distance and Presence, close range, standing still). The headline assumes the player
   does it; the row gives the DPS without it.
-- build: applied by the build's own rates (ailments, debuffs, charges, Rage, Withered). They keep their modelled uptime
-  and get no row.
+- build: applied by the build's own rates (ailments, debuffs, charges, Rage, Withered). They keep their modelled uptime.
+  One up for only part of the fight is counted at that share (Search.weigh_uptimes) and gets a row: its uptime, the DPS
+  with it always up and never up, and its share of the headline.
 - fight: decided by the boss (being hit, its life %). A row gives the range: without it if the headline counts it,
   with it if the headline doesn't. The boss's Low Life is weighted into the headline by its share of the boss's life
   (Search.weigh_life); its row gives DPS above and below 35%.
@@ -108,6 +109,17 @@ def guide(search: Any) -> list[dict]:
             "confidence": "modelled" if k == PLAYER else "theory",
         })
     build.objective.life_factor = factor
+    for row in getattr(search, "uptime_rows", []):  # effects counted at their share of the fight (Search.weigh_uptimes)
+        never = headline / row["factor"] * row["ratio"] if row["factor"] > 0 else 0.0
+        always = headline / row["factor"] if row["factor"] > 0 else 0.0
+        if never <= 0 or abs(headline - never) < MIN_CHANGE * never:
+            continue
+        rows.append({"var": row["var"], "label": f"{row['label']} (up {row['uptime']:.0%} of the fight)", "kind": BUILD,
+                     "counted": True, "uptime": row["uptime"], "dps_share": (headline - never) / headline,
+                     "play": (f"kept up by the build's own rates {row['uptime']:.0%} of the fight, counted at that share "
+                              f"({always:,.0f} DPS were it always up)" + (f"; {row['defence']}" if row["defence"] else "")),
+                     "dps_with": headline, "dps_without": never, "change": (headline - never) / never,
+                     "confidence": "theory"})
     after, base = build.objective.dps(build.stats), headline
     if abs(after - base) > 1e-6 * base:  # the switches must leave the build as it was; say so if they didn't
         rows.append({"var": "", "label": "(restore check)", "kind": BUILD, "counted": False, "play": "",

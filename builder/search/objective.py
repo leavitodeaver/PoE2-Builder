@@ -206,6 +206,12 @@ class Objective:
         # The boss's Low Life share of the fight (Search.weigh_life): 1 / (0.65 + 0.35 / (DPS on Low Life / DPS above it)),
         # set at each conditions round from one extra recalculation; 1 for a build with no Low Life lines
         self.life_factor = 1.0
+        # Effects the build keeps up for part of the fight (conditions.MIN_UPTIME .. FULL_UPTIME; Search.weigh_uptimes): the
+        # product over them of (u + (1 - u) x DPS without it / DPS with all on), refreshed each conditions round
+        self.uptime_factor = 1.0
+        # and per such effect, the stats that change without it (off - on): the floors are hard requirements, so a
+        # defence that leans on one counts only with it off (deficits takes the worst of these)
+        self.floor_deltas: list[dict[str, float]] = []
         self.multipliers: dict[str, float] = dict(multipliers or {})  # requirement label -> weight factor
         self.penalties = ctx.compiled.penalties
         self.style = DefenceStyle(ctx.request.defence)
@@ -239,8 +245,8 @@ class Objective:
         if self.full:
             full = number(stats.get("FullDPS"))
             if full > 0:
-                return (max(full - self.excluded(stats)[0], 0.0) + added) * self.life_factor
-        return (main_dps(stats) + added) * self.life_factor
+                return (max(full - self.excluded(stats)[0], 0.0) + added) * self.life_factor * self.uptime_factor
+        return (main_dps(stats) + added) * self.life_factor * self.uptime_factor
 
     def clear_damage(self, stats: dict) -> float:
         """Damage per target while clearing: like boss DPS, but on-death effects count (clearing
@@ -272,7 +278,25 @@ class Objective:
         return amount, names
 
     def deficits(self, stats: dict) -> list[tuple[str, float, bool]]:
-        """(label, normalized deficit, hard) for everything currently short."""
+        """(label, normalized deficit, hard) for everything currently short: the worst of the build as it is and the
+        build without each effect it keeps up for only part of the fight (floor_deltas)."""
+        found = self._deficits(stats)
+        for deltas in self.floor_deltas:
+            without = self._deficits({**stats, **{k: number(stats.get(k)) + d for k, d in deltas.items()}})
+            if self._weight(without) > self._weight(found):
+                found = without
+        return found
+
+    def _weight(self, deficits: list[tuple[str, float, bool]]) -> float:
+        total = sum((HARD_WEIGHT if hard else FLOOR_WEIGHT) * self.multipliers.get(label, 1.0) * amount
+                    for label, amount, hard in deficits)
+        if any(hard for _, _, hard in deficits):
+            total += HARD_OFFSET
+        if any(not hard for _, _, hard in deficits):
+            total += FLOOR_OFFSET
+        return total
+
+    def _deficits(self, stats: dict) -> list[tuple[str, float, bool]]:
         found: list[tuple[str, float, bool]] = []
         for penalty in self.penalties:
             amount = max(0.0, penalty.floor - number(stats.get(penalty.stat))) / max(penalty.floor, 1.0)
@@ -314,14 +338,7 @@ class Objective:
         return found
 
     def penalty(self, stats: dict) -> float:
-        deficits = self.deficits(stats)
-        total = sum((HARD_WEIGHT if hard else FLOOR_WEIGHT) * self.multipliers.get(label, 1.0) * amount
-                    for label, amount, hard in deficits)
-        if any(hard for _, _, hard in deficits):
-            total += HARD_OFFSET
-        if any(not hard for _, _, hard in deficits):
-            total += FLOOR_OFFSET
-        return total
+        return self._weight(self.deficits(stats))
 
     def escalate(self, stats: dict) -> bool:
         """Raise the weight of every requirement still short. False once all are at the cap."""

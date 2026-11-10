@@ -142,3 +142,49 @@ def test_standing_still_is_on_for_a_build_with_stationary_lines():
     assert _standing_still(["20% more Damage while Stationary"], {})[0] is True
     assert _standing_still(["20% more Damage while Stationary"], {"_stationary_off": "dodge rolls"})[0] == 0
     assert _standing_still(["10% increased Spell Damage"], {})[0] == 0
+
+
+class UptimeBuild(FakeBuild):
+    """Shocked: x1.2 DPS; Intimidated: no DPS, but 500 more Life (a defence that leans on a debuff)."""
+
+    @property
+    def stats(self):
+        return {"dps": 1200.0 if self.config.get("conditionEnemyShocked") else 1000.0,
+                "Life": 2000.0 if self.config.get("conditionEnemyIntimidated") else 1500.0}
+
+
+class UptimeObjective(FakeObjective):
+    def __init__(self):
+        super().__init__()
+        self.uptime_factor, self.floor_deltas = 1.0, []
+        self.penalties = [SimpleNamespace(stat="Life", label="Life")]
+
+    def dps(self, stats):
+        return stats["dps"] * self.life_factor * self.uptime_factor
+
+
+def test_partial_uptimes_count_at_their_share_and_floors_without_them():
+    """The user, 9 Nov 2026: "Count the real share". D x product of (u + (1 - u) x D(off) / D); the floors checked off."""
+    from builder.search.inner import Search
+
+    config = {"conditionEnemyShocked": True, "conditionEnemyIntimidated": True}
+    build = UptimeBuild(config)
+    build.objective, build.score = UptimeObjective(), 0.0
+    active = {"conditionEnemyShocked": {"label": "Shocked", "value": True},
+              "conditionEnemyIntimidated": {"label": "Intimidated", "value": True}}
+    search = SimpleNamespace(build=build, play_notes={}, uptime_rows=[], assumptions=SimpleNamespace(apply=lambda: False),
+                             conditions=SimpleNamespace(active=active, uptimes={"conditionEnemyShocked": 0.5,
+                                                                                "conditionEnemyIntimidated": 0.8}))
+    Search.weigh_uptimes.__get__(search)()
+    assert build.objective.uptime_factor == approx(0.5 + 0.5 * 1000 / 1200)
+    assert build.score == approx(1100)
+    assert build.config == config  # put back
+    assert build.objective.floor_deltas == [{"Life": -500.0}, {"dps": -200.0}]
+    intimidated = next(r for r in search.uptime_rows if r["var"] == "conditionEnemyIntimidated")
+    assert "1,900 time-weighted" in intimidated["defence"] and "uptime:conditionEnemyShocked" in search.play_notes
+    rows = {r["var"]: r for r in play_guide.guide(search)}
+    shock = rows["conditionEnemyShocked"]
+    assert shock["uptime"] == 0.5 and shock["dps_with"] == approx(1100) and shock["dps_without"] == approx(1000)
+    assert shock["dps_share"] == approx(100 / 1100) and "conditionEnemyIntimidated" not in rows  # no DPS: no row
+    item = next(i for i in checklist({"play_guide": [shock]}) if i["kind"] == "how to play it *")
+    assert "50% of the fight" in item["why"] and "9% of the headline" in item["why"]

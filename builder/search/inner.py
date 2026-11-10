@@ -32,7 +32,8 @@ from builder.search.jewels import Jewels
 from builder.search import play_guide
 from builder.search.models import GLORY_SKILLS, MODEL_FIELDS
 from builder.search.objective import (
-    CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, shortfall, with_boss_recovery,
+    CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, number, shortfall,
+    with_boss_recovery,
 )
 from builder.search.skeletons import Skeleton, is_button, offhand_types, seed_skeleton, swap_skills
 from builder.search.sources import Sources
@@ -85,7 +86,8 @@ class Search:
         self.swap_locked = set(swap_skills(self.ctx, sk)) if sk.swap else set()  # skills only set 2 can use
         self.jewels = Jewels(self.build, self.tree, self.gear)
         self.conditions = Conditions(self.build, self.skeleton.main_skill)
-        self.play_notes: dict[str, dict] = {}  # notes from choose_stationary and weigh_life, for the result
+        self.play_notes: dict[str, dict] = {}  # notes from choose_stationary and weigh_life, weigh_uptimes, for the result
+        self.uptime_rows: list[dict] = []  # weigh_uptimes' effects, for the play guide
         self.gems.conditions = self.conditions
         self.assumptions = Assumptions(self.build)
         self.build.reassume = self.assumptions.apply  # item what-ifs a model reads get a real trial (Build.item_deltas)
@@ -467,6 +469,54 @@ class Search:
                              f"them 65% / 35% of its life", "confidence": "theory"}
         self.build.score = objective.score(self.build.stats)
 
+    def weigh_uptimes(self) -> None:
+        """Effects the build keeps up for only part of the fight (conditions.uptimes: ailments, Onslaught, Arcane Surge,
+        Armour Broken, Exposure, the debuffs) count at their real share (the user, 9 Nov 2026). With all of them on the
+        DPS is D; one recalculation with effect c off gives r_c = D(c off) / D; the headline is D x the product of
+        (u_c + (1 - u_c) x r_c) (objective.uptime_factor): n + 1 calculations, not 2^n, the effects taken as independent
+        (labelled: effects that add into one pool, like Shock's and Intimidate's damage taken, interact a little). The
+        same recalculations give each one's stats without it (objective.floor_deltas): the floors are checked with it
+        off. Refreshed each conditions round and reused between them (as weigh_life); exact at finalize."""
+        objective, conditions = self.build.objective, self.conditions
+        objective.uptime_factor, objective.floor_deltas = 1.0, []
+        self.uptime_rows = []
+        for key in [k for k in self.play_notes if k.startswith("uptime:")]:
+            del self.play_notes[key]
+        if conditions.uptimes:
+            on_stats = dict(self.build.stats)
+            on = objective.dps(on_stats)
+            factor = 1.0
+            for var, up in sorted(conditions.uptimes.items()):
+                info = conditions.active.get(var)
+                if info is None or on <= 0:
+                    continue
+                self.build.set_config({var: False})
+                self.assumptions.apply()
+                off_stats = dict(self.build.stats)
+                self.build.set_config({var: info["value"]})
+                self.assumptions.apply()
+                ratio = max(objective.dps(off_stats), 0.0) / on
+                share = up + (1.0 - up) * ratio
+                factor *= share
+                deltas = {k: number(v) - number(on_stats.get(k)) for k, v in off_stats.items()
+                          if isinstance(v, (int, float)) and number(v) != number(on_stats.get(k))}
+                if deltas:
+                    objective.floor_deltas.append(deltas)
+                floors = [(p.label, number(on_stats.get(p.stat)), number(on_stats.get(p.stat)) + deltas[p.stat])
+                          for p in objective.penalties if p.stat in deltas]
+                defence = "; ".join(f"{label} {a:,.4g} with it, {b:,.4g} without, {up * a + (1 - up) * b:,.4g} "
+                                    f"time-weighted (the floor is checked without it)" for label, a, b in floors[:3])
+                self.uptime_rows.append({"var": var, "label": info["label"], "uptime": up, "ratio": ratio, "factor": share,
+                                         "defence": defence})
+                self.play_notes[f"uptime:{var}"] = {
+                    "label": f"{info['label']}: up {up:.0%} of the fight, counted at that share",
+                    "value": f"x{share:.3f}",
+                    "basis": f"{on:,.0f} DPS with it, {on * ratio:,.0f} without; the effects are weighed as independent "
+                             f"of each other" + (f". Defences: {defence}" if defence else ""),
+                    "confidence": "theory"}
+            objective.uptime_factor = factor
+        self.build.score = objective.score(self.build.stats)
+
     def choose_play(self) -> bool:
         """The play-style choices and fight weights (play_guide's spec): distance, standing still, Low Life."""
         changed = self.choose_distance()
@@ -475,6 +525,11 @@ class Search:
         return changed
 
     def conditions_round(self) -> None:
+        """A conditions round (_conditions_round), then the partial uptimes weighed (weigh_uptimes)."""
+        self._conditions_round()
+        self.weigh_uptimes()
+
+    def _conditions_round(self) -> None:
         """Resolve, and choose the calculated skill and stat set again: which one scores best
         changes as the rest of the build grows (Explosive Spear's explosion overtakes its spear).
         Gems whose usage requirement lost its source go first (builder/search/usage.py)."""
@@ -893,6 +948,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         pass
     search.choose_play()
     search.resolve()
+    search.weigh_uptimes()  # exact for the finished build
 
     search.gear.sync_flasks()
     search.gems.meta_candidates()  # the Meta gems the search can't propose yet, with why, for the result

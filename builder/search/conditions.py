@@ -22,6 +22,12 @@ from builder.search.state import EPSILON, Build
 
 AILMENT_WINDOW = 4.0  # seconds "recently" looks back for a crit
 UPTIME = 0.9  # chance that at least one hit applied it within the window
+# Effects kept up by the build's own rates (ailments, Onslaught, Arcane Surge, Armour Broken, Exposure, the debuffs) count
+# at their real share of the fight, not all or nothing at UPTIME (the user, 9 Nov 2026: "Count the real share"). The box
+# is on when the effect is up at least MIN_UPTIME of the fight; under FULL_UPTIME the headline blends it with a
+# recalculation without it (Search.weigh_uptimes, objective.uptime_factor). Both cut-offs are labelled assumptions.
+MIN_UPTIME = 0.005  # under 0.5% of the fight: off
+FULL_UPTIME = 0.995  # from 99.5%: simply on (and its defences count toward the floors)
 # Each ailment's own base duration on an enemy, the 0.5 data's game constants as PoB reads them (Data/Misc.lua
 # BaseIgniteDuration ...): the fallback when PoB gives the skill no duration of its own ({Ailment}Duration, with the
 # build's duration modifiers). poe2db's ailment pages not yet read against these.
@@ -381,8 +387,8 @@ def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     if not how:
         return 0.0, ""
     up = 1 - down
-    basis = f"Onslaught up {up:.0%} of the fight ({UPTIME:.0%} needed): " + "; ".join(how[:3])
-    return (True if up >= UPTIME else False), basis
+    basis = f"Onslaught up {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:3])
+    return _box(up, basis)
 
 
 # Arcane Surge's uptime (MECH29, 9 Nov 2026; before, any line that gains it turned it on, crit-chance and Minion-death
@@ -464,8 +470,8 @@ def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     if not how:
         return 0.0, ""
     up = 1 - down
-    basis = f"Arcane Surge up {up:.0%} of the fight ({UPTIME:.0%} needed): " + "; ".join(how[:3])
-    return (True if up >= UPTIME else False), basis
+    basis = f"Arcane Surge up {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:3])
+    return _box(up, basis)
 
 
 # Debuffs you inflict on the boss (MECH29, 9 Nov 2026; before, any line that inflicts one turned its box on): Blinded,
@@ -564,8 +570,8 @@ def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
             return 0.0, ""
         up = 1 - down
         name = DEBUFFS[var][1].capitalize()
-        basis = f"{name} up {up:.0%} of the fight ({UPTIME:.0%} needed): " + "; ".join(how[:3])
-        return (True if up >= UPTIME else False), basis
+        basis = f"{name} up {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:3])
+        return _box(up, basis)
     return uptime
 
 
@@ -649,7 +655,7 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
     to_break = 0.0 if armour <= 0 else (armour / rate if rate > 0 else float("inf"))
     up = models.FULL_BREAK_DURATION / (models.FULL_BREAK_DURATION + to_break)
     up = 1 - (1 - up) * (1 - min(1.0, full * models.FULL_BREAK_DURATION))
-    return up, (f"Armour Fully Broken {up:.0%} of the fight ({UPTIME:.0%} needed): {rate:,.0f} Armour broken/s against "
+    return up, (f"Armour Fully Broken {up:.0%} of the fight ({shared(up)}): {rate:,.0f} Armour broken/s against "
                 f"the boss's {armour:,.0f} (PoB), {models.FULL_BREAK_DURATION:g} s each Full Break: " + "; ".join(how[:3]))
 
 
@@ -663,7 +669,7 @@ def armour_broken_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     up, basis = _armour_broken(lines, stats)
     if not basis:
         return 0.0, ""
-    return (True if up >= UPTIME else False), basis
+    return _box(up, basis)
 
 
 # Exposure's uptime (MECH28, 9 Nov 2026; before, any line inflicting it turned the box on). The game files' KeywordPopups
@@ -720,8 +726,8 @@ def _exposure_uptime(element: str) -> Callable[[list[str], dict], tuple[object, 
         if not how:
             return 0.0, ""
         up = 1 - down
-        basis = f"{element} Exposure up {up:.0%} of the fight ({UPTIME:.0%} needed): " + "; ".join(how[:3])
-        return (True if up >= UPTIME else False), basis
+        basis = f"{element} Exposure up {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:3])
+        return _box(up, basis)
     return uptime
 
 
@@ -764,7 +770,23 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
 
 
 def _ailment_up(ailment: str):
-    return lambda s: ailment_uptime(s, ailment) >= UPTIME
+    return lambda s: ailment_uptime(s, ailment) >= MIN_UPTIME
+
+
+def _ailment_share(ailment: str):
+    return lambda s: ailment_uptime(s, ailment)
+
+
+def shared(up: float) -> str:
+    """How an uptime is counted, for a basis."""
+    if up >= FULL_UPTIME:
+        return "counted as always on"
+    return "counted at that share" if up >= MIN_UPTIME else "off"
+
+
+def _box(up: float, basis: str) -> tuple[bool, str, float]:
+    """(box on, basis, uptime) for an effect the build keeps up at a rate: on from MIN_UPTIME, weighed by its uptime."""
+    return up >= MIN_UPTIME, basis, up
 
 
 @dataclass(frozen=True)
@@ -779,6 +801,7 @@ class Condition:
     value_field: str | None = None  # set the option to this stat instead of True (e.g. Rage)
     value_fn: Callable[[list[str], dict], tuple[float, str]] | None = None  # the option's value and its basis from the build's lines and stats
     fields: tuple[str, ...] = ("Speed",)  # PoB numbers a stat rule reads, quoted as its evidence
+    uptime_fn: Callable[[dict], float] | None = None  # a stat rule's share of the fight (MIN_UPTIME, Search.weigh_uptimes)
 
     def patterns(self) -> tuple[list[re.Pattern], list[re.Pattern]]:
         return ([re.compile(p, re.I) for p in self.text], [re.compile(p, re.I) for p in self.not_text])
@@ -807,13 +830,13 @@ CONDITIONS: list[Condition] = [
     Condition("conditionSkillCritRecently", "Skills crit recently",
               stat=lambda s: _uptime({"CritRecently": s.get("CritChance"), "Speed": s.get("Speed")}, "CritRecently"),
               fields=("CritChance", "Speed")),
-    Condition("conditionEnemyShocked", "Shocked", stat=_ailment_up("Shock"),
+    Condition("conditionEnemyShocked", "Shocked", stat=_ailment_up("Shock"), uptime_fn=_ailment_share("Shock"),
               fields=("ShockChancePerHit", "Speed", "HitChance", "ShockDuration")),
-    Condition("conditionEnemyIgnited", "Ignited", stat=_ailment_up("Ignite"),
+    Condition("conditionEnemyIgnited", "Ignited", stat=_ailment_up("Ignite"), uptime_fn=_ailment_share("Ignite"),
               fields=("IgniteChancePerHit", "Speed", "HitChance", "IgniteDuration")),
-    Condition("conditionEnemyPoisoned", "Poisoned", stat=_ailment_up("Poison"),
+    Condition("conditionEnemyPoisoned", "Poisoned", stat=_ailment_up("Poison"), uptime_fn=_ailment_share("Poison"),
               fields=("PoisonChancePerHit", "Speed", "HitChance", "PoisonDuration")),
-    Condition("conditionEnemyBleeding", "Bleeding", stat=_ailment_up("Bleed"),
+    Condition("conditionEnemyBleeding", "Bleeding", stat=_ailment_up("Bleed"), uptime_fn=_ailment_share("Bleed"),
               fields=("BleedChancePerHit", "Speed", "HitChance", "BleedDuration")),
     Condition("conditionEnemyChilled", "Chilled", stat=lambda s: number(s.get("ChillChanceOnHit")) >= 100,
               fields=("ChillChanceOnHit",)),
@@ -925,6 +948,8 @@ class Conditions:
         self.distance: tuple[float, str] | None = None  # (metres, why) chosen by score (Search.choose_distance)
         self.stationary_off: str | None = None  # why a build with stationary lines doesn't stand still (choose_stationary)
         self.rolling = 0.0  # share of the fight spent dodge rolling (Search.rolling_share)
+        self.found_uptimes: dict[str, float] = {}  # var -> share of the fight, from the last evidence
+        self.uptimes: dict[str, float] = {}  # the active ones up for only part of it (Search.weigh_uptimes)
 
     def evidence(self) -> dict[str, tuple[object, str]]:
         """What the build can sustain now: var -> (value, evidence)."""
@@ -976,7 +1001,7 @@ class Conditions:
                 stats["_arcane_surge_support"] = (got[ARCANE_SURGE_SUPPORT_STATS[0]], got[ARCANE_SURGE_SUPPORT_STATS[1]] / 1000)
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
-            broken, stats["_full_break_rate"] = roar[:2], roar[2] / models.FULL_BREAK_DURATION
+            broken, stats["_full_break_rate"] = roar, roar[2] / models.FULL_BREAK_DURATION
         elif any(ARMOUR_BREAK_LINE.search(line["text"]) for line in lines):
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(BREAK_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
@@ -986,9 +1011,10 @@ class Conditions:
             armour_stats = {**stats, "_enemy_armour": number(raw.get("enemyArmour"))}
             up, basis = _armour_broken(texts, armour_stats)
             if basis:
-                broken = (True if up >= UPTIME else False), basis
+                broken = _box(up, basis)
                 stats["_full_break_rate"] = up / models.FULL_BREAK_DURATION
         found: dict[str, tuple[object, str]] = {}
+        uptimes: dict[str, float] = {}  # var -> share of the fight, for the effects the build keeps up at a rate
         for condition in CONDITIONS:
             reason = None
             for line in lines:
@@ -997,10 +1023,15 @@ class Conditions:
                     break
             if reason is None and condition.stat is not None and condition.stat(stats):
                 reason = "PoB: " + ", ".join(f"{k} {number(stats.get(k)):.3g}" for k in condition.fields)
+                if condition.uptime_fn is not None:
+                    up = uptimes[condition.var] = condition.uptime_fn(stats)
+                    reason += f"; up {up:.0%} of the fight ({shared(up)})"
             if condition.value_fn is not None:
-                value, basis = condition.value_fn([line["text"] for line in lines], stats)
+                value, basis, *share = condition.value_fn([line["text"] for line in lines], stats)
                 if value > 0 or basis:  # (a basis with 0: the build has sources, none of which a boss fight feeds)
                     found[condition.var] = (value, basis)
+                    if share:
+                        uptimes[condition.var] = share[0]
                 continue
             if reason is None and condition.main_types and self.main_types & set(condition.main_types):
                 reason = "main skill: " + ", ".join(sorted(self.main_types & set(condition.main_types)))
@@ -1016,7 +1047,9 @@ class Conditions:
                         continue
                 found[condition.var] = (value, reason)
         if broken is not None:
-            found["conditionEnemyArmourBroken"] = broken
+            found["conditionEnemyArmourBroken"] = broken[:2]
+            uptimes["conditionEnemyArmourBroken"] = broken[2]
+        self.found_uptimes = uptimes
         # Charges held: PoB reads an override of 0 as "not set" (the maximum), so none held switches the "use" box off
         for kind in ("Power", "Frenzy", "Endurance"):
             held = found.get(f"override{kind}Charges")
@@ -1042,7 +1075,7 @@ class Conditions:
         if skill is None or warcry:
             return None
         share, basis = models.roar_break(skill, number(raw.get("enemyArmour")))
-        return (True, f"gem:{models.FEROCIOUS_ROAR}: {basis}", share) if share >= UPTIME else None
+        return (True, f"gem:{models.FEROCIOUS_ROAR}: {basis} ({shared(share)})", share) if share >= MIN_UPTIME else None
 
     def resolve(self) -> bool:
         """Match the config to the evidence. Returns True if anything changed."""
@@ -1067,6 +1100,8 @@ class Conditions:
                 changes[condition.var] = want[0]
             if want is not None:
                 self.active[condition.var] = {"label": condition.label, "value": want[0], "evidence": want[1]}
+        # Effects on for part of the fight, weighed into the headline by Search.weigh_uptimes
+        self.uptimes = {var: up for var, up in self.found_uptimes.items() if var in self.active and up < FULL_UPTIME}
         if changes:
             self.build.set_config(changes)
         return bool(changes)

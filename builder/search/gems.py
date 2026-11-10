@@ -17,6 +17,7 @@ from collections import Counter
 
 from builder import clock
 from builder.search.assumptions import INFUSED_ELEMENT, INFUSED_NOTE
+from builder.search.conditions import UPTIME
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, MAX_GEM_GROUPS, SUPPORT_SLOTS
 from builder.search.objective import main_dps
 from builder.search.state import EPSILON, Build
@@ -580,7 +581,10 @@ class Gems:
                 if self.conditions is not None and not self.conditions.allows(label.replace(element.group(0), ""), assume):
                     continue  # (whatever else the set needs, e.g. Frenzy-Charged)
                 element = element.group(1).capitalize()
-                ailments = set(self.conditions.active) if self.conditions else set()
+                # (Snap consumes an ailment the build keeps up: one up for only part of the fight isn't counted, as before
+                # partial uptimes, MECH30; an undercount where it is up often)
+                ailments = ({var for var in self.conditions.active if getattr(self.conditions, "uptimes", {}).get(var, 1.0) >= UPTIME}
+                            if self.conditions else set())
                 # (any supply at all first, on the plain cast's numbers: a build without a source pays no evaluation for
                 # the set; the share itself is read on the Infused cast, whose casts per second differ)
                 share, basis = assumptions.infusion_share(element, ailments)

@@ -651,22 +651,22 @@ def test_onslaught_on_only_when_its_sources_keep_it_up():
 
     stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "enemySkillTime": 0.7, "EvadeChance": 100,
              "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15, "_main_types": {"Attack"}}
-    on, basis = onslaught_uptime(["30% chance to gain Onslaught for 4 seconds on Hit"], stats)
+    on, basis, _ = onslaught_uptime(["30% chance to gain Onslaught for 4 seconds on Hit"], stats)
     assert on is True and "94%" in basis  # 1 - 0.7^8 (2 hits/s x 4 s)
     up = onslaught_uptime(["10% chance to gain Onslaught for 4 seconds on Hit"], stats)
-    assert up[0] is False and "57%" in up[1]  # 1 - 0.9^8
+    assert up[2] < 0.9 and "57%" in up[1]  # 1 - 0.9^8
     kill = onslaught_uptime(["You gain Onslaught for 8 seconds on Kill"], stats)
-    assert kill[0] is False and "on kill" in kill[1]  # (was on before MECH27)
+    assert kill[2] < 0.9 and "on kill" in kill[1]  # (was on before MECH27)
     for line in ("Companions have 50% chance to gain Onslaught on Kill", "5% chance to grant Onslaught to nearby Enemies on Kill",
                  "Grants Skill: Level 20 Starborn Onslaught"):
         assert onslaught_uptime([line], stats) == (0.0, "")
     # 2 hits/s x 10% crits = 0.2 crits/s: a 4 s Onslaught per crit is up 0.8 of the time
-    assert onslaught_uptime(["You gain Onslaught for 4 seconds on Critical Hit"], stats)[0] is False
-    assert onslaught_uptime(["You gain Onslaught for 6 seconds when Hit"], {**stats, "EvadeChance": 0})[0] is True
+    assert onslaught_uptime(["You gain Onslaught for 4 seconds on Critical Hit"], stats)[2] < 0.9
+    assert onslaught_uptime(["You gain Onslaught for 6 seconds when Hit"], {**stats, "EvadeChance": 0})[2] >= 0.9
     # At maximum Frenzy Charges only when they're held at the maximum
     frenzy = "Gain Onslaught for 4 seconds on Hit while at maximum Frenzy Charges"
-    assert onslaught_uptime([frenzy], stats)[0] is False
-    assert onslaught_uptime([frenzy, "Gain a Frenzy Charge on Hit"], stats)[0] is True
+    assert onslaught_uptime([frenzy], stats)[2] < 0.9
+    assert onslaught_uptime([frenzy, "Gain a Frenzy Charge on Hit"], stats)[2] >= 0.9
     # (a "while at maximum ... Charges" line pays off on the charges; it was read as a source of them)
     from builder.search.conditions import _charges_held
     assert _charges_held("Power")(["Gain 10% of Physical Damage as Extra Chaos Damage while at maximum Power Charges"],
@@ -712,7 +712,9 @@ def test_ailment_uptime_uses_each_ailments_own_duration_and_hits_that_land():
     assert ailment_uptime({"IgniteChancePerHit": 50, "Speed": 2, "HitChance": 50}, "Ignite") == pytest.approx(1 - 0.5 ** 4)
     assert ailment_uptime({"ShockChancePerHit": 0, "Speed": 2}, "Shock") == 0.0
     shocked = next(c for c in CONDITIONS if c.var == "conditionEnemyShocked")
-    assert shocked.stat({"ShockChancePerHit": 20, "Speed": 2}) and not shocked.stat({"ShockChancePerHit": 2, "Speed": 2})
+    # on at any real share (MECH30: counted at it, was off under 90%): 2% x 2 hits/s x 8 s = 1 - 0.98^16, 28%
+    assert shocked.stat({"ShockChancePerHit": 2, "Speed": 2}) and not shocked.stat({"ShockChancePerHit": 0, "Speed": 2})
+    assert shocked.uptime_fn({"ShockChancePerHit": 2, "Speed": 2}) == pytest.approx(1 - 0.98 ** 16)
 
 
 def test_a_search_that_ends_short_goes_back_to_the_best_feasible_build_it_saw():
@@ -857,9 +859,9 @@ def test_armour_broken_on_only_when_breaks_keep_it_fully_broken():
              "_enemy_armour": 1000, "_main_types": {"Attack"}}
     # 10% of 1000 Physical x 2 hits/s = 200/s: 5 s to break, up 12 / 17
     low = armour_broken_uptime(["Break Armour equal to 10% of Physical Damage dealt"], stats)
-    assert low[0] is False and "71%" in low[1]
+    assert low[2] < 0.9 and "71%" in low[1]
     # 50% of the whole hit (2000) x 2/s: under 1 s to break
-    assert armour_broken_uptime(["Break Armour equal to 50% of Hit Damage dealt"], stats)[0] is True
+    assert armour_broken_uptime(["Break Armour equal to 50% of Hit Damage dealt"], stats)[2] >= 0.9
     # Spell crits only: an Attack build has none to give
     assert armour_broken_uptime(["Break Armour on Critical Hit with Spells equal to 12% of Physical Damage dealt"],
                                 stats) == (0.0, "")
@@ -867,9 +869,9 @@ def test_armour_broken_on_only_when_breaks_keep_it_fully_broken():
         assert armour_broken_uptime([line], stats) == (0.0, "")  # (not sources; both turned the box on before)
     assert armour_broken_uptime(["Minions Break Armour equal to (2-4)% of Physical damage dealt"], stats) == (0.0, "")
     assert armour_broken_uptime(["Shield Skills fully Break Armour when they Heavy Stun targets"], stats) == (0.0, "")
-    assert armour_broken_uptime(["Hits Break 600 Armour"], stats)[0] is True  # 1200/s
+    assert armour_broken_uptime(["Hits Break 600 Armour"], stats)[2] >= 0.9  # 1200/s
     # a support's stat, as its line (BREAK_STATS): Chaos damage as break, none here
-    assert armour_broken_uptime(["Break Armour equal to 50% of Chaos Damage dealt"], stats)[0] is False
+    assert armour_broken_uptime(["Break Armour equal to 50% of Chaos Damage dealt"], stats)[2] < 0.9
 
 
 def test_exposure_on_only_when_its_events_keep_it_up():
@@ -880,21 +882,21 @@ def test_exposure_on_only_when_its_events_keep_it_up():
     stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 5, "ShockChancePerHit": 50, "IgniteChancePerHit": 0,
              "_main_types": {"Attack", "Melee"}}
     hit = "Inflict Elemental Exposure on Hit, lowering Total Elemental Resistances by 25%"
-    assert fire([hit], stats)[0] is True and cold([hit], stats)[0] is True
+    assert fire([hit], stats)[2] >= 0.9 and cold([hit], stats)[2] >= 0.9
     # 10% x 2 hits/s x 4 s: 1 - 0.9^8 = 57%
     devotion = lightning(["10% chance to inflict Lightning Exposure on Hit if you have at least 150 Devotion"], stats)
-    assert devotion[0] is False and "57%" in devotion[1]
-    assert fire(["Inflict Fire Exposure on Shocking an Enemy"], stats)[0] is True  # 1 Shock/s
-    assert cold(["Inflict Cold Exposure on Igniting an Enemy"], stats)[0] is False  # no Ignites
-    assert lightning(["Inflict Lightning Exposure on Critical Hit"], stats)[0] is False  # 0.1 crits/s
+    assert devotion[2] < 0.9 and "57%" in devotion[1]
+    assert fire(["Inflict Fire Exposure on Shocking an Enemy"], stats)[2] >= 0.9  # 1 Shock/s
+    assert cold(["Inflict Cold Exposure on Igniting an Enemy"], stats)[2] < 0.9  # no Ignites
+    assert lightning(["Inflict Lightning Exposure on Critical Hit"], stats)[2] < 0.9  # 0.1 crits/s
     assert cold(["Inflict Fire Exposure on Shocking an Enemy"], stats) == (0.0, "")
     # a Full Break every 12 s of a 12/13 share: one per 13 s, 4 s each
     breaks = "Inflicts Elemental Exposure when this Weapon Fully Breaks Armour"
-    assert fire([breaks], {**stats, "_full_break_rate": 1 / 13})[0] is False
-    assert fire([breaks], stats)[0] is False
+    assert fire([breaks], {**stats, "_full_break_rate": 1 / 13})[2] < 0.9
+    assert fire([breaks], stats)[2] < 0.9
     front = "Inflict Elemental Exposure to Enemies 3 metres in front of you"
-    assert fire([front], stats)[0] is True  # a melee build stands close
-    assert fire([front], {**stats, "_main_types": {"Spell"}})[0] is False
+    assert fire([front], stats)[2] >= 0.9  # a melee build stands close
+    assert fire([front], {**stats, "_main_types": {"Spell"}})[2] < 0.9
 
 
 def test_arcane_surge_on_only_when_its_sources_keep_it_up():
@@ -905,19 +907,19 @@ def test_arcane_surge_on_only_when_its_sources_keep_it_up():
              "_main_types": {"Spell"}}
     # 10% x 0.2 crits/s x 4 s: 1 - 0.9^0.8 = 8%
     crit = arcane_surge_uptime(["10% chance to Gain Arcane Surge when you deal a Critical Hit"], spell)
-    assert crit[0] is False and "8%" in crit[1]
+    assert crit[2] < 0.9 and "8%" in crit[1]
     minion = arcane_surge_uptime(["Gain Arcane Surge when a Minion Dies"], spell)
-    assert minion[0] is False and "isn't modelled" in minion[1]
-    assert arcane_surge_uptime(["You have Arcane Surge"], spell)[0] is True
+    assert minion[2] < 0.9 and "isn't modelled" in minion[1]
+    assert arcane_surge_uptime(["You have Arcane Surge"], spell)[2] >= 0.9
     assert arcane_surge_uptime(["15% increased Spell Damage while you have Arcane Surge"], spell) == (0.0, "")
     devotion = "Gain Arcane Surge on Hit with Spells if you have at least 150 Devotion"
-    assert arcane_surge_uptime([devotion], {**spell, "Devotion": 150})[0] is True
-    assert arcane_surge_uptime([devotion], {**spell, "Devotion": 100})[0] is False
+    assert arcane_surge_uptime([devotion], {**spell, "Devotion": 150})[2] >= 0.9
+    assert arcane_surge_uptime([devotion], {**spell, "Devotion": 100})[2] < 0.9
     assert arcane_surge_uptime([devotion], {**spell, "Devotion": 150, "_main_types": {"Attack"}}) == (0.0, "")
     # the support: 100% of 1000 Mana every 20 s at 50/s, 10 s each: 50%; at 100/s, up throughout
     support = {**spell, "_arcane_surge_support": (100, 10.0)}
-    assert arcane_surge_uptime([], support)[0] is False and "50%" in arcane_surge_uptime([], support)[1]
-    assert arcane_surge_uptime([], {**support, "ManaPerSecondCost": 100})[0] is True
+    assert arcane_surge_uptime([], support)[2] < 0.9 and "50%" in arcane_surge_uptime([], support)[1]
+    assert arcane_surge_uptime([], {**support, "ManaPerSecondCost": 100})[2] >= 0.9
 
 
 def test_debuffs_on_only_when_their_sources_keep_them_up():
@@ -930,28 +932,50 @@ def test_debuffs_on_only_when_their_sources_keep_them_up():
     stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "enemySkillTime": 1.0, "EvadeChance": 0,
              "EffectiveBlockChance": 25, "PresenceRadius": 40, "_main_types": {"Attack", "Melee"}}
     # 30% x 2 hits/s x 4 s: 1 - 0.7^8 = 94%
-    assert intimidated(["30% chance to Intimidate Enemies for 4 seconds on Hit"], stats)[0] is True
+    assert intimidated(["30% chance to Intimidate Enemies for 4 seconds on Hit"], stats)[2] >= 0.9
     low = intimidated(["10% chance to Intimidate Enemies for 4 seconds on Hit"], stats)
-    assert low[0] is False and "57%" in low[1]
-    assert intimidated(["Permanently Intimidate enemies on Block"], stats)[0] is True
-    assert intimidated(["Permanently Intimidate enemies on Block"], {**stats, "EffectiveBlockChance": 0})[0] is False
+    assert low[2] < 0.9 and "57%" in low[1]
+    assert intimidated(["Permanently Intimidate enemies on Block"], stats)[2] >= 0.9
+    assert intimidated(["Permanently Intimidate enemies on Block"], {**stats, "EffectiveBlockChance": 0})[2] < 0.9
     # 25% Blocked x 1 hit/s x 8 s: 2 Blocks in 8 s, up throughout
-    assert intimidated(["Intimidate Enemies on Block for 8 seconds"], stats)[0] is True
-    assert intimidated(["Enemies in your Presence are Intimidated"], stats)[0] is True  # melee: inside 4 m
+    assert intimidated(["Intimidate Enemies on Block for 8 seconds"], stats)[2] >= 0.9
+    assert intimidated(["Enemies in your Presence are Intimidated"], stats)[2] >= 0.9  # melee: inside 4 m
     declaration = "Supports Persistent Buff Skills, causing enemies that enter your Presence to become Intimidated"
-    assert intimidated([declaration], {**stats, "PresenceRadius": 0})[0] is False
-    assert intimidated(["Enemies you Curse are Intimidated"], stats)[0] is False
-    assert intimidated(["Enemies you Curse are Intimidated"], {**stats, "_curses": ["Vulnerability"]})[0] is True
+    assert intimidated([declaration], {**stats, "PresenceRadius": 0})[2] < 0.9
+    assert intimidated(["Enemies you Curse are Intimidated"], stats)[2] < 0.9
+    assert intimidated(["Enemies you Curse are Intimidated"], {**stats, "_curses": ["Vulnerability"]})[2] >= 0.9
     stun = intimidated(["Enemies you Heavy Stun while Shapeshifted are Intimidated for 6 seconds"], stats)
-    assert stun[0] is False and "isn't modelled" in stun[1]
+    assert stun[2] < 0.9 and "isn't modelled" in stun[1]
     assert intimidated(["20% more Damage against Intimidated Enemies"], stats) == (0.0, "")
     assert hindered(["10% chance to Hinder Enemies on Hit with Spells"], stats) == (0.0, "")  # not a Spell
-    assert hindered(["10% chance to Hinder Enemies on Hit with Spells"], {**stats, "_main_types": {"Spell"}})[0] is False
+    assert hindered(["10% chance to Hinder Enemies on Hit with Spells"], {**stats, "_main_types": {"Spell"}})[2] < 0.9
     assert hindered(["20% increased Hinder Duration"], stats) == (0.0, "")
     assert blinded(["(30-50)% increased Blind Effect"], stats) == (0.0, "")
     # a Full Break every 13 s, Maimed 4 s of it
     maimed = debuff_uptime("conditionEnemyMaimed")
-    assert maimed(["Enemies you Fully Armour Break are Maimed"], {**stats, "_full_break_rate": 1 / 13})[0] is False
-    assert maimed(["Enemies you Fully Armour Break are Maimed"], {**stats, "_full_break_rate": 0.5})[0] is True
-    assert ash(["Cover Enemies in Ash on Hit"], stats)[0] is True
+    assert maimed(["Enemies you Fully Armour Break are Maimed"], {**stats, "_full_break_rate": 1 / 13})[2] < 0.9
+    assert maimed(["Enemies you Fully Armour Break are Maimed"], {**stats, "_full_break_rate": 0.5})[2] >= 0.9
+    assert ash(["Cover Enemies in Ash on Hit"], stats)[2] >= 0.9
     assert debuff_uptime("conditionEnemyCoveredInFrost")(["Cover Enemies in Ash on Hit"], stats) == (0.0, "")
+
+
+def test_an_uptime_is_counted_at_its_share():
+    """The user, 9 Nov 2026: "Count the real share" (was on at 90%, else off): on from MIN_UPTIME, weighed by its uptime."""
+    from builder.search.conditions import CONDITIONS, FULL_UPTIME, MIN_UPTIME, _box, shared
+
+    assert _box(0.5, "b") == (True, "b", 0.5) and _box(MIN_UPTIME / 2, "b")[0] is False
+    assert shared(FULL_UPTIME) == "counted as always on" and shared(0.5) == "counted at that share"
+    shocked = next(c for c in CONDITIONS if c.var == "conditionEnemyShocked")
+    stats = {"ShockChancePerHit": 5, "Speed": 1.0, "HitChance": 100}  # 1 - 0.95^8 = 34%
+    assert shocked.stat(stats) and shocked.uptime_fn(stats) == pytest.approx(1 - 0.95 ** 8)
+
+
+def test_floors_are_checked_without_a_partial_effect():
+    ctx = context(main_skill="Ice Shot", floors={"life": 2000, "resists": {}})
+    objective = Objective(ctx)
+    base = {"CombinedDPS": 100000, "Life": 2000, "Str": 50, "ReqStr": 40, "Spirit": 100, "SpiritUnreserved": 0}
+    full = objective.score(base)
+    objective.floor_deltas = [{"Life": -500.0}, {"CombinedDPS": -1000.0}]
+    assert [label for label, _, _ in objective.deficits(base)] != [] and objective.score(base) < full
+    objective.floor_deltas, objective.uptime_factor = [], 0.5
+    assert objective.dps(base) == pytest.approx(50000)

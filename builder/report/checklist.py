@@ -25,6 +25,15 @@ def checklist(result: dict) -> list[dict]:
         if not row.get("var"):
             continue
         counted = row.get("counted")
+        if "uptime" in row:  # an effect counted at its share of the fight (Search.weigh_uptimes)
+            items.append({
+                "kind": "how to play it *", "title": f"{row['label']} *",
+                "why": (f"The headline DPS counts it at its uptime, {row['uptime']:.0%} of the fight: "
+                        f"{_number(row['dps_with'])} as counted, {_number(row['dps_without'])} were it never up "
+                        f"({row['dps_share']:.0%} of the headline). Confidence: {row['confidence']}."),
+                "how": f"In play: {row['play']}.",
+            })
+            continue
         items.append({
             "kind": "how to play it *", "title": f"{row['label']} *",
             "why": (f"The headline DPS counts it: {_number(row['dps_with'])} with it, {_number(row['dps_without'])} without "
