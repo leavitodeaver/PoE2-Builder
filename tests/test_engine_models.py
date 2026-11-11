@@ -105,6 +105,18 @@ def test_a_builds_coverage_blind_spots(engine):
     assert not any(b["source"] == "gem: Mana Tempest" for b in found)  # its unread stat is counted by a gem_stat entry
 
 
+def test_flasks_do_not_recover_life_blocks_life_flask_recovery(engine):
+    """PoB ignores "Flasks do not recover Life" (Sanguine Tides, UniqueLifeFlaskNoRecovery1); the bridge flags it, so the
+    sustain floor's Life flask share is 0 (an overcount before: a Blood Mage passed its Life floor on flasks)."""
+    from builder.search.flasks import Charges
+
+    build = spark_with(engine, []).build
+    assert Charges.from_bridge(build.call("chargeGain")).life_flask_blocked is False
+    amulet = "\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0", "Flasks do not recover Life"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    assert Charges.from_bridge(build.call("chargeGain")).life_flask_blocked is True
+
+
 def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):
     """A bare Boneshatter crits too rarely to feed Cast on Critical: every trial is turned down (no trigger once per 30 s),
     so nothing PoB counts of the spell besides its damage (a buff at full) can make the group pay. Cast on Dodge, which

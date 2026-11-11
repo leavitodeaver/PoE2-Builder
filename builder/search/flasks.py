@@ -38,13 +38,14 @@ class Charges:
     life_recovery_inc: float = 0.0
     mana_recovery_inc: float = 0.0
     charm_limit: int = 0
+    life_flask_blocked: bool = False  # "Flasks do not recover Life" (Sanguine Tides, UniqueLifeFlaskNoRecovery1)
 
     @classmethod
     def from_bridge(cls, data: dict) -> Charges:
         return cls(data.get("flask", 0), data.get("lifeFlask", 0), data.get("manaFlask", 0), data.get("flaskGainInc", 0),
                    data.get("charm", 0), data.get("charmGainInc", 0), data.get("flaskDurationInc", 0),
                    data.get("charmDurationInc", 0), data.get("lifeRecoveryInc", 0), data.get("manaRecoveryInc", 0),
-                   int(data.get("charmLimit", 0)))
+                   int(data.get("charmLimit", 0)), bool(data.get("lifeFlaskBlocked", False)))
 
 
 def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
@@ -98,6 +99,8 @@ def charm_charges_used(charms: list[tuple[dict, str]], gain: Charges) -> tuple[f
 def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
     """A Life or Mana flask's recovery per second at the rate its generated charges allow (one use
     at a time: never faster than one per duration)."""
+    if pool == "Life" and gain.life_flask_blocked:
+        return 0.0  # "Flasks do not recover Life" (game stats base_/life_flasks_do_not_recover_life; PoB ignores it)
     total = info.get("lifeTotal" if pool == "Life" else "manaTotal") or 0
     used = info.get("chargesUsed") or 0
     inc = gain.life_recovery_inc if pool == "Life" else gain.mana_recovery_inc

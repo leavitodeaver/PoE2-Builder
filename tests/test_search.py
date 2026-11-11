@@ -516,6 +516,10 @@ def test_flask_recovery_counts_toward_sustain_at_the_rate_charges_allow():
     assert recovery_per_second(mana, Charges(flask=1), "Mana") == pytest.approx(30.0)  # one use per 10 s
     assert recovery_per_second(mana, Charges(flask=100), "Mana") == pytest.approx(100.0)  # one use at a time
     assert recovery_per_second(mana, Charges(flask=1, mana_recovery_inc=50), "Mana") == pytest.approx(45.0)
+    life = {"kind": "Flask", "duration": 3, "chargesUsed": 10, "lifeTotal": 300}
+    assert recovery_per_second(life, Charges(flask=1), "Life") == pytest.approx(30.0)
+    assert recovery_per_second(life, Charges(flask=1, life_flask_blocked=True), "Life") == 0.0  # Sanguine Tides
+    assert recovery_per_second(mana, Charges(flask=1, life_flask_blocked=True), "Mana") == pytest.approx(30.0)
     stats = {"ManaPerSecondCost": 1000, "ManaRegenRecovery": 40, RECOVERY_FIELDS["Mana"]: 60}
     assert sustain(stats)[0] == pytest.approx(0.1)
 

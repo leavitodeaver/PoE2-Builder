@@ -2914,8 +2914,15 @@ function bridge.chargeGain()
 	for _, name in ipairs({ "Flask 1", "Flask 2", "Charm 1", "Charm 2", "Charm 3" }) do
 		active[name] = build.itemsTab.slots[name].active and true or false
 	end
+	-- "Flasks do not recover Life" (Sanguine Tides; the unique mod UniqueLifeFlaskNoRecovery1): PoB doesn't parse it
+	local lifeFlaskBlocked = false
+	for _, line in ipairs(bridge.sourceLines().lines) do
+		if line.text:lower():match("^%s*flasks do not recover life%s*$") then
+			lifeFlaskBlocked = true
+		end
+	end
 	return {
-		active = active,
+		active = active, lifeFlaskBlocked = lifeFlaskBlocked,
 		flask = base("FlaskChargesGenerated"), lifeFlask = base("LifeFlaskChargesGenerated"),
 		manaFlask = base("ManaFlaskChargesGenerated"), flaskGainInc = inc("FlaskChargesGained"),
 		charm = base("CharmChargesGenerated"), charmGainInc = inc("CharmChargesGained"),

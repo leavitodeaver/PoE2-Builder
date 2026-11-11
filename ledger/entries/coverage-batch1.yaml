@@ -445,7 +445,7 @@
   match: '^Flasks do not recover Life$'
   replace: []
   confidence: datamined
-  notes: "A drawback for sustain: the search's Life flask recovery should be 0 with it (not done yet: the sustain floor counts Mana)."
+  notes: "A drawback for sustain, modelled (MECH40): PoB doesn't parse the line, so the bridge's chargeGain flags it (lifeFlaskBlocked) and the search's Life flask recovery is 0 with it (flasks.recovery_per_second), so the Life sustain floor (FlaskLifeRecoveryRate) no longer counts a flask that recovers nothing. The old reason (\"the sustain floor counts Mana\") was false: it counts Life flask recovery too. Sources of the line (checked: Stats base_life_flasks_do_not_recover_life and life_flasks_do_not_recover_life searched through PassiveSkills, Mods, GrantedEffectStatSets, SoulCoreStats and both passive override tables: Sanguine Tides (AscendancyWitch2Notable9) and the unique mod UniqueLifeFlaskNoRecovery1; PoB ModItemExclusive the same). Mana flasks are unaffected."
   sources: ["https://poe2db.tw/us/Blood_Mage"]
   test_in_game: "Drink a Life flask with Sanguine Tides: no Life comes back."
   status: proposed
