@@ -51,6 +51,30 @@ def test_the_real_clock_runs():
     assert 0.03 < clock.now() - a < 1.0
 
 
+def _thread_priority_held() -> bool:
+    """Whether Windows holds this process's thread priorities: inside the PC queue's 85% clamp (since 11 Nov 2026) every
+    run sits in a job object with JOB_OBJECT_LIMIT_PRIORITY_CLASS, under which SetThreadPriority reports success and
+    changes nothing (MECH36, POE2T449: +1, +2 and 15 all read back 0). Probed on a fresh thread, as the clock's would be;
+    the job is nested (the run's own inside the clamp's), so querying the immediate job's limits would miss it."""
+    import ctypes
+    import threading
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetCurrentThread.restype = ctypes.c_void_p
+    kernel32.SetThreadPriority.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    kernel32.GetThreadPriority.argtypes = [ctypes.c_void_p]
+    seen: list[bool] = []
+
+    def probe() -> None:
+        handle = kernel32.GetCurrentThread()
+        seen.append(bool(kernel32.SetThreadPriority(handle, 2)) and kernel32.GetThreadPriority(handle) != 2)
+
+    thread = threading.Thread(target=probe)
+    thread.start()
+    thread.join()
+    return bool(seen and seen[0])
+
+
 @pytest.mark.skipif(__import__("os").name != "nt", reason="Windows thread priorities")
 def test_the_ticking_thread_runs_ahead_of_busy_work():
     """A starved ticking thread would read as a suspension and slow a worker's clock, so it runs time-critical."""
@@ -64,6 +88,9 @@ def test_the_ticking_thread_runs_ahead_of_busy_work():
     kernel32.OpenThread.restype = ctypes.c_void_p
     kernel32.GetThreadPriority.argtypes = [ctypes.c_void_p]
     kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    if _thread_priority_held():
+        pytest.skip("this process sits in a job object that holds its priority class (the PC queue's 85% clamp): "
+                    "a thread's priority can't be raised here; outside it (the user's own runs) the test runs")
     handle = kernel32.OpenThread(0x0040, False, thread.native_id)  # THREAD_QUERY_INFORMATION
     try:
         for _ in range(40):  # the thread sets it as it starts
