@@ -125,7 +125,7 @@
   game_source: https://poe2db.tw/us/Freeze
   pob: config-only
   pob_check: "conditionEnemyFrozen / Electrocuted / Pinned / Immobilised are boxes PoB never sets from the build."
-  handling: "Never turned on (the resolver leaves boss-unsustainable conditions off)."
+  handling: "Frozen and Electrocuted (MECH38): each box at the share of the fight the boss carries it (models.immobilised_share): the main skill's buildup per hit x hits/s against the Arbiter of Ash's threshold, 4 s Frozen (x FreezeDurationMod) / 5 s Electrocuted (KeywordPopups), the threshold x6 for 14 / 15 s after each, buildup assumed paused while it lasts (LOW); so Electrocution's damage taken, the per-Elemental-Ailment-type lines and every against-Frozen/Electrocuted line count at that share. Other skills' buildup isn't counted (an undercount). Pinned and Immobilised boxes: still never set (labelled)."
   plan: {approach: custom model, how: "As heavy-stun: buildup per second against the boss's ailment threshold gives how often and how long it is immobilised; 'against Frozen / Immobilised' lines count at that uptime.", inputs: [buildup, threshold, durations]}
   what_if: invisible
   guide_note: "Boss Frozen / Pinned X% of the fight from your buildup."

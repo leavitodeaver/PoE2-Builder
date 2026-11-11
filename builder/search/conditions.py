@@ -822,6 +822,18 @@ def _cursed(stats: dict) -> tuple[object, str]:
     return _box(share, f"Cursed {share:.0%} of the fight ({shared(share)}): {how}")
 
 
+def _immobilised(ailment: str, name: str) -> Callable[[list[str], dict], tuple[object, str]]:
+    """The Frozen / Electrocuted box at the share of the fight the boss carries it (models.immobilised_share; MECH38:
+    before, nothing set it, so "Enemies you Electrocute have X% increased Damage taken", the per-Elemental-Ailment-type
+    damage taken and every "against Frozen / Electrocuted" line counted 0). PoB's box also sets Immobilised."""
+    def share(lines: list[str], stats: dict) -> tuple[object, str]:
+        up, how = models.immobilised_share(stats, ailment)
+        if not how:
+            return 0.0, ""
+        return _box(up, f"{name} {up:.0%} of the fight ({shared(up)}): {how}")
+    return share
+
+
 @dataclass(frozen=True)
 class Condition:
     var: str
@@ -873,6 +885,10 @@ CONDITIONS: list[Condition] = [
               fields=("BleedChancePerHit", "Speed", "HitChance", "BleedDuration")),
     Condition("conditionEnemyChilled", "Chilled", stat=lambda s: number(s.get("ChillChanceOnHit")) >= 100,
               fields=("ChillChanceOnHit",)),
+    Condition("conditionEnemyFrozen", "Frozen", value_fn=_immobilised("Freeze", "Frozen"),
+              fields=(*models.IMMOBILISE_FIELDS, "FreezeDurationMod")),
+    Condition("conditionEnemyElectrocuted", "Electrocuted", value_fn=_immobilised("Electrocute", "Electrocuted"),
+              fields=models.IMMOBILISE_FIELDS),
     Condition("conditionEnemyFireExposure", "Fire Exposure", value_fn=_exposure_uptime("Fire"),
               fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
     Condition("conditionEnemyColdExposure", "Cold Exposure", value_fn=_exposure_uptime("Cold"),

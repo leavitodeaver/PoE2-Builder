@@ -1961,6 +1961,32 @@ def buildup_rate(stats: dict, ailment: str) -> float:
     return 1 / repeat_every(1 / fill, *AILMENT_REPEAT[ailment]) if fill > 0 else 0.0
 
 
+# How long the boss stays Frozen / Electrocuted (MECH38, 11 Nov 2026): the game files' KeywordPopups, "Freeze ... lasts 4
+# seconds by default", "Electrocution ... lasts 5 seconds by default" (PoB's Data/Misc.lua: the same). Freeze x PoB's
+# FreezeDurationMod; no Electrocute duration modifier exists (ModCache searched for every "Electrocut" line). A boss's own
+# duration reduction, if any, isn't in the game files we read (labelled MEDIUM).
+IMMOBILISE_DURATION = {"Freeze": 4.0, "Electrocute": 5.0}
+
+
+def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
+    """Share of the fight the boss is Frozen / Electrocuted by the main skill's hits, and how. One every d + the time to
+    fill the bar again, buildup assumed paused while the boss is Frozen / Electrocuted (LOW: the game files don't say;
+    the faster reading, the bar filling during it, would be d / repeat_every), the threshold x6 for the rest of the
+    14 / 15 s after each one (AILMENT_REPEAT)."""
+    fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * AILMENT_BOSS
+    if fill <= 0:
+        return 0.0, ""
+    mod = (number(stats.get("FreezeDurationMod")) or 1.0) if ailment == "Freeze" else 1.0
+    d = IMMOBILISE_DURATION[ailment] * mod
+    times, window = AILMENT_REPEAT[ailment]
+    t = 1 / fill
+    period = d + repeat_every(t, times, max(window - d, 0.0))
+    share = min(1.0, d / period)
+    return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
+                   f"Arbiter of Ash threshold); {d:g} s each, one every {period:.1f} s (x6 threshold for "
+                   f"{window:g} s after each, buildup paused while it lasts, LOW): {share:.0%}")
+
+
 def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:
     """Times per second the main skill freezes, electrocutes, pins or heavy-stuns the boss, summed over `events` (a
     subset of freeze, electrocute, pin, stun), and how. Freeze and Electrocute from buildup_rate, stuns from

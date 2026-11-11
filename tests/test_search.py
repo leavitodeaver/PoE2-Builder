@@ -418,9 +418,10 @@ def test_condition_evidence(var, line, types, expected):
 
 
 def test_unsustainable_boss_conditions_are_never_resolved():
-    never = {"conditionEnemyStunned", "conditionEnemyFrozen", "conditionEnemyElectrocuted", "conditionEnemyDazed",
-             "conditionEnemyPinned", "conditionEnemyHeavyStunned"}
+    # (Frozen and Electrocuted: at the share the boss carries them since MECH38, from the buildup models)
+    never = {"conditionEnemyStunned", "conditionEnemyDazed", "conditionEnemyPinned", "conditionEnemyHeavyStunned"}
     assert not never & set(RULES)
+    assert all(RULES[var].value_fn is not None for var in ("conditionEnemyFrozen", "conditionEnemyElectrocuted"))
     assert math.isfinite(len(RULES))
 
 
@@ -903,6 +904,23 @@ def test_exposure_on_only_when_its_events_keep_it_up():
     front = "Inflict Elemental Exposure to Enemies 3 metres in front of you"
     assert fire([front], stats)[2] >= 0.9  # a melee build stands close
     assert fire([front], {**stats, "_main_types": {"Spell"}})[2] < 0.9
+
+
+def test_frozen_and_electrocuted_at_the_share_the_boss_carries_them():
+    """KeywordPopups: Freeze 4 s, Electrocution 5 s by default; one per bar refill, x6 threshold for 14 / 15 s after each
+    (MECH38: before, nothing set either box, so their damage-taken lines counted 0)."""
+    from builder.search.conditions import CONDITIONS, _immobilised
+
+    frozen, electrocuted = _immobilised("Freeze", "Frozen"), _immobilised("Electrocute", "Electrocuted")
+    stats = {"Speed": 2.0, "HitChance": 100, "FreezeBuildupAvg": 10, "ElectrocuteBuildupAvg": 10}
+    # 2 hits/s x 10% x 9.38/12.35: full in 6.58 s; 4 s Frozen, then 10 s at x6 and the rest: one per 18.9 s
+    on, basis, up = frozen([], stats)
+    assert on and abs(up - 4 / 18.92) < 0.005 and "21%" in basis
+    assert abs(electrocuted([], stats)[2] - 5 / 19.92) < 0.005
+    assert abs(frozen([], {**stats, "FreezeDurationMod": 1.5})[2] - 6 / 19.25) < 0.005
+    assert frozen([], {**stats, "FreezeBuildupAvg": 0}) == (0.0, "")
+    assert electrocuted([], {**stats, "Speed": 0}) == (0.0, "")
+    assert {"conditionEnemyFrozen", "conditionEnemyElectrocuted"} <= {c.var for c in CONDITIONS}
 
 
 def test_arcane_surge_on_only_when_its_sources_keep_it_up():
