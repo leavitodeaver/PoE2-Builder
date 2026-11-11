@@ -106,18 +106,29 @@
   status: proposed
 
 - id: no-effect-extra-charge-chance
-  title: Chance to gain an additional Power or Frenzy Charge (charges already count as at their maximum)
+  title: Chance to gain an additional Charge, or to gain up to your maximum (counted in the charges held, not by PoB)
   kind: pob_gap
-  match: '^\d+% chance when you gain an? (Power|Frenzy|Endurance) Charge to gain an additional \1 Charge$|^\d+% chance that if you would gain (?:Power|Frenzy|Endurance) Charges, you instead gain up to( your maximum number of (?:Power|Frenzy|Endurance) Charges)?$|^your maximum number of (?:Power|Frenzy|Endurance) Charges$'
+  match: '^\d+% chance when you gain an? (?:(?:Power|Frenzy|Endurance) )?Charge to gain an additional (?:\w+ )?Charge|^Gain an additional (?:(?:Power|Frenzy|Endurance) )?Charge when you gain|^\d+% chance to gain an additional random Charge when you gain a Charge|^\d+% chance that if you would gain (?:Power|Frenzy|Endurance) Charges, you instead gain up to( your maximum number of (?:Power|Frenzy|Endurance) Charges)?$|^your maximum number of (?:Power|Frenzy|Endurance) Charges$'
   replace: []
   confidence: theory
   notes: >-
-    The condition resolver counts a charge at its maximum as soon as the build has a source of it
-    (PLAN.md §9 "Rules that are still assumed"), so a faster charge rate adds nothing to what's
-    calculated. It would matter once charge rates are modeled, and for builds that consume charges.
-  sources: ["https://poe2db.tw/us/Lust_for_Power", "https://poe2db.tw/us/Avidity", "builder/search/conditions.py (charges count as maximum)"]
-  test_in_game: "With a charge generator, check that the charge count on your buff bar sits at its maximum in a boss fight; if it doesn't, this entry and the charge rule are wrong."
-  absorbed_by: "the condition resolver counts charges at their maximum once the build has a source (an overcount where they drop)"
+    PoB has no effect for these lines; the condition resolver counts them in the charges held
+    (conditions._extra_charges and charges_with_refresh, MECH44, 11 Nov 2026). Charges refresh together on each
+    gain (KeywordPopups Charges), so the count held is the expected charges gained since the last gap of one
+    duration, at most the maximum. "X% chance when you gain a Charge to gain an additional" adds one more
+    charge per gain at X% (summed, at most one extra per gain); a random extra Charge gives a third of its chance
+    to each of Power, Frenzy and Endurance (assumed). Charge Profusion's 30% (II: also 15% random) counts on
+    the charges of the skills it supports. "X% chance that if you would gain Charges, you instead gain up to
+    your maximum": a fill holds the maximum until the charges drop; beside a skill that consumes the charge
+    it's labelled, not counted. The "per 10 Tribute" lines are
+    labelled, not counted (Tribute isn't modelled). Game files: stat_descriptions.csd stats
+    chance_to_gain_1_more_{power,frenzy,endurance,random,}charge_% and
+    gain_maximum_<k>_charges_on_<k>_charge_gained_%_chance; sources in Mods, PassiveSkills (power_charges7,
+    frenzy_charges7_, endurance_charges9, power_endurance_charges3/6, the Oracle charge nodes, two ascendancy
+    nodes), SoulCoreStats and SupportChargeProfusionPlayer(Two).
+  sources: ["https://poe2db.tw/us/Lust_for_Power", "https://poe2db.tw/us/Avidity", "data/game-26476662 stat_descriptions.csd", "builder/search/conditions.py (_extra_charges, _charges_held)"]
+  test_in_game: "With a charge source and one of these lines, watch the charge count on your buff bar in a boss fight: it should sit higher than without the line, and at the maximum after a fill until no gain comes for one charge duration."
+  absorbed_by: "builder/search/conditions.py counts these lines in the charges held (one more charge per gain at the extra chance; a fill holds the maximum until the charges drop)"
   status: proposed
 
 - id: no-effect-extra-combo-on-gain

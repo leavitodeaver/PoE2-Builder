@@ -845,6 +845,10 @@ def test_hollow_form_images_follow_the_power_charges_the_build_makes():
     mods, notes = models.hollow_model(skills, stats, ["Gain a Power Charge every 2 seconds"], strike)
     assert [(m["line"], m["scale"]) for m in mods] == [("1% more Damage", pytest.approx(50.0))]
     assert notes[0]["value"] == pytest.approx(1.5)
+    # an extra Power Charge on every gain (chance_to_gain_1_more_power_charge_% at 100): 1 per s, half the uses
+    mods, _ = models.hollow_model(skills, stats, ["Gain a Power Charge every 2 seconds",
+                                                  "Gain an additional Power Charge when you gain a Power Charge"], strike)
+    assert mods[0]["scale"] == pytest.approx(100.0)
     # every use finds one (a charge on every crit at 50%, capped at all uses): 3 images
     mods, _ = models.hollow_model(skills, stats, ["Gain a Power Charge on Critical Hit"] * 3, strike)
     assert mods[0]["scale"] == pytest.approx(200.0)

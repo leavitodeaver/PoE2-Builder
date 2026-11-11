@@ -647,7 +647,8 @@ def test_charges_held_follow_the_builds_sources():
     stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "PowerChargesDuration": 15,
              "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15}
     count, basis = _charges_held("Power")(["10% chance to gain a Power Charge on Critical Hit"], stats)
-    assert count == pytest.approx(1.5)  # 10% x 1 crit/s x 15 s
+    # 10% x 1 crit/s: s = 1 - e^-1.5 that a gain comes within 15 s; held s + s^2 + s^3 (KeywordPopups Charges: refreshed)
+    assert count == pytest.approx(1.8)
     assert _charges_held("Power")(["Gain a Power Charge on Critical Hit"], stats)[0] == 3  # 1/s x 15 s, at most 3
     assert _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats) == (0.0, _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats)[1])
     assert _charges_held("Frenzy")(["20% chance to gain a Frenzy Charge on kill"], stats)[1]  # sources, but none on a boss
@@ -724,6 +725,46 @@ def test_charges_consumed_per_use_are_not_held():
     assert _charges_held("Frenzy")(source, slow)[0] == 3  # 0.75/s left x 15 s, at most 3
     starved = {**stats, "_consumers": {"Frenzy": {"Explosive Spear": 4.0}}}
     assert _charges_held("Frenzy")(source, starved)[0] == 0  # a quarter of its uses: not counted as charged
+
+
+def test_charges_drop_together_when_no_gain_refreshes_them():
+    """KeywordPopups Charges: "Charges last for 15 seconds by default, refreshing whenever you gain another charge"."""
+    from builder.search.conditions import charges_with_refresh
+
+    assert charges_with_refresh(0.1, 15, 3) == pytest.approx(1.849, abs=0.001)  # s + s^2 + s^3, s = 1 - e^-1.5
+    assert charges_with_refresh(1.0, 15, 3) == pytest.approx(3.0, abs=0.001)  # a gain every second: at the maximum
+    assert charges_with_refresh(0.0, 15, 3) == 0.0
+    assert charges_with_refresh(0.1, 15, 3, extra=1.0) == pytest.approx(2.157, abs=0.001)  # two per gain
+    assert charges_with_refresh(0.1, 15, 3, extra=0.5) == pytest.approx(2.037, abs=0.001)
+    assert charges_with_refresh(0.1, 15, 3, fill=0.1) == pytest.approx(1.910, abs=0.001)
+
+
+def test_extra_charge_chances_raise_the_rate_and_fills_reach_the_maximum():
+    """stat_descriptions: chance_to_gain_1_more_<k>_charge_%, ..._random_charge_%, gain_maximum_<k>_charges_on_..._gained."""
+    from builder.search.conditions import _charges_held
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "PowerChargesDuration": 15}
+    source = ["10% chance to gain a Power Charge on Critical Hit"]  # 0.1 gains/s
+    assert _charges_held("Power")(source, stats)[0] == pytest.approx(1.8)
+    more = source + ["50% chance when you gain a Power Charge to gain an additional Power Charge"]
+    count, basis = _charges_held("Power")(more, stats)
+    assert count == pytest.approx(2.0) and "50% extra" in basis
+    assert _charges_held("Power")(source + ["Gain an additional Frenzy Charge when you gain a Frenzy Charge"], stats)[0]         == pytest.approx(1.8)  # another kind's line
+    capped = source + ["Gain an additional Charge when you gain a Charge"] * 3
+    assert _charges_held("Power")(capped, stats)[0] == pytest.approx(2.2)  # at most one extra per gain
+    random = source + ["30% chance to gain an additional random Charge when you gain a Charge"]
+    assert "random extra" in _charges_held("Power")(random, stats)[1]
+    tribute = source + ["5% chance when you gain a Charge to gain an additional Charge per 10 Tribute"]
+    held, basis = _charges_held("Power")(tribute, stats)
+    assert held == pytest.approx(1.8) and "Tribute" in basis  # labelled, not counted
+    fill = source + ["10% chance that if you would gain Power Charges, you instead gain up to your maximum number of Power Charges"]
+    count, basis = _charges_held("Power")(fill, stats)
+    assert count == pytest.approx(1.9) and "fills to the maximum" in basis
+    spending = {**stats, "_consumers": {"Power": {"Hollow Form": 0.001}}}
+    assert "not counted beside a consumer" in _charges_held("Power")(fill, spending)[1]
+    gem = "While active, grants you a Power Charge on Critical Hit"
+    profusion = {**stats, "_profusion": {gem: (0.30, 0.15)}}
+    assert "Charge Profusion 35% of gains" in _charges_held("Power")([gem], profusion)[1]
 
 
 def test_a_charge_source_is_worth_a_real_trial():

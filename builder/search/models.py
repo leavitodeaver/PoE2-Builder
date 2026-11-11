@@ -503,7 +503,7 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
                 main: Skill | None) -> tuple[list[dict], list[dict]]:
     """Spell Totem with the main spell socketed: how many totems are up, from the Power and Endurance Charges the build
     makes (3 per totem), and the damage its Power Charges add. PoB's DPS is one totem's."""
-    from builder.search.conditions import _charge_rate
+    from builder.search.conditions import _charge_rate, _extra_charges
 
     if not cast_by_totem(skills, main) or not main.spell:
         return [], []
@@ -513,7 +513,8 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
     rates = {}
     for kind in ("Power", "Endurance"):
         found = [r for r in (_charge_rate(t, kind, yours) for t in texts) if r is not None]
-        rates[kind] = sum(r[0] for r in found) if number(stats.get(f"{kind}ChargesMax")) > 0 else 0.0
+        rates[kind] = (sum(r[0] for r in found) * (1 + _extra_charges(texts, kind)[0])  # (extra charges per gain)
+                       if number(stats.get(f"{kind}ChargesMax")) > 0 else 0.0)
     made = rates["Power"] + rates["Endurance"]
     power = rates["Power"] / made if made else 0.0  # (the charges are spent as they're made: their mix is the build's)
     level = levels.get("Spell Totem", 20)
@@ -642,13 +643,14 @@ def in_hollow_form(skills: list[Skill], skill: Skill | None) -> bool:
 
 def hollow_model(skills: list[Skill], stats: dict, texts: list[str], main: Skill | None) -> tuple[list[dict], list[dict]]:
     """The images Hollow Form's Power Charges add: 2 per use that finds a charge (one use per hit PoB counts)."""
-    from builder.search.conditions import _charge_rate
+    from builder.search.conditions import _charge_rate, _extra_charges
 
     if not in_hollow_form(skills, main):
         return [], []
     uses = number(stats.get("Speed"))
     found = [r for r in (_charge_rate(t, "Power", stats) for t in texts) if r is not None]
-    made = sum(r[0] for r in found) if number(stats.get("PowerChargesMax")) > 0 else 0.0
+    made = (sum(r[0] for r in found) * (1 + _extra_charges(texts, "Power")[0])  # (extra charges per gain)
+            if number(stats.get("PowerChargesMax")) > 0 else 0.0)
     share = min(1.0, made / uses) if uses > 0 else 0.0
     more = 100.0 * HOLLOW_IMAGES_PER_POWER * share
     mods = [line("1% more Damage", more, skill=main.name)] if more else []

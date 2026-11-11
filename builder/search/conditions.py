@@ -12,6 +12,7 @@ stats every character picks, so they're chosen here too, by score.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -355,29 +356,119 @@ def _boss_distance(lines: list[str], stats: dict) -> tuple[float, str]:
     return metres * 10, f"{metres:g} m: {why}; your Presence radius is {radius:.1f} m, so the boss is {where} it"
 
 
+# Extra charges per gain (MECH44, 11 Nov 2026; before, the ledger's no-effect-extra-charge-chance dropped them while the
+# count above was rate x duration). Game files (stat_descriptions.csd, build 26476662), every stat with "1_more" or
+# "charge_gained" and "charge" in its id and where Mods, PassiveSkills, SoulCoreStats and stat sets use it:
+# - chance_to_gain_1_more_{power,frenzy,endurance,}charge_%: "{0}% chance when you gain a <K> Charge to gain an additional
+#   <K> Charge" (100: "Gain an additional ... when you gain ..."); passives power_charges7, frenzy_charges7_,
+#   endurance_charges9, power_endurance_charges3/6, AscendancyRanger1Notable5_, AscendancyMonk1Small6; soul cores; the
+#   unique UniqueAdditionalChargeGeneration1 (any Charge); Charge Profusion I/II (30%, on the supported skill's charges).
+#   Counted: the gain rate x (1 + the summed chance, at most 1 extra per gain).
+# - chance_to_gain_1_more_random_charge_% ("... an additional random Charge when you gain a Charge"; Charge Profusion II
+#   15%, a mutated Vaal unique): a third of it to each of Power, Frenzy and Endurance (assumed, labelled: the random
+#   pick's pool isn't in the line).
+# - ..._per_10_tribute: Tribute isn't modelled: labelled, not counted.
+# - gain_maximum_<K>_charges_on_<K>_charge_gained_%_chance: "{0}% chance that if you would gain <K> Charges, you instead
+#   gain up to your maximum" (passives oracle_<k>_charge1-4, mods ChargeBonusChanceToGainMaximum*, unique
+#   ChanceToGainMaximumPowerChargesUnique__1_). A fill holds the maximum until the charges drop (charges_with_refresh).
+#   With a consumer of the charge it's labelled, not counted (what the consumer leaves of a fill isn't modelled).
+EXTRA_CHARGE = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance when you gain an? (?:(Power|Frenzy|Endurance) )?Charge to gain an "
+                          r"additional (?:\w+ )?Charge|Gain an additional (?:(Power|Frenzy|Endurance) )?Charge when you gain "
+                          r"an? (?:\w+ )?Charge)(.*)$", re.I)
+EXTRA_RANDOM_CHARGE = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to gain|Gain) an additional random Charge when you gain a "
+                                 r"Charge(.*)$", re.I)
+FILL_CHARGES = re.compile(r"(\d+(?:\.\d+)?)% chance that if you would gain (?:(Power|Frenzy|Endurance) )?Charges, you instead"
+                          r"\s+gain up to\s+(?:your )?maximum", re.I)
+# Charge Profusion I / II (GrantedEffectStatSets SupportChargeProfusionPlayer / ...Two: chance_to_gain_1_more_charge_% 30,
+# ...Two also chance_to_gain_1_more_random_charge_% 15): on the charges of the skills it supports.
+CHARGE_PROFUSION = {"Charge Profusion I": (0.30, 0.0), "Charge Profusion II": (0.30, 0.15)}
+
+
+def _extra_charges(lines: list[str], kind: str) -> tuple[float, float, list[str]]:
+    """(extra charges per gain, chance a gain fills to the maximum, how) from the build's lines."""
+    extra, fill, how = 0.0, 0.0, []
+    for text in lines:
+        if (m := EXTRA_CHARGE.search(text)) and (m.group(2) or m.group(3) or kind).lower() == kind.lower():
+            if "tribute" in m.group(4).lower():
+                how.append(f"'{text[:50]}': Tribute isn't modelled, not counted")
+                continue
+            chance = float(m.group(1)) / 100 if m.group(1) else 1.0
+            extra += chance
+            how.append(f"{chance:.0%} extra per gain")
+        elif m := EXTRA_RANDOM_CHARGE.search(text):
+            if "tribute" in m.group(2).lower():
+                how.append(f"'{text[:50]}': Tribute isn't modelled, not counted")
+                continue
+            chance = (float(m.group(1)) / 100 if m.group(1) else 1.0) / 3
+            extra += chance
+            how.append(f"{chance:.0%} random extra per gain (a third of the pick assumed {kind})")
+        elif (m := FILL_CHARGES.search(text)) and (m.group(2) or kind).lower() == kind.lower():
+            fill = 1 - (1 - fill) * (1 - float(m.group(1)) / 100)
+    return min(extra, 1.0), fill, how
+
+
+def charges_with_refresh(gains: float, duration: float, most: float, extra: float = 0.0, fill: float = 0.0) -> float:
+    """Charges held on average, from gains per second (MECH44, 11 Nov 2026).
+
+    The game files' KeywordPopups Charges (build 26476662): "Charges last for 15 seconds by default, refreshing whenever
+    you gain another charge of the same type." So all of a kind drop together when no gain comes for one duration, and
+    the count is the gains since the last such gap, at most the maximum. Gains are taken as random (Poisson) arrivals
+    (assumed, labelled): a gap longer than the duration comes before any gain with chance 1 - s, s = 1 - e^(-gains x
+    duration), so the gains in the current run N have P(N = n) = (1 - s) s^n. Each gain brings one charge, plus one more
+    at chance `extra`; at chance `fill` it brings the maximum instead, held for the rest of the run."""
+    top = int(round(most))
+    if top <= 0 or gains <= 0 or duration <= 0:
+        return 0.0
+    s = 1 - math.exp(-gains * duration)
+    held = s ** top * top  # (N >= top: at the maximum)
+    for n in range(1, top):
+        below = sum(math.comb(n, k) * extra ** k * (1 - extra) ** (n - k) * min(top, n + k) for k in range(n + 1))
+        kept = (1 - fill) ** n
+        held += (1 - s) * s ** n * ((1 - kept) * top + kept * below)
+    return min(held, most)
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
-        rate, how = 0.0, []
+        gains, bonus, how = 0.0, 0.0, []
+        profusion = stats.get("_profusion") or {}  # gem description -> (chance of one more, of a random one)
         for text in lines:
             if (r := _charge_rate(text, kind, stats)) is not None:
-                rate += r[0]
-                how.append(f"{text[:60]} ({r[1]})")
+                more = profusion.get(text)
+                plus = (more[0] + more[1] / 3) if more else 0.0
+                gains += r[0]
+                bonus += r[0] * plus
+                how.append(f"{text[:60]} ({r[1]}" + (f"; Charge Profusion +{plus:.0%} per gain" if more else "") + ")")
         if not how:
             return 0.0, ""
+        extra, fill, extra_how = _extra_charges(lines, kind)
+        if bonus:
+            extra_how.append(f"Charge Profusion {bonus / gains:.0%} of gains")
+        extra = min(1.0, extra + (bonus / gains if gains else 0.0))
+        rate = gains * (1 + extra)
         most = number(stats.get(f"{kind}ChargesMax"))
         duration = number(stats.get(f"{kind}ChargesDuration")) or 15.0
         # Skills that consume this charge per use (PoB skill types SkillConsumes<Kind>ChargesOnUse; one per use assumed):
-        # what they spend isn't held. A consumer finds a charge on a share generation / consumption of its uses.
+        # what they spend isn't held. A consumer finds a charge on a share generation / consumption of its uses. (Beside
+        # a consumer the count stays the older rate left x duration, at most the maximum: how consumption and the shared
+        # refresh interact isn't modelled.)
         spent = sum((stats.get("_consumers") or {}).get(kind, {}).values())
-        net = max(rate - spent, 0.0)
-        count = min(most, net * duration)
-        basis = f"{rate:.2f}/s x {duration:g} s"
+        extra_text = f" x {1 + extra:.2f} per gain ({', '.join(extra_how)})" if extra_how else ""
         if spent:
+            net = max(rate - spent, 0.0)
+            count = min(most, net * duration)
             share = min(1.0, rate / spent)
-            basis = (f"{rate:.2f}/s made, {spent:.2f}/s spent by " + ", ".join(stats["_consumers"][kind]) +
+            basis = (f"{gains:.2f} gains/s{extra_text} = {rate:.2f}/s made, {spent:.2f}/s spent by " +
+                     ", ".join(stats["_consumers"][kind]) +
                      f" (one per use; {share:.0%} of their uses find a charge), {net:.2f}/s left x {duration:g} s")
             if count <= 0 and share >= 0.5:
                 count = 0.1  # (held for an instant before it's spent: enough for PoB to count the charged use)
+            if fill:
+                basis += f"; {fill:.0%} chance a gain fills to the maximum: not counted beside a consumer of the charge"
+        else:
+            count = charges_with_refresh(gains, duration, most, extra, fill)
+            basis = (f"{gains:.2f} gains/s{extra_text}, all dropping after {duration:g} s without a gain (gains taken as "
+                     f"random arrivals)" + (f"; {fill:.0%} chance a gain fills to the maximum" if fill else ""))
         return round(count, 1), f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3])
     return held
 
@@ -1334,6 +1425,16 @@ class Conditions:
                  "_curse_uses": curse_uses(self.build, stats, texts, (self.distance or (natural_distance(main_types), ""))[0])
                  if any("AppliesCurse" in types for types in gem_types.values())
                  or any(models.CURSE_ON_HIT.search(t) for t in texts) else []}
+        profusion = {}  # Charge Profusion: the descriptions of the charge-making skills it supports (_charges_held)
+        for each in self.build.groups():
+            names = {g["name"] for g in each.get("gems") or []}
+            if more := next((CHARGE_PROFUSION[n] for n in names if n in CHARGE_PROFUSION), None):
+                for line in lines:
+                    name = line["source"][4:] if line["source"].startswith("gem:") else None
+                    if name in names and "GeneratesCharges" in gem_types.get(name, ()):
+                        profusion[line["text"]] = more
+        if profusion:
+            stats["_profusion"] = profusion
         if "Arcane Surge" in main_gems:  # (the support: its threshold and duration from the gem, arcane_surge_uptime)
             raw = self.build.call("activeSkills", supportStats=list(ARCANE_SURGE_SUPPORT_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
