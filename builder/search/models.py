@@ -1125,7 +1125,7 @@ CURSE_ON_HIT = re.compile(r"\bcurse (?:non-cursed )?enemies with (.+?) on hit\b"
 CURSED_LINES = (
     (re.compile(r"Enemies you Curse take (\d+)% increased Damage", re.I), "Enemies you Curse take 1% increased Damage"),
     (re.compile(r"Enemies you Curse have ([+-]?\d+)% to Chaos Resistance", re.I),
-     "Enemies you Curse have 1% to Chaos Resistance"),
+     "Enemies you Curse have +1% to Chaos Resistance"),  # PoB's "to" form needs the sign (ModParser "^([%+%-]...)%? to")
     (re.compile(r"(\d+)% increased duration of Ailments you inflict against Cursed Enemies", re.I),
      "1% increased duration of Ailments you inflict against Cursed Enemies"),
 )
@@ -1209,7 +1209,7 @@ def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
         total = sum(float(m.group(1)) for entry in lines or [] if (m := pattern.search(entry["text"])))
         if total and share < 1.0:
             mods.append(line(text, -total * (1.0 - share)))
-            found.append(text.replace("1%", f"{total:g}%"))
+            found.append(text.replace("+1%", f"{total:+g}%") if "+1%" in text else text.replace("1%", f"{total:g}%"))
     unscaled = [entry["text"] for entry in lines or [] if CURSED_UNSCALED.search(entry["text"])]
     if found or (unscaled and share < 1.0):
         notes.append({"label": "Lines while the boss is Cursed: share of the fight", "value": round(share, 2),

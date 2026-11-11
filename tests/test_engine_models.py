@@ -1094,6 +1094,14 @@ def test_a_glory_skill_as_the_main_skill_is_used_as_often_as_the_build_makes_its
     build.remove_group(other["index"])
 
 
+def test_every_cursed_line_template_parses_in_pob(engine):
+    """The bridge stops a search on an assumption line PoB can't parse: "Enemies you Curse have 1% to Chaos
+    Resistance" without its sign stopped every search task of gate 2b75b (GEAR4, POE2T619)."""
+    texts = [text for _, text in models.CURSED_LINES]
+    results = engine.call("parseLines", lines=texts)["results"]
+    assert [r["line"] for r in results if not r["supported"]] == []
+
+
 def test_a_curse_is_scaled_to_its_share_and_cast_by_hand_costs_time(engine):
     """MECH33: PoB counts a curse always up and the enemy Cursed with any curse. A skill-scoped "more Effect of your
     Curses" line reaches a curse gem, "Enemies you Curse take ..." is scaled like the Marked lines, and a curse cast by
