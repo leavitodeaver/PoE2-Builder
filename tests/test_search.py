@@ -985,3 +985,35 @@ def test_floors_are_checked_without_a_partial_effect():
     assert [label for label, _, _ in objective.deficits(base)] != [] and objective.score(base) < full
     objective.floor_deltas, objective.uptime_factor = [], 0.5
     assert objective.dps(base) == pytest.approx(50000)
+
+
+def test_full_dps_never_counts_pounce_s_own_hit_as_used_nonstop():
+    """include_in_full_dps (MECH36): a damaging group joins Full DPS where it raises the goal, but a Pounce group never
+    does (pressed once per Mark, about every 8 s, which Full DPS would count as nonstop), and a seed's flag on it comes
+    off; the note says so."""
+    from builder.search.inner import Search
+
+    class Objective:
+        def value(self, stats):
+            return sum(g["dps"] for g in groups if g["fullDPS"] or g["main"])
+
+    class Build:
+        objective, stats = Objective(), {}
+
+        def groups(self):
+            return groups
+
+        def set_group(self, index, fullDPS):
+            groups[index - 1]["fullDPS"] = fullDPS
+
+    def group(index, names, dps, full=False, main=False):
+        return {"index": index, "main": main, "fromItem": False, "enabled": True, "fullDPS": full, "dps": dps,
+                "gems": [{"name": n} for n in names]}
+
+    groups = [group(1, ["Spark"], 100, main=True), group(2, ["Pounce", "Sniper's Mark"], 50, full=True),
+              group(3, ["Pounce"], 40), group(4, ["Comet"], 30)]
+    search = Search.__new__(Search)
+    search.build, search.play_notes = Build(), {}
+    search.include_in_full_dps()
+    assert [g["fullDPS"] for g in groups] == [False, False, False, True]
+    assert "Pounce" in search.play_notes["pounce_hit"]["label"]

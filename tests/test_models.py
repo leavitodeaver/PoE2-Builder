@@ -945,6 +945,11 @@ def test_infusion_supply_counts_each_element_from_the_build_s_sources():
     assert supply["Lightning"] == pytest.approx(orb + snap / 2) and supply["Fire"] == pytest.approx(snap / 2)
     assert any("Siphon Elements" in u and "undercount" in u for u in used)
     assert infusion_supply({"Snap": {}}, [], set())[0]["Fire"] == 0  # no ailment to consume
+    # each ailment at its share of the fight (MECH36): Snap finds one when either is up (1 - 0.5 x 0.75), split by uptime
+    part, used = infusion_supply({"Snap": {}}, [], {"conditionEnemyIgnited": 0.5, "conditionEnemyShocked": 0.25})
+    assert part["Fire"] == pytest.approx(snap * 0.625 * 2 / 3) and part["Lightning"] == pytest.approx(snap * 0.625 / 3)
+    assert "Fire 50% of the fight" in used[0] and "62% of its casts" in used[0]
+    assert infusion_supply({"Snap": {}}, [], {"conditionEnemyIgnited": 0.0})[0]["Fire"] == 0
     lines = ["Create Lightning Infusion Remnants instead of Fire", "50% chance to spawn an additional Infusion Remnant",
              "20% chance to gain an additional Infusion", "40% chance when collecting an Elemental Infusion to gain another "
              "different Elemental Infusion", "Every 5 seconds, gain a Verisium Infusion"]

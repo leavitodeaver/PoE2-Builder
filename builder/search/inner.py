@@ -30,7 +30,7 @@ from builder.search.gear import Gear, SlotSpec, extra_ring_passive
 from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
 from builder.search import play_guide
-from builder.search.models import GLORY_SKILLS, MODEL_FIELDS
+from builder.search.models import GLORY_SKILLS, MARK_CARRIERS, MODEL_FIELDS
 from builder.search.objective import (
     CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, number, shortfall,
     with_boss_recovery,
@@ -836,8 +836,22 @@ class Search:
     def include_in_full_dps(self) -> None:
         """Damaging non-main groups join Full DPS where they raise the goal (PoB counts only groups flagged for it)."""
         build = self.build
+        self.play_notes.pop("pounce_hit", None)
         for group in build.groups():
-            if group["main"] or group["fromItem"] or not group["enabled"] or group["fullDPS"]:
+            if group["main"] or group["fromItem"] or not group["enabled"]:
+                continue
+            # Pounce is pressed now and then (as its Mark runs out, about every 8 s: models.mark_use), never nonstop, which
+            # is how Full DPS would count its slam; its damage is left out, labelled (MECH36), its Mark counted by the model
+            if any(g["name"] in MARK_CARRIERS for g in group.get("gems") or []):
+                self.play_notes["pounce_hit"] = {
+                    "label": "Pounce's own hit: not counted*", "value": "0",
+                    "basis": "Pounce is pressed about once per Mark (8 s), so PoB's Full DPS, which counts a group as used "
+                             "nonstop, would overcount it; its slam is left out (an undercount of one hit per 8 s)",
+                    "confidence": "theory"}
+                if group["fullDPS"]:  # (a seed's PoB code may have it on)
+                    build.set_group(index=group["index"], fullDPS=False)
+                continue
+            if group["fullDPS"]:
                 continue
             before = build.objective.value(build.stats)
             build.set_group(index=group["index"], fullDPS=True)

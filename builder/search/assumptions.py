@@ -116,13 +116,14 @@ VERISIUM_EVERY = re.compile(r"Every (?:(\d+(?:\.\d+)?) )?seconds?, gain an? Veri
 INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
 
 
-def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str],
+def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str] | dict[str, float],
                     siphon: tuple[float, str] = (0.0, "")) -> tuple[dict[str, float], list[str]]:
     """Elemental Infusions per second by element ("Any": Verisium Infusions, usable as any element), and what makes them.
     `present`: the build's enabled skills by name; `lines`: its modifier lines; `ailments`: the resolver's active
-    condition vars (which ailment Snap consumes); `siphon`: Siphon Elements' Cold Remnants per second and how
+    condition vars (which ailment Snap consumes), a set (each always up) or each var's share of the fight; `siphon`: Siphon Elements' Cold Remnants per second and how
     (siphon_freezes), used when the build has it."""
     supply = {"Fire": 0.0, "Cold": 0.0, "Lightning": 0.0, "Any": 0.0}
+    uptimes = ailments if isinstance(ailments, dict) else dict.fromkeys(ailments, 1.0)
     used: list[str] = []
     made: dict[str, float] = {}
     for name, element in INFUSION_SOURCES.items():
@@ -130,14 +131,25 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
         if skill is None:
             continue
         rate = REMNANT_SOURCES[name][0] * ((skill.get("cooldownRecovery") or 1.0) if name in COOLDOWN_SOURCES else 1.0)
-        if element is None:  # Snap: the element of the ailment it consumes, split evenly between those the build keeps up
-            elements = [SNAP_AILMENTS[var] for var in sorted(ailments) if var in SNAP_AILMENTS]
-            if not elements:
+        if element is None:  # Snap: the element of the ailment it consumes, from those on the boss at their uptimes
+            # (MECH36: each ailment at its real share of the fight, not on only from 90%: Snap finds one when any is up,
+            # 1 - the product of each one's absence, taken as independent; the element split by uptime, even when all
+            # are always up)
+            ups = {SNAP_AILMENTS[var]: min(1.0, max(0.0, float(up))) for var, up in sorted(uptimes.items())
+                   if var in SNAP_AILMENTS and up > 0}
+            if not ups:
                 used.append(f"{name} 0/s (no Ignite, Shock or Freeze on the boss to consume)")
                 continue
-            for e in elements:
-                made[e] = made.get(e, 0.0) + rate / len(elements)
-            used.append(f"{name} {rate:.2f}/s ({'/'.join(elements)}, its consumed ailment{'s split evenly' if len(elements) > 1 else ''})")
+            absent = 1.0
+            for up in ups.values():
+                absent *= 1.0 - up
+            found = 1.0 - absent
+            for e, up in ups.items():
+                made[e] = made.get(e, 0.0) + rate * found * up / sum(ups.values())
+            shares = "/".join(e if up >= 1.0 else f"{e} {up:.0%} of the fight" for e, up in ups.items())
+            used.append(f"{name} {rate * found:.2f}/s ({shares}, its consumed ailment"
+                        f"{'s split by uptime' if len(ups) > 1 else ''}"
+                        f"{f'; one on the boss at {found:.0%} of its casts' if found < 1.0 else ''})")
         else:
             made[element] = made.get(element, 0.0) + rate
             used.append(f"{name} {rate:.2f}/s {element}")
@@ -501,7 +513,7 @@ class Assumptions:
             "confidence": "game files' trigger, cooldown and mana share; Critical Hits taken at their average rate",
         }
 
-    def infusion_share(self, element: str, ailments: set[str]) -> tuple[float, str]:
+    def infusion_share(self, element: str, ailments: set[str] | dict[str, float]) -> tuple[float, str]:
         """The share of the main skill's casts that find an Elemental Infusion of `element` (one consumed per cast):
         the build's supply (infusion_supply) over its casts per second, less those that keep the Infusion."""
         build = self.build
