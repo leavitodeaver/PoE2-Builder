@@ -296,20 +296,27 @@ def version_entry(entry: dict, gear: dict, data: GameData, versions: dict | None
 
 # Shopping list ---------------------------------------------------------------------------------
 
-def granted_roll_note(raw: str, chosen=None) -> str | None:
+def granted_roll_note(raw: str, chosen=None, assumed: int | None = None) -> str | None:
     """Which level of a unique's 'Grants Skill: Level (a-b)' line the build assumes (models.granted_level_notes): the
-    level the search bought (granted_rolls.py, priced from trade listings of it), else PoB's middle roll."""
+    level the search bought (granted_rolls.py, priced from trade listings of it), else an endgame copy, assumed until
+    priced (`assumed`, ItemOption.describe's granted_level), else (SSF) PoB's middle roll."""
     if granted := granted_rolls.parse_label(chosen):
         level, skill = granted
         return (f"Buy a copy granting {skill} at level {level} or higher: the build assumes {level}, priced from the "
                 "trade site's listings of that level (the item's level sets it; level 20 is usually a corrupted copy).")
-    parts = [f"{skill} at level {level} of {low}-{high}" for level, low, high, skill
-             in map(models.granted_level, models.GRANTED_RANGE.finditer(raw)) if low != high]
-    if not parts:
+    if assumed:
+        raw = granted_rolls.with_level(raw, assumed)
+    matches = [m for m in models.GRANTED_RANGE.finditer(raw) if m.group(2) != m.group(3)]
+    if not matches:
         return None
-    return (f"The build assumes {', '.join(parts)} (PoB's middle roll: its levels aren't priced yet; the Price unique "
-            "versions job prices them). The price shown is poe.ninja's for the cheapest copy of any level; the item's "
-            "level sets it, and copies on the trade site are often higher (Mjolner 18-19, 10 Nov 2026).")
+    parts = ", ".join(f"{skill} at level {level} of {low}-{high}"
+                      for level, low, high, skill in map(models.granted_level, matches))
+    if assumed:
+        return (f"* The build assumes {parts}: an endgame copy, item level ~80; lower-level copies grant less "
+                "(MEDIUM confidence; its levels aren't priced yet, the Price unique versions job prices them). The price "
+                "shown is poe.ninja's for the cheapest copy of any level: check the level before you buy.")
+    return (f"The build assumes {parts} (PoB's middle roll: the level of a copy you find isn't known). The item's "
+            "level sets it, loosely: endgame copies (item level ~80) grant 18-19.")
 
 
 def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, dict] | None = None,
@@ -347,7 +354,7 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                 index = index if index is not None else stat_index(stats)
                 version_entry(entry, gear, data, prices.get("unique_versions"), index)
             raw = gear.get("raw") or next((u["raw"] for u in data.uniques if u["name"] == gear["name"]), "")
-            if granted := granted_roll_note(raw, gear.get("variants")):
+            if granted := granted_roll_note(raw, gear.get("variants"), gear.get("granted_level")):
                 entry["note"] = f"{entry['note']} {granted}" if entry.get("note") else granted
 
         elif kind in ("rare", "magic"):

@@ -61,6 +61,12 @@ class ItemOption:
     affixes: tuple[str, ...] = ()  # a rare's modifier lines
     runes: tuple[str, ...] = ()  # what's in its sockets
     variants: tuple[str, ...] = ()  # a unique's chosen variants, when the search chose them (radius.py)
+    granted_assumed: int | None = None  # a rolled granted level assumed, not priced (granted_rolls.ENDGAME_LEVEL)
+
+    @property
+    def granted_basis(self) -> str:
+        """Where its rolled granted level comes from (models.granted_level_notes): "priced", "endgame" or "middle"."""
+        return "priced" if granted_rolls.parse_label(self.variants) else "endgame" if self.granted_assumed else "middle"
 
     def describe(self) -> dict:
         described = {"name": self.name, "base": self.base, "type": self.type, "unique": self.unique, "rare": self.rare,
@@ -68,6 +74,8 @@ class ItemOption:
                      "runes": list(self.runes)}
         if self.variants:
             described["variants"] = list(self.variants)
+        if self.granted_assumed:
+            described["granted_level"] = self.granted_assumed  # an endgame copy, assumed until priced (granted_versions)
         return described
 
 
@@ -354,15 +362,16 @@ class Context:
                 option = ItemOption(name, base["name"], base["type"], base.get("subType"),
                                     self.corrected_raw(name, unique["raw"]), True,
                                     priced[0], priced[1], (base.get("req") or {}).get("level") or 0)
-                # Required: the cheapest level the trade site sells (granted_versions), else the middle roll
+                # Required: the cheapest level the trade site sells (granted_versions), else an endgame copy
                 return min(self.granted_versions(option, capped=False), key=lambda o: (o.price or 0.0))
         return None
 
     def granted_versions(self, option: ItemOption, capped: bool = True) -> list[ItemOption]:
         """A unique granting a skill at a rolled level (granted_rolls.py): one option per level the Price unique versions
         job priced from trade listings (builder/report/version_prices.py), at that level and its price; levels nobody
-        lists aren't offered. Until any level is priced (and in SSF), the unique as PoB loads it, the middle roll,
-        which the guide and the shopping list label (models.granted_level_notes)."""
+        lists aren't offered. Until any level is priced, an endgame copy (granted_rolls.ENDGAME_LEVEL, at the feed's
+        price for any level); in SSF the unique as PoB loads it, the middle roll. The guide and the shopping list
+        label which (models.granted_level_notes)."""
         skills = granted_rolls.rolled(option.raw)
         if not skills or self.ssf:
             return [option]
@@ -379,7 +388,9 @@ class Context:
                 option, raw=granted_rolls.with_level(option.raw, parsed[0]), price=entry["price"],
                 variants=(granted_rolls.label(*parsed),),
                 confidence=f"trade, {skill} level {parsed[0]}+ ({entry['listed']} listed, {day})"))
-        return sorted(found, key=lambda o: o.price) or [option]
+        return sorted(found, key=lambda o: o.price) or [
+            dataclasses.replace(option, raw=granted_rolls.with_level(option.raw, granted_rolls.ENDGAME_LEVEL),
+                                granted_assumed=granted_rolls.ENDGAME_LEVEL)]
 
     # Passive tree -----------------------------------------------------------------------------
 

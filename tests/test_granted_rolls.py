@@ -117,9 +117,21 @@ def test_the_search_buys_each_priced_level(data) -> None:
     assert [models.granted_level_notes([("Mjolner", o.raw)])[0]["value"] for o in versions] == [18, 19]
     assert versions[0].confidence.startswith("trade, Thundergod's Wrath level 18+")
     assert len(Context.granted_versions(ctx, option, capped=False)) == 3
-    # Unpriced, and in SSF: PoB's middle roll, labelled in the guide and the shopping list
-    assert Context.granted_versions(SimpleNamespace(ssf=False, unique_versions={}, price_cap=50.0), option) == [option]
+    # Unpriced: an endgame copy (the user, 11 Nov 2026), at the feed's price, MEDIUM, with an asterisk in the shopping list
+    unpriced = Context.granted_versions(SimpleNamespace(ssf=False, unique_versions={}, price_cap=50.0), option)
+    assert len(unpriced) == 1 and unpriced[0].price == option.price and not unpriced[0].variants
+    assert unpriced[0].describe()["granted_level"] == granted_rolls.ENDGAME_LEVEL == 18
+    note = models.granted_level_notes([("Mjolner", unpriced[0].raw, unpriced[0].granted_basis)])[0]
+    assert note["value"] == 18 and note["confidence"] == "medium" and "endgame copy, item level ~80" in note["basis"]
+    assert "poe.ninja's for the cheapest copy of any level" in note["basis"]
+    assert models.granted_level_notes([("Mjolner", versions[0].raw, versions[0].granted_basis)])[0]["confidence"] == "trade"
+    shop = granted_roll_note(raw, None, unpriced[0].describe()["granted_level"])
+    assert shop.startswith("* The build assumes Thundergod's Wrath at level 18 of 1-20: an endgame copy")
+    assert "MEDIUM confidence" in shop and "poe.ninja's for the cheapest copy of any level" in shop
+    # SSF: PoB's middle roll, as it loads, labelled
     assert Context.granted_versions(SimpleNamespace(ssf=True, unique_versions=priced, price_cap=50.0), option) == [option]
+    assert "granted_level" not in option.describe()
+    assert models.granted_level_notes([("Mjolner", option.raw)])[0]["confidence"] == "theory"
 
 
 def test_the_shopping_list_searches_and_names_the_level(data) -> None:

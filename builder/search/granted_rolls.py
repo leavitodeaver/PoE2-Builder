@@ -17,6 +17,11 @@ Choir of the Storm 18 at 81, 19 at 84; Lifesprig 13 at 54, 14 at 65-67, 15 at 67
 The Searing Touch 13 at 53, 16 at 73, 17 or 19 at 78, 18 or 19 at 81-82. So copies of one item level can differ by one
 or two levels; it is bought by the listed level, never inferred from the item level.
 
+Until a unique's levels are priced, the build assumes an endgame copy, ENDGAME_LEVEL (the user, 11 Nov 2026: "the
+typical endgame drop level" in place of the middle roll): item level ~80 copies grant 18, sometimes 19 (the table
+above). MEDIUM confidence, with an asterisk; the price meanwhile is poe.ninja's cheapest copy of any level. SSF keeps
+PoB's middle roll (11 for 1-20): the level of a copy you find yourself isn't known, and nothing is priced there.
+
 A unique granting two skills at rolled levels (Dusk Vigil's Firebolt and Ember Fusillade, Earthbound) is priced by its
 first one's level; the others are ASSUMED to follow the same item level, so they get the same level.
 """
@@ -30,6 +35,7 @@ from builder.search import models
 # The label a priced level is kept under in builder/data/unique_versions.py and carried as ItemOption.variants
 LABEL = re.compile(r"^Grants Skill: Level (\d+)\+ (.+)$")
 LISTED_LEVEL = r"Level (\d+) %s\s*$"
+ENDGAME_LEVEL = 18  # an endgame copy (item level ~80), assumed until its levels are priced
 
 
 def rolled(raw: str) -> list[tuple[str, int, int]]:

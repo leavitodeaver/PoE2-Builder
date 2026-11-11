@@ -792,22 +792,28 @@ def granted_level(m: re.Match) -> tuple[int, int, int, str]:
     return int(low + (high - low) * float(m.group(1) or 0.5) + 0.5), low, high, m.group(4)
 
 
-def granted_level_notes(items: list[tuple[str, str]]) -> list[dict]:
-    """For each equipped unique ((name, its text)) granting a skill at a rolled level (Forgotten Warden's Spirit Vessel,
-    Mjolner's Thundergod's Wrath): which roll the build assumes. The user, 8 Nov 2026: the roll is the item's, so say it
-    in the guide and the shopping list (builder/report/shopping.py)."""
+def granted_level_notes(items: list[tuple]) -> list[dict]:
+    """For each equipped unique ((name, its text[, basis])) granting a skill at a rolled level (Forgotten Warden's
+    Spirit Vessel, Mjolner's Thundergod's Wrath): which roll the build assumes. The user, 8 Nov 2026: the roll is the
+    item's, so say it in the guide and the shopping list (builder/report/shopping.py). basis (ItemOption.granted_basis):
+    "priced" (a level the trade site lists, bought), "endgame" (assumed until priced) or "middle" (PoB's, as in SSF)."""
     notes = []
-    for name, raw in items:
+    for name, raw, *rest in items:
         for m in GRANTED_RANGE.finditer(raw):
             level, low, high, skill = granted_level(m)
             if low == high:
                 continue
+            basis = rest[0] if rest else "middle"
+            why = {"priced": ("the level the search bought, priced from the trade site's listings of it", "trade"),
+                   "endgame": ("an endgame copy, item level ~80; lower-level copies grant less. ASSUMED until the Price "
+                               "unique versions job prices its levels: the price shown meanwhile is poe.ninja's for the "
+                               "cheapest copy of any level", "medium"),
+                   "middle": ("PoB's middle roll (SSF: the level of a copy you find isn't known)", "theory")}[basis]
             notes.append({"label": f"{name}'s {skill}: level {level} assumed", "value": level,
-                          "basis": f"the item rolls 'Grants Skill: Level ({low}-{high}) {skill}'; the build assumes the "
-                                   f"roll {level}: the level the search bought, priced from the trade site's listings of it, or PoB's "
-                                   f"middle roll until its levels are priced (builder/search/granted_rolls.py; the shopping "
-                                   f"list says which). The item's level sets it; a lower level does less",
-                          "confidence": "theory"})
+                          "basis": f"the item rolls 'Grants Skill: Level ({low}-{high}) {skill}'; the build assumes "
+                                   f"{level}: {why[0]} (builder/search/granted_rolls.py). The item's level sets it, "
+                                   "loosely (copies of item level 78 grant 17 or 19); a lower level does less",
+                          "confidence": why[1]})
     return notes
 
 
