@@ -2189,3 +2189,55 @@ def item_read_by_models(raw: str, build_texts: list[str]) -> bool:
     models that read the build's lines.)"""
     lines = [l.strip() for l in (raw or "").splitlines() if l.strip()]
     return any(model_entry(text) is not None or MAELSTROM.match(text) or RING_LINE.match(text) for text in lines)
+
+
+# A pressed non-main skill in Full DPS (MECH37) -------------------------------------------------------------------
+# PoB's Full DPS counts every group in it as used nonstop, though only the main skill is: a skill the player presses
+# beside it is used on its cooldown, once per its buff/debuff duration if it's pressed to keep one up, or else at a
+# labelled guess, and the main skill loses the time those presses take.
+PRESS_EVERY = 5.0  # seconds between presses of a skill with neither a cooldown nor a duration (LOW: a guess)
+
+
+def press_model(rates: list[dict], main_index: int | None, pressed: set[int]) -> tuple[dict[str, float], list[dict]]:
+    """Full DPS entry scales ({SkillDPS name: x}) and notes for the pressed non-main groups `pressed`, from the bridge's
+    `useRates` (each group's skill as if it were the main one: its speed, capped by its cooldown as PoB does, its
+    cooldown after recovery, repeats, duration and base cast time)."""
+    scales: dict[str, float] = {}
+    notes: list[dict] = []
+    busy, users = 0.0, []
+    for rate in rates:
+        if rate["index"] not in pressed or rate["index"] == main_index:
+            continue
+        speed, repeats = number(rate.get("speed")), number(rate.get("repeats")) or 1.0
+        if speed <= 0:
+            continue
+        cooldown, duration = number(rate.get("cooldown")), number(rate.get("duration"))
+        if cooldown > 0:
+            real, how, confidence = repeats / cooldown, f"on its {cooldown:.2f} s cooldown", "MEDIUM"
+        elif duration > 0:
+            real, how, confidence = repeats / duration, f"once per its {duration:.2f} s duration, to keep it up", "MEDIUM"
+        else:
+            real, how, confidence = repeats / PRESS_EVERY, f"once every {PRESS_EVERY:g} s* (a guess: it has no cooldown "\
+                "or duration to set its use)", "LOW"
+        real = min(real, speed)
+        capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)
+        # time per use: 1/speed, unless the cooldown capped PoB's speed (then its base cast time, before speed: an
+        # overcount of the time it takes)
+        action = (min(1 / speed, number(rate.get("castTime"))) if capped else 1 / speed)
+        busy += real * action
+        scales[rate["name"]] = scales.get(rate["name"], 1.0) * (real / speed)
+        users.append(rate["name"])
+        notes.append({
+            "label": f"{rate['name']}: pressed beside the main skill*", "value": f"x{real / speed:.3f}",
+            "basis": f"PoB's Full DPS counts it used nonstop ({speed:.2f}/s); it's pressed {how}, {real:.2f} uses/s, "
+                     f"each taking {action:.2f} s from the main skill. Its ailments' Full DPS entries (Best ... DPS) "
+                     "keep PoB's count (an overcount where it's their best source)",
+            "confidence": confidence})
+    main = next((r["name"] for r in rates if r["index"] == main_index), None)
+    if users and main is not None and busy > 0:
+        share = max(0.0, 1.0 - busy)
+        scales[main] = scales.get(main, 1.0) * share
+        notes.append({
+            "label": f"{main}: time left beside {', '.join(users)}*", "value": f"{share:.1%}",
+            "basis": f"the presses take {busy:.1%} of the fight (their uses x time per use)", "confidence": "MEDIUM"})
+    return scales, notes

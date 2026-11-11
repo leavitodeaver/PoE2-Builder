@@ -1091,3 +1091,55 @@ def test_a_curse_is_up_by_how_the_build_applies_it():
     # a Mark alone: PoB sets the enemy Cursed, but nothing curses it
     mods, notes = models.curse_model([], [bow], bow, lines)
     assert {m["line"]: m["scale"] for m in mods}["Enemies you Curse take 1% increased Damage"] == pytest.approx(-10.0)
+
+
+# MECH37: a pressed non-main skill in Full DPS counts at its real use ------------------------------------------------
+
+def test_press_model_counts_a_pressed_skill_at_its_cooldown_and_shrinks_the_main_skill():
+    rates = [{"index": 1, "name": "Main", "speed": 2.0, "repeats": 1, "castTime": 1.0},
+             {"index": 2, "name": "Bomb", "speed": 0.25, "cooldown": 4.0, "repeats": 1, "castTime": 0.5}]
+    scales, notes = models.press_model(rates, 1, {2})
+    # PoB's speed is already capped at the cooldown: the skill keeps PoB's count; its uses take 0.5 s each (its base
+    # cast time, as the cap hides its own speed) every 4 s from the main skill
+    assert scales["Bomb"] == pytest.approx(1.0)
+    assert scales["Main"] == pytest.approx(1 - 0.25 * 0.5)
+    assert all(n["label"].endswith("*") for n in notes)
+
+
+def test_press_model_counts_a_kept_up_skill_once_per_its_duration():
+    rates = [{"index": 1, "name": "Main", "speed": 2.0}, {"index": 3, "name": "Debuff", "speed": 1.6, "duration": 8.0}]
+    scales, notes = models.press_model(rates, 1, {3})
+    assert scales["Debuff"] == pytest.approx(1 / 8 / 1.6)
+    assert scales["Main"] == pytest.approx(1 - 1 / 8 / 1.6)  # (one use every 8 s, 1/1.6 s each)
+    assert notes[0]["confidence"] == "MEDIUM"
+
+
+def test_press_model_falls_back_to_a_labelled_guess_and_leaves_unpressed_groups():
+    rates = [{"index": 1, "name": "Main", "speed": 2.0}, {"index": 2, "name": "Slash", "speed": 1.0},
+             {"index": 4, "name": "Triggered", "speed": 3.0}]
+    scales, notes = models.press_model(rates, 1, {2})
+    assert scales["Slash"] == pytest.approx(1 / models.PRESS_EVERY)
+    assert "Triggered" not in scales
+    assert notes[0]["confidence"] == "LOW" and "guess" in notes[0]["basis"]
+    assert models.press_model(rates, 1, set()) == ({}, [])
+
+
+def test_pressed_group_tells_pressed_from_triggered_totem_and_mark_carrier_groups():
+    from builder.search.assumptions import pressed_group
+    gems = {"Frost Bomb": {"skillTypes": ["Spell", "Cooldown"], "support": False},
+            "Cast on Critical": {"skillTypes": ["Meta", "GeneratesEnergy", "Persistent"], "support": False},
+            "Spell Totem": {"skillTypes": ["Meta", "SummonsTotem"], "support": False},
+            "Pounce": {"skillTypes": ["Meta", "Attack", "Slam"], "support": False},
+            "Herald of Ice": {"skillTypes": ["Persistent", "Buff"], "support": False}}
+
+    def group(*names, full=True, item=False):
+        return {"enabled": True, "fullDPS": full, "fromItem": item,
+                "gems": [{"name": n, "enabled": True, "support": False} for n in names]}
+
+    assert pressed_group(group("Frost Bomb"), gems)
+    assert not pressed_group(group("Frost Bomb", full=False), gems)
+    assert not pressed_group(group("Frost Bomb", item=True), gems)
+    assert not pressed_group(group("Cast on Critical", "Frost Bomb"), gems)
+    assert not pressed_group(group("Spell Totem", "Frost Bomb"), gems)
+    assert not pressed_group(group("Pounce"), gems)
+    assert not pressed_group(group("Herald of Ice"), gems)

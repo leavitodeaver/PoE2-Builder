@@ -206,6 +206,9 @@ class Objective:
         # Full DPS entries (SkillDPS, by name) counted x this, set at each resolve: Pounce's slam at its real use, its
         # carried wolves (models.mark_model, MECH36)
         self.entry_scales: dict[str, float] = {}
+        # and pressed non-main skills at their real use, the main skill at the time they leave it (models.press_model,
+        # set by Assumptions.rate_presses; MECH37)
+        self.press_scales: dict[str, float] = {}
         # The boss's Low Life share of the fight (Search.weigh_life): 1 / (0.65 + 0.35 / (DPS on Low Life / DPS above it)),
         # set at each conditions round from one extra recalculation; 1 for a build with no Low Life lines
         self.life_factor = 1.0
@@ -253,11 +256,13 @@ class Objective:
         return (main_dps(stats) + added) * self.life_factor * self.uptime_factor
 
     def rescaled(self, stats: dict) -> float:
-        """What entry_scales adds to Full DPS: each named entry's damage x (its scale - 1)."""
-        if not self.entry_scales:
+        """What entry_scales and press_scales add to Full DPS: each named entry's damage x (its scale - 1)."""
+        if not self.entry_scales and not self.press_scales:
             return 0.0
-        return sum(number(e.get("dps")) * (e.get("count") or 1) * (self.entry_scales[e.get("name")] - 1)
-                   for e in stats.get("SkillDPS") or [] if e.get("name") in self.entry_scales)
+        return sum(number(e.get("dps")) * (e.get("count") or 1)
+                   * (self.entry_scales.get(e.get("name"), 1.0) * self.press_scales.get(e.get("name"), 1.0) - 1)
+                   for e in stats.get("SkillDPS") or []
+                   if e.get("name") in self.entry_scales or e.get("name") in self.press_scales)
 
     def clear_damage(self, stats: dict) -> float:
         """Damage per target while clearing: like boss DPS, but on-death effects count (clearing

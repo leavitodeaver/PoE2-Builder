@@ -1014,8 +1014,12 @@ def test_full_dps_never_counts_pounce_s_own_hit_as_used_nonstop():
 
     groups = [group(1, ["Spark"], 100, main=True), group(2, ["Pounce", "Sniper's Mark"], 50, full=True),
               group(3, ["Pounce"], 40), group(4, ["Comet"], 30)]
+    class Assumptions:  # (no pressed groups to rate here: MECH37's own tests cover that)
+        def rate_presses(self):
+            return []
+
     search = Search.__new__(Search)
-    search.build, search.play_notes = Build(), {}
+    search.build, search.play_notes, search.assumptions = Build(), {}, Assumptions()
     search.include_in_full_dps()
     assert [g["fullDPS"] for g in groups] == [False, False, False, True]
     assert "Pounce" in search.play_notes["pounce_hit"]["label"]

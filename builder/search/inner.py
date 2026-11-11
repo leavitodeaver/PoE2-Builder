@@ -837,6 +837,7 @@ class Search:
         """Damaging non-main groups join Full DPS where they raise the goal (PoB counts only groups flagged for it)."""
         build = self.build
         self.play_notes.pop("pounce_hit", None)
+        self.assumptions.rate_presses()  # (a seed's pressed groups may already be in Full DPS)
         for group in build.groups():
             if group["main"] or group["fromItem"] or not group["enabled"]:
                 continue
@@ -859,8 +860,12 @@ class Search:
                 continue
             before = build.objective.value(build.stats)
             build.set_group(index=group["index"], fullDPS=True)
+            # a pressed skill counts at its real use, and takes its time from the main skill (MECH37: PoB counts it
+            # used nonstop beside a nonstop main skill)
+            self.assumptions.rate_presses()
             if build.objective.value(build.stats) <= before * (1 + 1e-9):
                 build.set_group(index=group["index"], fullDPS=False)
+                self.assumptions.rate_presses()
 
     def note_feasible(self) -> None:
         """Remember the build if it meets every requirement and beats the best such build on the goal."""

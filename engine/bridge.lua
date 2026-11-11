@@ -1817,6 +1817,32 @@ function bridge.setAssumptions(args)
 	return { stats = pickStats(build.calcsTab.mainOutput, args.fields) }
 end
 
+-- How fast each of these groups' active skill is used if it were the main skill (models.press_model: a pressed
+-- non-main skill counts in Full DPS at its real use, not nonstop). Each group is calculated in its own environment,
+-- as calcFullDPS does; the build's main group and outputs are left as they were.
+function bridge.useRates(args)
+	local calcs = require("Modules.CalcBase")
+	local saved = build.mainSocketGroup
+	local rates = { }
+	for _, index in ipairs(args and args.indices or { }) do
+		build.mainSocketGroup = index
+		local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
+		local skill = ok and env and env.player.mainSkill
+		if skill and pcall(calcs.perform, env, true) then
+			local output = env.player.output
+			rates[#rates + 1] = {
+				index = index, name = calcs.getActiveSkillDisplayName(skill),
+				speed = jsonNumber(output.Speed or 0), cooldown = output.Cooldown and jsonNumber(output.Cooldown) or nil,
+				repeats = jsonNumber(output.Repeats or 1),
+				duration = output.Duration and jsonNumber(output.Duration) or nil,
+				castTime = jsonNumber(skill.activeEffect.grantedEffect.castTime or 0),
+			}
+		end
+	end
+	build.mainSocketGroup = saved
+	return { rates = rates }
+end
+
 -- Active skills of the current build with what an assumption needs about them: base cooldown,
 -- cooldown recovery, and whether they generate Remnants. `levelStats = {names}` adds those skills'
 -- stats at their current level and quality (e.g. Iron Ward's store, which PoB doesn't read).

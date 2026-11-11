@@ -1152,3 +1152,30 @@ def test_pounce_s_slam_and_its_carried_wolves_are_scaled_in_full_dps(engine):
     assert counted - plain == pytest.approx(
         (entries["Summon Wolf"] * 5 + entries["Pounce"] * (scales["Pounce"] - 1)) * build.objective.life_factor
         * build.objective.uptime_factor, rel=1e-6)
+
+
+def test_a_pressed_non_main_skill_counts_at_its_real_use_in_full_dps(engine):
+    """MECH37: PoB's Full DPS counts a pressed non-main skill as used nonstop beside the nonstop main skill. It counts at
+    its cooldown (Frost Bomb), and the main skill loses the time its presses take (Objective.press_scales)."""
+    payload = make_payload(BuildRequest(main_skill="Cross Slash"))
+    skeletons = enumerate_skeletons(Context(payload), ["Cross Slash"])[0]
+    search = Search(engine, None, payload, skeletons[0].as_dict(), 0, full=True)
+    search.setup(quests=False)
+    build = search.build
+    group = build.set_group(gems=[{"name": "Frost Bomb", "level": 20, "quality": 0}], label="bomb")
+    build.set_group(index=group["index"], fullDPS=True)
+    search.assumptions.mods = None
+    search.assumptions.apply()
+    scales = build.objective.press_scales
+    print("PROBE", scales, [n["basis"] for n in search.assumptions.active if "pressed" in n["label"] or "time left" in n["label"]])
+    assert 0 < scales["Cross Slash"] < 1 and 0 < scales["Frost Bomb"] <= 1
+    assert any(n["label"].startswith("Frost Bomb: pressed beside") for n in search.assumptions.active)
+    stats = build.call("stats", fields=build.objective.fields)
+    entries = {e["name"]: e["dps"] * (e.get("count") or 1) for e in stats["SkillDPS"]}
+    counted = build.objective.dps(stats)
+    build.objective.press_scales = {}
+    plain = build.objective.dps(stats)
+    assert counted < plain
+    assert plain - counted == pytest.approx(
+        (entries["Cross Slash"] * (1 - scales["Cross Slash"]) + entries["Frost Bomb"] * (1 - scales["Frost Bomb"]))
+        * build.objective.life_factor * build.objective.uptime_factor, rel=1e-6)

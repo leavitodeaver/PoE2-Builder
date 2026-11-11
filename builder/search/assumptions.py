@@ -24,6 +24,7 @@ import os
 import re
 
 from builder.ledger import conditions
+from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
 from builder.search import models
 from builder.search.conditions import INFUSED_SET, curse_uses, natural_distance
 from builder.search.usage import usage_rules
@@ -206,6 +207,24 @@ def charm_stats(build: Build) -> dict:
     return {"_charm_charges": spent, "_charm_basis": basis}
 
 
+def pressed_group(group: dict, gems: dict[str, dict]) -> bool:
+    """A non-main group in Full DPS whose damage comes from a skill the player presses now and then: not triggered by a
+    meta skill (Cast on X), not a totem or an Invocation (they use their skills on their own), not a Mark carrier
+    (Pounce: the Mark model rates it), not granted by an item."""
+    if not group["enabled"] or not group["fullDPS"] or group["fromItem"]:
+        return False
+    active = [{**gems[g["name"]], "name": g["name"]} for g in group["gems"]
+              if g["enabled"] and not g["support"] and g["name"] in gems]
+    if any(g["name"] in models.MARK_CARRIERS for g in active):
+        return False
+    for gem in active:
+        types = set(gem["skillTypes"])
+        if (types & {PRESSED_META, PRESSED_TOTEM}
+                or ("Meta" in types and not ({"Attack", "Warcry"} & types and "Persistent" not in types))):
+            return False
+    return any(presses(g) for g in active)
+
+
 class Assumptions:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -305,8 +324,23 @@ class Assumptions:
                 "confidence": "datamined"})
         if note := models.darkness_note(build.stats):
             notes.append(note)
+        notes += self.rate_presses()
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups}, **expression_groups}
+
+    def rate_presses(self) -> list[dict]:
+        """Pressed non-main skills in Full DPS count at their real use, the main skill at the time they leave it
+        (models.press_model; objective.Objective.press_scales). Returns the notes."""
+        build = self.build
+        groups = build.call("groups")
+        main = groups["mainSocketGroup"]
+        pressed = {g["index"] for g in groups["groups"] if g["index"] != main and pressed_group(g, build.ctx.gems)}
+        if not pressed:
+            build.objective.press_scales = {}
+            return []
+        rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
+        build.objective.press_scales, notes = models.press_model(rates, main, pressed)
+        return notes
 
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
