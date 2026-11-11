@@ -1040,9 +1040,10 @@ def test_freezes_electrocutes_and_stuns_of_the_boss_are_rated_from_the_build_not
     stats = {"Speed": 2.0, "HitChance": 100, "FreezeBuildupAvg": 10.0, "ColdHitAverage": 100.0}
     freeze = models.buildup_rate(stats, "Freeze")
     t = 1 / (2.0 * 0.10 * models.AILMENT_BOSS)  # (6.6 s to fill; x6 = 39.5 s, past the 14 s window)
-    assert freeze == pytest.approx(1 / (14.0 + (1 - 14.0 / (6 * t)) * t))
+    # 4 s Frozen (buildup paused: the user, 11 Nov), then the x6 bar for the rest of the 14 s window
+    assert freeze == pytest.approx(1 / (4.0 + 10.0 + (1 - 10.0 / (6 * t)) * t))
     fast = dict(stats, Speed=40.0)  # (0.33 s to fill: x6 = 2 s, inside the window)
-    assert models.buildup_rate(fast, "Freeze") == pytest.approx(1 / (6 / (40.0 * 0.10 * models.AILMENT_BOSS)))
+    assert models.buildup_rate(fast, "Freeze") == pytest.approx(1 / (4.0 + 6 / (40.0 * 0.10 * models.AILMENT_BOSS)))
     rate, how = _charge_rate("50% chance to gain a Power Charge when you Freeze an enemy", "Power", stats)
     assert rate == pytest.approx(0.5 * freeze) and "Freeze" in how
     rate, how = _charge_rate("Gain a Frenzy Charge when you Pin an enemy", "Frenzy", stats)
@@ -1185,3 +1186,13 @@ def test_electrocuting_arrows_rod_is_off_from_each_electrocute_until_the_next_hi
     assert all(m["value"] == pytest.approx(-100 * (1 - share2), abs=1e-3) for m in mods)
     assert notes[0]["value"] == pytest.approx(share2, abs=1e-3)
     assert models.rod_model([other], stats, other) == ([], [])
+
+
+def test_freezes_give_the_elemental_ailment_metas_energy():
+    """RULE_AUDIT #2 (MECH41): game files, MetaCastOnElementalAilmentPlayer / MetaElementalInvocationPlayer: 1 Energy per
+    Power per Shock or Ignite, 10 per Freeze (centienergy 1000); the boss's Freezes at buildup_rate (before: none)."""
+    stats = {"Speed": 2.0, "HitChance": 100, "FreezeBuildupAvg": 10.0}
+    for meta in ("Cast on Elemental Ailment", "Elemental Invocation"):
+        gain, how = models.energy_gain(meta, stats, "Frostbolt")
+        assert gain == pytest.approx(models.buildup_rate(stats, "Freeze") * 10 * models.BOSS_POWER) and "freezes" in how
+    assert models.energy_gain("Cast on Elemental Ailment", {**stats, "FreezeBuildupAvg": 0}, "Frostbolt")[0] == 0

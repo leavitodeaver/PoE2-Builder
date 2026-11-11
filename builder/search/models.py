@@ -385,7 +385,9 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # "generic_ongoing_trigger_1_maximum_energy_per_Xms_total_cast_time" = 10). Cast on Critical gains
 # 1 Energy per Power of the enemy it critically hits, scaled by the share of the enemy's Ailment
 # Threshold the hit deals, and its spells deal 20% less damage; the elemental-ailment metas gain 1
-# Energy per Power per Shock or Ignite (10 per Freeze, never assumed on a boss).
+# Energy per Power per Shock or Ignite, 10 per Freeze (game files, GrantedEffectStatSets MetaCastOnElementalAilmentPlayer and
+# MetaElementalInvocationPlayer: ..._centienergy_per_monster_power_on_shock / _ignite 100, _on_freeze 1000), the boss's
+# Freezes at models.buildup_rate (MECH41; before, a Freeze was never assumed on a boss).
 # The others, from their 0.5 skill data (centienergy: 100 = 1 Energy): Cast on Block (Svalinn) 25 Energy per block
 # (cast_on_block_gain_X_centienergy_on_block 2500), counted at the boss's hits that land and are blocked; Thundergod's
 # Wrath (Mjolner) 3 per Power per melee hit (cast_lightning_spell_on_hit_..._per_monster_power_on_hit 300); Spellslinger
@@ -402,6 +404,8 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # /10 as metres; the user had heard 3.7 m, from an older source), at DODGE_EVERY seconds between rolls against a boss (the
 # user's default). A build whose damage counts on Cast on Dodge also loses the time its rolls take from its main skill
 # (the user, 7 Nov): DODGE_ROLL_SECONDS per roll, as less Attack and Cast Speed; other builds aren't charged.
+
+FREEZE_ENERGY = 10.0  # Energy per monster Power per Freeze (centienergy 1000, above)
 
 META_GEMS = {
     "Cast on Critical": {"per_level": 3.0, "gain": "crit", "less": 20.0},
@@ -1317,8 +1321,13 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
     shock = (number(stats.get("ShockChanceOnHit")) * (1 - crit) + number(stats.get("ShockChanceOnCrit")) * crit) / 100
     ignite = (number(stats.get("IgniteChanceOnHit")) * (1 - crit) + number(stats.get("IgniteChanceOnCrit")) * crit) / 100
     events = hits_per_second(stats) * (min(shock, 1.0) + min(ignite, 1.0))
-    return events * BOSS_POWER, (f"{main} shocks or ignites {events:.2f} times per second (one hit per use) for {BOSS_POWER} Energy each "
-                                 "(the boss's Power)")
+    freezes = buildup_rate(stats, "Freeze")  # (RULE_AUDIT #2, MECH41: before, Freezes gave none on a boss)
+    how = f"{main} shocks or ignites {events:.2f} times per second (one hit per use) for {BOSS_POWER} Energy each (the boss's Power)"
+    if freezes > 0:
+        how += (f", and freezes the boss {freezes:.3f} times per second for {FREEZE_ENERGY * BOSS_POWER:g} Energy each "
+                f"({FREEZE_ENERGY:g} per Power; models.buildup_rate: the main skill's buildup only, other skills' Freezes "
+                "aren't counted, an undercount)")
+    return (events + freezes * FREEZE_ENERGY) * BOSS_POWER, how
 
 
 def energy_rate(meta: str, x: dict, gain: float, cost: float, crits_recently: bool, doubled: bool,
@@ -1966,10 +1975,28 @@ IMMOBILISE_FIELDS = ("Speed", "HitChance", "CritChance", "FreezeBuildupAvg", "El
 
 def buildup_rate(stats: dict, ailment: str) -> float:
     """Freezes or Electrocutes of the boss per second from the main skill's hits: PoB's average buildup per hit (% of the
-    threshold) x hits per second, with the Arbiter of Ash's threshold (AILMENT_BOSS), and the threshold x6 for 14 / 15 s
-    after each one (AILMENT_REPEAT, repeat_every). Buildup decay between hits isn't modelled (as Heavy Stun's)."""
+    threshold) x hits per second, with the Arbiter of Ash's threshold (AILMENT_BOSS), the threshold x6 for 14 / 15 s
+    after each one (AILMENT_REPEAT, repeat_every), and buildup paused while the boss is Frozen / Electrocuted (the user,
+    11 Nov 2026; MECH41: before, the rate left the pause out, a small overcount). Buildup decay between hits isn't
+    modelled (as Heavy Stun's)."""
+    period = immobilise_period(stats, ailment)
+    return 1 / period if period > 0 else 0.0
+
+
+def immobilise_period(stats: dict, ailment: str) -> float:
+    """Seconds from one Freeze / Electrocute to the next (0 with no buildup): its duration, then the time to fill the bar
+    again at x6 for the rest of the 14 / 15 s after it."""
     fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * AILMENT_BOSS
-    return 1 / repeat_every(1 / fill, *AILMENT_REPEAT[ailment]) if fill > 0 else 0.0
+    if fill <= 0:
+        return 0.0
+    d = immobilise_duration(stats, ailment)
+    times, window = AILMENT_REPEAT[ailment]
+    return d + repeat_every(1 / fill, times, max(window - d, 0.0))
+
+
+def immobilise_duration(stats: dict, ailment: str) -> float:
+    mod = (number(stats.get("FreezeDurationMod")) or 1.0) if ailment == "Freeze" else 1.0
+    return IMMOBILISE_DURATION[ailment] * mod
 
 
 # How long the boss stays Frozen / Electrocuted (MECH38, 11 Nov 2026): the game files' KeywordPopups, "Freeze ... lasts 4
@@ -1987,11 +2014,8 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * AILMENT_BOSS
     if fill <= 0:
         return 0.0, ""
-    mod = (number(stats.get("FreezeDurationMod")) or 1.0) if ailment == "Freeze" else 1.0
-    d = IMMOBILISE_DURATION[ailment] * mod
-    times, window = AILMENT_REPEAT[ailment]
-    t = 1 / fill
-    period = d + repeat_every(t, times, max(window - d, 0.0))
+    d, period = immobilise_duration(stats, ailment), immobilise_period(stats, ailment)
+    window = AILMENT_REPEAT[ailment][1]
     share = min(1.0, d / period)
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
                    f"Arbiter of Ash threshold); {d:g} s each, one every {period:.1f} s (x6 threshold for "
