@@ -988,12 +988,14 @@ def test_floors_are_checked_without_a_partial_effect():
 
 
 def test_full_dps_never_counts_pounce_s_own_hit_as_used_nonstop():
-    """include_in_full_dps (MECH36): a damaging group joins Full DPS where it raises the goal, but a Pounce group never
-    does (pressed once per Mark, about every 8 s, which Full DPS would count as nonstop), and a seed's flag on it comes
-    off; the note says so."""
+    """include_in_full_dps (MECH36): a damaging group joins Full DPS where it raises the goal, but a Pounce group only
+    once the Mark model has scaled its slam to its real use (once per Mark, about every 8 s, where Full DPS would count
+    it as nonstop); until then a seed's flag on it comes off and the note says so."""
     from builder.search.inner import Search
 
     class Objective:
+        entry_scales: dict = {}
+
         def value(self, stats):
             return sum(g["dps"] for g in groups if g["fullDPS"] or g["main"])
 
@@ -1017,3 +1019,7 @@ def test_full_dps_never_counts_pounce_s_own_hit_as_used_nonstop():
     search.include_in_full_dps()
     assert [g["fullDPS"] for g in groups] == [False, False, False, True]
     assert "Pounce" in search.play_notes["pounce_hit"]["label"]
+    # once the Mark model has scaled its slam's entry to its real rate (and brought in its wolves), it joins
+    Build.objective.entry_scales = {"Pounce": 0.625, "Summon Wolf": 6}
+    search.include_in_full_dps()
+    assert [g["fullDPS"] for g in groups] == [False, True, True, True] and "pounce_hit" not in search.play_notes

@@ -1081,3 +1081,33 @@ def test_a_curse_is_scaled_to_its_share_and_cast_by_hand_costs_time(engine):
     note = next(n for n in search.assumptions.active if n["label"].startswith("Elemental Weakness"))
     assert note["value"] == 1.0 and "takes" in note["basis"]
     assert build.call("stats", fields=["FullDPS"])["FullDPS"] < raw
+
+
+def test_pounce_s_slam_and_its_carried_wolves_are_scaled_in_full_dps(engine):
+    """MECH36 (the user, 11 Nov: "Yes, count it labelled", "Yes, they follow"): in a Pounce group in Full DPS, PoB counts
+    Pounce's slam at its cooldown and one Wolf Companion (Summon Wolf), as SkillDPS entries. The Mark model counts those
+    entries x its scales (Objective.entry_scales: the slam at one per Mark, the wolf x the carried count), linearly:
+    PoB's own more-Damage lines weren't (POE2T450: +500% on the wolf read x12.7, -37.5% on the slam x0.595)."""
+    payload = make_payload(BuildRequest(main_skill="Cross Slash"))
+    skeletons = [s for s in enumerate_skeletons(Context(payload), ["Cross Slash"])[0] if s.weapon == "Talisman"]
+    assert skeletons
+    search = Search(engine, None, payload, skeletons[0].as_dict(), 0, full=True)
+    search.setup(quests=False)
+    build = search.build
+    group = build.set_group(gems=[{"name": "Pounce", "level": 20, "quality": 0}], label="pounce")
+    build.set_group(index=group["index"], fullDPS=True)
+    search.assumptions.mods = None
+    search.assumptions.apply()
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Predator's Mark"))
+    scales = build.objective.entry_scales
+    assert note.get("full_dps") == scales and scales["Summon Wolf"] == 6 and scales["Pounce"] == pytest.approx(1.0)  # (Cross Slash consumes it: Pounce on its cooldown)
+    stats = build.call("stats", fields=build.objective.fields)
+    entries = {e["name"]: e["dps"] * (e.get("count") or 1) for e in stats["SkillDPS"]}
+    print("PROBE", entries, scales)
+    assert entries["Pounce"] > 0 and entries["Summon Wolf"] > 0
+    counted = build.objective.dps(stats)
+    build.objective.entry_scales = {}
+    plain = build.objective.dps(stats)
+    assert counted - plain == pytest.approx(
+        (entries["Summon Wolf"] * 5 + entries["Pounce"] * (scales["Pounce"] - 1)) * build.objective.life_factor
+        * build.objective.uptime_factor, rel=1e-6)

@@ -264,6 +264,7 @@ class Assumptions:
         mark_mods, mark_notes = models.mark_model(
             found, stats, main, source_lines, metres, [models.Skill.of(s) for s in skills if s["disabled"]])
         hand_mods, hand_notes = hand_mods + mark_mods, hand_notes + mark_notes
+        build.objective.entry_scales = {k: v for n in mark_notes for k, v in (n.get("full_dps") or {}).items()}
         curses = curse_uses(build, stats, [e["text"] for e in source_lines])
         if curses or any(models.CURSED_UNSCALED.search(e["text"]) or p.search(e["text"])
                          for e in source_lines for p, _ in models.CURSED_LINES):

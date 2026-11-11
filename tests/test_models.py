@@ -686,6 +686,7 @@ def test_the_skill_you_press_for_a_mark_takes_the_main_skills_time():
     assert by_line["1% more Attack and Cast Speed"] == pytest.approx(-10.0)  # 1 s every 10 s
     assert by_line["1% more Effect of your Curses"] == pytest.approx(-90.0)  # one crit of the 10 in 10 s
     assert "Pounce" in notes[0]["basis"]
+    assert notes[0]["full_dps"] == {"Pounce": pytest.approx(1.0)}  # (on its 10 s cooldown: PoB's own rate)
     hand = models.Skill("Hand of Chayula", group=2, attack=True, cast_time=0.6)
     mods, _ = models.mark_model([bow, hand, mark], stats, bow)
     assert {m["line"]: m["scale"] for m in mods}["1% more Attack and Cast Speed"] == pytest.approx(-10.0)  # 0.6 s / 6 s
@@ -753,12 +754,25 @@ def test_predators_mark_counts_you_and_your_minions_near_the_boss():
     by_line, notes = lines([spell, pounce, predator, wolf6], 2.0)
     assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(3.0 * 7)
     assert "6 Pounce wolves*" in notes[0]["basis"] and "wolves alive" in notes[0]["play"]
+    # MECH36 (the user, 11 Nov: "Yes, count it labelled", "Yes, they follow"): their own hits at the carried count
+    # (PoB's Full DPS counts one Wolf Companion), and Pounce's slam at one per Mark (8 s) where PoB counts one per
+    # cooldown (5 s): Full DPS entries counted x these (Objective.entry_scales)
+    assert notes[0]["full_dps"] == {"Summon Wolf": 6, "Pounce": pytest.approx(5 / 8)}
+    assert "MEDIUM" in notes[0]["basis"] and "they follow you" in notes[0]["basis"] and "counted once per 8.0 s" in notes[0]["basis"]
+    _, notes = lines([spell, pounce, predator], 2.0)  # no wolves: the slam only
+    assert notes[0]["full_dps"] == {"Pounce": pytest.approx(5 / 8)}
+    # Cross Slash consumes the Mark (every hit): Pounce is recast on its cooldown (5 s), never sooner (MECH36: it went
+    # under the cooldown), so marked 1 s of every 5 and the slam at PoB's own rate
+    slash = models.Skill("Cross Slash", group=1, attack=True, melee=True)
+    _, notes = models.mark_model([slash, pounce, predator], stats, slash, [], 2.0)
+    assert notes[0]["full_dps"] == {"Pounce": pytest.approx(1.0)} and "held 1.0 s" in notes[0]["basis"]
+    assert notes[0]["value"] == pytest.approx(round(3.0 * 1.0 / 5.0, 1))
     by_line, notes = lines([spell, pounce, predator, wolf6, zombies], 2.0)  # still capped at 45%
     assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(45.0)
     by_line, _ = lines([spell, pounce, predator, wolf], 8.0)  # no level stats: the level-1 limit, 4 (you beyond 6 m)
     assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(12.0)
     _, notes = lines([spell, predator, wolf6], 2.0)
-    assert notes[0]["value"] == 0 and "play" not in notes[0]
+    assert notes[0]["value"] == 0 and "play" not in notes[0] and "full_dps" not in notes[0]  # (Pounce can't be used)
 
 
 def test_a_mirage_uses_its_attack_for_the_share_of_time_it_is_up():

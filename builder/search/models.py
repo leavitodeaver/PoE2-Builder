@@ -974,9 +974,11 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
     marks += [s for s in skills if s.name == PREDATORS_MARK and s.group not in marked_groups]
     for mark in marks[:1]:  # one Mark on an enemy at a time (number_of_marks_allowed_per_type 1, EnemyMarkLimit 1)
         play = ""
+        scales: dict[str, float] = {}  # Full DPS entries counted x this (Pounce's slam, its wolves; MECH36)
         if mark.name == PREDATORS_MARK:
             pounce = next((s for s in skills if s.group == mark.group and s.name == "Pounce"), None)
             use = MarkUse(math.inf, "Pounce can't be used (PoB disables it: wrong weapon)")
+            every = 0.0
             if pounce is not None:
                 every = (pounce.cooldown or 0.0) / (pounce.cooldown_recovery or 1.0)
                 use = MarkUse(max(every, MARK_DURATION), "triggered by Pounce, used as the Mark runs out (assumed)", pounce)
@@ -989,7 +991,8 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
             held, consumed_by = MARK_DURATION, "not consumed on a boss (only its death or Cross Slash consume it)"
             if main is not None and main.name == "Cross Slash" and hits_per_second(stats):
                 held = min(1 / hits_per_second(stats), MARK_DURATION)
-                period = max(period - MARK_DURATION + held, held)  # (Pounce recast once consumed, cooldown allowing)
+                # (Pounce recast once consumed, cooldown allowing: MECH36, it went under the cooldown before)
+                period = max(period - MARK_DURATION + held, held, every)
                 consumed_by = "each Cross Slash that lands both gouges consumes it (assumed: every hit)"
             marked = min(1.0, held / period) if period and period != math.inf else 0.0
             minions = sum(number((s.minion or {}).get("limit")) for s in skills)
@@ -1013,10 +1016,18 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                      f"boss; PoB never counts you); marked {marked:.0%} of the fight ({how}; held {held:.1f} s, "
                      f"{consumed_by})")
             if wolves:
-                basis += (f"; plus {wolves:g} Pounce wolves* (LOW: Summon Wolf's limit at its level, game files; none are "
-                          "summoned on a lone boss, so they're assumed carried in from earlier marked kills and alive, "
-                          "within 6 m of the boss; PoB counts 0 of them). The wolves' own damage isn't counted (PoB "
-                          "would count one wolf, and only by counting Pounce's own attack as used nonstop)")
+                carried = wolves + number((wolf.minion or {}).get("limit"))
+                # Their own hits (the user, 11 Nov: "Yes, count it labelled"): PoB's Full DPS counts the Wolf Companion
+                # once (its group's count, 1; its WolfLimit reads 0), so its entry counts x the carried number
+                # (objective.Objective.entry_scales). Not a more-Damage line: one wolf hitting x6 harder isn't six
+                # wolves (PoE2's ailment chances grow with the hit: POE2T450 read x12.7 for +500%)
+                scales[SUMMON_WOLF] = carried
+                basis += (f"; plus {wolves:g} Pounce wolves* (MEDIUM: Summon Wolf's limit at its level, game files; none "
+                          "are summoned on a lone boss, so they're assumed carried in from earlier marked kills, alive "
+                          "and within 6 m of the boss: they follow you through area transitions, on the user's word, "
+                          "11 Nov; PoB counts 0 of them). Their own hits count at that number* (LOW: each wolf's damage is "
+                          "PoB's Wolf Companion, a monster table our game-file extract doesn't hold; PoB's Full DPS "
+                          f"counts one, counted x{carried:g})")
                 play = "Keep your Pounce wolves alive into the boss: kill a few Marked enemies on the way in."
         elif mark.name == "Sniper's Mark":
             crits = crits_per_second(stats)
@@ -1052,6 +1063,16 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                                             "damage on a Heavy Stun isn't counted") + (f"; {how}" if share == 0 else "")
         if share < 1.0:
             mods.append(line("1% more Effect of your Curses", 100 * (share - 1), skill=mark.name))
+        if (use.pressed is not None and use.pressed.name in MARK_CARRIERS and use.pressed is not main
+                and period and period != math.inf):
+            # Pounce's own slam: PoB's Full DPS counts it as used nonstop, as fast as its cooldown allows (CalcOffence
+            # caps Speed at 1 / Cooldown); it's used once per Mark (MECH36), so its damage is scaled to that rate
+            pounce = use.pressed
+            nonstop = (pounce.cooldown or 0.0) / (pounce.cooldown_recovery or 1.0) or pounce.cast_time or 1.0
+            rate = min(1.0, nonstop / period)
+            scales[pounce.name] = rate  # (its Full DPS entry; a less-Damage line isn't linear either: x0.595 for x0.625)
+            basis += (f"; {pounce.name}'s own hit counted once per {period:.1f} s*, {rate:.0%} of PoB's rate (it counts "
+                      f"one every {nonstop:.1f} s, its cooldown; assumed: its attack is faster than that)")
         if use.pressed is not None and main is not None and use.pressed is not main and period:
             took = use.pressed.cast_time or 0.5
             lost = min(1.0, took / period)
@@ -1059,7 +1080,7 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
             basis += f"; using {use.pressed.name} ({took:.2f} s every {period:.1f} s) takes {lost:.0%} of {main.name}'s time"
         value = round(game, 1) if mark.name == PREDATORS_MARK else round(share, 2)
         notes.append({"label": label, "value": value, "basis": basis, "confidence": "theory",
-                      **({"play": play} if play else {})})
+                      **({"play": play} if play else {}), **({"full_dps": scales} if scales else {})})
         marked = min(1.0, held / period) if period else 1.0
         found = []
         for pattern, text in MARKED_LINES:

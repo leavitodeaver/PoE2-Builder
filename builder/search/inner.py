@@ -840,13 +840,17 @@ class Search:
         for group in build.groups():
             if group["main"] or group["fromItem"] or not group["enabled"]:
                 continue
-            # Pounce is pressed now and then (as its Mark runs out, about every 8 s: models.mark_use), never nonstop, which
-            # is how Full DPS would count its slam; its damage is left out, labelled (MECH36), its Mark counted by the model
-            if any(g["name"] in MARK_CARRIERS for g in group.get("gems") or []):
+            # Pounce is pressed once per Mark (about every 8 s), never nonstop, which is how Full DPS would count its slam:
+            # it joins only once the Mark model has scaled its entry to that rate (Objective.entry_scales, MECH36), which
+            # also brings in its carried wolves' hits; otherwise it's left out, labelled
+            scales = getattr(build.objective, "entry_scales", None) or {}
+            if (any(g["name"] in MARK_CARRIERS for g in group.get("gems") or [])
+                    and not any(name in scales for name in MARK_CARRIERS)):
                 self.play_notes["pounce_hit"] = {
                     "label": "Pounce's own hit: not counted*", "value": "0",
-                    "basis": "Pounce is pressed about once per Mark (8 s), so PoB's Full DPS, which counts a group as used "
-                             "nonstop, would overcount it; its slam is left out (an undercount of one hit per 8 s)",
+                    "basis": "the Mark model didn't rate Pounce's use here (another Mark is the one counted, or Pounce "
+                             "can't be used), and PoB's Full DPS would count its slam as used nonstop; left out with its "
+                             "wolves' hits (an undercount)",
                     "confidence": "theory"}
                 if group["fullDPS"]:  # (a seed's PoB code may have it on)
                     build.set_group(index=group["index"], fullDPS=False)
