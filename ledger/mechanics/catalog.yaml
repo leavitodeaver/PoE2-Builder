@@ -477,7 +477,7 @@
   game_source: https://poe2db.tw/us/Ground_Effects
   pob: config-only
   pob_check: "Enemy on Shocked / Chilled / Ignited Ground are Configuration boxes."
-  handling: "Jagged Ground is a ledger condition; the rest off."
+  handling: "Jagged Ground is a ledger condition. Shocked Ground (MECH43, conditions.shocked_ground): the boss stands in your own ground a share of the fight from its sources: the main skill's own (Storm Lance, Lightning Warp, Vivid Stampede, Gathering Storm, from their *_shocked_ground_effect_duration_ms) on each use, the Shocking Leap support on the first crit of a use, I am the Thunder... (25% on Shocking, 6 s default), Wake of Destruction's trail (counted as a way to play it: pass through the boss every 8 s; only within 2 m of the boss, and not when the build stands still without rolling); each ground taken at the boss for its full duration (LOW). That share joins the hits' Shock as independent in the Shocked box, and the ground's Shock is the base 20% (PoB keeps the strongest). Stormwalker's while-on-Shocked-Ground line counts at the ground's share within 2 m of the boss (that your own ground counts: UNVERIFIED). Not counted, labelled: Charged Mark's ground (no Mark-activation rate), other skills' ground, ground duration modifiers. Chilled and Ignited Ground still off."
   plan: {approach: labelled assumption, how: "On while the build creates the ground; the boss in it a share of the fight (it moves), 40% assumed as for Jagged Ground.", inputs: [ground source, duration]}
   what_if: visible
   guide_note: "Boss in your X Ground about 40% of the fight."

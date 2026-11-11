@@ -969,6 +969,125 @@ def _cursed(stats: dict) -> tuple[object, str]:
     return _box(share, f"Cursed {share:.0%} of the fight ({shared(share)}): {how}")
 
 
+# Shocked Ground (MECH43, FIX_QUEUE; before, nothing in builder/ read it and PoB's OnShockedGround was never set). Game
+# definition (KeywordPopups ShockedGround): "Shocked Ground Shocks those standing in it, and lasts 6 seconds by default".
+# Player sources in the game files (checked: every stat whose id or description holds shocked / shock / shocking ground,
+# and their users in GrantedEffectStatSets, Mods and PassiveSkills, scratch/mech43/sg_scan.py; PoB's ModParser and the
+# gem descriptions agree): the Shocking Leap support (support_shocking_leap_shocked_ground_duration_ms, on the first
+# Critical Hit of a use), Invoker's "I am the Thunder..." (chance_%_to_create_shocking_ground_on_shock 25), Wake of
+# Destruction ("Drop Shocked Ground while moving, lasting 8 seconds"), the main skill's own ground (Storm Lance, Lightning
+# Warp, Vivid Stampede, Gathering Storm: *_shocked_ground_effect_duration_ms where they carry one), and Charged Mark
+# (TriggeredChargedMarkPlayer, a chance on Mark activation).
+SHOCKED_GROUND_DURATION = 6.0  # s, the definition's default
+SHOCKED_GROUND_RADIUS = 2.0  # m, for "you on it" (UNVERIFIED: the definition gives no radius; Ignited Ground's is 2 m)
+SHOCKED_GROUND_SKILL_STATS = ("secondary_skill_shocked_ground_effect_duration_ms", "skill_shocked_ground_effect_duration_ms",
+                              "lightning_warp_shocked_ground_base_duration_ms")
+SHOCKED_GROUND_SKILLS = ("Storm Lance", "Lightning Warp", "Vivid Stampede", "Gathering Storm")
+SHOCKED_GROUND_SUPPORT = "Shocking Leap"
+SHOCKED_GROUND_SUPPORT_STATS = ("support_shocking_leap_shocked_ground_duration_ms",)
+SHOCK_MAKES_GROUND = re.compile(r"(\d+)% chance on shocking enemies to creat\w* shocked ground", re.I)
+GROUND_WHILE_MOVING = re.compile(r"drops? shocked ground while moving, lasting (\d+) seconds", re.I)
+ON_SHOCKED_GROUND = re.compile(r"\bon shocked ground\b", re.I)
+SHOCKED_GROUND_MAGNITUDE = 20  # the base Shock (PoB's BaseShockMagnitude); the strongest Shock applies (PoB: the max)
+
+
+def _covered(uses: float, chance: float, duration: float) -> float:
+    """Share of the fight a ground made with `chance` per use, at `uses` per second, lasting `duration`, is down."""
+    n = uses * duration
+    if chance <= 0 or n <= 0:
+        return 0.0
+    if chance >= 1:
+        return min(1.0, n)
+    return 1.0 - (1.0 - chance) ** n if n >= 1 else n * chance
+
+
+def _boss_metres(stats: dict) -> float:
+    """The distance the build fights the boss from: the search's choice, else the main skill's natural one."""
+    chosen = stats.get("_distance_choice")
+    return chosen[0] if chosen else natural_distance(stats.get("_main_types") or set())
+
+
+def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
+    """(share of the fight the boss stands in your Shocked Ground, how). Each ground is taken to be made at the boss and
+    the boss to stay in it for its duration (LOW: bosses move, and the ground's radius isn't read). Sources combine as
+    independent. Labelled, not counted: Charged Mark's ground (no Mark-activation rate yet), ground from a skill other than
+    the main one, and ground duration modifiers."""
+    uses = number(stats.get("Speed"))
+    hit = min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
+    parts: list[str] = []
+    notes: list[str] = []
+    off = 1.0
+    if skill := stats.get("_sg_skill"):
+        name, ms = skill
+        if ms > 0:
+            up = _covered(uses, 1.0, ms / 1000)
+            parts.append(f"{name}'s own ground on each use ({ms / 1000:g} s, {uses:.2f} uses/s): {up:.0%}")
+            off *= 1 - up
+        else:
+            notes.append(f"{name}'s ground (no duration stat in its level stats: not counted, an undercount)")
+    if ms := number(stats.get("_sg_support")):
+        crit = min(number(stats.get("CritChance")), 100.0) / 100.0
+        up = _covered(uses * hit, crit, ms / 1000)
+        parts.append(f"{SHOCKED_GROUND_SUPPORT}, on the first Critical Hit of a use ({crit:.0%} crit, {ms / 1000:g} s): "
+                     f"{up:.0%}")
+        off *= 1 - up
+    for text in texts:
+        if m := SHOCK_MAKES_GROUND.search(text):
+            shock = min(number(stats.get("ShockChancePerHit")), 100.0) / 100.0
+            up = _covered(uses * hit, shock * int(m.group(1)) / 100, SHOCKED_GROUND_DURATION)
+            parts.append(f"{m.group(1)}% chance on Shocking ({shock:.0%} Shock chance per hit, {SHOCKED_GROUND_DURATION:g} s "
+                         f"by default): {up:.0%}")
+            off *= 1 - up
+        elif m := GROUND_WHILE_MOVING.search(text):
+            if stats.get("_stationary") and not number(stats.get("_rolling")):
+                notes.append("the trail while moving (the build stands still and doesn't roll: not counted)")
+                continue
+            if (metres := _boss_metres(stats)) > SHOCKED_GROUND_RADIUS:
+                notes.append(f"the trail while moving (you fight {metres:g} m from the boss: not counted, running in every "
+                             f"{m.group(1)} s would cost hits)")
+                continue
+            parts.append(f"the trail while moving ({m.group(1)} s): walk or roll through the boss's spot at least every "
+                         f"{m.group(1)} s (a way to play the build; without it, the trail adds nothing): 100%")
+            off = 0.0
+    if stats.get("_sg_charged_mark"):
+        notes.append("Charged Mark's ground (no Mark-activation rate modelled: not counted, an undercount)")
+    if not parts:
+        return 0.0, "; ".join(notes)
+    return 1.0 - off, "; ".join(parts + notes) + "; each ground taken to be at the boss for its full duration (LOW)"
+
+
+def shock_share(stats: dict) -> float:
+    """The boss Shocked: by hits (ailment_uptime) or by standing in your Shocked Ground, taken as independent."""
+    ground = (stats.get("_shocked_ground") or (0.0, ""))[0]
+    return 1.0 - (1.0 - ailment_uptime(stats, "Shock")) * (1.0 - ground)
+
+
+def _ground_shock_effect(lines: list[str], stats: dict) -> tuple[object, str]:
+    """PoB's "Effect of Shock" box at the ground's base Shock: PoB applies the strongest of it and the hits' own, as the game
+    does. Set only with a ground; PoB gates it on the Shocked box, which carries the combined share (shock_share)."""
+    share, how = stats.get("_shocked_ground") or (0.0, "")
+    if share < MIN_UPTIME:
+        return 0.0, ""
+    return SHOCKED_GROUND_MAGNITUDE, (f"the boss stands in your Shocked Ground {share:.0%} of the fight: {how}; its Shock "
+                                      f"taken at the base {SHOCKED_GROUND_MAGNITUDE}% (whether your Shock-effect modifiers "
+                                      f"raise it is UNVERIFIED: not counted)")
+
+
+def _on_shocked_ground(lines: list[str], stats: dict) -> tuple[object, str]:
+    """You on your own Shocked Ground (Stormwalker: "Gain 15% of Damage as Extra Lightning Damage while on Shocked Ground"):
+    the ground's share, when you stand within SHOCKED_GROUND_RADIUS of the boss. That your own ground counts for "on
+    Shocked Ground" is UNVERIFIED (labelled). Enemy-made ground isn't counted on a lone boss."""
+    if not any(ON_SHOCKED_GROUND.search(t) for t in lines):
+        return 0.0, ""
+    share, how = stats.get("_shocked_ground") or (0.0, "")
+    if share < MIN_UPTIME:
+        return 0.0, how or "no Shocked Ground of your own (enemy-made ground not counted on a lone boss)"
+    if (metres := _boss_metres(stats)) > SHOCKED_GROUND_RADIUS:
+        return 0.0, f"you stand {metres:g} m from the boss, outside your Shocked Ground ({SHOCKED_GROUND_RADIUS:g} m assumed)"
+    return _box(share, f"in your own Shocked Ground at the boss {share:.0%} of the fight ({shared(share)}): {how}; that "
+                       f"your own ground counts is UNVERIFIED")
+
+
 def _immobilised(ailment: str, name: str) -> Callable[[list[str], dict], tuple[object, str]]:
     """The Frozen / Electrocuted box at the share of the fight the boss carries it (models.immobilised_share; MECH38:
     before, nothing set it, so "Enemies you Electrocute have X% increased Damage taken", the per-Elemental-Ailment-type
@@ -1036,8 +1155,10 @@ CONDITIONS: list[Condition] = [
     Condition("conditionSkillCritRecently", "Skills crit recently",
               stat=lambda s: _uptime({"CritRecently": s.get("CritChance"), "Speed": s.get("Speed")}, "CritRecently"),
               fields=("CritChance", "Speed")),
-    Condition("conditionEnemyShocked", "Shocked", stat=_ailment_up("Shock"), uptime_fn=_ailment_share("Shock"),
-              fields=("ShockChancePerHit", "Speed", "HitChance", "ShockDuration")),
+    Condition("conditionEnemyShocked", "Shocked", stat=lambda s: shock_share(s) >= MIN_UPTIME, uptime_fn=shock_share,
+              fields=("ShockChancePerHit", "Speed", "HitChance", "ShockDuration", "CritChance")),
+    Condition("conditionShockEffect", "Shock from your Shocked Ground", value_fn=_ground_shock_effect, fields=()),
+    Condition("conditionOnShockedGround", "You on your Shocked Ground", value_fn=_on_shocked_ground, fields=()),
     Condition("conditionEnemyIgnited", "Ignited", stat=_ailment_up("Ignite"), uptime_fn=_ailment_share("Ignite"),
               fields=("IgniteChancePerHit", "Speed", "HitChance", "IgniteDuration")),
     Condition("conditionEnemyPoisoned", "Poisoned", stat=_ailment_up("Poison"), uptime_fn=_ailment_share("Poison"),
@@ -1240,6 +1361,17 @@ class Conditions:
                 elif skill["name"] == WITHERING_PRESENCE:
                     stats["_wither_presence"] = (number(got.get(WITHERING_PRESENCE_STATS[0])) / 1000,
                                                  number(got.get(WITHERING_PRESENCE_STATS[1])) / 1000)
+        # Shocked Ground (shocked_ground): the main skill's own, the Shocking Leap support on it, and the lines
+        if self.main_skill in SHOCKED_GROUND_SKILLS or SHOCKED_GROUND_SUPPORT in main_gems:
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(SHOCKED_GROUND_SUPPORT_STATS))
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            got = main.get("levelStats") or {}
+            if self.main_skill in SHOCKED_GROUND_SKILLS:
+                stats["_sg_skill"] = (self.main_skill, max(number(got.get(s)) for s in SHOCKED_GROUND_SKILL_STATS))
+            stats["_sg_support"] = number((main.get("supportStats") or {}).get(SHOCKED_GROUND_SUPPORT_STATS[0]))
+        stats["_sg_charged_mark"] = "Charged Mark" in names
+        stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)
+        stats["_shocked_ground"] = shocked_ground(stats, texts)
         self.parry_plan = None
         if any(n in gem_types for n in models.PARRY_SKILLS) or any(PARRY_GRANT.search(t) for t in texts):  # (Parried)
             raw = self.build.call("activeSkills")

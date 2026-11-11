@@ -755,6 +755,49 @@ def test_ailment_uptime_uses_each_ailments_own_duration_and_hits_that_land():
     assert shocked.uptime_fn({"ShockChancePerHit": 2, "Speed": 2}) == pytest.approx(1 - 0.98 ** 16)
 
 
+def test_shocked_ground_shocks_the_boss_and_counts_you_standing_in_it():
+    """MECH43 (FIX_QUEUE; the user questioned "monster-only"): player-made Shocked Ground Shocks the boss standing in it
+    (KeywordPopups), combined with the hits' own Shock as independent; Stormwalker's line counts in your own ground."""
+    from builder.search.conditions import shock_share, shocked_ground
+
+    by = {c.var: c for c in CONDITIONS}
+    thunder = ["25% chance on Shocking Enemies to created Shocked Ground"]  # (the game's own typo, PoB's text)
+    stats = {"ShockChancePerHit": 40, "Speed": 2, "HitChance": 100}
+    share, how = shocked_ground(stats, thunder)
+    # 2 hits/s x 40% x 25% = 10% per hit, 6 s by default: 1 - 0.9^12
+    assert share == pytest.approx(1 - 0.9 ** 12) and "6 s by default" in how
+    hits = 1 - 0.6 ** 16
+    stats["_shocked_ground"] = (share, how)
+    assert shock_share(stats) == pytest.approx(1 - (1 - hits) * (1 - share))
+    assert by["conditionEnemyShocked"].uptime_fn(stats) == pytest.approx(shock_share(stats))
+    # the ground's Shock at the base 20% (PoB keeps the strongest), only with a ground
+    assert by["conditionShockEffect"].value_fn(thunder, stats)[0] == 20
+    assert by["conditionShockEffect"].value_fn(thunder, {"ShockChancePerHit": 40, "Speed": 2})[0] == 0
+    # the main skill's own ground on each use, and Shocking Leap on the first crit of a use
+    own, _ = shocked_ground({"Speed": 0.25, "_sg_skill": ("Storm Lance", 2000)}, [])
+    assert own == pytest.approx(0.5)
+    leap, how = shocked_ground({"Speed": 1, "CritChance": 50, "_sg_support": 4000}, [])
+    assert leap == pytest.approx(1 - 0.5 ** 4) and "Shocking Leap" in how
+    # a skill whose duration stat isn't found and Charged Mark: labelled, not counted
+    assert shocked_ground({"Speed": 1, "_sg_skill": ("Gathering Storm", 0), "_sg_charged_mark": True}, [])[0] == 0
+    assert "undercount" in shocked_ground({"Speed": 1, "_sg_charged_mark": True}, [])[1]
+    # Wake of Destruction: counted as a way to play it, not while the build stands still without rolling
+    wake = ["Drop Shocked Ground while moving, lasting 8 seconds"]
+    melee = {"Speed": 1, "_distance_choice": (1.0, "melee")}
+    assert shocked_ground(melee, wake)[0] == 1.0
+    assert shocked_ground({**melee, "_stationary": True}, wake)[0] == 0.0
+    assert shocked_ground({**melee, "_stationary": True, "_rolling": 0.05}, wake)[0] == 1.0
+    ranged, how = shocked_ground({**melee, "_distance_choice": (6.0, "ranged")}, wake)
+    assert ranged == 0.0 and "6 m from the boss" in how
+    # you in it: Stormwalker at the ground's share in melee, not from 6 m
+    walker = ["Gain 15% of Damage as Extra Lightning Damage while on Shocked Ground"]
+    near = {"_shocked_ground": (0.6, "x"), "_distance_choice": (1.0, "melee")}
+    on, basis, up = by["conditionOnShockedGround"].value_fn(walker, near)
+    assert on and up == pytest.approx(0.6) and "UNVERIFIED" in basis
+    assert not by["conditionOnShockedGround"].value_fn(walker, {**near, "_distance_choice": (6.0, "ranged")})[0]
+    assert by["conditionOnShockedGround"].value_fn(["Unrelated"], near) == (0.0, "")
+
+
 def test_a_search_that_ends_short_goes_back_to_the_best_feasible_build_it_saw():
     """Gate 4 on 2b75c (7 Nov, after meta slice 1): the delivered build was 5 Cold resistance short. A search's best
     by score can miss a floor (the score trades a small shortfall for damage) after it passed through builds that met
