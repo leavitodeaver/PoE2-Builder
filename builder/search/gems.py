@@ -102,6 +102,8 @@ def highest_usable_level(levels: list[dict], attributes: dict[str, float], chara
             best = entry["level"] if best is None else max(best, entry["level"])
     return best
 SHORTLIST = 40
+REBUILD_SEEDS = 3  # rebuild_main: the sweep's best new supports each tried as the seed of a rebuilt set
+REBUILD_POOL = 24  # and the sweep's best names the rebuild fills the other slots from
 DISCOVERY_TRIALS = 3  # supports tried for real per round because they could turn a condition on
 
 
@@ -116,6 +118,8 @@ class Gems:
         self.checkpoint = None  # marks a kept support move as where the hard stop goes back to (set by the search)
         self.sweeps = 0  # the main group's full sweeps so far, with how many cases the largest scored (census)
         self.swept_cases = 0
+        self.swept_ranking: list[str] = []  # the main group's last full sweep: names best first (rebuild_main's pool)
+        self.rebuilt = False  # rebuild_main ran this task
         self.meta_shortlist: list[str] | None = None  # the same for the meta group's
         self.granted_shortlists: dict[int, list[str]] = {}  # and for each item- or notable-granted meta group's
         self.conditions = None  # the condition resolver, when supports should be tried with it
@@ -378,6 +382,8 @@ class Gems:
             # support until the next sweep (POE2T206, 216). Then no shortlist is kept, and the next round sweeps again
             spread = ranked[0][0][0] - ranked[-1][0][0] if ranked else 0.0
             self._set_shortlist(meta, granted, seen[:SHORTLIST] if spread > EPSILON else None)
+            if not meta and spread > EPSILON:
+                self.swept_ranking = [n for n in seen if n not in names]
         options = [(s, m) for (s, _), m in zip(scored, moves)]
         options += self.discover(index, names, options, group)
         if meta and full_sweep:
@@ -543,6 +549,63 @@ class Gems:
         scored = self.build.gem_deltas([{"group": index, "slot": s, "remove": True} for s in slots])
         return max(zip(scored, slots), key=lambda x: x[0][0])[1]
 
+    def rebuild_main(self, deadline: float) -> bool:
+        """Once per task, after the main group's first full sweep: rebuild its supports around each of the sweep's top
+        REBUILD_SEEDS new names (that one in, then the open slots filled greedily from the sweep's top REBUILD_POOL),
+        and keep the best rebuild if it beats the group as it is. One-swap moves can't leave a set whose better
+        alternative differs in several supports at once: gate 4's 2b75d (POE2T645) had three of five round-2 tasks
+        stuck on Concentrated Area / Heavy Swing / Deliberation (169K), where Styrn's Ferocity alone scored -0.047 ln,
+        while two reached Styrn's Ferocity + Close Combat + Deadly Resolve (406-420K): three supports apart."""
+        build = self.build
+        if self.rebuilt or not self.swept_ranking or clock.now() > deadline:
+            return False
+        self.rebuilt = True
+        from builder.search.models import TOTEM_METAS
+
+        group = self.supports_group(build.groups(), False)
+        if group is None:
+            return False
+        index = group["index"]
+        names = [g["name"] for g in group["gems"]]
+        if any(n in TOTEM_METAS for n in names):
+            return False
+        first = next((i for i, g in enumerate(group["gems"]) if g["support"]), len(names))
+        actives = names[:first]
+        kept = [n for n in names[first:] if n in self.required_supports]
+        # (not a limited support another group holds: candidates() leaves those out; a sweep's donor moves rank them)
+        offered = set(self.candidates(index, build.groups()))
+        pool = [n for n in self.swept_ranking[:REBUILD_POOL] if n in offered] + [n for n in names[first:] if n not in kept]
+        free = self.budget_left() + sum(self.gem_cost(n) for n in names[first:])  # the budget with no supports in
+        before, snap = build.score, build.snapshot()
+        best_score, best_names = before, names
+        for seed in [n for n in pool if n not in names][:REBUILD_SEEDS]:
+            if clock.now() > deadline:
+                break
+            if not self.affordable(seed, 0.0, free - sum(self.gem_cost(n) for n in kept)):
+                continue
+            current = actives + kept + [seed]
+            while len(current) - first < SUPPORT_SLOTS and clock.now() < deadline:
+                taken = set().union(*(self.families(n) for n in current[first:]))
+                spend = sum(self.gem_cost(n) for n in current[first:])
+                options = [n for n in dict.fromkeys(pool) if n not in current and not (self.families(n) & taken)
+                           and self.affordable(n, 0.0, free - spend)]
+                if not options:
+                    break
+                self.commit(index, current, group)
+                scored = build.gem_deltas([{"group": index, "slot": len(current) + 1, "gem": n} for n in options])
+                current = current + [max(zip((sc for sc, _ in scored), options))[1]]
+            self.commit(index, current, group)
+            if build.score > best_score + EPSILON:
+                best_score, best_names = build.score, current
+        if best_names is names:
+            build.restore(snap)
+            return False
+        self.commit(index, best_names, group)
+        if build.score <= before + EPSILON:  # (a resolve can move the score: keep it only if still better)
+            build.restore(snap)
+            return False
+        return True
+
     def optimize_supports(self, deadline: float, rounds: int = 12, allow_sweep: bool = True) -> bool:
         """Weakest-slot moves against the shortlist; once those run out (and if allowed), one
         full sweep of every candidate in every slot. The main group first, then the meta group's, then each granted
@@ -567,6 +630,15 @@ class Gems:
                 # 2b75d, two of five probe lines at 897 DPS, POE2T358)
                 if self.checkpoint is not None:
                     self.checkpoint()
+            if not meta and index is None and self.rebuild_main(deadline):
+                improved = True
+                if self.checkpoint is not None:
+                    self.checkpoint()
+                for _ in range(rounds):  # then one-swap moves from the rebuilt set, against the sweep's shortlist
+                    if clock.now() > deadline or not self.supports_round():
+                        break
+                    if self.checkpoint is not None:
+                        self.checkpoint()
         return improved
 
     # Main active skill -------------------------------------------------------------------------

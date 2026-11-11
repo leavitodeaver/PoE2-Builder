@@ -9,6 +9,7 @@ import re
 
 import pytest
 
+from builder import clock
 from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload, normal_item
@@ -753,3 +754,30 @@ def test_source_lines_give_a_ranged_unique_line_rolled(engine):
     assert "Hits Break 40 Armour" in texts and "+15 to Strength" in texts
     assert not any("(" in t for t in texts)
     assert any(ARMOUR_BREAK_LINE.search(t) for t in texts)
+
+
+def test_the_support_rebuild_runs_once_per_task_and_never_lowers_the_score(engine):
+    """gems.rebuild_main (2b75d, POE2T645: three of five round-2 tasks stuck where the better set was three supports
+    away): after the main group's full sweep, sets rebuilt around the sweep's best new names are kept only if better;
+    it runs once per task, and the group keeps at most SUPPORT_SLOTS supports with no two of one family."""
+    from builder.search.context import SUPPORT_SLOTS
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Explosive Spear")
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    build, gems = search.build, search.gems
+    assert not gems.rebuild_main(clock.now() + 600)  # no sweep yet: nothing to rebuild from
+    gems.supports_round(full_sweep=True)
+    assert gems.swept_ranking
+    before = build.score
+    gems.rebuild_main(clock.now() + 600)
+    assert build.score >= before - 1e-9 and gems.rebuilt
+    assert not gems.rebuild_main(clock.now() + 600)
+    group = build.main_group()
+    supports = [g["name"] for g in group["gems"] if g["support"]]
+    assert len(supports) <= SUPPORT_SLOTS
+    families = [f for n in supports for f in gems.families(n)]
+    assert len(families) == len(set(families))
