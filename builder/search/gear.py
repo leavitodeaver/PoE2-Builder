@@ -22,6 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder import clock
+from builder.search import anoints
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption, implicit_variant, implicit_variants
 from builder.search.flasks import (
     ACTIVE_UPTIME, CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
@@ -41,6 +42,7 @@ GRANTS_META = re.compile(r"Grants Skill: (?:Level \S+ )?(?:%s)\s*$" % "|".join(r
 
 BASES_PER_SUBTYPE = 3  # normal armour/jewellery bases kept per sub-type, highest level first
 SHORTLIST = 6  # options per slot rescored between full rounds
+ANOINT_KEEP = 8  # notables per anoint the node screen passes to real item what-ifs (anointed)
 REQUIREMENT_FIT_SECONDS = 30.0  # tree re-routing a granted-meta unique's trial may take (fit_requirements)
 # Off since 8 Nov (MECH15): with a rare per variant of a variant base (Absent Amulet's Cast on Dodge, ...) proposed by
 # granted_meta_trials, every 2b75b gate run kept Cast on Dodge (~45% of its DPS) with 2-3 supports left in its main
@@ -113,6 +115,7 @@ class Gear:
         self.charges = Charges()  # charge generation of the committed build (sync_flasks)
         self._flask_info: dict[str, dict] = {}  # item text -> PoB's flask/charm numbers
         self.resolve = None  # re-resolves conditions after a commit (set by the search)
+        self._anoint_screen: list[str] | None = None  # this full round's anointable notables, best first
 
     fill_granted = None  # fills an item's granted meta group with a spell (gems.granted_meta_round); set by the search
     refill_main = None  # refills the main group's supports (gems.refill_main_supports); set by the search
@@ -415,6 +418,84 @@ class Gear:
         price = option.price if option.price is None else option.price + sum(self.runes.price(n) or 0.0 for n in chosen)
         return dataclasses.replace(option, raw=with_runes(raw, chosen), runes=tuple(chosen), price=price)
 
+    # Anoints ---------------------------------------------------------------------------------
+
+    def anoint_recipes(self) -> dict[str, tuple[int, tuple[str, str, str]]]:
+        """Anointable notable name -> (node id, its three emotions)."""
+        by_id = anoints.recipes(str(self.ctx.data.tree.get("treeVersion", "")))
+        return {self.ctx.nodes[i]["name"]: (i, r) for i, r in by_id.items()
+                if i in self.ctx.nodes and self.ctx.nodes[i]["name"] not in anoints.LEFT_OUT}
+
+    def anoint_cost(self, name: str) -> float:
+        """A notable's three emotions in divines (0 when unpriced: SSF, or no price data)."""
+        entry = self.anoint_recipes().get(name)
+        return (anoints.cost(entry[1], self.ctx.emotion_prices) or 0.0) if entry else 0.0
+
+    def anoint_screen(self) -> list[str]:
+        """Every anointable notable the tree hasn't allocated, best first by a node what-if (allocating it without a
+        path is what an anoint does) less its price, keeping only gains: once per full round, shared by every
+        anointable slot. A notable an equipped item already anoints screens at no gain; anointed() adds the slot's
+        own back."""
+        if self._anoint_screen is None:
+            recipes = self.anoint_recipes()
+            allocated = {n["id"] for n in self.build.call("allocatedNodes")["nodes"]}
+            banned = self.ctx.compiled.filters.forbidden_passives
+            keys = [(name, i) for name, (i, _) in recipes.items() if i not in allocated and name not in banned]
+            scored = self.build.node_deltas([{"add": [node_id]} for _, node_id in keys])
+            ranked = sorted(((s - self.lam * self.anoint_cost(name), name) for (s, _), (name, _) in zip(scored, keys)),
+                            key=lambda x: -x[0])
+            self._anoint_screen = [name for value, name in ranked if value > self.build.score + EPSILON]
+        return self._anoint_screen
+
+    def anointed(self, slot: str, option: ItemOption, deadline: float) -> ItemOption:
+        """The option with the anoints that score best, chosen one at a time (Strugglescream takes 4); its old anoints
+        are kept only if still best. Never a notable the tree allocated or another item anoints (a second grant of one
+        passive gives nothing: UNVERIFIED for anoints, treated as no gain)."""
+        cap = anoints.capacity(option)
+        if cap == 0 or clock.now() > deadline or not self.anoint_recipes():
+            return option
+        build = self.build
+        others = {n for s, o in build.equipped.items() if s != slot for n in o.anoints}
+        pool = [name for name in option.anoints if name not in others]
+        pool += [name for name in self.anoint_screen() if name not in others and name not in pool][:ANOINT_KEEP * cap]
+        if not pool:
+            return option
+        raw = anoints.strip(option.raw)
+        bare = option.price if option.price is None else option.price - sum(self.anoint_cost(n) for n in option.anoints)
+        left = self.left_for(slot) - (bare or 0.0)
+        chosen: list[str] = []
+        current = build.item_deltas([{"slot": slot, "raw": raw}])[0][0]
+        for _ in range(cap):
+            spend = sum(self.anoint_cost(n) for n in chosen)
+            options = [n for n in pool if n not in chosen and spend + self.anoint_cost(n) <= left + 1e-9]
+            if not options or clock.now() > deadline:
+                break
+            scored = build.item_deltas([{"slot": slot, "raw": anoints.with_anoints(raw, chosen + [n])} for n in options])
+            best_value, best = max(((s - self.lam * self.anoint_cost(n), n) for (s, _), n in zip(scored, options)),
+                                   key=lambda x: x[0])
+            if best_value <= current + EPSILON:
+                break
+            chosen.append(best)
+            current = best_value + self.lam * self.anoint_cost(best)
+        if tuple(chosen) == option.anoints:
+            return option
+        price = bare if bare is None else bare + sum(self.anoint_cost(n) for n in chosen)
+        return dataclasses.replace(option, raw=anoints.with_anoints(raw, chosen), anoints=tuple(chosen), price=price)
+
+    def commit_anoints(self, slot: str, option: ItemOption, deadline: float) -> bool:
+        """Re-anoint an item the round doesn't otherwise change (a required unique); kept only if it scores better."""
+        anointed = self.anointed(slot, option, deadline)
+        if anointed is option:
+            return False
+        before = self.build.score
+        self.put(slot, anointed)
+        self.settle()
+        if self.adjusted(self.build.score, anointed) < self.adjusted(before, option) - EPSILON and self.build.worse(before):
+            self.put(slot, option)
+            self.settle()
+            return False
+        return self.build.score > before + EPSILON
+
     # Rounds ----------------------------------------------------------------------------------
 
     def gear_round(self, deadline: float, full: bool = True) -> bool:
@@ -425,6 +506,7 @@ class Gear:
         self.sync_flasks()
         slots = list(self.slots)
         if full:  # a full round that ran out of time last task goes on from the slot it stopped at
+            self._anoint_screen = None
             start = slots.index(self.resume) if self.resume in slots else 0
             slots = slots[start:] + slots[:start]
             self.resume = None
@@ -434,6 +516,8 @@ class Gear:
                     self.resume = slot
                 continue
             if slot in build.locked_slots:
+                if full and (locked := build.equipped.get(slot)) is not None:  # a required unique is still anointed
+                    improved = self.commit_anoints(slot, locked, deadline) or improved
                 continue
             if slot in CHARM_SLOTS and CHARM_SLOTS.index(slot) >= self.charges.charm_limit:
                 if build.equipped.get(slot) is not None:  # the belt changed: a charm PoB no longer counts
@@ -466,6 +550,11 @@ class Gear:
                     filled = self.socketed(slot, target, deadline)
                     if filled is not target:
                         choice = filled
+                target = choice or current
+                if target is not None:
+                    anointed = self.anointed(slot, target, deadline)
+                    if anointed is not target:
+                        choice = anointed
             if choice is None:
                 continue
             before, previous = build.score, current

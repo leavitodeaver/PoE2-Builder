@@ -685,11 +685,13 @@ function bridge.frontier(args)
 	return { nodes = nodes }
 end
 
--- Allocated nodes that can be removed, with the nodes that would go with them
+-- Allocated nodes that can be removed, with the nodes that would go with them. A passive an item
+-- grants (an anoint's "Allocates X") is left out: it costs no point and the tree can't remove it
 function bridge.allocatedNodes()
 	local nodes = { }
 	for id, node in pairs(build.spec.allocNodes) do
-		if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and not node.ascendancyName then
+		if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and not node.ascendancyName
+			and not (node.isGrantedPassive and node.isFreeAllocate) then
 			local depends = { }
 			for _, dep in ipairs(node.depends or { }) do
 				depends[#depends + 1] = dep.id

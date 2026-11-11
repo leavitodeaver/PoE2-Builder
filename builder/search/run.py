@@ -572,6 +572,7 @@ class Run:
 
     def report_prices(self) -> dict:
         return {"augments": self.ctx.augment_prices, "gems": self.ctx.gem_prices, "league": self.payload["league"],
+                "emotions": self.ctx.emotion_prices,
                 "rare_model": self.payload["rare_model"], "materials": self.payload.get("craft_prices"),
                 "unique_versions": unique_versions.load(self.payload["league"])}
 

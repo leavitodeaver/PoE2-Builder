@@ -467,7 +467,8 @@ function renderResult(result) {
           gear.map(([slot, g]) => [slot,
             el("div", {}, g.unique || g.rare ? g.name : `${g.name} (normal)`,
               g.affixes?.length ? el("div", { class: "note" }, g.affixes.join(" · ")) : null,
-              g.runes?.length ? el("div", { class: "note" }, `Sockets: ${g.runes.join(", ")}`) : null),
+              g.runes?.length ? el("div", { class: "note" }, `Sockets: ${g.runes.join(", ")}`) : null,
+              g.anoints?.length ? el("div", { class: "note" }, `Anointed: ${g.anoints.join(", ")}`) : null),
             g.base, formatPrice(g.price), g.confidence]))));
     }
     parts.push(el("div", { class: "result-section" }, el("h3", {}, "Skills"),
@@ -659,6 +660,12 @@ function shoppingSection(shopping) {
       rows.push(el("tr", { class: "socket" }, el("td", {}, "socket"), el("td", {}, rune.name),
         el("td", { class: "num" }, formatPrice(rune.price)), el("td", {}, rune.price == null ? "unpriced" : rune.confidence),
         el("td", {}, shopping.ssf ? "–" : tradeButton(shopping, item, `rune:${rune.name}`))));
+    }
+    for (const anoint of item.anoints || []) {
+      rows.push(el("tr", { class: "socket" }, el("td", {}, "anoint"),
+        el("td", {}, `${anoint.name}: ${anoint.emotions.join(" + ") || "recipe unknown"}`),
+        el("td", { class: "num" }, formatPrice(anoint.price)), el("td", {}, anoint.price == null ? "unpriced" : anoint.confidence),
+        el("td", {}, "–")));
     }
   }
   showTotal();

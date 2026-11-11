@@ -23,7 +23,7 @@ from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, translate, wrong
 from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
-from builder.search import granted_rolls
+from builder.search import anoints, granted_rolls
 
 # Most a single unique may cost at each gear tier (divine), on top of the request's divine cap
 TIER_UNIQUE_CAP = {GearTier.LEAGUE_START: 1.0, GearTier.MID: 20.0, GearTier.ENDGAME: 300.0, GearTier.MIRROR: math.inf}
@@ -60,6 +60,7 @@ class ItemOption:
     rare: bool = False
     affixes: tuple[str, ...] = ()  # a rare's modifier lines
     runes: tuple[str, ...] = ()  # what's in its sockets
+    anoints: tuple[str, ...] = ()  # notables it allocates by instilling (builder/search/anoints.py)
     variants: tuple[str, ...] = ()  # a unique's chosen variants, when the search chose them (radius.py)
     granted_assumed: int | None = None  # a rolled granted level assumed, not priced (granted_rolls.ENDGAME_LEVEL)
 
@@ -72,6 +73,8 @@ class ItemOption:
         described = {"name": self.name, "base": self.base, "type": self.type, "unique": self.unique, "rare": self.rare,
                      "price": self.price, "confidence": self.confidence, "affixes": list(self.affixes),
                      "runes": list(self.runes)}
+        if self.anoints:
+            described["anoints"] = list(self.anoints)
         if self.variants:
             described["variants"] = list(self.variants)
         if self.granted_assumed:
@@ -121,6 +124,7 @@ class Context:
         self.unique_prices: dict[str, list] = payload.get("unique_prices") or {}
         self.gem_prices: dict[str, float] = payload.get("gem_prices") or {}
         self.augment_prices: dict[str, float] = payload.get("augment_prices") or {}
+        self.emotion_prices: dict[str, float] = payload.get("emotion_prices") or {}  # Liquid Emotions, for anoints
         # Trade prices of specific versions of a unique (builder/data/unique_versions.py)
         self.unique_versions: dict[str, dict] = payload.get("unique_versions") or {}
         self.rare_model = rare_prices.RarePriceModel.from_payload(payload.get("rare_model"))
@@ -490,6 +494,7 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "unique_prices": unique_prices,
         "gem_prices": gem_prices,
         "augment_prices": augment_prices,
+        "emotion_prices": anoints.emotion_prices(prices),
         "league": league,
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
         "craft_prices": craft_prices(prices),

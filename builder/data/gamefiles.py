@@ -42,6 +42,8 @@ TABLES = [
     "BaseItemTypes", "ItemClasses", "ItemClassCategories", "ArmourTypes", "WeaponTypes", "ShieldTypes", "Flasks",
     "UtilityFlaskBuffs", "Words", "UniqueStashLayout", "UniqueStashTypes",
     "SoulCores", "SoulCoreStats", "SoulCoreStatCategories", "SoulCoreTypes", "SoulCoreLimits",
+    # anoints ("instilling"): which Liquid Emotions allocate which notable
+    "BlightCraftingRecipes", "BlightCraftingResults", "BlightCraftingItems", "BlightCraftingTypes",
     # passive tree and classes
     "PassiveSkills", "PassiveSkillTrees", "Ascendancy", "Characters", "PassiveJewelSlots",
     "ClassPassiveSkillOverrides", "AscendancyPassiveSkillOverrides",

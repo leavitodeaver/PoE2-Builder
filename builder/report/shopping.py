@@ -28,7 +28,7 @@ from builder.data import GameData, rare_prices, unique_versions
 from builder.data.trade import TradeClient
 from builder.request.schema import GearTier
 from builder.search.radius import TAG, variants_of
-from builder.search import granted_rolls, models
+from builder.search import anoints, granted_rolls, models
 from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, conflicts, mod_lines, roll
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
@@ -330,6 +330,11 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
     model = rare_prices.RarePriceModel.from_payload(prices.get("rare_model"))
     model.materials = dict(prices.get("materials") or {})
     augments = prices.get("augments") or {}
+    emotions = prices.get("emotions") or {}
+    recipes = {}
+    if any(g.get("anoints") for g in (result.get("gear") or {}).values()):
+        names = {n["id"]: n["name"] for n in data.tree["nodes"]}
+        recipes = {names[i]: r for i, r in anoints.recipes(str(data.tree.get("treeVersion", ""))).items() if i in names}
     stats = stats or {}
     index = None  # trade stats by text, for uniques' chosen variants
     bases = {b["name"]: b for b in data.bases}
@@ -338,7 +343,12 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
         base = bases.get(gear["base"]) or {"type": gear["type"], "name": gear["base"]}
         runes = [{"name": name, "price": augments.get(name), "confidence": "poe.ninja exchange"}
                  for name in gear.get("runes") or []]
-        rune_cost = sum(r["price"] or 0.0 for r in runes)
+        # Each anoint: its three Liquid Emotions (builder/search/anoints.py), bought on the currency exchange
+        instilled = [{"name": name, "emotions": [anoints.EMOTIONS[e] for e in recipes.get(name, ())],
+                      "price": anoints.cost(recipes[name], emotions) if name in recipes else None,
+                      "confidence": "poe.ninja exchange (Liquid Emotions)"}
+                     for name in gear.get("anoints") or []]
+        rune_cost = sum(r["price"] or 0.0 for r in runes) + sum(a["price"] or 0.0 for a in instilled)
         price = gear.get("price")
         if price is not None:
             price = max(price - rune_cost, rare_prices.MIN_PRICE if gear.get("rare") else 0.0)
@@ -346,7 +356,7 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                 else "rare" if gear.get("rare") else "normal")
         entry = {"slot": slot, "kind": kind, "name": gear["name"], "base": gear["base"], "type": gear["type"],
                  "category": trade_category(base), "price": price, "confidence": gear.get("confidence"),
-                 "runes": runes, "affixes": []}
+                 "runes": runes, "anoints": instilled, "affixes": []}
         if kind == "unique":
             entry["variant"] = variants(gear["name"]) if variants else None
             if gear.get("variants"):
@@ -405,7 +415,8 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
             if gem.get("support") and price is not None and all(g["name"] != gem["name"] for g in gems):
                 gems.append({"slot": "Gem", "kind": "gem", "name": gem["name"], "price": price,
                              "confidence": "poe.ninja exchange", "runes": [], "affixes": []})
-    total = sum((i["price"] or 0.0) + sum(r["price"] or 0.0 for r in i["runes"]) for i in items)
+    total = sum((i["price"] or 0.0) + sum(r["price"] or 0.0 for r in i["runes"])
+                + sum(a["price"] or 0.0 for a in i.get("anoints") or []) for i in items)
     total += sum(g["price"] for g in gems)
     return {"league": prices.get("league"), "items": items + gems, "total": round(total, 4),
             "budget": budget.get("divines"), "ssf": bool(budget.get("ssf")),
