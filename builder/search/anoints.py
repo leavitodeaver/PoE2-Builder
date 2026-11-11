@@ -8,7 +8,10 @@ Which items take how many (FIX_QUEUE gear item 1, the research manager-checked 1
   works is UNVERIFIED: they are treated as bought already instilled, at the emotions' price (LOW);
 - an item with the "Raven-Touched" line (The Auspex, Horror's Flight: UniqueCanBeInstilled, local_item_can_be_instilled):
   1. Whether every copy has the line is UNVERIFIED: the line is in PoB's text of both, so the item what-if needs it;
-- a helmet with a Raven-Touched Shard in an augment socket: 1 (not chosen yet: the next gear-lane step).
+- a helmet with a Raven-Touched Shard in an augment socket: 1 (Gear.shard_trial; runes.json: helmet only, levelReq 60,
+  limit 1 per character; only on a helmet that is neither Corrupted nor Sanctified, from FIX_QUEUE's research, MEDIUM).
+  An item that is already Raven-Touched gains no second anoint from a shard (UNVERIFIED; not tried, a possible
+  undercount).
 None on belts, rings, boots, shields or weapons (checked by the research: SoulCores' Raven-Touched Shard row has
 CanSocketInJewellery False; UniqueCanBeInstilled is the only mod with local_item_can_be_instilled; manager-checked in
 the game files, 11 Nov). PoB reads an "Allocates <notable>" line on any item as that passive granted (ModParser
@@ -47,6 +50,8 @@ TWO_ANOINT_BASES = {"Twisted Amulet", "Distorted Amulet"}  # 0.5.0 patch notes (
 # last variant (Current) when none is selected, so the last such line counts
 ADDITIONAL = re.compile(r"^(?:\{[^}]*\})*Can have (\d+) additional Instilled Modifiers?\s*$", re.M)
 RAVEN_TOUCHED = re.compile(r"^Raven-Touched\s*$", re.M)
+SHARD = "Raven-Touched Shard"
+SEALED = re.compile(r"^(?:Corrupted|Sanctified)\s*$", re.M)  # an item a shard can't go into
 ANOINT_LINE = "{enchant}Allocates "
 RECIPE = re.compile(r'recipe=\{\s*\[1\]="(\w+)",\s*\[2\]="(\w+)",\s*\[3\]="(\w+)"\s*\},[^}]*?\bskill=(\d+),')
 
@@ -86,7 +91,9 @@ def capacity(option, base_type: str | None = None) -> int:
         if extra:
             return 1 + int(extra[-1])
         return 2 if option.base in TWO_ANOINT_BASES else 1
-    return 1 if RAVEN_TOUCHED.search(option.raw) else 0
+    if RAVEN_TOUCHED.search(option.raw) or (option.type == "Helmet" and SHARD in option.runes):
+        return 1
+    return 0
 
 
 def strip(raw: str) -> str:

@@ -3,6 +3,7 @@ engine that PoB counts the "Allocates" line and the gear step picks a notable th
 
 from __future__ import annotations
 
+import dataclasses
 import faulthandler
 import random
 
@@ -109,3 +110,41 @@ def test_the_gear_step_anoints_an_amulet_with_a_notable_pob_counts(engine):
     # Chosen again for the same item, it keeps its anoint (not offered elsewhere, not dropped as "already granted")
     assert gear.anointed("Amulet", chosen, clock.now() + 600).anoints
     assert chosen.describe()["anoints"] == list(chosen.anoints)
+
+
+def test_capacity_counts_a_raven_touched_shard_only_in_a_helmet():
+    helmet = option("x", "Iron Greathelm", "Helmet", "Rarity: Normal\nIron Greathelm")
+    assert anoints.capacity(helmet) == 0
+    assert anoints.capacity(dataclasses.replace(helmet, runes=(anoints.SHARD,))) == 1
+    gloves = option("x", "Engraved Bracers", "Gloves", "Rarity: Normal\nEngraved Bracers")
+    assert anoints.capacity(dataclasses.replace(gloves, runes=(anoints.SHARD,))) == 0
+
+
+def test_the_gear_step_puts_a_raven_touched_shard_in_a_helmet_with_its_anoint(engine, monkeypatch):
+    ctx = Context(make_payload(BuildRequest(main_skill="Spark")))
+    ctx.augment_prices[anoints.SHARD] = 0.5
+    engine.call("newBuild")
+    build = Build(engine, ctx, Objective(ctx))
+    gear = Gear(build, SlotSpec("Wand"), None, random.Random(0))
+    base = next(b for b in ctx.data.bases if b["type"] == "Helmet" and (b.get("socketLimit") or 0) >= 3)
+    helmet = ItemOption(name=base["name"], base=base["name"], type="Helmet", sub_type=None, raw=normal_item(base),
+                        unique=False, price=0.0, confidence="found", level=1)
+    gear.put("Helmet", helmet)
+    deadline = clock.now() + 600
+    chosen = gear.shard_trial("Helmet", helmet, deadline)
+    assert chosen.runes == (anoints.SHARD,) and len(chosen.anoints) == 1
+    assert "Rune: Raven-Touched Shard" in chosen.raw and f"{{enchant}}Allocates {chosen.anoints[0]}" in chosen.raw
+    assert chosen.price == pytest.approx(0.5 + gear.anoint_cost(chosen.anoints[0]))
+    before = build.score
+    gear.put("Helmet", chosen)
+    assert build.score > before
+    gear.put("Helmet", helmet)
+    # Not on a Corrupted or Sanctified helmet, not below level 60, and never a second shard
+    for sealed in ("Corrupted", "Sanctified"):
+        closed = dataclasses.replace(helmet, raw=f"{helmet.raw}\n{sealed}")
+        assert gear.shard_trial("Helmet", closed, deadline) is closed
+    assert ctx.level >= 60
+    with monkeypatch.context() as m:
+        m.setattr(Context, "level", property(lambda self: 59))
+        assert gear.shard_trial("Helmet", helmet, deadline) is helmet
+    assert gear.shard_trial("Helmet", chosen, deadline) is chosen

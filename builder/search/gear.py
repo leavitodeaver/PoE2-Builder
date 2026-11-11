@@ -482,6 +482,40 @@ class Gear:
         price = bare if bare is None else bare + sum(self.anoint_cost(n) for n in chosen)
         return dataclasses.replace(option, raw=anoints.with_anoints(raw, chosen), anoints=tuple(chosen), price=price)
 
+    def shard_trial(self, slot: str, option: ItemOption | None, deadline: float) -> ItemOption | None:
+        """A helmet with a Raven-Touched Shard (anoints.SHARD) in a socket, scored with the best anoint it allows.
+        Alone the shard's "Raven-Touched" line scores nothing, so socketed() never picks it. It goes into a free
+        socket or replaces the last rune chosen (the greedy fill's weakest), and is kept only if shard + anoint +
+        their prices beat the helmet as it is. The catalog gives level 60 and its price (RuneCatalog.candidates);
+        a Corrupted or Sanctified helmet takes none; one per character (its limit)."""
+        if (option is None or option.type != "Helmet" or anoints.SHARD in option.runes or clock.now() > deadline
+                or anoints.SEALED.search(option.raw) or anoints.capacity(option) > 0):
+            return option
+        base = self.ctx.bases_by_name.get(option.base)
+        count = socket_count(base, option.unique) if base else 0
+        if count == 0 or anoints.SHARD not in self.runes.candidates(base, option.unique):
+            return option
+        limit = self.runes.limit(anoints.SHARD)
+        if limit:
+            used = sum(1 for s, o in self.build.equipped.items() if s != slot and o is not None
+                       for n in o.runes if (self.runes.limit(n) or ("",))[0] == limit[0])
+            if used >= limit[1]:
+                return option
+        runes = list(option.runes)
+        dropped = runes[count - 1:] if len(runes) >= count else []
+        new = runes[:count - 1] + [anoints.SHARD] if dropped else runes + [anoints.SHARD]
+        price = option.price
+        if price is not None:
+            price += (self.runes.price(anoints.SHARD) or 0.0) - sum(self.runes.price(n) or 0.0 for n in dropped)
+            if price > self.left_for(slot) + 1e-9:
+                return option
+        trial = dataclasses.replace(option, raw=with_runes(option.raw, new), runes=tuple(new), price=price)
+        anointed = self.anointed(slot, trial, deadline)
+        if not anointed.anoints:
+            return option
+        (old, _), (new_score, _) = self.deltas(slot, [option.raw, anointed.raw])
+        return anointed if self.adjusted(new_score, anointed) > self.adjusted(old, option) + EPSILON else option
+
     def commit_anoints(self, slot: str, option: ItemOption, deadline: float) -> bool:
         """Re-anoint an item the round doesn't otherwise change (a required unique); kept only if it scores better."""
         anointed = self.anointed(slot, option, deadline)
@@ -555,6 +589,10 @@ class Gear:
                     anointed = self.anointed(slot, target, deadline)
                     if anointed is not target:
                         choice = anointed
+                    target = choice or current
+                    shard = self.shard_trial(slot, target, deadline)
+                    if shard is not target:
+                        choice = shard
             if choice is None:
                 continue
             before, previous = build.score, current
