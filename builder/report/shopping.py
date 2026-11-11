@@ -187,14 +187,37 @@ def stat_key(text: str) -> str:
     return " ".join(VALUE.sub("#", text).replace("+#", "#").lower().split())
 
 
-def stat_index(stats: dict[str, dict]) -> dict[tuple[str, str], str]:
+class StatIndex(dict):
+    """(stat kind, stat_key of its text) -> the first trade stat id with it; `ids` gives them all.
+    Several stats can share a text: "Grants Skill: Level # Lightning Bolt" is skill.lightning_bolt
+    (Earthbound) and skill.unique_breach_lightning_bolt (Choir of the Storm), and a search by the
+    wrong one finds none of the other's 2,627 listings (trade, 11 Nov 2026)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.all: dict[tuple[str, str], list[str]] = {}
+
+    def ids(self, key: tuple[str, str]) -> list[str]:
+        return self.all.get(key, [])
+
+
+def stat_index(stats: dict[str, dict]) -> StatIndex:
     """(stat kind, stat_key of its text) -> trade stat id. Stats with options (a notable, a
     keystone, a ring size) carry the option in the id: "enchant.stat_2954116742|34473" is
     "Allocates Spaghettification"."""
-    index: dict[tuple[str, str], str] = {}
+    index = StatIndex()
     for stat_id, stat in stats.items():
-        index.setdefault((stat_id.split(".", 1)[0], stat_key(stat["text"])), stat_id)
+        key = (stat_id.split(".", 1)[0], stat_key(stat["text"]))
+        index.setdefault(key, stat_id)
+        index.all.setdefault(key, []).append(stat_id)
     return index
+
+
+def granted_group(ids: list[str], minimum: int) -> dict:
+    """The trade stat group for a granted skill at `minimum` or higher: its one stat, or any of the
+    stats that share its text (each unique carries only one of them)."""
+    filters = [{"id": stat_id, "value": {"min": minimum}} for stat_id in ids]
+    return {"type": "and", "filters": filters} if len(ids) == 1 else {"type": "count", "value": {"min": 1}, "filters": filters}
 
 
 def version_lines(raw: str, chosen) -> list[tuple[str, str]] | None:
@@ -229,8 +252,10 @@ def version_filters(raw: str, chosen, index: dict[tuple[str, str], str]) -> list
 def granted_filters(level: int, skill: str, index: dict[tuple[str, str], str]) -> list[dict]:
     """The trade filter for a unique's granted skill at `level` or higher (granted_rolls.py): its
     "Grants Skill: Level # <skill>" stat with that minimum, or no id when the site has no such stat."""
-    return [{"text": granted_rolls.label(level, skill), "value": {"min": level},
-             "id": index.get(("skill", stat_key(f"Grants Skill: Level # {skill}")))}]
+    key = ("skill", stat_key(f"Grants Skill: Level # {skill}"))
+    ids = index.ids(key) if isinstance(index, StatIndex) else [index[key]] if key in index else []
+    return [{"text": granted_rolls.label(level, skill), "value": {"min": level}, "id": ids[0] if ids else None,
+             **({"any_of": ids} if len(ids) > 1 else {})}]
 
 
 def version_entry(entry: dict, gear: dict, data: GameData, versions: dict | None, index: dict) -> None:
@@ -468,7 +493,12 @@ def unique_ladder(entry: dict, status: str = LINK_STATUS) -> list[tuple[str, dic
     version's price."""
     plain = {"name": entry["name"], "type": entry["base"], "filters": _type_filters(None, "unique")}
     lines = entry.get("version_lines") or []
-    filters = [{"id": line["id"], **({"value": line["value"]} if line.get("value") else {})} for line in lines if line.get("id")]
+    filters = [{"id": line["id"], **({"value": line["value"]} if line.get("value") else {})}
+               for line in lines if line.get("id") and not line.get("any_of")]
+    either = [granted_group(line["any_of"], line["value"]["min"]) for line in lines if line.get("any_of")]
+    if either:  # a granted level whose text several stats share: any of them (no partial step)
+        groups = ([{"type": "and", "filters": filters}] if filters else []) + either
+        return [("this version", _query(groups, status, **plain))]
     if not filters:
         label = "this unique, any version (its chosen lines aren't searchable: check them by eye)" if lines else "this unique"
         return [(label, _query(status=status, **plain))]
@@ -487,6 +517,8 @@ def trade_link(client: TradeClient, league: str, entry: dict, part: str = "item"
     with chosen variants also gets `version`: what this exact version costs (unique_versions)."""
     tried = []
     answer = None
+    if entry.get("kind") == "unique" and part == "item":
+        entry = {**entry, "name": client.site_unique_name(entry["name"])}
     for label, query in ladder(entry, part):
         answer = client.search(league, query, max_wait=max_wait)
         tried.append({"matches": label, "total": answer["total"], "url": answer["url"]})

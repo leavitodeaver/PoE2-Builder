@@ -27,8 +27,8 @@ import time
 from builder.data import GameData, unique_versions
 from builder.data.trade import Cancelled, RateLimited, TradeClient, TradeError
 from builder.report.shopping import (
-    LINK_STATUS, _query, _type_filters, asking_prices, listing_divines, stat_index, stat_key, unique_ladder,
-    version_filters, version_priced,
+    LINK_STATUS, _query, _type_filters, asking_prices, granted_group, listing_divines, stat_index, stat_key,
+    unique_ladder, version_filters, version_priced,
 )
 from builder.search import granted_rolls
 from builder.search.radius import variants_of
@@ -78,12 +78,13 @@ def granted_entries(data: GameData, stats: dict[str, dict]) -> tuple[list[dict],
             continue
         seen.add(unique["name"])
         skill, low, high = skills[0]
-        stat = index.get(("skill", stat_key(f"Grants Skill: Level # {skill}")))
+        ids = index.ids(("skill", stat_key(f"Grants Skill: Level # {skill}")))
+        stat = ids[0] if ids else None
         if stat is None:
             unsearchable.append(f"{unique['name']} ({skill})")
             continue
         entries.append({"name": unique["name"], "base": unique["base"], "skill": skill, "low": low, "high": high,
-                        "stat": stat})
+                        "stat": stat, "stats": ids})
     return entries, unsearchable
 
 
@@ -163,7 +164,7 @@ class VersionPricing:
     def price(self, league: str, entry: dict, rates: dict[str, float]) -> dict | None:
         """Search one version, fetch its ten cheapest when listed, and keep the result; None when
         the trade site couldn't answer (nothing is kept, so the search uses the feed's price)."""
-        label, query = unique_ladder(entry, LINK_STATUS)[0]
+        label, query = unique_ladder({**entry, "name": self.client.site_unique_name(entry["name"])}, LINK_STATUS)[0]
         wait = {"on_wait": self._wait, "cancel": lambda: self.cancel, "even": True}
         for attempt in range(3):
             try:
@@ -207,7 +208,7 @@ class VersionPricing:
         listed. None when the site couldn't answer the first search."""
         skill, minimum, kept = entry["skill"], entry["low"], []
         for step in range(GRANTED_STEPS):
-            stats = [{"type": "and", "filters": [{"id": entry["stat"], "value": {"min": minimum}}]}]
+            stats = [granted_group(entry.get("stats") or [entry["stat"]], minimum)]
             # By base and the skill's stat, not by name: PoB drops accents the site keeps (Mjolner, Mjölner)
             query = _query(stats, LINK_STATUS, type=entry["base"], filters=_type_filters(None, "unique"))
             asked = self._ask(league, query)

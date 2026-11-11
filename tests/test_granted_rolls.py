@@ -75,6 +75,9 @@ def test_the_job_prices_a_ladder_of_levels(data, tmp_path, monkeypatch) -> None:
         def stats(self, offline=False):
             return STATS
 
+        def site_unique_name(self, name, offline=False):
+            return name
+
         def search(self, league, query, max_age=None, **wait):
             assert "name" not in query["query"] and query["query"]["type"] == "Torment Club"
             minimum = query["query"]["stats"][0]["filters"][0]["value"]["min"]
@@ -129,3 +132,19 @@ def test_the_shopping_list_searches_and_names_the_level(data) -> None:
     note = granted_roll_note(raw_of(data, "Mjolner"), [granted_rolls.label(19, "Thundergod's Wrath")])
     assert "Thundergod's Wrath at level 19 or higher" in note and "trade site's listings" in note
     assert "middle roll" in granted_roll_note(raw_of(data, "Mjolner"))
+
+
+def test_a_level_whose_text_two_stats_share_is_searched_by_either(data) -> None:
+    """Earthbound and Choir of the Storm both grant Lightning Bolt, under two trade stats of one text;
+    searched by the first alone, Choir's 2,627 listings came back as 0 (trade, 11 Nov 2026)."""
+    stats = {"skill.lightning_bolt": {"text": "Grants Skill: Level # Lightning Bolt", "type": "skill"},
+             "skill.unique_breach_lightning_bolt": {"text": "Grants Skill: Level # Lightning Bolt", "type": "skill"}}
+    both = list(stats)
+    choir = next(e for e in granted_entries(data, stats)[0] if e["name"] == "Choir of the Storm")
+    assert choir["stats"] == both
+    lines = granted_filters(18, "Lightning Bolt", stat_index(stats))
+    assert lines[0]["any_of"] == both
+    label, query = unique_ladder({"name": "Choir of the Storm", "base": "Jade Amulet", "version_lines": lines})[0]
+    assert label == "this version"
+    assert query["query"]["stats"] == [{"type": "count", "value": {"min": 1}, "filters": [
+        {"id": stat_id, "value": {"min": 18}} for stat_id in both]}]

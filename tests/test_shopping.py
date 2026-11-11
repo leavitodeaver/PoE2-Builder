@@ -383,6 +383,9 @@ def test_jewel_budget_uses_crafting_while_market_data_is_thin() -> None:
 
 def test_trade_link_reports_what_listings_ask(tmp_path) -> None:
     class Client:
+        def site_unique_name(self, name, offline=False):
+            return name
+
         def search(self, league, query, max_wait=None):
             return {"id": "q", "total": 12, "result": [f"i{n}" for n in range(12)], "url": "u", "cached": False}
 
@@ -519,6 +522,9 @@ class VersionSite:
     def __init__(self, totals, asks) -> None:
         self.totals, self.asks, self.searches = list(totals), asks, []
 
+    def site_unique_name(self, name, offline=False):
+        return name
+
     def search(self, league, query, max_wait=None):
         self.searches.append(query)
         n = len(self.searches)
@@ -641,6 +647,9 @@ def test_the_version_job_keeps_each_version_it_searched(data, tmp_path, monkeypa
         def stats(self, offline=False):
             return stats
 
+        def site_unique_name(self, name, offline=False):
+            return name
+
         def search(self, league, query, max_age=None, **wait):
             self.searches += 1
             total = 0 if self.searches % 4 == 0 else 3  # every fourth version is listed by nobody
@@ -692,3 +701,19 @@ def test_a_unique_granting_a_rolled_skill_level_says_which_roll_the_build_assume
     assert [n["value"] for n in notes] == [11, 11] and "Thundergod's Wrath" in notes[1]["label"]
     assert "Cast on Block at level 11 of 1-20" in granted_roll_note(raw_of(data, "Svalinn"))
     assert granted_roll_note(raw_of(data, "Headhunter") if any(u["name"] == "Headhunter" for u in data.uniques) else "") is None
+
+
+def test_a_unique_is_searched_by_the_sites_own_spelling(tmp_path) -> None:
+    """PoB drops accents the trade site keeps (Mjolner, Mjölner); the site refuses a name it
+    doesn't know, so a unique is searched under the site's spelling, from /data/items."""
+    clock = Clock()
+    items = {"result": [{"id": "weapon", "entries": [
+        {"name": "Mjölner", "type": "Gavel", "text": "Mjölner Gavel", "flags": {"unique": True}},
+        {"type": "Gavel", "text": "Gavel"}]}]}
+    site = FakeSite([items, {"id": "q", "total": 3, "result": []}])
+    client = TradeClient(tmp_path, RateLimiter(tmp_path / "limits.json", clock=clock), opener=site,
+                         sleep=lambda s: setattr(clock, "now", clock.now + s))
+    link = trade_link(client, "Test", {"kind": "unique", "name": "Mjolner", "base": "Gavel"})
+    assert json.loads(site.requests[1].data)["query"]["name"] == "Mjölner" and link["total"] == 3
+    assert client.site_unique_name("Mjolner", offline=True) == "Mjölner"  # cached a week, no request
+    assert client.site_unique_name("Unknown Thing", offline=True) == "Unknown Thing" and len(site.requests) == 2

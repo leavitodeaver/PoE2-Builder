@@ -12,6 +12,10 @@ What sets it: the item's level, not a free roll (trade listings, 10 Nov 2026, Fo
 40-165 div against 1 chaos for level 18 or 19. So the cheapest copy is often a high level, and PoB's middle roll (11)
 undercounts: once priced, the search offers each level the trade site sells at that level's price, and keeps the
 middle roll, labelled, only until then.
+Item level sets it only loosely (trade, 11 Nov 2026, ten cheapest copies each): Svalinn 18 at item level 81, 19 at 82;
+Choir of the Storm 18 at 81, 19 at 84; Lifesprig 13 at 54, 14 at 65-67, 15 at 67-68, 16 at 68, 17 at 76, 18 at 79-81;
+The Searing Touch 13 at 53, 16 at 73, 17 or 19 at 78, 18 or 19 at 81-82. So copies of one item level can differ by one
+or two levels; it is bought by the listed level, never inferred from the item level.
 
 A unique granting two skills at rolled levels (Dusk Vigil's Firebolt and Ember Fusillade, Earthbound) is priced by its
 first one's level; the others are ASSUMED to follow the same item level, so they get the same level.

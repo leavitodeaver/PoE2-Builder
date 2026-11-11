@@ -20,6 +20,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -316,6 +317,32 @@ class TradeClient:
         if cached:
             return cached["entries"]
         return vendored_stats()
+
+    def unique_names(self, offline: bool = False) -> dict[str, str]:
+        """Folded unique name -> the trade site's own spelling, live from /data/items (cached a
+        week; {} when never fetched). PoB drops accents the site keeps (Mjolner, Mjölner), and the
+        site refuses a name it doesn't know."""
+        path = self.cache_dir / "items.json"
+        cached = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+        if not offline and (not cached or time.time() - cached["fetched_at"] > STATS_MAX_AGE):
+            try:
+                answer = self._request(DATA, f"{API}/data/items", max_wait=10)
+                names = sorted({e["name"] for group in answer.get("result", []) for e in group.get("entries", [])
+                                if e.get("name") and (e.get("flags") or {}).get("unique")})
+                if names:
+                    cached = self._store("", "items", {"source": "api", "uniques": names})
+            except TradeError:
+                pass
+        return {fold_name(name): name for name in (cached or {}).get("uniques", [])}
+
+    def site_unique_name(self, name: str, offline: bool = False) -> str:
+        """`name` as the trade site spells it; unchanged when the site's list doesn't hold it."""
+        return self.unique_names(offline).get(fold_name(name), name)
+
+
+def fold_name(name: str) -> str:
+    """A unique name without accents or case, so PoB's and the site's spellings meet."""
+    return "".join(c for c in unicodedata.normalize("NFKD", name) if not unicodedata.combining(c)).casefold()
 
 
 def vendored_stats() -> dict[str, dict]:
