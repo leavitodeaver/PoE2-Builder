@@ -8,10 +8,12 @@ caches it.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
 import re
+import time
 from collections import deque
 from dataclasses import dataclass
 from functools import cached_property
@@ -21,6 +23,7 @@ from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, translate, wrong
 from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
+from builder.search import granted_rolls
 
 # Most a single unique may cost at each gear tier (divine), on top of the request's divine cap
 TIER_UNIQUE_CAP = {GearTier.LEAGUE_START: 1.0, GearTier.MID: 20.0, GearTier.ENDGAME: 300.0, GearTier.MIRROR: math.inf}
@@ -324,10 +327,10 @@ class Context:
             if priced is None:
                 continue
             price, confidence = priced
-            options.setdefault(base["type"], []).append(ItemOption(
+            options.setdefault(base["type"], []).extend(self.granted_versions(ItemOption(
                 unique["name"], base["name"], base["type"], base.get("subType"),
                 self.corrected_raw(unique["name"], unique["raw"]), True,
-                price, confidence, (base.get("req") or {}).get("level") or 0))
+                price, confidence, (base.get("req") or {}).get("level") or 0)))
         return options
 
     @cached_property
@@ -348,10 +351,35 @@ class Context:
                 if base is None:
                     return None
                 priced = self.unique_price(name) or (None, "over budget or unpriced")
-                return ItemOption(name, base["name"], base["type"], base.get("subType"),
-                                  self.corrected_raw(name, unique["raw"]), True,
-                                  priced[0], priced[1], (base.get("req") or {}).get("level") or 0)
+                option = ItemOption(name, base["name"], base["type"], base.get("subType"),
+                                    self.corrected_raw(name, unique["raw"]), True,
+                                    priced[0], priced[1], (base.get("req") or {}).get("level") or 0)
+                # Required: the cheapest level the trade site sells (granted_versions), else the middle roll
+                return min(self.granted_versions(option, capped=False), key=lambda o: (o.price or 0.0))
         return None
+
+    def granted_versions(self, option: ItemOption, capped: bool = True) -> list[ItemOption]:
+        """A unique granting a skill at a rolled level (granted_rolls.py): one option per level the Price unique versions
+        job priced from trade listings (builder/report/version_prices.py), at that level and its price; levels nobody
+        lists aren't offered. Until any level is priced (and in SSF), the unique as PoB loads it, the middle roll,
+        which the guide and the shopping list label (models.granted_level_notes)."""
+        skills = granted_rolls.rolled(option.raw)
+        if not skills or self.ssf:
+            return [option]
+        skill = skills[0][0]
+        found = []
+        for entry in self.unique_versions.values():
+            parsed = granted_rolls.parse_label(entry.get("variants")) if entry.get("name") == option.name else None
+            if parsed is None or parsed[1] != skill or not entry.get("listed") or entry.get("price") is None:
+                continue
+            if capped and entry["price"] > self.price_cap:
+                continue
+            day = time.strftime("%Y-%m-%d", time.localtime(entry["priced_at"]))
+            found.append(dataclasses.replace(
+                option, raw=granted_rolls.with_level(option.raw, parsed[0]), price=entry["price"],
+                variants=(granted_rolls.label(*parsed),),
+                confidence=f"trade, {skill} level {parsed[0]}+ ({entry['listed']} listed, {day})"))
+        return sorted(found, key=lambda o: o.price) or [option]
 
     # Passive tree -----------------------------------------------------------------------------
 

@@ -28,7 +28,7 @@ from builder.data import GameData, rare_prices, unique_versions
 from builder.data.trade import TradeClient
 from builder.request.schema import GearTier
 from builder.search.radius import TAG, variants_of
-from builder.search import models
+from builder.search import granted_rolls, models
 from builder.search.rares import EFFECT, JEWEL_CRAFTS, RANGE, TIER_RULES, boosted, conflicts, mod_lines, roll
 
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
@@ -226,14 +226,24 @@ def version_filters(raw: str, chosen, index: dict[tuple[str, str], str]) -> list
     return [{"text": text, "id": index.get((kind, stat_key(text)))} for text, kind in version_lines(raw, chosen) or []]
 
 
+def granted_filters(level: int, skill: str, index: dict[tuple[str, str], str]) -> list[dict]:
+    """The trade filter for a unique's granted skill at `level` or higher (granted_rolls.py): its
+    "Grants Skill: Level # <skill>" stat with that minimum, or no id when the site has no such stat."""
+    return [{"text": granted_rolls.label(level, skill), "value": {"min": level},
+             "id": index.get(("skill", stat_key(f"Grants Skill: Level # {skill}")))}]
+
+
 def version_entry(entry: dict, gear: dict, data: GameData, versions: dict | None, index: dict) -> None:
     """A unique whose variants the search chose: the lines to search it by, and the trade price of
     this exact version once a Trade click priced it (else the feed's, which is for any version)."""
     chosen = list(gear["variants"])
     entry["variant"] = ", ".join(chosen)
     entry["variants"] = chosen
-    raw = next((u["raw"] for u in data.uniques if u["name"] == gear["name"] and version_lines(u["raw"], chosen)), None)
-    entry["version_lines"] = version_filters(raw, chosen, index) if raw else []
+    if granted := granted_rolls.parse_label(chosen):
+        entry["version_lines"] = granted_filters(*granted, index)
+    else:
+        raw = next((u["raw"] for u in data.uniques if u["name"] == gear["name"] and version_lines(u["raw"], chosen)), None)
+        entry["version_lines"] = version_filters(raw, chosen, index) if raw else []
     known = unique_versions.lookup(versions, gear["name"], chosen)
     feed = entry["feed_price"] = entry["price"]
     if known is None:
@@ -261,14 +271,20 @@ def version_entry(entry: dict, gear: dict, data: GameData, versions: dict | None
 
 # Shopping list ---------------------------------------------------------------------------------
 
-def granted_roll_note(raw: str) -> str | None:
-    """Which roll of a unique's 'Grants Skill: Level (a-b)' line the build assumes (models.granted_level_notes)."""
+def granted_roll_note(raw: str, chosen=None) -> str | None:
+    """Which level of a unique's 'Grants Skill: Level (a-b)' line the build assumes (models.granted_level_notes): the
+    level the search bought (granted_rolls.py, priced from trade listings of it), else PoB's middle roll."""
+    if granted := granted_rolls.parse_label(chosen):
+        level, skill = granted
+        return (f"Buy a copy granting {skill} at level {level} or higher: the build assumes {level}, priced from the "
+                "trade site's listings of that level (the item's level sets it; level 20 is usually a corrupted copy).")
     parts = [f"{skill} at level {level} of {low}-{high}" for level, low, high, skill
              in map(models.granted_level, models.GRANTED_RANGE.finditer(raw)) if low != high]
     if not parts:
         return None
-    return (f"The build assumes {', '.join(parts)}; the price shown is poe.ninja's for the cheapest "
-            "copy of any roll, so a copy with that roll or higher may cost more.")
+    return (f"The build assumes {', '.join(parts)} (PoB's middle roll: its levels aren't priced yet; the Price unique "
+            "versions job prices them). The price shown is poe.ninja's for the cheapest copy of any level; the item's "
+            "level sets it, and copies on the trade site are often higher (Mjolner 18-19, 10 Nov 2026).")
 
 
 def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, dict] | None = None,
@@ -306,7 +322,7 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                 index = index if index is not None else stat_index(stats)
                 version_entry(entry, gear, data, prices.get("unique_versions"), index)
             raw = gear.get("raw") or next((u["raw"] for u in data.uniques if u["name"] == gear["name"]), "")
-            if granted := granted_roll_note(raw):
+            if granted := granted_roll_note(raw, gear.get("variants")):
                 entry["note"] = f"{entry['note']} {granted}" if entry.get("note") else granted
 
         elif kind in ("rare", "magic"):
@@ -452,7 +468,7 @@ def unique_ladder(entry: dict, status: str = LINK_STATUS) -> list[tuple[str, dic
     version's price."""
     plain = {"name": entry["name"], "type": entry["base"], "filters": _type_filters(None, "unique")}
     lines = entry.get("version_lines") or []
-    filters = [{"id": line["id"]} for line in lines if line.get("id")]
+    filters = [{"id": line["id"], **({"value": line["value"]} if line.get("value") else {})} for line in lines if line.get("id")]
     if not filters:
         label = "this unique, any version (its chosen lines aren't searchable: check them by eye)" if lines else "this unique"
         return [(label, _query(status=status, **plain))]

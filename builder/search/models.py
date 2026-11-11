@@ -804,8 +804,9 @@ def granted_level_notes(items: list[tuple[str, str]]) -> list[dict]:
                 continue
             notes.append({"label": f"{name}'s {skill}: level {level} assumed", "value": level,
                           "basis": f"the item rolls 'Grants Skill: Level ({low}-{high}) {skill}'; the build assumes the "
-                                   f"roll {level} (PoB's middle roll unless set). poe.ninja's price is the cheapest copy of any "
-                                   f"roll: a copy at {level} or more may cost more, and a lower roll does less",
+                                   f"roll {level}: the level the search bought, priced from the trade site's listings of it, or PoB's "
+                                   f"middle roll until its levels are priced (builder/search/granted_rolls.py; the shopping "
+                                   f"list says which). The item's level sets it; a lower level does less",
                           "confidence": "theory"})
     return notes
 
