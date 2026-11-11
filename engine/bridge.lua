@@ -1836,6 +1836,12 @@ function bridge.useRates(args)
 				repeats = jsonNumber(output.Repeats or 1),
 				duration = output.Duration and jsonNumber(output.Duration) or nil,
 				castTime = jsonNumber(skill.activeEffect.grantedEffect.castTime or 0),
+				-- one use's time before the cooldown caps Speed (PoB's own ailment stacks read it the same way)
+				time = (output.HitTime or output.Time) and jsonNumber(output.HitTime or output.Time) or nil,
+				-- each ailment's stacks at that speed over the most that count (PoB: chance x duration x rate / max)
+				stackPotential = setmetatable({ Ignite = output.IgniteStackPotential and jsonNumber(output.IgniteStackPotential),
+					Bleed = output.BleedStackPotential and jsonNumber(output.BleedStackPotential),
+					Poison = output.PoisonStackPotential and jsonNumber(output.PoisonStackPotential) }, { __jsontype = "object" }),
 			}
 		end
 	end

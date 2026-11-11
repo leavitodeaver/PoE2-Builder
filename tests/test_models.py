@@ -1143,3 +1143,25 @@ def test_pressed_group_tells_pressed_from_triggered_totem_and_mark_carrier_group
     assert not pressed_group(group("Spell Totem", "Frost Bomb"), gems)
     assert not pressed_group(group("Pounce"), gems)
     assert not pressed_group(group("Herald of Ice"), gems)
+
+
+def test_press_model_takes_the_uncapped_use_time_and_scales_ailments_by_the_stacks_the_presses_keep_up():
+    """MECH37 turn 2: where the cooldown caps PoB's speed, a press takes PoB's own use time (Time/HitTime); a pressed
+    skill's ailment entries (its source) count at min(stacks x real/nonstop, the most that count), as PoB counts them,
+    and the main skill's ailments shrink with its time."""
+    rates = [{"index": 1, "name": "Main", "speed": 2.0, "stackPotential": {"Bleed": 3.0}},
+             {"index": 2, "name": "Bomb", "speed": 0.25, "cooldown": 4.0, "castTime": 1.0, "time": 0.4,
+              "stackPotential": {"Ignite": 0.5, "Poison": 4.0}},
+             {"index": 3, "name": "Debuff", "speed": 1.0, "duration": 5.0, "stackPotential": {"Ignite": 2.0}}]
+    scales, notes = models.press_model(rates, 1, {2, 3})
+    assert scales["Bomb"] == pytest.approx(1.0)
+    assert scales["Best Ignite DPS from Bomb"] == pytest.approx(1.0)  # (already at its cooldown in PoB)
+    assert scales["Debuff"] == pytest.approx(0.2)
+    assert scales["Best Ignite DPS from Debuff"] == pytest.approx(0.4 / 1.0)  # (2 x 0.2 = 0.4 of the most, from 1)
+    assert scales["Best Burning Ground DPS from Debuff"] == scales["Best Ignite DPS from Debuff"]
+    busy = 0.25 * 0.4 + 0.2 * 1.0
+    assert scales["Main"] == pytest.approx(1 - busy)
+    assert scales["Best Bleed DPS from Main"] == pytest.approx(1.0)  # (3 x 0.7 still over the most that count)
+    assert "Ignite x0.400" in notes[1]["basis"]
+    assert models.press_key("Best Ignite DPS", "Bomb") == "Best Ignite DPS from Bomb"
+    assert models.press_key("Bomb", None) == "Bomb"

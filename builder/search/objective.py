@@ -22,7 +22,7 @@ import re
 from builder.request.schema import DefenceStyle, Objective as Goal
 from builder.search.context import DEFENCE_LAYERS, Context
 from builder.search.flasks import RECOVERY_FIELDS
-from builder.search.models import DAMAGE_TYPES, with_darkness
+from builder.search.models import DAMAGE_TYPES, press_key, with_darkness
 
 FLOOR_WEIGHT = 6.0
 HARD_WEIGHT = 15.0
@@ -259,10 +259,13 @@ class Objective:
         """What entry_scales and press_scales add to Full DPS: each named entry's damage x (its scale - 1)."""
         if not self.entry_scales and not self.press_scales:
             return 0.0
-        return sum(number(e.get("dps")) * (e.get("count") or 1)
-                   * (self.entry_scales.get(e.get("name"), 1.0) * self.press_scales.get(e.get("name"), 1.0) - 1)
-                   for e in stats.get("SkillDPS") or []
-                   if e.get("name") in self.entry_scales or e.get("name") in self.press_scales)
+        total = 0.0
+        for e in stats.get("SkillDPS") or []:
+            name, press = e.get("name"), press_key(e.get("name"), e.get("source"))
+            if name in self.entry_scales or press in self.press_scales:
+                total += number(e.get("dps")) * (e.get("count") or 1) * (
+                    self.entry_scales.get(name, 1.0) * self.press_scales.get(press, 1.0) - 1)
+        return total
 
     def clear_damage(self, stats: dict) -> float:
         """Damage per target while clearing: like boss DPS, but on-death effects count (clearing

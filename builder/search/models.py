@@ -2196,6 +2196,15 @@ def item_read_by_models(raw: str, build_texts: list[str]) -> bool:
 # beside it is used on its cooldown, once per its buff/debuff duration if it's pressed to keep one up, or else at a
 # labelled guess, and the main skill loses the time those presses take.
 PRESS_EVERY = 5.0  # seconds between presses of a skill with neither a cooldown nor a duration (LOW: a guess)
+# Full DPS's ailment entries (source: the skill that's their best source) and the ailment whose stacks set each
+# (PoB: Burning Ground is a share of the Ignite's damage)
+PRESS_AILMENTS = {"Best Ignite DPS": "Ignite", "Best Burning Ground DPS": "Ignite", "Best Bleed DPS": "Bleed",
+                  "Best Poison DPS": "Poison"}
+
+
+def press_key(name: str, source: str | None) -> str:
+    """objective.Objective.press_scales' key for a SkillDPS entry: its name, and its source for an ailment's."""
+    return f"{name} from {source}" if source and source != name else name
 
 
 def press_model(rates: list[dict], main_index: int | None, pressed: set[int]) -> tuple[dict[str, float], list[dict]]:
@@ -2223,21 +2232,44 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int]) ->
         capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)
         # time per use: 1/speed, unless the cooldown capped PoB's speed (then its base cast time, before speed: an
         # overcount of the time it takes)
-        action = (min(1 / speed, number(rate.get("castTime"))) if capped else 1 / speed)
+        # time per use: 1/speed, unless the cooldown capped PoB's speed: then its own use time (PoB's Time/HitTime,
+        # before action speed), else its base cast time
+        uncapped = number(rate.get("time")) or number(rate.get("castTime"))
+        action = min(1 / speed, uncapped) if capped else 1 / speed
         busy += real * action
-        scales[rate["name"]] = scales.get(rate["name"], 1.0) * (real / speed)
+        ratio = real / speed
+        scales[rate["name"]] = scales.get(rate["name"], 1.0) * ratio
         users.append(rate["name"])
+        # Its ailments: PoB counts min(stacks, the most that count), stacks = chance x duration x its speed (its
+        # StackPotential = stacks / most); at the real rate there are that x ratio
+        ailing = []
+        for entry, ailment in PRESS_AILMENTS.items():
+            potential = number((rate.get("stackPotential") or {}).get(ailment))
+            if potential > 0:
+                share = min(potential * ratio, 1.0) / min(potential, 1.0)
+                scales[press_key(entry, rate["name"])] = share
+                if entry != "Best Burning Ground DPS":
+                    ailing.append(f"{ailment} x{share:.3f} ({potential:.2f} of its most stacks nonstop)")
         notes.append({
-            "label": f"{rate['name']}: pressed beside the main skill*", "value": f"x{real / speed:.3f}",
+            "label": f"{rate['name']}: pressed beside the main skill*", "value": f"x{ratio:.3f}",
             "basis": f"PoB's Full DPS counts it used nonstop ({speed:.2f}/s); it's pressed {how}, {real:.2f} uses/s, "
-                     f"each taking {action:.2f} s from the main skill. Its ailments' Full DPS entries (Best ... DPS) "
-                     "keep PoB's count (an overcount where it's their best source)",
+                     f"each taking {action:.2f} s from the main skill"
+                     + (f". Its ailments, where it's their best source in Full DPS, at the stacks those presses keep "
+                        f"up (PoB's chance x duration x rate, capped at the most that count): {'; '.join(ailing)}"
+                        if ailing else ""),
             "confidence": confidence})
-    main = next((r["name"] for r in rates if r["index"] == main_index), None)
+    main_rate = next((r for r in rates if r["index"] == main_index), None)
+    main = main_rate["name"] if main_rate else None
     if users and main is not None and busy > 0:
         share = max(0.0, 1.0 - busy)
         scales[main] = scales.get(main, 1.0) * share
+        for entry, ailment in PRESS_AILMENTS.items():  # (its ailments' stacks shrink with it, as above)
+            potential = number((main_rate.get("stackPotential") or {}).get(ailment))
+            if potential > 0:
+                scales[press_key(entry, main)] = min(potential * share, 1.0) / min(potential, 1.0)
         notes.append({
             "label": f"{main}: time left beside {', '.join(users)}*", "value": f"{share:.1%}",
-            "basis": f"the presses take {busy:.1%} of the fight (their uses x time per use)", "confidence": "MEDIUM"})
+            "basis": f"the presses take {busy:.1%} of the fight (their uses x time per use); its ailments' stacks "
+                     "shrink with it (PoB's chance x duration x rate, capped at the most that count)",
+            "confidence": "MEDIUM"})
     return scales, notes

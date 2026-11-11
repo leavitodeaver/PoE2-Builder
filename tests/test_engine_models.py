@@ -1171,11 +1171,14 @@ def test_a_pressed_non_main_skill_counts_at_its_real_use_in_full_dps(engine):
     assert 0 < scales["Cross Slash"] < 1 and 0 < scales["Frost Bomb"] <= 1
     assert any(n["label"].startswith("Frost Bomb: pressed beside") for n in search.assumptions.active)
     stats = build.call("stats", fields=build.objective.fields)
-    entries = {e["name"]: e["dps"] * (e.get("count") or 1) for e in stats["SkillDPS"]}
+    entries = {models.press_key(e["name"], e.get("source")): e["dps"] * (e.get("count") or 1) for e in stats["SkillDPS"]}
+    print("ENTRIES", entries)
+    assert "Cross Slash" in entries and "Frost Bomb" in entries
     counted = build.objective.dps(stats)
     build.objective.press_scales = {}
     plain = build.objective.dps(stats)
     assert counted < plain
+    # (every scaled entry, the skills' and their ailments' where they're the best source)
     assert plain - counted == pytest.approx(
-        (entries["Cross Slash"] * (1 - scales["Cross Slash"]) + entries["Frost Bomb"] * (1 - scales["Frost Bomb"]))
+        sum(dps * (1 - scales[key]) for key, dps in entries.items() if key in scales)
         * build.objective.life_factor * build.objective.uptime_factor, rel=1e-6)
