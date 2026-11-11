@@ -15,6 +15,7 @@ layers the requested style allows.
 from __future__ import annotations
 
 import dataclasses
+import os
 import random
 import re
 from collections.abc import Callable
@@ -43,9 +44,24 @@ SHORTLIST = 6  # options per slot rescored between full rounds
 REQUIREMENT_FIT_SECONDS = 30.0  # tree re-routing a granted-meta unique's trial may take (fit_requirements)
 # Off since 8 Nov (MECH15): with a rare per variant of a variant base (Absent Amulet's Cast on Dodge, ...) proposed by
 # granted_meta_trials, every 2b75b gate run kept Cast on Dodge (~45% of its DPS) with 2-3 supports left in its main
-# group, and gate 4 fell from x2.81-13.03 to x0.21-0.70. Back on once the trap is fixed (a reverse trial, the model checked).
-VARIANT_META_TRIALS = False
+# group, and gate 4 fell from x2.81-13.03 to x0.21-0.70. What took the supports: e4767b1's "each support once per
+# character" (8 Nov), so a support in the amulet's group (Concentrated Area, POE2T168's build) left the main group; the
+# game has no such rule for normal supports and 58f03f3 (9 Nov) dropped it. Back on only if gate 4 does at least as well
+# with it on (GEAR3); POE2_VARIANT_TRIALS=1 turns it on for a run without a commit.
+VARIANT_META_TRIALS = os.environ.get("POE2_VARIANT_TRIALS") == "1"
+VARIANT_TRIALS = 2  # a variant base's non-meta variants (Archmage, a herald, ...) tried for real per slot and full round
 AFFIX_LIMIT = {"Prefix": 3, "Suffix": 3}
+GRANTED_SKILL = re.compile(r"^Grants Skill: (?:Level \S+ )?")
+AFFIX_ALLOWED = re.compile(r"^([+-]\d+) (Prefix|Suffix) Modifiers? allowed\s*$", re.M)
+
+
+def affix_limits(base: dict, limits: dict[str, int] = AFFIX_LIMIT) -> dict[str, int]:
+    """A rare's prefix and suffix limits on this base: its implicit's "-1 Prefix Modifier allowed" (Absent, Lament and
+    Twisted Amulets), "+1 Prefix ..." (Dusk Ring), ... (an Absent Amulet's rare holds 2 and 2; the search had built 3 and 3)."""
+    limits = dict(limits)
+    for m in AFFIX_ALLOWED.finditer(base.get("implicit") or ""):
+        limits[m.group(2)] = max(0, limits[m.group(2)] + int(m.group(1)))
+    return limits
 
 
 @dataclass(frozen=True)
@@ -91,6 +107,7 @@ class Gear:
         self.pools = AffixPools(self.ctx)
         self.runes = RuneCatalog(self.ctx, self.ctx.augment_prices)
         self.rares: dict[str, ItemOption] = {}  # the last rare built for each slot
+        self.variant_failed: dict[tuple[str, str, str], float] = {}  # (slot, base, variant line) -> score its trial failed at
         self.lam = 0.0  # budget weight: score per divine
         self.magic_pools = {kind: AffixPools(self.ctx, kind) for kind in ("Flask", "Charm")}
         self.charges = Charges()  # charge generation of the committed build (sync_flasks)
@@ -126,10 +143,20 @@ class Gear:
                 options = [o for o in options if (o.sub_type or "") == spec.sub_type]
             if not slot.startswith("Weapon") and spec.type != "Charm":
                 # Normal armour and jewellery bases differ little within a sub-type: keep the top few
+                # A variant base (Absent, Lament, Portent Amulet) is kept apart: as a plain item it carries no implicit
+                # and fewer affixes, and it took all three amulet places (Solar's Spirit, Stellar's attributes never
+                # offered). Its variants are tried in full rounds (granted_meta_trials).
                 bases: dict[str | None, list[ItemOption]] = {}
+                variant: list[ItemOption] = []
                 for option in sorted((o for o in options if not o.unique), key=lambda o: -o.level):
-                    bases.setdefault(option.sub_type, []).append(option)
-                kept = [o for group in bases.values() for o in group[:BASES_PER_SUBTYPE]]
+                    if implicit_variants((self.ctx.bases_by_name.get(option.base) or {}).get("implicit")):
+                        variant.append(option)
+                    else:
+                        bases.setdefault(option.sub_type, []).append(option)
+                # An amulet's implicit differs in kind, not size (Solar's Spirit, Stellar's attributes, Gold's rarity),
+                # and a level sort cut Solar (30) on a tie with Pearlescent: every amulet base is kept (about 19)
+                keep = None if spec.type == "Amulet" else BASES_PER_SUBTYPE
+                kept = variant + [o for group in bases.values() for o in group[:keep]]
                 options = kept + [o for o in options if o.unique]
             self._options[slot] = options
         return self._options[slot]
@@ -293,7 +320,7 @@ class Gear:
             return None
         if variant is not None:
             base = {**base, "implicit": implicit_variant(base.get("implicit"), variant)}
-        limits = MAGIC_LIMIT if magic else AFFIX_LIMIT
+        limits = MAGIC_LIMIT if magic else affix_limits(base)
         text, price_of = (magic_text, magic_price) if magic else (rare_text, rare_price)
         pool = pools.pool(base["name"])
         if not pool:
@@ -472,12 +499,16 @@ class Gear:
             if current is not None and GRANTS_META.search(current.raw) and self.reverse_meta_trial(slot, deadline):
                 improved, current = True, build.equipped.get(slot)
             options = [o for o in self.candidates(slot) if o.unique]
+            plain: dict[int, tuple[str, str, str]] = {}  # the non-meta variants' rares (variant_options) -> their key
+            if VARIANT_META_TRIALS:
+                for option, key in self.variant_options(slot, current, deadline):
+                    options.append(option)
+                    plain[id(option)] = key
             # A base whose implicit grants one (a Dueling Wand's Spellslinger): a rare on it, built for the slot. Its
             # bare base scores nothing for the meta, so the rare builder's own base ranking never picks it. A base
             # whose implicit is one of several variants (Absent Amulet: Cast on Elemental Ailment, on Critical, on
-            # Dodge): a rare for each variant granting one. (Its other variants, Archmage, Trinity, Rhoa Mount,
-            # Eternal Rage, and Lament and Portent Amulet's heralds, banners, Blink, Sacrifice, ..., aren't proposed
-            # yet: a plain rare on such a base carries none.)
+            # Dodge): a rare for each variant granting one. Its other variants (Archmage, Trinity, and Lament and
+            # Portent Amulet's heralds, banners, Blink, Sacrifice, ...) come from variant_options.
             for base in self.options(slot):
                 if base.unique or clock.now() > deadline:
                     continue
@@ -495,7 +526,7 @@ class Gear:
                     options.append(self.build_rare(slot, deadline, base_name=base.base) or base)
             for option in options:
                 if ((current is not None and (option.name == current.name if option.unique else option.raw == current.raw))
-                        or not GRANTS_META.search(option.raw) or clock.now() > deadline):
+                        or not (GRANTS_META.search(option.raw) or id(option) in plain) or clock.now() > deadline):
                     continue
                 snap = build.snapshot()
                 before = build.score
@@ -507,9 +538,57 @@ class Gear:
                 if build.score > before + EPSILON:
                     improved, current = True, option
                     continue
+                if id(option) in plain:
+                    self.variant_failed[plain[id(option)]] = before
                 build.restore(snap)
                 self.settle()
         return improved
+
+    def variant_options(self, slot: str, current: ItemOption | None, deadline: float) -> list[tuple[ItemOption, tuple[str, str, str]]]:
+        """A rare for each of the VARIANT_TRIALS non-meta variants of the slot's variant bases (Absent Amulet's
+        Archmage, Trinity, Rhoa Mount, Eternal Rage; Lament Amulet's 37: heralds, banners, Berserk, ...; Portent
+        Amulet's Blink, Sacrifice, Mirage Archer, ...) whose skill, added to the build as a gem group at the item's
+        assumed level (granted_rolls.ENDGAME_LEVEL), scores best above the build: what the granted skill adds. (A bare
+        item's what-if can't rank them: PoB makes an item's granted-skill group only in its main calculation, CalcSetup
+        env.mode == "MAIN", so a what-if never sees the skill.) A skill the build already uses, or a banned one, isn't
+        offered (a second copy of a buff doesn't stack: an assumption, not checked for every skill). Every one is a
+        socketable gem too (SkillGems, game files 26476662: all 51); the item's copy needs no gem group of the 9
+        (MAX_GEM_GROUPS). A variant whose trial failed isn't tried again until the score has moved RETRY_MOVE. The
+        what-if can't see a skill only a resolve or a custom model counts (Sacrifice's corpses): those rank low."""
+        from builder.search.gems import RETRY_MOVE
+        from builder.search.granted_rolls import ENDGAME_LEVEL
+
+        build = self.build
+        present = {g["name"] for group in build.groups() for g in group["gems"]}
+        forbidden = self.ctx.compiled.filters.forbidden_gems
+        cases: dict[str, tuple[str, int, tuple[str, str, str]]] = {}  # skill -> (base, variant, key), first base wins
+        for base in self.options(slot):
+            data = self.ctx.bases_by_name.get(base.base) or {}
+            if base.unique:
+                continue
+            for variant, line in implicit_variants(data.get("implicit")):
+                skill = GRANTED_SKILL.sub("", line).strip()
+                key = (slot, base.base, line)
+                if (GRANTS_META.search(line) or skill in present or skill in forbidden or skill in cases
+                        or skill not in self.ctx.any_gems
+                        or (current is not None and current.base == base.base and skill in current.raw)
+                        or (key in self.variant_failed and abs(build.score - self.variant_failed[key]) <= RETRY_MOVE)):
+                    continue
+                cases[skill] = (base.base, variant, key)
+        if not cases or clock.now() > deadline:
+            return []
+        skills = list(cases)
+        scored = build.gem_deltas([{"newGroup": [n], "level": ENDGAME_LEVEL, "quality": 0} for n in skills],
+                                  skip_ehp=False)
+        ranked = sorted(((score, *cases[n]) for (score, _), n in zip(scored, skills) if score > build.score + EPSILON),
+                        reverse=True)
+        found = []
+        for _, name, variant, key in ranked[:VARIANT_TRIALS]:
+            if clock.now() > deadline:
+                break
+            if option := self.build_rare(slot, deadline, base_name=name, variant=variant):
+                found.append((option, key))
+        return found
 
     def reverse_meta_trial(self, slot: str, deadline: float) -> bool:
         """The reverse of a granted-meta trial: the slot's meta-granting item off for the best plain rare, the tree

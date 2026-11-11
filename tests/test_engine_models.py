@@ -508,6 +508,47 @@ def test_a_variant_base_gets_one_variant_per_rare(engine):
     assert [g["gems"][0]["name"] for g in search.gems.granted_meta_groups()] == ["Cast on Critical"]
 
 
+def test_a_variant_base_keeps_its_affix_limits_and_its_non_meta_variants_are_ranked(engine, monkeypatch):
+    """GEAR3: an Absent Amulet's rare holds 2 prefixes and 2 suffixes (its "-1 ... Modifier allowed" lines; the rare
+    builder had made 3 and 3), the three variant amulets don't take the amulet places of the plain bases (Solar Amulet's
+    Spirit was never offered; every amulet base is now kept), and with the variant trials on, the non-meta variants (Archmage, heralds, banners, ...)
+    are ranked by what their bare item adds and the best VARIANT_TRIALS tried for real."""
+    from builder.search import gear as gear_module
+    from builder.search.gear import GRANTS_META, affix_limits
+
+    assert affix_limits({"implicit": "-1 Prefix Modifier allowed\n-1 Suffix Modifier allowed"}) == {"Prefix": 2, "Suffix": 2}
+    assert affix_limits({"implicit": "+1 Prefix Modifier allowed\n-1 Suffix Modifier allowed"}) == {"Prefix": 4, "Suffix": 2}
+    assert affix_limits({"implicit": "+(10-15) to Spirit"}) == {"Prefix": 3, "Suffix": 3}
+    payload = make_payload(BuildRequest(main_skill="Boneshatter"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup()
+    build, gear = search.build, search.gear
+    bases = {o.base for o in gear.options("Amulet") if not o.unique}
+    assert {"Absent Amulet", "Lament Amulet", "Portent Amulet", "Solar Amulet"} <= bases
+    # The bare build is short of its floors (score about -63, probe POE2T611), so no skill moves it: the what-if is
+    # made to pay for Herald of Ash alone, and Lament Amulet's variant for it is the one built
+    real = build.gem_deltas
+    asked = []
+
+    def deltas(cases, skip_ehp=True):
+        asked.extend(c["newGroup"][0] for c in cases)
+        return [(build.score + (1.0 if c["newGroup"][0] == "Herald of Ash" else 0.0), {}) for c in cases]
+
+    monkeypatch.setattr(build, "gem_deltas", deltas)
+    found = gear.variant_options("Amulet", build.equipped.get("Amulet"), float("inf"))
+    monkeypatch.setattr(build, "gem_deltas", real)
+    assert "Archmage" in asked and "Blink" in asked and "Cast on Dodge" not in asked and "Boneshatter" not in asked
+    assert len(found) == 1
+    option, key = found[0]
+    assert option.base == "Lament Amulet" and key[1] == "Lament Amulet" and "Herald of Ash" in key[2]
+    assert option.raw.count("Grants Skill") == 1 and "Herald of Ash" in option.raw and not GRANTS_META.search(option.raw)
+    monkeypatch.setattr(gear_module, "VARIANT_META_TRIALS", True)
+    before = build.score
+    gear.granted_meta_trials(float("inf"))
+    assert build.score >= before - 1e-9
+
+
 def test_the_reverse_meta_trial_takes_a_meta_granting_item_off_when_the_build_does_better(engine):
     """MECH15: 2b75b kept a rare Absent Amulet's Cast on Dodge and its main group was left 2-3 supports. The reverse trial
     puts the best plain rare in its place, refills the main group and keeps that if better: on Boneshatter, Cast on Dodge's
