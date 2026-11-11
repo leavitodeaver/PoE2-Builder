@@ -888,6 +888,9 @@ MARK_BUFFS = {"Voltaic Mark": "Electrocute", "Freezing Mark": "Freeze"}
 MARKS = ("Sniper's Mark", *MARK_BUFFS, "Bloodhound's Mark")
 # Meta skills that apply a socketed Mark on a timer of their own (not the Mark's cooldown).
 MARK_TRIGGER_EVERY = {"Called Shots": 5.0}  # "applies a socketed Mark to an enemy every five seconds"
+# Skills that apply a Mark socketed in them and have a weapon requirement PoB enforces by disabling them (MECH35: Pounce
+# needs a Talisman, WeaponRequirements; PoB then still applies the socketed Mark).
+MARK_CARRIERS = ("Pounce",)
 
 
 @dataclass
@@ -898,8 +901,14 @@ class MarkUse:
     on_demand: bool = True  # applied when needed (recast as it runs out or is consumed), not on a fixed timer
 
 
-def mark_use(mark: Skill, skills: list[Skill]) -> MarkUse:
-    """How often the Mark is applied, and by what."""
+def mark_use(mark: Skill, skills: list[Skill], disabled: list[Skill] | None = None) -> MarkUse:
+    """How often the Mark is applied, and by what. `disabled` are the skills PoB disables: a Mark gem in a Pounce PoB
+    disables (no Talisman) is never applied, though PoB still applies its effect and reads the Mark as cast by you."""
+    off = next((s for s in disabled or [] if s.group == mark.group and s.name != mark.name and s.name in MARK_CARRIERS),
+               None)
+    if off is not None:
+        return MarkUse(math.inf, f"{off.name} can't be used (PoB disables it: wrong weapon), so the Mark is never applied",
+                       on_demand=False)
     own = (mark.cooldown or 0.0) / (mark.cooldown_recovery or 1.0)
     # (PoB doesn't flag a Mark in Called Shots, a notable's granted group, as triggered)
     timer = next((s for s in skills if s.group == mark.group and s.name in MARK_TRIGGER_EVERY), None)
@@ -935,11 +944,12 @@ MARKED_LINES = (
 
 
 def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
-               lines: list[dict] | None = None, metres: float | None = None) -> tuple[list[dict], list[dict]]:
+               lines: list[dict] | None = None, metres: float | None = None,
+               disabled: list[Skill] | None = None) -> tuple[list[dict], list[dict]]:
     """Each Mark's effect scaled from PoB's always-up to what consumption on a boss leaves, the build's "Enemies you Mark
     take ..." and "against Marked Enemies" lines scaled to the share of the fight the boss carries the Mark (MARKED_LINES),
     and the time the skill you press for it (the Mark, Pounce, Hand of Chayula) takes from the main skill. `metres` is the
-    boss's distance (Predator's Mark counts you within 6 m)."""
+    boss's distance (Predator's Mark counts you within 6 m); `disabled` the skills PoB disables (mark_use)."""
     mods: list[dict] = []
     notes: list[dict] = []
     marks = [s for s in skills if s.name in MARKS and s is not main]
@@ -953,7 +963,7 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                 every = (pounce.cooldown or 0.0) / (pounce.cooldown_recovery or 1.0)
                 use = MarkUse(max(every, MARK_DURATION), "triggered by Pounce, used as the Mark runs out (assumed)", pounce)
         else:
-            use = mark_use(mark, skills)
+            use = mark_use(mark, skills, disabled)
         period, how = use.period, use.how
         # the time a Mark stays on the boss after each application: until consumed, at most its duration
         held, consumed_by = MARK_DURATION, "Bloodhound's Mark's consumption on a Heavy Stun isn't rated (held its full duration)"
@@ -1008,7 +1018,9 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                 f"the main skill can't {ailment.lower()} the boss, so the Mark is never consumed and gives no buff"
             ) + "; PoB counts the buff always up; its buildup part is scaled with it (assumed)"
         else:
-            share, label, basis = 1.0, f"{mark.name}", "PoB adds nothing to the main skill's damage from it; Blood "                 "Explosion's damage on a Heavy Stun isn't counted"
+            share = 0.0 if period == math.inf else 1.0
+            label, basis = f"{mark.name}", ("PoB adds nothing to the main skill's damage from it; Blood Explosion's "
+                                            "damage on a Heavy Stun isn't counted") + (f"; {how}" if share == 0 else "")
         if share < 1.0:
             mods.append(line("1% more Effect of your Curses", 100 * (share - 1), skill=mark.name))
         if use.pressed is not None and main is not None and use.pressed is not main and period:

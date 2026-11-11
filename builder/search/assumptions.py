@@ -249,7 +249,8 @@ class Assumptions:
         metres = None
         if any(s.name == models.PREDATORS_MARK for s in found):  # (it counts you within 6 m of the boss)
             metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(set())
-        mark_mods, mark_notes = models.mark_model(found, stats, main, source_lines, metres)
+        mark_mods, mark_notes = models.mark_model(
+            found, stats, main, source_lines, metres, [models.Skill.of(s) for s in skills if s["disabled"]])
         hand_mods, hand_notes = hand_mods + mark_mods, hand_notes + mark_notes
         curses = curse_uses(build, stats, [e["text"] for e in source_lines])
         if curses or any(models.CURSED_UNSCALED.search(e["text"]) or p.search(e["text"])

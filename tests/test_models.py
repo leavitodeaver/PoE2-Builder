@@ -691,6 +691,29 @@ def test_the_skill_you_press_for_a_mark_takes_the_main_skills_time():
     assert {m["line"]: m["scale"] for m in mods}["1% more Attack and Cast Speed"] == pytest.approx(-10.0)  # 0.6 s / 6 s
 
 
+def test_a_mark_gem_in_a_disabled_pounce_is_never_applied():
+    """MECH35: with no Talisman PoB disables Pounce but still applies a Mark gem socketed in it, read as cast by you. The
+    game never applies it: its effect and the "against Marked Enemies" lines count 0, and it takes no time to press."""
+    spell = models.Skill("Ice Nova", group=1, spell=True, cast_time=0.8)
+    pounce = models.Skill("Pounce", group=2, attack=True, cast_time=1.2, cooldown=5.0)
+    stats = {"Speed": 1.0, "HitChance": 100, "CritChance": 50, "FreezeBuildupAvg": 50}
+    marked = [{"text": "Enemies you Mark take 10% increased Damage"}]
+    for name in ("Freezing Mark", "Sniper's Mark", "Bloodhound's Mark"):
+        mark = models.Skill(name, group=2, cast_time=0.5, cooldown=0.5)
+        mods, notes = models.mark_model([spell, mark], stats, spell, marked, disabled=[pounce])
+        by_line: dict[str, float] = {}
+        for m in mods:
+            by_line[m["line"]] = by_line.get(m["line"], 0) + m["scale"]
+        assert by_line["1% more Effect of your Curses"] == -100, name
+        assert by_line["Enemies you Mark take 1% increased Damage"] == -10, name
+        assert "1% more Attack and Cast Speed" not in by_line, name
+        assert "Pounce can't be used" in notes[0]["basis"], name
+    # a usable Pounce elsewhere doesn't matter; a disabled skill in another group doesn't stop the Mark
+    mark = models.Skill("Freezing Mark", group=3, cast_time=0.5, cooldown=0.5)
+    mods, _ = models.mark_model([spell, mark], stats, spell, marked, disabled=[pounce])
+    assert not any(m["line"] == "1% more Effect of your Curses" and m["scale"] == -100 for m in mods)
+
+
 def test_predators_mark_counts_you_and_your_minions_near_the_boss():
     """MECH34: Pounce alone triggers Predator's Mark, 3% increased damage taken per enemy of the boss within 6 m, up to
     45% (game files). PoB counts only your minions at their limit, never you, and applies it even when Pounce can't be
