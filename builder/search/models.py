@@ -673,6 +673,16 @@ PREDATORS_MARK = "Predator's Mark"
 PREDATOR_PER_ENEMY = 3.0
 PREDATOR_CAP = 45.0
 PREDATOR_RADIUS = 6.0
+# Summon Wolf (MECH35; ActiveSkills wolf_warcry_wolf, GrantedEffects/StatSets WolfPounceSummonWolfPlayer, a secondary
+# skill of the Pounce gem): triggered when Predator's Mark activates on the marked enemy's death, summons one Wolf
+# (+0 more if the enemy was Rare, +1 if Unique: skill_cross_slash_triggered_summon_+_wolves_if_rare 0, _if_unique 1),
+# no_minion_duration ("follows you as long as it lives"), at most number_of_wolves_allowed (GrantedEffectStatSetsPerLevel:
+# 4 at levels 1-6, 5 at 7-13, 6 at 14-21, 7 at 22-30, 8 at 31-40). On a lone boss none are summoned, so the user's choice
+# (11 Nov, "Count them, labelled"): the wolves are carried in from earlier kills, assumed at their limit (LOW). PoB counts
+# 0 of them: number_of_wolves_allowed maps to ActiveWolfLimit (SkillStatMap) while the Wolf Companion minion reads
+# WolfLimit (Minions.lua WolfMinion), so its MinionPresenceCount leaves them out.
+SUMMON_WOLF = "Summon Wolf"
+WOLVES_ALLOWED_AT_LEVEL_1 = 4
 # Ferocious Roar (slice 7; model: roar_model, conditions.Conditions.roar_evidence) ----------------------------------------
 # Game files (build 26476662, FerociousRoarMetaPlayer): 1.1 s cast, 8 s cooldown; gains 200 centirage per enemy Power
 # (bear_warcry_gain_X_centirage_per_enemy_power, quality +5 per %); Empowers attacks, one per 8 Power (cap 64), to Break
@@ -963,6 +973,7 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
     marked_groups = {s.group for s in marks}  # (a Mark gem in Pounce replaces Predator's Mark)
     marks += [s for s in skills if s.name == PREDATORS_MARK and s.group not in marked_groups]
     for mark in marks[:1]:  # one Mark on an enemy at a time (number_of_marks_allowed_per_type 1, EnemyMarkLimit 1)
+        play = ""
         if mark.name == PREDATORS_MARK:
             pounce = next((s for s in skills if s.group == mark.group and s.name == "Pounce"), None)
             use = MarkUse(math.inf, "Pounce can't be used (PoB disables it: wrong weapon)")
@@ -982,9 +993,14 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                 consumed_by = "each Cross Slash that lands both gouges consumes it (assumed: every hit)"
             marked = min(1.0, held / period) if period and period != math.inf else 0.0
             minions = sum(number((s.minion or {}).get("limit")) for s in skills)
+            wolf = next((s for s in skills if s.name == SUMMON_WOLF and s.group == mark.group), None)
+            wolves = 0.0
+            if wolf is not None and pounce is not None:
+                wolves = number(wolf.level_stats.get("number_of_wolves_allowed")) or WOLVES_ALLOWED_AT_LEVEL_1
+                wolves = max(0.0, wolves - number((wolf.minion or {}).get("limit")))  # (PoB's own count, 0, is in minions)
             near = 1 if metres is not None and metres <= PREDATOR_RADIUS else 0
             pob = min(PREDATOR_CAP, PREDATOR_PER_ENEMY * minions)
-            game = min(PREDATOR_CAP, PREDATOR_PER_ENEMY * (minions + near)) * marked
+            game = min(PREDATOR_CAP, PREDATOR_PER_ENEMY * (minions + wolves + near)) * marked
             # PoB's own value (minions only, always on) taken out; the game's added as an enemy damage-taken line
             mods.append(line("1% more Effect of your Curses", -100, skill=mark.name))
             if game:
@@ -996,6 +1012,12 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                      f"{minions:g} minions (PoB's count of your minions at their limit, assumed all within 6 m of the "
                      f"boss; PoB never counts you); marked {marked:.0%} of the fight ({how}; held {held:.1f} s, "
                      f"{consumed_by})")
+            if wolves:
+                basis += (f"; plus {wolves:g} Pounce wolves* (LOW: Summon Wolf's limit at its level, game files; none are "
+                          "summoned on a lone boss, so they're assumed carried in from earlier marked kills and alive, "
+                          "within 6 m of the boss; PoB counts 0 of them). The wolves' own damage isn't counted (PoB "
+                          "would count one wolf, and only by counting Pounce's own attack as used nonstop)")
+                play = "Keep your Pounce wolves alive into the boss: kill a few Marked enemies on the way in."
         elif mark.name == "Sniper's Mark":
             crits = crits_per_second(stats)
             if use.on_demand:
@@ -1036,7 +1058,8 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
             mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
             basis += f"; using {use.pressed.name} ({took:.2f} s every {period:.1f} s) takes {lost:.0%} of {main.name}'s time"
         value = round(game, 1) if mark.name == PREDATORS_MARK else round(share, 2)
-        notes.append({"label": label, "value": value, "basis": basis, "confidence": "theory"})
+        notes.append({"label": label, "value": value, "basis": basis, "confidence": "theory",
+                      **({"play": play} if play else {})})
         marked = min(1.0, held / period) if period else 1.0
         found = []
         for pattern, text in MARKED_LINES:

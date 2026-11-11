@@ -296,8 +296,8 @@ class Assumptions:
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups}, **expression_groups}
 
     def wanted(self) -> tuple[list[dict], list[dict]]:
-        skills = self.build.call("activeSkills", levelStats=[models.IRON_WARD, models.FEROCIOUS_ROAR,
-                                                             *models.gem_stat_skills()])["skills"]
+        skills = self.build.call("activeSkills", levelStats=[
+            models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, *models.gem_stat_skills()])["skills"]
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:

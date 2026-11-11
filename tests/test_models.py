@@ -731,12 +731,12 @@ def test_predators_mark_counts_you_and_your_minions_near_the_boss():
             out[m["line"]] = out.get(m["line"], 0) + m["scale"]
         return out, notes
 
-    by_line, notes = lines([spell, pounce, predator, wolf], 2.0)  # you within 6 m, no minions: 3%
+    by_line, notes = lines([spell, pounce, predator], 2.0)  # you within 6 m, no minions: 3%
     assert by_line["1% more Effect of your Curses"] == -100  # PoB's own value (0 here) out
     assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(3.0)
     assert by_line["1% more Attack and Cast Speed"] == pytest.approx(-100 * 1.2 / 8)  # recast as it runs out
     assert notes[0]["value"] == 3.0 and "PoB 0%" in notes[0]["basis"]
-    by_line, _ = lines([spell, pounce, predator, wolf], 8.0)  # beyond 6 m: nothing
+    by_line, _ = lines([spell, pounce, predator], 8.0)  # beyond 6 m: nothing
     assert "Enemies you Mark take 1% increased Damage" not in by_line
     zombies = models.Skill("Raise Zombie", group=3, spell=True, minion={"limit": 20})
     by_line, _ = lines([spell, pounce, predator, zombies], 2.0)  # capped at 45%
@@ -746,6 +746,19 @@ def test_predators_mark_counts_you_and_your_minions_near_the_boss():
     freezing = models.Skill("Freezing Mark", group=2, cast_time=0.5, cooldown=0.5, triggered=True)
     _, notes = lines([spell, pounce, predator, freezing], 2.0)
     assert notes[0]["label"].startswith("Freezing Mark")
+    # MECH35 (the user, 11 Nov: "Count them, labelled"): Pounce wolves carried in at Summon Wolf's limit (6 at gem
+    # level 20, game files), which PoB counts as 0; with a play note. No Pounce, no wolves.
+    wolf6 = models.Skill("Summon Wolf", group=2, triggered=True, minion={"limit": 0},
+                         level_stats={"number_of_wolves_allowed": 6})
+    by_line, notes = lines([spell, pounce, predator, wolf6], 2.0)
+    assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(3.0 * 7)
+    assert "6 Pounce wolves*" in notes[0]["basis"] and "wolves alive" in notes[0]["play"]
+    by_line, notes = lines([spell, pounce, predator, wolf6, zombies], 2.0)  # still capped at 45%
+    assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(45.0)
+    by_line, _ = lines([spell, pounce, predator, wolf], 8.0)  # no level stats: the level-1 limit, 4 (you beyond 6 m)
+    assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(12.0)
+    _, notes = lines([spell, predator, wolf6], 2.0)
+    assert notes[0]["value"] == 0 and "play" not in notes[0]
 
 
 def test_a_mirage_uses_its_attack_for_the_share_of_time_it_is_up():
