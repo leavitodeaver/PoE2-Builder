@@ -1981,8 +1981,8 @@ IMMOBILISE_DURATION = {"Freeze": 4.0, "Electrocute": 5.0}
 
 def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     """Share of the fight the boss is Frozen / Electrocuted by the main skill's hits, and how. One every d + the time to
-    fill the bar again, buildup assumed paused while the boss is Frozen / Electrocuted (LOW: the game files don't say;
-    the faster reading, the bar filling during it, would be d / repeat_every), the threshold x6 for the rest of the
+    fill the bar again, buildup paused while the boss is Frozen / Electrocuted (the user, 11 Nov 2026: it pauses; the game
+    files don't say, MEDIUM), the threshold x6 for the rest of the
     14 / 15 s after each one (AILMENT_REPEAT)."""
     fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * AILMENT_BOSS
     if fill <= 0:
@@ -1995,7 +1995,7 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     share = min(1.0, d / period)
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
                    f"Arbiter of Ash threshold); {d:g} s each, one every {period:.1f} s (x6 threshold for "
-                   f"{window:g} s after each, buildup paused while it lasts, LOW): {share:.0%}")
+                   f"{window:g} s after each, buildup paused while it lasts, the user's word, MEDIUM): {share:.0%}")
 
 
 # Electrocuting Arrow's Rods (MECH40, 11 Nov 2026; RULE_AUDIT 13). Game files / PoB act_dex.lua: "Hitting an enemy will
@@ -2066,6 +2066,11 @@ PARRIED_SECONDS = 2.0  # base_parry_duration_ms; "increased Parried Debuff Durat
 PARRIED_MORE = 0.5  # base magnitude; magnitude modifiers are PoB's own
 PARRY_ACTION = 0.75  # Parry's retaliation (attackTime 750 ms); attack speed isn't counted (an undercount of its rate)
 REFUTATION_BUFF = 4.0  # base_skill_effect_duration; duration modifiers aren't read
+# How often the player parries with Parry (the user, 11 Nov 2026: "any player is going to be hitting as often as possible
+# even when trying to actively parry, so assuming they're only able to parry telegraphed hits is probably safe, or maybe
+# even a little generous"). We have no source for which boss hits are telegraphed or how often (UNVERIFIED; PoB's boss
+# preset gives only one hit every enemySkillTime, 0.7 s), so the cadence is assumed: one telegraphed hit every 5 s (LOW).
+PARRY_EVERY = 5.0
 
 
 @dataclass(frozen=True)
@@ -2077,8 +2082,8 @@ class ParryPlan:
 
 def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = False) -> ParryPlan:
     """How a reasonable player uses the build's Parry / Refutation against the boss, if it pays (only Attack damage gains):
-    Parry: re-parry each time Parried runs out (the next boss hit, then the retaliation), attacking only while it's up, so
-    every main-skill hit lands on a Parried boss and the parrying time is lost; Refutation: cast on its cooldown, the boss
+    Parry: the player attacks all the time and parries the boss's telegraphed hits (PARRY_EVERY), each parry losing its
+    retaliation and leaving the boss Parried for part of the attacking time; Refutation: cast on its cooldown, the boss
     Parried from its first blocked hit until 2 s after the buff, attacking throughout (the cast time is lost). The better
     of the two; neither when it doesn't beat not parrying. A main skill that consumes Parried (`consumes`) gains on one
     hit per Parried (chance not to consume isn't read: an undercount)."""
@@ -2093,14 +2098,17 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
     hps = hits_per_second(stats)
     eaten = " (the main skill consumes Parried: one hit per Parried gains)" if consumes else ""
     options = []
-    if "Parry" in names:
-        period = PARRIED_SECONDS + wait + PARRY_ACTION
-        lost = 1 - PARRIED_SECONDS / period
-        box = min(1.0, 1 / (hps * PARRIED_SECONDS)) if consumes and hps > 0 else 1.0
+    if "Parry" in names:  # the user (11 Nov): attack as often as possible, parry only the boss's telegraphed hits
+        lost = PARRY_ACTION / PARRY_EVERY
+        attacking = PARRY_EVERY - PARRY_ACTION
+        share = min(1.0, (PARRIED_SECONDS - PARRY_ACTION / 2) / attacking)
+        box = min(share, 1 / (hps * attacking)) if consumes and hps > 0 else share
         options.append(((1 + PARRIED_MORE * box) * (1 - lost), ParryPlan(
-            box, lost, f"Parry each time Parried ({PARRIED_SECONDS:g} s) runs out: the boss's next hit (one every {every:g} s, "
-                       f"{wait:.2f} s on average) and the {PARRY_ACTION:g} s retaliation, so the main skill attacks only "
-                       f"while the boss is Parried and loses {lost:.0%} of its time (the play guide's note; attack speed "
+            box, lost, f"Parry the boss's telegraphed hits (one every {PARRY_EVERY:g} s, assumed, LOW) and attack the rest "
+                       f"of the time: each parry costs its {PARRY_ACTION:g} s retaliation ({lost:.0%} of the main skill's "
+                       f"time) and leaves the boss Parried {PARRIED_SECONDS:g} s from the parry, taken as half-way through "
+                       f"the retaliation (LOW), so {share:.0%} of the main skill's hits land on a Parried boss (the play "
+                       "guide shows the DPS while Parried and while not; the retaliation's own damage, attack speed "
                        "and Parried duration modifiers aren't counted, LOW)")))
     if (ref := names.get("Refutation")) is not None:
         if number(stats.get("Ward")) <= 0:

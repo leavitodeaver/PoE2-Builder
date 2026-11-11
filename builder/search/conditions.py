@@ -1097,6 +1097,7 @@ class Conditions:
         self.main_types = set((build.ctx.gems.get(main_skill) or {}).get("skillTypes") or [])
         self.active: dict[str, dict] = {}  # var -> {label, value, evidence}
         self.distance: tuple[float, str] | None = None  # (metres, why) chosen by score (Search.choose_distance)
+        self.parry_plan: models.ParryPlan | None = None  # the last evidence round's Parry plan (the play guide's rows)
         self.stationary_off: str | None = None  # why a build with stationary lines doesn't stand still (choose_stationary)
         self.rolling = 0.0  # share of the fight spent dodge rolling (Search.rolling_share)
         self.found_uptimes: dict[str, float] = {}  # var -> share of the fight, from the last evidence
@@ -1157,10 +1158,11 @@ class Conditions:
             raw = self.build.call("activeSkills", supportStats=list(INCISION_SUPPORT_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
             stats["_incision_per_hit"] = number((main.get("supportStats") or {}).get(INCISION_SUPPORT_STATS[0]))
+        self.parry_plan = None
         if any(n in gem_types for n in models.PARRY_SKILLS) or any(PARRY_GRANT.search(t) for t in texts):  # (Parried)
             raw = self.build.call("activeSkills")
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
-            stats["_parry_plan"] = models.parry_plan(
+            stats["_parry_plan"] = self.parry_plan = models.parry_plan(
                 found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS))
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):

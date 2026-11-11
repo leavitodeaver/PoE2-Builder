@@ -30,8 +30,8 @@ KINDS: dict[str, tuple[str, str]] = {
     "conditionAtCloseRange": (PLAYER, "fight the boss at close range"),
     "conditionStationary": (PLAYER, "stand still while attacking or casting"),
     "conditionHitMeleeRecently": (PLAYER, "land a melee hit at least every 4 s"),
-    "parryActive": (PLAYER, "Parry the boss's next hit each time Parried runs out and attack while it lasts, or cast "
-                            "Refutation on cooldown (how much you parry is up to you)"),
+    "parryActive": (PLAYER, "attack as often as you can and Parry the boss's telegraphed hits (about one "
+                            "every 5 s assumed), or cast Refutation on cooldown (how much you parry is up to you)"),
     "conditionBeenHitRecently": (FIGHT, "the boss lands a hit on you at least every 4 s (your evasion and block allow it)"),
     "conditionBlockedRecently": (FIGHT, "you block one of the boss's hits at least every 4 s"),
 }
@@ -72,9 +72,10 @@ def guide(search: Any) -> list[dict]:
         build.objective.life_factor = factor
         return []
     trials: list[tuple[str, str, str, object, object, bool]] = []  # var, label, kind, trial value, restore value, counted
+    weighed = {row["var"] for row in getattr(search, "uptime_rows", [])}  # (their row below: Parried)
     for var, info in active.items():
         k = kind(var)
-        if k == BUILD:
+        if k == BUILD or var in weighed:
             continue
         trial = _other_distance(info["value"]) if var == "enemyDistance" else False
         trials.append((var, labels.get(var, var), k, trial, info["value"], True))
@@ -115,6 +116,19 @@ def guide(search: Any) -> list[dict]:
         never = headline / row["factor"] * row["ratio"] if row["factor"] > 0 else 0.0
         always = headline / row["factor"] if row["factor"] > 0 else 0.0
         if never <= 0 or abs(headline - never) < MIN_CHANGE * never:
+            continue
+        if row["var"] == "parryActive":  # the user (11 Nov): "X dps when boss is parried, Y dps when not"
+            plan = getattr(search.conditions, "parry_plan", None)
+            lost = plan.lost if plan is not None else 0.0
+            rows.append({"var": "parryActive", "label": f"{row['label']} (up {row['uptime']:.0%} of the main skill's hits)",
+                         "kind": PLAYER, "counted": True, "uptime": row["uptime"],
+                         "dps_share": (headline - never) / headline,
+                         "play": (f"{KINDS['parryActive'][1]}: {always / (1 - lost):,.0f} DPS while the boss is Parried, "
+                                  f"{never / (1 - lost):,.0f} while it isn't (the main skill attacking; the parries take "
+                                  f"{lost:.0%} of its time, counted in the headline, and scaling the DPS by attack time "
+                                  "is exact for hits, approximate for damage over time)"),
+                         "dps_with": headline, "dps_without": never, "change": (headline - never) / never,
+                         "confidence": "modelled"})
             continue
         rows.append({"var": row["var"], "label": f"{row['label']} (up {row['uptime']:.0%} of the fight)", "kind": BUILD,
                      "counted": True, "uptime": row["uptime"], "dps_share": (headline - never) / headline,

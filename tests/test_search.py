@@ -911,8 +911,9 @@ def test_exposure_on_only_when_its_events_keep_it_up():
 
 
 def test_parried_at_the_share_of_hits_the_build_parries():
-    """Parry: 2 s Parried, the boss's next hit (half its 0.7 s on average) and a 0.75 s retaliation: x1.5 x 2/3.1 = 0.97,
-    not worth it; Refutation: 4 s buff + 9 s cooldown, Parried (4 - 0.35 + 2) / 13 of the fight, 0.65 s cast lost
+    """Parry (the user, 11 Nov: attack all the time, parry only telegraphed hits, one every 5 s assumed): each parry loses
+    its 0.75 s retaliation (15%), Parried 2 s from half-way through it, so (2 - 0.375) / 4.25 of the hits gain:
+    x(1 + 0.5 x 0.382) x 0.85 = 1.01; Refutation: 4 s buff + 9 s cooldown, Parried (4 - 0.35 + 2) / 13 of the fight, 0.65 s cast lost
     (MECH39: before, nothing set the box, so Parried counted 0)."""
     from builder.search import models
     from builder.search.conditions import CONDITIONS, _parried
@@ -922,9 +923,11 @@ def test_parried_at_the_share_of_hits_the_build_parries():
     refutation = models.Skill("Refutation", spell=True, cast_time=0.65, cooldown=9.0)
     stats = {"enemySkillTime": 0.7, "Ward": 100}
     plan = models.parry_plan([parry], stats, True)
-    assert plan.box == 0 and plan.lost == 0 and "not worth" in plan.how
-    fast = models.parry_plan([parry], {**stats, "enemySkillTime": 0.3}, True)  # 1.5 x 2 / 2.9 = 1.03
-    assert fast.box == 1.0 and abs(fast.lost - 0.9 / 2.9) < 1e-6
+    assert abs(plan.box - 1.625 / 4.25) < 1e-6 and abs(plan.lost - 0.15) < 1e-6 and "telegraphed" in plan.how
+    assert models.parry_plan([parry], {**stats, "enemySkillTime": 0.3}, True) == plan  # not the boss's every hit
+    # consuming Parried at 2 hits/s: one of the 8.5 hits between parries gains, x(1 + 0.5 / 8.5) x 0.85 = 0.90
+    eats = models.parry_plan([parry], {**stats, "Speed": 2.0, "HitChance": 100}, True, consumes=True)
+    assert eats.box == 0 and "not worth" in eats.how
     both = models.parry_plan([parry, refutation], stats, True)
     assert abs(both.box - 5.65 / 13) < 1e-6 and abs(both.lost - 0.65 / 13) < 1e-6 and "Refutation" in both.how
     assert models.parry_plan([refutation], {**stats, "Ward": 0}, True).box == 0

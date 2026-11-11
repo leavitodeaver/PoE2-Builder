@@ -291,3 +291,27 @@ def test_a_scouting_trials_condition_flip_does_not_choose_the_main_skill_again()
     assert Search.resolve.__get__(search)() is True and chosen == []
     search.gems.scouting = False
     assert Search.resolve.__get__(search)() is True and chosen == [1]
+
+
+def test_parried_row_gives_the_dps_while_parried_and_while_not():
+    """The user, 11 Nov 2026: "X dps when boss is parried, Y dps when not". One row (not also the player-condition
+    trial), the parries' 15% of the time taken out of both figures."""
+    from builder.search import models
+    from builder.search.inner import Search
+
+    class ParryBuild(FakeBuild):
+        @property
+        def stats(self):
+            return {"dps": 1500.0 if self.config.get("parryActive") else 1000.0, "Life": 1.0}
+
+    build = ParryBuild({"parryActive": True})
+    build.objective, build.score = UptimeObjective(), 0.0
+    active = {"parryActive": {"label": "Parried", "value": True}}
+    plan = models.ParryPlan(0.4, 0.15, "Parry the boss's telegraphed hits")
+    search = SimpleNamespace(build=build, play_notes={}, uptime_rows=[], assumptions=SimpleNamespace(apply=lambda: False),
+                             conditions=SimpleNamespace(active=active, uptimes={"parryActive": 0.4}, parry_plan=plan))
+    search.floor_without = Search.floor_without.__get__(search)
+    Search.weigh_uptimes.__get__(search)()
+    rows = [r for r in play_guide.guide(search) if r["var"] == "parryActive"]
+    assert len(rows) == 1 and rows[0]["kind"] == play_guide.PLAYER and rows[0]["dps_with"] == approx(1200)
+    assert "1,765 DPS while the boss is Parried, 1,176 while it isn't" in rows[0]["play"]
