@@ -344,6 +344,15 @@ class Gems:
         if not meta:
             top = max(range(len(scored)), key=lambda i: scored[i][0])
             self.census.update(best=moves[top][1], best_gain=round(scored[top][0] - build.score, 4))
+            # Each lineage support's best what-if gain in the last full sweep (for reading a run: 2b75d's round-2
+            # basins, MECH40, where some tasks never took Styrn's Ferocity / Dialla's Desire)
+            if full_sweep or shortlist is None:
+                lineage: dict[str, float] = {}
+                for (s, _), (_, name) in zip(scored, moves):
+                    if (self.ctx.gems.get(name) or {}).get("lineage"):
+                        lineage[name] = max(lineage.get(name, -math.inf), s - build.score)
+                self.swept_lineage = {n: round(v, 4) for n, v in sorted(lineage.items(), key=lambda x: -x[1])[:6]}
+            self.census["lineage"] = getattr(self, "swept_lineage", {})
         if full_sweep or shortlist is None:
             ranked = sorted(zip(scored, moves), key=lambda x: -x[0][0])
             seen: list[str] = []

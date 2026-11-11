@@ -44,13 +44,13 @@ BASES_PER_SUBTYPE = 3  # normal armour/jewellery bases kept per sub-type, highes
 SHORTLIST = 6  # options per slot rescored between full rounds
 ANOINT_KEEP = 8  # notables per anoint the node screen passes to real item what-ifs (anointed)
 REQUIREMENT_FIT_SECONDS = 30.0  # tree re-routing a granted-meta unique's trial may take (fit_requirements)
-# Off since 8 Nov (MECH15): with a rare per variant of a variant base (Absent Amulet's Cast on Dodge, ...) proposed by
-# granted_meta_trials, every 2b75b gate run kept Cast on Dodge (~45% of its DPS) with 2-3 supports left in its main
-# group, and gate 4 fell from x2.81-13.03 to x0.21-0.70. What took the supports: e4767b1's "each support once per
-# character" (8 Nov), so a support in the amulet's group (Concentrated Area, POE2T168's build) left the main group; the
-# game has no such rule for normal supports and 58f03f3 (9 Nov) dropped it. Back on only if gate 4 does at least as well
-# with it on (GEAR3); POE2_VARIANT_TRIALS=1 turns it on for a run without a commit.
-VARIANT_META_TRIALS = os.environ.get("POE2_VARIANT_TRIALS") == "1"
+# On since 11 Nov (the user: "Turn on, fix the search"; the variants are real items, so the search offers them). Off from
+# 8 Nov (MECH15) to 11 Nov: then every 2b75b gate run kept Cast on Dodge with 2-3 supports left in its main group,
+# caused by e4767b1's "each support once per character" rule, which 58f03f3 (9 Nov) dropped. GEAR4's on/off gates
+# (11 Nov): 2b75b x7.15 on vs x5.86 off, 2b75e x22.38 vs x17.05, 2b75d x1.48 on vs x1.77/x2.24 off; 2b75d's x1.48 is
+# also what its off-runs reach since 14571fb (MECH40: the round-2 support basin), so its loss isn't the trials alone.
+# POE2_VARIANT_TRIALS=0 turns them off for a run.
+VARIANT_META_TRIALS = os.environ.get("POE2_VARIANT_TRIALS", "1") != "0"
 VARIANT_TRIALS = 2  # a variant base's non-meta variants (Archmage, a herald, ...) tried for real per slot and full round
 AFFIX_LIMIT = {"Prefix": 3, "Suffix": 3}
 GRANTED_SKILL = re.compile(r"^Grants Skill: (?:Level \S+ )?")
