@@ -45,6 +45,7 @@ EVIDENCE_FIELDS = [
     "ChillChanceOnHit", "MaximumRage", "EnergyShield", "EvadeChance", "EffectiveBlockChance", "enemySkillTime",
     "HitChance", *(f"{c}Charges{f}" for c in ("Power", "Frenzy", "Endurance") for f in ("Max", "Duration")),
     "PresenceRadius", "Ward", "Mana", "ManaPerSecondCost", "Devotion", *models.IMMOBILISE_FIELDS,
+    "ChaosHitAverage", "MainHand.ChaosHitAverage", "EnemyAilmentThreshold",  # (Withering Touch, _withered_stacks)
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -58,27 +59,91 @@ def _hit_recently(stats: dict) -> bool:
 
 WITHERED_MAX = 10  # "Withered applies 5% increased Chaos damage Taken, and can be inflicted up to 10 times" (poe2db)
 WITHER_CHANCE = re.compile(r"(\d+)% chance to inflict Withered for (\d+(?:\.\d+)?) seconds on Hit", re.I)
+WITHER_SPELLS = re.compile(r"^Spells have\b", re.I)  # (the unique's "Spells have a 25% chance ...": not for an Attack)
 WITHER_KEEP = re.compile(r"Withered does not expire on Enemies (Ignited by you|you Ignite)", re.I)
+WITHER_FOREVER = re.compile(r"^Withered you inflict has infinite Duration$", re.I)
+# Withered from gems (RULE_AUDIT #1, MECH42, 11 Nov 2026). Game files (build 26476662), every stat whose id holds "wither"
+# and where it's used (scratch/mech42/wither_scan.py): skill stat sets WitherPlayer (active_skill_withered_base_duration_ms,
+# a channel, 0.25 s a tick), WeaponGrantedChaosboltPlayer (that duration, 4 s, and apply_x_wither_on_hit), HisFoulEmergencePlayer
+# (10 s, from its Withering Ground: "applies Withered every second to enemies standing in it", KeywordPopups),
+# SupportWitheringTouchPlayer (support_withered_base_duration_ms 4 s; withered_on_hit_chance_%_for_every_100%_target_
+# ailment_threshold_dealt_as_chaos_damage 175, rollover-capped), WitheringPresencePlayer and its unique and Rogue Exile copies
+# (skill_withering_presence_frequency_ms; base_skill_effect_duration 6 s; PoB's description: "periodically Withers enemies in
+# your Presence"), ArchonOfChayulaPlayer (25% chance, 4 s, while in the Archon state); passives Wither Away (on entering your
+# Presence), Withering Hex (non-cursed enemies you curse), Right Hand of Darkness (minions' chance); uniques' chance lines,
+# Kurgal's (against Abyssal Wasting), Cospri's "infinite Duration". wither_duration_+% is on a monster strongbox skill only
+# among the tables scanned (Mods, PassiveSkills, stat sets), so no duration modifier is read.
+WITHER_ON_HIT_SKILLS = ("Wither", "Chaos Bolt")  # the main skill's own Withered, at its uses per second
+WITHERING_PRESENCE = "Withering Presence"
+WITHER_SKILL_STATS = ("active_skill_withered_base_duration_ms", "apply_x_wither_on_hit")
+WITHERING_PRESENCE_STATS = ("skill_withering_presence_frequency_ms", "base_skill_effect_duration")
+WITHER_SUPPORT_STATS = ("support_withered_base_duration_ms",
+                        "withered_on_hit_chance_%_for_every_100%_target_ailment_threshold_dealt_as_chaos_damage")
+WITHER_FIELDS = ("Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration", "PresenceRadius", "ChaosHitAverage",
+                 "MainHand.ChaosHitAverage", "EnemyAilmentThreshold")
+# Lines that inflict Withered but aren't counted (labelled in the basis): on entering your Presence (once on a lone boss),
+# minions' chance, against Abyssal Wasting, on curse
+WITHER_UNCOUNTED = re.compile(r"withered .*when they enter your presence|minions have .*withered|abyssal wasting.*|"
+                              r"withered with hits against|curse .*withered|withered .*curse", re.I)
 
 
 def _withered_stacks(lines: list[str], stats: dict) -> tuple:
-    """Withered stacks the build keeps on a boss: chance x hits per second x duration from its "chance to inflict Withered"
-    lines, up to 10. With Blackflame ("does not expire on Enemies you Ignite"), all 10 while the boss is Ignited: counted
-    at Ignite's real share of the fight (the user, 9 Nov 2026: "Count the real share"; under SWITCH_ON, 7%, left out),
-    the chance-line stacks the rest of it (the 4th value: the box's setting with the effect off, Search.weigh_uptimes).
-    PoB reads the count whole (ModStore floors a Multiplier), so the time weighting is done by the uptime machinery, not
-    a fractional count. Labelled: stacks that outlast an Ignite by their own duration aren't counted (a small undercount),
-    and the build-up to 10 at the fight's start is taken as instant."""
-    rate = number(stats.get("Speed"))
-    stacks, sources = 0.0, []
+    """Withered stacks the build keeps on a boss, up to 10: from its "chance to inflict Withered" lines (chance x hits per
+    second x duration), the main skill's own Withered (Wither, Chaos Bolt: stacks per use x uses per second x duration),
+    Withering Touch on it (175% chance per 100% of the boss's Ailment Threshold dealt as Chaos per hit, the expected stacks
+    of a rollover chance), and Withering Presence (duration / frequency while the boss stands in your Presence). With
+    "infinite Duration" (Cospri's), any source keeps all 10. With Blackflame ("does not expire on Enemies you Ignite"), all
+    10 while the boss is Ignited: counted at Ignite's real share of the fight (the user, 9 Nov 2026: "Count the real
+    share"; under SWITCH_ON, 7%, left out), the other stacks the rest of it (the 4th value: the box's setting with the
+    effect off, Search.weigh_uptimes). PoB reads the count whole (ModStore floors a Multiplier), so the time weighting is
+    done by the uptime machinery, not a fractional count. Labelled: stacks that outlast an Ignite by their own duration
+    aren't counted (a small undercount), the build-up to 10 at the fight's start is taken as instant, and duration
+    modifiers aren't read (Withering Presence's base 6 s; skill duration mods would lengthen it: an undercount)."""
+    hit = number(stats.get("HitChance")) / 100 if "HitChance" in stats else 1.0
+    rate = number(stats.get("Speed")) * hit  # hits per second
+    spell = "Spell" in (stats.get("_main_types") or set())
+    stacks, sources, idle = 0.0, [], []
     for text in lines:
         if m := WITHER_CHANCE.search(text):
+            if WITHER_SPELLS.search(text) and not spell:
+                idle.append(f"{text} (the main skill isn't a Spell)")
+                continue
             stacks += float(m.group(1)) / 100 * rate * float(m.group(2))
             sources.append(text)
+        elif WITHER_UNCOUNTED.search(text):
+            idle.append(text)
+    name, own = stats.get("_wither_main") or ("", {})
+    if (duration := number(own.get(WITHER_SKILL_STATS[0])) / 1000) > 0:
+        each = number(own.get(WITHER_SKILL_STATS[1])) or 1.0
+        stacks += each * rate * duration
+        sources.append(f"{name}: {each:g} Withered per hit for {duration:g} s")
+    support = stats.get("_wither_support") or {}
+    duration = number(support.get(WITHER_SUPPORT_STATS[0])) / 1000
+    if duration > 0 and (chance := number(support.get(WITHER_SUPPORT_STATS[1]))):
+        chaos = number(stats.get("ChaosHitAverage")) or number(stats.get("MainHand.ChaosHitAverage"))
+        threshold = number(stats.get("EnemyAilmentThreshold"))
+        each = chance / 100 * chaos / threshold if threshold > 0 else 0.0
+        stacks += each * rate * duration
+        sources.append(f"Withering Touch: {chance:g}% chance per 100% of the boss's {threshold:,.0f} Ailment Threshold "
+                       f"dealt as Chaos, a {chaos:,.0f} Chaos hit: {each:.2f} Withered per hit for {duration:g} s")
+    if presence := stats.get("_wither_presence"):
+        every, duration = presence
+        metres = _boss_distance(lines, stats)[0] / 10
+        radius = number(stats.get("PresenceRadius")) / 10
+        if every > 0 and radius >= metres:
+            stacks += duration / every
+            sources.append(f"{WITHERING_PRESENCE}: Withered for {duration:g} s every {every:g} s on the boss in your "
+                           f"Presence ({radius:.1f} m, the boss {metres:g} m away)")
+        else:
+            idle.append(f"{WITHERING_PRESENCE} (the boss {metres:g} m away, outside your {radius:.1f} m Presence)")
+    left = f"; not counted: {'; '.join(t[:70] for t in idle)}" if idle else ""
     if not sources:
         return 0.0, ""
+    if any(WITHER_FOREVER.search(t) for t in lines):
+        return (float(WITHERED_MAX), f"{sources[0]}; and Withered you inflict has infinite Duration: {WITHERED_MAX} "
+                                     f"stacks (the build-up taken as instant){left}")
     stacks = min(float(WITHERED_MAX), stacks)
-    basis = f"{'; '.join(sources)} at {rate:.2f} hits/s: {stacks:.1f} stacks kept up"
+    basis = f"{'; '.join(sources)} at {rate:.2f} hits/s: {stacks:.1f} stacks kept up{left}"
     up = ailment_uptime(stats, "Ignite") if any(WITHER_KEEP.search(t) for t in lines) else 0.0
     if up >= FULL_UPTIME:
         return float(WITHERED_MAX), f"{sources[0]}; and Withered never expires on the Ignited boss: {WITHERED_MAX} stacks"
@@ -1017,7 +1082,7 @@ CONDITIONS: list[Condition] = [
     Condition("overrideEnduranceCharges", "Endurance Charges held", value_fn=_charges_held("Endurance"),
               fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration", *models.IMMOBILISE_FIELDS)),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
-              fields=("Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration")),
+              fields=WITHER_FIELDS),
     Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)",
               (r"become ignited when you deal a critical hit",)),
     Condition("enemyDistance", "Boss distance (play-style assumption; 10 units a metre)", value_fn=_boss_distance,
@@ -1158,6 +1223,23 @@ class Conditions:
             raw = self.build.call("activeSkills", supportStats=list(INCISION_SUPPORT_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
             stats["_incision_per_hit"] = number((main.get("supportStats") or {}).get(INCISION_SUPPORT_STATS[0]))
+        names = set(gem_types) | {g["name"] for grp in self.build.groups() if grp.get("enabled") is not False
+                                  for g in grp["gems"] if g.get("enabled", True)}
+        if self.main_skill in WITHER_ON_HIT_SKILLS or "Withering Touch" in main_gems or WITHERING_PRESENCE in names:
+            # (Withered from gems, _withered_stacks: the main skill's own, Withering Touch on it, Withering Presence)
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill, WITHERING_PRESENCE],
+                                  supportStats=list(WITHER_SUPPORT_STATS))
+            for skill in raw["skills"]:
+                got = skill.get("levelStats") or {}
+                if skill.get("disabled"):
+                    continue
+                if skill["name"] == self.main_skill:
+                    stats["_wither_support"] = skill.get("supportStats") or {}
+                    if self.main_skill in WITHER_ON_HIT_SKILLS:
+                        stats["_wither_main"] = (self.main_skill, {s: got.get(s) for s in WITHER_SKILL_STATS})
+                elif skill["name"] == WITHERING_PRESENCE:
+                    stats["_wither_presence"] = (number(got.get(WITHERING_PRESENCE_STATS[0])) / 1000,
+                                                 number(got.get(WITHERING_PRESENCE_STATS[1])) / 1000)
         self.parry_plan = None
         if any(n in gem_types for n in models.PARRY_SKILLS) or any(PARRY_GRANT.search(t) for t in texts):  # (Parried)
             raw = self.build.call("activeSkills")

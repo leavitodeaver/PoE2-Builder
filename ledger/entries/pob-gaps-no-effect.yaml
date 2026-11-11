@@ -133,18 +133,21 @@
   status: proposed
 
 - id: no-effect-infinite-curse-duration
-  title: Curses you inflict have infinite duration (PoB already counts a curse as always applied)
+  title: Curses / Withered you inflict have infinite duration (read by the custom models, not by PoB)
   kind: pob_gap
   match: '^(Curses you inflict have infinite Duration|Withered you inflict has infinite Duration)$'
   replace: []
   confidence: reported
   notes: >-
-    PoB applies a build's curses (and Withered, at the stacks its config sets) for the whole fight;
-    a longer duration only saves recasts. For Withered, the stack count is still set in PoB's
-    config, not from this line.
+    PoB applies a build's curses always up and reads Withered from the stack count we set, so the
+    line does nothing in PoB. It moves the build through the custom models (RULE_AUDIT #1, MECH42,
+    11 Nov 2026; before, this entry called it absorbed, out of date once curses had a recast and
+    Withered a duration): models.curse_uses casts a hand-cast curse once instead of every 7.4 s, so
+    it costs the main skill no time; conditions._withered_stacks keeps all 10 Withered stacks with
+    any Withered source (the build-up at the fight's start taken as instant).
   sources: ["https://poe2db.tw/us/Incessant_Cacophony", "https://poe2db.tw/us/Cospri%27s_Will"]
   test_in_game: "Curse a boss once and check the curse never falls off."
-  absorbed_by: "PoB applies the build's curses for the whole fight"
+  absorbed_by: "models.curse_uses (no recasts) and conditions._withered_stacks (10 stacks)"
   status: proposed
 
 - id: no-effect-debuffs-on-you

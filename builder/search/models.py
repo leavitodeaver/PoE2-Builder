@@ -1132,6 +1132,10 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
 # - "Curse ... with X on Hit" item lines: up while the main skill hits.
 CURSE_DURATION = 7.4
 CURSE_DELAY = 1.5
+# "Curses you inflict have infinite Duration" (RULE_AUDIT #1, MECH42): a curse cast by hand is cast once and never recast,
+# so it costs the main skill no time (the first cast and its 1.5 s delay at the fight's start aren't counted). Before, the
+# ledger dropped the line as "PoB already counts a curse as always applied", which no longer held once recasts cost time.
+CURSE_FOREVER = re.compile(r"^Curses you inflict have infinite Duration$", re.I)
 CURSE_ON_HIT = re.compile(r"\bcurse (?:non-cursed )?enemies with (.+?) on hit\b", re.I)
 # Lines that apply only while the boss is cursed, each scaled to the share of the fight it is (exact for the taken and
 # resistance ones, linear for the ailment duration one: an approximation)
@@ -1159,6 +1163,7 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
     """How the build applies each of its curses, and the share of the fight each is on the boss."""
     uses = []
     radius = number(stats.get("PresenceRadius")) / 10
+    forever = any(CURSE_FOREVER.search(text) for text in lines)
     for group in groups:
         if group.get("enabled") is False:
             continue
@@ -1177,6 +1182,9 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
             elif meta is not None:
                 uses.append(CurseUse(name, 1.0, f"triggered by {meta}: assumed applied when needed (its trigger rate "
                                                 "isn't read)"))
+            elif forever:
+                uses.append(CurseUse(name, 1.0, "cast by hand once: 'Curses you inflict have infinite Duration' (no "
+                                                "recasts; the first cast at the fight's start isn't counted)"))
             else:
                 uses.append(CurseUse(name, 1.0, f"cast by hand every {CURSE_DURATION:g} s (its duration; recast "
                                                 f"{CURSE_DELAY:g} s before it runs out, the curse delay)", True))

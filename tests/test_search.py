@@ -601,17 +601,44 @@ def test_grinning_immolation_ignites_you():
 def test_withered_stacks_from_the_builds_lines():
     from builder.search.conditions import _withered_stacks
 
+    spell = {"_main_types": {"Spell"}}
     quill = "Spells have a 25% chance to inflict Withered for 4 seconds on Hit"
-    assert _withered_stacks([quill], {"Speed": 4.0})[0] == 4.0  # 0.25 x 4/s x 4 s
-    assert _withered_stacks([quill], {"Speed": 40.0})[0] == 10.0  # at most 10
+    assert _withered_stacks([quill], {**spell, "Speed": 4.0})[0] == 4.0  # 0.25 x 4/s x 4 s
+    assert _withered_stacks([quill], {**spell, "Speed": 40.0})[0] == 10.0  # at most 10
     keep = "Withered does not expire on Enemies Ignited by you"
-    assert _withered_stacks([quill, keep], {"Speed": 4.0, "IgniteChancePerHit": 100})[0] == 10.0
-    assert _withered_stacks([keep], {"Speed": 4.0, "IgniteChancePerHit": 100})[0] == 0.0  # no Withered source
+    assert _withered_stacks([quill, keep], {**spell, "Speed": 4.0, "IgniteChancePerHit": 100})[0] == 10.0
+    assert _withered_stacks([keep], {**spell, "Speed": 4.0, "IgniteChancePerHit": 100})[0] == 0.0  # no Withered source
     # Ignite up part of the fight (the user's rule, 9 Nov: the real share): 10 stacks at Ignite's uptime, the chance-line
     # stacks (here 4) with it off; under 7%, only the chance-line stacks
-    value, basis, up, off = _withered_stacks([quill, keep], {"Speed": 4.0, "IgniteChancePerHit": 5, "IgniteDuration": 4})
+    value, basis, up, off = _withered_stacks([quill, keep], {**spell, "Speed": 4.0, "IgniteChancePerHit": 5, "IgniteDuration": 4})
     assert value == 10.0 and off == 4 and up == pytest.approx(1 - 0.95 ** 16) and "while it is Ignited" in basis
-    assert _withered_stacks([quill, keep], {"Speed": 4.0, "IgniteChancePerHit": 0.1, "IgniteDuration": 4}) == (4.0, _withered_stacks([quill], {"Speed": 4.0})[1])
+    assert _withered_stacks([quill, keep], {**spell, "Speed": 4.0, "IgniteChancePerHit": 0.1, "IgniteDuration": 4}) == (4.0, _withered_stacks([quill], {**spell, "Speed": 4.0})[1])
+    assert _withered_stacks([quill], {"Speed": 4.0, "_main_types": {"Attack"}})[0] == 0.0  # a Spells line, an Attack
+
+
+def test_withered_stacks_from_gems_and_infinite_duration():
+    """RULE_AUDIT #1 (MECH42): the main skill's own Withered, Withering Touch, Withering Presence, infinite Duration."""
+    from builder.search.conditions import _withered_stacks
+
+    bolt = {"Speed": 1.0, "HitChance": 100, "_wither_main": ("Chaos Bolt", {"active_skill_withered_base_duration_ms": 4000,
+                                                                          "apply_x_wither_on_hit": 2})}
+    value, basis = _withered_stacks([], bolt)
+    assert value == 8.0 and "Chaos Bolt" in basis  # 2 per hit x 1 hit/s x 4 s
+    touch = {"Speed": 2.0, "HitChance": 50, "ChaosHitAverage": 10_000, "EnemyAilmentThreshold": 70_000,
+             "_wither_support": {"support_withered_base_duration_ms": 4000,
+                                 "withered_on_hit_chance_%_for_every_100%_target_ailment_threshold_dealt_as_chaos_damage": 175}}
+    assert _withered_stacks([], touch)[0] == 1.0  # 1.75 x 1/7 = 0.25 per hit x 1 hit/s x 4 s
+    presence = {"Speed": 1.0, "PresenceRadius": 40, "_main_types": {"Melee"}, "_wither_presence": (1.0, 6.0)}
+    assert _withered_stacks([], presence)[0] == 6.0  # 6 s every 1 s, the boss 2 m away (melee) in a 4 m Presence
+    far = {**presence, "_distance_choice": (8.0, "test")}
+    value, basis = _withered_stacks([], far)
+    assert value == 0.0 and basis == ""
+    forever = "Withered you inflict has infinite Duration"
+    assert _withered_stacks([forever], touch)[0] == 10.0
+    assert _withered_stacks([forever], {"Speed": 1.0})[0] == 0.0  # no Withered source
+    away = "Unwithered Enemies are Withered for 8 seconds when they enter your Presence"
+    assert "not counted" in _withered_stacks([away], bolt)[1]
+
 
 
 def test_charges_held_follow_the_builds_sources():

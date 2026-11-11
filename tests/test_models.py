@@ -1067,6 +1067,8 @@ def test_a_curse_is_up_by_how_the_build_applies_it():
                                        {"name": "Blasphemy", "support": True}]}]
     (use,) = models.curse_uses(hand, gems, stats, 8.0)
     assert use.share == 1.0 and use.by_hand
+    (once,) = models.curse_uses(hand, gems, stats, 8.0, ["Curses you inflict have infinite Duration"])
+    assert once.share == 1.0 and not once.by_hand  # cast once, no recasts (MECH42)
     assert models.curse_uses(aura, gems, stats, 4.0)[0].share == 1.0  # inside 4 m of Presence
     assert models.curse_uses(aura, gems, stats, 8.0)[0].share == 0.0  # outside it
     assert models.curse_uses([{**aura[0], "enabled": False}], gems, stats, 4.0) == []

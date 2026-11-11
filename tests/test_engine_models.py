@@ -1223,3 +1223,17 @@ def test_a_pressed_non_main_skill_counts_at_its_real_use_in_full_dps(engine):
     assert plain - counted == pytest.approx(
         sum(dps * (1 - scales[key]) for key, dps in entries.items() if key in scales)
         * build.objective.life_factor * build.objective.uptime_factor, rel=1e-6)
+
+
+def test_withering_presence_withers_the_boss_in_your_presence(engine):
+    """RULE_AUDIT #1 (MECH42): Withered from Withering Presence (the gem's frequency and 6 s duration, game files), read
+    through the bridge's levelStats; before, only "chance to inflict Withered" lines counted."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.build.set_group(gems=[{"name": "Withering Presence", "level": 20, "quality": 0}], label="presence")
+    found = search.conditions.evidence()
+    print("PROBE", found.get("multiplierWitheredStackCount"))
+    value, basis = found["multiplierWitheredStackCount"][:2]
+    assert 1 <= value <= 10 and "Withering Presence" in basis
