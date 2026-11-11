@@ -1165,3 +1165,23 @@ def test_press_model_takes_the_uncapped_use_time_and_scales_ailments_by_the_stac
     assert "Ignite x0.400" in notes[1]["basis"]
     assert models.press_key("Best Ignite DPS", "Bomb") == "Best Ignite DPS from Bomb"
     assert models.press_key("Bomb", None) == "Bomb"
+
+
+def test_electrocuting_arrows_rod_is_off_from_each_electrocute_until_the_next_hit():
+    """MECH40 (RULE_AUDIT 13): the Rod's stats count the share of the fight a Rod is attached."""
+    ea = Skill("Electrocuting Arrow", attack=True, cast_time=0.8)
+    other = Skill("Lightning Arrow", attack=True)
+    none = {"Speed": 2.0, "HitChance": 100, "ElectrocuteBuildupAvg": 0}
+    assert models.rod_model([ea], none, ea) == ([], models.rod_model([ea], none, ea)[1])  # no Electrocutes: always on
+    stats = {"Speed": 2.0, "HitChance": 100, "ElectrocuteBuildupAvg": 50}
+    rate = models.buildup_rate(stats, "Electrocute")
+    assert rate > 0
+    share, _ = models.rod_share(ea, stats, ea)  # main skill: the next hit 0.25 s later on average
+    assert share == pytest.approx(1 - rate * 0.25)
+    share2, how = models.rod_share(ea, stats, other)  # pressed: 0.5 s + its 0.8 s use
+    assert share2 == pytest.approx(1 - rate * 1.3) and "pressed" in how
+    mods, notes = models.rod_model([ea, other], stats, other)
+    assert {(m["name"], m["skill"]) for m in mods} == {("BuffEffect", "Electrocuting Arrow"), ("DebuffEffect", "Electrocuting Arrow")}
+    assert all(m["value"] == pytest.approx(-100 * (1 - share2), abs=1e-3) for m in mods)
+    assert notes[0]["value"] == pytest.approx(share2, abs=1e-3)
+    assert models.rod_model([other], stats, other) == ([], [])

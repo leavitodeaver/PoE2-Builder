@@ -97,6 +97,15 @@ def derived(name: str, fn: str, value: float, **args) -> dict:
     return {"kind": "Derived", "name": name, "fn": fn, "value": int(round(value)), "args": args}
 
 
+def raw_mod(name: str, kind: str, value: float, skill: str | None = None) -> dict:
+    """A PoB modifier by its internal name (no text to parse): `kind` "INC" / "MORE" / "BASE" / "FLAG", tagged to
+    `skill` if given (SkillName). For what PoB has no parseable line for, such as one skill's DebuffEffect MORE."""
+    mod: dict = {"kind": "Raw", "name": name, "type": kind, "value": _round(value)}
+    if skill:
+        mod["skill"] = skill
+    return mod
+
+
 def trigger_rate(skill: str, rate: float) -> list[dict]:
     return [{"kind": "SkillData", "skill": skill, "key": "triggerRate", "value": _round(rate)},
             {"kind": "SkillData", "skill": skill, "key": "triggered", "value": True}]
@@ -1987,6 +1996,56 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
                    f"Arbiter of Ash threshold); {d:g} s each, one every {period:.1f} s (x6 threshold for "
                    f"{window:g} s after each, buildup paused while it lasts, LOW): {share:.0%}")
+
+
+# Electrocuting Arrow's Rods (MECH40, 11 Nov 2026; RULE_AUDIT 13). Game files / PoB act_dex.lua: "Hitting an enemy will
+# attach an Electrocuting Rod to them ... This rod is removed when the enemy is next Electrocuted"; base_skill_effect_duration
+# 25 s. PoB counts both rod stats always on, from the skill's stat map: electrocuting_arrow_damage_taken_+% (quality,
+# "Targets with attached Rods take X% increased damage", an enemy Debuff) and
+# electrocuting_arrow_%_damage_gained_as_extra_lightning_on_debuffed_target (quality, a Buff). Here both are scaled to the
+# share of the fight a Rod is on the boss: each Electrocute removes it until Electrocuting Arrow hits again. Electrocutes
+# per second from the main skill's buildup (buildup_rate; other Electrocute sources aren't counted: LOW, they would lower it).
+# A Rod is assumed to attach while the boss is Electrocuted (the description only says it's removed when the enemy is next
+# Electrocuted; UNVERIFIED). The Rod's own effect, all Lightning damage building up Electrocution, isn't modelled (an
+# undercount, labelled in the catalog).
+ELECTROCUTING_ARROW = "Electrocuting Arrow"
+ROD_SECONDS = 25.0  # base_skill_effect_duration
+ROD_REACTION = 0.5  # s before a non-main Electrocuting Arrow is pressed again after an Electrocute (assumed)
+
+
+def rod_share(skill: Skill, stats: dict, main: Skill | None) -> tuple[float, str]:
+    """Share of the fight a Rod is on the boss, and how."""
+    rate = buildup_rate(stats, "Electrocute")
+    if main is skill or (main is not None and main.name == skill.name):
+        hps = hits_per_second(stats)
+        gap = 0.5 / hps if hps > 0 else ROD_SECONDS
+        how = f"the main skill, {hps:.2f} hits/s: the next hit comes {gap:.2f} s after each Electrocute on average"
+    else:
+        use = skill.cast_time or 1.0
+        gap = ROD_REACTION + use
+        how = (f"pressed again after each Electrocute: {ROD_REACTION:g} s to react (assumed) + its {use:.2f} s use; "
+               f"it must be pressed at least once per {ROD_SECONDS:g} s (the Rod's duration) between Electrocutes")
+    share = max(0.0, 1.0 - rate * gap)
+    if rate <= 0:
+        return 1.0, f"the build doesn't Electrocute the boss with its main skill, so the Rod stays on ({how})"
+    return share, (f"{rate * 60:.1f} Electrocutes of the boss per minute (main skill's buildup, Arbiter of Ash threshold), "
+                   f"the Rod off from each until the next hit: {how}; on {share:.1%} of the fight")
+
+
+def rod_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+    skill = next((s for s in skills if s.name == ELECTROCUTING_ARROW), None)
+    if skill is None:
+        return [], []
+    share, how = rod_share(skill, stats, main)
+    note = {"label": f"{ELECTROCUTING_ARROW}: Rod on the boss", "value": round(share, 3), "confidence": "theory",
+            "basis": f"PoB counts the Rod's quality stats (damage taken, extra Lightning on debuffed targets) always on; "
+                     f"scaled to the share a Rod is attached: {how}. A Rod attaching while the boss is Electrocuted is "
+                     "UNVERIFIED; other Electrocute sources aren't counted (LOW)"}
+    if share >= 1.0:
+        return [], [note]
+    cut = -100 * (1 - share)
+    return [raw_mod("DebuffEffect", "MORE", cut, ELECTROCUTING_ARROW),
+            raw_mod("BuffEffect", "MORE", cut, ELECTROCUTING_ARROW)], [note]
 
 
 # Parried (MECH39, 11 Nov 2026). Game files (GrantedEffectStatSets, ActiveSkills): Parry ("Ready your Buckler to parry the

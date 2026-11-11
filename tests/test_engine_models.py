@@ -293,6 +293,27 @@ def test_a_spell_totem_without_charges_deals_nothing(engine):
     assert search.gems.buttons() == ["Spell Totem"]  # you press the totem, not the spell it casts
 
 
+def test_electrocuting_arrows_rod_stats_scale_with_a_raw_effect_mod(engine):
+    """MECH40: PoB counts Electrocuting Arrow's Rod quality stats always on (a Buff: extra Lightning on debuffed targets);
+    models.rod_model scales them with a Raw BuffEffect / DebuffEffect MORE on the skill, which must reach PoB."""
+    payload = make_payload(BuildRequest(main_skill="Electrocuting Arrow", ascendancies=["Deadeye"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Electrocuting Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.set_group(gems=[{"name": "Electrocuting Arrow", "level": 20, "quality": 20}], label="rod")
+    cut = [models.raw_mod("BuffEffect", "MORE", -100, "Electrocuting Arrow"),
+           models.raw_mod("DebuffEffect", "MORE", -100, "Electrocuting Arrow")]
+    build.call("setAssumptions", mods=cut, fields=build.objective.fields)
+    without = build.call("stats", fields=["CombinedDPS"])["CombinedDPS"]
+    half = [{**m, "value": -50} for m in cut]
+    build.call("setAssumptions", mods=half, fields=build.objective.fields)
+    halfway = build.call("stats", fields=["CombinedDPS"])["CombinedDPS"]
+    build.call("setAssumptions", mods=[], fields=build.objective.fields)
+    full = build.call("stats", fields=["CombinedDPS"])["CombinedDPS"]
+    assert full > halfway > without > 0  # the quality Buff, always on in PoB, scaled by the Raw mods
+
+
 def test_a_snipers_marks_extra_crit_damage_is_scaled_to_the_crits_it_lands_on(engine):
     """Slice 6: PoB counts Sniper's Mark's extra crit damage on every crit. The model scales the Mark's effect to one crit
     per Mark (a skill-scoped "more Effect of your Curses" line, which PoB must apply to the Mark) and takes its casts out

@@ -1781,6 +1781,8 @@ local function installAssumptions()
 					self.modList:NewMod("SkillData", "LIST", { key = mod.key, value = mod.value }, "Assumption", unpack(tags))
 				elseif mod.kind == "Condition" then  -- a ledger condition the build's skills switch on
 					self.modList:NewMod("Condition:Ledger" .. mod.name, "FLAG", true, "Ledger")
+				elseif mod.kind == "Raw" then  -- a PoB modifier by name (models.raw_mod), e.g. a skill's DebuffEffect MORE
+					self.modList:NewMod(mod.name, mod.type, mod.value, "Assumption", unpack(tags))
 				elseif mod.kind == "Line" then
 					for _, parsed in ipairs(mod.parsed) do
 						self.modList:AddMod(parsed)

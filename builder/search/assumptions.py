@@ -293,6 +293,8 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
         roar_mods, roar_notes = models.roar_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + roar_mods, hand_notes + roar_notes
+        rod_mods, rod_notes = models.rod_model(found, stats, main)
+        hand_mods, hand_notes = hand_mods + rod_mods, hand_notes + rod_notes
         mirage_mods, mirage_notes, mirage_groups = models.mirage_model(
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))
