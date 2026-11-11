@@ -923,6 +923,27 @@ def test_frozen_and_electrocuted_at_the_share_the_boss_carries_them():
     assert {"conditionEnemyFrozen", "conditionEnemyElectrocuted"} <= {c.var for c in CONDITIONS}
 
 
+def test_incision_stacks_from_its_sources_removed_by_each_bleed():
+    """KeywordPopups Incision: 10% Bleed chance per stack, up to 10, all removed when Bleeding is inflicted (MECH38:
+    before, nothing set the stack count, so Thousand Cuts and the support's consumed count were 0)."""
+    from builder.search.conditions import _incision_consumed, _incision_stacks, incision_state
+
+    stats = {"Speed": 2.0, "HitChance": 100, "BleedChancePerHit": 100, "_incision_per_hit": 1, "_main_types": {"Attack"}}
+    avg, consumed, how = incision_state([], stats)
+    assert abs(avg - 1) < 1e-9 and abs(consumed - 2) < 1e-9  # every hit bleeds: its one stack, eaten by the next hit
+    assert _incision_consumed([], stats)[0] == 8  # 2/s over 4 s
+    no_bleed = {**stats, "BleedChancePerHit": 0}
+    avg0 = incision_state([], no_bleed)[0]
+    assert 2 < avg0 < 10  # stacks build until their own 10% each bleeds the boss
+    assert incision_state(["100% increased effect of Incision"], no_bleed)[0] < avg0
+    assert _incision_stacks([], no_bleed)[0] == round(avg0)
+    line = "10% chance for Attack Hits to apply ten Incision"
+    attack_only = {**no_bleed, "_incision_per_hit": 0}
+    assert incision_state([line], attack_only)[0] > 0
+    assert incision_state([line], {**attack_only, "_main_types": {"Spell"}}) == (0.0, 0.0, "")
+    assert _incision_consumed([line], attack_only) == (0, "")  # (only the support reads it)
+
+
 def test_arcane_surge_on_only_when_its_sources_keep_it_up():
     """KeywordPopups ArcaneSurgeDuration: 4 s by default; the box on at 90% uptime (MECH29; any gaining line turned it on)."""
     from builder.search.conditions import arcane_surge_uptime

@@ -132,6 +132,21 @@
   impact: 4
   effort: L
 
+- id: incision
+  name: Incision (stacking Bleed-chance debuff)
+  terms: [Incision, Thousand Cuts]
+  category: stun and ailments
+  game: "Each stack gives 10% chance to be inflicted with Bleeding when Hit, up to 10 stacks; all removed when Bleeding is inflicted (KeywordPopups Incision)."
+  game_source: https://poe2db.tw/us/Incision
+  pob: config-only
+  pob_check: "multiplierIncisionStackCount and incisionConsumedRecently are boxes PoB never sets; its SelfBleedChance per stack is never read by its Bleed calculation."
+  handling: "MECH38: conditions.incision_state, a Markov chain over 0-10 stacks per main-skill hit (Bleed at PoB's chance + 10% x (1 + effect) per stack removes them; then the hit's Incision from the support's apply_X_incision_on_hit and the 'chance for Attack Hits to apply (ten) Incision' lines). The average sets the stack count (rounded: PoB reads whole stacks), which Thousand Cuts and 'affected by Incision' lines read; consumed per s x 4 s sets the Incision support's count. Labelled: a hit's own Incision counts from the next hit (LOW); only the main skill's hits; Incision's own Bleed chance isn't added to PoB's Bleed numbers (an undercount)."
+  plan: {approach: custom model, how: "Done (see handling); next: add Incision's Bleed chance into the Bleed uptime and PoB's Bleed chance.", inputs: [hits per second, bleed chance, incision sources]}
+  what_if: invisible
+  guide_note: "Incision: N stacks on the boss on average."
+  impact: 2
+  effort: S
+
 - id: damaging-ailments
   name: Ignite, Bleed, Poison, Shock and Chill uptime
   terms: [Ignite, Ignited, Bleeding, Poison, Poisoned, Shock, Shocked, Chill, Chilled, Elemental Ailment]

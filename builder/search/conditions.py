@@ -88,6 +88,88 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
     return float(int(stacks)), basis
 
 
+# Incision (MECH38, 11 Nov 2026; before, nothing set PoB's Incision stack count, so Thousand Cuts' "take 2% increased
+# Physical Damage per Incision", "against Enemies affected by Incision" lines and the Incision support's "Bleeding effect
+# per Incision consumed recently" counted 0). The game files' KeywordPopups: "Each stack of Incision applies 10% chance to
+# be inflicted with Bleeding when Hit. A maximum of 10 Incision stacks ... All Incision stacks are removed when Bleeding is
+# inflicted." Per main-skill hit (a Markov chain over 0-10 stacks): Bleed rolls at the build's own chance (PoB's
+# BleedChancePerHit, which leaves Incision out: PoB adds Incision's chance to the enemy's SelfBleedChance, which nothing
+# reads) plus 10% x (1 + Incision effect) per stack; a Bleed removes them; then the hit's own Incision lands (the
+# support's apply_X_incision_on_hit, "N% chance for Attack Hits to apply Incision" / "ten Incision"). Labelled: the
+# order within a hit (a hit's Incision counts from the next hit, LOW); only the main skill's hits (an undercount); PoB
+# floors a Multiplier, so the stack count is rounded to the nearest whole one; the "affected by Incision" lines are on
+# when the average is 1 or more; Incision's own Bleed chance isn't added to PoB's Bleed numbers (an undercount).
+INCISION_MAX = 10
+INCISION_CHANCE = re.compile(r"^(\d+)% chance for Attack Hits to apply (ten |\d+ )?Incision$", re.I)
+INCISION_EFFECT = re.compile(r"^(\d+)% increased effect of Incision$", re.I)
+INCISION_SUPPORT_STATS = ("apply_X_incision_on_hit",)
+
+
+def incision_state(lines: list[str], stats: dict) -> tuple[float, float, str]:
+    """(average stacks on the boss, Incision consumed per second, how) for the main skill's hits."""
+    hits = models.hits_per_second(stats)
+    attack = "Attack" in (stats.get("_main_types") or set())
+    gains: list[tuple[float, int]] = []  # (chance per hit, stacks)
+    support = int(number(stats.get("_incision_per_hit")))
+    if support > 0:
+        gains.append((1.0, support))
+    effect = 0.0
+    for text in lines:
+        if attack and (m := INCISION_CHANCE.match(text.strip())):
+            n = m.group(2)
+            gains.append((min(int(m.group(1)) / 100, 1.0), 10 if n and n.strip().lower() == "ten" else int(n or 1)))
+        elif m := INCISION_EFFECT.match(text.strip()):
+            effect += int(m.group(1)) / 100
+    if hits <= 0 or not gains:
+        return 0.0, 0.0, ""
+    base = min(number(stats.get("BleedChancePerHit")) / 100, 1.0)
+    per = 0.1 * (1 + effect)
+    # gained per hit: the distribution of the stacks a hit adds (independent rolls)
+    add = {0: 1.0}
+    for chance, n in gains:
+        nxt: dict[int, float] = {}
+        for k, p in add.items():
+            nxt[min(k + n, INCISION_MAX)] = nxt.get(min(k + n, INCISION_MAX), 0.0) + p * chance
+            nxt[k] = nxt.get(k, 0.0) + p * (1 - chance)
+        add = nxt
+    dist = [1.0] + [0.0] * INCISION_MAX  # stacks between hits
+    consumed = 0.0
+    for _ in range(400):
+        nxt, eaten = [0.0] * (INCISION_MAX + 1), 0.0
+        for s, p in enumerate(dist):
+            if p <= 0:
+                continue
+            bleed = min(base + per * s, 1.0)
+            eaten += p * bleed * s
+            for start, w in ((0, bleed), (s, 1 - bleed)):
+                if w > 0:
+                    for k, q in add.items():
+                        nxt[min(start + k, INCISION_MAX)] += p * w * q
+        dist, consumed = nxt, eaten
+    avg = sum(s * p for s, p in enumerate(dist))
+    how = (f"{hits:.2f} hits/s adding {'; '.join(f'{c:.0%} x {n}' for c, n in gains)} Incision, Bleed at "
+           f"{base:.0%} + {per:.0%} per stack removing them: {avg:.2f} stacks on average, {consumed * hits:.2f} consumed/s")
+    return avg, consumed * hits, how
+
+
+def _incision_stacks(lines: list[str], stats: dict) -> tuple:
+    avg, _, how = incision_state(lines, stats)
+    if not how:
+        return 0, ""
+    n = round(avg)
+    return n, f"Incision: {how}; counted as {n} (PoB reads whole stacks)"
+
+
+def _incision_consumed(lines: list[str], stats: dict) -> tuple:
+    if number(stats.get("_incision_per_hit")) <= 0:
+        return 0, ""  # (only the Incision support reads it)
+    _, per_second, how = incision_state(lines, stats)
+    if not how:
+        return 0, ""
+    n = round(per_second * RECENTLY)
+    return n, f"Incision consumed in the past {RECENTLY:g} s: {per_second:.2f}/s x {RECENTLY:g} s = {n} ({how})"
+
+
 # Charges held (the mechanics catalog's first priority, 7 Nov 2026): PoB counts the maximum whenever its "use" box is on.
 # The count a build holds is min(maximum, generation per second x the charge's duration), from the build's own sources:
 # poe2db (https://poe2db.tw/us/Charges): charges last a duration (PoB: 15 s base, ChargeDuration) and come from specific
@@ -889,6 +971,10 @@ CONDITIONS: list[Condition] = [
               fields=(*models.IMMOBILISE_FIELDS, "FreezeDurationMod")),
     Condition("conditionEnemyElectrocuted", "Electrocuted", value_fn=_immobilised("Electrocute", "Electrocuted"),
               fields=models.IMMOBILISE_FIELDS),
+    Condition("multiplierIncisionStackCount", "Incision stacks on the boss", value_fn=_incision_stacks,
+              fields=("Speed", "HitChance", "BleedChancePerHit")),
+    Condition("incisionConsumedRecently", "Incisions consumed recently", value_fn=_incision_consumed,
+              fields=("Speed", "HitChance", "BleedChancePerHit")),
     Condition("conditionEnemyFireExposure", "Fire Exposure", value_fn=_exposure_uptime("Fire"),
               fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
     Condition("conditionEnemyColdExposure", "Cold Exposure", value_fn=_exposure_uptime("Cold"),
@@ -1052,6 +1138,10 @@ class Conditions:
             got = main.get("supportStats") or {}
             if all(got.get(stat) for stat in ARCANE_SURGE_SUPPORT_STATS):
                 stats["_arcane_surge_support"] = (got[ARCANE_SURGE_SUPPORT_STATS[0]], got[ARCANE_SURGE_SUPPORT_STATS[1]] / 1000)
+        if any("incision" in name.lower() or name == "Bleed IV" for name in main_gems):  # (Incision, Bleed IV)
+            raw = self.build.call("activeSkills", supportStats=list(INCISION_SUPPORT_STATS))
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            stats["_incision_per_hit"] = number((main.get("supportStats") or {}).get(INCISION_SUPPORT_STATS[0]))
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             broken, stats["_full_break_rate"] = roar, roar[2] / models.FULL_BREAK_DURATION
