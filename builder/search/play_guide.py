@@ -30,6 +30,8 @@ KINDS: dict[str, tuple[str, str]] = {
     "conditionAtCloseRange": (PLAYER, "fight the boss at close range"),
     "conditionStationary": (PLAYER, "stand still while attacking or casting"),
     "conditionHitMeleeRecently": (PLAYER, "land a melee hit at least every 4 s"),
+    "parryActive": (PLAYER, "Parry the boss's next hit each time Parried runs out and attack while it lasts, or cast "
+                            "Refutation on cooldown (how much you parry is up to you)"),
     "conditionBeenHitRecently": (FIGHT, "the boss lands a hit on you at least every 4 s (your evasion and block allow it)"),
     "conditionBlockedRecently": (FIGHT, "you block one of the boss's hits at least every 4 s"),
 }

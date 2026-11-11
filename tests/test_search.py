@@ -906,6 +906,37 @@ def test_exposure_on_only_when_its_events_keep_it_up():
     assert fire([front], {**stats, "_main_types": {"Spell"}})[2] < 0.9
 
 
+def test_parried_at_the_share_of_hits_the_build_parries():
+    """Parry: 2 s Parried, the boss's next hit (half its 0.7 s on average) and a 0.75 s retaliation: x1.5 x 2/3.1 = 0.97,
+    not worth it; Refutation: 4 s buff + 9 s cooldown, Parried (4 - 0.35 + 2) / 13 of the fight, 0.65 s cast lost
+    (MECH39: before, nothing set the box, so Parried counted 0)."""
+    from builder.search import models
+    from builder.search.conditions import CONDITIONS, _parried
+    from builder.search.play_guide import KINDS, PLAYER
+
+    parry = models.Skill("Parry", attack=True, cast_time=1.0)
+    refutation = models.Skill("Refutation", spell=True, cast_time=0.65, cooldown=9.0)
+    stats = {"enemySkillTime": 0.7, "Ward": 100}
+    plan = models.parry_plan([parry], stats, True)
+    assert plan.box == 0 and plan.lost == 0 and "not worth" in plan.how
+    fast = models.parry_plan([parry], {**stats, "enemySkillTime": 0.3}, True)  # 1.5 x 2 / 2.9 = 1.03
+    assert fast.box == 1.0 and abs(fast.lost - 0.9 / 2.9) < 1e-6
+    both = models.parry_plan([parry, refutation], stats, True)
+    assert abs(both.box - 5.65 / 13) < 1e-6 and abs(both.lost - 0.65 / 13) < 1e-6 and "Refutation" in both.how
+    assert models.parry_plan([refutation], {**stats, "Ward": 0}, True).box == 0
+    assert models.parry_plan([refutation], stats, False).box == 0  # a spell main skill gains nothing
+    assert models.parry_plan([models.Skill("Raise Shield", attack=True)], stats, True).how == ""  # (Bastion: the ledger)
+    # a main skill consuming Parried at 2 hits/s: Refutation's 3.65 s of buff x min(2, 1/0.7) + 1 hits of 26 gain
+    eaten = models.parry_plan([refutation], {**stats, "Speed": 2.0, "HitChance": 100}, True, consumes=True)
+    assert abs(eaten.box - (3.65 / 0.7 + 1) / 26) < 1e-6 and "consumes" in eaten.how
+    on, basis, up = _parried([], {"_parry_plan": both})
+    assert on and abs(up - 5.65 / 13) < 1e-6 and "Refutation" in basis
+    assert _parried([], {}) == (0.0, "")
+    mods, notes = models.parry_model([parry, refutation], stats, models.Skill("Strike", attack=True))
+    assert len(mods) == 1 and abs(mods[0]["scale"] + 100 * 0.65 / 13) < 0.01 and notes
+    assert "parryActive" in {c.var for c in CONDITIONS} and KINDS["parryActive"][0] == PLAYER
+
+
 def test_frozen_and_electrocuted_at_the_share_the_boss_carries_them():
     """KeywordPopups: Freeze 4 s, Electrocution 5 s by default; one per bar refill, x6 threshold for 14 / 15 s after each
     (MECH38: before, nothing set either box, so their damage-taken lines counted 0)."""

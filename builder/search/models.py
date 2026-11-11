@@ -41,6 +41,8 @@ MODEL_FIELDS = sorted({
     # Iron Ward: the boss's physical hits and how much of them the build prevents
     "PhysicalEnemyDamage", "PhysicalDamageReduction", "PhysicalDamageReductionMax", "BasePhysicalDamageReductionWhenHit",
     "Armour", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
+    # Refutation: Runic Ward to spend (parry_plan)
+    "Ward",
     # Spell Totem: how long PoB says a totem lasts, and the charges it can be raised with
     "TotemDuration", "PowerChargesMax", "EnduranceChargesMax",
     # Harmony Within: unreserved Mana against Life
@@ -1985,6 +1987,96 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
                    f"Arbiter of Ash threshold); {d:g} s each, one every {period:.1f} s (x6 threshold for "
                    f"{window:g} s after each, buildup paused while it lasts, LOW): {share:.0%}")
+
+
+# Parried (MECH39, 11 Nov 2026). Game files (GrantedEffectStatSets, ActiveSkills): Parry ("Ready your Buckler to parry the
+# next Hit you would take ... causing them to take massively increased Attack damage for a short duration"):
+# base_parry_buff_damage_taken_+%_final_to_apply 50, base_parry_duration_ms 2000, a 0.75 s retaliation (its attackTime).
+# Refutation (a buff that "causes you to Block all Blockable Hits and apply Parried to enemies from which you've Blocked a
+# Hit", spending all your Runic Ward): base_skill_effect_duration 4000, the same 50, its cooldown not recovering during the
+# buff (display_this_skill_cooldown_does_not_recover_during_buff). PoB applies the 50% more Attack damage taken only with
+# its "Enemy has Parry Debuff" box (parryActive), which nothing set. Raise Shield carries the same stat in the game files
+# but only parries with Bastion of Light, which the ledger counts (bastion-of-light-parried), so it isn't a source here.
+# The boss's hits come every enemySkillTime (PoB's boss preset, 0.7 s); a parry waits half that on average.
+PARRY_SKILLS = ("Parry", "Refutation")
+# Consume Parried on hit (game files: the stats consume_parried_on_hit (Fangs of Frost) and
+# consume_parry_debuff_on_hit_to_gain_X_frenzy_charges (the Frenzied Riposte support), and Disengage's description, are
+# every stat or ActiveSkills description naming it): a main skill with one gains on one hit per Parried
+PARRY_CONSUMERS = frozenset({"Fangs of Frost", "Disengage", "Frenzied Riposte"})
+PARRIED_SECONDS = 2.0  # base_parry_duration_ms; "increased Parried Debuff Duration" lines aren't read (LOW, an undercount)
+PARRIED_MORE = 0.5  # base magnitude; magnitude modifiers are PoB's own
+PARRY_ACTION = 0.75  # Parry's retaliation (attackTime 750 ms); attack speed isn't counted (an undercount of its rate)
+REFUTATION_BUFF = 4.0  # base_skill_effect_duration; duration modifiers aren't read
+
+
+@dataclass(frozen=True)
+class ParryPlan:
+    box: float  # share of the main skill's hits that land on a Parried boss (the box's weight)
+    lost: float  # share of the main skill's time spent parrying
+    how: str
+
+
+def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = False) -> ParryPlan:
+    """How a reasonable player uses the build's Parry / Refutation against the boss, if it pays (only Attack damage gains):
+    Parry: re-parry each time Parried runs out (the next boss hit, then the retaliation), attacking only while it's up, so
+    every main-skill hit lands on a Parried boss and the parrying time is lost; Refutation: cast on its cooldown, the boss
+    Parried from its first blocked hit until 2 s after the buff, attacking throughout (the cast time is lost). The better
+    of the two; neither when it doesn't beat not parrying. A main skill that consumes Parried (`consumes`) gains on one
+    hit per Parried (chance not to consume isn't read: an undercount)."""
+    names = {s.name: s for s in skills if s.name in PARRY_SKILLS}
+    if not names:
+        return ParryPlan(0.0, 0.0, "")
+    if not attack:
+        return ParryPlan(0.0, 0.0, f"{', '.join(names)}: Parried raises only Attack damage taken, and the main skill isn't an "
+                                   "Attack: not used")
+    every = number(stats.get("enemySkillTime")) or 0.7
+    wait = every / 2
+    hps = hits_per_second(stats)
+    eaten = " (the main skill consumes Parried: one hit per Parried gains)" if consumes else ""
+    options = []
+    if "Parry" in names:
+        period = PARRIED_SECONDS + wait + PARRY_ACTION
+        lost = 1 - PARRIED_SECONDS / period
+        box = min(1.0, 1 / (hps * PARRIED_SECONDS)) if consumes and hps > 0 else 1.0
+        options.append(((1 + PARRIED_MORE * box) * (1 - lost), ParryPlan(
+            box, lost, f"Parry each time Parried ({PARRIED_SECONDS:g} s) runs out: the boss's next hit (one every {every:g} s, "
+                       f"{wait:.2f} s on average) and the {PARRY_ACTION:g} s retaliation, so the main skill attacks only "
+                       f"while the boss is Parried and loses {lost:.0%} of its time (the play guide's note; attack speed "
+                       "and Parried duration modifiers aren't counted, LOW)")))
+    if (ref := names.get("Refutation")) is not None:
+        if number(stats.get("Ward")) <= 0:
+            options.append((0.0, ParryPlan(0.0, 0.0, "Refutation spends Runic Ward, and the build has none: not used")))
+        elif number(ref.cooldown) <= 0:
+            options.append((0.0, ParryPlan(0.0, 0.0, "Refutation: PoB gave no cooldown, so its rate isn't known: not counted")))
+        else:
+            cooldown = number(ref.cooldown) / (ref.cooldown_recovery or 1.0)
+            period = cooldown + REFUTATION_BUFF
+            up = min(1.0, (REFUTATION_BUFF - wait + PARRIED_SECONDS) / period)
+            if consumes and hps > 0:  # re-applied by each blocked boss hit in the buff, eaten by the next main-skill hit
+                up = min(up, (min(hps, 1 / every) * max(REFUTATION_BUFF - wait, 0.0) + 1) / (hps * period))
+            cast = ref.cast_time or 0.65
+            lost = min(cast / period, 1.0)
+            options.append(((1 + PARRIED_MORE * up) * (1 - lost), ParryPlan(
+                up, lost, f"Refutation cast on its cooldown ({cooldown:.2f} s, not recovering during its {REFUTATION_BUFF:g} s "
+                          f"buff): the boss Parried from its first blocked hit ({wait:.2f} s in, one every {every:g} s) until "
+                          f"{PARRIED_SECONDS:g} s after the buff, {up:.0%} of the fight; the {cast:.2f} s cast takes {lost:.0%} of "
+                          "the main skill's time (Runic Ward assumed back by each cast, LOW; duration modifiers not read)")))
+    gain, best = max(options, key=lambda o: o[0])
+    if gain <= 1.0:
+        return ParryPlan(0.0, 0.0, "; ".join(p.how for _, p in options) + f": x{gain:.2f} at best, not worth the time: not used")
+    return ParryPlan(best.box, best.lost, best.how + eaten + f" (x{gain:.2f} the main skill's Attack damage, 50% more taken)")
+
+
+def parry_model(skills: list[Skill], stats: dict, main: Skill | None, consumes: bool = False) -> tuple[list[dict], list[dict]]:
+    """The main skill's time spent parrying (parry_plan; the box itself is conditions' parryActive)."""
+    if main is None or not any(s.name in PARRY_SKILLS for s in skills):
+        return [], []
+    plan = parry_plan(skills, stats, main.attack, consumes)
+    notes = [{"label": "Parried (how the build parries the boss)", "value": f"{plan.box:.0%} of the main skill's hits",
+              "basis": plan.how, "confidence": "theory"}] if plan.how else []
+    if plan.lost <= 0:
+        return [], notes
+    return [line("1% more Attack and Cast Speed", -100 * plan.lost, skill=main.name)], notes
 
 
 def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:

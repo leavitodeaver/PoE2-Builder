@@ -916,6 +916,20 @@ def _immobilised(ailment: str, name: str) -> Callable[[list[str], dict], tuple[o
     return share
 
 
+PARRY_GRANT = re.compile(r"Grants Skill:[^.;]*Parry", re.I)  # (a Buckler's implicit)
+
+
+def _parried(lines: list[str], stats: dict) -> tuple[object, str]:
+    """PoB's "Enemy has Parry Debuff" box (50% more Attack damage taken) at the share of the main skill's hits that land on
+    a Parried boss (models.parry_plan; MECH39: before, nothing set it, so Parry and Refutation counted 0)."""
+    plan = stats.get("_parry_plan")
+    if plan is None or not plan.how:
+        return 0.0, ""
+    if plan.box <= 0:
+        return 0.0, plan.how
+    return _box(plan.box, f"Parried for {plan.box:.0%} of the main skill's hits ({shared(plan.box)}): {plan.how}")
+
+
 @dataclass(frozen=True)
 class Condition:
     var: str
@@ -967,6 +981,7 @@ CONDITIONS: list[Condition] = [
               fields=("BleedChancePerHit", "Speed", "HitChance", "BleedDuration")),
     Condition("conditionEnemyChilled", "Chilled", stat=lambda s: number(s.get("ChillChanceOnHit")) >= 100,
               fields=("ChillChanceOnHit",)),
+    Condition("parryActive", "Parried", value_fn=_parried, fields=("enemySkillTime", "Ward")),
     Condition("conditionEnemyFrozen", "Frozen", value_fn=_immobilised("Freeze", "Frozen"),
               fields=(*models.IMMOBILISE_FIELDS, "FreezeDurationMod")),
     Condition("conditionEnemyElectrocuted", "Electrocuted", value_fn=_immobilised("Electrocute", "Electrocuted"),
@@ -1142,6 +1157,11 @@ class Conditions:
             raw = self.build.call("activeSkills", supportStats=list(INCISION_SUPPORT_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
             stats["_incision_per_hit"] = number((main.get("supportStats") or {}).get(INCISION_SUPPORT_STATS[0]))
+        if any(n in gem_types for n in models.PARRY_SKILLS) or any(PARRY_GRANT.search(t) for t in texts):  # (Parried)
+            raw = self.build.call("activeSkills")
+            found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
+            stats["_parry_plan"] = models.parry_plan(
+                found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS))
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             broken, stats["_full_break_rate"] = roar, roar[2] / models.FULL_BREAK_DURATION
