@@ -25,7 +25,7 @@ import re
 
 from builder.ledger import conditions
 from builder.search import models
-from builder.search.conditions import INFUSED_SET, curse_uses
+from builder.search.conditions import INFUSED_SET, curse_uses, natural_distance
 from builder.search.usage import usage_rules
 from builder.search.state import Build
 
@@ -246,7 +246,10 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
         resolve_mods, resolve_notes = models.deadly_resolve_model(found, stats, main)             if "deadly-resolve-rate" not in forbidden else ([], [])
         hand_mods, hand_notes = hand_mods + resolve_mods, hand_notes + resolve_notes
-        mark_mods, mark_notes = models.mark_model(found, stats, main, source_lines)
+        metres = None
+        if any(s.name == models.PREDATORS_MARK for s in found):  # (it counts you within 6 m of the boss)
+            metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(set())
+        mark_mods, mark_notes = models.mark_model(found, stats, main, source_lines, metres)
         hand_mods, hand_notes = hand_mods + mark_mods, hand_notes + mark_notes
         curses = curse_uses(build, stats, [e["text"] for e in source_lines])
         if curses or any(models.CURSED_UNSCALED.search(e["text"]) or p.search(e["text"])

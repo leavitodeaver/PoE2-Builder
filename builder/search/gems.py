@@ -1209,7 +1209,7 @@ class Gems:
         if clock.now() > deadline or self.build.main_group() is None:
             return False
         groups = [g for g in build.groups() if g["enabled"]]
-        if any(g["name"] in models.MARKS for grp in groups for g in grp["gems"]):
+        if any(g["name"] in models.MARKS or g["name"] == "Pounce" for grp in groups for g in grp["gems"]):
             return False
         player_groups = [g for g in build.groups() if not g["fromItem"]]
         stats = build.call("stats", fields=["CritChance", "FreezeBuildupAvg", "ElectrocuteBuildupAvg"])
@@ -1251,6 +1251,15 @@ class Gems:
                 if score is not None and score > before + EPSILON and (best is None or score > best[0]):
                     best = (score, place)
             tried.append(mark)
+        # Pounce with no Mark gem in it triggers its own Predator's Mark (MECH34: models.PREDATORS_MARK prices it)
+        pounce_level = self.usable_level("Pounce")
+        if (len(player_groups) < MAX_GEM_GROUPS and clock.now() <= deadline and pounce_level is not None
+                and self._offered("Pounce", left, usage)):
+            place = {"gems": [{"name": "Pounce", "level": pounce_level, "quality": GEM_QUALITY}]}
+            score = self.trial_mark(place, cap)
+            if score is not None and score > before + EPSILON and (best is None or score > best[0]):
+                best = (score, place)
+            tried.append("Pounce")
         chosen = best[1]["gems"][-1]["name"] if best else None
         for mark in tried:
             if mark != chosen:

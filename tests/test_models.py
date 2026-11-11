@@ -691,6 +691,40 @@ def test_the_skill_you_press_for_a_mark_takes_the_main_skills_time():
     assert {m["line"]: m["scale"] for m in mods}["1% more Attack and Cast Speed"] == pytest.approx(-10.0)  # 0.6 s / 6 s
 
 
+def test_predators_mark_counts_you_and_your_minions_near_the_boss():
+    """MECH34: Pounce alone triggers Predator's Mark, 3% increased damage taken per enemy of the boss within 6 m, up to
+    45% (game files). PoB counts only your minions at their limit, never you, and applies it even when Pounce can't be
+    used. A Mark gem in Pounce replaces it."""
+    spell = models.Skill("Ice Nova", group=1, spell=True, cast_time=0.8)
+    pounce = models.Skill("Pounce", group=2, attack=True, cast_time=1.2, cooldown=5.0)
+    predator = models.Skill("Predator's Mark", group=2, triggered=True)
+    wolf = models.Skill("Summon Wolf", group=2, triggered=True, minion={"limit": 0})
+    stats = {"Speed": 1.0, "HitChance": 100}
+
+    def lines(found, metres):
+        mods, notes = models.mark_model(found, stats, spell, [], metres)
+        out: dict[str, float] = {}
+        for m in mods:
+            out[m["line"]] = out.get(m["line"], 0) + m["scale"]
+        return out, notes
+
+    by_line, notes = lines([spell, pounce, predator, wolf], 2.0)  # you within 6 m, no minions: 3%
+    assert by_line["1% more Effect of your Curses"] == -100  # PoB's own value (0 here) out
+    assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(3.0)
+    assert by_line["1% more Attack and Cast Speed"] == pytest.approx(-100 * 1.2 / 8)  # recast as it runs out
+    assert notes[0]["value"] == 3.0 and "PoB 0%" in notes[0]["basis"]
+    by_line, _ = lines([spell, pounce, predator, wolf], 8.0)  # beyond 6 m: nothing
+    assert "Enemies you Mark take 1% increased Damage" not in by_line
+    zombies = models.Skill("Raise Zombie", group=3, spell=True, minion={"limit": 20})
+    by_line, _ = lines([spell, pounce, predator, zombies], 2.0)  # capped at 45%
+    assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(45.0)
+    by_line, notes = lines([spell, predator, zombies], 2.0)  # Pounce disabled (wrong weapon): PoB's 45% taken out
+    assert by_line == {"1% more Effect of your Curses": -100} and notes[0]["value"] == 0
+    freezing = models.Skill("Freezing Mark", group=2, cast_time=0.5, cooldown=0.5, triggered=True)
+    _, notes = lines([spell, pounce, predator, freezing], 2.0)
+    assert notes[0]["label"].startswith("Freezing Mark")
+
+
 def test_a_mirage_uses_its_attack_for_the_share_of_time_it_is_up():
     """Slice 7: one Mirage per 10 s (the spawn skills' cooldown, shared by both: game files), lasting 5000 / 4000 ms + 50
     per gem level and per quality %. PoB counts the socketed Attack as always on: scaled to the share. Mirage Archer needs

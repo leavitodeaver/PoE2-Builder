@@ -660,6 +660,19 @@ def hollow_model(skills: list[Skill], stats: dict, texts: list[str], main: Skill
 # - Bloodhound's Mark: consumed on Heavy Stun to trigger Blood Explosion; PoB adds nothing to the main skill's damage.
 MARK_DURATION = 8.0
 MARK_BUFF_DURATION = 10.0
+# Predator's Mark (MECH34): Pounce triggers it on the highest-Rarity enemy hit when no Mark gem is socketed in Pounce
+# (ActiveSkills wolf_pounce). Game files (build 26476662, GrantedEffectStatSets WolfPounceMarkPlayer): 8 s, "Marked
+# target takes 3% increased damage for each of its enemies within 6 metres of it, up to 45%"
+# (skill_wolf_mark_damage_taken_+%_per_nearby_enemy 3, _cap 45). It's consumed when the target dies (triggering Summon
+# Wolf: none on a lone boss; PoB gives Summon Wolf a limit of 0) or when Cross Slash hits it with both gouges (ActiveSkills
+# wolf_cross_slash). Pounce has a weapon requirement (WeaponRequirements; PoB: Talisman). PoB (act_str.lua
+# WolfPounceMarkPlayer): DamageTaken INC 3% per MinionPresenceCount (your minions at their limit), capped at 45, always
+# on; it never counts you, and it applies the Mark even when PoB disables Pounce for the wrong weapon. With a Mark gem in
+# Pounce, PoB applies that Mark instead (probe POE2T435), as the game does.
+PREDATORS_MARK = "Predator's Mark"
+PREDATOR_PER_ENEMY = 3.0
+PREDATOR_CAP = 45.0
+PREDATOR_RADIUS = 6.0
 # Ferocious Roar (slice 7; model: roar_model, conditions.Conditions.roar_evidence) ----------------------------------------
 # Game files (build 26476662, FerociousRoarMetaPlayer): 1.1 s cast, 8 s cooldown; gains 200 centirage per enemy Power
 # (bear_warcry_gain_X_centirage_per_enemy_power, quality +5 per %); Empowers attacks, one per 8 Power (cap 64), to Break
@@ -922,19 +935,51 @@ MARKED_LINES = (
 
 
 def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
-               lines: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+               lines: list[dict] | None = None, metres: float | None = None) -> tuple[list[dict], list[dict]]:
     """Each Mark's effect scaled from PoB's always-up to what consumption on a boss leaves, the build's "Enemies you Mark
     take ..." and "against Marked Enemies" lines scaled to the share of the fight the boss carries the Mark (MARKED_LINES),
-    and the time the skill you press for it (the Mark, Pounce, Hand of Chayula) takes from the main skill."""
+    and the time the skill you press for it (the Mark, Pounce, Hand of Chayula) takes from the main skill. `metres` is the
+    boss's distance (Predator's Mark counts you within 6 m)."""
     mods: list[dict] = []
     notes: list[dict] = []
     marks = [s for s in skills if s.name in MARKS and s is not main]
+    marked_groups = {s.group for s in marks}  # (a Mark gem in Pounce replaces Predator's Mark)
+    marks += [s for s in skills if s.name == PREDATORS_MARK and s.group not in marked_groups]
     for mark in marks[:1]:  # one Mark on an enemy at a time (number_of_marks_allowed_per_type 1, EnemyMarkLimit 1)
-        use = mark_use(mark, skills)
+        if mark.name == PREDATORS_MARK:
+            pounce = next((s for s in skills if s.group == mark.group and s.name == "Pounce"), None)
+            use = MarkUse(math.inf, "Pounce can't be used (PoB disables it: wrong weapon)")
+            if pounce is not None:
+                every = (pounce.cooldown or 0.0) / (pounce.cooldown_recovery or 1.0)
+                use = MarkUse(max(every, MARK_DURATION), "triggered by Pounce, used as the Mark runs out (assumed)", pounce)
+        else:
+            use = mark_use(mark, skills)
         period, how = use.period, use.how
         # the time a Mark stays on the boss after each application: until consumed, at most its duration
         held, consumed_by = MARK_DURATION, "Bloodhound's Mark's consumption on a Heavy Stun isn't rated (held its full duration)"
-        if mark.name == "Sniper's Mark":
+        if mark.name == PREDATORS_MARK:
+            held, consumed_by = MARK_DURATION, "not consumed on a boss (only its death or Cross Slash consume it)"
+            if main is not None and main.name == "Cross Slash" and hits_per_second(stats):
+                held = min(1 / hits_per_second(stats), MARK_DURATION)
+                period = max(period - MARK_DURATION + held, held)  # (Pounce recast once consumed, cooldown allowing)
+                consumed_by = "each Cross Slash that lands both gouges consumes it (assumed: every hit)"
+            marked = min(1.0, held / period) if period and period != math.inf else 0.0
+            minions = sum(number((s.minion or {}).get("limit")) for s in skills)
+            near = 1 if metres is not None and metres <= PREDATOR_RADIUS else 0
+            pob = min(PREDATOR_CAP, PREDATOR_PER_ENEMY * minions)
+            game = min(PREDATOR_CAP, PREDATOR_PER_ENEMY * (minions + near)) * marked
+            # PoB's own value (minions only, always on) taken out; the game's added as an enemy damage-taken line
+            mods.append(line("1% more Effect of your Curses", -100, skill=mark.name))
+            if game:
+                mods.append(line("Enemies you Mark take 1% increased Damage", game))
+            share, label = 1.0, "Predator's Mark: increased damage taken (%)"
+            basis = (f"{game:.0f}% increased damage taken (PoB {pob:.0f}%): 3% per enemy of the boss within 6 m, up to 45% "
+                     f"(game files): you ({'counted' if near else 'not counted'}: the boss assumed "
+                     f"{'at ' + format(metres, 'g') + ' m' if metres is not None else 'at an unknown distance'}) and "
+                     f"{minions:g} minions (PoB's count of your minions at their limit, assumed all within 6 m of the "
+                     f"boss; PoB never counts you); marked {marked:.0%} of the fight ({how}; held {held:.1f} s, "
+                     f"{consumed_by})")
+        elif mark.name == "Sniper's Mark":
             crits = crits_per_second(stats)
             if use.on_demand:
                 period = max(period, min(1 / crits, MARK_DURATION) if crits else 0.0)  # (recast once consumed)
@@ -971,7 +1016,8 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
             lost = min(1.0, took / period)
             mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
             basis += f"; using {use.pressed.name} ({took:.2f} s every {period:.1f} s) takes {lost:.0%} of {main.name}'s time"
-        notes.append({"label": label, "value": round(share, 2), "basis": basis, "confidence": "theory"})
+        value = round(game, 1) if mark.name == PREDATORS_MARK else round(share, 2)
+        notes.append({"label": label, "value": value, "basis": basis, "confidence": "theory"})
         marked = min(1.0, held / period) if period else 1.0
         found = []
         for pattern, text in MARKED_LINES:
