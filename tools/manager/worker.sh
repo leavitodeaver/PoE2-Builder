@@ -36,7 +36,8 @@ if [ -z "$TEXT" ] || { [ "$ACCOUNT" != "2" ] && [ "$ACCOUNT" != "3" ]; } || { [ 
 fi
 ROOT1="$LOCALAPPDATA/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/claude-code"
 ROOT2="$APPDATA/Claude/claude-code"
-EXE=$(ls -t "$ROOT1"/*/*/claude.exe "$ROOT2"/*/*/claude.exe 2>/dev/null | head -1)
+ROOT3="$LOCALAPPDATA/Claude-Data/claude_pzs8sxrjxfjjc/claude-code"   # (where the app keeps it since ~10 Nov 2026)
+EXE=$(ls -t "$ROOT1"/*/*/claude.exe "$ROOT2"/*/*/claude.exe "$ROOT3"/*/*/claude.exe 2>/dev/null | head -1)
 pin_self   # the user's two threads: this script, the worker and everything it starts stay on 2 and up, at Below Normal
 [ -n "$EXE" ] || { echo "Claude Code not found"; return 3; }
 W="C:/PROJECTS/PoE2 Builder/scratch/manager/workers"
@@ -111,7 +112,13 @@ run_turn() {   # $1: new or more, $2: the text
 		[ -s "$W/$JOB.id" ] || { echo "no session id for $JOB"; return 4; }
 		args+=(--resume "$(cat "$W/$JOB.id")")
 	fi
-	(cd "/c/PROJECTS/PoE2 Builder" && MSYS_NO_PATHCONV=1 env $CLEAR CLAUDE_CONFIG_DIR="C:\\Users\\conve\\.claude-account$ACCOUNT" \
+	# The folder the worker runs in (10 Nov: a second worker gets its own git worktree). Set POE2_WORKER_DIR on "new";
+	# it's kept in <JOB>.dir so every "more" (the Workers page's too) resumes the session in the same folder.
+	if [ "$1" = "new" ]; then
+		if [ -n "$POE2_WORKER_DIR" ]; then echo "$POE2_WORKER_DIR" > "$W/$JOB.dir"; else rm -f "$W/$JOB.dir"; fi
+	fi
+	local dir; dir=$(cat "$W/$JOB.dir" 2>/dev/null); [ -n "$dir" ] || dir="/c/PROJECTS/PoE2 Builder"
+	(cd "$dir" && MSYS_NO_PATHCONV=1 env $CLEAR CLAUDE_CONFIG_DIR="C:\\Users\\conve\\.claude-account$ACCOUNT" \
 		"$EXE" "${args[@]}" < /dev/null > "$W/$JOB.last.json" 2>&1)   # (no stdin: else it waits 3 s and prints a warning before the JSON)
 	local code=$?
 	cp -f "$W/$JOB.last.json" "$W/$JOB.turn_$(count turn_started).json" 2>/dev/null
