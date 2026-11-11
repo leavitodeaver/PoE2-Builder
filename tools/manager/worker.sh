@@ -60,6 +60,8 @@ NEVER buy usage credits, turn on extra usage or touch any billing or plan settin
 
 Nothing may pop up or take focus on the user's screen: no windows, no browsers; headless or hidden only. You never question the user directly: questions go in your hand-back, and the manager asks them.
 
+MANDATORY (the user, 11 Nov 2026): read CLAUDE.md in your folder and follow its rule on \"only / never / none\" claims. Every claim that something is the only X, that no Y exists, that X never or always happens, that X can't apply to players, or that X is monster-only, deprecated or unused, needs an exhaustive search of the mechanic by meaning (its definition, every stat and every source, not one stat id) plus a second source, written next to it as \"(checked: ...)\", or else \"(UNVERIFIED)\". Never zero, drop or exclude a mechanic on an unverified claim.
+
 The user may write to you directly from their Workers page: such a message starts \"THE USER wrote to you directly\". Answer it in plain English; the rule that you never question the user still holds (questions go in your hand-back)."
 	local n=$(( $(count turn_started) + 1 )); echo $n > "$W/$JOB.turn_started"
 	run_turn new "$TEXT"
