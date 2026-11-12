@@ -107,7 +107,7 @@
 - id: uniques-no-effect-item-labels-and-loot
   title: Item labels and loot lines on uniques (Selected Alt Variant, Version, Mirrored, Can be modified while Corrupted, Experience gain, Gold dropped)
   kind: pob_gap
-  match: '^(Selected Alt Variant( Two| Three)?: .+|Version: .+|Mirrored|Can be modified while Corrupted|(\(\d+-\d+\)|\d+)% (increased|reduced) (Experience gain|Quantity of Gold Dropped by Slain Enemies))$'
+  match: '^(Selected Alt Variant( Two| Three)?: .+|Version: .+|Mirrored|Can be modified while Corrupted|(\(-?\d+-\d+\)|-?\d+)% (increased|reduced) (Experience gain|Quantity of Gold Dropped by Slain Enemies))$'
   replace: []
   confidence: datamined
   notes: >-
