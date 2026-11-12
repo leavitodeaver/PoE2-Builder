@@ -276,18 +276,21 @@
   title: The Black Cat, Lightning damage of enemies hitting you is Unlucky during the charm's effect
   kind: pob_gap
   match: '^Lightning Damage of Enemies Hitting you is Unlucky during effect$'
-  replace: ['4% less Lightning Damage taken when Hit', '3% less Lightning Damage taken when Hit']
+  replace: ['7% less Lightning Damage taken when Hit']
   confidence: reported
   notes: >-
     The Black Cat (Grounding Charm, 'Used when you become Shocked'). PoB parses nothing of the line (ModCache: nil).
-    Written as unlucky-enemy-lightning (6.67% less from Lightning Hits, as 4% and 3%) WITHOUT 'during effect' on
+    6.67% less from Lightning Hits (unlucky-enemy-lightning), written as ONE line of 7% (x0.93, 0.33 points high, a
+    small overcount of defences): PoB merges a charm's mods as buffs (CalcPerform mergeBuff, 42-64), keeping only the
+    larger of two mods with the same name and type, so the other entries' 4% + 3% pair would read as 3% here
+    (engine-checked, COV10 suite POE2T2409); PoB reads whole percents only. WITHOUT 'during effect' on
     purpose: PoB's 'during effect' tag is Condition UsingFlask (ModParser 1876), which only an active Life or Mana
     flask sets (CalcPerform 1726; charms set UsingCharm / Using<base> only, 1845-1846), so with it the line would
     count only while a flask is also up. A charm's own lines join the build only while the charm is in an active
     slot (CalcPerform mergeCharms over env.charms; CalcSetup 1438-1441), so the line follows the charm's modelled
     uptime (flasks.py, gear.FLASK_ON .. FLASK_WHOLE) and a switched-off charm adds nothing (engine-checked, COV10).
     PoB scales a charm's lines by increased Charm effect (calcCharmMods, ScaleAddList, truncated to whole
-    percents): Unlucky is not a magnitude, so from +25% Charm effect the 4% reads 5% (x0.9215 instead of x0.9312):
+    percents): Unlucky is not a magnitude, so from +15% Charm effect the 7% reads 8% (x0.92 instead of x0.9333):
     a small overcount of defences for those builds only (UNVERIFIED that charm effect does nothing to Unlucky in
     game; it has no number to scale).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Uniques/flask.lua (The Black Cat)",

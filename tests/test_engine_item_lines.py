@@ -41,11 +41,10 @@ def test_the_black_cats_unlucky_line_follows_the_charm_not_a_flask_and_cuts_hits
     ctx = Context(make_payload(BuildRequest(main_skill="Spark")))
     cat = next(u for u in ctx.data.uniques if u["name"] == "The Black Cat")
     corrected = ctx.corrected_raw(cat["name"], cat["raw"]).split("\n")
-    assert "4% less Lightning Damage taken when Hit" in corrected
-    assert "3% less Lightning Damage taken when Hit" in corrected  # (the ignored line itself stays: PoB parses none of it)
+    assert "7% less Lightning Damage taken when Hit" in corrected  # one line: a charm keeps the larger of equal mods
     assert any(r["parsed"][0]["tags"] == [] and r["parsed"][0]["name"] == "LightningDamageTakenWhenHit"
-               and r["parsed"][0]["value"] == -4
-               for r in engine.call("parseLines", lines=["4% less Lightning Damage taken when Hit"])["results"])
+               and r["parsed"][0]["value"] == -7
+               for r in engine.call("parseLines", lines=["7% less Lightning Damage taken when Hit"])["results"])
 
     corrected = [line for line in corrected if "Unlucky" not in line]
     engine.call("newBuild")
@@ -53,7 +52,7 @@ def test_the_black_cats_unlucky_line_follows_the_charm_not_a_flask_and_cuts_hits
     engine.call("equip", slot="Flask 1", raw=None, active=False, fields=[])
     bare = engine.call("equip", slot="Charm 1", raw=None, active=False, fields=[HIT, DOT])["stats"]
     on = engine.call("equip", slot="Charm 1", raw="\n".join(corrected), active=True, fields=[HIT, DOT])["stats"]
-    assert on[HIT] == pytest.approx(bare[HIT] * 0.96 * 0.97, rel=1e-3)  # no flask up: still counted
+    assert on[HIT] == pytest.approx(bare[HIT] * 0.93, rel=1e-3)  # no flask up: still counted
     assert on[DOT] == pytest.approx(bare[DOT])  # Unlucky changes Hits only
     off = engine.call("equip", slot="Charm 1", raw="\n".join(corrected), active=False, fields=[HIT])["stats"]
     assert off[HIT] == pytest.approx(bare[HIT])  # a charm switched off adds nothing
