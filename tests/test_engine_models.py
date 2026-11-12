@@ -401,7 +401,14 @@ def test_the_spirit_step_puts_a_curse_in_blasphemy(engine):
     removes the whole group, never leaving the Curse as a button."""
     from builder.search.gems import BLASPHEMY_LABEL
 
-    payload = make_payload(BuildRequest(main_skill="Ice Nova", ascendancies=["Stormweaver"]))
+    from builder.request.schema import Choices
+
+    # (SEARCH6: fresh builds now face the boss preset, not PoB's 50% placeholder resistances. Elemental Conflux and
+    # Archmage then outscore Blasphemy + Elemental Weakness for the same 100 Spirit, against the Arbiter of Ash's -15%
+    # Cold and Olroth's 45% alike (POE2T753-755), as the search should find; the test bans both to keep checking the
+    # Blasphemy step)
+    payload = make_payload(BuildRequest(main_skill="Ice Nova", ascendancies=["Stormweaver"],
+                                        forbid=Choices(skills=["Elemental Conflux", "Archmage"])))
     skeleton = enumerate_skeletons(Context(payload), ["Ice Nova"])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
     search.setup()
