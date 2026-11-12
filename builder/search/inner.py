@@ -31,7 +31,7 @@ from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, 
 from builder.search.gear import Gear, SlotSpec, extra_ring_passive
 from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
-from builder.search import play_guide
+from builder.search import flasks, play_guide
 from builder.search.models import GLORY_SKILLS, MARK_CARRIERS, MODEL_FIELDS
 from builder.search.objective import (
     CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, number, shortfall,
@@ -614,9 +614,36 @@ class Search:
                     "basis": f"{on:,.0f} DPS with it, {on * ratio:,.0f} without; the effects are weighed as independent "
                              f"of each other" + (f". Defences: {defence}" if defence else ""),
                     "confidence": "theory"}
+            factor *= self.weigh_shared_flags(effects, on_stats, on)
             objective.uptime_factor = factor
             objective.floor_deltas = self.floor_without({var: up for var, (up, _) in effects.items()}, on_stats)
         self.build.score = objective.score(self.build.stats)
+
+    def weigh_shared_flags(self, effects: dict[str, tuple[float, dict]], on_stats: dict, on: float) -> float:
+        """PoB sets UsingFlask while any flask slot is active and UsingCharm while any charm slot is (MECHC10), so with
+        two part-time flasks (or charms) each one-off case above keeps the flag up, and the lines on it ("during any
+        Flask Effect", "while you have an active Charm") counted whole. One more recalculation per such group, with the
+        whole group off, puts the all-off case back (flasks.shared_flag_factor, which labels the slots as independent):
+        the multiplier on weigh_uptimes' product, each slot's play note naming it."""
+        if on <= 0:
+            return 1.0
+        slots = {var[len(FLASK_VAR):].split(":", 1)[0]: var for var in effects if var.startswith(FLASK_VAR)}
+        factor = 1.0
+        for flag, group in flasks.shared_flag_groups(slots).items():
+            names = [slots[slot] for slot in group]
+            if any(var not in self.uptime_cache for var in names):
+                continue
+            deltas = _all_off(self, {var: effects[var][1] for var in names}, on_stats)
+            off = {**on_stats, **{k: number(on_stats.get(k)) + d for k, d in deltas.items()}}
+            none_ratio = max(self.build.objective.dps(off), 0.0) / on
+            share, note = flasks.shared_flag_factor([effects[var][0] for var in names],
+                                                    [self.uptime_cache[var][0] for var in names], none_ratio)
+            factor *= share
+            for var in names:
+                row = self.play_notes.get(f"uptime:{var}")
+                if row is not None and note:
+                    row["basis"] += f". {flag}, shared with {len(names) - 1} other slot(s): {note}, x{share:.3f} on "                                     f"their product"
+        return factor
 
     def floor_without(self, live: dict, on_stats: dict | None) -> list[dict]:
         """The stats that change with every part-time effect off at once (the floors count an effect only at full uptime,
