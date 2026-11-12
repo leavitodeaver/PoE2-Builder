@@ -1,0 +1,43 @@
+# Support-gem stats PoB never reads, translated into modifier lines on the skill the support is on (COVE2, 12 Nov 2026).
+# Kind `gem_stat` with `support: true`: `skill` names the supports, `support_stats` the stat ids the bridge sums on each
+# active skill's own supports (bridge activeSkills supportStats), and models.gem_stat_model tags the lines to that active
+# skill (PoB's SkillName tag). Values are the game files' (GrantedEffectStatSets, build 26476662).
+
+- id: support-tectonic-slams-attack-speed
+  title: Tectonic Slams, 15% less Attack Speed on the supported Slam
+  kind: gem_stat
+  support: true
+  skill: Tectonic Slams
+  support_stats: ['support_dual_cascade_aftershocks_attack_speed_+%_final']
+  match: '^support_dual_cascade_aftershocks_attack_speed_\+%_final$'
+  replace: ['1% more Attack Speed']
+  confidence: datamined
+  notes: >-
+    "Supported Skills have 15% less Attack Speed" (gem_stat_descriptions; constant -15 on SupportSlamAftershocksPlayer).
+    PoB's skill data maps none of the support's four stats, so a Slam with it was rated 15% too fast (an overcount).
+    The support's Aftershock damage (-45%) and area (-30%) act only on its extra Aftershocks, which neither PoB nor the
+    tool counts yet (checked: grep -i aftershock in PoB Modules/Calc*.lua, builder/search/*.py, engine/bridge.lua, 12 Nov
+    2026: none), so they stay open for MECH-B.
+  sources: ["SupportSlamAftershocksPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tectonic_Slams"]
+  test_in_game: "Compare a Slam's attack time on the gem tooltip with and without Tectonic Slams: 1/0.85 = 1.18x as long."
+  status: proposed
+
+- id: support-combo-finisher-damage
+  title: Combo Finisher I/II, more Damage on the supported Melee Attack
+  kind: gem_stat
+  support: true
+  skill: [Combo Finisher I, Combo Finisher II]
+  support_stats: ['support_combo_finisher_damage_+%_final']
+  match: '^support_combo_finisher_damage_\+%_final$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  notes: >-
+    "Supported Skills deal 25% more Damage" (Combo Finisher I; 40% on II, constants on SupportComboFinisherPlayer /
+    PlayerTwo). Every use of the supported skill is a finisher (it "cannot be used until enough Combo has been built up,
+    but deal more damage"), so the more Damage is on every hit. How often it can be used (3 Combo per use, built by other
+    skills) is usage.py's: it bars the support today ("a usage condition PoB doesn't model"), so the search never picks
+    it; a build given to the tool with it gets the damage, at PoB's use rate.
+  sources: ["SupportComboFinisherPlayer, SupportComboFinisherPlayerTwo, GrantedEffectStatSets (build 26476662)",
+            "https://poe2db.tw/us/Combo_Finisher_I"]
+  test_in_game: "Hit a dummy with the finisher and without the support: 1.25x (I) or 1.40x (II)."
+  status: proposed

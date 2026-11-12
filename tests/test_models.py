@@ -397,6 +397,34 @@ def test_gem_stats_pob_never_reads_become_scaled_lines():
     assert "Mana Tempest" in models.gem_stat_skills()
 
 
+def test_a_support_stat_reaches_the_skill_the_support_is_on_and_only_it():
+    stat = "support_dual_cascade_aftershocks_attack_speed_+%_final"
+    slam = models.Skill("Earthquake", group=1, attack=True, melee=True, support_stats={stat: -15})
+    other = models.Skill("Boneshatter", group=2, attack=True, melee=True)  # no Tectonic Slams in its group
+    mods, notes = models.gem_stat_model([other, slam])
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [("1% more Attack Speed", -15, "Earthquake")]
+    assert len(notes) == 1 and "Tectonic Slams" in notes[0]["basis"] and "on Earthquake" in notes[0]["basis"]
+    # a second copy of the skill (another group, same name: PoB's SkillName tag is shared) is counted once
+    assert len(models.gem_stat_model([slam, models.Skill("Earthquake", group=3, support_stats={stat: -15})])[0]) == 1
+    # nothing without the support, nothing when the entry is forbidden
+    assert models.gem_stat_model([other]) == ([], [])
+    assert models.gem_stat_model([slam], {"support-tectonic-slams-attack-speed"}) == ([], [])
+    # the bridge is asked for the support's stat, and a support's name isn't asked for as an active skill's level stats
+    assert stat in models.gem_stat_support_stats() and "Tectonic Slams" not in models.gem_stat_skills()
+    # an active skill's own level stat of that id isn't a support's (only supportStats count for support entries)
+    assert models.gem_stat_model([models.Skill("Earthquake", level_stats={stat: -15})]) == ([], [])
+    assert models.Skill.of({"name": "Earthquake", "supportStats": {stat: -15}}).support_stats == {stat: -15}
+
+
+def test_support_entries_list_every_stat_their_match_takes():
+    from builder.ledger import gem_stat_entries
+
+    for entry in gem_stat_entries():
+        if entry.raw.get("support") and entry.replace:
+            ids = entry.raw.get("support_stats") or []
+            assert ids and all(entry.pattern.search(stat) for stat in ids), entry.id
+
+
 def test_lunar_blessing_uptime_from_rage_and_cooldown():
     skill = models.Skill("Lunar Blessing", cooldown=22.0, cooldown_recovery=1.0,
                          level_stats={"base_skill_effect_duration": 5000, "skill_lunar_blessing_extend_buff_by_X_ms_per_rage": 200})

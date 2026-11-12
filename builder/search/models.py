@@ -220,6 +220,7 @@ class Skill:
     level: int | None = None  # gem level of a meta skill that gains Energy (gem_energy)
     minion: dict | None = None  # a triggered skill summoning Temporary minions: their duration, casts, limit (minion_count)
     summon: dict | None = None  # any minion skill's minions: limit, duration (0: until killed), persistent (minion_deaths)
+    support_stats: dict[str, float] = field(default_factory=dict)  # named stats of its supports, summed (gem_stat_model)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -227,7 +228,8 @@ class Skill:
                    bool(raw.get("melee")), bool(raw.get("triggered")), bool(raw.get("energy")),
                    number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0,
                    dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
-                   bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"))
+                   bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"),
+                   dict(raw.get("supportStats") or {}))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -1772,12 +1774,24 @@ def iron_ward_model(skills: list[Skill], stats: dict, enabled: bool = True) -> t
 # `factor` (an uptime or count assumption). `applies_to: skill` tags them to the skill itself;
 # `build` gives them to the whole build while the skill is in use (a buff such as Mana Tempest).
 # `if:Name <line>` counts a line only while ledger condition Name is on.
+# A support's stat (an entry with `support: true`, its `skill` naming the supports, `support_stats` listing the stat ids
+# the bridge must sum): read from each active skill's supports (bridge activeSkills supportStats: the named stats of the
+# supports in that skill's own effect list) and tagged to that skill, so it reaches the skill the support is on and no
+# other (two active skills with one name share PoB's SkillName tag: counted once, from the first that has the support).
 
 def gem_stat_skills() -> list[str]:
     """Skills whose level stats the bridge must read for gem_stat entries."""
     from builder.ledger import gem_stat_entries
 
-    return sorted({name for e in gem_stat_entries() for name in _skill_names(e)})
+    return sorted({name for e in gem_stat_entries() if not e.raw.get("support") for name in _skill_names(e)})
+
+
+def gem_stat_support_stats() -> list[str]:
+    """Support stats the bridge must sum on each active skill for `support: true` gem_stat entries."""
+    from builder.ledger import gem_stat_entries
+
+    return sorted({stat for e in gem_stat_entries() if e.raw.get("support") and e.replace
+                   for stat in e.raw.get("support_stats") or ()})
 
 
 def _skill_names(entry) -> list[str]:
@@ -1796,12 +1810,16 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
         names = _skill_names(entry)
         factor = float(entry.raw.get("factor", 1.0))
         own = entry.raw.get("applies_to", "skill") == "skill"
+        support = bool(entry.raw.get("support"))
+        done: set[str] = set()
         for skill in skills:
-            if skill.name not in names:
+            if (skill.name in done) if support else (skill.name not in names):
                 continue
             name = skill.name
-            values = {stat: number(v) for stat, v in skill.level_stats.items()
+            values = {stat: number(v) for stat, v in (skill.support_stats if support else skill.level_stats).items()
                       if entry.pattern is not None and entry.pattern.search(stat) and number(v)}
+            if support and not values:  # (none of the entry's supports is on this skill)
+                continue
             play, uptime = "", None
             if entry.raw.get("uptime") in UPTIMES:  # derived from the mechanic and the build's own numbers
                 factor, why, play = UPTIMES[entry.raw["uptime"]](skill, stats or {})
@@ -1834,11 +1852,15 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 notes.append({
                     "label": entry.title,
                     "value": f"{value * factor:g}" + (f" ({value:g} × {factor:g})" if factor != 1 else ""),
-                    "basis": f"PoB never reads the gem stat {stat} ({value:g} at this level); counted as "
+                    "basis": (f"PoB never reads the support stat {stat} ({value:g}) of {' / '.join(names)} on {name}; counted as "
+                              if support else f"PoB never reads the gem stat {stat} ({value:g} at this level); counted as ")
                              + "; ".join(t.replace("1%", f"{value * factor:g}%") for t in entry.replace)
                              + ("" if own else " for the whole build") + why + (f". {entry.notes.strip()}" if entry.notes else ""),
                     "confidence": entry.confidence, "entry": entry.id, **({"play": play} if play else {})})
-            names = [n for n in names if n != name]  # one copy of each skill (a buff applies once)
+            if support:
+                done.add(name)
+            else:
+                names = [n for n in names if n != name]  # one copy of each skill (a buff applies once)
     return mods, notes
 
 
