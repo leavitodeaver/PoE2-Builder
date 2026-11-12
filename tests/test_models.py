@@ -291,9 +291,12 @@ def test_the_other_metas_gain_energy_from_their_own_events():
     assert len(speed) == 1 and speed[0]["scale"] == pytest.approx(-37.5) and "Time spent dodge rolling" in notes[-1]["label"]
     mods, _, _ = models.energy_model(Inputs(), stats, [slam, Skill("Cast on Block", group=2, energy=True), comet], slam)
     assert not [m for m in mods if m.get("line") == "1% more Attack and Cast Speed"]  # other builds aren't charged
-    # Energy on kills: none on a boss, and the guide says why
+    # Energy on kills (MECHB9): none against a lone boss, and the guide says why; the boss preset's adds give some
     mods, notes, _ = models.energy_model(Inputs(), stats, [slam, Skill("Reaper's Invocation", group=2, energy=True), comet], slam)
-    assert "none on a single boss" in notes[0]["basis"]
+    assert "no enemy dies before the boss" in str(notes)
+    adds = {**stats, models.ADD_KILLS_STAT: 0.04}  # (one add per 25 s)
+    assert models.energy_gain("Reaper's Invocation", adds, "Boneshatter", slam)[0] == pytest.approx(0.04 * 30)
+    assert models.energy_gain("Reaper's Invocation", adds, "Spark", Skill("Spark", spell=True))[0] == 0.0
 
 
 def test_deprecated_metas_trigger_nothing_and_say_why():
@@ -385,7 +388,7 @@ PINNACLE = {"enemySkillTime": 0.7, "PhysicalEnemyDamage": 979.475, "PhysicalDama
 
 def test_iron_ward_store_fills_at_the_boss_hit_rate_after_mitigation():
     store = models.iron_ward_store(WARD, PINNACLE)
-    fill = 4.8 * 979.475 * 0.5 / 0.7  # 480% of half of each 979 hit, a hit every 0.7 s
+    fill = 4.8 * 979.475 * 0.5 / 0.7 * 7 / 24  # 480% of half of each 979 hit, a hit every 0.7 s, 7 of the Arbiter's 24 Physical
     assert store.fill == pytest.approx(fill)
     assert store.uses == pytest.approx(fill / 22886) and not store.use_capped  # released whenever full
     dodgy = models.iron_ward_store(WARD, {**PINNACLE, "EvadeChance": 50, "EffectiveBlockChance": 20})
@@ -934,16 +937,17 @@ def test_barrier_invocation_gains_energy_from_the_energy_shield_the_boss_takes()
              "PhysicalTakenHit": 600, "FireTakenHit": 400, "EnergyShieldRegenRecovery": 1500}
     gain, basis = models.energy_gain("Barrier Invocation", stats, "Spark", Skill("Spark", spell=True))
     land = boss_hits.land_share(stats)  # (MECHB6: the Arbiter's red-flash hits can't be blocked)
-    assert gain == pytest.approx(2 * land * 1000 * 0.1) and "1 Energy per 10 lost" in basis  # 1,000 ES each
+    hit = 600 * 7 / 24 + 400 * 17 / 24  # (MECHB9: each type at its share of the Arbiter's hits, boss_hits.type_taken)
+    assert gain == pytest.approx(2 * land * hit * 0.1) and "1 Energy per 10 lost" in basis
     assert models.energy_gain("Barrier Invocation", {**stats, "EnergyShield": 0}, "Spark")[0] == 0.0
     # Only what comes back between hits can be lost again: 300/s regenerated, a hit every second, recharge never starts
     # (2 s delay) -> 300 per hit. A bare 40 Energy Shield with no recovery gives nothing over a fight.
     slow = {**stats, "EnergyShieldRegenRecovery": 300, "EnergyShieldRecharge": 600, "EnergyShieldRechargeDelay": 2}
     assert models.energy_gain("Barrier Invocation", slow, "Spark")[0] == pytest.approx(300 * 0.1)
-    gaps = {**slow, "enemySkillTime": 1.5}  # a hit lands every 1.5 / land s: regenerated + recharged after 2 s, up to 1,000
-    gap = 1.5 / land
+    gaps = {**slow, "enemySkillTime": 1.5}  # a hit lands every 1.5 / land s: regenerated + recharged after 2 s
+    gap = 1.5 / land  # (up to the average hit, MECHB9)
     assert models.energy_gain("Barrier Invocation", gaps, "Spark")[0] == pytest.approx(
-        min(1000, 300 * gap + 600 * max(0.0, gap - 2)) / gap * 0.1)
+        min(hit, 300 * gap + 600 * max(0.0, gap - 2)) / gap * 0.1)
     bare = {"EnergyShield": 40, "enemySkillTime": 0.7, "EffectiveBlockChance": 25, "PhysicalTakenHit": 500,
             "EnergyShieldRecharge": 50, "EnergyShieldRechargeDelay": 2}
     assert models.energy_gain("Barrier Invocation", bare, "Boneshatter")[0] == 0.0
@@ -2882,3 +2886,48 @@ def test_boss_model_fields_mechd1():
               "ElectrocuteBuildupAvg": 50, "PinBuildupAvg": 50}
     assert models.buildup_rate(zarokh, "Freeze") == 0.0 and models.buildup_rate(zarokh, "Electrocute") == 0.0
     assert models.buildup_rate(zarokh, "Pin") == 0.0 or models.ailment_scale(zarokh, "Pin") == 1.0
+
+
+
+def test_tremors_adds_its_expected_aftershocks_and_lands_ailments_once_per_slam():
+    """MECHB9 (COVE10's parts): Tremors' 30 / 15 / 10% for 1 / 2 / 3 more Aftershocks is 0.9 more hits a slam, on top of
+    the summed single chance; a one-slot Ignite lands at most once per slam's hits (one roll for Tremors, UNVERIFIED)."""
+    tremors = {"support_slam_chance_for_one_additional_aftershock_%": 30,
+               "support_slam_chance_for_two_additional_aftershocks_%": 15,
+               "support_slam_chance_for_three_additional_aftershocks_%": 10}
+    quake = models.Skill("Earthquake", group=1, attack=True, support_stats=tremors)
+    slam = {"Attack", "Slam", "Melee", "Area"}
+    mods, notes = models.aftershock_model([], {"IgniteChanceOnHit": 50, "IgniteStacksMax": 1}, quake, slam, [], set())
+    miss = 0.45 + 0.30 * 0.5 + 0.15 * 0.25 + 0.10 * 0.125  # no Ignite from Tremors' extra hits
+    real = (1 - 0.5 * miss) / 0.5
+    assert mods == [models.raw_mod("DPS", "MORE", 90.0, "Earthquake"),
+                    models.raw_mod("EnemyIgniteDuration", "MORE", round(100 * (real / 1.9 - 1), 3), "Earthquake")]
+    assert "Tremors" in notes[0]["value"] and "UNVERIFIED" in notes[0]["basis"]
+    # with Aftershock II's 35% as well: 1 + 0.35 + 0.9 hits
+    mods, _ = models.aftershock_model([], {}, quake, slam, [{"name": "Aftershock II"}], set())
+    assert mods == [models.raw_mod("DPS", "MORE", 125.0, "Earthquake")]
+
+
+def test_kills_keep_enemies_apart_from_your_own_minions_killed():
+    """MECHB9 (the ruling on A17-4): your own minions Killed count as Kills (LOW, with a without row), but never for a
+    line that says "an enemy"; the boss preset's adds are the enemies (AddKillsPerSecond, MECH-D's)."""
+    assert models.kill_rate({})[:2] == (0.0, 0.0) and models.kills_note(models.kill_rate({})) == []
+    enemies, total, how = models.kill_rate({models.ADD_KILLS_STAT: 0.04}, 0.3, "Sacrifice")
+    assert (enemies, total) == (0.04, pytest.approx(0.34)) and "A17-4" in how
+    note = models.kills_note((enemies, total, how))[0]
+    assert note["confidence"] == "LOW" and "without it 0.040/s" in note["play"]
+    skeletons = Skill("Skeletal Warrior", group=2, summon={"persistent": True, "duration": 0, "limit": 4, "undead": True})
+    bone = Skill("Bone Cage", group=1, spell=True, corpses=True)
+    own, own_how = models.minion_deaths([skeletons, bone, Skill("Sacrifice", group=3)], bone, {"Speed": 1.0})
+    assert own > 0 and models.kill_rate({}, own, own_how)[:2] == (0.0, pytest.approx(own))
+
+
+def test_heartbound_loop_hurts_you_at_the_minion_death_rate():
+    """MECHB9: "300 Physical Damage taken on Minion Death" at minion_died_rate's rate (any death, not only Killed); two
+    rings add up; no deaths, no damage (with a note)."""
+    lines = ["300 Physical Damage taken on Minion Death", "1000 Physical Damage taken on Minion Death", "Minions Revive 10% faster"]
+    taken, notes = models.heartbound_damage(lines, (0.5, "Offerings"))
+    assert taken == pytest.approx(650.0) and notes[0]["confidence"] == "LOW" and "Offerings" in notes[0]["basis"]
+    taken, notes = models.heartbound_damage(lines[:1], (0.0, "nothing kills them"))
+    assert taken == 0.0 and "costs no Life" in notes[0]["play"]
+    assert models.heartbound_damage(lines[2:], (1.0, "")) == (0.0, [])

@@ -409,6 +409,11 @@ class Assumptions:
         toad_mods, toad_notes, toad_groups, toads = models.toad_model(found, curses)
         hand_mods, hand_notes = hand_mods + toad_mods, hand_notes + toad_notes
         build.minion_died = models.minion_died_rate(found, main, stats, supports, toads, build.trigger_rates)
+        # (MECHB9: the build's kills, enemies and own minions Killed (the ruling on A17-4), for on-Kill readers:
+        # build.kills = (enemies/s, all/s, how); Heartbound Loop's damage taken at the minion-death rate: build.self_damage)
+        build.kills = models.kill_rate(stats, *models.minion_deaths(found, main, stats))
+        build.self_damage, heart_notes = models.heartbound_damage([e["text"] for e in source_lines], build.minion_died)
+        hand_notes = hand_notes + models.kills_note(build.kills) + heart_notes
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
         echo_mods, echo_notes = models.repeat_echo_model([e["text"] for e in source_lines], main_types, forbidden, main)
         hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes

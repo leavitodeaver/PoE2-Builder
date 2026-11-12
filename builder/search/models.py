@@ -492,8 +492,8 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # Wrath (Mjolner) 3 per Power per melee hit (cast_lightning_spell_on_hit_..._per_monster_power_on_hit 300); Spellslinger
 # (Dueling Wand) 0.2 per 10 ms of the cast spell's base cast time (spellslinger_invocation_gain_X_centienergy_per_10ms_base_cast_time
 # 20); Cast on Charm Use (Bijouborne) 2 per charm charge used (cast_on_using_charm_gain_X_centienergy_per_charm_charge_used_on_using_charm
-# 200), at the charges the equipped charms spend against a boss (flasks.charm_charges_used). Energy on kills (Reaper's Invocation) and on minion deaths
-# counts none on a boss. Barrier Invocation (poe2db): "When Hit by an Enemy, gain 1 Energy for each 10 Energy Shield lost to
+# 200), at the charges the equipped charms spend against a boss (flasks.charm_charges_used). Energy on kills (Reaper's
+# Invocation) comes from the boss preset's killable adds (kill_rate; MECHB9), on minion deaths from minion_deaths. Barrier Invocation (poe2db): "When Hit by an Enemy, gain 1 Energy for each 10 Energy Shield lost to
 # damage taken" (barrier_invocation_gain_1_energy_per_X_energy_shield_damage_taken_when_hit 10): the boss's hits that land
 # per second x the damage each takes after mitigation (PoB's {Type}TakenHit at its boss preset), up to the Energy Shield
 # pool, while the build has Energy Shield. Cast on Dodge: "Gain 2 Energy per metre travelled while dodge rolling" (its 0.5
@@ -523,6 +523,13 @@ META_GEMS = {
     # expiring or despawned minions aren't Killed. The deaths per second come from the build's own sources (minion_deaths,
     # MECH45; MECH44's flat one every 10 s is gone: the user, 11 Nov), at 100% relative Power (assumed: 50 Energy, LOW).
     "Cast on Minion Death": {"per_level": 3.0, "gain": "minion death", "per": 50.0},
+    # Reaper's Invocation (MECHB9; before, in NO_ENERGY_ON_A_BOSS: "none on a single boss"): "While active, gains Energy
+    # when you kill an enemy with a Melee Attack" (ActiveSkills reapers_invocation), 30 Energy per monster Power
+    # (melee_kill_invocation_gain_X_centienergy_per_monster_power_on_melee_kill 3000; PoB's MetaReapersInvocationPlayer).
+    # Against a lone boss the kill ends the fight; the King in the Mists' and Atziri's adds give some (kill_rate: the boss
+    # preset's AddKillsPerSecond, MECH-D's). Your own minions are not enemies, so they never count (its text says "an
+    # enemy"). An add's Power: 1 assumed (KeywordPopups Power: "An average monster has a Power of 1", x1 Normal; LOW).
+    "Reaper's Invocation": {"per_level": 3.0, "gain": "melee kill", "per": 30.0, "invocation": True},
     # Smith of Kitava's Heat of the Forge: the same stats as Thundergod's Wrath (cast_fire_spell_on_hit_gain_X_centienergy_
     # per_monster_power_on_hit 300, the same level table; game files), Fire spells. The game and the tree call it Fire Spell
     # on Hit, PoB's skill Fire Spell on Melee Hit; the notable gives no level, so PoB's is used (the bridge reports it).
@@ -624,7 +631,7 @@ def dodge_roll(texts: list[str], stats: dict) -> dict:
              + f"), x{speed:g} movement speed = {base * speed:.2f} m (rolls scaling with movement speed: community sources "
                "only, LOW)" + (f"; each roll takes {seconds:.3g} s" if faster else ""))
     return {"metres": base * speed, "base_metres": base, "seconds": seconds, "basis": basis}
-NO_ENERGY_ON_A_BOSS = {"Reaper's Invocation": "kills"}
+NO_ENERGY_ON_A_BOSS: dict[str, str] = {}  # (Reaper's Invocation left it in MECHB9: it reads the boss's add kills)
 # Skills whose own use can't feed a meta skill's Energy: base_skill_cannot_generate_energy, "This Skill cannot cause Meta
 # Skills to generate Energy" (active_skill_gem_stat_descriptions). (checked, MECH47: the game tables' GrantedEffectStatSets
 # carry the stat on MidnightStarPlayer alone and GrantedEffectStatSetsPerLevel on none; PoB's Skills/other.lua has it in
@@ -1007,8 +1014,10 @@ MARK_BUFF_DURATION = 10.0
 # (ActiveSkills wolf_pounce). Game files (build 26476662, GrantedEffectStatSets WolfPounceMarkPlayer): 8 s, "Marked
 # target takes 3% increased damage for each of its enemies within 6 metres of it, up to 45%"
 # (skill_wolf_mark_damage_taken_+%_per_nearby_enemy 3, _cap 45). It's consumed when the target dies (triggering Summon
-# Wolf: none on a lone boss; PoB gives Summon Wolf a limit of 0) or when Cross Slash hits it with both gouges (ActiveSkills
-# wolf_cross_slash). Pounce has a weapon requirement (WeaponRequirements; PoB: Talisman). PoB (act_str.lua
+# Wolf; PoB gives Summon Wolf a limit of 0) or when Cross Slash hits it with both gouges (ActiveSkills
+# wolf_cross_slash: "Hitting a Marked enemy with both gouges will Activate the Mark"; Summon Wolf "is Triggered when
+# Predator's Mark Activates", whatever activates it, so Cross Slash on a Marked boss may summon wolves: A22-3, UNVERIFIED,
+# held for the user's in-game test). Pounce has a weapon requirement (WeaponRequirements; PoB: Talisman). PoB (act_str.lua
 # WolfPounceMarkPlayer): DamageTaken INC 3% per MinionPresenceCount (your minions at their limit), capped at 45, always
 # on; it never counts you, and it applies the Mark even when PoB disables Pounce for the wrong weapon. With a Mark gem in
 # Pounce, PoB applies that Mark instead (probe POE2T435), as the game does.
@@ -1020,7 +1029,10 @@ PREDATOR_RADIUS = 6.0
 # skill of the Pounce gem): triggered when Predator's Mark activates on the marked enemy's death, summons one Wolf
 # (+0 more if the enemy was Rare, +1 if Unique: skill_cross_slash_triggered_summon_+_wolves_if_rare 0, _if_unique 1),
 # no_minion_duration ("follows you as long as it lives"), at most number_of_wolves_allowed (GrantedEffectStatSetsPerLevel:
-# 4 at levels 1-6, 5 at 7-13, 6 at 14-21, 7 at 22-30, 8 at 31-40). On a lone boss none are summoned, so the user's choice
+# 4 at levels 1-6, 5 at 7-13, 6 at 14-21, 7 at 22-30, 8 at 31-40). On a lone boss none are summoned by a death; Cross
+# Slash's two gouges Activating the Mark on the boss may summon them (A22-3: the game text above; UNVERIFIED, held for the
+# user's in-game test; the stat's own name, skill_cross_slash_triggered_summon_+_wolves_if_unique, points that way), so
+# the user's choice
 # (11 Nov, "Count them, labelled"): the wolves are carried in from earlier kills, assumed at their limit (LOW). PoB counts
 # 0 of them: number_of_wolves_allowed maps to ActiveWolfLimit (SkillStatMap) while the Wolf Companion minion reads
 # WolfLimit (Minions.lua WolfMinion), so its MinionPresenceCount leaves them out.
@@ -1488,12 +1500,16 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                 # wolves (PoE2's ailment chances grow with the hit: POE2T450 read x12.7 for +500%)
                 scales[SUMMON_WOLF] = carried
                 basis += (f"; plus {wolves:g} Pounce wolves* (MEDIUM: Summon Wolf's limit at its level, game files; none "
-                          "are summoned on a lone boss, so they're assumed carried in from earlier marked kills, alive "
+                          "are summoned by a death on a lone boss (Cross Slash hitting the Marked boss with both gouges "
+                          "Activates the Mark, which may summon them: UNVERIFIED, A22-3), so they're assumed carried in "
+                          "from earlier marked kills, alive "
                           "and within 6 m of the boss: they follow you through area transitions, on the user's word, "
                           "11 Nov; PoB counts 0 of them). Their own hits count at that number* (LOW: each wolf's damage is "
                           "PoB's Wolf Companion, a monster table our game-file extract doesn't hold; PoB's Full DPS "
                           f"counts one, counted x{carried:g})")
-                play = "Keep your Pounce wolves alive into the boss: kill a few Marked enemies on the way in."
+                play = ("Keep your Pounce wolves alive into the boss: kill a few Marked enemies on the way in (with Cross "
+                        "Slash, hitting the Marked boss with both gouges Activates the Mark and may summon more: "
+                        "UNVERIFIED).")
         elif mark.name == "Sniper's Mark":
             crits = crits_per_second(stats)
             if use.on_demand:
@@ -1737,7 +1753,9 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
             return 0.0, "the build has no Energy Shield: no Energy"
         every = number(stats.get("enemySkillTime")) or 0.7
         land = boss_hits.land_share(stats)  # (MECHB6: red-flash hits always land; MECHC5's shares)
-        hit = sum(number(stats.get(f"{t}TakenHit")) for t in DAMAGE_TYPES)
+        # (MECHB9, MECHC6: each {Type}TakenHit is that type at its full hit size, boss_hits.config_vars, so summing them
+        # was one hit of every type at once; type_taken weights each by its share of the boss's hits)
+        hit = boss_hits.type_taken(stats)
         hits = land / every
         if hits <= 0:
             return 0.0, "none of the boss's hits land: no Energy"
@@ -1750,7 +1768,7 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         taken = min(hit, pool, restored)
         return hits * taken * per, (f"the boss's hits land {hits:.2f} times per second (one every {every:g} s, {land:.0%} neither "
                                     f"evaded nor blocked; red-flash hits always land, boss_hits), each taking {taken:,.0f} Energy Shield after mitigation (PoB's boss "
-                                    f"preset; a hit of {hit:,.0f}, at most the {restored:,.0f} that returns between hits: "
+                                    f"preset; an average hit of {hit:,.0f}, each damage type at its share of the boss's hits, at most the {restored:,.0f} that returns between hits: "
                                     f"{regen:,.0f}/s regenerated, {recharge:,.0f}/s recharge after {delay:g} s): "
                                     f"1 Energy per 10 lost")
     if kind == "minion death":
@@ -1759,6 +1777,14 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
             return 0.0, f"{how}: no Energy"
         return rate * per, (f"{how}; {per:g} Energy each (a minion of 100% relative Power assumed: the dying minion's Power "
                             f"isn't read yet, LOW)")
+    if kind == "melee kill":
+        kills, _, how = kill_rate(stats)
+        if skill is not None and not (skill.melee and skill.attack):
+            return 0.0, f"{main} is not a Melee Attack: it kills nothing for this (\"kill an enemy with a Melee Attack\")"
+        if kills <= 0:
+            return 0.0, f"{how}: no Energy"
+        return kills * per * ADD_POWER, (f"{how}, each killed by {main} (the build plays to kill them) for {per:g} Energy per "
+                                         f"Power, an add's Power {ADD_POWER:g} assumed (LOW)")
     if kind == "charm":
         spent = number(stats.get("_charm_charges"))
         if spent <= 0:
@@ -2059,11 +2085,12 @@ class IronWardStore:
     reduction: float  # % of that hit the build prevents (Armour and flat damage reduction)
     hits: float  # boss hits taken per second
     use_time: float  # seconds one use takes
+    physical: float = 1.0  # share of the boss's hits that are Physical (boss_hits.type_shares; MECHB9, MECHC6)
 
     @property
     def fill(self) -> float:
         """Damage stored per second."""
-        return self.gain * self.hit * max(self.reduction, MIN_REDUCTION) / 100 * self.hits
+        return self.gain * self.hit * max(self.reduction, MIN_REDUCTION) / 100 * self.hits * self.physical
 
     @property
     def use_capped(self) -> bool:
@@ -2083,7 +2110,10 @@ def iron_ward_store(skill: Skill, stats: dict) -> IronWardStore:
     hits = (1 / skill_time if skill_time > 0 else 0.0) * boss_hits.land_share(stats)  # (MECHB6: red-flash hits land)
     return IronWardStore(number(skill.level_stats.get(STORE_CAP)), number(skill.level_stats.get(STORE_GAIN)) / 100,
                          number(stats.get("PhysicalEnemyDamage")), number(stats.get("PhysicalDamageReduction")), hits,
-                         skill.cast_time or 1.0)
+                         skill.cast_time or 1.0,
+                         # PoB's boss config gives every hit its full Physical part (boss_hits.config_vars), but only the
+                         # boss's Physical skills deal it (7 of the Arbiter of Ash's 24; LOW, boss_hits' type shares)
+                         boss_hits.type_shares(boss_hits.boss_name(stats)).get("Physical", 1.0))
 
 
 def reduction_slopes(stats: dict) -> tuple[float, float]:
@@ -2137,14 +2167,13 @@ def iron_ward_model(skills: list[Skill], stats: dict, enabled: bool = True) -> t
         "basis": f"stores {store.gain:.0%} of the Physical damage your Armour and damage reduction prevent "
                  f"({reduction:.0f}% of the boss's {store.hit:,.0f} per hit = {store.hit * reduction / 100:,.0f}), up to "
                  f"{store.cap:,.0f}; the boss hits you {store.hits:.2f} times per second (every "
-                 f"{number(stats.get('enemySkillTime')):g}s in PoB's boss config, less evaded and blocked hits), so it "
-                 f"refills in {refill:.1f}s"
+                 f"{number(stats.get('enemySkillTime')):g}s in PoB's boss config, less evaded and blocked hits), "
+                 f"{store.physical:.0%} of them Physical (its Physical skills' share, LOW), so it refills in {refill:.1f}s"
                  + (f", faster than one use every {store.use_time:g}s" if store.use_capped else "")
                  + (f"; {area:.0f}% more area released full" if area else "")
                  + (f"; at least {MIN_REDUCTION:g}% prevented assumed" if store.reduction < MIN_REDUCTION else ""),
         "confidence": "theory"}
     return mods, [note]
-
 
 # Gem stats PoB never reads (ledger kind gem_stat) ----------------------------------------------
 # A skill's stat that no stat map turns into a modifier (the coverage audit's "Iron Ward class",
@@ -4148,9 +4177,17 @@ def different_skills_counts(skills: list[Skill], main: Skill | None, persistent:
 # already applied, and each one-slot ailment's applications to p (1 + A - A p) through its duration (an ailment's damage
 # per second doesn't depend on its duration in PoB, so its uptime moves and a full-uptime ailment's damage doesn't).
 # Left as they are (labelled): the "more Damage" form also makes each ailment application bigger (COV-A: switch the
-# aftershock-chance entries to the DPS form); other slams in Full DPS keep the ledger's per-line mores; Tremors' 1-3
-# additional Aftershocks (SupportTremorsPlayer, PoB 0: an undercount left as it is) aren't counted; whether an Aftershock
-# rolls its own damage (UNVERIFIED, COVD8).
+# aftershock-chance entries to the DPS form); other slams in Full DPS keep the ledger's per-line mores; whether an
+# Aftershock rolls its own damage (UNVERIFIED, COVD8).
+# Tremors (MECHB9; COVE10's parts, support_part_scale(main, "aftershocks"): AftershockChanceOne / Two / Three = 30 / 15 /
+# 10, SupportTremorsPlayer; gem_stat_descriptions: "Supported Skills have {0}% chance to cause an additional / two
+# additional / three additional Aftershocks", no "you use yourself"). Expected extra Aftershocks a slam: 1 x 30% + 2 x 15%
+# + 3 x 10% = 0.9, the same whether it's one roll or three independent ones that add up (only "the biggest one wins"
+# would give less, 0.80). They're taken as added on top of the summed single-Aftershock chance (the 0.2.0 notes: "Fixed a
+# bug where Tremors Support could interfere with aftershock chances from other sources", so they coexist), and as one roll
+# for the one-slot ailments' applications: UNVERIFIED both, MEDIUM-LOW. PoB has no Tremors gem, so this reads nothing
+# until gem resolution can socket a gem PoB lacks (COV-C); its 35% less Damage is a plain support line (COVE10).
+TREMORS_PARTS = {"AftershockChanceOne": 1, "AftershockChanceTwo": 2, "AftershockChanceThree": 3}
 # Counted since MECHB7 (AUDIT19 A19-2, an undercount): chance_to_aftershock_+%_per_250_ms_attack_time, 15 on both
 # Aftershock III (SupportAftershockChancePlayerThree) and Reverberate (SupportReveberatePlayer, live), game files
 # GrantedEffectStatSets (checked: the stat's index in Mods, PassiveSkills, SoulCoreStats and the GrantedEffect stat,
@@ -4247,16 +4284,25 @@ def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_typ
     speed = number(stats.get("Speed"))
     total, why = aftershock_chance(texts, group_gems, yourself, mace, shapeshift, 1 / speed if speed > 0 else 0.0)
     damage, dps = ledger_slam_mores(texts, forbidden, mace, shapeshift, translate)
-    if total <= 0 and damage == 1.0 and dps == 1.0:
+    parts = support_part_scale(main, "aftershocks")[0]
+    tremors = {k: min(1.0, max(0.0, number(parts.get(name)) / 100)) for name, k in TREMORS_PARTS.items()}
+    tremors = {k: c for k, c in tremors.items() if c > 0}
+    extra = sum(k * c for k, c in tremors.items())
+    if total <= 0 and damage == 1.0 and dps == 1.0 and not extra:
         return [], []
     a = min(1.0, total / 100)
-    target, applied = 1 + a, damage * dps
+    target, applied = 1 + a + extra, damage * dps
+    if extra:
+        why.append(f"Tremors: {' + '.join(f'{k} x {c:.0%}' for k, c in sorted(tremors.items()))} = {extra:.2f} more "
+                   "Aftershocks a slam, on top (one roll or several adding up give the same; UNVERIFIED how they meet "
+                   "the other chances, MEDIUM-LOW)")
     mods: list[dict] = []
     correction = target / applied - 1
     if abs(correction) > 1e-6:
         mods.append(raw_mod("DPS", "MORE", 100 * correction, main.name))
     whose = "used by you" if yourself else "triggered or a totem's, so only the \"Slam Skills\" lines count"
-    notes = [{"label": f"Aftershock chance, summed ({main.name})", "value": f"{a:.0%}",
+    notes = [{"label": f"Aftershock chance, summed ({main.name})",
+              "value": f"{a:.0%}" + (f" + {extra:.2f} Aftershocks (Tremors)" if extra else ""),
               "basis": f"{'; '.join(why) or 'no source'}; the game sums the chances and rolls once (capped at one extra "
                        f"Aftershock, UNVERIFIED), so the slam's hits are x{target:.2f}; the ledger's per-line mores gave "
                        f"x{applied:.2f} (Damage x{damage:.2f}, DPS x{dps:.2f}), corrected by x{target / applied:.3f}; "
@@ -4269,7 +4315,10 @@ def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_typ
         if p <= 0:
             continue
         slots = number(stats.get(f"{ailment}StacksMax")) or 1.0
-        real = 1 + a - a * p if slots <= 1 else 1 + a  # applications per slam against a slam without Aftershocks
+        # applications per slam against a slam without Aftershocks: P(any hit applies it) / p with one slot, where the
+        # extra hits are the single roll (a) and Tremors' one roll (k more at chance c_k)
+        miss = (1 - a * p) * (1 - sum(tremors.values()) + sum(c * (1 - p) ** k for k, c in tremors.items()))
+        real = (1 - (1 - p) * miss) / p if slots <= 1 else target
         counted = target / damage  # what PoB counts after the DPS correction (the "more Damage" form adds none)
         if abs(real / counted - 1) <= 1e-6:
             continue
@@ -4514,8 +4563,10 @@ def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict],
 #   - temporary minions from a triggered summon (Skill.minion: Wardbound Minions ...): each use's minion dies once, at its
 #     duration's end or replaced at the limit, so one death per use at steady state (HIGH from MinionDeath).
 # Not counted (labelled, undercounts): the boss killing your minions; summoning past a Limit by hand (no use rate for a
-# pressed summon is modelled); Summoned Wolves (summoned only on a Marked enemy's death: none on a lone boss; a kill rate
-# per boss preset, MECH-A's, would give some); a second Witchtoad area. Offerings and Sacrifice may share skeletons: the
+# pressed summon is modelled); Summoned Wolves (Predator's Mark Activates on its target's death, none on a lone boss, or
+# when Cross Slash hits the Marked boss with both gouges (ActiveSkills wolf_cross_slash), which may summon a wolf and
+# replace the oldest at the limit: UNVERIFIED, A22-3, held for the user's in-game test; a kill rate per boss preset would
+# give some too); a second Witchtoad area. Offerings and Sacrifice may share skeletons: the
 # sum isn't held to what the skeletons' revival allows together (a possible small overcount, labelled).
 def minion_died_rate(skills: list[Skill], main: Skill | None, stats: dict, supports: dict[int, list[str]] | None = None,
                      toads: float = 0.0, rates: dict[str, float] | None = None) -> tuple[float, str]:
@@ -4547,10 +4598,86 @@ def minion_died_rate(skills: list[Skill], main: Skill | None, stats: dict, suppo
             total += use
             parts.append(f"{spell.name}'s temporary minions {use:.3f}/s (one per use, each dies at its duration's end "
                          "or replaced at its limit)")
-    parts.append("not counted: the boss killing your minions, summoning past a limit by hand, Summoned Wolves (none "
-                 "without a kill), a second Witchtoad area (undercounts); Offerings and Sacrifice sharing skeletons isn't "
+    parts.append("not counted: the boss killing your minions, summoning past a limit by hand, Summoned Wolves (a "
+                 "Marked kill, or Cross Slash Activating the Mark on the boss: UNVERIFIED), a second Witchtoad area (undercounts); Offerings and Sacrifice sharing skeletons isn't "
                  "held to their revival together (a possible small overcount)")
     return total, "; ".join(parts)
+
+
+# Kills the build makes in a boss fight (MECHB9; the manager's ruling on A17-4 / research #124, 12 Nov ~12:40, and the
+# boss presets' adds, MECH-D's MECHD1). Two kinds, kept apart because the lines that read them say different things:
+#   - enemies: the boss preset's killable adds (the King in the Mists' Affliction Totems, Atziri's waves), the stats'
+#     ADD_KILLS_STAT (bosses.kill_stats, merged into the stats by Assumptions.models once MECHD1 is on main; 0 with a note
+#     before, and against a lone boss, where the kill ends the fight). Every add is taken as killed by the build (MECHD1:
+#     a build taking on-kill lines plays to kill them, CLAUDE.md's second rule). LOW (the presets' add rates).
+#   - your own minions Killed: the game's text calls a minion its summoner brings to 0 Life "Killed" (KeywordPopups
+#     MinionDeath), so the ruling counts them as Kills in the headline at the build's own rate (minion_deaths: Sacrifice,
+#     Explosive Demise; Dark Pact / Abyssal Pact / Minion Pact take a share of a minion's Life, and whether that ever
+#     kills it is UNVERIFIED, not counted), LOW, held for the user's in-game test, with a "without it" row.
+# A line that says "an enemy" ("when you kill an enemy", Reaper's Invocation) reads the enemies only: your minions are
+# allies, not enemies (the lines' own text; KeywordPopups MinionDeath / Allies). A line that says only "on Kill" reads
+# both. The readers of plain on-Kill lines (Onslaught, Rage, charges, charms) are MECH-C's (conditions.py, flasks.py).
+ADD_KILLS_STAT = "AddKillsPerSecond"
+ADD_POWER = 1.0  # an add's monster Power (KeywordPopups Power: "An average monster has a Power of 1", Normal x1; LOW)
+
+
+def kill_rate(stats: dict, own: float = 0.0, own_how: str = "") -> tuple[float, float, str]:
+    """(enemies killed per second, all kills per second including your own minions Killed, how). `own`: minion_deaths'
+    rate (only Killed minions, never expired or despawned ones)."""
+    adds = max(number(stats.get(ADD_KILLS_STAT)), 0.0)
+    if adds > 0:
+        how = (f"{adds:.3f} of the boss's adds killed per second (the boss preset's kill rate, LOW; every add taken as "
+               "killed by the build)")
+    else:
+        how = ("no enemy dies before the boss (a lone boss; the King in the Mists' and Atziri's adds come from the boss "
+               "preset's AddKillsPerSecond, MECH-D's, when it's in the stats)")
+    if own > 0:
+        how += (f"; plus your own minions Killed {own:.3f}/s, counted as Kills by lines that don't say 'enemy' (the "
+                f"ruling on A17-4: LOW, held for an in-game test; {own_how})")
+    return adds, adds + own, how
+
+
+def kills_note(kills: tuple[float, float, str]) -> list[dict]:
+    """The play guide's line for the build's kills, with the without-own-minions row (empty when there are none)."""
+    enemies, total, how = kills
+    if total <= 0:
+        return []
+    note = {"label": "Kills in the boss fight", "value": f"{total:.3f}/s ({enemies:.3f}/s of them enemies)", "basis": how,
+            "confidence": "LOW"}
+    if total > enemies:
+        note["play"] = (f"Kill your own minions to feed on-Kill lines (Sacrifice, Explosive Demise): with it "
+                        f"{total:.3f} Kills/s, without it {enemies:.3f}/s. Whether killing your own minion counts as a "
+                        "Kill for these lines is held for an in-game test (LOW).")
+    return [note]
+
+
+# Heartbound Loop (MECHB9; FIX_QUEUE, COVE10's row): "300 Physical Damage taken on Minion Death" (1000 on the Loreweave
+# version; ModCache also holds 250 / 350 / 501 rolls). PoB parses it (HeartboundLoopSelfDamage) but applies it only per
+# cast of Summon Skeletons, as damage per summoned minion (CalcOffence selfHitHandlers), never at the rate minions die.
+# The game: on Minion Death, which KeywordPopups MinionDeath counts for minions that died in any way (Killed, expired,
+# despawned): minion_died_rate's rate. So the damage taken per second is the lines' sum x that rate. It's taken as not a
+# Hit, so neither Armour nor evasion meets it, and nothing else mitigates it (UNVERIFIED, LOW: possibly too high for a
+# build with Physical damage reduction other than Armour). The recovery reader is MECH-C's (objective.boss_recovery):
+# it's on build.self_damage and in the notes until then.
+HEARTBOUND = re.compile(r"^(\d+(?:\.\d+)?) Physical Damage taken on Minion Death$", re.I)
+
+
+def heartbound_damage(texts: list[str], died: tuple[float, str]) -> tuple[float, list[dict]]:
+    """Physical damage per second the build takes from "N Physical Damage taken on Minion Death" lines at the build's
+    minion-death rate (minion_died_rate's (per second, how)), and its note."""
+    per = sum(float(m.group(1)) for t in texts if (m := HEARTBOUND.match(t.strip())))
+    if per <= 0:
+        return 0.0, []
+    rate, how = died
+    taken = per * max(rate, 0.0)
+    return taken, [{"label": "Heartbound Loop: damage taken on Minion Death",
+                    "value": f"{taken:,.0f} Physical damage per second",
+                    "basis": (f"{per:g} per minion death x {rate:.3f} deaths per second ({how}); not a Hit, so no Armour "
+                              "or evasion (UNVERIFIED); PoB counts it only per Summon Skeletons cast"),
+                    "confidence": "LOW",
+                    "play": (f"Each of your minions dying costs you {per:g} Life: {taken:,.0f} per second at this "
+                             "build's minion deaths" if taken > 0 else
+                             "Nothing in this build makes its minions die, so the ring costs no Life here")}]
 
 
 # Totems other than Spell Totem (MECHB8; MECHB7's Handover item 2). PoB prices one totem: the damaging part beside a
