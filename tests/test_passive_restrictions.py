@@ -141,7 +141,9 @@ def test_idol_and_non_idol_augments_are_counted_for_idolatrys_lines(engine):
     from builder.search.rares import socket_count, with_runes
 
     data = GameData()
-    base = next(b for b in data.bases if b["type"] == "Gloves" and socket_count(b, False) >= 2)
+    # Body armours have 2 augment sockets, gloves 1 (and Idol of Sirrius is a gloves Idol)
+    body = next(b for b in data.bases if b["type"] == "Body Armour" and socket_count(b, False) >= 2)
+    hands = next(b for b in data.bases if b["type"] == "Gloves" and socket_count(b, False) >= 1)
     fields = ["LightningResist", "ColdResist", "Spirit"]
     engine.call("newBuild")
     # The lines Idolatry and the Carved Majesty rune have, on an amulet (PoB parses both into its never-set multipliers)
@@ -150,24 +152,23 @@ def test_idol_and_non_idol_augments_are_counted_for_idolatrys_lines(engine):
                         "+3 to Spirit per Idol socketed in your Equipment"])
     engine.call("equip", slot="Amulet", raw=amulet, fields=fields)
 
-    def gloves(runes: list[str]) -> str:
+    def text(base: dict, runes: list[str]) -> str:
         return with_runes(normal_item(base), runes) if runes else normal_item(base)
 
-    def stats(runes: list[str]) -> dict:
-        return engine.call("equip", slot="Gloves", raw=gloves(runes), fields=fields)["stats"]
+    def wear(slot: str, base: dict, runes: list[str]) -> dict:
+        return engine.call("equip", slot=slot, raw=text(base, runes), fields=fields)["stats"]
 
-    none = stats([])
+    wear("Gloves", hands, [])
+    none = wear("Body Armour", body, [])
     # Desert Rune is fire resistance on armour, Glacial Rune cold: lightning moves by the penalty alone
-    two_runes = stats(["Desert Rune", "Glacial Rune"])
+    two_runes = wear("Body Armour", body, ["Desert Rune", "Glacial Rune"])
     assert none["LightningResist"] - two_runes["LightningResist"] == pytest.approx(8)
     assert two_runes["Spirit"] == pytest.approx(none["Spirit"])
-    one_each = stats(["Idol of Sirrius", "Desert Rune"])
-    assert one_each["Spirit"] - none["Spirit"] == pytest.approx(3)
-    assert none["LightningResist"] - one_each["LightningResist"] == pytest.approx(4)
-    # Item what-ifs see the count too (it's set on every calculation): from two runes to one Idol
-    stats(["Desert Rune", "Glacial Rune"])
-    result = engine.call("itemDeltas", cases=[{"slot": "Gloves", "raw": gloves(["Idol of Sirrius"])}],
-                         fields=fields)["results"][0]
+    with_idol = wear("Gloves", hands, ["Idol of Sirrius"])
+    assert with_idol["Spirit"] - none["Spirit"] == pytest.approx(3)
+    assert with_idol["LightningResist"] == pytest.approx(two_runes["LightningResist"])  # an Idol isn't non-Idol
+    # Item what-ifs see the count too (it's set on every calculation): the runes out of the body armour
+    result = engine.call("itemDeltas", cases=[{"slot": "Body Armour", "raw": text(body, [])}], fields=fields)["results"][0]
     result = result.get("stats", result)
     assert result["LightningResist"] == pytest.approx(none["LightningResist"])
     assert result["Spirit"] - none["Spirit"] == pytest.approx(3)
