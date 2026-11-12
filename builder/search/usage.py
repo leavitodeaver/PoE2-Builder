@@ -12,6 +12,15 @@ sustainable source for what a use needs:
   never on a build that spends no Life
 - flask charges consumed on use (Ambrosia, Concoct): while the flask's charge generation pays for
   UPTIME of the uses (a boss fight refills flasks only by generation)
+- the Concoctions' Mana Flask charges per throw (Requirement kind "flask throw"; flasks.THROW_CHARGES, 5 a throw from
+  the game files' flask_throw_base_charges_used, "Consumes {0} Charges from your Mana [Flask]"; PoB's data carries the
+  stat on three of the five only, so the names come from flasks.py; COVC7, A8-2): throws a second = the Mana Flask's
+  charges a second / 5, flasks.charge_use_rate's formula (the flask's generation, nothing from kills on a lone boss;
+  the stock the fight starts with not counted). RESEARCH15: one web snippet says 3 charges (from 5), perhaps a patch's
+  or with "Flask Charges used" modifiers (UNVERIFIED, MEDIUM-LOW): 5 is the headline. Barred where that is 0 (no Mana
+  Flask, or no charge generation); otherwise allowed: as the main skill its throws are capped at that rate by MECH-C's
+  Assumptions.flask_main; beside the main skill (a pressed group) the press model's rate is not yet capped by it
+  (Usage.throw_rate gives it; routed to the mechanics lane, COVC7's report)
 - distance travelled before each use (Requirement kind "travel"; `skill_unusable_until_moved_X_distance` 100: Echoing
   Cry and Hit and Run, the two stat sets that carry it; checked: the stat's columns in every game table (no Mod, passive
   or other stat set holds it) and PoB src (Data/Skills sup_str/sup_dex only, no ModParser line)). The game: "Supported
@@ -86,6 +95,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder.search.conditions import UPTIME
+from builder.search.flasks import THROW_CHARGES, THROW_POOL
 from builder.search.models import DODGE_ROLL_SECONDS
 from builder.search.objective import number
 
@@ -100,9 +110,8 @@ GLORY = "active_skill_requires_X_glory"
 GLORY_FROM_LIFE = "active_skill_generates_%_of_life_spent_as_glory"
 FLASK = re.compile(r"consume_%_of_maximum_(life|mana)_flask_charges_on_skill_use$")
 # The Concoctions' flat flask cost: flask_throw_base_charges_used 5 (Mana Flask charges a throw; Shattering, Acidic,
-# Fulminating, Explosive, Bleeding Concoction; checked: game GrantedEffectStatSets and PoB c.py, AUDIT6 A6-5/A6-14). Read here but left unacted on, by the manager's ruling (12 Nov 2026):
-# PoB throws them at will, an OPEN OVERCOUNT, until MECH-C's rate function (charges gained a second / 5 caps the throws)
-# is on main and wired in (COVC2's report). Kept out of `needs` so the Concoctions' numbers don't change before then.
+# Fulminating, Explosive, Bleeding Concoction; checked: game GrantedEffectStatSets and PoB c.py, AUDIT6 A6-5/A6-14).
+# The requirement comes from flasks.THROW_CHARGES by name (module docstring), so the stat itself is skipped here.
 FLASK_THROW = "flask_throw_base_charges_used"
 # Combo a use needs (module docstring)
 COMBO = re.compile(r"required_number_of_combo_stacks$")
@@ -161,6 +170,9 @@ def requirements(name: str, rule: dict) -> list[Requirement]:
             found.append(Requirement("never", f"{stat.replace('_', ' ')} {number(value):g}", number(value)))
     if (rule.get("usageCondition") or rule.get("addsUsageCondition")) and not found:
         found.append(Requirement("never", "a usage condition PoB doesn't model (e.g. standing still, recent blocks)"))
+    if name in THROW_CHARGES:
+        found.append(Requirement("flask throw", f"{THROW_CHARGES[name]:g} {THROW_POOL} Flask charges per throw (3 in one "
+                                 "web snippet, UNVERIFIED)", THROW_CHARGES[name], pool=THROW_POOL))
     return found
 
 
@@ -190,9 +202,9 @@ class Usage:
         """Why this gem can't be used at the rate PoB calculates in the build as it is ([] if it can)."""
         talisman = self.talisman_blockers(name)
         rule = self.rules.get(name)
-        if not rule:
+        if not rule and name not in THROW_CHARGES:
             return talisman
-        needs = requirements(name, rule)
+        needs = requirements(name, rule or {})
         if not needs:
             return talisman
         if stats is None and any(r.kind in ("glory from life", "flask") for r in needs):
@@ -201,6 +213,11 @@ class Usage:
         for need in needs:
             if need.kind == "combo":
                 blocked.append(f"{name}: {need.label}, {self.combo_reason(name, need.amount)}")
+            elif need.kind == "flask throw":
+                # (the main skill's throws are rated by Assumptions.flask_main, once the gear is on: never barred here)
+                if not self.is_main(name) and self.throw_rate(need) <= 0:
+                    blocked.append(f"{name}: {need.label}, and the {need.pool} Flask gains no charges in a boss fight "
+                                   "(none equipped, or no charges a second without kills)")
             elif need.kind == "travel":
                 blocked.append(f"{name}: {need.label} ({travel_seconds(need.amount):.1f} s of walking at a base "
                                f"{BASE_RUN:g} m/s*, LOW; less with movement speed), but the tool doesn't yet scale its "
@@ -332,7 +349,23 @@ class Usage:
                 return False
             generated, maximum = self.flask_rate(need.pool)
             return speed > 0 and maximum > 0 and generated >= need.rate * maximum * speed * UPTIME
+        if need.kind == "flask throw":
+            return self.throw_rate(need) > 0
         return False
+
+    def is_main(self, name: str) -> bool:
+        """Is `name` the skeleton's main skill (Conditions.main_skill) or the main group's first active skill?"""
+        if name == getattr(self.conditions, "main_skill", None):
+            return True
+        group = self.build.main_group() if hasattr(self.build, "main_group") else None
+        return bool(group) and next((g["name"] for g in group["gems"] if not g["support"]), None) == name
+
+    def throw_rate(self, need: Requirement) -> float:
+        """Throws a second the flask's own charge generation pays for (flasks.charge_use_rate's formula: charges a
+        second / charges a throw), 0 without the flask or a flask_rate. For the main skill's cap and the press hook."""
+        if self.flask_rate is None or need.amount <= 0:
+            return 0.0
+        return self.flask_rate(need.pool)[0] / need.amount
 
 
 def combo_rotation(amount: float, builder_speed: float, speed: float, gain: float = 1.0) -> tuple[float, float]:

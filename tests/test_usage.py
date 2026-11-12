@@ -155,6 +155,25 @@ def test_combo_finishers_name_the_builds_strikes_and_their_rate(fresh_rules):
     assert builder == "Boneshatter" and abs(uses - 6 / 11) < 1e-9
 
 
+def test_concoctions_need_a_mana_flask_that_gains_charges(fresh_rules):
+    """A8-2 / COVC4: 5 Mana Flask charges a throw (flasks.THROW_CHARGES, all five Concoctions, though PoB's data has the
+    stat on three); barred only when the Mana Flask gains none in a boss fight. Its partial rate: Usage.throw_rate."""
+    rules = {"Acidic Concoction": {"stats": {"flask_throw_base_charges_used": 5}}}
+    need = [r for r in requirements("Fulminating Concoction", {}) if r.kind == "flask throw"]
+    assert [(r.amount, r.pool) for r in need] == [(5, "Mana")] and "5 Mana Flask charges per throw" in need[0].label
+    assert [r.kind for r in requirements("Acidic Concoction", rules["Acidic Concoction"])] == ["flask throw"]
+    build = FakeBuild(rules, {})
+    dry = Usage(build, FakeConditions(), lambda pool: (0.0, 60.0))
+    assert "gains no charges in a boss fight" in dry.blockers("Fulminating Concoction")[0]
+    assert not dry.usable("Acidic Concoction") and not Usage(build, FakeConditions()).usable("Acidic Concoction")
+    # The main skill's throws are rated by Assumptions.flask_main once the gear is on: never barred here
+    main = FakeConditions()
+    main.main_skill = "Fulminating Concoction"
+    assert Usage(build, main, lambda pool: (0.0, 0.0)).usable("Fulminating Concoction")
+    wet = Usage(build, FakeConditions(), lambda pool: (1.5, 60.0))
+    assert wet.usable("Fulminating Concoction") and wet.throw_rate(need[0]) == 0.3
+
+
 def test_echoing_cry_and_hit_and_run_get_a_walking_use_rate(fresh_rules):
     """AUDIT9 A9-4 (RESEARCH15 base-movement-speed.md): 10 m at 3.8 m/s* (LOW) x the build's movement speed between
     uses, the cooldown permitting; whole dodge rolls of 4.6 m, 0.75 s each, as the with-it figure. Still barred."""
