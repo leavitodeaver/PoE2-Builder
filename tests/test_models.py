@@ -2485,7 +2485,7 @@ def test_the_bridge_s_default_boss_is_the_presets_default():
     table = re.search(r"local BOSS_DEFAULT = \{([^}]*)\}", lua).group(1)
     found = {k: int(v) for k, v in re.findall(r"(\w+) = (-?\d+)", table)}
     assert found == bosses.config_vars() == {"enemyFireResist": 45, "enemyColdResist": -15, "enemyLightningResist": 0,
-                                             "enemyChaosResist": 0, "enemySpeed": 2250,
+                                             "enemyChaosResist": 0, "enemySpeed": 700,
                                              "cullingStrikeUniqueThreshold": 5}
     note = bosses.note()
     assert note["label"] == "Boss: Arbiter of Ash" and "Cold -15%" in note["value"]
@@ -3190,18 +3190,20 @@ def test_the_boss_presets_killed_adds_supply_corpses():
     share, why, _ = models.corpse_consumed_share(spark, {**stats, "Speed": 2.0}, spark)
     assert share == pytest.approx(0.1) and "UNVERIFIED" in why
 
-def test_the_boss_preset_sends_its_hit_cadence_to_pob_and_the_floors_keep_the_faster_one():
-    """MECHD4: config_vars sends each preset's HIT_EVERY to PoB's enemySpeed (ms; LOW, PoB's 700 has no source), so
-    enemySkillTime follows the boss; the defence floors read floor_skill_time, the scored figure rescaled to 0.7 s (the
-    boss's Slow kept), never slower than the scored one."""
+def test_defences_read_the_faster_boss_cadence_and_only_when_hit_benefits_the_slower():
+    """MECHD4 (AUDIT25 A25-7, the manager 12 Nov 16:50): PoB's enemySpeed (every defence / recovery reading) is the faster
+    of PoB's 0.7 s and HITS_EVERY (combo parts counted as hits, an upper bound); benefit_skill_time rescales the scored
+    enemySkillTime to HIT_EVERY (one hit per use, the fewest) for "when hit" benefit counts, never faster."""
     from builder.search import bosses
 
-    for name, every in bosses.HIT_EVERY.items():
-        assert bosses.config_vars(name)["enemySpeed"] == round(every * 1000) > 700
-    # the Arbiter of Ash (2.25 s), Slowed so its hits come every 3.0 s: the floors read 3.0 x 0.7 / 2.25
-    assert bosses.floor_skill_time({"enemySkillTime": 3.0}) == pytest.approx(3.0 * 0.7 / 2.25)
-    assert bosses.floor_skill_time({"enemySkillTime": 1.12, "_boss": "Vessel of Kulemak"}) == pytest.approx(0.7)
-    assert bosses.floor_skill_time({}) == 0.7
+    for name in bosses.PRESETS:
+        assert bosses.HITS_EVERY[name] <= bosses.HIT_EVERY[name]
+        assert bosses.config_vars(name)["enemySpeed"] == round(min(0.7, bosses.HITS_EVERY[name]) * 1000) <= 700
+    assert bosses.config_vars("The Bodach")["enemySpeed"] == 600
+    # the Arbiter, Slowed so PoB reads 0.9 s: benefits read 0.9 x 2.25 / 0.7
+    assert bosses.benefit_skill_time({"enemySkillTime": 0.9}) == pytest.approx(0.9 * 2.25 / 0.7)
+    assert bosses.benefit_skill_time({"enemySkillTime": 0.6, "_boss": "The Bodach"}) == pytest.approx(0.6 * 1.27 / 0.6)
+    assert bosses.benefit_skill_time({}) == pytest.approx(2.25)
 
 
 def test_culling_takes_5_percent_of_the_boss_s_life_not_of_its_energy_shield():
@@ -3222,9 +3224,9 @@ def test_the_boss_ignites_you_for_a_share_of_the_fight():
     gives the smaller uptime."""
     from builder.search import bosses
 
-    s = {"enemySkillTime": 2.25, "Life": 5000, "AilmentThreshold": 2500, "FireTakenHit": 3000}
-    share, how = bosses.self_ignite_uptime(s)
-    assert 0 < share < 1 and "Ignited" in how
-    assert bosses.self_ignite_uptime({**s, "enemySkillTime": 0.7})[0] > share
+    s = {"enemySkillTime": 0.7, "Life": 5000, "AilmentThreshold": 2500, "FireTakenHit": 3000}
+    share, how = bosses.self_ignite_uptime(s)  # (read at benefit_skill_time: 2.25 s for the Arbiter)
+    assert 0 < share < 1 and "Ignited" in how and "0.44 landed hits/s" in how
+    assert bosses.self_ignite_uptime({**s, "enemySkillTime": 0.35})[0] > share
     assert bosses.self_ignite_uptime({**s, "IgniteAvoidChance": 100})[0] == 0
     assert bosses.self_ignite_uptime({**s, "_boss": "Zarokh, the Temporal"})[0] == 0

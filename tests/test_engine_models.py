@@ -1341,10 +1341,14 @@ def test_the_boss_is_scored_with_its_own_resistances_not_pob_s_50(engine):
     assert {k: config[k] for k in bosses.config_vars()} == bosses.config_vars()
     at_ash = build.call("stats", fields=FIELDS)["CombinedDPS"]
     assert at_50 > 0 and 1.5 < at_ash / at_50 <= 2.31
-    # MECHD4: the preset's hit cadence reaches PoB's enemySkillTime (2.25 s for the Arbiter, not the placeholder 0.7 s;
-    # the same boss Slow on both)
+    # MECHD4: the preset's defence cadence reaches PoB's enemySkillTime (the Arbiter: PoB's 0.7 s, faster than its upper
+    # bound on hits; the Bodach 0.6 s; the same boss Slow on all)
     ash_time = build.call("stats", fields=["enemySkillTime"])["enemySkillTime"]
-    assert pob_time > 0 and ash_time / pob_time == pytest.approx(2250 / 700, rel=1e-3)
+    assert pob_time > 0 and ash_time == pytest.approx(pob_time, rel=1e-3)
+    build.call("resetConfig", boss=bosses.config_vars("The Bodach"))
+    bodach_time = build.call("stats", fields=["enemySkillTime"])["enemySkillTime"]
+    assert bodach_time / pob_time == pytest.approx(600 / 700, rel=1e-3)
+    build.call("resetConfig")
     # MECHD4: the boss's Culling threshold reaches PoB's game constant (5% x Life / (Life + ES)); every reset puts the
     # preset's back (the Arbiter has no ES: PoB's 5)
     def cull():

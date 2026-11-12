@@ -2040,7 +2040,7 @@ end
 -- poe2db 12 Nov 2026, game 0.5.5), not PoB's Pinnacle placeholder 50/50/50/0. Must equal
 -- bosses.config_vars(bosses.DEFAULT) (tests/test_models.py checks it).
 local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = -15, enemyLightningResist = 0, enemyChaosResist = 0,
-	enemySpeed = 2250, cullingStrikeUniqueThreshold = 5 }
+	enemySpeed = 700, cullingStrikeUniqueThreshold = 5 }
 -- PoB's own Unique Culling Strike threshold (Data/Misc.lua: 5%). The boss's `cullingStrikeUniqueThreshold` (MECHD4,
 -- bosses.cull_threshold: 5% x Life / (Life + Energy Shield), so CullMultiplier is the gain over the whole pool) replaces
 -- it in data.gameConstants, which CalcOffence reads (4071 / 4075); every resetConfig puts PoB's back first.

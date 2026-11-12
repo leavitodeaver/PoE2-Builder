@@ -151,10 +151,9 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
 # Every preset reads slower than PoB's 0.7 s placeholder (enemySpeed 700, ConfigOptions.lua 2279 "Enemy attack / cast
 # time in ms", no source given; the per-skill speeds in its Data/BossSkills.lua are for its ten PoE1 boss skills,
 # Shaper / Sirus / Maven / Exarch / Eater / PoE1 Atziri, checked: the file's ten keys, read only by the
-# presetBossSkills option): 1.12 s to 2.25 s. Since MECHD4 config_vars writes it into PoB's enemySpeed (ms), so
-# enemySkillTime (CalcDefence 3427: enemySpeed / (1 + the boss's Speed) / its action speed) and every model that reads it
-# use the preset's cadence (the manager's ruling, held for the user to veto). The defence floors keep reading the
-# faster placeholder: floor_skill_time().
+# presetBossSkills option): 1.12 s to 2.25 s. Counting one hit per use, this is the FEWEST hits the tables allow (AUDIT25
+# A25-7: multi-hit uses count once), so only the "when hit" benefit counts may read it (benefit_skill_time); every
+# defence / recovery reading uses HITS_EVERY or PoB's 0.7 s, whichever is faster (config_vars, the manager 12 Nov 16:50).
 HIT_EVERY: dict[str, float] = {
     "Arbiter of Ash": 2.25,  # its cooldowns overfill the time (busy x2.15), so their mix sets the rate
     "Arbiter of Divinity": 1.36,
@@ -182,20 +181,45 @@ def hit_interval(stats: dict | None = None) -> tuple[float, str]:
     return s, HIT_EVERY_BASIS.format(s=s, name=b.name)
 
 
-# The defence floors' cadence (MECHD4): PoB's 0.7 s placeholder, faster than every preset's HIT_EVERY. A floor that
-# reads the boss's damage per second (the recovery floor, objective.boss_recovery) or whether a hit landed recently must
-# not get easier to pass on the LOW per-boss cadence, so it reads enemySkillTime rescaled to this one (the boss's Slow
-# and Speed kept: the same ratio).
-FLOOR_HIT_EVERY = 0.7
+# Hits rather than uses (MECHD4; AUDIT25 A25-7): the same model with each damaging use counted as its number of hits.
+# No preset's skill carries a repeat or hit-count stat (checked: every stat on the 13 rows' GrantedEffects' stat sets
+# whose id holds number_of / repeat / hit / count / times / wave / combo / pulse / projectile / chain,
+# scratch/mechd4/multihit.py; the projectile counts are spreads, whether more than one strikes the player is the
+# player's position: each such use counts once). The tables do name the parts of combos: a use counts one hit per G* /
+# MP* effect on its row whose Id holds its core name (WingFlapComboLeft / Right / Middle: 3, ExtendoSpearCombo's dash,
+# three lacerates and spell projectiles, SlamMeteorComboPunch1-3 + MeteorImpact), else Double 2 / Triple 3. That reads
+# alternatives (Left / Right) and sub-effects that may not hit as hits: an UPPER BOUND on the hit rate (LOW;
+# scratch/mechd4/cadence_hits.py, .txt). The King: first form 1.89 s, second 1.22 s, weighted 43 / 57 by time.
+HITS_EVERY: dict[str, float] = {
+    "Arbiter of Ash": 1.10,
+    "Arbiter of Divinity": 0.72,
+    "Xesht, We That Are One": 0.91,
+    "The King in the Mists": 1.43,
+    "Zarokh, the Temporal": 0.83,
+    "The Raven Trickster": 1.51,
+    "The Bodach": 0.60,
+    "Olroth, Origin of the Fall": 1.74,
+    "The Aberration": 1.25,
+    "Vessel of Kulemak": 0.91,
+    "Atziri, the Red Queen": 0.55,
+    "Atziri, the Fell Serpent": 1.38,
+}
+POB_HIT_EVERY = 0.7  # PoB's enemySpeed placeholder, ConfigOptions.lua 2279 (no source)
 
 
-def floor_skill_time(stats: dict) -> float:
-    """enemySkillTime as the defence floors read it: the scored seconds between the boss's hits rescaled from the
-    preset's HIT_EVERY to PoB's 0.7 s placeholder (never slower than the scored figure). 0.7 when the stats have none."""
-    every = float((stats or {}).get("enemySkillTime") or 0.0)
-    if every <= 0:
-        return FLOOR_HIT_EVERY
-    return min(every, every * FLOOR_HIT_EVERY / HIT_EVERY[of(stats).name])
+def defence_hit_every(name: str | None = None) -> float:
+    """Seconds between the boss's hits for every defence / recovery reading (PoB's enemySpeed): the faster of PoB's
+    0.7 s and HITS_EVERY (the upper bound on hits), so no defence reads better on the LOW per-boss estimate."""
+    return min(POB_HIT_EVERY, HITS_EVERY[name or DEFAULT])
+
+
+def benefit_skill_time(stats: dict) -> float:
+    """enemySkillTime as a "when hit" BENEFIT count may read it (Rage / charges / energy / buffs gained when hit):
+    PoB's scored enemySkillTime (the defence cadence, the boss's Slow and Speed in it) rescaled to HIT_EVERY, one hit per
+    damaging use, the fewest hits the tables allow (LOW). Never faster than the scored figure. Not for defences."""
+    name = of(stats).name
+    every = float((stats or {}).get("enemySkillTime") or 0.0) or defence_hit_every(name)
+    return max(every, every * HIT_EVERY[name] / defence_hit_every(name))
 
 
 
@@ -305,11 +329,12 @@ def cull_threshold(name: str = DEFAULT) -> float:
 
 def config_vars(name: str = DEFAULT) -> dict[str, float]:
     """PoB config inputs that set the boss's resistances, its hit cadence and its Culling threshold (bridge resetConfig's
-    `boss` argument): enemySpeed is HIT_EVERY in ms (LOW; PoB's placeholder 700 has no source; MECHD4);
+    `boss` argument): enemySpeed is defence_hit_every in ms (700, PoB's, unless the upper bound on hits is faster: the
+    Bodach 600, Atziri the Red Queen 550; MECHD4);
     cullingStrikeUniqueThreshold isn't a PoB config input: the bridge writes it into PoB's game constant (MECHD4)."""
     b = PRESETS[name]
     return {"enemyFireResist": b.fire, "enemyColdResist": b.cold, "enemyLightningResist": b.lightning,
-            "enemyChaosResist": b.chaos, "enemySpeed": round(HIT_EVERY[name] * 1000),
+            "enemyChaosResist": b.chaos, "enemySpeed": round(defence_hit_every(name) * 1000),
             "cullingStrikeUniqueThreshold": cull_threshold(name)}
 
 
@@ -326,7 +351,8 @@ def note(name: str = DEFAULT) -> dict:
                      f"them. Life {b.life:,} at level 82; Monster Category {category}; stun threshold {b.poise}% "
                      f"(PoB's buildup x{threshold_scale({'_boss': name}):.2f}); Heavy Stun {b.heavy_stun_s:g} s; "
                      f"Energy Shield {1 / life_share_of_pool(name) - 1:.1%} of Life (MEDIUM-LOW), so Culling Strike "
-                     f"takes {cull_threshold(name):g}% of the pool, not 5%; one hit every {HIT_EVERY[name]:g} s (LOW); "
+                     f"takes {cull_threshold(name):g}% of the pool, not 5%; hits every {defence_hit_every(name):g} s for "
+                     f"defences, every {HIT_EVERY[name]:g} s for \"when hit\" benefits (LOW); "
                      f"add kills {kills * 60:.2f}/min ({how})" + (f"; {b.note}" if b.note else ""),
             "confidence": "MEDIUM-HIGH (recheck after the 12 Nov game update)"}
 
@@ -335,8 +361,8 @@ def note(name: str = DEFAULT) -> dict:
 # Grinning Immolation's self-Ignite. The boss Ignites you too: its landed Fire hits x MECH-C's chance per hit
 # (boss_hits.ignite_chance: Flammability from the hit's size against your Ailment Threshold, KeywordPopups Flammability,
 # MEDIUM-LOW) x (1 - your Ignite avoidance), each lasting 4 s x your SelfIgniteDuration (KeywordPopups Ignite). Taken
-# as a Poisson stream: Ignited 1 - e^(-rate x duration) of the fight. Read at the scored cadence (enemySkillTime, the
-# preset's LOW rate): the slower rate is the smaller uptime, so the "while Ignited" lines it turns on aren't raised by it.
+# as a Poisson stream: Ignited 1 - e^(-rate x duration) of the fight. A BENEFIT count (the "while Ignited" lines it
+# turns on), so it reads benefit_skill_time (one hit per use, the fewest hits): the smaller uptime.
 def self_ignite_uptime(stats: dict) -> tuple[float, str]:
     """Share of the fight the boss keeps you Ignited, and how (0 when it deals no Fire or you can't be Ignited)."""
     import math
@@ -354,6 +380,7 @@ def self_ignite_uptime(stats: dict) -> tuple[float, str]:
     avoid = min(max(num("IgniteAvoidChance"), 0.0), 100.0) / 100
     if fire <= 0 or avoid >= 1:
         return 0.0, (f"{name} deals no Fire hits" if fire <= 0 else "you can't be Ignited") + ": not Ignited by the boss"
+    stats = {**stats, "enemySkillTime": benefit_skill_time(stats)}
     land = boss_hits.landing_hits(stats)
     chance, how = boss_hits.ignite_chance(stats, land)
     seconds = boss_hits.IGNITE_SECONDS * (num("SelfIgniteDuration") / 100 if "SelfIgniteDuration" in stats else 1.0)
