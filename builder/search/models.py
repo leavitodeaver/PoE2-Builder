@@ -4046,3 +4046,75 @@ def orb_of_storms_note(main: Skill | None, stats: dict) -> list[dict]:
                       f"timer bolts per {ORB_DURATION:g} s Orb plus the recast: {without:.2f} bolts/s. Bolts fed by other "
                       "spells cast near the Orb aren't counted (an undercount when it's a side skill)",
              "confidence": "UNVERIFIED"}]
+
+
+# Danse Macabre's second skeleton (MECHB6; RESEARCH22 #133, research/danse-macabre-skeleton-use.md) -------------------------
+# The gem (GemEffects DanseMacabreSupport, PoB's copy of it): Supported Offerings "will target an additional skeletal Minion
+# when cast. If there is not an additional skeletal Minion to target, no damage or Buff effect will be granted"
+# (skill_offering_targets_an_additional_skeleton; its 30% more damage and 30% increased Buff effect). Offerings use up the
+# skeleton they target (KeywordPopups Offering; "Impale / Skewer a Skeleton on a bone spike"): with Danse Macabre each cast
+# uses 2 (MEDIUM-HIGH). PoB applies the bonus with no check. The build's skeletons: its Persistent "Skelet..." minion
+# skills' limits (other skeleton sources aren't counted: an undercount). They revive T s after the last one is used
+# (revive_seconds; KeywordPopups Reviving: the delay resets on each death), so with N skeletons an Offering kept up every
+# D s (its base spike duration, game files: Bone 8 s, Pain 6 s, Soul 6 s; duration modifiers not read, an undercount)
+# casts k = N // 2 times per wave, then waits for the revive: up k D of every max(k D, (k - 1) D + T) s. That share of the
+# Offering's damage and Buff effect counts (as less of both, MECHB6's play: cast it only when 2 skeletons are there);
+# with fewer than 2 skeletons, none. The base Offering's own single skeleton isn't checked here (PoB's, unchanged).
+OFFERING_SECONDS = {"Bone Offering": 8.0, "Pain Offering": 6.0, "Soul Offering": 6.0}
+DANSE_MACABRE = "Danse Macabre"
+
+
+def danse_macabre_model(skills: list[Skill], supports: dict[int, list[str]] | None) -> tuple[list[dict], list[dict]]:
+    """Danse Macabre's Offerings count only the share of the fight the build's skeletons let them keep up (see above)."""
+    offerings = [s for s in skills if s.name in OFFERING_SECONDS and s.group is not None
+                 and DANSE_MACABRE in (supports or {}).get(s.group, [])]
+    if not offerings:
+        return [], []
+    skeletons = [s for s in skills if s.summon and s.summon.get("persistent") and "Skelet" in s.name
+                 and not number(s.summon.get("duration"))]
+    count = int(sum(number(s.summon.get("limit")) for s in skeletons))
+    revive, how = revive_seconds(skeletons) if skeletons else (RESUMMON_SECONDS, "no skeletons")
+    mods, notes = [], []
+    for offering in offerings:
+        every = OFFERING_SECONDS[offering.name]
+        casts = count // 2
+        if casts <= 0:
+            share, why = 0.0, (f"the build has {count} skeleton{'s' if count != 1 else ''}: each cast needs 2, so no "
+                               "cast gets damage or Buff effect")
+        else:
+            cycle = max(casts * every, (casts - 1) * every + revive)
+            share = casts * every / cycle
+            why = (f"{count} skeletons ({', '.join(s.name for s in skeletons)}): {casts} cast{'s' if casts > 1 else ''} of 2 "
+                   f"each, one every {every:g} s (its base spike duration), then they revive {revive:.3g} s after the last "
+                   f"({how}): up {casts * every:g} s of every {cycle:.3g} s")
+        if share < 1:
+            mods += [raw_mod("Damage", "MORE", -100 * (1 - share), skill=offering.name),
+                     raw_mod("BuffEffect", "MORE", -100 * (1 - share), skill=offering.name)]
+        notes.append({"label": f"{offering.name} with Danse Macabre: share of the fight it gives damage and Buff effect*",
+                      "value": f"{share:.0%}",
+                      "basis": f"each cast uses 2 skeletons, and without the second it gives no damage or Buff effect (the "
+                               f"gem's text; PoB applies it without checking); {why}. Counted as less damage and Buff "
+                               "effect on the Offering (MEDIUM-HIGH that each cast uses 2; skeletons from other sources "
+                               "and duration modifiers not counted). Without Danse Macabre: one skeleton per cast, no 30%",
+                      "confidence": "MEDIUM"})
+    return mods, notes
+
+
+# Coursing Current against a lone boss (MECHB6; RESEARCH22 #129, research/coursing-current-lone-boss.md) ---------------------
+# "Sends a Chaining Lightning Projectile from the Shocked enemy towards a nearby Drenched enemy" with
+# cannot_chain_to_previous_targets and projectile_only_collide_with_wet_targets (GrantedEffectStatSets, game files): alone,
+# the Shocked boss is its previous target, so it has none (MEDIUM; poe2db has no single-target note). PoB scores it 0 too:
+# its player trigger calculation is commented out (CalcPerform.lua 3434) and a 0 s cast with no trigger rate gets Speed 0
+# (CalcOffence.lua 2708), and no model of ours gives it a rate (checked: grep of builder for Coursing Current, 12 Nov). The
+# note says why it stays 0; against adds it would hit.
+COURSING_CURRENT = "Coursing Current"
+
+
+def coursing_current_note(skills: list[Skill]) -> list[dict]:
+    if not any(s.name == COURSING_CURRENT for s in skills):
+        return []
+    return [{"label": "Coursing Current: hits on a lone boss", "value": 0,
+             "basis": "its projectile starts from the Shocked enemy and can't chain to previous targets (its stat set, game "
+                      "files): with no second Drenched enemy it has no target. PoB scores it 0 as well (its player trigger "
+                      "calculation is off). It would hit adds (not counted). In-game test held for the user",
+             "confidence": "MEDIUM"}]

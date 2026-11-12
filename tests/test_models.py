@@ -2486,3 +2486,27 @@ def test_orb_of_storms_keeps_one_bolt_per_cast_and_says_the_rate_without_a_recas
     note = models.orb_of_storms_note(Skill("Orb of Storms", spell=True), {"Speed": 2.0})[0]
     assert note["confidence"] == "UNVERIFIED" and "2.00/s" in note["value"]
     assert f"{3 / 12.5:.2f}/s" in note["value"]
+
+
+def test_danse_macabre_needs_a_second_skeleton_per_offering_cast():
+    """MECHB6 (RESEARCH22 #133): each Danse Macabre Offering uses 2 skeletons and gives nothing without the second; the
+    build's skeletons revive 12 s after the last use, so 4 skeletons keep Pain Offering (6 s) up 12 s of every 18 s."""
+    pain = Skill("Pain Offering", group=3, spell=True)
+    supports = {3: ["Danse Macabre"]}
+    one = Skill("Skeletal Warrior", group=1, summon={"limit": 1, "persistent": True, "duration": 0, "reviveBase": 12})
+    mods, notes = models.danse_macabre_model([pain, one], supports)
+    assert {m["value"] for m in mods} == {-100} and notes[0]["value"] == "0%"
+    four = replace(one, summon={"limit": 4, "persistent": True, "duration": 0, "reviveBase": 12})
+    mods, notes = models.danse_macabre_model([pain, four], supports)
+    assert notes[0]["value"] == "67%" and all(m["value"] == pytest.approx(-100 / 3, abs=0.01) for m in mods)
+    assert models.danse_macabre_model([pain, four], {3: []}) == ([], [])
+    many = replace(one, summon={"limit": 8, "persistent": True, "duration": 0, "reviveBase": 12})
+    assert models.danse_macabre_model([pain, many], supports)[1][0]["value"] == "80%"  # (each use resets the revive)
+    quick = replace(one, summon={"limit": 2, "persistent": True, "duration": 0, "reviveBase": 6})
+    mods, notes = models.danse_macabre_model([pain, quick], supports)
+    assert mods == [] and notes[0]["value"] == "100%"
+
+
+def test_coursing_current_is_noted_as_zero_on_a_lone_boss():
+    assert models.coursing_current_note([Skill("Spark")]) == []
+    assert models.coursing_current_note([Skill("Coursing Current", triggered=True)])[0]["value"] == 0
