@@ -447,12 +447,24 @@ def test_fluke_counts_the_middle_of_its_range_on_the_skills_the_meta_triggers():
     assert models.gem_stat_model([meta]) == ([], [])
 
 
-def test_alignment_is_counted_with_its_play_note():
+def test_alignment_counts_at_a_match_share_with_its_play_note():
+    # RESEARCH10 / the manager's revised ruling: one matched attack per 1.5 s (LOW) against the skill's attack rate
     stat = "support_called_shots_projectile_damage_+%_final_when_matching_direction"
-    bow = models.Skill("Lightning Arrow", group=1, attack=True, support_stats={stat: 30})
-    mods, notes = models.gem_stat_model([bow])
-    assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [("1% more Projectile Damage", 30, "Lightning Arrow")]
-    assert "direction the support indicates" in notes[0]["play"] and "Without it" in notes[0]["play"]
+    bow = models.Skill("Lightning Arrow", group=1, attack=True, support_stats={stat: 40})
+    mods, notes = models.gem_stat_model([bow], stats={"Speed": 3.0}, main=bow)
+    share = (1 / models.ALIGNMENT_MATCH_SECONDS) / 3.0
+    assert [(m["line"], m.get("skill")) for m in mods] == [("1% more Projectile Damage", "Lightning Arrow")]
+    assert mods[0]["scale"] == pytest.approx(40 * share, abs=0.01)  # ~x1.09, not x1.40
+    assert "step round the boss" in notes[0]["play"] and "Without it" in notes[0]["play"]
+    assert "UNVERIFIED" in notes[0]["basis"] and "LOW" in notes[0]["basis"]
+    # a slow attacker matches every attack it can: the share stops at 100%
+    mods, _ = models.gem_stat_model([bow], stats={"Speed": 0.5}, main=bow)
+    assert mods[0]["scale"] == pytest.approx(40)
+    # Alignment III's 4 Projectiles at the same share (an average count, as PoB counts chance-based Projectiles)
+    three = models.Skill("Lightning Arrow", group=1, attack=True,
+                         support_stats={"support_called_shots_additional_projectiles_when_matching_indicated_direction": 4})
+    mods, _ = models.gem_stat_model([three], stats={"Speed": 3.0}, main=three)
+    assert mods[0]["line"] == "Skills fire an additional Projectile" and mods[0]["scale"] == pytest.approx(4 * share, abs=0.01)
 
 
 def test_penalties_on_uncounted_parts_wait_for_the_model_that_counts_them():
@@ -477,6 +489,30 @@ def test_spectral_volley_cuts_the_attacks_own_projectiles():
     mods, notes = models.gem_stat_model([bow])
     assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [("1% more Damage", -60, "Lightning Arrow")]
     assert models.support_part_scale(bow, "spectral")[0] == {"Damage": pytest.approx(1.2)}
+
+
+def test_echo_and_aftershock_parts_wait_for_their_models():
+    # AUDIT6 A6-2 / A6-3: the Echoes and Tectonic Slams' Aftershock are written ready, and move nothing until counted
+    cry = models.Skill("Infernal Cry", group=1, support_stats={
+        "base_warcry_echo_X_times": 2, "warcry_echo_area_of_effect_+%_final_per_repeat": 100,
+        "warcry_echo_delay_ms_from_support": 1300})
+    assert models.gem_stat_model([cry]) == ([], [])
+    scale, notes = models.support_part_scale(cry, "warcry_echo")
+    assert scale == {"WarcryEchoes": 2, "EchoAreaMorePercentPerEcho": 100, "WarcryEchoDelayMs": 1300}
+    assert len(notes) == 3 and notes[0]["value"].startswith("2 (WarcryEchoes)")
+    slam = models.Skill("Boneshatter", group=1, attack=True, support_stats={
+        "number_of_dual_cascade_aftershocks": 1, "aftershock_damage_+%_final_from_support_dual_cascade_aftershocks": -45,
+        "aftershock_area_of_effect_+%_final_from_support_dual_cascade_aftershocks": -30})
+    assert models.support_part_scale(slam, "tectonic_aftershock")[0] == {
+        "TectonicAftershocks": 1, "Damage": pytest.approx(0.55), "Area of Effect": pytest.approx(0.7)}
+
+
+def test_slow_potency_counts_as_chill_magnitude_on_its_skill():
+    spark = models.Skill("Frostbolt", group=1, spell=True, support_stats={"base_debuff_slow_magnitude_+%": 15})
+    mods, notes = models.gem_stat_model([spark])
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [
+        ("1% increased Magnitude of Chill you inflict", 15, "Frostbolt")]
+    assert notes[0]["entry"] == "support-slow-potency-chill"
 
 
 def test_support_entries_list_every_stat_their_match_takes():

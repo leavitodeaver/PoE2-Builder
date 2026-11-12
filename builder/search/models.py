@@ -1892,7 +1892,8 @@ def _skill_names(entry) -> list[str]:
     return [names] if isinstance(names, str) else list(names)
 
 
-def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats: dict | None = None) -> tuple[list[dict], list[dict]]:
+def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats: dict | None = None,
+                   main: Skill | None = None) -> tuple[list[dict], list[dict]]:
     from builder.ledger import SYNTAX, gem_stat_entries
 
     mods: list[dict] = []
@@ -1930,6 +1931,9 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 fn, args = UPTIME_INPUTS[entry.raw["uptime"]](skill)
                 if values:
                     mods.append(derived(uptime, fn, factor * UNIT, **args))
+            elif entry.raw.get("share") in SHARES:  # a share of the skill's uses, from the build's own output (SHARES)
+                factor, why, play = SHARES[entry.raw["share"]](skill, stats or {}, main)
+                why = f"; {why}"
             else:
                 why = ""
             for stat, value in sorted(values.items()):
@@ -1974,12 +1978,17 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
 # puts the notes it returns in the build's notes.
 PARTS = {"cascade": "Spell Cascade's Cascades", "offering": "spells cast around Offerings (Kulemak's Dominion)",
          "mimic": "spells cast by Fractured Mimics (Trickster's Shard)",
-         "spectral": "Spectral Volley's Spectral Projectiles"}
+         "spectral": "Spectral Volley's Spectral Projectiles",
+         "warcry_echo": "the Warcry's Echoes (Echoing Cry)",
+         "tectonic_aftershock": "Tectonic Slams' extra Aftershock"}
 
 
 def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[dict]]:
     """Multipliers the supports on `skill` put on one uncounted part of what it does, keyed by the modifier the entry's
     line names ("Damage", "Area of Effect"), for the model that counts that part; and the notes saying so.
+    A `mult:Name` line (COVE5; the ledger's model-input syntax, which PoB never parses) gives key Name as the stat's
+    value summed, not a multiplier: a count, a time or a per-repeat % (WarcryEchoes 2; EchoAreaMorePercentPerEcho 100,
+    so Echo n gets 1 + n x 100% more Area).
     `skill` is the skill the support is on: the spell for Spell Cascade and Trickster's Shard, the Offering for Kulemak's
     Dominion (its penalty is on the spells you cast around the Offering, and the support sits in the Offering's effect list, not theirs)."""
     from builder.ledger import gem_stat_entries
@@ -1993,17 +2002,52 @@ def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[
             value = number(raw)
             if not value or entry.pattern is None or not entry.pattern.search(stat):
                 continue
+            unit = "%"
             for text in entry.replace:
-                m = re.match(r"1% more (.+)$", text)
-                if not m:
-                    continue
-                scale[m.group(1)] = scale.get(m.group(1), 1.0) * max(0.0, 1 + value / 100)
-            notes.append({"label": entry.title, "value": f"{value:g}% on {PARTS.get(part, part)}",
+                if m := re.match(r"mult:(\w+)\s*(.*)$", text):  # (a count, time or per-repeat %: summed as it is)
+                    scale[m.group(1)] = scale.get(m.group(1), 0.0) + value * (float(m.group(2) or 1))
+                    unit = f" ({m.group(1)})"
+                elif m := re.match(r"1% more (.+)$", text):
+                    scale[m.group(1)] = scale.get(m.group(1), 1.0) * max(0.0, 1 + value / 100)
+            notes.append({"label": entry.title, "value": f"{value:g}{unit} on {PARTS.get(part, part)}",
                           "basis": f"PoB never reads the support stat {stat} ({value:g}) of {' / '.join(_skill_names(entry))} on "
                                    f"{skill.name}; counted on {PARTS.get(part, part)} only"
                                    + (f". {entry.notes.strip()}" if entry.notes else ""),
                           "confidence": entry.confidence, "entry": entry.id})
     return scale, notes
+
+
+# `share: <name>` (COVE5): the entry's lines count at a share of the skill's uses the build works out (SHARES), not on
+# every use. Worked out once per resolve from the build's own output (a what-if that changes attack speed shows from the
+# next resolve, not at once).
+# Alignment I/II/III (RESEARCH10, the manager's revised ruling 12 Nov 2026 ~09:52): the support shows one of four
+# directions and changes it each time an attack matches it (within called_shot_angle_allowance_degs 40). Against one boss
+# the boss must lie in the shown direction, so after each match the player moves round the boss before the next attack
+# can match: matched attacks per second are at most one per (the hidden called_shot_aiming_delay_ms 1000, meaning
+# UNVERIFIED + the reposition time). ALIGNMENT_MATCH_SECONDS is that interval: a flat LOW number (the game and the
+# boss's movement decide it; no data gives it; RESEARCH10's ~1.5 s), named in the report for the manager to ask about.
+ALIGNMENT_MATCH_SECONDS = 1.5
+
+
+def alignment_match_share(skill: Skill, stats: dict, main: Skill | None = None) -> tuple[float, str, str]:
+    is_main = main is not None and main.name == skill.name and main.group == skill.group
+    rate = number(stats.get("Speed")) if is_main else (1 / skill.cast_time if skill.cast_time else 0.0)
+    where = "the skill's attack rate" if is_main else ("its base attack rate (not the main skill)" if rate else "")
+    if rate <= 0:
+        rate, where = 1.0, "attack rate unknown, taken as 1 attack/s"
+    matches = 1 / ALIGNMENT_MATCH_SECONDS
+    share = min(1.0, matches / rate)
+    why = (f"matched share {share:.0%}: at most one matched attack per {ALIGNMENT_MATCH_SECONDS:g} s (the 1 s hidden aiming "
+           f"delay, meaning UNVERIFIED, plus stepping round the boss to the next direction; LOW) against {rate:.2f} attacks/s "
+           f"({where})")
+    play = (f"After each matched attack, step round the boss so it lies in the next indicated direction (four directions, "
+            f"40 degrees' allowance); the headline counts {share:.0%} of attacks matched (one per "
+            f"{ALIGNMENT_MATCH_SECONDS:g} s, LOW). Without it (standing still) only the first attack matches: the bonus is ~0. "
+            f"Every attack matched (not reachable against one boss at {rate:.2f} attacks/s) would give the full bonus.")
+    return share, why, play
+
+
+SHARES = {"alignment": alignment_match_share}
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

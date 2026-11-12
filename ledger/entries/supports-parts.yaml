@@ -86,3 +86,108 @@
   sources: ["SupportSpectralVolleyPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Spectral_Volley"]
   test_in_game: "Attack a dummy 5 times, stop for 3 s: each Spectral Projectile's hit against the unsupported attack's (1.2x)."
   status: proposed
+
+# COVE5 (12 Nov 2026, AUDIT6 A6-2 / A6-3): parts written ready for MECH-B's Warcry Echo and summed Aftershock models.
+# Values from GrantedEffectStatSets SupportEchoingCryPlayer and SupportSlamAftershocksPlayer (build 26476662). Checked that
+# neither part is counted: grep -i of echo and aftershock in builder/search/*.py, engine/bridge.lua and PoB Modules/Calc*.lua
+# (12 Nov 2026: master's repeat_echo_model is for Spells only; PoB maps only slam_aftershock_chance_%; RULE_AUDIT A6-29).
+
+- id: support-echoing-cry-echoes
+  title: Echoing Cry, the supported Warcry Echoes 2 times
+  kind: gem_stat
+  support: true
+  to: part:warcry_echo
+  skill: Echoing Cry
+  support_stats: ['base_warcry_echo_X_times']
+  match: '^base_warcry_echo_X_times$'
+  replace: ['mult:WarcryEchoes 1']
+  confidence: datamined
+  notes: >-
+    "Supported Warcries Echo 2 times" (constant 2 on SupportEchoingCryPlayer; an Echo hits "the same targeted location again
+    after a delay", KeywordPopups Cascadable / Echo). Each Echo carries the support's 40% less Damage and 50% less Area
+    (supports-translated.yaml support-echoing-cry-penalties / -area, counted on the Warcry itself). Whether each Echo
+    hits the boss (it repeats at the first use's location, 1.3 s later) is MECH-B's call (UNVERIFIED).
+  sources: ["SupportEchoingCryPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Echoing_Cry"]
+  status: proposed
+
+- id: support-echoing-cry-echo-area
+  title: Echoing Cry, the Warcry's Echoes have 100% more Area of Effect per time they have Echoed
+  kind: gem_stat
+  support: true
+  to: part:warcry_echo
+  skill: Echoing Cry
+  support_stats: ['warcry_echo_area_of_effect_+%_final_per_repeat']
+  match: '^warcry_echo_area_of_effect_\+%_final_per_repeat$'
+  replace: ['mult:EchoAreaMorePercentPerEcho 1']
+  confidence: datamined
+  notes: >-
+    "100% more Area of Effect per time they have Echoed" (constant 100): read here as Echo n getting 1 + n x 100% (x2, then
+    x3), on top of the support's 50% less Area (so 1.0x, then 1.5x the unsupported Warcry's area). That the per-time
+    "more" adds up rather than multiplies (x2, x4) is the usual reading of "per" stacks (UNVERIFIED for this stat).
+  sources: ["SupportEchoingCryPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Echoing_Cry"]
+  status: proposed
+
+- id: support-echoing-cry-echo-delay
+  title: Echoing Cry, 1.3 seconds between the Warcry and each Echo
+  kind: gem_stat
+  support: true
+  to: part:warcry_echo
+  skill: Echoing Cry
+  support_stats: ['warcry_echo_delay_ms_from_support']
+  match: '^warcry_echo_delay_ms_from_support$'
+  replace: ['mult:WarcryEchoDelayMs 1']
+  confidence: datamined
+  notes: >-
+    "with a 1.3 second delay" (warcry_echo_delay_ms_from_support 1300). For the Echo model: the boss must still be at the
+    location after the delay, and a Warcry used again before its Echoes end (UNVERIFIED whether a new use cancels them).
+  sources: ["SupportEchoingCryPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Echoing_Cry"]
+  status: proposed
+
+- id: support-tectonic-slams-aftershock
+  title: Tectonic Slams, 1 extra Aftershock with 45% less Damage and 30% less Area of Effect
+  kind: gem_stat
+  support: true
+  to: part:tectonic_aftershock
+  skill: Tectonic Slams
+  support_stats: ['number_of_dual_cascade_aftershocks']
+  match: '^number_of_dual_cascade_aftershocks$'
+  replace: ['mult:TectonicAftershocks 1']
+  confidence: datamined
+  notes: >-
+    number_of_dual_cascade_aftershocks 1 on SupportSlamAftershocksPlayer: the supported Slam makes an extra Aftershock
+    ("behind the Slam" in PoB's description of the gem). No game text says whether it reaches a boss in front of you
+    (UNVERIFIED, RULE_AUDIT A6-3: for RESEARCH or an in-game test). If it hits, the Slam is worth about 0.85 x (1 + 0.55) =
+    1.32x; if not, the 15% less Attack Speed (support-tectonic-slams-attack-speed) is the whole effect.
+  sources: ["SupportSlamAftershocksPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tectonic_Slams"]
+  status: proposed
+
+- id: support-tectonic-slams-aftershock-damage
+  title: Tectonic Slams, 45% less Damage on its Aftershock
+  kind: gem_stat
+  support: true
+  to: part:tectonic_aftershock
+  skill: Tectonic Slams
+  support_stats: ['aftershock_damage_+%_final_from_support_dual_cascade_aftershocks']
+  match: '^aftershock_damage_\+%_final_from_support_dual_cascade_aftershocks$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  notes: >-
+    Constant -45 on SupportSlamAftershocksPlayer; the stat's name ties it to the support's own Aftershocks
+    ("from_support_dual_cascade_aftershocks"), so it is kept to them, not to other Aftershocks of the Slam (UNVERIFIED
+    beyond the name).
+  sources: ["SupportSlamAftershocksPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tectonic_Slams"]
+  status: proposed
+
+- id: support-tectonic-slams-aftershock-area
+  title: Tectonic Slams, 30% less Area of Effect on its Aftershock
+  kind: gem_stat
+  support: true
+  to: part:tectonic_aftershock
+  skill: Tectonic Slams
+  support_stats: ['aftershock_area_of_effect_+%_final_from_support_dual_cascade_aftershocks']
+  match: '^aftershock_area_of_effect_\+%_final_from_support_dual_cascade_aftershocks$'
+  replace: ['1% more Area of Effect']
+  confidence: datamined
+  notes: Constant -30 on SupportSlamAftershocksPlayer, kept to the support's own Aftershocks as the damage one.
+  sources: ["SupportSlamAftershocksPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tectonic_Slams"]
+  status: proposed

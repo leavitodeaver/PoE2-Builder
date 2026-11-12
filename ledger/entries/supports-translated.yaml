@@ -4,7 +4,7 @@
 # skill (PoB's SkillName tag). Values are the game files' (GrantedEffectStatSets, build 26476662).
 
 - id: support-tectonic-slams-attack-speed
-  title: Tectonic Slams, 15% less Attack Speed on the supported Slam
+  title: Tectonic Slams, 15% less Attack Speed on the supported Slam (penalty only; its extra Aftershock not counted, UNVERIFIED whether it hits the boss)
   kind: gem_stat
   support: true
   skill: Tectonic Slams
@@ -14,10 +14,13 @@
   confidence: datamined
   notes: >-
     "Supported Skills have 15% less Attack Speed" (gem_stat_descriptions; constant -15 on SupportSlamAftershocksPlayer).
-    PoB's skill data maps none of the support's four stats, so a Slam with it was rated 15% too fast (an overcount).
-    The support's Aftershock damage (-45%) and area (-30%) act only on its extra Aftershocks, which neither PoB nor the
-    tool counts yet (checked: grep -i aftershock in PoB Modules/Calc*.lua, builder/search/*.py, engine/bridge.lua, 12 Nov
-    2026: none), so they stay open for MECH-B.
+    PoB's skill data maps none of the support's four stats, so a Slam with it was rated 15% too fast. Penalty only: the
+    support's extra Aftershock (number_of_dual_cascade_aftershocks 1, at 45% less damage and 30% less area) isn't counted
+    by PoB or the tool (checked: grep -i aftershock in PoB Modules/Calc*.lua, builder/search/*.py, engine/bridge.lua, 12
+    Nov 2026: none; RULE_AUDIT A6-3, A6-29), so the net direction is UNVERIFIED: if that Aftershock hits a boss in front
+    of you the support is worth about 0.85 x 1.55 = 1.32x and the tool's 0.85x is an undercount; if it doesn't, 0.85x is
+    right. The Aftershock is written ready for MECH-B's summed Aftershock model in supports-parts.yaml
+    (support-tectonic-slams-aftershock*, part tectonic_aftershock).
   sources: ["SupportSlamAftershocksPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tectonic_Slams"]
   test_in_game: "Compare a Slam's attack time on the gem tooltip with and without Tectonic Slams: 1/0.85 = 1.18x as long."
   status: proposed
@@ -43,7 +46,7 @@
   status: proposed
 
 - id: support-echoing-cry-penalties
-  title: Echoing Cry, 40% less Damage on the supported Warcry
+  title: Echoing Cry, 40% less Damage on the supported Warcry (penalty only; its Echoes and movement requirement not counted, net direction UNVERIFIED)
   kind: gem_stat
   support: true
   skill: Echoing Cry
@@ -53,17 +56,22 @@
   confidence: datamined
   notes: >-
     "Supported Skills deal 40% less Damage" (constant -40 on SupportEchoingCryPlayer; PoB maps none of the support's
-    stats, so a Warcry with it was rated at full damage: an overcount). Its "50% less Area of Effect" is the same kind of
+    stats, so a Warcry with it was rated at full damage). Penalty only (RULE_AUDIT A6-2): with the Echoes uncounted a
+    damaging Warcry with the support scores 0.6x, while the game gives up to 3 x 0.6 = 1.8x if each Echo hits the boss
+    (an undercount, if they hit); the "travel a distance before use" requirement (skill_unusable_until_moved_X_distance
+    100, units UNVERIFIED) isn't read either (an overcount of the use rate; COV-C's usage.py). Net direction UNVERIFIED. The Echoes are
+    written ready for MECH-B in supports-parts.yaml (support-echoing-cry-echo*, part warcry_echo). Its "50% less Area of Effect" is the same kind of
     line but needs its own text, so it has the next entry. The two Echoes ("Echo 2 times, with a 1.3 second delay"),
     their "100% more area of effect per time they have Echoed" and "count enemies as having 50% less Power" stay open:
     the tool doesn't count Warcry Echoes yet (checked: grep -i echo in builder/search/*.py, engine/bridge.lua and PoB
-    Modules/Calc*.lua, 12 Nov 2026: none; MECH-B) or the Power change (MECH-C).
+    Modules/Calc*.lua, 12 Nov 2026: none for Warcries; master's repeat_echo_model is for Spells only; MECH-B) or the
+    Power change (MECH-C).
   sources: ["SupportEchoingCryPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Echoing_Cry"]
   test_in_game: "Compare a damaging Warcry's tooltip damage with and without Echoing Cry: 0.6x."
   status: proposed
 
 - id: support-echoing-cry-area
-  title: Echoing Cry, 50% less Area of Effect on the supported Warcry
+  title: Echoing Cry, 50% less Area of Effect on the supported Warcry (penalty only; its Echoes not counted)
   kind: gem_stat
   support: true
   skill: Echoing Cry
@@ -144,49 +152,50 @@
   status: proposed
 
 - id: support-alignment-damage
-  title: Alignment I/II, 30% / 40% more Projectile Damage when attacking in the indicated direction (a way to play it)
+  title: Alignment I/II, 30% / 40% more Projectile Damage on attacks matching the indicated direction (at a match share, LOW)
   kind: gem_stat
   support: true
   skill: [Alignment I, Alignment II]
   support_stats: ['support_called_shots_projectile_damage_+%_final_when_matching_direction']
   match: '^support_called_shots_projectile_damage_\+%_final_when_matching_direction$'
   replace: ['1% more Projectile Damage']
+  share: alignment
   confidence: theory
-  play: >-
-    Attack in the direction the support indicates: it shows one of four directions and changes it each time an attack
-    matches, so turn to each new direction as it shows (stepping around the boss). Without it, the supported skill's
-    Projectile Damage is 1/1.30 (Alignment I) or 1/1.40 (Alignment II) of the headline's: 23% or 29% less from that skill.
   notes: >-
     "Supported Skills deal 30% more Projectile Damage when Attacking in indicated direction" (40% on Alignment II;
     constants on SupportAlignmentPlayer / PlayerTwo; PoB maps none of the support's stats: checked, grep of called_shot in
-    PoB Modules/*.lua and SkillStatMap.lua, 12 Nov 2026: none). The player picks the direction, so under the manager's
-    ruling (12 Nov 2026) it is a play-strategy condition counted on every attack in the headline, with its without-it
-    figure in the play note. Open (UNVERIFIED): the hidden called_shot_aiming_delay_ms 1000 (poe2db lists it, with no
-    wording) may mean a new direction shows only 1 s after a match, which would cap matched attacks at about one a second:
-    an overcount for a build attacking faster, if so (for RESEARCH).
+    PoB Modules/*.lua and SkillStatMap.lua, 12 Nov 2026: none). "Supported Skills indicate one of four directions, changing
+    indicated direction when an Attack with Supported Skill matches that direction" (40 degrees' allowance,
+    called_shot_angle_allowance_degs). Against one boss each match moves the direction off the boss, so the player steps
+    round it before the next match (RESEARCH10; the manager's revised ruling, 12 Nov 2026 ~09:52, replacing COVE3's
+    count on every attack, an overcount). Counted at the matched share of attacks: one match per 1.5 s (the hidden
+    called_shot_aiming_delay_ms 1000, meaning UNVERIFIED, plus the reposition; LOW, models.ALIGNMENT_MATCH_SECONDS)
+    against the skill's attack rate: Alignment II at 3 attacks/s is x1.09, not x1.40. Rests on the four directions being
+    fixed on screen, the gem text's natural reading (UNVERIFIED; if they turned with the character every attack would
+    match).
   sources: ["SupportAlignmentPlayer, SupportAlignmentPlayerTwo, GrantedEffectStatSets (build 26476662)",
-            "https://poe2db.tw/us/Alignment_I"]
-  test_in_game: "Shoot a dummy in the indicated direction and outside it: 1.30x (I) or 1.40x (II) per hit."
+            "https://poe2db.tw/us/Alignment_I", "scratch/manager/research/alignment-aiming-delay.md (RESEARCH10)"]
+  test_in_game: "Attack a dummy as fast as possible in the indicated direction: does the next direction show at once or after ~1 s? Then circle a target and count matched hits per 10 s (open #56)."
   status: proposed
 
 - id: support-alignment-projectiles
-  title: Alignment III, 4 additional Projectiles when attacking in the indicated direction (a way to play it)
+  title: Alignment III, 4 additional Projectiles on attacks matching the indicated direction (at a match share, LOW)
   kind: gem_stat
   support: true
   skill: Alignment III
   support_stats: ['support_called_shots_additional_projectiles_when_matching_indicated_direction']
   match: '^support_called_shots_additional_projectiles_when_matching_indicated_direction$'
   replace: ['Skills fire an additional Projectile']
+  share: alignment
   confidence: theory
-  play: >-
-    Attack in the direction the support indicates, turning to each new one as it shows. Without it the supported skill
-    fires 4 fewer Projectiles; what they add depends on how many of them hit the boss (PoB's own projectile rules).
   notes: >-
     "Supported Skills fire 4 additional Projectiles when Attacking in indicated direction" (constant 4 on
-    SupportAlignmentPlayerThree; PoB maps none). Counted on every attack under the same ruling as support-alignment-damage
-    (with its open question on the 1 s aiming delay). Extra Projectiles are counted the way PoB counts any other
-    "additional Projectiles" line on the skill (MECH-B owns how many hit a single boss).
-  sources: ["SupportAlignmentPlayerThree, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Alignment_I"]
+    SupportAlignmentPlayerThree; PoB maps none). Counted at the matched share of attacks, as support-alignment-damage
+    (RESEARCH10: ~0.9 extra Projectiles per attack at 3 attacks/s, not 4), as an average Projectile count (PoB counts
+    chance-based extra Projectiles the same way, CalcOffence.lua 1451). How many of them hit a single boss is PoB's own
+    projectile rules (MECH-B owns it).
+  sources: ["SupportAlignmentPlayerThree, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Alignment_I",
+            "scratch/manager/research/alignment-aiming-delay.md (RESEARCH10)"]
   status: proposed
 
 - id: support-spectral-volley-own-projectiles
@@ -210,4 +219,30 @@
     support is now a loss until MECH-B counts them (supports-parts.yaml support-spectral-volley-spectral-damage).
   sources: ["SupportSpectralVolleyPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Spectral_Volley"]
   test_in_game: "Compare a supported attack's tooltip damage with and without Spectral Volley: 0.4x."
+  status: proposed
+
+# COVE5 (12 Nov 2026, AUDIT6 A6-1): the Slow Potency support's Slow Magnitude, counted on Chill as COV-B's
+# passives-slow-magnitude-chill counts the same stat on the tree.
+
+- id: support-slow-potency-chill
+  title: Slow Potency, 15% increased Slow Magnitude on the supported skill's Debuffs (counted on its Chill)
+  kind: gem_stat
+  support: true
+  skill: Slow Potency
+  support_stats: ['base_debuff_slow_magnitude_+%']
+  match: '^base_debuff_slow_magnitude_\+%$'
+  replace: ['1% increased Magnitude of Chill you inflict']
+  confidence: theory
+  notes: >-
+    base_debuff_slow_magnitude_+% 15 (constant on SupportSlowPotencyPlayer; PoB's skill data maps none of it: checked,
+    sup_dex.lua SupportSlowPotencyPlayer has no statMap and SkillStatMap.lua has no base_debuff_slow_magnitude, 12 Nov
+    2026). KeywordPopups SlowMagnitudeModifier: "applies to Debuffs you inflict that Slow enemies, and scales only the
+    specific Magnitude that slows the target"; Chill is "an Ailment that Slows the afflicted target" (KeywordPopups
+    Chill), so on the supported skill's Chill it is increased Chill magnitude, which PoB reads per skill
+    (EnemyChillMagnitude in CalcOffence.lua 5687 and CalcPerform.lua 1340) up to Chill's 50% maximum. The same reading
+    as passives-slow-magnitude-chill (COV-B) and RULE_AUDIT A6-1. The line is tagged to the supported skill only. Not
+    counted: harder Slows from Hinder, Maim or Temporal Chains (PoB models no Slow magnitude for them; the tool's hit-rate
+    models read none: UNVERIFIED, as the passives entry). Assumption: Slow Magnitude doesn't raise Chill's maximum.
+  sources: ["SupportSlowPotencyPlayer, GrantedEffectStatSets (build 26476662)", "KeywordPopups SlowMagnitudeModifier, Chill"]
+  test_in_game: "Chill a dummy with a fixed cold hit, with and without Slow Potency on the skill: the Chill's slow rises 15% (until 50%)."
   status: proposed
