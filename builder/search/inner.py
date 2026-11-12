@@ -56,6 +56,14 @@ GEAR_SHARE = 0.4
 # (half of a 235 s focus task on 2b75b) and no task got past one pass (M0: passes_done 0 in all 15 tasks of POE2T730).
 # POE2_SEARCH_M1=0 turns it off for an A/B run
 PERSIST_LINES = os.environ.get("POE2_SEARCH_M1", "1") != "0"
+# M2 (SEARCH_PLAN.md, method C): once per line, from the line's second pass on (its gear swept once), the passive tree is
+# cleared (required passives stay) and regrown against the gear and supports it has now; kept only if the build scores
+# higher. Why: the tree grows into its free points in the line's first pass, when the gear is half-chosen (2b75b: 1-86K
+# DPS), and stayed frozen after that (tree time 0 s in 103 of 105 round-3 tasks, SEARCH_PLAN.md §2.2).
+# POE2_SEARCH_M2=0 turns it off for an A/B run
+TREE_REBUILD = os.environ.get("POE2_SEARCH_M2", "1") != "0"
+TREE_REBUILD_MIN = 60.0  # seconds a task must have left to try it (a rebuild cut short only loses; finalize never has it)
+TREE_REBUILD_SHARE = 0.4  # of the task's time left that the regrow may take
 FINALIZE_SWEEP_MIN = 20.0  # finalize's polish sweeps supports on Full DPS first when it has this long (finalize_task)
 # How far past its deadline a search may run before its build stops it at the next evaluation (Build.stop_at): a share
 # of the task's time, at least STOP_GRACE_MIN seconds, so a step that watches the deadline itself finishes normally
@@ -141,6 +149,7 @@ class Search:
         self.line_passes = 0
         self.resume_step: str | None = None
         self.resume_sweep = False
+        self.tree_rebuilt = False  # M2: the line's tree rebuild was tried (carried in the line's state)
         self.current_step: str | None = None
         self.kick_kinds: dict[str, int] = {}
         self.kicked: set[str] = set()  # blocks a kick disturbed, swept fully on the next pass
@@ -361,7 +370,8 @@ class Search:
             "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
             "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
-                     "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt} if PERSIST_LINES else None,
+                     "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt,
+                     "tree_rebuilt": self.tree_rebuilt} if PERSIST_LINES else None,
         }
 
     # The objective's per-build factors (not its requirement weights: an escalation raises those for the rest of the
@@ -421,6 +431,7 @@ class Search:
             self.line_passes, self.resume_step, self.resume_sweep = line["passes"], line["step"], line["sweep"]
             self.kicked.update(line.get("kicked") or [])
             self.gems.rebuilt = bool(line.get("rebuilt"))  # (the support rebuild: once per line, SEARCH_PLAN.md §6)
+            self.tree_rebuilt = bool(line.get("tree_rebuilt"))
         self.gear.sync_flasks()
 
     def settle(self) -> bool:
@@ -704,6 +715,7 @@ class Search:
             # swept before it scored all alike; a line's one pass of focus round 1 then ended support-less, POE2T220)
             ("ascendancy", self.tree.ascendancy_round, ()),
             ("supports", self.gems.optimize_supports, (deadline, 12, sweep or "supports" in self.kicked)),
+            ("tree rebuild", self.tree_rebuild, (deadline,)),
             ("tree", self.tree.grow, (deadline,)),
             ("attributes", self.tree.attributes_round, ()),
             ("jewels", self.jewels.jewel_round, (deadline, sweep or "gear" in self.kicked)),
@@ -740,6 +752,26 @@ class Search:
         self.kicked.clear()
         self.passes_done += finished
         return improved
+
+    def tree_rebuild(self, deadline: float) -> bool:
+        """M2: once per line, from its second pass, clear the tree and regrow it against the build as it is now (the
+        move Search.run makes at its second escalation); kept only if the build scores higher, else put back."""
+        now = clock.now()
+        if not TREE_REBUILD or self.tree_rebuilt or self.line_passes < 2 or deadline - now < TREE_REBUILD_MIN:
+            return False
+        self.tree_rebuilt = True
+        build = self.build
+        snap, before = build.snapshot(), build.score
+        self.tree.reset()
+        self.tree.grow(min(deadline, now + TREE_REBUILD_SHARE * (deadline - now)))
+        self.tree.attributes_round()
+        self.resolve()  # (a cleared passive may have been a condition's source)
+        if build.score > before + EPSILON:
+            return True
+        build.restore(snap)
+        self.tree.candidates.clear()  # (what-ifs ranked on the cleared tree)
+        self.tree.round += 1
+        return False
 
     def weapon_set_round(self) -> None:
         """Which skill groups weapon set 2 uses. Each other active group is tried on set 2 alone (PoB
@@ -1119,6 +1151,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     search = Search(engine, report, payload, skeleton, 1, full=True)
     search.load(state)
     search.resume_step, search.line_passes = None, 0  # (its polish starts a sweep pass, as before M1)
+    search.tree_rebuilt = True  # (M2: no tree rebuild in finalize's short polish)
     build = search.build
     build.phase = "finalize"
     # The score after each finalize step (ln DPS-like), in the result: 2b75e's delivered build has come out 8-17% under

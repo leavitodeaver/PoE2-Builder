@@ -1595,17 +1595,63 @@ def test_a_line_goes_on_with_its_pass_in_its_next_task(monkeypatch):
     search = SimpleNamespace(passes=0, passes_done=0, line_passes=0, resume_step=None, resume_sweep=False,
                              current_step=None, kicked=set(), build=SimpleNamespace(equipped={}),
                              gear=blocks, tree=blocks, gems=blocks, jewels=blocks, sources=blocks,
-                             conditions_round=fake, weapon_set_round=fake, skeleton=SimpleNamespace(swap=False), step=step)
+                             conditions_round=fake, weapon_set_round=fake, tree_rebuild=fake,
+                             skeleton=SimpleNamespace(swap=False), step=step)
     inner.Search.blocks(search, deadline=25.0)  # gear, ascendancy, supports, then the deadline
     assert [p for p, _ in ran] == ["gear", "ascendancy", "supports"]
-    assert search.resume_step == "tree" and search.resume_sweep and search.passes_done == 0
+    assert search.resume_step == "tree rebuild" and search.resume_sweep and search.passes_done == 0
 
-    ran.clear()  # the line's next task: same pass, from the tree on, still a sweep pass
+    ran.clear()  # the line's next task: same pass, from the tree (M2's rebuild first) on, still a sweep pass
     search.passes, now[0] = 0, 100.0
     inner.Search.blocks(search, deadline=1000.0)
-    assert ran[0][0] == "tree" and "gear" not in [p for p, _ in ran] and search.line_passes == 1
+    assert ran[0][0] == "tree rebuild" and "gear" not in [p for p, _ in ran] and search.line_passes == 1
     assert ("condition sources" in [p for p, _ in ran]) and search.resume_step is None and search.passes_done == 1
 
     ran.clear()  # then a new pass, the line's second: no sweep (SWEEP_EVERY 3)
     inner.Search.blocks(search, deadline=10000.0)
     assert ran[0][0] == "gear" and ran[0][1][1] is False and search.line_passes == 2
+
+
+def test_a_line_rebuilds_its_tree_once_from_its_second_pass_and_keeps_it_only_if_better(monkeypatch):
+    """M2 (SEARCH_PLAN.md, method C): the tree grown in a line's first pass, against half-chosen gear, is cleared and
+    regrown once the line is on its second pass; kept only if the build scores higher, else the snapshot goes back. Once
+    per line, and not with under TREE_REBUILD_MIN seconds left."""
+    from types import SimpleNamespace
+
+    from builder import clock
+    from builder.search import inner
+
+    monkeypatch.setattr(clock, "now", lambda: 0.0)
+    monkeypatch.setattr(inner, "TREE_REBUILD", True)
+    calls = []
+
+    class FakeBuild:
+        score = 1.0
+
+        def snapshot(self):
+            return {"score": self.score}
+
+        def restore(self, snap):
+            calls.append("restore")
+            self.score = snap["score"]
+
+    build = FakeBuild()
+    regrown = [2.0]
+
+    def grow(deadline):
+        calls.append(("grow", deadline))
+        build.score = regrown[0]
+
+    tree = SimpleNamespace(reset=lambda: calls.append("reset"), grow=grow, attributes_round=lambda: None,
+                           candidates=set(), round=0)
+    search = SimpleNamespace(tree_rebuilt=False, line_passes=1, build=build, tree=tree, resolve=lambda: False)
+    assert not inner.Search.tree_rebuild(search, 1000.0) and not calls  # the line's first pass: not yet
+    search.line_passes = 2
+    assert not inner.Search.tree_rebuild(search, 30.0) and not calls and not search.tree_rebuilt  # too little time
+    assert inner.Search.tree_rebuild(search, 1000.0) and build.score == 2.0 and search.tree_rebuilt
+    assert calls == ["reset", ("grow", 400.0)]  # (the regrow gets TREE_REBUILD_SHARE of the time left)
+    calls.clear()
+    assert not inner.Search.tree_rebuild(search, 1000.0) and not calls  # once per line
+
+    search.tree_rebuilt, regrown[0] = False, 1.5  # a rebuild that scores lower is put back
+    assert not inner.Search.tree_rebuild(search, 1000.0) and build.score == 2.0 and calls[-1] == "restore"
