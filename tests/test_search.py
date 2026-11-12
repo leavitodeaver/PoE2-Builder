@@ -1798,7 +1798,8 @@ def test_a_flask_up_part_of_the_fight_is_ranked_at_its_share():
     gear.share = lambda slot, info, raw: shares[raw]
     half, most, rare = gear.deltas("Flask 2", ["half", "most", "rare"])
     assert half[0] == pytest.approx(-0.1 + math.log(0.5 * math.exp(0.3) + 0.5)) and half[1]["active"]
-    assert most[0] == pytest.approx(0.2)  # from ACTIVE_UPTIME: whole
+    # (MECHC7, A19-1: whole only from ACTIVE_UPTIME = FULL_UPTIME 99.5%; 95% is at its share)
+    assert most[0] == pytest.approx(-0.1 + math.log(0.95 * math.exp(0.3) + 0.05))
     assert rare[0] == pytest.approx(-0.1) and not rare[1]["active"]  # under MIN_UPTIME: off
 
 
