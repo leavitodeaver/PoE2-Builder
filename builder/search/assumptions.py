@@ -407,6 +407,12 @@ class Assumptions:
             standing = bool(build.call("getConfig")["input"].get("conditionStationary"))
             gun_mods, gun_notes = models.run_and_gun_model(texts, stats, main, main_types, standing)
             hand_mods, hand_notes = hand_mods + gun_mods, hand_notes + gun_notes
+        if main is not None:  # (returning projectiles' second boss hit: MECH-B, models.return_model)
+            gem = build.ctx.gems.get(name) or {}
+            back_mods, back_notes = models.return_model(
+                texts, stats, main, set(gem.get("skillTypes") or []), group["gems"] if group else [],
+                set(gem.get("weaponTypes") or []))
+            hand_mods, hand_notes = hand_mods + back_mods, hand_notes + back_notes
         mirage_mods, mirage_notes, mirage_groups = models.mirage_model(
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))

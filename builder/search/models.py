@@ -43,8 +43,8 @@ MODEL_FIELDS = sorted({
     "Armour", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
     # Refutation: Runic Ward to spend (parry_plan)
     "Ward",
-    # Run and Gun: the main skill's projectiles (run_and_gun_model)
-    "ProjectileCount",
+    # Run and Gun: the main skill's projectiles (run_and_gun_model); returning projectiles: its pierce (return_model)
+    "ProjectileCount", "PierceCount",
     # Spell Totem: how long PoB says a totem lasts, and the charges it can be raised with
     "TotemDuration", "PowerChargesMax", "EnduranceChargesMax",
     # Harmony Within: unreserved Mana against Life
@@ -2926,3 +2926,118 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int]) ->
                      "shrink with it (PoB's chance x duration x rate, capped at the most that count)",
             "confidence": "MEDIUM"})
     return scales, notes
+
+
+# ===================================================================================================================
+# MECH-B (skills and damage sources: projectiles, triggered skills, repeats, minions, totems). New MECH-B models go below.
+# ===================================================================================================================
+
+# Returning projectiles on a lone boss (MECHB1, 12 Nov 2026; FIX_QUEUE "Chain / fork / split / pierce / return").
+# Game files, KeywordPopups Return: "Projectiles which Return will Return to the entity which originated them after
+# reaching the end of their travel, or on hitting a final target". PoB counts one boss hit per projectile and never sets
+# its ReturningProjectile condition, so a return's second hit is missing (an undercount). The sources (checked: every
+# Stats.json id holding "return" with "projectile" or "arrow" (12 ids), each looked up in Mods, PassiveSkills,
+# GrantedEffectStatSets and GrantedEffectStatSetsPerLevel; ActiveSkills descriptions holding "return"; PoB's ModCache;
+# second source: the FIX_QUEUE research of 11 Nov (poe2db, poe2wiki, stratlore 0.5.4)):
+#   - Breachlord's Amalgam (support; projectiles_return + returning_projectiles_always_pierce; it adds a 6 s cooldown
+#     with 3 uses, which PoB already charges);
+#   - Soaring Midnight (Nightfall's granted skill; the same two stats; pierces 3 targets base);
+#   - Cadiro's Gambit: "Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow", and
+#     KeywordPopups UniqueArrowModifierPierceReturn: "Reversing Arrows Pierce all targets and Return to you" (1 arrow in
+#     6, the six assumed equally likely: UNVERIFIED);
+#   - Ironbound's "Arrows Return if they have Pierced a target which had Fully Broken Armour" (counted while the boss's
+#     Armour is Fully Broken, through PoB's own condition, which the search weighs by its uptime);
+#   - Drillneck's "Attack Projectiles Return if they Pierced at least N times" (N = 3 or 4): 0 on a lone boss, since a
+#     projectile pierces each target once (checked: KeywordPopups Pierce "pass through a target while still damaging
+#     them" and Chain "Enemies cannot be targeted more than once"; poe2wiki via the FIX_QUEUE research: copies can't hit
+#     a previous target).
+#   Stats with no user in the current game files (checked: the same four tables plus GrantedEffectQualityStats):
+#   attack_projectiles_return, arrows_that_pierce_also_return, arrows_from_third_firing_point_return,
+#   projectile_return_%_chance, ice_spear_and_ball_lightning_projectiles_return, support_return_projectile_damage_+%_final,
+#   active_skill_returning_projectile_damage_+%_final. Spectral Throw and Venom Gyre return in their ActiveSkills
+#   descriptions but have no skill gem (SkillGems x BaseItemTypes) and no PoB skill; Spiral Throw's gem is "[DNT-UNUSED]".
+# The rule (LOW, UNVERIFIED: stratlore 0.5.4 says a return allows one more collision with targets already hit; no game
+# file says so): a returning projectile hits the boss a second time only if it passed through it on the way out (it
+# pierced it), at the outgoing pierce chance (PoB's PierceCount, capped at 1). One that stops on the boss returns from
+# it and isn't counted again. The returned hit has pierced the boss, so the "after piercing" gem lines apply to it:
+# Pierce I's -20% (support_pierce_projectile_damage_+%_final_if_pierced_enemy), Pierce III's -20% per pierced target,
+# and Frostbolt's and High Velocity Rounds' quality (+1% per quality, active_skill_projectile_damage_+%_final_if_pierced_
+# enemy, GrantedEffectQualityStats). Drillneck's increased damage per pierce isn't read on the returned hit (a small
+# undercount).
+BREACHLORDS_AMALGAM = "Breachlord's Amalgam"
+SOARING_MIDNIGHT = "Soaring Midnight"
+CADIRO_ARROWS = re.compile(r"^Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow$", re.I)
+CADIRO_REVERSING_SHARE = 1 / 6
+IRONBOUND_RETURN = re.compile(r"^Arrows Return if they have Pierced a target which had Fully Broken Armour$", re.I)
+PIERCE_TIMES_RETURN = re.compile(r"^Attack Projectiles Return if they Pierced at least (\d+) times", re.I)
+AFTER_PIERCE_MORE = {"Pierce I": -20.0, "Pierce III": -20.0}  # the gems' game-file values, at one pierced target
+AFTER_PIERCE_QUALITY = frozenset({"Frostbolt", "High Velocity Rounds"})  # +1% more per quality after piercing
+RETURN_RULE = ("a returned projectile hits the boss again only if it pierced it on the way out (LOW, UNVERIFIED: a "
+               "community source says a return may hit targets already hit; no game file says so)")
+
+
+def returned_hit_factor(main: Skill, group_gems: list[dict]) -> tuple[float, list[str]]:
+    """A returned hit's damage against the outgoing hit's: the "after piercing" lines of the main skill's group."""
+    factor, why = 1.0, []
+    for gem in group_gems:
+        if not gem.get("enabled", True):
+            continue
+        name = gem.get("name")
+        if name in AFTER_PIERCE_MORE:
+            factor *= 1 + AFTER_PIERCE_MORE[name] / 100
+            why.append(f"{name} {AFTER_PIERCE_MORE[name]:+g}% after piercing")
+        elif name == main.name and name in AFTER_PIERCE_QUALITY and gem.get("quality"):
+            factor *= 1 + float(gem["quality"]) / 100
+            why.append(f"{name}'s quality +{float(gem['quality']):g}% after piercing")
+    return factor, why
+
+
+def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: set[str], group_gems: list[dict],
+                 weapon_types: set[str]) -> tuple[list[dict], list[dict]]:
+    """Returning projectiles' second boss hit (the rule above): `1% more Damage` on the main skill for the share of its
+    projectiles that pierce the boss and return, times the returned hit's own factor; Ironbound's part only against
+    Fully Broken Armour. A note for each source, counted or not."""
+    if main is None or "Projectile" not in main_types:
+        return [], []
+    names = {g.get("name") for g in group_gems if g.get("enabled", True)}
+    arrows = main.attack and "Bow" in weapon_types
+    pierce = min(1.0, max(0.0, number(stats.get("PierceCount"))))
+    notes: list[dict] = []
+    always, why = 0.0, ""
+    if main.name == SOARING_MIDNIGHT:
+        always, why = 1.0, "Soaring Midnight returns at the end of its flight"
+    elif (BREACHLORDS_AMALGAM in names and {"Cold", "Lightning"} & main_types
+          and not {"Triggered", "Persistent"} & main_types):
+        always, why = 1.0, "Breachlord's Amalgam makes its projectiles return"
+    if not always and arrows and any(CADIRO_ARROWS.search(t.strip()) for t in texts):
+        always, why = CADIRO_REVERSING_SHARE, ("Cadiro's Gambit: 1 arrow in 6 is a Reversing Arrow, which Pierces all "
+                                               "targets (the six kinds assumed equally likely, UNVERIFIED)")
+        pierce = 1.0
+    ironbound = arrows and always < 1.0 and any(IRONBOUND_RETURN.search(t.strip()) for t in texts)
+    for t in texts:
+        if m := PIERCE_TIMES_RETURN.search(t.strip()):
+            notes.append({"label": f"Projectiles return after {m.group(1)} pierces (Drillneck)", "value": 0,
+                          "confidence": "HIGH",
+                          "basis": "a projectile pierces each target once, so it never returns off a lone boss: none"})
+    if not always and not ironbound:
+        return [], notes
+    factor, parts = returned_hit_factor(main, group_gems)
+    returned = f"; the returned hit x{factor:.2f} ({', '.join(parts)})" if parts else ""
+    mods: list[dict] = []
+    for share, label, text, how in (
+            (always, f"Returning projectiles ({main.name})", "1% more Damage", why),
+            ((1 - always) if ironbound else 0.0, "Ironbound: arrows return after piercing a Fully Broken target",
+             "1% more Damage against Enemies with Fully Broken Armour",
+             "counted while the boss's Armour is Fully Broken (the search weighs its uptime)")):
+        if not share:
+            continue
+        more = 100.0 * share * pierce * factor
+        if more <= 0:
+            notes.append({"label": label, "value": 0, "confidence": "LOW",
+                          "basis": f"{how}, but its projectiles don't pierce the boss on the way out: {RETURN_RULE}: none"})
+            continue
+        mods.append(line(text, more, skill=main.name))
+        notes.append({"label": label, "value": round(more, 1), "confidence": "LOW",
+                      "basis": f"{how}: {share:.3g} of projectiles x {pierce:.0%} pierce the boss on the way out{returned} "
+                               f"= {more:.1f}% more damage; {RETURN_RULE}"})
+    return mods, notes

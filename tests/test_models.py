@@ -1775,3 +1775,34 @@ def test_a_concoction_is_thrown_as_often_as_its_mana_flask_charges_allow():
     assert rate == 0.0 and "gains no charges" in how
     rate, how = charge_use_rate(flask, Charges(mana_flask=1.0, flask_gain_inc=50), "Mana", 5)
     assert rate == pytest.approx(1.5 / 5) and "1.50 charges/s" in how
+
+
+def test_returning_projectiles_hit_a_lone_boss_again_only_after_piercing_it():
+    """MECHB1 (FIX_QUEUE chain / fork / split / pierce / return): KeywordPopups Return; a returned projectile hits the boss
+    again only if it pierced it on the way out (LOW), its after-pierce lines applied; Drillneck never returns off one boss."""
+    proj = {"Spell", "Projectile", "Cold"}
+    frost = models.Skill("Frostbolt", group=1, spell=True)
+    gems = [{"name": "Frostbolt", "quality": 20}, {"name": "Breachlord's Amalgam"}, {"name": "Pierce I"}]
+    mods, notes = models.return_model([], {"PierceCount": 1}, frost, proj, gems, set())
+    assert mods == [models.line("1% more Damage", 100 * 0.8 * 1.2, skill="Frostbolt")]  # Pierce I -20%, quality +20%
+    assert notes[0]["confidence"] == "LOW" and "UNVERIFIED" in notes[0]["basis"]
+    mods, notes = models.return_model([], {"PierceCount": 0}, frost, proj, gems[:2], set())
+    assert mods == [] and notes[0]["value"] == 0  # stops on the boss: no second hit
+    mods, _ = models.return_model([], {"PierceCount": 0.5}, frost, proj, gems[:2], set())
+    assert mods[0]["scale"] == pytest.approx(60.0)  # 50% pierce chance x quality 20%
+    assert models.return_model([], {"PierceCount": 1}, frost, {"Spell", "Projectile", "Fire"}, gems[1:2], set()) == ([], [])
+    arrow = models.Skill("Lightning Arrow", group=1, attack=True)
+    bow = {"Attack", "Projectile", "Lightning"}
+    cadiro = ["Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow"]
+    mods, _ = models.return_model(cadiro, {"PierceCount": 0}, arrow, bow, [], {"Bow"})
+    assert mods[0]["scale"] == pytest.approx(100 / 6, rel=1e-4)  # Reversing Arrows pierce all targets
+    assert models.return_model(cadiro, {"PierceCount": 1}, arrow, bow, [], {"Crossbow"}) == ([], [])  # not arrows
+    iron = ["Arrows Return if they have Pierced a target which had Fully Broken Armour"]
+    mods, _ = models.return_model(iron, {"PierceCount": 1}, arrow, bow, [], {"Bow"})
+    assert mods == [models.line("1% more Damage against Enemies with Fully Broken Armour", 100.0, skill="Lightning Arrow")]
+    drill = ["Attack Projectiles Return if they Pierced at least 3 times"]
+    mods, notes = models.return_model(drill, {"PierceCount": 5}, arrow, bow, [], {"Bow"})
+    assert mods == [] and notes[0]["value"] == 0 and "once" in notes[0]["basis"]
+    soaring = models.Skill(models.SOARING_MIDNIGHT, group=1, attack=True)
+    mods, _ = models.return_model([], {"PierceCount": 3}, soaring, {"Attack", "Projectile"}, [], {"Shield"})
+    assert mods[0]["scale"] == pytest.approx(100.0)
