@@ -28,7 +28,7 @@ from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
 from builder.search import models, passive_models
 from builder.search.conditions import INFUSED_SET, ailment_uptime, curse_uses, natural_distance, shock_share
 from builder.search.objective import number
-from builder.search.usage import usage_rules
+from builder.search.usage import BASE_RUN, usage_rules
 from builder.search.state import Build
 
 # Remnants per second on a single boss, at gem level 20, while the stated condition holds. Rates are the game files'
@@ -535,8 +535,8 @@ class Assumptions:
                         if found and found[0] > 0:
                             moving = found[2] / found[0]
                             cap = models.PressCap(found[0], f"walking 10 m before each use ({moving:.2f} s at the build's "
-                                                  "movement speed and a base 3.8 m/s*, LOW; COV-C's travel_rate)",
-                                                  moving, "LOW")
+                                                  f"movement speed and a base {BASE_RUN:g} m/s*, MEDIUM; COV-C's "
+                                                  "travel_rate)", moving, "MEDIUM")
                     if cap is not None:
                         break
                 if cap is not None:

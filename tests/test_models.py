@@ -2621,3 +2621,27 @@ def test_acrimony_moves_nothing_the_tool_rates():
     entry = next(e for e in gem_stat_entries() if e.id == "supports-acrimony-enemy-life-regeneration")
     assert not entry.replace and entry.pattern.search(
         "skill_enemies_affected_by_non_ailment_damage_over_time_life_regeneration_rate_+%")
+
+
+def test_reverberate_and_aftershock_iii_raise_the_summed_aftershock_chance_by_attack_time():
+    """MECHB7 (AUDIT19 A19-2): chance_to_aftershock_+%_per_250_ms_attack_time 15 (Aftershock III, Reverberate):
+    "Supported Skills have 15% increased chance to cause Aftershocks for every quarter second of Attack time"."""
+    sunder = models.Skill("Sunder", group=1, attack=True)
+    slam = {"Attack", "Slam", "Melee", "Area"}
+    gems = [{"name": "Aftershock I"}, {"name": "Reverberate"}]
+    # 1 attack/s: 4 quarters x 15% = 60% increased: 25% -> 40%
+    mods, notes = models.aftershock_model([], {"Speed": 1.0}, sunder, slam, gems, set())
+    assert mods == [models.raw_mod("DPS", "MORE", 40.0, "Sunder")]
+    assert "Reverberate" in notes[0]["basis"]
+    # Reverberate alone gives no chance, so nothing
+    assert models.aftershock_model([], {"Speed": 1.0}, sunder, slam, [{"name": "Reverberate"}], set()) == ([], [])
+    # Aftershock III's own 15%, its 15% per quarter and Reverberate's: 15% x (1 + 8 x 30%) at 2 s per attack = 51%
+    gems = [{"name": "Aftershock III"}, {"name": "Reverberate"}]
+    mods, _ = models.aftershock_model([], {"Speed": 0.5}, sunder, slam, gems, set())
+    assert mods == [models.raw_mod("DPS", "MORE", 15 * (1 + 8 * 0.30), "Sunder")]
+    # a triggered slam: Aftershock III doesn't support it, Reverberate does (only the "Slam Skills" line's chance)
+    fired = replace(sunder, triggered=True)
+    any_slam = ["50% chance for Slam Skills to cause an additional Aftershock"]
+    total, why = models.aftershock_chance(any_slam, gems, False, True, False, 1.0)
+    assert total == pytest.approx(50 * 1.6) and "Reverberate" in why[-1]
+    assert fired.triggered

@@ -692,7 +692,7 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple
 # Revival time (MECHB2; FIX_QUEUE: Sacrifice makes revival 40% slower, AUDIT5). PoB works it out per Reviving minion skill
 # (CalcOffence 1616: base / MinionRevivalSpeed): Sacrifice's harvester_minion_resummon_speed_+%_final (-40% at level 20, a
 # MORE buff) and "Minions Revive N% faster" lines are in its MinionRevivalSpeed, which the bridge reports.
-# The base (MECHB5, AUDIT15 A15-2 / A15-3): each skill's own minion_base_resummon_time_ms (12 s on 18 player summon skills:
+# The base (MECHB5, AUDIT15 A15-2 / A15-3): each skill's own minion_base_resummon_time_ms (12 s on 17 player summon skills:
 # skeletons, spectres, companions...; PoB's BaseReviveTime override, CalcOffence 1616, which the bridge reports as
 # reviveBase) where the skill carries it, else the game constant global_resummon_time_ms 7.5 s (PoB Misc.lua; the
 # Infernal Hound and the three djinns carry no 12 s, A15-3). The sources disagree (the 0.2.0e notes: each later death
@@ -4063,10 +4063,19 @@ def different_skills_counts(skills: list[Skill], main: Skill | None, persistent:
 # already applied, and each one-slot ailment's applications to p (1 + A - A p) through its duration (an ailment's damage
 # per second doesn't depend on its duration in PoB, so its uptime moves and a full-uptime ailment's damage doesn't).
 # Left as they are (labelled): the "more Damage" form also makes each ailment application bigger (COV-A: switch the
-# aftershock-chance entries to the DPS form); other slams in Full DPS keep the ledger's per-line mores; Aftershock III's
-# "increased chance per quarter second of Attack time" and Tremors' 1-3 additional Aftershocks (SupportTremorsPlayer,
-# PoB 0: an undercount left as it is) aren't counted; whether an Aftershock rolls its own damage (UNVERIFIED, COVD8).
+# aftershock-chance entries to the DPS form); other slams in Full DPS keep the ledger's per-line mores; Tremors' 1-3
+# additional Aftershocks (SupportTremorsPlayer, PoB 0: an undercount left as it is) aren't counted; whether an Aftershock
+# rolls its own damage (UNVERIFIED, COVD8).
+# Counted since MECHB7 (AUDIT19 A19-2, an undercount): chance_to_aftershock_+%_per_250_ms_attack_time, 15 on both
+# Aftershock III (SupportAftershockChancePlayerThree) and Reverberate (SupportReveberatePlayer, live), game files
+# GrantedEffectStatSets (checked: the stat's index in Mods, PassiveSkills, SoulCoreStats and the GrantedEffect stat,
+# per-level and quality tables: only those two stat sets; PoB's Data/Skills and ModCache agree; poe2db not checked). Its text
+# (gem_stat_descriptions): "Supported Skills have {0}% increased chance to cause Aftershocks for every quarter second of
+# Attack time": an increase to the slam's summed chance, 15% x attack time / 0.25 s. Attack time is taken as the main
+# slam's 1 / Speed from PoB (its attack time after speed modifiers; whether the game uses the base time instead:
+# UNVERIFIED, MEDIUM). Aftershock III supports only "Slams you use yourself"; Reverberate any slam with a chance.
 AFTERSHOCK_SUPPORTS = {"Aftershock I": 25.0, "Aftershock II": 35.0, "Aftershock III": 15.0}  # slam_aftershock_chance_%
+AFTERSHOCK_PER_QUARTER = {"Aftershock III": 15.0, "Reverberate": 15.0}  # chance_to_aftershock_+%_per_250_ms_attack_time
 AFTERSHOCK_LINES = (  # (pattern, "self" = Slams you use yourself / "any", the condition it needs)
     (re.compile(r"^(\d+(?:\.\d+)?)% chance for Slam Skills you use yourself to cause an additional Aftershock$", re.I),
      "self", ""),
@@ -4081,9 +4090,10 @@ LEDGER_SLAM_MORE = re.compile(r"^Slam Skills (deal|have) (\d+(?:\.\d+)?)% more (
 ONE_SLOT_AILMENTS = ("Ignite", "Bleed", "Poison")
 
 
-def aftershock_chance(texts: list[str], group_gems: list[dict], yourself: bool, mace: bool, shapeshift: bool
-                      ) -> tuple[float, list[str]]:
-    """The main slam's summed Aftershock chance in % (uncapped) and its sources."""
+def aftershock_chance(texts: list[str], group_gems: list[dict], yourself: bool, mace: bool, shapeshift: bool,
+                      attack_time: float = 0.0) -> tuple[float, list[str]]:
+    """The main slam's summed Aftershock chance in % (uncapped) and its sources; attack_time (s) for the supports'
+    "increased chance per quarter second of Attack time"."""
     total, why = 0.0, []
     for text in texts:
         t = text.strip()
@@ -4100,6 +4110,15 @@ def aftershock_chance(texts: list[str], group_gems: list[dict], yourself: bool, 
             if gem.get("enabled", True) and gem.get("name") in AFTERSHOCK_SUPPORTS:
                 total += AFTERSHOCK_SUPPORTS[gem["name"]]
                 why.append(f"{AFTERSHOCK_SUPPORTS[gem['name']]:g}% ({gem['name']})")
+    per_quarter = sum(AFTERSHOCK_PER_QUARTER[g["name"]] for g in group_gems
+                      if g.get("enabled", True) and g.get("name") in AFTERSHOCK_PER_QUARTER
+                      and (yourself or g["name"] != "Aftershock III"))
+    if total > 0 and per_quarter > 0 and attack_time > 0:
+        increase = per_quarter * attack_time / 0.25
+        total *= 1 + increase / 100
+        names = ", ".join(n for n in AFTERSHOCK_PER_QUARTER if any(g.get("name") == n for g in group_gems))
+        why.append(f"x{1 + increase / 100:.2f}: {increase:.0f}% increased ({names}: {per_quarter:g}% per 0.25 s of a "
+                   f"{attack_time:.2f} s attack time, MEDIUM)")
     return total, why
 
 
@@ -4140,7 +4159,8 @@ def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_typ
     yourself = not (main.triggered or totem or "Triggered" in main_types)
     mace = any("Mace" in w for w in weapon_types) if weapon_types else True
     shapeshift = any("Shapeshift" in t for t in main_types)
-    total, why = aftershock_chance(texts, group_gems, yourself, mace, shapeshift)
+    speed = number(stats.get("Speed"))
+    total, why = aftershock_chance(texts, group_gems, yourself, mace, shapeshift, 1 / speed if speed > 0 else 0.0)
     damage, dps = ledger_slam_mores(texts, forbidden, mace, shapeshift, translate)
     if total <= 0 and damage == 1.0 and dps == 1.0:
         return [], []
