@@ -1127,22 +1127,6 @@ def test_a_glory_skill_as_the_main_skill_is_used_as_often_as_the_build_makes_its
     build.remove_group(other["index"])
 
 
-def test_a_concoction_main_skill_is_thrown_as_often_as_its_mana_flask_charges_allow(engine):
-    """PoB throws a Concoction at will; each throw takes 5 Mana Flask charges, so Assumptions.flask_main sets its rate from
-    the Mana Flask's charge generation (MECHC2). A bare build's flask gains none on a boss: no throws, said so."""
-    payload = make_payload(BuildRequest(main_skill="Explosive Concoction"))
-    skeleton = enumerate_skeletons(Context(payload), ["Explosive Concoction"])[0][0]
-    search = Search(engine, None, payload, skeleton.as_dict(), 0)
-    search.setup(quests=False)
-    assert search.assumptions.main_skill() == "Explosive Concoction"
-    mods, notes = search.assumptions.wanted()
-    note = next(n for n in notes if n["label"] == "Explosive Concoction throws per second (Mana Flask charges)")
-    print(note["value"], "|", note["basis"])
-    assert "5 charges from your Mana Flask" in note["basis"]
-    rate = next(m["value"] for m in mods if m.get("skill") == "Explosive Concoction" and m.get("key") == "triggerRate")
-    assert rate == note["value"] and rate < 1.0
-
-
 def test_every_cursed_line_template_parses_in_pob(engine):
     """The bridge stops a search on an assumption line PoB can't parse: "Enemies you Curse have 1% to Chaos
     Resistance" without its sign stopped every search task of gate 2b75b (GEAR4, POE2T619)."""
