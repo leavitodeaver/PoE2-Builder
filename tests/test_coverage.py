@@ -131,9 +131,9 @@ def test_ledger_translations_reach_rune_and_affix_lines():
     mace = next(n for n, b in _bases().items() if b["type"] == "Two Hand Mace" and not b.get("hidden"))
     rare = f"Rarity: Rare\nOptimizer Weapon 1\n{mace}\nItem Level: 82\nImplicits: 0\n+10 to Strength"
     two = with_runes(rare, ["Ancient Rune of the Titan"] * 2)
-    assert two.splitlines()[-1] == ADDED + "Slam Skills deal 20% more Damage"  # 10% + 10% chance, entry aftershock-chance
+    assert two.splitlines()[-1] == ADDED + "Slam Skills have 20% more DPS"  # 10% + 10% chance, entry aftershock-chance
     one = with_runes(two, ["Ancient Rune of the Titan"])
-    assert [l for l in one.splitlines() if l.startswith(ADDED)] == [ADDED + "Slam Skills deal 10% more Damage"]
+    assert [l for l in one.splitlines() if l.startswith(ADDED)] == [ADDED + "Slam Skills have 10% more DPS"]
     assert with_runes(one, []) == rare and corrected_item(one) == one
     helmet = next(n for n, b in _bases().items() if b["type"] == "Helmet" and not b.get("hidden"))
     unique = f"Rarity: Unique\nCrown\n{helmet}\nImplicits: 1\n+10 to Armour\nTake 20% less Damage from Hits"

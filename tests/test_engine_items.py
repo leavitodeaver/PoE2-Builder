@@ -602,14 +602,18 @@ def test_ledger_corrections_on_runes_reach_pob(engine):
     ctx = context(main_skill="Boneshatter")
     engine.call("newBuild")
     mace = with_runes(f"Rarity: Rare\nOptimizer Weapon 1\n{base_of(ctx, 'Two Hand Mace')['name']}\nItem Level: 82\n"
-                      "Implicits: 0\n+10 to Strength", ["Ancient Rune of the Titan"] * 2)
+                      "Implicits: 0\n+10 to Strength\nSlam Skills have 16% more DPS while wielding a Mace\n"
+                      "Slam Skills have 12% more DPS while Shapeshifted", ["Ancient Rune of the Titan"] * 2)
     engine.call("equip", slot="Weapon 1", raw=mace, fields=[])
     helmet = with_runes(f"Rarity: Rare\nOptimizer Helmet\n{base_of(ctx, 'Helmet')['name']}\nItem Level: 82\n"
                         "Implicits: 0\n+10 to Strength", ["Legacy of Keeper of the Arc"])
     engine.call("equip", slot="Helmet", raw=helmet, fields=[])
     mods = engine.call("itemMods")
     weapon = {l["line"]: l for l in mods["Weapon 1"]["lines"]}
-    assert weapon["Slam Skills deal 20% more Damage"]["supported"] and weapon["Slam Skills deal 20% more Damage"]["kind"] == "explicit"
+    # an Aftershock is a second hit, so a second ailment application, not a bigger one (AUDIT8 A8-1): "more DPS"
+    assert weapon["Slam Skills have 20% more DPS"]["supported"] and weapon["Slam Skills have 20% more DPS"]["kind"] == "explicit"
+    assert weapon["Slam Skills have 16% more DPS while wielding a Mace"]["supported"]  # aftershock-chance-mace's form
+    assert weapon["Slam Skills have 12% more DPS while Shapeshifted"]["supported"]  # aftershock-chance-shapeshift's
     head = {l["line"]: l for l in mods["Helmet"]["lines"]}
     assert head["10% less Damage over Time taken"]["supported"] and head["10% less Damage taken from Hits"]["supported"]
     xml = engine.call("exportXml")["xml"]

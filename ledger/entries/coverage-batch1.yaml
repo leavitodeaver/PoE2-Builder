@@ -39,13 +39,17 @@
   title: Earthbreaker, chance for your Slams to cause an additional Aftershock
   kind: pob_gap
   match: '^(\d+)% chance for Slam Skills you use yourself to cause an additional Aftershock$'
-  replace: ['Slam Skills deal {1}% more Damage']
+  replace: ['Slam Skills have {1}% more DPS']
   confidence: datamined
   notes: >-
     "If not otherwise specified, the Aftershock will deal the same damage as the initial impact,
     in the same area" (poe2db glossary), so a boss inside the slam is hit again: the chance is
     extra hits on average. One forum report says it doesn't trigger from Falling Thunder
     (unverified).
+    FORM (COV7, AUDIT8 A8-1, as COVD6's Hrimnor's Hymn): an Aftershock is a second hit, so a second ailment
+    application, not a bigger one: "more DPS" (was "Slam Skills deal N% more Damage", which also made each Ignite,
+    Bleed and Poison N% bigger, since PoB takes an ailment's base from the stored hit). The same for -mace, -shapeshift,
+    -any and mountain-splitter.
   sources: ["https://poe2db.tw/us/Titan", "https://poe2db.tw/us/Keywords (Aftershock)"]
   test_in_game: "Slam a training dummy 20 times with Earthbreaker: about 5 slams show a second impact in the same place, for the same damage."
   status: proposed
@@ -54,7 +58,7 @@
   title: Mountain Splitter, every third Slam causes 3 Aftershocks ahead and to the sides
   kind: pob_gap
   match: "^Every Third Slam skill that doesn't create Fissures which you use yourself causes (\\d+) additional Aftershocks"
-  replace: ['Slam Skills deal 11% more Damage']
+  replace: ['Slam Skills have 11% more DPS']
   confidence: theory
   notes: >-
     The Aftershocks land ahead and to each side of the slam's area, not on it; a large boss is
@@ -468,7 +472,7 @@
   title: Mace Slams' chance to cause an additional Aftershock
   kind: pob_gap
   match: '^(\d+)% chance for Mace Slam Skills you use yourself to cause an additional Aftershock$'
-  replace: ['Slam Skills deal {1}% more Damage while wielding a Mace']
+  replace: ['Slam Skills have {1}% more DPS while wielding a Mace']
   confidence: datamined
   notes: "As aftershock-chance: an Aftershock repeats the slam's damage in the same area (poe2db glossary). 'while wielding a Mace' keeps PoB's Mace condition ('with Maces' parses without it)."
   sources: ["https://poe2db.tw/us/Keywords (Aftershock)", "https://poe2db.tw/us/Split_the_Earth"]
@@ -479,7 +483,7 @@
   title: Shapeshifted Slams' chance to cause an additional Aftershock
   kind: pob_gap
   match: '^(\d+)% chance for Shapeshift Slam Skills you use yourself to cause an additional Aftershock$'
-  replace: ['Slam Skills deal {1}% more Damage while Shapeshifted']
+  replace: ['Slam Skills have {1}% more DPS while Shapeshifted']
   confidence: datamined
   notes: "As aftershock-chance, for slams used while Shapeshifted."
   sources: ["https://poe2db.tw/us/Keywords (Aftershock)", "https://poe2db.tw/us/Echoes_of_Ferocity"]
@@ -490,7 +494,7 @@
   title: Slams' chance to cause an additional Aftershock (any slam)
   kind: pob_gap
   match: '^(\d+)% chance for Slam Skills to cause an additional Aftershock$'
-  replace: ['Slam Skills deal {1}% more Damage']
+  replace: ['Slam Skills have {1}% more DPS']
   confidence: datamined
   notes: "As aftershock-chance."
   sources: ["https://poe2db.tw/us/Keywords (Aftershock)", "https://poe2db.tw/us/Rhythm_of_Fire"]

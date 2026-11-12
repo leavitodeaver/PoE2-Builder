@@ -63,9 +63,9 @@ def test_an_entry_matches_a_rolled_range_at_both_ends():
 
     entry, lines = translate("(16-23)% chance for Mace Slam Skills you use yourself to cause an additional Aftershock")
     assert entry.id == "aftershock-chance-mace"
-    assert lines == ["Slam Skills deal (16-23)% more Damage while wielding a Mace"]
+    assert lines == ["Slam Skills have (16-23)% more DPS while wielding a Mace"]
     assert translate("16% chance for Mace Slam Skills you use yourself to cause an additional Aftershock")[1] == \
-        ["Slam Skills deal 16% more Damage while wielding a Mace"]
+        ["Slam Skills have 16% more DPS while wielding a Mace"]
     assert model_entry("Projectile Attacks have a (10-18)% chance to fire two additional Projectiles while moving") is None
     assert translate("Projectile Attacks have a (10-18)% chance to fire two additional Projectiles while moving")[0].id \
         == "no-effect-run-and-gun"
