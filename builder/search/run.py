@@ -215,6 +215,25 @@ class Run:
         return restarted
 
     @staticmethod
+    def diverge(tasks: list[tuple[str, dict]]) -> int:
+        """A focus task starting from the same state as an earlier one on its skeleton and goal is marked to kick first
+        (optimize_task): the search is deterministic from a state until its first kick, which a 235 s round seldom
+        reaches, so such tasks repeated each other whatever their seeds (2b75b POE2T656: five round-2 tasks, two
+        outcomes; POE2T649: one). Returns how many were marked."""
+        seen: set = set()
+        marked = 0
+        for _, args in tasks:
+            state = args.get("state")
+            if not state:
+                continue
+            key = (Skeleton(**args["skeleton"]).label, args.get("goal") or "", state.get("xml"))
+            if key in seen and not state.get("restarted"):
+                args["state"] = {**state, "restarted": True}
+                marked += 1
+            seen.add(key)
+        return marked
+
+    @staticmethod
     def keep_lines(lines: dict, tasks: list[tuple[str, dict]], raw: list[Any]) -> None:
         """Each finished task's state, as where its (skeleton, replica, goal) line continues (results come in task
         order; replicas count from 0 within a skeleton, in the order the tasks list them)."""
@@ -403,6 +422,7 @@ class Run:
                         "state": self.line_state(lines, states, s.label, r, goals[r]), "goal": goals[r],
                         "full": FOCUS_FULL_DPS})
                         for i, s in enumerate(alive) for r in range(replicas)]
+                    self.diverge(tasks)
                     raw = self._tasks(pool, tasks)
                     self.keep_lines(lines, tasks, raw)
                     results = self._record(raw)

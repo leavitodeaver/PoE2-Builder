@@ -1140,6 +1140,20 @@ def test_a_build_stops_its_search_once_past_its_hard_stop():
     build.tick()  # wrapping up isn't stopped again
 
 
+def test_focus_tasks_from_the_same_state_kick_first():
+    """2b75b POE2T656: five round-2 tasks from shared states gave two outcomes; a duplicate start is marked to kick."""
+    from builder.search.run import Run
+    from builder.search.skeletons import Skeleton
+
+    skeleton = Skeleton("Monk", "Acolyte of Chayula", "Explosive Transmutation", "Wand", None, "Shield").as_dict()
+    states = [{"xml": "a"}, {"xml": "a"}, {"xml": "b"}, {"xml": "a"}, None]
+    tasks = [("builder.search.inner:optimize_task", {"skeleton": skeleton, "goal": None, "state": st}) for st in states]
+    tasks.append(("builder.search.inner:optimize_task", {"skeleton": skeleton, "goal": "boss", "state": {"xml": "a"}}))
+    assert Run.diverge(tasks) == 2
+    assert [bool((args["state"] or {}).get("restarted")) for _, args in tasks] == [False, True, False, True, False, False]
+    assert states[1] == {"xml": "a"}  # (a copy is marked, not the shared state)
+
+
 def test_lines_far_behind_the_best_continue_from_it_and_the_best_goes_on():
     """Gate 4 (8 Nov): a run's five lines ended at 24K, 29K, 414K, 414K and 582K; the two far behind now continue
     from the best line's state for the focus stage's second round, and the others keep their own."""
