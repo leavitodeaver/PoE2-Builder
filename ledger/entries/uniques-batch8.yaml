@@ -1,0 +1,54 @@
+# Unique items' lines, eighth batch (COVD8, 12 Nov 2026): AUDIT12 A12-4.
+#
+# Game files: data/game-26476662/tables (Mods.json, Stats.json, KeywordPopups.json). Unique texts: PoB's export.
+# PoE2 0.5.x; recheck at the 1.0 refresh.
+#
+# NOTE FOR THE LOADER ORDER: builder.ledger.translate takes the first active pob_gap entry in file-name order, so
+# coverage-batch1.yaml's blackflame-withered-fire (replace: [], "no effect" for the ring's own damage) wins over this
+# entry until COV-A retires it (routed in COVD8's report). This entry replaces it.
+
+- id: uniques-blackflame-withered-fire-taken
+  title: Blackflame, Withered you inflict also increases Fire Damage taken (5% per Withered, the build's stacks)
+  kind: pob_gap
+  match: '^Withered you inflict also increases Fire Damage taken$'
+  replace: ['Enemies take 5% increased Elemental Damage from your Hits for each Withered you have inflicted on them']
+  confidence: theory
+  notes: >-
+    The line is Mods UniqueWitherInflictedAlsoIncreasesFireDamageTaken1 (and the Loreweave copy
+    UniqueLoreweaveBlackflameWitherAlsoIncreasesFireDamage1): stat 25332 wither_inflicted_also_does_fire, a flag (1),
+    so each Withered's own effect applies to Fire as well as Chaos. KeywordPopups Withered: "Withered applies 5%
+    increased Chaos damage Taken, and can be inflicted up to 10 times": +5% Fire Damage taken per stack, up to +50%.
+    PoB leaves the line unparsed (ModCache 9832: nil), and the old entry (coverage-batch1 blackflame-withered-fire)
+    recorded no effect because the ring turns its wearer's Ignites into Chaos; but the wearer's Fire Hits (and any
+    other Fire damage) still take it (AUDIT12 A12-4: an UNDERCOUNT of up to x1.5 Fire).
+    STACKS: from the build, not a flat number: builder/search/conditions.py `_withered_stacks` sets PoB's
+    multiplierWitheredStackCount (the enemy's Multiplier:WitheredStack) from the build's Withered sources (chance
+    lines x hits per second x duration, Wither / Chaos Bolt, Withering Touch, Withering Presence), up to 10, and all
+    10 with Blackflame's "Withered does not expire on Enemies Ignited by you" while the boss is Ignited. No Withered
+    source: 0 stacks, and this line adds nothing.
+    FORM: PoB parses "Enemies take N% increased Elemental Damage from your Hits for each Withered you have inflicted on
+    them" (ModParser 4469) to an EnemyModifier ElementalDamageTaken INC N per the enemy's own WitheredStack (limit 15;
+    the stack count is capped at 10 upstream). Measured (scratch/covd8/wither.py, Sunder with 100-200 added Fire):
+    +0 at 0 stacks, TotalDPS 297.8 -> 410.4 at 10 stacks, the same as a flat "Nearby Enemies take 50% increased Fire
+    Damage". A Chaos Ignite (Blackflame's) takes no Elemental Damage taken, so it stays as it is, as in the game.
+    Rejected forms: "Nearby Enemies take 5% increased Fire Damage per Withered Debuff on Enemy" parses, but its
+    Multiplier carries actor=enemy, which inside the enemy's mod list reads the player's WitheredStack (measured +75%
+    with 0 stacks set: an overcount); "5% more Fire Damage per Withered Debuff on Enemy" would raise the hit's stored
+    damage and so Blackflame's Chaos Ignite too (an overcount); "Enemies Withered by you take 50% increased Fire
+    Damage" applies nothing (measured).
+    KNOWN GAPS (labelled): (1) OVERCOUNT: the stand-in is Elemental, so the wearer's Cold and Lightning damage gains
+    it too (the game: Fire only); exact for a Fire-only build. PoB has no enemy-side per-Withered Fire form without
+    the actor problem (checked: ModParser's WitheredStack tags, lines 1368, 1547, 4469); an exact fix is an enemy
+    FireDamageTaken INC per WitheredStack mod from a model (routed to MECH-A). (2) UNDERCOUNT: increased Withered
+    Magnitude (withered_magnitude_+%) would scale the 5%; the stand-in's 5 is fixed. (3) "from your Hits" in the
+    stand-in's words: PoB applies ElementalDamageTaken to the wearer's elemental damage over time as well, which the
+    game's Fire Damage taken also covers, so no gap for Fire.
+  sources: ["https://poe2db.tw/us/Blackflame", "https://poe2db.tw/us/Withered",
+            "data/game-26476662/tables/Mods.json (UniqueWitherInflictedAlsoIncreasesFireDamageTaken1)",
+            "data/game-26476662/tables/Stats.json (25332 wither_inflicted_also_does_fire)",
+            "data/game-26476662/tables/KeywordPopups.json (Withered)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (1368, 1547, 4469)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua (714-717)",
+            "scratch/manager/RULE_AUDIT.md (AUDIT12 A12-4)"]
+  test_in_game: "Wear Blackflame, keep 10 Withered on a dummy (Ignite it), and hit it with a Fire skill with and without the ring: Fire hits should be about 1.5x (less if other damage-taken increases already apply)."
+  status: proposed

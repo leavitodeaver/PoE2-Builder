@@ -89,3 +89,36 @@ def test_veilpiercer_hit_damage_in_presence_follows_the_boss_distance(engine):
     line = ["40% increased Damage with Hits while a Rare or Unique Enemy is in your Presence"]
     assert hits_at(2.0, line) > 1.1 * hits_at(2.0, [])
     assert hits_at(8.0, line) == pytest.approx(hits_at(8.0, []), rel=0.001)
+
+
+def test_blackflame_withered_fire_taken_follows_the_withered_stacks(engine):
+    """Blackflame's "Withered you inflict also increases Fire Damage taken" (uniques-blackflame-withered-fire-taken,
+    AUDIT12 A12-4): +5% per Withered on the boss, from the stack count the condition resolver sets (PoB's
+    multiplierWitheredStackCount), nothing at 0 stacks, +50% Fire at 10 (the same as a flat 50% Fire taken)."""
+    from builder import ledger
+
+    line = "Withered you inflict also increases Fire Damage taken"
+    entry = next(e for e in ledger.entries() if e.id == "uniques-blackflame-withered-fire-taken")
+    stand_in = entry.translate(line)
+    assert stand_in == ["Enemies take 5% increased Elemental Damage from your Hits for each Withered you have "
+                        "inflicted on them"]
+    if not any(e.id == "blackflame-withered-fire" for e in ledger.entries()):  # COV-A's old no-effect entry retired
+        assert ledger.translate(line)[0].id == entry.id
+
+    payload = make_payload(BuildRequest(main_skill="Sunder"))
+    skeleton = enumerate_skeletons(Context(payload), ["Sunder"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+
+    def dps(stacks: int, extra: list[str]) -> float:
+        build.call("setConfig", vars={"multiplierWitheredStackCount": stacks}, fields=[])
+        build.call("equip", slot="Amulet", raw="\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet",
+                                                          "Item Level: 82", "Implicits: 0",
+                                                          "Adds 100 to 200 Fire Damage to Attacks", *extra]), fields=[])
+        return build.call("stats", fields=["TotalDPS"])["TotalDPS"]
+
+    assert dps(0, stand_in) == pytest.approx(dps(0, []), rel=0.001)
+    assert dps(10, stand_in) == pytest.approx(dps(10, ["Nearby Enemies take 50% increased Fire Damage"]), rel=0.001)
+    assert dps(10, stand_in) > 1.2 * dps(10, [])
+    build.call("setConfig", vars={"multiplierWitheredStackCount": False}, fields=[])

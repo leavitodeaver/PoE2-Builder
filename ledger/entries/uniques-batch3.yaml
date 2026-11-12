@@ -37,9 +37,24 @@
     Ignite x1.15, Poison x1.25 (one stack; from the higher roll that wins), Bleed x1.84 (its uptime was 0.9 and its
     roll range is wide); with extra Poison stacks Poison rises with the applications, up to x2.
     Not counted: a second chance at Shock / Freeze / Electrocute / stun buildup per slam (PoB's buildup reads the
-    per-hit damage): a small undercount. Counted though UNVERIFIED: the skill's own damage over time
-    (TotalDot x DpsMultiplier, CalcOffence 6139), i.e. it assumes the Aftershock repeats the slam's own ground
-    effect too. SCREENING: for slams PoB shows as an average hit (showAverage, e.g. Sunder, Earthquake),
+    per-hit damage): a small undercount.
+    SKILL DoT NOT MULTIPLIED (COVD8, RESEARCH16 aftershock-ground-dot.md: an Aftershock repeats the damage burst, not
+    the skill's ground or own damage over time): PoB multiplies TotalDot by DpsMultiplier only inside
+    `if skillModList:Flag(nil, "DotCanStack")` (CalcOffence 6129-6139); otherwise TotalDot = TotalDotInstance (6179),
+    untouched. Nothing in this PoB sets DotCanStack (checked: grep -rni "canstack" over vendor/PathOfBuilding-PoE2/src,
+    every .lua incl. Data/ModCache.lua, Data/Skills/*.lua and Modules: only CalcOffence reads it, plus the
+    DotCanStackAsTotems flag that nothing sets either; the PoisonCanStack / ChillCanStack / ShockCanStack hits are
+    other flags). So the form leaves a slam's own DoT alone, as the game does. The other DpsMultiplier reads are per
+    hit (culling 4067, leech 4950, Impale 6361-6365): right for an extra hit. AILMENTS (RESEARCH16's stack worry):
+    PoB's active ailments are min(applications, max stacks) (CalcOffence 5399), so with one Poison / Ignite / Bleed
+    slot the extra Aftershock never adds a stack: it adds uptime where the build is below full uptime, and above it
+    shifts the kept copy to the higher roll ((S - (max-1)/2) / (S + 1), 5313; the measured Poison x1.25 / Ignite x1.15
+    on Sunder are this roll shift, at S >= 1). Two labelled residuals, routed to MECH-B (aftershocks): (a) PoB counts
+    a slam's applications as 2p per slam where the impact and its Aftershock land together, so the real chance of at
+    least one is 1 - (1-p)^2: below full uptime that's an OVERCOUNT of the ailment part by up to 2 / (2 - p) (x1.33
+    at p = 0.5, none at full uptime or p near 0); (b) the roll shift assumes the Aftershock rolls its damage apart from
+    the impact ("the same damage as the initial impact" may mean the same roll: UNVERIFIED; if so, Poison / Ignite
+    gain only uptime). SCREENING: for slams PoB shows as an average hit (showAverage, e.g. Sunder, Earthquake),
     CombinedDPS is the per-use damage and no "DPS" multiplier reaches it; the finalists' FullDPS has it. Routed to
     SEARCH (the same holds for attack speed on those skills).
     Same two known gaps as aftershock-chance: (1) "you use yourself" is dropped (a triggered or totem slam gets the
