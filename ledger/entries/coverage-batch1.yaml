@@ -455,7 +455,9 @@
   notes: >-
     The optimizer checks pools, resistances, maximum hit, block and evade; damage over time taken and Energy Shield
     recovery aren't among them. Scarred Faith's "You cannot Recover Energy Shield from Regeneration" has its own
-    entry now (scarred-faith-no-es-regeneration, COV7).
+    entry now (scarred-faith-no-es-regeneration, COV7). (checked: RESEARCH13 #18ak,
+    scratch/manager/research/no-effect-batch-research13.md: holds for the checked numbers; Scarred Faith's ES
+    regeneration line is its own entry now (scarred-faith-no-es-regeneration, COV7).)
   sources: ["https://poe2db.tw/us/Heartstopper", "https://poe2db.tw/us/Scarred_Faith"]
   test_in_game: "Not needed for the checked numbers."
   status: proposed
@@ -549,8 +551,11 @@
   replace: []
   confidence: verified_by_you
   notes: >-
-    Placement range is where a totem may go; recoup speed is how fast recouped Life or Energy Shield comes back (recovery,
-    not a checked defence); a pierced boss leaves nothing behind it to hit (as no-effect-fork-projectile).
+    Placement range is where a totem may go; recoup speed is how fast recouped Life or Energy Shield comes back
+    (recovery, not a checked defence); a pierced boss leaves nothing behind it to hit (as
+    no-effect-fork-projectile). (checked: RESEARCH13 #18ak, scratch/manager/research/no-effect-batch-research13.md:
+    holds: placement range and recoup speed are not calculated numbers; Pierce leaves nothing behind a lone boss (as
+    no-effect-fork-projectile).)
   sources: ["https://poe2db.tw/us/Ancestral_Reach", "https://poe2db.tw/us/Left_Ventricle", "https://poe2db.tw/us/Close_Confines"]
   test_in_game: "Not needed for the calculated numbers."
   status: proposed
@@ -575,7 +580,11 @@
   match: '^(Recover (\(\d+-\d+\)|\d+)% of your maximum (Life|Mana) when an Enemy dies in your Presence|(\(\d+-\d+\)|\d+)% of Physical Damage prevented Recouped as Life)$'
   replace: []
   confidence: verified_by_you
-  notes: "The reference fight is a single boss: nothing dies before it. Recoup is recovery, not a checked defence."
+  notes: >-
+    The reference fight is a single boss: nothing dies before it. Recoup is recovery, not a checked defence.
+    (checked: RESEARCH13 #18ak, scratch/manager/research/no-effect-batch-research13.md: the Recoup half holds
+    (recovery, not checked); "nothing dies in the reference fight" is too broad: pinnacle fights have
+    killable-looking non-Unique summons (MonsterVarieties; boss-fight-kills.md #19), not modelled.)
   sources: ["https://poe2db.tw/us/Grip_of_Kulemak", "https://poe2db.tw/us/Heart_of_the_Well"]
   test_in_game: "Not needed for the calculated numbers."
   status: proposed

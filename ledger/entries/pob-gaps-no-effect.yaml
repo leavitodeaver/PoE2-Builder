@@ -45,6 +45,10 @@
   match: 'Slowing Potency of Debuffs on You$'
   replace: []
   confidence: verified_by_you
+  notes: >-
+    (checked: RESEARCH13 #18ak, scratch/manager/research/no-effect-batch-research13.md: holds: it changes only how
+    much you are slowed, not a checked defence; the match ends "of Debuffs on You", so your own slows are
+    untouched.)
   sources: ["Affects how much you are slowed; no calculated stat"]
   status: approved
 
@@ -191,8 +195,10 @@
   replace: []
   confidence: verified_by_you
   notes: >-
-    The optimizer checks life, energy shield, mana, resistances, maximum hit taken, block and
-    evade; none of these lines changes them. They do change how a fight goes.
+    The optimizer checks life, energy shield, mana, resistances, maximum hit taken, block and evade; none of these
+    lines changes them. They do change how a fight goes. (checked: RESEARCH13 #18ak,
+    scratch/manager/research/no-effect-batch-research13.md: holds for the checked numbers (pools, resistances,
+    maximum hit, block, evade); the optimizer never applies Armour Break to you.)
   sources: ["builder/request/constraints.py (the checked defences)", "https://poe2db.tw/us/Loreweave"]
   test_in_game: "Not needed for the checked numbers."
   status: proposed
@@ -203,7 +209,10 @@
   match: '^Dodge Roll cannot Avoid Damage$'
   replace: []
   confidence: verified_by_you
-  notes: "Bulwark's other lines (evasion as armour) are PoB's own; this one removes a dodge-roll benefit no number includes."
+  notes: >-
+    Bulwark's other lines (evasion as armour) are PoB's own; this one removes a dodge-roll benefit no number
+    includes. (checked: RESEARCH13 #18ak, scratch/manager/research/no-effect-batch-research13.md: holds: dodge-roll
+    avoidance is in no checked number.)
   sources: ["https://poe2db.tw/us/Bulwark"]
   test_in_game: "Not needed for the checked numbers; roll through a boss slam with Bulwark and take the hit."
   status: proposed

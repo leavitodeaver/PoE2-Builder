@@ -87,6 +87,10 @@
   match: '^\d+% more Damage against Enemies affected by Blood Boils$'
   replace: []
   confidence: community_confirmed
+  notes: >-
+    (checked: RESEARCH13 #18ak, scratch/manager/research/no-effect-batch-research13.md: holds on any Unique boss:
+    skill_stat_descriptions.csd blood_boil_application_interval_ms reads "Blood Boil applies to non-Unique enemies
+    in your Presence"; poe2db Blood_Boil agrees. Pinnacle fights' non-Unique summons are not modelled (#66).)
   sources: ["https://poe2db.tw/Blood_Boil (Boils apply only to non-Unique enemies)",
             "https://maxroll.gg/poe2/resources/ritualist-ascendancy-overview"]
   status: approved
@@ -106,6 +110,10 @@
   match: '^(Strikes deal Splash Damage|Strike Skills you use yourself with Maces have \d+% chance to deal Splash Damage)$'
   replace: []
   confidence: community_confirmed
+  notes: >-
+    (checked: RESEARCH13 #18ak, scratch/manager/research/no-effect-batch-research13.md: holds on a lone boss:
+    KeywordPopups MeleeSplash, "an additional Hit to other enemies around the one hit by the Strike"; the struck
+    boss never takes the splash.)
   sources: ["https://poe2db.tw/Splash_Damage", "https://poe2db.tw/Split_the_Earth"]
   status: approved
 
@@ -116,12 +124,14 @@
   replace: []
   confidence: reported
   notes: >-
-    PoB leaves the line unparsed (ModCache nil). KeywordPopups Projectile: only one Projectile in the group can
-    hit each target unless otherwise specified. The user (11 Nov 2026): count it for the exceptions, labelled.
+    PoB leaves the line unparsed (ModCache nil). KeywordPopups Projectile: only one Projectile in the group can hit
+    each target unless otherwise specified. The user (11 Nov 2026): count it for the exceptions, labelled.
     models.run_and_gun_model (MECH44) counts it for projectiles_can_shotgun skills (2 x the chance over the
     projectile count, as more damage) and for skills firing in sequence (projectiles_crossbow_barrage,
     projectiles_barrage: PoB's own TwoAdditionalProjectilesChance), while firing on the move with a skill usable
-    while moving and not standing still; other skills get none.
+    while moving and not standing still; other skills get none. (checked: RESEARCH13 #18ak,
+    scratch/manager/research/no-effect-batch-research13.md: already absorbed by models.run_and_gun_model (MECH44);
+    not re-audited by RESEARCH13 (MEDIUM).)
   sources: ["https://poe2db.tw/Run_and_Gun", "https://www.poe2wiki.net/wiki/Projectile_behaviour", "data/game-26476662 GrantedEffectStatSets (projectiles_can_shotgun, projectiles_crossbow_barrage, projectiles_barrage)"]
   absorbed_by: "builder/search/models.py run_and_gun_model, for shotgun and sequence-fired skills used while moving"
   status: approved
@@ -151,6 +161,10 @@
   match: '^Adapt to the highest Elemental Damage Type of each Hit you take$'
   replace: []
   confidence: datamined
+  notes: >-
+    (checked: RESEARCH13 #18ak, scratch/manager/research/no-effect-batch-research13.md: holds as written:
+    KeywordPopups Adaptation, gained by taking Elemental Damage from Hits, take less damage of that type, 3 at a
+    time; the damage-taken line carries the effect.)
   sources: ["https://poe2db.tw/Reactive_Growth"]
   status: approved
 
@@ -160,6 +174,9 @@
   match: '^Alternating every \d+ seconds:$'
   replace: []
   confidence: datamined
+  notes: >-
+    (checked: RESEARCH13 #18ak, scratch/manager/research/no-effect-batch-research13.md: holds: the header line
+    itself; the lines under it are corrected one by one.)
   sources: ["https://poe2db.tw/Keeper_of_the_Arc"]
   status: approved
 
