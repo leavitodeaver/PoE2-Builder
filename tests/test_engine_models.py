@@ -1691,6 +1691,8 @@ def test_icestorm_cannot_chill(engine):
     skeleton = enumerate_skeletons(Context(payload), ["Icestorm"])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
     search.setup(quests=False)
-    stats = search.build.call("stats", fields=["ChillChanceOnHit", "ColdHitAverage", "EnemyAilmentThreshold"])
+    raw = chr(10).join(["Rarity: Rare", "Test Amulet", "Stellar Amulet", "Implicits: 0", "5000% increased Cold Damage"])
+    stats = search.build.call("equip", slot="Amulet", raw=raw,
+                              fields=["ChillChanceOnHit", "ColdHitAverage", "EnemyAilmentThreshold"])["stats"]
     assert stats["ColdHitAverage"] > stats["EnemyAilmentThreshold"] / 100  # PoB would Chill this hit
     assert stats["ChillChanceOnHit"] == 0
