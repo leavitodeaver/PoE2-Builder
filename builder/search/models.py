@@ -288,6 +288,8 @@ def flame_uptime(cycle: float, recovery_faster: float, no_recovery: bool = False
     Elemental Archon on reaching maximum Infernal Flame"), so Archon Duration lines don't lengthen it. (uptime, on, off)."""
     if cycle <= 0:
         return 0.0, 0.0, 0.0
+    if FLAME_MANAGED:  # (the play guide's "pause near the top" trial: Archon held all fight, flame_pause_share's cost)
+        return 1.0, math.inf, 0.0
     recovery = 0.0
     if not no_recovery:
         speed = 1 + recovery_faster / 100
@@ -305,6 +307,25 @@ def flame_uptime(cycle: float, recovery_faster: float, no_recovery: bool = False
 
 
 FLAME_HIGH = 0.65  # KeywordPopups HighInfernalFlame: 65% of maximum Infernal Flame or more
+# Managing the bar (MECHC8; FIX_QUEUE "Seething Body", research/archon-infernal-rest.md): cast until Flame is nearly at its
+# maximum, then stop: after 2 s without gaining Flame it decays by 25% of its maximum per second (Pyromantic Pact; the
+# stat id says "of MAX", the text "of Infernal Flame": MEDIUM), so 1.4 s more brings it back to High (65%). Archon then
+# never ends (it doesn't expire on High and the reset never comes), and no self-hit; the cost is the pause, 3.4 s per
+# 0.7 x 2 x maximum Mana / cost of casting. Pausing longer (to 65%) is the best ratio: the 2 s are paid per pause, so the
+# casting between them should be as long as High allows. LOW for how players time it (a play strategy, not counted in
+# the headline: the play guide's row). FLAME_MANAGED is only switched on by that row's trial.
+FLAME_MANAGED = False
+FLAME_IDLE = 2.0  # seconds without gaining Flame before it decays (research note, MEDIUM)
+FLAME_DECAY = 0.25  # share of maximum Flame lost per second once decaying (MEDIUM)
+
+
+def flame_pause_share(mana: float, cost: float) -> float:
+    """The share of the fight spent casting when the bar is managed (cast from High to the top, pause until High again)."""
+    if mana <= 0 or cost <= 0:
+        return 0.0
+    cast = (1 - FLAME_HIGH) * 2 * mana / cost
+    pause = FLAME_IDLE + (1 - FLAME_HIGH) / FLAME_DECAY
+    return cast / (cast + pause)
 
 
 def archon_effects(x: dict, wait: float, no_recovery: bool, flame: float = 0.0) -> dict[str, float]:

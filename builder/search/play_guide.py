@@ -159,12 +159,48 @@ def guide(search: Any) -> list[dict]:
                 rows.append({"var": f"usage:{name}", "label": f"{name}: how the build feeds it", "kind": PLAYER,
                              "counted": True, "play": note, "dps_with": headline, "dps_without": headline,
                              "change": 0.0, "confidence": "modelled"})
+    if row := seething_pause(search, headline):
+        rows.append(row)
     after, base = build.objective.dps(build.stats), headline
     if abs(after - base) > 1e-6 * base:  # the switches must leave the build as it was; say so if they didn't
         rows.append({"var": "", "label": "(restore check)", "kind": BUILD, "counted": False, "play": "",
                      "dps_with": base, "dps_without": after, "change": (after - base) / base,
                      "confidence": f"the build's DPS read {after:,.0f} after the trials, {base:,.0f} before"})
     return sorted(rows, key=lambda r: -abs(r["change"]))
+
+
+def seething_pause(search: Any, headline: float) -> dict | None:
+    """Seething Body managed (MECHC8; FIX_QUEUE "Seething Body"): the headline counts the bar left to fill and reset
+    (models.flame_uptime); pausing near the top holds Elemental Archon all fight at the cost of the pauses
+    (models.flame_pause_share). One trial with Archon held, scaled by the casting share; a row only when it moves the
+    DPS. Not counted in the headline (a play strategy the player chooses; scaling by casting time is exact for hits,
+    approximate for damage over time, which goes on during the pauses)."""
+    from builder.search import models
+
+    build = search.build
+    models.FLAME_MANAGED = True
+    try:
+        search.assumptions.apply()
+        held = build.objective.dps(build.stats)
+    finally:
+        models.FLAME_MANAGED = False
+        search.assumptions.apply()
+    if abs(held - headline) < MIN_CHANGE * headline:
+        return None  # (no Seething Body Archon, or it's already up all fight)
+    stats = build.call("stats", fields=["Mana", "ManaPerSecondCost"])
+    share = models.flame_pause_share(number(stats.get("Mana")), number(stats.get("ManaPerSecondCost")))
+    paused = held * share
+    better = paused > headline
+    return {"var": "seething:pause", "label": "Seething Body: pause near the top of Infernal Flame", "kind": PLAYER,
+            "counted": False,
+            "play": (f"cast until Infernal Flame is nearly full, then stop for about "
+                     f"{models.FLAME_IDLE + (1 - models.FLAME_HIGH) / models.FLAME_DECAY:.1f}s (2 s before it decays, "
+                     f"then 25% of its maximum per second back to High): Elemental Archon stays up (it doesn't expire on High "
+                     f"Flame) and the bar doesn't reset (no Fire hit of your maximum Life and Energy Shield), but you cast {share:.0%} of the time: "
+                     f"{paused:,.0f} DPS with pausing, {headline:,.0f} without (the headline: fill and reset)"
+                     + ("; pausing is the stronger way to play it" if better else "; not worth it for this build")),
+            "dps_with": paused, "dps_without": headline, "change": (paused - headline) / headline,
+            "confidence": "theory (decay rate and its basis MEDIUM; the player's timing LOW)"}
 
 
 __all__ = ["guide", "kind", "KINDS", "OFF_OPTIONS", "PLAYER", "BUILD", "FIGHT"]

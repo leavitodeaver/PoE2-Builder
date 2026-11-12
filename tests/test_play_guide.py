@@ -356,3 +356,38 @@ def test_the_usage_play_notes_get_their_own_rows():
     search.usage = SimpleNamespace(play_note=lambda name: "Strike first" if name == "Tempest Bell" else "")
     rows = [r for r in play_guide.guide(search) if r["var"].startswith("usage:")]
     assert [(r["var"], r["play"], r["counted"]) for r in rows] == [("usage:Tempest Bell", "Strike first", True)]
+
+
+def test_seething_body_pause_row_holds_archon_at_the_cost_of_the_pauses():
+    """MECHC8: cast from High (65%) to the top of Infernal Flame (2 x maximum Mana), pause 2 s + 1.4 s of decay back to
+    High; Archon held all fight, the DPS scaled by the casting share; not counted in the headline."""
+    from builder.search import models
+
+    # 1,000 Mana, 100 Mana/s: casting 0.35 x 2,000 / 100 = 7 s, pausing 3.4 s: 7 / 10.4 of the time
+    assert models.flame_pause_share(1000, 100) == approx(7 / 10.4)
+    assert models.flame_pause_share(0, 100) == 0.0
+    assert models.flame_uptime(20.0, 0.0) != (1.0, models.math.inf, 0.0)
+
+    class Build:
+        objective = SimpleNamespace(dps=lambda stats: stats["dps"])
+
+        @property
+        def stats(self):
+            return {"dps": 2000.0 if models.FLAME_MANAGED else 1000.0}
+
+        def call(self, method, **kwargs):
+            assert method == "stats"
+            return {"Mana": 1000, "ManaPerSecondCost": 100}
+
+    row = play_guide.seething_pause(SimpleNamespace(build=Build(), assumptions=SimpleNamespace(apply=lambda: None)), 1000.0)
+    assert not models.FLAME_MANAGED  # (put back)
+    assert row["counted"] is False and row["dps_with"] == approx(2000 * 7 / 10.4) and row["dps_without"] == 1000.0
+    assert "3.4s" in row["play"] and "stronger" in row["play"]
+
+    class Unmoved(Build):
+        @property
+        def stats(self):
+            return {"dps": 1000.0}
+
+    assert play_guide.seething_pause(SimpleNamespace(build=Unmoved(), assumptions=SimpleNamespace(apply=lambda: None)),
+                                     1000.0) is None
