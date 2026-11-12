@@ -47,7 +47,8 @@ REMNANT_SOURCES = {
     "Frost Bomb": (0.1667, "per cast, before cooldown recovery"),
     "Lingering Illusion": (0.352, "the boss destroys one of your dodge-roll copies every 5 s (the user's rate, 9 Nov), "
                                   "1.76 Power Charge Remnants each"),
-    "Living Bomb": (0.2, "assumed: one seed detonated every 5 s"),
+    "Living Bomb": (0.0, "one seed at a time, exploding once the boss takes 200% of its Ailment Threshold "
+                    "(living_bomb_rate, from the build's own damage)"),
     "Grim Feast": (0.0, "a Grim Remnant when one of your Reviving minions dies in your Presence (100%, game files), at "
                         "the rate the build kills them (models.minion_deaths; no flat rate, the user 11 Nov)"),
     "Orb of Storms": (0.0833, "one Orb kept up: a Remnant when each 12 s Orb expires"),
@@ -65,6 +66,32 @@ KALGUUR, KALGUUR_CHANCE, KALGUUR_COOLDOWN = "Remnants of Kalguur", 0.5, 3.0
 # Siphon Elements (SiphonElementsPlayer): infusion_remnants_%_chance_to_spawn_cold_infusion_on_freezing_an_enemy 5, "per
 # Power" (skill_stat_descriptions); "Unique monsters always have 20 Power" (KeywordPopups Power)
 SIPHON, SIPHON_FREEZE_PER_POWER = "Siphon Elements", 0.05
+# Living Bomb (LivingBombPlayer, build 26476662; MECHC1, FLAT_RATES A11: before, one seed every 5 s for any build):
+# living_bomb_base_number_of_bombs_allowed 1, base_skill_effect_duration 15000 ("Seed duration"),
+# living_bomb_damage_threshold_%_of_ailment_threshold 200 ("Explodes after enemy is dealt damage equal to 200% of its
+# Ailment Threshold"). One seed planted (its cast) and exploding when the build's damage reaches the threshold: the main
+# skill's CombinedDPS (other skills' damage not counted: an undercount) against PoB's EnemyAilmentThreshold. Whether a
+# seed explodes when its 15 s run out first is UNVERIFIED (the game text names damage or a kill only); counted as
+# exploding then, labelled, rather than zeroed.
+LIVING_BOMB, LIVING_BOMB_SHARE, LIVING_BOMB_DURATION = "Living Bomb", 2.0, 15.0
+LIVING_BOMB_FIELDS = ("EnemyAilmentThreshold", "CombinedDPS")
+
+
+def living_bomb_rate(stats: dict, cast_time: float) -> tuple[float, str]:
+    """Living Bomb explosions (Fire Infusion Remnants) per second: one seed at a time, replanted after each."""
+    need = LIVING_BOMB_SHARE * number(stats.get("EnemyAilmentThreshold"))
+    dps = number(stats.get("CombinedDPS"))
+    if need <= 0 or dps <= 0:
+        return 0.0, "no damage or no Ailment Threshold read: no seed explodes"
+    wait = need / dps
+    late = wait > LIVING_BOMB_DURATION
+    period = cast_time + min(wait, LIVING_BOMB_DURATION)
+    how = (f"a seed planted ({cast_time:g} s cast) explodes after {need:,.0f} damage (200% of the boss's Ailment "
+           f"Threshold) at {dps:,.0f} DPS, {wait:.1f} s: one per {period:.1f} s")
+    if late:
+        how += (f" (the {LIVING_BOMB_DURATION:g} s seed runs out first; counted as exploding then, UNVERIFIED: the game "
+                "text names damage or a kill only)")
+    return 1 / period, how
 # created_remnants_have_%_chance_to_duplicate_pick_up_results (the Empowering Remnants passive, the "of Accumulation" to
 # "of Multiplication" item suffixes): "#% chance for Remnants you pick up to count as picking up an additional Remnant"
 # (stat_descriptions), "... you create to grant their effects twice" (passive_skill_stat_descriptions): one stat, both
@@ -147,6 +174,7 @@ def duplicate_pickups(texts: list[str]) -> float:
 NEEDS_MINIONS = {"Grim Feast"}  # its Remnants come from your minions' deaths
 REAPPEAR = re.compile(r"Remnants you create reappear once", re.I)  # Storm's Recollection: each is collected twice
 COOLDOWN_SOURCES = {"Snap", "Frost Bomb"}  # their rate scales with their own cooldown recovery
+PRESSED_SOURCES = COOLDOWN_SOURCES | {"Living Bomb"}  # pressed for their Remnants: the press time (remnant_presses)
 INFUSED_NOTE = ("the Infused cast needs an Elemental Infusion of its element, collected from a Remnant, and none of the "
                 "build's skills makes that element's Infusions on a lone boss, so only the plain cast counts")
 # Elemental Infusions per second on a single boss, by element (game files, build 26476662: the skills whose description
@@ -175,7 +203,7 @@ INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
 
 
 def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str] | dict[str, float],
-                    siphon: tuple[float, str] = (0.0, "")) -> tuple[dict[str, float], list[str]]:
+                    siphon: tuple[float, str] = (0.0, ""), bomb: tuple[float, str] = (0.0, "")) -> tuple[dict[str, float], list[str]]:
     """Elemental Infusions per second by element ("Any": Verisium Infusions, usable as any element), and what makes them.
     `present`: the build's enabled skills by name; `lines`: its modifier lines; `ailments`: the resolver's active
     condition vars (which ailment Snap consumes), a set (each always up) or each var's share of the fight; `siphon`: Siphon Elements' Cold Remnants per second and how
@@ -189,6 +217,8 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
         if skill is None:
             continue
         rate = REMNANT_SOURCES[name][0] * ((skill.get("cooldownRecovery") or 1.0) if name in COOLDOWN_SOURCES else 1.0)
+        if name == LIVING_BOMB:  # (living_bomb_rate, from the caller)
+            rate = bomb[0]
         if element is None:  # Snap: the element of the ailment it consumes, from those on the boss at their uptimes
             # (MECH36: each ailment at its real share of the fight, not on only from 90%: Snap finds one when any is up,
             # 1 - the product of each one's absence, taken as independent; the element split by uptime, even when all
@@ -448,6 +478,9 @@ class Assumptions:
                     rate, condition = kalguur_rate(stuns), f"50% per Stun, at most one per 3 s, {how}"
                 elif name == SIPHON:
                     rate, condition = siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS))
+                elif name == LIVING_BOMB:
+                    rate, condition = living_bomb_rate(self.build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
+                                                       skill.get("castTime") or 0.0)
                 elif name in HIT_REMNANTS:
                     rate, condition = hit_remnant_rate(name, self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
                 elif name == "Snap":  # (MECH46: it needs an ailment on the boss to Consume)
@@ -558,7 +591,7 @@ class Assumptions:
         """The time pressing Snap or Frost Bomb for its Remnants takes from the main skill (MECH46, FLAT_RATES A14: before,
         only when its group was in Full DPS, through rate_presses, which still charges those). Each pressed on its
         cooldown, Snap only when it finds an ailment to Consume, for its base cast time (cast speed not read: LOW)."""
-        if not any(s["name"] in COOLDOWN_SOURCES and not s["disabled"] for s in skills):
+        if not any(s["name"] in PRESSED_SOURCES and not s["disabled"] for s in skills):
             return [], []
         build = self.build
         group = build.main_group()
@@ -567,10 +600,12 @@ class Assumptions:
         busy, parts = 0.0, []
         for skill in skills:
             name = skill["name"]
-            if (skill["disabled"] or name not in COOLDOWN_SOURCES or name == main or skill.get("group") == main_index
+            if (skill["disabled"] or name not in PRESSED_SOURCES or name == main or skill.get("group") == main_index
                     or skill.get("group") in pressed):
                 continue
             rate = REMNANT_SOURCES[name][0] * (skill.get("cooldownRecovery") or 1.0)
+            if name == LIVING_BOMB:
+                rate = living_bomb_rate(build.call("stats", fields=list(LIVING_BOMB_FIELDS)), skill.get("castTime") or 0.0)[0]
             if name == "Snap":
                 rate *= snap_found(build.call("stats", fields=list(HIT_REMNANT_FIELDS)))[0]
             took = rate * (skill.get("castTime") or 0.0)
@@ -584,7 +619,8 @@ class Assumptions:
             "label": "Time pressing Remnant skills", "value": round(busy, 3),
             "basis": f"{', '.join(parts)} (base cast times; pressed on cooldown for their Remnants): {busy:.1%} of the "
                      f"fight not spent on {main}",
-            "play": "Press Snap / Frost Bomb on cooldown (Snap when the boss is Ignited, Shocked or Frozen).",
+            "play": "Press Snap / Frost Bomb on cooldown (Snap when the boss is Ignited, Shocked or Frozen), and plant a "
+                    "new Living Bomb seed as each one explodes.",
             "confidence": "game files' cooldowns; cast speed not read (LOW)"}]
 
     def stats_as_main(self, group: dict, position: int, main_index: int, fields: list[str]) -> dict:
@@ -703,7 +739,9 @@ class Assumptions:
         present = {s["name"]: s for s in raw if not s["disabled"]}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
         siphon = siphon_freezes(build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present else (0.0, "")
-        supply, used = infusion_supply(present, lines, ailments, siphon)
+        bomb = living_bomb_rate(build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
+                                present[LIVING_BOMB].get("castTime") or 0.0) if LIVING_BOMB in present else (0.0, "")
+        supply, used = infusion_supply(present, lines, ailments, siphon, bomb)
         keep = min(1.0, sum(float(m.group(1)) for t in lines if (m := KEEP_INFUSION.search(t.strip()))) / 100.0)
         uses = float(build.call("stats", fields=["Speed"]).get("Speed") or 0.0)
         # (MECH46: the main skill's casts net of the time pressing Snap / Frost Bomb takes, whether or not that press

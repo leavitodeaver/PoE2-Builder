@@ -1053,8 +1053,8 @@ def test_infusion_supply_counts_each_element_from_the_build_s_sources():
     lines = ["Create Lightning Infusion Remnants instead of Fire", "50% chance to spawn an additional Infusion Remnant",
              "20% chance to gain an additional Infusion", "40% chance when collecting an Elemental Infusion to gain another "
              "different Elemental Infusion", "Every 5 seconds, gain a Verisium Infusion"]
-    supply, used = infusion_supply({"Living Bomb": {}}, lines, set())
-    fire = REMNANT_SOURCES["Living Bomb"][0] * 1.5 * 1.2  # made as Lightning (Equilibrium)
+    supply, used = infusion_supply({"Living Bomb": {}}, lines, set(), bomb=(0.2, "living_bomb_rate"))
+    fire = 0.2 * 1.5 * 1.2  # made as Lightning (Equilibrium)
     assert supply["Lightning"] == pytest.approx(fire)
     assert supply["Fire"] == pytest.approx(fire * 0.2) and supply["Cold"] == pytest.approx(fire * 0.2)
     assert supply["Any"] == pytest.approx(1.2 / 5)
@@ -1590,3 +1590,15 @@ def test_a_granted_skill_pob_builds_nothing_for_is_noted_not_dropped():
     notes = Assumptions.unbuilt_grants(fake, [{"name": "Parry"}])
     assert [n["label"] for n in notes] == ["Dark Pact: not counted", "Queen's Procession: not counted"]
     assert all(n["value"] == 0 and "undercount" in n["basis"] for n in notes)
+
+
+def test_living_bomb_explodes_when_the_build_deals_twice_the_boss_ailment_threshold():
+    """MECHC1 (FLAT_RATES A11; before, one seed every 5 s for any build). LivingBombPlayer: one seed, 15 s, exploding at
+    200% of the Ailment Threshold; a seed that runs out first is counted as exploding then (UNVERIFIED), not zeroed."""
+    from builder.search.assumptions import living_bomb_rate
+
+    rate, how = living_bomb_rate({"EnemyAilmentThreshold": 100000, "CombinedDPS": 50000}, 1.0)
+    assert rate == pytest.approx(1 / 5) and "4.0 s" in how  # 1 s cast + 200,000 / 50,000
+    slow, how = living_bomb_rate({"EnemyAilmentThreshold": 100000, "CombinedDPS": 5000}, 1.0)
+    assert slow == pytest.approx(1 / 16) and "UNVERIFIED" in how
+    assert living_bomb_rate({"EnemyAilmentThreshold": 100000, "CombinedDPS": 0}, 1.0)[0] == 0
