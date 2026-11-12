@@ -40,9 +40,10 @@ from functools import lru_cache
 from pathlib import Path
 
 from builder import ROOT
-from builder.ledger import entries, model_entry, parse_audit, translate
+from builder.ledger import checked_parse, entries, model_entry, parse_audit, translate
 
 POB_SRC = ROOT / "vendor" / "PathOfBuilding-PoE2" / "src"
+BRIDGE = ROOT / "engine" / "bridge.lua"
 QUERIES = ("Sum", "More", "Flag", "Override", "List", "Max", "Min", "Tabulate", "HasMod", "GetCondition",
            "GetMultiplier", "GetStat", "SumInternal", "MoreInternal", "FlagInternal", "ListInternal")
 QUERY = re.compile(r"(?::(?:%s)|calcLib\.(?:mod|val|mods)|\bcalcLocal)\(" % "|".join(QUERIES))
@@ -104,6 +105,14 @@ def calc_reads(src: Path = POB_SRC) -> dict:
                 if re.sub(r"\\w\*", "", glob):
                     patterns.add(glob)
             exact.update(STRING.findall(args))
+    # The tool's own engine reads some names PoB's calculations don't (charm and flask charge gain for the
+    # uptime of builder/search/flasks.py, ...): through the same queries, or its local helpers base("X") / inc("X")
+    # (COV1, 12 Nov 2026: "Charm Charges gained" lines were listed as no-ops though the charm uptime reads them)
+    if BRIDGE.exists() and src == POB_SRC:
+        text = _strip_comments(BRIDGE.read_text(encoding="utf-8", errors="replace"))
+        for m in QUERY.finditer(text):
+            exact.update(STRING.findall(_call_args(text, m.end())))
+        exact.update(re.findall(r'(?<![\w.:])(?:base|inc|more|flag)\("(\w+)"\)', text))
     # Conditions and multipliers are read through tags on other modifiers (var = "Name"), which the
     # parser writes too
     parser = _strip_comments((src / "Modules" / "ModParser.lua").read_text(encoding="utf-8", errors="replace"))
@@ -146,21 +155,39 @@ def unread(names: list[str] | dict, reads: dict | None = None) -> list[str]:
 
 # What a line is about, and how much it matters ---------------------------------------------------
 
+# A line is "flavour" (moves none of the tool's numbers: a boss's DPS, EHP, recovery or speed) only when it is
+# recognised as such: loot, gold, experience, light radius, fishing, movement speed, item labels. Anything else the
+# patterns don't recognise is "unclassified": it may move a build and nobody has read it yet, so it stays in the open
+# list. Until 12 Nov 2026 the fallback was "flavour"; a sample of the 1,647 "flavour" templates of the 8 Nov report
+# found most of them real (Grants Skill lines, Chain / Fork, Crushing Blows, conversion and trigger-energy gem stats,
+# charges, Rage, Volatility, stun, slow, charm charges; COV1's report has the counts).
 MECHANICS = (
     ("damage", r"damage|critical|penetrat|crit\b|ignite|shock|bleed|poison|freeze|chill|electrocute|"
                r"exposure|withered|wither|curse|projectile|area of effect|skill effect|accuracy|"
-               r"impale|culling|overwhelm|power charge|frenzy charge|onslaught|archon|infusion|"
-               r"spell|attack|minion|totem|strike|combo|glory|empower|maximum hit|deal"),
+               r"impale|culling|cull\b|overwhelm|power charge|frenzy charge|onslaught|archon|infusion|"
+               r"spell|attack|minion|totem|strike|combo|glory|empower|maximum hit|deal|"
+               r"\bchain|\bfork|pierce|grants? (skill|level|summon|effect)|trigger|surge|volatility|\brage\b|"
+               r"charges?\b|\bpower\b|remnant|infernal flame|crushing blow|weakness|energy|banner|valour|herald|"
+               r"golem|spectre|skeleton|zombie|companion|beast|shrine|divinity|madness|lance|kill|shapeshift|slam|"
+               r"grenade|crossbow|bolt|spear|arrow|bell|mine|trap|explosive|fear incarnate|mark\b|puppet|plant|"
+               r"overgrow|jade|adaptation|tailwind|rhythm|fervour|haunt|abyssal|wasting|surpassing|mage's legacy|"
+               r"perfect timing|on hit|hits\b|weapon"),
     ("defence", r"armour|evasion|energy shield|resist|block|damage taken|maximum life|life\b|"
-                r"\bward\b|deflect|suppress|endurance charge|avoid|ailment|stun threshold|reduction|"
-                r"spirit|reservation|mana\b|darkness|guard|unaffected"),
-    ("recovery", r"regenerat|leech|recover|recoup|flask|charm|life on|mana on|refill|restore"),
-    ("speed", r"attack speed|cast speed|skill speed|cooldown|duration|warcry speed|reload|use speed"),
+                r"\bward\b|deflect|suppress|endurance charge|avoid|ailment|stun|reduction|"
+                r"spirit|reservation|mana\b|darkness|guard|unaffected|dodge|parry|aegis|smoke cloud|phasing|"
+                r"slow|maim|blind|debilitat|intimidat|pinn|pin\b|immobilis|regrowth|knock|frozen|thorns|consecrated"),
+    ("recovery", r"regenerat|leech|recover|recoup|flask|charm|life on|mana on|refill|restore|on use|used when"),
+    ("speed", r"attack speed|cast speed|skill speed|cooldown|duration|warcry speed|reload|use speed|detonation"),
+    ("behaviour", r"socket|jewel|modifier|attribute|strength|dexterity|intelligence|level of|passive|"
+                  r"ascendancy|keystone|equip|requirement|corpse|conquered|limit|maximum number|ring\b|"
+                  r"gloves|boots|helmet|shield|instilled|transformed"),
 )
-MECHANIC_WEIGHT = {"damage": 4.0, "defence": 3.0, "speed": 3.0, "recovery": 2.5, "behaviour": 1.5, "flavour": 0.1}
-FLAVOUR = re.compile(r"movement speed|rarity|quantity|light radius|experience|stun\b(?! threshold)|"
-                     r"knockback|pickup|collected|cosmetic|display|visual|flask charges gained|"
-                     r"charm charges|item rarity|reveal|currency|gold", re.I)
+MECHANIC_WEIGHT = {"damage": 4.0, "defence": 3.0, "speed": 3.0, "recovery": 2.5, "behaviour": 1.5,
+                   "unclassified": 1.5, "flavour": 0.1}
+FLAVOUR = re.compile(r"movement speed|rarity|quantity|light radius|experience|pickup|cosmetic|display|"
+                     r"visual|currency|gold\b|fish|footprints|^corrupted$|^mirrored$|^historic$|"
+                     r"^raven-touched$|^version:|selected alt variant|^maximum quality|can be modified while|"
+                     r"inventory slots|chest which adds", re.I)
 SOURCE_WEIGHT = {"keystone": 6.0, "ascendancy": 5.0, "notable": 3.0, "jewel socket": 1.0, "small": 0.5,
                  "unique": 1.0, "affix": 2.0, "rune": 2.0, "jewel": 1.5, "corruption": 1.0, "desecrated": 1.5,
                  "exclusive": 0.3, "flask": 1.0, "charm": 1.0, "limb": 0.5,
@@ -174,7 +201,8 @@ DISPLAY_STAT = re.compile(r"(^|_)(display|quality_display|visual|cosmetic|hidden
 
 
 def mechanic(text: str) -> str:
-    if FLAVOUR.search(text) and not re.search(r"damage|critical|resist|armour|evasion|energy shield|life", text, re.I):
+    if FLAVOUR.search(text) and not re.search(r"damage|critical|resist|armour|evasion|energy shield|life|"
+                                             r"attack|cast speed|skill speed", text, re.I):
         return "flavour"
     if re.search(r"recover|regenerat|leech|recoup", text, re.I):
         return "recovery"
@@ -184,9 +212,17 @@ def mechanic(text: str) -> str:
     for name, pattern in MECHANICS:
         if re.search(pattern, text, re.I):
             return name
-    return "flavour"
+    return "unclassified"
 
 
+# Gem stats that only shape how a skill looks or is aimed: art, sound, animation, indicators, auto-targeting.
+FLAVOUR_STAT = re.compile(r"art_variation|_variation$|animation|statset_index|_sound|_vfx|indicator|autotarget|"
+                          r"_angle|angle_allowance|ease_in|ease_out|pushiness|turn_duration|visual|recoil|"
+                          r"do_not_face|face_target|warp_speed|show_|_art_|knockback|movement_speed|"
+                          r"pickup_range|step_distance", re.I)
+# ...unless the stat also names something that moves the numbers (a display pattern matched on the way past it)
+NOT_FLAVOUR_STAT = re.compile(r"damage(?!_prediction)|life|mana|lose_|glory|instant|not_considered|weakness|"
+                              r"per_.*knockback|area_of_effect", re.I)
 STAT_BEHAVIOUR = re.compile(r"projectile_(uses|spread|maximum|minimum|distance|ballistic|speed)|spread|angle|offset|"
                             r"animation|channel_|turn_duration|check_for_targets|base_is_projectile|modular|show_|"
                             r"contact_|collide|variation|maintain_|precise_movement|range|action_distance|queue|"
@@ -196,9 +232,13 @@ STAT_BEHAVIOUR = re.compile(r"projectile_(uses|spread|maximum|minimum|distance|b
                             r"has_freeze_cull|radius|area_of_effect", re.I)
 STAT_KINDS = (
     ("damage", r"damage|crit|penetrat|exposure|_as_|wither|shock|ignite|poison|bleed|impale|freeze|chill|"
-               r"electrocut|cull|additional_projectile|number_of_projectiles|chain|repeat|echo|_final"),
-    ("defence", r"armour|evasion|energy_shield|block|resist|damage_taken|maximum_life|ward|guard"),
-    ("recovery", r"leech|regen|recover|recoup|life_gain|mana_gain"),
+               r"electrocut|cull|additional_projectile|number_of_projectiles|chain|repeat|echo|_final|"
+               r"convert|conversion|physical|fire|cold|lightning|chaos|glory|energy|trigger|magnitude|"
+               r"effect_\+%|empower|power_charge|frenzy|charge|rage|infusion|stage|maim|herald|consume|"
+               r"interval_ms|usages|jagged|ground"),
+    ("defence", r"armour|evasion|energy_shield|block|resist|damage_taken|maximum_life|ward|guard|stun|blind|"
+                r"slow|dodge|parry"),
+    ("recovery", r"leech|regen|recover|recoup|life_gain|mana_gain|remnant|orb"),
     ("speed", r"speed|cooldown|duration"),
 )
 
@@ -211,18 +251,20 @@ BEHAVIOUR_DAMAGE = re.compile(r"number_of|projectiles?_nova|projectile_count|add
 
 
 def stat_mechanic(stat: str) -> str:
-    """What a gem stat is about, from its id: behaviour and display stats (how a projectile flies,
-    animation timing) are flavour for the numbers."""
-    if DISPLAY_STAT.search(stat) or re.search(r"animation|turn_duration|knockback|movement_speed|visual|_angle|recoil", stat):
+    """What a gem stat is about, from its id. "flavour" only for display stats and stats that shape how a skill
+    looks or is aimed (art, animation, indicators, auto-targeting); a stat about where or how a skill lands (radius,
+    range, "cannot_...", overrides) is "behaviour", and one no pattern recognises is "unclassified", not flavour."""
+    if stat.endswith("_is_gem") or re.search(r"^(display|quality_display)_|_display_|show_average|cursor_targeting|^base_deal_no_damage", stat) \
+            or (DISPLAY_STAT.search(stat) or FLAVOUR_STAT.search(stat)) and not NOT_FLAVOUR_STAT.search(stat):
         return "flavour"
     if BEHAVIOUR_DAMAGE.search(stat):  # how many hits a use makes, or how often: it changes damage on a boss
         return "behaviour"
-    if STAT_BEHAVIOUR.search(stat) and not re.search(r"damage|crit", stat):
-        return "flavour"
     for name, pattern in STAT_KINDS:
         if re.search(pattern, stat, re.I):
             return name
-    return "flavour"
+    if STAT_BEHAVIOUR.search(stat):
+        return "behaviour"
+    return "unclassified"
 
 
 def template(text: str) -> str:
@@ -287,6 +329,17 @@ def ignored_line_status(line: str, on_passive: bool) -> tuple[str, str | None, s
     if condition := resolver_condition(line):
         return "model", f"condition:{condition.var}", f"a source of {condition.label} for the condition resolver"
     return "none", None, "PoB ignores the line"
+
+
+def not_applied(status: str, entry: str | None, reason: str) -> tuple[str, str | None, str]:
+    """The search applies ledger translations to passive-tree lines (applyPassiveCorrections) and unique items'
+    lines (SearchContext.corrected_raw) only: an affix, rune, jewel, base implicit or Timeless jewel line an entry
+    translates into lines is still not counted in a build, so it stays "none" (COV1, 12 Nov 2026; until then the
+    audit counted 64 such lines as covered). An entry recording "no effect" needs nothing applied and stays."""
+    if status == "ledger" and reason == "translated":
+        return "none", entry, ("a ledger entry translates it, but the search doesn't apply ledger corrections to "
+                               "item affixes, runes, jewels, base implicits or Timeless passives yet")
+    return status, entry, reason
 
 
 def resolver_condition(line: str):
@@ -361,9 +414,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 category = "affix-noop" if missing else "affix"
             else:
                 category = "affix"
-                status, entry, reason = ignored_line_status(text, False)
-                if status == "ledger":  # affix lines aren't corrected in items yet; the entry only labels them
-                    reason += " (labelled; affix corrections not applied to items yet)"
+                status, entry, reason = not_applied(*ignored_line_status(text, False))
             group = f"{affix['pool']}:{re.sub(r'\d+$', '', affix['id'])}"
             add(category, f"{affix['pool']} {affix['id']}" + (f" ({affix['slot']})" if affix.get("slot") else ""),
                 kind, text, status, entry, reason, SOURCE_WEIGHT[kind], group=group)
@@ -425,7 +476,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     "parsed, but no calculation reads " + ", ".join(missing), weight)
         for line in raw.get("base_implicits", []):  # base items' implicit lines
             if not line["supported"]:
-                status, entry, reason = ignored_line_status(line["line"], False)
+                status, entry, reason = not_applied(*ignored_line_status(line["line"], False))
                 add("base-implicit", line["base"], "affix", line["line"], status, entry, reason, SOURCE_WEIGHT["affix"])
             elif missing := unread(line.get("names") or [], reads):
                 add("base-implicit-noop", line["base"], "affix", line["line"], "none", None,
@@ -433,7 +484,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
         for line in raw.get("legion", []):
             kind = "notable" if line.get("notable") or line.get("kind") == "nodes" else "small"
             if not line["supported"]:
-                status, entry, reason = ignored_line_status(line["line"], False)
+                status, entry, reason = not_applied(*ignored_line_status(line["line"], False))
                 add("timeless", line["node"], kind, line["line"], status, entry,
                     reason + " (a Timeless jewel's passive)", SOURCE_WEIGHT[kind] * 0.5)
             elif missing := unread(line.get("names") or [], reads):
@@ -455,7 +506,9 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     + "; ".join(f"{need} ({detail})" for need, _, detail in blocked), weight, of=source_type,
                     needs=[need for need, _, _ in blocked], config_only=all(st == "config-off" for _, st, _ in blocked))
             for finding in parse_audit.lost(line["line"], mods):
-                add("misparse", source, kind, line["line"], "none", None,
+                checked = checked_parse(line["line"], line.get("unique") or line.get("node"))
+                add("misparse", source, kind, line["line"], "ledger" if checked else "none", checked and checked.id,
+                    f"PoB's parse read by hand and right: {checked.title}" if checked else
                     f"PoB counts it, but its parse looks wrong ({finding['kind']}: {finding['detail']})",
                     weight * (1.5 if finding["inflates"] else 1.0), of=source_type, finding=finding["kind"],
                     inflates=finding["inflates"])
@@ -656,7 +709,7 @@ def _build_index(data_dir: str) -> dict:
             stats = set_.get("stats") or []
             for stat in list(stats.values()) if isinstance(stats, dict) else stats:
                 name = stat["stat"]
-                if stat_mechanic(name) == "flavour" or name in covered or gem_stat_pattern_entry(name, skill["name"]):
+                if stat_mechanic(name) in ("flavour", "unclassified") or name in covered or gem_stat_pattern_entry(name, skill["name"]):
                     continue
                 if stat.get("mapped") and stat.get("names") and not unread(stat["names"], reads):
                     continue

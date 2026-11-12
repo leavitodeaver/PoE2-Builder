@@ -39,6 +39,17 @@ def test_mechanic_and_template():
     assert coverage.mechanic("Recover 2% of maximum Life on Kill") == "recovery"
     assert coverage.mechanic("10% increased Light Radius") == "flavour"
     assert coverage.stat_mechanic("quality_display_warding_steel_is_gem") == "flavour"
+    # flavour only when recognised as such; a line no pattern knows stays in the open list (COV1, 12 Nov 2026:
+    # most of the old fallback "flavour" moved builds)
+    assert coverage.mechanic("Corrupted") == "flavour"
+    assert coverage.mechanic("Your Hits are Crushing Blows") != "flavour"
+    assert coverage.mechanic("Grants Skill: Ruzhan's Reckoning") != "flavour"
+    assert coverage.mechanic("Fork an additional time") != "flavour"
+    assert coverage.mechanic("A line no pattern knows") == "unclassified"
+    assert coverage.stat_mechanic("ground_oil_art_variation") == "flavour"
+    assert coverage.stat_mechanic("ancestral_cry_non_skill_physical_to_fire_convert_%") == "damage"
+    assert coverage.stat_mechanic("lose_%_of_life_es_and_mana_when_skill_is_used") != "flavour"
+    assert coverage.stat_mechanic("some_stat_nobody_knows") == "unclassified"
     assert coverage.template("Adds (8-12) to 20 Fire Damage") == "Adds # to # Fire Damage"
 
 
@@ -73,3 +84,20 @@ def test_build_blind_spots_list_noops_and_unread_gem_stats():
     assert ("gem stat", "ember_fusillade_damage_+%_final_per_ember_fired") in kinds
     assert not any(b["source"] == "gem: Mana Tempest" for b in found)  # its stats are counted now
     assert not any("maximum Life" in b["line"] for b in found)
+
+
+def test_parse_checked_entries_and_item_lines_the_search_does_not_correct():
+    from builder.ledger import checked_parse
+
+    assert checked_parse("Defend with 200% of Armour").id == "parse-defend-with-armour"
+    # an entry limited to one item doesn't close the same text elsewhere
+    assert checked_parse("(100-160)% increased Chaos Damage", "The Unborn Lich")
+    assert checked_parse("(100-160)% increased Chaos Damage", "Some Other Staff") is None
+    # a ledger translation of an affix line isn't applied to items by the search: still not counted
+    assert coverage.not_applied("ledger", "x", "translated")[0] == "none"
+    assert coverage.not_applied("ledger", "x", "no effect on what's calculated")[0] == "ledger"
+
+
+def test_the_tools_own_engine_reads_count_as_reads():
+    # the charm uptime (builder/search/flasks.py) reads CharmChargesGained through the bridge's inc("...") helper
+    assert coverage.name_read("CharmChargesGained", coverage.calc_reads())

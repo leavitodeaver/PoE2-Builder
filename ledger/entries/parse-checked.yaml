@@ -1,0 +1,105 @@
+# Lines the coverage audit's misparse check flags (builder/ledger/parse_audit.py `lost`: a number, condition or
+# restriction in the text it can't find in PoB's parse) whose parse was read by hand in PoB's ModParser and calculation
+# code and is right. Nothing is applied: the audit counts them as checked. COV1, 12 Nov 2026, PoB bb52d6b
+# (vendor/PathOfBuilding-PoE2). Recheck at each PoB update: a parse rule can change.
+# `only_sources`: the entry closes the line only on these items or passives (the same text elsewhere stays flagged).
+
+- id: parse-defend-with-armour
+  title: '"Defend with X% of Armour": PoB stores the excess over 100% (200% -> 100)'
+  kind: parse_checked
+  match: '^Defend with [(\d.\-)]+% of Armour( during effect| while not on Low Energy Shield| while you have Energy Shield)?$'
+  confidence: datamined
+  notes: >-
+    ModParser.lua "defend with (%d+)% of armour" and its three conditional forms: mod("ArmourDefense", "MAX", num - 100),
+    the conditions kept as tags (LowEnergyShield negated, HaveEnergyShield); CalcDefence.lua reads it as
+    effective armour x (1 + ArmourDefense/100). A ranged roll (150-200) is parsed at its middle (175 -> 75).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (defend with ... of armour)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcDefence.lua (ArmourDefense)", "https://poe2db.tw/us/Defend_with_200%25_of_Armour"]
+  test_in_game: "Against a hit of known size, armour's reduction with the line matches PoB's with Armour doubled."
+  status: proposed
+
+- id: parse-minion-life-as-es
+  title: '"Minions gain X% of their maximum Life as Extra maximum Energy Shield": the percent is in the PercentStat tag'
+  kind: parse_checked
+  match: '^Minions gain [(\d.\-)]+% of their maximum Life as Extra maximum Energy Shield$'
+  confidence: datamined
+  notes: "ModParser.lua: MinionModifier { EnergyShield BASE 1, PercentStat Life percent = num }: 1 x num% of Life. The audit's dump keeps only the tag's name, not its percent."
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (minions gain ... as extra maximum energy shield)"]
+  test_in_game: "A minion's Energy Shield on its tooltip equals the line's share of its maximum Life."
+  status: proposed
+
+- id: parse-recover-all-life-on-kill
+  title: '"X% chance to Recover all Life when you Kill": average gain is X% of Life'
+  kind: parse_checked
+  match: '^[(\d.\-)]+% chance to Recover all Life when you Kill an Enemy$'
+  confidence: datamined
+  notes: "ModParser.lua: LifeOnKill BASE 1 with PercentStat Life percent = chance (average) and percent = 100 (maximum). Kills don't happen on a single boss in any case."
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (chance to recover all life when you kill an enemy)"]
+  test_in_game: "n/a (the line only acts on kills)."
+  status: proposed
+
+- id: parse-distance-ramp
+  title: "Point Blank and Far Shot, more Hit damage by distance (a 100% MORE scaled by a DistanceRamp table)"
+  kind: parse_checked
+  match: '^Projectiles deal \d+% more Hit damage to targets in the first [\d.]+ metres of their movement, scaling (up|down) with distance travelled to reach \d+% after [\d.]+ metres$'
+  confidence: datamined
+  notes: >-
+    ModParser.lua: mod("Damage", "MORE", 100, Hit+Projectile, DistanceRamp { {10 x first, num/100}, {10 x second, low/100} }):
+    the numbers are in the ramp, which the audit's dump doesn't show. The distance used is PoB's projectile-distance
+    setting (the tool's own boss distance assumption).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (projectiles deal ... more hit damage to targets in the first)",
+            "https://poe2db.tw/us/Point_Blank", "https://poe2db.tw/us/Far_Shot"]
+  test_in_game: "Shoot a dummy from 1 m and from 8 m: Point Blank's hits differ by the line's percent."
+  status: proposed
+
+- id: parse-warcry-empower-chance
+  title: '"Warcries have X% chance to Empower N additional Attacks": counted as the average, X% x N'
+  kind: parse_checked
+  match: '^Warcries have \d+% chance to Empower \d+ additional Attacks?$'
+  confidence: datamined
+  notes: "ModParser.lua: ExtraEmpoweredAttacks BASE num x var / 100 (15% x 3 = 0.45): the expected number, as the audit should count a chance."
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (warcries have ... chance to empower)"]
+  test_in_game: "Over 20 warcries, about 15% empower 3 more attacks."
+  status: proposed
+
+- id: parse-split-pierce-projectile
+  title: '"Projectiles Split / Pierce": counts that only a projectile skill reads'
+  kind: parse_checked
+  match: '^Projectiles (Split towards \+?\d+ targets|Pierce (an|\d+) additional Targets?)$'
+  confidence: datamined
+  notes: >-
+    The text's "Projectiles" restriction isn't a flag on the modifier, but CalcOffence.lua reads SplitCount and
+    PierceCount only inside `if skillFlags.projectile` (checked: CalcOffence.lua lines ~1440-1500 at bb52d6b;
+    no other Calc module reads either name, grep of Modules/Calc*.lua): a non-projectile skill gains nothing.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (SplitCount, PierceCount)"]
+  test_in_game: "n/a (parse check)."
+  status: proposed
+
+- id: parse-unborn-lich-desecrated-magnitude
+  title: The Unborn Lich's desecrated lines are parsed boosted by its own "(60-80)% increased Desecrated Modifier magnitudes"
+  kind: parse_checked
+  match: '^(\(100-160\)% increased (Chaos|Spell Physical|Elemental) Damage|\+\(40-60\) to Spirit|\(10-20\)% increased Duration of Elemental Ailments on Enemies|Enemies you Curse have -\(8-5\)% to Chaos Resistance|\(20-30\)% chance to inflict Bleeding on Hit|\(6-10\)% increased Spirit Reservation Efficiency)$'
+  only_sources: ["The Unborn Lich"]
+  confidence: datamined
+  notes: >-
+    The staff's implicit "(60-80)% increased Desecrated Modifier magnitudes" applies to its {desecrated} lines, so PoB
+    parses them above their text: middle roll 130 x 1.7 = 221, Spirit 50 x 1.7 = 85, Bleed 25 x 1.7 = 42 (rounded).
+    The audit compares the text with the boosted value. The boost is the game's (the implicit says so).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Uniques/staff.lua (The Unborn Lich)", "https://poe2db.tw/us/The_Unborn_Lich"]
+  test_in_game: "The Unborn Lich's tooltip shows its desecrated line above the (100-160)% range when the implicit rolls high."
+  status: proposed
+
+- id: parse-flags-handled
+  title: Keystone and unique flags PoB's calculation handles (no number to keep)
+  kind: parse_checked
+  match: '^(Your Life cannot change while you have Energy Shield|Increases and Reductions to Projectile Speed also apply to Damage with Bows|Totems you place grant Embankment Auras|Rage grants Spell damage instead of Attack damage|Enemies have no Critical Damage Bonus for 4 seconds after you Blind them)$'
+  confidence: datamined
+  notes: >-
+    Each is one flag or tagged modifier the calculation reads by name (EternalLife, ProjectileSpeedAppliesToBowDamage,
+    Condition:StrategicEmbankments, Condition:RageSpellDamage, ReduceCritExtraDamage on a Blinded enemy). The audit's "condition lost" /
+    "restriction lost" / "number lost" read the word "while" / "Attack" / "4 seconds" in the text against a flag.
+    Whether the build can Blind the boss is the condition resolver's job, not the parse's.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua", "vendor/PathOfBuilding-PoE2/src/Modules/CalcDefence.lua",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua"]
+  test_in_game: "n/a (parse check)."
+  status: proposed

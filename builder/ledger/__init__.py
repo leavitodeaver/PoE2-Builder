@@ -153,6 +153,16 @@ def wrong(line: str) -> tuple[Entry, str] | None:
     return None
 
 
+def checked_parse(line: str, source: str | None = None) -> Entry | None:
+    """A `parse_checked` entry: a line the audit's misparse check flags, whose PoB parse was read by hand and is right
+    (the entry's notes say why: PoB's own number convention, a scaling line elsewhere on the item, a flag a calculation
+    handles). Nothing is applied; the audit counts the line as checked."""
+    for entry in entries():
+        if entry.kind == "parse_checked" and entry.pattern is not None and entry.pattern.search(line)                 and (not entry.raw.get("only_sources") or source in entry.raw["only_sources"]):
+            return entry
+    return None
+
+
 def model_entry(line: str) -> Entry | None:
     """The entry that feeds this line to a custom model, if any (wherever the line is)."""
     for entry in entries():
