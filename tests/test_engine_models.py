@@ -1416,3 +1416,25 @@ def test_apocalypses_disasters_count_through_full_dps(engine):
     assert group in search.assumptions.extra_groups
     stats = build.call("stats", fields=["CombinedDPS", "FullDPS"])
     assert stats["FullDPS"] > 2 * stats["CombinedDPS"]
+
+
+def test_doedres_witchtoads_count_in_full_dps_at_their_curse_areas_share(engine):
+    """MECHB8 (engine probes POE2T1015-1016): PoB rates Dark Consequences at castTime x 0.25 (4 a second) in the curse's
+    group, outside Full DPS; the toad model puts the group in it, and a trigger rate r gives 4r explosions a second."""
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("addSkillGroup", text="Despair 20/0 1\nDoedre's Undoing 1/0 1")
+    group = build.groups()[-1]["index"]
+    search.assumptions.apply()
+    assert group in search.assumptions.extra_groups
+    assert build.minion_died[0] == pytest.approx(4.0)  # a hand-cast curse kept up: a toad every 0.25 s
+    stats = build.call("stats", fields=["CombinedDPS", "FullDPS"])
+    assert stats["FullDPS"] > 2 * stats["CombinedDPS"]
+    build.call("setAssumptions", mods=models.trigger_rate(models.DARK_CONSEQUENCES, 0.5), fields=[])
+    names = [s["name"] for s in build.groups()[-1]["skills"]]
+    half = build.call("setGroup", index=group, main=True, mainActiveSkill=names.index(models.DARK_CONSEQUENCES) + 1,
+                      fields=["HitTime"])["stats"]
+    assert half["HitTime"] == pytest.approx(0.5)  # 2 explosions a second at half the share

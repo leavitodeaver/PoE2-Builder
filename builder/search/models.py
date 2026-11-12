@@ -4403,3 +4403,112 @@ def apocalypse_model(uses: float, basis: str, frequency: float = 0.0,
               "play": "Use Apocalypse whenever you have 100 Glory; its disasters fire by themselves while it lasts.",
               "confidence": "LOW"}]
     return mods, notes
+
+
+# Doedre's Undoing's Witchtoads (MECHB8; FIX_QUEUE #95 / MECHB7's Handover). The lineage support (game files
+# GrantedEffectStatSets SupportDoedresUndoingPlayer; PoB sup_int.lua 3087): "Supported Skills create an area which Curses
+# Enemies within it, and spawns Witchtoads in that area. Witchtoads leap at enemies that get close ... Dark Consequences
+# will be Triggered when they hit enemies with their leap, violently exploding the Witchtoad" (curse_apply_as_curse_zone,
+# spawn_doedre_toads_on_cursed_ground; maximum_curse_zones_allowed 2, max_toads_per_doedre_cursed_ground 4,
+# doedre_cursed_ground_toad_spawn_interval_ms 250). PoB (engine probe POE2T1015) rates Dark Consequences at one explosion
+# per spawn interval, castTime 1 x hitTimeMultiplier 0.25 = 4 a second, whether or not a cursed area is up, and only in
+# Full DPS if the curse's group is in it (the search never put it there: 0). The model:
+#   - explosions per second = (1 / spawn interval) x the share of the fight the boss stands in one area: the curse's
+#     own share (curse_uses: a meta's rate x its duration, else recast by hand each duration). A trigger rate r gives PoB
+#     4r hits a second (its hit time is the use time x 0.25), so r = that share;
+#   - every toad spawned leaps at the boss and explodes (MEDIUM: "leap at enemies that get close"; a boss is close while
+#     it stands in the area; the toad's leap time isn't in the files, so its spawns aren't held to the limit of 4);
+#   - a second area (the support allows 2) isn't counted: an undercount, labelled, since keeping both on the boss costs a
+#     second cast each duration and whether toads from both reach it is UNVERIFIED;
+#   - each explosion is a Witchtoad dying ("died", minion_died_rate; KeywordPopups MinionDeath).
+DOEDRE = "Doedre's Undoing"
+DARK_CONSEQUENCES = "Dark Consequences"
+TOAD_SPAWN_SECONDS = 0.25  # doedre_cursed_ground_toad_spawn_interval_ms 250
+TOADS_PER_AREA = 4  # max_toads_per_doedre_cursed_ground
+CURSE_AREAS = 2  # maximum_curse_zones_allowed (on Doedre's Undoing; Cursed Ground and Hayoxi's Binding carry it too)
+
+
+def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict], list[dict], set[int], float]:
+    """Dark Consequences' rate from the share of the fight its curse's area is up (see above): (lines, notes, groups to
+    count in Full DPS, Witchtoads dying per second)."""
+    toads = [s for s in skills if s.name == DARK_CONSEQUENCES and s.group is not None]
+    if not toads:
+        return [], [], set(), 0.0
+    mods: list[dict] = []
+    notes: list[dict] = []
+    groups: set[int] = set()
+    died = 0.0
+    shares = {c.name: c for c in curses}
+    for toad in toads:
+        curse = next((shares[s.name] for s in skills if s.group == toad.group and s.name in shares), None)
+        share = curse.share if curse is not None else 0.0
+        how = f"{curse.name} {curse.how}" if curse is not None else "no curse in its group is applied (0)"
+        per_second = share / TOAD_SPAWN_SECONDS
+        mods += trigger_rate(DARK_CONSEQUENCES, share)
+        if share > 0:
+            groups.add(toad.group)
+        died += per_second
+        notes.append({"label": "Dark Consequences (Doedre's Undoing's Witchtoads) explosions per second*",
+                      "value": round(per_second, 3),
+                      "basis": (f"a Witchtoad every {TOAD_SPAWN_SECONDS:g} s in the cursed area while the boss stands in it: "
+                                f"{share:.0%} of the fight ({how}); every toad leaps at the boss and explodes (MEDIUM: the "
+                                f"toads 'leap at enemies that get close'; their leap time isn't in the game files, so the "
+                                f"{TOADS_PER_AREA}-toad limit isn't applied); a second area (the support allows "
+                                f"{CURSE_AREAS}) isn't counted, an undercount (UNVERIFIED whether both areas' toads reach "
+                                "the boss); PoB alone counts 4 a second whether or not an area is up"),
+                      "play": (f"Keep the cursed area under the boss: recast the curse as it runs out. Casting it twice "
+                               f"each duration keeps {CURSE_AREAS} areas up: up to {CURSE_AREAS}x the toads (not counted)."),
+                      "confidence": "MEDIUM"})
+    return mods, notes, groups, died
+
+
+# Minions dying, not only Killed (MECHB8; plans/term-minion-dies.md, FIX_QUEUE #95, AUDIT15 A15-18). KeywordPopups
+# MinionDeath: "Minions whose durations expire or that are despawned by the player are considered to have died. However,
+# effects that state they trigger when a Minion is Killed do not trigger in these cases." KeywordPopups Limit: "If a new
+# effect is created while at the maximum number of effects, the oldest effect will dissapear" (that this counts as a
+# despawn: MEDIUM). So "when a Minion Dies" fires on all of these, summed:
+#   - Killed: minion_deaths (Sacrifice, Explosive Demise; 0 with its note);
+#   - Witchtoads exploding: toad_model's rate;
+#   - Offerings: each cast impales (uses up) a skeleton, two with Danse Macabre (KeywordPopups Offering; RESEARCH22
+#     #133), at the cycle danse_macabre_model uses: k = N // n casts of D s each, then the revive (MEDIUM: that a used
+#     skeleton "died" and isn't only consumed is the MinionDeath reading);
+#   - temporary minions from a triggered summon (Skill.minion: Wardbound Minions ...): each use's minion dies once, at its
+#     duration's end or replaced at the limit, so one death per use at steady state (HIGH from MinionDeath).
+# Not counted (labelled, undercounts): the boss killing your minions; summoning past a Limit by hand (no use rate for a
+# pressed summon is modelled); Summoned Wolves (summoned only on a Marked enemy's death: none on a lone boss; a kill rate
+# per boss preset, MECH-A's, would give some); a second Witchtoad area. Offerings and Sacrifice may share skeletons: the
+# sum isn't held to what the skeletons' revival allows together (a possible small overcount, labelled).
+def minion_died_rate(skills: list[Skill], main: Skill | None, stats: dict, supports: dict[int, list[str]] | None = None,
+                     toads: float = 0.0, rates: dict[str, float] | None = None) -> tuple[float, str]:
+    """Your minions dying per second ("when a Minion Dies": Killed, expired, despawned or replaced), and how. `toads`:
+    toad_model's Witchtoads per second; `rates`: triggered skills' uses per second (build.trigger_rates)."""
+    killed, how = minion_deaths(skills, main, stats)
+    total, parts = killed, [f"Killed {killed:.3f}/s ({how})"]
+    if toads > 0:
+        total += toads
+        parts.append(f"Witchtoads exploding {toads:.3f}/s (toad_model)")
+    skeletons = [s for s in skills if s.summon and s.summon.get("persistent") and "Skelet" in s.name
+                 and not number(s.summon.get("duration"))]
+    count = int(sum(number(s.summon.get("limit")) for s in skeletons))
+    for offering in (s for s in skills if s.name in OFFERING_SECONDS):
+        n = 2 if DANSE_MACABRE in (supports or {}).get(offering.group, []) else 1
+        every, casts = OFFERING_SECONDS[offering.name], count // n
+        if casts <= 0:
+            parts.append(f"{offering.name}: no skeleton to impale (0)")
+            continue
+        revive, _ = revive_seconds(skeletons)
+        cycle = max(casts * every, (casts - 1) * every + revive)
+        used = casts * n / cycle
+        total += used
+        parts.append(f"{offering.name} impales {n} skeleton{'s' if n > 1 else ''} a cast, {casts} cast"
+                     f"{'s' if casts > 1 else ''} per {cycle:.3g} s: {used:.3f}/s (MEDIUM: a used skeleton has died)")
+    for spell in (s for s in skills if s.minion and s.triggered):
+        use = number((rates or {}).get(spell.name))
+        if use > 0:
+            total += use
+            parts.append(f"{spell.name}'s temporary minions {use:.3f}/s (one per use, each dies at its duration's end "
+                         "or replaced at its limit)")
+    parts.append("not counted: the boss killing your minions, summoning past a limit by hand, Summoned Wolves (none "
+                 "without a kill), a second Witchtoad area (undercounts); Offerings and Sacrifice sharing skeletons isn't "
+                 "held to their revival together (a possible small overcount)")
+    return total, "; ".join(parts)

@@ -399,6 +399,11 @@ class Assumptions:
                          for e in source_lines for p, _ in models.CURSED_LINES):
             curse_mods, curse_notes = models.curse_model(curses, found, main, source_lines)
             hand_mods, hand_notes = hand_mods + curse_mods, hand_notes + curse_notes
+        # (MECH-B, MECHB8: Doedre's Undoing's Witchtoads at their curse area's share; "when a Minion Dies" rate for the
+        # conditions' readers: build.minion_died, (per second, how))
+        toad_mods, toad_notes, toad_groups, toads = models.toad_model(found, curses)
+        hand_mods, hand_notes = hand_mods + toad_mods, hand_notes + toad_notes
+        build.minion_died = models.minion_died_rate(found, main, stats, supports, toads, build.trigger_rates)
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
         echo_mods, echo_notes = models.repeat_echo_model([e["text"] for e in source_lines], main_types, forbidden, main)
         hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
@@ -482,7 +487,8 @@ class Assumptions:
             notes.append(note)
         notes += self.rate_presses()
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
-        return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups}, **expression_groups}
+        return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups},
+                             **expression_groups}
 
     def rate_presses(self) -> list[dict]:
         """Pressed non-main skills in Full DPS count at their real use, the main skill at the time they leave it

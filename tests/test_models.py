@@ -2752,3 +2752,39 @@ def test_tuls_avalanche_echoes_once_per_seal_from_the_builds_blocks():
     assert models.gem_stat_model([side], main=spell, stats=base)[0] == []
     other = models.Skill("Frost Bomb", group=1, spell=True, support_stats={**tul, "base_maximum_seals_for_skill": 7})
     assert models.gem_stat_model([other], main=other, stats=base)[0] == []  # (another Seal support: A13-4)
+
+
+def test_witchtoads_explode_at_their_curse_areas_share_and_count_as_minions_dying():
+    """MECHB8: Doedre's Undoing spawns a Witchtoad every 0.25 s in the cursed area; Dark Consequences explodes each one.
+    PoB counts 4 a second whether or not an area is up; the model scales that by the curse's share."""
+    despair = Skill("Despair", group=4, spell=True, cast_time=0.7)
+    toad = Skill(models.DARK_CONSEQUENCES, group=4, spell=True, triggered=True, cast_time=1.0)
+    by_hand = models.CurseUse("Despair", 1.0, "cast by hand", True)
+    mods, notes, groups, died = models.toad_model([despair, toad], [by_hand])
+    rate = next(m for m in mods if m["key"] == "triggerRate")
+    assert rate["skill"] == models.DARK_CONSEQUENCES and rate["value"] == pytest.approx(1.0)
+    assert groups == {4} and died == pytest.approx(4.0) and notes[0]["value"] == pytest.approx(4.0)
+    meta = models.CurseUse("Despair", 0.25, "triggered")
+    mods, _, groups, died = models.toad_model([despair, toad], [meta])
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(0.25) and died == pytest.approx(1.0)
+    mods, _, groups, died = models.toad_model([despair, toad], [])
+    assert groups == set() and died == 0.0  # no curse applied: no area, no toads
+    assert models.toad_model([despair], [by_hand]) == ([], [], set(), 0.0)
+
+
+def test_minion_died_rate_sums_kills_toads_offerings_and_temporary_minions():
+    """MECHB8 (#95): "when a Minion Dies" counts expired, despawned and used-up minions, not only Killed ones."""
+    skeletons = Skill("Skeletal Warrior", group=2, summon={"persistent": True, "duration": 0, "limit": 4})
+    offering = Skill("Pain Offering", group=3, spell=True)
+    nothing, how = models.minion_died_rate([skeletons], None, {})
+    assert nothing == 0.0 and "not counted" in how
+    alone, _ = models.minion_died_rate([skeletons, offering], None, {})
+    revive, _ = models.revive_seconds([skeletons])
+    assert alone == pytest.approx(4 / max(4 * 6.0, 3 * 6.0 + revive))  # one skeleton a cast, 4 casts a wave
+    danse, _ = models.minion_died_rate([skeletons, offering], None, {}, {3: [models.DANSE_MACABRE]})
+    assert danse == pytest.approx(4 / max(2 * 6.0, 6.0 + revive))  # two a cast, 2 casts a wave
+    toads, how = models.minion_died_rate([skeletons], None, {}, toads=4.0)
+    assert toads == pytest.approx(4.0) and "Witchtoads" in how
+    ward = Skill("Wardbound Minions", group=5, spell=True, triggered=True, minion={"duration": 15})
+    temp, _ = models.minion_died_rate([ward], None, {}, rates={"Wardbound Minions": 0.2})
+    assert temp == pytest.approx(0.2)
