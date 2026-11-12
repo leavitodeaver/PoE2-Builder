@@ -733,6 +733,18 @@ def test_thrill_of_the_kill_is_fed_by_culled_adds_and_0_against_a_lone_boss():
         ("1% increased chance to Shock", 12.8, None), ("Gain 1% of Damage as Extra Lightning Damage with Attacks", 8.0, None)]
 
 
+def test_crazed_minions_count_from_the_builds_own_minion_kills():
+    crazed = {"support_crazed_minions_minion_damage_+%_final_if_revived_recently": 30}
+    zombies = models.Skill("Raise Zombie", group=1, support_stats=crazed,
+                           summon={"persistent": True, "duration": 0, "limit": 4})
+    mods, notes = models.gem_stat_model([zombies], main=zombies, stats={})
+    assert mods == [] and "nothing in this build kills" in notes[0]["basis"]  # (no source: 0, no flat guess)
+    arsonist = models.Skill(models.ARSONIST, group=2, summon={"persistent": True, "duration": 0, "limit": 1})
+    mods, notes = models.gem_stat_model([zombies, arsonist], main=zombies, stats={})
+    # (a kill every 3 s over 5 minions: 0.222/s, so each dies every 22.5 s, down 7.5 s, alive 15 s: 4/15 of it)
+    assert [(m["line"], round(m["scale"], 6), m.get("skill")) for m in mods] == [("Minions deal 1% more Damage", 8.0, "Raise Zombie")]
+
+
 def test_support_entries_list_every_stat_their_match_takes():
     from builder.ledger import gem_stat_entries
 

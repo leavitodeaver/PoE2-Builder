@@ -2234,6 +2234,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 prev = sum(m.get("scale", 0.0) for m in previous or () if m.get("entry") == entry.id
                            and m.get("skill") == name)  # (its own line, in the stats it reads)
                 read = {**(stats or {}), "_groups": groups} if groups and entry.raw["share"] in GROUP_SHARES else stats
+                if entry.raw["share"] in SKILLS_SHARES:  # (reads the build's other skills: its minions, what kills them)
+                    read = {**(read or {}), "_skills": skills}
                 factor, why, play = SHARES[entry.raw["share"]](skill, read or {}, main, prev)
                 why = f"; {why}"
             else:
@@ -2606,9 +2608,39 @@ def cull_buff_share(skill: Skill, stats: dict, main: Skill | None = None, prev: 
                    f"Effect Duration increases not counted)"), play + f" Headline: up {share:.0%} of the fight."
 
 
+# `share: revived_recently` (COVE9): Crazed Minions, "Supported Minions deal 30% more Damage if they have Revived
+# Recently" (Recently: the past 4 s, KeywordPopups). A minion Revives only after it's Killed, so the rate comes from what
+# in the build kills its own Reviving minions (minion_deaths: Sacrifice, Explosive Demise; 0 with its note when nothing
+# does, no flat guess). Deaths are taken as spread evenly over the build's N Reviving minions: each one dies every N / D s
+# and is down for the revive delay R (revive_seconds), so it's alive L = N / D - R s per cycle, the first 4 s of it
+# Revived Recently: share min(1, 4 / L) of its alive time (the game revives all the dead together after the last death,
+# KeywordPopups Reviving, so this is an approximation: MEDIUM-LOW). Its time dead is the minion model's, not this one's.
+RECENTLY_SECONDS = 4.0
+
+
+def revived_recently_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    skills = stats.get("_skills") or [skill]
+    reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
+    count = sum(number(s.summon.get("limit")) for s in reviving)
+    deaths, how = minion_deaths(skills, main, stats)
+    play = ("Keep killing your own Reviving minions (Sacrifice, Explosive Demise) so the supported minions have Revived in the "
+            "last 4 s; without it the minions never Revive and the bonus is 0.")
+    if deaths <= 0 or count <= 0:
+        return 0.0, f"0: the minions Revive only after being Killed, and {how}", play
+    revive, _ = revive_seconds(reviving)
+    alive = count / deaths - revive
+    share = 1.0 if alive <= RECENTLY_SECONDS else RECENTLY_SECONDS / alive
+    return share, (f"Revived Recently {share:.0%} of their time alive: {how}; each of the {count:g} dies every "
+                   f"{count / deaths:.3g} s and is down {revive:.3g} s, alive {max(alive, 0):.3g} s, the first "
+                   f"{RECENTLY_SECONDS:g} s of it Revived Recently (deaths spread evenly over your Reviving minions assumed; "
+                   f"MEDIUM-LOW)"), play + f" Headline: {share:.0%} of their time alive."
+
+
+SKILLS_SHARES = {"revived_recently"}  # (share functions that read the build's skills: gem_stat_model passes `_skills`)
+
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
-          "cull_buff": cull_buff_share}
+          "cull_buff": cull_buff_share, "revived_recently": revived_recently_share}
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:

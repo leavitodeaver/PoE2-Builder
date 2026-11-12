@@ -516,3 +516,26 @@
   sources: ["SupportThrillOfTheKillPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
   test_in_game: "As for the buff's Lightning: the Shock chance on the character sheet while the buff is up."
   status: proposed
+
+- id: support-crazed-minions-revived-recently
+  title: Crazed Minions, 30% more Minion Damage if they've Revived Recently (at the share the build's own minion kills give)
+  kind: gem_stat
+  support: true
+  share: revived_recently
+  skill: [Crazed Minions]
+  support_stats: ['support_crazed_minions_minion_damage_+%_final_if_revived_recently']
+  match: '^support_crazed_minions_minion_damage_\+%_final_if_revived_recently$'
+  replace: ['Minions deal 1% more Damage']
+  confidence: theory
+  notes: >-
+    "Supported Minions deal 30% more Damage if they have Revived Recently" (SupportCrazedMinionsPlayer 30; it supports
+    Persistent Minion skills). PoB maps it to nothing (checked: no crazed_minions in SkillStatMap.lua or Modules/*.lua,
+    no statMap in sup_int.lua's entry, 12 Nov 2026). A minion Revives only after it's Killed (KeywordPopups Reviving),
+    so the share comes from what in the build kills its own minions (models.minion_deaths: Sacrifice, Explosive Demise;
+    0 with its note when nothing does) through models.revived_recently_share: min(1, 4 s / each minion's time alive per
+    death), deaths spread evenly over the build's Reviving minions (assumed). Tagged to the supported skill (its
+    minions).
+  sources: ["SupportCrazedMinionsPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd",
+            "KeywordPopups Recently, Reviving (build 26476662)"]
+  test_in_game: "Sacrifice one supported minion and compare its hit in the 4 s after it revives with a later one."
+  status: proposed
