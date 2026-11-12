@@ -1,0 +1,144 @@
+# Active-gem stats, batch 6 (COVC9, 12 Nov 2026): active-gem stats the tool's own models already read, which the
+# coverage audit still listed as uncounted (scratch/covc2/rank.py on the report regenerated 12 Nov, then each stat's
+# reader found in builder/ and engine/bridge.lua and read). Kind `model` with `stats` and `skill`: nothing is applied
+# from here; the audit counts the listed stats of the listed skills as "fed to a custom model". The same stat on any
+# other skill stays open.
+#
+# Left open on purpose (no entry), in COVC9.report.md:
+# - projectiles_can_shotgun (Galvanic Shards, Fragmentation Rounds, Incendiary Shot, Permafrost Bolts, Ice Fragments):
+#   models.run_and_gun_model reads the list (SHOTGUN_SKILLS) only to price "two additional Projectiles while moving";
+#   the stat's own effect, several projectiles hitting the one boss, is not modelled by the tool.
+# - is_ice_crystal_explosion on Frozen Locus and Midnight Zenith: the bridge reads the type only inside earlyHazard,
+#   which needs a "first_500_ms" stat those sets don't carry.
+# - channel_start_duration_as_%_of_attack_time / ..._of_cast_time (Oil Barrage, Fury of the Mountain, Hollow Form,
+#   Volcano, Runic Reprieve): models.channel_windup_note names it in a note but counts nothing (UNVERIFIED channel
+#   length): still a possible overcount, MECH-B's.
+# - active_skill_required_number_of_combo_stacks (Mantra of Destruction, Tempest Bell), skill_unusable_until_moved_X_
+#   distance: usage.py reads them but bars the skill beside the main one until the press hook scales it (undercount).
+# - orb_of_storms_maximum_number_of_hits, orb_of_storms_base_bolt_frequency_ms: routed to MECH-B (PoB prices the orb as
+#   one hit per cast).
+
+- id: model-stats-hazard-early-trigger
+  title: Hazards and Ice Crystals set off in their first 0.5 s deal 80% less (hazard model)
+  kind: model
+  model: hazard_early
+  stats: ["hazard_damage_+%_final_for_first_500_ms_when_not_killed_by_self",
+          "ice_crystals_damage_+%_final_for_first_500_ms_when_not_killed_by_self",
+          "shield_wall_damage_+%_final_for_first_500_ms_when_not_killed_by_self"]
+  skill: [Brambles, Spearfield, Ice Shards, Grim Pillars, Glacial Bolt, Frost Wall, Shield Wall]
+  confidence: datamined
+  notes: >-
+    MECHB2: the bridge (earlyHazard, EARLY_HAZARD) reports the scored stat set's value with its arming time and the
+    supports that delay the trigger; models.hazard_early_model applies the -80% to the share the boss sets off early
+    (hazards placed under the boss: all; Ice Crystals and Shield Wall, broken by the player's own hits: none; LOW, a
+    play assumption, with a "with it" row). The seven skills are every player stat set carrying the three stats (MECHB2's
+    check of Stats.json ids with "first_500_ms" against GrantedEffectStatSets, Mods, PassiveSkills and quality stats;
+    PoB's Data/Skills holds the same -80 on the same sets).
+  sources: ["builder/search/models.py hazard_early_share, hazard_early_model", "engine/bridge.lua earlyHazard"]
+  status: approved
+
+- id: model-stats-ice-crystal-type
+  title: Ice Crystals by the game's own type, in the early-hazard model
+  kind: model
+  model: hazard_early
+  stats: ["is_ice_crystal_explosion"]
+  skill: [Frost Wall, Glacial Bolt, Grim Pillars]
+  confidence: datamined
+  notes: >-
+    engine/bridge.lua earlyHazard reads the flag from the skill's stat sets to treat Grim Pillars' spears (which carry the
+    hazard_ id) as Ice Crystals, broken by the player's own hits, like Frost Wall's and Glacial Bolt's wall. Frozen Locus
+    and Midnight Zenith carry the flag without an early-trigger stat, so it moves nothing there and stays open.
+  sources: ["engine/bridge.lua earlyHazard"]
+  status: approved
+
+- id: model-stats-iron-ward-store
+  title: Iron Ward's stored mitigated Physical damage, its cap and its Area per charge (Iron Ward model)
+  kind: model
+  model: iron_ward
+  stats: ["warding_steel_maximum_stored_mitigated_physical_damage",
+          "warding_steel_gains_%_of_damage_from_mitigated_physical_damage",
+          "warding_steel_area_of_effect_+%_final_per_charge_%"]
+  skill: [Iron Ward]
+  confidence: theory
+  notes: >-
+    models.iron_ward_store reads the store cap and gain from the gem's level stats (STORE_CAP, STORE_GAIN) and
+    iron_ward_model the area per charge (STORE_AREA); the store fills between uses at the boss's hit rate times the share
+    of each Physical hit the build prevents (ledger entry iron-ward-store, `theory`, its labelled assumptions).
+  sources: ["builder/search/models.py iron_ward_store, iron_ward_model", "https://poe2db.tw/us/Iron_Ward"]
+  status: approved
+
+- id: model-stats-hollow-form-images
+  title: Hollow Form's 2 more images per Power Charge consumed (Hollow Form model)
+  kind: model
+  model: hollow_form
+  stats: ["mantra_of_illusions_bonus_illusions_when_consuming_power_charge"]
+  skill: [Hollow Form]
+  confidence: datamined
+  notes: >-
+    models.hollow_model adds HOLLOW_IMAGES_PER_POWER (2, the stat's value in GrantedEffectStatSets MetaHollowFormPlayer;
+    poe2db "Consumes a Power Charge to create 2 additional Images") on the share of uses that find a Power Charge.
+  sources: ["builder/search/models.py HOLLOW_IMAGES_PER_POWER, hollow_model", "https://poe2db.tw/us/Hollow_Form"]
+  status: approved
+
+- id: model-stats-hit-remnants
+  title: Remnants made once every N seconds on a qualifying hit (Remnant supply)
+  kind: model
+  model: remnant_supply
+  stats: ["mana_remnants_spawn_remnant_on_crit_vs_elemental_ailment_enemy_every_X_ms",
+          "life_remnants_spawn_remnant_on_hit_vs_enemy_every_X_ms",
+          "create_furious_remnant_when_hitting_bleeding_enemies_once_every_x_ms"]
+  skill: [Mana Remnants, Life Remnants, Sanguine Revelry]
+  confidence: datamined
+  notes: >-
+    MECH46: assumptions.HIT_REMNANTS holds the stats' values (2000, 3000, 2000 ms, game GrantedEffectStatSets) and
+    hit_remnant_rate makes one Remnant per that time while the main skill's hits meet the condition (crits on an
+    elementally ailing boss, any hit, hits on a Bleeding boss), from the build's hit, crit and ailment rates.
+  sources: ["builder/search/assumptions.py HIT_REMNANTS, hit_remnant_rate"]
+  status: approved
+
+- id: model-stats-quality-echo
+  title: Comet's and Skyfall's quality chance to Echo (Rhythm of Ice / Echo model)
+  kind: model
+  model: rhythm_of_ice
+  stats: ["base_spell_%_chance_to_echo"]
+  skill: [Comet, Skyfall]
+  confidence: datamined
+  notes: >-
+    The stat comes only from these two gems' quality (0.5% per quality: GrantedEffectQualityStats CometPlayer and
+    SkyfallPlayer; PoB act_int.lua / other.lua qualityStats). passive_models.QUALITY_ECHO and echo_chance add it to the
+    Echo chance the Rhythm of Ice and Tul's Avalanche models use (AUDIT9 A9-3, COVB5).
+  sources: ["builder/search/passive_models.py QUALITY_ECHO, echo_chance"]
+  status: approved
+
+- id: model-stats-charge-requirements
+  title: Charges a use needs (usage requirements)
+  kind: model
+  model: usage
+  stats: ["active_skill_requires_X_frenzy_charges", "active_skill_requires_X_power_charges",
+          "active_skill_requires_X_endurance_charges", "active_skill_requires_X_power_or_endurance_charges"]
+  skill: ["Wind Serpent's Fury", Charged Staff, Ancestral Warrior Totem, Spell Totem]
+  confidence: datamined
+  notes: >-
+    usage.py requirements() (CHARGES, CHARGE_VARS) makes a "charges" requirement: the gem is allowed only with a source
+    of that charge in the build (Usage.sustained), and Spell Totem and Ancestral Warrior Totem without one under Ancestral
+    Bond (COVC8). The four are every player gem with such a stat (COVC8: PoB Data/Skills constantStats; RESEARCH18:
+    every ActiveSkills description holding "Totem" and "Charge"). What a held charge adds once consumed (Spell Totem's
+    per-charge bonuses) is a separate stat, left open.
+  sources: ["builder/search/usage.py CHARGES, requirements, sustained, totem_bond"]
+  status: approved
+
+- id: model-stats-concoction-throw-cost
+  title: The Concoctions' 5 Mana Flask charges a throw (flask throw rate)
+  kind: model
+  model: usage
+  stats: ["flask_throw_base_charges_used"]
+  skill: [Shattering Concoction, Acidic Concoction, Fulminating Concoction, Explosive Concoction, Bleeding Concoction]
+  confidence: datamined
+  notes: >-
+    flasks.THROW_CHARGES holds the stat's 5 (game GrantedEffectStatSets; PoB c.py; 0.2.0 patch notes "consume 5 Mana Flask
+    charges per use"); usage.throw_cost adjusts it by the build's Flask Charges used modifiers (MEDIUM) and
+    Usage.throw_rate rates a side Concoction from the Mana Flask's charge gain (barred when it gains none);
+    Assumptions.flask_main caps the main Concoction's throws (its per-throw cost still the plain 5: MECH-C, COVC8).
+  sources: ["builder/search/flasks.py THROW_CHARGES", "builder/search/usage.py throw_cost, throw_rate",
+            "builder/search/assumptions.py flask_main"]
+  status: approved

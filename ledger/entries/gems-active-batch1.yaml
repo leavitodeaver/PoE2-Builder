@@ -138,8 +138,8 @@
     The game gives each Concoction a 714 ms base attack (1.40 a second). PoB throws them with the class's unarmed
     weapon (Data.lua unarmedWeaponData, AttackRate 1.65; CalcOffence.lua 2527) and the skill's attackSpeedMultiplier
     -15 (all 5, level 20): 1.65 x 0.85 = 1.4025 a second against 1/0.714 = 1.4006, 0.1% apart. Not covered here:
-    flask_throw_base_charges_used (5 Mana Flask charges a throw), which nothing reads: an overcount, planned in
-    COVC1's report for usage.py.
+    flask_throw_base_charges_used (5 Mana Flask charges a throw), read since COVC7/COVC8 by usage.py and
+    Assumptions.flask_main (entry model-stats-concoction-throw-cost, gems-active-batch6.yaml).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (ShatteringConcoctionPlayer etc.)",
            "vendor/PathOfBuilding-PoE2/src/Modules/Data.lua 626-635"]
   test_in_game: "Throw Shattering Concoction for 10 s with no attack speed modifiers: about 14 throws."
