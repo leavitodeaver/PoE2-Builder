@@ -35,7 +35,7 @@ from builder.search.objective import (
     CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, number, shortfall,
     with_boss_recovery,
 )
-from builder.search.skeletons import Skeleton, is_button, offhand_non_unique, offhand_types, seed_skeleton, swap_skills
+from builder.search.skeletons import Skeleton, is_button, offhand_non_unique, offhand_types, seed_skeleton, slot_bases, swap_skills
 from builder.search.sources import Sources
 from builder.search.state import EPSILON, Build, OutOfTime
 from builder.search.tree import Tree
@@ -71,10 +71,13 @@ class Search:
         self.tree.class_name, self.tree.ascendancy = self.skeleton.class_name, self.skeleton.ascendancy
         self.tree.checkpoint = self.checkpoint
         self.gems.checkpoint = self.checkpoint
-        weapon = SlotSpec(self.skeleton.weapon, self.skeleton.weapon_sub) if self.skeleton.weapon else None
-        held = offhand_types(self.ctx, self.skeleton.weapon, self.skeleton.offhand)
         sk = self.skeleton
-        offhand = SlotSpec(held[0], None, held[1:], offhand_non_unique(sk.requires_passive, sk.offhand)) if held else None
+        # Skills only some weapon bases grant (a main skill "bases:<type>", a required one): those hands keep to them
+        main_bases, off_bases = slot_bases(self.ctx, sk) or ((), ())
+        weapon = SlotSpec(sk.weapon, sk.weapon_sub, bases=main_bases) if sk.weapon else None
+        held = offhand_types(self.ctx, sk.weapon, sk.offhand)
+        offhand = SlotSpec(held[0], None, held[1:], offhand_non_unique(sk.requires_passive, sk.offhand),
+                           bases=off_bases) if held else None
         swap: tuple = (None, None)
         if sk.swap:
             held = offhand_types(self.ctx, sk.swap_weapon, sk.swap_offhand)

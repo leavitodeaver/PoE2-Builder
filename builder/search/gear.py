@@ -83,6 +83,9 @@ class SlotSpec:
     # No uniques in this slot: Lord of the Wilds lets a Talisman hold "a non-Unique Sceptre" (game_rules.yaml
     # off_hand.passive_exceptions non_unique)
     non_unique: bool = False
+    # Only these bases (non-unique): the main skill comes from a base's implicit only some bases of the type carry
+    # (a Withered Wand's Chaos Bolt: skeletons "bases:<type>", Context.granting_bases)
+    bases: tuple[str, ...] = ()
 
     @property
     def types(self) -> tuple[str, ...]:
@@ -164,6 +167,8 @@ class Gear:
                 options = [o for o in options if (o.sub_type or "") == spec.sub_type]
             if spec.non_unique:
                 options = [o for o in options if not o.unique]
+            if spec.bases:
+                options = [o for o in options if not o.unique and o.base in spec.bases]
             if not slot.startswith("Weapon") and spec.type != "Charm":
                 # Normal armour and jewellery bases differ little within a sub-type: keep the top few
                 # A variant base (Absent, Lament, Portent Amulet) is kept apart: as a plain item it carries no implicit
@@ -221,7 +226,7 @@ class Gear:
 
     def slot_for(self, option: ItemOption) -> str | None:
         for slot, spec in self.slots.items():
-            if slot in self.build.locked_slots or option.type not in spec.types or (spec.non_unique and option.unique):
+            if slot in self.build.locked_slots or option.type not in spec.types or (spec.non_unique and option.unique)                     or (spec.bases and (option.unique or option.base not in spec.bases)):
                 continue
             if spec.sub_type is not None and (option.sub_type or "") != spec.sub_type:
                 continue

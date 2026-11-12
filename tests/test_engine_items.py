@@ -668,3 +668,27 @@ def test_spear_throw_from_a_plain_spear_is_the_main_skill(engine):
     assert not any("didn't appear" in p for p in search.problems), search.problems
     main = [g for g in search.build.groups() if g["main"]]
     assert main and any(s["name"] == "Spear Throw" for s in main[0]["skills"])
+
+
+@pytest.mark.parametrize("skill, ascendancy, bases", [
+    ("Wither", "Infernalist", {"Primordial Wand"}),  # no unique grants it
+    ("Chaos Bolt", "Infernalist", {"Critical Wand", "Frigid Wand", "Torture Wand", "Withered Wand"}),
+])
+def test_a_skill_some_wand_bases_grant_is_the_main_skill(engine, skill, ascendancy, bases):
+    """A "bases:Wand" skeleton: the main-hand slot offers only the bases whose implicit grants the skill, the setup
+    holds one, and PoB's group for the granted skill becomes the main group."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill=skill, ascendancies=[ascendancy]))
+    skeleton = next(s for s in enumerate_skeletons(Context(payload), [skill])[0] if s.granted_by == "bases:Wand")
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    assert search.gear.slots["Weapon 1"].bases == tuple(sorted(bases))
+    options = search.gear.options("Weapon 1")
+    assert options and {o.base for o in options} <= bases and not any(o.unique for o in options)
+    weapon = search.build.equipped.get("Weapon 1")
+    assert weapon is not None and weapon.base in bases
+    assert not any("didn't appear" in p for p in search.problems), search.problems
+    main = [g for g in search.build.groups() if g["main"]]
+    assert main and any(s["name"] == skill for s in main[0]["skills"])

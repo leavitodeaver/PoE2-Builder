@@ -31,7 +31,7 @@ Priority 6827.2 · impact 4 · effort M · 186 lines not counted of 236 linked �
 - **PoB options:** `arcLightningInfused` (off), `flameWallInfused` (off), `infusedChannellingInfusion` (off), `conditionInfusionConsumedRecently` (on (condition resolver))
 - **Lines:** `5% chance when collecting an Elemental Infusion to gain an` (Infusion Chance); `additional Elemental Infusion of the same type` (Infusion Chance); `10% chance when collecting an Elemental Infusion to gain an` (Infusing Power); `additional Elemental Infusion of the same type` (Infusing Power)
 
-- **Charges** — PoB: partial; 131 lines not counted; plan from family *Power, Frenzy and Endurance Charges*
+- **Charges** — PoB: partial; 132 lines not counted; plan from family *Power, Frenzy and Endurance Charges*
 ### Meta-skill Energy and Invocations — PoB: partial
 Priority 4388.4 · impact 4 · effort M · 134 lines not counted of 2056 linked · 42 gems mention it · what-ifs: visible
 
@@ -423,7 +423,7 @@ Priority 3935.4 · impact 3 · effort M · 252 lines not counted of 2370 linked 
 - **Lines:** `Recover 2% of maximum Mana when you consume a Power Charge` (Recover Mana on consuming Powe); `Consume all Rage when Shapeshifting to Human form to recover 1% of maximum life ` (Invigorating Hate); `Recover 50% of maximum Life when you Heavy Stun a Rare or Unique Enemy` (Flip the Script); `Recover 2% of maximum Life and Mana when you use a Warcry` (Urgent Call)
 
 ### Flask and charm charges and triggers — PoB: config-only (lines say: partial)
-Priority 3601.6 · impact 3 · effort S · 161 lines not counted of 853 linked · 21 gems mention it · what-ifs: invisible
+Priority 3661.6 · impact 3 · effort S · 162 lines not counted of 854 linked · 21 gems mention it · what-ifs: invisible
 
 - **Game:** Flasks and charms gain charges (kills, or charges per second) and are used manually or on a trigger. (https://poe2db.tw/us/Flasks)
 - **PoB (checked):** PoB counts an active flask or charm as up all the time.

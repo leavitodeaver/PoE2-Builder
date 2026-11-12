@@ -19,6 +19,18 @@ def test_names_calculations_read():
     assert not coverage.name_read("PresenceArea", reads)
 
 
+def test_a_name_only_the_bridge_helpers_read_counts_for_their_type_only():
+    """bridge.lua's inc("CharmChargesGained") sums INC: Ritualist's "20% more Charm Charges gained" (a MORE) is applied
+    by nothing, so the audit lists it; the INC lines stay read (COV1's no-op list)."""
+    reads = coverage.calc_reads()
+    assert reads["bridge_types"].get("CharmChargesGained") == {"INC"}
+    more = {"names": ["CharmChargesGained"], "mods": [{"n": "CharmChargesGained", "t": "MORE"}]}
+    assert coverage.unread(coverage.typed_names(more, reads), reads) == ["CharmChargesGained (MORE)"]
+    inc = {"names": ["CharmChargesGained"], "mods": [{"n": "CharmChargesGained", "t": "INC"}]}
+    assert coverage.unread(coverage.typed_names(inc, reads), reads) == []
+    assert coverage.typed_names({"names": ["Life"], "mods": [{"n": "Life", "t": "MORE"}]}, reads) == ["Life"]
+
+
 def test_a_line_is_a_noop_only_when_nothing_it_writes_is_read():
     reads = coverage.calc_reads()
     assert coverage.unread(["Str", "Dex", "StrDex"], reads) == []  # StrDex is only a marker

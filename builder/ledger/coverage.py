@@ -108,11 +108,18 @@ def calc_reads(src: Path = POB_SRC) -> dict:
     # The tool's own engine reads some names PoB's calculations don't (charm and flask charge gain for the
     # uptime of builder/search/flasks.py, ...): through the same queries, or its local helpers base("X") / inc("X")
     # (COV1, 12 Nov 2026: "Charm Charges gained" lines were listed as no-ops though the charm uptime reads them)
+    # The helpers read one type each (bridge.lua: base("X") sums BASE, inc("X") INC): a name only they read counts for
+    # those types only ("20% more Charm Charges gained" is a MORE nothing applies; COV1's no-op list, COV4)
+    helper_types: dict[str, set[str]] = {}
     if BRIDGE.exists() and src == POB_SRC:
         text = _strip_comments(BRIDGE.read_text(encoding="utf-8", errors="replace"))
         for m in QUERY.finditer(text):
             exact.update(STRING.findall(_call_args(text, m.end())))
-        exact.update(re.findall(r'(?<![\w.:])(?:base|inc|more|flag)\("(\w+)"\)', text))
+        for helper, name in re.findall(r'(?<![\w.:])(base|inc|more|flag)\("(\w+)"\)', text):
+            helper_types.setdefault(name, set()).add(helper.upper())
+    bridge_types = {name: types for name, types in helper_types.items()
+                    if name not in exact and not (patterns and re.match("^(?:%s)$" % "|".join(sorted(patterns)), name))}
+    exact.update(helper_types)
     # Conditions and multipliers are read through tags on other modifiers (var = "Name"), which the
     # parser writes too
     parser = _strip_comments((src / "Modules" / "ModParser.lua").read_text(encoding="utf-8", errors="replace"))
@@ -127,7 +134,7 @@ def calc_reads(src: Path = POB_SRC) -> dict:
     if config.exists():
         tag_vars.update(re.findall(r'"Condition:(\w+)"', config.read_text(encoding="utf-8", errors="replace")))
     return {"exact": exact, "patterns": re.compile("^(?:%s)$" % "|".join(sorted(patterns))) if patterns else None,
-            "literals": literals, "skill_data": skill_data, "tag_vars": tag_vars}
+            "literals": literals, "skill_data": skill_data, "tag_vars": tag_vars, "bridge_types": bridge_types}
 
 
 def name_read(name: str, reads: dict | None = None) -> bool:
@@ -143,6 +150,22 @@ def name_read(name: str, reads: dict | None = None) -> bool:
         return var in reads["tag_vars"] or name in reads["exact"] or name in reads["literals"] or \
             bool(reads["patterns"] and reads["patterns"].match(name))
     return name in reads["exact"] or bool(reads["patterns"] and reads["patterns"].match(name))
+
+
+def typed_names(line: dict, reads: dict) -> list[str]:
+    """A parsed line's names, with a name only the bridge's typed helpers read (calc_reads' bridge_types) marked
+    "Name (TYPE)" when every one of the line's mods of that name has another type: unread() then lists it."""
+    names = list(line.get("names") or [])
+    typed = reads.get("bridge_types") or {}
+    mods = line.get("mods") or []
+    out = []
+    for name in names:
+        kinds = {m.get("t") for m in mods if m.get("n") == name}
+        if name in typed and kinds and not kinds & typed[name]:
+            out.append(f"{name} ({'/'.join(sorted(k or '?' for k in kinds))})")
+        else:
+            out.append(name)
+    return out
 
 
 def unread(names: list[str] | dict, reads: dict | None = None) -> list[str]:
@@ -433,7 +456,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             if not text:
                 continue
             if affix["supported"]:
-                missing = unread(affix.get("names") or [], reads)
+                missing = unread(typed_names(affix, reads), reads)
                 status, entry, reason = ("none", None, "parsed, but no calculation reads " + ", ".join(missing)) \
                     if missing else ("pob", None, "")
                 category = "affix-noop" if missing else "affix"
@@ -480,13 +503,13 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                         group=skill["id"], mechanic=stat_mechanic(name), stat_set=set_.get("label"), gems=gems)
         # d. passive and unique lines PoB parses into names nothing reads
         for line in raw["passives"]:
-            missing = unread(line.get("names") or [], reads)
+            missing = unread(typed_names(line, reads), reads)
             if missing:
                 kind = passive_kind(line)
                 add("passive-noop", line["node"], kind, line["line"], "none", None,
                     "parsed, but no calculation reads " + ", ".join(missing), SOURCE_WEIGHT[kind], node_id=line["id"])
         for line in raw["uniques"]:
-            missing = unread(line.get("names") or [], reads)
+            missing = unread(typed_names(line, reads), reads)
             if missing:
                 add("unique-noop", line["unique"], "unique", line["line"], "none", None,
                     "parsed, but no calculation reads " + ", ".join(missing),
@@ -497,14 +520,14 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             if not line["supported"]:
                 status, entry, reason = ignored_line_status(line["line"], False)
                 add("unique", line["unique"], "unique", line["line"], status, entry, reason, weight, variant=line.get("variants"))
-            elif missing := unread(line.get("names") or [], reads):
+            elif missing := unread(typed_names(line, reads), reads):
                 add("unique-noop", line["unique"], "unique", line["line"], "none", None,
                     "parsed, but no calculation reads " + ", ".join(missing), weight)
         for line in raw.get("base_implicits", []):  # base items' implicit lines
             if not line["supported"]:
                 status, entry, reason = not_applied(*ignored_line_status(line["line"], False), "implicit")
                 add("base-implicit", line["base"], "affix", line["line"], status, entry, reason, SOURCE_WEIGHT["affix"])
-            elif missing := unread(line.get("names") or [], reads):
+            elif missing := unread(typed_names(line, reads), reads):
                 add("base-implicit-noop", line["base"], "affix", line["line"], "none", None,
                     "parsed, but no calculation reads " + ", ".join(missing), SOURCE_WEIGHT["affix"])
         for line in raw.get("legion", []):
@@ -513,7 +536,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 status, entry, reason = not_applied(*ignored_line_status(line["line"], False), "legion")
                 add("timeless", line["node"], kind, line["line"], status, entry,
                     reason + " (a Timeless jewel's passive)", SOURCE_WEIGHT[kind] * 0.5)
-            elif missing := unread(line.get("names") or [], reads):
+            elif missing := unread(typed_names(line, reads), reads):
                 add("timeless-noop", line["node"], kind, line["line"], "none", None,
                     "parsed, but no calculation reads " + ", ".join(missing), SOURCE_WEIGHT[kind] * 0.5)
         # f. parsed lines whose condition nothing can switch on; g. parsed lines whose parse lost something
@@ -722,7 +745,7 @@ def _build_index(data_dir: str) -> dict:
     noops: dict[str, list[str]] = {}
     mods: dict[str, list[dict]] = {}  # template -> a parse of it, for the build's own condition checks
     for line in [*raw["passives"], *raw["uniques"], *raw["affixes"], *raw.get("unique_variants", []), *raw.get("legion", [])]:
-        if line.get("supported", True) and (missing := unread(line.get("names") or [], reads)):
+        if line.get("supported", True) and (missing := unread(typed_names(line, reads), reads)):
             noops.setdefault(template(line["line"]), missing)
         if line.get("supported", True) and line.get("mods"):
             mods.setdefault(template(line["line"]), line["mods"])

@@ -130,6 +130,65 @@ def test_spear_throw_comes_from_any_spear():
     assert enumerate_skeletons(banned, ["Spear Throw"])[0] == []
 
 
+def test_skills_some_weapon_bases_grant_keep_that_hand_to_those_bases():
+    """About 30 skills come from the implicit of a few bases of a type (Vendor PoB Data/Bases: Chaos Bolt on Withered /
+    Critical / Frigid / Torture Wand; Wither only on a Primordial Wand, which no unique grants). Their skeletons are
+    "bases:<type>", and slot_bases keeps that hand to the granting bases (inner.Search: SlotSpec.bases)."""
+    from builder.search.skeletons import slot_bases
+
+    ctx = context(main_skill="Wither", ascendancies=["Infernalist"])
+    assert ctx.granted_by["Wither"] == [("bases", "Wand", None)]
+    skeletons, problems = enumerate_skeletons(ctx, ["Wither"])
+    assert skeletons and not problems and all(s.granted_by == "bases:Wand" and s.weapon == "Wand" for s in skeletons)
+    assert "Wither (from a Wand that grants it)" in skeletons[0].label
+    assert slot_bases(ctx, skeletons[0]) == (("Primordial Wand",), ())
+    ctx = context(main_skill="Chaos Bolt", ascendancies=["Infernalist"])
+    skeletons, problems = enumerate_skeletons(ctx, ["Chaos Bolt"])
+    kinds = {s.granted_by for s in skeletons}
+    assert kinds == {"bases:Wand", "unique:The Wicked Quill"} and not problems
+    base = next(s for s in skeletons if s.granted_by == "bases:Wand")
+    assert slot_bases(ctx, base) == (("Critical Wand", "Frigid Wand", "Torture Wand", "Withered Wand"), ())
+    # A Shield's grant holds the off hand
+    ctx = context(main_skill="Parry", ascendancies=["Titan"])
+    base = next(s for s in enumerate_skeletons(ctx, ["Parry"])[0] if s.granted_by == "bases:Shield")
+    assert base.offhand == "Shield" and slot_bases(ctx, base)[0] == () and "Iron Buckler" in slot_bases(ctx, base)[1]
+    banned = context(main_skill="Wither", ascendancies=["Infernalist"], forbid={"item_classes": ["Wand"]})
+    assert enumerate_skeletons(banned, ["Wither"])[0] == []
+
+
+def test_a_required_skill_a_weapon_base_grants_needs_that_weapon():
+    """A required (not main) skill only weapon bases grant: Spear Throw with every unique spear banned still comes
+    from any Spear main hand; Wither keeps a Wand main hand to the Primordial Wand; a main skill that can't hold the
+    weapon says so."""
+    from builder.search.skeletons import slot_bases
+
+    spears = [s for k, s, _ in context().granted_by["Spear Throw"] if k == "unique"]
+    ctx = context(main_skill="Blood Hunt", ascendancies=["Amazon"], require={"skills": ["Spear Throw"]},
+                  forbid={"uniques": spears})
+    skeletons, problems = enumerate_skeletons(ctx, ["Blood Hunt"])
+    assert skeletons and not problems and all(s.weapon == "Spear" for s in skeletons)
+    assert slot_bases(ctx, skeletons[0]) == ((), ())
+    ctx = context(main_skill="Fireball", ascendancies=["Infernalist"], require={"skills": ["Wither"]})
+    skeletons, problems = enumerate_skeletons(ctx, ["Fireball"])
+    assert skeletons and not problems and {s.weapon for s in skeletons} == {"Wand"}
+    assert slot_bases(ctx, skeletons[0]) == (("Primordial Wand",), ())
+    ctx = context(main_skill="Fireball", ascendancies=["Infernalist"], require={"skills": ["Spear Throw"]},
+                  forbid={"uniques": spears})
+    skeletons, problems = enumerate_skeletons(ctx, ["Fireball"])
+    assert skeletons == [] and any("Spear Throw (from a Spear)" in p for p in problems)
+
+
+def test_a_granted_skill_without_gem_data_is_reported_not_crashed():
+    """main_hands reads a skill's gem data by name: Dark Staff's Dark Pact has none in PoB, and the Sceptres' Skeletal
+    Warrior Minion is the gem "Skeletal Warrior" there. Both say why instead of a KeyError."""
+    ctx = context(main_skill="Dark Pact", ascendancies=["Infernalist"])
+    skeletons, problems = enumerate_skeletons(ctx, ["Dark Pact"])
+    assert skeletons == [] and any("no gem data" in p for p in problems)
+    ctx = context(main_skill="Skeletal Warrior Minion", ascendancies=["Infernalist"])
+    skeletons, problems = enumerate_skeletons(ctx, ["Skeletal Warrior Minion"])
+    assert skeletons == [] and any("lists it as Skeletal Warrior" in p for p in problems)
+
+
 def test_true_dual_wielding_is_two_one_handed_maces():
     ctx = context(main_skill="Boneshatter", ascendancies=["Titan"], offhand="weapon")
     skeletons, problems = enumerate_skeletons(ctx, ["Boneshatter"])

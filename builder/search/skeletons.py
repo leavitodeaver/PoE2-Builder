@@ -25,7 +25,10 @@ class Skeleton:
     weapon: str | None  # main-hand item type; None = unarmed
     weapon_sub: str | None  # "Warstaff" for quarterstaves, "" for caster staves, None = any
     offhand: str | None  # the off hand's item class: Shield, Focus, Quiver, Sceptre, One Hand Mace, ... or None
-    granted_by: str | None = None  # "passive:<name>", "unique:<name>" or "base:<item type>" for skills only those grant
+    # "passive:<name>", "unique:<name>", "base:<item type>" (every base of the type grants it: Spear Throw) or
+    # "bases:<item type>" (some bases of it do: a Withered Wand's Chaos Bolt; that slot keeps to them) for skills only
+    # those grant
+    granted_by: str | None = None
     # Weapon set 2 (weapon swap): its main hand, sub-type and off hand, like the fields above
     swap: bool = False
     swap_weapon: str | None = None
@@ -39,7 +42,7 @@ class Skeleton:
     @property
     def label(self) -> str:
         kind, _, name = (self.granted_by or "").partition(":")
-        source = f" (from any {name})" if kind == "base" else f" (from {name})" if self.granted_by else ""
+        source = f" (from any {name})" if kind == "base" else f" (from a {name} that grants it)" if kind == "bases"             else f" (from {name})" if self.granted_by else ""
         hands = _hands(self.weapon, self.weapon_sub, self.offhand)
         if self.requires_passive:
             hands += f" (with {self.requires_passive})"
@@ -325,8 +328,8 @@ def skill_problems(ctx: Context, skill: str) -> list[str]:
     for name in ctx.request.require.skills:
         gem = ctx.gems.get(name)
         if gem is None:
-            if ctx.skill_source(name) is None:
-                return [f"required skill {name} isn't a gem, and no allowed passive or unique grants it"]
+            if ctx.skill_source(name) is None and not base_grants(ctx, name):
+                return [f"required skill {name} isn't a gem, and no allowed passive, unique or weapon base grants it"]
             continue  # it comes with its source, and granted skills aren't buttons
         if is_button(gem) and name not in socketed:
             buttons.add(name)
@@ -343,6 +346,43 @@ def required_holders(ctx: Context) -> list[tuple[str, str]]:
         if name not in ctx.gems and (source := ctx.skill_source(name)) and source[0] == "unique":
             holders.append((name, source[1]))
     return holders
+
+
+def base_grants(ctx: Context, skill: str) -> list[tuple[str, str]]:
+    """(kind, item type) for the bases that grant `skill` ("base": every base of the type, "bases": some),
+    unless its item class is banned."""
+    banned = ctx.compiled.filters.forbidden_item_classes
+    return [(k, t) for k, t, _ in ctx.granted_by.get(skill, []) if k in ("base", "bases") and t not in banned]
+
+
+def slot_bases(ctx: Context, skeleton: Skeleton) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+    """The bases the main hand and the off hand keep to (() = any) so the skeleton's skills that only weapon bases
+    grant come with them: its main skill ("bases:<type>") and required skills no gem, allowed passive or unique
+    gives (a required Spear Throw: a Spear main hand). A Shield / Focus / Quiver base sits in the off hand, any other
+    in the main hand (Spear Throw only from the main hand: CalcSetup's default attack; an off-hand Sceptre's grant
+    isn't relied on, UNVERIFIED either way). None when the skeleton can't hold them all."""
+    needs: list[tuple[str, str, str]] = []
+    kind, _, source = (skeleton.granted_by or "").partition(":")
+    if kind in ("base", "bases"):
+        needs.append((skeleton.main_skill, kind, source))
+    for name in ctx.request.require.skills:
+        if name != skeleton.main_skill and name not in ctx.gems and ctx.skill_source(name) is None:
+            grants = base_grants(ctx, name)
+            held = [g for g in grants if g[1] in (skeleton.weapon, skeleton.offhand)]
+            if not held:
+                return None
+            needs.append((name, *held[0]))
+    hands: list[set[str] | None] = [None, None]
+    for skill, kind, item_type in needs:
+        hand = 1 if item_type in OFFHAND_ONLY else 0
+        if (skeleton.offhand if hand else skeleton.weapon) != item_type:
+            return None
+        if kind == "bases":
+            names = set(ctx.granting_bases(skill, item_type))
+            hands[hand] = names if hands[hand] is None else hands[hand] & names
+            if not hands[hand]:
+                return None
+    return tuple(sorted(hands[0] or ())), tuple(sorted(hands[1] or ()))
 
 
 def fits_holders(ctx: Context, weapon: str | None, offhand: str | None) -> bool:
@@ -384,6 +424,15 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
                          and not any(p.startswith(f"a {w} takes no off-hand weapon") for w in extra)]
             continue
         # A skill only a passive or a unique grants: that source becomes part of the skeleton
+        if skill not in ctx.all_gems:  # main_hands reads the skill's gem data by name
+            sources = ", ".join(sorted({s for _, s, _ in ctx.granted_by[skill]}))
+            alias = next((n for n, g in ctx.all_gems.items() if g.get("baseTypeName") == skill), None)
+            # PoB's gem data names a few granted skills otherwise (Skeletal Warrior Minion: gem "Skeletal Warrior")
+            problems.append(f"{skill} is granted ({sources}); PoB's gem data lists it as {alias}, a name the search "
+                            f"doesn't match yet, so it can't be the main skill" if alias else
+                            f"{skill} is granted ({sources}) but PoB has no gem data for it, "
+                            f"so the tool can't score it")
+            continue
         for kind, source, source_ascendancy in ctx.granted_by.get(skill, []):
             if kind == "passive" and source in ctx.compiled.filters.forbidden_passives:
                 problems.append(f"{skill} comes from {source}, which the request bans")
@@ -392,8 +441,11 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
                 problems.append(f"{skill} comes from {source}, which the request bans")
                 continue
             archetypes, found = weapon_archetypes(ctx, skill, source if kind == "unique" and _is_weapon(ctx, source) else None)
-            if kind == "base":  # every base of this type grants it in the main hand (Spear Throw: any Spear)
-                archetypes = [a for a in archetypes if a[0] == source]
+            if kind in ("base", "bases"):  # (some of) this type's bases grant it: that hand holds one of them
+                hand = 2 if source in OFFHAND_ONLY else 0  # a Shield's Parry / Raise Shield: the off hand
+                archetypes = [a for a in archetypes if a[hand] == source]
+                if not archetypes:
+                    problems.append(f"{skill} comes from a {source}, which no allowed weapon setup holds")
             problems += found
             usable = [a for a in ascendancies if source_ascendancy in (None, a)]
             if not usable:
@@ -402,16 +454,22 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
                 for weapon, sub, offhand in archetypes:
                     skeletons.append(Skeleton(ctx.class_of[ascendancy], ascendancy, skill, weapon, sub, offhand,
                                               f"{kind}:{source}"))
-    kept = [s for s in skeletons if fits_holders(ctx, s.weapon, s.offhand)]
+    kept = [s for s in skeletons if fits_holders(ctx, s.weapon, s.offhand) and slot_bases(ctx, s) is not None]
     if skeletons and not kept:
-        held = ", ".join(f"{skill} (from {unique})" for skill, unique in required_holders(ctx))
-        problems.append(f"no weapon setup for the main skill can also hold {held}")
+        held = [f"{skill} (from {unique})" for skill, unique in required_holders(ctx)]
+        held += [f"{n} (from a {' or '.join(t for _, t in base_grants(ctx, n))})" for n in ctx.request.require.skills
+                 if n not in ctx.gems and ctx.skill_source(n) is None and base_grants(ctx, n)]
+        problems.append(f"no weapon setup for the main skill can also hold {', '.join(held)}")
     swapped = []
     for skeleton in kept:
         skeleton, found = with_swap(ctx, skeleton)
         swapped.append(skeleton)
         problems += found
     return swapped, sorted(set(problems))
+
+
+# Item types only an off hand holds (a base of one that grants a skill sits in Weapon 2)
+OFFHAND_ONLY = ("Shield", "Focus", "Quiver")
 
 
 def _is_weapon(ctx: Context, unique: str) -> bool:

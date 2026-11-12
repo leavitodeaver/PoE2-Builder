@@ -209,19 +209,13 @@ class Context:
         """Skill name -> [(kind, source name, ascendancy)] for skills a passive ("passive"), a
         unique ("unique") or every base of an item type ("base", the type: every Spear's implicit grants
         Spear Throw, which PoB gives any Spear main hand, CalcSetup's default attacks) grants. A skill
-        only some bases of a type grant (a Withered Wand's Chaos Bolt) isn't listed: the gear search
-        can't keep that base yet."""
+        only some bases of a type grant (a Withered Wand's Chaos Bolt; granting_bases names them) is listed as
+        "bases" with the type: the gear search keeps that slot to those bases (inner.Search, SlotSpec.bases)."""
         grants: dict[str, list[tuple[str, str, str | None]]] = {}
         pattern = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")
-        by_type: dict[str, list[set[str]]] = {}
-        for base in self.data.bases:
-            if not base.get("hidden"):
-                by_type.setdefault(base["type"], []).append(
-                    {m.group(1) for line in (base.get("implicit") or "").splitlines()
-                     if not line.startswith("{") and (m := pattern.match(line))})
-        for kind_of, skills in sorted(by_type.items()):
-            for skill in sorted(set.intersection(*skills)):
-                grants.setdefault(skill, []).append(("base", kind_of, None))
+        for (kind_of, skill), names in sorted(self._base_grants.items()):
+            whole = len(names) == sum(1 for b in self.data.bases if b["type"] == kind_of and not b.get("hidden"))
+            grants.setdefault(skill, []).append(("base" if whole else "bases", kind_of, None))
         for node in self.data.tree["nodes"]:
             for line in node.get("stats") or []:
                 if m := pattern.search(line):
@@ -231,6 +225,24 @@ class Context:
                 if m := pattern.search(re.sub(r"\{[^}]*\}", "", line)):
                     grants.setdefault(m.group(1), []).append(("unique", unique["name"], None))
         return grants
+
+    @cached_property
+    def _base_grants(self) -> dict[tuple[str, str], tuple[str, ...]]:
+        """(item type, skill) -> the non-hidden bases of that type whose implicit grants the skill (Vendor PoB
+        Data/Bases: "Grants Skill: Level (1-20) Chaos Bolt" on Withered / Critical / Frigid / Torture Wand)."""
+        pattern = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")
+        found: dict[tuple[str, str], list[str]] = {}
+        for base in self.data.bases:
+            if base.get("hidden"):
+                continue
+            for line in (base.get("implicit") or "").splitlines():
+                if not line.startswith("{") and (m := pattern.match(line)):
+                    found.setdefault((base["type"], m.group(1)), []).append(base["name"])
+        return {key: tuple(names) for key, names in found.items()}
+
+    def granting_bases(self, skill: str, item_type: str) -> tuple[str, ...]:
+        """The bases of `item_type` whose implicit grants `skill` (all of them for Spear Throw on a Spear)."""
+        return self._base_grants.get((item_type, skill), ())
 
     def skill_source(self, skill: str) -> tuple[str, str, str | None] | None:
         """For a skill no gem gives, the first allowed passive or unique that grants it."""
