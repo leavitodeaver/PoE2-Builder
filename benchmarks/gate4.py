@@ -32,7 +32,15 @@ from builder.search.run import optimize
 
 REFERENCE_DIR = ROOT / "benchmarks" / "reference"
 RESULT_DIR = ROOT / "benchmarks" / "results"
+try:  # the boss preset (MECH50, master 95eceb1): the reference faces the boss the optimizer's builds face
+    from builder.search import bosses
+except ImportError:  # (not on main yet: then both sides keep PoB's own boss configuration)
+    bosses = None
 RESISTS = {"fire": "FireResist", "cold": "ColdResist", "lightning": "LightningResist", "chaos": "ChaosResist"}
+
+
+BOSS = (f"{bosses.DEFAULT}: {bosses.config_vars()}" if bosses is not None
+        else "none: no builder/search/bosses.py, the reference keeps its code's boss configuration")
 
 
 def reference_request(name: str, facts: dict, keystones: list[str]) -> BuildRequest:
@@ -86,6 +94,8 @@ def main() -> None:
         except Exception:
             continue
         engine.call("loadXml", xml=xml)
+        if bosses is not None:  # (bridge resetConfig writes the same preset into every build the search makes)
+            engine.call("setConfig", vars=bosses.config_vars())
         facts = engine.call("facts", fields=FACT_FIELDS + ["FullDPS", "SkillDPS"])
         tree_keystones = set(GameData().keystones)  # an item-granted keystone can't be required
         keystones = sorted(p["name"] for p in facts["passives"] if p["type"] == "Keystone" and p["name"] in tree_keystones)
@@ -123,7 +133,7 @@ def main() -> None:
               + ("all floors met" if result.get("feasible") else "short: " + ", ".join(failing)), flush=True)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     out = RESULT_DIR / f"gate4-{datetime.now():%Y%m%d-%H%M%S}.json"
-    out.write_text(json.dumps({"seconds": args.seconds, "rows": rows}, indent=1), encoding="utf-8")
+    out.write_text(json.dumps({"seconds": args.seconds, "boss": BOSS, "rows": rows}, indent=1), encoding="utf-8")
     print(f"gate 4: {sum(r['passed'] for r in rows)}/{len(rows)} pass; wrote {out.relative_to(ROOT)}")
 
 
