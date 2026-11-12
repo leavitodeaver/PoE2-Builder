@@ -1900,6 +1900,23 @@ function bridge.activeSkills(args)
 			wrongWeapon = effect.weaponTypes and not (weapon1 and effect.weaponTypes[weapon1] or weapon2
 				and effect.weaponTypes[weapon2]) or nil,
 		}
+		-- Every minion skill's minions (models.minion_deaths): how many, how long they last (0: until killed), Persistent
+		if activeSkill.minion and activeSkill.minion.minionData then
+			local ok, summon = pcall(function()
+				local list, cfg = activeSkill.skillModList, activeSkill.skillCfg
+				local minionData = activeSkill.minion.minionData
+				local base = (activeSkill.skillData.duration or 0) + list:Sum("BASE", cfg, "Duration", "PrimaryDuration")
+				return {
+					limit = minionData.limit and math.floor(calcLib.val(list, minionData.limit, cfg)) or nil,
+					duration = base * calcLib.mod(list, cfg, "Duration", "PrimaryDuration"),
+					persistent = types[SkillType.Persistent] and true or false,
+					undead = types[SkillType.CreatesUndeadMinion] and true or false,
+				}
+			end)
+			if ok then
+				skills[#skills].summon = summon
+			end
+		end
 		if wantStats[effect.name] and effect.statSets and effect.statSets[1] then
 			-- every stat set's stats (the first set's value wins where two share a stat); ledger
 			-- gem_stat entries read stats of any set

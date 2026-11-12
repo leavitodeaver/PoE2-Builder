@@ -219,6 +219,7 @@ class Skill:
     corpses: bool = False  # consumes or targets corpses (the game's skill types; corpse_model)
     level: int | None = None  # gem level of a meta skill that gains Energy (gem_energy)
     minion: dict | None = None  # a triggered skill summoning Temporary minions: their duration, casts, limit (minion_count)
+    summon: dict | None = None  # any minion skill's minions: limit, duration (0: until killed), persistent (minion_deaths)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -226,7 +227,7 @@ class Skill:
                    bool(raw.get("melee")), bool(raw.get("triggered")), bool(raw.get("energy")),
                    number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0,
                    dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
-                   bool(raw.get("corpses")), raw.get("level"), raw.get("minion"))
+                   bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -422,10 +423,9 @@ META_GEMS = {
     # Cast on Minion Death (MECH44, 11 Nov 2026; before, in NO_ENERGY_ON_A_BOSS: "none on a single boss"): "Gains 50 base
     # Energy when a Minion is killed, modified by the Minion's Power" (MetaCastOnMinionDeathPlayer,
     # cast_on_minion_death_gain_1_energy_per_X_minion_relative_defensiveness_% 2; energy_generated_+% 3 a level). The game
-    # files' KeywordPopups MinionDeath: "Minions whose durations expire or that are despawned by the player are considered
-    # to have died", and the boss kills minions. One of the build's minions dies every MINION_DEATH_EVERY s (assumed, as
-    # Grim Feast's Remnants, assumptions.py), at 100% relative Power (assumed: 50 Energy). Timed minions' own expiry rate
-    # isn't read yet (an undercount for builds of many short-lived minions).
+    # files: it gains "when one of your Persistent Minions is Killed" (its description), and KeywordPopups MinionDeath says
+    # expiring or despawned minions aren't Killed. The deaths per second come from the build's own sources (minion_deaths,
+    # MECH45; MECH44's flat one every 10 s is gone: the user, 11 Nov), at 100% relative Power (assumed: 50 Energy, LOW).
     "Cast on Minion Death": {"per_level": 3.0, "gain": "minion death", "per": 50.0},
     # Smith of Kitava's Heat of the Forge: the same stats as Thundergod's Wrath (cast_fire_spell_on_hit_gain_X_centienergy_
     # per_monster_power_on_hit 300, the same level table; game files), Fire spells. The game and the tree call it Fire Spell
@@ -449,7 +449,65 @@ DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files,
 DODGE_EVERY = 2.0  # seconds between dodge rolls against a boss: the user's default (7 Nov 2026), said in the guide
 DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); faster rolls from movement speed not counted
 NO_ENERGY_ON_A_BOSS = {"Reaper's Invocation": "kills"}
-MINION_DEATH_EVERY = 10.0  # seconds between deaths of your minions against a boss (assumed; Cast on Minion Death)
+# Your minions' deaths against a boss (MECH45, FIX_QUEUE; the user, 11 Nov 2026: "that's a dangerous assumption ... needs
+# to be smarter than just making a flat assumption"; CLAUDE.md "No flat rates"). Game files, KeywordPopups MinionDeath:
+# "Minions whose durations expire or that are despawned by the player are considered to have died. However, effects that
+# state they trigger when a Minion is Killed do not trigger in these cases. Minions are only Killed if they reach 0 life,
+# though this can be caused by their summoner as well as enemies." Cast on Minion Death gains Energy "when one of your
+# Persistent Minions is Killed" (its ActiveSkills description), so neither expiring temporary minions nor despawns feed
+# it; Grim Feast stores Life when "your Reviving Minions" die (its description). Reviving (KeywordPopups): they "revive
+# after a short delay when killed. This delay is reset whenever another Reviving Minion dies": 7.5 s (global_resummon_time_ms,
+# PoB's Misc.lua from the game's constants; resummon speed modifiers aren't read, LOW). With N such minions and kills at r
+# per second, the deaths run in waves: N killed in N / r s, then all revive 7.5 s after the last, so the sustained rate is
+# N r / (N + 7.5 r).
+# The build's own sources counted (each at its real use rate):
+#  - Sacrifice (its description: "your undead Reviving Minions can be used in place of Corpses by your skills"): a main skill
+#    that consumes corpses (the corpse_model's skill types) uses one minion per use (one corpse per use assumed; that a
+#    minion used as a corpse is Killed, reaching 0 life, is UNVERIFIED: LOW);
+#  - Explosive Demise, Skeletal Arsonists' Command ("Detonate an allied Minion whose current Life is below a threshold"):
+#    one minion per use, on its 3 s cooldown (PoB's minion.lua and the game files) x cooldown recovery, when the build has
+#    another minion to detonate (that one is below the threshold when the Command comes up is assumed: LOW).
+# Not counted yet (labelled, undercounts): the boss killing your minions (their Life and defences against the boss preset's
+# hits), Dark Pact / Abyssal Pact (not in PoB's data), Offerings (the skeleton becomes the spike: whether it's Killed is
+# UNVERIFIED, not counted), minions taking damage for you, other on-minion-death lines.
+RESUMMON_SECONDS = 7.5  # global_resummon_time_ms (PoB Misc.lua)
+EXPLOSIVE_DEMISE_COOLDOWN = 3.0  # s (PoB minion.lua:815 levels; game files)
+SACRIFICE = "Sacrifice"
+ARSONIST = "Skeletal Arsonist Minion"
+
+
+def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[float, str]:
+    """Your Persistent, Reviving minions Killed per second against a boss, from the build's own sources (see above), capped
+    by their revival (N r / (N + RESUMMON_SECONDS r)), and how. 0 with a note when nothing in the build kills them."""
+    names = {s.name for s in skills}
+    reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
+    count = sum(number(s.summon.get("limit")) for s in reviving)
+    if count <= 0:
+        return 0.0, "the build has no Persistent minions to be Killed (temporary minions expiring aren't Killed)"
+    kills, parts = 0.0, []
+    if SACRIFICE in names and main is not None and main.corpses:
+        undead = sum(number(s.summon.get("limit")) for s in reviving if s.summon.get("undead"))
+        uses = number(stats.get("Speed"))
+        if undead > 0 and uses > 0:
+            kills += uses
+            parts.append(f"Sacrifice: {main.name} uses one of your {undead:g} undead minions as its corpse each use "
+                         f"({uses:.2f} uses/s; one corpse per use assumed; that it is Killed is UNVERIFIED, LOW)")
+    arsonist = next((s for s in skills if s.name == ARSONIST), None)
+    if arsonist is not None and count > number(arsonist.summon.get("limit")):
+        every = EXPLOSIVE_DEMISE_COOLDOWN / (arsonist.cooldown_recovery or 1.0)
+        kills += 1 / every
+        parts.append(f"Explosive Demise (your Skeletal Arsonists' Command) detonates one of your other minions every "
+                     f"{every:.2f} s (its {EXPLOSIVE_DEMISE_COOLDOWN:g} s cooldown; that one is below its Life threshold "
+                     f"when the Command comes up is assumed, LOW)")
+    not_counted = ("not counted yet: the boss killing your minions, minions taking damage for you, Dark Pact, Offerings "
+                   "(an undercount)")
+    if kills <= 0:
+        return 0.0, f"nothing in this build kills its minions ({not_counted})"
+    rate = count * kills / (count + RESUMMON_SECONDS * kills)
+    return rate, (f"{rate:.3f} of your {count:g} Reviving minions Killed per second: " + "; ".join(parts)
+                  + f"; each revives {RESUMMON_SECONDS:g} s after the last death (KeywordPopups Reviving: the delay "
+                    f"resets on each death), so {count:g} x {kills:.2f} / ({count:g} + {RESUMMON_SECONDS:g} x {kills:.2f}); "
+                  + not_counted)
 MINION_TYPES = {"Minion", "CreatesMinion"}
 
 
@@ -1342,13 +1400,11 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
                                     f"{regen:,.0f}/s regenerated, {recharge:,.0f}/s recharge after {delay:g} s): "
                                     f"1 Energy per 10 lost")
     if kind == "minion death":
-        minions = stats.get("_minion_skills") or []
-        if not minions:
-            return 0.0, "the build has no minions: no Energy"
-        return per / MINION_DEATH_EVERY, (f"one of your minions ({', '.join(minions[:3])}) dies or expires every "
-                                          f"{MINION_DEATH_EVERY:g} s against a boss (assumed; expired minions count as "
-                                          f"died, KeywordPopups MinionDeath), {per:g} Energy each (a minion of 100% "
-                                          f"relative Power assumed)")
+        rate, how = stats.get("_minion_deaths") or (0.0, "the build's minions weren't read")
+        if rate <= 0:
+            return 0.0, f"{how}: no Energy"
+        return rate * per, (f"{how}; {per:g} Energy each (a minion of 100% relative Power assumed: the dying minion's Power "
+                            f"isn't read yet, LOW)")
     if kind == "charm":
         spent = number(stats.get("_charm_charges"))
         if spent <= 0:

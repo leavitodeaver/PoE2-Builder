@@ -878,12 +878,34 @@ def test_cast_on_charm_use_gains_energy_from_the_charm_charges_spent():
     assert models.energy_gain("Cast on Charm Use", {}, "Spark")[0] == 0.0
 
 
-def test_cast_on_minion_death_gains_energy_from_the_builds_minions_dying():
-    """KeywordPopups MinionDeath: expired or despawned minions count as died; MetaCastOnMinionDeathPlayer: 50 base Energy
-    per death, modified by the minion's Power (100% assumed); one death per MINION_DEATH_EVERY s assumed."""
-    energy, basis = models.energy_gain("Cast on Minion Death", {"_minion_skills": ["Raise Zombie"]}, "Spark")
-    assert energy == pytest.approx(50.0 / models.MINION_DEATH_EVERY) and "Raise Zombie" in basis and "assumed" in basis
+def test_cast_on_minion_death_gains_energy_only_from_minions_the_build_kills():
+    """MECH45 (the user, 11 Nov: no flat "one dies every 10 s"): Cast on Minion Death gains 50 Energy per Persistent minion
+    Killed (expired or despawned ones aren't Killed: KeywordPopups MinionDeath), at the rate the build's own sources kill
+    them, capped by Reviving (7.5 s after the last death); nothing that kills them: 0, with a note."""
+    zombies = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "undead": True})
+    spirits = models.Skill("Raging Spirits", summon={"limit": 20, "duration": 8, "persistent": False})
+    main = models.Skill("Detonate Dead", group=1, spell=True, corpses=True)
+    # minions, but nothing kills them: 0 and the note says so
+    rate, how = models.minion_deaths([zombies, spirits, main], main, {"Speed": 2.0})
+    assert rate == 0.0 and "nothing in this build kills its minions" in how
+    # only temporary minions: none Persistent to be Killed
+    assert models.minion_deaths([spirits, main], main, {"Speed": 2.0})[0] == 0.0
+    # Sacrifice: each corpse use takes a zombie: 6 x 2 / (6 + 7.5 x 2) = 0.571/s
+    sacrifice = models.Skill("Sacrifice")
+    rate, how = models.minion_deaths([zombies, sacrifice, main], main, {"Speed": 2.0})
+    assert rate == pytest.approx(6 * 2 / (6 + 7.5 * 2)) and "UNVERIFIED" in how
+    energy, basis = models.energy_gain("Cast on Minion Death", {"_minion_deaths": (rate, how)}, "Detonate Dead")
+    assert energy == pytest.approx(50 * rate) and "100% relative Power assumed" in basis
+    assert models.energy_gain("Cast on Minion Death", {"_minion_deaths": (0.0, "x")}, "Spark")[0] == 0.0
     assert models.energy_gain("Cast on Minion Death", {}, "Spark")[0] == 0.0
+    # Explosive Demise: one of the other minions every 3 s / cooldown recovery
+    arsonist = models.Skill("Skeletal Arsonist Minion", cooldown_recovery=1.5,
+                            summon={"limit": 2, "duration": 0, "persistent": True, "undead": True})
+    spark = models.Skill("Spark", group=1, spell=True)
+    rate, how = models.minion_deaths([zombies, arsonist, spark], spark, {"Speed": 2.0})
+    kills = 1.5 / 3
+    assert rate == pytest.approx(8 * kills / (8 + 7.5 * kills)) and "Explosive Demise" in how
+    assert models.minion_deaths([arsonist, spark], spark, {"Speed": 2.0})[0] == 0.0  # (no other minion to detonate)
     assert "Cast on Minion Death" not in models.NO_ENERGY_ON_A_BOSS
     groups = [{"gems": [{"name": "Raise Zombie", "support": False, "enabled": True},
                         {"name": "Spark", "support": False, "enabled": True},
@@ -925,7 +947,7 @@ def test_supports_in_item_groups_count_as_used():
 
 def test_explosive_transmutation_counts_every_remnant_source_the_build_has():
     """Every Remnant source the build has feeds the explosion (assumptions.REMNANT_SOURCES), not one: Lingering
-    Illusion's copies, Grim Feast with minions only, Storm's Recollection collecting each twice (the user's correction,
+    Illusion's copies, Grim Feast at the build's own minion kills, Storm's Recollection collecting each twice (the user's correction,
     8 Nov: Into the Breach is not the only source on a lone boss)."""
     from builder.search import assumptions
     from builder.search.assumptions import REMNANT_SOURCES, Assumptions
@@ -955,8 +977,13 @@ def test_explosive_transmutation_counts_every_remnant_source_the_build_has():
     assert "Lingering Illusion" in notes[-1]["basis"]
     rate, _ = run([explosion, skill("Grim Feast")])
     assert rate == 0.0  # no minions: no deaths to make Remnants
-    rate, _ = run([explosion, skill("Grim Feast"), skill("Raise Zombie", minions=True)])
-    assert rate == pytest.approx(REMNANT_SOURCES["Grim Feast"][0])
+    zombies = skill("Raise Zombie", minions=True, summon={"limit": 6, "duration": 0, "persistent": True, "undead": True})
+    rate, notes = run([explosion, skill("Grim Feast"), zombies])
+    assert rate == 0.0 and "nothing in this build kills its minions" in notes[-1]["basis"]  # (MECH45: no flat 10 s)
+    arsonist = skill("Skeletal Arsonist Minion", minions=True,
+                     summon={"limit": 2, "duration": 0, "persistent": True, "undead": True})
+    rate, _ = run([explosion, skill("Grim Feast"), zombies, arsonist])  # Explosive Demise every 3 s
+    assert rate == pytest.approx(8 * (1 / 3) / (8 + 7.5 / 3))
     rate, notes = run([explosion, skill("Into the Breach")],
                       ["Remnants you create reappear once, 1 second after being collected"])
     assert rate == pytest.approx(2 * breach) and "twice" in notes[-1]["basis"]

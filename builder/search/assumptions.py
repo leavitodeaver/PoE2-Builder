@@ -47,7 +47,8 @@ REMNANT_SOURCES = {
     "Lingering Illusion": (0.352, "the boss destroys one of your dodge-roll copies every 5 s (the user's rate, 9 Nov), "
                                   "1.76 Power Charge Remnants each"),
     "Living Bomb": (0.2, "assumed: one seed detonated every 5 s"),
-    "Grim Feast": (0.1, "assumed: one Reviving minion dies every 10 s"),
+    "Grim Feast": (0.0, "a Grim Remnant when one of your Reviving minions dies in your Presence (100%, game files), at "
+                        "the rate the build kills them (models.minion_deaths; no flat rate, the user 11 Nov)"),
     "Orb of Storms": (0.0833, "one Orb kept up: a Remnant when each 12 s Orb expires"),
     "Remnants of Kalguur": (0.0, "50% per Stun, at most one per 3 s: the boss's Heavy Stuns (models.heavy_stun_rate, "
                                  "from the build's own buildup; light stuns of a boss not counted)"),
@@ -257,7 +258,7 @@ class Assumptions:
         if any(s.name == "Cast on Charm Use" for s in found):  # (its Energy: charm charges spent, from the flask model)
             stats = {**stats, **charm_stats(build)}
         if any(s.name == "Cast on Minion Death" for s in found):  # (its Energy: the build's minions dying)
-            stats = {**stats, "_minion_skills": models.minion_skill_names(build.groups(), build.ctx.gems)}
+            stats = {**stats, "_minion_deaths": models.minion_deaths(found, main, stats)}
         source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
         forbidden = set(build.ctx.request.forbid_ledger_entries)
         inputs = models.read_inputs(source_lines)
@@ -366,9 +367,15 @@ class Assumptions:
                 skill = present.get(name)
                 if skill is None:
                     continue
-                if name in NEEDS_MINIONS and not any(s.get("minions") for s in present.values()):
-                    used.append(f"{name} 0/s (no minions)")
-                    continue
+                if name in NEEDS_MINIONS:  # (Grim Feast: your minions' deaths, from the build's own sources)
+                    found = [models.Skill.of(s) for s in present.values()]
+                    group = self.build.main_group()
+                    main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill()),
+                                None)
+                    rate, condition = models.minion_deaths(found, main, self.build.call("stats", fields=models.MODEL_FIELDS))
+                    if rate <= 0:
+                        used.append(f"{name} 0/s ({condition})")
+                        continue
                 if name in COOLDOWN_SOURCES:
                     rate *= skill.get("cooldownRecovery") or 1.0
                 if name == KALGUUR:
