@@ -737,3 +737,19 @@ def test_an_off_hand_sceptres_skill_can_be_the_main_skill(engine):
     assert not any("didn't appear" in p for p in search.problems), search.problems
     main = [g for g in search.build.groups() if g["main"]]
     assert main and any(s["name"] == "Malice" for s in main[0]["skills"])
+
+
+def test_source_lines_give_a_ranged_unique_line_rolled(engine):
+    """COVD1: sourceLines passed a unique's line as written, "Hits Break (30-50) Armour", so the models' and conditions'
+    number regexes (conditions.ARMOUR_BREAK_LINE here) missed it. It now gives the rolled line, as PoB's own mod list
+    does (itemLib.applyRange at the item's range, PoB's default 0.5 for none)."""
+    from builder.search.conditions import ARMOUR_BREAK_LINE
+
+    engine.call("newBuild")
+    engine.call("equip", slot="Weapon 1", raw="Rarity: Unique\nWylund's Stake\nSmithing Hammer\nImplicits: 0\n"
+                                             "+(10-20) to Strength\nHits Break (30-50) Armour")
+    texts = [line["text"] for line in engine.call("sourceLines")["lines"] if line["source"] == "item:Weapon 1"]
+    print(texts)
+    assert "Hits Break 40 Armour" in texts and "+15 to Strength" in texts
+    assert not any("(" in t for t in texts)
+    assert any(ARMOUR_BREAK_LINE.search(t) for t in texts)

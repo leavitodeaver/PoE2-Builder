@@ -2662,7 +2662,15 @@ function bridge.sourceLines()
 		if item and not slot.inactive and not flaskOff then
 			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
 				for _, modLine in ipairs(item[kind] or { }) do
-					add("item:" .. slotName, modLine.line)
+					-- A unique's line can hold its range, "(10-16)% increased ...": the models' and conditions' regexes
+					-- read numbers, so give them the rolled line, as PoB's own getRangedModList does (Item.lua 2726-2735;
+					-- COVD1: nearly every custom model missed ranged unique lines)
+					local text = modLine.line
+					if type(text) == "string" and text:find("%((%-?%d+%.?%d*)%-(%-?%d+%.?%d*)%)") then
+						text = itemLib.applyRange(text, modLine.range or main.defaultItemAffixQuality or 0.5,
+							modLine.valueScalar, modLine.corruptedRange)
+					end
+					add("item:" .. slotName, text)
 				end
 			end
 		end
