@@ -1622,3 +1622,65 @@ def test_unbound_buff_lines_parse_and_count_only_while_unbound(engine):
         assert on["ShockChancePerHit"] == pytest.approx(off["ShockChancePerHit"] * 1.8, rel=0.02)
     build.set_config({"Unbound": False})
     build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
+
+
+
+def test_a_one_totem_support_holds_pobs_ailment_stacks_to_one_totem(engine):
+    """AUDIT24 A24-3 (MECHB11): PoB multiplies a totem skill's ailment stacks by its ActiveTotemLimit (CalcOffence 5264).
+    With Cirel's Cultivation ("Supported Skills can only have one active Totem") and +1 totem, the model's
+    ActiveTotemLimit line holds the calculated skill's count to 1, and the bridge's read leaves the line out: the model
+    reads 2 on the next pass too (no loop)."""
+    payload = make_payload(BuildRequest(main_skill="Dark Effigy", ascendancies=["Lich"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Dark Effigy"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("addSkillGroup", text="Dark Effigy 20/0 1\nCirel's Cultivation 1/0 1")
+    group = build.groups()[-1]["index"]
+    plus = [models.line("+1 to maximum number of Summoned Totems", 1.0)]
+    build.call("setAssumptions", mods=plus, fields=[])
+    names = [s["name"] for s in build.groups()[-1]["skills"]]
+    flagged = None
+    for k, name in enumerate(names):
+        build.call("setGroup", index=group, main=True, mainActiveSkill=k + 1, fields=["ActiveTotemLimit"])
+        found = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
+        skill = next(s for s in found if s.group == group and s.name == name)
+        print(name, skill.ailment_totems, skill.support_stats.get(models.TOTEM_ONE_STAT))
+        if skill.ailment_totems and models.number(skill.ailment_totems.get("limit")) > 1:
+            flagged = (k, skill, found)
+    assert flagged, "no totem-flagged skill with a limit above 1"
+    k, skill, found = flagged
+    build.call("setGroup", index=group, main=True, mainActiveSkill=k + 1, fields=[])
+    before = build.call("stats", fields=["ActiveTotemLimit"])["ActiveTotemLimit"]
+    assert before == 2
+    mods, notes = models.totem_count_model(found, skill)
+    assert mods and mods[0]["value"] == -1 and notes[0]["value"] == 1
+    build.call("setAssumptions", mods=plus + mods, fields=[])
+    assert build.call("stats", fields=["ActiveTotemLimit"])["ActiveTotemLimit"] == 1
+    again = next(s for s in build.call("activeSkills")["skills"] if s.get("group") == group and s["name"] == skill.name)
+    assert again["ailmentTotems"]["limit"] == 2  # (its own line left out: the same line next pass)
+    assert next(s for s in build.call("activeSkills")["skills"] if s["name"] == "Dark Effigy"
+                and s.get("group") == group)["totemLimit"] == 2
+
+
+def test_the_kings_adds_supply_detonate_dead_its_corpses(engine, monkeypatch):
+    """AUDIT24 A24-1 and the add-kill probe (MECHB11): against the King in the Mists (MECHD1's Kills: one add per 25 s
+    for 43% of the fight), the adds' kill rate reaches the models (build.kills) and supplies corpses (LOW, UNVERIFIED
+    whether totems leave one); against the default lone boss, none."""
+    from builder.search import bosses
+
+    payload = make_payload(BuildRequest(main_skill="Detonate Dead"))
+    skeleton = enumerate_skeletons(Context(payload), ["Detonate Dead"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    search.assumptions.apply()
+    lone = next(n for n in search.assumptions.active if n["label"].startswith("Corpses per second"))
+    assert lone["value"] == 0 and build.kills[0] == 0
+    monkeypatch.setattr(bosses, "DEFAULT", "The King in the Mists")
+    search.assumptions.apply()
+    rate = bosses.kills_per_second("The King in the Mists")[0]
+    assert build.kills[0] == pytest.approx(rate) and rate == pytest.approx(0.43 / 25)
+    king = next(n for n in search.assumptions.active if n["label"].startswith("Corpses per second"))
+    assert king["value"] == pytest.approx(rate, rel=1e-3) and "UNVERIFIED" in king["basis"]
+    print("King corpses", king, build.call("stats", fields=["TotalDPS", "FullDPS"]))

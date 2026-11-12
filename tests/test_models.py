@@ -3120,3 +3120,71 @@ def test_unbound_uptime_from_the_builds_ailments():
     box = conditions._unbound(["Grants Skill: Unbound Avatar"], {**fast, "_unbound": (9.9, False)})
     assert box[0] is True and box[2] == pytest.approx(9.9 / 21.9) and box[4][0] == pytest.approx(9.9 / 14.9)
     assert [m["when"] for m in models.unbound_model(["Grants Skill: Unbound Avatar"])[0]] == [[{"pob": "Unbound"}]] * 4
+
+
+def test_a_one_totem_support_holds_pobs_ailment_stacks_to_one_totem():
+    """AUDIT24 A24-3 (MECHB11): PoB multiplies a totem skill's ailment stacks by its Totem Limit (CalcOffence 5264); a
+    one-totem support's skill gets ActiveTotemLimit BASE (1 - limit), tagged so the bridge's next read leaves it out."""
+    from builder.search import models
+
+    slam = models.Skill("Shockwave Slam", 1, attack=True, ailment_totems={"limit": 3},
+                        support_stats={models.TOTEM_ONE_STAT: 1})
+    mods, notes = models.totem_count_model([slam], slam)
+    assert mods == [models.raw_mod("ActiveTotemLimit", "BASE", -2, "Shockwave Slam", tag=models.TOTEM_ONE_TAG)]
+    assert mods[0]["tag"] == "OneTotem" and notes[0]["value"] == 1 and "UNVERIFIED" not in notes[0]["basis"]
+    slam.support_stats = {models.TOTEM_ONE_STAT: 1, models.TOTEM_SPLINTER_STAT: 2}
+    assert "UNVERIFIED" in models.totem_count_model([slam], slam)[1][0]["basis"]  # (splinters: labelled, not counted)
+    slam.ailment_totems = {"limit": 1}
+    assert models.totem_count_model([slam], slam) == ([], [])  # (already one)
+    slam.ailment_totems = {"limit": 3, "override": 2}
+    assert models.totem_count_model([slam], slam) == ([], [])  # (the Configuration tab's count wins in PoB)
+    # Spell Totem with a one-totem support: one totem, whatever the gem level allows
+    totem = models.Skill("Spell Totem", group=1)
+    fireball = models.Skill("Fireball", group=1, spell=True, cast_time=0.75, support_stats={models.TOTEM_ONE_STAT: 1})
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "EnduranceChargesMax": 3}
+    mods, _ = models.totem_model([totem, fireball], stats, ["Gain an Endurance Charge every second"],
+                                 {"Spell Totem": 23}, fireball)
+    assert mods == []
+
+
+def test_minion_pact_kills_a_minion_each_use_and_holds_its_bonus_to_uses_that_find_one():
+    """AUDIT23 A23-2 (MECHB11): Minion Pact removes 100% / 150% of your maximum Life from a nearby minion on use; a minion
+    its summoner brings to 0 Life is Killed (KeywordPopups Sacrifice / MinionDeath): one Killed per use (LOW: minion Life
+    not read), capped by revival. Its 30% more is held to the uses that find a minion."""
+    from builder.search import models
+
+    zombies = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "undead": True})
+    main = models.Skill("Spark", group=1, spell=True)
+    stats = {"Speed": 2.0}
+    assert models.minion_deaths([zombies, main], main, stats)[0] == 0.0  # (without it: nothing kills them)
+    assert models.minion_pact_model([zombies, main], main, stats) == ([], [])
+    main.support_stats = {models.MINION_PACT_STAT: 100, "support_minion_pact_damage_+%_final": 30}
+    rate, how = models.minion_deaths([zombies, main], main, stats)
+    assert rate == pytest.approx(6 * 2 / (6 + 7.5 * 2)) and "Minion Pact" in how and "Without it: 0.00" in how
+    mods, notes = models.minion_pact_model([zombies, main], main, stats)
+    share = 6 / (6 + 7.5 * 2)  # (a minion is there for this share of uses)
+    assert mods == [models.raw_mod("Damage", "MORE", 100 * ((1 + 0.3 * share) / 1.3 - 1), "Spark")]
+    assert notes[0]["confidence"].startswith("LOW")
+    # no minions at all: PoB gives no bonus either (MinionPresenceCount 0): nothing to cut; temporary minions feed it too
+    assert models.minion_pact_model([main], main, stats) == ([], [])
+    spirits = models.Skill("Raging Spirits", summon={"limit": 20, "duration": 8, "persistent": False})
+    assert models.minion_pact_model([zombies, spirits, main], main, stats) == ([], [])
+
+
+def test_the_boss_presets_killed_adds_supply_corpses():
+    """AUDIT24 A24-1 (MECHB11): a preset's killed adds (AddKillsPerSecond: the King in the Mists, Atziri) are counted
+    as one corpse each (LOW, UNVERIFIED whether they leave one), split between the corpse users; a lone boss: 0."""
+    detonate = models.Skill("Detonate Dead", group=2, spell=True, triggered=True, corpses=True)
+    volatile = models.Skill("Volatile Dead", group=3, spell=True, corpses=True)
+    stats = {models.ADD_KILLS_STAT: 0.2, "_boss": "Atziri"}
+    assert models.corpse_supply(set(), stats) == pytest.approx(0.2) and models.corpse_supply(set()) == 0.0
+    mods, notes = models.corpse_model([detonate, volatile], [], stats)
+    rates = {m["skill"]: m["value"] for m in mods if m["key"] == "triggerRate"}
+    assert rates == {"Detonate Dead": pytest.approx(0.1), "Volatile Dead": pytest.approx(0.1)}
+    assert "UNVERIFIED" in notes[0]["basis"] and notes[0]["confidence"].startswith("LOW")
+    mods, notes = models.corpse_model([detonate], [], {})
+    assert mods == models.trigger_rate("Detonate Dead", 0) and "no killable adds" in notes[0]["basis"]
+    # Profanity's bonus: the main skill's share of uses that find a corpse
+    spark = models.Skill("Spark", group=1, spell=True)
+    share, why, _ = models.corpse_consumed_share(spark, {**stats, "Speed": 2.0}, spark)
+    assert share == pytest.approx(0.1) and "UNVERIFIED" in why

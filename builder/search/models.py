@@ -104,12 +104,15 @@ def derived(name: str, fn: str, value: float, **args) -> dict:
     return {"kind": "Derived", "name": name, "fn": fn, "value": int(round(value)), "args": args}
 
 
-def raw_mod(name: str, kind: str, value: float, skill: str | None = None) -> dict:
+def raw_mod(name: str, kind: str, value: float, skill: str | None = None, tag: str | None = None) -> dict:
     """A PoB modifier by its internal name (no text to parse): `kind` "INC" / "MORE" / "BASE" / "FLAG", tagged to
-    `skill` if given (SkillName). For what PoB has no parseable line for, such as one skill's DebuffEffect MORE."""
+    `skill` if given (SkillName). For what PoB has no parseable line for, such as one skill's DebuffEffect MORE.
+    `tag`: its source becomes "Assumption:<tag>", which a bridge read can leave out (TOTEM_ONE_TAG)."""
     mod: dict = {"kind": "Raw", "name": name, "type": kind, "value": _round(value)}
     if skill:
         mod["skill"] = skill
+    if tag:
+        mod["tag"] = tag
     return mod
 
 
@@ -231,6 +234,8 @@ class Skill:
     total_time_added: float = 0.0  # its "+N seconds to Total Cast / Attack Time" (PoB's TotalCastTime; energy_cost)
     stat_set: str | None = None  # the label of the stat set PoB calculates for it (bridge activeSkills statSet; COVE8)
     totem_limit: float = 0.0  # a totem-summoning skill's Totem Limit (bridge activeSkills totemLimit; totem_count_model)
+    # a totem skill's count PoB multiplies its ailment stacks by: {override, limit} (bridge ailmentTotems; totem_count_model)
+    ailment_totems: dict | None = None
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -240,7 +245,8 @@ class Skill:
                    dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
                    bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"),
                    dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")),
-                   number(raw.get("totalTimeAdded")), raw.get("statSet"), number(raw.get("totemLimit")))
+                   number(raw.get("totalTimeAdded")), raw.get("statSet"), number(raw.get("totemLimit")),
+                   raw.get("ailmentTotems"))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -678,13 +684,25 @@ OWN_USE_GAINS = ("crit", "ailment", "melee hit", "cast")
 #  - Explosive Demise, Skeletal Arsonists' Command ("Detonate an allied Minion whose current Life is below a threshold"):
 #    one minion per use, on its 3 s cooldown (PoB's minion.lua and the game files) x cooldown recovery, when the build has
 #    another minion to detonate (that one is below the threshold when the Command comes up is assumed: LOW).
-# Not counted yet (labelled, undercounts): the boss killing your minions (their Life and defences against the boss preset's
-# hits), Dark Pact / Abyssal Pact (not in PoB's data), Offerings (the skeleton becomes the spike: whether it's Killed is
-# UNVERIFIED, not counted), minions taking damage for you, other on-minion-death lines.
+#  - Minion Pact I / II (AUDIT23 A23-2, MECHB11): its skill "remove[s] 100% (150%) of your maximum Life from a nearby
+#    Minion on use" (support_minion_pact_user_life_%_removed_from_nearby_minion; game files SupportMinionPactPlayer /
+#    PlayerTwo; PoB's sup_int.lua, which reads only its 30% / 35% more damage, with a minion in your Presence). Removing
+#    Life is Sacrificing it ("Sacrifices you cause on others (such as Sacrificing Minion Life) can lead to their death",
+#    KeywordPopups Sacrifice) and a minion brought to 0 Life by its summoner is Killed (KeywordPopups MinionDeath). Counted:
+#    one minion Killed per use of the main skill it supports (PoB's Speed), i.e. a minion with no more Life than your
+#    maximum (x1.5) when it's taken. Assumed, LOW: a minion's Life isn't read (PoB calculates it only for a minion skill),
+#    and a build feeding Minion Pact keeps such minions (CLAUDE.md's second rule); the "without it" rate is in the note.
+# Not counted (labelled): Dark Pact ("Sacrifices 13% of Minion's life", skeletal_chains_aoe_%_health_dealt_as_chaos_damage
+# 13 at level 20) and Abyssal Pact (20%, ..._as_physical_damage): PoB has no skill for them, so the build has no use rate
+# to read (no source, so 0); whether "13% of life" is of maximum or current Life is UNVERIFIED (of current Life it never
+# brings a minion to 0; of maximum, ~8 / 5 uses each). The boss killing your minions (their Life and defences against
+# the boss preset's hits), Offerings (the skeleton becomes the spike: whether it's Killed is UNVERIFIED, not counted),
+# minions taking damage for you, other on-minion-death lines.
 RESUMMON_SECONDS = 7.5  # global_resummon_time_ms (PoB Misc.lua)
 EXPLOSIVE_DEMISE_COOLDOWN = 3.0  # s (PoB minion.lua:815 levels; game files)
 SACRIFICE = "Sacrifice"
 ARSONIST = "Skeletal Arsonist Minion"
+MINION_PACT_STAT = "support_minion_pact_user_life_%_removed_from_nearby_minion"
 
 
 def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[float, str]:
@@ -703,6 +721,15 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple
             kills += uses
             parts.append(f"Sacrifice: {main.name} uses one of your {undead:g} undead minions as its corpse each use "
                          f"({uses:.2f} uses/s; one corpse per use assumed; that it is Killed is UNVERIFIED, LOW)")
+    pact = number(main.support_stats.get(MINION_PACT_STAT)) if main is not None else 0.0
+    if pact > 0 and number(stats.get("Speed")) > 0:
+        uses = number(stats.get("Speed"))
+        without = kills
+        kills += uses
+        parts.append(f"Minion Pact: each use of {main.name} removes {pact:g}% of your maximum Life from a nearby minion "
+                     f"({uses:.2f} uses/s), Killing one whose Life is no more than that (KeywordPopups Sacrifice / "
+                     f"MinionDeath); assumed, LOW: your minions' Life isn't read. Without it: {without:.2f} deaths/s from "
+                     "the other sources before revival")
     arsonist = next((s for s in skills if s.name == ARSONIST), None)
     if arsonist is not None and count > number(arsonist.summon.get("limit")):
         every = EXPLOSIVE_DEMISE_COOLDOWN / (arsonist.cooldown_recovery or 1.0)
@@ -710,8 +737,9 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple
         parts.append(f"Explosive Demise (your Skeletal Arsonists' Command) detonates one of your other minions every "
                      f"{every:.2f} s (its {EXPLOSIVE_DEMISE_COOLDOWN:g} s cooldown; that one is below its Life threshold "
                      f"when the Command comes up is assumed, LOW)")
-    not_counted = ("not counted yet: the boss killing your minions, minions taking damage for you, Dark Pact, Offerings "
-                   "(an undercount)")
+    not_counted = ("not counted yet: the boss killing your minions, minions taking damage for you, Offerings (an "
+                   "undercount); Dark Pact / Abyssal Pact (13% / 20% of a minion's Life a use) have no skill in PoB, so no "
+                   "use rate here")
     if kills <= 0:
         return 0.0, f"nothing in this build kills its minions ({not_counted})"
     revive, how = revive_seconds(reviving)
@@ -862,6 +890,8 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
     doubled = any(ANCESTRAL_BOND_DOUBLE.match(t.strip()) for t in texts)
     if doubled:
         allowed *= 2
+    if any(number(s.support_stats.get(TOTEM_ONE_STAT)) > 0 for s in skills if s.group == main.group):
+        allowed = 1  # (a one-totem support: "Supported Skills can only have one active Totem"; A24-3, MECHB11)
     duration = (number(stats.get("TotemDuration")) or SPELL_TOTEM_DURATION) * (
         1 +SPELL_TOTEM_DURATION_PER_ENDURANCE * SPELL_TOTEM_CHARGES * (1 - power))
     up = min(float(allowed), made * duration / SPELL_TOTEM_CHARGES)
@@ -1187,7 +1217,8 @@ def roar_break(skill: Skill, enemy_armour: float, duration: float = FULL_BREAK_D
 # A skill the game types TargetsDestructibleCorpses, TargetsDestructibleRareCorpses or CanTargetUnusableCorpse (game files,
 # build 26476662: Detonate Dead, Volatile Dead, Bitter Dead, Decompose, Profane Ritual, Feast of Flesh, Devour, Kelari's
 # Malediction, Ritual Sacrifice, Unearth, Raise Zombie ...) needs a corpse each use. Nothing dies on a single boss, so
-# only the build's own source supplies them. The 0.5 game data has no player skill that creates corpses (Desecrate is a
+# only the build's own source supplies them there; the boss presets with killable adds supply theirs (corpse_supply,
+# AUDIT24 A24-1, MECHB11). The 0.5 game data has no player skill that creates corpses (Desecrate is a
 # monster skill only; the Bone Corpses and Corpse Walk lines grant skills the files no longer have). The one source left
 # is Sacrifice (undead Reviving Minions used in place of corpses); its rate, the minions' revive time, isn't modelled
 # yet, so it supplies 0 for now, said in the guide.
@@ -1211,9 +1242,26 @@ CORPSE_OPTIONAL = {
 # but make none.
 
 
-def corpse_supply(present: set[str]) -> float:
-    """Corpses per second the build's own sources supply on a single boss (none is priced yet: CORPSE_SOURCES)."""
-    return 0.0
+# The boss preset's adds (AUDIT24 A24-1, MECHB11): two presets have killable adds (MECH-D's bosses.py: the King in the
+# Mists' Affliction Totems / Mystic Fetishes, Atziri's Royal Acolytes), published as ADD_KILLS_STAT. Each add the build
+# kills is counted as one corpse: an assumption, LOW. Whether those adds leave a usable corpse is UNVERIFIED: the
+# King's are totems (KeywordPopups has no rule on monster totems' corpses), Atziri's acolytes explode when they reach you
+# (one killed before that likely leaves one); MECH-D / RESEARCH to settle it per preset. Against a lone boss: none (the
+# kill ends the fight). The "without it" figure, 0, is in the note. Corpse users share the supply (corpse_model splits it
+# evenly; Profanity's share isn't split: corpse_share's note).
+def corpse_supply(present: set[str], stats: dict | None = None) -> float:
+    """Corpses per second on a boss: the build's own sources (none priced yet: CORPSE_SOURCES) plus the boss preset's
+    killed adds (one corpse each, LOW; see above)."""
+    return max(number((stats or {}).get(ADD_KILLS_STAT)), 0.0)
+
+
+def add_corpses_note(stats: dict | None) -> str:
+    adds = max(number((stats or {}).get(ADD_KILLS_STAT)), 0.0)
+    if adds <= 0:
+        return "nothing dies on a single boss (no killable adds in this boss preset)"
+    return (f"{adds:.3f} corpses/s from the boss's adds the build kills ({(stats or {}).get('_boss') or 'the preset'}), "
+            "one corpse each: assumed, LOW (UNVERIFIED whether those adds, the King's totems / Atziri's acolytes, leave "
+            "usable corpses); without them 0")
 
 
 SPIRIT_VESSEL = "Spirit Vessel"
@@ -1285,10 +1333,11 @@ def spirit_vessel_notes(skills: list[dict]) -> list[dict]:
     return notes
 
 
-def corpse_model(skills: list[Skill], mods: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Corpses per second for each skill that needs them, from the build's own sources (CORPSE_SOURCES) and none from
-    kills on a single boss: a skill with no supply uses 0 per second, wherever it is (main skill, meta group, totem),
-    replacing any trigger rate the other models gave it. Returns the new mods list and the notes."""
+def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = None) -> tuple[list[dict], list[dict]]:
+    """Corpses per second for each skill that needs them, from the build's own sources (CORPSE_SOURCES) and the boss
+    preset's killed adds (corpse_supply): a skill with no supply uses 0 per second, wherever it is (main skill, meta
+    group, totem), replacing any trigger rate the other models gave it; several users split the supply evenly. Returns
+    the new mods list and the notes."""
     users = sorted({s.name for s in skills if s.corpses and not s.wrong_weapon} - set(CORPSE_OPTIONAL))
     optional = sorted({s.name for s in skills if s.corpses} & set(CORPSE_OPTIONAL))
     notes = [{"label": f"{name}: corpses", "value": 0, "basis": CORPSE_OPTIONAL[name] + " (no corpses on a single boss)",
@@ -1297,19 +1346,21 @@ def corpse_model(skills: list[Skill], mods: list[dict]) -> tuple[list[dict], lis
         return mods, notes
     present = {s.name for s in skills}
     sources = [f"{name}: {why}" for name, why in CORPSE_SOURCES.items() if name in present]
-    supply = corpse_supply(present)
+    supply = corpse_supply(present, stats)
     dropped = set(users)
     mods = [m for m in mods if not (m.get("kind") == "SkillData" and m.get("skill") in dropped
                                     and m.get("key") in ("triggerRate", "triggered"))]
+    each = supply / len(users)
     for name in users:
-        mods += trigger_rate(name, supply)
+        mods += trigger_rate(name, each)
     notes.append({
-        "label": f"Corpses per second for {', '.join(users)}", "value": supply,
-        "basis": "they need a corpse each use, and nothing dies on a single boss; "
+        "label": f"Corpses per second for {', '.join(users)}", "value": round(supply, 4),
+        "basis": "they need a corpse each use; " + add_corpses_note(stats) + "; "
                  + (f"source present but not priced: {'; '.join(sources)}" if sources
                     else "the build has no corpse source of its own")
-                 + ", so they're counted 0 uses per second",
-        "confidence": "datamined" if not sources else "theory"})
+                 + (f", so they're counted {each:.3g} uses per second each" if supply > 0
+                    else ", so they're counted 0 uses per second"),
+        "confidence": "LOW (the adds' corpses assumed)" if supply > 0 else "datamined" if not sources else "theory"})
     return mods, notes
 
 
@@ -2852,12 +2903,14 @@ def near_boss_share(skill: Skill, stats: dict, main: Skill | None = None, prev: 
 # share S (not split here: MECH-B's supply model would say how).
 def corpse_share(skill: Skill, stats: dict, main: Skill | None, per_use: bool) -> tuple[float, str, str]:
     present = {s.name for s in stats.get("_skills") or [skill]}
-    supply = corpse_supply(present)
+    supply = corpse_supply(present, stats)
     play = ("Consume corpses with the supported skill: on a lone boss nothing leaves one, so it needs the build's own "
-            "corpse source (Sacrifice's Reviving minions, once priced); without one the bonus is 0.")
+            "corpse source (Sacrifice's Reviving minions, once priced) or the boss's adds (kill them near the boss); "
+            "without one the bonus is 0.")
     if supply <= 0:
         sources = [f"{name}: {why}" for name, why in CORPSE_SOURCES.items() if name in present]
-        return 0.0, ("0: the bonus needs a corpse consumed on use, nothing dies on a single boss, and "
+        return 0.0, ("0: the bonus needs a corpse consumed on use, nothing dies on a single boss (no killable adds in "
+                     "this preset), and "
                      + (f"the build's corpse source isn't priced yet ({'; '.join(sources)})" if sources
                         else "the build has no corpse source of its own")
                      + " (models.corpse_supply)"), play
@@ -2869,7 +2922,8 @@ def corpse_share(skill: Skill, stats: dict, main: Skill | None, per_use: bool) -
     cap = number(skill.support_stats.get("skill_consume_up_to_X_corpses_on_use")) or 1.0
     share = min(cap if per_use else 1.0, supply / uses)
     return share, (f"{share:.3g} {'corpses per use' if per_use else 'of its uses consume a corpse'}: {supply:.3g} "
-                   f"corpses/s over {uses:.3g} uses/s (other corpse users not split off)"), play
+                   f"corpses/s over {uses:.3g} uses/s (other corpse users not split off; "
+                   f"{add_corpses_note(stats)})"), play
 
 
 def corpse_consumed_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
@@ -4762,8 +4816,8 @@ def minion_died_rate(skills: list[Skill], main: Skill | None, stats: dict, suppo
 #     a build taking on-kill lines plays to kill them, CLAUDE.md's second rule). LOW (the presets' add rates).
 #   - your own minions Killed: the game's text calls a minion its summoner brings to 0 Life "Killed" (KeywordPopups
 #     MinionDeath), so the ruling counts them as Kills in the headline at the build's own rate (minion_deaths: Sacrifice,
-#     Explosive Demise; Dark Pact / Abyssal Pact / Minion Pact take a share of a minion's Life, and whether that ever
-#     kills it is UNVERIFIED, not counted), LOW, held for the user's in-game test, with a "without it" row.
+#     Explosive Demise, Minion Pact (MECHB11); Dark Pact / Abyssal Pact have no skill in PoB, so no use rate, not
+#     counted), LOW, held for the user's in-game test, with a "without it" row.
 # A line that says "an enemy" ("when you kill an enemy", Reaper's Invocation) reads the enemies only: your minions are
 # allies, not enemies (the lines' own text; KeywordPopups MinionDeath / Allies). A line that says only "on Kill" reads
 # both. The readers of plain on-Kill lines (Onslaught, Rage, charges, charms) are MECH-C's (conditions.py, flasks.py).
@@ -4850,9 +4904,21 @@ def heartbound_damage(texts: list[str], died: tuple[float, str]) -> tuple[float,
 # number_of_totems_allowed_is_1, "Supported Skills can only have one active Totem" (gem_stat_descriptions; game files
 # GrantedEffectStatSets; PoB's sup_str.lua lists it and reads it nowhere). The model reads the stat from the group's
 # supports (bridge activeSkills supportStats; a flag stat reads 1, CalcTools 183), not the gem names, so a fifth carrier
-# counts too: then one totem, no extra speed. (PoB's own ailment stacks still multiply by its Totem Limit, CalcOffence
-# 5264: routed, see MECHB10's report.)
+# counts too: then one totem, no extra speed.
+# PoB's own ailment stacks (AUDIT24 A24-3, an OVERCOUNT): CalcOffence 5264-5267 multiplies a totem-flagged skill's
+# Ignite / Poison / Bleed stack count by the TotemsSummoned override, else the skill's ActiveTotemLimit, and nothing
+# sets either to 1 for these supports. The model adds ActiveTotemLimit BASE (1 - limit) on that skill, source
+# "Assumption:OneTotem" (TOTEM_ONE_TAG). The loop: the line lowers the limit the bridge would read next pass; both
+# bridge reads (totemLimit, ailmentTotems) leave that source out, so the model reads the same limit every pass and
+# writes the same line (a fixed point). A TotemsSummoned override (the Configuration tab) wins in PoB: then no line.
+# Splinter Totem I / II (support_splinter_totem_X_times 2): its totem "splinter[s] into smaller versions of itself after
+# it uses an Attack or Spell ... up to a maximum", each splinter dealing 20% / 15% less damage per splinter (poe2db
+# Splinter_Totem_I, 12 Nov 2026; gem_stat_descriptions "can splinter up to {0} times"; no KeywordPopups entry): the
+# splinters are more totems, but how many each splinter makes isn't stated (UNVERIFIED). Counted as one totem, as the
+# hits are (an UNDERCOUNT side for Splinter Totem builds, labelled in the note; open for RESEARCH).
 TOTEM_ONE_STAT = "number_of_totems_allowed_is_1"
+TOTEM_ONE_TAG = "OneTotem"
+TOTEM_SPLINTER_STAT = "support_splinter_totem_X_times"
 TOTEM_OWN_MODEL = {"Spell Totem", "Ancestral Warrior Totem"}
 
 
@@ -4861,13 +4927,13 @@ def totem_count_model(skills: list[Skill], main: Skill | None) -> tuple[list[dic
     if main is None or main.group is None:
         return [], []
     group = [s for s in skills if s.group == main.group]
+    if any(number(s.support_stats.get(TOTEM_ONE_STAT)) > 0 for s in group):
+        return one_totem_ailments(main, group)  # ("Supported Skills can only have one active Totem": no extra speed)
     if any(s.name in TOTEM_OWN_MODEL for s in group):
         return [], []
     summoner = next((s for s in group if s.totem_limit > 0), None)
     if summoner is None:
         return [], []
-    if any(number(s.support_stats.get(TOTEM_ONE_STAT)) > 0 for s in group):
-        return [], []  # (a one-totem support: "Supported Skills can only have one active Totem", as PoB's one)
     others = sorted({s.name for s in skills if s.totem_limit > 0 and s.group != main.group})
     limit = int(summoner.totem_limit)
     up = max(1, limit - len(others))
@@ -4883,6 +4949,60 @@ def totem_count_model(skills: list[Skill], main: Skill | None) -> tuple[list[dic
     return mods, [{"label": f"Totems up ({main.name})", "value": up, "basis": basis,
                    "play": f"Keep {up} {summoner.name} totems placed at the boss; re-place them as they expire.",
                    "confidence": "MEDIUM"}]
+
+
+def one_totem_ailments(main: Skill, group: list[Skill]) -> tuple[list[dict], list[dict]]:
+    """PoB's ailment stacks for a one-totem support's skill held to one totem (A24-3, see above)."""
+    count = main.ailment_totems
+    if not count or count.get("override") is not None or number(count.get("limit")) <= 1:
+        return [], []
+    limit = number(count["limit"])
+    splinter = any(number(s.support_stats.get(TOTEM_SPLINTER_STAT)) > 0 for s in group)
+    return [raw_mod("ActiveTotemLimit", "BASE", 1 - limit, main.name, tag=TOTEM_ONE_TAG)], [{
+        "label": f"{main.name}: one totem's ailments*", "value": 1,
+        "basis": f"A support makes it \"only have one active Totem\" (number_of_totems_allowed_is_1); PoB multiplied its "
+                 f"Ignite / Poison / Bleed stacks by its Totem Limit {limit:g} (CalcOffence 5264): held to 1"
+                 + ("; Splinter Totem's splinters are more totems, how many isn't stated (UNVERIFIED): not counted, an "
+                    "undercount side" if splinter else ""),
+        "confidence": "HIGH (the support's own text)" if not splinter else "MEDIUM (splinters not counted)"}]
+
+
+# Minion Pact's damage when no minion is left (AUDIT23 A23-2's other half, MECHB11; an OVERCOUNT): PoB gives the 30% /
+# 35% more (support_minion_pact_damage_+%_final) whenever a minion is in your Presence (MinionPresenceCount >= 1,
+# PoB's sup_int.lua), and the bridge's Presence count doesn't fall as Minion Pact kills them. The game's text ties the
+# damage to the removal: "remove 100% of your maximum Life from a nearby Minion on use to deal 30% more damage"; with no
+# minion left to take it from, the use gets none (the text's reading, MEDIUM). With N Reviving minions, revival T and
+# attempted kills k per second (minion_deaths' sources), a use finds a minion N / (N + T k) of the time (the share of
+# kills the revival lets through); the bonus is held to that share: (1 + p share) / (1 + p) as a Damage MORE. Left as PoB
+# has it: no minions (PoB's count is 0, no bonus either) and builds with temporary minions too (they feed it as well;
+# their supply isn't modelled, so no cut on a guess).
+def minion_pact_model(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[list[dict], list[dict]]:
+    if main is None:
+        return [], []
+    pact = number(main.support_stats.get(MINION_PACT_STAT))
+    more = number(main.support_stats.get("support_minion_pact_damage_+%_final"))
+    uses = number(stats.get("Speed"))
+    if pact <= 0 or more <= 0 or uses <= 0:
+        return [], []
+    rate, how = minion_deaths(skills, main, stats)
+    reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
+    count = sum(number(s.summon.get("limit")) for s in reviving)
+    if count <= 0 or any(s.summon and s not in reviving for s in skills):
+        return [], []  # (none: PoB's Presence count is 0 too; temporary minions also feed it: their supply isn't modelled)
+    revive, _ = revive_seconds(reviving)
+    kills = count * rate / max(count - revive * rate, 1e-9)  # (minion_deaths' rate solved back for its kills)
+    share = count / (count + revive * kills)
+    why = (f"{count:g} Reviving minions, each back {revive:.3g} s after the last death, against {kills:.2f} "
+           f"attempted kills/s: a minion is there for {share:.0%} of uses")
+    if share >= 0.999:
+        return [], []
+    scale = (1 + more / 100 * share) / (1 + more / 100)
+    return [raw_mod("Damage", "MORE", 100 * (scale - 1), main.name)], [{
+        "label": f"Minion Pact: a minion to take Life from*", "value": f"{share:.0%} of uses",
+        "basis": f"{why}. PoB counts its {more:g}% more on every use while a minion is in your Presence; the gem gives it "
+                 f"for removing a minion's Life, so x{scale:.3f}. Without Minion Pact the minions aren't killed "
+                 f"this way. ({how})",
+        "confidence": "LOW (minion Life not read; the damage-per-removal reading of the gem's text)"}]
 
 
 # Poison Spores' Pustule Explosion (MECHB10; COVC12's finding, POE2T1425) ---------------------------------------------------

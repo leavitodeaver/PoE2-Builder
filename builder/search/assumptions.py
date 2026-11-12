@@ -373,6 +373,8 @@ class Assumptions:
         energy_mods, energy_notes = energy_mods + totem_mods, energy_notes + totem_notes
         count_mods, count_notes = models.totem_count_model(found, main)  # (MECH-B, MECHB8: other totems' count)
         energy_mods, energy_notes = energy_mods + count_mods, energy_notes + count_notes
+        pact_mods, pact_notes = models.minion_pact_model(found, main, stats)  # (MECH-B, MECHB11: A23-2)
+        energy_mods, energy_notes = energy_mods + pact_mods, energy_notes + pact_notes
         ward_mods, ward_notes = models.iron_ward_model(
             found, stats, enabled=models.IRON_WARD_ENTRY not in build.ctx.request.forbid_ledger_entries)
         # (a non-main skill's own output for a support counted from it, Practical Magic on a stunning attack: the bridge's
@@ -487,7 +489,7 @@ class Assumptions:
                                      or totem_notes) and RESCORE_MODELS
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
-        mods, corpse_notes = models.corpse_model(found, mods)  # last: it overrides the trigger rates above
+        mods, corpse_notes = models.corpse_model(found, mods, stats)  # last: it overrides the trigger rates above (MECHB11: the adds' corpses)
         notes += corpse_notes + models.spirit_vessel_notes(skills)
         notes += models.granted_level_notes([(o.name, o.raw, o.granted_basis) for o in build.equipped.values() if o is not None and o.unique])
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]

@@ -2096,7 +2096,9 @@ local function installAssumptions()
 				elseif mod.kind == "Condition" then  -- a ledger condition the build's skills switch on
 					self.modList:NewMod("Condition:Ledger" .. mod.name, "FLAG", true, "Ledger")
 				elseif mod.kind == "Raw" then  -- a PoB modifier by name (models.raw_mod), e.g. a skill's DebuffEffect MORE
-					self.modList:NewMod(mod.name, mod.type, mod.value, "Assumption", unpack(tags))
+					-- (mod.tag: a sub-source, "Assumption:<tag>", that a bridge read can leave out: models.TOTEM_ONE_TAG)
+					self.modList:NewMod(mod.name, mod.type, mod.value, "Assumption" .. (mod.tag and (":" .. mod.tag) or ""),
+						unpack(tags))
 				elseif mod.kind == "Line" then
 					for _, parsed in ipairs(mod.parsed) do
 						self.modList:AddMod(parsed)
@@ -2274,6 +2276,14 @@ end
 -- Active skills of the current build with what an assumption needs about them: base cooldown,
 -- cooldown recovery, and whether they generate Remnants. `levelStats = {names}` adds those skills'
 -- stats at their current level and quality (e.g. Iron Ward's store, which PoB doesn't read).
+-- (see bridge.activeSkills: support stats the models always get)
+local modelSupportStats = {
+	["number_of_totems_allowed_is_1"] = true,
+	["support_splinter_totem_X_times"] = true,
+	["support_minion_pact_user_life_%_removed_from_nearby_minion"] = true,
+	["support_minion_pact_damage_+%_final"] = true,
+}
+
 function bridge.activeSkills(args)
 	local wantStats = { }
 	for _, name in ipairs(args and args.levelStats or { }) do
@@ -2350,14 +2360,37 @@ function bridge.activeSkills(args)
 			skills[#skills].totalTimeAdded = ok and added ~= 0 and added or nil
 		end
 		-- A totem-summoning skill's Totem Limit (models.totem_count_model, MECHB8): PoB reports ActiveTotemLimit only for the
-		-- skill it calculates, and the damaging part beside it (Shockwave Slam, Ballista Bolt, Vile Effusion) has none
+		-- skill it calculates, and the damaging part beside it (Shockwave Slam, Ballista Bolt, Vile Effusion) has none.
+		-- Both reads leave out the one-totem correction (source "Assumption:OneTotem", models.TOTEM_ONE_TAG), so the model
+		-- reads the same limit on every pass, its own line or not (MECHB11, AUDIT24 A24-3)
+		local function totemLimitBase(list, cfg)
+			local total = 0
+			for _, entry in ipairs(list:Tabulate("BASE", cfg, "ActiveTotemLimit", "ActiveBallistaLimit")) do
+				if entry.mod.source ~= "Assumption:OneTotem" then
+					total = total + entry.value
+				end
+			end
+			return total
+		end
 		if types[SkillType.SummonsTotem] then
 			local ok, limit = pcall(function()
 				local list, cfg = activeSkill.skillModList, activeSkill.skillCfg
-				return list:Override(cfg, "ActiveTotemLimit", "ActiveBallistaLimit")
-					or list:Sum("BASE", cfg, "ActiveTotemLimit", "ActiveBallistaLimit")
+				return list:Override(cfg, "ActiveTotemLimit", "ActiveBallistaLimit") or totemLimitBase(list, cfg)
 			end)
 			skills[#skills].totemLimit = ok and limit or nil
+		end
+		-- The count PoB multiplies a totem skill's Ignite / Poison / Bleed stacks by (CalcOffence 5264-5267, skills flagged
+		-- totem): the TotemsSummoned override, else the skill's own ActiveTotemLimit (one-totem correction left out)
+		do
+			local flags = activeSkill.skillFlags or (activeSkill.activeEffect.statSet or { }).skillFlags or { }
+			if flags.totem then
+				local ok, count = pcall(function()
+					local override = env.modDB:Override(nil, "TotemsSummoned")
+					return { override = override,
+						limit = totemLimitBase(activeSkill.skillModList, activeSkill.skillCfg) }
+				end)
+				skills[#skills].ailmentTotems = ok and count or nil
+			end
 		end
 		-- Every minion skill's minions (models.minion_deaths): how many, how long they last (0: until killed), Persistent
 		if activeSkill.minion and activeSkill.minion.minionData then
@@ -2410,6 +2443,39 @@ function bridge.activeSkills(args)
 				end
 			end
 			skills[#skills].supportStats = stats
+		end
+		-- Support stats MECH-B's models read on every call (MECHB11: models.TOTEM_ONE_STAT, TOTEM_SPLINTER_STAT,
+		-- MINION_PACT_STAT; minion_deaths has callers that ask for none): read from the support's own constant stats and
+		-- flag stats (a flag reads 1, as CalcTools 183), without building it. Merged into supportStats.
+		do
+			local found
+			for _, support in ipairs(activeSkill.effectList or { }) do
+				local granted = support.grantedEffect
+				local set = granted and granted.support and granted.statSets and granted.statSets[1]
+				if set then
+					for _, pair in ipairs(set.constantStats or { }) do
+						if modelSupportStats[pair[1]] then
+							found = found or { }
+							found[pair[1]] = (found[pair[1]] or 0) + (pair[2] or 0)
+						end
+					end
+					for _, name in ipairs(set.stats or { }) do
+						if modelSupportStats[name] then
+							found = found or { }
+							found[name] = (found[name] or 0) + 1
+						end
+					end
+				end
+			end
+			if found then
+				local stats = skills[#skills].supportStats or setmetatable({ }, { __jsontype = "object" })
+				for name, value in pairs(found) do
+					if stats[name] == nil then
+						stats[name] = value
+					end
+				end
+				skills[#skills].supportStats = stats
+			end
 		end
 		if activeSkill.minion and types[SkillType.Triggered] then
 			-- a triggered skill that summons Temporary minions (Wardbound Minions in a meta group): PoB counts one minion
