@@ -1,0 +1,51 @@
+# Active-gem stats, batch 4 (COVC4, 12 Nov 2026): the gem-stat ranking's next active rows (scratch/covc2/rank.py on
+# the coverage report of 12 Nov). Skill lists are the active skills whose stat sets carry the stat (PoB's skill data and
+# the game's GrantedEffectStatSets); the same stat on any other skill stays open.
+#
+# Left open on purpose (no entry), routed in COVC4.report.md:
+# - active_skill_consumes_a_{fire,cold,lightning}_infusion on Arc, Ember Fusillade, Firestorm, Flame Wall, Fireball,
+#   Incinerate and Frost Darts: PoB gives them no Infused stat set, so nothing in PoB or the tool reads what consuming
+#   an Infusion does for them (their other stats, e.g. Firestorm's firestorm_damage_+%_if_consumed_fire_infusion).
+# - active_skill_consumes_a_verisium_infusion (Skyfall): its Verisium-Infused set has the plain set's damage (PoB,
+#   level 20: 553-829 Cold and Physical in both) and adds Minions, which the main skill's DPS doesn't include.
+
+- id: model-stats-infused-casts
+  title: "Consumes an Infusion, if possible: the Infused cast counts at the share of casts the build's Infusions cover"
+  kind: model
+  model: infusion_supply
+  stats: ["active_skill_consumes_a_fire_infusion", "active_skill_consumes_a_cold_infusion",
+          "active_skill_consumes_a_lightning_infusion"]
+  skill: ["Ball Lightning", "Comet", "Frost Wall", "Ice Nova", "Empowered Sparks"]
+  confidence: datamined
+  notes: >-
+    These skills consume an Elemental Infusion of the element when they have one, and the cast that consumes it is
+    their Infused stat set (Ball Lightning and Comet Fire-Infused, Frost Wall Lightning-Infused, Ice Nova and Empowered
+    Sparks Cold-Infused). The tool never takes that set at will: Gems.choose_active_skill offers it only while the build
+    makes that element's Infusions (conditions.STAT_SET_NEEDS, INFUSED_SET), and counts plain + share x the Infused
+    gain, the share being the build's Infusions per second over the casts per second (Assumptions.infusion_share,
+    infusion_supply). The stat is on every stat set of these skills (game GrantedEffectStatSets implicit stats; PoB's
+    each set), which is what the model reads through the Infused set. Open, for MECH-C: another skill of the build that
+    consumes the same element's Infusions takes from the same supply, and infusion_share doesn't subtract it (a small
+    overcount where a build uses two consumers).
+  sources: ["builder/search/assumptions.py infusion_share, infusion_supply, INFUSED_NOTE",
+            "builder/search/gems.py choose_active_skill (INFUSED_ELEMENT)", "builder/search/conditions.py STAT_SET_NEEDS",
+            "data/game-26476662/tables/GrantedEffectStatSets.json (ImplicitStats)"]
+  test_in_game: "Not needed: the Infused share already carries its own test note (collect each Infusion Remnant)."
+  status: proposed
+
+- id: gem-active-noeffect-ice-crystal-shatter-damage-zero
+  title: "Frost Wall's and Glacial Bolt's ice crystals: 0% more damage if Shattered"
+  kind: gem_stat
+  match: '^ice_crystal_shatter_detonation_damage_\+%_final$'
+  replace: []
+  skill: ["Frost Wall", "Glacial Bolt"]
+  confidence: datamined
+  notes: >-
+    The stat's text is "{0}% more damage if Shattered" (skill_stat_descriptions.csd); its value is a constant 0 on every
+    set that has it (game GrantedEffectStatSets: FrostWallPlayer, GlacialBoltWallPlayer, 0; PoB: Frost Wall's two sets
+    and Glacial Bolt's Wall set, 0; no quality or per-level copy in PoB's skill data). 0% more changes nothing.
+    Glacial Bolt's ice_crystal_shatter_detonation_area_of_effect_+%_final (50) is a different stat, left open.
+  sources: ["data/game-26476662/tables/GrantedEffectStatSets.json", "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua 9539, 9622",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua 9890"]
+  test_in_game: "Not needed."
+  status: proposed

@@ -2895,6 +2895,20 @@ function bridge.usageRules()
 							end
 						end
 					end
+					-- Talisman exemptions (usable_with_talisman, ignore_talisman_inherent_form_restriction,
+					-- ignore_shapeshift_talisman_requirement): flags in the stat set's stats list (usage.py talisman)
+					for _, name in ipairs(statSet.stats or { }) do
+						if type(name) == "string" and name:find("talisman", 1, true) then
+							rule.talismanExempt = true
+							found = true
+						end
+					end
+					for _, stat in ipairs(statSet.constantStats or { }) do
+						if type(stat[1]) == "string" and stat[1]:find("talisman", 1, true) then
+							rule.talismanExempt = true
+							found = true
+						end
+					end
 					-- Skyfall's Glory gate is a per-level stat, not a constant one: its value at level 20
 					for i, name in ipairs(statSet.stats or { }) do
 						if name == "active_skill_requires_X_glory" and stats[name] == nil then

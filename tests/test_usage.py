@@ -102,6 +102,8 @@ def test_pob_marks_the_gems_that_cant_be_used_at_will(engine):
     assert rules["Zerphi's Infamy"]["stats"]["active_skill_requires_X_glory"] == 50
     assert rules["Hit and Run"].get("addsUsageCondition")
     assert rules["Combo Finisher I"].get("addsUsageCondition")
+    assert rules["Blink"].get("talismanExempt") and rules["Tame Beast"].get("talismanExempt")  # usable_with_talisman
+    assert not rules["Blink"].get("stats")  # (an exemption, never a requirement)
     assert rules["War Banner"].get("usageCondition")  # on the placed banner, the gem's second effect
     assert "Rapid Attacks II" not in rules
 
@@ -124,3 +126,54 @@ def test_a_ci_build_never_picks_zerphis_infamy(engine, fresh_rules):
     search.gems.commit(group["index"], [group["gems"][0]["name"], "Zerphi's Infamy"])
     search.conditions_round()
     assert "Zerphi's Infamy" not in [g["name"] for g in search.build.main_group()["gems"]]
+
+
+class TalismanBuild(FakeBuild):
+    """A build whose gems have PoB skill types (ctx.gems) and socket groups (groups())."""
+
+    def __init__(self, rules: dict, types: dict[str, list[str]], groups: list[dict]) -> None:
+        super().__init__(rules, {})
+        support = {"Feral Support"}
+        self.ctx = type("Ctx", (), {"gems": {n: {"skillTypes": t, "support": n in support} for n, t in types.items()}})()
+        self.group_list = groups
+
+    def groups(self) -> list[dict]:
+        return self.group_list
+
+
+def group(*names: str, set1: bool = True, set2: bool = True) -> dict:
+    return {"enabled": True, "set1": set1, "set2": set2,
+            "gems": [{"name": n, "support": n == "Feral Support"} for n in names]}
+
+
+TYPES = {"Ancestral Cry": ["Warcry", "Area", "Cooldown"], "Fireball": ["Spell", "Projectile", "Triggerable"],
+         "Maul": ["Attack", "Melee", "Bear", "Shapeshift"], "Herald of Ash": ["Persistent", "HasReservation", "Buff"],
+         "Cast on Shock": ["Meta", "Persistent", "Buff"], "Spell Totem": ["Meta", "SummonsTotem", "HasUsageCondition"],
+         "Blink": ["Spell", "Travel"], "Frost Bomb": ["Spell", "Area"], "Feral Support": [],
+         "Hollow Form": ["Meta", "Channel", "UsableWhileShapeshifted"]}
+
+
+def test_a_talisman_shuts_out_skills_that_cant_be_used_in_a_shapeshift_form(fresh_rules):
+    rules = {"Blink": {"stats": {}, "talismanExempt": True}, "Feral Support": {"stats": {}, "talismanExempt": True}}
+    groups = [group("Maul"), group("Herald of Ash"), group("Cast on Shock", "Fireball"), group("Ancestral Cry"),
+              group("Frost Bomb", "Feral Support"), group("Spell Totem", "Fireball")]
+    build = TalismanBuild(rules, TYPES, groups)
+    usage = Usage(build, FakeConditions(), weapons={1: "Talisman"})
+    # The game: "Skills that cannot be used in a Shapeshift form cannot be used with Talismans"
+    assert usage.blockers("Ancestral Cry") and not usage.usable("Ancestral Cry")
+    assert not usage.usable("Spell Totem")  # (its Fireball: assumption 2, follows the totem)
+    assert usage.usable("Hollow Form")  # UsableWhileShapeshifted (not in the build yet)
+    # "Triggered Skills and Persistent Skills will continue to function"; form skills and exemptions stay
+    for name in ("Maul", "Herald of Ash", "Cast on Shock", "Fireball", "Blink", "Frost Bomb", "Feral Support"):
+        assert usage.usable(name), name
+    # A self-cast spell outside a trigger is shut out, unless a weapon set without a Talisman holds it
+    build.group_list = [group("Fireball")]
+    assert not usage.usable("Fireball")
+    assert not usage.usable("Frost Bomb")  # not in the build yet: a new group would sit on the Talisman set
+    swap = Usage(build, FakeConditions(), weapons={1: "Talisman", 2: "Wand"})
+    assert swap.usable("Fireball") and swap.usable("Frost Bomb")
+    build.group_list = [group("Fireball", set2=False)]
+    assert not swap.usable("Fireball")  # held on set 1 (the Talisman) only
+    # No Talisman: nothing changes
+    assert Usage(build, FakeConditions(), weapons={1: "Two Hand Mace"}).usable("Ancestral Cry")
+    assert Usage(build, FakeConditions()).usable("Ancestral Cry")
