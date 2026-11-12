@@ -1761,7 +1761,7 @@ class Conditions:
                             else None)  # (None: rated from its group below)
                     consumers.setdefault(kind, {})[name] = uses
         # Rage spenders (RAGE_PER_USE / RAGE_PER_SECOND): the main skill, or a support in its group, at the main skill's
-        # uses per second; any other at its group's rate (per-second spenders other than the main skill: 1/4 of the time)
+        # uses per second; any other at its group's rate (a per-second channel held 1 s a press, assumed; MECHC1)
         main_gems = {g["name"] for g in group["gems"]} if group is not None else set()
         rage_spend: dict[str, float] = {}
         for name in gem_types:
@@ -1770,7 +1770,8 @@ class Conditions:
             if name in RAGE_PER_USE:
                 rage_spend[name] = RAGE_PER_USE[name] * uses if uses is not None else None
             elif name in RAGE_PER_SECOND:
-                rage_spend[name] = RAGE_PER_SECOND[name] * (1.0 if name == self.main_skill else 1 / CHARGE_DEFAULT_EVERY)
+                # (a channel beside the main skill: held 1 s a press, at its group's rate below; MECHC1, assumed)
+                rage_spend[name] = RAGE_PER_SECOND[name] if name == self.main_skill else None
         texts = [line["text"] for line in lines]
         unrated = {n for each in consumers.values() for n, u in each.items() if u is None} | {
             n for n, u in rage_spend.items() if u is None}
@@ -1785,7 +1786,8 @@ class Conditions:
                     # (a support in the main skill's group consumes on the main skill's uses)
                     each[n] = number(stats.get("Speed")) if n in main_gems else uses.get(n, 1 / models.PRESS_EVERY)
             for n in [n for n, u in rage_spend.items() if u is None]:
-                rage_spend[n] = RAGE_PER_USE[n] * uses.get(n, 1 / models.PRESS_EVERY)
+                each = uses.get(n, 1 / models.PRESS_EVERY)
+                rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
         if any(INFUSION_CONSUMED.search(t) for t in texts):
             stats["_infusion_consumed"] = self._infusion_consumed(lines, stats)
         events = event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),
