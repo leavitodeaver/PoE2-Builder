@@ -52,7 +52,18 @@ CHAIN = re.compile(r'(?:"[^"]*"|[\w.\[\]]+)(?:\s*\.\.\s*(?:"[^"]*"|[\w.\[\]:()]+
 RANGE_TEXT = re.compile(r"\(-?\d+(?:\.\d+)?-\d+(?:\.\d+)?\)")
 NUMBER = re.compile(r"[+-]?\(?-?\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)?\)?")
 
-STATUSES = ("pob", "ledger", "model", "none")
+STATUSES = ("pob", "ledger", "model", "none", "unreachable")
+# Timeless jewel factions (PoB's legion node id prefix) that no 0.5 jewel conquers for: their conquered passives can't
+# be on a character, so they're "unreachable", out of the not-counted totals and the ranking (COVB7; RESEARCH23 #140,
+# checked: PoB's Data/Uniques/jewel.lua Timeless section holds Heroic Tragedy (Kalguur) and Undying Hate (Abyssals)
+# only; poe2db Timeless_Jewel lists those two items only (its misc conquest mods for these five factions sit on no
+# item); poe2wiki's Timeless jewel pages agree. Recheck when a patch adds a Timeless jewel.)
+NO_JEWEL_FACTIONS = frozenset({"vaal", "eternal", "karui", "maraketh", "templar"})
+
+
+def no_jewel_faction(line: dict) -> bool:
+    """A conquered passive of a faction no 0.5 Timeless jewel conquers for (NO_JEWEL_FACTIONS)."""
+    return str(line.get("id", "")).split("_")[0] in NO_JEWEL_FACTIONS
 
 
 # What PoB's calculations read -------------------------------------------------------------------
@@ -611,7 +622,11 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     SOURCE_WEIGHT["affix"])
         for line in raw.get("legion", []):
             kind = "notable" if line.get("notable") or line.get("kind") == "nodes" else "small"
-            if not line["supported"]:
+            if no_jewel_faction(line):
+                add("timeless-no-jewel", line["node"], kind, line["line"], "unreachable", None,
+                    "no 0.5 jewel conquers for this faction (RESEARCH23 #140)", SOURCE_WEIGHT[kind] * 0.5,
+                    node_id=line["id"])
+            elif not line["supported"]:
                 status, entry, reason = not_applied(*ignored_line_status(line["line"], False), "legion")
                 add("timeless", line["node"], kind, line["line"], status, entry,
                     reason + " (a Timeless jewel's passive)", SOURCE_WEIGHT[kind] * 0.5)
@@ -625,7 +640,8 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                      for l in [*raw["uniques"], *[v for v in raw.get("unique_variants", []) if v["supported"]]]]
                   + [("affix", l, POOLS.get(l["pool"], "affix"), SOURCE_WEIGHT[POOLS.get(l["pool"], "affix")],
                       f"{l['pool']} {l['id']}") for l in raw["affixes"] if l["supported"]]
-                  + [("timeless", l, "small", 0.5, l["node"]) for l in raw.get("legion", []) if l["supported"]])
+                  + [("timeless", l, "small", 0.5, l["node"]) for l in raw.get("legion", [])
+                     if l["supported"] and not no_jewel_faction(l)])
         for source_type, line, kind, weight, source in parsed:
             mods = line.get("mods") or []
             if blocked := parse_audit.never_on(mods, setters):
@@ -738,15 +754,15 @@ def rank(records: list[dict], top: int | None = None) -> list[dict]:
 def print_summary(report: dict, top: int = 40) -> None:
     print(f"coverage audit of {report['data_dir']}" + ("" if report["bridge_part"] else
           " (no coverage.json: run with --refresh for affixes, gem stats and no-ops)"))
-    print(f"{'category':14} {'pob':>7} {'ledger':>7} {'(no eff.)':>9} {'model':>7} {'none':>7}")
+    print(f"{'category':14} {'pob':>7} {'ledger':>7} {'(no eff.)':>9} {'model':>7} {'none':>7} {'unreach.':>8}")
     totals = Counter()
     for category, row in report["summary"].items():
         print(f"{category:14} {row['pob']:7} {row['ledger']:7} {row.get('ledger_no_effect', 0):9} {row['model']:7} "
-              f"{row['none']:7}")
+              f"{row['none']:7} {row['unreachable']:8}")
         totals.update({s: row[s] for s in STATUSES})
         totals["no_effect"] += row.get("ledger_no_effect", 0)
     print(f"{'total':14} {totals['pob']:7} {totals['ledger']:7} {totals['no_effect']:9} {totals['model']:7} "
-          f"{totals['none']:7}")
+          f"{totals['none']:7} {totals['unreachable']:8}")
     print("(ledger includes entries recording no effect on what's calculated; model includes the condition resolver)")
     for category, row in report["summary"].items():
         if row.get("none_by_source_kind"):

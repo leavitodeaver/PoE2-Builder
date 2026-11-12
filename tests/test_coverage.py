@@ -218,3 +218,22 @@ def test_calc_reads_follows_a_helper_that_builds_names_from_its_argument():
 def test_a_stat_pob_maps_to_a_skill_flag_counts_as_read():
     """COVC2: skill_can_fire_arrows maps to skillFlag "arrow" and no modifier; the audit called it "maps to nothing"."""
     assert coverage.skill_flag_stats().get("skill_can_fire_arrows") == "arrow"
+
+
+def test_conquered_passives_of_factions_no_jewel_conquers_for_are_unreachable_not_gaps():
+    """RESEARCH23 #140 / COVB7: 0.5's only Timeless jewels are Heroic Tragedy (Kalguur) and Undying Hate (Abyssals), so
+    the vaal / eternal / karui / maraketh / templar conquered passives in PoB's legion data can't be on a character:
+    they're "unreachable", out of the not-counted totals and the ranking; kalguur and abyss lines stay gaps."""
+    from builder.data import data_dir
+
+    assert coverage.no_jewel_faction({"id": "vaal_keystone_1"}) and coverage.no_jewel_faction({"id": "templar_notable_3"})
+    assert not coverage.no_jewel_faction({"id": "kalguur_notable_1"}) and not coverage.no_jewel_faction({"id": "abyss_1"})
+    if not (data_dir() / "coverage.json").exists():
+        pytest.skip("no coverage.json")
+    report = coverage.audit()
+    unreachable = [r for r in report["records"] if r["category"] == "timeless-no-jewel"]
+    assert unreachable and all(r["status"] == "unreachable" and coverage.no_jewel_faction({"id": r["node_id"]})
+                               for r in unreachable)
+    assert not any(g["category"] == "timeless-no-jewel" for g in report["ranking"])
+    assert not any(r["status"] == "none" and coverage.no_jewel_faction({"id": r.get("node_id", "")})
+                   for r in report["records"] if r["category"].startswith("timeless"))
