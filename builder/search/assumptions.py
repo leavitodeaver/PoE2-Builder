@@ -338,6 +338,9 @@ class Assumptions:
                          for e in source_lines for p, _ in models.CURSED_LINES):
             curse_mods, curse_notes = models.curse_model(curses, found, main, source_lines)
             hand_mods, hand_notes = hand_mods + curse_mods, hand_notes + curse_notes
+        main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
+        echo_mods, echo_notes = models.repeat_echo_model([e["text"] for e in source_lines], main_types, forbidden)
+        hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
         parry_mods, parry_notes = models.parry_model(found, stats, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS))
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
         roar_mods, roar_notes = models.roar_model(found, stats, main)

@@ -77,8 +77,9 @@
   confidence: theory
   notes: >-
     An Echo affects the same targeted location again after a delay (poe2db): against a boss standing in the area, one more
-    hit of the spell; the chance is extra hits on average, less 5% for the delay that moves it later. A spell that both
-    Repeats and Echoes gets both (assumed independent).
+    hit of the spell; the chance is extra hits on average, less 5% for the delay that moves it later. A use that Repeats
+    doesn't Echo (KeywordPopups Cascadable); for a spell that can do both, models.repeat_echo_model corrects the
+    pair to 1 + .95(r + (1 - r)e) (MECH46).
   sources: ["https://poe2db.tw/us/Cascadable_Skills", "https://poe2db.tw/us/Chronomancer"]
   test_in_game: "Cast an area spell at a dummy 50 times: about 10 casts hit the spot a second time."
   status: proposed

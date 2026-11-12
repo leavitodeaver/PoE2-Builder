@@ -1031,6 +1031,33 @@ def roar_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
     return mods, notes
 
 
+# Now and Again's Repeat and Echo on one spell (MECH46, FLAT_RATES group C8). The ledger entries now-and-again-repeat and
+# now-and-again-echo each add their chance x 0.95 as "more Spell Damage", which PoB multiplies: (1 + .95r)(1 + .95e).
+# The game files' KeywordPopups Cascadable: "A Cascadable Spell that Repeats will not Cascade or Echo while Repeating", so
+# a use that Repeats doesn't Echo: 1 + .95(r + (1 - r)e). A spell both Repeatable and Cascadable gets the difference as a
+# correction line. Each copy hits the boss as the use does (Repeat: KeywordPopups, aimed where the use was), so PoB's
+# own hit share on the boss carries through the "more" lines.
+REPEAT_LINE = re.compile(r"^Repeatable Spells have (\d+(?:\.\d+)?)% chance to Repeat$", re.I)
+ECHO_LINE = re.compile(r"^Cascadable Spells have (\d+(?:\.\d+)?)% chance to Echo$", re.I)
+REPEAT_ECHO_ENTRIES = ("now-and-again-repeat", "now-and-again-echo")
+
+
+def repeat_echo_model(texts: list[str], main_types: set[str], forbidden: set[str]) -> tuple[list[dict], list[dict]]:
+    if not {"Spell", "Multicastable", "Cascadable"} <= main_types or set(REPEAT_ECHO_ENTRIES) & forbidden:
+        return [], []
+    r = min(1.0, sum(float(m.group(1)) for t in texts if (m := REPEAT_LINE.search(t.strip()))) / 100)
+    e = min(1.0, sum(float(m.group(1)) for t in texts if (m := ECHO_LINE.search(t.strip()))) / 100)
+    if r <= 0 or e <= 0:
+        return [], []
+    product = (1 + 0.95 * r) * (1 + 0.95 * e)
+    target = 1 + 0.95 * (r + (1 - r) * e)
+    return [line("1% more Spell Damage", 100 * (target / product - 1))], [{
+        "label": "Now and Again: no Echo on a use that Repeats", "value": round(target / product, 4),
+        "basis": f"{r:.0%} Repeat and {e:.0%} Echo: a use that Repeats doesn't Echo (KeywordPopups Cascadable), so "
+                 f"x{target:.3f} in all, not x{product:.3f} as two independent chances",
+        "confidence": "game files' rule; the ledger entries' 5% for the longer use as labelled there"}]
+
+
 MARK_BUFFS = {"Voltaic Mark": "Electrocute", "Freezing Mark": "Freeze"}
 MARKS = ("Sniper's Mark", *MARK_BUFFS, "Bloodhound's Mark")
 # Meta skills that apply a socketed Mark on a timer of their own (not the Mark's cooldown).
