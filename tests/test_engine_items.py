@@ -75,8 +75,9 @@ def test_flask_slots_switch_on_only_when_a_boss_fight_sustains_them(engine):
     assert build.extra_stats["FlaskManaRecoveryRate"] == 0.0
     xml = engine.call("exportXml")["xml"]
     assert any('name="Flask 2"' in t and 'active="true"' not in t for t in re.findall(r"<Slot [^>]*>", xml))
-    # With enough charge generation the same flask counts, and its slot is switched on
-    gear.charges = gear.charges.__class__(flask=10)
+    # With enough charge generation (and Mana spent faster than it fills: a Mana flask's effect ends at full Mana,
+    # MECHC4) the same flask counts, and its slot is switched on
+    gear.charges = gear.charges.__class__(flask=10, mana_cost=10_000.0)
     gear.put("Flask 2", option)
     assert build.extra_stats["FlaskManaRecoveryRate"] > 0
     xml = engine.call("exportXml")["xml"]
