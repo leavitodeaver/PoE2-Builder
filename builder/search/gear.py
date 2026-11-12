@@ -26,7 +26,7 @@ from builder import clock
 from builder.search import anoints
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption, implicit_variant, implicit_variants
 from builder.search.flasks import (
-    ACTIVE_UPTIME, CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
+    CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
     recovery_per_second, slot_pool,
     uptime,
 )
@@ -35,7 +35,16 @@ from builder.search.rares import (
     socket_count, with_runes,
 )
 from builder.search.state import EPSILON, Build
-from builder.search.conditions import MIN_UPTIME
+from builder.search.conditions import FULL_UPTIME, SWITCH_ON
+
+# A flask or charm slot is switched on from SWITCH_ON (7%) of a boss fight, the conditions' number (the user, 9 Nov:
+# "if something isn't active at least 7% of the time, it's basically worthless"; AUDIT19's A19-7), and counts whole
+# only from FULL_UPTIME (99.5%), like every other part-time effect; between the two it counts at its share (part_time,
+# Search.weigh_uptimes; floors are checked with it off). Before, it counted whole from flasks.ACTIVE_UPTIME (90%):
+# an overcount of up to x1.11 on what it adds, and a 90% charm met a defence floor (AUDIT19's A19-1, WRONG). One
+# number each, no stay-on band: the conditions' 5% stay-on band needs the slot's previous state, which isn't kept here
+FLASK_ON = SWITCH_ON
+FLASK_WHOLE = FULL_UPTIME
 from builder.search.models import GRANTED_FILLED
 
 # A unique's line granting a meta skill with an Energy model (Mjolner: "Grants Skill: Level (1-20) Thundergod's Wrath"),
@@ -267,12 +276,12 @@ class Gear:
         shares = []
         for case, raw, info in zip(cases, raws, self.flask_info(raws)):
             shares.append(self.share(slot, info, raw))
-            case["active"] = shares[-1] >= MIN_UPTIME
+            case["active"] = shares[-1] >= FLASK_ON
             case["extra"] = self.recovery_stats({slot: info})
         # An effect up only part of the fight: scored on and off, blended at its share, d_off + ln(u e^(d_on - d_off)
         # + 1 - u) (the score is ln DPS; the off case's floors, as weigh_uptimes checks them). A ranking estimate:
         # once equipped, Search.follow_uptimes weighs it with a real recalculation
-        part = [i for i, up in enumerate(shares) if MIN_UPTIME <= up < ACTIVE_UPTIME]
+        part = [i for i, up in enumerate(shares) if FLASK_ON <= up < FLASK_WHOLE]
         scored = self.build.item_deltas(cases + [{**cases[i], "active": False} for i in part])
         out = scored[:len(cases)]
         for i, (d_off, _) in zip(part, scored[len(cases):]):
@@ -356,10 +365,10 @@ class Gear:
         return uptime(info, self.charges, slot_pool(slot), raw)
 
     def counts(self, slot: str, info: dict, raw: str) -> bool:
-        """Whether the slot is switched on: its effect is up at least conditions.MIN_UPTIME of a boss fight. Up from
-        ACTIVE_UPTIME it counts whole (flasks.py's labelled cut-off); between the two it counts at its share of the
-        fight (part_time, Search.weigh_uptimes: MECHC5's spec; before, a flask up 10-89% of the fight counted 0)."""
-        return self.share(slot, info, raw) >= MIN_UPTIME
+        """Whether the slot is switched on: its effect is up at least FLASK_ON (7%) of a boss fight. Up from FLASK_WHOLE
+        (99.5%) it counts whole; between the two it counts at its share of the fight (part_time, Search.weigh_uptimes:
+        MECHC5's spec; AUDIT19's A19-1 / A19-7)."""
+        return self.share(slot, info, raw) >= FLASK_ON
 
     def part_time(self) -> dict[str, tuple[float, str]]:
         """Equipped flask and charm slots switched on whose effect is up only part of the fight: slot -> (share, name)."""
@@ -368,7 +377,7 @@ class Gear:
             option = self.build.equipped.get(slot)
             if option is not None:
                 up = self.share(slot, self.flask_info([option.raw])[0], option.raw)
-                if MIN_UPTIME <= up < ACTIVE_UPTIME:
+                if FLASK_ON <= up < FLASK_WHOLE:
                     out[slot] = (up, option.name)
         return out
 
@@ -416,7 +425,7 @@ class Gear:
             share = uptime(info, self.charges, pool, option.raw)
             rows.append({"slot": slot, "name": option.name, "pool": pool, "uptime": share,
                          "counted": self.counts(slot, info, option.raw),
-                         "part_time": MIN_UPTIME <= share < ACTIVE_UPTIME,  # counted at its share (weigh_uptimes)
+                         "part_time": FLASK_ON <= share < FLASK_WHOLE,  # counted at its share (weigh_uptimes)
                          "recovery": recovery_per_second(info, self.charges, pool) if pool else 0.0,
                          "full_pool": self.full_pool_reason(info, pool, option.raw, share)})
         return rows

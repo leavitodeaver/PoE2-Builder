@@ -1796,8 +1796,8 @@ def test_a_named_boss_goes_to_reset_config():
 
 
 def test_a_flask_up_part_of_the_fight_is_ranked_at_its_share():
-    """MECHC5's spec (SEARCH5): a flask or charm up between conditions.MIN_UPTIME and flasks.ACTIVE_UPTIME of the fight
-    is switched on and ranked at its share, d_off + ln(u e^(d_on - d_off) + 1 - u); before, it counted 0 under 90%."""
+    """MECHC5's spec (SEARCH5): a flask or charm up between gear.FLASK_ON (7%) and gear.FLASK_WHOLE (99.5%) of the fight
+    is switched on and ranked at its share, d_off + ln(u e^(d_on - d_off) + 1 - u) (SEARCH6: AUDIT19's A19-1 / A19-7)."""
     import math
 
     from builder.search.gear import Gear
@@ -1810,13 +1810,15 @@ def test_a_flask_up_part_of_the_fight_is_ranked_at_its_share():
     gear.build = FakeBuild()
     gear.flask_info = lambda raws: [{} for _ in raws]
     gear.recovery_stats = lambda replace=None: {}
-    shares = {"half": 0.5, "most": 0.95, "rare": 0.01}
+    shares = {"half": 0.5, "most": 0.95, "full": 0.996, "rare": 0.01, "six": 0.06}
     gear.share = lambda slot, info, raw: shares[raw]
-    half, most, rare = gear.deltas("Flask 2", ["half", "most", "rare"])
+    half, most, full, rare, six = gear.deltas("Flask 2", ["half", "most", "full", "rare", "six"])
     assert half[0] == pytest.approx(-0.1 + math.log(0.5 * math.exp(0.3) + 0.5)) and half[1]["active"]
-    # (MECHC7, A19-1: whole only from ACTIVE_UPTIME = FULL_UPTIME 99.5%; 95% is at its share)
-    assert most[0] == pytest.approx(-0.1 + math.log(0.95 * math.exp(0.3) + 0.05))
-    assert rare[0] == pytest.approx(-0.1) and not rare[1]["active"]  # under MIN_UPTIME: off
+    # A19-1 (AUDIT19): 95% is no longer whole (it was from flasks.ACTIVE_UPTIME, 90%); whole only from FULL_UPTIME
+    assert most[0] == pytest.approx(-0.1 + math.log(0.95 * math.exp(0.3) + 0.05)) and most[1]["active"]
+    assert full[0] == pytest.approx(0.2)  # from FLASK_WHOLE (99.5%): whole
+    assert rare[0] == pytest.approx(-0.1) and not rare[1]["active"]  # under FLASK_ON: off
+    assert six[0] == pytest.approx(-0.1) and not six[1]["active"]  # A19-7: 6% is under the 7% switch-on: off
 
 
 def test_support_gems_that_scale_with_distance_put_their_distances_in_the_trials():

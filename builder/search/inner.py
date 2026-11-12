@@ -1073,7 +1073,7 @@ FLASK_VAR = "flaskSlot:"  # a part-time flask or charm effect: "flaskSlot:<slot>
 
 def _part_time(search: Any) -> dict[str, tuple[float, dict]]:
     """The effects on for only part of the fight: var -> (share, info). The conditions' (conditions.uptimes, the active
-    ones) and the flask and charm slots up between conditions.MIN_UPTIME and flasks.ACTIVE_UPTIME of the fight
+    ones) and the flask and charm slots up between gear.FLASK_ON (7%) and gear.FLASK_WHOLE (99.5%) of the fight
     (Gear.part_time, FLASK_VAR; MECHC5's spec), switched through _switch. (A search without gear: the conditions' only.)"""
     conditions = search.conditions
     out = {var: (up, conditions.active[var]) for var, up in conditions.uptimes.items() if var in conditions.active}

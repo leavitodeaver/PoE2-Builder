@@ -837,8 +837,7 @@ def test_a_restore_gives_back_its_snapshots_score(engine):
 def test_a_flask_up_part_of_the_fight_is_weighed_at_its_share(engine):
     """MECHC5's spec (SEARCH5): the slot stays on, Search.part_time lists it, weigh_uptimes weighs it (one recalculation
     with the slot off, then on again) and the flask report says it counted at its share."""
-    from builder.search.conditions import MIN_UPTIME
-    from builder.search.flasks import ACTIVE_UPTIME
+    from builder.search.gear import FLASK_ON, FLASK_WHOLE
     from builder.search.inner import FLASK_VAR, Search
     from builder.search.skeletons import enumerate_skeletons
 
@@ -854,7 +853,7 @@ def test_a_flask_up_part_of_the_fight_is_weighed_at_its_share(engine):
     assert one > 0
     gear.charges = gear.charges.__class__(flask=0.5 / one, mana_cost=10_000.0)
     share = gear.share("Flask 2", info, option.raw)
-    assert MIN_UPTIME <= share < ACTIVE_UPTIME and gear.counts("Flask 2", info, option.raw)
+    assert FLASK_ON <= share < FLASK_WHOLE and gear.counts("Flask 2", info, option.raw)
     gear.put("Flask 2", option)
     effects = search.part_time()
     var = f"{FLASK_VAR}Flask 2:{option.name}"
