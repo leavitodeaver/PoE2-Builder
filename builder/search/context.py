@@ -206,10 +206,22 @@ class Context:
 
     @cached_property
     def granted_by(self) -> dict[str, list[tuple[str, str, str | None]]]:
-        """Skill name -> [(kind, source name, ascendancy)] for skills a passive ("passive") or a
-        unique ("unique") grants."""
+        """Skill name -> [(kind, source name, ascendancy)] for skills a passive ("passive"), a
+        unique ("unique") or every base of an item type ("base", the type: every Spear's implicit grants
+        Spear Throw, which PoB gives any Spear main hand, CalcSetup's default attacks) grants. A skill
+        only some bases of a type grant (a Withered Wand's Chaos Bolt) isn't listed: the gear search
+        can't keep that base yet."""
         grants: dict[str, list[tuple[str, str, str | None]]] = {}
         pattern = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")
+        by_type: dict[str, list[set[str]]] = {}
+        for base in self.data.bases:
+            if not base.get("hidden"):
+                by_type.setdefault(base["type"], []).append(
+                    {m.group(1) for line in (base.get("implicit") or "").splitlines()
+                     if not line.startswith("{") and (m := pattern.match(line))})
+        for kind_of, skills in sorted(by_type.items()):
+            for skill in sorted(set.intersection(*skills)):
+                grants.setdefault(skill, []).append(("base", kind_of, None))
         for node in self.data.tree["nodes"]:
             for line in node.get("stats") or []:
                 if m := pattern.search(line):

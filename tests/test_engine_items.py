@@ -643,3 +643,20 @@ def test_a_talisman_holds_only_a_non_unique_sceptre_with_lord_of_the_wilds(engin
     assert gear.slot_for(sceptre) is None
     held = search.build.equipped.get("Weapon 2")
     assert held is None or not held.unique
+
+
+def test_spear_throw_from_a_plain_spear_is_the_main_skill(engine):
+    """A Spear Throw skeleton granted by any Spear ("base:Spear"): the setup holds a non-unique spear and PoB's
+    default-attack group for Spear Throw becomes the main group."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Spear Throw", ascendancies=["Amazon"]))
+    skeleton = next(s for s in enumerate_skeletons(Context(payload), ["Spear Throw"])[0] if s.granted_by == "base:Spear")
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    weapon = search.build.equipped.get("Weapon 1")
+    assert weapon is not None and weapon.type == "Spear" and not weapon.unique
+    assert not any("didn't appear" in p for p in search.problems), search.problems
+    main = [g for g in search.build.groups() if g["main"]]
+    assert main and any(s["name"] == "Spear Throw" for s in main[0]["skills"])

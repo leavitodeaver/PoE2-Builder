@@ -25,7 +25,7 @@ class Skeleton:
     weapon: str | None  # main-hand item type; None = unarmed
     weapon_sub: str | None  # "Warstaff" for quarterstaves, "" for caster staves, None = any
     offhand: str | None  # the off hand's item class: Shield, Focus, Quiver, Sceptre, One Hand Mace, ... or None
-    granted_by: str | None = None  # "passive:<name>" or "unique:<name>" for skills only those grant
+    granted_by: str | None = None  # "passive:<name>", "unique:<name>" or "base:<item type>" for skills only those grant
     # Weapon set 2 (weapon swap): its main hand, sub-type and off hand, like the fields above
     swap: bool = False
     swap_weapon: str | None = None
@@ -38,7 +38,8 @@ class Skeleton:
 
     @property
     def label(self) -> str:
-        source = f" (from {self.granted_by.split(':', 1)[1]})" if self.granted_by else ""
+        kind, _, name = (self.granted_by or "").partition(":")
+        source = f" (from any {name})" if kind == "base" else f" (from {name})" if self.granted_by else ""
         hands = _hands(self.weapon, self.weapon_sub, self.offhand)
         if self.requires_passive:
             hands += f" (with {self.requires_passive})"
@@ -391,6 +392,8 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
                 problems.append(f"{skill} comes from {source}, which the request bans")
                 continue
             archetypes, found = weapon_archetypes(ctx, skill, source if kind == "unique" and _is_weapon(ctx, source) else None)
+            if kind == "base":  # every base of this type grants it in the main hand (Spear Throw: any Spear)
+                archetypes = [a for a in archetypes if a[0] == source]
             problems += found
             usable = [a for a in ascendancies if source_ascendancy in (None, a)]
             if not usable:

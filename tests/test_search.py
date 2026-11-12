@@ -113,6 +113,23 @@ def test_a_passive_can_let_a_staff_hold_a_focus():
     assert skeletons == [] and any("Talisman takes no off-hand weapon" in p for p in problems)
 
 
+def test_spear_throw_comes_from_any_spear():
+    """Every Spear's implicit grants Spear Throw (PoB gives it to any Spear main hand, CalcSetup's default attacks):
+    besides the 10 unique spears that name it, a skeleton takes it from any Spear the gear search picks. Only a
+    skill every base of a type grants is listed so (a Withered Wand's Chaos Bolt needs that base kept)."""
+    ctx = context(main_skill="Spear Throw", ascendancies=["Amazon"])
+    assert [g for g in ctx.granted_by["Spear Throw"] if g[0] == "base"] == [("base", "Spear", None)]
+    assert not any(k == "base" for grants in ctx.granted_by.values() for k, _, _ in grants
+                   if grants is not ctx.granted_by["Spear Throw"])
+    skeletons, problems = enumerate_skeletons(ctx, ["Spear Throw"])
+    base = [s for s in skeletons if s.granted_by == "base:Spear"]
+    assert base and all(s.weapon == "Spear" for s in base) and not problems
+    assert "Spear Throw (from any Spear)" in base[0].label
+    assert any(s.granted_by.startswith("unique:") for s in skeletons)
+    banned = context(main_skill="Spear Throw", ascendancies=["Amazon"], forbid={"item_classes": ["Spear"]})
+    assert enumerate_skeletons(banned, ["Spear Throw"])[0] == []
+
+
 def test_true_dual_wielding_is_two_one_handed_maces():
     ctx = context(main_skill="Boneshatter", ascendancies=["Titan"], offhand="weapon")
     skeletons, problems = enumerate_skeletons(ctx, ["Boneshatter"])

@@ -103,3 +103,56 @@
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua"]
   test_in_game: "n/a (parse check)."
   status: proposed
+
+# COV3, 12 Nov 2026 (same PoB) ---------------------------------------------------------------------------------------
+
+- id: parse-offhand-equip-flags
+  title: 'Instruments of Power / Lord of the Wilds: the "while wielding" is the equip rule itself'
+  kind: parse_checked
+  match: '^You can equip (a Focus while wielding a Staff|a non-Unique Sceptre while wielding a Talisman)$'
+  confidence: datamined
+  notes: >-
+    ModParser.lua flags InstrumentsOfPower / LordOfTheWilds; ItemsTab.lua IsItemValidForSlot reads them to allow the
+    pair. The search builds both pairs only with the passive allocated (game_rules.yaml off_hand.passive_exceptions,
+    Skeleton.requires_passive; Lord of the Wilds' off hand takes no unique, gear.py SlotSpec.non_unique).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (you can equip a focus / a non-unique sceptre)",
+            "vendor/PathOfBuilding-PoE2/src/Classes/ItemsTab.lua (IsItemValidForSlot)"]
+  test_in_game: "n/a (parse check)."
+  status: proposed
+
+- id: parse-conquered-also-grant
+  title: 'Timeless jewels'' "Conquered Small Passive Skills also grant X": X goes through the normal parser'
+  kind: parse_checked
+  match: '^Conquered Small Passive Skills also grant (Minions deal |)\(?[\d.\-]+\)?% increased (Attack |Spell |)damage$'
+  confidence: datamined
+  notes: >-
+    ModParser.lua "conquered (%w+) Passive Skills also grant (.*)$" returns a JewelFunc that parses X with parseMod on
+    each conquered node of that type, so X keeps its own Attack / Spell flag or minion wrapper. The audit sees only the
+    JewelFunc, not the inner modifier.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (conquered ... Passive Skills also grant)"]
+  test_in_game: "n/a (parse check)."
+  status: proposed
+
+- id: parse-watch-how-i-do-it
+  title: 'Watch How I Do It (Tactician): allies'' added Attack damage from the main-hand weapon'
+  kind: parse_checked
+  match: '^Allies in your Presence gain added Attack Damage equal$'
+  only_sources: ["Watch How I Do It"]
+  confidence: datamined
+  notes: >-
+    The node's two text lines are parsed as one: ExtraAura (allies only) GainMainHandDmgFromParent and
+    Multiplier:MainHandDamageToAllies 25, which PoB applies to allies' attacks. Nothing reaches the player's own hits.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (allies in your presence gain added attack damage)"]
+  test_in_game: "n/a (parse check)."
+  status: proposed
+
+- id: parse-loreweave-accuracy
+  title: 'Loreweave "+(-200-400) to Accuracy Rating": the audit parses it at its middle roll (+100)'
+  kind: parse_checked
+  match: '^\+\(-200-400\) to Accuracy Rating$'
+  only_sources: ["Loreweave"]
+  confidence: datamined
+  notes: "The audit parses ranges at their middle; the text's two numbers are the range ends, not lost values. An item's own roll is read from its text."
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Uniques (Loreweave)"]
+  test_in_game: "n/a (parse check)."
+  status: proposed

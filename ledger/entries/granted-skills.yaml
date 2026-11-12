@@ -1,0 +1,22 @@
+# "Grants Skill" lines PoB counts outside its modifier parser (COV3, 12 Nov 2026, PoB bb52d6b,
+# vendor/PathOfBuilding-PoE2). Recheck at each PoB update.
+
+- id: granted-spear-throw
+  title: '"Grants Skill: Spear Throw" (every Spear base, 10 unique spears): PoB gives Spear Throw to any Spear main hand'
+  kind: pob_gap
+  match: '^Grants Skill: Spear Throw$'
+  replace: []
+  absorbed_by: >-
+    PoB grants Spear Throw as a default attack to every Spear main hand (CalcSetup.lua: data.characterMeleeSkills by
+    main- and off-hand class, source "Default Attack"); its parser maps this line to nothing on purpose
+    (ModParser.lua "grants skill: spear throw" = { }, "Display-only; granted by CharacterMeleeSkills"). The search
+    takes Spear Throw from any Spear (context.granted_by kind "base") as well as from the 10 uniques.
+  confidence: datamined
+  notes: >-
+    Every non-hidden Spear base carries the line (bases.json implicits, checked 12 Nov: 35 bases, all of them), so a
+    rare spear grants it as the uniques do.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (grants skill: spear throw)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcSetup.lua (characterMeleeSkills, Default Attack)",
+            "https://poe2db.tw/us/Spear_Throw"]
+  test_in_game: "Equip a rare spear: Spear Throw is on the skill bar."
+  status: proposed

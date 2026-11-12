@@ -8,6 +8,7 @@ own loaded tables, so a PoB upgrade only needs a new dump.
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime, timezone
 from functools import cached_property
@@ -84,8 +85,11 @@ def dump_coverage(target: Path | None = None, pool=None) -> dict:
     bases = json.loads((target / "bases.json").read_text(encoding="utf-8"))["bases"]
     implicits = [{"base": b["name"], "line": line} for b in bases if not b.get("hidden")
                  for line in (b.get("implicit") or "").splitlines() if line.strip()]
-    parsed = pool.broadcast("auditLines", lines=[i["line"] for i in implicits])[0]["results"] if implicits else []
-    payload["base_implicits"] = [{**i, **r} for i, r in zip(implicits, parsed)]
+    # A variant base's line (Lament Amulet's "{variant:3}Grants Skill: ... Arctic Armour") is parsed untagged, as
+    # the search writes it (context.implicit_variant: one variant, untagged); the record keeps the tagged text
+    untagged = [re.sub(r"^\{variant:[\d,]+\}", "", i["line"]) for i in implicits]
+    parsed = pool.broadcast("auditLines", lines=untagged)[0]["results"] if implicits else []
+    payload["base_implicits"] = [{**i, **r, "line": i["line"]} for i, r in zip(implicits, parsed)]
     # audit item (e): each active skill alone on a plain character
     payload["skill_sweep"] = pool.broadcast("auditSkills")[0]["skills"]
     (target / "coverage.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
