@@ -427,15 +427,31 @@
 - id: no-effect-dot-and-recoup-defences
   title: Heartstopper's damage over time taken, Scarred Faith's Energy Shield recoup (not checked defences)
   kind: pob_gap
-  match: "^(Take \\d+% (less|more) Damage over Time if you('ve| haven't) started taking Damage over Time in the past second|\\d+% of Physical Damage prevented Recouped as Energy Shield per enemy Power|You cannot Recover Energy Shield from Regeneration)$"
+  match: "^(Take \\d+% (less|more) Damage over Time if you('ve| haven't) started taking Damage over Time in the past second|\\d+% of Physical Damage prevented Recouped as Energy Shield per enemy Power)$"
   replace: []
   confidence: verified_by_you
   notes: >-
     The optimizer checks pools, resistances, maximum hit, block and evade; damage over time taken and Energy Shield
-    recovery aren't among them. Scarred Faith also stops Energy Shield regeneration, which PoB still shows (a recovery
-    overcount outside the checked numbers).
+    recovery aren't among them. Scarred Faith's "You cannot Recover Energy Shield from Regeneration" has its own
+    entry now (scarred-faith-no-es-regeneration, COV7).
   sources: ["https://poe2db.tw/us/Heartstopper", "https://poe2db.tw/us/Scarred_Faith"]
   test_in_game: "Not needed for the checked numbers."
+  status: proposed
+
+- id: scarred-faith-no-es-regeneration
+  title: Scarred Faith, You cannot Recover Energy Shield from Regeneration (PoB's NoEnergyShieldRegen flag)
+  kind: pob_gap
+  match: '^You cannot Recover Energy Shield from Regeneration$'
+  replace: ['You cannot Regenerate Energy Shield']
+  confidence: datamined
+  notes: >-
+    OVERCOUNT fixed (FIX_QUEUE, COV-D's leftover; MECHC4): PoB leaves the line unparsed, so it kept showing Energy
+    Shield regeneration, and three readers use that number: the Energy model, objective.RECOVERY_POOLS and the flask
+    cap. The stand-in is the wording ModParser.lua 5165 maps to flag NoEnergyShieldRegen ("you cannot regenerate
+    energy shield"). Regeneration only: Recharge, Leech and Recoup still recover Energy Shield (the line names
+    Regeneration alone).
+  sources: ["https://poe2db.tw/us/Scarred_Faith", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (you cannot regenerate energy shield)"]
+  test_in_game: "With Scarred Faith and an Energy Shield regeneration source, the character sheet shows no Energy Shield regeneration."
   status: proposed
 
 - id: sanguine-tides

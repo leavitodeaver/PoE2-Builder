@@ -153,3 +153,32 @@ def test_hollow_mask_remnant_skills_reservation_efficiency_by_name(engine):
     assert reserved([line]) == base  # PoB leaves the original line unapplied (the undercount fixed here)
     assert reserved(lines) == pytest.approx(base / 2, abs=1)
     assert reserved(["Mana Remnants has 100% increased Reservation Efficiency"]) == base
+
+
+def test_scarred_faith_stops_energy_shield_regeneration(engine):
+    """Scarred Faith's "You cannot Recover Energy Shield from Regeneration" (scarred-faith-no-es-regeneration, COV7):
+    PoB leaves it unparsed and kept showing Energy Shield regeneration, which the Energy model, the recovery pools and
+    the flask cap read. Its stand-in sets PoB's NoEnergyShieldRegen flag (CalcDefence.lua 1722)."""
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    ctx = Context(payload)
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    faith = next((u for u in ctx.data.uniques if u["name"] == "Scarred Faith"), None)
+    if faith is None:
+        pytest.skip("Scarred Faith not in the data dump")
+    stand_in = "You cannot Regenerate Energy Shield"
+    assert stand_in in ctx.corrected_raw(faith["name"], faith["raw"]).split("\n")
+
+    def amulet(extra: list[str]) -> str:
+        return "\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                          "+200 to maximum Energy Shield", "Regenerate 90 Energy Shield per second", *extra])
+
+    fields = ["EnergyShieldRegenRecovery"]
+    build.call("equip", slot="Amulet", raw=amulet([]), fields=[])
+    before = build.call("stats", fields=fields)
+    build.call("equip", slot="Amulet", raw=amulet([stand_in]), fields=[])
+    after = build.call("stats", fields=fields)
+    assert before["EnergyShieldRegenRecovery"] > 0
+    assert not after["EnergyShieldRegenRecovery"]
