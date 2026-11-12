@@ -363,6 +363,7 @@
   # Which of each skill's stat sets is the Detonation (PoB labels). `all`: every damaging set is. A skill whose stat set
   # isn't in its list, or whose calculated set the tool doesn't know, gets nothing (models.stat_set_counts).
   stat_sets:
+    Grenade: all
     Explosive Grenade: all
     Flash Grenade: all
     Voltaic Grenade: all
@@ -374,6 +375,8 @@
     Toxic Growth: [Explosion]
     Oil Grenade: [Primary Grenade]
     Cluster Grenade: [Primary Grenade]
+    Ruzhan's Brand: all
+    Poison Spores: [Pustule Explosion]
   confidence: datamined
   notes: >-
     "Detonations from supported Skills deal 30% (35%) more Damage" (SupportLongFusePlayer 30, ...PlayerTwo 35); PoB maps
@@ -385,7 +388,13 @@
     base_deal_no_damage); Explosive Spear's Explosion ("will explode at the end of its Detonation Time"), not the thrown
     Spear's hit; Gas Grenade's Impact set (the "burst of Poison gas when its fuse expires"), not the Poison Cloud;
     Toxic Growth's Explosion ("deal damage on impact, then Detonate"), not the Pustules' impact; Oil Grenade's and
-    Cluster Grenade's Primary Grenade. Left out, UNVERIFIED whether they are Detonations (the game's text and poe2db
+    Cluster Grenade's Primary Grenade; the crossbow's default Grenade ("unleashes a shrapnel blast when its fuse expires", one
+    stat set; COVE9, AUDIT17 A17-3: it was missing, so 0); Ruzhan's Brand ("After a delay or when Detonated, the brand
+    explodes", one set; UNVERIFIED whether a support on the Djinn's gem reaches its Commands) and Poison Spores' Pustule
+    Explosion ("Detonates after a delay"). Every skill with DetonatesAfterTime, which is all Long Fuse requires
+    (GrantedEffects SupportLongFusePlayer/Two AllowedActiveSkillTypes), was read (checked: PoB Data/Skills/*.lua and
+    ActiveSkills, 12 Nov 2026); left out besides those below: the Skeletal Arsonist's Fire Bomb ("explodes on hit", a
+    minion's skill; UNVERIFIED). Left out, UNVERIFIED whether they are Detonations (the game's text and poe2db
     don't say): Explosive Spear's Frenzy-Charged explosion ("explode immediately"), Gas Grenade's Explosion (the cloud
     set off by Burning or a Detonator), Cluster Grenade's Mini Grenades ("explode when they come to a stop", though they
     carry a Detonation Time) and Oil Grenade's Oil Ground. Those stay as PoB has them (no bonus: a possible undercount).

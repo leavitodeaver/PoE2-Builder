@@ -706,6 +706,8 @@ def test_long_fuse_counts_on_the_detonating_stat_sets_only():
     assert [m["scale"] for m in models.gem_stat_model([spear])[0]] == [35]
     other = models.Skill("Some Unlisted Skill", group=3, support_stats=fuse)
     assert models.gem_stat_model([other])[0] == []
+    plain = models.Skill("Grenade", group=4, attack=True, support_stats=fuse)  # the crossbow's default Grenade (AUDIT17 A17-3)
+    assert [m["scale"] for m in models.gem_stat_model([plain])[0]] == [35]
 
 
 def test_support_entries_list_every_stat_their_match_takes():
