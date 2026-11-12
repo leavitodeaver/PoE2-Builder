@@ -1,0 +1,401 @@
+# Active-gem stats PoB never reads, batch 1 (COVC1, 12 Nov 2026): the top of the coverage audit's gem-stat ranking.
+# Skill lists are the active skills (not supports: COV-E's) whose stat set carries the stat in the data dump
+# (data/pob-bb52d6b368/coverage.json); the same stat on any other skill stays open.
+#
+# Three kinds of record:
+# 1. PoB counts it another way (kind gem_stat, `stats` + `skill`, empty replace): the stat is a flag or a number PoB
+#    takes from another field of its skill data. Each was checked skill by skill and stat set by stat set
+#    (scratch/covc/flagcheck.py); the skills where PoB's other field is missing are left open and listed in COVC1's report.
+# 2. Read by one of our models (kind model, `stats` + `skill`): the model's code names the skills and takes the number
+#    from the game files.
+# 3. Changes nothing the tool calculates (kind gem_stat, empty replace): aiming, animation, input queueing, spawn
+#    position, UI. Evidence for each: the game's stat descriptions (data/game-26476662/files, every .csd) have no line for
+#    it, so the game shows the player nothing; PoB reads it nowhere (vendor src, every .lua outside the skill data); our
+#    code reads it nowhere; poe2db's gem page lists it as a bare internal stat with no text (Glacial Bolt, fetched
+#    12 Nov 2026). What the name says it does is a reading of the id, so these carry confidence `theory`.
+
+
+# 1. PoB counts it another way ----------------------------------------------------------------------------------------
+
+
+- id: gem-active-pob-area-flag
+  title: "Area damage flag: PoB sets it from the stat set's baseFlags.area"
+  kind: gem_stat
+  match: '^is_area_damage$'
+  replace: []
+  stats: ["is_area_damage"]
+  skill: ["Acidic Concoction", "Arctic Howl", "Armour Breaker", "Armour Explosion", "Ball Lightning",
+          "Ballista Bolt", "Black Powder Blitz", "Bleeding Concoction", "Blood Explosion", "Blood Hunt",
+          "Bone Blast", "Bone Cage", "Boneshatter", "Bonestorm", "Briarpatch", "Bursting Fen Toad", "Caltrops",
+          "Chaotic Surge", "Charged Shockwave", "Chayula's Will", "Cluster Grenade", "Combust", "Comet",
+          "Crackling Palm", "Crash Lightning", "Crater", "Cross Slash", "Crushing Fear", "Cull the Weak",
+          "Decompose", "Detonate Dead", "Detonate Living", "Detonating Arrow", "Devour", "Disengage",
+          "Doom Blast", "Earthquake", "Earthshatter", "Elemental Discharge", "Elemental Expression",
+          "Elemental Storm", "Elemental Sundering", "Elemental Surge", "Ember Fusillade", "Embrace The Fall",
+          "Enervating Nova", "Entangle", "Escape Shot", "Explosive Concoction", "Explosive Demise",
+          "Explosive Grenade", "Explosive Shot", "Explosive Spear", "Fan the Flames", "Fangs of Frost",
+          "Fiery Death", "Fireball", "Firebolt", "Firestorm", "Flame Breath", "Flameblast", "Flash Grenade",
+          "Flicker Strike", "Forge Hammer", "Fragmentation Rounds", "Freezing Explosion", "Freezing Salvo",
+          "Frost Bomb", "Frost Darts", "Frost Wall", "Frostbolt", "Frozen Locus", "Fulminating Concoction",
+          "Furious Slam", "Fury of the Mountain", "Gale Force", "Gas Arrow", "Gas Grenade", "Gathering Storm",
+          "Gelid Palm", "Gemini Surge", "Glacial Bolt", "Glacial Cascade", "Glacial Lance", "Grenade",
+          "Grim Pillars", "Grisly Pyre", "Hailstorm", "Hailstorm Rounds", "Hammer of the Gods",
+          "Hand of Chayula", "Harbinger of Madness", "Herald of Ice", "Hexblast", "His Foul Emergence",
+          "His Scattering Calamity", "His Vile Intrusion", "His Winnowing Flame", "Hollow Focus",
+          "Hollow Resonance", "Ice Fragments", "Ice Nova", "Ice Shards", "Ice Strike", "Icestorm", "Incinerate",
+          "Iron Ward", "Killing Palm", "Leap Slam", "Lightning Bolt", "Lightning Rod", "Lightning Warp",
+          "Living Bomb", "Lunar Assault", "Mace Strike", "Magma Spray", "Mana Flare", "Maul", "Meteor",
+          "Meteors", "Molten Blast", "Molten Crash", "Molten Shower", "Moonbeam", "Oil Barrage", "Oil Grenade",
+          "Parry", "Perfect Strike", "Phantasmal Arrow", "Plague Bearer", "Plague Burst", "Plasma Blast",
+          "Poison Spores", "Poisonburst Arrow", "Pounce", "Primal Strikes", "Punch", "Quarterstaff Strike",
+          "Rain of Arrows", "Raise Shield", "Rake", "Rampage", "Rapid Assault", "Reap", "Rend", "Repulsion Wave",
+          "Requiem", "Resonating Shield", "Righteous Descent", "Rolling Magma", "Rolling Slam", "Seismic Cry",
+          "Shattering Concoction", "Shattering Palm", "Shield Charge", "Shield Wall", "Shield Wave",
+          "Shockburst Rounds", "Shockwave Slam", "Shred", "Siege Cascade", "Siphoning Strike", "Skyfall",
+          "Smash to Smithereens", "Snap", "Snipe", "Solar Orb", "Spear Stab", "Spear Throw", "Spear of Solaris",
+          "Spearfield", "Staggering Palm", "Stampede", "Starborn Onslaught", "Starfall",
+          "Stomping Ground Shockwave", "Storm Wave", "Stormblast Bolts", "Stormcaller Arrow", "Sunder",
+          "Supercharged Slam", "Tawhoa's Vengeance", "Tempest Bell", "Thrashing Vines", "Thunderous Leap",
+          "Thunderstorm", "Tornado", "Tornado Shot", "Toxic Domain", "Toxic Growth", "Transmutation Explosion",
+          "Twister", "Unearth", "Vaulting Impact", "Vile Effusion", "Vivid Stampede", "Volatile Dead",
+          "Volcanic Eruption", "Volcanic Fissure", "Volcanic Steps", "Volcano", "Voltaic Fulmination",
+          "Voltaic Grenade", "Wave of Frost", "Whirling Assault", "Whirling Slash", "Whirlwind Lance",
+          "Wind Blast", "Wind Serpent's Fury", "Wing Blast"]
+  confidence: datamined
+  notes: >-
+    PoB makes a skill's damage Area damage from its stat set's baseFlags (CalcActiveSkill.lua 170-175: skillFlags is a
+    copy of statSet.baseFlags), not from this stat. Checked stat set by stat set: these skills' stat sets that carry
+    is_area_damage all have baseFlags area = true (checked: scratch/covc/flagcheck.py over PoB's Data/Skills; poe2db
+    shows "is area damage" on the same sets, Glacial Bolt's Wall). 17 skills carry the stat on a set without the flag
+    (Annihilation, Artillery, Battershout, Bitter Dead, Bone Shrapnel Explosion, Catalysing Discharge, Conductive
+    Runes, Falling Thunder, Fiery Reclamation, Flame Pillar, Flame Wall, Herald of Blood, Herald of the Royal Queen,
+    Midnight Zenith, Quill Burst, Tempest Flurry, Voltaic Barrier): left open, for MECH-B (area modifiers missed
+    there).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/CalcActiveSkill.lua 170-179",
+           "https://poe2db.tw/us/Glacial_Bolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-active-pob-projectile-flag
+  title: "Projectile flag: PoB sets it from the stat set's baseFlags.projectile"
+  kind: gem_stat
+  match: '^base_is_projectile$'
+  replace: []
+  stats: ["base_is_projectile"]
+  skill: ["Arc", "Armour Piercing Rounds", "Artillery", "Ball Lightning", "Ballista Bolt", "Bleeding Concoction",
+          "Bonestorm", "Bow Shot", "Caltrops", "Chaos Bolt", "Cluster Grenade", "Coiling Bolts", "Crossbow Shot",
+          "Detonating Arrow", "Electrocuting Arrow", "Elemental Expression", "Ember Fusillade",
+          "Empowered Sparks", "Escape Shot", "Essence Drain", "Explosive Concoction", "Explosive Grenade",
+          "Explosive Shot", "Explosive Spear", "Eye of Winter", "Falling Thunder", "Fireball", "Firebolt",
+          "Flash Grenade", "Fragmentation Rounds", "Freezing Salvo", "Freezing Shards", "Frost Darts",
+          "Frostbolt", "Fulminating Concoction", "Galvanic Shards", "Gas Arrow", "Gas Grenade", "Glacial Bolt",
+          "Glacial Lance", "Grenade", "Hailstorm Rounds", "High Velocity Rounds", "His Scattering Calamity",
+          "Ice Fragments", "Ice Shards", "Ice Shot", "Incendiary Shot", "Lightning Arrow", "Lightning Rod",
+          "Lightning Spear", "Magnetic Salvo", "Molten Blast", "Molten Shower", "Oil Barrage", "Oil Grenade",
+          "Permafrost Bolts", "Phantasmal Arrow", "Plasma Blast", "Poisonburst Arrow", "Projectile",
+          "Rain of Arrows", "Rapid Shot", "Requiem", "Rolling Magma", "Shattering Concoction",
+          "Shockburst Rounds", "Shockchain Arrow", "Siege Cascade", "Snipe", "Soaring Midnight", "Soulrend",
+          "Spark", "Spear Throw", "Spear of Solaris", "Spiral Volley", "Storm Lance", "Stormblast Bolts",
+          "Stormcaller Arrow", "Tornado Shot", "Toxic Growth", "Twister", "Vile Effusion", "Vine Arrow",
+          "Volcanic Eruption", "Volcano", "Voltaic Grenade", "Whirlwind Lance"]
+  confidence: datamined
+  notes: >-
+    As for Area: PoB's projectile flag comes from baseFlags only (CalcActiveSkill.lua 170-179; SkillType.Projectile
+    makes a skill a hit, not a projectile). These skills' sets carrying base_is_projectile have baseFlags projectile =
+    true (checked: scratch/covc/flagcheck.py). Left open: Acidic Concoction (one set without the flag), Coursing
+    Current, Mirror of Refraction, Runeforged Blades: PoB calculates them without projectile modifiers (MECH-B).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/CalcActiveSkill.lua 170-179",
+           "https://poe2db.tw/us/Glacial_Bolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-active-pob-totem-flag
+  title: "Totem flag: PoB takes it from the skill's totem types"
+  kind: gem_stat
+  match: '^is_totem$'
+  replace: []
+  stats: ["is_totem"]
+  skill: ["Ancestral Warrior Totem", "Artillery Ballista", "Dark Effigy", "Mortar Cannon", "Shockwave Totem",
+          "Siege Ballista", "Spell Totem"]
+  confidence: datamined
+  notes: >-
+    All 7 skills with is_totem have SkillType.SummonsTotem or baseFlags totem in PoB's skill data (checked:
+    scratch/covc/flagcheck.py), which is what PoB's totem calculation reads.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-active-pob-concoction-attack-time
+  title: "Concoctions' 0.714 s throw: PoB gets the same rate another way"
+  kind: gem_stat
+  match: '^main_hand_base_weapon_attack_duration_ms$'
+  replace: []
+  stats: ["main_hand_base_weapon_attack_duration_ms"]
+  skill: ["Acidic Concoction", "Bleeding Concoction", "Explosive Concoction", "Fulminating Concoction",
+          "Shattering Concoction"]
+  confidence: datamined
+  notes: >-
+    The game gives each Concoction a 714 ms base attack (1.40 a second). PoB throws them with the class's unarmed
+    weapon (Data.lua unarmedWeaponData, AttackRate 1.65; CalcOffence.lua 2527) and the skill's attackSpeedMultiplier
+    -15 (all 5, level 20): 1.65 x 0.85 = 1.4025 a second against 1/0.714 = 1.4006, 0.1% apart. Not covered here:
+    flask_throw_base_charges_used (5 Mana Flask charges a throw), which nothing reads: an overcount, planned in
+    COVC1's report for usage.py.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (ShatteringConcoctionPlayer etc.)",
+           "vendor/PathOfBuilding-PoE2/src/Modules/Data.lua 626-635"]
+  test_in_game: "Throw Shattering Concoction for 10 s with no attack speed modifiers: about 14 throws."
+  status: proposed
+
+
+# 2. Read by our models ----------------------------------------------------------------------------------------------
+
+
+- id: model-stats-glory-cost
+  title: "Glory a use costs (Glory model and usage.py)"
+  kind: model
+  model: glory
+  stats: ["active_skill_requires_X_glory"]
+  skill: ["Ancestral Cry", "Apocalypse", "Archon of Chayula", "Defiance Banner", "Dread Banner",
+          "Hammer of the Gods", "Skyfall", "Spear of Solaris", "Starborn Onslaught", "Walking Calamity",
+          "War Banner"]
+  confidence: datamined
+  notes: >-
+    models.GLORY_SKILLS holds each skill's cost from the game files (War, Defiance and Dread Banner 200; Ancestral
+    Cry, Apocalypse, Archon of Chayula 100; Hammer of the Gods, Spear of Solaris, Starborn Onslaught 20; Walking
+    Calamity 50; Skyfall 270), matching PoB's exported values; glory_uses turns it into uses a second
+    (assumptions.py). usage.py reads the stat for every gem through the bridge's usageRules. Zerphi's Infamy (a
+    support) is COV-E's.
+  sources: ["builder/search/models.py GLORY_SKILLS, glory_uses", "builder/search/usage.py GLORY"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: model-stats-glory-gain
+  title: "What builds each skill's Glory (Glory model)"
+  kind: model
+  model: glory
+  stats: ["active_skill_generates_mp_%_glory_per_attack_hit", "active_skill_generates_mp_%_glory_per_chaos_hit",
+          "active_skill_generates_mp_%_glory_per_elemental_hit", "active_skill_generates_mp_%_glory_per_freeze",
+          "active_skill_generates_mp_%_glory_per_heavy_stun", "active_skill_generates_mp_%_glory_per_ignite",
+          "active_skill_can_generate_glory_even_if_an_instance_of_this_skill_is_active"]
+  skill: ["Ancestral Cry", "Apocalypse", "Archon of Chayula", "Defiance Banner", "Dread Banner",
+          "Hammer of the Gods", "Spear of Solaris", "Starborn Onslaught", "War Banner"]
+  confidence: datamined
+  notes: >-
+    models.GLORY_SKILLS: each event gives the stat's 100% of the boss's monster Power (20) = 20 Glory (banners: attack
+    hits; Spear of Solaris and Starborn Onslaught: Freezes; Archon of Chayula: Chaos hits; Apocalypse: Elemental hits;
+    Hammer of the Gods: Heavy Stuns; Ancestral Cry: Ignites), events from the main skill (glory_events). The banners'
+    active_skill_can_generate_glory_even_if_an_instance_of_this_skill_is_active is what lets the model keep building
+    Glory while a banner stands, as it does. Undercounts the model labels: Glory from other skills' hits, increased
+    Glory generation.
+  sources: ["builder/search/models.py GLORY_SKILLS, glory_events"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: model-stats-wither-gems
+  title: "Withered from Wither and Chaos Bolt (Withered model)"
+  kind: model
+  model: wither
+  stats: ["active_skill_withered_base_duration_ms"]
+  skill: ["Chaos Bolt", "Wither"]
+  confidence: datamined
+  notes: >-
+    conditions.py WITHER_SKILL_STATS and WITHER_ON_HIT_SKILLS: the main skill's own Withered at its uses a second. His
+    Foul Emergence carries the stat too and stays open (its Withering Ground is described in conditions.py but not in
+    WITHER_ON_HIT_SKILLS).
+  sources: ["builder/search/conditions.py WITHER_SKILL_STATS"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: model-stats-rage-channel
+  title: "No Rage gained while channelling Rampage or Flame Breath (Rage model)"
+  kind: model
+  model: rage
+  stats: ["skill_cannot_gain_rage_during_use"]
+  skill: ["Flame Breath", "Rampage"]
+  confidence: datamined
+  notes: >-
+    conditions.py RAGE_PER_SECOND: the main skill's own hits gain no Rage while it is one of these two.
+  sources: ["builder/search/conditions.py RAGE_PER_SECOND, _rage_gain"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: model-stats-parry-consume
+  title: "Disengage consumes Parried for Frenzy Charges (Parry model)"
+  kind: model
+  model: parry
+  stats: ["consume_parry_debuff_on_hit_to_gain_X_frenzy_charges"]
+  skill: ["Disengage"]
+  confidence: datamined
+  notes: >-
+    models.PARRY_CONSUMERS: a main skill that consumes Parried gains on one hit per Parried. The Frenzied Riposte
+    support's copy is COV-E's.
+  sources: ["builder/search/models.py PARRY_CONSUMERS"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+
+# 3. Changes nothing the tool calculates ------------------------------------------------------------------------------
+
+
+- id: gem-active-no-effect-projectile-speed-variation
+  title: "Random spread of projectile speed"
+  kind: gem_stat
+  match: '^(active_skill_projectile_speed_\+%_variation_final|active_skill_projectile_speed_\+%_variation_final_if_multiple_projectiles)$'
+  replace: []
+  skill: ["Cluster Grenade", "Explosive Grenade", "Falling Thunder", "Flash Grenade", "Fragmentation Rounds",
+          "Galvanic Shards", "Gas Grenade", "Grenade", "Ice Shot", "Incendiary Shot", "Lightning Spear",
+          "Molten Blast", "Oil Grenade", "Permafrost Bolts", "Soulrend", "Toxic Growth", "Volcano",
+          "Voltaic Grenade"]
+  confidence: theory
+  notes: >-
+    A random spread of each projectile's travel speed (so a volley doesn't land at once). Projectile speed moves no
+    damage number in PoB or here; the average is the skill's own speed. (checked: no stat-description line in any .csd
+    of build 26476662; PoB src reads it nowhere outside the skill data; our code reads it nowhere; poe2db lists it as
+    a bare stat with no text.)
+  sources: ["data/game-26476662/files (stat descriptions)", "https://poe2db.tw/us/Glacial_Bolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-active-no-effect-projectile-spawn
+  title: "Where and which way a projectile spawns"
+  kind: gem_stat
+  match: '^(projectile_uses_contact_position|projectile_uses_contact_direction|maintain_projectile_direction_when_using_contact_position|check_for_targets_between_initiator_and_projectile_source|has_modular_projectiles_enabled)$'
+  replace: []
+  skill: ["Arc", "Armour Piercing Rounds", "Bonestorm", "Bow Shot", "Chaos Bolt", "Cluster Grenade",
+          "Coiling Bolts", "Crossbow Shot", "Detonating Arrow", "Electrocuting Arrow", "Ember Fusillade",
+          "Empowered Sparks", "Escape Shot", "Essence Drain", "Explosive Grenade", "Explosive Shot",
+          "Explosive Spear", "Falling Thunder", "Fireball", "Firebolt", "Flash Grenade", "Fragmentation Rounds",
+          "Freezing Salvo", "Freezing Shards", "Frost Darts", "Frostbolt", "Galvanic Shards", "Gas Arrow",
+          "Gas Grenade", "Glacial Bolt", "Glacial Lance", "Grenade", "Hailstorm Rounds", "High Velocity Rounds",
+          "His Scattering Calamity", "Ice Shards", "Ice Shot", "Incendiary Shot", "Lightning Arrow",
+          "Lightning Rod", "Lightning Spear", "Magnetic Salvo", "Molten Blast", "Oil Barrage", "Oil Grenade",
+          "Permafrost Bolts", "Phantasmal Arrow", "Plasma Blast", "Poisonburst Arrow", "Rain of Arrows",
+          "Rapid Shot", "Requiem", "Rolling Magma", "Runeforged Blades", "Shockburst Rounds", "Shockchain Arrow",
+          "Siege Cascade", "Snipe", "Spark", "Spear Throw", "Spear of Solaris", "Spiral Volley", "Storm Lance",
+          "Stormblast Bolts", "Stormcaller Arrow", "Tornado Shot", "Toxic Growth", "Vine Arrow",
+          "Voltaic Grenade", "Whirlwind Lance"]
+  confidence: theory
+  notes: >-
+    Engine settings for where a projectile is created (the weapon's contact point), its direction, a collision check
+    between you and that point, and the projectile system it uses. (checked: no stat-description line in any .csd of
+    build 26476662; PoB src reads it nowhere outside the skill data; our code reads it nowhere; poe2db lists it as a
+    bare stat with no text.)
+  sources: ["data/game-26476662/files (stat descriptions)", "https://poe2db.tw/us/Glacial_Bolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-active-no-effect-hit-effect
+  title: "Which hit effect plays"
+  kind: gem_stat
+  match: '^(damage_hit_effect_index)$'
+  replace: []
+  skill: ["Empowered Sparks", "Spark", "Wind Serpent's Fury"]
+  confidence: theory
+  notes: >-
+    Selects a visual hit effect (an index into the skill's effects). (checked: no stat-description line in any .csd of
+    build 26476662; PoB src reads it nowhere outside the skill data; our code reads it nowhere; poe2db lists it as a
+    bare stat with no text.)
+  sources: ["data/game-26476662/files (stat descriptions)", "https://poe2db.tw/us/Glacial_Bolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-active-no-effect-aiming-stance
+  title: "Crossbow aiming stance and input queueing"
+  kind: gem_stat
+  match: '^(action_allowed_queue_time_override_ms|action_can_be_used_in_aiming_stance|action_can_be_used_in_upward_aiming_stance|action_requires_aiming_stance|action_requires_upward_aiming_stance|can_be_used_instantly_in_any_set|cannot_cancel_skill_before_contact_point)$'
+  replace: []
+  skill: ["Ancestral Cry", "Arctic Howl", "Armour Piercing Rounds", "Basic Bolt", "Black Powder Blitz",
+          "Cluster Grenade", "Compose Requiem", "Crossbow Shot", "Emergency Reload", "Explosive Grenade",
+          "Explosive Shot", "Fangs of Frost", "Flash Grenade", "Fortifying Cry", "Fragmentation Rounds",
+          "Frost Bomb", "Galvanic Shards", "Gas Grenade", "Glacial Bolt", "Grenade", "Hailstorm Rounds",
+          "High Velocity Rounds", "His Winnowing Flame", "Ice Shards", "Incendiary Shot", "Infernal Cry",
+          "Load Armour Piercing Rounds", "Load Explosive Shot", "Load Fragmentation Rounds",
+          "Load Galvanic Shards", "Load Glacial Bolt", "Load Hailstorm Rounds", "Load High Velocity Rounds",
+          "Load Ice Shards", "Load Incendiary Shot", "Load Permafrost Bolts", "Load Plasma Blast",
+          "Load Rapid Shot", "Load Shockburst Rounds", "Load Siege Cascade", "Load Stormblast Bolts",
+          "Oil Grenade", "Permafrost Bolts", "Plasma Blast", "Rapid Shot", "Reap", "Requiem", "Seismic Cry",
+          "Shockburst Rounds", "Siege Cascade", "Stormblast Bolts", "Time Freeze", "Voltaic Grenade",
+          "Whirling Assault"]
+  confidence: theory
+  notes: >-
+    How the skill is used: in the crossbow's aiming stance (upward for the bombard ammunition), how long an input is
+    queued, use from either weapon set, and not cancelling before the hit. PoB and the tool assume each use runs its
+    full attack or cast time anyway. (checked: no stat-description line in any .csd of build 26476662; PoB src reads
+    it nowhere outside the skill data; our code reads it nowhere; poe2db lists it as a bare stat with no text.)
+  sources: ["data/game-26476662/files (stat descriptions)", "https://poe2db.tw/us/Glacial_Bolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-active-no-effect-channel-lock
+  title: "Whether a channel's start lock scales with speed"
+  kind: gem_stat
+  match: '^(channel_start_lock_cancelling_scales_with_cast_speed|channel_start_lock_cancelling_scales_with_attack_speed)$'
+  replace: []
+  skill: ["Bonestorm", "Flameblast", "Hollow Form", "Snipe", "Supercharged Slam", "Volcano"]
+  confidence: theory
+  notes: >-
+    When a channel may be cancelled during its start-up. Not the start-up length itself
+    (channel_start_duration_as_%_of_*: left open). (checked: no stat-description line in any .csd of build 26476662;
+    PoB src reads it nowhere outside the skill data; our code reads it nowhere; poe2db lists it as a bare stat with no
+    text.)
+  sources: ["data/game-26476662/files (stat descriptions)", "https://poe2db.tw/us/Glacial_Bolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-active-no-effect-reach
+  title: "Targeting reach, dash range, totem placement range"
+  kind: gem_stat
+  match: '^(attack_maximum_action_distance_\+|base_melee_dash_range|base_totem_range)$'
+  replace: []
+  skill: ["Ancestral Warrior Totem", "Artillery Ballista", "Blood Hunt", "Crushing Fear", "Cull the Weak",
+          "Dark Effigy", "Devour", "Disengage", "Forge Hammer", "Frozen Locus", "Gathering Storm",
+          "Hand of Chayula", "Ice Strike", "Killing Palm", "Molten Blast", "Mortar Cannon", "Rake", "Rend",
+          "Righteous Descent", "Rolling Slam", "Shattering Palm", "Shockwave Totem", "Shred", "Siege Ballista",
+          "Siphoning Strike", "Spear of Solaris", "Spearfield", "Spell Totem", "Staggering Palm", "Stampede",
+          "Starborn Onslaught", "Sunder", "Tempest Flurry", "Thunderous Leap", "Vaulting Impact",
+          "Wave of Frost", "Whirling Assault"]
+  confidence: theory
+  notes: >-
+    How far the skill reaches to its target, dashes to it, or places a totem. The tool's boss stands in reach;
+    distance-scaled damage has its own stats (base_additional_damage_from_distance_+%_final: left open). (checked: no
+    stat-description line in any .csd of build 26476662; PoB src reads it nowhere outside the skill data; our code
+    reads it nowhere; poe2db lists it as a bare stat with no text.)
+  sources: ["data/game-26476662/files (stat descriptions)", "https://poe2db.tw/us/Glacial_Bolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-active-no-effect-ui
+  title: "Interface only"
+  kind: gem_stat
+  match: '^(hide_minion_frame|disable_quadruped_head_movement_when_turning)$'
+  replace: []
+  skill: ["Align Fate", "Animus Splinters", "Feral Invocation", "Ferocious Roar", "Flame Breath", "Furious Slam",
+          "Fury of the Mountain", "Hollow Form", "Kelari, the Tainted Sands", "Maul", "Navira, the Last Mirage",
+          "Rampage", "Ruzhan, the Blazing Sword", "Void Illusion", "Walking Calamity"]
+  confidence: theory
+  notes: >-
+    Whether a minion's health frame shows, and an animation setting. (checked: no stat-description line in any .csd of
+    build 26476662; PoB src reads it nowhere outside the skill data; our code reads it nowhere; poe2db lists it as a
+    bare stat with no text.)
+  sources: ["data/game-26476662/files (stat descriptions)", "https://poe2db.tw/us/Glacial_Bolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+- id: gem-active-no-effect-trigger-any-set
+  title: "Triggerable from either weapon set"
+  kind: gem_stat
+  match: '^(triggerable_in_any_set)$'
+  replace: []
+  skill: ["Accelerated Growth", "Ancestral Spirits", "Blood Explosion", "Combust", "Crash Lightning", "Crater",
+          "Dark Consequences", "Deadly Resolve", "Empowered Sparks", "Falling Blade", "Freezing Explosion",
+          "Gale Force", "Hailstorm", "Ice Fragments", "Living Lightning", "Manifest Rune", "Meteor", "Meteors",
+          "Moonbeam", "Predator's Mark", "Repulsion Wave", "Shield Wave", "Starfall", "Static Shocks",
+          "Summon Wolf", "Transmutation Explosion", "Volcanic Eruption", "Voltaic Fulmination"]
+  confidence: theory
+  notes: >-
+    Lets a triggered skill fire while the other weapon set is out. The tool calculates triggers without weapon-set
+    swaps, so this changes nothing calculated. (checked: no stat-description line in any .csd of build 26476662; PoB
+    src reads it nowhere outside the skill data; our code reads it nowhere; poe2db lists it as a bare stat with no
+    text.)
+  sources: ["data/game-26476662/files (stat descriptions)", "https://poe2db.tw/us/Glacial_Bolt"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
