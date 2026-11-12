@@ -419,6 +419,7 @@ class Assumptions:
         early_mods, early_notes = models.hazard_early_model(found, stats, forbidden)  # (MECH-B: hazards set off early)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
         hand_notes = hand_notes + models.channel_windup_note(main)  # (MECH-B: a channel's wind-up, labelled, not counted)
+        hand_notes = hand_notes + models.orb_of_storms_note(main, stats)  # (MECH-B: Orb of Storms' recast bolt, labelled)
         warcries = {s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")
             echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries, models.support_part_scale)

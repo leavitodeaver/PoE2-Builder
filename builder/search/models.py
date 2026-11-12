@@ -4011,3 +4011,38 @@ def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_typ
                                   "bigger (COV-A)" if damage > 1 else ""),
                       "confidence": "MEDIUM"})
     return mods, notes
+
+
+# Orb of Storms as the main skill (MECHB6; COVC9's finding, FIX_QUEUE "MECHB5's and COVC9's findings") -------------------
+# The game (ActiveSkills orb_of_storms, OrbOfStormsPlayer's constant stats, build 26476662; poe2db's gem page): "Fires a
+# bolt every 4 seconds, and when you cast a Spell near the Orb" (orb_of_storms_base_bolt_frequency_ms 4000), "Limit 1 Orb
+# of Storms" (orb_of_storms_base_maximum_number_of_orbs 1), 12 s duration (base_skill_effect_duration 12000), "Orb expires
+# after firing 6 bolts" (orb_of_storms_maximum_number_of_hits 6: our stat descriptions have no text for it, poe2db's page
+# does, MEDIUM). The cast itself deals no hit; PoB prices each cast as one bolt (no statMap, no module reads the skill:
+# COVC9's grep). What a recast does is not in any source: whether casting a new Orb is "a Spell cast near" the old one, and
+# whether the old one is gone first (UNVERIFIED either way). With it, each cast fires one bolt from the orb it replaces,
+# and the 6-bolt cap never binds (one bolt per orb): PoB's count. Without it, the orb fires on its timer only: 3 bolts
+# per 12 s orb (at 4, 8, 12 s; the 12 s one at the edge, so 2-3), plus the recast. The headline keeps PoB's count (no
+# zero or cut on an unverified point, CLAUDE.md rule 5) and the note gives the rate without it; the in-game check is
+# held for the user. Bolts from other spells cast near the orb (Orb as a side skill) aren't counted: an undercount.
+ORB_OF_STORMS = "Orb of Storms"
+ORB_BOLT_EVERY, ORB_DURATION, ORB_MAX_BOLTS = 4.0, 12.0, 6
+
+
+def orb_of_storms_note(main: Skill | None, stats: dict) -> list[dict]:
+    """A labelled note on Orb of Storms as the main skill: PoB's one bolt per cast holds only if recasting fires a bolt."""
+    if main is None or main.name != ORB_OF_STORMS:
+        return []
+    casts = number(stats.get("Speed"))
+    if casts <= 0:
+        return []
+    timer_bolts = min(ORB_MAX_BOLTS, int(ORB_DURATION // ORB_BOLT_EVERY))
+    without = timer_bolts / (ORB_DURATION + 1 / casts)
+    return [{"label": "Orb of Storms: bolts per second (one per cast, as PoB counts)*",
+             "value": f"{casts:.2f}/s (without a bolt on recast: {without:.2f}/s, {without / casts:.0%} of the DPS)",
+             "basis": "the Orb fires a bolt every 4 s and when you cast a Spell near it, one Orb at a time, 12 s, at most "
+                      "6 bolts (game files; poe2db). Kept: each recast fires one bolt from the Orb it replaces (UNVERIFIED: "
+                      f"no source says whether a recast counts as a Spell cast near the old Orb). Without it, {timer_bolts} "
+                      f"timer bolts per {ORB_DURATION:g} s Orb plus the recast: {without:.2f} bolts/s. Bolts fed by other "
+                      "spells cast near the Orb aren't counted (an undercount when it's a side skill)",
+             "confidence": "UNVERIFIED"}]

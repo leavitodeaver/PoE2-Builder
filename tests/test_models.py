@@ -2477,3 +2477,12 @@ def test_a_triggered_spells_total_cast_time_addition_counts_double_in_its_energy
     assert models.energy_cost(crushing) == pytest.approx(400) and 400 < models.INVOCATION_MAX_ENERGY
     gain, how = models.energy_gain("Spellslinger", {"Speed": 1}, "Comet", comet)
     assert gain == pytest.approx(0.2 * 3.0 * 100) and "counted double" in how
+
+
+def test_orb_of_storms_keeps_one_bolt_per_cast_and_says_the_rate_without_a_recast_bolt():
+    """MECHB6 (COVC9): one bolt per cast holds only if recasting fires a bolt (UNVERIFIED): the headline keeps it, and
+    the note gives the timer-only rate, 3 bolts per 12 s Orb plus the recast."""
+    assert models.orb_of_storms_note(Skill("Spark"), {"Speed": 2}) == []
+    note = models.orb_of_storms_note(Skill("Orb of Storms", spell=True), {"Speed": 2.0})[0]
+    assert note["confidence"] == "UNVERIFIED" and "2.00/s" in note["value"]
+    assert f"{3 / 12.5:.2f}/s" in note["value"]
