@@ -20,13 +20,21 @@ def kinds(rule: dict) -> list[str]:
     return [r.kind for r in requirements("gem", rule)]
 
 
-def test_requirements_come_from_pobs_usage_markers():
+def test_requirements_come_from_pobs_usage_markers(monkeypatch):
     glory = requirements("Zerphi's Infamy", ZERPHI)
     assert [(r.kind, r.amount, r.rate) for r in glory] == [("glory from life", 50, 0.05)]
     assert kinds({"addsUsageCondition": True, "stats": {}}) == ["never"]  # a usage condition with no stat naming it
     assert kinds({"addsUsageCondition": True,
                   "stats": {"support_combo_finisher_required_number_of_combo_stacks": 3}}) == ["combo"]
-    assert kinds({"usageCondition": True, "stats": {"active_skill_requires_X_glory": 200}}) == ["never"]  # a banner
+    assert kinds({"usageCondition": True, "stats": {"active_skill_requires_X_glory": 200}}) == ["never"]  # a Glory skill
+    # A banner (COVC8): the Glory gate is on the placed banner, so the reserved banner isn't barred
+    banner = {"placedUsageCondition": True, "placed": ["active_skill_requires_X_glory"],
+              "stats": {"active_skill_requires_X_glory": 200, "active_skill_generates_mp_%_glory_per_attack_hit": 100}}
+    assert kinds(banner) == ["placed banner"]
+    usage = Usage(FakeBuild({"War Banner": banner}, {}), FakeConditions())
+    monkeypatch.setattr("builder.search.usage._RULES", None)
+    monkeypatch.setattr(Usage, "talisman_blockers", lambda self, name: [])
+    assert usage.blockers("War Banner") == []
     staff = requirements("Charged Staff", {"usageCondition": True, "stats": {"active_skill_requires_X_power_charges": 1}})
     assert [(r.kind, r.vars) for r in staff] == [("charges", ("usePowerCharges",))]
     totem = requirements("Spell Totem", {"stats": {"active_skill_requires_X_power_or_endurance_charges": 3}})
@@ -231,7 +239,12 @@ def test_pob_marks_the_gems_that_cant_be_used_at_will(engine):
     # AUDIT7 A7-3: the socketed-Shapeshift stats are their own flag, not an exemption
     for name in ("Spirit Vessel", "Feral Invocation"):
         assert rules[name].get("socketedFormFree") and not rules[name].get("talismanExempt"), name
-    assert rules["War Banner"].get("usageCondition")  # on the placed banner, the gem's second effect
+    # COVC8: the Glory gate and usage condition are the placed banner's (the gem's second effect), not the reservation's
+    for name in ("War Banner", "Dread Banner", "Defiance Banner"):
+        assert rules[name].get("placedUsageCondition") and not rules[name].get("usageCondition"), name
+        assert "active_skill_requires_X_glory" in rules[name]["placed"], name
+        assert rules[name]["stats"]["active_skill_requires_X_glory"] == 200, name  # (the GlorySkill condition reads it)
+        assert [r.kind for r in requirements(name, rules[name])] == ["placed banner"], name
     assert "Rapid Attacks II" not in rules
 
 

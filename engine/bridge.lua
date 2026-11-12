@@ -3073,17 +3073,28 @@ function bridge.usageRules()
 			local stats = setmetatable({ }, { __jsontype = "object" })
 			local rule = { stats = stats }
 			local found = false
-			-- A banner's Glory gate is on its second effect (the placed banner), not the reservation
+			-- A banner's Glory gate is on its second effect (the placed banner), not the reservation. The stats and
+			-- usage condition of a Banner-type effect after the gem's first one are also listed in rule.placed
+			-- (usage.py "placed banner"; COVC8): they gate placing the banner, not the reserved one. stats keeps
+			-- them too (the GlorySkill ledger condition reads it). PoB counts the placed banner's buff only with
+			-- the config condition BannerPlanted, which the tool never sets
 			local effects = { gem.grantedEffect }
 			for _, additional in ipairs(gem.additionalGrantedEffects or { }) do
 				effects[#effects + 1] = additional
 			end
-			for _, effect in ipairs(effects) do
+			for index, effect in ipairs(effects) do
+				local placed = index > 1 and effect.skillTypes and effect.skillTypes[SkillType.Banner]
+				if placed then
+					rule.placed = rule.placed or { }
+				end
 				for _, statSet in ipairs(effect.statSets or { }) do
 					for _, stat in ipairs(statSet.constantStats or { }) do
 						for _, word in ipairs(USAGE_STAT_WORDS) do
 							if type(stat[1]) == "string" and stat[1]:find(word, 1, true) then
 								stats[stat[1]] = stat[2]
+								if placed then
+									rule.placed[#rule.placed + 1] = stat[1]
+								end
 								found = true
 							end
 						end
@@ -3122,7 +3133,11 @@ function bridge.usageRules()
 					end
 				end
 				if effect.skillTypes and effect.skillTypes[SkillType.HasUsageCondition] then
-					rule.usageCondition = true
+					if placed then
+						rule.placedUsageCondition = true
+					else
+						rule.usageCondition = true
+					end
 					found = true
 				end
 				for _, skillType in ipairs(effect.addSkillTypes or { }) do

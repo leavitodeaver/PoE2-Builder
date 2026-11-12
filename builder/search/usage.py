@@ -57,6 +57,20 @@ sustainable source for what a use needs:
   uses: the Combo skill's own Strikes building its next use, Combo from several hits of one use and the chance-based
   extra Combo (additional_combo_gain_chance_%: Practiced Combo, 7 passives, 3 mods) (checked: every game-table row
   holding a Stats id with "combo", scratch/covc5/where.py; RULE_AUDIT row 12 lists the same carriers)
+- a banner's placed effect (Requirement kind "placed banner", never a blocker; COVC8, COVC7's find). War, Dread and
+  Defiance Banner (the three banners; checked: PoB Data/Skills SkillType.Banner, and the game's ActiveSkills ids
+  holding "banner": the same three, each with a _reservation twin) are two effects (PoB: WarBannerReservationPlayer etc., HasReservation and Persistent, which "While
+  active, Attacking enemies builds Glory", and WarBannerPlayer etc., the placed banner, with HasUsageCondition and
+  active_skill_requires_X_glory 200). The Glory gate is the placed banner's only: bridge usageRules lists that effect's
+  stats in `placed` and its usage condition as `placedUsageCondition`, so the reserved banner is allowed (offered as a
+  Spirit skill) and placing it is a note. No overcount: PoB applies the placed banner's buff (its Armour / Evasion,
+  Attack damage / speed, ailment threshold / resistances ... mods, the Valour multiplier, the ModParser "placed banners
+  also ..." lines) only under the condition BannerPlanted, which only PoB's config option "Is Banner Planted?" sets
+  (ConfigOptions.lua 260), and the tool never sets it (checked: grep BannerPlanted / bannerPlanted / BannerValour in
+  PoB src: SkillStatMap, CalcPerform 1243, ConfigOptions 261 and ModParser 5796-5798, each gated by or setting that
+  condition; grep in builder/, engine/, ledger/: none). The reserved effect's own stat set holds base_deal_no_damage only,
+  so PoB counts the banner at nothing today: the placed buff at its Glory uptime (models.glory_uses) is an UNDERCOUNT
+  routed to MECH-C (buffs with uptimes)
 - everything else (Glory a skill builds from its own hits, standing still, recent blocks, Volatility,
   ...): never, since the skill wouldn't be used at the rate PoB calculates
 
@@ -134,7 +148,7 @@ _RULES: dict[str, dict] | None = None  # PoB's gem data doesn't change within a 
 
 @dataclass(frozen=True)
 class Requirement:
-    kind: str  # "charges", "glory from life", "flask", "combo", "travel" or "never"
+    kind: str  # "charges", "glory from life", "flask", "combo", "travel", "placed banner" (never blocks) or "never"
     label: str  # what a use needs, for notes and tests
     amount: float = 0.0
     rate: float = 0.0  # Glory per Life spent (fraction), or the share of flask charges a use takes
@@ -145,9 +159,16 @@ class Requirement:
 def requirements(name: str, rule: dict) -> list[Requirement]:
     """What a use of this gem needs, from its bridge `usageRules` entry."""
     stats = rule.get("stats") or {}
+    placed = set(rule.get("placed") or [])  # (a banner's placed effect: module docstring)
     found = []
     for stat, value in stats.items():
         if IGNORED.search(stat) or stat == FLASK_THROW:
+            continue
+        if stat in placed:
+            if REQUIRED.search(stat):
+                found.append(Requirement("placed banner", f"placing the banner: {stat.replace('_', ' ')} "
+                                         f"{number(value):g} (not counted: PoB's BannerPlanted is never set)",
+                                         number(value)))
             continue
         if m := CHARGES.search(stat):
             kind = m.group(1)
@@ -168,7 +189,8 @@ def requirements(name: str, rule: dict) -> list[Requirement]:
                                      number(value)))
         elif REQUIRED.search(stat):
             found.append(Requirement("never", f"{stat.replace('_', ' ')} {number(value):g}", number(value)))
-    if (rule.get("usageCondition") or rule.get("addsUsageCondition")) and not found:
+    if (rule.get("usageCondition") or rule.get("addsUsageCondition")) and not any(r.kind != "placed banner"
+                                                                                for r in found):
         found.append(Requirement("never", "a usage condition PoB doesn't model (e.g. standing still, recent blocks)"))
     if name in THROW_CHARGES:
         found.append(Requirement("flask throw", f"{THROW_CHARGES[name]:g} {THROW_POOL} Flask charges per throw (3 in one "
@@ -211,6 +233,8 @@ class Usage:
             stats = self.build.call("stats", fields=FIELDS)
         blocked = []
         for need in needs:
+            if need.kind == "placed banner":
+                continue  # (the reserved banner is used at will; its placed buff isn't counted)
             if need.kind == "combo":
                 blocked.append(f"{name}: {need.label}, {self.combo_reason(name, need.amount)}")
             elif need.kind == "flask throw":
