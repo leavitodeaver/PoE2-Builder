@@ -475,3 +475,53 @@ def slot_pool(slot: str) -> str | None:
 
 def is_flask_slot(slot: str) -> bool:
     return slot in FLASK_SLOTS or slot in CHARM_SLOTS
+
+
+# Flags one of several slots sets (MECHC10, task 1; an OVERCOUNT in Search.weigh_uptimes): PoB sets UsingFlask whenever
+# any Life or Mana flask slot is active (CalcPerform mergeFlasks, 1726) and UsingCharm whenever any charm slot is
+# (mergeCharms, 1845). Lines "during any Flask Effect" / "while using a Flask" / "while you have an active Charm" ride on
+# them (ModParser 1874-1878), from the tree (Stimulants, Imbibed Power, Crystal Elixir, Heavy Draught, Lucky Rabbit Foot,
+# Efficient Alchemy), jewel affixes (JewelCharmDamageWhileUsing, its radius version), essences and uniques (checked:
+# game files build 26476662, every Stats id holding during_flask_effect / while_using_flask / during_any_flask /
+# while_using_charm / using_flask / using_charm, non-local, against Mods.json and PassiveSkills.json; second source:
+# PoB's ModCache, 48 lines on these flags). weigh_uptimes switches one part-time slot off at a time and multiplies the
+# shares: with two part-time flasks (or charms) the other slot keeps the flag up in every off case, so the lines on the
+# flag count whole, never at the share both are down. Charms never set UsingFlask nor flasks UsingCharm (KeywordPopups
+# "Charm": "Similar to Flasks", a separate kind; the game's stats are separate, using_flask / using_charm).
+SHARED_FLAGS = {"UsingFlask": tuple(FLASK_SLOTS), "UsingCharm": tuple(CHARM_SLOTS)}
+
+
+def shared_flag_groups(part_time: dict) -> dict[str, list[str]]:
+    """flag -> the part-time slots (`part_time`: slot -> anything, Gear.part_time's keys) that set it, where two or
+    more do (one alone is weighed right already: its off case drops the flag)."""
+    out = {}
+    for flag, slots in SHARED_FLAGS.items():
+        group = [slot for slot in slots if slot in part_time]
+        if len(group) >= 2:
+            out[flag] = group
+    return out
+
+
+def shared_flag_factor(ups: list[float], ratios: list[float], none_ratio: float) -> tuple[float, str]:
+    """The multiplier to put on weigh_uptimes' product for one group of part-time slots sharing a flag: `ups` each
+    slot's share of the fight, `ratios` DPS with that slot alone off / with all on, `none_ratio` DPS with the whole
+    group off / with all on (one more recalculation). The product gives the all-off case the product of the single
+    ratios; the true all-off case also drops the shared flag. Exact for two slots taken as used independently:
+    product + prod(1 - u) x (none_ratio - prod(ratios)), returned as a factor on the product (with three, cases with
+    one slot still up keep the flag, as they should, and are multiplied out as the other effects are).
+    Labelled: the slots are taken as independent (the flag up 1 - prod(1 - u) of the fight). A player who staggers
+    them (one used as the other ends) holds the flag up to min(1, sum u) of the fight: the upper bound, named in the
+    note; charges and missing Life decide when a flask can be used, so the lower figure counts (accuracy first)."""
+    product, ratio_product, down = 1.0, 1.0, 1.0
+    for up, ratio in zip(ups, ratios):
+        product *= up + (1.0 - up) * ratio
+        ratio_product *= ratio
+        down *= 1.0 - up
+    if product <= 0:
+        return 1.0, ""
+    exact = max(product + down * (none_ratio - ratio_product), 0.0)
+    flag_up = 1.0 - down
+    note = (f"the slots' shared flag up {flag_up:.0%} of the fight taken as independent uses "
+            f"(staggered uses: up to {min(1.0, sum(ups)):.0%}), not 100% (DPS with every one of them off x"
+            f"{none_ratio:.3f}, the singles' product x{ratio_product:.3f})")
+    return exact / product, note

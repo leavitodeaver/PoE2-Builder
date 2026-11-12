@@ -1570,3 +1570,31 @@ def test_critical_hit_chance_that_cannot_be_rerolled_drops_lucky_crit(engine):
     assert held == pytest.approx(plain)
     # off again with the line gone
     assert wear("Gloves", "Fine Bracers", []) == pytest.approx(lucky)
+
+
+def test_either_flask_keeps_pobs_using_flask_lines_on(engine):
+    """MECHC10 (task 1): PoB sets UsingFlask while ANY flask slot is active, so a "during any Flask Effect" line survives
+    one of two part-time flasks switched off; weigh_uptimes, switching one slot off at a time, never sees it drop.
+    flasks.shared_flag_factor takes the both-off case back in (here each flask adds nothing of its own)."""
+    from builder.search import flasks
+
+    build = spark_with(engine, []).build
+    amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                           "40% increased Damage during any Flask Effect"])
+    life = chr(10).join(["Rarity: Normal", "Ultimate Life Flask", "Item Level: 82", "Implicits: 0"])
+    mana = chr(10).join(["Rarity: Normal", "Ultimate Mana Flask", "Item Level: 82", "Implicits: 0"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    dps = lambda: build.call("stats", fields=["CombinedDPS"])["CombinedDPS"]
+
+    def flasks_on(one: bool, two: bool) -> float:
+        build.call("equip", slot="Flask 1", raw=life, active=one, fields=[])
+        build.call("equip", slot="Flask 2", raw=mana, active=two, fields=[])
+        return dps()
+
+    both = flasks_on(True, True)
+    assert both > 0
+    one_off, two_off, none = flasks_on(False, True) / both, flasks_on(True, False) / both, flasks_on(False, False) / both
+    assert one_off == pytest.approx(1.0) and two_off == pytest.approx(1.0)  # the other flask keeps the line
+    assert none < 0.95  # the line goes only with both off
+    factor, note = flasks.shared_flag_factor([0.5, 0.5], [one_off, two_off], none)
+    assert factor == pytest.approx(0.75 + 0.25 * none) and factor < 1.0 and "75%" in note

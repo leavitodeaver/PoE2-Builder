@@ -3079,3 +3079,23 @@ def test_every_boss_preset_has_a_moving_ceiling_and_the_king_s_dashes_share_one_
     assert all(0 <= s < 1 for s in bosses.MOVING_CEILING.values())
     assert bosses.moving_ceiling({"_boss": "The King in the Mists"})[0] == pytest.approx(0.43 / 6 * 0.5, abs=0.001)
     assert "upper bound" in bosses.moving_ceiling()[1]
+
+
+def test_two_part_time_flasks_share_the_using_flask_flag():
+    """MECHC10: lines on PoB's UsingFlask / UsingCharm (any one active slot sets them) count at the share some slot is
+    up, not whole, when two or more slots are part-time (weigh_uptimes switches one off at a time)."""
+    from builder.search import flasks
+    assert flasks.shared_flag_groups({"Flask 1": 0, "Charm 2": 0}) == {}
+    assert flasks.shared_flag_groups({"Flask 1": 0, "Flask 2": 0, "Charm 1": 0, "Charm 3": 0}) == {
+        "UsingFlask": ["Flask 1", "Flask 2"], "UsingCharm": ["Charm 1", "Charm 3"]}
+    # Each flask alone adds nothing of its own; together they hold a +25% damage line (r = 0.8 with both off)
+    factor, note = flasks.shared_flag_factor([0.5, 0.5], [1.0, 1.0], 0.8)
+    # true: flag up 75%: 0.75 + 0.25 x 0.8 = 0.95; the product said 1.0
+    assert factor == pytest.approx(0.95) and "75%" in note and "100%" in note
+    # no shared line (the all-off case is the product of the singles): no change
+    assert flasks.shared_flag_factor([0.3, 0.6], [0.9, 0.7], 0.63)[0] == pytest.approx(1.0)
+    # exact against the four cases for two slots with their own lines and a shared one
+    ua, ub, ra, rb, r0 = 0.4, 0.7, 0.9, 0.95, 0.7
+    exact = ua * ub + ua * (1 - ub) * rb + (1 - ua) * ub * ra + (1 - ua) * (1 - ub) * r0
+    product = (ua + (1 - ua) * ra) * (ub + (1 - ub) * rb)
+    assert product * flasks.shared_flag_factor([ua, ub], [ra, rb], r0)[0] == pytest.approx(exact)
