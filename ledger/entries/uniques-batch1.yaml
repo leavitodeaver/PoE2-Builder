@@ -188,7 +188,13 @@
     PoB ignores the line). Bosses take 50% less Slow effect (KeywordPopups Slow).
   sources: ["data/game-26476662/tables/KeywordPopups.json (SlowMagnitudeModifier, Slow)", "https://poe2db.tw/us/The_Prisoners_Manacles"]
   test_in_game: "Not needed for the numbers; in game, a slowed boss's attacks come visibly slower."
-  status: proposed
+  status: retired
+  retired_note: >-
+    Retired (COVD7, AUDIT6 A6-1): the line is not "no effect". Chill is an Ailment and so a Debuff that Slows, and
+    its one magnitude is its Slow (KeywordPopups SlowMagnitudeModifier, Chill, Ailments), so the line raises Chill's
+    magnitude. passives-batch1.yaml passives-slow-magnitude-chill (COVB4, 7ddc03b) owns both the passive form and
+    the unique's "(12-30)%" range form and translates it to Chill magnitude; this entry zeroed The Prisoner's
+    Manacles' and Grip of Kulemak's lines wherever it matched first (an undercount).
 
 - id: uniques-abyssal-wasting-duration
   title: Grip of Kulemak, Abyssal Wasting you inflict has Infinite Duration
