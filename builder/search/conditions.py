@@ -766,6 +766,22 @@ CHARGE_OVERRIDES = {f"override{kind}Charges": kind for kind in ("Power", "Frenzy
 # taken as steady (its 4 s lag isn't modelled) and capped by the spend.
 RAGE_PAUSE, RAGE_DECAY, RAGE_HIT_EVERY = 4.0, 5.0, 0.5
 RAGE_NO_LOSS = re.compile(r"^No Inherent loss of Rage(?: during effect)?$", re.I)  # Blood of the Warrior (MECHC4)
+# Rage lost all at once (MECHC11; COVE11's two OVERCOUNTS: PoB maps the Rage held and none of these losses):
+# - Prototype Seventeen: lose_%_of_maximum_rage_on_dealing_critical_strike 100 with the supported skill (its stat set
+#   SupportPrototypeSeventeenPlayer, with 20% increased crit chance per 5 Rage; checked: the stat over every list column
+#   of GrantedEffectStatSets, Mods' Stat1-6 and PassiveSkills' Stats, game 26476662: no other carrier). Read from the
+#   main skill's supports (RAGE_LOST_ON_CRIT_STAT). The Rage between crits: crits come at random (C/s), so the time
+#   since the last one is exponential and the Rage held averages (G / C) (1 - e^(-C M / G)) for net gain G, maximum M
+#   (the inherent loss inside a gap not taken off: an upper bound). Crits read at the Rage PoB held when the stats were
+#   read (MEDIUM: fewer crits at less Rage, so a little more Rage). On a skill other than the main one: not read (its
+#   crit rate isn't known; labelled in the stat's absence, an overcount left only there).
+# - "Lose all Rage on reaching Maximum Rage" (UniqueLoseRageOnMaximumRage1, HandWrapsUniqueLoseRageOnMaximumRage1;
+#   PoB parses it to nothing, ModCache): a build that would reach the maximum climbs 0 -> M and drops back, M / 2 on
+#   average (gains taken as steady, LOW: lumpy gains of a large share of M sit lower); one that never reaches it keeps
+#   its level. The line's "Gain a random Charge on reaching Maximum Rage, no more than once every 6 seconds" isn't
+#   counted (an undercount).
+RAGE_LOST_ON_CRIT_STAT = "lose_%_of_maximum_rage_on_dealing_critical_strike"
+RAGE_RESET_AT_MAX = re.compile(r"lose all rage on reaching maximum rage", re.I)
 RAGE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\bgain (\d+|an?)? ?Rage\b(.*)$", re.I)
 RAGE_REGEN = re.compile(r"\bregenerate (\d+(?:\.\d+)?)(%)?(?: of your maximum)? Rage per second(.*)$|"
                         r"\b1 Rage Regenerated for every", re.I)
@@ -912,6 +928,20 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
                    if burn > 0 else "")
         basis += (f", one gain every {gap:.1f} s of {level:.0f} Rage held {pause:.2g} s, then lost {decay:.2g}/s while no "
                   f"boss hit ({land:.2f}/s landing){burning} paused it ({rate:.2g}/s on average): {held:.1f} on average")
+    if held > 0 and (lost := number(stats.get("_main_rage_lost_on_crit"))) > 0:
+        crits = models.crits_per_second(stats)
+        if crits > 0 and net > 0:
+            between = (net / crits) * (1 - math.exp(-crits * most / net)) * min(lost, 100) / 100 + held * (
+                1 - min(lost, 100) / 100)
+            if between < held:
+                held = between
+                basis += (f"; the main skill loses {lost:g}% of maximum Rage on each Critical Hit ({crits:.2f}/s, "
+                          f"Prototype Seventeen): {between:.1f} held between crits on average")
+    if held > 0 and most > 0 and any(RAGE_RESET_AT_MAX.search(t) for t in lines) and (
+            held >= most or (net > 0 and events > 0 and net / events >= most)):
+        held = most / 2
+        basis += (f"; all Rage is lost on reaching the maximum (a line of the build): it climbs to {most:g} and drops "
+                  f"back, {held:g} on average (gains taken as steady, LOW)")
     held = float(int(held))
     return held, f"{basis} = {held:.0f} held, at most {most:g}: " + "; ".join(how[:3])
 
@@ -2720,6 +2750,15 @@ class Conditions:
             if number((main.get("supportStats") or {}).get(NO_BLIND_STAT)) or number(
                     (main.get("levelStats") or {}).get(NO_BLIND_STAT)):
                 stats["_main_no_blind"] = NO_BLIND_STAT
+
+        if any(re.search(r"Rage", t) for t in texts):
+            # Prototype Seventeen on the main skill (MECHC11): its Rage is lost on each crit (rage_held)
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[RAGE_LOST_ON_CRIT_STAT])
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            lost = number((main.get("supportStats") or {}).get(RAGE_LOST_ON_CRIT_STAT)) or number(
+                (main.get("levelStats") or {}).get(RAGE_LOST_ON_CRIT_STAT))
+            if lost:
+                stats["_main_rage_lost_on_crit"] = lost
         if "Arcane Surge" in main_gems:  # (the support: its threshold and duration from the gem, arcane_surge_uptime)
             raw = self.build.call("activeSkills", supportStats=list(ARCANE_SURGE_SUPPORT_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})

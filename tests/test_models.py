@@ -3666,3 +3666,26 @@ def test_escalation_counts_each_different_warcry_at_its_share_of_the_fight_used_
     assert run(["Cry A", "Cry B"], {2: {"cooldown": 8.0}, 3: {"cooldown": 2.0}})[:2] == (True, 150)
     # the same Warcry in two groups is one different Warcry (the higher share)
     assert run(["Cry A", "Cry A"], {2: {"cooldown": 8.0}, 3: {"cooldown": 4.0}})[:2] == (True, 100)
+
+
+def test_rage_lost_on_crit_or_at_the_maximum_lowers_the_rage_held():
+    """MECHC11 (COVE11's OVERCOUNTS): Prototype Seventeen loses 100% of maximum Rage on each crit of the supported main
+    skill, so the Rage held averages (G / C)(1 - e^(-C M / G)); "Lose all Rage on reaching Maximum Rage" (two uniques,
+    PoB parses nothing) holds M / 2 for a build that would reach the maximum, and leaves a lower level alone."""
+    import math
+
+    from builder.search import conditions
+    stats = {"Speed": 4.0, "HitChance": 100, "CritChance": 25, "MaximumRage": 30, "_main_types": {"Attack", "Melee"},
+             "enemySkillTime": 0.7}
+    lines = ["Gain 3 Rage on Melee Hit"]
+    full, how = conditions.rage_held(lines, stats)
+    assert full == 30  # 6 Rage/s (2 gains/s): the loss paused, the maximum
+    held, how = conditions.rage_held(lines, {**stats, "_main_rage_lost_on_crit": 100})
+    expected = (6 / 1.0) * (1 - math.exp(-1.0 * 30 / 6))  # 1 crit/s
+    assert held == float(int(expected)) and "Prototype Seventeen" in how
+    assert conditions.rage_held(lines, {**stats, "CritChance": 0, "_main_rage_lost_on_crit": 100})[0] == 30  # no crits
+    reset, how = conditions.rage_held([*lines, "Lose all Rage on reaching Maximum Rage"], stats)
+    assert reset == 15 and "drops back" in how
+    slow = {**stats, "Speed": 0.2, "enemySkillTime": 100.0}  # 3 Rage every 5 s, lost before the next: never at 30
+    below = conditions.rage_held(lines, slow)[0]
+    assert 0 < below < 30 and conditions.rage_held([*lines, "Lose all Rage on reaching Maximum Rage"], slow)[0] == below
