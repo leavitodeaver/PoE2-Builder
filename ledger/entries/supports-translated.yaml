@@ -246,3 +246,74 @@
   sources: ["SupportSlowPotencyPlayer, GrantedEffectStatSets (build 26476662)", "KeywordPopups SlowMagnitudeModifier, Chill"]
   test_in_game: "Chill a dummy with a fixed cold hit, with and without Slow Potency on the skill: the Chill's slow rises 15% (until 50%)."
   status: proposed
+
+- id: support-frostfire-unique-ignite
+  title: Frostfire, 25% more Magnitude of Ignite on Frozen Unique enemies (counted while the boss is Frozen)
+  kind: gem_stat
+  support: true
+  skill: Frostfire
+  support_stats: ['support_frostfire_ignite_effect_+%_final_vs_frozen_unique_enemies']
+  match: '^support_frostfire_ignite_effect_\+%_final_vs_frozen_unique_enemies$'
+  replace: ['1% more Magnitude of Ignite against Frozen Enemies']
+  confidence: theory
+  notes: >-
+    "25% more Magnitude of Ignite inflicted on Frozen Unique enemies with Supported Skills" (constant 25 on
+    SupportFrostfirePlayer). PoB's sup_int.lua maps only the gem's other 50%, ignite_effect_+%_final_against_frozen_enemies,
+    as AilmentMagnitude MORE for Ignite against an enemy Frozen (checked: no statMap or SkillStatMap.lua entry names
+    support_frostfire_*, 12 Nov 2026). This line is written the same way, so it counts at the share of the fight the
+    condition resolver gives the boss Frozen (conditionEnemyFrozen, MECH-A's models.immobilised_share). The boss is a
+    Unique, so the "Unique" part holds. Today that share comes from the main skill's own Freeze buildup only, and the
+    supported skill "cannot cause Freeze buildup" (never_freeze, which PoB reads: CannotFreeze sets FreezeBuildupAvg to 0,
+    CalcOffence.lua 5584). So with Frostfire on the main skill both its 50% and this 25% count 0 until another skill's
+    Freezes are counted (MECH-A). Then the weight wants care: the support also Consumes the Freeze on Ignite
+    (remove_freeze_on_ignite, which nothing reads), so one Ignite per Freeze gets the bonus, and that Ignite lasts its own
+    duration after the Freeze is gone; the Frozen share is not the right weight (for MECH-A).
+  sources: ["SupportFrostfirePlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd", "PoB sup_int.lua SupportFrostfirePlayer"]
+  test_in_game: "Ignite a Frozen Unique with a fixed hit, with and without Frostfire: the Ignite is 1.5 x 1.25 = 1.875x."
+  status: proposed
+
+- id: support-elemental-armament-per-ailment
+  title: Elemental Armament III, 12% more Attack Damage per Elemental Ailment on the enemy (each counted while the boss has it)
+  kind: gem_stat
+  support: true
+  skill: Elemental Armament III
+  support_stats: ['support_elemental_armament_attack_damage_+%_final_per_elemental_ailment_on_target']
+  match: '^support_elemental_armament_attack_damage_\+%_final_per_elemental_ailment_on_target$'
+  replace: ['1% more Attack Damage against Ignited Enemies', '1% more Attack Damage against Chilled Enemies',
+            '1% more Attack Damage against Frozen Enemies', '1% more Attack Damage against Shocked Enemies',
+            '1% more Attack Damage against Electrocuted Enemies']
+  confidence: theory
+  notes: >-
+    "Supported Skills deal 12% more Attack Damage for each Elemental Ailment on Enemies they Hit" (constant 12 on
+    SupportElementalArmamentPlayerThree; PoB maps none of it: checked, sup_*.lua and SkillStatMap.lua, 12 Nov 2026).
+    KeywordPopups ElementalAilments: "Ignite, Chill, Freeze, Shock, and Electrocute", so one line per ailment, each on
+    PoB's enemy condition, counted at the share of the fight the condition resolver gives the boss that ailment (as PoB
+    writes "increased damage for each type of elemental ailment on enemy", ModParser.lua 3876). The supported skill
+    "cannot inflict Elemental Ailments" (cannot_inflict_elemental_ailments, which PoB reads), so the ailments must come
+    from other skills. Where the resolver sets them from the main skill's own ailments, a main skill with this support
+    gets ~0 until other skills' ailments are counted (MECH-A). Small overcount: the five lines multiply (1.12^n) where
+    the game adds (1 + 0.12n): +1.2% with two on at once, at most +10% with all five.
+  sources: ["SupportElementalArmamentPlayerThree, GrantedEffectStatSets (build 26476662)", "KeywordPopups ElementalAilments"]
+  test_in_game: "Hit a Chilled and Shocked dummy with and without the support: 24% more."
+  status: proposed
+
+- id: support-cadence-attack-speed
+  title: Cadence, 8% more Attack Speed per use Recently, held to the pace that avoids its lockout (main skill)
+  kind: gem_stat
+  support: true
+  skill: Cadence
+  support_stats: ['support_measured_speed_attack_speed_+%_final_per_stack']
+  share_stats: ['support_measured_speed_maximum_stacks', 'support_measured_speed_disabled_ms']
+  match: '^support_measured_speed_attack_speed_\+%_final_per_stack$'
+  replace: ['1% more Attack Speed']
+  share: cadence
+  confidence: theory
+  notes: >-
+    "Supported Skills have 8% more Attack speed for each time they've been used Recently"; "unusable for 10 seconds after
+    being used 6 or more times within four seconds" (constants 8, 6, 10000 on SupportCadencePlayer). PoB maps none of
+    the three (checked: sup_dex.lua, SkillStatMap.lua, 12 Nov 2026), so it rated a Cadence skill at its plain speed with
+    no lockout: an overcount above 1.25 uses/s. Counted on the main skill from its own rate (models.cadence_share);
+    the stacks are UNVERIFIED by one (whether a use counts itself).
+  sources: ["SupportCadencePlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd", "KeywordPopups Recently"]
+  test_in_game: "Attack 5 times in 4 s with Cadence: the 5th attack takes 1/1.32 (or 1/1.40) of the first's time."
+  status: proposed

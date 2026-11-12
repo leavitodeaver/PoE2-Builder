@@ -99,3 +99,16 @@
     stat on Cast on Melee Kill (+50%) stays open: that meta is in models.DEPRECATED (COV2's note)."
   sources: ["builder/search/models.py META_GEMS, energy_model", "GrantedEffectStatSets SupportMetaCastOnCritPlayer (build 26476662)"]
   status: proposed
+
+- id: supports-read-cadence-lockout
+  title: Cadence, its lockout (6 uses in 4 s, 10 s unusable) sets the pace its Attack Speed line is worked out at
+  kind: model
+  model: gem_stat
+  stats: ["support_measured_speed_maximum_stacks", "support_measured_speed_disabled_ms"]
+  skill: [Cadence]
+  confidence: theory
+  notes: "builder/search/models.py cadence_share (support-cadence-attack-speed's `share_stats`): the main skill is held
+    to 5 uses in 4 s, the pace that avoids the lockout, and the play note gives the rate without the pacing (6 uses,
+    then 10 s locked). A Cadence skill that isn't the main skill gets neither its stacks nor its lockout (no rate)."
+  sources: ["builder/search/models.py cadence_share", "GrantedEffectStatSets SupportCadencePlayer (build 26476662)"]
+  status: proposed

@@ -245,3 +245,40 @@
   notes: '"Supported Skills'' Branched Fissures have {0}% more area of effect" (-35 on I and II), kept to the branches.'
   sources: ["SupportBranchingFissuresPlayer, SupportBranchingFissuresPlayerTwo, GrantedEffectStatSets (build 26476662)"]
   status: proposed
+
+- id: support-daressos-passion-glory
+  title: Daresso's Passion, 50% less Glory required (for the Glory models)
+  kind: gem_stat
+  support: true
+  to: part:glory_cost
+  skill: "Daresso's Passion"
+  support_stats: ['support_glory_required_+%_final']
+  match: '^support_glory_required_\+%_final$'
+  replace: ['mult:GloryRequiredMorePercent']
+  confidence: datamined
+  notes: >-
+    "Supported Skills require 50% less Glory to use" (constant -50 on SupportDaressosPassionPlayer; PoB maps none of it:
+    checked, sup_*.lua and SkillStatMap.lua, 12 Nov 2026). The Glory skills' costs are read by models.glory_uses (MECH-C,
+    GLORY_SKILLS) and usage.py's requirements (COV-C). Either takes the cost x (1 + support_part_scale(skill,
+    "glory_cost")["GloryRequiredMorePercent"] / 100) (0.5), so the skill is used twice as often from the same Glory. Until one does, the
+    support is an undercount (named in glory_uses' header).
+  sources: ["SupportDaressosPassionPlayer, GrantedEffectStatSets (build 26476662)", "KeywordPopups Glory"]
+  status: proposed
+
+- id: support-pin-three-duration
+  title: Pin III, 30% more Pin duration (for a Pinned uptime model)
+  kind: gem_stat
+  support: true
+  to: part:pin_duration
+  skill: Pin III
+  support_stats: ['support_pin_pin_duration_+%_final']
+  match: '^support_pin_pin_duration_\+%_final$'
+  replace: ['mult:PinDurationMorePercent']
+  confidence: datamined
+  notes: >-
+    "Pin caused by Supported Skills has 30% more duration" (constant 30 on SupportPinPlayerThree; PoB reads none of it
+    and has no Pin duration modifier: checked, ModParser.lua and Calc*.lua, 12 Nov 2026). Nothing rates the boss Pinned
+    yet (pob-gaps-no-effect.yaml's Pin duration entry; models.py, MECH44), so it moves nothing. The model that does
+    (MECH-A) takes the Pin's 3 s (KeywordPopups Pinned) x (1 + support_part_scale(skill, "pin_duration")["PinDurationMorePercent"] / 100) (1.3).
+  sources: ["SupportPinPlayerThree, GrantedEffectStatSets (build 26476662)", "KeywordPopups Pinned"]
+  status: proposed

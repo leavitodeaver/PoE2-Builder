@@ -1884,7 +1884,7 @@ def gem_stat_support_stats() -> list[str]:
     from builder.ledger import gem_stat_entries
 
     return sorted({stat for e in gem_stat_entries() if e.raw.get("support") and e.replace
-                   for stat in e.raw.get("support_stats") or ()})
+                   for stat in [*(e.raw.get("support_stats") or ()), *(e.raw.get("share_stats") or ())]})
 
 
 def _skill_names(entry) -> list[str]:
@@ -1893,7 +1893,9 @@ def _skill_names(entry) -> list[str]:
 
 
 def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats: dict | None = None,
-                   main: Skill | None = None) -> tuple[list[dict], list[dict]]:
+                   main: Skill | None = None, previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """`previous`: the lines applied when `stats` was calculated (Assumptions.mods), so a `share:` entry whose own line
+    moves the stat it reads (Cadence's Attack Speed) can take its own last line back out (SHARES)."""
     from builder.ledger import SYNTAX, gem_stat_entries
 
     mods: list[dict] = []
@@ -1932,7 +1934,9 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 if values:
                     mods.append(derived(uptime, fn, factor * UNIT, **args))
             elif entry.raw.get("share") in SHARES:  # a share of the skill's uses, from the build's own output (SHARES)
-                factor, why, play = SHARES[entry.raw["share"]](skill, stats or {}, main)
+                prev = sum(m.get("scale", 0.0) for m in previous or () if m.get("entry") == entry.id
+                           and m.get("skill") == name)  # (its own line, in the stats it reads)
+                factor, why, play = SHARES[entry.raw["share"]](skill, stats or {}, main, prev)
                 why = f"; {why}"
             else:
                 why = ""
@@ -1955,6 +1959,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                     for target in targets:
                         mods.append(line(m.group(3) if when else text, value * factor, when=when,
                                          skill=target if own else None))
+                        if entry.raw.get("share") in SHARES:  # (found again in `previous` next time)
+                            mods[-1]["entry"] = entry.id
                 notes.append({
                     "label": entry.title,
                     "value": f"{value * factor:g}" + (f" ({value:g} × {factor:g})" if factor != 1 else ""),
@@ -1981,7 +1987,9 @@ PARTS = {"cascade": "Spell Cascade's Cascades", "offering": "spells cast around 
          "spectral": "Spectral Volley's Spectral Projectiles",
          "warcry_echo": "the Warcry's Echoes (Echoing Cry)",
          "tectonic_aftershock": "Tectonic Slams' extra Aftershock",
-         "branch_fissure": "the branched Fissures (Branching Fissures)"}
+         "branch_fissure": "the branched Fissures (Branching Fissures)",
+         "glory_cost": "the Glory the skill requires (read by the Glory models: glory_uses, usage.py)",
+         "pin_duration": "the Pins it inflicts (no Pinned uptime is modelled yet)"}
 
 
 def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[dict]]:
@@ -2018,6 +2026,8 @@ def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[
     return scale, notes
 
 
+# `share_stats` (COVE6): more of the supports' stats the share reads (summed by the bridge like support_stats, matched by
+# no line: Cadence's maximum stacks and lockout).
 # `share: <name>` (COVE5): the entry's lines count at a share of the skill's uses the build works out (SHARES), not on
 # every use. Worked out once per resolve from the build's own output (a what-if that changes attack speed shows from the
 # next resolve, not at once).
@@ -2030,7 +2040,7 @@ def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[
 ALIGNMENT_MATCH_SECONDS = 1.5
 
 
-def alignment_match_share(skill: Skill, stats: dict, main: Skill | None = None) -> tuple[float, str, str]:
+def alignment_match_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
     is_main = main is not None and main.name == skill.name and main.group == skill.group
     rate = number(stats.get("Speed")) if is_main else (1 / skill.cast_time if skill.cast_time else 0.0)
     where = "the skill's attack rate" if is_main else ("its base attack rate (not the main skill)" if rate else "")
@@ -2048,7 +2058,55 @@ def alignment_match_share(skill: Skill, stats: dict, main: Skill | None = None) 
     return share, why, play
 
 
-SHARES = {"alignment": alignment_match_share}
+# Cadence (COVE6, 12 Nov 2026). Game files (GrantedEffectStatSets SupportCadencePlayer, gem_stat_descriptions):
+# support_measured_speed_attack_speed_+%_final_per_stack 8, "Supported Skills have 8% more Attack speed for each time
+# they've been used Recently"; support_measured_speed_maximum_stacks 6 and _disabled_ms 10000, "Supported Skills are
+# unusable for 10 seconds after being used 6 or more times within four seconds" (KeywordPopups Recently: the past 4 s).
+# PoB maps none of the three (sup_dex.lua SupportCadencePlayer has no statMap; SkillStatMap.lua names no measured_speed:
+# checked), so before this PoB rated a Cadence skill at its plain speed with no lockout: too slow below the pace and too
+# fast above it (an overcount for a skill faster than 1.25 uses/s). Here the player keeps to the pace that avoids the
+# lockout, at most 5 uses in any 4 s (1.25/s), and the stacks are the uses in the 4 s before each use at the rate that
+# results: r = min(r0 x (1 + 8% x n), 1.25), n = 4r - 1 (the use itself and the one on the window's edge left out;
+# UNVERIFIED whether the use counts itself: one stack more, +8%). The line is one "more Attack Speed" (less above the pace)
+# making the skill's speed r. Worked out from the main skill's PoB Speed with this line's own last value taken back out
+# (`prev`); a skill that isn't the main skill gets 0 (no rate here to take its stacks or lockout from).
+
+
+def cadence_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    st = skill.support_stats
+    per = number(st.get("support_measured_speed_attack_speed_+%_final_per_stack")) or 8.0
+    most = number(st.get("support_measured_speed_maximum_stacks")) or 6.0
+    locked = (number(st.get("support_measured_speed_disabled_ms")) or 10000.0) / 1000
+    window = 4.0  # Recently
+    pace = (most - 1) / window
+    play = (f"Use the skill at most {most - 1:g} times in any {window:g} s (one use per {1 / pace:.2f} s): a {most:g}th use "
+            f"locks it for {locked:g} s.")
+    if main is None or main.name != skill.name or main.group != skill.group:
+        return 0.0, ("not the main skill: its use rate isn't known here, so neither its stacks nor its lockout are "
+                     "counted (0)"), play
+    r0 = number(stats.get("Speed")) / (1 + prev / 100)
+    if r0 <= 0:
+        return 0.0, "no attack rate from PoB: not counted (0)", play
+    rate, stacks = r0, 0.0
+    for _ in range(200):
+        stacks = min(max(window * rate - 1, 0.0), most - 2)
+        rate = min(r0 * (1 + per * stacks / 100), pace)
+    pct = (rate / r0 - 1) * 100
+    full = r0 * (1 + per * (most - 1) / 100)
+    spam = most / ((most - 1) / full + locked)
+    capped = rate >= pace - 1e-9
+    why = (f"{stacks:.1f} stacks ({per:g}% more each): {r0:.2f} uses/s without it, {rate:.2f} with it"
+           + (f", held to the {pace:g}/s pace that avoids the {locked:g} s lockout ({r0 * (1 + per * stacks / 100):.2f}/s "
+              f"attack speed between uses; the time left between uses is free for other skills, not counted here; the pace's "
+              f"edge, exactly {most:g} uses in {window:g} s, UNVERIFIED as allowed)" if capped else "")
+           + "; UNVERIFIED whether a use counts itself (one stack more)")
+    play += (f" Headline: {rate:.2f} uses/s ({stacks:.1f} stacks). Without the pacing (using it as fast as it goes): "
+             f"{most:g} uses then {locked:g} s locked, ~{spam:.2f} uses/s." if capped else
+             f" Headline: {rate:.2f} uses/s ({stacks:.1f} stacks); the skill stays under the pace on its own.")
+    return pct / per, why, play
+
+
+SHARES = {"alignment": alignment_match_share, "cadence": cadence_share}
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

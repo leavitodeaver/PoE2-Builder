@@ -467,6 +467,46 @@ def test_alignment_counts_at_a_match_share_with_its_play_note():
     assert mods[0]["line"] == "Skills fire an additional Projectile" and mods[0]["scale"] == pytest.approx(4 * share, abs=0.01)
 
 
+def test_cadence_stacks_from_the_use_rate_and_keeps_below_its_lockout():
+    # COVE6: 8% more Attack Speed per use in the past 4 s; 6 uses in 4 s lock the skill for 10 s, so the player paces
+    # at 5 uses per 4 s (1.25/s). Stacks n = 4r - 1 at the resulting rate r.
+    stats = {"support_measured_speed_attack_speed_+%_final_per_stack": 8, "support_measured_speed_maximum_stacks": 6,
+             "support_measured_speed_disabled_ms": 10000}
+    axe = models.Skill("Boneshatter", group=1, attack=True, support_stats=stats)
+    mods, notes = models.gem_stat_model([axe], stats={"Speed": 1.0}, main=axe)
+    assert [(m["line"], m.get("skill")) for m in mods] == [("1% more Attack Speed", "Boneshatter")]
+    assert mods[0]["scale"] == pytest.approx(25)  # 1/s rises to the 1.25/s pace (4 stacks would give 1.32)
+    # a fast attacker is held to the pace: less, not more (PoB had no lockout: an overcount)
+    fast, notes = models.gem_stat_model([axe], stats={"Speed": 2.0}, main=axe)
+    assert fast[0]["scale"] == pytest.approx(-37.5) and "10 s locked" in notes[0]["play"]
+    # a slow one: r = r0 (0.92 + 0.32 r)
+    slow, _ = models.gem_stat_model([axe], stats={"Speed": 0.5}, main=axe)
+    r = 0.92 * 0.5 / (1 - 0.32 * 0.5)
+    assert slow[0]["scale"] == pytest.approx((r / 0.5 - 1) * 100, abs=0.01)
+    # its own line, already in the stats it reads, is taken back out: the same answer again
+    again, _ = models.gem_stat_model([axe], stats={"Speed": 1.25}, main=axe, previous=mods)
+    assert again[0]["scale"] == pytest.approx(25)
+    # not the main skill: no rate, so 0 and a note
+    other = models.Skill("Boneshatter", group=2, attack=True, support_stats=stats)
+    mods, notes = models.gem_stat_model([other], stats={"Speed": 2.0}, main=axe)
+    assert mods == [] and "not the main skill" in notes[0]["basis"]
+
+
+def test_ailment_supports_count_on_the_boss_conditions_and_cost_parts_wait():
+    armament = "support_elemental_armament_attack_damage_+%_final_per_elemental_ailment_on_target"
+    frost = "support_frostfire_ignite_effect_+%_final_vs_frozen_unique_enemies"
+    axe = models.Skill("Boneshatter", group=1, attack=True, support_stats={armament: 12, frost: 25})
+    lines = {(m["line"], m["scale"]) for m in models.gem_stat_model([axe])[0]}
+    assert ("1% more Magnitude of Ignite against Frozen Enemies", 25) in lines
+    for ailment in ("Ignited", "Chilled", "Frozen", "Shocked", "Electrocuted"):  # (KeywordPopups ElementalAilments)
+        assert (f"1% more Attack Damage against {ailment} Enemies", 12) in lines
+    banner = models.Skill("War Banner", group=1, support_stats={"support_glory_required_+%_final": -50,
+                                                                "support_pin_pin_duration_+%_final": 30})
+    assert models.gem_stat_model([banner]) == ([], [])  # (read by the Glory and Pin models, not applied here)
+    assert models.support_part_scale(banner, "glory_cost")[0] == {"GloryRequiredMorePercent": -50}
+    assert models.support_part_scale(banner, "pin_duration")[0] == {"PinDurationMorePercent": 30}
+
+
 def test_penalties_on_uncounted_parts_wait_for_the_model_that_counts_them():
     area, mimic = "support_spell_cascade_area_of_effect_+%_for_cascade", "skill_used_by_fractured_mimic_spell_damage_+%_final"
     offering = "cascadeable_offering_support_offering_casted_spell_damage_+%_final"
