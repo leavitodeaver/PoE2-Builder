@@ -1,0 +1,246 @@
+# Unique items' lines, first batch (COVD1, 12 Nov 2026): the highest-ranked unique lines the coverage audit
+# (builder/ledger/coverage.py) found uncounted, translated into lines PoB calculates, recorded as absorbed by an
+# assumption the tool already makes, or recorded as changing nothing it calculates. Lines that need a model are in
+# scratch/manager/workers/COVD1.report.md for the mechanics lanes, and stay open here.
+#
+# Game files: data/game-26476662/tables (KeywordPopups.json for keyword definitions). Unique texts: PoB's export
+# (data/pob-bb52d6b368/uniques.json). A unique line appears with its roll range ("(15-20)%") in PoB's data and rolled
+# ("17%") on an imported item, so patterns accept both: (\(\d+-\d+\)|\d+). PoE2 0.5.x; recheck at the 1.0 refresh.
+
+# Translations -----------------------------------------------------------------------------------------------------
+
+- id: uniques-lightning-skills-chain
+  title: Levinstone (and Loreweave), Lightning Skills Chain +1 times
+  kind: pob_gap
+  match: '^Lightning Skills Chain \+(\d+) times$'
+  replace: ['Non-Projectile Chaining Lightning Skills Chain +{1} times']
+  confidence: datamined
+  notes: >-
+    PoB has no "lightning skills chain" form; its nearest, "non-projectile chaining lightning skills chain +N times"
+    (ModParser.lua), adds ChainCountMax to skills of types Chains and Lightning that aren't projectiles (Arc, ...).
+    Lightning projectile skills that chain (Lightning Arrow ...) miss it: an undercount only where a "per remaining
+    chain" or "for each time it has chained" line reads the count. Against one boss an extra chain adds no hit on the
+    boss itself: the game's Chain keyword says "Enemies cannot be targeted more than once in the same Chain"
+    (KeywordPopups Chain), and PoB's single-target numbers move only through ChainRemaining / Chain-count lines
+    (CalcOffence.lua ChainMax, ChainRemaining).
+  sources: ["data/game-26476662/tables/KeywordPopups.json (Chain)", "https://poe2db.tw/us/Levinstone",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (non-projectile chaining lightning skills chain)"]
+  test_in_game: "With Levinstone and Arc on a pack, count Arc's chains with and without the ring: one more."
+  status: proposed
+
+- id: uniques-yoke-ailment-types
+  title: Yoke of Suffering, enemies take increased Damage per Elemental Ailment type on them (first half of a two-line mod)
+  kind: pob_gap
+  match: '^Enemies take (\(\d+-\d+\)|\d+)% increased Damage for each Elemental Ailment type among$'
+  replace: ['Enemies take {1}% increased Damage for each Elemental Ailment type among your Ailments on them']
+  confidence: datamined
+  notes: >-
+    PoB's export breaks the mod over two lines ("... among" / "your Ailments on them"), so its parser reads neither,
+    though ModParser.lua has the whole sentence: one DamageTaken INC per ailment the boss has (Frozen, Chilled,
+    Ignited, Shocked, Electrocuted, and PoE1's Scorched, Brittle and Sapped, which nothing sets in PoE2). The game's
+    Elemental Ailments are Ignite, Chill, Freeze, Shock and Electrocute (KeywordPopups ElementalAilments), the same
+    five. Which ailments are on the boss is the condition resolver's (MECH-A's) uptime, as for every other line
+    that reads them.
+  sources: ["data/game-26476662/tables/KeywordPopups.json (ElementalAilments)", "https://poe2db.tw/us/Yoke_of_Suffering",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (for each elemental ailment type among your ailments on them)"]
+  test_in_game: "Hit a dummy with a fixed-damage hit while it is Shocked, then Shocked and Chilled: the second hit is bigger by the line's percentage."
+  status: proposed
+
+- id: uniques-yoke-ailment-types-second-line
+  title: Yoke of Suffering, second half of the two-line mod ("your Ailments on them")
+  kind: pob_gap
+  match: '^your Ailments on them$'
+  replace: []
+  confidence: datamined
+  notes: "Carried by uniques-yoke-ailment-types, which translates the whole sentence from its first line."
+  sources: ["data/pob-bb52d6b368/uniques.json (Yoke of Suffering)"]
+  test_in_game: "As uniques-yoke-ailment-types."
+  status: proposed
+
+- id: uniques-knocks-back-on-hit
+  title: Tyranny's Grip, Knocks Back Enemies on Hit
+  kind: pob_gap
+  match: '^Knocks Back Enemies on Hit$'
+  replace: ['Knocks Enemies Back on Hit']
+  confidence: datamined
+  notes: >-
+    PoB's parser has the other word order ("knocks enemies back on hit": flag Knockback). The translation keeps
+    the line in PoB's terms; knockback moves no damage or defence number against a boss.
+  sources: ["https://poe2db.tw/us/Tyrannys_Grip", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (knocks enemies back on hit)"]
+  test_in_game: "Hit a white monster with Tyranny's Grip equipped: it is pushed back on every hit."
+  status: proposed
+
+# Energy model inputs at a unique's rolled range ------------------------------------------------------------------
+# The Energy model's own entries (custom-models.yaml) match only a single number ("9% chance ..."). A unique from
+# PoB's data carries its range ("(6-12)% chance ..."), and the bridge's sourceLines passes PoB's modLine.line,
+# which keeps the range (Classes/Item.lua: "This might describe a range of values"), so the model never saw these
+# lines on a unique the search proposes. These read the range at PoB's default roll, its middle
+# (Main.lua defaultItemAffixQuality 0.5), as PoB rolls every other line of the item.
+
+- id: uniques-meta-energy-range
+  title: Grip of Kulemak, Meta Skills gain (10-16)% increased Energy (Energy model input, middle roll)
+  kind: pob_gap
+  model: energy
+  match: '^Meta Skills gain \((\d+)-(\d+)\)% increased Energy$'
+  replace: ['mult:MetaEnergy {(g1+g2)/2}']
+  confidence: datamined
+  notes: "As custom-models.yaml meta-energy, at the middle of the roll (PoB's default roll)."
+  sources: ["https://poe2db.tw/us/Grip_of_Kulemak", "ledger/entries/custom-models.yaml (meta-energy)"]
+  test_in_game: "As meta-energy: a Cast on Critical's Energy bar fills about 13% faster with the ring."
+  status: proposed
+
+- id: uniques-energy-refund-range
+  title: Heart of the Well, (6-12)% chance for Trigger skills to refund half of Energy Spent (Energy model input, middle roll)
+  kind: pob_gap
+  model: energy
+  match: '^\((\d+)-(\d+)\)% chance for Trigger skills to refund half of Energy Spent$'
+  replace: ['mult:EnergyRefund {(g1+g2)/2}']
+  confidence: reported
+  notes: "As custom-models.yaml meta-energy-refund (cost x (1 - chance/200)), at the middle of the roll."
+  sources: ["https://poe2db.tw/us/Heart_of_the_Well", "ledger/entries/custom-models.yaml (meta-energy-refund)"]
+  test_in_game: "As meta-energy-refund: over 100 triggers, about 9 leave half their Energy in the bar."
+  status: proposed
+
+# On-kill lines: absorbed by the tool's boss-fight assumption ------------------------------------------------------
+# The tool fights one boss, and treats every on-kill source as giving nothing until the boss dies
+# (builder/search/conditions.py: "on kill (nothing dies on a single boss)", for charges, Rage and buffs alike;
+# flasks.py: "in a boss fight nothing dies"). That is the tool's assumption, not a game rule: bosses that summon
+# adds would feed these lines in game. These entries record that the lines fall under it.
+
+- id: uniques-charge-on-kill
+  title: Beira's Anguish, Nascent Hope, chance to gain a Charge when you kill an enemy
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% Chance to gain a Charge when you kill an enemy$'
+  replace: []
+  absorbed_by: "nothing dies on a single boss (conditions.py on-kill sources; flasks.py)"
+  confidence: theory
+  sources: ["https://poe2db.tw/us/Beiras_Anguish", "https://poe2db.tw/us/Nascent_Hope", "builder/search/conditions.py"]
+  test_in_game: "None needed for a lone boss; on a map, charges rise on kills."
+  status: proposed
+
+- id: uniques-headhunter
+  title: Headhunter, gain a Rare monster's Modifiers on killing it
+  kind: pob_gap
+  match: '^When you kill a Rare monster, you gain its Modifiers for \d+ seconds$'
+  replace: []
+  absorbed_by: "nothing dies on a single boss (conditions.py on-kill sources)"
+  confidence: theory
+  notes: "A boss is Unique, not Rare, and killing it ends the fight; Rare adds a boss summons would count in game."
+  sources: ["https://poe2db.tw/us/Headhunter", "builder/search/conditions.py"]
+  test_in_game: "None needed for a lone boss."
+  status: proposed
+
+- id: uniques-earthbound-spark-on-kill
+  title: Earthbound, Trigger Spark Skill on killing a Shocked Enemy
+  kind: pob_gap
+  match: '^Trigger Spark Skill on killing a Shocked Enemy$'
+  replace: []
+  absorbed_by: "nothing dies on a single boss (conditions.py on-kill sources)"
+  confidence: theory
+  notes: "The staff's own Grants Skill: Spark line still lets the build cast Spark itself."
+  sources: ["https://poe2db.tw/us/Earthbound", "builder/search/conditions.py"]
+  test_in_game: "None needed for a lone boss."
+  status: proposed
+
+- id: uniques-kulemak-on-kill
+  title: Grip of Kulemak, gains when you kill an enemy affected by Abyssal Wasting (Onslaught, Rage, Volatility, a revive, Flask Charges, an explosion)
+  kind: pob_gap
+  match: >-
+    ^\s*(?:(?:\(\d+-\d+\)|\d+)% chance to gain Onslaught for \d+ seconds when you kill an|enemy affected by Abyssal Wasting|Gain \d+ Rage when you kill an enemy affected by Abyssal Wasting|Gain \d+ Volatility when you kill an enemy affected by Abyssal Wasting|\d+% chance to revive one of your Persistent Minions when you kill an|Enemies you kill while they are affected by Abyssal Wasting|grant \d+% increased Flask Charges|Abyssal Wasting you inflict also gives targets \d+% chance to explode on death, dealing a tenth of their life as Physical Damage)$
+  replace: []
+  absorbed_by: "nothing dies on a single boss (conditions.py on-kill sources; flasks.py)"
+  confidence: theory
+  notes: >-
+    Several of these mods are two lines in PoB's export ("... when you kill an" / "enemy affected by Abyssal
+    Wasting"); every piece is an on-kill gain. The explosion happens on the target's death.
+  sources: ["https://poe2db.tw/us/Grip_of_Kulemak", "data/game-26476662/tables/KeywordPopups.json (AbyssalWasting, Volatility)",
+            "builder/search/conditions.py"]
+  test_in_game: "None needed for a lone boss."
+  status: proposed
+
+- id: uniques-rite-of-passage
+  title: Rite of Passage, a charm used when you kill a Rare or Unique enemy, and its Possessed by Spirit effects
+  kind: pob_gap
+  match: '^(?:Used when you kill a Rare or Unique enemy|Possessed by Spirit Of The \w+ for (?:\(\d+-\d+\)|\d+) seconds on use)$'
+  replace: []
+  absorbed_by: "flasks.py KILL_TRIGGER: a charm used on killing a Rare or Unique counts no uptime in a boss fight"
+  confidence: theory
+  notes: >-
+    flasks.uptime returns 0 for a charm whose text says "used when you kill", so its on-use Possession never counts.
+    "Possessed by Spirit Of The ..." appears on no other unique in PoB's export (checked: uniques.json text search).
+  sources: ["https://poe2db.tw/us/Rite_of_Passage", "builder/search/flasks.py (KILL_TRIGGER)"]
+  test_in_game: "None needed for a lone boss: the charm fires as the boss dies."
+  status: proposed
+
+# No effect on what's calculated ----------------------------------------------------------------------------------
+
+- id: uniques-slow-magnitude
+  title: Debuffs you inflict have increased Slow Magnitude (The Prisoner's Manacles, Grip of Kulemak)
+  kind: pob_gap
+  match: '^Debuffs you inflict have (\(\d+-\d+\)|\d+)% increased Slow Magnitude$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    "This modifier applies to Debuffs you inflict that Slow enemies, and scales only the specific Magnitude that slows
+    the target" (KeywordPopups SlowMagnitudeModifier). A slower boss acts less often, which in game lowers the damage
+    you take and the boss hits that feed "when Hit" lines; the tool's boss preset hits at a fixed rate and its
+    defence checks are per hit, so nothing it calculates moves (checked: builder/search/*.py reads no slow magnitude;
+    PoB ignores the line). Bosses take 50% less Slow effect (KeywordPopups Slow).
+  sources: ["data/game-26476662/tables/KeywordPopups.json (SlowMagnitudeModifier, Slow)", "https://poe2db.tw/us/The_Prisoners_Manacles"]
+  test_in_game: "Not needed for the numbers; in game, a slowed boss's attacks come visibly slower."
+  status: proposed
+
+- id: uniques-abyssal-wasting-duration
+  title: Grip of Kulemak, Abyssal Wasting you inflict has Infinite Duration
+  kind: pob_gap
+  match: '^Abyssal Wasting you inflict has Infinite Duration$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Abyssal Wasting "reduces Life Regeneration Rate by 50% for 6 seconds" (KeywordPopups AbyssalWasting), and the
+    ring inflicts it on every hit (its implicit). The tool's DPS doesn't net off a boss's regeneration, and a build
+    that hits at all keeps 6-second Wasting up, so a longer duration moves nothing calculated.
+  sources: ["data/game-26476662/tables/KeywordPopups.json (AbyssalWasting)", "https://poe2db.tw/us/Grip_of_Kulemak"]
+  test_in_game: "Not needed for the numbers."
+  status: proposed
+
+- id: uniques-rarity-on-crit-kill
+  title: Gifts from Above, increased Rarity of Items Dropped by Enemies killed with a Critical Hit
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% increased Rarity of Items Dropped by Enemies killed with a Critical Hit$'
+  replace: []
+  confidence: datamined
+  notes: "Loot only."
+  sources: ["https://poe2db.tw/us/Gifts_from_Above"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: uniques-font-of-power-party
+  title: Font of Power, a Party Member's Spell makes you Sacrifice Mana for them to Leech
+  kind: pob_gap
+  match: '^(?:When a Party Member in your Presence Casts a Spell, you|Sacrifice \d+% of Mana and they Leech that Mana)$'
+  replace: []
+  absorbed_by: "the optimizer builds for solo play: no party members"
+  confidence: theory
+  notes: "Minions are allies, not party members, so they don't trigger it (UNVERIFIED: the game files give no definition of Party Member in KeywordPopups)."
+  sources: ["https://poe2db.tw/us/Font_of_Power"]
+  test_in_game: "Solo with minions: cast with a minion's spell going off and check your Mana doesn't drop."
+  status: proposed
+
+# Misparses read by hand -----------------------------------------------------------------------------------------
+
+- id: parse-facebreaker-unarmed-mace
+  title: 'Facebreaker, "Can Attack as though using a One Handed Mace while both of your hand slots are empty": PoB keeps the condition in CalcSetup'
+  kind: parse_checked
+  match: '^Can Attack as though using a One Handed Mace while both of your hand slots are empty$'
+  confidence: datamined
+  notes: >-
+    ModParser.lua parses the line to the flag CanAttackAsOneHandMaceUnarmed with no tag (what the audit flagged), but
+    CalcSetup.lua applies the flag only when the Weapon 1 slot is empty ("if (not env.player.itemList["Weapon 1"])
+    and env.modDB:Flag(nil, "CanAttackAsOneHandMaceUnarmed")"), so the "while" is kept for the main hand. The off
+    hand isn't checked: a build with an empty main hand and something in the off hand would count it where the game
+    wouldn't (UNVERIFIED whether the search ever builds that: an item for SEARCH).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (can attack as though using a one handed mace)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcSetup.lua (Facebreaker)", "https://poe2db.tw/us/Facebreaker"]
+  test_in_game: "With Facebreaker and both hands empty, a One Handed Mace skill is usable; equip an off-hand item and it greys out."
+  status: proposed
