@@ -286,12 +286,14 @@ class Context:
 
     @cached_property
     def passive_corrections(self) -> list[dict]:
-        """Ledger translations for ignored passive lines: [{id, entry, lines}] for the bridge."""
+        """Ledger translations for ignored passive lines, and replacements for tree lines PoB parses wrongly (`drop`:
+        the line whose parsed modifiers the bridge removes): [{id, entry, lines[, drop]}] for the bridge."""
         found = []
         for gap in self.gaps.get("passives", []):
             if translated := translate(gap["line"]):
                 found.append({"id": gap["id"], "entry": translated[0].id, "lines": translated[1]})
-        return found
+        from builder.search.passive_models import wrong_tree_lines  # (COV-B: tree lines PoB parses wrongly)
+        return found + wrong_tree_lines(self.data.tree["nodes"])
 
     @cached_property
     def unique_gaps(self) -> dict[str, set[str]]:

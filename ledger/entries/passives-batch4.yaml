@@ -1,0 +1,49 @@
+# Passive tree lines, fourth batch (COV-B lane, COVB5, 12 Nov 2026; PoB bb52d6b, game files build 26476662).
+# Tree lines PoB parses but counts wrongly: a `pob_wrong` entry whose match hits a tree line makes the bridge remove the
+# modifiers PoB parsed from that line on the node (engine/bridge.lua applyPassiveCorrections `drop`, found by
+# builder/search/passive_models.py wrong_tree_lines) and add the entry's replacement lines (none here: a model reads the
+# line). On item text an empty replace changes nothing (builder.ledger.wrong needs a replacement line): the item affix
+# is COV-A's.
+# Recheck every one at the 1.0 refresh (11 Dec 2026) and at each PoB update.
+
+- id: passives-wrong-arcane-surge-on-crit
+  title: Chance to Gain Arcane Surge on Critical Hit, rated by the Arcane Surge uptime model, not held whenever you crit
+  kind: pob_wrong
+  match: '^(\d+)% chance to Gain Arcane Surge when you deal a Critical Hit$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    OVERCOUNT by PoB (MECHC3). ModCache maps the line (5%, 10%, 13%) to Condition:ArcaneSurge FLAG tagged
+    Condition:CritRecently: with CritRecently on, Arcane Surge is held all fight, whatever the chance and the 4 s
+    duration (KeywordPopups ArcaneSurgeDuration), and PoB's flag stays on in the uptime blend's "without" calculation
+    too. The node's parsed modifier is removed; builder/search/conditions.py arcane_surge_uptime already reads the line
+    (1 - (1 - chance)^(crits/s x 4 s), combined with the build's other sources) and sets PoB's Arcane Surge box at that
+    share. Tree lines it covers (checked: every tree node's stats holding "Arcane Surge", 12 Nov): Arcane Surge on
+    Critical Hit (nodes 2244 and 54067, 5%) and Aspiring Genius (27388, 10%). The (10-15)% item affix is COV-A's.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (the three 'chance to Gain Arcane Surge when you deal a Critical Hit' lines)",
+            "builder/search/conditions.py (arcane_surge_uptime, ARCANE_SURGE_SOURCE)", "https://poe2db.tw/us/Aspiring_Genius",
+            "KeywordPopups ArcaneSurgeDuration (game files)"]
+  test_in_game: "With Aspiring Genius only, crit a boss once every 2 s: Arcane Surge should show up about 18% of the time, not all fight."
+  status: proposed
+
+# Lines the misparse check flags whose PoB parse is right (parse_checked: nothing applied) ------------------------------
+
+- id: passives-parse-shocking-creates-shocked-ground
+  title: '"N% chance on Shocking Enemies to created Shocked Ground": PoB''s 20 is the ground''s own Shock, the chance is the model''s'
+  kind: parse_checked
+  match: '^(\d+)% chance on Shocking Enemies to created? Shocked Ground$'
+  confidence: datamined
+  notes: >-
+    Invoker's "I am the Thunder..." (node 7621; FIX_QUEUE called it Stormweaver's). ModParser.lua 3433 maps it to
+    ShockBase BASE data.nonDamagingAilment.Shock.default (20, BaseShockMagnitude) tagged enemy OnShockedGround: while the
+    boss stands on Shocked Ground it gets the base 20% Shock, the ground's own effect (KeywordPopups ShockedGround:
+    "Shocked Ground Shocks those standing in it"); CalcPerform.lua 3329-3345 turns each ShockBase into a ShockOverride,
+    the strongest applying, so it doesn't stack with the hit's own Shock. The 25% isn't lost:
+    builder/search/conditions.py SHOCK_MAKES_GROUND reads it (the line's chance x the main skill's Shock chance per hit x hits per
+    second, 6 s each) for the share of the fight OnShockedGround is on (MECH43's Shocked Ground model). COVD5 found the
+    flag false; read again here.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (chance on shocking enemies to created shocked ground)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua (ailment Base -> Override)",
+            "builder/search/conditions.py (SHOCK_MAKES_GROUND)", "https://poe2db.tw/us/I_am_the_Thunder..."]
+  test_in_game: "With the notable, Shock a boss often: Shocked Ground appears under it on about a quarter of the Shocks, and it shows the base Shock."
+  status: proposed

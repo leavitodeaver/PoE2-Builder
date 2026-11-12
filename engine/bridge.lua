@@ -418,7 +418,11 @@ function DERIVED.rhythmOfIce(out, a)
 	if cooldown > 0 then
 		rate = math.min(rate, 1 / cooldown)
 	end
-	local gain = math.min(a.cap or 0, (a.per or 0) * 4 * math.max(rate, 0) * (a.chance or 0))
+	-- echoed per second: the uses that Echo by chance, and of the rest one per Tul's Avalanche Seal (echoed_per_second)
+	rate = math.max(rate, 0)
+	local chance = a.chance or 0
+	local echoed = rate * chance + (1 - chance) * math.min(rate, math.max(a.seals or 0, 0))
+	local gain = math.min(a.cap or 0, (a.per or 0) * 4 * echoed)
 	return math.floor(DERIVED_UNIT * gain + 0.5)
 end
 
@@ -2454,7 +2458,27 @@ end
 -- PoB re-parses an allocated ascendancy node's text whenever paths are rebuilt
 -- (PassiveTree:ProcessStats gives it a fresh modifier list), so the tree's ProcessStats is wrapped
 -- to add the node's ledger modifiers back each time.
+-- A correction with `drop` (a tree line PoB parses but counts wrongly: a `pob_wrong` entry, builder/search/
+-- passive_models.py wrong_tree_lines) also removes the modifiers PoB parsed from that line, here and after each re-parse.
 local correctedTrees = setmetatable({ }, { __mode = "k" })
+local function dropLedgerLines(node, modList)
+	if not (node.ledgerDrop and node.sd and node.mods and modList) then
+		return
+	end
+	local gone = { }
+	for i, text in ipairs(node.sd) do
+		if node.ledgerDrop[text] and node.mods[i] and node.mods[i].list then
+			for _, mod in ipairs(node.mods[i].list) do
+				gone[mod] = true
+			end
+		end
+	end
+	for k = #modList, 1, -1 do
+		if gone[modList[k]] then
+			table.remove(modList, k)
+		end
+	end
+end
 function bridge.applyPassiveCorrections(args)
 	local tree = build.spec.tree
 	local done = correctedTrees[tree]
@@ -2464,6 +2488,7 @@ function bridge.applyPassiveCorrections(args)
 		local processStats = tree.ProcessStats
 		rawset(tree, "ProcessStats", function(self, node, startIndex)
 			local result = processStats(self, node, startIndex)
+			dropLedgerLines(node, node.modList)
 			if node.ledgerMods and (startIndex or 1) == 1 then
 				for _, mod in ipairs(node.ledgerMods) do
 					node.modList:AddMod(mod)
@@ -2485,7 +2510,13 @@ function bridge.applyPassiveCorrections(args)
 			if specList == node.modList then
 				specList = nil
 			end
-			for _, line in ipairs(correction.lines) do
+			if correction.drop then
+				node.ledgerDrop = node.ledgerDrop or { }
+				node.ledgerDrop[correction.drop] = true
+				dropLedgerLines(node, node.modList)
+				dropLedgerLines(node, specList)
+			end
+			for _, line in ipairs(correction.lines or { }) do
 				-- "flag:Name" switches ledger condition Name on; "if:Name <line>" counts only while it's on;
 				-- "mult:Name N" adds N to a custom model's input Name (PoB multiplier LedgerName)
 				local flag = line:match("^flag:(%w+)$")

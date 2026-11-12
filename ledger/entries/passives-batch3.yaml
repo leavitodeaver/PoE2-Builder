@@ -42,9 +42,11 @@
     Zarokh's Refrain gives one) x its chance to Echo, up to 30%. Echo sources (checked: every stat with "echo" in its
     id and its stat sets, passives and mods, RESEARCH5 rhythm-of-ice.md; poe2db Spell Echo, Now and Again): Spell Echo
     and Zarokh's Refrain on the main spell (every use; Cascadable spells you use yourself, not Triggered, Persistent or
-    by proxy: their PoB data), else Now and Again's "Cascadable Spells have 20% chance to Echo". Zarokh's three Echoes
-    count as one Spell Echoed (LOW: the lower reading). Tul's Avalanche's Echo per Seal broken: not counted (which
-    skills it applies to is UNVERIFIED). Only the main spell's Echoes are counted: an Echo-supported spell pressed
+    by proxy: their PoB data), else Now and Again's "Cascadable Spells have 20% chance to Echo" plus Comet's and
+    Skyfall's own quality (0.5% chance to Echo per quality: GrantedEffectQualityStats, AUDIT9 A9-3), and Tul's Avalanche
+    on the main spell: a Seal every 2 Blocks (the boss's landing hits x Block chance), each Seal making the next use Echo
+    (COVB5). Zarokh's three Echoes, and several Seals broken on one use, count as one Spell Echoed (LOW: the lower
+    reading). Only the main spell's Echoes are counted: an Echo-supported spell pressed
     beside it adds none (a small undercount, noted in the result). The old entry gave the full 30% whenever any Spell
     Echo gem was in the build: an overcount below 1.25 echoed casts a second, and Zarokh's Refrain / Now and Again
     gave nothing.

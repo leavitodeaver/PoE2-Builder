@@ -67,7 +67,7 @@ def test_rhythm_of_ice_model_lines():
     mods, notes = pm.rhythm_model(inputs, {"Speed": 1.0}, [RHYTHM], spell, {"Spell", "Cascadable"}, {"Spell Echo"})
     derived = next(m for m in mods if m["kind"] == "Derived")
     assert derived["fn"] == "rhythmOfIce" and derived["value"] == 24 * UNIT
-    assert derived["args"] == {"per": 6.0, "cap": 30.0, "chance": 1.0}
+    assert derived["args"] == {"per": 6.0, "cap": 30.0, "chance": 1.0, "seals": 0.0}
     assert notes[0]["value"] == "24.0%"
     mods, notes = pm.rhythm_model(inputs, {"Speed": 3.0}, [RHYTHM], spell, {"Spell", "Cascadable"}, set())
     assert next(m for m in mods if m["kind"] == "Derived")["value"] == 0 and notes[0]["value"] == "not counted"
@@ -145,3 +145,90 @@ def test_emboldening_casts_and_enhancing_attacks_read_the_pending_counts():
         ("1% increased Spell Damage", 12.0, "DifferentNonInstantAttacks8s")]
     assert all(n["value"] == "0 until the count lands" for n in notes)
     assert pm.different_skills_model(Inputs(), [emboldening]) == ([], [])
+
+
+def test_rhythm_of_ice_counts_comet_and_skyfall_quality_and_tuls_avalanche():
+    """A9-3 (COVB5): Comet's and Skyfall's own quality gives 0.5% chance to Echo per quality (GrantedEffectQualityStats),
+    summed with Now and Again; Tul's Avalanche makes one Echo per Seal, a Seal every 2 Blocks of the boss's hits."""
+    cascadable = {"Spell", "Cascadable", "Area"}
+    comet = Skill("Comet", group=1, spell=True)
+    assert pm.echo_chance(comet, cascadable, set(), [], quality=20)[0] == pytest.approx(0.10)
+    assert pm.echo_chance(comet, cascadable, set(), ["Cascadable Spells have 20% chance to Echo"], quality=20)[0] \
+        == pytest.approx(0.30)
+    assert pm.echo_chance(Skill("Skyfall", group=1, spell=True), cascadable, set(), [], quality=10)[0] == pytest.approx(0.05)
+    assert pm.echo_chance(Skill("Frost Bomb", group=1, spell=True), cascadable, set(), [], quality=20)[0] == 0.0
+    # 1.5 casts/s at 10%: 0.15 Spells Echoed a second, 0.6 in 4 s x 6% = 3.6%
+    assert pm.rhythm_speed(6, 30, 1.5, 0.10) == pytest.approx(3.6)
+    # Tul's Avalanche: boss hit every 0.7 s, none evaded, 35% blocked: 0.5 Blocks/s, 0.25 Seals/s
+    stats = {"enemySkillTime": 0.7, "EvadeChance": 0, "EffectiveBlockChance": 35, "Speed": 2.0}
+    spell = Skill("Frost Bomb", group=1, spell=True)
+    seals = pm.seal_rate(spell, cascadable, {"Tul's Avalanche"}, stats)
+    assert seals == pytest.approx(0.25)
+    assert pm.seal_rate(spell, cascadable, set(), stats) == 0.0
+    assert pm.seal_rate(spell, cascadable, {"Tul's Avalanche"}, {**stats, "Cooldown": 2.0}) == 0.0  # can't support it
+    assert pm.seal_rate(spell, cascadable, {"Tul's Avalanche"}, stats, by_totem=True) == 0.0
+    # 2 casts/s, 0.25 Seals/s: 1 Spell Echoed in 4 s, 6%; with a 10% chance: 0.2 + 0.9 x 0.25 = 0.425/s, 10.2%
+    assert pm.rhythm_speed(6, 30, 2.0, 0.0, seals=seals) == pytest.approx(6.0)
+    assert pm.rhythm_speed(6, 30, 2.0, 0.1, seals=seals) == pytest.approx(10.2)
+    assert pm.echoed_per_second(0.1, 0.0, 0.25) == pytest.approx(0.1)  # never more Echoes than uses
+    mods, notes = pm.rhythm_model(Inputs(flags={"RhythmOfIce"}), stats, [RHYTHM], spell, cascadable, {"Tul's Avalanche"})
+    derived = next(m for m in mods if m["kind"] == "Derived")
+    assert derived["args"]["seals"] == pytest.approx(0.25) and derived["value"] == round(6.0 * UNIT)
+    assert "Tul's Avalanche" in notes[0]["basis"]
+
+
+def test_arcane_surge_on_crit_tree_lines_drop_pobs_parse():
+    """MECHC3 / COVB5: PoB turns "N% chance to Gain Arcane Surge when you deal a Critical Hit" into Arcane Surge held
+    whenever you've crit recently. A `pob_wrong` entry with nothing in its place has the bridge drop the node's parsed
+    modifier (the Arcane Surge uptime model rates the line); its tree nodes are the 5% smalls and Aspiring Genius."""
+    from builder.data import GameData
+    try:
+        data = GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump")
+    found = pm.wrong_tree_lines(data.tree["nodes"])
+    surge = [f for f in found if f["entry"] == "passives-wrong-arcane-surge-on-crit"]
+    assert {f["id"] for f in surge} >= {2244, 54067, 27388}
+    assert all(f["lines"] == [] and "Arcane Surge" in f["drop"] for f in surge)
+    from builder.ledger import wrong
+    assert wrong("10% chance to Gain Arcane Surge when you deal a Critical Hit") is None  # item text: unchanged here
+
+
+def test_engine_drops_the_arcane_surge_on_crit_parse(tmp_path):
+    """With Aspiring Genius allocated and Crit Recently on, PoB's Arcane Surge comes only from the uptime box: turning
+    the box on still raises cast speed (PoB's own parse would have held it on already)."""
+    import faulthandler
+
+    from builder.data import GameData
+    try:
+        GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump")
+    from builder.pob.engine import PobEngine
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()
+    try:
+        engine = PobEngine()
+        payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+        skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+        search = Search(engine, None, payload, skeleton.as_dict(), 0)
+        search.setup(quests=False)
+        build = search.build
+        assert any(c.get("drop") and c["id"] == 27388 for c in search.ctx.passive_corrections)
+        assert engine.call("parseLines", lines=["10% chance to Gain Arcane Surge when you deal a Critical Hit"]
+                           )["results"][0]["supported"]  # PoB parses it: without the drop it would count
+        build.allocate(add=[27388])
+        assert any(n["id"] == 27388 for n in build.call("allocatedNodes")["nodes"])
+        build.set_config({"conditionCritRecently": True, "buffArcaneSurge": False})
+        off = build.call("stats", fields=["Speed"])["Speed"]
+        build.set_config({"buffArcaneSurge": True})
+        on = build.call("stats", fields=["Speed"])["Speed"]
+        assert on > off * 1.03
+    finally:
+        if enabled:
+            faulthandler.enable()
