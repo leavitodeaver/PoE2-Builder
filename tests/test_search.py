@@ -843,7 +843,7 @@ def test_shocked_ground_shocks_the_boss_and_counts_you_standing_in_it():
     walker = ["Gain 15% of Damage as Extra Lightning Damage while on Shocked Ground"]
     near = {"_shocked_ground": (0.6, "x"), "_distance_choice": (1.0, "melee")}
     on, basis, up = by["conditionOnShockedGround"].value_fn(walker, near)
-    assert on and up == pytest.approx(0.6) and "UNVERIFIED" in basis
+    assert on and up == pytest.approx(0.6) and "the user" in basis and "MEDIUM" in basis
     assert not by["conditionOnShockedGround"].value_fn(walker, {**near, "_distance_choice": (6.0, "ranged")})[0]
     assert by["conditionOnShockedGround"].value_fn(["Unrelated"], near) == (0.0, "")
 

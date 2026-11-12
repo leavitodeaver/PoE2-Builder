@@ -1249,5 +1249,5 @@ def test_shocked_ground_reads_the_builds_shock_magnitude_but_not_crit_only_lines
                         "40% increased Magnitude of Shock you inflict with Critical Hits"])
     build.call("equip", slot="Amulet", raw=amulet, fields=[])
     after = build.call("shockMagnitude")
-    assert after["inc"] - before["inc"] == 30 and after["max"] >= 20
+    assert after["inc"] - before["inc"] == 30 and after["max"] >= 20, (before, after)
 

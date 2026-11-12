@@ -2947,8 +2947,13 @@ function bridge.shockMagnitude()
 	local skill = env.player.mainSkill
 	local inc, more, left = 0, 1, { }
 	if skill then
+		-- not a Critical Hit: PoB's calcs can leave the skill's CriticalStrike condition met (a crit-only line counted, a
+		-- test caught it), so it's forced off in a copy of the skill's config
+		local cfg = copyTable(skill.skillCfg or { }, true)
+		cfg.skillCond = setmetatable({ CriticalStrike = false }, { __index = (skill.skillCfg or { }).skillCond })
+		cfg.overrideCond = setmetatable({ CriticalStrike = false }, { __index = (skill.skillCfg or { }).overrideCond })
 		for _, kind in ipairs({ "INC", "MORE" }) do
-			for _, row in ipairs(skill.skillModList:Tabulate(kind, skill.skillCfg, "EnemyShockMagnitude", "AilmentMagnitude")) do
+			for _, row in ipairs(skill.skillModList:Tabulate(kind, cfg, "EnemyShockMagnitude", "AilmentMagnitude")) do
 				local source = tostring(row.mod.source or "")
 				if source:match("Overcharge") then
 					table.insert(left, source)
