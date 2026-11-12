@@ -155,7 +155,7 @@ class Run:
                       passes=result.get("passes"), passes_done=result.get("passes_done"), kicks=result.get("kicks"),
                       kicks_kept=result.get("kicks_kept"), kick_kinds=result.get("kick_kinds"),
                       # restores and how far their scores came back from the snapshots' (inner.restore_drift)
-                      restore_drift=result.get("restore_drift"))
+                      restore_drift=result.get("restore_drift"), line=result.get("line"))
             if result.get("seed_start") and self.seed_start is None:
                 self.seed_start = result["seed_start"]
             # Ranked on the request's goal, whichever the search had; its own goal picks the state

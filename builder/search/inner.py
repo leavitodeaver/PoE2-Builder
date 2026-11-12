@@ -11,6 +11,7 @@ Worker tasks (called through EnginePool.run_tasks):
 from __future__ import annotations
 
 import copy
+import os
 import random
 import re
 import time
@@ -50,6 +51,11 @@ SWEEP_EVERY = 3
 # tree or jewel step ran there (POE2T202). A fresh build's first round (nothing equipped) has no cap: without it the
 # build has no DPS to search from
 GEAR_SHARE = 0.4
+# M1 (SEARCH_PLAN.md): a line carries its block pass across tasks (state "line"): the line's pass count, the step its
+# last task stopped at, and whether that pass sweeps. Without it every task started a new pass with the full gear sweep
+# (half of a 235 s focus task on 2b75b) and no task got past one pass (M0: passes_done 0 in all 15 tasks of POE2T730).
+# POE2_SEARCH_M1=0 turns it off for an A/B run
+PERSIST_LINES = os.environ.get("POE2_SEARCH_M1", "1") != "0"
 FINALIZE_SWEEP_MIN = 20.0  # finalize's polish sweeps supports on Full DPS first when it has this long (finalize_task)
 # How far past its deadline a search may run before its build stops it at the next evaluation (Build.stop_at): a share
 # of the task's time, at least STOP_GRACE_MIN seconds, so a step that watches the deadline itself finishes normally
@@ -129,6 +135,12 @@ class Search:
         self.stop_at: float | None = None  # the hard stop the build gets once a step has finished (Build.stop_at)
         self.passes = 0
         self.passes_done = 0  # passes that ran every block before the deadline (passes counts those started)
+        # The line's own pass (M1, PERSIST_LINES; carried in the state): passes over the line's life, the step the pass
+        # goes on from (None: a new pass), and whether that pass sweeps
+        self.line_passes = 0
+        self.resume_step: str | None = None
+        self.resume_sweep = False
+        self.current_step: str | None = None
         self.kick_kinds: dict[str, int] = {}
         self.kicked: set[str] = set()  # blocks a kick disturbed, swept fully on the next pass
 
@@ -347,6 +359,8 @@ class Search:
             "extra_stats": dict(self.build.extra_stats),
             "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
+            "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
+                     "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt} if PERSIST_LINES else None,
         }
 
     # The objective's per-build factors (not its requirement weights: an escalation raises those for the rest of the
@@ -401,6 +415,11 @@ class Search:
         self.gear.shortlist = dict(state.get("gear_shortlist") or {})
         self.gear.resume = state.get("gear_resume")
         self.problems = list(state["problems"])
+        line = state.get("line") if PERSIST_LINES else None
+        if line:
+            self.line_passes, self.resume_step, self.resume_sweep = line["passes"], line["step"], line["sweep"]
+            self.kicked.update(line.get("kicked") or [])
+            self.gems.rebuilt = bool(line.get("rebuilt"))  # (the support rebuild: once per line, SEARCH_PLAN.md §6)
         self.gear.sync_flasks()
 
     def settle(self) -> bool:
@@ -665,7 +684,13 @@ class Search:
         """One pass over every block. Full sweeps (every support in every slot, every item, every
         ascendancy allocation) run every SWEEP_EVERY passes or after a kick touched that block;
         passes in between rescore shortlists."""
-        sweep = self.passes % SWEEP_EVERY == 0
+        resume = self.resume_step if PERSIST_LINES else None
+        if resume is not None:  # (M1: the line's pass goes on where its last task stopped)
+            sweep = self.resume_sweep
+        else:
+            sweep = (self.line_passes if PERSIST_LINES else self.passes) % SWEEP_EVERY == 0
+            self.line_passes += 1
+        self.resume_step, self.resume_sweep = None, sweep
         self.passes += 1
         full_gear = sweep or "gear" in self.kicked
         gear_deadline = deadline
@@ -697,15 +722,20 @@ class Search:
             steps.insert(3, ("weapon sets", self.weapon_set_round, ()))
         improved = False
         finished = True
+        if resume is not None and resume in [phase for phase, _, _ in steps]:
+            steps = steps[[phase for phase, _, _ in steps].index(resume):]
         for phase, fn, args in steps:
             if clock.now() > deadline:
                 finished = False
+                self.resume_step = phase  # (M1: the next task of this line starts here)
                 break
+            self.current_step = phase
             if phase in ("meta gems", "meta spells") and "meta" in self.kicked:
                 pass  # a meta kick took the group out: the meta round re-chooses it now, not at the next sweep
             elif phase in ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "mirages", "roar") and not sweep:
                 continue
             improved = self.step(phase, fn, *args) or improved
+        self.current_step = None
         self.kicked.clear()
         self.passes_done += finished
         return improved
@@ -818,6 +848,8 @@ class Search:
             # engine: back to where the last step left the build, then the usual best-of below
             self.build.restore(self.boundary)  # (armed only once there is one)
             best, start = self._kept
+            if self.current_step is not None:  # (M1: the line's next task runs the stopped step again)
+                self.resume_step, self.current_step = self.current_step, None
         finally:
             self.build.stop_at = self.stop_at = None
             self.deadline, self.boundary = None, None
@@ -946,6 +978,7 @@ class Search:
             "kicks": self.kicks, "kicks_kept": self.kicks_kept, "kick_kinds": dict(self.kick_kinds),
             "passes": self.passes, "passes_done": self.passes_done, "problems": self.problems, "reverts": build.reverts,
             "restore_drift": restore_drift(build),
+            "line": {"passes": self.line_passes, "resume": self.resume_step},  # (M1: the line's pass, where it goes on)
             "condition_sources": list(self.sources.kept),
             "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
             "overrun": dict(self.overrun), "support_census": dict(self.gems.census),
@@ -1084,6 +1117,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     deadline = clock.now() + seconds
     search = Search(engine, report, payload, skeleton, 1, full=True)
     search.load(state)
+    search.resume_step, search.line_passes = None, 0  # (its polish starts a sweep pass, as before M1)
     build = search.build
     build.phase = "finalize"
     # The score after each finalize step (ln DPS-like), in the result: 2b75e's delivered build has come out 8-17% under

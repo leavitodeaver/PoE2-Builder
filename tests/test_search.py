@@ -1567,3 +1567,45 @@ def test_a_life_plus_energy_shield_floor_counts_both_pools(data):
     assert stats["LifePlusEnergyShield"] == 4500
     objective = Objective(Context(make_payload(request)))
     assert "LifePlusEnergyShield" not in objective.fields and {"Life", "EnergyShield"} <= set(objective.fields)
+
+
+def test_a_line_goes_on_with_its_pass_in_its_next_task(monkeypatch):
+    """M1 (SEARCH_PLAN.md): a task the deadline stops mid-pass hands the step it stopped at, and whether the pass
+    sweeps, on in its state; the line's next task starts there instead of a new pass with the full gear sweep."""
+    from types import SimpleNamespace
+
+    from builder import clock
+    from builder.search import inner
+
+    now = [0.0]
+    monkeypatch.setattr(clock, "now", lambda: now[0])
+    monkeypatch.setattr(inner, "PERSIST_LINES", True)
+    ran = []
+
+    def step(phase, fn, *args):
+        ran.append((phase, args))
+        now[0] += 10.0
+        return False
+
+    fake = lambda *a, **k: None
+    blocks = SimpleNamespace(**{n: fake for n in (
+        "gear_round", "ascendancy_round", "optimize_supports", "grow", "attributes_round", "jewel_round", "round",
+        "optimize_persistent", "granted_meta_round", "meta_round", "meta_spell_round", "totem_round", "mark_round",
+        "mirage_round", "roar_round", "swap_round")})
+    search = SimpleNamespace(passes=0, passes_done=0, line_passes=0, resume_step=None, resume_sweep=False,
+                             current_step=None, kicked=set(), build=SimpleNamespace(equipped={}),
+                             gear=blocks, tree=blocks, gems=blocks, jewels=blocks, sources=blocks,
+                             conditions_round=fake, weapon_set_round=fake, skeleton=SimpleNamespace(swap=False), step=step)
+    inner.Search.blocks(search, deadline=25.0)  # gear, ascendancy, supports, then the deadline
+    assert [p for p, _ in ran] == ["gear", "ascendancy", "supports"]
+    assert search.resume_step == "tree" and search.resume_sweep and search.passes_done == 0
+
+    ran.clear()  # the line's next task: same pass, from the tree on, still a sweep pass
+    search.passes, now[0] = 0, 100.0
+    inner.Search.blocks(search, deadline=1000.0)
+    assert ran[0][0] == "tree" and "gear" not in [p for p, _ in ran] and search.line_passes == 1
+    assert ("condition sources" in [p for p, _ in ran]) and search.resume_step is None and search.passes_done == 1
+
+    ran.clear()  # then a new pass, the line's second: no sweep (SWEEP_EVERY 3)
+    inner.Search.blocks(search, deadline=10000.0)
+    assert ran[0][0] == "gear" and ran[0][1][1] is False and search.line_passes == 2
