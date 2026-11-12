@@ -147,6 +147,18 @@ def guide(search: Any) -> list[dict]:
                          "play": f"{alt[1]}: {other:,.0f} DPS (not counted in the headline, {headline:,.0f})",
                          "dps_with": other, "dps_without": headline, "change": (other - headline) / headline,
                          "confidence": "theory"})
+    # How the build feeds its Combo and walking gems (Usage.play_note: the press hook's rate in plain English, with its
+    # "without it / with it" figures in the text; COVC10-11, MECHC7: before, never shown). Counted in the headline at that
+    # rate, so the row moves nothing here.
+    usage = getattr(search, "usage", None)
+    if usage is not None:
+        names = sorted({g["name"] for group in build.call("groups")["groups"] if group.get("enabled") is not False
+                        for g in group.get("gems") or [] if g.get("enabled", True) and not g.get("support")})
+        for name in names:
+            if note := usage.play_note(name):
+                rows.append({"var": f"usage:{name}", "label": f"{name}: how the build feeds it", "kind": PLAYER,
+                             "counted": True, "play": note, "dps_with": headline, "dps_without": headline,
+                             "change": 0.0, "confidence": "modelled"})
     after, base = build.objective.dps(build.stats), headline
     if abs(after - base) > 1e-6 * base:  # the switches must leave the build as it was; say so if they didn't
         rows.append({"var": "", "label": "(restore check)", "kind": BUILD, "counted": False, "play": "",

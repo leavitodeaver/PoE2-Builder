@@ -344,3 +344,15 @@ def test_parried_row_gives_the_dps_while_parried_and_while_not():
     rows = [r for r in play_guide.guide(search) if r["var"] == "parryActive"]
     assert len(rows) == 1 and rows[0]["kind"] == play_guide.PLAYER and rows[0]["dps_with"] == approx(1200)
     assert "1,765 DPS while the boss is Parried, 1,176 while it isn't" in rows[0]["play"]
+
+
+def test_the_usage_play_notes_get_their_own_rows():
+    """MECHC7 (COVC10-11): Usage.play_note's lines (Combo, walking) are shown as rows, counted in the headline."""
+    search = search_with({}, {})
+    groups = {"groups": [{"index": 1, "gems": [{"name": "Tempest Bell"}, {"name": "Combo Finisher", "support": True}]},
+                         {"index": 2, "enabled": False, "gems": [{"name": "Hidden"}]}]}
+    plain_call = search.build.call
+    search.build.call = lambda method, **kw: groups if method == "groups" else plain_call(method, **kw)
+    search.usage = SimpleNamespace(play_note=lambda name: "Strike first" if name == "Tempest Bell" else "")
+    rows = [r for r in play_guide.guide(search) if r["var"].startswith("usage:")]
+    assert [(r["var"], r["play"], r["counted"]) for r in rows] == [("usage:Tempest Bell", "Strike first", True)]
