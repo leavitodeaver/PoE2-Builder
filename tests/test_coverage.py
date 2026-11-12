@@ -15,8 +15,9 @@ def test_names_calculations_read():
     assert coverage.name_read("Condition:LedgerWitchbane", reads) or coverage.name_read("Multiplier:PowerCharge", reads)
     assert coverage.name_read("EnemyModifier>FireResist", reads)
     assert coverage.name_read("SkillData:duration", reads)
-    # Increased Presence Area: PoB parses it, and no calculation asks for it
-    assert not coverage.name_read("PresenceArea", reads)
+    # Trap Duration: PoB parses it, and no calculation asks for it (Presence Area was the example until COV6: PoB's
+    # calcBuffRadius reads it through a name built from its argument)
+    assert not coverage.name_read("TrapDuration", reads)
 
 
 def test_a_name_only_the_bridge_helpers_read_counts_for_their_type_only():
@@ -34,7 +35,7 @@ def test_a_name_only_the_bridge_helpers_read_counts_for_their_type_only():
 def test_a_line_is_a_noop_only_when_nothing_it_writes_is_read():
     reads = coverage.calc_reads()
     assert coverage.unread(["Str", "Dex", "StrDex"], reads) == []  # StrDex is only a marker
-    assert coverage.unread(["PresenceArea"], reads) == ["PresenceArea"]
+    assert coverage.unread(["TrapDuration"], reads) == ["TrapDuration"]
     assert coverage.unread([], reads) == []
 
 
@@ -88,11 +89,11 @@ def test_build_blind_spots_list_noops_and_unread_gem_stats():
     if not (data_dir() / "coverage.json").exists():
         pytest.skip("no coverage.json; run `uv run python -m builder.ledger.coverage --refresh`")
     found = coverage.build_blind_spots(
-        [{"source": "passive:Presence Area", "text": "10% increased Presence Area of Effect"},
+        [{"source": "item:Gloves", "text": "10% reduced Trap Duration"},
          {"source": "item:Ring 1", "text": "+30 to maximum Life"}],
         ["Mana Tempest", "Ember Fusillade"])
     kinds = {(b["kind"], b["line"]) for b in found}
-    assert ("no-op", "10% increased Presence Area of Effect") in kinds
+    assert ("no-op", "10% reduced Trap Duration") in kinds
     assert ("gem stat", "ember_fusillade_damage_+%_final_per_ember_fired") in kinds
     assert not any(b["source"] == "gem: Mana Tempest" for b in found)  # its stats are counted now
     assert not any("maximum Life" in b["line"] for b in found)
