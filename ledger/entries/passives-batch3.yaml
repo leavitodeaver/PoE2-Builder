@@ -45,7 +45,10 @@
     by proxy: their PoB data), else Now and Again's "Cascadable Spells have 20% chance to Echo" plus Comet's and
     Skyfall's own quality (0.5% chance to Echo per quality: GrantedEffectQualityStats, AUDIT9 A9-3), and Tul's Avalanche
     on the main spell: a Seal every 2 Blocks (the boss's landing hits x Block chance), each Seal making the next use Echo
-    (COVB5). Zarokh's three Echoes, and several Seals broken on one use, count as one Spell Echoed (LOW: the lower
+    (COVB5), but none on a spell that already gains Seals (A13-4, COVB6: the game's "Cannot support skills ... which
+    already gain Seals" is SupportTulsAvalanche excluding skill type HasSeals, which Expand, Unleash, Zarokh's Revolt
+    and Salvo add and Freezing Salvo has; checked: GrantedEffects / ActiveSkills holding type 186, SupportGems family
+    Seal, PoB's addSkillTypes; the search's one-per-family rule already keeps them apart). Zarokh's three Echoes, and several Seals broken on one use, count as one Spell Echoed (LOW: the lower
     reading). Only the main spell's Echoes are counted: an Echo-supported spell pressed
     beside it adds none (a small undercount, noted in the result). The old entry gave the full 30% whenever any Spell
     Echo gem was in the build: an overcount below 1.25 echoed casts a second, and Zarokh's Refrain / Now and Again

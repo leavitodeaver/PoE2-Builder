@@ -110,6 +110,16 @@ QUALITY_ECHO = {"Comet": 0.5, "Skyfall": 0.5}  # % chance to Echo per quality
 # models.py's meta-gem block rate: (1 - Evade chance) x Block chance / the boss's time between hits.
 TULS_AVALANCHE = "Tul's Avalanche"
 TULS_BLOCKS_PER_SEAL = 2.0
+# A13-4 (AUDIT13): "... Cannot support skills with a Cooldown or which already gain Seals" (GemEffects
+# TulsAvalancheSupport). The game's rule is a skill type: SupportTulsAvalanche excludes HasSeals (ActiveSkillType 186)
+# unless it added it itself. HasSeals is added by Expand, Unleash, Zarokh's Revolt and Salvo (and Tul's), and is native
+# to Freezing Salvo, a Bow attack (checked: GrantedEffects.AddedActiveSkillTypes and ActiveSkills.ActiveSkillTypes
+# holding 186, game 26476662; PoB Data/Skills addSkillTypes / skillTypes HasSeals agrees, same five supports and
+# Freezing Salvo). Those five supports are exactly the game's support family "Seal" (SupportGems.Family 51), which
+# PoB's gemFamily carries, so a support "already gives Seals" here when its family is Seal. gems.py's one-per-family
+# rule already keeps the search from pairing them; this guards imported or hand-built groups.
+SEAL_TYPE = "HasSeals"
+SEAL_FAMILY = "Seal"
 
 
 def echo_chance(main: Skill | None, main_types: set[str], main_supports: set[str], texts: list[str],
@@ -135,12 +145,23 @@ def echo_chance(main: Skill | None, main_types: set[str], main_supports: set[str
     return 0.0, "nothing makes the main spell Echo"
 
 
+def other_seals(main: Skill | None, main_types: set[str], main_supports: set[str], families=None) -> str:
+    """What else gives the main skill Seals (its own HasSeals type, or a Seal-family support other than Tul's
+    Avalanche), or "" (A13-4: Tul's Avalanche can't support it then). `families(name)` gives a gem's families."""
+    if main is not None and SEAL_TYPE in main_types:
+        return main.name
+    return next((s for s in sorted(main_supports) if s != TULS_AVALANCHE and families
+                 and SEAL_FAMILY in families(s)), "")
+
+
 def seal_rate(main: Skill | None, main_types: set[str], main_supports: set[str], stats: dict,
-              by_totem: bool = False) -> float:
+              by_totem: bool = False, families=None) -> float:
     """Seals per second Tul's Avalanche gives the main spell (0 without it, or where it can't support the spell)."""
     if TULS_AVALANCHE not in main_supports or main is None or not main.spell or "Cascadable" not in main_types:
         return 0.0
     if main.triggered or by_totem or {"Triggered", "Persistent", "UsedByProxy"} & main_types:
+        return 0.0
+    if other_seals(main, main_types, main_supports, families):
         return 0.0
     if number(stats.get("Cooldown")) > 0:
         return 0.0
@@ -166,15 +187,19 @@ def rhythm_speed(per: float, cap: float, rate: float, chance: float, cooldown: f
 
 
 def rhythm_model(inputs: Inputs, stats: dict, texts: list[str], main: Skill | None, main_types: set[str],
-                 main_supports: set[str], by_totem: bool = False, quality: float = 0.0) -> tuple[list[dict], list[dict]]:
+                 main_supports: set[str], by_totem: bool = False, quality: float = 0.0,
+                 families=None) -> tuple[list[dict], list[dict]]:
     if not inputs.has(RHYTHM):
         return [], []
     m = next((m for t in texts if (m := RHYTHM_LINE.match(t.strip()))), None)
     per, cap = (float(m.group(1)), float(m.group(2))) if m else (0.0, 0.0)
     chance, source = echo_chance(main, main_types, main_supports, texts, by_totem, quality)
-    seals = seal_rate(main, main_types, main_supports, stats, by_totem)
+    seals = seal_rate(main, main_types, main_supports, stats, by_totem, families)
     if seals > 0 and chance < 1:
         source = f"{source if chance > 0 else 'no chance to Echo'}; Tul's Avalanche: {seals:.2f} Seals/s from Blocks"
+    elif TULS_AVALANCHE in main_supports and (sealed := other_seals(main, main_types, main_supports, families)):
+        source += (f"; Tul's Avalanche gives no Seals: the spell already gains Seals from {sealed}, and Tul's "
+                   "Avalanche can't support it then")
     rate, cooldown = number(stats.get("Speed")), number(stats.get("Cooldown"))
     gain = rhythm_speed(per, cap, rate, chance, cooldown, seals)
     when = [{"var": RHYTHM}]
@@ -224,7 +249,9 @@ def build_models(build, inputs: Inputs, texts: list[str], skills: list[Skill], m
         main_types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or []) if main else set()
         main_supports = set(supports.get(main.group, [])) if main and main.group is not None else set()
         more, more_notes = rhythm_model(inputs, stats, texts, main, main_types, main_supports,
-                                        bool(main and cast_by_totem(skills, main)), main_quality(build, main))
+                                        bool(main and cast_by_totem(skills, main)), main_quality(build, main),
+                                        families=lambda name: set((build.ctx.gems.get(name) or {}).get("families")
+                                                                  or []))
         mods, notes = mods + more, notes + more_notes
     return mods + different[0], notes + different[1]
 

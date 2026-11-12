@@ -175,6 +175,17 @@ def test_rhythm_of_ice_counts_comet_and_skyfall_quality_and_tuls_avalanche():
     derived = next(m for m in mods if m["kind"] == "Derived")
     assert derived["args"]["seals"] == pytest.approx(0.25) and derived["value"] == round(6.0 * UNIT)
     assert "Tul's Avalanche" in notes[0]["basis"]
+    # A13-4: no Seals from Tul's Avalanche on a spell that already gains Seals (a Seal-family support, or HasSeals)
+    families = {"Unleash": {"Seal"}, "Tul's Avalanche": {"SpellEcho", "Seal"}, "Controlled Destruction": set()}.get
+    assert pm.seal_rate(spell, cascadable, {"Tul's Avalanche", "Controlled Destruction"}, stats,
+                        families=families) == pytest.approx(0.25)
+    assert pm.seal_rate(spell, cascadable, {"Tul's Avalanche", "Unleash"}, stats, families=families) == 0.0
+    assert pm.seal_rate(spell, cascadable | {"HasSeals"}, {"Tul's Avalanche"}, stats, families=families) == 0.0
+    mods, notes = pm.rhythm_model(Inputs(flags={"RhythmOfIce"}), stats, [RHYTHM], spell, cascadable,
+                                  {"Tul's Avalanche", "Unleash"}, families=families)
+    derived = next(m for m in mods if m["kind"] == "Derived")
+    assert derived["args"]["seals"] == 0.0 and derived["value"] == 0
+    assert "already gains Seals from Unleash" in notes[0]["basis"]
 
 
 def test_arcane_surge_on_crit_tree_lines_drop_pobs_parse():
