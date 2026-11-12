@@ -1382,6 +1382,48 @@ def consumed_share(hits: float, chance: float, ground: float = 0.0) -> float:
     return ground * last / (last + models.CONSUME_IMMUNE)
 
 
+def main_consumes(build, main_skill: str, main_gems: set[str]) -> dict[str, str]:
+    """{ailment: what consumes it} for the ailments the main skill consumes on hit (CONSUME_STATS in its own stat sets
+    or its supports'); looked up only when a gem of its group says it consumes."""
+    if not any(CONSUME_TEXT.search((build.ctx.all_gems.get(n) or {}).get("description") or "") for n in main_gems):
+        return {}
+    every = [stat for ids in CONSUME_STATS.values() for stat in ids]
+    raw = build.call("activeSkills", levelStats=[main_skill], supportStats=every)
+    main = next((s for s in raw["skills"] if s["name"] == main_skill and not s.get("disabled")), {})
+    own, sup = main.get("levelStats") or {}, main.get("supportStats") or {}
+    return {ailment: (main_skill if any(number(own.get(i)) for i in ids) else "a support of it")
+            for ailment, ids in CONSUME_STATS.items() if any(number(own.get(i)) or number(sup.get(i)) for i in ids)}
+
+
+# PoB's Best Ignite DPS when the main skill consumes Ignite (MECH52; MECH51's follow-up, an OVERCOUNT). PoB counts
+# min(stacks, the most that count) Ignites on the boss all fight (CalcOffence.lua 5251-5277 / 5402: stacks = hit chance x
+# Ignite chance x duration x hits per second; StackPotential = stacks / most). Consumed (KeywordPopups Consume: "Consuming
+# a Debuff on an enemy causes the enemy to be immune to that Debuff for 1 seconds"; Ailments are Debuffs), an Ignite ends
+# at the main skill's next hit, then the boss is immune 1 s, then waits to be Ignited again: it carries one
+# last / (last + 1 s + wait), last = min(its duration, 1 / hits). Its wait: from the main skill's own Ignite,
+# 1 / (hits x Ignite chance); from another skill's, taken as none (that skill's Ignite rate isn't read here: an upper
+# bound, MEDIUM). Each Ignite PoB counts is taken to keep that share (MEDIUM where a line raises the most Ignites past 1:
+# whether one Consume ends them all is UNVERIFIED, and taken as yes). Burning Ground made from Ignite DPS is left as PoB
+# has it (whether it ends with the consumed Ignite: UNVERIFIED).
+CONSUME_IGNITE_FIELDS = ("Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration", "IgniteStackPotential")
+
+
+def consumed_ignite_scale(potential: float, hits: float, chance: float, duration: float, own: bool) -> tuple[float, str]:
+    """(the scale on PoB's Best Ignite DPS, how) for a main skill that consumes Ignite: the share of the fight the boss
+    carries an Ignite over the min(potential, 1) PoB counts. potential: the Ignite source's StackPotential (unknown: 1)."""
+    if hits <= 0:
+        return 1.0, ""
+    last = min(duration, 1.0 / hits) if duration > 0 else 1.0 / hits
+    wait = 1.0 / (hits * chance) if own and chance > 0 else 0.0
+    share = last / (last + models.CONSUME_IMMUNE + wait)
+    counted = min(potential, 1.0) if potential > 0 else 1.0
+    scale = min(1.0, share / counted)
+    how = (f"consumed at the next hit ({last:.2f} s), then immune {models.CONSUME_IMMUNE:g} s"
+           + (f", then {wait:.2f} s to Ignite again" if wait else ", reapplied at once (another skill's Ignite: an upper bound)")
+           + f": Ignited {share:.0%} of the fight, PoB counts {counted:.0%}")
+    return scale, how
+
+
 def _ailment_up(ailment: str):
     return lambda s: ailment_uptime(s, ailment) >= MIN_UPTIME
 
@@ -2166,14 +2208,8 @@ class Conditions:
                     stats["_wither_presence"] = (number(got.get(WITHERING_PRESENCE_STATS[0])) / 1000,
                                                  number(got.get(WITHERING_PRESENCE_STATS[1])) / 1000)
         # Ailments the main skill consumes on hit (CONSUME_STATS; looked up only when a gem of its group says it consumes)
-        if any(CONSUME_TEXT.search((self.build.ctx.all_gems.get(n) or {}).get("description") or "") for n in main_gems):
-            every = [stat for ids in CONSUME_STATS.values() for stat in ids]
-            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=every)
-            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
-            own, sup = main.get("levelStats") or {}, main.get("supportStats") or {}
-            stats["_consumes"] = {ailment: (self.main_skill if any(number(own.get(i)) for i in ids) else "a support of it")
-                                  for ailment, ids in CONSUME_STATS.items()
-                                  if any(number(own.get(i)) or number(sup.get(i)) for i in ids)}
+        if consumes := main_consumes(self.build, self.main_skill, main_gems):
+            stats["_consumes"] = consumes
         # Shocked Ground (shocked_ground): the main skill's own, the Shocking Leap support on it, and the lines
         if self.main_skill in SHOCKED_GROUND_SKILLS or SHOCKED_GROUND_SUPPORT in main_gems:
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(SHOCKED_GROUND_SUPPORT_STATS))

@@ -1989,3 +1989,43 @@ def test_uncorrupted_uniques_of_quality_types_say_quality_20():
     assert "Quality" not in ctx.corrected_raw(bare["name"], bare["raw"] + "\nCorrupted")
     other = next(u for u in ctx.data.uniques if u["type"] in ("Ring", "Amulet", "Belt", "Jewel", "Charm"))
     assert ctx.corrected_raw(other["name"], other["raw"]).count("Quality: 20") == other["raw"].count("Quality: 20")
+
+
+def test_a_main_skill_that_consumes_ignite_keeps_pobs_ignite_dps_to_the_share_the_boss_carries_it():
+    """MECH52 (MECH51's follow-up, an OVERCOUNT): PoB's Best Ignite DPS counts the Ignite up all fight; a main skill that
+    consumes it ends it at its next hit, then the boss is immune 1 s (KeywordPopups Consume)."""
+    from types import SimpleNamespace
+    from builder.search import conditions as c
+    from builder.search.assumptions import Assumptions
+
+    # 2 hits/s, 50% Ignite chance, 4 s Ignites: last 0.5 s, immune 1 s, 1 s to Ignite again -> 20%; PoB counts 100%
+    scale, how = c.consumed_ignite_scale(4.0, 2.0, 0.5, 4.0, own=True)
+    assert abs(scale - 0.2) < 1e-9 and "immune 1 s" in how
+    # another skill's Ignite: reapplied at once (upper bound): 0.5 / 1.5; PoB at half the stacks -> doubled, capped at 1
+    assert abs(c.consumed_ignite_scale(0.0, 2.0, 0.0, 4.0, own=False)[0] - 1 / 3) < 1e-9
+    assert c.consumed_ignite_scale(0.2, 2.0, 0.0, 4.0, own=False)[0] == 1.0
+    assert c.consumed_ignite_scale(1.0, 0.0, 0.5, 4.0, own=True)[0] == 1.0  # (no hits: left as PoB has it)
+
+    class FakeBuild:
+        ctx = SimpleNamespace(all_gems={"Flame Pillar": {"description": "Supported Skills Consume Ignite on Hit"}})
+        stats = {"SkillDPS": [{"name": "Best Ignite DPS", "source": "Earthquake", "dps": 1000.0, "count": 1}]}
+        objective = SimpleNamespace(press_scales={})
+
+        def call(self, name, **kw):
+            if name == "activeSkills":
+                return {"skills": [{"name": "Earthquake", "levelStats": {},
+                                    "supportStats": {"pillar_of_flame_consume_ignite_to_create_X_pillars": 1}}]}
+            return {"Speed": 2.0, "HitChance": 100, "IgniteChancePerHit": 50, "IgniteDuration": 4,
+                    "IgniteStackPotential": 4.0}
+
+    a = Assumptions.__new__(Assumptions)
+    a.build = FakeBuild()
+    a.main_skill = lambda: "Earthquake"
+    groups = {"mainSocketGroup": 1, "groups": [{"index": 1, "gems": [{"name": "Earthquake"}, {"name": "Flame Pillar"}]}]}
+    notes = a.consume_ignite(groups, [])
+    assert abs(a.build.objective.press_scales["Best Ignite DPS from Earthquake"] - 0.2) < 1e-9
+    assert notes and "consumed by a support of it" in notes[0]["label"]
+    # no consumer in the group: PoB's number stands
+    a.build.objective.press_scales = {}
+    assert a.consume_ignite({**groups, "groups": [{"index": 1, "gems": [{"name": "Earthquake"}]}]}, []) == []
+    assert a.build.objective.press_scales == {}

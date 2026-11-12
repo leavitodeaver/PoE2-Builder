@@ -509,12 +509,45 @@ class Assumptions:
         pressed = {g["index"] for g in groups["groups"] if g["index"] != main and pressed_group(g, build.ctx.gems)}
         if not pressed:
             build.objective.press_scales = {}
-            return []
+            return self.consume_ignite(groups, [])
         rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
         paced = {g["index"]: models.CADENCE_PACE for g in groups["groups"] if g["index"] in pressed
                  and any(x["enabled"] and x["name"] in models.CADENCE_SUPPORTS for x in g["gems"])}
         caps = self.press_caps(groups["groups"], pressed)
         build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps)
+        return notes + self.consume_ignite(groups, rates)
+
+    def consume_ignite(self, groups: dict, rates: list[dict]) -> list[dict]:
+        """MECH52: a main skill that consumes Ignite keeps PoB's Best Ignite DPS to the share of the fight the boss carries
+        an Ignite (conditions_mod.consumed_ignite_scale), on top of the press scales. Returns the notes."""
+        build = self.build
+        main = self.main_skill()
+        group = next((g for g in groups["groups"] if g["index"] == groups["mainSocketGroup"]), None)
+        entries = [e for e in (build.stats or {}).get("SkillDPS") or [] if e.get("name") == "Best Ignite DPS"]
+        if main is None or group is None or not entries:
+            return []
+        gems = {g["name"] for g in group["gems"] if g.get("enabled", True)}
+        consumer = conditions_mod.main_consumes(build, main, gems).get("Ignite")
+        if consumer is None:
+            return []
+        stats = build.call("stats", fields=list(conditions_mod.CONSUME_IGNITE_FIELDS))
+        hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+        chance = min(number(stats.get("IgniteChancePerHit")) / 100.0, 1.0)
+        notes = []
+        for entry in entries:
+            source = entry.get("source") or ""
+            own = source == main
+            rate = next((r for r in rates if r.get("name") == source), None)
+            potential = (number(stats.get("IgniteStackPotential")) if own
+                         else number(((rate or {}).get("stackPotential") or {}).get("Ignite")))
+            scale, how = conditions_mod.consumed_ignite_scale(potential, hits, chance, number(stats.get("IgniteDuration")), own)
+            if scale >= 1.0:
+                continue
+            key = models.press_key("Best Ignite DPS", source or None)
+            build.objective.press_scales[key] = build.objective.press_scales.get(key, 1.0) * scale
+            notes.append({"label": f"Ignite from {source or 'the build'}: consumed by {consumer}*", "value": f"x{scale:.3f}",
+                          "basis": f"{main} consumes Ignite on hit (KeywordPopups Consume: then immune 1 s); {how}",
+                          "confidence": "MEDIUM"})
         return notes
 
     def press_caps(self, groups: list[dict], indices: set[int]) -> dict[int, "models.PressCap"]:
