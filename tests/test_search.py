@@ -844,7 +844,9 @@ def test_rage_held_from_gains_spends_and_its_decay():
     kill = rage_held(["Gain 10 Rage when you kill an enemy"], melee)
     assert kill[0] == 0 and "on kill" in kill[1]  # (was the maximum before MECH27)
     # A gain once per 10 s with no hit taken: 3 Rage held 4 s, then lost over 0.6 s: (12 + 0.9) / 10
-    rare = rage_held(["Gain 3 Rage on Hit with Attacks, no more than once every 10 seconds"], melee)
+    # (MECHC7: Ignite from the boss's Fire hits also pauses the loss; IgniteAvoidChance 100 keeps this case to the hits)
+    rare = rage_held(["Gain 3 Rage on Hit with Attacks, no more than once every 10 seconds"],
+                     {**melee, "IgniteAvoidChance": 100})
     assert rare[0] == 1
     # Taking the boss's hits pauses the loss too, but pauses make no Rage: the 3 gained are kept almost all the time
     # (MECHC5; before, the maximum 30 from 3 Rage per 10 s); held 2.97, truncated as PoB's Rage multiplier is
@@ -869,7 +871,10 @@ def test_rage_held_from_gains_spends_and_its_decay():
     # pause the loss at random: 3 held)
     assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"],
                      {**melee, "ManaPerSecondCost": 10, "_boss": "Atziri, the Red Queen"})[0] == 1
-    assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"], {**melee, "ManaPerSecondCost": 10})[0] == 3
+    assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"],
+                     {**melee, "ManaPerSecondCost": 10, "IgniteAvoidChance": 100})[0] == 3
+    # (MECHC7: his Fire hits' Ignites keep it paused longer: 6 held with every landed Fire hit Igniting, no threshold read)
+    assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"], {**melee, "ManaPerSecondCost": 10})[0] == 6
     assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"], melee)[0] == 0  # spends none: no gain
     # Rage regenerated from Mana Regeneration: 50/s over 25 is 2 Rage/s; none without Mana regeneration
     regen = rage_held(["1 Rage Regenerated for every 25 Mana Regeneration per Second"], {**melee, "ManaRegenRecovery": 50})
@@ -1860,3 +1865,19 @@ def test_a_placed_banner_stands_its_glory_share_of_the_fight():
     on, basis, share = planted.value_fn([], {"_banner": (up, how)})
     assert on and share == pytest.approx(up)
     assert planted.value_fn([], {})[0] == 0.0
+
+
+def test_rage_loss_stays_paused_while_the_bosss_damage_over_time_burns_you():
+    """MECHC7 (AUDIT17): "Rage loss is paused ... after taking damage": an Ignite a landed Fire hit leaves on you (and
+    Atziri's Corrupted Blood) keeps it paused d s longer: the loss runs e^(-land x (pause + sum p d)) of the time."""
+    import math
+
+    from builder.search.conditions import rage_held
+
+    melee = {"Speed": 3.0, "HitChance": 100, "CritChance": 0, "MaximumRage": 30, "enemySkillTime": 0.7,
+             "EvadeChance": 100, "_main_types": {"Attack", "Melee"}, "ManaPerSecondCost": 10}
+    line = ["Gain 8 Rage after Spending a total of 200 Mana"]
+    cold = rage_held(line, {**melee, "IgniteAvoidChance": 100})  # (no Ignite: the hits alone, as before)
+    hot = rage_held(line, melee)  # (no threshold read: every landed Fire hit Ignites, 4 s)
+    assert "damage over time" in hot[1] and "damage over time" not in cold[1]
+    assert hot[0] >= cold[0]

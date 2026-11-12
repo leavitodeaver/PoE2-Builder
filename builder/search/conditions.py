@@ -47,6 +47,8 @@ EVIDENCE_FIELDS = [
     "HitChance", *(f"{c}Charges{f}" for c in ("Power", "Frenzy", "Endurance") for f in ("Max", "Duration")),
     "PresenceRadius", "Ward", "Mana", "ManaPerSecondCost", "ManaRegenRecovery", "Devotion", *models.IMMOBILISE_FIELDS,
     "ChaosHitAverage", "MainHand.ChaosHitAverage", "EnemyAilmentThreshold",  # (Withering Touch, _withered_stacks)
+    # (the boss's Ignite on you, which pauses Rage loss while it burns: boss_hits.es_dot; MECHC7)
+    "AilmentThreshold", "Life", "FireTakenHit", "IgniteAvoidChance", "SelfIgniteDuration",
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -822,16 +824,25 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         # (MECHC5, RESEARCH17 #89: a landing hit restarts the pause too. The boss's hits come at random, so after a gain's
         # own pause the loss runs only while no hit landed in the last `pause` s: e^(-hits x pause) of the time. Before,
         # one landing hit per 4 s on average held the maximum, though 37% of that time has no hit in the last 4 s)
+        # (MECHC7, AUDIT17: "or after taking damage" covers damage over time too: an Ignite or Corrupted Blood a landed hit
+        # leaves on you (boss_hits.es_dot: share p of landed hits, d s each) keeps the loss paused d s longer, so the loss
+        # runs e^(-land x (pause + sum p d)) of the time. Bleeding / Poison on you aren't in es_dot (they bypass ES) but
+        # pause Rage loss too: the boss presets' Bleeding (Olroth) isn't counted here, a small overcount of the loss.
+        # Grounds: 0, you step out of them, as for ES.)
         level = min(most, net / events)  # (each gain, held `pause` s, then lost `decay` per s while no hit pauses it)
         gap = 1 / events
-        rate = decay * math.exp(-land * pause)
+        dots = boss_hits.es_dot(stats, land=land)
+        burn = sum(p * d for p, d, _ in dots)
+        rate = decay * math.exp(-land * (pause + burn))
         if rate <= 0:
             held = level
         else:
             down = min(level / rate, gap - pause)
             held = (level * pause + level * down - rate * down * down / 2) / gap
+        burning = (f" or its damage over time on you ({', '.join(f'{w} on {p:.0%} of landed hits for {d:g} s' for p, d, w in dots)})"
+                   if burn > 0 else "")
         basis += (f", one gain every {gap:.1f} s of {level:.0f} Rage held {pause:.2g} s, then lost {decay:.2g}/s while no "
-                  f"boss hit ({land:.2f}/s landing) paused it ({rate:.2g}/s on average): {held:.1f} on average")
+                  f"boss hit ({land:.2f}/s landing){burning} paused it ({rate:.2g}/s on average): {held:.1f} on average")
     held = float(int(held))
     return held, f"{basis} = {held:.0f} held, at most {most:g}: " + "; ".join(how[:3])
 
