@@ -108,7 +108,7 @@ def requirements(name: str, rule: dict) -> list[Requirement]:
         elif REQUIRED.search(stat):
             found.append(Requirement("never", f"{stat.replace('_', ' ')} {number(value):g}", number(value)))
     if (rule.get("usageCondition") or rule.get("addsUsageCondition")) and not found:
-        found.append(Requirement("never", "a usage condition PoB doesn't model (e.g. distance moved, Combo)"))
+        found.append(Requirement("never", "a usage condition PoB doesn't model (e.g. standing still, recent blocks)"))
     return found
 
 
