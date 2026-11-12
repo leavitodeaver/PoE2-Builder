@@ -80,6 +80,24 @@ def _call_args(text: str, start: int) -> str:
 
 
 @lru_cache(maxsize=1)
+def _param_built_names(text: str) -> set[str]:
+    """Names a local helper builds from a parameter and the literal its callers pass: CalcPerform's
+    `local function calcBuffRadius(actor, key)` queries key .. "Radius" / key .. "Area" through local variables, called
+    as calcBuffRadius(actor, "Presence") (COVB1: PresenceArea / SurroundedArea lines were listed as no-ops)."""
+    names: set[str] = set()
+    for m in re.finditer(r"local function (\w+)\(([^)]*)\)(.*?)\n(?:end|\S)", text, re.S):
+        name, params, body = m.group(1), [p.strip() for p in m.group(2).split(",")], m.group(3)
+        suffixes = {param: re.findall(r'\b%s\s*\.\.\s*"(\w+)"' % re.escape(param), body) for param in params if param}
+        if not any(suffixes.values()) or not QUERY.search(body):
+            continue
+        for call in re.finditer(r"(?<![\w.:])%s\(([^()]*)\)" % re.escape(name), text):
+            args = [a.strip() for a in call.group(1).split(",")]
+            for param, arg in zip(params, args):
+                if suffixes.get(param) and (lit := re.fullmatch(r'"(\w+)"', arg)):
+                    names.update(lit.group(1) + suffix for suffix in suffixes[param])
+    return names
+
+
 def calc_reads(src: Path = POB_SRC) -> dict:
     """Names PoB's calculations query: exact names, wildcard patterns from concatenations, and every
     string literal and skillData key in the code (for condition and skill-data checks)."""
@@ -105,6 +123,7 @@ def calc_reads(src: Path = POB_SRC) -> dict:
                 if re.sub(r"\\w\*", "", glob):
                     patterns.add(glob)
             exact.update(STRING.findall(args))
+        exact.update(_param_built_names(text))
     # The tool's own engine reads some names PoB's calculations don't (charm and flask charge gain for the
     # uptime of builder/search/flasks.py, ...): through the same queries, or its local helpers base("X") / inc("X")
     # (COV1, 12 Nov 2026: "Charm Charges gained" lines were listed as no-ops though the charm uptime reads them)

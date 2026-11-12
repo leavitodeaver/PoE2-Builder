@@ -180,3 +180,14 @@ def test_a_noop_line_is_closed_only_by_what_really_applies_to_it():
     status, entry, _ = noop_status("Repeatable Spells have 20% chance to Repeat", missing, True)
     assert status == "none" and entry == "now-and-again-repeat"  # (a pob_gap translation isn't applied to parsed lines)
     assert noop_status("A line nothing knows", missing, True) == ("none", None, "parsed, but no calculation reads SomeName")
+
+
+def test_calc_reads_follows_a_helper_that_builds_names_from_its_argument():
+    """COVB1: CalcPerform's calcBuffRadius(actor, "Presence") queries "PresenceArea" through key .. "Area" in a local
+    variable, so the audit listed every "increased Presence Area of Effect" line as a no-op."""
+    from builder.ledger.coverage import _param_built_names, calc_reads, name_read
+
+    text = 'local function f(actor, key)\n\tlocal a = key .. "Area"\n\treturn actor.modDB:Sum("INC", nil, a)\nend\nf(x, "Presence")\n'
+    assert _param_built_names(text) == {"PresenceArea"}
+    reads = calc_reads()
+    assert name_read("PresenceArea", reads) and name_read("SurroundedArea", reads)
