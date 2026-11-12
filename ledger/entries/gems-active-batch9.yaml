@@ -1,0 +1,41 @@
+# Active-gem stats, batch 9 (COVC13): base_deal_no_damage on stat sets PoB scores with damage.
+#
+# PoB maps no base_deal_no_damage (checked, COVC12: grep of PoB's src finds it only in skill data and StatDescriptions;
+# SkillStatMap has only minions_deal_no_damage). It sits on 191 PoB skills (scratch/covc13/scan.py over Data/Skills).
+# COVC13's probe (POE2T1429, scratch/covc13/nd_probe.py) put each of the 152 player gems that grant one of them in a new
+# main group on a skeleton with its weapon, and read every skill x stat set at setup: only the four below (plus Compose
+# Requiem, batch 8) get damage on a stat set carrying the stat. All 15 crossbow ammo effects ("Load ...") read 0 on every
+# field (TotalDPS, CombinedDPS, AverageHit, AverageDamage). Scope: one skeleton per weapon at setup gear, not every build.
+# Five gems were re-probed after a script error (POE2T1430, COVC13's report).
+
+- id: gem-active-base-set-deals-no-damage
+  title: "Conductive Runes, Spearfield, Rolling Slam, Tempest Bell: the base stat set deals no damage (only the explosion / slam / impact sets do)"
+  kind: gem_stat
+  match: '^base_deal_no_damage$'
+  replace: ["1% less Damage"]
+  factor: 100
+  stats: ["base_deal_no_damage"]
+  skill: [Conductive Runes, Spearfield, Rolling Slam, Tempest Bell]
+  # The set PoB labels with the skill's own name is the one carrying the stat (game files: the skill's base
+  # GrantedEffectStatSets row has it in ImplicitStats; its damage sets list it in IgnoredStats).
+  stat_sets:
+    Conductive Runes: [Conductive Runes]
+    Spearfield: [Spearfield]
+    Rolling Slam: [Rolling Slam]
+    Tempest Bell: [Tempest Bell]
+  confidence: datamined
+  notes: >-
+    Each skill's first stat set is the cast itself (placing the runes, stabbing the ground, the slam's motion, dropping the
+    Bell) and carries base_deal_no_damage; the damage comes from the other sets (Conductive Runes' Explosion, Spearfield's
+    Explosion, Rolling Slam's First / Second Slam, Tempest Bell's Impact / Shockwave). PoB scores the first set as a hit
+    anyway (POE2T1429 at setup: Conductive Runes 17 DPS vs Explosion 175; Spearfield 5 vs 9; Rolling Slam 16 vs 130;
+    Tempest Bell 6 vs 32). That is an overcount in Full DPS for a group left on that set, and wherever the search would
+    pick it (Spearfield's two are close). Counted as 100% less Damage while that set is the calculated one, so the main
+    skill falls on a damaging set. (checked: game files GrantedEffectStatSets ConductiveRunesPlayer, SpearfieldPlayer,
+    RollingSlamPlayer, TempestBellPlayer ImplicitStats hold it, and the damage sets' rows IgnoredStats; poe2db's four
+    pages show "base deal no damage [1]" on the base set only.)
+  sources: ["data/game-26476662/tables/GrantedEffectStatSets.json (ConductiveRunesPlayer, SpearfieldPlayer, RollingSlamPlayer, TempestBellPlayer)",
+            "https://poe2db.tw/us/Conductive_Runes", "https://poe2db.tw/us/Spearfield", "https://poe2db.tw/us/Rolling_Slam",
+            "https://poe2db.tw/us/Tempest_Bell"]
+  test_in_game: "Not needed: the base set's action deals no damage by the game's own data."
+  status: proposed
