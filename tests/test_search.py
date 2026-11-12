@@ -1881,3 +1881,14 @@ def test_rage_loss_stays_paused_while_the_bosss_damage_over_time_burns_you():
     hot = rage_held(line, melee)  # (no threshold read: every landed Fire hit Ignites, 4 s)
     assert "damage over time" in hot[1] and "damage over time" not in cold[1]
     assert hot[0] >= cold[0]
+
+
+def test_steal_charges_and_vaal_lines_count_zero_with_their_evidence():
+    """MECHC7 (#107, #123): the boss holds no Charges to steal; no usable Vaal skill: 0, said."""
+    from builder.search.conditions import _charges_held, onslaught_uptime
+
+    stats = {"Speed": 2.0, "HitChance": 100, "PowerChargesMax": 3, "PowerChargesDuration": 15, "_main_types": {"Attack"}}
+    held, basis = _charges_held("Power")(["Steal Power, Frenzy, and Endurance Charges on Hit"], stats)
+    assert held == 0 and "no Charges to steal" in basis
+    up = onslaught_uptime(["Gain Onslaught for 4 seconds when you use a Vaal Skill"], stats)
+    assert "Vaal" in up[1] and up[2] == 0

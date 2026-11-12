@@ -628,6 +628,15 @@ def _charge_sources(lines: list[str], kind: str) -> tuple[list[str], str]:
     return kinds, "; ".join(how)
 
 
+# "(N% chance to) Steal Power, Frenzy, and Endurance Charges on Hit" (StealChargesOnHitPercentUnique__1 100%,
+# StealChargesOnHitPercentUniqueGlovesStrDex6 10%; PoB leaves it unparsed): the boss presets hold no Charges to steal, so 0,
+# said (MECHC7; RESEARCH19 #107, boss-charges-steal.md, MEDIUM-HIGH: no mod, skill or .ot gives a target boss any; the
+# .ao / .ais files weren't read).
+STEAL_CHARGES = re.compile(r"\bsteal power, frenzy,? and endurance charges on hit", re.I)
+STEAL_NOTE = ("the boss holds no Charges to steal (research boss-charges-steal.md: no mod, skill or monster file gives a "
+              "pinnacle boss any; MEDIUM-HIGH)")
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
         kinds, redirected = _charge_sources(lines, kind)
@@ -645,8 +654,13 @@ def _charges_held(kind: str):
                 gains += r[0]
                 bonus += r[0] * plus
                 how.append(f"{text[:60]} ({r[1]}" + (f"; Charge Profusion +{plus:.0%} per gain" if more else "") + ")")
+        steal = next((t for t in lines if STEAL_CHARGES.search(t)), None)
+        if steal is not None and how:  # (MECHC7, #107: counted 0, said)
+            how.append(f"'{steal[:60]}': 0, {STEAL_NOTE}")
         if not how:  # (its own sources feeding another kind: Resonance; a basis with 0 switches the use box off)
             own = redirected and any(_charge_rate(t, kind, stats) is not None for t in lines)
+            if steal is not None and not own:
+                return 0.0, f"'{steal[:60]}': 0 {kind} Charges, {STEAL_NOTE}"
             return 0.0, (redirected if own else "")
         extra, fill, extra_how = _extra_charges(lines, kind)
         if bonus:
@@ -852,8 +866,8 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
 # Unless specified, Onslaught lasts 4 seconds." Each source's uptime is the chance at least one of its events falls in
 # the last duration (1 - (1 - chance)^(events x duration)); sources combine as independent; PoB's box is on at UPTIME
 # (90%, as for ailments and flasks). Events: hits, crits from the main skill; the boss's landing hits for "when Hit"; on
-# kill / Culling Strike 0 (nothing dies before the boss); a Minion dying 0 and a Vaal skill's use 0 (rates not modelled,
-# labelled); Marks activating once per CHARGE_DEFAULT_EVERY s (assumed); "during effect" (a flask or charm) on (the flask
+# kill / Culling Strike 0 (nothing dies before the boss); a Minion dying at the build's own minion deaths (MECHC7); a Vaal
+# skill's use 0 (no usable Vaal skill in this game version: RESEARCH #123, HIGH, labelled); Marks activating once per CHARGE_DEFAULT_EVERY s (assumed); "during effect" (a flask or charm) on (the flask
 # model decides whether the flask counts). "While at maximum Frenzy Charges": only when the Frenzy Charges held reach it.
 ONSLAUGHT_DURATION = 4.0
 ONSLAUGHT_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\b(?:you )?(?:gain|grants?)\b (?:you )?Onslaught\b(.*)$", re.I)
@@ -877,7 +891,11 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     if re.search(r"\bkill|culling strike", when):
         return 0.0, "on kill (nothing dies on a single boss)"
     if "vaal skill" in when:
-        return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
+        # (MECHC7, RESEARCH #123: no usable Vaal skill in game build 26476662 (checked by RESEARCH: no stat set uses
+        # skill_is_vaal_skill, no GrantedEffect links the 38 PoE1 Vaal ActiveSkills, no Vaal SkillGems; poe2db /us/Vaal
+        # lists none; HIGH)
+        return 0.0, (f"'{when.strip()[:30]}': 0, no Vaal skill a player can use exists in this game version (research "
+                     "onslaught-vaal-and-own-minion-kills.md, game files and poe2db; HIGH)")
     if MINION_DIES.search(when):
         return _minion_death_uptime(stats, chance, duration)
     if "during effect" in when or not when.strip():

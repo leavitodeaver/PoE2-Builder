@@ -243,7 +243,15 @@ def hits_note(name: str | None = None) -> dict:
             "basis": "the game's monster tables, not PoB's Pinnacle default (965 per type and 386 Chaos, all in one hit): "
                      "level base damage x skill x the boss's damage multiplier x unique 35% less x the level's more for "
                      "Elemental (x4) and Chaos (x2)",
-            "confidence": "; ".join(f"{k} {v}" for k, v in CONFIDENCE_HITS.items())}
+            "confidence": "; ".join(f"{k} {v}" for k, v in CONFIDENCE_HITS.items()) + "; " + CADENCE_NOTE}
+
+
+# How often the boss hits (MECHC7, AUDIT18 A18-2): every model that reads the boss's hits (Energy Shield Recharge, Rage,
+# "when Hit" buffs, charms, Iron Ward, parries, flasks' Life lost) takes one every enemySkillTime, PoB's boss-preset
+# placeholder of 0.7 s. The game decides it per boss skill and no data we hold gives it: a flat number of the last-resort
+# kind (CLAUDE.md rule 2), LOW, said once in every build's assumptions here.
+CADENCE_NOTE = ("the boss's hits come one every 0.7 s (PoB's boss-preset enemySkillTime; LOW: the game's per-skill cadence "
+                "isn't in our data) for every model that reads them")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
