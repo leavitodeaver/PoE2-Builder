@@ -207,8 +207,28 @@ def implicit_lines(base: dict, fraction: float = 0.5) -> list[str]:
     return [roll(line, fraction) for line in implicit.splitlines()] if implicit else []
 
 
+# Item quality (COV6, PLANS2's plans/kw-quality.md; the manager's ruling 12 Nov ~09:00): an item text with no "Quality:"
+# line gets 0% quality in PoB (Item.lua NormaliseQuality), but at the user's 100-200 divine budget 20% (the default
+# maximum, KeywordPopups MaximumQuality) is standard and cheap: Blacksmith's Whetstone (weapons), Arcanist's Etcher,
+# Armourer's Scrap (armour, shields, foci), Glassblower's Bauble (flasks). So generated items of these base types say
+# "Quality: 20" (labelled in the result). PoB's bases with a quality value, less Charm: PoB's Item.lua says "charms
+# cannot be modified by quality currency" and poe2db's Glassblower's Bauble "Improves the quality of a flask" only
+# (checked: PoB Data/Bases quality keys; poe2db Glassblowers_Bauble, 12 Nov 2026). Rings, amulets (catalyst quality:
+# held for the user), belts, quivers, jewels and limbs have no quality in PoB's bases.
+QUALITY = 20
+QUALITY_TYPES = frozenset({
+    "One Hand Axe", "Two Hand Axe", "Body Armour", "Boots", "Bow", "Claw", "Crossbow", "Dagger", "Fishing Rod", "Flail",
+    "Flask", "Focus", "Gloves", "Helmet", "One Hand Mace", "Two Hand Mace", "Sceptre", "Shield", "Spear", "Staff",
+    "One Hand Sword", "Two Hand Sword", "Talisman", "TrapTool", "Wand"})
+
+
+def quality_lines(base: dict) -> list[str]:
+    """["Quality: 20"] for a base PoB gives quality and the player can raise with currency (QUALITY_TYPES), else []."""
+    return [f"Quality: {QUALITY}"] if base.get("type") in QUALITY_TYPES else []
+
+
 def rare_text(slot: str, base: dict, item_level: int, affixes: list[Affix], runes: list[str] = ()) -> str:
-    lines = ["Rarity: Rare", f"Optimizer {slot}", base["name"], f"Item Level: {item_level}"]
+    lines = ["Rarity: Rare", f"Optimizer {slot}", base["name"], f"Item Level: {item_level}", *quality_lines(base)]
     if base.get("subType") == "Radius":
         # Time-Lost jewels: PoB applies "in Radius" lines only with a radius (Small unless a mod
         # upgrades it), and a parsed item without this line has none
@@ -224,7 +244,8 @@ def rare_text(slot: str, base: dict, item_level: int, affixes: list[Affix], rune
 def magic_text(slot: str, base: dict, item_level: int, affixes: list[Affix]) -> str:
     """A magic item (flasks and charms): one prefix and one suffix at most."""
     implicits = implicit_lines(base)
-    lines = ["Rarity: Magic", base["name"], f"Item Level: {item_level}", f"Implicits: {len(implicits)}", *implicits]
+    lines = ["Rarity: Magic", base["name"], f"Item Level: {item_level}", *quality_lines(base),
+             f"Implicits: {len(implicits)}", *implicits]
     for affix in affixes:
         lines += affix.lines
     return corrected_item("\n".join(lines))

@@ -1492,3 +1492,26 @@ def test_no_inherent_loss_of_rage_holds_the_maximum():
     assert rage_held(line, slow)[0] < 30
     held, basis = rage_held([*line, "No Inherent loss of Rage during effect"], slow)
     assert held == 30 and "no inherent loss" in basis
+
+
+def test_generated_items_say_quality_20_where_currency_raises_it():
+    """PLANS2 / COV6: an item text with no "Quality:" line gets 0% quality in PoB, so every generated weapon lost its 20%
+    more Physical damage and every armour its 20% more defences. Weapons, armour, shields, foci and flasks say
+    "Quality: 20" now; charms (no quality currency), rings, amulets (catalysts: held for the user), belts and jewels don't."""
+    from builder.search.context import normal_item
+    from builder.search.rares import magic_text, quality_lines, rare_text
+
+    ctx = context(main_skill="Spark")
+    by_type = {}
+    for base in ctx.bases_by_name.values():
+        by_type.setdefault(base.get("type"), base)
+    for kind in ("Two Hand Mace", "Bow", "Wand", "Body Armour", "Shield", "Focus", "Flask"):
+        assert quality_lines(by_type[kind]) == ["Quality: 20"], kind
+    for kind in ("Charm", "Ring", "Amulet", "Belt", "Jewel", "Quiver"):
+        if kind in by_type:
+            assert quality_lines(by_type[kind]) == [], kind
+    assert "\nQuality: 20\n" in rare_text("Weapon 1", by_type["Two Hand Mace"], 82, [])
+    assert "Quality: 20" in normal_item(by_type["Body Armour"])
+    assert "Quality: 20" not in normal_item(by_type["Ring"])
+    assert "Quality: 20" in magic_text("Flask 1", by_type["Flask"], 82, [])
+    assert "Quality" not in magic_text("Charm 1", by_type["Charm"], 82, [])

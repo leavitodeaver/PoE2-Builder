@@ -107,15 +107,18 @@ def implicit_variant(implicit: str | None, variant: int | None = None) -> str:
 
 def normal_item(base: dict) -> str:
     """A normal (white) base, with its implicit: PoB doesn't add implicits by itself."""
+    from builder.search.rares import quality_lines  # (20% quality where currency raises it: rares.QUALITY_TYPES)
+
     implicit = implicit_variant(base.get("implicit"))
     if not implicit:
-        return f"Rarity: Normal\n{base['name']}"
+        return "\n".join(["Rarity: Normal", base["name"], *quality_lines(base)])
     lines = [re.sub(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)",
                     lambda m: str(int(round((float(m.group(1)) + float(m.group(2))) / 2))) if "." not in m.group(0)
                     else f"{(float(m.group(1)) + float(m.group(2))) / 2:.1f}", line) for line in implicit.splitlines()]
     from builder.ledger.items import corrected_item  # ledger translations on the implicit (COV2)
 
-    return corrected_item("\n".join([f"Rarity: Normal", base["name"], f"Implicits: {len(lines)}", *lines]))
+    return corrected_item("\n".join(["Rarity: Normal", base["name"], *quality_lines(base), f"Implicits: {len(lines)}",
+                                      *lines]))
 
 
 class Context:
