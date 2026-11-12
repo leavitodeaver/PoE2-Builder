@@ -149,7 +149,11 @@ class Run:
                       main=result.get("main_gems"), phases=result.get("overrun", {}),
                       wall=result.get("wall"), left_out=result.get("left_out"), ran=result.get("ran"),
                       timing=result.get("timing"), escalations=result.get("escalations"),
-                      reverts=result.get("reverts"), supports=result.get("support_census"))
+                      reverts=result.get("reverts"), supports=result.get("support_census"),
+                      # Block passes started and finished (all blocks before the deadline), and kicks by kind: whether
+                      # a task's local search got past its first pass (SEARCH_PLAN.md §2: on 2b75b none did)
+                      passes=result.get("passes"), passes_done=result.get("passes_done"), kicks=result.get("kicks"),
+                      kicks_kept=result.get("kicks_kept"), kick_kinds=result.get("kick_kinds"))
             if result.get("seed_start") and self.seed_start is None:
                 self.seed_start = result["seed_start"]
             # Ranked on the request's goal, whichever the search had; its own goal picks the state

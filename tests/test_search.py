@@ -1194,11 +1194,15 @@ def test_each_task_event_names_the_requirements_its_build_still_misses():
     short = {"label": "Skeleton A", "dps": 2e6, "score": 1.0,
              "deficits": [{"label": "Cold resistance 70%", "amount": 0.1, "hard": False},
                           {"label": "Life", "amount": 0.05, "hard": True}]}
-    feasible = {"label": "Skeleton A", "dps": 1e6, "score": 1.0, "deficits": []}
+    feasible = {"label": "Skeleton A", "dps": 1e6, "score": 1.0, "deficits": [], "passes": 3, "passes_done": 2,
+                "kicks": 2, "kicks_kept": 1, "kick_kinds": {"tree": 2}}
     Run._record(run, [short, feasible])
     tasks = [data for data in events if data["kind"] == "task"]
     assert tasks[0]["deficits"] == ["Cold resistance 70%", "Life"] and tasks[0]["shortfall"] == pytest.approx(0.6)
     assert tasks[1]["deficits"] == [] and tasks[1]["shortfall"] == 0
+    # SEARCH1 M0: passes started and finished, and kicks by kind, for telling whether the local search ran
+    assert (tasks[1]["passes"], tasks[1]["passes_done"], tasks[1]["kicks"], tasks[1]["kicks_kept"]) == (3, 2, 2, 1)
+    assert tasks[1]["kick_kinds"] == {"tree": 2} and tasks[0]["passes"] is None
 
 
 def test_armour_broken_on_only_when_breaks_keep_it_fully_broken():

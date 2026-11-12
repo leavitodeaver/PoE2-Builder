@@ -125,6 +125,8 @@ class Search:
         self.boundary: dict | None = None  # the build as the last step left it (a stop goes back to it)
         self.stop_at: float | None = None  # the hard stop the build gets once a step has finished (Build.stop_at)
         self.passes = 0
+        self.passes_done = 0  # passes that ran every block before the deadline (passes counts those started)
+        self.kick_kinds: dict[str, int] = {}
         self.kicked: set[str] = set()  # blocks a kick disturbed, swept fully on the next pass
 
     # Setup and state ---------------------------------------------------------------------------
@@ -664,8 +666,10 @@ class Search:
         if self.skeleton.swap:
             steps.insert(3, ("weapon sets", self.weapon_set_round, ()))
         improved = False
+        finished = True
         for phase, fn, args in steps:
             if clock.now() > deadline:
+                finished = False
                 break
             if phase in ("meta gems", "meta spells") and "meta" in self.kicked:
                 pass  # a meta kick took the group out: the meta round re-chooses it now, not at the next sweep
@@ -673,6 +677,7 @@ class Search:
                 continue
             improved = self.step(phase, fn, *args) or improved
         self.kicked.clear()
+        self.passes_done += finished
         return improved
 
     def weapon_set_round(self) -> None:
@@ -718,6 +723,7 @@ class Search:
         self.build.phase = "kick"
         kind = self.rng.choice(["tree", "tree", "tree", "supports", "gear"] + (["meta"] if self.meta_kickable() else []))
         self.kicked.add(kind)
+        self.kick_kinds[kind] = self.kick_kinds.get(kind, 0) + 1
         self.sources.forget()
         if kind == "meta":
             self.kick_meta()
@@ -907,7 +913,8 @@ class Search:
             "deficits": [{"label": label, "amount": amount, "hard": hard}
                          for label, amount, hard in build.objective.deficits(build.stats)],
             "evals": build.evals, "commits": build.commits, "seconds": clock.now() - build.started,
-            "kicks": self.kicks, "kicks_kept": self.kicks_kept, "problems": self.problems, "reverts": build.reverts,
+            "kicks": self.kicks, "kicks_kept": self.kicks_kept, "kick_kinds": dict(self.kick_kinds),
+            "passes": self.passes, "passes_done": self.passes_done, "problems": self.problems, "reverts": build.reverts,
             "condition_sources": list(self.sources.kept),
             "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
             "overrun": dict(self.overrun), "support_census": dict(self.gems.census),
