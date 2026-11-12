@@ -1378,3 +1378,20 @@ def test_the_bridge_reports_a_skills_total_cast_time_addition(engine):
     comet = next(s for s in skills if s["name"] == "Comet")
     assert comet.get("totalTimeAdded") == pytest.approx(1.0)
     assert models.energy_cost(models.Skill.of(comet)) == pytest.approx(100 * comet["castTime"] + 200)
+
+
+def test_the_bridge_reports_the_calculated_stat_set_and_a_groups_hit_fields(engine):
+    """MECHB7 (COVE8's bridge requests): activeSkills gives each skill the label of the stat set PoB calculates
+    (models.Skill.stat_set), and useRates gives a group's HitChance, CritChance, HeavyStunBuildupAvg and per-type
+    averages (models.HEAVY_STUN_GROUP_FIELDS) for a side skill's own output."""
+    payload = make_payload(BuildRequest(main_skill="Comet"))
+    skeleton = enumerate_skeletons(Context(payload), ["Comet"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    skills = search.build.call("activeSkills")["skills"]
+    comet = next(s for s in skills if s["name"] == "Comet")
+    assert comet.get("statSet") == "Comet" and models.Skill.of(comet).stat_set == "Comet"
+    index = search.build.main_group()["index"]
+    rate = search.build.call("useRates", indices=[index])["rates"][0]
+    assert rate["HitChance"] > 0 and "CritChance" in rate
+    assert rate.get("ColdHitAverage", 0) > 0 or rate.get("FireHitAverage", 0) > 0

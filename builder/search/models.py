@@ -228,6 +228,7 @@ class Skill:
     early_hazard: dict | None = None  # its scored set's "less damage if set off in its first 0.5 s" (hazard_early_model)
     energy_final: float = 0.0  # its own active_skill_energy_generated_+%_final (energy_gain; Incinerate -98)
     total_time_added: float = 0.0  # its "+N seconds to Total Cast / Attack Time" (PoB's TotalCastTime; energy_cost)
+    stat_set: str | None = None  # the label of the stat set PoB calculates for it (bridge activeSkills statSet; COVE8)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -237,7 +238,7 @@ class Skill:
                    dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
                    bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"),
                    dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")),
-                   number(raw.get("totalTimeAdded")))
+                   number(raw.get("totalTimeAdded")), raw.get("statSet"))
 
 
 def hits_per_second(stats: dict) -> float:

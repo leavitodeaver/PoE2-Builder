@@ -1938,6 +1938,22 @@ function bridge.useRates(args)
 					Bleed = output.BleedStackPotential and jsonNumber(output.BleedStackPotential),
 					Poison = output.PoisonStackPotential and jsonNumber(output.PoisonStackPotential) }, { __jsontype = "object" }),
 			}
+			-- (MECHB7, for COVE8: a side skill's own Heavy Stun buildup, hit / crit chance and per-type averages under
+			-- PoB's own output names, models.HEAVY_STUN_GROUP_FIELDS: Practical Magic on a stunning side skill)
+			local entry = rates[#rates]
+			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance" }) do
+				if type(output[field]) == "number" then
+					entry[field] = jsonNumber(output[field])
+				end
+			end
+			for _, kind in ipairs({ "Physical", "Fire", "Cold", "Lightning", "Chaos" }) do
+				for _, part in ipairs({ "Hit", "Crit" }) do
+					local field = kind .. part .. "Average"
+					if type(output[field]) == "number" then
+						entry[field] = jsonNumber(output[field])
+					end
+				end
+			end
 		end
 	end
 	build.mainSocketGroup = saved
@@ -2070,6 +2086,20 @@ function bridge.activeSkills(args)
 		do
 			local ok, early = pcall(earlyHazard, activeSkill)
 			skills[#skills].earlyHazard = ok and early or nil
+		end
+		do
+			-- the label of the stat set PoB calculates for it (MECHB7, for COVE8: models.Skill.stat_set; Long Fuse's
+			-- detonating sets, Poison Spores). Current PoB wraps it: activeEffect.statSet = { statSet, index, ... }
+			local ok, label = pcall(function()
+				local set = activeSkill.activeEffect.statSet
+				local inner = set and (set.statSet or set)
+				if inner and inner.label then
+					return inner.label
+				end
+				local sets = effect.statSets or { }
+				return set and set.index and sets[set.index] and sets[set.index].label or nil
+			end)
+			skills[#skills].statSet = ok and label or nil
 		end
 		do
 			local ok, final = pcall(energyFinal, activeSkill)
