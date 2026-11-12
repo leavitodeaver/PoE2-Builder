@@ -1160,10 +1160,17 @@ class Assumptions:
         dealt = {t for t, count in boss_hits.hit_table(boss)[1].items() if count}
         for condition in wanted:
             if condition.get("boss_hits"):
-                # on while the scored boss deals this damage type (boss_hits.HIT_TABLE): e.g. Adaptive Skin's max
-                # resistance of each element "you have been Hit with Recently" counts only for the boss's own types
-                if condition["boss_hits"] in dealt:
+                # the share of the fight the scored boss has hit you with this damage type Recently (4 s): e.g. Adaptive
+                # Skin's max resistance of each element "you have been Hit with Recently" (its `share:` lines)
+                kind = condition["boss_hits"]
+                share, how = self.boss_hit_recently_share(boss, kind) if kind in dealt else (0.0, f"{boss} deals no {kind} hits")
+                percent = round(100 * min(max(share, 0.0), 1.0))
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
                     found.append(condition["id"])
+                if kind in dealt and self.has_line(r"Damage Type you have been Hit with Recently"):
+                    notes.append({"label": f"{condition['title']}", "value": f"{percent}%", "basis": how,
+                                  "confidence": "LOW (the boss's per-type hit rate: HIT_EVERY and its skills' type counts)"})
                 continue
             if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
                 share, how = self.jagged_ground_share(main, main_types, main_group)
@@ -1210,6 +1217,37 @@ class Assumptions:
             if by_name or by_text or by_type:
                 found.append(condition["id"])
         return sorted(found), notes
+
+    def has_line(self, pattern: str) -> bool:
+        """Whether any of the build's source lines (passives and items, bridge sourceLines) matches `pattern`."""
+        return any(re.search(pattern, line["text"]) for line in self.build.call("sourceLines")["lines"])
+
+    @staticmethod
+    def boss_hit_recently_share(boss: str, kind: str) -> tuple[float, str]:
+        """(share of the fight you have been Hit with `kind` damage by the boss Recently, how) (COV12; AUDIT25 A25-42).
+        The boss uses a damaging skill every bosses.HIT_EVERY s (LOW); a share counts[kind] / damaging skills of them deal
+        the type (boss_hits.HIT_TABLE over RED_FLASH's damaging-skill count, capped at 1). Hits of the type at least every
+        4 s ("Recently", KeywordPopups) count as always up, as the defence floors count only full uptime (the user's
+        rule); slower, the uptime of a Poisson stream, 1 - e^(-4 s x rate). Before the player's evasion and block, and
+        before Slows on the boss (a small overcount for an evasive build or one that Slows the boss)."""
+        import math
+
+        from builder.search import boss_hits, bosses
+
+        counts = boss_hits.hit_table(boss)[1]
+        every = bosses.HIT_EVERY.get(boss)
+        damaging = (boss_hits.RED_FLASH.get(boss) or (0, 0, 0, ""))[2]
+        if not counts.get(kind):
+            return 0.0, f"{boss} deals no {kind} hits"
+        if not every or not damaging:
+            return 1.0, f"{boss}: no per-type hit rate in the tables, taken as always hit with {kind} Recently (UNVERIFIED)"
+        interval = every / min(1.0, counts[kind] / damaging)
+        if interval <= 4.0:
+            return 1.0, (f"{boss} hits with {kind} about every {interval:.1f} s ({counts[kind]} of its {damaging} damaging "
+                         f"skills, one use every {every:g} s): within 4 s, always up")
+        share = 1.0 - math.exp(-4.0 / interval)
+        return share, (f"{boss} hits with {kind} about every {interval:.1f} s ({counts[kind]} of its {damaging} damaging "
+                       f"skills, one use every {every:g} s): up {share:.0%} of the fight (1 - e^(-4 s / {interval:.1f} s))")
 
     def jagged_ground_share(self, main: str | None, main_types: set[str], main_group: dict | None) -> tuple[float, str]:
         """conditions.jagged_ground from the build: the main skill's speed, Endurance Charges gained per second (the build's

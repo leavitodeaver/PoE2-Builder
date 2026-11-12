@@ -3295,8 +3295,8 @@ def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_wi
 
     entry, lines = translate("+5% to Maximum Resistances of each Elemental Damage Type you have been Hit with Recently")
     assert entry.id == "adaptive-skin" and lines == [
-        "if:BossHitsFire +5% to Maximum Fire Resistance", "if:BossHitsCold +5% to Maximum Cold Resistance",
-        "if:BossHitsLightning +5% to Maximum Lightning Resistance"]
+        "share:BossHitsFire +5% to Maximum Fire Resistance", "share:BossHitsCold +5% to Maximum Cold Resistance",
+        "share:BossHitsLightning +5% to Maximum Lightning Resistance"]
 
     def found(boss):
         class Request:
@@ -3317,13 +3317,27 @@ def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_wi
             def main_group(self):
                 return {"index": 1, "gems": [{"name": "Spark"}], "skills": [{"name": "Spark"}], "mainActiveSkill": 1}
 
+            def call(self, name, **_):
+                assert name == "sourceLines"
+                return {"lines": [{"text": "+5% to Maximum Resistances of each Elemental Damage Type you have been Hit "
+                                           "with Recently"}]}
+
         a = Assumptions.__new__(Assumptions)
         a.build = Build()
         a.ledger_shares = {}
-        return {c for c in a.ledger_conditions([{"name": "Spark", "disabled": False, "group": 1}])[0]
-                if c.startswith("BossHits")}
+        found = {c for c in a.ledger_conditions([{"name": "Spark", "disabled": False, "group": 1}])[0]
+                 if c.startswith("BossHits")}
+        shares[boss] = {c: a.ledger_shares[c] for c in found}
+        return found
+
+    shares = {}
 
     for boss, (_, counts) in boss_hits.HIT_TABLE.items():
         assert found(boss) == {f"BossHits{t}" for t in ("Fire", "Cold", "Lightning") if counts.get(t)}, boss
     assert found("Arbiter of Ash") == {"BossHitsFire"}  # Fire and Physical: Cold and Lightning stay at their maximums
     assert found(None) == found("Arbiter of Ash")  # no boss in the request: the default boss
+    # AUDIT25 A25-42: "Recently" is 4 s. Hits of the type at least every 4 s: always up; slower, 1 - e^(-4 s x rate)
+    assert shares["Arbiter of Ash"] == {"BossHitsFire": 100}  # Fire about every 2.6 s
+    found("Xesht, We That Are One")  # one use every 1.25 s; Fire on 2 of 11 damaging skills: every 6.9 s
+    assert shares["Xesht, We That Are One"]["BossHitsFire"] == round(100 * (1 - math.exp(-4 / (1.25 * 11 / 2))))
+    assert all(v <= 100 for share in shares.values() for v in share.values())

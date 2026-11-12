@@ -156,9 +156,10 @@ def test_the_coverage_audit_reads_a_two_line_stat_description_as_one_line_as_pob
     assert not any(a["supported"] for a in boots[:2])
 
 
-def test_an_if_line_raises_a_maximum_resistance_only_while_its_condition_is_on(engine):
-    """Adaptive Skin's per-element lines (COV12): 'if:BossHitsFire +5% to Maximum Fire Resistance' counts only under
-    Condition:LedgerBossHitsFire, which the assumptions set for a boss that deals Fire; Cold stays at its maximum."""
+def test_a_share_line_raises_a_maximum_resistance_by_its_share_only(engine):
+    """Adaptive Skin's per-element lines (COV12, AUDIT25 A25-42): 'share:BossHitsFire +5% to Maximum Fire Resistance'
+    counts 5 x the share of the fight the boss has hit you with Fire Recently (Multiplier:LedgerShareBossHitsFire, set by
+    the assumptions); Cold stays at its maximum without its share."""
     payload = make_payload(BuildRequest(main_skill="Spark"))
     skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
@@ -166,18 +167,22 @@ def test_an_if_line_raises_a_maximum_resistance_only_while_its_condition_is_on(e
     build = search.build
     node = 3698
     build.call("allocate", add=[node], fields=[])
-    lines = ["if:BossHitsFire +5% to Maximum Fire Resistance", "if:BossHitsCold +5% to Maximum Cold Resistance",
+    lines = ["share:BossHitsFire +5% to Maximum Fire Resistance", "share:BossHitsCold +5% to Maximum Cold Resistance",
              "+200% to all Elemental Resistances"]  # (over the cap, so the final resistance is the maximum)
     applied = build.call("applyPassiveCorrections", nodes=[{"id": node, "entry": "test-if", "lines": lines}])
     assert applied["applied"] == 3 and not applied["failed"]
-    base = [m for m in search.assumptions.mods if not (m.get("kind") == "Condition" and m["name"].startswith("BossHits"))]
+    base = [m for m in search.assumptions.mods
+            if not (m.get("kind") == "Condition" and m["name"].startswith("BossHits"))
+            and not m.get("name", "").startswith("Multiplier:LedgerShareBossHits")]
 
-    def res(*on):
-        mods = base + [{"kind": "Condition", "name": name} for name in on]
+    def res(**shares):
+        mods = base + [{"kind": "Raw", "name": f"Multiplier:LedgerShare{name}", "type": "BASE", "value": percent}
+                       for name, percent in shares.items()]
         return build.call("setAssumptions", mods=mods, fields=["FireResist", "ColdResist"])["stats"]
 
-    off, fire = res(), res("BossHitsFire")
+    off, fire = res(), res(BossHitsFire=100)
     assert fire["FireResist"] == off["FireResist"] + 5 and fire["ColdResist"] == off["ColdResist"]
+    assert off["FireResist"] < res(BossHitsFire=44)["FireResist"] <= off["FireResist"] + 2.2  # 5 x 0.44 at most
 
 
 def test_kurgals_gaze_socketed_in_a_helmet_counts_through_pobs_own_flag(engine):

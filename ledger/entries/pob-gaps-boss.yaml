@@ -327,16 +327,19 @@
   title: Adaptive Skin, maximum resistance of elements you were hit by
   kind: pob_gap
   match: '^\+(\d+)% to Maximum Resistances of each Elemental Damage Type you have been Hit with Recently$'
-  replace: ['if:BossHitsFire +{1}% to Maximum Fire Resistance', 'if:BossHitsCold +{1}% to Maximum Cold Resistance',
-            'if:BossHitsLightning +{1}% to Maximum Lightning Resistance']
+  replace: ['share:BossHitsFire +{1}% to Maximum Fire Resistance', 'share:BossHitsCold +{1}% to Maximum Cold Resistance',
+            'share:BossHitsLightning +{1}% to Maximum Lightning Resistance']
   confidence: reported
   notes: >-
     Per element, only for the elemental types the scored boss deals (COV12; an OVERCOUNT before: '+N% to all Maximum
     Elemental Resistances' raised all three, so against Arbiter of Ash, which deals Fire and Physical, the Cold and
-    Lightning maximums rose too and the defence floors that read them overstated). The BossHits<Type> conditions are on
-    when boss_hits.HIT_TABLE gives the boss hits of that type (assumptions.ledger_conditions). For a type it deals, the
-    line is taken as up whenever that resistance matters: after its first hit of the type, assuming another within 4 s
-    ("Recently") before each big one (LOW for slow-hitting bosses). A type the boss never hits with counts 0, though a
+    Lightning maximums rose too and the defence floors that read them overstated). Each element's line counts at the
+    share of the fight the boss has hit you with it Recently (4 s; AUDIT25 A25-42), Assumptions.boss_hit_recently_share:
+    the boss's hits of that type come every bosses.HIT_EVERY / (its skills of the type / its damaging skills) s (LOW);
+    at least every 4 s counts as always up (the floors count only full uptime), slower as 1 - e^(-4 s x rate). Below
+    4 s (COV12's table): Xesht (Fire 44%, Cold 25%, Lightning 25%), the Raven (35% / 42% / 28%), the Aberration (Cold
+    and Lightning 41%), Kulemak (Cold 55%), Atziri the Fell Serpent (Fire 37%, Lightning 21%). Evasion, block and
+    Slows on the boss aren't taken out (a small overcount there). A type the boss never hits with counts 0, though a
     hit from something else (an add, your own skill) could raise it (an undercount there; adds' damage types not
     modelled). Source of the stat (maximum_elemental_resistance_+%_of_each_elemental_damage_type_youve_been_hit_with_recently):
     passive shaman12 (checked, COV12: Stats ids with hit + recently + max/resist, and every Mods / PassiveSkills row
