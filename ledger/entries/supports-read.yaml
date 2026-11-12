@@ -86,3 +86,16 @@
     from the bridge for the main skill (stats['_wither_support'])."
   sources: ["builder/search/conditions.py WITHER_SUPPORT_STATS, _wither_support"]
   status: proposed
+
+- id: supports-read-cast-on-crit-less
+  title: Cast on Critical, socketed spells deal 20% less Damage (Energy model)
+  kind: model
+  model: energy
+  stats: ["trigger_meta_gem_damage_+%_final"]
+  skill: [SupportMetaCastOnCritPlayer]
+  confidence: datamined
+  notes: "builder/search/models.py META_GEMS['Cast on Critical']['less'] = 20 (the game files' -20 on
+    SupportMetaCastOnCritPlayer), applied as '-20% more Damage' to each spell the meta triggers (energy_model). The same
+    stat on Cast on Melee Kill (+50%) stays open: that meta is in models.DEPRECATED (COV2's note)."
+  sources: ["builder/search/models.py META_GEMS, energy_model", "GrantedEffectStatSets SupportMetaCastOnCritPlayer (build 26476662)"]
+  status: proposed
