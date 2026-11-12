@@ -1057,9 +1057,6 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
         events, how = named
     else:
         events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
-    if q := TARGET_AILMENT.search(when):  # ("Blind Chilled enemies on Hit": only the hits on a Chilled boss; MECH53)
-        share = target_ailment_share(stats, q.group(1).lower())
-        events, how = events * share, f"{how} on a {q.group(1).lower()} boss ({share:.0%} of the fight)"
     n = events * duration
     up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
     return up, f"{chance:.0%} x {events:.2f} {how}/s, {duration:g} s: {up:.0%} up"
@@ -1177,6 +1174,9 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         events, how = models.hits_per_second(stats), "hits"
     else:
         return 0.0, f"'{when.strip()[:40]}': its rate isn't modelled (0, labelled)"
+    if q := TARGET_AILMENT.search(when):  # ("Blind Chilled enemies on Hit": only the hits on a Chilled boss; MECH53)
+        share = target_ailment_share(stats, q.group(1).lower())
+        events, how = events * share, f"{how} on a {q.group(1).lower()} boss (it is {share:.0%} of the fight)"
     n = events * duration
     up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
     return up, f"{chance:.0%} x {events:.2f} {how}/s, {duration:g} s: {up:.0%} up"
