@@ -136,6 +136,17 @@ def guide(search: Any) -> list[dict]:
                               f"({always:,.0f} DPS were it always up)" + (f"; {row['defence']}" if row["defence"] else "")),
                      "dps_with": headline, "dps_without": never, "change": (headline - never) / never,
                      "confidence": "theory"})
+        # Another reading of an unsettled rule (conditions.alt_uptimes; the Arcane Surge support's counter, MECHC1): the
+        # headline counts the lower uptime; this row gives the DPS at the other one.
+        alt = getattr(search.conditions, "alt_uptimes", {}).get(row["var"])
+        if alt is not None and alt[0] > row["uptime"]:
+            ratio = row["ratio"]
+            other = always * (alt[0] + (1 - alt[0]) * ratio)
+            rows.append({"var": row["var"], "label": f"{row['label']} up {alt[0]:.0%} instead of {row['uptime']:.0%}",
+                         "kind": BUILD, "counted": False, "alt_uptime": alt[0],
+                         "play": f"{alt[1]}: {other:,.0f} DPS (not counted in the headline, {headline:,.0f})",
+                         "dps_with": other, "dps_without": headline, "change": (other - headline) / headline,
+                         "confidence": "theory"})
     after, base = build.objective.dps(build.stats), headline
     if abs(after - base) > 1e-6 * base:  # the switches must leave the build as it was; say so if they didn't
         rows.append({"var": "", "label": "(restore check)", "kind": BUILD, "counted": False, "play": "",

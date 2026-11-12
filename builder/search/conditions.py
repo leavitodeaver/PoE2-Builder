@@ -806,9 +806,12 @@ def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # when the main skill channels; a kill, a Minion dying, Shapeshifting back, a Mine or Trap: 0 (no rate modelled,
 # labelled); a Totem summoned: once per CHARGE_DEFAULT_EVERY s (assumed). The Arcane Surge support (GrantedEffectStatSets
 # SupportArcaneSurgePlayer: 10 s after spending 100% of maximum Mana on Supported Skills) on the main skill: PoB's mana
-# spent per second (ManaPerSecondCost) against the threshold; counting assumed to go on while the buff is up (UNVERIFIED:
-# poe2db and the game files say nothing on it; guides report 100% uptime on fast casters, only possible so), so
-# up = min(1, duration / time to spend it). Its effect and duration modifiers aren't read (labelled).
+# spent per second (ManaPerSecondCost) against the threshold. Whether Mana spent while the buff is up counts toward the
+# next one is unsettled (RESEARCH1, scratch/manager/research/mana-spend-counters.md, LOW: no game text, patch note or test
+# says; guides report 70-85% uptime, not the 100% a running counter gives fast casters), so the headline counts the lower
+# bound, the counter restarting at each gain: up = D / (D + M / r) (MECHC1, 12 Nov 2026, accuracy first); the play
+# guide shows the running counter's min(1, D r / M) as an "if it counts" row. Its effect and duration modifiers aren't
+# read (labelled).
 ARCANE_SURGE_DURATION = 4.0
 ARCANE_SURGE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\b(?:you )?(?:gain|grants?|have)\b (?:you )?Arcane Surge\b(.*)$", re.I)
 ARCANE_SURGE_NOT_SOURCE = re.compile(r"companions|minions (?:have|gain)|\ballies\b|grants skill|instead|"
@@ -833,8 +836,10 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
         rate = number(stats.get("ManaPerSecondCost"))
         if rate <= 0 or mana <= 0:
             return 0.0, f"needs {mana:.0f} Mana spent, the main skill spends none"
-        up = min(1.0, duration * rate / mana)
-        return up, f"{mana:.0f} Mana spent every {mana / rate:.1f} s ({rate:.1f}/s), {duration:g} s each: {up:.0%} up (mana spent during the buff assumed to count: unverified)"
+        fill = mana / rate
+        up, high = duration / (duration + fill), min(1.0, duration / fill)
+        return up, (f"{mana:.0f} Mana spent every {fill:.1f} s ({rate:.1f}/s), {duration:g} s each: {up:.0%} up, Mana spent "
+                    f"during the buff not counted (LOW: the lower bound); {high:.0%} if it counts"), high
     if dev := re.search(r"at least (\d+) devotion", when):
         if number(stats.get("Devotion")) < float(dev.group(1)):
             return 0.0, f"needs {dev.group(1)} Devotion ({number(stats.get('Devotion')):g} held)"
@@ -868,18 +873,23 @@ def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     if support:  # (the support on the main skill, as the line it would be)
         lines = [*lines, f"Gain Arcane Surge for {support[1]:g} seconds after Spending a total of {support[0]:g}% of "
                          f"your Maximum Mana on Supported Skills"]
-    down, how = 1.0, []
+    down, down_high, how = 1.0, 1.0, []
     for text in lines:
         # ("when a Minion Dies" is yours, not a minion's line: kept, so it's labelled rather than dropped)
         own = re.sub(r"when a minion dies", "", text, flags=re.I)
         if not qualifies(own, main_types) or (r := _arcane_surge_source(text, lines, stats)) is None:
             continue
         down *= 1 - r[0]
+        down_high *= 1 - (r[2] if len(r) > 2 else r[0])
         how.append(f"{text[:60]} ({r[1]})")
     if not how:
         return 0.0, ""
-    up = 1 - down
+    up, high = 1 - down, 1 - down_high
     basis = f"Arcane Surge up {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:3])
+    if high > up:  # (the play guide's "if Mana spent during the buff counts" row: ArcaneSurgeAlternative)
+        return (*_box(up, basis), False, (high, "if Mana spent while Arcane Surge is up counts toward the next one "
+                                                "(unsettled, LOW: research/mana-spend-counters.md; an in-game test: "
+                                                "count the casts between buffs with the buff up and with it fallen off)"))
     return _box(up, basis)
 
 
@@ -1824,6 +1834,7 @@ class Conditions:
         found: dict[str, tuple[object, str]] = {}
         uptimes: dict[str, float] = {}  # var -> share of the fight, for the effects the build keeps up at a rate
         self.off_values: dict[str, object] = {}  # var -> its box with the effect off, if not False (Withered's base stacks)
+        self.alt_uptimes: dict[str, tuple[float, str]] = {}  # var -> (uptime, when) under another reading of the rule
         for condition in CONDITIONS:
             reason = None
             for line in lines:
@@ -1841,8 +1852,10 @@ class Conditions:
                     found[condition.var] = (value, basis)
                     if share:
                         uptimes[condition.var] = share[0]
-                    if share[1:]:
+                    if share[1:] and share[1] is not False:
                         self.off_values[condition.var] = share[1]
+                    if share[2:]:  # (uptime, when): the other reading of an unsettled rule, a play-guide row
+                        self.alt_uptimes[condition.var] = share[2]
                 continue
             if reason is None and condition.main_types and self.main_types & set(condition.main_types):
                 reason = "main skill: " + ", ".join(sorted(self.main_types & set(condition.main_types)))

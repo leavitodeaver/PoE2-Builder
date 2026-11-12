@@ -1168,10 +1168,18 @@ def test_arcane_surge_on_only_when_its_sources_keep_it_up():
     assert arcane_surge_uptime([devotion], {**spell, "Devotion": 150})[2] >= 0.9
     assert arcane_surge_uptime([devotion], {**spell, "Devotion": 100})[2] < 0.9
     assert arcane_surge_uptime([devotion], {**spell, "Devotion": 150, "_main_types": {"Attack"}}) == (0.0, "")
-    # the support: 100% of 1000 Mana every 20 s at 50/s, 10 s each: 50%; at 100/s, up throughout
+    # the support: 100% of 1000 Mana in 20 s at 50/s, 10 s each. Whether Mana spent during the buff counts is unsettled
+    # (RESEARCH1, LOW): the headline takes the lower bound, 10 / (10 + 20) = 33%; the running counter's 50% is the
+    # play guide's other row
     support = {**spell, "_arcane_surge_support": (100, 10.0)}
-    assert arcane_surge_uptime([], support)[2] < 0.9 and "50%" in arcane_surge_uptime([], support)[1]
-    assert arcane_surge_uptime([], {**support, "ManaPerSecondCost": 100})[2] >= 0.9
+    low = arcane_surge_uptime([], support)
+    assert abs(low[2] - 1 / 3) < 1e-9 and "33%" in low[1] and "50% if it counts" in low[1]
+    assert low[3] is False and abs(low[4][0] - 0.5) < 1e-9 and "unsettled" in low[4][1]
+    # at 100/s (10 s to spend it): 50% in the headline, not 100% (guides report 70-85% for fast casters)
+    fast = arcane_surge_uptime([], {**support, "ManaPerSecondCost": 100})
+    assert abs(fast[2] - 0.5) < 1e-9 and fast[4][0] == 1.0
+    # sources without the counter give no other reading
+    assert len(arcane_surge_uptime(["You have Arcane Surge"], spell)) == 3
 
 
 def test_debuffs_on_only_when_their_sources_keep_them_up():

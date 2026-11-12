@@ -192,6 +192,28 @@ def test_partial_uptimes_count_at_their_share_and_floors_without_them():
     assert "50% of the fight" in item["why"] and "9% of the headline" in item["why"]
 
 
+def test_another_reading_of_an_unsettled_uptime_gets_its_own_row():
+    """MECHC1: the Arcane Surge support's counter is unsettled (RESEARCH1, LOW); the headline counts the lower uptime and
+    the play guide gives the DPS at the other one, not counted."""
+    from builder.search.inner import Search
+
+    config = {"conditionEnemyShocked": True}
+    build = UptimeBuild(config)
+    build.objective, build.score = UptimeObjective(), 0.0
+    active = {"conditionEnemyShocked": {"label": "Arcane Surge", "value": True}}
+    search = SimpleNamespace(build=build, play_notes={}, uptime_rows=[], assumptions=SimpleNamespace(apply=lambda: False),
+                             conditions=SimpleNamespace(active=active, uptimes={"conditionEnemyShocked": 0.5},
+                                                        alt_uptimes={"conditionEnemyShocked": (1.0, "if it counts")}))
+    search.floor_without = Search.floor_without.__get__(search)
+    Search.weigh_uptimes.__get__(search)()
+    rows = [r for r in play_guide.guide(search) if r["var"] == "conditionEnemyShocked"]
+    counted, other = rows
+    assert counted["counted"] and counted["dps_with"] == approx(1100)
+    assert not other["counted"] and other["alt_uptime"] == 1.0 and other["dps_with"] == approx(1200)
+    assert other["dps_without"] == approx(1100) and "if it counts" in other["play"]
+    item = next(i for i in checklist({"play_guide": [other]}) if i["kind"] == "how to play it *")
+    assert "doesn't count it" in item["why"]
+
 def test_an_effect_switched_on_between_rounds_counts_at_its_share():
     """MECH31: a trial that raises an effect from 0% between conditions rounds was scored as if it were fully up (the
     factor came only from the round). follow_uptimes weighs it at once, with one recalculation of its own."""

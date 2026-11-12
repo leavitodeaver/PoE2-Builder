@@ -296,7 +296,9 @@ def archon_sources(stats: dict, main_gems: set[str]) -> list[ArchonSource]:
         spend = mana / cost
         sources.append(ArchonSource("Archon of the Storm", "ArchonMana", spend / 2,
                                     f"spending {mana:,.0f} Mana takes {spend:.1f}s at {cost:,.0f} Mana per second; "
-                                    "half of that on average after the recovery ends"))
+                                    "half of that on average after the recovery ends (LOW: whether Mana spent during the Archon and "
+                                    "its recovery counts is unsettled, research/mana-spend-counters.md; the bounds are "
+                                    f"0 and {spend:.1f}s)"))
     if number(stats.get("EnergyShield")) > 0:
         # (MECH46, FLAT_RATES A8: before, a flat 2 x delay, though every boss hit that lands restarts the delay.) The
         # boss's landing hits taken as a Poisson stream (enemySkillTime, less evaded and blocked hits): the expected wait
