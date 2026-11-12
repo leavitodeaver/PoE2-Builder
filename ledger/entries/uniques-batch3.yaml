@@ -1,0 +1,178 @@
+# Unique items' lines, third batch (COVD3, 12 Nov 2026): Hrimnor's Hymn's Aftershock (RESEARCH7 #43), Drillneck's
+# per-Pierce lines (plans/kw-pierce.md, with PLANS3's correction), then the coverage audit's open unique lines from
+# about rank 140 (builder/ledger/coverage.py; the ranking as of origin/main 4dfe466 + uniques-batch1/2.yaml).
+#
+# Game files: data/game-26476662/tables (Mods.json, Stats.json, KeywordPopups.json). Unique texts: PoB's export
+# (data/pob-bb52d6b368/uniques.json). Patterns accept a roll range or a rolled number: (\(\d+-\d+\)|\d+).
+# PoE2 0.5.x; recheck at the 1.0 refresh.
+
+# Aftershocks ------------------------------------------------------------------------------------------------------
+
+- id: uniques-hrimnors-hymn-aftershock
+  title: Hrimnor's Hymn, Slam Skills you use yourself cause an additional Aftershock (100% chance)
+  kind: pob_gap
+  match: '^Slam Skills you use yourself cause an additional Aftershock$'
+  replace: ['Slam Skills deal 100% more Damage']
+  confidence: datamined
+  notes: >-
+    The line is Mods UniqueAftershockChance1: stat 21650 your_slam_aftershock_chance_% at 100 (the same stat as
+    Earthbreaker's 25% and UniqueMutatedVaalAftershockChance's 5-10%, which ledger aftershock-chance already
+    translates). KeywordPopups Aftershock: "If not otherwise specified, the Aftershock will deal the same damage as
+    the initial impact, in the same area", so a boss inside the slam is hit twice by every slam: x2 slam damage.
+    PoB leaves the line unparsed (ModCache: nil; the audit lists it "PoB ignores the line"), so before this entry
+    the build got x1. Same translation and the same two known gaps as aftershock-chance: (1) "you use yourself" is
+    dropped (a triggered or totem slam gets the more too, an overcount for those builds, as aftershock-chance has
+    today); (2) STACKING: the game sums every your_slam_aftershock_chance_% source into one chance and rolls it once
+    (RESEARCH7 aftershock-chance-stacking.md, the virtual_*_slam_aftershock_chance_% stats), while each ledger line
+    here is its own MORE. With Hrimnor's Hymn at 100% any other chance line likely adds nothing (over 100% assumed
+    capped at one extra Aftershock: UNVERIFIED, research INDEX #40), so Hymn + Earthbreaker reads x2.5 where the
+    capped game gives x2 (+25% overcount) until COV-A's summed model, min(1, total chance / 100), replaces the
+    per-line MOREs. That model must count this line as 100.
+  sources: ["https://poe2db.tw/us/Hrimnors_Hymn", "data/game-26476662/tables/Mods.json (UniqueAftershockChance1)",
+            "data/game-26476662/tables/KeywordPopups.json (Aftershock)",
+            "scratch/manager/research/aftershock-chance-stacking.md (RESEARCH7)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Uniques/mace.lua (Hrimnor's Hymn)"]
+  test_in_game: "Slam a training dummy with Hrimnor's Hymn: every slam shows a second impact in the same place for the same damage. Then add Earthbreaker: does any slam ever show a third impact?"
+  status: proposed
+
+# Pierce (plans/kw-pierce.md groups A and B) -------------------------------------------------------------------------
+
+- id: uniques-drillneck-per-pierce-damage
+  title: Drillneck, Projectiles deal (42-64)% increased Damage with Hits for each time they have Pierced (0 on a lone boss)
+  kind: pob_gap
+  match: '^Projectiles deal (\(\d+-\d+\)|\d+)% increased Damage with Hits for each time they have Pierced$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    No effect on the boss score: a projectile hitting a lone boss has Pierced nothing yet when the hit lands
+    (KeywordPopups Pierce: "Projectiles that Pierce can pass through a target while still damaging them"; the pierce
+    happens at that hit, and a lone boss leaves no second target after it). PoB doesn't apply the line either:
+    ModCache 8995-8997 parse it with the leftover " for each time they have Pierced ", and Classes/Item.lua applies
+    no line with leftover text (`not modLine.extra`, 2785 / 2839; PLANS3's correction at the top of
+    plans/kw-pierce.md: the plan's "PoB applies it in full" was wrong). So this records the 0 rather than changing a
+    number: the audit stops listing it, and if a later PoB learns the sentence the boss score still gets nothing.
+    Not counted: the one hit that can come after a Pierce on a lone boss, a returning projectile's second hit
+    (MECH-B's return model, from another Return source such as Breachlord's Amalgam; Drillneck's own Return needs
+    2-4 Pierces): it would get this bonus once. Routed to MECH-B (small undercount, only Drillneck plus another
+    Return source).
+  sources: ["https://poe2db.tw/us/Drillneck", "data/game-26476662/tables/Mods.json (UniqueProjectileIncreasedDamagePerPierce1)",
+            "data/game-26476662/tables/KeywordPopups.json (Pierce)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (8995-8997)",
+            "vendor/PathOfBuilding-PoE2/src/Classes/Item.lua (2785, 2839: not modLine.extra)"]
+  test_in_game: "Not needed for boss damage. On a pack, a projectile's second and later targets take the line's value more per target pierced."
+  status: proposed
+
+- id: uniques-drillneck-per-pierce-crit
+  title: Drillneck, Projectiles have (42-64)% increased Critical Hit chance for each time they have Pierced (0 on a lone boss)
+  kind: pob_gap
+  match: '^Projectiles have (\(\d+-\d+\)|\d+)% increased Critical Hit chance for each time they have Pierced$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    As uniques-drillneck-per-pierce-damage (Mods UniqueProjectileIncreasedCriticalHitChancePerPierce1; ModCache 9047 /
+    9050 carry the same leftover text, so PoB applies nothing).
+  sources: ["https://poe2db.tw/us/Drillneck", "data/game-26476662/tables/Mods.json (UniqueProjectileIncreasedCriticalHitChancePerPierce1)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (9047, 9050)"]
+  test_in_game: "As uniques-drillneck-per-pierce-damage."
+  status: proposed
+
+- id: uniques-drillneck-return-after-pierces
+  title: Drillneck, Attack Projectiles Return if they Pierced at least (2-4) times (0 on a lone boss)
+  kind: pob_gap
+  match: '^Attack Projectiles Return if they Pierced at least (\(\d+-\d+\)|\d+) times$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    No effect on the boss score: a projectile Pierces each target it passes once (KeywordPopups Pierce), so on a lone
+    boss it Pierces at most once and never reaches the 2-4 this line needs (MECHB1's return model reads Drillneck the
+    same way, "0 on a lone boss, with a note", HIGH; checked there: KeywordPopups Pierce and Chain, the FIX_QUEUE
+    research's poe2wiki rule). PoB leaves the line unparsed (ModCache 6616 -> nil). Bosses with several hitboxes:
+    UNVERIFIED (plans/kw-projectile.md item 4).
+  sources: ["https://poe2db.tw/us/Drillneck", "data/game-26476662/tables/Mods.json (UniqueArrowsReturnAfterPiercingXTimes1)",
+            "data/game-26476662/tables/KeywordPopups.json (Pierce, Return)",
+            "scratch/manager/workers/MECHB1.report.md (return model)"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+# Two-line mods PoB's own item parser joins (ranks 150, 207-208) -----------------------------------------------------
+
+- id: uniques-rampart-raptor-ammo
+  title: Rampart Raptor, Bolts fired by Crossbow Attacks have 100% chance to not expend Ammunition if you've Reloaded Recently (first half of a two-line mod)
+  kind: pob_gap
+  match: '^Bolts fired by Crossbow Attacks have (\(\d+-\d+\)|\d+)% chance to not$'
+  replace: ["Bolts fired by Crossbow Attacks have {1}% chance to not expend Ammunition if you've Reloaded Recently"]
+  confidence: datamined
+  notes: >-
+    PoB's export breaks the mod over two lines. The audit parses each line alone and lists both as ignored, but PoB's
+    item parser itself joins a line that fails to parse with the next one (Classes/Item.lua 1240-1251, "Try to combine
+    it with the next line"), and the whole sentence is in ModCache (6762: ChanceToNotConsumeAmmo BASE 100, Crossbow
+    ammo skills, Condition ReloadedRecently). So PoB already counts it; this entry writes the join out so the result
+    doesn't depend on that fallback (same as uniques-waveshaper-mana-regen-to-es-recharge). The tool never sets
+    ReloadedRecently (checked: grep over builder/search: no ReloadedRecently), so the bonus stays off in our numbers:
+    routed (crossbow reload cycle, MECH-B / SEARCH).
+  sources: ["https://poe2db.tw/us/Rampart_Raptor", "data/pob-bb52d6b368/uniques.json (Rampart Raptor)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (6762)",
+            "vendor/PathOfBuilding-PoE2/src/Classes/Item.lua (1240-1251)"]
+  test_in_game: "Not needed: the sentence is the game's own mod text."
+  status: proposed
+
+- id: uniques-rampart-raptor-ammo-second-line
+  title: Rampart Raptor, second half of the two-line mod ("expend Ammunition if you've Reloaded Recently")
+  kind: pob_gap
+  match: "^expend Ammunition if you've Reloaded Recently$"
+  replace: []
+  confidence: datamined
+  notes: "Carried by uniques-rampart-raptor-ammo, which translates the whole sentence from its first line."
+  sources: ["data/pob-bb52d6b368/uniques.json (Rampart Raptor)"]
+  test_in_game: "As uniques-rampart-raptor-ammo."
+  status: proposed
+
+- id: uniques-bloodbarrier-corrupted-blood
+  title: Bloodbarrier, Inflict Corrupted Blood for 5 seconds on Block, dealing 50% of your maximum Life as Physical damage per second (first half of a two-line mod)
+  kind: pob_gap
+  match: '^Inflict Corrupted Blood for (\(\d+-\d+\)|\d+) seconds on Block, dealing (\(\d+-\d+\)|\d+)% of$'
+  replace: ['Inflict Corrupted Blood for {1} seconds on Block, dealing {2}% of your maximum Life as Physical damage per second']
+  confidence: datamined
+  notes: >-
+    As uniques-rampart-raptor-ammo: PoB's item parser joins the two lines itself (Classes/Item.lua 1240-1251) and the
+    whole sentence is in ModCache (8344: ExtraSkill BloodbarrierPlayer with its duration and %-of-Life stats), so PoB
+    already grants the skill; this writes the join out. The skill's damage to the boss is a separate skill fired on
+    Block, not the main skill: whether the search adds it to the boss DPS (at the build's block rate against the
+    boss preset's hits) is routed to MECH-B (triggered skills from items) and MECH-A (Corrupted Blood).
+  sources: ["https://poe2db.tw/us/Bloodbarrier", "data/pob-bb52d6b368/uniques.json (Bloodbarrier)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (8343-8344)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (inflict corrupted blood for ... on block)"]
+  test_in_game: "Not needed: the sentence is the game's own mod text."
+  status: proposed
+
+- id: uniques-bloodbarrier-corrupted-blood-second-line
+  title: Bloodbarrier, second half of the two-line mod ("your maximum Life as Physical damage per second")
+  kind: pob_gap
+  match: '^your maximum Life as Physical damage per second$'
+  replace: []
+  confidence: datamined
+  notes: "Carried by uniques-bloodbarrier-corrupted-blood, which translates the whole sentence from its first line."
+  sources: ["data/pob-bb52d6b368/uniques.json (Bloodbarrier)"]
+  test_in_game: "As uniques-bloodbarrier-corrupted-blood."
+  status: proposed
+
+# Lines a model already reads (rank 175) -------------------------------------------------------------------------------
+
+- id: uniques-model-sculpted-suffering-armour-break
+  title: Sculpted Suffering, Breaks Armour equal to 40% of damage from Hits with this weapon (Armour Break uptime)
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^Breaks Armour equal to (\(\d+-\d+\)|\d+)% of damage from Hits with this weapon$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    builder/search/conditions.py reads it for the Armour Broken box: ARMOUR_BREAK_LINE matches "Breaks Armour", and
+    _armour_break_source takes "equal to 40% of damage from hits" as 40% of the main skill's average hit x its hits per
+    second (checked by running _armour_break_source on the line). PoB ignores the line. Known gap, routed to MECH-A:
+    "with this weapon" isn't kept: conditions.qualifies passes the line for a Spell main skill too (checked: qualifies
+    returns True for {Spell, Projectile}), so a Warpick wielder whose main skill is a spell gets breaks the game
+    wouldn't give (an overcount of the Armour Broken share for that rare case).
+  sources: ["https://poe2db.tw/us/Sculpted_Suffering", "builder/search/conditions.py (ARMOUR_BREAK_LINE, _armour_break_source)",
+            "data/pob-bb52d6b368/uniques.json (Sculpted Suffering)"]
+  test_in_game: "Hit a dummy with the Warpick: its Armour bar drops by 40% of each hit's damage."
+  status: proposed
