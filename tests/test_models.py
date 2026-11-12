@@ -1354,3 +1354,41 @@ def test_a_use_that_repeats_does_not_echo():
     assert models.repeat_echo_model(texts, {"Spell", "Cascadable"}, set()) == ([], [])  # can't Repeat: nothing to fix
     assert models.repeat_echo_model(texts[:1], both, set()) == ([], [])
     assert models.repeat_echo_model(texts, both, {"now-and-again-echo"}) == ([], [])
+
+
+def test_snap_needs_an_ailment_and_its_presses_cost_the_main_skill_time():
+    """MECH46 (FLAT_RATES A14): Snap's Remnants only when an Ignite, Shock or Freeze is on the boss to Consume; a non-main
+    Snap / Frost Bomb pressed for its Remnants costs the main skill its cast time, in Full DPS or not."""
+    from builder.search.assumptions import REMNANT_SOURCES, Assumptions, snap_found
+    assert snap_found({"Speed": 2.0, "HitChance": 100})[0] == 0.0
+    found, how = snap_found({"Speed": 2.0, "HitChance": 100, "IgniteChancePerHit": 100, "IgniteDuration": 4})
+    assert found == pytest.approx(1.0) and "Ignited" in how
+
+    class Ctx:
+        gems = {}
+
+    class Build:
+        ctx = Ctx()
+
+        def __init__(self, stats):
+            self.stats = stats
+
+        def call(self, method, **kw):
+            return {"stats": self.stats}[method]
+
+        def main_group(self):
+            return {"index": 1}
+
+        def groups(self):
+            return []
+
+    skills = [{"name": "Snap", "disabled": False, "group": 2, "castTime": 0.5, "cooldownRecovery": 1.0},
+              {"name": "Frost Bomb", "disabled": False, "group": 3, "castTime": 1.0, "cooldownRecovery": 1.0}]
+    a = Assumptions(Build({"Speed": 2.0, "HitChance": 100}))
+    mods, notes = a.remnant_presses(skills, "Transmutation Explosion")
+    busy = REMNANT_SOURCES["Frost Bomb"][0] * 1.0  # (no ailment: Snap isn't pressed)
+    assert mods[0]["scale"] == pytest.approx(-100 * busy, rel=1e-4) and "Frost Bomb" in notes[0]["basis"]
+    a = Assumptions(Build({"Speed": 2.0, "HitChance": 100, "IgniteChancePerHit": 100, "IgniteDuration": 4}))
+    mods, _ = a.remnant_presses(skills, "Transmutation Explosion")
+    assert mods[0]["scale"] == pytest.approx(-100 * (busy + REMNANT_SOURCES["Snap"][0] * 0.5), rel=1e-4)
+    assert a.remnant_presses(skills[:1], "Snap") == ([], [])  # Snap as the main skill: no press cost of its own

@@ -114,6 +114,19 @@ def hit_remnant_rate(name: str, stats: dict) -> tuple[float, str]:
     return rate, f"once every {cooldown:g} s + the wait for the next of the main skill's {how}"
 
 
+def snap_found(stats: dict) -> tuple[float, str]:
+    """The chance a Snap cast finds an Ignite, Shock or Freeze on the boss to Consume (its ActiveSkills description:
+    "Consume the elemental energy from a Frozen, Shocked or Ignited enemy"), each at its uptime from the main skill's own
+    hits, taken as independent."""
+    ups = {"Ignited": ailment_uptime(stats, "Ignite"), "Shocked": shock_share(stats),
+           "Frozen": models.immobilised_share(stats, "Freeze")[0]}
+    absent = 1.0
+    for up in ups.values():
+        absent *= 1.0 - min(1.0, max(0.0, up))
+    named = ", ".join(f"{k} {v:.0%}" for k, v in ups.items() if v > 0) or "no Ignite, Shock or Freeze on the boss"
+    return 1.0 - absent, named
+
+
 def kalguur_rate(stuns: float) -> float:
     """Remnants of Kalguur per second from `stuns` Stuns per second: one per KALGUUR_COOLDOWN + the expected wait for
     the next Stun that makes one (KALGUUR_CHANCE each)."""
@@ -435,6 +448,10 @@ class Assumptions:
                     rate, condition = siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS))
                 elif name in HIT_REMNANTS:
                     rate, condition = hit_remnant_rate(name, self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
+                elif name == "Snap":  # (MECH46: it needs an ailment on the boss to Consume)
+                    found, how = snap_found(self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
+                    rate *= found
+                    condition = f"on its cooldown, when it finds an ailment to Consume ({found:.0%}: {how})"
                 supply += rate
                 used.append(f"{name} {rate:.2f}/s ({condition})")
             lines = self.build.call("sourceLines")["lines"]
@@ -507,9 +524,45 @@ class Assumptions:
             if chosen is None or label != chosen["label"]:
                 notes.append({"label": f"{main}: {label} cast not counted", "value": 0,
                               "basis": self.infused_skipped.get(label, INFUSED_NOTE), "confidence": "theory"})
+        if explosion is not None or chosen is not None:
+            press_mods, press_notes = self.remnant_presses(skills, main)
+            mods, notes = mods + press_mods, notes + press_notes
         found, condition_notes = self.ledger_conditions(skills)
         mods += [{"kind": "Condition", "name": name} for name in found]
         return mods, notes + condition_notes
+
+    def remnant_presses(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
+        """The time pressing Snap or Frost Bomb for its Remnants takes from the main skill (MECH46, FLAT_RATES A14: before,
+        only when its group was in Full DPS, through rate_presses, which still charges those). Each pressed on its
+        cooldown, Snap only when it finds an ailment to Consume, for its base cast time (cast speed not read: LOW)."""
+        if not any(s["name"] in COOLDOWN_SOURCES and not s["disabled"] for s in skills):
+            return [], []
+        build = self.build
+        group = build.main_group()
+        main_index = group["index"] if group else None
+        pressed = {g["index"] for g in build.groups() if g["index"] != main_index and pressed_group(g, build.ctx.gems)}
+        busy, parts = 0.0, []
+        for skill in skills:
+            name = skill["name"]
+            if (skill["disabled"] or name not in COOLDOWN_SOURCES or name == main or skill.get("group") == main_index
+                    or skill.get("group") in pressed):
+                continue
+            rate = REMNANT_SOURCES[name][0] * (skill.get("cooldownRecovery") or 1.0)
+            if name == "Snap":
+                rate *= snap_found(build.call("stats", fields=list(HIT_REMNANT_FIELDS)))[0]
+            took = rate * (skill.get("castTime") or 0.0)
+            if took > 0:
+                busy += took
+                parts.append(f"{name} {rate:.2f}/s x {skill.get('castTime'):g} s")
+        if busy <= 0 or main is None:
+            return [], []
+        busy = min(busy, 0.9)
+        return [models.line("1% more Attack and Cast Speed", -100 * busy, skill=main)], [{
+            "label": "Time pressing Remnant skills", "value": round(busy, 3),
+            "basis": f"{', '.join(parts)} (base cast times; pressed on cooldown for their Remnants): {busy:.1%} of the "
+                     f"fight not spent on {main}",
+            "play": "Press Snap / Frost Bomb on cooldown (Snap when the boss is Ignited, Shocked or Frozen).",
+            "confidence": "game files' cooldowns; cast speed not read (LOW)"}]
 
     def stats_as_main(self, group: dict, position: int, main_index: int, fields: list[str]) -> dict:
         """PoB's stats with the skill at `position` in `group` calculated as the main skill for a moment (its group made
