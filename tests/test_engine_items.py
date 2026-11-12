@@ -685,7 +685,8 @@ def test_a_skill_some_wand_bases_grant_is_the_main_skill(engine, skill, ascendan
     from builder.search.skeletons import enumerate_skeletons
 
     payload = make_payload(BuildRequest(main_skill=skill, ascendancies=[ascendancy]))
-    skeleton = next(s for s in enumerate_skeletons(Context(payload), [skill])[0] if s.granted_by.startswith("bases:"))
+    skeleton = next(s for s in enumerate_skeletons(Context(payload), [skill])[0] if s.granted_by.startswith("bases:")
+                    and s.weapon == s.granted_by.split(":")[1])  # (the main hand; the off hand: the Malice test below)
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
     search.setup(quests=False)
     assert search.gear.slots["Weapon 1"].bases == tuple(sorted(bases))
