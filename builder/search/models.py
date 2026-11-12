@@ -46,6 +46,9 @@ MODEL_FIELDS = sorted({
     "Ward",
     # Run and Gun: the main skill's projectiles (run_and_gun_model); returning projectiles: its pierce (return_model)
     "ProjectileCount", "PierceCount",
+    # Aftershocks: the main slam's ailment chances and how many of each ailment can be on the boss (aftershock_model)
+    "BleedChanceOnHit", "BleedChanceOnCrit", "PoisonChanceOnHit", "PoisonChanceOnCrit",
+    "IgniteStacksMax", "BleedStacksMax", "PoisonStacksMax",
     # Spell Totem: how long PoB says a totem lasts, and the charges it can be raised with
     "TotemDuration", "PowerChargesMax", "EnduranceChargesMax",
     # Harmony Within: unreserved Mana against Life
@@ -605,10 +608,10 @@ OWN_USE_GAINS = ("crit", "ailment", "melee hit", "cast")
 # though this can be caused by their summoner as well as enemies." Cast on Minion Death gains Energy "when one of your
 # Persistent Minions is Killed" (its ActiveSkills description), so neither expiring temporary minions nor despawns feed
 # it; Grim Feast stores Life when "your Reviving Minions" die (its description). Reviving (KeywordPopups): they "revive
-# after a short delay when killed. This delay is reset whenever another Reviving Minion dies": 7.5 s (global_resummon_time_ms,
-# PoB's Misc.lua from the game's constants; resummon speed modifiers aren't read, LOW). With N such minions and kills at r
-# per second, the deaths run in waves: N killed in N / r s, then all revive 7.5 s after the last, so the sustained rate is
-# N r / (N + 7.5 r).
+# after a short delay when killed. This delay is reset whenever another Reviving Minion dies": the delay T is each skill's
+# own base (12 s on most summon skills) or 7.5 s, over the revival speed (revive_seconds, below; LOW). With N such minions
+# and kills at r per second, the deaths run in waves: N killed in N / r s, then all revive T after the last, so the
+# sustained rate is N r / (N + T r).
 # The build's own sources counted (each at its real use rate):
 #  - Sacrifice (its description: "your undead Reviving Minions can be used in place of Corpses by your skills"): a main skill
 #    that consumes corpses (the corpse_model's skill types) uses one minion per use (one corpse per use assumed; that a
@@ -627,7 +630,7 @@ ARSONIST = "Skeletal Arsonist Minion"
 
 def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[float, str]:
     """Your Persistent, Reviving minions Killed per second against a boss, from the build's own sources (see above), capped
-    by their revival (N r / (N + RESUMMON_SECONDS r)), and how. 0 with a note when nothing in the build kills them."""
+    by their revival (N r / (N + revive r: revive_seconds)), and how. 0 with a note when nothing in the build kills them."""
     names = {s.name for s in skills}
     reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
     count = sum(number(s.summon.get("limit")) for s in reviving)
@@ -661,26 +664,41 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple
 
 
 # Revival time (MECHB2; FIX_QUEUE: Sacrifice makes revival 40% slower, AUDIT5). PoB works it out per Reviving minion skill
-# (CalcOffence: base / MinionRevivalSpeed): Sacrifice's harvester_minion_resummon_speed_+%_final (-40% at level 20, a
-# MORE buff) and "Minions Revive N% faster" lines are in its MinionRevivalSpeed, which the bridge reports. The base stays
-# RESUMMON_SECONDS (the manager's ruling, FIX_QUEUE: no number change until an in-game test), though the sources disagree:
-# the game constant global_resummon_time_ms 7.5 s (PoB Misc.lua), each player minion skill's minion_base_resummon_time_ms
-# 12 s (PoB overrides its base with it), and the 0.2.0e notes (each later death adds less, capped at 7.5 s).
+# (CalcOffence 1616: base / MinionRevivalSpeed): Sacrifice's harvester_minion_resummon_speed_+%_final (-40% at level 20, a
+# MORE buff) and "Minions Revive N% faster" lines are in its MinionRevivalSpeed, which the bridge reports.
+# The base (MECHB5, AUDIT15 A15-2 / A15-3): each skill's own minion_base_resummon_time_ms (12 s on 18 player summon skills:
+# skeletons, spectres, companions...; PoB's BaseReviveTime override, CalcOffence 1616, which the bridge reports as
+# reviveBase) where the skill carries it, else the game constant global_resummon_time_ms 7.5 s (PoB Misc.lua; the
+# Infernal Hound and the three djinns carry no 12 s, A15-3). The sources disagree (the 0.2.0e notes: each later death
+# adds less, capped at 7.5 s), so 7.5 s goes beside it in the note: LOW until in-game test #21 settles it. A longer
+# revival means fewer deaths (Cast on Minion Death, Grim Feast): with 12 s, up to 1.6x fewer than at 7.5 s.
+# (checked: the game's GrantedEffectStatSets carry it at 12000 on 17 player sets (8 here are monsters'); PoB's Data/Skills on
+# 14 of them; the other three, DemonMagusPlayer, SoulCrystalPlayer and SummonMercenaryCompanionPlayer, aren't PoB skills.)
 def revive_seconds(reviving: list[Skill]) -> tuple[float, str]:
-    """Seconds a Reviving minion takes to revive: RESUMMON_SECONDS over the build's revival speed (the minions' count-weighted
-    mean of PoB's MinionRevivalSpeed), and how."""
-    weights = [(number(s.summon.get("limit")), number(s.summon.get("reviveSpeed")) or 1.0) for s in reviving]
-    total = sum(w for w, _ in weights)
-    speed = sum(w * v for w, v in weights) / total if total > 0 else 1.0
-    skill_base = max((number(s.summon.get("reviveBase")) for s in reviving), default=0.0)
-    bases = (f"base {RESUMMON_SECONDS:g} s, the game constant; the skills' own stat says "
-             f"{skill_base:g} s and the 0.2.0e notes a shorter, capped delay: LOW until an in-game test"
-             if skill_base and skill_base != RESUMMON_SECONDS else
-             f"base {RESUMMON_SECONDS:g} s, the game constant (LOW: the 0.2.0e notes say each later death adds less)")
+    """Seconds a Reviving minion takes to revive: the count-weighted mean over the build's Reviving minion skills of their
+    own base (reviveBase, else RESUMMON_SECONDS) over PoB's MinionRevivalSpeed, and how."""
+    rows = [(number(s.summon.get("limit")), number(s.summon.get("reviveBase")) or RESUMMON_SECONDS,
+             number(s.summon.get("reviveSpeed")) or 1.0) for s in reviving]
+    total = sum(w for w, _, _ in rows)
+    if total <= 0:
+        rows, total = [(1.0, RESUMMON_SECONDS, 1.0)], 1.0
+    seconds = sum(w * b / v for w, b, v in rows) / total
+    constant = sum(w * RESUMMON_SECONDS / v for w, _, v in rows) / total
+    base = sum(w * b for w, b, _ in rows) / total
+    speed = base / seconds if seconds else 1.0
+    if abs(base - RESUMMON_SECONDS) > 1e-6:
+        bases = (f"base {base:.3g} s, the skills' own minion_base_resummon_time_ms (PoB's BaseReviveTime); "
+                 f"{constant:.3g} s with the game constant {RESUMMON_SECONDS:g} s instead (LOW until an in-game test: "
+                 "the 0.2.0e notes say a shorter, capped delay)")
+    else:
+        bases = (f"base {RESUMMON_SECONDS:g} s, the game constant (the skills carry no base of their own; LOW: the 0.2.0e "
+                 "notes say each later death adds less)")
     if abs(speed - 1.0) < 1e-6:
-        return RESUMMON_SECONDS, bases
-    return RESUMMON_SECONDS / speed, (f"{bases}; revival speed x{speed:.2f} (PoB's MinionRevivalSpeed: Sacrifice's "
-                                      "40% slower at level 20, Revive-faster lines)")
+        return seconds, bases
+    return seconds, (f"{bases}; revival speed x{speed:.2f} (PoB's MinionRevivalSpeed: Sacrifice's 40% slower at level "
+                     f"20, Revive-faster lines), {seconds:.3g} s")
+
+
 MINION_TYPES = {"Minion", "CreatesMinion"}
 
 
@@ -3354,6 +3372,16 @@ def item_read_by_models(raw: str, build_texts: list[str]) -> bool:
     return any(model_entry(text) is not None or MAELSTROM.match(text) or RING_LINE.match(text) for text in lines)
 
 
+@dataclass
+class PressCap:
+    """The most uses a second the build can feed a skill (MECHB5, COVC6 / COVC7: usage.py's combo_rate, travel_rate and
+    throw_rate), why, and the seconds spent walking before each use (the travel requirement)."""
+    uses: float
+    how: str
+    moving: float = 0.0
+    confidence: str = "LOW"
+
+
 # A pressed non-main skill in Full DPS (MECH37) -------------------------------------------------------------------
 # PoB's Full DPS counts every group in it as used nonstop, though only the main skill is: a skill the player presses
 # beside it is used on its cooldown, once per its buff/debuff duration if it's pressed to keep one up, or else at a
@@ -3386,11 +3414,14 @@ def press_use_rate(rate: dict) -> tuple[float, str, str]:
 
 
 def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
-                paced: dict[int, float] | None = None) -> tuple[dict[str, float], list[dict]]:
+                paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None
+                ) -> tuple[dict[str, float], list[dict]]:
     """Full DPS entry scales ({SkillDPS name: x}) and notes for the pressed non-main groups `pressed`, from the bridge's
     `useRates` (each group's skill as if it were the main one: its speed, capped by its cooldown as PoB does, its
     cooldown after recovery, repeats, duration and base cast time). `paced` ({group: most uses per second}): a group
-    held to a pace (Cadence's 5 uses per 4 s, CADENCE_PACE; MECHB4, COVE6's open item)."""
+    held to a pace (Cadence's 5 uses per 4 s, CADENCE_PACE; MECHB4, COVE6's open item). `caps` ({group: PressCap}): the
+    most uses a second the build can feed it (Combo, walking between uses, flask charges for a throw; MECHB5), and the
+    seconds of walking each use costs the main skill."""
     scales: dict[str, float] = {}
     notes: list[dict] = []
     busy, users = 0.0, []
@@ -3406,6 +3437,11 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
         if pace is not None and real > pace:
             real, how = pace, how + (f", held to Cadence's {pace:g} uses/s (at most 5 uses in any 4 s: a 6th locks the "
                                      "skill for 10 s; game files SupportCadencePlayer)")
+        cap = (caps or {}).get(rate["index"])
+        if cap is not None and real > cap.uses:
+            real, how = cap.uses, how + f", held to {cap.uses:.3g} uses/s by {cap.how}"
+        if cap is not None and cap.moving > 0:
+            busy += real * cap.moving  # (no skill is used while walking between its uses)
         capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)
         # time per use: 1/speed, unless the cooldown capped PoB's speed (then its base cast time, before speed: an
         # overcount of the time it takes)
@@ -3807,4 +3843,141 @@ def different_skills_counts(skills: list[Skill], main: Skill | None, persistent:
                        "that often; with only the main skill: 1). Triggered, Persistent, totem and instant skills not "
                        "counted (whether a triggered spell counts: UNVERIFIED)",
               "confidence": "MEDIUM"} for kind, names in counts.items() if names]
+    return mods, notes
+
+
+# Aftershock chance, summed (MECHB5, 12 Nov 2026; FIX_QUEUE COVD8's finding, RESEARCH7 aftershock-chance-stacking.md).
+# KeywordPopups Aftershock: "If not otherwise specified, the Aftershock will deal the same damage as the initial impact, in
+# the same area. Only Attack damage can cause Aftershocks." The game sums every chance source into one chance per hand
+# (the virtual_*_slam_aftershock_chance_% stats) and rolls it once (RESEARCH7, MEDIUM-HIGH; over 100% taken as one extra
+# Aftershock, UNVERIFIED, research INDEX #40). The ledger turns each item / passive line into its own "more" (Hymn's
+# "Slam Skills have 100% more DPS", the four aftershock-chance entries' "Slam Skills deal N% more Damage"), so:
+#   - lines multiply instead of adding (Hymn + Earthbreaker x2.5 where the game gives x2: an overcount);
+#   - the Aftershock I-III supports' slam_aftershock_chance_% (25 / 35 / 15, GrantedEffectStatSets) maps in PoB to
+#     AftershockChance, which no calculation reads (checked: grep AftershockChance over vendor/PathOfBuilding-PoE2/src
+#     finds SkillStatMap.lua only; RULE_AUDIT A6-29): an undercount;
+#   - the ledger drops "you use yourself", so a triggered or totem slam gets those lines too (an overcount);
+#   - in the DPS form PoB counts each Aftershock as its own ailment application (stacks x (1 + a), CalcOffence 5254),
+#     but the impact and its Aftershock land together: with one Ignite / Bleed / Poison slot the second application only
+#     refreshes the first, so applications per slam are 1 - (1 - p)(1 - A p) = p (1 + A - A p) (an overcount of up to
+#     x1.33 on the ailment at p = 0.5, A = 1; none at full uptime). With more than one slot both count.
+# The model sets the main slam's hits to 1 + A (A = min(1, summed chance)) with one DPS "more" against what the ledger
+# already applied, and each one-slot ailment's applications to p (1 + A - A p) through its duration (an ailment's damage
+# per second doesn't depend on its duration in PoB, so its uptime moves and a full-uptime ailment's damage doesn't).
+# Left as they are (labelled): the "more Damage" form also makes each ailment application bigger (COV-A: switch the
+# aftershock-chance entries to the DPS form); other slams in Full DPS keep the ledger's per-line mores; Aftershock III's
+# "increased chance per quarter second of Attack time" and Tremors' 1-3 additional Aftershocks (SupportTremorsPlayer,
+# PoB 0: an undercount left as it is) aren't counted; whether an Aftershock rolls its own damage (UNVERIFIED, COVD8).
+AFTERSHOCK_SUPPORTS = {"Aftershock I": 25.0, "Aftershock II": 35.0, "Aftershock III": 15.0}  # slam_aftershock_chance_%
+AFTERSHOCK_LINES = (  # (pattern, "self" = Slams you use yourself / "any", the condition it needs)
+    (re.compile(r"^(\d+(?:\.\d+)?)% chance for Slam Skills you use yourself to cause an additional Aftershock$", re.I),
+     "self", ""),
+    (re.compile(r"^Slam Skills you use yourself cause an additional Aftershock$", re.I), "self", ""),
+    (re.compile(r"^(\d+(?:\.\d+)?)% chance for Mace Slam Skills you use yourself to cause an additional Aftershock$",
+                re.I), "self", "Mace"),
+    (re.compile(r"^(\d+(?:\.\d+)?)% chance for Shapeshift Slam Skills you use yourself to cause an additional "
+                r"Aftershock$", re.I), "self", "Shapeshift"),
+    (re.compile(r"^(\d+(?:\.\d+)?)% chance for Slam Skills to cause an additional Aftershock$", re.I), "any", ""),
+)
+LEDGER_SLAM_MORE = re.compile(r"^Slam Skills (deal|have) (\d+(?:\.\d+)?)% more (Damage|DPS)(?: (while .*))?$", re.I)
+ONE_SLOT_AILMENTS = ("Ignite", "Bleed", "Poison")
+
+
+def aftershock_chance(texts: list[str], group_gems: list[dict], yourself: bool, mace: bool, shapeshift: bool
+                      ) -> tuple[float, list[str]]:
+    """The main slam's summed Aftershock chance in % (uncapped) and its sources."""
+    total, why = 0.0, []
+    for text in texts:
+        t = text.strip()
+        for pattern, who, needs in AFTERSHOCK_LINES:
+            if m := pattern.search(t):
+                if not ((who == "self" and not yourself) or (needs == "Mace" and not mace)
+                        or (needs == "Shapeshift" and not shapeshift)):
+                    value = float(m.group(1)) if m.groups() else 100.0
+                    total += value
+                    why.append(f"{value:g}% ({t})")
+                break
+    if yourself:
+        for gem in group_gems:
+            if gem.get("enabled", True) and gem.get("name") in AFTERSHOCK_SUPPORTS:
+                total += AFTERSHOCK_SUPPORTS[gem["name"]]
+                why.append(f"{AFTERSHOCK_SUPPORTS[gem['name']]:g}% ({gem['name']})")
+    return total, why
+
+
+def ledger_slam_mores(texts: list[str], forbidden: set[str], mace: bool, shapeshift: bool,
+                      translate: Callable[[str], tuple | None]) -> tuple[float, float]:
+    """What the ledger already applies to a slam for the Aftershock lines: (product of its "more Damage" factors,
+    product of its "more DPS" factors). A "while" condition the slam can't meet here (Mace, Shapeshifted) isn't counted."""
+    damage = dps = 1.0
+    for text in texts:
+        t = text.strip()
+        if not any(p.search(t) for p, _, _ in AFTERSHOCK_LINES):
+            continue
+        found = translate(t)
+        if not found or found[0].id in forbidden:
+            continue
+        for out in found[1]:
+            if m := LEDGER_SLAM_MORE.match(out.strip()):
+                cond = (m.group(4) or "").lower()
+                if ("mace" in cond and not mace) or ("shapeshift" in cond and not shapeshift):
+                    continue
+                factor = 1 + float(m.group(2)) / 100
+                if m.group(3).lower() == "dps":
+                    dps *= factor
+                else:
+                    damage *= factor
+    return damage, dps
+
+
+def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_types: set[str], group_gems: list[dict],
+                     weapon_types: set[str], totem: bool = False, forbidden: set[str] = frozenset(),
+                     translate: Callable[[str], tuple | None] | None = None) -> tuple[list[dict], list[dict]]:
+    """The main slam's Aftershocks (see above): a DPS "more" bringing its hits to 1 + A against the ledger's, and each
+    one-slot ailment's duration "more" bringing its applications to p (1 + A - A p). ([], []) for a non-slam."""
+    if main is None or "Slam" not in main_types or not main.attack:
+        return [], []
+    if translate is None:
+        from builder.ledger import translate
+    yourself = not (main.triggered or totem or "Triggered" in main_types)
+    mace = any("Mace" in w for w in weapon_types) if weapon_types else True
+    shapeshift = any("Shapeshift" in t for t in main_types)
+    total, why = aftershock_chance(texts, group_gems, yourself, mace, shapeshift)
+    damage, dps = ledger_slam_mores(texts, forbidden, mace, shapeshift, translate)
+    if total <= 0 and damage == 1.0 and dps == 1.0:
+        return [], []
+    a = min(1.0, total / 100)
+    target, applied = 1 + a, damage * dps
+    mods: list[dict] = []
+    correction = target / applied - 1
+    if abs(correction) > 1e-6:
+        mods.append(raw_mod("DPS", "MORE", 100 * correction, main.name))
+    whose = "used by you" if yourself else "triggered or a totem's, so only the \"Slam Skills\" lines count"
+    notes = [{"label": f"Aftershock chance, summed ({main.name})", "value": f"{a:.0%}",
+              "basis": f"{'; '.join(why) or 'no source'}; the game sums the chances and rolls once (capped at one extra "
+                       f"Aftershock, UNVERIFIED), so the slam's hits are x{target:.2f}; the ledger's per-line mores gave "
+                       f"x{applied:.2f} (Damage x{damage:.2f}, DPS x{dps:.2f}), corrected by x{target / applied:.3f}; "
+                       f"the slam is {whose}",
+              "confidence": "MEDIUM"}]
+    crit = min(max(number(stats.get("CritChance")) / 100, 0.0), 1.0)
+    for ailment in ONE_SLOT_AILMENTS:
+        p = min(1.0, (number(stats.get(f"{ailment}ChanceOnHit")) * (1 - crit)
+                      + number(stats.get(f"{ailment}ChanceOnCrit")) * crit) / 100)
+        if p <= 0:
+            continue
+        slots = number(stats.get(f"{ailment}StacksMax")) or 1.0
+        real = 1 + a - a * p if slots <= 1 else 1 + a  # applications per slam against a slam without Aftershocks
+        counted = target / damage  # what PoB counts after the DPS correction (the "more Damage" form adds none)
+        if abs(real / counted - 1) <= 1e-6:
+            continue
+        mods.append(raw_mod(f"Enemy{ailment}Duration", "MORE", 100 * (real / counted - 1), main.name))
+        slot = f"one {ailment} slot" if slots <= 1 else f"{slots:g} {ailment} slots"
+        notes.append({"label": f"{ailment} applications with Aftershocks ({main.name})", "value": f"x{real / counted:.3f}",
+                      "basis": f"{p:.0%} chance a hit; the impact and its Aftershock land together, so with {slot} a "
+                               f"slam applies it {real:.3f} times as often as without Aftershocks (1 - (1-p)(1-Ap)), "
+                               f"where PoB counts {counted:.3f}; set through its duration, so its uptime moves and a "
+                               "full-uptime ailment's damage doesn't"
+                               + (f"; the ledger's \"more Damage\" form still makes each application x{damage:.2f} "
+                                  "bigger (COV-A)" if damage > 1 else ""),
+                      "confidence": "MEDIUM"})
     return mods, notes

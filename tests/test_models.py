@@ -1238,11 +1238,18 @@ def test_cast_on_minion_death_gains_energy_only_from_minions_the_build_kills():
     assert energy == pytest.approx(50 * rate) and "100% relative Power assumed" in basis
     assert models.energy_gain("Cast on Minion Death", {"_minion_deaths": (0.0, "x")}, "Spark")[0] == 0.0
     assert models.energy_gain("Cast on Minion Death", {}, "Spark")[0] == 0.0
-    # MECHB2: Sacrifice's 40% slower revival (PoB's MinionRevivalSpeed x0.6, which the bridge reports): 7.5 / 0.6 = 12.5 s
+    # MECHB2: Sacrifice's 40% slower revival (PoB's MinionRevivalSpeed x0.6, which the bridge reports); MECHB5 (AUDIT15
+    # A15-2): on the skill's own 12 s base: 12 / 0.6 = 20 s, with the constant's 7.5 / 0.6 = 12.5 s beside it
     slow = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "undead": True,
                                                 "reviveSpeed": 0.6, "reviveBase": 12})
     rate, how = models.minion_deaths([slow, sacrifice, main], main, {"Speed": 2.0})
-    assert rate == pytest.approx(6 * 2 / (6 + 12.5 * 2)) and "12.5 s" in how and "12 s" in how
+    assert rate == pytest.approx(6 * 2 / (6 + 20 * 2)) and "12.5 s" in how and "base 12 s" in how and "20 s" in how
+    # a skill with its own 12 s beside one without (the Infernal Hound, the djinns: 7.5 s): the count-weighted mean
+    own = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "undead": True,
+                                               "reviveBase": 12})
+    hound = models.Skill("Summon Infernal Hound", summon={"limit": 2, "duration": 0, "persistent": True})
+    assert models.revive_seconds([own, hound])[0] == pytest.approx((6 * 12 + 2 * 7.5) / 8)
+    assert models.revive_seconds([hound])[0] == 7.5
     # Explosive Demise: one of the other minions every 3 s / cooldown recovery
     arsonist = models.Skill("Skeletal Arsonist Minion", cooldown_recovery=1.5,
                             summon={"limit": 2, "duration": 0, "persistent": True, "undead": True})
@@ -2397,3 +2404,51 @@ def test_repeatable_spell_is_off_for_triggered_instant_or_channelled_main_spells
     assert "RepeatableSpell" not in found("Spark", triggered=True)  # in a meta gem's group
     assert "RepeatableSpell" not in found("Ice Nova", triggered=False)  # Instant (a guard: no such gem today)
     assert "RepeatableSpell" not in found("Spark", triggered=False, extra_types=["Channel"])
+
+
+def test_aftershock_chances_add_up_and_their_ailments_land_together():
+    """MECHB5 (COVD8, RESEARCH7): the game sums every Aftershock chance and rolls once (capped at one extra, UNVERIFIED);
+    the Aftershock I-III supports PoB never reads count; with one Ignite slot the impact and its Aftershock apply it
+    1 - (1-p)(1-Ap) times a slam, where PoB's DPS form counts 1 + A."""
+    sunder = models.Skill("Sunder", group=1, attack=True)
+    slam = {"Attack", "Slam", "Melee", "Area"}
+    hymn = ["Slam Skills you use yourself cause an additional Aftershock"]
+    stats = {"IgniteChanceOnHit": 50, "IgniteStacksMax": 1}
+    mods, notes = models.aftershock_model(hymn, stats, sunder, slam, [], {"Two Hand Mace"})
+    # Hymn alone: the ledger's "100% more DPS" is right for hits; Ignite x(2 - 0.5)/2
+    assert mods == [models.raw_mod("EnemyIgniteDuration", "MORE", -25.0, "Sunder")]
+    assert notes[0]["value"] == "100%" and "x0.750" == notes[1]["value"]
+    # Hymn + Earthbreaker's 25% ("more Damage" form): capped at x2, not x2.5
+    both = hymn + ["25% chance for Slam Skills you use yourself to cause an additional Aftershock"]
+    mods, _ = models.aftershock_model(both, {}, sunder, slam, [], {"Two Hand Mace"})
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (2 / 2.5 - 1), "Sunder")]
+    # Aftershock II alone (PoB reads nothing): +35% hits; Ignite at 100% chance gains no applications
+    mods, _ = models.aftershock_model([], {"IgniteChanceOnHit": 100}, sunder, slam, [{"name": "Aftershock II"}], set())
+    assert mods == [models.raw_mod("DPS", "MORE", 35.0, "Sunder"),
+                    models.raw_mod("EnemyIgniteDuration", "MORE", 100 * (1 / 1.35 - 1), "Sunder")]
+    # two Poison slots: both applications count
+    mods, _ = models.aftershock_model(hymn, {"PoisonChanceOnHit": 50, "PoisonStacksMax": 2}, sunder, slam, [], set())
+    assert mods == []
+    # a triggered slam: "you use yourself" lines and supports don't count, so the ledger's x2 comes off
+    fired = replace(sunder, triggered=True)
+    mods, _ = models.aftershock_model(hymn, {}, fired, slam, [{"name": "Aftershock I"}], set())
+    assert mods == [models.raw_mod("DPS", "MORE", -50.0, "Sunder")]
+    # a mace line without a mace: nothing
+    mace = ["20% chance for Mace Slam Skills you use yourself to cause an additional Aftershock"]
+    assert models.aftershock_model(mace, {}, sunder, slam, [], {"Talisman"}) == ([], [])
+    assert models.aftershock_model(hymn, {}, sunder, {"Attack", "Melee"}, [], set()) == ([], [])  # not a slam
+
+
+def test_press_hook_caps_combo_walking_and_throw_rates():
+    """MECHB5 (COVC6 / COVC7): one hook caps a pressed group at the rate the build feeds it: Combo (0 with no builder),
+    walking 10 m before each use (the walk taken from the main skill), Mana Flask charges for a Concoction."""
+    rates = [{"index": 1, "name": "Main", "speed": 2.0}, {"index": 2, "name": "Cry", "speed": 1.0, "cooldown": 4.0, "castTime": 1.0}]
+    caps = {2: models.PressCap(0.2, "walking 10 m before each use", moving=2.6)}
+    scales, notes = models.press_model(rates, 1, {2}, caps=caps)
+    assert scales["Cry"] == pytest.approx(0.2)  # its 4 s cooldown would give 0.25/s; the walk holds it to 0.2
+    assert scales["Main"] == pytest.approx(1 - 0.2 * 1.0 - 0.2 * 2.6)  # its uses and the walking before each
+    assert "walking 10 m" in notes[0]["basis"]
+    scales, _ = models.press_model(rates, 1, {2}, caps={2: models.PressCap(0.0, "Combo: no builder")})
+    assert scales["Cry"] == 0.0 and scales.get("Main", 1.0) == pytest.approx(1.0)
+    # a cap above the press rate changes nothing
+    assert models.press_model(rates, 1, {2}, caps={2: models.PressCap(5.0, "x")})[0] == models.press_model(rates, 1, {2})[0]

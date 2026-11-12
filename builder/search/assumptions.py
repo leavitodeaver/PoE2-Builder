@@ -436,6 +436,13 @@ class Assumptions:
                 texts, stats, main, set(gem.get("skillTypes") or []), group["gems"] if group else [],
                 set(gem.get("weaponTypes") or []))
             hand_mods, hand_notes = hand_mods + back_mods, hand_notes + back_notes
+            # (MECH-B: Aftershock chances summed and capped, and their ailment applications; models.aftershock_model)
+            shock_mods, shock_notes = models.aftershock_model(
+                texts, stats, main, set(gem.get("skillTypes") or []), group["gems"] if group else [],
+                set(gem.get("weaponTypes") or []), models.cast_by_totem(found, main), forbidden)
+            hand_mods, hand_notes = hand_mods + shock_mods, hand_notes + shock_notes
+        cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
+        hand_mods, hand_notes = hand_mods + cap_mods, hand_notes + cap_notes
         mirage_mods, mirage_notes, mirage_groups = models.mirage_model(
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))
@@ -486,8 +493,86 @@ class Assumptions:
         rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
         paced = {g["index"]: models.CADENCE_PACE for g in groups["groups"] if g["index"] in pressed
                  and any(x["enabled"] and x["name"] in models.CADENCE_SUPPORTS for x in g["gems"])}
-        build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced)
+        caps = self.press_caps(groups["groups"], pressed)
+        build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps)
         return notes
+
+    def press_caps(self, groups: list[dict], indices: set[int]) -> dict[int, "models.PressCap"]:
+        """The press hook (MECHB5; COVC6 / COVC7, usage.py's rates): for each group in `indices` whose skill or support
+        needs Combo, walking between uses, or Mana Flask charges for a throw, the most uses a second the build can feed
+        it (models.PressCap). Combo: usage.combo_rate (N builder Strikes, then a use: 0 with no builder in the build);
+        walking: usage.travel_rate (10 m at the build's movement speed, LOW; once it's in usage.py); a Concoction:
+        flasks.charge_use_rate (the Mana Flask's charge generation / 5 a throw). Groups needing none are left out."""
+        from builder.search.flasks import THROW_CHARGES
+        from builder.search.usage import Usage, requirements
+
+        caps: dict[int, models.PressCap] = {}
+        usage, rules = None, usage_rules(self.build)
+        for group in groups:
+            if group.get("index") not in indices or not group.get("enabled", True):
+                continue
+            for gem in group["gems"]:
+                if not gem.get("enabled", True):
+                    continue
+                name = gem["name"]
+                cap = None
+                if not gem["support"] and name in THROW_CHARGES:
+                    uses, how = self.throw_rate(name)
+                    cap = models.PressCap(uses, how, 0.0, "MEDIUM")
+                for need in requirements(name, rules[name]) if rules.get(name) else []:
+                    usage = usage or Usage(self.build, None)
+                    if need.kind == "combo":
+                        found = usage.combo_rate(name, need.amount)
+                        cap = (models.PressCap(found[0], f"Combo: {need.amount:g} {found[2]} Strikes a use", 0.0, "MEDIUM")
+                               if found else models.PressCap(0.0, f"Combo: no skill of the build Strikes to build its "
+                                                                  f"{need.amount:g} Combo", 0.0, "MEDIUM"))
+                    elif need.kind == "travel" and hasattr(usage, "travel_rate"):
+                        found = usage.travel_rate(name)
+                        if found and found[0] > 0:
+                            moving = found[2] / found[0]
+                            cap = models.PressCap(found[0], f"walking 10 m before each use ({moving:.2f} s at the build's "
+                                                  "movement speed and a base 3.8 m/s*, LOW; COV-C's travel_rate)",
+                                                  moving, "LOW")
+                    if cap is not None:
+                        break
+                if cap is not None:
+                    old = caps.get(group["index"])
+                    caps[group["index"]] = cap if old is None or cap.uses < old.uses else old
+        return caps
+
+    def throw_rate(self, name: str) -> tuple[float, str]:
+        """Throws a second of a Concoction (flasks.THROW_CHARGES) the Mana Flask's own charge generation pays for (the
+        formula Assumptions.flask_main uses for a main Concoction), and how."""
+        from builder.search.flasks import FLASK_SLOTS, THROW_CHARGES, THROW_POOL, Charges, charge_use_rate
+
+        gain = Charges.from_bridge(self.build.call("chargeGain"))
+        slot = next(k for k, v in FLASK_SLOTS.items() if v == THROW_POOL)
+        raw = self.build.equipped[slot].raw if self.build.equipped.get(slot) is not None else None
+        flask = self.build.call("flaskData", raws=[raw])["results"][0] if raw else None
+        rate, how = charge_use_rate(flask, gain, THROW_POOL, THROW_CHARGES[name])
+        return rate, f"Mana Flask charges ({how})"
+
+    def main_cap(self, group: dict | None, main: str | None) -> tuple[list[dict], list[dict]]:
+        """The press hook for the main skill (MECHB5): its damage at the share of PoB's at-will rate that its Combo or its
+        walking between uses allows (a DPS "more", so its ailments' stacks follow), in both scoring modes. A main
+        Concoction is capped by flask_main instead."""
+        from builder.search.flasks import THROW_CHARGES
+
+        if group is None or main is None or main in THROW_CHARGES:
+            return [], []
+        cap = self.press_caps([group], {group["index"]}).get(group["index"])
+        if cap is None or "Mana Flask" in cap.how:
+            return [], []
+        rate = next(iter(self.build.call("useRates", indices=[group["index"]])["rates"]), None) or {}
+        speed = number(rate.get("speed"))
+        if speed <= 0 or cap.uses >= speed:
+            return [], []
+        share = cap.uses / speed
+        return [models.raw_mod("DPS", "MORE", 100 * (share - 1), main)], [{
+            "label": f"{main}: used as often as {cap.how.split(':')[0].split(' (')[0]} allows*", "value": f"x{share:.3f}",
+            "basis": f"PoB counts it used at will ({speed:.2f}/s); {cap.how} hold it to {cap.uses:.3g} uses/s "
+                     "(the time between uses included)",
+            "confidence": cap.confidence}]
 
     def heat_spenders(self, found: list) -> list[tuple[str, float, str]]:
         """The build's Heat spenders (models.HEAT_SPENDERS) other than the main skill, at their pressed use rate
