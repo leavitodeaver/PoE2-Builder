@@ -1515,3 +1515,19 @@ def test_generated_items_say_quality_20_where_currency_raises_it():
     assert "Quality: 20" not in normal_item(by_type["Ring"])
     assert "Quality: 20" in magic_text("Flask 1", by_type["Flask"], 82, [])
     assert "Quality" not in magic_text("Charm 1", by_type["Charm"], 82, [])
+
+
+def test_a_normal_items_quality_line_stays_in_its_header_through_runes_and_anoints():
+    """COV6's gates: a normal helmet's "Quality: 20" sat after its anoint, among the mods, and PoB then read a stray
+    socket block (five Raven-Touched Shards, "exceeding augment limit"). Anoints and ledger lines now go after it."""
+    from builder.search.anoints import with_anoints
+    from builder.search.context import normal_item
+    from builder.search.rares import with_runes
+
+    ctx = context(main_skill="Spark")
+    base = next(b for b in ctx.bases_by_name.values() if b.get("type") == "Helmet" and not b.get("implicit"))
+    raw = with_runes(with_anoints(with_runes(normal_item(base), ["Raven-Touched Shard"]), ["Intense Dose"]),
+                     ["Raven-Touched Shard"])
+    lines = raw.splitlines()
+    assert lines.index("Quality: 20") < lines.index("Implicits: 1")
+    assert lines.count("Rune: Raven-Touched Shard") == 1

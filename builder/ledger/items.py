@@ -154,7 +154,7 @@ def corrected_item(raw: str, directory: Path | None = None) -> str:
         at = next((i for i, l in enumerate(lines) if l.startswith("Implicits:")), None)
         if at is None:  # after the header and socket lines, as anoints.with_anoints places implicits
             at = next((i + 1 for i, l in enumerate(lines) if l.startswith(("Rune:", "Item Level:"))), len(lines))
-            while at < len(lines) and lines[at].startswith(("Sockets:", "Rune:")):
+            while at < len(lines) and lines[at].startswith(("Sockets:", "Rune:", "Quality:")):
                 at += 1
             lines[at:at] = ["Implicits: 0"]
         lines[at] = f"Implicits: {int(lines[at].split(':', 1)[1]) + len(off)}"

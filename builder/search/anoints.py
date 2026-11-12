@@ -120,6 +120,6 @@ def with_anoints(raw: str, notables: list[str]) -> str:
     if at is None:
         at = 2 if not lines[0].startswith("Rarity:") or lines[0] == "Rarity: Normal" else 3
         at = min(at, len(lines))
-    while at < len(lines) and lines[at].startswith(("Sockets:", "Rune:")):
+    while at < len(lines) and lines[at].startswith(("Sockets:", "Rune:", "Quality:")):
         at += 1
     return "\n".join(lines[:at] + [f"Implicits: {len(notables)}"] + [f"{ANOINT_LINE}{n}" for n in notables] + lines[at:])
