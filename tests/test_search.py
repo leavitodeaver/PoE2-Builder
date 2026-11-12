@@ -531,11 +531,12 @@ def test_condition_evidence(var, line, types, expected):
 
 def test_unsustainable_boss_conditions_are_never_resolved():
     # (Frozen and Electrocuted: at the share the boss carries them since MECH38, from the buildup models; Pinned likewise
-    # since MECH46, from PoB's Pin buildup)
-    never = {"conditionEnemyStunned", "conditionEnemyDazed", "conditionEnemyHeavyStunned"}
+    # since MECH46, from PoB's Pin buildup; Heavy Stunned since MECHD2, from models.heavy_stunned_share)
+    never = {"conditionEnemyStunned", "conditionEnemyDazed"}
     assert not never & set(RULES)
     assert all(RULES[var].value_fn is not None
-               for var in ("conditionEnemyFrozen", "conditionEnemyElectrocuted", "conditionEnemyPinned"))
+               for var in ("conditionEnemyFrozen", "conditionEnemyElectrocuted", "conditionEnemyPinned",
+                           "conditionEnemyHeavyStunned"))
     assert math.isfinite(len(RULES))
 
 
@@ -1956,3 +1957,19 @@ def test_supports_that_consume_an_ailment_on_the_hit_count_as_consumers():
     assert "consume_enemy_freeze_to_trigger_morrigan_ward" in c.CONSUME_STATS["Freeze"]
     assert "lightning_conduit_x_additional_strikes_if_consumed_a_shock" in c.CONSUME_STATS["Shock"]
     assert c.CONSUME_TEXT.search("causing it to Consume Elemental Ailments on hit")
+
+
+
+
+def test_heavy_stunned_box_at_the_share_the_build_stuns():
+    """"Against Heavy Stunned enemies" lines at the share of the fight the main skill's Stun buildup keeps the boss Heavy
+    Stunned (MECHD2; models.heavy_stunned_share). Before, nothing set PoB's box, so they counted 0."""
+    from builder.search import models
+    from builder.search.conditions import MIN_UPTIME, _heavy_stunned
+
+    stats = {"Speed": 2.0, "HitChance": 100, "HeavyStunBuildupAvg": 10, "PhysicalHitAverage": 100}
+    on, basis, up = _heavy_stunned([], stats)
+    assert up == models.heavy_stunned_share(stats)[0] and 0 < up < 1
+    assert on is (up >= MIN_UPTIME) and "Heavy Stunned" in basis
+    assert _heavy_stunned([], {**stats, "HeavyStunBuildupAvg": 0}) == (0.0, "")
+    assert _heavy_stunned([], {**stats, "_boss": "Zarokh, the Temporal"})[2] <= 1

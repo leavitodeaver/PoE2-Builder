@@ -1460,3 +1460,18 @@ def test_a_second_dark_effigy_doubles_vile_effusions_damage(engine):
     build.call("setAssumptions", mods=search.assumptions.mods + mods, fields=[])
     assert next(s for s in build.call("activeSkills")["skills"] if s["name"] == "Dark Effigy")["totemLimit"] == 2
     assert build.call("stats", fields=["TotalDPS"])["TotalDPS"] == pytest.approx(2 * one, rel=0.02)
+
+
+def test_a_boss_takes_half_the_slow(engine):
+    """Unique bosses take 50% less Slow (KeywordPopups "Slow"; MonsterUnique11). PoB adds SlowEffectOnSelf MORE -50 to
+    its boss presets but never reads it, and adds a configured Chill twice: a 30% Chill made the boss hit 60% less often
+    (survival overstated); the bridge's actionSpeedMod now counts it once, at 15%. Slows multiply (MECHD2)."""
+    from builder.search import bosses
+
+    engine.call("newBuild")
+    plain = engine.call("setConfig", vars={"conditionEnemyChilled": False}, fields=["enemySkillTime"])["stats"]
+    chilled = engine.call("setConfig", vars={"conditionEnemyChilled": True, "conditionEnemyChilledEffect": 30},
+                          fields=["enemySkillTime"])["stats"]
+    slow = 0.30 * bosses.PRESETS[bosses.DEFAULT].slow_taken
+    assert chilled["enemySkillTime"] == pytest.approx(plain["enemySkillTime"] / (1 - slow), rel=1e-3)
+    engine.call("setConfig", vars={"conditionEnemyChilled": False, "conditionEnemyChilledEffect": False})

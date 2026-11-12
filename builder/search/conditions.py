@@ -1625,6 +1625,16 @@ def _immobilised(ailment: str, name: str) -> Callable[[list[str], dict], tuple[o
     return share
 
 
+def _heavy_stunned(lines: list[str], stats: dict) -> tuple[object, str]:
+    """The Heavy Stunned box at the share of the fight the boss is Heavy Stunned (models.heavy_stunned_share: the main
+    skill's Stun buildup against the boss's own threshold, each stun the boss's own duration; MECHD2). Other skills'
+    buildup isn't counted (an undercount)."""
+    up, how = models.heavy_stunned_share(stats)
+    if up <= 0:
+        return 0.0, ""
+    return _box(up, f"Heavy Stunned {up:.0%} of the fight ({shared(up)}): {how}")
+
+
 # "if you have consumed an Elemental Infusion Recently" (PoB Condition:InfusionConsumedRecently; Empowering Infusions 35%,
 # Infused Spell Damage 15%; MECH49: before, nothing set it, so both counted 0). The skills that consume Infusions, by the
 # elements they take (game files 26476662, GrantedEffectStatSets holding active_skill_consumes_(a_)<element>_infusion,
@@ -1823,6 +1833,9 @@ CONDITIONS: list[Condition] = [
     # (MECH46: "against Pinned enemies" lines at the share the main skill's Pin buildup keeps the boss Pinned; before,
     # nothing set PoB's box, so they counted 0)
     Condition("conditionEnemyPinned", "Pinned", value_fn=_immobilised("Pin", "Pinned"), fields=models.IMMOBILISE_FIELDS),
+    # (MECHD2: "against Heavy Stunned enemies" lines at the share the main skill's Stun buildup keeps the boss Heavy
+    # Stunned, models.heavy_stunned_share; before, nothing set PoB's box, so they counted 0)
+    Condition("conditionEnemyHeavyStunned", "Heavy Stunned", value_fn=_heavy_stunned, fields=models.IMMOBILISE_FIELDS),
     Condition("multiplierIncisionStackCount", "Incision stacks on the boss", value_fn=_incision_stacks,
               fields=("Speed", "HitChance", "BleedChancePerHit")),
     Condition("incisionConsumedRecently", "Incisions consumed recently", value_fn=_incision_consumed,

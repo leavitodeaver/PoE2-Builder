@@ -2860,7 +2860,7 @@ def test_boss_model_fields_mechd1():
     assert p["Arbiter of Ash"].category == "Demon" and p["Olroth, Origin of the Fall"].category == "Undead"
     assert p["Zarokh, the Temporal"].category == "Construct" and p["The Raven Trickster"].category == "Humanoid"
     assert p["The King in the Mists"].category == {"Humanoid": 0.43, "Demon": 0.57}
-    assert p["The Aberration"].category is None
+    assert p["The Aberration"].category == "Demon" and p["Vessel of Kulemak"].poise == 81  # (MECHD2)
     assert p["The King in the Mists"].life == 6271939  # 1.75 x 3,583,965
     king, _ = bosses.kills_per_second("The King in the Mists")
     assert king == pytest.approx(0.43 / 25)

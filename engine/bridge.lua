@@ -572,8 +572,76 @@ local function setAugmentCounts(env)
 	modDB.multipliers["NonIdolAugmentsInEquipment"] = others
 end
 
+-- The boss's Slow taken (MECHD2; MECH-D's bosses.Boss.slow_taken). The game's Slow (KeywordPopups "Slow"): "Slows are
+-- always multiplicative with each other ... 50% less Slow effect on Unique monsters ... monsters cannot be slowed below
+-- 25% of their base speed"; Chill and Temporal Chains are Slows (KeywordPopups "Chill", "TemporalChains"). PoB's boss
+-- presets add SlowEffectOnSelf MORE -50 (ConfigOptions.lua, MonsterUnique11 slow_potency_+%_final_from_rarity) but
+-- nothing in PoB reads it (checked: grep SlowEffectOnSelf over PoB's src/: only ConfigOptions.lua and ModJewel.lua's
+-- affix text), and calcs.actionSpeedMod sums Slows in full and additively: the boss acted slower than in game, so
+-- enemySkillTime (its hit rate: survival time, boss_hits, every "when hit" model) was overstated. For an actor with a
+-- SlowEffectOnSelf MORE, each negative ActionSpeed mod (Freeze excepted: a stop, not a Slow) and the capped Temporal
+-- Chains sum count at that potency, multiplied together, floored at 25%; any other actor keeps PoB's own function.
+-- A Chill counts once, the strongest: PoB adds a configured Chill to the boss twice (two -30 rows for a 30% Chill,
+-- summed to -60: a probe, 12 Nov), and a target carries one Chill (KeywordPopups "Debuff": "Unless otherwise stated,
+-- Debuffs of the same type do not stack - only the copy with the strongest effect applies"; "Ailments" lists Chill).
+-- Whether Temporal Chains' slow takes both the curse halving (CurseEffectOnSelf) and this one is UNVERIFIED; both apply
+-- here, as the game's text gives each without an exception.
+local bossSlowInstalled = false
+local function installBossSlow()
+	if bossSlowInstalled then
+		return
+	end
+	local calcs = require("Modules.CalcBase")
+	local original = calcs.actionSpeedMod
+	if not original then
+		return
+	end
+	bossSlowInstalled = true
+	calcs.actionSpeedMod = function(actor)
+		local modDB = actor.modDB
+		local potency = modDB:More(nil, "SlowEffectOnSelf")
+		if potency == 1 then
+			return original(actor)
+		end
+		local unaffected = modDB:Flag(nil, "UnaffectedBySlows")
+		local positive, mult, chill = 0, 1, 0
+		for _, row in ipairs(modDB:Tabulate("INC", nil, "ActionSpeed")) do
+			local value = row.value or 0
+			local source = row.mod and row.mod.source or ""
+			if value < 0 and source:match("^Chill") then
+				chill = math.min(chill, value)  -- one Chill on a target, the strongest (PoB adds a configured Chill twice)
+			elseif value >= 0 then
+				positive = positive + value
+			elseif row.mod and row.mod.source == "Freeze" then
+				if not unaffected then
+					positive = positive + value
+				end
+			elseif not unaffected then
+				mult = mult * math.max(0, 1 + value * potency / 100)
+			end
+		end
+		if chill < 0 and not unaffected then
+			mult = mult * math.max(0, 1 + chill * potency / 100)
+		end
+		local chains = modDB:Sum("INC", nil, "TemporalChainsActionSpeed")
+		if chains >= 0 then
+			positive = positive + chains
+		elseif not unaffected then
+			mult = mult * math.max(0, 1 + math.max(-data.misc.TemporalChainsEffectCap, chains) * potency / 100)
+		end
+		local speed = (1 + positive / 100) * math.max(0.25, mult)
+		speed = math.max((modDB:Max(nil, "MinimumActionSpeed") or 0) / 100, speed)
+		local maxReduction = modDB:Max(nil, "MaximumActionSpeedReduction")
+		if maxReduction then
+			speed = math.min((100 - maxReduction) / 100, speed)
+		end
+		return speed
+	end
+end
+
 local function installDerived()
 	installSpiritVessel()
+	installBossSlow()
 	local calcs = require("Modules.CalcBase")
 	if calcs.perform == wrappedPerform or not calcs.perform then
 		return

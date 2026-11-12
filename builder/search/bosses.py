@@ -50,7 +50,7 @@ class Boss(NamedTuple):
     # #91, HIGH): PoB's Pinnacle preset is 938, so PoB's Heavy Stun buildup is x938/poise against this boss, and its
     # Freeze / Electrocute / Pin buildup the same (they read the same threshold, CalcOffence.lua 5570: MEDIUM).
     poise: int = 938
-    heavy_stun_s: float = 4.0  # BossBase.ot set_base_heavy_stun_duration_ms 4000 (RESEARCH19 #98, HIGH; Zarokh MEDIUM)
+    heavy_stun_s: float = 4.0  # BossBase.ot set_base_heavy_stun_duration_ms 4000 (RESEARCH19 #98, HIGH; Zarokh HIGH too: its chain ApparitionBoss -> SanctumBossBase -> BossBase / SanctumMonsterBase sets no other, MECHD2)
     es_from_life: int = 0  # MonsterTypes.EnergyShieldFromLife, % (AUDIT18 A18-4; in notes only: nothing reads it yet)
     immune: frozenset = frozenset()  # ailments the boss can't have (AUDIT9 A9-7: Zarokh's own monster mod)
     kills: tuple = ()  # Kills rows (empty: no killable adds with a known rate; see the comment under PRESETS)
@@ -68,7 +68,7 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
     Boss("Arbiter of Ash", 45, -15, 0, 0, 9461668, "Demon", "the default target (RESEARCH4)", poise=1235,
          inflicts=("Ignite", "Chill", "Freeze")),
     Boss("Arbiter of Divinity", -15, 0, 45, 0, 9461668, "Demon",
-         "0.5 apex; 10% of Life as ES; Monster Category assumed as the Arbiter of Ash's, its standalone twin (UNVERIFIED)",
+         "0.5 apex; 10% of Life as ES; Monster Category Demon (its own MonsterVarieties row, MECHD2)",
          poise=1235, es_from_life=10, inflicts=("Shock",)),
     Boss("Xesht, We That Are One", 15, 15, 15, 0, 13762425, "Demon",
          "Breach; PoB's spectre block 0/0/0 is not the boss; 5% of Life as ES", poise=1700, es_from_life=5,
@@ -92,13 +92,16 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
     Boss("Olroth, Origin of the Fall", 0, 45, 0, 0, 3364148, "Undead",
          "Expedition; Heavy Stun lasts 6.07 s (Olroth_.ot)", poise=703, heavy_stun_s=6.066,
          inflicts=("Chill", "Freeze", "Bleed")),
-    Boss("The Aberration", 45, 0, 0, 0, 9461668, None,
-         "Runes of Aldur pinnacle; Monster Category: no source yet (UNVERIFIED), so 'against <category>' lines count 0",
+    Boss("The Aberration", 45, 0, 0, 0, 9461668, "Demon",
+         "Runes of Aldur pinnacle; Monster Category Demon (CyclopsSpiderBoss MonsterCategory 1 = Demon, tag demon; poe2db "
+         "agrees, RESEARCH INDEX #49; MECHD2)",
          poise=1235, inflicts=("Shock", "Chill", "Freeze")),
     Boss("Vessel of Kulemak", 0, 0, 0, 0, 2484882, "Demon",
-         "Abyss; empowerment by Liches not modelled (UNVERIFIED); 10% of Life as ES; its PoiseThreshold row reads 81 "
-         "(x11.6 PoB's buildup; likely the vessel's parts carry their own, MEDIUM), so PoB's 938 is kept (UNVERIFIED)",
-         poise=938, es_from_life=10, inflicts=("Shock", "Chill", "Freeze", "Ignite")),
+         "Abyss; empowerment by Liches not modelled (UNVERIFIED); 10% of Life as ES; stun threshold 81% (its own "
+         "MonsterVarieties PoiseThreshold, the lowest ratio to its Life of any boss: MEDIUM; it has no separate parts: "
+         "MonsterSegment empty, its .ot preloads adds only, MECHD2); it can revive (KulemakBoss.ot on_revive): whether "
+         "a revive refills Life is UNVERIFIED (if so, Life here is one life's worth)",
+         poise=81, es_from_life=10, inflicts=("Shock", "Chill", "Freeze", "Ignite")),
     Boss("Atziri, the Red Queen", 15, 15, 15, 0, 7091472, "Demon", "Vaal; phase 1; 33% of Life as ES", poise=926,
          es_from_life=33,
          kills=(Kills(45.0, 1.0, "Atziri's Royal Acolytes, killed before they reach you and explode (1 per wave: the "
@@ -112,7 +115,11 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
 # until one is found, never a flat guess: UNVERIFIED rate); none found for the Arbiters, Zarokh, Xesht, the Bodach
 # (daemons only) or the Aberration (UNVERIFIED as a zero; checked: RESEARCH2 #19 and RESEARCH14 #66 from maxroll /
 # poe-vault / Game8 guides and the presets' MonsterVarieties summons). RESEARCH14 also lists one more King summon every
-# 15 s in its phase 3, which RESEARCH25 #147's second form (effigies can't be killed) leaves out: not counted, a question.
+# 15 s in its phase 3: that is the second form's EASVoodooKingSummonDeathAuraEffigy (cooldown 15000, VoodooKingBoss3 only),
+# spawning VoodooKingBoss3DeathAuraEffigy, which has no MonsterVarieties row (no Life to read): most likely the effigies
+# that can't be killed (MEDIUM-LOW), 0 kills, UNVERIFIED (MECHD2). The 25 s Affliction Totem skill is listed on both
+# forms (VoodooKingBoss3MAP.ot preloads the totem too; only its second-form dialogue hook is commented out): whether the
+# second form casts it is MEDIUM-LOW, so share 0.43 may undercount (ceiling 1.0): a question for the user.
 # The ailments on the player (`inflicts`): RESEARCH13 #60 (skill damage types and explicit stats), A9-1 (Xesht's corpses:
 # Shock, Chill / Freeze), A10-1 (the King's tar swamp Slow), the King's toads and Kulemak's Shamblers' Ignite (MEDIUM-LOW /
 # LOW). Poison: none found for any preset (the same search, buff-applied debuffs RESEARCH14 #67; UNVERIFIED as a zero).
