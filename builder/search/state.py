@@ -87,7 +87,8 @@ class Build:
     def _committed(self, result: dict) -> float:
         self.commits += 1
         before = (self.__dict__.get("stats") or {}).get(POINTS_OVER) or 0
-        if (result["stats"].get(POINTS_OVER) or 0) > 0 >= before and len(self.over_budget) < OVER_TRACES:
+        if ((result["stats"].get(POINTS_OVER) or 0) > 0 >= before and len(self.over_budget) < OVER_TRACES
+                and not getattr(self.objective, "points_slack", 0)):  # (a screen allowed past the budget: not a leak)
             import traceback
 
             frames = traceback.extract_stack(limit=8)[:-1]

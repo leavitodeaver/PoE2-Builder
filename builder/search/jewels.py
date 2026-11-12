@@ -393,6 +393,27 @@ class Jewels:
         before = base = build.score
         opened_socket = None
         screened: list[tuple[float, int, ItemOption, int]] = []
+        # (the screen opens a socket's path and takes nodes past a full tree: what try_unlock pays for with points it
+        # frees first, so the screen's scores leave points over the budget out; SEARCH8)
+        build.objective.points_slack = float("inf")
+        try:
+            self._screen_unlocks(batch, paths, snap, before, screened, deadline)
+        finally:
+            build.objective.points_slack = 0.0
+        build.restore(snap)
+        screened.sort(key=lambda x: -x[0])
+        for potential, socket, version, wanted in screened[:UNLOCK_TRIALS]:
+            if potential <= EPSILON or clock.now() > deadline:
+                break
+            if self.try_unlock(socket, version, wanted, paths[socket], deadline):
+                return True
+        return False
+
+    def _screen_unlocks(self, batch: list, paths: dict, snap: dict, before: float, screened: list,
+                        deadline: float) -> None:
+        """unlock_round's screen: each (socket, version) socketed for real, its newly takeable nodes scored."""
+        build, tree, forbidden = self.build, self.tree, self.tree.forbidden
+        base, opened_socket = before, None
         for socket, version in batch:
             if clock.now() > deadline:
                 break
@@ -411,14 +432,6 @@ class Jewels:
                 # What socketing it costs (Controlled Metamorphosis's resistances, the jewel it
                 # replaces) plus what its best newly takeable nodes would add
                 screened.append((build.score - (base if paths[socket] else before) + sum(gains), socket, version, len(gains)))
-        build.restore(snap)
-        screened.sort(key=lambda x: -x[0])
-        for potential, socket, version, wanted in screened[:UNLOCK_TRIALS]:
-            if potential <= EPSILON or clock.now() > deadline:
-                break
-            if self.try_unlock(socket, version, wanted, paths[socket], deadline):
-                return True
-        return False
 
     def unlock_versions(self, option: ItemOption) -> list[ItemOption]:
         """Each variant a real item can have (a ring size, a keystone), or the jewel as it is. A

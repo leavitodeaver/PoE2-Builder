@@ -1,4 +1,4 @@
-"""Search.weigh_shared_flags (SEARCH8; MECHC10's flasks.shared_flag_factor): PoB keeps UsingFlask up while any flask
+"""inner._weigh_shared_flags (SEARCH8; MECHC10's flasks.shared_flag_factor): PoB keeps UsingFlask up while any flask
 slot is active, so weigh_uptimes' one-slot-off cases never drop a line "during any Flask Effect" with two part-time
 flasks; one more recalculation with both off puts the all-off case back. No engine."""
 
@@ -35,7 +35,7 @@ def test_two_part_time_flasks_put_the_flags_all_off_case_back(monkeypatch):
     search, calls = _search(monkeypatch, none_dps=600.0)
     search.uptime_cache = {a: (0.9, {}), b: (0.9, {}), "conditionOnslaught": (0.8, {})}
     search.play_notes = {f"uptime:{a}": {"basis": "x"}, f"uptime:{b}": {"basis": "y"}}
-    factor = search.weigh_shared_flags(effects, {"FullDPS": 1000.0}, 1000.0)
+    factor = inner._weigh_shared_flags(search, effects, {"FullDPS": 1000.0}, 1000.0)
     assert calls == [sorted([a, b])]  # (one recalculation for the group; Onslaught isn't in it)
     expect, _ = flasks.shared_flag_factor([0.4, 0.5], [0.9, 0.9], 0.6)
     assert factor == pytest.approx(expect)
@@ -52,7 +52,7 @@ def test_one_part_time_flask_or_a_flask_and_a_charm_need_no_group(monkeypatch):
     search, calls = _search(monkeypatch, none_dps=600.0)
     search.uptime_cache = {var: (0.9, {}) for var in effects}
     search.play_notes = {}
-    assert search.weigh_shared_flags(effects, {"FullDPS": 1000.0}, 1000.0) == 1.0
+    assert inner._weigh_shared_flags(search, effects, {"FullDPS": 1000.0}, 1000.0) == 1.0
     assert calls == []
 
 

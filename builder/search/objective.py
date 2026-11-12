@@ -279,6 +279,9 @@ class Objective:
         fields |= {"Missing" + p.stat for p in self.penalties if p.stat in RESIST_FIELDS}  # (maximum_resist)
         self._fields = sorted(fields | {p.stat for p in self.penalties} - {"BossRecoveryPercent", "LifePlusEnergyShield"})
         self.on_death = {name for name, gem in ctx.gems.items() if ON_DEATH.search(gem.get("description") or "")}
+        # Points over the budget a screen may use without the hard deficit (Jewels.unlock_round: a socket's path is
+        # opened past a full tree to price what it unlocks; the real trial frees the points first). 0 otherwise
+        self.points_slack = 0.0
 
     @property
     def full(self) -> bool:
@@ -386,7 +389,7 @@ class Objective:
             count = number(stats.get(field))
             if count > 0:
                 found.append((f"Skill costs: not enough {pool}", count, True))
-        over = number(stats.get(POINTS_OVER))
+        over = number(stats.get(POINTS_OVER)) - self.points_slack
         if over > 0:
             found.append(("Passive points over the level's budget", over, True))
         share, pool = sustain(stats)
