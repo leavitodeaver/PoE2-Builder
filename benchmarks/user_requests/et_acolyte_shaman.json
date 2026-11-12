@@ -1,0 +1,11 @@
+{
+ "name": "user: Explosive Transmutation, Acolyte of Chayula or Shaman",
+ "notes": "From legacy/Custom builds/Explosive Transmutation - Shaman vs Acolyte.md (the user's hand-audited doc): ET as the main skill, the doc weighs Acolyte of Chayula against Shaman, so both are allowed. The doc names no button cap, budget or Life floor: max_buttons 3, endgame gear, no divine cap, Life 2,500 (under the doc's 2.8-3.2k pre-reservation target) and capped resistances incl. Chaos (the doc caps Chaos for Darkness) are SEARCH1's reading, to be confirmed by the user. The disabled weapon-set grant the doc uses was removed in 0.5.5.",
+ "level": 90,
+ "ascendancies": ["Acolyte of Chayula", "Shaman"],
+ "main_skill": "Explosive Transmutation",
+ "max_buttons": 3,
+ "floors": {"life": 2500, "resists": {"fire": 75, "cold": 75, "lightning": 75, "chaos": 75}},
+ "budget": {"gear_tier": "endgame"},
+ "objective": "boss"
+}
