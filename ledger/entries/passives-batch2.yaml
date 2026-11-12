@@ -1,0 +1,118 @@
+# Passive tree lines, second batch (COV-B lane, COVB2, 12 Nov 2026; PoB bb52d6b, game files build 26476662).
+# The open tree lines left after batch 1, by the audit's score, overcounts first. Most of what is still open needs a
+# model (routed in COVB2's report); these are the lines settled with evidence:
+#   - pob_gap with replace: a translation into lines PoB calculates;
+#   - pob_gap with an empty replace: "no effect on what the optimizer calculates" (boss DPS and the checked numbers:
+#     Life / Energy Shield / Mana / Ward pools, maximum hit taken, resistances, block, evade, spare Spirit, and the
+#     optional recovery against the boss: builder/request/schema.py Floors). Each says why, with what was checked.
+# Recheck every one at the 1.0 refresh (11 Dec 2026) and at each PoB update.
+
+# Translations -------------------------------------------------------------------------------------------------------
+
+- id: passives-spirit-reservation-negative
+  title: Self Sacrificing, "-20% increased Spirit Reservation Efficiency" (PoB drops the negative; an overcount of Spirit)
+  kind: pob_gap
+  match: '^-(\d+)% increased Spirit Reservation Efficiency$'
+  replace: ['{1}% reduced Spirit Reservation Efficiency']
+  confidence: datamined
+  notes: >-
+    The Oracle notable Self Sacrificing (oracle_self_sacrificing5_) holds base_spirit_reservation_efficiency_+% -20 and
+    reservation_efficiency_+%_of_minion_skills 40 (game files PassiveSkills / Stats). The 0.5 tree prints the first as
+    "-20% increased Spirit Reservation Efficiency" (the 0.4 tree printed "20% reduced Spirit Reservation Efficiency of
+    Skills"). PoB's ModCache parses the printed line as BASE -20 with " increased " left over, and PassiveTree.lua
+    applies no line with leftover text, so the -20% was dropped: every Oracle build taking the notable reserved less
+    Spirit than in game (spare Spirit and the auras / persistent skills that fit were overcounted). "N% reduced" is
+    the same INC modifier PoB parses for "N% increased Spirit Reservation Efficiency" (ModCache, e.g. 20% increased ->
+    SpiritReservationEfficiency INC 20; ModParser form "spirit reservation efficiency"), read by CalcDefence.lua.
+  sources: ["data/game-26476662 PassiveSkills oracle_self_sacrificing5_ (Stat1Value -20: base_spirit_reservation_efficiency_+%)",
+            "vendor/PathOfBuilding-PoE2/src/TreeData/0_5/tree.lua and 0_4/tree.lua (Self Sacrificing's text)",
+            "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (-20% increased ... leftover text; N% increased -> INC N)"]
+  test_in_game: "As an Oracle, note an aura's Spirit reservation, allocate Self Sacrificing: the reservation rises by 25% (1/0.8)."
+  status: proposed
+
+# No effect on what's calculated ------------------------------------------------------------------------------------
+
+- id: passives-no-effect-inventory-chest
+  title: Colossal Capacity, a chest of inventory slots
+  kind: pob_gap
+  match: '^Carry a Chest which adds \d+ Inventory Slots$'
+  replace: []
+  confidence: datamined
+  notes: "Inventory space: no stat of damage, defence or recovery."
+  sources: ["Colossal Capacity (the line's own text)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: passives-no-effect-knockback-on-you
+  title: Less Knockback distance for Hits you Block (knockback on you)
+  kind: pob_gap
+  match: '^\d+% less Knockback Distance for Blocked Hits$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    How far a Blocked hit pushes you. The tool's boss fight places you by a chosen distance (conditions.natural_distance)
+    and reads no knockback on you; no checked number reads it. (Knockback you inflict is NOT recorded here: Tempest
+    Bell's shockwave area grows with knockback, poe2db Knockback, so those lines stay open.)
+  sources: ["KeywordPopups Knockback", "builder/request/schema.py Floors (the checked numbers)", "https://poe2db.tw/us/Knockback"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: passives-no-effect-deflected-ailments-on-you
+  title: Staunch Deflection, Deflected Hits cannot Maim you or make you Bleed
+  kind: pob_gap
+  match: '^Deflected Hits cannot inflict (Maim|Bleeding) on you$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    Ailments and Maim the boss inflicts on you aren't modelled: no condition in builder/search/conditions.py sets you
+    Bleeding or Maimed from the boss's hits ("Armour while Bleeding" is a never-on line in the audit: nothing switches
+    PoB's Condition:Bleeding on), and no checked number reads them. Only Deflected hits are named, so the line can't
+    touch a self-inflicted ailment either. Recheck when the boss's ailments on you are modelled.
+  sources: ["builder/search/conditions.py (no setter for your Bleeding / Maimed)", "coverage audit: never-on Condition:Bleeding"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: passives-no-effect-stun-on-you
+  title: Your Heavy Stun buildup emptying faster, Light Stun immunity after a Stun (being stunned is not modelled)
+  kind: pob_gap
+  match: >-
+    ^(Your Heavy Stun buildup empties \d+% faster( if you've successfully Parried Recently)?|You cannot be Light Stunned if you've been Stunned Recently|\d+% increased Stun Threshold during Empowered Attacks)$
+  replace: []
+  confidence: datamined
+  notes: >-
+    Whether the boss stuns you isn't calculated: the player's Stun Threshold isn't a checked number (Floors; the
+    approved no-effect-parry entry says the same for the threshold while parrying), builder/search/models.py reads
+    Stun thresholds only for the boss (heavy_stun_rate), and every "if you have been (Heavy) Stunned Recently" line is
+    never-on in the audit. Recheck when a model of the boss stunning you lands: the "when Stunned" lines (Quick
+    Recovery's regeneration, Volatility when Stunned, Last Stand) would need these to set its rate.
+  sources: ["builder/request/schema.py Floors", "builder/search/models.py (heavy_stun_rate: the boss's threshold)",
+            "ledger/entries/pob-gaps-no-effect.yaml no-effect-parry", "coverage audit: never-on Condition:StunnedRecently"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: passives-no-effect-avoid-death
+  title: Chance to Avoid Death from Hits
+  kind: pob_gap
+  match: '^\d+% chance to Avoid Death from Hits$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    A chance to survive a hit that would kill you. The checked defences are pools, maximum hit taken, resistances,
+    block, evade and recovery (Floors); none reads a chance to survive a lethal hit, and maximum hit taken stays the
+    same. It is real survival in game: the play guide could name it, but no checked number moves.
+  sources: ["builder/request/schema.py Floors", "Corruption Endures (the line's own text)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: passives-no-effect-blind-light-radius
+  title: Second Sight (Timeless), Blind doesn't shrink your Light Radius
+  kind: pob_gap
+  match: '^Blind does not affect your Light Radius$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    Only matters while you are Blinded; nothing in builder/search/conditions.py sets you Blinded (the Blinded box there
+    is the boss's, conditionEnemyBlinded), and Light Radius is no checked number.
+  sources: ["builder/search/conditions.py (conditionEnemyBlinded only)", "builder/request/schema.py Floors"]
+  test_in_game: "Not needed."
+  status: proposed
