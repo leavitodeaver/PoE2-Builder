@@ -1,14 +1,41 @@
 {
  "name": "user: Little Minions, Disciple of Varashta",
- "notes": "From legacy/Custom builds/Little Minions - Disciple of Varashta.md: Disciple of Varashta, exactly two combat buttons, every Skeleton, Companion, Wolf, Spectre and Wardbound Minions banned, Chaos Inoculation, pure Energy Shield above 4,500, Fire/Cold/Lightning 75% (CI covers Chaos). The doc's damage anchor 'Kelari's Deception' isn't in the current game data (checked: gem names containing Kelari are Kelari's Malediction and Kelari, the Tainted Sands), so the main skill is Kelari, the Tainted Sands, the Djinn whose command it was (SEARCH1's reading). No budget named: endgame gear, no divine cap. Its disabled weapon-set exploit was removed in 0.5.5.",
+ "notes": "From legacy/Custom builds/Little Minions - Disciple of Varashta.md: Disciple of Varashta, exactly two combat buttons, every Skeleton, Companion, Wolf, Spectre and Wardbound Minions banned, Chaos Inoculation, pure Energy Shield above 4,500, Fire/Cold/Lightning 75% (CI covers Chaos). Main skill Kelari's Deception, as the doc has it (the manager, 12 Nov: in the current game data, ActiveSkills id djinn_explosive_teleport, a Command skill of Kelari, the Tainted Sands; SEARCH1's note that it was gone was wrong). Budget 150 divines (the user, 12 Nov: 'I usually say around 100-200div'). Its disabled weapon-set exploit was removed in 0.5.5.",
  "level": 90,
- "ascendancies": ["Disciple of Varashta"],
- "main_skill": "Kelari, the Tainted Sands",
+ "ascendancies": [
+  "Disciple of Varashta"
+ ],
+ "main_skill": "Kelari's Deception",
  "max_buttons": 2,
  "defence": "energy_shield",
- "require": {"passives": ["Chaos Inoculation"]},
- "forbid": {"skills": ["Summon Spectre", "Wardbound Minions"], "mechanics": ["CreatesSkeletonMinion", "Companion", "Wolf"]},
- "floors": {"energy_shield": 4500, "resists": {"fire": 75, "cold": 75, "lightning": 75}},
- "budget": {"gear_tier": "endgame"},
- "objective": "boss"
+ "require": {
+  "passives": [
+   "Chaos Inoculation"
+  ]
+ },
+ "forbid": {
+  "skills": [
+   "Summon Spectre",
+   "Wardbound Minions"
+  ],
+  "mechanics": [
+   "CreatesSkeletonMinion",
+   "Companion",
+   "Wolf"
+  ]
+ },
+ "floors": {
+  "energy_shield": 4500,
+  "resists": {
+   "fire": 75,
+   "cold": 75,
+   "lightning": 75
+  }
+ },
+ "budget": {
+  "divines": 150,
+  "gear_tier": "endgame"
+ },
+ "objective": "boss",
+ "waits_for": "the djinn Command model (MECH lane): PoB has Kelari's Deception only as a minion skill (Data/Skills/minion.lua), so the tool can't use it as a main skill yet. Left out of runs until then; gate_user.py --include-waiting runs it."
 }

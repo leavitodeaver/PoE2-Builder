@@ -113,6 +113,12 @@ def boss_recovery(stats: dict) -> dict:
     return result
 
 
+def with_life_es(stats: dict) -> dict:
+    """LifePlusEnergyShield: maximum Life + maximum Energy Shield, the Life + ES floor's stat (Floors.life_es)."""
+    stats["LifePlusEnergyShield"] = number(stats.get("Life")) + number(stats.get("EnergyShield"))
+    return stats
+
+
 def with_boss_recovery(stats: dict) -> dict:
     """BossRecoveryPercent: the recovery floor's stat (capped at 1000%, also when the boss's hits never land)."""
     stats["BossRecoveryPercent"] = min(boss_recovery(stats)["share"] * 100, 1000.0)
@@ -240,7 +246,7 @@ class Objective:
         if any(p.stat == "BossRecoveryPercent" for p in self.penalties):
             fields |= set(RECOVERY_INPUTS)
         fields |= {"Missing" + p.stat for p in self.penalties if p.stat in RESIST_FIELDS}  # (maximum_resist)
-        self._fields = sorted(fields | {p.stat for p in self.penalties} - {"BossRecoveryPercent"})
+        self._fields = sorted(fields | {p.stat for p in self.penalties} - {"BossRecoveryPercent", "LifePlusEnergyShield"})
         self.on_death = {name for name, gem in ctx.gems.items() if ON_DEATH.search(gem.get("description") or "")}
 
     @property
@@ -254,7 +260,7 @@ class Objective:
     @staticmethod
     def prepare(stats: dict) -> dict:
         """Corrections to PoB's stats that every score and check sees (Darkness in max hit, recovery against a boss)."""
-        return with_boss_recovery(with_darkness(stats))
+        return with_life_es(with_boss_recovery(with_darkness(stats)))
 
     def dps(self, stats: dict) -> float:
         """Single-target boss DPS."""

@@ -35,6 +35,7 @@ from builder.search.models import GLORY_SKILLS, MARK_CARRIERS, MODEL_FIELDS
 from builder.search.objective import (
     CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, number, shortfall,
     with_boss_recovery,
+    with_life_es,
 )
 from builder.search.skeletons import Skeleton, is_button, offhand_non_unique, offhand_types, seed_skeleton, slot_bases, swap_skills
 from builder.search.sources import Sources
@@ -1150,7 +1151,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     mismatched = [k for k in RESULT_FIELDS if facts["stats"].get(k) != reloaded["stats"].get(k)]
     facts["warnings"] = list(dict.fromkeys([*facts["warnings"], *reloaded["warnings"], *plain]))
     facts["stats"].update(build.extra_stats)  # flask recovery, for the sustain check
-    with_boss_recovery(facts["stats"])  # recovery against the boss, for the (optional) recovery floor and the report
+    with_life_es(with_boss_recovery(facts["stats"]))  # recovery against the boss, for the (optional) recovery floor and the report
     build.objective.prepare(facts["stats"])  # what the checks see: Darkness in maximum hit taken
     excluded, excluded_names = build.objective.excluded(build.stats)
     blind_spots = build.call("unsupportedInBuild")["lines"]

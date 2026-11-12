@@ -362,6 +362,7 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
     penalties: list[Penalty] = []
     for label, stat_name, floor in (
         ("Life", "Life", floors.life), ("Energy shield", "EnergyShield", floors.energy_shield),
+        ("Life + Energy shield", "LifePlusEnergyShield", floors.life_es),
         ("Mana", "Mana", floors.mana), ("Runic ward", "Ward", floors.ward),
         ("Block chance", "EffectiveBlockChance", floors.block),
         ("Evade chance", "EvadeChance", floors.evade), ("Spare spirit", "SpiritUnreserved", floors.spare_spirit),

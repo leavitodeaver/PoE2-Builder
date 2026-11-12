@@ -87,6 +87,7 @@ class Floors(Model):
 
     life: int | None = Field(None, ge=0)
     energy_shield: int | None = Field(None, ge=0)
+    life_es: int | None = Field(None, ge=0)  # maximum Life + maximum Energy Shield together (the user's ET request, 12 Nov)
     mana: int | None = Field(None, ge=0)
     ward: int | None = Field(None, ge=0)  # Runic Ward
     max_hit: dict[DamageType, int] = {}

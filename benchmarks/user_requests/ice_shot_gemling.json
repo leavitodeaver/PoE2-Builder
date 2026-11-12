@@ -1,15 +1,36 @@
 {
  "name": "user: Ice Shot Gemling, pure Armour + Mind over Matter",
- "notes": "From legacy/Custom builds/Ice Shot Gemling - Advanced Thaumaturgy.md: Ice Shot, Gemling Legionnaire, a bow, 3 active buttons (Ice Shot, Barrage, Pinnacle of Power), pure Armour with Mind over Matter, no Energy Shield and no Eldritch Battery, 75% to all four resistances, Life about 3,186 (floor 3,000 here). The doc names no budget: endgame gear, no divine cap (SEARCH1's reading). Its Pinnacle-on-disabled-set trick was removed in 0.5.5.",
+ "notes": "From legacy/Custom builds/Ice Shot Gemling - Advanced Thaumaturgy.md: Ice Shot, Gemling Legionnaire, a bow, 3 active buttons (Ice Shot, Barrage, Pinnacle of Power), pure Armour with Mind over Matter, no Energy Shield and no Eldritch Battery, 75% to all four resistances, Life about 3,186 (floor 3,000 here). Budget 150 divines (the user, 12 Nov: 'I usually say around 100-200div'). Its Pinnacle-on-disabled-set trick was removed in 0.5.5.",
  "level": 90,
- "ascendancies": ["Gemling Legionnaire"],
+ "ascendancies": [
+  "Gemling Legionnaire"
+ ],
  "main_skill": "Ice Shot",
  "max_buttons": 3,
  "weapon_type": "Bow",
  "defence": "armour",
- "require": {"passives": ["Mind Over Matter"]},
- "forbid": {"passives": ["Eldritch Battery"]},
- "floors": {"life": 3000, "resists": {"fire": 75, "cold": 75, "lightning": 75, "chaos": 75}},
- "budget": {"gear_tier": "endgame"},
+ "require": {
+  "passives": [
+   "Mind Over Matter"
+  ]
+ },
+ "forbid": {
+  "passives": [
+   "Eldritch Battery"
+  ]
+ },
+ "floors": {
+  "life": 3000,
+  "resists": {
+   "fire": 75,
+   "cold": 75,
+   "lightning": 75,
+   "chaos": 75
+  }
+ },
+ "budget": {
+  "divines": 150,
+  "gear_tier": "endgame"
+ },
  "objective": "boss"
 }

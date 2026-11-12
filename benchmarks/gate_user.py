@@ -24,14 +24,20 @@ REQUEST_DIR = ROOT / "benchmarks" / "user_requests"
 RESULT_DIR = ROOT / "benchmarks" / "results"
 
 
-def load_requests(names: list[str]) -> list[tuple[str, BuildRequest]]:
-    """Every request file the filters match, checked: one the request compiler rejects stops the run."""
+def load_requests(names: list[str], include_waiting: bool = False) -> list[tuple[str, BuildRequest]]:
+    """Every request file the filters match, checked: one the request compiler rejects stops the run. A request
+    with a "waits_for" note (a mechanic the tool can't model yet) is left out unless include_waiting."""
     data = GameData()
     found = []
     for path in sorted(REQUEST_DIR.glob("*.json")):
         if names and not any(f in path.stem for f in names):
             continue
-        request = BuildRequest.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        body = json.loads(path.read_text(encoding="utf-8"))
+        waits = body.pop("waits_for", None)
+        if waits and not include_waiting:
+            print(f"[WAITS] {path.stem}: {waits}")
+            continue
+        request = BuildRequest.model_validate(body)
         errors = compile_request(request, data).errors
         if errors:
             raise SystemExit(f"{path.name}: " + "; ".join(f"{e.field}: {e.message}" for e in errors))
@@ -44,13 +50,14 @@ def main() -> None:
     parser.add_argument("names", nargs="*")
     parser.add_argument("--seconds", type=float, default=600)
     parser.add_argument("--workers", type=int)
+    parser.add_argument("--include-waiting", action="store_true", help="also run requests marked waits_for")
     parser.add_argument("--events", help="append the run's events (all but progress) to this JSONL file")
     args = parser.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     prices = PriceFeed().table(refresh=False)
     rows = []
-    for name, request in load_requests(args.names):
+    for name, request in load_requests(args.names, args.include_waiting):
         def on_event(event: dict, name: str = name) -> None:
             if args.events and event.get("kind") != "progress":
                 with open(args.events, "a", encoding="utf-8") as log:

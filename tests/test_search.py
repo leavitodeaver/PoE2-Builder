@@ -1553,3 +1553,17 @@ def test_a_normal_items_quality_line_stays_in_its_header_through_runes_and_anoin
     lines = raw.splitlines()
     assert lines.index("Quality: 20") < lines.index("Implicits: 1")
     assert lines.count("Rune: Raven-Touched Shard") == 1
+
+
+def test_a_life_plus_energy_shield_floor_counts_both_pools(data):
+    """floors.life_es (the user's ET request, 12 Nov: "about 5,000 Life + ES"): one penalty on maximum Life + maximum
+    Energy Shield together, a stat the objective adds to PoB's (objective.with_life_es), never asked of PoB."""
+    from builder.request.constraints import compile_request
+
+    request = BuildRequest(main_skill="Explosive Transmutation", floors={"life_es": 5000})
+    compiled = compile_request(request, data)
+    assert [p for p in compiled.penalties if p.stat == "LifePlusEnergyShield"][0].floor == 5000
+    stats = Objective.prepare({"Life": 3000, "EnergyShield": 1500})
+    assert stats["LifePlusEnergyShield"] == 4500
+    objective = Objective(Context(make_payload(request)))
+    assert "LifePlusEnergyShield" not in objective.fields and {"Life", "EnergyShield"} <= set(objective.fields)
