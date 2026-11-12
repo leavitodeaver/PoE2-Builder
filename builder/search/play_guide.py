@@ -164,6 +164,8 @@ def guide(search: Any) -> list[dict]:
                              "change": 0.0, "confidence": "modelled"})
     if row := seething_pause(search, headline):
         rows.append(row)
+    if row := alignment_row(search, headline):
+        rows.append(row)
     after, base = build.objective.dps(build.stats), headline
     if abs(after - base) > 1e-6 * base:  # the switches must leave the build as it was; say so if they didn't
         rows.append({"var": "", "label": "(restore check)", "kind": BUILD, "counted": False, "play": "",
@@ -204,6 +206,37 @@ def seething_pause(search: Any, headline: float) -> dict | None:
                      + ("; pausing is the stronger way to play it" if better else "; not worth it for this build")),
             "dps_with": paused, "dps_without": headline, "change": (paused - headline) / headline,
             "confidence": "theory (decay rate and its basis MEDIUM; the player's timing LOW)"}
+
+
+# The ledger entries counted at Alignment's matched share (models.alignment_match_share, COVE5; share: alignment)
+ALIGNMENT_ENTRIES = ("support-alignment-damage", "support-alignment-projectiles")
+
+
+def alignment_row(search: Any, headline: float) -> dict | None:
+    """Alignment's "without it / with it" row (MECHC10; FIX_QUEUE ~09:52, COVE3/COVE5): the headline counts the matched
+    share of attacks (stepping round the boss after each match); without it (standing still) only the first attack
+    matches, so the bonus is ~0: one recalculation with the Alignment lines left out. The play text is the entry's own
+    (models.alignment_match_share). Counted in the headline, so the row moves nothing there."""
+    build = search.build
+    mods = list(getattr(search.assumptions, "mods", None) or [])
+    kept = [m for m in mods if m.get("entry") not in ALIGNMENT_ENTRIES]
+    if len(kept) == len(mods):
+        return None
+    try:
+        build._committed(build.call("setAssumptions", mods=kept, fields=build.objective.fields))
+        still = build.objective.dps(build.stats)
+    finally:
+        build._committed(build.call("setAssumptions", mods=mods, fields=build.objective.fields))
+    if abs(headline - still) < MIN_CHANGE * max(headline, 1e-9):
+        return None
+    play = next((n.get("play") for n in getattr(search.assumptions, "active", None) or []
+                 if n.get("entry") in ALIGNMENT_ENTRIES and n.get("play")), "")
+    return {"var": "alignment:match", "label": "Alignment: step round the boss to match the indicated direction",
+            "kind": PLAYER, "counted": True,
+            "play": (play + " " if play else "") + f"{headline:,.0f} DPS stepping round the boss (the headline), "
+                                                  f"{still:,.0f} standing still",
+            "dps_with": headline, "dps_without": still, "change": (headline - still) / still if still else 0.0,
+            "confidence": "theory (the match interval LOW)"}
 
 
 __all__ = ["guide", "kind", "KINDS", "OFF_OPTIONS", "PLAYER", "BUILD", "FIGHT"]

@@ -397,3 +397,33 @@ def test_a_build_at_the_edge_of_its_presence_is_compared_with_standing_back():
     """MECHC8 (#151): the search's Presence-edge distance (4 m) gets a "stand closer" row against the ranged 5 m."""
     assert play_guide._other_distance(40) == 50 and play_guide._other_distance(20) == 50
     assert play_guide._other_distance(50) == 20
+
+
+def test_alignment_row_compares_stepping_round_the_boss_with_standing_still():
+    """MECHC10: the headline counts Alignment's matched share; the row's "without it" leaves its lines out (standing
+    still: only the first attack matches), and the build's assumptions are put back."""
+    calls = []
+
+    class Build:
+        objective = SimpleNamespace(dps=lambda stats: stats["dps"], fields=[])
+        stats = {"dps": 1200.0}
+
+        def call(self, method, **kwargs):
+            assert method == "setAssumptions"
+            calls.append(kwargs["mods"])
+            dps = 1200.0 if any(m.get("entry") == "support-alignment-damage" for m in kwargs["mods"]) else 1000.0
+            return {"dps": dps}
+
+        def _committed(self, result):
+            self.stats = result
+
+    mods = [{"line": "x", "entry": "support-alignment-damage"}, {"line": "y"}]
+    notes = [{"entry": "support-alignment-damage", "play": "After each matched attack, step round the boss."}]
+    build = Build()
+    row = play_guide.alignment_row(SimpleNamespace(build=build, assumptions=SimpleNamespace(mods=mods, active=notes)),
+                                   1200.0)
+    assert row["dps_with"] == 1200.0 and row["dps_without"] == 1000.0 and row["counted"] is True
+    assert "step round" in row["play"] and "standing still" in row["play"]
+    assert calls[-1] == mods and build.stats["dps"] == 1200.0  # (put back)
+    none = SimpleNamespace(build=build, assumptions=SimpleNamespace(mods=[{"line": "y"}], active=[]))
+    assert play_guide.alignment_row(none, 1200.0) is None
