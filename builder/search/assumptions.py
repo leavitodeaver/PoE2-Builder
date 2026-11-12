@@ -903,6 +903,9 @@ class Assumptions:
         texts = [(self.build.ctx.all_gems.get(name) or {}).get("description") or "" for name in actives]
         main = self.main_skill()
         main_types = set((self.build.ctx.all_gems.get(main) or {}).get("skillTypes") or []) if main else set()
+        main_group = self.build.main_group()
+        main_info = next((s for s in skills if s["name"] == main and main_group and s.get("group") == main_group["index"]),
+                         next((s for s in skills if s["name"] == main), {}))
         found, notes = [], []
         for condition in wanted:
             by_name = condition.get("skills") and any(re.search(condition["skills"], n, re.I) for n in names)
@@ -913,6 +916,12 @@ class Assumptions:
                               for name, text in zip(actives, texts) if re.search(condition["skill_text"], text, re.I))
             # skill_types: the main skill has every one of these PoB skill types (e.g. Spell and Multicastable: it can Repeat)
             by_type = condition.get("skill_types") and set(condition["skill_types"]) <= main_types
+            # not_skill_types / not_triggered: the main skill must also lack these types and not be Triggered in PoB's
+            # calculation (a meta gem or trigger support adds Triggered; e.g. "Triggered skills, Instant skills, and
+            # Channelling skills cannot Repeat", KeywordPopups Repeat)
+            if by_type and (set(condition.get("not_skill_types") or []) & main_types
+                            or condition.get("not_triggered") and main_info.get("triggered")):
+                by_type = False
             if (by_name or by_text or by_type) and condition.get("glory_every"):
                 stats = self.build.call("stats", fields=models.MODEL_FIELDS)
                 main_skill = next((models.Skill.of(s) for s in skills if not s["disabled"] and s["name"] == main), None)

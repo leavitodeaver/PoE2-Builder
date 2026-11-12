@@ -2364,3 +2364,36 @@ def test_the_bridge_s_default_boss_is_the_presets_default():
     note = bosses.note()
     assert note["label"] == "Boss: Arbiter of Ash" and "Cold -15%" in note["value"]
     assert all(b.chaos == 0 for b in bosses.PRESETS.values()) and len(bosses.PRESETS) == 12
+
+
+def test_repeatable_spell_is_off_for_triggered_instant_or_channelled_main_spells():
+    """RESEARCH6: KeywordPopups Repeat says "Triggered skills, Instant skills, and Channelling skills cannot Repeat", but
+    RepeatableSpell (Now and Again's 19% Repeat bonus) went on for any Spell + Multicastable main skill, also one a meta
+    gem fires (PoB adds Triggered to it): an overcount."""
+    from builder.search.assumptions import Assumptions
+
+    gems = {"Spark": {"skillTypes": ["Spell", "Multicastable", "Projectile"]},
+            "Ice Nova": {"skillTypes": ["Spell", "Multicastable", "Instant"]},
+            "Cast on Critical": {"skillTypes": ["Meta"]}}
+
+    def found(main, triggered, extra_types=()):
+        class Ctx:
+            all_gems = {**gems, main: {"skillTypes": [*gems[main]["skillTypes"], *extra_types]}}
+
+        class Build:
+            ctx = Ctx()
+
+            def groups(self):
+                return [{"index": 1, "gems": [{"name": main}]}]
+
+            def main_group(self):
+                return {"index": 1, "gems": [{"name": main}], "skills": [{"name": main}], "mainActiveSkill": 1}
+
+        a = Assumptions.__new__(Assumptions)
+        a.build = Build()
+        return a.ledger_conditions([{"name": main, "disabled": False, "group": 1, "triggered": triggered}])[0]
+
+    assert "RepeatableSpell" in found("Spark", triggered=False)
+    assert "RepeatableSpell" not in found("Spark", triggered=True)  # in a meta gem's group
+    assert "RepeatableSpell" not in found("Ice Nova", triggered=False)  # Instant (a guard: no such gem today)
+    assert "RepeatableSpell" not in found("Spark", triggered=False, extra_types=["Channel"])

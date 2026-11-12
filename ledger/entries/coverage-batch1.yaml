@@ -9,9 +9,19 @@
   title: The main skill is a spell that can Repeat
   kind: condition
   skill_types: [Spell, Multicastable]
+  not_skill_types: [Instant, Channel]
+  not_triggered: true
   confidence: datamined
-  notes: "PoB's skill type Multicastable is the game's Repeatable (poe2db's list of Repeating Skills: Spark, Fireball, Arc, Comet ...; channelled, instant and triggered spells can't Repeat). Bone Blast is on poe2db's list but not Multicastable in PoB's data: not counted (an undercount)."
-  sources: ["https://poe2db.tw/us/Repeating_Skills", "PoB skill data (skillTypes)"]
+  notes: >-
+    PoB's skill type Multicastable is the game's Repeatable (poe2db's list of Repeating Skills: Spark, Fireball, Arc,
+    Comet ...). KeywordPopups Repeat (game files 26476662): "[Trigger|Triggered] skills, Instant skills, and [Channelling]
+    skills cannot Repeat", so the condition is off when the main skill is Instant or Channelling (its gem's types) or
+    Triggered in PoB's calculation of the build: a meta gem (Cast on Critical, Cast on Dodge, Cast on Minion Death,
+    Spellslinger ...) or another trigger support adds Triggered to the skills it supports, and skills only triggers
+    fire carry it themselves (RESEARCH6, research/now-and-again.md; this was an overcount: those main spells got the 19%).
+    None of PoB's 47 Spell + Multicastable gems is typed Instant or Channel today (checked: gems.json skillTypes, all 47), so that half is a guard. Bone Blast is
+    on poe2db's list but not Multicastable in PoB's data: not counted (an undercount).
+  sources: ["https://poe2db.tw/us/Repeating_Skills", "PoB skill data (skillTypes)", "game files KeywordPopups Repeat"]
   status: proposed
 
 - id: CascadableSpell
