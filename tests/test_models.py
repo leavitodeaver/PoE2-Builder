@@ -505,6 +505,9 @@ def test_ailment_supports_count_on_the_boss_conditions_and_cost_parts_wait():
     assert models.gem_stat_model([banner]) == ([], [])  # (read by the Glory and Pin models, not applied here)
     assert models.support_part_scale(banner, "glory_cost")[0] == {"GloryRequiredMorePercent": -50}
     assert models.support_part_scale(banner, "pin_duration")[0] == {"PinDurationMorePercent": 30}
+    hex_ = models.Skill("Despair", group=2, spell=True,
+                        support_stats={"support_consume_power_charge_to_gain_curse_duration_+%_final": 80})
+    assert models.support_part_scale(hex_, "curse_duration")[0] == {"CurseDurationMorePercent": 80}
 
 
 def test_penalties_on_uncounted_parts_wait_for_the_model_that_counts_them():

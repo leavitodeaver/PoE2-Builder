@@ -1989,7 +1989,8 @@ PARTS = {"cascade": "Spell Cascade's Cascades", "offering": "spells cast around 
          "tectonic_aftershock": "Tectonic Slams' extra Aftershock",
          "branch_fissure": "the branched Fissures (Branching Fissures)",
          "glory_cost": "the Glory the skill requires (read by the Glory models: glory_uses, usage.py)",
-         "pin_duration": "the Pins it inflicts (no Pinned uptime is modelled yet)"}
+         "pin_duration": "the Pins it inflicts (no Pinned uptime is modelled yet)",
+         "curse_duration": "the Curse's duration when the cast consumes a Power Charge (curse model)"}
 
 
 def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[dict]]:

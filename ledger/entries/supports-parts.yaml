@@ -282,3 +282,26 @@
     (MECH-A) takes the Pin's 3 s (KeywordPopups Pinned) x (1 + support_part_scale(skill, "pin_duration")["PinDurationMorePercent"] / 100) (1.3).
   sources: ["SupportPinPlayerThree, GrantedEffectStatSets (build 26476662)", "KeywordPopups Pinned"]
   status: proposed
+
+- id: support-abiding-hex-duration
+  title: Abiding Hex, 80% more Curse duration when the cast consumes a Power Charge (for the curse model)
+  kind: gem_stat
+  support: true
+  to: part:curse_duration
+  skill: Abiding Hex
+  support_stats: ['support_consume_power_charge_to_gain_curse_duration_+%_final']
+  match: '^support_consume_power_charge_to_gain_curse_duration_\+%_final$'
+  replace: ['mult:CurseDurationMorePercent']
+  confidence: datamined
+  notes: >-
+    "Supported Skills consume a Power Charge on use; Supported Skills have 80% more duration when consuming a Power
+    Charge" (constant 80 on SupportAbidingHexPlayer; PoB's sup_int.lua lists the stat with no statMap, and SkillStatMap.lua
+    has none: checked, 12 Nov 2026). It supports Curses you cast yourself (excludeSkillTypes Triggered, Aura, UsedByProxy).
+    The curse model (models.curse_uses: a curse cast by hand is recast every CURSE_DURATION 7.4 s, its cast time taken
+    from the main skill; "duration modifiers aren't read") takes 7.4 s x (1 + support_part_scale(skill,
+    "curse_duration")["CurseDurationMorePercent"] / 100) (13.3 s) only while the build has a Power Charge to spend on each
+    cast: one per 13.3 s from its own charge sources (conditions.py's charge functions, MECH-C), and the build's Power
+    Charge count drops by that spending. No Power Charge source means no bonus. Whether the curse can be cast with no Power Charge at all is
+    UNVERIFIED (if it can't, usage.py should gate it: COV-C). Until then it is an undercount (recasts cost a little more of the main skill's time).
+  sources: ["SupportAbidingHexPlayer, GrantedEffectStatSets (build 26476662)", "PoB sup_int.lua SupportAbidingHexPlayer"]
+  status: proposed
