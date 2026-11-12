@@ -469,3 +469,16 @@ def test_the_press_hook_caps_a_requiem_main_skill_at_its_share(fresh_rules, monk
     assert abs(cap.uses - 4.2 * 12 / 42) < 1e-9 and cap.how.startswith("anguish: the Requiem up 29%")
     mods, notes = hook.main_cap(group, "Requiem")
     assert len(mods) == 1 and notes[0]["value"] == "x0.286" and "anguish" in notes[0]["label"]
+
+
+def test_the_press_hook_counts_no_requiem_when_no_anguish_rate_is_read(fresh_rules, monkeypatch):
+    """MECHB9's review of COVC11: a rule with the anguish requirement but no fill rate (COVC12's bridge bug) caps the
+    group at 0 with a note, never leaves it at PoB's at-will rate."""
+    from builder.search.assumptions import Assumptions
+
+    rules = {"Requiem": {"usageCondition": True, "stats": {"rapidshot_requiem_base_buff_count_requirement": 100}}}
+    group = {"index": 0, "enabled": True, "gems": [{"name": "Requiem", "support": False, "enabled": True}]}
+    hook = Assumptions.__new__(Assumptions)
+    hook.build = ComboBuild(rules, {"Requiem": ["Attack"]}, [group], {"Requiem": 4.2})
+    cap = hook.press_caps([group], {0})[0]
+    assert cap.uses == 0.0 and "isn't counted" in cap.how
