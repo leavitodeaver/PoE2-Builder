@@ -558,6 +558,10 @@ class Assumptions:
                             cap = models.PressCap(found[0], f"anguish: the Requiem up {found[1]:.0%} of the fight "
                                                   "(12 s per 30 s fill; 40% if anguish builds during it, UNVERIFIED)",
                                                   0.0, "MEDIUM")
+                        else:  # (MECHB9's review: no fill rate or use rate read means no Requiem, never PoB's at-will
+                            # rate, the x3.5 COVC12 found when the bridge's rule lacked the fill rate)
+                            cap = models.PressCap(0.0, "anguish: no anguish fill rate or use rate was read, so the "
+                                                  "Requiem isn't counted", 0.0, "MEDIUM")
                     if cap is not None:
                         break
                 if cap is not None:
