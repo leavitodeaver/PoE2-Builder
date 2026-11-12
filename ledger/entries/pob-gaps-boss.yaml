@@ -101,6 +101,10 @@
   match: 'chance for an additional Projectile when Forking$'
   replace: []
   confidence: community_confirmed
+  notes: >-
+    (checked: RESEARCH9 #18y, scratch/manager/research/no-effect-chain-fork.md: a forked projectile probably can't
+    hit the enemy it forked from, MEDIUM: game text silent (KeywordPopups Fork), a PoE1 developer answer says no,
+    poe2wiki's projectile group rule; in-game test #53. If forks could re-hit, these lines would be an undercount.)
   sources: ["https://poe2db.tw/us/Fork", "https://www.poe2wiki.net/wiki/Forking"]
   status: approved
 
@@ -137,13 +141,22 @@
   status: approved
 
 - id: no-effect-extra-combo
-  title: Chance to build additional Combo (only speeds up Combo; consumers are calculated separately)
+  title: Chance to build additional Combo (read by usage.py's Combo use rate; per-Combo bonuses count at 0 Combo, an undercount)
   kind: pob_gap
   match: '^\d+% Chance to build an additional Combo on Hit$'
   replace: []
   confidence: reported
+  notes: >-
+    Rewritten COV9 (RESEARCH10 #18ac, FIX_QUEUE): the old reason ("PoB calculates a Combo skill at the Combo it
+    requires; faster Combo only lets it be used more often") was wrong twice: PoB calculates at Combo 0
+    (ConfigOptions.lua 985-986 multiplierCombo, never set by the tool), and extra Combo raises per-use effects that
+    scale with the Combo spent (game Stats: support_culmination_damage_+%_final_per_combo_stack,
+    support_combo_finisher_damage_+%_final_per_combo, area_of_effect_+%_per_combo_stack,
+    chance_%_to_gain_power_charges_per_combo_spent). Since COVC8 the use rate does read these lines
+    (usage.combo_rotation). HIGH for the rules, MEDIUM that extra Combo counts as Combo spent ("higher Combo you had
+    on use", Culmination's text).
   sources: ["https://poe2db.tw/Chakra_of_Rhythm", "https://poe2db.tw/us/Combo"]
-  absorbed_by: "PoB calculates a Combo skill at the Combo it requires, as if always reached; faster Combo would let it be used more often (not counted: the use rate is PoB's)"
+  absorbed_by: "builder/search/usage.py combo_rotation adds the chance to each Combo gain of the build's Strikes (COVC8, from bridge sourceLines), so a Combo skill's use rate rises with it. Per-use effects are NOT counted: PoB counts Combo at 0, since nothing sets its Configuration count multiplierCombo (checked: grep of builder/ and engine/ for multiplierCombo / ComboStacks, nothing; RESEARCH10 #18ac), so Culmination's more damage per Combo, Combo Finisher's per Combo, Vruun's area per stack and Power Charges per Combo spent all count 0 (an UNDERCOUNT, for MECH-B's Combo model: set multiplierCombo from the Combo per use)"
   status: approved
 
 - id: no-effect-presence-aggravate

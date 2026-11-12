@@ -31,7 +31,13 @@
   match: '^apply to Energy Shield Recharge Rate$'
   replace: []
   confidence: datamined
-  notes: "Carried by uniques-waveshaper-mana-regen-to-es-recharge, which translates the whole sentence from its first line."
+  notes: >-
+    Carried by uniques-waveshaper-mana-regen-to-es-recharge, which translates the whole sentence from its first
+    line. Scope (COV9, AUDIT12 A12-2): this entry is for Waveshaper's (and Exclusive
+    UniqueManaRegenAppliesToRecharge1's) second line only, which has no leading space; Jiquani's Thesis's " apply to
+    Energy Shield Recharge Rate" (boots, a leading space) is carried by
+    items-jiquanis-thesis-movement-to-es-recharge's own second-line entry, and any other two-line "also apply to
+    ..." mod needs its own first-half translation: this record says nothing about it.
   sources: ["data/pob-bb52d6b368/uniques.json (Waveshaper)"]
   test_in_game: "As uniques-waveshaper-mana-regen-to-es-recharge."
   status: proposed

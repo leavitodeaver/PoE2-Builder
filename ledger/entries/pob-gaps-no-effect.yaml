@@ -5,21 +5,35 @@
 # An empty `replace` means "no effect on what's calculated".
 
 - id: no-effect-movement-speed
-  title: Movement speed
+  title: Movement speed alone (lines naming Attack, Cast, Damage, Energy Shield or Recharge too, or a two-line mod's first half, are left out)
   kind: pob_gap
-  match: 'Movement Speed'
+  match: '^(?!.*(Attack|Cast|Energy Shield|Recharge|Damage|\balso$)).*Movement Speed'
   replace: []
   confidence: verified_by_you
-  sources: ["Movement speed doesn't enter PoB's DPS or the checked defences"]
+  notes: >-
+    Narrowed (COV9; AUDIT12 A12-2, RESEARCH9 #18w): the old pattern 'Movement Speed' also swallowed Jiquani's
+    Thesis's "Increases and Reductions to Movement Speed also" (its other half raises Energy Shield Recharge: now
+    items-jiquanis-thesis-movement-to-es-recharge) and two lines whose other half is Attack / Cast Speed (Exclusive
+    mods no live 0.5 unique carries: RESEARCH9). The 15 lines it still takes (coverage-report.json) are movement only:
+    Movement Speed Penalty lines, Tamed Beasts', Queen of the Forest's, while Sprinting, per Chest opened, on Burning /
+    Chilled / Shocked ground. Movement speed doesn't shorten a dodge roll (distance per roll; MEDIUM, RESEARCH9).
+  sources: ["Movement speed doesn't enter PoB's DPS or the checked defences", "scratch/manager/research/no-effect-movement-speed.md"]
   status: approved
 
 - id: no-effect-remnant-range
-  title: Remnant pickup range
+  title: Remnant pickup range (no effect only while the player walks onto every Remnant; clashes with counting standing still)
   kind: pob_gap
   match: '^Remnants can be collected from \d+% further away$'
   replace: []
   confidence: verified_by_you
-  sources: ["Pickup range; the Explosive Transmutation assumption uses Remnant creation rates"]
+  notes: >-
+    Retitled COV9 (RESEARCH9 #18x): pickup range moves nothing only under the builder's play note that the player
+    walks onto every Remnant. That play clashes with conditions that count standing still (stationary lines, a
+    planted totem's or ground's position), and nothing links the two: a build counting both counts two plays that
+    clash, unless its Remnants appear within pickup range, when this line is what makes standing still possible. The
+    base pickup radius and where each Remnant kind appears are UNVERIFIED (research #52, in-game test). MECH-C /
+    MECH-A label the clash in the Remnant model.
+  sources: ["Pickup range; the Explosive Transmutation assumption uses Remnant creation rates", "scratch/manager/research/no-effect-remnant-range.md"]
   status: approved
 
 - id: no-effect-flee
@@ -53,36 +67,54 @@
   status: approved
 
 - id: no-effect-crowd-control-duration
-  title: Pin duration (no Pinned uptime is modelled yet; Hinder and Armour Break durations are counted)
+  title: "Pin duration (retired COV9: the boss's Pinned uptime is modelled since MECH46, so these lines are an open undercount, not \"no effect\")"
   kind: pob_gap
   match: '^\d+% (increased|reduced) Pin [Dd]uration$'
   replace: []
   confidence: verified_by_you
   notes: >-
-    The user, 11 Nov 2026: count Pin / Hinder / Armour Break durations. Hinder (and Blind) durations now scale
-    each inflicting line's duration in the debuff uptimes, and Armour Break Duration the 12 s Fully Broken
-    (models.duration_scale / full_break_duration, MECH44). Pin's stays here, labelled: nothing in the builder
-    rates the boss Pinned (PoB's conditionEnemyPinned is never set; Pins are only an event rate for "when you
-    Pin" lines, models.PIN_EVERY), so a longer Pin moves nothing until a Pinned uptime is modelled.
+    The user, 11 Nov 2026: count Pin / Hinder / Armour Break durations. Hinder (and Blind) durations scale each
+    inflicting line's duration in the debuff uptimes, and Armour Break Duration the 12 s Fully Broken
+    (models.duration_scale / full_break_duration, MECH44). RETIRED (COV9; AUDIT12 A12-1, an UNDERCOUNT): since
+    MECH46 conditions.py sets conditionEnemyPinned from the main skill's Pin buildup (_immobilised("Pin", "Pinned"),
+    Pinned 3 s, models.IMMOBILISE_DURATION), so "against Pinned enemies" lines count at the Pinned share and a
+    longer Pin raises it. That model does not read pin_duration_+% yet (models.py's IMMOBILISE_DURATION comment,
+    checked on origin/main 315867c and MECH-A's master 9072708: no reader of pin_duration), so the coverage lists
+    these lines as gaps until MECH-A reads them; zeroing them here would hide the undercount.
   sources: ["data/game-26476662 stat_descriptions.csd: pin_duration_+%, hinder_duration_+%, armour_break_and_sundered_armour_duration_+%", "KeywordPopups Pinned: 3 s; Hinder: 4 s; ArmourBreak: Fully Broken 12 s"]
-  status: approved
+  status: retired  # COV9: MECH46 models the Pinned uptime; pin_duration_+% is an open undercount for MECH-A (A12-1)
 
 - id: no-effect-parry
-  title: Parry area and stun threshold while parrying
+  title: Parry area (holds) and stun threshold while parrying (no effect only because Heavy Stun on you from parrying isn't modelled)
   kind: pob_gap
   match: '^\d+% increased (Parry Hit Area of Effect|Stun Threshold while Parrying)$'
   replace: []
   confidence: verified_by_you
-  sources: ["Parry utility; stun threshold isn't a checked defence"]
+  notes: >-
+    COV9 (RESEARCH10 #18z): Area holds: since 0.4.0 "Parry now always hits the enemy you parried, regardless of
+    distance" (patch notes), and Parry's retaliation reach doesn't change which hits are parried (melee within 1 m,
+    projectiles within 1.5 m). Stun Threshold while Parrying: parrying builds Heavy Stun on you, with 40% less
+    threshold while parrying (Parry's game text: "Parrying causes you to accumulate Heavy Stun buildup"); the parry
+    plan doesn't count time lost to that Heavy Stun (a possible OVERCOUNT of parry_plan, MEDIUM, MECH-C's label), so
+    this line's effect, a smaller loss, has nothing to act on: no effect only for that reason.
+  sources: ["0.4.0 patch notes (Parry hits the parried enemy at any distance)", "game files: Parry's stat set and description", "scratch/manager/research/no-effect-parry.md", "scratch/manager/research/parry-player-heavy-stun.md"]
   status: approved
 
 - id: no-effect-offering-life
-  title: Offering life
+  title: "Offering life (no effect only while the spike is assumed to survive: Offering uptime assumes the boss never kills it)"
   kind: pob_gap
   match: '^Offerings have \d+% increased Maximum Life$'
   replace: []
   confidence: verified_by_you
-  sources: ["How sturdy the offering spike is; its effect is calculated separately"]
+  notes: >-
+    Retitled COV9 (RESEARCH10 #18aa, RESEARCH11 #58): Offerings "are themselves damageable Minions and their Buffs
+    are lost if they die" (KeywordPopups). The builder's Offering uptime assumes the spike survives its 6 / 6 / 8 s;
+    under that assumption more spike Life changes nothing. Spike Life is 18% (Pain, Power / Soul) or 35% (Bone) of
+    the level's monster Life (poe2db Offering_Spike), about 1.5-16K before modifiers, so a pinnacle area hit very
+    probably kills one: if the boss reaches it, the uptime is an OVERCOUNT and this line would win some of it back.
+    How often boss hits reach the spike: LOW, unknown (MECH-B labels the uptime "spike assumed out of the boss's
+    areas").
+  sources: ["How sturdy the offering spike is; its effect is calculated separately", "game files KeywordPopups Offering", "https://poe2db.tw/us/Offering_Spike", "scratch/manager/research/no-effect-offering-life.md", "scratch/manager/research/offering-spike-life.md"]
   status: approved
 
 - id: gap-invocation-crit-damage
@@ -105,7 +137,10 @@
   match: '^(Ignites you inflict spread to other Enemies that stay within .*|Curses you inflict spread to enemies within [\d.]+ metres when Cursed enemy dies)$'
   replace: []
   confidence: datamined
-  notes: "The lines themselves say other enemies, or a cursed enemy's death; a boss fight has neither."
+  notes: >-
+    The lines themselves say other enemies, or a cursed enemy's death; a boss fight has neither. (checked:
+    RESEARCH10 #18ab, scratch/manager/research/no-effect-shatter-and-spread.md: holds on a lone boss; both spread
+    lines name other enemies or a death; HIGH.) Not modelled: pinnacle fights with adds (no preset has adds yet).
   sources: ["https://poe2db.tw/us/Cracklecreep", "https://poe2db.tw/us/The_Searing_Touch", "https://poe2db.tw/us/Veilpiercer"]
   test_in_game: "Not needed for boss damage; in a map, ignite one enemy in a pack and watch the ignite appear on those standing next to it."
   status: proposed
@@ -116,7 +151,10 @@
   match: '^Enemies Chilled by your Hits can be Shattered as though Frozen$'
   replace: []
   confidence: community_confirmed
-  notes: "Shattering destroys a frozen enemy's body on kill; it adds no damage to a living boss."
+  notes: >-
+    Shattering destroys a frozen enemy's body on kill; it adds no damage to a living boss. (checked: RESEARCH10
+    #18ab, scratch/manager/research/no-effect-shatter-and-spread.md: KeywordPopups Shatter, "Frozen enemies Shatter
+    when killed"; every shatter stat in the game files is on-kill; poe2wiki Shatter; HIGH.)
   sources: ["https://poe2db.tw/us/Polcirkeln", "https://www.poe2wiki.net/wiki/Shatter"]
   test_in_game: "Kill a chilled (not frozen) white monster: its body shatters instead of leaving a corpse."
   status: proposed
@@ -127,7 +165,12 @@
   match: '^Projectiles from Spells (Chain [+\d()-]+ times|Fork)$'
   replace: []
   confidence: community_confirmed
-  notes: "As no-effect-fork-projectile: a chain or fork looks for a different target."
+  notes: >-
+    As no-effect-fork-projectile: a chain or fork looks for a different target. (checked: RESEARCH9 #18y,
+    scratch/manager/research/no-effect-chain-fork.md: Chain holds, KeywordPopups Chain "Enemies cannot be targeted
+    more than once in the same Chain", terrain chains included (they only redirect a miss); exception: chaining
+    through boss adds, not modelled (no preset has adds). Fork: probably holds, MEDIUM: the game text is silent, a
+    PoE1 developer answer says no, poe2wiki's group rule; in-game test #53.)
   sources: ["https://www.poe2wiki.net/wiki/Chain", "https://www.poe2wiki.net/wiki/Forking"]
   test_in_game: "Cast a projectile spell at a lone boss with this on: the projectile doesn't hit the boss a second time."
   status: proposed
@@ -159,15 +202,19 @@
   status: proposed
 
 - id: no-effect-extra-combo-on-gain
-  title: Gain an additional Combo when you gain Combo (only speeds up Combo)
+  title: Gain an additional Combo when you gain Combo (Martial Adept; read by usage.py's Combo use rate; per-Combo bonuses count at 0 Combo)
   kind: pob_gap
   match: '^When you gain Combo, gain an additional Combo$'
   replace: []
   confidence: reported
-  notes: "As no-effect-extra-combo: Combo consumers are calculated at the Combo they require."
+  notes: >-
+    As no-effect-extra-combo (rewritten COV9, RESEARCH10 #18ac): usage.combo_rotation makes each gain 2 with Martial
+    Adept (COVC7, A11-4), so the Combo skill's use rate counts it; PoB counts per-Combo bonuses at 0 Combo
+    (multiplierCombo never set), so the doubled Combo spent per use is not counted (an UNDERCOUNT for MECH-B's Combo
+    model). The old test note "its damage per use doesn't change" was wrong and is removed.
   sources: ["https://poe2db.tw/us/Martial_Adept", "https://poe2db.tw/us/Combo"]
-  test_in_game: "Use a Combo skill: it reaches its required Combo in half as many hits; its damage per use doesn't change."
-  absorbed_by: "PoB calculates a Combo skill at the Combo it requires, as if always reached; faster Combo would let it be used more often (not counted: the use rate is PoB's)"
+  test_in_game: "Use a Combo skill with Culmination: it reaches its required Combo in half as many Strikes, and its damage per use rises with the Combo held on use."
+  absorbed_by: "builder/search/usage.py combo_rotation (each gain 2 with Martial Adept: the use rate); per-use Combo bonuses not counted (PoB's multiplierCombo is never set)"
   status: proposed
 
 - id: no-effect-infinite-curse-duration

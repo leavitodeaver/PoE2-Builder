@@ -250,3 +250,26 @@ def test_an_empty_pob_wrong_switches_an_item_line_off_only_when_it_says_item_off
     for entry in entries():
         if entry.kind == "pob_wrong" and entry.raw.get("item_off"):
             assert not entry.raw.get("replace"), entry.id  # (item_off means something only with no replacement)
+
+
+def test_jiquanis_thesis_boots_line_reaches_pob_whole_and_movement_speed_alone_is_no_effect():
+    """AUDIT12 A12-2 (COV9): the Soul Core's two-line boots mod gets PoB's whole sentence (ModParser's
+    MovementSpeedAppliesToEnergyShieldRecharge, read by CalcDefence), its second half is carried, and
+    no-effect-movement-speed takes movement-only lines, not a two-line first half nor Attack / Cast Speed ones."""
+    from builder.ledger import translate
+    from builder.ledger.items import ADDED, _bases, unparsed_templates
+    from builder.search.rares import with_runes
+
+    whole = "Increases and Reductions to Movement Speed also apply to Energy Shield Recharge Rate"
+    assert translate("Increases and Reductions to Movement Speed also")[1] == [whole]
+    assert translate(" apply to Energy Shield Recharge Rate")[0].id == "items-jiquanis-thesis-second-line"
+    assert translate("apply to Energy Shield Recharge Rate")[0].id == "uniques-waveshaper-second-line"
+    assert translate("5% reduced Movement Speed Penalty from using Fire Skills while moving")[0].id == "no-effect-movement-speed"
+    assert translate("(10-15)% increased Attack and Movement Speed while you have a Bestial Minion") is None
+    assert translate("5% increased Pin duration") is None  # retired: the Pinned uptime is modelled (A12-1)
+    if not unparsed_templates():
+        pytest.skip("no coverage.json in the data dump")
+    boots = next(n for n, b in _bases().items() if b["type"] == "Boots" and not b.get("hidden"))
+    rare = f"Rarity: Rare\nOptimizer Boots 1\n{boots}\nItem Level: 82\nImplicits: 0\n+10 to Strength"
+    added = [l for l in with_runes(rare, ["Jiquani's Thesis"]).splitlines() if l.startswith(ADDED)]
+    assert added == [ADDED + whole]

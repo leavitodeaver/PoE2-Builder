@@ -1,0 +1,40 @@
+# Item lines PoB's export breaks over two lines (COV9, 12 Nov 2026): PoB parses neither half, though ModParser.lua
+# has the whole sentence; the first half is translated into the whole sentence, the second half carried by it.
+# (Waveshaper's own pair is in uniques-batch2.yaml: uniques-waveshaper-*.)
+
+- id: items-jiquanis-thesis-movement-to-es-recharge
+  title: Jiquani's Thesis (boots), increases and reductions to Movement Speed also apply to Energy Shield Recharge Rate (first half of a two-line mod)
+  kind: pob_gap
+  match: '^Increases and Reductions to Movement Speed also$'
+  replace: ['Increases and Reductions to Movement Speed also apply to Energy Shield Recharge Rate']
+  confidence: datamined
+  notes: >-
+    AUDIT12 A12-2 / RESEARCH9 #18w, an UNDERCOUNT of Energy Shield Recharge: the Soul Core's boots line (runes.json:
+    lines '1' "Increases and Reductions to Movement Speed also" and '2' " apply to Energy Shield Recharge Rate", one
+    trade hash 4282982513) was swallowed by no-effect-movement-speed's 'Movement Speed' pattern (now narrowed). PoB
+    reads neither half, but ModParser.lua 6272 parses the whole sentence to the flag
+    MovementSpeedAppliesToEnergyShieldRecharge, and CalcDefence.lua 1116-1121 ("Jiquani's Thesis boots conversion")
+    adds every INC MovementSpeed mod as INC EnergyShieldRecharge. So the whole sentence added to the item (items.py
+    corrected_item: rune lines PoB can't parse get their translation) is counted by PoB itself; no model needed
+    (MECH-C's queued recharge model for it is not needed). Not checked: whether Queen of the Forest's / Amanamu's
+    Gaze's "Other Modifiers to Movement Speed ... do not apply" also stops them reaching the Recharge (PoB still adds
+    them: a possible small overcount for that pair only, UNVERIFIED).
+  sources: ["data/pob-bb52d6b368/runes.json (Jiquani's Thesis, boots)", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:6272",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcDefence.lua:1116-1121", "scratch/manager/research/no-effect-movement-speed.md"]
+  test_in_game: "Socket Jiquani's Thesis in boots, note the Energy Shield Recharge rate, add an increased Movement Speed line: Recharge rises by the same percentage."
+  status: proposed
+
+- id: items-jiquanis-thesis-second-line
+  title: Jiquani's Thesis (boots), second half of the two-line mod (" apply to Energy Shield Recharge Rate")
+  kind: pob_gap
+  match: '^\s+apply to Energy Shield Recharge Rate$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    Carried by items-jiquanis-thesis-movement-to-es-recharge, which translates the whole sentence from its first line.
+    The rune's second line starts with a space (runes.json); Waveshaper's and UniqueManaRegenAppliesToRecharge1's
+    second line doesn't, and uniques-waveshaper-second-line keeps those (its '^apply' never matched this one: it
+    showed as an open gap).
+  sources: ["data/pob-bb52d6b368/runes.json (Jiquani's Thesis, boots)"]
+  test_in_game: "As items-jiquanis-thesis-movement-to-es-recharge."
+  status: proposed
