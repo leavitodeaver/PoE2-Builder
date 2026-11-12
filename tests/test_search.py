@@ -1404,3 +1404,16 @@ def test_a_charge_or_rage_spender_outside_the_main_group_is_used_at_its_own_pres
     conditions = SimpleNamespace(build=Build())
     rates = Conditions._group_uses(conditions, groups, {"Furious Slam", "Rageforged I", "Molten Crash"})
     assert rates == {"Furious Slam": 0.2, "Rageforged I": 0.2}  # Molten Crash's group is off: not used
+
+
+def test_no_inherent_loss_of_rage_holds_the_maximum():
+    """Blood of the Warrior's "No Inherent loss of Rage during effect" (MECHC4, COVD5 undercount): with gains slower than
+    one per 4 s and every boss hit evaded, Rage decays; with the line it's held at the maximum."""
+    from builder.search.conditions import rage_held
+
+    slow = {"Speed": 0.1, "HitChance": 100, "CritChance": 0, "MaximumRage": 30, "enemySkillTime": 0.7,
+            "EvadeChance": 100, "_main_types": {"Attack", "Melee"}}
+    line = ["Gain 5 Rage on Melee Hit"]
+    assert rage_held(line, slow)[0] < 30
+    held, basis = rage_held([*line, "No Inherent loss of Rage during effect"], slow)
+    assert held == 30 and "no inherent loss" in basis

@@ -696,6 +696,7 @@ CHARGE_OVERRIDES = {f"override{kind}Charges": kind for kind in ("Power", "Frenzy
 # per second per Y Rage spent Recently" (Primal Hunger; before, dropped) as X x 4 s / Y of the Rage the build spends,
 # taken as steady (its 4 s lag isn't modelled) and capped by the spend.
 RAGE_PAUSE, RAGE_DECAY, RAGE_HIT_EVERY = 4.0, 5.0, 0.5
+RAGE_NO_LOSS = re.compile(r"^No Inherent loss of Rage(?: during effect)?$", re.I)  # Blood of the Warrior (MECHC4)
 RAGE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\bgain (\d+|an?)? ?Rage\b(.*)$", re.I)
 RAGE_REGEN = re.compile(r"\bregenerate (\d+(?:\.\d+)?)(%)?(?: of your maximum)? Rage per second(.*)$|"
                         r"\b1 Rage Regenerated for every", re.I)
@@ -810,6 +811,9 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     if net <= 0 or most <= 0:
         held = 0.0
         basis += " (spent as fast as it comes: none held)" if gain > 0 else " (no gain a boss fight feeds)"
+    elif any(RAGE_NO_LOSS.search(t) for t in lines):
+        held = most  # (MECHC4: Blood of the Warrior; its line reaches here only while the flask's slot counts, sourceLines)
+        basis += ", no inherent loss of Rage (a line of the build): the maximum"
     elif events * RAGE_PAUSE >= 1 or land * RAGE_PAUSE >= 1:
         held = most
         basis += f", its loss paused (gains {events:.2f}/s, boss hits landing {land:.2f}/s, one per 4 s needed): the maximum"
