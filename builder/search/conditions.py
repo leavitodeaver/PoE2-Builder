@@ -1541,6 +1541,28 @@ def _minion_died_recently(lines: list[str], stats: dict) -> tuple[object, str]:
                     f"as evenly random)")
 
 
+# A placed Banner (MECHC7, COVC8; usage.py's note: PoB applies the placed banner's buff only under BannerPlanted, which
+# only its config box "Is Banner Planted?" sets and the tool never did: an UNDERCOUNT, the buff counted 0). Placing one
+# costs 200 Glory (WarBannerPlayer / DefianceBannerPlayer / DreadBannerPlayer: active_skill_requires_X_glory 200, HIGH), so
+# it is placed models.glory_uses times a second, and stands for its duration (base_skill_effect_duration 6 s at level 1,
+# 9.8 s at 20, game files; PoB's own duration with the build's modifiers, from useRates): the box at min(1, uses x
+# duration). The player is taken to stand in its 6 m area (active_skill_base_area_of_effect_radius 60) by the boss (a
+# play note). With two or more banners, the lowest share (each banner's buff sits behind the one box: the lower reading).
+# Valour (bannerValour) stays PoB's 0 (an undercount, labelled: not modelled yet).
+BANNERS = ("War Banner", "Defiance Banner", "Dread Banner")
+BANNER_SECONDS = 9.8  # base_skill_effect_duration at level 20 (game files), when PoB gives no duration
+
+
+def _banner_planted(lines: list[str], stats: dict) -> tuple[object, str]:
+    got = stats.get("_banner")
+    if not got:
+        return 0.0, ""
+    up, how = got
+    if up <= 0:
+        return 0.0, how
+    return _box(up, how)
+
+
 def _infusion_recently(lines: list[str], stats: dict) -> tuple[object, str]:
     """PoB's "Infusion consumed recently?" box at the share of the fight one was consumed in the past 4 s: the build's
     consumers (INFUSION_CONSUMERS: the main skill at its casts, any other at its group's rate) take the Infusions it
@@ -1676,6 +1698,7 @@ CONDITIONS: list[Condition] = [
     Condition("conditionEnemyLightningExposure", "Lightning Exposure", value_fn=_exposure_uptime("Lightning"),
               fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
     Condition("conditionMinionsDiedRecently", "A minion of yours died recently", value_fn=_minion_died_recently, fields=()),
+    Condition("bannerPlanted", "Banner placed (its share of the fight from Glory)", value_fn=_banner_planted, fields=()),
     Condition("conditionInfusionConsumedRecently", "Infusion consumed recently", value_fn=_infusion_recently, fields=("Speed",)),
     Condition("buffDivinity", "Divinity (on reaching maximum Divine Charges)", value_fn=_divinity, fields=("Speed", "HitChance")),
     Condition("conditionEnemyArmourBroken", "Armour Broken"),  # (armour_broken_uptime, Conditions.evidence)
@@ -1803,6 +1826,26 @@ class Conditions:
         main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
         return models.minion_deaths(found, main, self.build.call("stats", fields=models.MODEL_FIELDS))
 
+    def _banner_share(self, banners: list[str]) -> tuple[float, str]:
+        """(share of the fight a placed banner stands, how): Glory uses (models.glory_uses) x PoB's duration (MECHC7)."""
+        found = [models.Skill.of(s) for s in self.build.call("activeSkills")["skills"] if not s["disabled"]]
+        group = self.build.main_group()
+        main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
+        stats = self.build.call("stats", fields=models.MODEL_FIELDS)
+        groups = self.build.call("groups")["groups"]
+        where = {n["name"]: g["index"] for g in groups if g.get("enabled") is not False
+                 for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in banners}
+        rates = {r.get("index"): r for r in self.build.call("useRates", indices=sorted(set(where.values())))["rates"]} \
+            if where else {}
+        shares = []
+        for name in banners:
+            uses, how = models.glory_uses([name], stats, main)
+            duration = number((rates.get(where.get(name)) or {}).get("duration")) or BANNER_SECONDS
+            shares.append((min(1.0, uses * duration), f"{how}; it stands {duration:.1f} s"))
+        up, how = min(shares)
+        return up, (f"a placed banner stands {up:.0%} of the fight: {how} (you stand in its 6 m area, a play note; "
+                    "Valour not counted, an undercount)")
+
     def _infusion_consumed(self, lines: list[dict], stats: dict) -> tuple[float, str]:
         """(Infusions consumed per second, how): the build's consumers (INFUSION_CONSUMERS) take what it makes."""
         from builder.search.assumptions import SIPHON, infusion_supply, siphon_freezes
@@ -1909,6 +1952,10 @@ class Conditions:
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
             stats["_minion_deaths"] = self._minion_deaths()
+        if banners := sorted({n["name"] for g in self.build.call("groups")["groups"] if g.get("enabled") is not False
+                              for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in BANNERS}):
+            # (MECHC7: the placed banner at its Glory share)
+            stats["_banner"] = self._banner_share(banners)
         if any(INFUSION_CONSUMED.search(t) for t in texts):
             stats["_infusion_consumed"] = self._infusion_consumed(lines, stats)
         events = event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),

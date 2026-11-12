@@ -1833,3 +1833,29 @@ def test_buffs_on_a_minion_dying_come_from_the_builds_own_minion_deaths():
     none = {**stats, "_minion_deaths": (0.0, "nothing in this build kills its minions")}
     assert onslaught_uptime(["Gain Onslaught for 4 seconds when a Minion Dies"], none)[2] == 0
     assert recently.value_fn([], none)[0] == 0.0
+
+
+def test_a_placed_banner_stands_its_glory_share_of_the_fight():
+    """MECHC7 (COVC8): PoB's bannerPlanted at min(1, Glory uses x the banner's duration); one gain per 0.5 s on the boss."""
+    from types import SimpleNamespace
+
+    from builder.search.conditions import CONDITIONS, Conditions
+
+    calls = {
+        "activeSkills": {"skills": [{"name": "Mace Strike", "group": 1, "attack": True, "disabled": False}]},
+        "stats": {"Speed": 2.0, "HitChance": 100},
+        "groups": {"mainSocketGroup": 1, "groups": [{"index": 1, "gems": [{"name": "Mace Strike"}]},
+                                                     {"index": 2, "gems": [{"name": "War Banner"}]}]},
+        "useRates": {"rates": [{"index": 2, "duration": 9.8}]},
+    }
+    build = SimpleNamespace(call=lambda what, **_: calls[what])
+    build.main_group = lambda: calls["groups"]["groups"][0]
+    cond = Conditions.__new__(Conditions)
+    cond.build, cond.main_skill = build, "Mace Strike"
+    up, how = cond._banner_share(["War Banner"])
+    glory = 2.0 * 20 / (1 + 0.5 * 2.0)  # 2 hits/s x 20 Glory, one gain per 0.5 s
+    assert up == pytest.approx(min(1.0, glory / 200 * 9.8)) and "Valour not counted" in how
+    planted = next(c for c in CONDITIONS if c.var == "bannerPlanted")
+    on, basis, share = planted.value_fn([], {"_banner": (up, how)})
+    assert on and share == pytest.approx(up)
+    assert planted.value_fn([], {})[0] == 0.0
