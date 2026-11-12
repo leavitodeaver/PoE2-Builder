@@ -901,3 +901,36 @@ def test_poison_spores_pustule_explosion_is_held_to_one_a_fuse(engine):
     assert mods == [models.raw_mod("DPS", "MORE", 100 * (share - 1), "Poison Spores")], mods
     assert notes[0]["value"] == f"x{share:.3f}"
 
+
+def test_lucky_spell_crits_are_pobs_own_lucky_on_spell_crits(engine):
+    """"N% chance for Spell Damage with Critical Hits to be Lucky" (PoB parses it only in part, so never applies it):
+    the bridge makes it PoB's LuckyHitsChance on Spell hits in the crit pass (COV8's patch, POE2T2401; MECHB10). Spark
+    with 300% increased spell crit chance and 100% Lucky gains RESEARCH3's chance x crit share x (max-min)/(3(max+min))."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    parsed = engine.call("parseLines", lines=["30% chance for Spell Damage with Critical Hits to be Lucky"])["results"][0]
+    assert parsed["supported"] and parsed["parsed"] == [{"flags": 2, "keywordFlags": 0, "name": "LuckyHitsChance",
+                                                         "tags": ["Condition:CriticalStrike"], "type": "BASE", "value": 30}]
+    ctx = Context(make_payload(BuildRequest(main_skill="Spark")))
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    build = search.build
+    build.set_group(index=build.main_group()["index"], gems=[{"name": "Spark", "level": 20, "quality": 0}])
+    fields = ["TotalDPS", "CritChance", "LightningStoredCritMin", "LightningStoredCritMax", "LightningStoredCritAvg",
+              "LightningStoredHitAvg"]
+
+    def ring(extra: str) -> dict:
+        engine.call("equip", slot="Ring 1", raw="Rarity: Rare\nProbe Ring\nAmethyst Ring\n--------\n"
+                                                "300% increased Critical Hit Chance for Spells\n" + extra)
+        return engine.call("stats", fields=fields)
+
+    base = ring("")
+    lucky = ring("100% chance for Spell Damage with Critical Hits to be Lucky\n")
+    lo, hi, c = base["LightningStoredCritMin"], base["LightningStoredCritMax"], base["CritChance"] / 100
+    share = c * base["LightningStoredCritAvg"] / (c * base["LightningStoredCritAvg"] + (1 - c) * base["LightningStoredHitAvg"])
+    expect = 1 + share * (hi - lo) / (3 * (lo + hi))
+    print("Lucky spell crits:", lucky["TotalDPS"] / base["TotalDPS"], expect)
+    assert expect > 1.01 and abs(lucky["TotalDPS"] / base["TotalDPS"] - expect) < 1e-3
+    assert base["LightningStoredHitAvg"] == lucky["LightningStoredHitAvg"]  # (non-crit hits aren't Lucky)

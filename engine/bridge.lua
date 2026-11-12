@@ -90,6 +90,26 @@ do
 	end
 end
 
+-- Lucky spell crits (MECHB10; COV8's tested patch, POE2T2401; RESEARCH3's undercount): PoB parses "N% chance for Spell
+-- Damage with Critical Hits to be Lucky" only in part (ModCache: Damage BASE with " for    to be Lucky " left over), so
+-- never applies it. As PoB's own LuckyHitsChance on spell hits in the crit pass (CalcOffence 4205 sets
+-- Condition:CriticalStrike there; 4259-4269 rolls min/3 + 2max/3 for the Lucky share): Spark L20 at 36% crit, 100% ->
+-- x1.1594, the formula's x1.1594. Lands with COV-A's retire of lucky-spell-crits (pob-gaps-boss.yaml).
+do
+	local parseBefore = modLib.parseMod
+	modLib.parseMod = function(line, ...)
+		local list, extra = parseBefore(line, ...)
+		if (not list or extra) and type(line) == "string" then
+			local n = line:match("^(%d+)%% chance for Spell Damage with Critical Hits to be Lucky$")
+			if n then
+				return { modLib.createMod("LuckyHitsChance", "BASE", tonumber(n), "Lucky spell crits", ModFlag.Spell,
+					{ type = "Condition", var = "CriticalStrike" }) }, nil
+			end
+		end
+		return list, extra
+	end
+end
+
 local DEFAULT_FIELDS = {
 	"FullDPS", "CombinedDPS", "TotalDPS", "TotalDotDPS", "Life", "EnergyShield", "Mana",
 	"TotalEHP", "Armour", "Evasion", "FireResist", "ColdResist", "LightningResist", "ChaosResist",
