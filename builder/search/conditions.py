@@ -1343,23 +1343,31 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
 
 
 # Ailments the main skill consumes on hit (MECH51; FIX_QUEUE RESEARCH18 #92, HIGH): the stats of its own stat sets or its
-# supports that consume Freeze, Shock or Ignite on hit (checked: every Stats.json id holding "consum" and an ailment word,
-# game 26476662, 45 ids: the ones below make the hit itself consume; the rest trigger other skills, scale by Charges or
-# Incision, or are flask / Heat / corpse / Bleed / Poison stats, not modelled here). Consumed, the ailment ends on the main
-# skill's next hit and the boss is immune to it for 1 s (models.CONSUME_IMMUNE): the boss carries it
-# last / (last + 1 s + the wait to reapply it).
+# supports that make its hit consume Freeze, Shock or Ignite (checked: every Stats.json id holding "consum" and an ailment
+# word, game 26476662, 45 ids, and their carriers in PoB's skill data; AUDIT22 A22-2 added the ones that consume on the
+# hit and then do something else with it: Elemental Discharge, Flame Pillar / His Winnowing Flame, Shocking Rift,
+# Morrigan's Refuge, Glacial Cascade's last spike, Lightning Conduit. Shocking Rift and Lightning Conduit consuming the
+# boss's own Shock: MEDIUM. The rest scale by Charges, Incision, Heat, flasks or corpses, or are Bleed / Poison stats,
+# not modelled here). Consumed, the ailment ends on the main skill's next hit and the boss is immune to it for 1 s
+# (models.CONSUME_IMMUNE): the boss carries it last / (last + 1 s + the wait to reapply it).
 CONSUME_STATS = {
-    "Freeze": ("base_consume_enemy_freeze_on_hit", "active_skill_consume_enemy_freeze_to_gain_damage_+%_final",
+    "Freeze": ("consume_enemy_freeze_to_trigger_morrigan_ward",
+               "active_skill_consume_enemy_freeze_to_gain_damage_against_non_unique_+%_final",
+               "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge", "base_consume_enemy_freeze_on_hit",
+               "active_skill_consume_enemy_freeze_to_gain_damage_+%_final",
                "active_skill_consume_enemy_freeze_to_gain_damage_against_unique_+%_final",
                "support_active_skill_consume_enemy_freeze_to_gain_damage_+%_final", "consume_enemy_freeze_to_guarantee_crit",
                "support_active_skill_consume_enemy_freeze_to_apply_chill", "damage_+%_final_from_consuming_freeze",
                "support_damage_+%_final_from_consuming_freeze"),
-    "Shock": ("base_consume_enemy_shock_on_hit",
+    "Shock": ("try_consuming_shock_to_trigger_shocking_rift_in_radius_on_shocking_enemy",
+              "consume_shock_of_X_enemies_to_trigger_shocking_rift", "lightning_conduit_x_additional_strikes_if_consumed_a_shock",
+              "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge", "base_consume_enemy_shock_on_hit",
               "consume_enemy_shock_to_gain_damage_+%_final_per_5%_increased_damage_taken_from_shock",
               "damage_+%_final_from_consuming_shock"),
-    "Ignite": ("consume_ignite_on_hit",),
+    "Ignite": ("pillar_of_flame_consume_ignite_to_create_X_pillars", "unique_pillar_of_flame_consume_ignite_to_create_X_pillars",
+               "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge", "consume_ignite_on_hit",),
 }
-CONSUME_TEXT = re.compile(r"\bconsum\w*\b[^.]*\b(?:freez|frozen|shock|ignit)", re.I)
+CONSUME_TEXT = re.compile(r"\bconsum\w*\b[^.]*\b(?:freez|frozen|shock|ignit|elemental ailment)", re.I)
 
 
 def consumed_share(hits: float, chance: float, ground: float = 0.0) -> float:

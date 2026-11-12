@@ -1943,3 +1943,16 @@ def test_a_consumed_ailment_ends_on_the_next_hit_and_leaves_1_s_of_immunity():
     plain, eaten = m.immobilised_share(freeze, "Freeze")[0], m.immobilised_share({**freeze, "_consumes": {"Freeze": "X"}}, "Freeze")
     assert eaten[0] < plain / 4 and "immune 1 s" in eaten[1]
     assert c.CONSUME_TEXT.search("Supported Skills Consume Freeze on Hit") and not c.CONSUME_TEXT.search("Freeze enemies")
+
+
+def test_supports_that_consume_an_ailment_on_the_hit_count_as_consumers():
+    """AUDIT22 A22-2: Elemental Discharge, Flame Pillar, Shocking Rift, Morrigan's Refuge, Glacial Cascade's last spike and
+    Lightning Conduit consume on the main hit too (then do something else with it)."""
+    from builder.search import conditions as c
+
+    discharge = "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge"
+    assert all(discharge in c.CONSUME_STATS[a] for a in ("Freeze", "Shock", "Ignite"))
+    assert "pillar_of_flame_consume_ignite_to_create_X_pillars" in c.CONSUME_STATS["Ignite"]
+    assert "consume_enemy_freeze_to_trigger_morrigan_ward" in c.CONSUME_STATS["Freeze"]
+    assert "lightning_conduit_x_additional_strikes_if_consumed_a_shock" in c.CONSUME_STATS["Shock"]
+    assert c.CONSUME_TEXT.search("causing it to Consume Elemental Ailments on hit")
