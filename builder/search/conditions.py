@@ -1979,6 +1979,19 @@ DIVINE_ON_HIT = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to )?gain an? Divine Ch
 DIVINE_LOSE = re.compile(r"Lose all Divine Charges when you gain Divinity", re.I)
 
 
+def _unbound(lines: list[str], stats: dict) -> tuple:
+    """PoB's "Are you Unbound?" box at the share of the fight Unbound Fury lets the build be Unbound
+    (models.unbound_uptime; MECHC10: before, nothing set it, so the skill and every "while Unbound" line counted 0)."""
+    if not any(models.UNBOUND_GRANT.match(t.strip()) for t in lines):
+        return 0.0, ""
+    duration, on = stats.get("_unbound") or (models.UNBOUND_DURATION, False)
+    up, how, alt = models.unbound_uptime(stats, duration, on)
+    if up <= 0:
+        return 0.0, how
+    return (*_box(up, f"Unbound {up:.0%} of the fight ({shared(up)}): {how}"), False,
+            (alt, "if Unbound Avatar's cooldown ticks while you are Unbound"))
+
+
 def _divinity(lines: list[str], stats: dict) -> tuple[object, str]:
     """The Divinity box at its share of the fight: the main skill's landed hits fill the Divine Charge maximum, Divinity
     lasts its seconds and the charges are lost; refilled within that time it never drops. Other skills' hits aren't
@@ -2092,6 +2105,9 @@ CONDITIONS: list[Condition] = [
     Condition("bannerPlanted", "Banner placed (its share of the fight from Glory)", value_fn=_banner_planted, fields=()),
     Condition("conditionInfusionConsumedRecently", "Infusion consumed recently", value_fn=_infusion_recently, fields=("Speed",)),
     Condition("buffDivinity", "Divinity (on reaching maximum Divine Charges)", value_fn=_divinity, fields=("Speed", "HitChance")),
+    Condition("Unbound", "Unbound (Unbound Avatar, from Unbound Fury)", value_fn=_unbound,
+              fields=("Speed", "HitChance", "IgniteChancePerHit", "ShockChancePerHit", "ChillChanceOnHit",
+                      *models.IMMOBILISE_FIELDS)),
     Condition("conditionEnemyArmourBroken", "Armour Broken"),  # (armour_broken_uptime, Conditions.evidence)
     Condition("conditionEnemyCursed", "Cursed", value_fn=lambda lines, stats: _cursed(stats),
               fields=("PresenceRadius",)),
@@ -2396,6 +2412,11 @@ class Conditions:
             got = main.get("supportStats") or {}
             if all(got.get(stat) for stat in ARCANE_SURGE_SUPPORT_STATS):
                 stats["_arcane_surge_support"] = (got[ARCANE_SURGE_SUPPORT_STATS[0]], got[ARCANE_SURGE_SUPPORT_STATS[1]] / 1000)
+        if any(models.UNBOUND_GRANT.match(t.strip()) for t in texts):  # (Unbound Avatar: its duration, the box's state)
+            raw = self.build.call("activeSkills", levelStats=[models.UNBOUND])
+            got = next((s.get("levelStats") or {} for s in raw["skills"] if s["name"] == models.UNBOUND), {})
+            duration = number(got.get("base_skill_effect_duration")) / 1000 or models.UNBOUND_DURATION
+            stats["_unbound"] = (duration, bool(self.build.call("getConfig")["input"].get("Unbound")))
         if any("incision" in name.lower() or name == "Bleed IV" for name in main_gems):  # (Incision, Bleed IV)
             raw = self.build.call("activeSkills", supportStats=list(INCISION_SUPPORT_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})

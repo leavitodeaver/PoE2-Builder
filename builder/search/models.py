@@ -2064,6 +2064,80 @@ def jiquani_model(texts: list[str]) -> tuple[list[dict], list[dict]]:
                  "so each increased or reduced Movement Speed modifier also raises Energy Shield Recharge Rate"}]
 
 
+# Unbound Avatar (MECHC10; MECHC8's design, COVC10): Invoker's "...and I Shall Rage" (AscendancyMonk2Notable5,
+# gain_unbound_ailment_stacks) reads "Grants Skill: Unbound Avatar" (PoB's tree). The skill (game files 26476662,
+# GrantedEffectStatSets UnboundAvatarPlayer; PoB other.lua 19425): 100 Unbound Fury to use, a 12 s cooldown, the buff
+# 8 s at level 1 to 9.9 s at 20 (+1 s at 20% quality), and three buff stats PoB maps to nothing (checked: SkillStatMap
+# and ModParser have no ailment_bearer / unbound_ailment entry; only the separate "N% more Elemental Damage while
+# Unbound" passive wording parses): ailment_bearer_elemental_damage_+%_final 40, unbound_ailment_elemental_ailment_
+# chance_+%_final 80, unbound_ailment_hit_damage_elemental_immobilisation_multiplier_+%_final 40 (poe2db: "40% more
+# Elemental Damage while Unbound", "80% more chance to inflict Elemental Ailments while Unbound", "40% more Elemental
+# Ailment Buildup while Unbound"). PoB sets Condition:Unbound only from its config box, which nothing set before: the
+# skill counted 0. Fury (KeywordPopups UnboundFury, HIGH): "Chilling, Shocking, or Igniting Enemies grants 1 Unbound
+# Fury. Freezing or Electrocuting Enemies grants 6"; "Cannot gain Unbound Fury while Unbound" (stat_descriptions).
+UNBOUND_GRANT = re.compile(r"^Grants Skill: Unbound Avatar$", re.I)
+UNBOUND = "Unbound Avatar"
+UNBOUND_FURY = 100.0
+UNBOUND_COOLDOWN = 12.0
+UNBOUND_DURATION = 9.9  # level 20, no quality: when the bridge doesn't list the skill
+UNBOUND_FURY_LIGHT, UNBOUND_FURY_IMMOBILISE = 1.0, 6.0
+UNBOUND_CHANCE_MORE, UNBOUND_BUILDUP_MORE = 80.0, 40.0
+# PoB wordings, each under Condition:Unbound (the bridge's `pob` condition): "chance to inflict elemental ailments" is
+# PoB's Ignite and Shock chance (ModParser 854); Chill has no chance in PoE2; Freeze and Electrocute are the elemental
+# immobilisations (Pin is physical: not in the stat's "elemental_immobilisation")
+UNBOUND_BUFF = (("1% more Elemental Damage", 40.0), ("1% more chance to inflict Elemental Ailments", UNBOUND_CHANCE_MORE),
+                ("1% more Freeze Buildup", UNBOUND_BUILDUP_MORE), ("1% more Electrocute Buildup", UNBOUND_BUILDUP_MORE))
+
+
+def unbound_model(texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """The Unbound buff's three stats for PoB, under its Condition:Unbound (conditions' "Unbound" box at the uptime
+    unbound_uptime gives)."""
+    if not any(UNBOUND_GRANT.match(t.strip()) for t in texts):
+        return [], []
+    return [line(text, value, when=[{"pob": "Unbound"}]) for text, value in UNBOUND_BUFF], [{
+        "label": "Unbound Avatar's buff: 40% more Elemental Damage, 80% more chance to inflict Elemental Ailments, 40% "
+                 "more Freeze and Electrocute Buildup", "value": "while Unbound",
+        "confidence": "datamined (the skill's stats); the share of the fight is the Unbound box's",
+        "basis": "PoB maps none of the skill's buff stats; they are given to PoB under its Unbound condition, which "
+                 "counts at the share of the fight Unbound Fury lets you be Unbound"}]
+
+
+def unbound_uptime(stats: dict, duration: float, on: bool) -> tuple[float, str, float]:
+    """(share of the fight Unbound, how, the share if the cooldown ticks while Unbound). Fury from the main skill's
+    hits: Ignite and Shock at PoB's chance per hit, Chill on hits that can Chill, 1 each; Freezes and Electrocutes from
+    buildup_rate, 6 each. `on`: the stats were taken with the Unbound box on, so its 80% more chance and 40% more
+    buildup come back out (no Fury while Unbound: the bar fills with the buff down). Not counted: other skills'
+    ailments (an undercount), increased duration and cooldown recovery on the skill (undercounts). Whether a hit on a
+    boss already carrying the ailment "inflicts" it again: taken as yes (each hit's new instance; UNVERIFIED). Whether
+    the cooldown ticks while Unbound: UNVERIFIED (the game has a stat ailment_bearer_cooldown_does_not_tick that the
+    skill's stat set doesn't hold); the headline takes the lower reading, cooldown from the buff's end: a cycle of
+    duration + max(cooldown, fill); the other reading (max(cooldown, duration + fill)) is the second figure."""
+    if duration <= 0:
+        return 0.0, "", 0.0
+    chance_div = 1 + UNBOUND_CHANCE_MORE / 100 if on else 1.0
+    buildup_div = 1 + UNBOUND_BUILDUP_MORE / 100 if on else 1.0
+    hits = hits_per_second(stats)
+    ignite = min(number(stats.get("IgniteChancePerHit")) / chance_div, 100.0) / 100
+    shock = min(number(stats.get("ShockChancePerHit")) / chance_div, 100.0) / 100
+    chill = min(number(stats.get("ChillChanceOnHit")), 100.0) / 100
+    off = {**stats, "FreezeBuildupAvg": number(stats.get("FreezeBuildupAvg")) / buildup_div,
+           "ElectrocuteBuildupAvg": number(stats.get("ElectrocuteBuildupAvg")) / buildup_div}
+    heavy = buildup_rate(off, "Freeze") + buildup_rate(off, "Electrocute")
+    fury = hits * (ignite + shock + chill) * UNBOUND_FURY_LIGHT + heavy * UNBOUND_FURY_IMMOBILISE
+    if fury <= 0:
+        return 0.0, ("Unbound Avatar: the main skill's hits inflict no Elemental Ailment, so no Unbound Fury: never "
+                     "Unbound, 0"), 0.0
+    fill = UNBOUND_FURY / fury
+    up = duration / (duration + max(UNBOUND_COOLDOWN, fill))
+    alt = duration / max(UNBOUND_COOLDOWN, duration + fill)
+    how = (f"Unbound {duration:g} s per cycle of {duration + max(UNBOUND_COOLDOWN, fill):.1f} s: 100 Unbound Fury in "
+           f"{fill:.1f} s ({fury:.2f}/s: {hits:.2f} hits/s x (Ignite {ignite:.0%} + Shock {shock:.0%} + Chill "
+           f"{chill:.0%}) x 1, Freeze and Electrocute {heavy:.3f}/s x 6; the main skill's hits only), then the "
+           f"{UNBOUND_COOLDOWN:g} s cooldown counted from the buff's end (UNVERIFIED; {alt:.0%} if it ticks while "
+           f"Unbound); pressed once a cycle")
+    return up, how, alt
+
+
 def darkness_note(stats: dict) -> dict | None:
     darkness = number(stats.get("Darkness"))
     if darkness <= 0:

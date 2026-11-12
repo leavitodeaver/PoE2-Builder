@@ -3099,3 +3099,24 @@ def test_two_part_time_flasks_share_the_using_flask_flag():
     exact = ua * ub + ua * (1 - ub) * rb + (1 - ua) * ub * ra + (1 - ua) * (1 - ub) * r0
     product = (ua + (1 - ua) * ra) * (ub + (1 - ub) * rb)
     assert product * flasks.shared_flag_factor([ua, ub], [ra, rb], r0)[0] == pytest.approx(exact)
+
+
+def test_unbound_uptime_from_the_builds_ailments():
+    """MECHC10: Unbound Fury 1 per Ignite / Shock / Chill, 6 per Freeze / Electrocute (KeywordPopups UnboundFury);
+    100 to use; the cooldown counted from the buff's end (the lower reading; the other as the second figure)."""
+    from builder.search import conditions
+
+    stats = {"Speed": 4.0, "HitChance": 100.0, "ShockChancePerHit": 50.0, "ChillChanceOnHit": 0.0}
+    up, how, alt = models.unbound_uptime(stats, 9.9, False)
+    # 2 Fury/s: 50 s to fill; cycle 9.9 + 50
+    assert up == pytest.approx(9.9 / 59.9) and alt == pytest.approx(9.9 / 59.9) and "50.0 s" in how
+    fast = {**stats, "ShockChancePerHit": 100.0, "ChillChanceOnHit": 100.0, "Speed": 10.0}
+    up, _, alt = models.unbound_uptime(fast, 9.9, False)  # 20 Fury/s: 5 s, under the cooldown
+    assert up == pytest.approx(9.9 / 21.9) and alt == pytest.approx(9.9 / 14.9)
+    # taken with the box on: the 80% more chance comes back out
+    assert models.unbound_uptime({**stats, "ShockChancePerHit": 90.0}, 9.9, True)[0] == pytest.approx(up_ := 9.9 / 59.9)
+    assert models.unbound_uptime({"Speed": 4.0, "HitChance": 100.0}, 9.9, False)[0] == 0
+    assert conditions._unbound(["Some other line"], stats) == (0.0, "")
+    box = conditions._unbound(["Grants Skill: Unbound Avatar"], {**fast, "_unbound": (9.9, False)})
+    assert box[0] is True and box[2] == pytest.approx(9.9 / 21.9) and box[4][0] == pytest.approx(9.9 / 14.9)
+    assert [m["when"] for m in models.unbound_model(["Grants Skill: Unbound Avatar"])[0]] == [[{"pob": "Unbound"}]] * 4

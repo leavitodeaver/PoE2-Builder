@@ -2019,7 +2019,8 @@ local assumedMods = { }
 
 -- A custom model's modifier line (kind "Line"): PoB parses `line`, and each parsed modifier is
 -- scaled by `scale` and gets the model's tags:
---   when = { {var = "ArchonMana"}, {any = {"A", "B"}, neg = true} }  ledger conditions (all must hold)
+--   when = { {var = "ArchonMana"}, {any = {"A", "B"}, neg = true} }  ledger conditions (all must hold);
+--                                      {pob = "Unbound"}: a PoB condition itself, not a ledger one
 --   per = "ArchonDuration", base = b   value = scale * Multiplier:LedgerArchonDuration + b, the
 --                                      linear part of a model around the current build, so
 --                                      what-ifs that add or remove its passives see the change
@@ -2042,7 +2043,10 @@ local function lineMods(mod)
 			copy.value.mod.value = copy.value.mod.value * mod.scale
 		end
 		for _, condition in ipairs(mod.when or { }) do
-			if condition.any then
+			if condition.pob then
+				-- a PoB condition itself (MECHC10: Condition:Unbound, set by the conditions' box)
+				copy[#copy + 1] = { type = "Condition", var = condition.pob, neg = condition.neg or nil }
+			elseif condition.any then
 				local vars = { }
 				for i, var in ipairs(condition.any) do
 					vars[i] = "Ledger" .. var

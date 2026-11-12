@@ -1598,3 +1598,27 @@ def test_either_flask_keeps_pobs_using_flask_lines_on(engine):
     assert none < 0.95  # the line goes only with both off
     factor, note = flasks.shared_flag_factor([0.5, 0.5], [one_off, two_off], none)
     assert factor == pytest.approx(0.75 + 0.25 * none) and factor < 1.0 and "75%" in note
+
+
+def test_unbound_buff_lines_parse_and_count_only_while_unbound(engine):
+    """MECHC10: Unbound Avatar's three buff stats (PoB maps none) reach PoB as lines under Condition:Unbound (the
+    bridge's `pob` condition): 40% more Elemental Damage and 80% more Shock chance while the "Are you Unbound?" box is
+    on, nothing while it's off."""
+    from builder.search import models
+
+    search = spark_with(engine, [])
+    build = search.build
+    mods, notes = models.unbound_model(["Grants Skill: Unbound Avatar"])
+    assert len(mods) == 4 and "while Unbound" in notes[0]["value"]
+    fields = ["CombinedDPS", "ShockChancePerHit"]
+    plain = build.call("stats", fields=fields)
+    build.call("setAssumptions", mods=search.assumptions.mods + mods, fields=[])
+    off = build.call("stats", fields=fields)
+    assert off["CombinedDPS"] == pytest.approx(plain["CombinedDPS"])
+    build.set_config({"Unbound": True})
+    on = build.call("stats", fields=fields)
+    assert on["CombinedDPS"] > off["CombinedDPS"] * 1.3
+    if 0 < off.get("ShockChancePerHit", 0) < 50:
+        assert on["ShockChancePerHit"] == pytest.approx(off["ShockChancePerHit"] * 1.8, rel=0.02)
+    build.set_config({"Unbound": False})
+    build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
