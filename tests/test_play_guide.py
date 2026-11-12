@@ -391,3 +391,9 @@ def test_seething_body_pause_row_holds_archon_at_the_cost_of_the_pauses():
 
     assert play_guide.seething_pause(SimpleNamespace(build=Unmoved(), assumptions=SimpleNamespace(apply=lambda: None)),
                                      1000.0) is None
+
+
+def test_a_build_at_the_edge_of_its_presence_is_compared_with_standing_back():
+    """MECHC8 (#151): the search's Presence-edge distance (4 m) gets a "stand closer" row against the ranged 5 m."""
+    assert play_guide._other_distance(40) == 50 and play_guide._other_distance(20) == 50
+    assert play_guide._other_distance(50) == 20

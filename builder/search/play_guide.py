@@ -53,8 +53,11 @@ def kind(var: str) -> str:
 
 
 def _other_distance(value: object) -> float:
-    """The other range for the boss distance (10 units a metre): close if the headline stands far, far if close."""
-    return RANGED_DISTANCE * 10 if number(value) <= MELEE_DISTANCE * 10 else MELEE_DISTANCE * 10
+    """The other range for the boss distance (10 units a metre): close if the headline stands far, far if close. A ranged
+    build the search moved in to the edge of its Presence (conditions.distance_candidates; RESEARCH25 #151) is compared
+    with standing back at the ranged distance, its "without it" (MECHC8: before, with close range, which hid the cost of
+    stepping out of its Presence)."""
+    return RANGED_DISTANCE * 10 if number(value) < RANGED_DISTANCE * 10 else MELEE_DISTANCE * 10
 
 
 def guide(search: Any) -> list[dict]:
