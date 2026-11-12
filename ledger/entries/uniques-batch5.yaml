@@ -1,0 +1,138 @@
+# Unique items' lines, fifth batch (COVD5, 12 Nov 2026): open unique lines the tool's own models already read
+# (builder/ledger/coverage.py's ranking as of origin/main eb237c8 + uniques-batch3/4.yaml).
+#
+# Each line was run through its model's function on a sample build (scratch/covd/probe5.py, not tracked): the model
+# returns a rate for it, so the line reaches builds today; these entries only record that (empty replace, `model:`),
+# so the audit stops listing them and builds show which model reads them. No number changes.
+# PoB ignores every line here (Data/ModCache.lua: nil, or an empty parse with leftover text, which Item.lua never
+# applies). The models read the bridge's sourceLines, which pass PoB's modLine.line: a rolled line's range text
+# "(15-25)%" reaches them unrolled (Classes/Item.lua 2728-2731 rolls it only for parsing), so only lines with fixed
+# numbers are recorded here; the rolled ones are open (COVD5.report.md).
+# PoE2 0.5.x; recheck at the 1.0 refresh.
+
+# Debuffs on the boss, read by conditions.py's debuff uptimes (DEBUFFS, _debuff_source) -----------------------------
+
+- id: uniques-model-intimidate-on-hit
+  title: Blackheart / Loreweave, 25% chance to Intimidate Enemies for 4 seconds on Hit (Intimidated uptime)
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^(\(\d+-\d+\)|\d+)% chance to Intimidate Enemies for (\d+) seconds on Hit$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    builder/search/conditions.py reads it for the boss's Intimidated box (conditionEnemyIntimidated): _debuff_source
+    takes the chance and the line's 4 s, and rates it at the main skill's hits per second (checked by running it:
+    "25% x 2.00 hits/s, 4 s: 90% up" on a 2-hit/s sample). PoB parses the line to nothing with leftover text
+    (ModCache: {{}," to Intimidate Enemies   "}), so only the tool's model counts it. Loreweave's rolled variant
+    "(0-100)% chance ..." reaches the model rolled (50%) once COV6's 6366422 (bridge.sourceLines rolls ranges) is on
+    main; before it, the model reads the range text as a 100% chance (a small overcount, COVD5.report.md section 2).
+  sources: ["https://poe2db.tw/us/Blackheart", "https://poe2db.tw/us/Loreweave",
+            "builder/search/conditions.py (DEBUFFS, _debuff_source)", "data/game-26476662/tables/KeywordPopups.json (Intimidate)"]
+  test_in_game: "Hit a dummy with the ring on: about one hit in four shows Intimidated on it for 4 s."
+  status: proposed
+
+- id: uniques-model-wulfsbane-intimidate-on-block
+  title: Wulfsbane, Intimidate Enemies on Block for 8 seconds (Intimidated uptime)
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^Intimidate Enemies on Block for (\d+) seconds$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    _debuff_source rates it at the boss's hits you Block (EffectiveBlockChance over the boss's time per skill), 8 s
+    each (checked by running it: "100% x 0.43 the boss's hits you Block/s, 8 s: 100% up" at 30% Block, 0.7 s a hit).
+    The boss's hit rate is the preset's, not a flat guess. PoB ignores the line (ModCache nil).
+  sources: ["https://poe2db.tw/us/Wulfsbane", "builder/search/conditions.py (_debuff_source, 'block')"]
+  test_in_game: "Block a boss hit with the shield raised: the boss shows Intimidated for 8 s."
+  status: proposed
+
+- id: uniques-model-hoghunt-maim-on-crit
+  title: Hoghunt, Maim on Critical Hit (Maimed uptime)
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^Maim on Critical Hit$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    _debuff_source rates it at the main skill's crits per second (models.crits_per_second), 4 s each (KeywordPopups
+    Maim's default duration; checked by running it: "100% x 0.60 crits/s, 4 s: 100% up"). PoB ignores the line
+    (ModCache nil). What Maimed does for the build is PoB's own (its "against Maimed" lines read the box).
+  sources: ["https://poe2db.tw/us/Hoghunt", "builder/search/conditions.py (_debuff_source, 'critical')",
+            "data/game-26476662/tables/KeywordPopups.json (Maim)"]
+  test_in_game: "Crit a dummy with the club: it shows Maimed for 4 s."
+  status: proposed
+
+- id: uniques-model-chainsting-maim-chance
+  title: Chainsting, (15-25)% chance to Maim on Hit (Maimed uptime)
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^(\(\d+-\d+\)|\d+)% chance to Maim on Hit$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    _debuff_source rates it at the main skill's hits per second x the chance, 4 s each (checked by running it on the
+    rolled middle "20% chance to Maim on Hit": "20% x 2.00 hits/s, 4 s: 83% up"). It reaches the model rolled once
+    COV6's 6366422 (bridge.sourceLines rolls ranges, as PoB's Item.lua 2728-2731) is on main; before it, the range
+    text "(15-25)%" skips the chance group and the model reads a 100% chance (an overcount, COVD5.report.md section
+    2). PoB parses every roll of it to nothing with leftover text (ModCache, e.g. "20% chance to Maim on Hit" =
+    {{}," to Maim  "}), which Item.lua never applies.
+  sources: ["https://poe2db.tw/us/Chainsting", "builder/search/conditions.py (_debuff_source, 'on hit')",
+            "data/game-26476662/tables/KeywordPopups.json (Maim)"]
+  test_in_game: "Hit a dummy with the weapon: about one hit in five shows Maimed on it for 4 s."
+  status: proposed
+
+# Shocked Ground, read by conditions.py's shocked_ground (MECH45) ---------------------------------------------------
+
+- id: uniques-model-wake-of-destruction-ground
+  title: Wake of Destruction, Drop Shocked Ground while moving, lasting 8 seconds (Shocked Ground under the boss)
+  kind: pob_gap
+  model: shocked_ground
+  match: '^Drop Shocked Ground while moving, lasting (\d+) seconds$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    conditions.py GROUND_WHILE_MOVING reads it in shocked_ground: the trail counts as a play strategy (walk or roll
+    through the boss's spot at least every 8 s), with the ground taken to be at the boss for its full duration (LOW,
+    labelled in the model; checked by running it: "the trail while moving (8 s) ... 100%"). PoB ignores the line
+    (ModCache nil).
+  sources: ["https://poe2db.tw/us/Wake_of_Destruction", "builder/search/conditions.py (GROUND_WHILE_MOVING, shocked_ground)",
+            "data/game-26476662/tables/KeywordPopups.json (ShockedGround)"]
+  test_in_game: "Walk through a dummy's spot: Shocked Ground stays there for 8 s and the dummy shows Shocked."
+  status: proposed
+
+# Rage, read by conditions.py's rage_held ----------------------------------------------------------------------------
+
+- id: uniques-model-bristleboar-rage-when-crit
+  title: Bristleboar, Gain 10 Rage when Critically Hit by an Enemy (Rage held)
+  kind: pob_gap
+  model: rage
+  match: '^Gain (\d+) Rage when Critically Hit by an Enemy$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    _rage_gain reads it as the boss's crits on you: its hits that land (Evade and Block taken off) x 5% (the model's
+    own boss crit share, labelled there), 10 Rage each (checked by running it: "when the boss crits you (5% of its hits
+    that land), 0.05 gains/s"). PoB parses it to nothing with leftover text (ModCache: {{}," Rage when Critically Hit by
+    an Enemy "}).
+  sources: ["https://poe2db.tw/us/Bristleboar", "builder/search/conditions.py (RAGE_SOURCE, _rage_gain)",
+            "data/game-26476662/tables/KeywordPopups.json (Rage)"]
+  test_in_game: "Take a critical hit from a monster: the Rage bar gains 10."
+  status: proposed
+
+# Infusions, read by assumptions.py's infusion_supply ----------------------------------------------------------------
+
+- id: uniques-model-verisium-infusion
+  title: The Deepest Tower / Keeper of the Arc, Every 5 seconds, gain a Verisium Infusion (Infusion supply)
+  kind: pob_gap
+  model: infusion_supply
+  match: '^Every (\d+) seconds, gain a Verisium Infusion$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    builder/search/assumptions.py infusion_supply (VERISIUM_EVERY) adds one Infusion of any element every 5 s to the
+    supply that Infusion-consuming skills draw on (Assumptions.infusion_share), from the build's sourceLines. PoB
+    ignores the line (ModCache nil).
+  sources: ["https://poe2db.tw/us/The_Deepest_Tower", "https://poe2db.tw/us/Keeper_of_the_Arc",
+            "builder/search/assumptions.py (VERISIUM_EVERY, infusion_supply)"]
+  test_in_game: "Wear the crown for 5 s: an Infusion icon appears; an Infusion-consuming spell takes it."
+  status: proposed
