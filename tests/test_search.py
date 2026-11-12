@@ -636,8 +636,12 @@ def test_boss_fight_conditions_from_the_builds_own_numbers():
     hit, block = by_var["conditionBeenHitRecently"].stat, by_var["conditionBlockedRecently"].stat
     base = {"enemySkillTime": 0.7, "EvadeChance": 0, "EffectiveBlockChance": 0}
     assert hit(base) and not block(base)  # the boss's hits land: hit recently; no block
-    assert not hit({**base, "EvadeChance": 95, "EffectiveBlockChance": 50})  # almost every hit avoided
-    assert block({**base, "EffectiveBlockChance": 40}) and not block({**base, "EffectiveBlockChance": 20})
+    # almost every hit avoided (a boss with no red-flash skills: Atziri's phase 1, MECHC5)
+    assert not hit({**base, "EvadeChance": 95, "EffectiveBlockChance": 50, "_boss": "Atziri, the Red Queen"})
+    assert hit({**base, "EvadeChance": 95, "EffectiveBlockChance": 50})  # the Arbiter's red-flash hits land anyway
+    # (MECHC5: only the Arbiter's 13 of 20 blockable skills can be Blocked: 40% blocks 26% of its hits, too few)
+    assert block({**base, "EffectiveBlockChance": 60}) and not block({**base, "EffectiveBlockChance": 40})
+    assert block({**base, "EffectiveBlockChance": 40, "_boss": "Atziri, the Red Queen"})
     assert by_var["conditionHaveEnergyShield"].stat({"EnergyShield": 1}) and not by_var["conditionHaveEnergyShield"].stat({})
     assert by_var["conditionAtCloseRange"].main_types == ("Melee",)
 
@@ -777,9 +781,10 @@ def test_rage_held_from_gains_spends_and_its_decay():
     # A gain once per 10 s with no hit taken: 3 Rage held 4 s, then lost over 0.6 s: (12 + 0.9) / 10
     rare = rage_held(["Gain 3 Rage on Hit with Attacks, no more than once every 10 seconds"], melee)
     assert rare[0] == 1
-    # Taking the boss's hits pauses the loss too: the same gain keeps the maximum
+    # Taking the boss's hits pauses the loss too, but pauses make no Rage: the 3 gained are kept almost all the time
+    # (MECHC5; before, the maximum 30 from 3 Rage per 10 s); held 2.97, truncated as PoB's Rage multiplier is
     assert rage_held(["Gain 3 Rage on Hit with Attacks, no more than once every 10 seconds"],
-                     {**melee, "EvadeChance": 0})[0] == 30
+                     {**melee, "EvadeChance": 0})[0] == 2
     # Spenders: Molten Crash at 3 uses/s spends 30/s, more than the 2/s gained
     spent = rage_held(["Gain 1 Rage on Melee Hit"], {**melee, "_rage_spend": {"Molten Crash": 30.0}})
     assert spent[0] == 0 and "Molten Crash" in spent[1]
@@ -795,7 +800,11 @@ def test_rage_held_from_gains_spends_and_its_decay():
     mana = rage_held(["Gain 8 Rage after Spending a total of 200 Mana"], {**melee, "ManaPerSecondCost": 100})
     assert mana[0] == 30 and "0.50 gains/s" in mana[1]
     # at 10 Mana/s: one gain of 8 every 20 s, held 4 s then lost over 1.6 s: (32 + 8 x 1.6 - 2.5 x 1.6^2) / 20 = 1.92
-    assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"], {**melee, "ManaPerSecondCost": 10})[0] == 1
+    # (against a boss with no red-flash hits; MECHC5: the Arbiter's red-flash hits land through 100% evasion, 0.5/s, and
+    # pause the loss at random: 3 held)
+    assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"],
+                     {**melee, "ManaPerSecondCost": 10, "_boss": "Atziri, the Red Queen"})[0] == 1
+    assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"], {**melee, "ManaPerSecondCost": 10})[0] == 3
     assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"], melee)[0] == 0  # spends none: no gain
     # Rage regenerated from Mana Regeneration: 50/s over 25 is 2 Rage/s; none without Mana regeneration
     regen = rage_held(["1 Rage Regenerated for every 25 Mana Regeneration per Second"], {**melee, "ManaRegenRecovery": 50})

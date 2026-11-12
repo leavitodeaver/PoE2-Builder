@@ -1656,9 +1656,14 @@ def test_archon_of_the_blizzard_waits_for_a_gap_in_the_boss_s_landing_hits():
     blizzard = lambda stats: next(s for s in models.archon_sources(stats, set()) if s.name == "Archon of the Blizzard")
     rate = 1 / 0.7
     assert blizzard(base).wait == pytest.approx(math.expm1(rate * 4.0) / rate)  # ~209 s: hit often, rarely recharges
+    # (MECHC5: 7 of the Arbiter of Ash's 20 skills can't be evaded or blocked; Atziri's phase 1 has none)
     dodgy = dict(base, EvadeChance=50, EffectiveBlockChance=50)
-    assert blizzard(dodgy).wait == pytest.approx(math.expm1(rate / 4 * 4.0) / (rate / 4))
-    assert blizzard(dict(base, EvadeChance=100)).wait == pytest.approx(4.0)  # never hit: just the delay
+    land = rate * (0.35 + 0.65 / 4)
+    assert blizzard(dodgy).wait == pytest.approx(math.expm1(land * 4.0) / land)
+    phase1 = dict(dodgy, _boss="Atziri, the Red Queen")
+    assert blizzard(phase1).wait == pytest.approx(math.expm1(rate / 4 * 4.0) / (rate / 4))
+    assert blizzard(dict(base, EvadeChance=100, _boss="Atziri, the Red Queen")).wait == pytest.approx(4.0)  # never hit
+    assert blizzard(dict(base, EvadeChance=100)).wait > 4.0  # the Arbiter's red-flash hits still land
 
 
 def test_a_meta_triggered_curse_or_mark_is_up_at_the_meta_s_trigger_rate():
