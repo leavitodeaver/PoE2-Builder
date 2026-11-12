@@ -67,6 +67,7 @@ class Search:
         self.build = Build(engine, self.ctx, Objective(self.ctx, full, goal=goal), report, self.skeleton.label)
         self.rng = random.Random(seed)
         self.gems = Gems(self.build)
+        self.gems.rng = self.rng
         self.tree = Tree(self.build, self.rng)
         self.tree.class_name, self.tree.ascendancy = self.skeleton.class_name, self.skeleton.ascendancy
         self.tree.checkpoint = self.checkpoint
@@ -1031,7 +1032,12 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     search.load(state)
     build = search.build
     build.phase = "finalize"
+    # The score after each finalize step (ln DPS-like), in the result: 2b75e's delivered build has come out 8-17% under
+    # the best searching line in every gate run (2.60M -> 2.15M, POE2T650), and this tells a polish loss from a truer
+    # number (Full DPS, exact uptimes)
+    trace: list[list] = [["loaded", round(build.score, 4)]]
     search.include_in_full_dps()
+    trace.append(["full dps", round(build.score, 4)])
     # The search's support shortlists were ranked on the main skill's DPS, which never counts a skill a support grants
     # (Deadly Resolve's slash): with them, finalize spent its polish on shortlist moves and its sweep came too late or
     # not at all. 2b75d, 8 Nov: the same build went 264,520 -> 575,512 on Close Combat II + Deadly Resolve when the
@@ -1042,12 +1048,17 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         search.conditions.choose_quests()
         if deadline - clock.now() >= FINALIZE_SWEEP_MIN:  # (a sweep isn't cut by the deadline: 12-25 s on gate 4)
             search.step("supports", search.gems.optimize_supports, deadline, 12, True)
+            trace.append(["supports", round(build.score, 4)])
         search.run(deadline, escalate=False, feasible_first=True)
+        trace.append(["polish", round(build.score, 4)])
     except Cancelled:
         pass
     search.choose_play()
+    trace.append(["play", round(build.score, 4)])
     search.resolve()
+    trace.append(["resolve", round(build.score, 4)])
     search.weigh_uptimes()  # exact for the finished build
+    trace.append(["uptimes", round(build.score, 4)])
 
     search.gear.sync_flasks()
     search.gems.meta_candidates()  # the Meta gems the search can't propose yet, with why, for the result
@@ -1090,7 +1101,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     assumptions += list(search.play_notes.values())  # standing still not counted, the Low Life weighting
     return {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
-        "play_guide": play,
+        "play_guide": play, "finalize_trace": trace,
         "pob_full_dps": facts["stats"].get("FullDPS"), "excluded_dps": excluded, "excluded_from": excluded_names,
         "clear_estimate": build.objective.clear(build.stats),
         "blind_spots": blind_spots,

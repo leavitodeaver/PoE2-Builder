@@ -434,7 +434,8 @@ class Run:
             # while searching measured the main skill, so the two can differ
             self.emit("best", skeleton=final["label"], dps=final["dps"], clear=final.get("clear"),
                       value=self.goal_of(final), score=final["score"],
-                      deficits=[d["label"] for d in final["deficits"]], final=True)
+                      deficits=[d["label"] for d in final["deficits"]], final=True,
+                      trace=final.get("finalize_trace"), searched=best.get("score"))
             return self.result(final, problems)
 
     # Results -----------------------------------------------------------------------------------

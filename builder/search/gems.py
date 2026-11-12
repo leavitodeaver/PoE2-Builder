@@ -104,6 +104,9 @@ def highest_usable_level(levels: list[dict], attributes: dict[str, float], chara
 SHORTLIST = 40
 REBUILD_SEEDS = 3  # rebuild_main: the sweep's best new supports each tried as the seed of a rebuilt set
 REBUILD_POOL = 24  # and the sweep's best names the rebuild fills the other slots from
+REBUILD_DRAW = 6  # each task draws its REBUILD_SEEDS seeds from the sweep's best REBUILD_DRAW new names with its own rng:
+# with the top 3 for every task, 2b75b's five lines all ended on one Scouring Flame set (676K, POE2T649) and none found
+# the Chaos Mastery line an earlier run reached (1.39M, POE2T638)
 DISCOVERY_TRIALS = 3  # supports tried for real per round because they could turn a condition on
 
 
@@ -120,6 +123,7 @@ class Gems:
         self.swept_cases = 0
         self.swept_ranking: list[str] = []  # the main group's last full sweep: names best first (rebuild_main's pool)
         self.rebuilt = False  # rebuild_main ran this task
+        self.rng = None  # the task's random.Random (set by the search): which seeds rebuild_main tries; None: the top ones
         self.meta_shortlist: list[str] | None = None  # the same for the meta group's
         self.granted_shortlists: dict[int, list[str]] = {}  # and for each item- or notable-granted meta group's
         self.conditions = None  # the condition resolver, when supports should be tried with it
@@ -551,7 +555,7 @@ class Gems:
 
     def rebuild_main(self, deadline: float) -> bool:
         """Once per task, after the main group's first full sweep: rebuild its supports around each of the sweep's top
-        REBUILD_SEEDS new names (that one in, then the open slots filled greedily from the sweep's top REBUILD_POOL),
+        REBUILD_SEEDS new names (with the task's rng, REBUILD_SEEDS drawn from the top REBUILD_DRAW; that one in, then the open slots filled greedily from the sweep's top REBUILD_POOL),
         and keep the best rebuild if it beats the group as it is. One-swap moves can't leave a set whose better
         alternative differs in several supports at once: gate 4's 2b75d (POE2T645) had three of five round-2 tasks
         stuck on Concentrated Area / Heavy Swing / Deliberation (169K), where Styrn's Ferocity alone scored -0.047 ln,
@@ -578,7 +582,11 @@ class Gems:
         free = self.budget_left() + sum(self.gem_cost(n) for n in names[first:])  # the budget with no supports in
         before, snap = build.score, build.snapshot()
         best_score, best_names = before, names
-        for seed in [n for n in pool if n not in names][:REBUILD_SEEDS]:
+        seeds = [n for n in pool if n not in names]
+        if self.rng is not None and len(seeds) > REBUILD_SEEDS:
+            drawn = seeds[:REBUILD_DRAW]
+            seeds = [n for n in drawn if n in set(self.rng.sample(drawn, REBUILD_SEEDS))]
+        for seed in seeds[:REBUILD_SEEDS]:
             if clock.now() > deadline:
                 break
             if not self.affordable(seed, 0.0, free - sum(self.gem_cost(n) for n in kept)):
