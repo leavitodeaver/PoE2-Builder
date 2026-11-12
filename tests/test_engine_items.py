@@ -781,3 +781,28 @@ def test_the_support_rebuild_runs_once_per_task_and_never_lowers_the_score(engin
     assert len(supports) <= SUPPORT_SLOTS
     families = [f for n in supports for f in gems.families(n)]
     assert len(families) == len(set(families))
+
+
+def test_a_restore_gives_back_its_snapshots_score(engine):
+    """Build.restore puts back the search's scoring state with the XML (Build.snapshot_state): finalize's supports guard
+    ended 0.021-0.033 ln under its snapshot in POE2T730-732 because the uptime weights and assumed mods stayed as the
+    swept build had them. A restore counts its drift (inner.restore_drift); the requirement weights stay as they are."""
+    from builder.search.inner import Search, restore_drift
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Explosive Spear")
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    build = search.build
+    snap = build.snapshot()
+    build.objective.uptime_factor *= 0.5
+    build.objective.life_factor *= 0.8
+    build.objective.multipliers["test floor"] = 4.0
+    build.refresh()
+    assert build.score < snap["score"] - 0.1
+    build.restore(snap)
+    assert build.score == pytest.approx(snap["score"], abs=1e-6)
+    assert build.objective.multipliers["test floor"] == 4.0  # (an escalation isn't undone)
+    drift = restore_drift(build)
+    assert drift["restores"] >= 1 and drift["drifted"] == 0

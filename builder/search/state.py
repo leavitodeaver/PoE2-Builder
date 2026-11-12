@@ -44,6 +44,15 @@ class Build:
         self.locked_slots: set[str] = set()
         self.reverts: dict[str, int] = {}  # phase -> commits undone because the score fell
         self.after_load: list = []  # called after every reload, before the score is refreshed
+        # The scoring state that lives outside PoB's XML (the objective's weights and factors, the assumed mods, the
+        # uptime weights): the search registers a (get, put) pair, and every snapshot keeps it, every restore puts it
+        # back before the after_load hooks. Without it a restore gave back the XML under the current weights, not the
+        # snapshot's score: finalize's supports guard ended 0.021-0.033 ln under its snapshot in POE2T730-732 (SEARCH2)
+        self.snapshot_state: tuple[Callable[[], Any], Callable[[Any], None]] | None = None
+        # Restore drift: a restore's score minus its snapshot's (count of restores, those off by more than EPSILON,
+        # their sum and the worst), in the task events: a search must get back the score it kept
+        self.restores = 0
+        self.drifts: list[float] = []
         # Stats PoB doesn't calculate, added to every result before scoring (flask recovery per
         # second, builder/search/flasks.py); what-if cases may override them with an "extra" entry
         self.extra_stats: dict = {}
@@ -218,16 +227,25 @@ class Build:
     # Snapshots ---------------------------------------------------------------------------------
 
     def snapshot(self) -> dict:
-        return {"xml": self.call("exportXml")["xml"], "equipped": dict(self.equipped), "score": self.score,
+        snap = {"xml": self.call("exportXml")["xml"], "equipped": dict(self.equipped), "score": self.score,
                 "stats": dict(self.stats), "extra_stats": dict(self.extra_stats)}
+        if self.snapshot_state is not None:
+            snap["search"] = self.snapshot_state[0]()
+        return snap
 
     def restore(self, snap: dict) -> None:
         self.call("loadXml", xml=snap["xml"])
         self.equipped = dict(snap["equipped"])
         self.extra_stats = dict(snap.get("extra_stats") or {})
+        if self.snapshot_state is not None and "search" in snap:
+            self.snapshot_state[1](snap["search"])
         for hook in self.after_load:
             hook()
         self.refresh()
+        self.restores += 1
+        drift = self.score - snap["score"]
+        if abs(drift) > EPSILON and math.isfinite(drift):
+            self.drifts.append(drift)
 
     # Facts -------------------------------------------------------------------------------------
 

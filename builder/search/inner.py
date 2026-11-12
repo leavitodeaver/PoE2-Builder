@@ -10,6 +10,7 @@ Worker tasks (called through EnginePool.run_tasks):
 
 from __future__ import annotations
 
+import copy
 import random
 import re
 import time
@@ -113,6 +114,7 @@ class Search:
         self.sources = Sources(self.build, self.conditions, self.gems, self.tree, self.gear, self.jewels, self.resolve)
         self.build.after_load.append(self.assumptions.reinstall)
         self.build.after_load.append(self.conditions.sync)
+        self.build.snapshot_state = (self._scoring_state, self._put_scoring_state)
         self.problems: list[str] = []
         self.seed_notes: list[str] = []  # what setup_seed took out of the PoB code, and why
         self.kicks = 0
@@ -345,6 +347,33 @@ class Search:
             "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
         }
+
+    # The objective's per-build factors (not its requirement weights: an escalation raises those for the rest of the
+    # search, and a restore must not undo it)
+    SCORING_FIELDS = ("extra", "added_dps", "entry_scales", "press_scales", "life_factor", "uptime_factor", "floor_deltas")
+    ASSUMPTION_FIELDS = ("mods", "active", "extra_groups", "stat_sets", "infused", "infused_skipped", "cooldown_fallback")
+
+    def _scoring_state(self) -> dict:
+        """What the score rests on outside PoB's XML, for Build.snapshot (Build.snapshot_state)."""
+        objective, assumptions, conditions = self.build.objective, self.assumptions, self.conditions
+        return copy.deepcopy({
+            "objective": {k: getattr(objective, k) for k in self.SCORING_FIELDS},
+            "assumptions": {k: getattr(assumptions, k) for k in self.ASSUMPTION_FIELDS},
+            "uptimes": conditions.uptimes, "found_uptimes": getattr(conditions, "found_uptimes", None),
+            "uptime_cache": self.uptime_cache, "uptime_floor": self.uptime_floor, "uptime_rows": self.uptime_rows,
+            "play_notes": self.play_notes})
+
+    def _put_scoring_state(self, saved: dict) -> None:
+        saved = copy.deepcopy(saved)
+        for k, v in saved["objective"].items():
+            setattr(self.build.objective, k, v)
+        for k, v in saved["assumptions"].items():
+            setattr(self.assumptions, k, v)
+        self.conditions.uptimes = saved["uptimes"]
+        if saved["found_uptimes"] is not None:
+            self.conditions.found_uptimes = saved["found_uptimes"]
+        self.uptime_cache, self.uptime_floor = saved["uptime_cache"], saved["uptime_floor"]
+        self.uptime_rows, self.play_notes = saved["uptime_rows"], saved["play_notes"]
 
     def load(self, state: dict) -> None:
         self.build.call("loadXml", xml=state["xml"])
@@ -915,6 +944,7 @@ class Search:
             "evals": build.evals, "commits": build.commits, "seconds": clock.now() - build.started,
             "kicks": self.kicks, "kicks_kept": self.kicks_kept, "kick_kinds": dict(self.kick_kinds),
             "passes": self.passes, "passes_done": self.passes_done, "problems": self.problems, "reverts": build.reverts,
+            "restore_drift": restore_drift(build),
             "condition_sources": list(self.sources.kept),
             "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
             "overrun": dict(self.overrun), "support_census": dict(self.gems.census),
@@ -1037,6 +1067,14 @@ def screen_task(engine: Any, report: Any, payload: dict, skeletons: list[dict], 
     return results
 
 
+def restore_drift(build: Build) -> dict:
+    """Restores and how far their scores came back from their snapshots' (Build.restore): drifted counts those off by
+    more than EPSILON, sum and worst in ln units."""
+    drifts = build.drifts
+    return {"restores": build.restores, "drifted": len(drifts), "sum": round(sum(drifts), 4),
+            "worst": round(min(drifts, key=lambda d: (d > 0, -abs(d))), 4) if drifts else 0.0}
+
+
 def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state: dict, seconds: float) -> dict:
     """Switch to Full DPS, include damaging non-main groups in it, polish briefly, then export
     the build and reload the exported code to prove it reproduces the same numbers."""
@@ -1073,7 +1111,8 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
             # (2b75b POE2T654/656/658/659: 13.2314 -> 13.2085, 13.0386 -> 13.0177, 13.2299 -> 13.2008, 13.3295 ->
             # 13.3112), and the polish didn't win it back in three
             if build.score < before["score"] - EPSILON:
-                build.restore(before)
+                build.restore(before)  # (the snapshot carries the search's scoring state: Build.snapshot_state)
+                trace.append(["supports restored", round(before["score"], 4)])
             trace.append(["supports", round(build.score, 4)])
         search.run(deadline, escalate=False, feasible_first=True)
         trace.append(["polish", round(build.score, 4)])
@@ -1127,7 +1166,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     assumptions += list(search.play_notes.values())  # standing still not counted, the Low Life weighting
     return {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
-        "play_guide": play, "finalize_trace": trace,
+        "play_guide": play, "finalize_trace": trace, "finalize_drift": restore_drift(build),
         "pob_full_dps": facts["stats"].get("FullDPS"), "excluded_dps": excluded, "excluded_from": excluded_names,
         "clear_estimate": build.objective.clear(build.stats),
         "blind_spots": blind_spots,

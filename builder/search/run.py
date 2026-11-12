@@ -153,7 +153,9 @@ class Run:
                       # Block passes started and finished (all blocks before the deadline), and kicks by kind: whether
                       # a task's local search got past its first pass (SEARCH_PLAN.md §2: on 2b75b none did)
                       passes=result.get("passes"), passes_done=result.get("passes_done"), kicks=result.get("kicks"),
-                      kicks_kept=result.get("kicks_kept"), kick_kinds=result.get("kick_kinds"))
+                      kicks_kept=result.get("kicks_kept"), kick_kinds=result.get("kick_kinds"),
+                      # restores and how far their scores came back from the snapshots' (inner.restore_drift)
+                      restore_drift=result.get("restore_drift"))
             if result.get("seed_start") and self.seed_start is None:
                 self.seed_start = result["seed_start"]
             # Ranked on the request's goal, whichever the search had; its own goal picks the state
@@ -459,7 +461,8 @@ class Run:
             self.emit("best", skeleton=final["label"], dps=final["dps"], clear=final.get("clear"),
                       value=self.goal_of(final), score=final["score"],
                       deficits=[d["label"] for d in final["deficits"]], final=True,
-                      trace=final.get("finalize_trace"), searched=best.get("score"))
+                      trace=final.get("finalize_trace"), searched=best.get("score"),
+                      drift=final.get("finalize_drift"))
             return self.result(final, problems)
 
     # Results -----------------------------------------------------------------------------------
