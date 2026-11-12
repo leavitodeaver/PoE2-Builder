@@ -117,6 +117,23 @@ def test_flasks_do_not_recover_life_blocks_life_flask_recovery(engine):
     assert Charges.from_bridge(build.call("chargeGain")).life_flask_blocked is True
 
 
+def test_a_switched_off_charm_gives_the_models_no_lines(engine):
+    """MECHC4 (COVD5): a flask or charm slot switched off (under flasks.ACTIVE_UPTIME) gives no lines to sourceLines;
+    before, The Fall of the Axe's "Grants Onslaught during effect" reached the Onslaught model from a switched-off charm
+    and counted full-time. chargeGain also carries what fills and drains Life and Mana (flasks.full_pool_cap)."""
+    from builder.search.flasks import Charges
+
+    build = spark_with(engine, []).build
+    charm = chr(10).join(["Rarity: Magic", "Thawing Charm", "Item Level: 82", "Implicits: 0", "Grants Onslaught during effect"])
+    texts = lambda: [line["text"] for line in build.call("sourceLines")["lines"] if line["source"] == "item:Charm 1"]
+    build.call("equip", slot="Charm 1", raw=charm, active=True, fields=[])
+    assert "Grants Onslaught during effect" in texts()
+    build.call("equip", slot="Charm 1", raw=charm, active=False, fields=[])
+    assert texts() == []
+    gain = Charges.from_bridge(build.call("chargeGain"))
+    assert gain.taken_hit > 0 and gain.mana_cost > 0 and gain.life_effect_kept is False
+
+
 def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):
     """A bare Boneshatter crits too rarely to feed Cast on Critical: every trial is turned down (no trigger once per 30 s),
     so nothing PoB counts of the spell besides its damage (a buff at full) can make the group pay. Cast on Dodge, which

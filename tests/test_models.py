@@ -106,7 +106,26 @@ def test_dominion_trades_effect_for_no_recovery():
     inputs = Inputs(passive={"ArchonEffect": -50.0}, flags={"ArchonInfernal", "ArchonNoRecovery"})
     mods, _ = models.archon_model(inputs, STORM_STATS, SPARK, set())
     value = scaled(mods, {"ArchonEffect": -50.0}, {"ArchonInfernal", "ArchonNoRecovery"})
-    assert value["1% more Elemental Damage with Spells"] == pytest.approx(12.5, rel=1e-3)  # always up, half effect
+    # Seething Body (MECHC4): no recovery, but Archon only from High Infernal Flame (65%) to the reset: 35% of each 10 s
+    # Flame cycle (2 x 1,000 Mana at 200/s), half effect
+    assert value["1% more Elemental Damage with Spells"] == pytest.approx(12.5 * 0.35, rel=1e-3)
+
+
+def test_seething_body_archon_follows_the_infernal_flame_cycle():
+    """MECHC4 (RESEARCH12 18af): Archon from the first cast on High Infernal Flame after the recovery until Flame reaches
+    its maximum (2 x maximum Mana, filled by skill costs) and resets; Archon Duration lines don't lengthen it. Before, 10 s
+    on and 20 s off whatever the build spent: 33%, an overcount for fast spenders."""
+    cycle = 2 * 2000 / 300  # 13.3 s
+    share, on, off = models.flame_uptime(cycle, 0.0)
+    # the 20 s recovery ends 6.7 s into the second cycle (Flame at 50%): Archon at 65% (8.7 s), until the reset
+    assert off == pytest.approx(cycle + 0.65 * cycle) and on == pytest.approx(0.35 * cycle)
+    assert share == pytest.approx(0.175, abs=1e-3)
+    assert models.flame_uptime(40.0, 0.0)[0] == pytest.approx(0.35)  # slow spender: the recovery ends before High
+    assert models.flame_uptime(15.0, 100.0)[2] == pytest.approx(10.0)  # 10 s recovery ends on High: Archon at once
+    x = {"ArchonDuration": 100.0, "ArchonRecovery": 0.0, "ArchonEffect": 0.0, "ArchonCritChance": 0.0, "ArchonCritDamage": 0.0}
+    assert models.archon_effects(x, 0.0, False, cycle)["uptime"] == pytest.approx(share)  # duration lines don't count
+    sources = models.archon_sources({"Mana": 2000, "ManaPerSecondCost": 0}, set())
+    assert sources[0].name == "Seething Body" and models.archon_effects(x, sources[0].wait, False, sources[0].flame)["uptime"] == 0
 
 
 def test_archon_isnt_counted_for_attacks():
@@ -1394,7 +1413,10 @@ def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
     stats = {"Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000, "HeavyStunBuildupAvg": 10.0}
     stuns = models.heavy_stun_rate(stats)[0]
     # A skill gains Glory once per 0.5 s per monster (KeywordPopups Glory; MECHC2): E events/s give E / (1 + 0.5 E) gains
-    assert models.glory_uses(["Hammer of the Gods"], stats, slam)[0] == pytest.approx(stuns / (1 + 0.5 * stuns))
+    gains = stuns / (1 + 0.5 * stuns)
+    # ... and none while an instance of the skill is up (MECHC4): Hammer of the Gods' 2.5 s, banners excepted
+    hammer = models.glory_uses(["Hammer of the Gods"], stats, slam)
+    assert hammer[0] == pytest.approx(1 / (2.5 + 1 / gains)) and "2.5 s instance" in hammer[1]
     assert models.glory_uses(["War Banner"], stats, slam)[0] == pytest.approx(2.0 / 2.0 * 20 / 200)  # one per 10 s
     fast = models.glory_uses(["War Banner"], {**stats, "Speed": 6.0}, slam)
     assert fast[0] == pytest.approx(6.0 / 4.0 * 20 / 200) and "one gain per 0.5 s" in fast[1]  # was one per 1.7 s
@@ -2136,7 +2158,7 @@ def test_a_concoction_main_skill_leaves_its_mana_flask_no_charges_for_recovery()
 
     from builder.search.flasks import Charges, recovery_per_second, uptime
     flask = {"kind": "Flask", "chargesMax": 75, "chargesUsed": 15, "duration": 3, "manaTotal": 300, "lifeTotal": 300}
-    gain = Charges(flask=3.0)
+    gain = Charges(flask=3.0, mana_cost=500.0, taken_hit=500.0, boss_hits=1.0)
     assert recovery_per_second(flask, gain, "Mana") > 0 and uptime(flask, gain, "Mana") > 0
     thrown = replace(gain, main_skill="Explosive Concoction")
     assert recovery_per_second(flask, thrown, "Mana") == 0.0 and uptime(flask, thrown, "Mana") == 0.0
@@ -2161,6 +2183,32 @@ def test_reverie_s_life_flasks_apply_constantly_and_are_never_used():
     assert recovery_per_second(unique, reverie, "Life") == 0.0 and uptime(unique, reverie, "Life") == 0.0
 
 
+def test_a_life_or_mana_flask_effect_ends_when_the_pool_is_full():
+    """MECHC4 (RESEARCH12 18ae): a Life flask's effect ends when Life is full, a Mana flask's when Mana is full, unless
+    the flask says "Effect is not removed when Unreserved Life (Mana) is Filled" or Enduring Elixirs keeps Life flask
+    effects. The share of the fight it can last is (Life lost - regeneration) / the flask's recovery per second; 0 with
+    no loss (before: up whenever charges allowed, an overcount of "during Life / Mana Flask effect" lines)."""
+    from dataclasses import replace
+
+    from builder.search.flasks import Charges, full_pool_cap, uptime
+    life = {"kind": "Flask", "chargesUsed": 10, "duration": 4, "lifeTotal": 800}  # 200 Life/s during its effect
+    rich = Charges(flask=5.0)  # charges for it all fight (5/s x 4 s / 10)
+    assert uptime(life, rich, "Life") == 0.0  # no hits, no Life costs: Life stays full
+    hit = replace(rich, taken_hit=100.0, boss_hits=1.0, life_regen=50.0)  # 100 lost/s, 50 regenerated
+    assert full_pool_cap(life, hit, "Life")[0] == pytest.approx(0.25) and uptime(life, hit, "Life") == pytest.approx(0.25)
+    assert uptime(life, replace(hit, life_cost=300.0), "Life") == 1.0  # Life costs drain it: never full
+    assert uptime(life, replace(hit, mom=50.0), "Life") == 0.0  # half the hits taken from Mana: regen covers the rest
+    es = replace(hit, energy_shield=1000.0, es_regen=40.0)
+    assert full_pool_cap(life, es, "Life")[0] == pytest.approx(0.05)  # (100 - 40 - 50) / 200
+    assert uptime(life, replace(rich, life_effect_kept=True), "Life") == 1.0  # Enduring Elixirs
+    assert uptime(life, rich, "Life", "Blood of the Warrior" + chr(10) + "Effect is not removed when Unreserved Life is Filled") == 1.0
+    mana = {"kind": "Flask", "chargesUsed": 10, "duration": 4, "manaTotal": 400}  # 100 Mana/s
+    assert uptime(mana, replace(rich, mana_cost=80.0, mana_regen=30.0), "Mana") == pytest.approx(0.5)
+    assert uptime(mana, replace(rich, mana_cost=80.0), "Mana", "Effect is not removed when Unreserved Mana is Filled") == 1.0
+    charm = {"kind": "Charm", "chargesUsed": 10, "duration": 4}
+    assert full_pool_cap(charm, rich, None) is None
+
+
 def test_a_main_skill_that_cannot_generate_frenzy_charges_feeds_no_frenzy_hit_line():
     """MECHC3 (FIX_QUEUE): Ferocity's skill_cannot_generate_frenzy_charges on the main skill: its hits and crits make no
     Frenzy Charges (before, counted: an overcount of Frenzy held and of Ferocity's share); other charges and the boss's
@@ -2171,3 +2219,28 @@ def test_a_main_skill_that_cannot_generate_frenzy_charges_feeds_no_frenzy_hit_li
     assert c._charge_rate("Gain a Frenzy Charge on Critical Hit", "Frenzy", {**stats, "_main_no_frenzy": None})[0] == 1.5
     assert c._charge_rate("Gain a Power Charge on Critical Hit", "Power", stats)[0] == 1.5
     assert c._charge_rate("20% chance to gain a Frenzy Charge when you Block", "Frenzy", stats)[0] > 0
+
+
+def test_other_pressed_skills_share_the_builds_infusions():
+    """MECHC4 (COVC4): another pressed skill with an Infused stat set of the same element takes Infusions from the same
+    supply, so the main skill gets its share of uses (before, the whole supply)."""
+    from types import SimpleNamespace
+
+    from builder.search.assumptions import Assumptions
+
+    gems = {"Fireball": {"skillTypes": ["Spell", "Projectile"], "support": False},
+            "Arc": {"skillTypes": ["Spell", "Chains"], "support": False}}
+    groups = {"mainSocketGroup": 1, "groups": [
+        {"index": 1, "enabled": True, "fullDPS": True, "fromItem": False, "skills": [{"statSets": ["Fire-Infused"]}],
+         "gems": [{"name": "Fireball", "enabled": True, "support": False}]},
+        {"index": 2, "enabled": True, "fullDPS": False, "fromItem": False, "skills": [{"statSets": ["Fire-Infused Arc"]}],
+         "gems": [{"name": "Arc", "enabled": True, "support": False}]}]}
+    rates = [{"index": 1, "name": "Fireball", "speed": 2.0}, {"index": 2, "name": "Arc", "speed": 2.0, "cooldown": 2.0}]
+
+    def call(name, **_):
+        return groups if name == "groups" else {"rates": rates}
+
+    found = Assumptions(SimpleNamespace(call=call, ctx=SimpleNamespace(gems=gems)))
+    uses, how = found.other_infusion_users("Fire")
+    assert uses == pytest.approx(0.5) and "Arc 0.50/s" in how  # one press per its 2 s cooldown
+    assert found.other_infusion_users("Cold") == (0.0, "")

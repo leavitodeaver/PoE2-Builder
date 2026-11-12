@@ -51,6 +51,19 @@ class Charges:
     life_flask_unusable: bool = False
     life_flask_constant: bool = False
     life_flask_less: float = 0.0
+    # What fills Life and Mana in the fight (MECHC4, full_pool_cap): a Life (Mana) flask's effect ends when Life (Mana) is
+    # full. PoB's damage taken per hit after mitigation (totalTakenHit), Mind over Matter's share, Energy Shield and its
+    # regeneration, Life and Mana regeneration, the build's Life and Mana costs per second; Enduring Elixirs' "Life Flask
+    # Effects are not removed when Unreserved Life is Filled"
+    taken_hit: float = 0.0
+    mom: float = 0.0
+    energy_shield: float = 0.0
+    es_regen: float = 0.0
+    life_regen: float = 0.0
+    mana_regen: float = 0.0
+    life_cost: float = 0.0
+    mana_cost: float = 0.0
+    life_effect_kept: bool = False
 
     @classmethod
     def from_bridge(cls, data: dict) -> Charges:
@@ -64,7 +77,12 @@ class Charges:
                    int(data.get("charmLimit", 0)), bool(data.get("lifeFlaskBlocked", False)), land, types,
                    int(data.get("perfectSkills") or 0), float(data.get("perfectMainRate") or 0.0),
                    str(data.get("mainSkill") or ""), bool(data.get("lifeFlaskUnusable", False)),
-                   bool(data.get("lifeFlaskConstant", False)), float(data.get("lifeFlaskLess") or 0.0))
+                   bool(data.get("lifeFlaskConstant", False)), float(data.get("lifeFlaskLess") or 0.0),
+                   taken_hit=float(data.get("takenHit") or 0.0), mom=float(data.get("mom") or 0.0),
+                   energy_shield=float(data.get("energyShield") or 0.0), es_regen=float(data.get("esRegen") or 0.0),
+                   life_regen=float(data.get("lifeRegen") or 0.0), mana_regen=float(data.get("manaRegen") or 0.0),
+                   life_cost=float(data.get("lifeCost") or 0.0), mana_cost=float(data.get("manaCost") or 0.0),
+                   life_effect_kept=bool(data.get("lifeEffectKept", False)))
 
 
 # Charm triggers other than a kill (MECHC2, FIX_QUEUE: each counted as firing whenever its charges allowed, whether or not
@@ -150,7 +168,56 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
     uses = rate / used
     if info.get("kind") == "Charm" and (event := trigger_rate(trigger, gain)) is not None:
         uses = min(uses, event[0])  # (a charm is used by its trigger only: charges and the event both needed)
-    return min(1.0, uses * duration(info, gain))
+    share = min(1.0, uses * duration(info, gain))
+    if (cap := full_pool_cap(info, gain, pool, trigger)) is not None:
+        share = min(share, cap[0])
+    return share
+
+
+# A Life flask's effect ends when Life is full, a Mana flask's when Mana is full (MECHC4; RESEARCH12 18ae,
+# life-flask-effect-kept.md, HIGH for the rule: the game has three stats that switch it off, which would mean nothing
+# without the default: local_flask_effect_not_removed_at_full_life (Blood of the Warrior and one more unique),
+# life_flask_effects_are_not_removed_at_full_life (Pathfinder's Enduring Elixirs), local_flask_effect_not_removed_at_full_mana
+# (one Mana unique); poe2wiki's Life flask page: the flask "ends its effect if maximum Life is reached"). Before, a flask's
+# effect counted for its whole duration whenever charges allowed: an overcount of every "during Life / Mana Flask effect"
+# line (Uhtred's Rite's 20% more damage, spell damage and cast speed during a Mana Flask, the Brews).
+KEPT_AT_FULL = {"Life": "effect is not removed when unreserved life is filled",
+                "Mana": "effect is not removed when unreserved mana is filled"}
+
+
+def full_pool_cap(info: dict, gain: Charges, pool: str | None, raw: str = "") -> tuple[float, str] | None:
+    """The share of a fight a Life (Mana) flask's effect can last before Life (Mana) is full, and how; None when the rule
+    doesn't apply (a charm, a flask whose effect is kept at full, Enduring Elixirs for Life flasks).
+
+    Over a long fight everything that recovers Life equals the Life lost (Life can't rise above full), so the flask can
+    recover at its rate f only for the share (L - g) / f of the time, where L is the Life lost per second (the boss
+    preset's hits that land, after mitigation, less Mind over Matter's share and Energy Shield regeneration while the
+    build has Energy Shield, plus the build's Life cost per second) and g the Life regeneration. Mana: L = the build's Mana
+    cost per second plus Mind over Matter's share of the hits, g = Mana regeneration. No loss: 0. Leech and recoup aren't
+    subtracted (they fill Life too: the share is high there, a small overcount, labelled); hits are taken as a steady
+    stream, not as lumps (MEDIUM)."""
+    if pool not in ("Life", "Mana") or info.get("kind") != "Flask" or KEPT_AT_FULL[pool] in raw.lower():
+        return None
+    if pool == "Life" and gain.life_effect_kept:
+        return None
+    total = info.get("lifeTotal" if pool == "Life" else "manaTotal") or 0
+    length = duration(info, gain)
+    inc = gain.life_recovery_inc if pool == "Life" else gain.mana_recovery_inc
+    less = (1 - min(gain.life_flask_less, 100) / 100) if pool == "Life" else 1.0
+    rate = total * (1 + inc / 100) * less / length if length > 0 else 0.0
+    hits = gain.taken_hit * gain.boss_hits
+    if pool == "Life":
+        lost_hits = max(0.0, hits * (1 - min(gain.mom, 100) / 100) - (gain.es_regen if gain.energy_shield > 0 else 0.0))
+        lost, regen, spend = lost_hits + gain.life_cost, max(0.0, gain.life_regen), gain.life_cost
+    else:
+        lost_hits = hits * min(gain.mom, 100) / 100
+        lost, regen, spend = lost_hits + gain.mana_cost, max(0.0, gain.mana_regen), gain.mana_cost
+    how = (f"{pool} lost {lost:,.0f}/s (the boss's hits {lost_hits:,.0f}/s, {pool} costs {spend:,.0f}/s) against "
+           f"regeneration {regen:,.0f}/s and the flask's {rate:,.0f}/s")
+    if rate <= 0:
+        return 0.0, f"the {pool} Flask recovers nothing, so its effect ends at once ({how})"
+    cap = max(0.0, min(1.0, (lost - regen) / rate))
+    return cap, f"its effect ends when {pool} is full: up at most {cap:.0%} of the fight ({how})"
 
 
 def charm_charges_used(charms: list[tuple[dict, str]], gain: Charges) -> tuple[float, str]:

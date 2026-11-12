@@ -851,11 +851,41 @@ class Assumptions:
         busy = (self.remnant_presses(raw, self.main_skill())[1] or [{"value": 0.0}])[0]["value"]
         uses *= (1.0 - busy) / (1.0 - self.press_busy)
         have = supply[element] + supply["Any"]
+        others, other_how = self.other_infusion_users(element)
         needed = uses * (1.0 - keep)
-        share = min(1.0, have / needed) if needed > 0 else float(have > 0)
+        # (the main skill's share of the supply: every consumer takes Infusions as they come, so each gets its share of
+        # uses; MECHC4, COVC4: before, the main skill had the whole supply)
+        mine = have * uses / (uses + others) if uses + others > 0 else have
+        share = min(1.0, mine / needed) if needed > 0 else float(have > 0)
         basis = (f"{have:.2f} {element} Infusions/s from {', '.join(used) or 'nothing'} for {uses:.2f} casts/s"
-                 + (f", {keep:.0%} of casts keeping theirs" if keep else ""))
+                 + (f", {keep:.0%} of casts keeping theirs" if keep else "")
+                 + (f"; shared with {other_how}, so {mine:.2f}/s reach the main skill" if others > 0 else ""))
         return share, basis
+
+    def other_infusion_users(self, element: str) -> tuple[float, str]:
+        """Uses per second of the build's other pressed skills that consume an Infusion of `element` (MECHC4; COVC4: a
+        skill with an `element`-Infused stat set, e.g. Fireball, Arc, Firestorm, Flame Wall, Incinerate, Frost Darts, Ember
+        Fusillade), each at its press rate (models.press_model: its cooldown, its duration, else one press per
+        PRESS_EVERY s, LOW). Skills a meta gem triggers aren't counted (their rate comes from the meta models: a small
+        overcount of the main skill's share left, labelled); nor is the share they'd keep (KEEP_INFUSION)."""
+        build = self.build
+        groups = build.call("groups")
+        main = groups["mainSocketGroup"]
+        want = re.compile(rf"\b{element}-infused\b", re.I)
+        users = {g["index"] for g in groups["groups"]
+                 if g["index"] != main and g["enabled"] and pressed_group({**g, "fullDPS": True}, build.ctx.gems)
+                 and any(want.search(label) for skill in g.get("skills") or [] for label in skill.get("statSets") or [])}
+        if not users:
+            return 0.0, ""
+        rates = build.call("useRates", indices=sorted(users | {main}))["rates"]
+        scales, _ = models.press_model(rates, main, users)
+        total, how = 0.0, []
+        for rate in rates:
+            if rate["index"] in users and rate["name"] in scales:
+                uses = scales[rate["name"]] * number(rate.get("speed"))
+                total += uses
+                how.append(f"{rate['name']} {uses:.2f}/s")
+        return total, ", ".join(how)
 
     def ledger_conditions(self, skills: list[dict]) -> tuple[list[str], list[dict]]:
         """Ledger conditions the build's skills switch on (e.g. it uses a skill that requires Glory), and notes on those

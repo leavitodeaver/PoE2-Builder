@@ -271,9 +271,40 @@ def archon_uptime(duration_inc: float, recovery_faster: float, wait: float, no_r
     return duration / (duration + recovery + max(wait, 0.0))
 
 
-def archon_effects(x: dict, wait: float, no_recovery: bool) -> dict[str, float]:
-    """The Archon Buff's effects averaged over a fight, in percent."""
-    uptime = archon_uptime(x["ArchonDuration"], x["ArchonRecovery"], wait, no_recovery)
+def flame_uptime(cycle: float, recovery_faster: float, no_recovery: bool = False) -> tuple[float, float, float]:
+    """Seething Body's Elemental Archon over Pyromantic Pact's Infernal Flame cycle (MECHC4; RESEARCH12 18af,
+    archon-infernal-rest.md, rules HIGH): Flame climbs from 0 to its maximum (2 x maximum Mana) in `cycle` seconds of the
+    build's skill costs, then resets to 0. Archon comes with the first spell cast on High Infernal Flame (65% of maximum)
+    once the recovery period is over, and lasts until the reset ("does not expire while on High Infernal Flame"; "Lose
+    Elemental Archon on reaching maximum Infernal Flame"), so Archon Duration lines don't lengthen it. (uptime, on, off)."""
+    if cycle <= 0:
+        return 0.0, 0.0, 0.0
+    recovery = 0.0
+    if not no_recovery:
+        speed = 1 + recovery_faster / 100
+        if speed <= 0:
+            return 0.0, 0.0, 0.0
+        recovery = ARCHON_RECOVERY / speed
+    high = FLAME_HIGH * cycle  # (seconds into a cycle when Flame reaches High)
+    whole, rest = divmod(recovery, cycle)
+    if rest <= high:
+        off = whole * cycle + high
+    else:  # (the recovery ends while Flame is already High: gained at once)
+        off = recovery
+    on = (whole + 1) * cycle - off
+    return on / (on + off), on, off
+
+
+FLAME_HIGH = 0.65  # KeywordPopups HighInfernalFlame: 65% of maximum Infernal Flame or more
+
+
+def archon_effects(x: dict, wait: float, no_recovery: bool, flame: float = 0.0) -> dict[str, float]:
+    """The Archon Buff's effects averaged over a fight, in percent. `flame`: Seething Body's Infernal Flame cycle in
+    seconds (flame_uptime), which replaces the duration and the wait."""
+    if flame > 0:
+        uptime = flame_uptime(flame, x["ArchonRecovery"], no_recovery)[0]
+    else:
+        uptime = archon_uptime(x["ArchonDuration"], x["ArchonRecovery"], wait, no_recovery)
     effect = max(0.0, 1 + x["ArchonEffect"] / 100)
     return {"uptime": uptime, "effect": effect, "more": ELEMENTAL_ARCHON_MORE * effect * uptime,
             "crit_chance": x["ArchonCritChance"] * effect * uptime,
@@ -289,14 +320,24 @@ class ArchonSource:
     # True: the counter behind it may also run during the buff and its recovery (unsettled); the headline takes `wait`
     # (it doesn't run) and the notes add the other reading, uncounted (MECHC2, the manager's ruling)
     counter_may_run: bool = False
+    flame: float = 0.0  # Seething Body: the Infernal Flame cycle in seconds (flame_uptime); 0 for the others
 
 
 def archon_sources(stats: dict, main_gems: set[str]) -> list[ArchonSource]:
     """Ways to gain Elemental Archon on a boss, fastest first."""
-    sources = [ArchonSource("Seething Body", "ArchonInfernal", 0.0,
-                            "regained on the next spell cast at High Infernal Flame; its longer hold at High "
-                            "Infernal Flame isn't counted")]
     mana, cost = number(stats.get("Mana")), number(stats.get("ManaPerSecondCost"))
+    # Seething Body (MECHC4; RESEARCH12 18af: before, a 10 s Archon regained at once after the 20 s recovery, 33% at base,
+    # an overcount for fast spenders): Pyromantic Pact, which Seething Body needs (tree links: research note), turns skill
+    # costs into Infernal Flame up to 2 x maximum Mana (PoB reads neither node, so Mana and ManaPerSecondCost are the
+    # build's own). 1 Flame per 1 Mana of cost (MEDIUM: "Gain Infernal Flame instead of spending Mana"). No cost: no
+    # Flame, no Archon. Pausing near the top to hold High without the reset isn't counted (a play choice that costs casts).
+    cycle = 2 * mana / cost if mana > 0 and cost > 0 else 0.0
+    sources = [ArchonSource("Seething Body", "ArchonInfernal", math.inf if cycle <= 0 else 0.0,
+                            (f"Infernal Flame (2 x {mana:,.0f} Mana) fills in {cycle:.1f}s at {cost:,.0f} Mana of costs "
+                             "per second, then resets (a Fire hit of your maximum Life and Energy Shield each time); "
+                             "Archon from the first cast on High (65%) after the recovery until the reset"
+                             if cycle > 0 else "the build's skills cost no Mana, so no Infernal Flame is gained"),
+                            flame=cycle if cycle > 0 else 0.0)]
     if mana > 0 and cost > 0:
         spend = mana / cost
         # The lower uptime bound (MECHC2, the manager's ruling, as for the Arcane Surge support): only Mana spent after the
@@ -329,12 +370,19 @@ def archon_sources(stats: dict, main_gems: set[str]) -> list[ArchonSource]:
         if ignites > 0:
             sources.append(ArchonSource("Arbiter's Ignition", None, 1 / ignites,
                                         f"the main skill ignites {ignites:.2f} times per second"))
-    return sorted(sources, key=lambda s: s.wait)
+    def rank(source: ArchonSource) -> float:  # (Seething Body by the wait that would give its uptime at base)
+        if source.flame <= 0:
+            return source.wait
+        share = flame_uptime(source.flame, 0.0)[0]
+        return ARCHON_DURATION / share - ARCHON_DURATION - ARCHON_RECOVERY if share > 0 else math.inf
+
+    return sorted(sources, key=rank)
 
 
-def archon_block(x0: dict, passive: dict, wait: float, no_recovery: bool, when: list, nonelemental: bool) -> list[dict]:
+def archon_block(x0: dict, passive: dict, wait: float, no_recovery: bool, when: list, nonelemental: bool,
+                 flame: float = 0.0) -> list[dict]:
     def effect(key: str) -> Callable[[dict], float]:
-        return lambda x: archon_effects(x, wait, no_recovery)[key]
+        return lambda x: archon_effects(x, wait, no_recovery, flame)[key]
 
     mods = more_lines("1% more Elemental Damage with Spells", effect("more"), x0, passive,
                       ("ArchonDuration", "ArchonRecovery", "ArchonEffect"), when)
@@ -342,7 +390,7 @@ def archon_block(x0: dict, passive: dict, wait: float, no_recovery: bool, when: 
     mods += increased_lines("1% increased Critical Damage Bonus", effect("crit_damage"), x0, passive, ARCHON_INPUTS, when)
     if nonelemental:  # "No Non-Elemental Damage from Spells" while it lasts
         def lost(x: dict) -> float:
-            return -100 * archon_effects(x, wait, no_recovery)["uptime"]
+            return -100 * archon_effects(x, wait, no_recovery, flame)["uptime"]
         for kind in ("Physical", "Chaos"):
             mods += more_lines(f"1% more {kind} Damage with Spells", lost, x0, passive, ARCHON_TIMING, when)
     return mods
@@ -375,13 +423,17 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
         for no_recovery in (False, True):
             state = inputs.condition("ArchonNoRecovery", no_recovery)
             if state is not None:
-                mods += archon_block(x0, passive, source.wait, no_recovery, when + state, nonelemental)
+                mods += archon_block(x0, passive, source.wait, no_recovery, when + state, nonelemental, source.flame)
     notes = []
     if current is not None:
         no_recovery = inputs.has("ArchonNoRecovery")
-        e = archon_effects(x0, current.wait, no_recovery)
+        e = archon_effects(x0, current.wait, no_recovery, current.flame)
         duration = ARCHON_DURATION * max(0.0, 1 + x0["ArchonDuration"] / 100)
         recovery = 0.0 if no_recovery else ARCHON_RECOVERY / max(1 + x0["ArchonRecovery"] / 100, 1e-9)
+        regained = current.wait
+        if current.flame > 0:
+            _, duration, off = flame_uptime(current.flame, x0["ArchonRecovery"], no_recovery)
+            regained = off - recovery
         parts = []
         if e["crit_chance"]:
             parts.append(f"{e['crit_chance']:.1f}% increased Critical Hit Chance")
@@ -394,7 +446,7 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
             "value": round(e["more"], 2),
             "basis": (f"also {', '.join(parts)}; " if parts else "") + f"up {e['uptime']:.0%} of the time: lasts {duration:.1f}s, then "
                      + ("no recovery period" if no_recovery else f"a {recovery:.1f}s recovery period")
-                     + f", regained {current.wait:.1f}s later ({current.name}: {current.basis}); "
+                     + f", regained {regained:.1f}s later ({current.name}: {current.basis}); "
                      f"effect ×{e['effect']:.2f} (duration and recovery datamined; how soon it's regained assumed)",
             "confidence": "theory"})
         if current.counter_may_run:  # the other reading, shown and not counted (accuracy first: the headline takes the lower)
@@ -3060,6 +3112,17 @@ GLORY_FROM_LIFE = {"Zerphi's Infamy": (50, 0.05)}  # Glory per use, share of Lif
 # for E events/s (as the hit-Remnant cooldowns, assumptions.hit_remnant_rate), each gain the events' average Glory
 # (MEDIUM: which event wins a window is taken as proportional). Life spent (Zerphi's Infamy) isn't a per-monster event.
 GLORY_GAIN_EVERY = 0.5
+# Same popup: "You cannot gain Glory for a Skill while any instance of that Skill is active unless that Skill is a Banner"
+# (MECHC4; RESEARCH12, absorbed-rage-and-glory.md 4, HIGH for the rule: the three banners carry
+# active_skill_can_generate_glory_even_if_an_instance_of_this_skill_is_active, checked there over every stat set, passive and
+# mod). So a Glory skill whose use leaves something up for a while fills its next use only after it ends: one use per
+# (duration + cost / Glory per second). Durations: base_skill_effect_duration of the skill's stat set (game files, build
+# 26476662, level 20; read with RESEARCH6's gestats.py): Ancestral Cry 8 s, Apocalypse 12 s, Walking Calamity 10 s, Skyfall
+# 20 s, Starborn Onslaught 8 s, Hammer of the Gods 2.5 s; Archon of Chayula's own stat set has none, its tornado 8 s (taken
+# as the instance, MEDIUM). Spear of Solaris and Molten Blast carry none (0). Increased skill duration isn't read (the
+# instance lasts longer then: a small overcount left, labelled).
+GLORY_INSTANCE = {"Ancestral Cry": 8.0, "Apocalypse": 12.0, "Walking Calamity": 10.0, "Skyfall": 20.0,
+                  "Starborn Onslaught": 8.0, "Hammer of the Gods": 2.5, "Archon of Chayula": 8.0}
 
 
 def glory_events(stats: dict, main: Skill | None) -> dict[str, float]:
@@ -3132,9 +3195,14 @@ def glory_uses(names: list[str], stats: dict, main: Skill | None) -> tuple[float
             how = f"{share:.0%} of {number(stats.get('LifePerSecondCost')):.0f} Life spent/s"
         else:
             continue
-        total += glory / cost
-        parts.append(f"{name}: {how} Glory against {cost} per use = one per {cost / glory:.1f} s" if glory > 0
-                     else f"{name}: {how}, never")
+        if glory <= 0:
+            parts.append(f"{name}: {how}, never")
+            continue
+        held = GLORY_INSTANCE.get(name, 0.0)
+        every = held + cost / glory
+        total += 1 / every
+        parts.append(f"{name}: {how} Glory against {cost} per use = one per {every:.1f} s"
+                     + (f" (no Glory while its {held:g} s instance is up)" if held else ""))
     return total, "; ".join(parts) or "no Glory skill"
 
 

@@ -2646,7 +2646,11 @@ function bridge.sourceLines()
 	end
 	for slotName, slot in pairs(build.itemsTab.slots) do
 		local item = slot.selItemId and build.itemsTab.items[slot.selItemId]
-		if item and not slot.inactive then
+		-- a flask or charm slot the search switched off (flasks.ACTIVE_UPTIME) gives no lines either (MECHC4; COVD5: before,
+		-- The Fall of the Axe's "Grants Onslaught during effect" reached the Onslaught model from a switched-off charm and
+		-- counted full-time): PoB applies such an item's mods only while its slot is active
+		local flaskOff = (slotName:match("^Flask") or slotName:match("^Charm")) and not slot.active
+		if item and not slot.inactive and not flaskOff then
 			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
 				for _, modLine in ipairs(item[kind] or { }) do
 					add("item:" .. slotName, modLine.line)
@@ -3199,7 +3203,7 @@ function bridge.chargeGain()
 	local lifeFlaskBlocked = false
 	-- Reverie (MECHC3): "Cannot use Life Flasks", "Non-Unique Life Flasks apply their Effects constantly", "(40-60)% less
 	-- Life Flask Recovery"; PoB leaves all three unparsed (ModCache: leftover text, so never applied)
-	local lifeFlaskUnusable, lifeFlaskConstant, lifeFlaskLess = false, false, 0
+	local lifeFlaskUnusable, lifeFlaskConstant, lifeFlaskLess, lifeEffectKept = false, false, 0, false
 	for _, line in ipairs(bridge.sourceLines().lines) do
 		local text = line.text:lower()
 		if text:match("^%s*flasks do not recover life%s*$") then
@@ -3210,6 +3214,10 @@ function bridge.chargeGain()
 		end
 		if text:match("^%s*non%-unique life flasks apply their effects constantly%s*$") then
 			lifeFlaskConstant = true
+		end
+		-- Enduring Elixirs (MECHC4, flasks.full_pool_cap): Life flask effects outlast full Life
+		if text:match("^%s*life flask effects are not removed when unreserved life is filled%s*$") then
+			lifeEffectKept = true
 		end
 		local less = text:match("^%s*(%d+)%% less life flask recovery%s*$")
 		if less then
@@ -3234,7 +3242,13 @@ function bridge.chargeGain()
 	end
 	return {
 		active = active, lifeFlaskBlocked = lifeFlaskBlocked, lifeFlaskUnusable = lifeFlaskUnusable,
-		lifeFlaskConstant = lifeFlaskConstant, lifeFlaskLess = lifeFlaskLess,
+		lifeFlaskConstant = lifeFlaskConstant, lifeFlaskLess = lifeFlaskLess, lifeEffectKept = lifeEffectKept,
+		-- what fills and drains Life and Mana in the fight (MECHC4, flasks.full_pool_cap: a Life / Mana flask's effect ends
+		-- when the pool is full)
+		takenHit = output.totalTakenHit or 0, mom = output.sharedMindOverMatter or 0,
+		energyShield = output.EnergyShield or 0, esRegen = output.EnergyShieldRegenRecovery or 0,
+		lifeRegen = output.LifeRegenRecovery or 0, manaRegen = output.ManaRegenRecovery or 0,
+		lifeCost = output.LifePerSecondCost or 0, manaCost = output.ManaPerSecondCost or 0,
 		bossDamage = boss, enemySkillTime = output.enemySkillTime or 0, evade = output.EvadeChance or 0,
 		block = output.EffectiveBlockChance or 0, perfectSkills = perfect,
 		perfectMainRate = perfectMain and (output.Speed or 0) or 0,

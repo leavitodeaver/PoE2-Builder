@@ -546,10 +546,11 @@ def test_flask_effects_count_only_while_generated_charges_keep_them_up():
     from builder.search.flasks import Charges, uptime
 
     mana = {"kind": "Flask", "duration": 3, "chargesUsed": 10, "manaTotal": 310}
-    assert uptime(mana, Charges()) == 0.0  # nothing dies in a boss fight: no charges, no effect
-    assert uptime(mana, Charges(flask=2)) == pytest.approx(0.6)  # 2/s x 3 s / 10 per use
-    assert uptime(mana, Charges(flask=2, flask_duration_inc=100)) == 1.0
-    assert uptime({**mana, "gainBase": 1, "gainInc": 100}, Charges(mana_flask=1), "Mana") == 1.0  # (1+1) x 2 x 3 s
+    spend = {"mana_cost": 1000.0}  # (a Mana flask's effect ends when Mana is full, MECHC4: Mana spent faster than it fills)
+    assert uptime(mana, Charges(**spend)) == 0.0  # nothing dies in a boss fight: no charges, no effect
+    assert uptime(mana, Charges(flask=2, **spend), "Mana") == pytest.approx(0.6)  # 2/s x 3 s / 10 per use
+    assert uptime(mana, Charges(flask=2, flask_duration_inc=100, **spend), "Mana") == 1.0
+    assert uptime({**mana, "gainBase": 1, "gainInc": 100}, Charges(mana_flask=1, **spend), "Mana") == 1.0  # (1+1) x 2 x 3 s
     assert uptime(mana, Charges(life_flask=5), "Mana") == 0.0  # Life flask generation doesn't fill Mana flasks
     golden = {"kind": "Charm", "duration": 4, "chargesUsed": 20}
     assert uptime(golden, Charges(charm=50), trigger="Used when you kill a Rare or Unique enemy") == 0.0
