@@ -163,3 +163,20 @@ def test_model_stats_entries_cover_a_stat_for_their_skills_only():
     named = {n for e in ("model-stats-energy-gain", "model-stats-energy-sources")
              for n in next(x for x in __import__("builder.ledger", fromlist=["entries"]).entries() if x.id == e).raw["skill"]}
     assert named - {"Boundless Energy I", "Boundless Energy II"} <= set(models.META_GEMS)  # only skills the model prices
+
+
+def test_a_noop_line_is_closed_only_by_what_really_applies_to_it():
+    """COVD1: the audit added every no-op line (parsed, nothing reads it) as "none", so no ledger route could close one.
+    A custom model reading it, a pob_wrong replacement on an item, or a "no effect" record closes it now; a pob_gap
+    translation (applied only to lines PoB ignores) and a pob_wrong on a passive don't."""
+    from builder.ledger.coverage import noop_status
+
+    missing = ["SomeName"]
+    assert noop_status("Take 20% less Damage over time", missing, True)[:2] == ("ledger", "keeper-of-the-arc-dot")
+    status, entry, reason = noop_status("Take 20% less Damage over time", missing, False)
+    assert status == "none" and entry == "keeper-of-the-arc-dot" and "only on items" in reason
+    assert noop_status("40% increased Archon Buff duration", missing, False)[:2] == ("model", "archon-duration")
+    assert noop_status("Withered you inflict also increases Fire Damage taken", missing, True)[0] == "ledger"
+    status, entry, _ = noop_status("Repeatable Spells have 20% chance to Repeat", missing, True)
+    assert status == "none" and entry == "now-and-again-repeat"  # (a pob_gap translation isn't applied to parsed lines)
+    assert noop_status("A line nothing knows", missing, True) == ("none", None, "parsed, but no calculation reads SomeName")

@@ -40,7 +40,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from builder import ROOT
-from builder.ledger import checked_parse, entries, model_entry, parse_audit, translate
+from builder.ledger import checked_parse, entries, model_entry, parse_audit, translate, wrong
 
 POB_SRC = ROOT / "vendor" / "PathOfBuilding-PoE2" / "src"
 BRIDGE = ROOT / "engine" / "bridge.lua"
@@ -354,6 +354,31 @@ def ignored_line_status(line: str, on_passive: bool) -> tuple[str, str | None, s
     return "none", None, "PoB ignores the line"
 
 
+def noop_status(line: str, missing: list[str], on_item: bool) -> tuple[str, str | None, str]:
+    """Status of a line PoB parses into names no calculation reads (a no-op; COVD1, 12 Nov 2026: no ledger route could
+    close one, the audit added them as "none" unconditionally). What closes one, and only where it really applies:
+    - a custom model or the condition resolver reads the line (bridge.sourceLines gives every line, parsed or not);
+    - a `pob_wrong` entry replaces the line with one PoB calculates: applied on items (uniques' text, rares' affixes
+      and implicits, runes: context.corrected_raw, ledger/items.corrected_item), not on passives or Timeless passives;
+    - a ledger entry that records "no effect" (no replace lines): nothing to apply.
+    A `pob_gap` translation isn't applied to a line PoB parses (only to lines it ignores), so it doesn't close one."""
+    unread_why = "parsed, but no calculation reads " + ", ".join(missing)
+    if entry := model_entry(line):
+        return "model", entry.id, f"{unread_why}; fed to the {entry.raw['model']} model"
+    if condition := resolver_condition(line):
+        return "model", f"condition:{condition.var}", f"{unread_why}; a source of {condition.label} for the condition resolver"
+    if fixed := wrong(line):
+        if on_item:
+            return "ledger", fixed[0].id, f"{unread_why}; replaced by a line PoB calculates (pob_wrong)"
+        return "none", fixed[0].id, f"{unread_why}; a pob_wrong entry replaces it, but only on items, not passives"
+    if translated := translate(line):
+        entry, lines = translated
+        if not lines:
+            return "ledger", entry.id, f"{unread_why}; recorded as no effect on what's calculated"
+        return "none", entry.id, f"{unread_why}; a ledger entry translates it, but translations apply only to lines PoB ignores"
+    return "none", None, unread_why
+
+
 APPLIED_POOLS = {"Item", "Jewel", "Flask", "Charm", "Runes", "implicit"}
 
 
@@ -475,8 +500,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 continue
             if affix["supported"]:
                 missing = unread(typed_names(affix, reads), reads)
-                status, entry, reason = ("none", None, "parsed, but no calculation reads " + ", ".join(missing)) \
-                    if missing else ("pob", None, "")
+                status, entry, reason = noop_status(text, missing, affix["pool"] in APPLIED_POOLS) if missing else ("pob", None, "")
                 category = "affix-noop" if missing else "affix"
             else:
                 category = "affix"
@@ -524,13 +548,12 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             missing = unread(typed_names(line, reads), reads)
             if missing:
                 kind = passive_kind(line)
-                add("passive-noop", line["node"], kind, line["line"], "none", None,
-                    "parsed, but no calculation reads " + ", ".join(missing), SOURCE_WEIGHT[kind], node_id=line["id"])
+                add("passive-noop", line["node"], kind, line["line"], *noop_status(line["line"], missing, False),
+                    SOURCE_WEIGHT[kind], node_id=line["id"])
         for line in raw["uniques"]:
             missing = unread(typed_names(line, reads), reads)
             if missing:
-                add("unique-noop", line["unique"], "unique", line["line"], "none", None,
-                    "parsed, but no calculation reads " + ", ".join(missing),
+                add("unique-noop", line["unique"], "unique", line["line"], *noop_status(line["line"], missing, True),
                     popularity.get(line["unique"], SOURCE_WEIGHT["unique"]))
         # unique lines of variants the item parse didn't select, and Timeless jewels' passives: the same checks
         for line in raw.get("unique_variants", []):
@@ -539,15 +562,15 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 status, entry, reason = ignored_line_status(line["line"], False)
                 add("unique", line["unique"], "unique", line["line"], status, entry, reason, weight, variant=line.get("variants"))
             elif missing := unread(typed_names(line, reads), reads):
-                add("unique-noop", line["unique"], "unique", line["line"], "none", None,
-                    "parsed, but no calculation reads " + ", ".join(missing), weight)
+                add("unique-noop", line["unique"], "unique", line["line"], *noop_status(line["line"], missing, True),
+                    weight)
         for line in raw.get("base_implicits", []):  # base items' implicit lines
             if not line["supported"]:
                 status, entry, reason = not_applied(*ignored_line_status(line["line"], False), "implicit")
                 add("base-implicit", line["base"], "affix", line["line"], status, entry, reason, SOURCE_WEIGHT["affix"])
             elif missing := unread(typed_names(line, reads), reads):
-                add("base-implicit-noop", line["base"], "affix", line["line"], "none", None,
-                    "parsed, but no calculation reads " + ", ".join(missing), SOURCE_WEIGHT["affix"])
+                add("base-implicit-noop", line["base"], "affix", line["line"], *noop_status(line["line"], missing, True),
+                    SOURCE_WEIGHT["affix"])
         for line in raw.get("legion", []):
             kind = "notable" if line.get("notable") or line.get("kind") == "nodes" else "small"
             if not line["supported"]:
@@ -555,8 +578,8 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 add("timeless", line["node"], kind, line["line"], status, entry,
                     reason + " (a Timeless jewel's passive)", SOURCE_WEIGHT[kind] * 0.5)
             elif missing := unread(typed_names(line, reads), reads):
-                add("timeless-noop", line["node"], kind, line["line"], "none", None,
-                    "parsed, but no calculation reads " + ", ".join(missing), SOURCE_WEIGHT[kind] * 0.5)
+                add("timeless-noop", line["node"], kind, line["line"], *noop_status(line["line"], missing, False),
+                    SOURCE_WEIGHT[kind] * 0.5)
         # f. parsed lines whose condition nothing can switch on; g. parsed lines whose parse lost something
         setters = parse_audit.Setters(raw)
         parsed = ([("passive", l, passive_kind(l), SOURCE_WEIGHT[passive_kind(l)], l["node"]) for l in raw["passives"]]
