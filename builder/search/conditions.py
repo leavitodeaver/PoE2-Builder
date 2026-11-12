@@ -741,7 +741,8 @@ def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # curse gem in the build (the Cursed box's own evidence); "while at maximum Endurance Charges" by the charges held;
 # "Enemies you Fully Armour Break" at armour_broken's Full Break rate. A
 # kill, Heavy Stun, Immobilise, Shapeshift, Burning, a socketed jewel or a gem's own effect: rate not modelled (0,
-# labelled). Duration modifiers and Blind / Maim effect aren't read.
+# labelled). "X% increased <Debuff> Duration" lines scale each line's duration (models.duration_scale: Hinder and Blind
+# have them in the game files, MECH44); Blind / Maim effect isn't read.
 DEBUFF_DURATION = 4.0
 DEBUFFS = {  # var: (the verb, the participle)
     "conditionEnemyBlinded": ("blind", "blinded"),
@@ -779,7 +780,7 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     when = (m.group(2) if m.group(2) is not None else f"{m.group(3)} {m.group(4)}").lower()
     d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
-    duration = float(d.group(1)) if d else DEBUFF_DURATION
+    duration = (float(d.group(1)) if d else DEBUFF_DURATION) * models.duration_scale(lines, DEBUFFS[var][0])
     every = number(stats.get("enemySkillTime")) or 0.7
     block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
     if "presence" in when:
@@ -914,10 +915,11 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
         return 0.0, ""
     rate += share * armour
     to_break = 0.0 if armour <= 0 else (armour / rate if rate > 0 else float("inf"))
-    up = models.FULL_BREAK_DURATION / (models.FULL_BREAK_DURATION + to_break)
-    up = 1 - (1 - up) * (1 - min(1.0, full * models.FULL_BREAK_DURATION))
+    held = models.full_break_duration(lines)  # (12 s x the Armour Break Duration lines)
+    up = held / (held + to_break)
+    up = 1 - (1 - up) * (1 - min(1.0, full * held))
     return up, (f"Armour Fully Broken {up:.0%} of the fight ({shared(up)}): {rate:,.0f} Armour broken/s against "
-                f"the boss's {armour:,.0f} (PoB), {models.FULL_BREAK_DURATION:g} s each Full Break: " + "; ".join(how[:3]))
+                f"the boss's {armour:,.0f} (PoB), {held:g} s each Full Break: " + "; ".join(how[:3]))
 
 
 def armour_broken_share(lines: list[str], stats: dict) -> float:
@@ -1481,7 +1483,7 @@ class Conditions:
                 found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS))
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
-            broken, stats["_full_break_rate"] = roar, roar[2] / models.FULL_BREAK_DURATION
+            broken, stats["_full_break_rate"] = roar, roar[2] / models.full_break_duration([line["text"] for line in lines])
         elif any(ARMOUR_BREAK_LINE.search(line["text"]) for line in lines):
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(BREAK_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
@@ -1492,7 +1494,7 @@ class Conditions:
             up, basis = _armour_broken(texts, armour_stats)
             if basis:
                 broken = _box(up, basis)
-                stats["_full_break_rate"] = up / models.FULL_BREAK_DURATION
+                stats["_full_break_rate"] = up / models.full_break_duration(texts)
         found: dict[str, tuple[object, str]] = {}
         uptimes: dict[str, float] = {}  # var -> share of the fight, for the effects the build keeps up at a rate
         self.off_values: dict[str, object] = {}  # var -> its box with the effect off, if not False (Withered's base stacks)
@@ -1557,7 +1559,8 @@ class Conditions:
         skill, warcry = models.roar([models.Skill.of(s) for s in raw["skills"] if not s["disabled"]])
         if skill is None or warcry:
             return None
-        share, basis = models.roar_break(skill, number(raw.get("enemyArmour")))
+        texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]
+        share, basis = models.roar_break(skill, number(raw.get("enemyArmour")), models.full_break_duration(texts))
         return (True, f"gem:{models.FEROCIOUS_ROAR}: {basis} ({shared(share)})", share) if share >= MIN_UPTIME else None
 
     def resolve(self) -> bool:

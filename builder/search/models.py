@@ -43,6 +43,8 @@ MODEL_FIELDS = sorted({
     "Armour", "enemySkillTime", "EvadeChance", "EffectiveBlockChance",
     # Refutation: Runic Ward to spend (parry_plan)
     "Ward",
+    # Run and Gun: the main skill's projectiles (run_and_gun_model)
+    "ProjectileCount",
     # Spell Totem: how long PoB says a totem lasts, and the charges it can be raised with
     "TotemDuration", "PowerChargesMax", "EnduranceChargesMax",
     # Harmony Within: unreserved Mana against Life
@@ -417,6 +419,14 @@ META_GEMS = {
     "Cast on Charm Use": {"per_level": 3.0, "gain": "charm", "per": 2.0},
     "Barrier Invocation": {"per_level": 3.0, "gain": "energy shield lost", "per": 0.1, "invocation": True},
     "Cast on Dodge": {"per_level": 3.0, "gain": "dodge", "per": 2.0},
+    # Cast on Minion Death (MECH44, 11 Nov 2026; before, in NO_ENERGY_ON_A_BOSS: "none on a single boss"): "Gains 50 base
+    # Energy when a Minion is killed, modified by the Minion's Power" (MetaCastOnMinionDeathPlayer,
+    # cast_on_minion_death_gain_1_energy_per_X_minion_relative_defensiveness_% 2; energy_generated_+% 3 a level). The game
+    # files' KeywordPopups MinionDeath: "Minions whose durations expire or that are despawned by the player are considered
+    # to have died", and the boss kills minions. One of the build's minions dies every MINION_DEATH_EVERY s (assumed, as
+    # Grim Feast's Remnants, assumptions.py), at 100% relative Power (assumed: 50 Energy). Timed minions' own expiry rate
+    # isn't read yet (an undercount for builds of many short-lived minions).
+    "Cast on Minion Death": {"per_level": 3.0, "gain": "minion death", "per": 50.0},
     # Smith of Kitava's Heat of the Forge: the same stats as Thundergod's Wrath (cast_fire_spell_on_hit_gain_X_centienergy_
     # per_monster_power_on_hit 300, the same level table; game files), Fire spells. The game and the tree call it Fire Spell
     # on Hit, PoB's skill Fire Spell on Melee Hit; the notable gives no level, so PoB's is used (the bridge reports it).
@@ -438,7 +448,16 @@ INVOCATION_MAX_ENERGY = 500  # generic_ongoing_trigger_maximum_energy of every I
 DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files, build 26476662); distance mods not counted
 DODGE_EVERY = 2.0  # seconds between dodge rolls against a boss: the user's default (7 Nov 2026), said in the guide
 DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); faster rolls from movement speed not counted
-NO_ENERGY_ON_A_BOSS = {"Reaper's Invocation": "kills", "Cast on Minion Death": "minion deaths"}
+NO_ENERGY_ON_A_BOSS = {"Reaper's Invocation": "kills"}
+MINION_DEATH_EVERY = 10.0  # seconds between deaths of your minions against a boss (assumed; Cast on Minion Death)
+MINION_TYPES = {"Minion", "CreatesMinion"}
+
+
+def minion_skill_names(groups: list[dict], gems: dict[str, dict]) -> list[str]:
+    """The build's enabled skill gems that make minions (skill types Minion / CreatesMinion), for Cast on Minion Death."""
+    return sorted({g["name"] for group in groups for g in group.get("gems") or []
+                   if not g.get("support") and g.get("enabled", True) and g["name"] != "Cast on Minion Death"
+                   and MINION_TYPES & set((gems.get(g["name"]) or {}).get("skillTypes") or [])})
 # Gone from the game by two sources that agree (the rule for removing anything): the game files reach them by no source
 # (data/game-*/live.json: no uncut tier, base item, passive, or collection unique grants them) and poe2db shows them
 # with no tier or source; the user also found no Curse on Block in game (7 Nov). Never picked; a PoB code that has one
@@ -714,6 +733,31 @@ ROAR_COOLDOWN = 8.0
 ROAR_EMPOWER_PER_POWER, ROAR_EMPOWER_POWER_CAP = 8, 64
 RAGE_MAXIMUM, RAGE_HOLD, RAGE_LOSS = 30.0, 4.0, 5.0  # Rage, s without loss after gaining it, Rage lost per second
 FULL_BREAK_DURATION = 12.0
+# Duration modifiers of effects you inflict (MECH44, 11 Nov 2026; before, the ledger's approved no-effect entry dropped
+# Pin / Hinder / Armour Break durations; the user, 11 Nov: count them). Game files (stat_descriptions.csd, build
+# 26476662): hinder_duration_+% "{0}% increased Hinder Duration" (passives slowed_enemies13/14_/25/26/27),
+# blind_duration_+% "{0}% increased Blind duration" (Mods, PassiveSkills), armour_break_and_sundered_armour_duration_+%
+# "{0}% increased Armour Break Duration" (passives area_attacks31, armour_break2/5/36; jewel mods), pin_duration_+%
+# "{0}% increased Pin duration" (passives pin3/5/6/8, a soul core; Pin III's support_pin_pin_duration_+%_final).
+# The Armour Break one is read as lengthening the 12 s Fully Broken (KeywordPopups ArmourBreak; assumed: the game
+# files give a partial Break no duration). Pin: nothing here rates the boss Pinned (conditionEnemyPinned is never set),
+# so its duration lines are labelled in the ledger and move nothing until a Pinned uptime exists.
+DURATION_LINE = r"^(\d+(?:\.\d+)?)% (increased|reduced) {name} duration$"
+
+
+def duration_scale(texts: list[str], name: str) -> float:
+    """1 + the summed "X% increased / reduced <name> Duration" lines (at least 0)."""
+    pattern = re.compile(DURATION_LINE.format(name=re.escape(name)), re.I)
+    inc = 0.0
+    for text in texts:
+        if m := pattern.search(text.strip()):
+            inc += float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+    return max(0.0, 1 + inc / 100)
+
+
+def full_break_duration(texts: list[str]) -> float:
+    """Seconds the boss's Armour stays Fully Broken: 12 s x the Armour Break Duration lines."""
+    return FULL_BREAK_DURATION * duration_scale(texts, "Armour Break")
 
 
 def roar(skills: list[Skill]) -> tuple[Skill | None, bool]:
@@ -747,7 +791,7 @@ def roar_empowered() -> int:
     return max(1, min(BOSS_POWER, ROAR_EMPOWER_POWER_CAP) // ROAR_EMPOWER_PER_POWER)
 
 
-def roar_break(skill: Skill, enemy_armour: float) -> tuple[float, str]:
+def roar_break(skill: Skill, enemy_armour: float, duration: float = FULL_BREAK_DURATION) -> tuple[float, str]:
     """Share of the fight the boss's Armour is Fully Broken by the roar's Empowered hits, and its basis."""
     per_hit = number(skill.level_stats.get("warcry_grant_break_X_armour_on_hit"))
     hits, period = roar_empowered(), roar_period(skill)
@@ -756,8 +800,8 @@ def roar_break(skill: Skill, enemy_armour: float) -> tuple[float, str]:
              f"{BOSS_POWER} Power), each Breaking {per_hit:,.0f} Armour: {broken:,.0f} against the boss's {enemy_armour:,.0f}")
     if per_hit <= 0 or broken < enemy_armour:
         return 0.0, basis + ": not Fully Broken"
-    return min(1.0, FULL_BREAK_DURATION / period), (
-        basis + f": Fully Broken for {FULL_BREAK_DURATION:g} s, once per {period:.1f} s (the main skill's next hits after "
+    return min(1.0, duration / period), (
+        basis + f": Fully Broken for {duration:g} s, once per {period:.1f} s (the main skill's next hits after "
         "each roar assumed to land)")
 
 
@@ -1297,6 +1341,14 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
                                     f"preset; a hit of {hit:,.0f}, at most the {restored:,.0f} that returns between hits: "
                                     f"{regen:,.0f}/s regenerated, {recharge:,.0f}/s recharge after {delay:g} s): "
                                     f"1 Energy per 10 lost")
+    if kind == "minion death":
+        minions = stats.get("_minion_skills") or []
+        if not minions:
+            return 0.0, "the build has no minions: no Energy"
+        return per / MINION_DEATH_EVERY, (f"one of your minions ({', '.join(minions[:3])}) dies or expires every "
+                                          f"{MINION_DEATH_EVERY:g} s against a boss (assumed; expired minions count as "
+                                          f"died, KeywordPopups MinionDeath), {per:g} Energy each (a minion of 100% "
+                                          f"relative Power assumed)")
     if kind == "charm":
         spent = number(stats.get("_charm_charges"))
         if spent <= 0:
@@ -2080,6 +2132,51 @@ def rod_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[lis
     cut = -100 * (1 - share)
     return [raw_mod("DebuffEffect", "MORE", cut, ELECTROCUTING_ARROW),
             raw_mod("BuffEffect", "MORE", cut, ELECTROCUTING_ARROW)], [note]
+
+
+# Run and Gun (MECH44, 11 Nov 2026; before, the ledger's approved no-effect-run-and-gun dropped it for every skill: "one
+# target can't be hit twice by most skills"). Game files: KeywordPopups Projectile, "only one Projectile in the group can
+# hit each target unless otherwise specified"; PoB doesn't parse the line (ModCache: nil). The user (11 Nov): count it for
+# the skills that are exceptions, labelled. Which skills (GrantedEffectStatSets, build 26476662, every player stat set
+# with projectiles_can_shotgun, projectiles_crossbow_barrage or projectiles_barrage):
+# - shotgun (projectiles_can_shotgun: all can hit one target): SHOTGUN_SKILLS. PoB reads nothing of it; counted as more
+#   damage, 2 x the chance over the skill's projectile count (PoB's ProjectileCount; all of them assumed to hit the boss);
+# - fired in sequence (projectiles_crossbow_barrage: the crossbow skills; projectiles_barrage: Oil Barrage): PoB's own
+#   SequentialProjectiles path counts PoB's TwoAdditionalProjectilesChance (more DPS per projectile and the extra attack
+#   time each costs, CalcOffence), so the chance goes to PoB as that modifier.
+# "While moving": a skill usable while moving (skill type UsableWhileMoving) fired while walking, a way to play the build,
+# said in the guide, unless the build stands still (its stationary lines, the Standing still box); other skills: none.
+SHOTGUN_SKILLS = frozenset({"Galvanic Shards", "Fragmentation Rounds", "Incendiary Shot", "Permafrost Bolts", "Ice Fragments"})
+SEQUENCE_SKILLS = frozenset({"Crossbow Shot", "Explosive Shot", "High Velocity Rounds", "Glacial Bolt", "Rapid Shot",
+                             "Armour Piercing Rounds", "Ice Shards", "Shockburst Rounds", "Oil Barrage", "Requiem"})
+RUN_AND_GUN = re.compile(r"^Projectile Attacks have a (\d+(?:\.\d+)?)% chance to fire two additional Projectiles while moving$",
+                         re.I)
+
+
+def run_and_gun_model(texts: list[str], stats: dict, main: Skill | None, main_types: set[str],
+                      standing: bool) -> tuple[list[dict], list[dict]]:
+    chance = sum(float(m.group(1)) for t in texts if (m := RUN_AND_GUN.search(t.strip())))
+    if not chance or main is None:
+        return [], []
+    label = f"Run and Gun ({chance:g}% chance of two more projectiles while moving)"
+    if main.name not in SHOTGUN_SKILLS | SEQUENCE_SKILLS:
+        return [], [{"label": label, "value": 0, "confidence": "theory",
+                     "basis": f"{main.name}'s projectiles can't hit one target together (KeywordPopups Projectile): none"}]
+    if "UsableWhileMoving" not in main_types or standing:
+        why = "the build stands still while using it" if standing else f"{main.name} isn't used while moving"
+        return [], [{"label": label, "value": 0, "confidence": "theory", "basis": f"{why}: none"}]
+    play = "fire while walking (a way to play the build; standing still loses it)"
+    if main.name in SEQUENCE_SKILLS:
+        return [raw_mod("TwoAdditionalProjectilesChance", "BASE", chance, main.name)], [{
+            "label": label, "value": chance, "confidence": "theory",
+            "basis": f"{main.name} fires its projectiles in sequence: PoB counts the chance as its own "
+                     f"TwoAdditionalProjectilesChance (more damage per projectile, more attack time each); {play}"}]
+    count = max(number(stats.get("ProjectileCount")), 1.0)
+    more = 100.0 * 2 * chance / 100 / count
+    return [line("1% more Damage", more, skill=main.name)], [{
+        "label": label, "value": round(more, 2), "confidence": "theory",
+        "basis": f"{main.name}'s projectiles can all hit one target (projectiles_can_shotgun): 2 x {chance:g}% more over its "
+                 f"{count:g} projectiles (all assumed to hit the boss) = {more:.1f}% more damage; {play}"}]
 
 
 # Parried (MECH39, 11 Nov 2026). Game files (GrantedEffectStatSets, ActiveSkills): Parry ("Ready your Buckler to parry the

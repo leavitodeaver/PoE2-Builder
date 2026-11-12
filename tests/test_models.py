@@ -878,6 +878,21 @@ def test_cast_on_charm_use_gains_energy_from_the_charm_charges_spent():
     assert models.energy_gain("Cast on Charm Use", {}, "Spark")[0] == 0.0
 
 
+def test_cast_on_minion_death_gains_energy_from_the_builds_minions_dying():
+    """KeywordPopups MinionDeath: expired or despawned minions count as died; MetaCastOnMinionDeathPlayer: 50 base Energy
+    per death, modified by the minion's Power (100% assumed); one death per MINION_DEATH_EVERY s assumed."""
+    energy, basis = models.energy_gain("Cast on Minion Death", {"_minion_skills": ["Raise Zombie"]}, "Spark")
+    assert energy == pytest.approx(50.0 / models.MINION_DEATH_EVERY) and "Raise Zombie" in basis and "assumed" in basis
+    assert models.energy_gain("Cast on Minion Death", {}, "Spark")[0] == 0.0
+    assert "Cast on Minion Death" not in models.NO_ENERGY_ON_A_BOSS
+    groups = [{"gems": [{"name": "Raise Zombie", "support": False, "enabled": True},
+                        {"name": "Spark", "support": False, "enabled": True},
+                        {"name": "Minion Instability", "support": True, "enabled": True}]}]
+    gems = {"Raise Zombie": {"skillTypes": ["Minion", "CreatesMinion"]}, "Spark": {"skillTypes": ["Spell"]},
+            "Minion Instability": {"skillTypes": ["Minion"]}}
+    assert models.minion_skill_names(groups, gems) == ["Raise Zombie"]
+
+
 def test_spirit_vessel_notes_name_the_copied_skills_and_the_assumptions():
     skills = [{"name": "Spirit Vessel", "group": 3, "disabled": False},
               {"name": "Cross Slash", "group": 3, "disabled": True}, {"name": "Maul", "group": 3, "disabled": True},
@@ -1202,3 +1217,22 @@ def test_freezes_give_the_elemental_ailment_metas_energy():
         gain, how = models.energy_gain(meta, stats, "Frostbolt")
         assert gain == pytest.approx(models.buildup_rate(stats, "Freeze") * 10 * models.BOSS_POWER) and "freezes" in how
     assert models.energy_gain("Cast on Elemental Ailment", {**stats, "FreezeBuildupAvg": 0}, "Frostbolt")[0] == 0
+
+
+def test_run_and_gun_counts_for_shotgun_and_sequence_fired_skills_while_moving():
+    """KeywordPopups Projectile: one projectile in the group hits each target unless otherwise specified; the
+    exceptions from GrantedEffectStatSets (projectiles_can_shotgun, projectiles_crossbow_barrage, projectiles_barrage)."""
+    line = ["Projectile Attacks have a 10% chance to fire two additional Projectiles while moving"]
+    moving = {"Attack", "Projectile", "UsableWhileMoving"}
+    galvanic = models.Skill("Galvanic Shards", group=1, attack=True)
+    mods, notes = models.run_and_gun_model(line, {"ProjectileCount": 8}, galvanic, moving, False)
+    assert mods[0]["scale"] == pytest.approx(2.5) and "8 projectiles" in notes[0]["basis"]  # 2 x 10% over 8
+    rapid = models.Skill("Rapid Shot", group=1, attack=True)
+    mods, _ = models.run_and_gun_model(line + line, {"ProjectileCount": 1}, rapid, moving, False)
+    assert mods == [models.raw_mod("TwoAdditionalProjectilesChance", "BASE", 20.0, "Rapid Shot")]
+    assert models.run_and_gun_model(line, {}, galvanic, moving, True)[0] == []  # standing still
+    assert models.run_and_gun_model(line, {}, galvanic, {"Attack", "Projectile"}, False)[0] == []  # not used while moving
+    arrow = models.Skill("Lightning Arrow", group=1, attack=True)
+    mods, notes = models.run_and_gun_model(line, {}, arrow, moving, False)
+    assert mods == [] and "can't hit one target together" in notes[0]["basis"]
+    assert models.run_and_gun_model([], {}, galvanic, moving, False) == ([], [])

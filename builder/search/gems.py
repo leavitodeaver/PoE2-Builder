@@ -866,6 +866,7 @@ class Gems:
         if main is None:
             return False
         stats = build.call("stats", fields=models.MODEL_FIELDS)
+        stats["_minion_skills"] = models.minion_skill_names(groups, build.ctx.gems)  # (Cast on Minion Death)
         left, usage = self.budget_left(), self.usage_stats()
         metas = []
         for name in self.meta_candidates():

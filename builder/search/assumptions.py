@@ -256,6 +256,8 @@ class Assumptions:
         stats = build.call("stats", fields=models.MODEL_FIELDS)
         if any(s.name == "Cast on Charm Use" for s in found):  # (its Energy: charm charges spent, from the flask model)
             stats = {**stats, **charm_stats(build)}
+        if any(s.name == "Cast on Minion Death" for s in found):  # (its Energy: the build's minions dying)
+            stats = {**stats, "_minion_skills": models.minion_skill_names(build.groups(), build.ctx.gems)}
         source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
         forbidden = set(build.ctx.request.forbid_ledger_entries)
         inputs = models.read_inputs(source_lines)
@@ -295,6 +297,12 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + roar_mods, hand_notes + roar_notes
         rod_mods, rod_notes = models.rod_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + rod_mods, hand_notes + rod_notes
+        texts = [e["text"] for e in source_lines]
+        if any(models.RUN_AND_GUN.search(t.strip()) for t in texts):  # (Run and Gun: shotgun and sequence-fired skills)
+            main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or [])
+            standing = bool(build.call("getConfig")["input"].get("conditionStationary"))
+            gun_mods, gun_notes = models.run_and_gun_model(texts, stats, main, main_types, standing)
+            hand_mods, hand_notes = hand_mods + gun_mods, hand_notes + gun_notes
         mirage_mods, mirage_notes, mirage_groups = models.mirage_model(
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))

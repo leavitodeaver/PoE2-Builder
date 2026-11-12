@@ -106,12 +106,20 @@
   status: approved
 
 - id: no-effect-run-and-gun
-  title: Run and Gun extra projectiles while moving (one target can't be hit twice by most skills)
+  title: Run and Gun extra projectiles while moving (PoB doesn't parse it; counted by a model for the skills whose projectiles can all hit one target)
   kind: pob_gap
   match: '^Projectile Attacks have a \d+% chance to fire two additional Projectiles while moving$'
   replace: []
   confidence: reported
-  sources: ["https://poe2db.tw/Run_and_Gun", "https://www.poe2wiki.net/wiki/Projectile_behaviour"]
+  notes: >-
+    PoB leaves the line unparsed (ModCache nil). KeywordPopups Projectile: only one Projectile in the group can
+    hit each target unless otherwise specified. The user (11 Nov 2026): count it for the exceptions, labelled.
+    models.run_and_gun_model (MECH44) counts it for projectiles_can_shotgun skills (2 x the chance over the
+    projectile count, as more damage) and for skills firing in sequence (projectiles_crossbow_barrage,
+    projectiles_barrage: PoB's own TwoAdditionalProjectilesChance), while firing on the move with a skill usable
+    while moving and not standing still; other skills get none.
+  sources: ["https://poe2db.tw/Run_and_Gun", "https://www.poe2wiki.net/wiki/Projectile_behaviour", "data/game-26476662 GrantedEffectStatSets (projectiles_can_shotgun, projectiles_crossbow_barrage, projectiles_barrage)"]
+  absorbed_by: "builder/search/models.py run_and_gun_model, for shotgun and sequence-fired skills used while moving"
   status: approved
 
 - id: no-effect-extra-combo

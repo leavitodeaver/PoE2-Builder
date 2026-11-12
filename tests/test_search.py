@@ -1144,6 +1144,11 @@ def test_debuffs_on_only_when_their_sources_keep_them_up():
     assert hindered(["10% chance to Hinder Enemies on Hit with Spells"], stats) == (0.0, "")  # not a Spell
     assert hindered(["10% chance to Hinder Enemies on Hit with Spells"], {**stats, "_main_types": {"Spell"}})[2] < 0.9
     assert hindered(["20% increased Hinder Duration"], stats) == (0.0, "")
+    # hinder_duration_+% (the user, 11 Nov: count it): 10% x 2 hits/s x 8 s = 1 - 0.9^16 = 81%, from 57%
+    spell = {**stats, "_main_types": {"Spell"}}
+    longer = hindered(["10% chance to Hinder Enemies on Hit with Spells", "100% increased Hinder Duration"], spell)
+    assert "81%" in longer[1] and "8 s" in longer[1]
+    assert "57%" in blinded(["10% chance to Blind Enemies on Hit", "50% reduced Blind duration", "50% increased Blind duration"], stats)[1]
     assert blinded(["(30-50)% increased Blind Effect"], stats) == (0.0, "")
     # a Full Break every 13 s, Maimed 4 s of it
     maimed = debuff_uptime("conditionEnemyMaimed")
@@ -1151,6 +1156,19 @@ def test_debuffs_on_only_when_their_sources_keep_them_up():
     assert maimed(["Enemies you Fully Armour Break are Maimed"], {**stats, "_full_break_rate": 0.5})[2] >= 0.9
     assert ash(["Cover Enemies in Ash on Hit"], stats)[2] >= 0.9
     assert debuff_uptime("conditionEnemyCoveredInFrost")(["Cover Enemies in Ash on Hit"], stats) == (0.0, "")
+
+
+def test_armour_break_duration_lengthens_full_breaks():
+    """armour_break_and_sundered_armour_duration_+% read as lengthening KeywordPopups ArmourBreak's 12 s Fully Broken."""
+    from builder.search.conditions import _armour_broken
+
+    assert models.full_break_duration(["50% increased Armour Break Duration"]) == 18.0
+    assert models.full_break_duration(["20% reduced Armour Break Duration", "Breaks 100 Armour on Hit"]) == pytest.approx(9.6)
+    assert models.duration_scale(["200% reduced Hinder Duration"], "Hinder") == 0.0
+    stats = {"Speed": 1.0, "HitChance": 100, "CritChance": 0, "_main_types": {"Attack"}, "_enemy_armour": 1200}
+    base = _armour_broken(["Break 100 Armour on Hit"], stats)  # 12 s to break, 12 s Broken: 50%
+    longer = _armour_broken(["Break 100 Armour on Hit", "100% increased Armour Break Duration"], stats)  # 24 / 36
+    assert base[0] == pytest.approx(0.5) and longer[0] == pytest.approx(2 / 3) and "24 s each" in longer[1]
 
 
 def test_an_uptime_is_counted_at_its_share():

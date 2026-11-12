@@ -32,12 +32,18 @@
   status: approved
 
 - id: no-effect-crowd-control-duration
-  title: Pin, Hinder and Armour Break durations
+  title: Pin duration (no Pinned uptime is modelled yet; Hinder and Armour Break durations are counted)
   kind: pob_gap
-  match: '^\d+% increased (Pin|Hinder|Armour Break) [Dd]uration$'
+  match: '^\d+% (increased|reduced) Pin [Dd]uration$'
   replace: []
   confidence: verified_by_you
-  sources: ["Durations of debuffs whose presence the condition resolver decides from their sources"]
+  notes: >-
+    The user, 11 Nov 2026: count Pin / Hinder / Armour Break durations. Hinder (and Blind) durations now scale
+    each inflicting line's duration in the debuff uptimes, and Armour Break Duration the 12 s Fully Broken
+    (models.duration_scale / full_break_duration, MECH44). Pin's stays here, labelled: nothing in the builder
+    rates the boss Pinned (PoB's conditionEnemyPinned is never set; Pins are only an event rate for "when you
+    Pin" lines, models.PIN_EVERY), so a longer Pin moves nothing until a Pinned uptime is modelled.
+  sources: ["data/game-26476662 stat_descriptions.csd: pin_duration_+%, hinder_duration_+%, armour_break_and_sundered_armour_duration_+%", "KeywordPopups Pinned: 3 s; Hinder: 4 s; ArmourBreak: Fully Broken 12 s"]
   status: approved
 
 - id: no-effect-parry
