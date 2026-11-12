@@ -82,10 +82,12 @@ def test_available_processors_is_the_affinity_mask():
 
 def test_a_queue_proof_gets_slots_of_its_own(monkeypatch, tmp_path):
     """PC_QUEUE_DIR is set only in a queue proof or test: its slots are named from that folder, so a live PoE2 run holding
-    the real 6 can't starve the proof (7 Nov 2026, the proof's p2pool scene). Real runs keep the one set of names."""
+    the real 6 can't starve the proof (7 Nov 2026, the proof's p2pool scene). Real runs get one set of names per PoE2
+    folder (12 Nov 2026), the same every time in one folder."""
     monkeypatch.delenv("PC_QUEUE_DIR", raising=False)
     real = slots.slot_name()
-    assert real == "Local\PoE2Builder.queue.LuaJIT.%d"
+    assert real.startswith("Local\PoE2Builder.queue.") and real.endswith(".LuaJIT.%d") and real.count("\\") == 1
+    assert slots.slot_name() == real
     monkeypatch.setenv("PC_QUEUE_DIR", str(tmp_path / "a"))
     proof = slots.slot_name()
     assert proof != real and proof.startswith("Local\PoE2Builder.proof.") and proof.count("\\") == 1

@@ -25,10 +25,15 @@ POOL_MAX = 6
 def slot_name() -> str:
     """The slots' mutex names. A queue proof or test (PC_QUEUE_DIR set: the queue's state folder isn't the real one) gets
     slots of its own, named from that folder, so it never shares the 6 with live PoE2 runs (7 Nov 2026: the proof's
-    p2pool scene found them all held by a gate run). Every process of a run inherits the variable, so they agree."""
+    p2pool scene found them all held by a gate run). Every process of a run inherits the variable, so they agree.
+
+    Real runs get one set of 6 per PoE2 folder (the main checkout and each worker's worktree), named from the folder this
+    code lives in, so the queue can run one PoE2 run per folder at once without one starving another's engines (12 Nov
+    2026: the user stopped the other projects and PoE2's test places went above one; each run is still held to 6)."""
     folder = os.environ.get("PC_QUEUE_DIR")
     if not folder:
-        return "Local\\PoE2Builder.queue.LuaJIT.%d"
+        root = os.path.normcase(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        return "Local\\PoE2Builder.queue." + hashlib.sha1(root.encode("utf-8")).hexdigest()[:12] + ".LuaJIT.%d"
     tag = hashlib.sha1(os.path.normcase(os.path.abspath(folder)).encode("utf-8")).hexdigest()[:12]
     return "Local\\PoE2Builder.proof." + tag + ".LuaJIT.%d"
 
