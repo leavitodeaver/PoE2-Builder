@@ -1543,3 +1543,30 @@ def test_jiquanis_thesis_line_reaches_pobs_own_flag_and_its_socketed_halves_dont
     build.call("setAssumptions", mods=search.assumptions.mods + mods, fields=[])
     assert build.call("stats", fields=["EnergyShieldRecharge"])["EnergyShieldRecharge"] == pytest.approx(flat, abs=0.11)
     build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
+
+
+
+def test_critical_hit_chance_that_cannot_be_rerolled_drops_lucky_crit(engine):
+    """MECH53 (an OVERCOUNT): "Your Critical Hit Chance cannot be Rerolled" (Maligaro's Virtuosity) stops anything making
+    Critical Hit Chance Lucky, Unlucky, Bifurcated or Inevitable (KeywordPopups RerollCrit). PoB leaves the line unparsed and
+    keeps its Lucky crit; the bridge answers false for the three flags on the player's mod stores while it's equipped."""
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    fields = ["CritChance"]
+
+    def wear(slot: str, base: str, lines: list[str]) -> float:
+        raw = "\n".join(["Rarity: Rare", "Test " + slot, base, "Implicits: 0", *lines])
+        return build.call("equip", slot=slot, raw=raw, fields=fields)["stats"]["CritChance"]
+
+    plain = wear("Gloves", "Fine Bracers", [])
+    lucky = wear("Amulet", "Stellar Amulet", ["Your Critical Hit Chance is Lucky"])
+    assert 0 < plain < lucky  # PoB's Lucky crit
+    p = plain / 100
+    assert lucky == pytest.approx(100 * (1 - (1 - p) ** 2), rel=1e-3)
+    held = wear("Gloves", "Fine Bracers", ["Your Critical Hit Chance cannot be Rerolled"])
+    assert held == pytest.approx(plain)
+    # off again with the line gone
+    assert wear("Gloves", "Fine Bracers", []) == pytest.approx(lucky)

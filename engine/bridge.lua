@@ -592,6 +592,81 @@ local function setAugmentCounts(env)
 	modDB.multipliers["NonIdolAugmentsInEquipment"] = others
 end
 
+-- "Your Critical Hit Chance cannot be Rerolled" (Maligaro's Virtuosity; MECH53, an OVERCOUNT). KeywordPopups RerollCrit
+-- (game 26476662): "Any mechanic where the calculation of a single Hit would roll Critical Hit Chance more than once is
+-- considered to be Rerolling. This includes anything that makes Critical Hit Chance Lucky, Unlucky, Bifurcated, or
+-- Inevitable." PoB leaves the line unparsed (ModCache.lua 9961: nil) and keeps the FLAG mods CritChanceLucky / BifurcateCrit
+-- (also from SkillStatMap 1037's attacks_roll_crits_twice) / InevitableCriticalHits (CalcOffence 3900-3925). FLAG mods
+-- can't be cancelled by adding mods, and perform rebuilds each skill's mod list (CalcPerform 1205), so the player's mod
+-- stores answer false for the three flags while an equipped item holds the line (wrapped Flag on the ModList / ModDB
+-- classes: methods are copied into each class, Common.lua newClass). Minions keep theirs: "Your" is the player's chance.
+-- (PoB has no "Unlucky crit" flag: checked grep CritChanceUnlucky in its Modules and Data, none.) Any item holding the
+-- line counts, not one named unique: matched by its text.
+local REROLL_CRIT_FLAGS = { CritChanceLucky = true, BifurcateCrit = true, InevitableCriticalHits = true }
+local noCritRerollDB = nil -- the player's modDB while the line is equipped, for the perform running now
+local function isPlayerStore(store)
+	local depth = 0
+	while store and depth < 8 do
+		if store == noCritRerollDB then
+			return true
+		end
+		store = store.parent
+		depth = depth + 1
+	end
+	return false
+end
+local critRerollInstalled = false
+local function installNoCritReroll()
+	if critRerollInstalled or not common or not common.classes then
+		return
+	end
+	for _, className in ipairs({ "ModList", "ModDB" }) do
+		local class = common.classes[className]
+		if class and class.Flag then
+			local flag = class.Flag
+			class.Flag = function(self, cfg, ...)
+				if noCritRerollDB and isPlayerStore(self) then
+					local n = select("#", ...)
+					local kept = { }
+					for i = 1, n do
+						local name = select(i, ...)
+						if not REROLL_CRIT_FLAGS[name] then
+							kept[#kept + 1] = name
+						end
+					end
+					if #kept == 0 then
+						return false
+					elseif #kept < n then
+						return flag(self, cfg, unpack(kept))
+					end
+				end
+				return flag(self, cfg, ...)
+			end
+		end
+	end
+	critRerollInstalled = true
+end
+local function setNoCritReroll(env)
+	noCritRerollDB = nil
+	if not env or not env.modDB or not env.player then
+		return
+	end
+	for _, item in pairs(env.player.itemList or { }) do
+		if type(item) == "table" then
+			for _, lines in ipairs({ item.explicitModLines or { }, item.implicitModLines or { } }) do
+				for _, modLine in ipairs(lines) do
+					local inVariant = not item.variant or not modLine.variantList or modLine.variantList[item.variant]
+					if inVariant and type(modLine.line) == "string"
+						and modLine.line:lower():find("critical hit chance cannot be rerolled", 1, true) then
+						noCritRerollDB = env.modDB
+						return
+					end
+				end
+			end
+		end
+	end
+end
+
 -- The boss's Slow taken (MECHD2; MECH-D's bosses.Boss.slow_taken). The game's Slow (KeywordPopups "Slow"): "Slows are
 -- always multiplicative with each other ... 50% less Slow effect on Unique monsters ... monsters cannot be slowed below
 -- 25% of their base speed"; Chill and Temporal Chains are Slows (KeywordPopups "Chill", "TemporalChains"). PoB's boss
@@ -688,6 +763,7 @@ end
 local function installDerived()
 	installSpiritVessel()
 	installBossSlow()
+	installNoCritReroll()
 	local calcs = require("Modules.CalcBase")
 	if calcs.perform == wrappedPerform or not calcs.perform then
 		return
@@ -696,6 +772,7 @@ local function installDerived()
 	wrappedPerform = function(env, ...)
 		setDerived(env)
 		setAugmentCounts(env)
+		setNoCritReroll(env)
 		local function finish(...)
 			setLowLifeCap(env, env and env.player and env.player.output)
 			return ...

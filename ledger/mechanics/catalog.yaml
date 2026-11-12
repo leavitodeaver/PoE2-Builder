@@ -587,6 +587,21 @@
   impact: 2
   effort: M
 
+- id: crit-reroll
+  name: Critical Hit Chance that cannot be Rerolled
+  terms: [cannot be Rerolled, Rerolling, Critical Hit Chance is Lucky, Bifurcates Critical Hits, Inevitable Critical Hits]
+  category: damage sources
+  game: "KeywordPopups RerollCrit: 'Any mechanic where the calculation of a single Hit would roll Critical Hit Chance more than once is considered to be Rerolling. This includes anything that makes Critical Hit Chance Lucky, Unlucky, Bifurcated, or Inevitable.' 'Your Critical Hit Chance cannot be Rerolled' (Maligaro's Virtuosity, current variant) switches all of them off."
+  game_source: "data/game-26476662 KeywordPopups RerollCrit; stat critical_strike_chance_cannot_be_rerolled"
+  pob: none
+  pob_check: "ModCache.lua 9961 parses the line to nil; CalcOffence 3900-3925 still applies the FLAG mods CritChanceLucky / BifurcateCrit / InevitableCriticalHits (an OVERCOUNT)."
+  handling: "Bridge (MECH53, engine/bridge.lua installNoCritReroll / setNoCritReroll): while an equipped item holds the line (matched by its text, any item), the player's mod stores answer false for CritChanceLucky, BifurcateCrit and InevitableCriticalHits (including Bifurcate from attacks_roll_crits_twice); minions keep theirs ('Your'). PoB has no Unlucky-crit flag, so nothing to remove there. Tested in tests/test_engine_models.py."
+  plan: {approach: bridge, how: "Done.", inputs: []}
+  what_if: visible
+  guide_note: "Lucky, Bifurcated and Inevitable crits don't count while the gloves are worn."
+  impact: 3
+  effort: S
+
 - id: item-systems
   name: Item systems (runes, Soul Cores, Idols, quality, corruption, Abyss, sockets)
   category: items
