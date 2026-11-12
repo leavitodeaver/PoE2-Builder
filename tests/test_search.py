@@ -465,10 +465,12 @@ def test_condition_evidence(var, line, types, expected):
 
 
 def test_unsustainable_boss_conditions_are_never_resolved():
-    # (Frozen and Electrocuted: at the share the boss carries them since MECH38, from the buildup models)
-    never = {"conditionEnemyStunned", "conditionEnemyDazed", "conditionEnemyPinned", "conditionEnemyHeavyStunned"}
+    # (Frozen and Electrocuted: at the share the boss carries them since MECH38, from the buildup models; Pinned likewise
+    # since MECH46, from PoB's Pin buildup)
+    never = {"conditionEnemyStunned", "conditionEnemyDazed", "conditionEnemyHeavyStunned"}
     assert not never & set(RULES)
-    assert all(RULES[var].value_fn is not None for var in ("conditionEnemyFrozen", "conditionEnemyElectrocuted"))
+    assert all(RULES[var].value_fn is not None
+               for var in ("conditionEnemyFrozen", "conditionEnemyElectrocuted", "conditionEnemyPinned"))
     assert math.isfinite(len(RULES))
 
 
