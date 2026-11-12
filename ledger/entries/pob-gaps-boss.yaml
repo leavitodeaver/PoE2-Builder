@@ -207,8 +207,9 @@
     As unlucky-enemy-damage (6.67% for the bosses' +-20% Damage Spread, written as 4% and 3% less: PoB reads whole
     percents only), on PoB's FullLife condition (ModParser 'while you are on full life'), so it counts only as far
     as the build is on Full Life. Mods EnemyExtraDamageRollsOnFullLifeUnique__1 / __2 (stat order 6402; FIX_QUEUE
-    COV6's findings: COV-D's leftover); no unique in PoB's unique list carries them today (checked: uniques.json,
-    12 Nov), so the entry is for the audit and for a unique PoB adds later.
+    COV6's findings: COV-D's leftover); no unique in PoB's unique list carries them today (checked: our uniques.json
+    export and PoB's Data/Uniques/*.lua, 12 Nov; which game unique has them: UNVERIFIED, poe2db not checked), so the
+    entry is for the audit and for a unique PoB adds later.
   sources: ["https://poe2db.tw/Unlucky", "vendor/PathOfBuilding-PoE2/src/Data/ModItemExclusive.lua (EnemyExtraDamageRollsOnFullLifeUnique__1, __2)"]
   status: proposed
 
