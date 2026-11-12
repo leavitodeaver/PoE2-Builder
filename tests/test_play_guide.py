@@ -74,6 +74,13 @@ def test_distance_candidates_follow_the_build_lines():
     assert distance_candidates(["Enemies in your Presence have -10% to Fire Resistance"], {"Spell"}) == [5.0, 2.0]
     assert distance_candidates(["20% more Damage against Enemies further than 6m"], {"Spell"}) == [5.0, 2.0, 6.5]
     assert distance_candidates(["Enemies in your Presence are Blinded"], {"Melee", "Attack"}) == []  # already close
+    # MECHC1: a build standing back also tries the edge of its Presence (Presence Area of Effect decides it), between
+    # close range and its natural distance; not for melee, nor when the Presence already reaches the natural distance
+    presence = ["Enemies in your Presence have -10% to Fire Resistance"]
+    assert distance_candidates(presence, {"Spell"}, 4.47) == [5.0, 2.0, 4.4]
+    assert distance_candidates(presence, {"Spell"}, 5.6) == [5.0, 2.0]
+    assert distance_candidates(presence, {"Melee", "Attack"}, 4.4) == []
+    assert distance_candidates(["20% more Damage against Enemies further than 6m"], {"Spell"}, 4.4) == [5.0, 2.0, 6.5]
 
 
 class FakeObjective:

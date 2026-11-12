@@ -441,20 +441,31 @@ NEAR_TYPES = {"Minion", "CreatesMinion", "SummonsTotem", "UsedByTotem"}
 DISTANCE_LINE = re.compile(r"\bin your presence\b|\bclose range\b|\bwithin \d+(?:\.\d+)? ?m|\bfurther than (\d+(?:\.\d+)?) ?m|"
                            r"\bsurrounded\b", re.I)
 
+PRESENCE_LINE = re.compile(r"\bin your presence\b", re.I)
+
 
 def natural_distance(main_types: set[str]) -> float:
     """The distance in metres a build stands at when nothing it has depends on it."""
     return MELEE_DISTANCE if "Melee" in main_types or main_types & NEAR_TYPES else RANGED_DISTANCE
 
 
-def distance_candidates(lines: list[str], main_types: set[str]) -> list[float]:
-    """Distances worth a trial: the natural one first, close range, and just beyond any "further than N m" line."""
-    found = [natural_distance(main_types)]
+def distance_candidates(lines: list[str], main_types: set[str], presence_radius: float = 0.0) -> list[float]:
+    """Distances worth a trial: the natural one first, close range, and just beyond any "further than N m" line. A build
+    standing back with "in your Presence" lines also tries the edge of its Presence (presence_radius, metres), when that
+    lies between close range and its natural distance: the boss's Accuracy against you falls with distance (CalcDefence;
+    KeywordPopups Accuracy), so the build keeps the boss in its Presence as far away as it reaches, and Presence Area of
+    Effect lines (PoB's PresenceArea, CalcPerform calcBuffRadius) decide how far that is (MECHC1, 12 Nov 2026: the user's
+    Presence answer of 11 Nov, the player moves so the boss is in or out of the Presence as needed)."""
+    natural = natural_distance(main_types)
+    found = [natural]
     for text in lines:
         if m := DISTANCE_LINE.search(text):
             found.append(MELEE_DISTANCE)
             if m.group(1):
                 found.append(float(m.group(1)) + 0.5)
+            edge = math.floor(presence_radius * 10) / 10
+            if PRESENCE_LINE.search(text) and MELEE_DISTANCE < edge < natural:
+                found.append(edge)
     found = list(dict.fromkeys(found))
     return found if len(found) > 1 else []
 
