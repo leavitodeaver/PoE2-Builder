@@ -2819,8 +2819,9 @@ def supported_main_share(skill: Skill, stats: dict, main: Skill | None = None, p
 # "Attacks Gain 25% of Damage as Lightning Damage for 8 seconds on Culling an enemy with Supported Skills"). Against one
 # boss the Cull is the kill (KeywordPopups CullingStrike: the enemy is killed), so the buff only starts after the fight;
 # culls of adds feed it (RESEARCH14/15/16: the King in the Mists' totems on a 25 s / 15 s summon cooldown, Atziri's
-# cultists every 45 s). The tool has no add-kill rate yet (MECH-A / MECH-C), so this reads one from the stats as
-# CULLS_STAT (culls per second the build makes) and is 0 with a note while it's missing: no flat guess.
+# cultists every 45 s). It reads CULLS_STAT, the request's boss preset's add Culls per second (MECH-D's
+# bosses.kill_stats, merged into the stats by Assumptions.models), and is 0 with a note against a boss with no
+# killable adds: no flat guess.
 # Culling Strike II (COVE10): "Gain 20% increased Culling Strike Threshold for 20 seconds on Culling with Supported Skills"
 # is the same case, its 20 s from the game text (the stat is ..._for_seconds_from_code: an entry's `share_seconds`).
 CULLS_STAT = "AddCullsPerSecond"
@@ -2833,8 +2834,8 @@ def cull_buff_share(skill: Skill, stats: dict, main: Skill | None = None, prev: 
     play = ("Cull the boss's adds (the King in the Mists' totems, Atziri's cultists) with the supported skill to start the "
             "buff; Culling the boss itself ends the fight, so it gives nothing there.")
     if culls <= 0:
-        return 0.0, ("0: the buff starts on Culling an enemy, and against a lone boss the Cull is the kill; no add-kill rate "
-                     "is modelled yet for the boss presets with adds (UNVERIFIED rate; MECH-A / MECH-C)"), play
+        return 0.0, ("0: the buff starts on Culling an enemy, and against a lone boss the Cull is the kill; this boss "
+                     "preset has no killable adds with a known rate (bosses.kill_stats)"), play
     share = min(1.0, culls * seconds)
     return share, (f"buff up {share:.0%} of the fight: {culls:.3g} culls/s x {seconds:g} s (its base duration; Skill "
                    f"Effect Duration increases not counted)"), play + f" Headline: up {share:.0%} of the fight."
@@ -4761,6 +4762,54 @@ def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict],
     return mods, notes, groups, died
 
 
+# Impending Doom's Doom Blast (MECHB12; SEARCH7's probe POE2T764: 71,251 of 2b75b's reference Full DPS, an OVERCOUNT).
+# The support (game files GrantedEffects ViciousHexSupportPlayer; gem_stat_descriptions.csd): "Trigger Doom Blast when
+# Curses from Supported Skills expire"; it supports AppliesCurse skills and excludes UsedByProxy, Triggered, Persistent
+# and Aura ones (the same table's ExcludedActiveSkillTypes; PoB sup_int.lua: "Supports Curse skills you cast yourself").
+# DoomBlastPlayer: cooldown 150 ms, 3-4 stored uses: no rate of its own. PoB has no trigger for it, so it scored Doom Blast
+# at its own cast speed whenever its curse's group was in Full DPS (toad_model put Doedre's Undoing's group there, MECHB8).
+# The model: one Doom Blast each time the curse expires on the boss:
+#   - a curse cast by hand (curse_uses' by_hand) is recast each CURSE_DURATION, landing as the last one runs out (its
+#     1.5 s delay), so it expires once a cast: 1 / CURSE_DURATION a second (MEDIUM: whether a curse replaced at the
+#     moment it ends counts as expiring is UNVERIFIED; a player can let it lapse first, at the cost of curse uptime);
+#     a Cursed Ground area (Doedre's Undoing) is counted the same (when its curse expires on the boss: UNVERIFIED);
+#   - "Curses you inflict have infinite Duration" (CURSE_FOREVER): the curse never expires on a boss that lives, 0;
+#   - any other application (a meta's trigger, Blasphemy's Aura, an item's curse on hit): the support excludes it, 0;
+#   - its curse's group is counted in Full DPS when the rate is above 0 (before, only if another model put it there).
+DOOM_BLAST = "Doom Blast"
+
+
+def doom_blast_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict], list[dict], set[int]]:
+    """Doom Blast's rate from its curse's expiries (see above): (lines, notes, groups to count in Full DPS)."""
+    blasts = [s for s in skills if s.name == DOOM_BLAST and s.group is not None]
+    mods: list[dict] = []
+    notes: list[dict] = []
+    groups: set[int] = set()
+    shares = {c.name: c for c in curses}
+    for blast in blasts:
+        curse = next((shares[s.name] for s in skills if s.group == blast.group and s.name in shares), None)
+        if curse is None:
+            rate, how = 0.0, "no curse in its group is applied (0)"
+        elif not curse.by_hand and "infinite Duration" in curse.how:
+            rate, how = 0.0, f"{curse.name} has infinite Duration, so it never expires on the boss (0)"
+        elif not curse.by_hand:
+            rate, how = 0.0, (f"{curse.name} is {curse.how.split(':')[0]}; Impending Doom supports only curses you cast "
+                              "yourself (it excludes Triggered, Persistent, Aura and UsedByProxy curses: game files) (0)")
+        else:
+            rate = curse.share / CURSE_DURATION
+            how = (f"{curse.name} cast by hand every {CURSE_DURATION:g} s, expiring once a cast as the next lands (MEDIUM: "
+                   "whether a curse replaced as it ends counts as expiring is UNVERIFIED)")
+        mods += trigger_rate(DOOM_BLAST, rate)
+        if rate > 0:
+            groups.add(blast.group)
+        notes.append({"label": "Doom Blast (Impending Doom) per second*", "value": round(rate, 3),
+                      "basis": f"one each time the curse expires on the boss: {how}; PoB alone scores it at its own "
+                               "cast speed",
+                      "play": "Let the curse run out on the boss before recasting it: each expiry triggers one Doom Blast.",
+                      "confidence": "MEDIUM" if rate > 0 else "HIGH"})
+    return mods, notes, groups
+
+
 # Minions dying, not only Killed (MECHB8; plans/term-minion-dies.md, FIX_QUEUE #95, AUDIT15 A15-18). KeywordPopups
 # MinionDeath: "Minions whose durations expire or that are despawned by the player are considered to have died. However,
 # effects that state they trigger when a Minion is Killed do not trigger in these cases." KeywordPopups Limit: "If a new
@@ -4818,8 +4867,8 @@ def minion_died_rate(skills: list[Skill], main: Skill | None, stats: dict, suppo
 # Kills the build makes in a boss fight (MECHB9; the manager's ruling on A17-4 / research #124, 12 Nov ~12:40, and the
 # boss presets' adds, MECH-D's MECHD1). Two kinds, kept apart because the lines that read them say different things:
 #   - enemies: the boss preset's killable adds (the King in the Mists' Affliction Totems, Atziri's waves), the stats'
-#     ADD_KILLS_STAT (bosses.kill_stats, merged into the stats by Assumptions.models once MECHD1 is on main; 0 with a note
-#     before, and against a lone boss, where the kill ends the fight). Every add is taken as killed by the build (MECHD1:
+#     ADD_KILLS_STAT (bosses.kill_stats, merged into the stats by Assumptions.models; 0 with a note against a lone
+#     boss, where the kill ends the fight). Every add is taken as killed by the build (MECHD1:
 #     a build taking on-kill lines plays to kill them, CLAUDE.md's second rule). LOW (the presets' add rates).
 #   - your own minions Killed: the game's text calls a minion its summoner brings to 0 Life "Killed" (KeywordPopups
 #     MinionDeath), so the ruling counts them as Kills in the headline at the build's own rate (minion_deaths: Sacrifice,

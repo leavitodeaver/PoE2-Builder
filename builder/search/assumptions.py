@@ -411,6 +411,8 @@ class Assumptions:
         # conditions' readers: build.minion_died, (per second, how))
         toad_mods, toad_notes, toad_groups, toads = models.toad_model(found, curses)
         hand_mods, hand_notes = hand_mods + toad_mods, hand_notes + toad_notes
+        doom_mods, doom_notes, doom_groups = models.doom_blast_model(found, curses)  # (MECHB12: Impending Doom's expiries)
+        hand_mods, hand_notes = hand_mods + doom_mods, hand_notes + doom_notes
         build.minion_died = models.minion_died_rate(found, main, stats, supports, toads, build.trigger_rates)
         # (MECHB9: the build's kills, enemies and own minions Killed (the ruling on A17-4), for on-Kill readers:
         # build.kills = (enemies/s, all/s, how); Heartbound Loop's damage taken at the minion-death rate: build.self_damage)
@@ -510,7 +512,7 @@ class Assumptions:
             notes.append(note)
         notes += self.rate_presses()
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
-        return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups},
+        return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups},
                              **expression_groups}
 
     def rate_presses(self) -> list[dict]:

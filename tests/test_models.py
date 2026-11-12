@@ -3230,3 +3230,24 @@ def test_the_boss_ignites_you_for_a_share_of_the_fight():
     assert bosses.self_ignite_uptime({**s, "enemySkillTime": 0.35})[0] > share
     assert bosses.self_ignite_uptime({**s, "IgniteAvoidChance": 100})[0] == 0
     assert bosses.self_ignite_uptime({**s, "_boss": "Zarokh, the Temporal"})[0] == 0
+
+
+
+def test_doom_blast_fires_once_each_time_its_curse_expires():
+    """MECHB12: Impending Doom triggers Doom Blast "when Curses from Supported Skills expire"; PoB scored it at its own
+    cast speed whenever its group was in Full DPS. A curse cast by hand expires once a cast; one with infinite Duration
+    never; a triggered one can't be supported (0)."""
+    despair = Skill("Despair", group=4, spell=True, cast_time=0.7)
+    blast = Skill(models.DOOM_BLAST, group=4, spell=True, triggered=True, cast_time=1.0)
+    by_hand = models.CurseUse("Despair", 1.0, "cast by hand every 7.4 s", True)
+    mods, notes, groups = models.doom_blast_model([despair, blast], [by_hand])
+    rate = next(m for m in mods if m["key"] == "triggerRate")
+    assert rate["skill"] == models.DOOM_BLAST and rate["value"] == pytest.approx(1 / models.CURSE_DURATION, abs=1e-3)
+    assert groups == {4} and notes[0]["confidence"] == "MEDIUM"
+    forever = models.CurseUse("Despair", 1.0, "cast by hand once: 'Curses you inflict have infinite Duration'")
+    mods, notes, groups = models.doom_blast_model([despair, blast], [forever])
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == 0 and groups == set()
+    meta = models.CurseUse("Despair", 0.5, "triggered by Cast on Crit 0.1 times/s")
+    mods, notes, groups = models.doom_blast_model([despair, blast], [meta])
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == 0 and "excludes Triggered" in notes[0]["basis"]
+    assert models.doom_blast_model([despair], [by_hand]) == ([], [], set())

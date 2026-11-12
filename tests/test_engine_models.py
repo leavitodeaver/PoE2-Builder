@@ -1736,3 +1736,32 @@ def test_the_chill_able_hit_counts_every_type_allowed_to_chill(engine):
     assert cold["PhysicalHitAverage"] > 0 and cold["ChillHitDamage"] == pytest.approx(cold["ColdHitAverage"])
     both = wear([added, "Your Physical Damage can Chill"])
     assert both["ChillHitDamage"] == pytest.approx(both["ColdHitAverage"] + both["PhysicalHitAverage"])
+
+
+
+
+def test_explosive_transmutations_trigger_assumption_keeps_the_explosions_runic_ward_cost(engine):
+    """MECHB12 (SEARCH7's defect A): the game charges the triggered explosion Runic Ward (GrantedEffectsPerLevel
+    CostAmounts 7 / 16 / 30, poe2db "Cost: (7-30) Ward"), and PoB has no rule that makes a triggered skill free. MECHC8's
+    delivered 2b75b build (Runic Ward 0) must warn the same with the trigger assumption on as on finalize's plain
+    reload, so the live search sees what the delivered build can't cast."""
+    import json
+    from pathlib import Path
+    from builder.pob import codes
+
+    row = json.loads((Path(__file__).parents[1] / "benchmarks/results/gate4-20261112-152004.json")
+                     .read_text(encoding="utf-8"))["rows"][0]
+    request = BuildRequest.model_validate(row["request"])
+    payload = make_payload(request)
+    skeleton = enumerate_skeletons(Context(payload), [request.main_skill])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("loadXml", xml=codes.decode(row["code"]))
+    plain = build.call("facts", fields=["WardCostWarningList"])
+    search.assumptions.apply()
+    assumed = build.call("facts", fields=["WardCostWarningList"])
+    assert any(m["skill"] == "Transmutation Explosion" and m["key"] == "triggered" for m in search.assumptions.mods)
+    warning = "You do not have enough Runic Ward to use: Transmutation Explosion"
+    assert warning in plain["warnings"] and warning in assumed["warnings"]
+    assert plain["stats"].get("WardCostWarningList") == assumed["stats"].get("WardCostWarningList") == 1
