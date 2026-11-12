@@ -165,11 +165,15 @@
   title: Damage of enemies hitting you is Unlucky
   kind: pob_gap
   match: '^Damage of Enemies Hitting you is Unlucky$'
-  replace: ['8% less Damage taken from Hits']
-  confidence: theory
+  replace: ['6.67% less Damage taken from Hits']
+  confidence: reported
   notes: >-
-    Unlucky rolls twice and keeps the lower: the average falls by (max-min)/(3*(max+min)), 6.7% for
-    a +-20% damage spread and 10% for +-30%. Boss spreads aren't published; 8% assumed.
+    Unlucky rolls twice and keeps the lower: the average falls by (max-min)/(3*(max+min)), 6.67% for
+    a +-20% damage spread and 10% for +-30%. Boss Damage Spread is +-20% (poe2db's datamined monster
+    blocks: the Arbiter of Ash, all three King in the Mists, The Blind Beast, The Sunburst Queen, Goliath; spells too:
+    the Arbiter's Fireball rolls x1.5 max/min), so 6.67% (RESEARCH3, research/unlucky-boss-damage.md; it was 8%, a
+    small overcount of defences). MEDIUM-HIGH. Against Armour, physical hits lose slightly more (lower rolls lose more
+    to Armour): a small understatement there.
   sources: ["https://poe2db.tw/us/Oracle", "https://poe2db.tw/Unlucky"]
   status: proposed
 
@@ -177,9 +181,9 @@
   title: Chance for damage of enemies hitting you to be Unlucky
   kind: pob_gap
   match: '^(\(\d+-\d+\)|\d+)% chance for Damage of Enemies Hitting you to be Unlucky$'
-  replace: ['{g1*0.08}% less Damage taken from Hits']
-  confidence: theory
-  notes: "Chance x the 8% assumed for always Unlucky."
+  replace: ['{g1*0.0667}% less Damage taken from Hits']
+  confidence: reported
+  notes: "Chance x the 6.67% for always Unlucky (boss Damage Spread +-20%: unlucky-enemy-damage)."
   sources: ["https://poe2db.tw/Unlucky"]
   status: proposed
 
@@ -187,8 +191,8 @@
   title: Damage of enemies hitting you is Unlucky on Low Life
   kind: pob_gap
   match: '^Damage of Enemies Hitting you is Unlucky while you are on Low Life$'
-  replace: ['8% less Damage taken from Hits while on Low Life']
-  confidence: theory
+  replace: ['6.67% less Damage taken from Hits while on Low Life']
+  confidence: reported
   sources: ["https://poe2db.tw/Unlucky"]
   status: proposed
 
@@ -196,8 +200,8 @@
   title: Physical damage of enemies hitting you is Unlucky
   kind: pob_gap
   match: '^Physical Damage of Enemies Hitting you is Unlucky$'
-  replace: ['8% less Physical Damage taken from Hits']
-  confidence: theory
+  replace: ['6.67% less Physical Damage taken from Hits']
+  confidence: reported
   sources: ["https://poe2db.tw/Unlucky"]
   status: proposed
 
@@ -205,8 +209,8 @@
   title: Lightning damage of enemies hitting you is Unlucky
   kind: pob_gap
   match: '^Lightning Damage of Enemies Hitting you is Unlucky$'
-  replace: ['8% less Lightning Damage taken']
-  confidence: theory
+  replace: ['6.67% less Lightning Damage taken']
+  confidence: reported
   notes: "PoB has no 'Lightning damage taken from Hits'; lightning damage over time is rare."
   sources: ["https://poe2db.tw/The_Burrower", "https://poe2db.tw/Unlucky"]
   status: proposed
