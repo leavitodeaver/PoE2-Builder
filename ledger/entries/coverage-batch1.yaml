@@ -575,13 +575,16 @@
   status: proposed
 
 - id: no-effect-enemy-death-and-recoup
-  title: Recovery when an enemy dies in your Presence, and recoup as Life (no deaths in the reference fight; recovery isn't checked)
+  title: Recovery when an enemy dies in your Presence, and recoup as Life (no deaths against a lone boss; recovery isn't checked)
   kind: pob_gap
   match: '^(Recover (\(\d+-\d+\)|\d+)% of your maximum (Life|Mana) when an Enemy dies in your Presence|(\(\d+-\d+\)|\d+)% of Physical Damage prevented Recouped as Life)$'
   replace: []
   confidence: verified_by_you
   notes: >-
-    The reference fight is a single boss: nothing dies before it. Recoup is recovery, not a checked defence.
+    Against a lone boss nothing dies before it. The King in the Mists' and Atziri's presets have killable adds
+    (MECHD1; models.kill_rate): an add dying in your Presence would feed the recovery line there, not counted (an
+    undercount of recovery on those presets; recovery is an optional check, off by default). Recoup is recovery, not
+    a checked defence.
     (checked: RESEARCH13 #18ak, scratch/manager/research/no-effect-batch-research13.md: the Recoup half holds
     (recovery, not checked); "nothing dies in the reference fight" is too broad: pinnacle fights have
     killable-looking non-Unique summons (MonsterVarieties; boss-fight-kills.md #19), not modelled.)

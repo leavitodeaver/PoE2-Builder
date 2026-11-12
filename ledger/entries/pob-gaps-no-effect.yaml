@@ -140,7 +140,11 @@
   notes: >-
     The lines themselves say other enemies, or a cursed enemy's death; a boss fight has neither. (checked:
     RESEARCH10 #18ab, scratch/manager/research/no-effect-shatter-and-spread.md: holds on a lone boss; both spread
-    lines name other enemies or a death; HIGH.) Not modelled: pinnacle fights with adds (no preset has adds yet).
+    lines name other enemies or a death; HIGH.) A lone boss has no other enemy. The King in the Mists' and Atziri's adds
+    (MECHD1's presets) are other enemies: these lines act on them. Spread from an ignited add to the boss, an Ignite
+    is one the build's own hits already put on the boss (whether a spread one could ever be the stronger is UNVERIFIED,
+    small); a curse spreading from a dying cursed add does nothing a direct curse doesn't. So little or no boss damage
+    is lost (COV11, A24-2).
   sources: ["https://poe2db.tw/us/Cracklecreep", "https://poe2db.tw/us/The_Searing_Touch", "https://poe2db.tw/us/Veilpiercer"]
   test_in_game: "Not needed for boss damage; in a map, ignite one enemy in a pack and watch the ignite appear on those standing next to it."
   status: proposed
@@ -168,8 +172,9 @@
   notes: >-
     As no-effect-fork-projectile: a chain or fork looks for a different target. (checked: RESEARCH9 #18y,
     scratch/manager/research/no-effect-chain-fork.md: Chain holds, KeywordPopups Chain "Enemies cannot be targeted
-    more than once in the same Chain", terrain chains included (they only redirect a miss); exception: chaining
-    through boss adds, not modelled (no preset has adds). Fork: probably holds, MEDIUM: the game text is silent, a
+    more than once in the same Chain", terrain chains included (they only redirect a miss). The King in the Mists' and
+    Atziri's adds (MECHD1's presets) are other targets, but a Chain can't come back to the boss (the same Chain rule), so
+    chaining through them adds no boss damage (COV11, A24-2). Fork: probably holds, MEDIUM: the game text is silent, a
     PoE1 developer answer says no, poe2wiki's group rule; in-game test #53.)
   sources: ["https://www.poe2wiki.net/wiki/Chain", "https://www.poe2wiki.net/wiki/Forking"]
   test_in_game: "Cast a projectile spell at a lone boss with this on: the projectile doesn't hit the boss a second time."

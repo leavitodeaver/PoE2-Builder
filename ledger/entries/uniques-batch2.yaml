@@ -99,9 +99,11 @@
   status: proposed
 
 # On-kill lines: absorbed by the tool's boss-fight assumption --------------------------------------------------------
-# On-kill sources aren't counted against the lone-boss target (no adds modelled; some encounters, such as Simulacrum
-# waves and Breach domains, do have kills): conditions.py and flasks.py count no kills. That is the tool's modelling
-# premise, not a game rule (RESEARCH2, scratch/manager/research/boss-fight-kills.md: MEDIUM); the boss itself dies once,
+# Against a lone boss nothing dies before it, so these lines give 0 there. Two boss presets have killable adds since
+# MECHD1 (the King in the Mists' and Atziri's; models.kill_rate, which MECH-C's on-kill charge / Rage / buff readers use
+# since MECHC9): these lines don't read those kills yet, an undercount on those presets (COV11, A24-2). Some other
+# encounters (Simulacrum waves, Breach domains) have kills too. The lone boss is the tool's modelling premise, not a
+# game rule (RESEARCH2, scratch/manager/research/boss-fight-kills.md: MEDIUM); the boss itself dies once,
 # at the end. These entries record that the lines fall under it, as uniques-batch1.yaml's on-kill entries do.
 
 - id: uniques-last-lament-bolt-on-kill
@@ -109,7 +111,7 @@
   kind: pob_gap
   match: '^(\(\d+-\d+\)|\d+)% chance to load a bolt into all Crossbow skills on Kill$'
   replace: []
-  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
   confidence: theory
   sources: ["https://poe2db.tw/us/The_Last_Lament", "scratch/manager/research/boss-fight-kills.md"]
   test_in_game: "None needed for a lone boss; on a map, kills reload Crossbow skills."
@@ -120,7 +122,7 @@
   kind: pob_gap
   match: '^On-Kill Effects happen twice$'
   replace: []
-  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
   confidence: theory
   notes: "Doubles on-kill effects, which the tool counts at 0 against a lone boss, so twice 0."
   sources: ["https://poe2db.tw/us/Killjoy", "scratch/manager/research/boss-fight-kills.md"]
@@ -132,7 +134,7 @@
   kind: pob_gap
   match: "^Gain \\d+ Runefather's Boast per Power of targets affected by Runefather's Challenge you kill$"
   replace: []
-  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
   confidence: theory
   notes: "Only the Boast line; the unique's \"Off-hand Hits inflict Runefather's Challenge\" stays open (COVD2 report)."
   sources: ["https://poe2db.tw/us/Eyes_of_the_Runefather", "scratch/manager/research/boss-fight-kills.md"]
@@ -144,7 +146,7 @@
   kind: pob_gap
   match: '^Enemies in your Presence killed by anyone count as being killed by you instead$'
   replace: []
-  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
   confidence: theory
   notes: "Turns allies' and minions' kills into yours for on-kill lines; with no kills counted it changes nothing."
   sources: ["https://poe2db.tw/us/Gravebind", "scratch/manager/research/boss-fight-kills.md"]
@@ -156,7 +158,7 @@
   kind: pob_gap
   match: '^Deal (\(\d+-\d+\)|\d+)% of Overkill damage to enemies within \d+ metres of the enemy killed$'
   replace: []
-  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
   confidence: theory
   notes: "Overkill damage exists only when an enemy dies; the boss's own death ends the fight."
   sources: ["https://poe2db.tw/us/Trampletoe", "scratch/manager/research/boss-fight-kills.md"]
@@ -168,7 +170,7 @@
   kind: pob_gap
   match: '^(\(\d+-\d+\)|\d+)% chance for Energy Shield Recharge to start when you Kill an Enemy$'
   replace: []
-  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
   confidence: theory
   sources: ["https://poe2db.tw/us/Deathrattle", "scratch/manager/research/boss-fight-kills.md"]
   test_in_game: "None needed for a lone boss."
@@ -179,7 +181,7 @@
   kind: pob_gap
   match: '^Fully Armour Broken enemies you kill with Hits Shatter$'
   replace: []
-  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
   confidence: theory
   notes: "Shattering removes the corpse; it adds no damage to the boss fight."
   sources: ["https://poe2db.tw/us/Sculpted_Suffering", "scratch/manager/research/boss-fight-kills.md"]
@@ -191,7 +193,7 @@
   kind: pob_gap
   match: '^Recover (\(\d+-\d+\)|\d+)% of maximum Life on Killing a Poisoned Enemy$'
   replace: []
-  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
   confidence: theory
   sources: ["https://poe2db.tw/us/Heart_of_the_Well", "scratch/manager/research/boss-fight-kills.md"]
   test_in_game: "None needed for a lone boss."

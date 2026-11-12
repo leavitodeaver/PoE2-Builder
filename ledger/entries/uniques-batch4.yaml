@@ -98,7 +98,7 @@
   kind: pob_gap
   match: '^Grants effect of Dreaming Gloom Shrine$'
   replace: []
-  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
   confidence: theory
   notes: >-
     The game's definition (KeywordPopups UniqueShrineChaos, "Dreaming Gloom Shrine"): "Slain enemies explode, dealing
