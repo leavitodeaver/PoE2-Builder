@@ -247,7 +247,9 @@ def build_models(build, inputs: Inputs, texts: list[str], skills: list[Skill], m
     if inputs.has(CATEGORY):
         from builder.search.boss_hits import boss_name
 
-        category = monster_category_model(inputs, texts, boss_name({}))
+        # (the boss the request names, as inner.boss_config passes to resetConfig; else the presets' default)
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or boss_name({})
+        category = monster_category_model(inputs, texts, boss)
         different = (different[0] + category[0], different[1] + category[1])
     if not (inputs.has(NO_MERCY) or inputs.has(RHYTHM)):
         return different
