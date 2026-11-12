@@ -607,7 +607,10 @@
     corpse within 50 units, 5 m, on use). PoB maps none of its stats (checked: no statMap in sup_int.lua's Profanity
     entries, the stat ids in SkillStatMap.lua and Modules/*.lua, 12 Nov 2026). Tagged to the supported skill at the
     share of its uses that consume a corpse (models.corpse_share: the build's own corpse supply over the skill's uses);
-    on a single boss nothing dies, and MECH-B's corpse_supply prices no source yet, so 0 with its note.
+    against a lone boss nothing dies before the fight ends, and MECH-B's corpse_supply prices no source yet (not the
+    build's own nor the add presets' adds: the King in the Mists' totems and Atziri's Acolytes, bosses.Kills; whether
+    they leave corpses is UNVERIFIED), so 0 with its note: an UNDERCOUNT on those two presets for a build that consumes
+    their corpses (COV12; was "on a single boss nothing dies", stale since MECHD1's add presets).
   sources: ["SupportProfanityPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
   test_in_game: "Not needed until a corpse source is priced."
   status: proposed
@@ -677,7 +680,9 @@
     -100% more Damage on the supported skill (its ailments too). That is exact for the main skill when nothing else
     damages the boss, and an UNDERCOUNT of the last 35% of the boss's Life where other skills bring it to Low Life (the
     score doesn't sum other skills' damage into the fight's time, so that phase isn't modelled). Its other stat (two
-    modifiers from a Rare it kills, 300 s) moves nothing against a lone boss.
+    modifiers from a Rare it kills, 300 s) moves nothing against a lone boss, nor on the add presets, whose adds are
+    taken as Normal or Magic (conditions.kill_events: their rarity isn't in the presets, UNVERIFIED, LOW; an
+    undercount if some are Rare).
   sources: ["GrantedEffectStatSets SupportEinharsBeastritePlayer (build 26476662)", "KeywordPopups LowLife",
             "https://poe2db.tw/us/Einhars_Beastrite"]
   test_in_game: "Not needed for the restriction (the game's text); the Low Life phase with other skills is an open model."

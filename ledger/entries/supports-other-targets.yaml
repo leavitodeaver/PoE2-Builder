@@ -11,7 +11,7 @@
 # Aftershock damages "other enemies" (poe2db's page reads the same).
 
 - id: supports-other-targets
-  title: Supports that act only on other enemies (none beside a lone boss)
+  title: Supports that act only on other enemies (none beside a lone boss; from an add to the boss not modelled)
   kind: gem_stat
   skill: [Shock Conduction, Shock Conduction II, Wildfire, SupportMetaDeadeyeMarksPlayer, Impact Shockwave]
   match: '^(?:support_%_chance_to_shock_nearby_enemy_on_shock|shock_nearby_enemy_base_area_of_effect_radius|support_ignite_proliferation_radius|your_marks_spread_to_a_nearby_enemies_on_consume_%_chance|support_impact_shockwave_base_non_slam_aftershock_on_heavy_stun_radius)$'
@@ -21,13 +21,16 @@
     2.5 metre radius'; Wildfire 'Ignites inflicted by Supported Skills Spread to other enemies that stay within 1.5 metre
     for 1 second'; the Deadeye marks support '100% chance to Mark another Enemy within 3 Metres of Marked Enemy when
     Consumed'; Impact Shockwave 'cause an Aftershock when they Heavy Stun an enemy, Damaging other enemies within 1.5
-    metres'. Shock Conduction II's always_shock_wet_enemies is not covered here (it shocks the hit target)."
+    metres'. Shock Conduction II's always_shock_wet_enemies is not covered here (it shocks the hit target). Against a
+    lone boss there is no other enemy. On the add presets (the King in the Mists, Atziri: bosses.Kills) a hit on an add
+    could Shock / Ignite / Mark the boss or Aftershock onto it: an UNDERCOUNT there for a build that hits the adds, not
+    modelled (the score's target is the boss; COV12, stale 'no other enemies' reading since MECHD1)."
   sources: ["gem_stat_descriptions.csd (build 26476662)", "https://poe2db.tw/us/Shock_Conduction", "https://poe2db.tw/us/Wildfire", "https://poe2db.tw/us/Impact_Shockwave"]
   test_in_game: "Not needed for single-boss damage."
   status: proposed
 
 - id: supports-bounty-kill-charges
-  title: Bounty I/II, Charm / Life / Mana Bounty, more flask and charm charges from killing blows (no kill before the lone boss dies)
+  title: Bounty I/II, Charm / Life / Mana Bounty, more flask and charm charges from killing blows (none against a lone boss; the add presets' kills not multiplied yet)
   kind: gem_stat
   skill: [Bounty I, Bounty II, Charm Bounty, Life Bounty, Mana Bounty]
   match: '^support_(?:charm|life_flask|mana_flask)_charges_gained_\+%_final_from_killing_blow$'
@@ -40,8 +43,10 @@
     tool's lone-boss fight no enemy dies before the boss (the same reading as the on-kill sources in conditions.py and
     flasks.charges_per_second, "charges an item gains per second without kills"), so it multiplies 0 charges and moves
     no flask or charm uptime. A statement about the tool's rating, not the game: with adds (a boss that summons them,
-    or mapping) these supports feed flasks and charms; a fight model that counts adds' deaths would need them (and the
-    play guide could then say how the build feeds them). PoB reads none of them (checked: the stat ids in
+    or mapping) these supports feed flasks and charms. Since MECHC9 flasks.kill_charges counts the charges from the King
+    in the Mists' and Atziri's adds (bosses.Kills), but not this "more" on them: an UNDERCOUNT on those two presets
+    (x1.5 / x2 on the kill charges of a build whose supported skill kills the adds), for MECH-C's flasks.Charges to read
+    (COV12). PoB reads none of them (checked: the stat ids in
     Data/SkillStatMap.lua and Modules/*.lua, 12 Nov 2026).
   sources: ["SupportBountyPlayer, SupportBountyPlayerTwo, SupportCharmBountyPlayer, SupportLifeFlaskPlayer, SupportManaFlaskPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
   test_in_game: "Not needed for a single boss."

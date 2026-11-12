@@ -3283,3 +3283,47 @@ def test_a_curses_own_duration_sets_its_uptime_recast_time_and_doom_blasts():
     assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(1 / 11.1, abs=1e-3)
     (base,) = models.curse_uses(hand, gems, {}, 8.0)
     assert base.duration == models.CURSE_DURATION and "level-20 base" in base.how
+
+
+
+def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_with():
+    """COV12 (an OVERCOUNT before): Adaptive Skin's "+N% to Maximum Resistances of each Elemental Damage Type you have
+    been Hit with Recently" was '+N% to all Maximum Elemental Resistances'. Now one line per element under
+    BossHits<Type>, which ledger_conditions switches on for the types the scored boss deals (boss_hits.HIT_TABLE)."""
+    from builder.ledger import translate
+    from builder.search.assumptions import Assumptions
+
+    entry, lines = translate("+5% to Maximum Resistances of each Elemental Damage Type you have been Hit with Recently")
+    assert entry.id == "adaptive-skin" and lines == [
+        "if:BossHitsFire +5% to Maximum Fire Resistance", "if:BossHitsCold +5% to Maximum Cold Resistance",
+        "if:BossHitsLightning +5% to Maximum Lightning Resistance"]
+
+    def found(boss):
+        class Request:
+            pass
+
+        class Ctx:
+            all_gems = {"Spark": {"skillTypes": ["Spell", "Projectile"]}}
+            request = Request()
+
+        Ctx.request.boss = boss
+
+        class Build:
+            ctx = Ctx()
+
+            def groups(self):
+                return [{"index": 1, "gems": [{"name": "Spark"}]}]
+
+            def main_group(self):
+                return {"index": 1, "gems": [{"name": "Spark"}], "skills": [{"name": "Spark"}], "mainActiveSkill": 1}
+
+        a = Assumptions.__new__(Assumptions)
+        a.build = Build()
+        a.ledger_shares = {}
+        return {c for c in a.ledger_conditions([{"name": "Spark", "disabled": False, "group": 1}])[0]
+                if c.startswith("BossHits")}
+
+    for boss, (_, counts) in boss_hits.HIT_TABLE.items():
+        assert found(boss) == {f"BossHits{t}" for t in ("Fire", "Cold", "Lightning") if counts.get(t)}, boss
+    assert found("Arbiter of Ash") == {"BossHitsFire"}  # Fire and Physical: Cold and Lightning stay at their maximums
+    assert found(None) == found("Arbiter of Ash")  # no boss in the request: the default boss

@@ -327,10 +327,48 @@
   title: Adaptive Skin, maximum resistance of elements you were hit by
   kind: pob_gap
   match: '^\+(\d+)% to Maximum Resistances of each Elemental Damage Type you have been Hit with Recently$'
-  replace: ['+{1}% to all Maximum Elemental Resistances']
+  replace: ['if:BossHitsFire +{1}% to Maximum Fire Resistance', 'if:BossHitsCold +{1}% to Maximum Cold Resistance',
+            'if:BossHitsLightning +{1}% to Maximum Lightning Resistance']
   confidence: reported
-  notes: "Assumes the boss has hit you with an element within 4 s before its biggest hit of that element."
-  sources: ["https://poe2db.tw/Adaptive_Skin"]
+  notes: >-
+    Per element, only for the elemental types the scored boss deals (COV12; an OVERCOUNT before: '+N% to all Maximum
+    Elemental Resistances' raised all three, so against Arbiter of Ash, which deals Fire and Physical, the Cold and
+    Lightning maximums rose too and the defence floors that read them overstated). The BossHits<Type> conditions are on
+    when boss_hits.HIT_TABLE gives the boss hits of that type (assumptions.ledger_conditions). For a type it deals, the
+    line is taken as up whenever that resistance matters: after its first hit of the type, assuming another within 4 s
+    ("Recently") before each big one (LOW for slow-hitting bosses). A type the boss never hits with counts 0, though a
+    hit from something else (an add, your own skill) could raise it (an undercount there; adds' damage types not
+    modelled). Source of the stat (maximum_elemental_resistance_+%_of_each_elemental_damage_type_youve_been_hit_with_recently):
+    passive shaman12 (checked, COV12: Stats ids with hit + recently + max/resist, and every Mods / PassiveSkills row
+    using that stat; game files 26476662).
+  sources: ["https://poe2db.tw/Adaptive_Skin", "game files 26476662 PassiveSkills shaman12"]
+  status: proposed
+
+- id: BossHitsFire
+  title: The scored boss deals Fire hits (Adaptive Skin's Fire line)
+  kind: condition
+  boss_hits: Fire
+  confidence: datamined
+  notes: "On when boss_hits.HIT_TABLE lists Fire hits for the boss (MECHC6's table; its share of the boss's skills is LOW, its presence is not)."
+  sources: ["builder/search/boss_hits.py HIT_TABLE"]
+  status: proposed
+
+- id: BossHitsCold
+  title: The scored boss deals Cold hits (Adaptive Skin's Cold line)
+  kind: condition
+  boss_hits: Cold
+  confidence: datamined
+  notes: "On when boss_hits.HIT_TABLE lists Cold hits for the boss."
+  sources: ["builder/search/boss_hits.py HIT_TABLE"]
+  status: proposed
+
+- id: BossHitsLightning
+  title: The scored boss deals Lightning hits (Adaptive Skin's Lightning line)
+  kind: condition
+  boss_hits: Lightning
+  confidence: datamined
+  notes: "On when boss_hits.HIT_TABLE lists Lightning hits for the boss."
+  sources: ["builder/search/boss_hits.py HIT_TABLE"]
   status: proposed
 
 # Damage ----------------------------------------------------------------------------------------

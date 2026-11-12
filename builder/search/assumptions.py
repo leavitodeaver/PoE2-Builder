@@ -1155,7 +1155,16 @@ class Assumptions:
         main_info = next((s for s in skills if s["name"] == main and main_group and s.get("group") == main_group["index"]),
                          next((s for s in skills if s["name"] == main), {}))
         found, notes = [], []
+        from builder.search import boss_hits, bosses  # (COV12: the damage types the scored boss deals)
+        boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        dealt = {t for t, count in boss_hits.hit_table(boss)[1].items() if count}
         for condition in wanted:
+            if condition.get("boss_hits"):
+                # on while the scored boss deals this damage type (boss_hits.HIT_TABLE): e.g. Adaptive Skin's max
+                # resistance of each element "you have been Hit with Recently" counts only for the boss's own types
+                if condition["boss_hits"] in dealt:
+                    found.append(condition["id"])
+                continue
             if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
                 share, how = self.jagged_ground_share(main, main_types, main_group)
                 # its ledger lines are `share:JaggedGround` (COV11): each counts its full value x this share (bridge

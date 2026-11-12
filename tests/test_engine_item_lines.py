@@ -154,3 +154,49 @@ def test_the_coverage_audit_reads_a_two_line_stat_description_as_one_line_as_pob
     assert [a["line"].strip() for a in boots if not a.get("bonded")][:2] == [
         "Increases and Reductions to Movement Speed also", "apply to Energy Shield Recharge Rate"]
     assert not any(a["supported"] for a in boots[:2])
+
+
+def test_an_if_line_raises_a_maximum_resistance_only_while_its_condition_is_on(engine):
+    """Adaptive Skin's per-element lines (COV12): 'if:BossHitsFire +5% to Maximum Fire Resistance' counts only under
+    Condition:LedgerBossHitsFire, which the assumptions set for a boss that deals Fire; Cold stays at its maximum."""
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    node = 3698
+    build.call("allocate", add=[node], fields=[])
+    lines = ["if:BossHitsFire +5% to Maximum Fire Resistance", "if:BossHitsCold +5% to Maximum Cold Resistance",
+             "+200% to all Elemental Resistances"]  # (over the cap, so the final resistance is the maximum)
+    applied = build.call("applyPassiveCorrections", nodes=[{"id": node, "entry": "test-if", "lines": lines}])
+    assert applied["applied"] == 3 and not applied["failed"]
+    base = [m for m in search.assumptions.mods if not (m.get("kind") == "Condition" and m["name"].startswith("BossHits"))]
+
+    def res(*on):
+        mods = base + [{"kind": "Condition", "name": name} for name in on]
+        return build.call("setAssumptions", mods=mods, fields=["FireResist", "ColdResist"])["stats"]
+
+    off, fire = res(), res("BossHitsFire")
+    assert fire["FireResist"] == off["FireResist"] + 5 and fire["ColdResist"] == off["ColdResist"]
+
+
+def test_kurgals_gaze_socketed_in_a_helmet_counts_through_pobs_own_flag(engine):
+    """Kurgal's Gaze (COV12; COV11's handover): "Increases and Reductions to Life Regeneration Rate also apply to Mana
+    Regeneration Rate". PoB's rune data (Data/ModRunes.lua) holds the helmet line whole, not as the two halves the stat
+    description prints, so a socketed one reaches ModParser's LifeRegenAppliesToManaRegen (CalcDefence copies each Life
+    Regeneration Rate INC to Mana): no stand-in needed, unlike Jiquani's Thesis."""
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+
+    def mana_regen(lines):
+        build.call("equip", slot="Helmet", raw=chr(10).join(lines), fields=[])
+        return build.call("stats", fields=["ManaRegen"])["ManaRegen"]
+
+    head = ["Rarity: Rare", "Test Gaze", "Felt Cap"]
+    plain = mana_regen(head + ["Implicits: 0", "50% increased Life Regeneration rate"])
+    flat = mana_regen(head + ["Implicits: 0", "50% increased Life Regeneration rate", "50% increased Mana Regeneration Rate"])
+    socketed = mana_regen(head + ["Sockets: S", "Rune: Kurgal's Gaze", "Implicits: 0", "50% increased Life Regeneration rate"])
+    assert flat > plain and socketed == pytest.approx(flat, rel=1e-3)
