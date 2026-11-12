@@ -164,7 +164,10 @@ def test_a_seeds_own_configuration_is_not_evidence(engine):
             continue
         assert var not in config or (active is not None and config[var] == active["value"]), (var, config.get(var))
     changed = {var for var in set(config) | set(fresh) if config.get(var) != fresh.get(var) and not var.startswith("quest")}
-    assert changed - set(bosses.config_vars()) <= set(search.conditions.active)  # (the boss's: checked above)
+    from builder.search import boss_hits
+    for var, value in boss_hits.config_vars().items():  # (MECHC6: the boss's hits per damage type)
+        assert config.get(var) == value, (var, config.get(var))
+    assert changed - set(bosses.config_vars()) - set(boss_hits.config_vars()) <= set(search.conditions.active)
 
 
 def test_a_loaded_build_never_reads_the_previous_builds_cached_skills(engine):

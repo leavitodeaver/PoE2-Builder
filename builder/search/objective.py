@@ -94,7 +94,9 @@ def boss_recovery(stats: dict) -> dict:
     # hits too (#78: no game text either way, LOW); `no_deflect_share` is the figure without it (MECHC5)
     chance = min(max(number(stats.get("DeflectChance")), 0.0), 100) / 100
     deflect = 1 - chance * min(max(number(stats.get("DeflectEffect")), 0.0), 100) / 100 if chance < 1 else 1.0
-    taken = {t: max(number(stats.get(f"{t}TakenHit")), 0.0) * hits * deflect for t in RECOVERY_DAMAGE_TYPES}
+    # each type at its full hit size in PoB, weighted by its share of the boss's hits (MECHC6, boss_hits.type_shares)
+    weights = boss_hits.type_shares(boss_hits.boss_name(stats))
+    taken = {t: max(number(stats.get(f"{t}TakenHit")), 0.0) * weights[t] * hits * deflect for t in RECOVERY_DAMAGE_TYPES}
     incoming = sum(taken.values())
     parts = {}
     for pool, (fields, cost) in RECOVERY_POOLS.items():

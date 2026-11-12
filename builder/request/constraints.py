@@ -487,6 +487,14 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
     checks.append(lambda f: CheckResult("PoB warnings", "none", "; ".join(f["warnings"]) or "none", not f["warnings"],
                                         "PoB flags things the game wouldn't allow, e.g. too many gem groups"))
 
+    # Always reported, not enforced (MECHC6; the manager's ruling ~11:02): one hit of each damage type the boss deals, at
+    # the game's sizes (builder/search/boss_hits.py), against the build's maximum hit taken; the harsher reading without
+    # unique rarity's 35% less and the converted-only low bound are in the row's text
+    def boss_hit_check(f: dict) -> CheckResult:
+        from builder.search import boss_hits
+        return CheckResult("Survives the boss's hits", *boss_hits.survival_text(f["stats"]))
+    checks.append(boss_hit_check)
+
     if request.dps_gate:
         def dps_check(f: dict) -> CheckResult:
             dps = max(stat(f, "FullDPS"), stat(f, "CombinedDPS"), stat(f, "Minion.CombinedDPS"))

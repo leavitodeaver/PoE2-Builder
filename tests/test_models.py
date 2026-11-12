@@ -2334,7 +2334,7 @@ def test_red_flash_boss_hits_land_whatever_the_evade_and_block():
     assert boss_hits.land_share({}) == 1.0
     assert "35%" in boss_hits.note(stats)["value"]
     # the recovery check: a full-evasion build still takes the red-flash hits
-    r = boss_recovery({**stats, "PhysicalTakenHit": 1000})
+    r = boss_recovery({**stats, "PhysicalTakenHit": 1000 * 24 / 7})  # (MECHC6: 7 of the Arbiter's 24 hits are Physical)
     assert r["incoming"] == pytest.approx(350)
 
 
@@ -2344,7 +2344,8 @@ def test_recovery_counts_deflection_and_shows_the_figure_without_it():
     without it."""
     from builder.search.objective import boss_recovery
 
-    base = {"enemySkillTime": 1.0, "PhysicalTakenHit": 1000, "LifeRegenRecovery": 400, "_boss": "Arbiter of Ash"}
+    base = {"enemySkillTime": 1.0, "PhysicalTakenHit": 1000 * 24 / 7, "LifeRegenRecovery": 400,  # (7 of 24 hits Physical)
+            "_boss": "Arbiter of Ash"}
     r = boss_recovery({**base, "DeflectChance": 50, "DeflectEffect": 40})
     assert r["incoming"] == pytest.approx(800)
     assert r["share"] == pytest.approx(0.5) and r["no_deflect_share"] == pytest.approx(0.4)
@@ -2665,3 +2666,46 @@ def test_apocalypse_disasters_fire_a_third_each_while_its_buff_is_up():
     # no Glory: no disasters
     mods, _ = models.apocalypse_model(0.0, "test")
     assert all(m["value"] == 0 for m in mods if m["key"] == "triggerRate")
+
+
+def test_boss_hits_per_damage_type_from_the_games_tables():
+    """MECHC6 (the manager's ruling ~11:02; RESEARCH13 / RESEARCH14): one Arbiter of Ash hit = level 82 base 353.67 x 4.50
+    x 0.65 x the level's more (Elemental x4, Chaos x2); without the 0.65 the harsher reading; the converted-only low bound
+    has no level more. PoB gets each type the boss deals at its full size (the bridge's default equals config_vars), and
+    sums of damage taken weight each type by its share of the boss's hits."""
+    from builder import ENGINE_DIR
+    from builder.search import boss_hits
+
+    head = boss_hits.hit_sizes("Arbiter of Ash")
+    assert head["Physical"] == pytest.approx(353.67 * 2.925) and head["Fire"] == pytest.approx(353.67 * 11.70)
+    assert head["Cold"] == head["Lightning"] == head["Chaos"] == 0.0  # (RESEARCH13: Fire 17, Physical 7 skills)
+    harsh = boss_hits.hit_sizes("Arbiter of Ash", "harsh")
+    assert harsh["Fire"] == pytest.approx(353.67 * 18.0) and harsh["Physical"] == pytest.approx(353.67 * 4.5)
+    assert boss_hits.hit_sizes("Arbiter of Ash", "low")["Fire"] == pytest.approx(head["Physical"])
+    king = boss_hits.hit_sizes("The King in the Mists")
+    assert king["Chaos"] == pytest.approx(353.67 * 1.88 * 0.65 * 2)
+    assert boss_hits.type_shares()["Fire"] == pytest.approx(17 / 24)
+    assert boss_hits.type_taken({"PhysicalTakenHit": 700, "FireTakenHit": 1700}) == pytest.approx(700 * 7 / 24 + 1700 * 17 / 24)
+    # the bridge's resetConfig default is the Arbiter's config_vars
+    source = (ENGINE_DIR / "bridge.lua").read_text(encoding="utf-8")
+    block = source[source.index("local BOSS_HITS_DEFAULT"):source.index("}", source.index("local BOSS_HITS_DEFAULT"))]
+    for var, value in boss_hits.config_vars(boss_hits.DEFAULT_BOSS).items():
+        assert f"{var} = {value}" in block
+    # the report row: survives, passes only at the headline, one hit kills
+    tough = {"PhysicalMaximumHitTaken": "inf", "FireMaximumHitTaken": 7000}
+    assert "survives every reading" in boss_hits.survival_text(tough)[1]
+    middle = boss_hits.survival({"PhysicalMaximumHitTaken": 2000, "FireMaximumHitTaken": 5000})
+    assert middle["headline_only"] and middle["fails"]["harsh"] == ["Fire"]
+    assert "unique 35% less" in boss_hits.survival_text({"PhysicalMaximumHitTaken": 2000, "FireMaximumHitTaken": 5000})[1]
+    weak = boss_hits.survival_text({"PhysicalMaximumHitTaken": 2000, "FireMaximumHitTaken": 3000})
+    assert "one hit kills: Fire" in weak[1] and "low bound" in weak[1] and weak[2] is None
+    assert "4,138" in boss_hits.hits_note()["value"]
+
+
+def test_flasks_weight_the_damage_taken_per_type_by_the_bosss_hits():
+    """MECHC6: the bridge sends each type's damage taken per hit; a flask's Life lost counts the average landed hit."""
+    from builder.search.flasks import taken_per_hit
+
+    assert taken_per_hit({"takenHit": 900, "takenByType": {"Physical": 700, "Fire": 1700, "Cold": 0}}) == pytest.approx(
+        700 * 7 / 24 + 1700 * 17 / 24)
+    assert taken_per_hit({"takenHit": 900}) == 900.0

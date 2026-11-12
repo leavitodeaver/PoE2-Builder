@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from builder.search.boss_hits import land_share
+from builder.search.boss_hits import land_share, type_taken
 
 ACTIVE_UPTIME = 0.9  # share of a boss fight a flask or charm effect must be up to be counted
 FLASK_SLOTS = {"Flask 1": "Life", "Flask 2": "Mana"}  # PoB: Life flasks in Flask 1, Mana in Flask 2
@@ -25,6 +25,16 @@ CHARM_SLOTS = ["Charm 1", "Charm 2", "Charm 3"]
 RECOVERY_FIELDS = {"Life": "FlaskLifeRecoveryRate", "Mana": "FlaskManaRecoveryRate"}  # pseudo-stats
 KILL_TRIGGER = "used when you kill"  # charm triggers that need enemies to die (Golden Charm: a Rare or Unique)
 
+
+
+def taken_per_hit(data: dict) -> float:
+    """Damage one average landed boss hit deals after mitigation (MECHC6): each type PoB takes at the type's full hit size
+    (boss_hits.config_vars), weighted by its share of the boss's hits; PoB's totalTakenHit (all types in one hit) when
+    the bridge sends no split."""
+    by_type = data.get("takenByType")
+    if not by_type:
+        return float(data.get("takenHit") or 0.0)
+    return type_taken({f"{t}TakenHit": float(v or 0.0) for t, v in by_type.items()})
 
 @dataclass(frozen=True)
 class Charges:
@@ -91,7 +101,7 @@ class Charges:
                    int(data.get("perfectSkills") or 0), float(data.get("perfectMainRate") or 0.0),
                    str(data.get("mainSkill") or ""), bool(data.get("lifeFlaskUnusable", False)),
                    bool(data.get("lifeFlaskConstant", False)), float(data.get("lifeFlaskLess") or 0.0),
-                   taken_hit=float(data.get("takenHit") or 0.0), mom=float(data.get("mom") or 0.0),
+                   taken_hit=taken_per_hit(data), mom=float(data.get("mom") or 0.0),
                    energy_shield=float(data.get("energyShield") or 0.0), es_regen=float(data.get("esRegen") or 0.0),
                    life_regen=float(data.get("lifeRegen") or 0.0), mana_regen=float(data.get("manaRegen") or 0.0),
                    life_cost=float(data.get("lifeCost") or 0.0), mana_cost=float(data.get("manaCost") or 0.0),

@@ -1098,7 +1098,8 @@ def test_recovery_against_a_boss():
 
     # (MECHC5: 7 of the Arbiter's 20 skills can't be evaded: 0.35 + 0.65 x 0.5 of its hits land, one per 0.675 s = 1 per second)
     stats = {"enemySkillTime": 0.675, "EvadeChance": 50, "EffectiveBlockChance": 0,  # 1 hit lands per second
-             "PhysicalTakenHit": 800, "FireTakenHit": 200, "PhysicalLifeRecoup": 10,
+             # (MECHC6: each type at its full hit size in PoB, weighted by its share of the Arbiter's hits, 7/24 and 17/24)
+             "PhysicalTakenHit": 800 * 24 / 7, "FireTakenHit": 200 * 24 / 17, "PhysicalLifeRecoup": 10,
              "LifeRegenRecovery": 150, "LifeLeechRate": 100, "LifePerSecondCost": 50, "FlaskLifeRecoveryRate": 20,
              "EnergyShieldRegenRecovery": 30, "ManaRegenRecovery": 500, "ManaPerSecondCost": 100, "sharedMindOverMatter": 20}
     r = boss_recovery(stats)

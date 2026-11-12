@@ -1785,6 +1785,9 @@ end
 -- poe2db 12 Nov 2026, game 0.5.5), not PoB's Pinnacle placeholder 50/50/50/0. Must equal
 -- bosses.config_vars(bosses.DEFAULT) (tests/test_models.py checks it).
 local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = -15, enemyLightningResist = 0, enemyChaosResist = 0 }
+-- The Arbiter of Ash's hits (MECHC6): must equal boss_hits.config_vars(boss_hits.DEFAULT_BOSS) (tests/test_models.py)
+local BOSS_HITS_DEFAULT = { enemyPhysicalDamage = 1034, enemyFireDamage = 4138, enemyColdDamage = 0,
+	enemyLightningDamage = 0, enemyChaosDamage = 0 }
 
 -- A loaded code's configuration isn't evidence (PLAN.md §5.4): the active config set goes back
 -- to what a new build has (PoB's own new-set defaults, the boss preset included), with no custom
@@ -1801,6 +1804,12 @@ function bridge.resetConfig(args)
 		end
 	end
 	for var, value in pairs((args and args.boss) or BOSS_DEFAULT) do
+		fresh.input[var] = value
+	end
+	-- The boss's hits per damage type (MECHC6, builder/search/boss_hits.py config_vars: the game's monster tables, not
+	-- PoB's Pinnacle 965 per type): each type the boss deals at its full size, the others 0 (args.bossHits, else the
+	-- Arbiter's)
+	for var, value in pairs((args and args.bossHits) or BOSS_HITS_DEFAULT) do
 		fresh.input[var] = value
 	end
 	configTab:SetActiveConfigSet(id, false, true)
@@ -3291,8 +3300,12 @@ function bridge.chargeGain()
 	-- uses per second when it is one)
 	local output = build.calcsTab.mainOutput or { }
 	local boss = setmetatable({ }, { __jsontype = "object" })
+	-- each type's damage taken per hit (MECHC6: the boss's types come at their full size, boss_hits.config_vars; flasks.py
+	-- weights them by each type's share of the boss's hits)
+	local takenByType = setmetatable({ }, { __jsontype = "object" })
 	for _, kind in ipairs({ "Physical", "Fire", "Cold", "Lightning", "Chaos" }) do
 		boss[kind] = output[kind .. "EnemyDamage"] or 0
+		takenByType[kind] = output[kind .. "TakenHit"] or 0
 	end
 	local perfect, perfectMain = 0, false
 	local main = build.calcsTab.mainEnv.player.mainSkill
@@ -3307,7 +3320,7 @@ function bridge.chargeGain()
 		lifeFlaskConstant = lifeFlaskConstant, lifeFlaskLess = lifeFlaskLess, lifeEffectKept = lifeEffectKept,
 		-- what fills and drains Life and Mana in the fight (MECHC4, flasks.full_pool_cap: a Life / Mana flask's effect ends
 		-- when the pool is full)
-		takenHit = output.totalTakenHit or 0, mom = output.sharedMindOverMatter or 0,
+		takenHit = output.totalTakenHit or 0, takenByType = takenByType, mom = output.sharedMindOverMatter or 0,
 		energyShield = output.EnergyShield or 0, esRegen = output.EnergyShieldRegenRecovery or 0,
 		lifeRegen = output.LifeRegenRecovery or 0, manaRegen = output.ManaRegenRecovery or 0,
 		lifeCost = output.LifePerSecondCost or 0, manaCost = output.ManaPerSecondCost or 0,
