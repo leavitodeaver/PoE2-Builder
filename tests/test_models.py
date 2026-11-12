@@ -2346,3 +2346,21 @@ def test_crown_of_thorns_life_loss_keeps_life_flask_effects_going():
     base = full_pool_cap(flask, Charges(), "Life")[0]
     cap, how = full_pool_cap(flask, Charges(life_loss_per_use=5, main_rate=20), "Life")
     assert base == 0.0 and cap == pytest.approx(100 / 500) and "100/s" in how
+
+
+def test_the_bridge_s_default_boss_is_the_presets_default():
+    """MECH50: bridge.lua's BOSS_DEFAULT (resetConfig with no boss) equals bosses.config_vars(bosses.DEFAULT), and the
+    presets hold RESEARCH9's resistances for the Arbiter of Ash (Fire 45, Cold -15, Lightning 0, Chaos 0)."""
+    import re
+    from pathlib import Path
+
+    from builder.search import bosses
+
+    lua = (Path(__file__).resolve().parents[1] / "engine" / "bridge.lua").read_text(encoding="utf-8")
+    table = re.search(r"local BOSS_DEFAULT = \{([^}]*)\}", lua).group(1)
+    found = {k: int(v) for k, v in re.findall(r"(\w+) = (-?\d+)", table)}
+    assert found == bosses.config_vars() == {"enemyFireResist": 45, "enemyColdResist": -15, "enemyLightningResist": 0,
+                                             "enemyChaosResist": 0}
+    note = bosses.note()
+    assert note["label"] == "Boss: Arbiter of Ash" and "Cold -15%" in note["value"]
+    assert all(b.chaos == 0 for b in bosses.PRESETS.values()) and len(bosses.PRESETS) == 12

@@ -627,7 +627,10 @@ class Assumptions:
             self.press_busy = press_notes[0]["value"] if press_notes else 0.0
         found, condition_notes = self.ledger_conditions(skills)
         mods += [{"kind": "Condition", "name": name} for name in found]
-        return mods, notes + condition_notes + self.unbuilt_grants(skills)
+        # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
+        from builder.search import bosses
+
+        return mods, notes + condition_notes + self.unbuilt_grants(skills) + [bosses.note()]
 
     def unbuilt_grants(self, skills: list[dict]) -> list[dict]:
         """A note for each skill the build's passives or items grant ("Grants Skill: ...") that PoB built no skill for

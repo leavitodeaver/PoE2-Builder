@@ -1319,3 +1319,23 @@ def test_the_bridge_reports_a_skills_own_final_energy_penalty(engine):
     search.setup(quests=False)
     skills = search.build.call("activeSkills")["skills"]
     assert next(s for s in skills if s["name"] == "Incinerate").get("energyFinal") == -98
+
+
+def test_the_boss_is_scored_with_its_own_resistances_not_pob_s_50(engine):
+    """MECH50 (FIX_QUEUE RESEARCH8/9): resetConfig writes the boss preset's resistances (default the Arbiter of Ash,
+    Cold -15%) instead of PoB's Pinnacle placeholder 50/50/50; a Cold hit build gains about (1 + 0.15) / 0.5 = x2.3
+    less any Cold Penetration (PoB floors it at 0%, as the game does)."""
+    from builder.search import bosses
+
+    payload = make_payload(BuildRequest(main_skill="Ice Nova"))
+    skeleton = enumerate_skeletons(Context(payload), ["Ice Nova"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    pob = {"enemyFireResist": 50, "enemyColdResist": 50, "enemyLightningResist": 50, "enemyChaosResist": 0}
+    build.call("resetConfig", boss=pob)
+    at_50 = build.call("stats", fields=FIELDS)["CombinedDPS"]
+    config = build.call("resetConfig")["input"]
+    assert {k: config[k] for k in pob} == bosses.config_vars()
+    at_ash = build.call("stats", fields=FIELDS)["CombinedDPS"]
+    assert at_50 > 0 and 1.5 < at_ash / at_50 <= 2.31

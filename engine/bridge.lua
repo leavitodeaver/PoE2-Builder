@@ -1781,10 +1781,16 @@ function bridge.getConfig()
 	return { input = input }
 end
 
+-- The boss's own resistances (MECH50; builder/search/bosses.py PRESETS, the Arbiter of Ash by default:
+-- poe2db 12 Nov 2026, game 0.5.5), not PoB's Pinnacle placeholder 50/50/50/0. Must equal
+-- bosses.config_vars(bosses.DEFAULT) (tests/test_models.py checks it).
+local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = -15, enemyLightningResist = 0, enemyChaosResist = 0 }
+
 -- A loaded code's configuration isn't evidence (PLAN.md §5.4): the active config set goes back
 -- to what a new build has (PoB's own new-set defaults, the boss preset included), with no custom
--- modifiers. Only the campaign quest choices stay; they're free picks, not conditions.
-function bridge.resetConfig()
+-- modifiers, and the boss's resistances (args.boss, else BOSS_DEFAULT). Only the campaign quest
+-- choices stay; they're free picks, not conditions.
+function bridge.resetConfig(args)
 	local configTab = build.configTab
 	local id = configTab.activeConfigSetId
 	local old = configTab.configSets[id]
@@ -1793,6 +1799,9 @@ function bridge.resetConfig()
 		if var:match("^quest") then
 			fresh.input[var] = value
 		end
+	end
+	for var, value in pairs((args and args.boss) or BOSS_DEFAULT) do
+		fresh.input[var] = value
 	end
 	configTab:SetActiveConfigSet(id, false, true)
 	recalc()
