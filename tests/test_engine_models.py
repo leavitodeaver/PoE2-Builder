@@ -1761,7 +1761,7 @@ def test_explosive_transmutations_trigger_assumption_keeps_the_explosions_runic_
     plain = build.call("facts", fields=["WardCostWarningList"])
     search.assumptions.apply()
     assumed = build.call("facts", fields=["WardCostWarningList"])
-    assert any(m["skill"] == "Transmutation Explosion" and m["key"] == "triggered" for m in search.assumptions.mods)
+    assert any(m.get("skill") == "Transmutation Explosion" and m.get("key") == "triggered" for m in search.assumptions.mods)
     warning = "You do not have enough Runic Ward to use: Transmutation Explosion"
     assert warning in plain["warnings"] and warning in assumed["warnings"]
     assert plain["stats"].get("WardCostWarningList") == assumed["stats"].get("WardCostWarningList") == 1
