@@ -30,7 +30,7 @@ BOSS_POWER = 20  # "Unique monsters always have 20 Power" (https://poe2db.tw/us/
 DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
 # PoB stats the models read (beyond the objective's own fields)
 MODEL_FIELDS = sorted({
-    "Speed", "HitChance", "CritChance", "HazardRearmChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
+    "Speed", "HitChance", "CritChance", "HazardRearmChance", "SpiritUnreserved", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
     "EnergyShieldRegenRecovery", "EnergyShieldRecharge", "PresenceRadius", "MovementSpeedMod",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
     "FreezeBuildupAvg", "ElectrocuteBuildupAvg", "HeavyStunBuildupAvg",
@@ -222,6 +222,7 @@ class Skill:
     summon: dict | None = None  # any minion skill's minions: limit, duration (0: until killed), persistent (minion_deaths)
     support_stats: dict[str, float] = field(default_factory=dict)  # named stats of its supports, summed (gem_stat_model)
     early_hazard: dict | None = None  # its scored set's "less damage if set off in its first 0.5 s" (hazard_early_model)
+    energy_final: float = 0.0  # its own active_skill_energy_generated_+%_final (energy_gain; Incinerate -98)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -230,7 +231,7 @@ class Skill:
                    number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0,
                    dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
                    bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"),
-                   dict(raw.get("supportStats") or {}), raw.get("earlyHazard"))
+                   dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -687,6 +688,18 @@ SPELL_TOTEM_DAMAGE_PER_POWER = 10.0
 SPELL_TOTEMS_ALLOWED = ((23, 3), (14, 2), (1, 1))  # (from gem level, totems)
 
 
+# Ancestral Bond (MECHB4; AUDIT13 A13-1, RESEARCH18 #64 / 18ah, research/ancestral-bond*.md): "Your Totem Limit is
+# doubled", "No Charge requirement for placing Totems", "Totems reserve 75 Spirit each" (passive_skill_stat_descriptions
+# keystone_ancestral_bond; poe2db Ancestral_Bond). With it a Spell Totem needs no charges (MEDIUM-HIGH: the game text and
+# three 0.5 sources); whether charges you hold are still consumed is UNVERIFIED, so none are counted (no per-charge
+# bonus: the lower bound). PoB reserves the 75 Spirit once per totem skill, not per totem (CalcDefence getActiveSkillCount),
+# so each totem past the first must fit in the Spirit PoB leaves unreserved: the totems counted are capped by it, which
+# charges the reservation the damage relies on.
+ANCESTRAL_BOND_FREE = re.compile(r"^No Charge requirement for placing Totems$", re.I)
+ANCESTRAL_BOND_DOUBLE = re.compile(r"^Your Totem Limit is doubled$", re.I)
+ANCESTRAL_BOND_SPIRIT = 75.0
+
+
 def totems_allowed(level: int) -> int:
     return next(n for at, n in SPELL_TOTEMS_ALLOWED if level >= at)
 
@@ -716,9 +729,24 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
     power = rates["Power"] / made if made else 0.0  # (the charges are spent as they're made: their mix is the build's)
     level = levels.get("Spell Totem", 20)
     allowed = totems_allowed(level)
+    bond = any(ANCESTRAL_BOND_FREE.match(t.strip()) for t in texts)
+    doubled = any(ANCESTRAL_BOND_DOUBLE.match(t.strip()) for t in texts)
+    if doubled:
+        allowed *= 2
     duration = (number(stats.get("TotemDuration")) or SPELL_TOTEM_DURATION) * (
         1 +SPELL_TOTEM_DURATION_PER_ENDURANCE * SPELL_TOTEM_CHARGES * (1 - power))
     up = min(float(allowed), made * duration / SPELL_TOTEM_CHARGES)
+    bond_note = ""
+    if bond:  # (no charges needed: the build keeps its totems placed; none consumed, UNVERIFIED)
+        power, made = 0.0, 0.0
+        spirit = number(stats.get("SpiritUnreserved"))
+        fits = 1 + max(0, math.floor(spirit / ANCESTRAL_BOND_SPIRIT + 1e-9)) if "SpiritUnreserved" in stats else allowed
+        up = float(min(allowed, fits))
+        bond_note = (f"; Ancestral Bond: \"No Charge requirement for placing Totems\", so {up:g} of {allowed} allowed totems "
+                     f"kept placed (re-placed each {duration:.1f} s; MEDIUM-HIGH, research #64)"
+                     + (f", held to what the Spirit left after PoB's one 75 reservation pays for at 75 each ({spirit:,.0f} "
+                        "free; PoB reserves once per totem skill, the game per totem)" if fits < allowed else "")
+                     + ". Charges you hold aren't counted as consumed (UNVERIFIED: no Power Charge bonus, no longer duration)")
     more = SPELL_TOTEM_DAMAGE_PER_POWER * SPELL_TOTEM_CHARGES * power
     mods: list[dict] = []
     if up <= 0:
@@ -731,8 +759,8 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
     basis = (f"{rates['Power']:.2f} Power and {rates['Endurance']:.2f} Endurance Charges made per second by what isn't "
              f"{main.name}'s hits (the totem's hits aren't yours: assumed); {SPELL_TOTEM_CHARGES} per totem, which lasts "
              f"{duration:.1f} s ({SPELL_TOTEM_DURATION_PER_ENDURANCE:.0%} longer per Endurance Charge consumed); "
-             f"{allowed} totems allowed at gem level {level} (game files; PoB fixes 2): {up:.2f} up on average, and PoB "
-             "counts one")
+             f"{allowed} totems allowed at gem level {level}" + (" doubled by Ancestral Bond" if doubled else "")
+             + f" (game files; PoB fixes 2): {up:.2f} up on average, and PoB counts one" + bond_note)
     notes = [{"label": f"Spell Totems up on average ({main.name})", "value": round(up, 2), "basis": basis
               + ("; no charges made, so no totem: no damage" if up <= 0 else "")
               + (f"; {more:.0f}% more damage from the Power Charges consumed ({SPELL_TOTEM_DAMAGE_PER_POWER:g}% each, "
@@ -1697,8 +1725,27 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                           else "the main skill is one it triggers, so nothing else feeds its Energy",
                           "confidence": "theory"})
             continue
+        too_big = [s for s in spells if META_GEMS.get(meta.name, {}).get("invocation")
+                   and 100 * (s.cast_time or 0.0) > INVOCATION_MAX_ENERGY]
+        for spell in too_big:  # (MECHB4, COVC6: the Invocation's store can never hold its cost)
+            mods += trigger_rate(spell.name, 0.0)
+            notes.append({"label": f"{meta.name} triggers per second ({spell.name}; not counted)", "value": 0,
+                          "basis": f"{spell.name} costs {100 * spell.cast_time:.0f} Energy (10 per 0.1 s of base cast time), "
+                                   f"more than the {INVOCATION_MAX_ENERGY} Energy an Invocation can store "
+                                   "(generic_ongoing_trigger_maximum_energy, game files): it never triggers",
+                          "confidence": "theory"})
+        spells = [s for s in spells if s not in too_big]
+        if not spells:
+            continue
+        names = ", ".join(s.name for s in spells)
         cost = sum(100 * (s.cast_time or 0.0) for s in spells)
         gain, gain_basis = energy_gain(meta.name, stats, main.name, main)
+        if gain > 0 and main.energy_final and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
+            gain *= max(0.0, 1 + main.energy_final / 100)
+            gain_basis += (f"; x{max(0.0, 1 + main.energy_final / 100):g}: {main.name}'s own "
+                           f"{main.energy_final:g}% final Energy generated (active_skill_energy_generated_+%_final, game "
+                           "files; PoB reads nothing of it). It has no game text, so whether it reaches every way this "
+                           "skill feeds Energy (hits, crits, ailments, casts) is UNVERIFIED: applied to all of them")
         if cast_by_totem(skills, main) and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
             gain, gain_basis = 0.0, f"{main.name} is cast by a totem, and the totem's hits and casts aren't yours (assumed)"
         elif main.name in CANNOT_GENERATE_ENERGY and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
@@ -3070,10 +3117,27 @@ def press_key(name: str, source: str | None) -> str:
     return f"{name} from {source}" if source and source != name else name
 
 
-def press_model(rates: list[dict], main_index: int | None, pressed: set[int]) -> tuple[dict[str, float], list[dict]]:
+def press_use_rate(rate: dict) -> tuple[float, str, str]:
+    """A pressed skill's uses per second from one bridge `useRates` row: on its cooldown, else once per its duration,
+    else every PRESS_EVERY s (LOW); never faster than PoB's speed. (uses/s, how, confidence)."""
+    speed, repeats = number(rate.get("speed")), number(rate.get("repeats")) or 1.0
+    cooldown, duration = number(rate.get("cooldown")), number(rate.get("duration"))
+    if cooldown > 0:
+        real, how, confidence = repeats / cooldown, f"on its {cooldown:.2f} s cooldown", "MEDIUM"
+    elif duration > 0:
+        real, how, confidence = repeats / duration, f"once per its {duration:.2f} s duration, to keep it up", "MEDIUM"
+    else:
+        real, how, confidence = repeats / PRESS_EVERY, f"once every {PRESS_EVERY:g} s* (a guess: it has no cooldown "\
+            "or duration to set its use)", "LOW"
+    return min(real, speed), how, confidence
+
+
+def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
+                paced: dict[int, float] | None = None) -> tuple[dict[str, float], list[dict]]:
     """Full DPS entry scales ({SkillDPS name: x}) and notes for the pressed non-main groups `pressed`, from the bridge's
     `useRates` (each group's skill as if it were the main one: its speed, capped by its cooldown as PoB does, its
-    cooldown after recovery, repeats, duration and base cast time)."""
+    cooldown after recovery, repeats, duration and base cast time). `paced` ({group: most uses per second}): a group
+    held to a pace (Cadence's 5 uses per 4 s, CADENCE_PACE; MECHB4, COVE6's open item)."""
     scales: dict[str, float] = {}
     notes: list[dict] = []
     busy, users = 0.0, []
@@ -3083,15 +3147,12 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int]) ->
         speed, repeats = number(rate.get("speed")), number(rate.get("repeats")) or 1.0
         if speed <= 0:
             continue
-        cooldown, duration = number(rate.get("cooldown")), number(rate.get("duration"))
-        if cooldown > 0:
-            real, how, confidence = repeats / cooldown, f"on its {cooldown:.2f} s cooldown", "MEDIUM"
-        elif duration > 0:
-            real, how, confidence = repeats / duration, f"once per its {duration:.2f} s duration, to keep it up", "MEDIUM"
-        else:
-            real, how, confidence = repeats / PRESS_EVERY, f"once every {PRESS_EVERY:g} s* (a guess: it has no cooldown "\
-                "or duration to set its use)", "LOW"
-        real = min(real, speed)
+        cooldown = number(rate.get("cooldown"))
+        real, how, confidence = press_use_rate(rate)
+        pace = (paced or {}).get(rate["index"])
+        if pace is not None and real > pace:
+            real, how = pace, how + (f", held to Cadence's {pace:g} uses/s (at most 5 uses in any 4 s: a 6th locks the "
+                                     "skill for 10 s; game files SupportCadencePlayer)")
         capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)
         # time per use: 1/speed, unless the cooldown capped PoB's speed (then its base cast time, before speed: an
         # overcount of the time it takes)
@@ -3388,4 +3449,109 @@ def warcry_echo_model(skills: list[Skill], supports: dict[int, list[str]], warcr
                                f"boss at the first use's location (UNVERIFIED: an in-game test). Without the Echoes: x1, "
                                f"x{1 / (1 + echoes):.2f} on this number",
                       "confidence": "UNVERIFIED"})
+    return mods, notes
+
+
+# Cadence on a pressed skill (MECHB4; COVE6's open item) ------------------------------------------------------------------
+# A pressed (non-main) skill with Cadence: COV-E's cadence_share counts its stacks only on the main skill; the press model
+# holds a pressed Cadence skill to the same pace that avoids the 10 s lockout ("unusable for 10 seconds after being used 6
+# or more times within four seconds": at most 5 uses in any 4 s; game files SupportCadencePlayer, maximum_stacks 6).
+CADENCE_SUPPORTS = ("Cadence",)
+CADENCE_PACE = (6 - 1) / 4.0
+
+
+# Rapid Shot's Heat (MECHB4; RESEARCH18 #94, research/rapid-shot-heat.md, plans/kw-heat.md) ------------------------------
+# "Cannot fire or reload for 10 seconds on reaching maximum Heat" (rapid_shot.csd; RapidShotPlayer's
+# skill_specific_stat_description_mode 10000; poe2db, 0.3.0 notes: HIGH). Maximum Heat: maximum_number_of_crossbow_heat_stacks
+# (45 at level 20; quality adds up to 15). Heat per attack: 1 (0.3.0 notes "generates Heat once per attack", poe2wiki;
+# hard-coded, MEDIUM-HIGH). Decay: starts 4 s after the last gain, 10 Heat/s (0.3.0 notes; the heat_base_* stats have no
+# user: MEDIUM-HIGH). Spenders: consume_X_heat_on_skill_use 15 (Explosive Grenade, Cluster Grenade, Incendiary Shot; game
+# files). PoB reads none of it (plans/kw-heat.md: no Module reads Heat), so Rapid Shot as the main skill fires nonstop.
+# Cycle: firing gains r x h - (Heat spent per second by the build's spenders); at maximum it stops for L s, in which the
+# spenders keep spending and decay empties the rest after 4 s; then it fires again until full. Share firing = refill time
+# / (refill + L). Counted as "more Damage" on Rapid Shot (not attack speed: the rate it reads would move with it), so the
+# average over the fight is right; Freeze/Electrocute buildup from fewer, full hits isn't modelled (small). Not counted:
+# what the player does in the lockout (other skills, unscored), and the spenders' "if Heat consumed" bonuses (an
+# undercount, next).
+RAPID_SHOT = "Rapid Shot"
+HEAT_PER_ATTACK = 1.0
+HEAT_LOCKOUT = 10.0  # seconds (skill_specific_stat_description_mode 10000 ms; read from the gem when the bridge has it)
+HEAT_DECAY_DELAY, HEAT_DECAY_RATE = 4.0, 10.0
+HEAT_MAX = 45.0  # level 20, no quality (fallback when the gem's stats aren't read)
+HEAT_SPENDERS = {"Explosive Grenade": 15.0, "Cluster Grenade": 15.0, "Incendiary Shot": 15.0}
+
+
+def heat_model(main: Skill | None, stats: dict, rapid: Skill | None, spenders: list[tuple[str, float, str]]
+               ) -> tuple[list[dict], list[dict]]:
+    """Rapid Shot as the main skill fires only part of the fight: lockout at maximum Heat. `rapid`: its Skill with
+    level_stats (maximum Heat, lockout); `spenders`: (name, uses per second, how) for the build's Heat spenders."""
+    if main is None or main.name != RAPID_SHOT:
+        return [], []
+    level = (rapid.level_stats if rapid is not None else {}) or {}
+    most = number(level.get("maximum_number_of_crossbow_heat_stacks")) or HEAT_MAX
+    lockout = (number(level.get("skill_specific_stat_description_mode")) / 1000) or HEAT_LOCKOUT
+    attacks = number(stats.get("Speed"))
+    if attacks <= 0:
+        return [], []
+    spent = sum(HEAT_SPENDERS.get(name, 15.0) * uses for name, uses, _ in spenders)
+    gain = attacks * HEAT_PER_ATTACK - spent
+    who = "; ".join(f"{name} {uses:.2f}/s ({how}) spends {HEAT_SPENDERS.get(name, 15.0) * uses:.1f} Heat/s"
+                    for name, uses, how in spenders) or "nothing in the build spends Heat"
+    play = (f"Rapid Shot gains {HEAT_PER_ATTACK:g} Heat per attack ({attacks:.2f}/s) up to {most:g}; at {most:g} it can't fire "
+            f"for {lockout:g} s. {who}.")
+    if gain <= 0:
+        return [], [{"label": "Rapid Shot: Heat never reaches maximum", "value": "x1",
+                     "basis": play + " The spenders take at least what it makes, so it never locks out (needs them used "
+                              "at that rate: a play strategy*)", "confidence": "MEDIUM"}]
+    drained = min(most, HEAT_DECAY_RATE * max(0.0, lockout - HEAT_DECAY_DELAY) + spent * lockout)
+    refill = drained / gain
+    share = refill / (refill + lockout) if refill > 0 else 0.0
+    mods = [line("1% more Damage", -100 * (1 - share), skill=RAPID_SHOT)]
+    return mods, [{"label": "Rapid Shot: share of the fight it can fire (Heat lockout)*", "value": f"{share:.1%}",
+                   "basis": play + f" Heat rises {gain:.2f}/s while firing; in each {lockout:g} s lockout {drained:.0f} Heat "
+                            f"drains (decay {HEAT_DECAY_RATE:g}/s from {HEAT_DECAY_DELAY:g} s after the last gain, and the "
+                            f"spenders), refilled in {refill:.2f} s of firing: {share:.1%} of the fight firing (PoB: 100%). "
+                            "Counted as less Damage on Rapid Shot (the fight's average). Heat per attack and the decay "
+                            "are from the 0.3.0 notes (MEDIUM-HIGH); the time locked out is free for other skills, not "
+                            "counted. With a Grenade or Incendiary Shot spending 15 Heat per use, it locks out less",
+                   "confidence": "MEDIUM"}]
+
+
+# Different Non-Instant skills used per 8 s (MECHB4; AUDIT7 A7-2, research/cast-speed-per-different-spell.md) -------------
+# Counts COV-B's Emboldening Casts / Enhancing Attacks read (PoB multipliers LedgerDifferentNonInstantSpells8s /
+# LedgerDifferentNonInstantAttacks8s, passive_models.different_skills_model), and PoB's NonInstantSpellCastRecently, which
+# Rapid Casting III ("for each different Non-Instant Spell you've Cast Recently") and the Kurgal wand suffix read and nothing
+# set (0 before). A skill counts when the player uses it at least once per window: the main skill, and every other
+# non-instant skill the build has that its cooldown allows that often (a skill in the build is used: a play strategy, with
+# the "only the main skill" row in the note). Not counted: triggered skills (whether a trigger is a use "you've Cast" has no
+# game text: UNVERIFIED, so left out of the headline), Persistent skills (placed once), skills a totem uses, instant skills
+# (base cast time 0, the bridge's own test). PoB's one NonInstantSpellCastRecently takes the 8 s count; the Kurgal suffix's
+# own window is 4 s (Recently): at most one spell more than the game gives it when a spell's cooldown is 4-8 s (small, LOW).
+DIFFERENT_WINDOW = 8.0
+
+
+def different_skills_counts(skills: list[Skill], main: Skill | None, persistent: set[str]
+                            ) -> tuple[list[dict], list[dict]]:
+    """The different Non-Instant Spells and Attacks the build uses per 8 s, as model inputs (see above)."""
+    def used(s: Skill) -> bool:
+        if s.triggered or s.name in persistent or (s.cast_time or 0.0) <= 0 or cast_by_totem(skills, s):
+            return False
+        if main is not None and s.name == main.name:
+            return True
+        cooldown = number(s.cooldown) / (s.cooldown_recovery or 1.0)
+        return cooldown <= DIFFERENT_WINDOW
+
+    counts = {}
+    for kind, test in (("Spells", lambda s: s.spell), ("Attacks", lambda s: s.attack and not s.spell)):
+        counts[kind] = sorted({s.name for s in skills if test(s) and used(s)})
+    mods = [derived("DifferentNonInstantSpells8s", "", len(counts["Spells"])),
+            derived("DifferentNonInstantAttacks8s", "", len(counts["Attacks"]))]
+    if counts["Spells"]:
+        mods.append(raw_mod("Multiplier:NonInstantSpellCastRecently", "BASE", len(counts["Spells"])))
+    notes = [{"label": f"Different Non-Instant {kind} used per {DIFFERENT_WINDOW:g} s", "value": len(names),
+              "basis": (", ".join(names) if names else "none") + ": the main skill and every other non-instant one the "
+                       f"build has whose cooldown lets you use it once per {DIFFERENT_WINDOW:g} s (a play strategy: use each "
+                       "that often; with only the main skill: 1). Triggered, Persistent, totem and instant skills not "
+                       "counted (whether a triggered spell counts: UNVERIFIED)",
+              "confidence": "MEDIUM"} for kind, names in counts.items() if names]
     return mods, notes

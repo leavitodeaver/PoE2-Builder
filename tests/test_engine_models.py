@@ -1291,3 +1291,14 @@ def test_the_bridge_reports_a_hazards_first_half_second_penalty(engine):
     assert early and early["kind"] == "hazard" and early["more"] == -80
     note = next(n for n in search.assumptions.active if n["label"].startswith("Spearfield: 80% less"))
     assert 0.15 < note["value"] < 0.5  # x0.2, or more with a rearm chance
+
+
+def test_the_bridge_reports_a_skills_own_final_energy_penalty(engine):
+    """MECHB4 (COVC6): Incinerate's active_skill_energy_generated_+%_final -98 (game files; PoB maps it to nothing) comes
+    through activeSkills as energyFinal for models.energy_gain."""
+    payload = make_payload(BuildRequest(main_skill="Incinerate"))
+    skeleton = enumerate_skeletons(Context(payload), ["Incinerate"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    skills = search.build.call("activeSkills")["skills"]
+    assert next(s for s in skills if s["name"] == "Incinerate").get("energyFinal") == -98

@@ -1985,6 +1985,27 @@ local function earlyHazard(activeSkill)
 	return early
 end
 
+-- (MECH-B, models.energy_gain) the skill's own "active_skill_energy_generated_+%_final" (Incinerate and Wyvern Flame
+-- Breath -98, Flame Wall and Solar Orb -50; game files GrantedEffectStatSets): neither PoB nor its stat map reads it.
+-- The scored set's value, else any set's.
+local function energyFinal(activeSkill)
+	local set = activeSkill.activeEffect.statSet
+	set = set and (set.statSet or set)
+	for _, pair in ipairs(set and set.constantStats or { }) do
+		if pair[1] == "active_skill_energy_generated_+%_final" then
+			return pair[2]
+		end
+	end
+	for _, other in ipairs(activeSkill.activeEffect.grantedEffect.statSets or { }) do
+		for _, pair in ipairs(other.constantStats or { }) do
+			if pair[1] == "active_skill_energy_generated_+%_final" then
+				return pair[2]
+			end
+		end
+	end
+	return nil
+end
+
 -- Active skills of the current build with what an assumption needs about them: base cooldown,
 -- cooldown recovery, and whether they generate Remnants. `levelStats = {names}` adds those skills'
 -- stats at their current level and quality (e.g. Iron Ward's store, which PoB doesn't read).
@@ -2035,6 +2056,10 @@ function bridge.activeSkills(args)
 		do
 			local ok, early = pcall(earlyHazard, activeSkill)
 			skills[#skills].earlyHazard = ok and early or nil
+		end
+		do
+			local ok, final = pcall(energyFinal, activeSkill)
+			skills[#skills].energyFinal = ok and final or nil
 		end
 		-- Every minion skill's minions (models.minion_deaths): how many, how long they last (0: until killed), Persistent
 		if activeSkill.minion and activeSkill.minion.minionData then

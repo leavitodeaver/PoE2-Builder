@@ -1,6 +1,7 @@
 """Custom models for mechanics PoB ignores (builder/search/models.py), without an engine."""
-
 from __future__ import annotations
+
+from dataclasses import replace
 
 import math
 
@@ -201,6 +202,39 @@ def test_midnight_zenith_cannot_feed_a_meta_skills_energy():
     mods, notes, _ = models.energy_model(Inputs(), stats, [zenith, coc, comet], zenith)
     assert next(m["value"] for m in mods if m.get("key") == "triggerRate") == 0.0
     assert "cannot cause Meta Skills" in notes[0]["basis"]
+
+
+def test_a_skills_own_final_energy_penalty_scales_what_it_feeds_a_meta_skill():
+    """active_skill_energy_generated_+%_final (MECHB4, COVC6): Incinerate's -98 (game files) leaves 2% of the Energy its
+    crits earn Cast on Critical; PoB reads nothing of it. A gain that isn't the skill's own use (Cast on Dodge) is kept."""
+    coc = Skill("Cast on Critical", group=2, energy=True)
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
+    stats = {"Speed": 2, "HitChance": 100, "CritChance": 50, "LightningCritAverage": 50000,
+             "EnemyAilmentThreshold": 100000}
+    incinerate = Skill("Incinerate", group=1, spell=True, cast_time=0.25, energy_final=-98)
+    mods, notes, _ = models.energy_model(Inputs(), stats, [incinerate, coc, comet], incinerate)
+    rate = next(m["value"] for m in mods if m.get("key") == "triggerRate")
+    assert rate == pytest.approx(0.02 * 10 * 1.57 / 120, rel=1e-3)
+    assert "-98% final Energy" in notes[-1]["basis"] and "UNVERIFIED" in notes[-1]["basis"]
+    dodge = Skill("Cast on Dodge", group=2, energy=True)
+    plain = models.energy_model(Inputs(), {}, [SPARK, dodge, comet], SPARK)[0]
+    penalised = models.energy_model(Inputs(), {}, [replace(SPARK, energy_final=-98), dodge, comet],
+                                    replace(SPARK, energy_final=-98))[0]
+    assert ([m["value"] for m in plain if m.get("key") == "triggerRate"]
+            == [m["value"] for m in penalised if m.get("key") == "triggerRate"])
+
+
+def test_an_invocation_never_triggers_a_spell_costing_more_than_its_store():
+    """Every Invocation stores at most 500 Energy (generic_ongoing_trigger_maximum_energy, game files): a spell costing
+    more (over 5 s base cast time) never triggers; the others in the group keep their rate."""
+    elemental = Skill("Elemental Invocation", group=2, energy=True)
+    slow = Skill("Slow Spell", group=2, spell=True, triggered=True, cast_time=6.0)
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
+    stats = {"Speed": 2, "HitChance": 100, "ShockChanceOnHit": 50}
+    mods, notes, _ = models.energy_model(Inputs(), stats, [SPARK, elemental, slow, comet], SPARK)
+    rates = {m["skill"]: m["value"] for m in mods if m.get("key") == "triggerRate"}
+    assert rates["Slow Spell"] == 0 and rates["Comet"] > 0
+    assert any("never triggers" in n["basis"] for n in notes)
 
 
 def test_unmodeled_metas_count_nothing_rather_than_a_self_cast():
@@ -1964,3 +1998,63 @@ def test_echoing_cry_counts_each_echo_of_the_warcry():
     mods, notes = models.warcry_echo_model([cry], {2: ["Echoing Cry"]}, {"Seismic Cry"}, part)
     assert mods[0]["scale"] == 300 and notes[0] == {"label": "part"}
     assert models.warcry_echo_model([cry], {2: ["Echoing Cry"]}, set()) == ([], [])
+
+
+def test_rapid_shot_fires_only_part_of_the_fight_at_maximum_heat():
+    """RESEARCH18 #94: 1 Heat per attack up to 45, 10 s lockout, decay 10/s from 4 s after the last gain. At 8 attacks/s
+    with no spender: 45 / 8 = 5.6 s firing per 15.6 s, 36%. A spender taking 15 Heat per use at least as fast: no lockout."""
+    main = Skill("Rapid Shot", group=1, attack=True)
+    rapid = Skill("Rapid Shot", group=1, attack=True, level_stats={"maximum_number_of_crossbow_heat_stacks": 45,
+                                                                 "skill_specific_stat_description_mode": 10000})
+    mods, notes = models.heat_model(main, {"Speed": 8}, rapid, [])
+    share = (45 / 8) / (45 / 8 + 10)
+    assert mods[0]["scale"] == pytest.approx(-100 * (1 - share), abs=0.05) and share == pytest.approx(0.36, abs=0.01)
+    mods, notes = models.heat_model(main, {"Speed": 8}, rapid, [("Explosive Grenade", 0.6, "on its cooldown")])
+    assert mods == [] and "never reaches maximum" in notes[0]["label"]
+    # a slower spender: net gain 8 - 15 x 0.2 = 5/s; the lockout drains 60 + 30 (capped at 45)
+    mods, _ = models.heat_model(main, {"Speed": 8}, rapid, [("Explosive Grenade", 0.2, "on its cooldown")])
+    assert mods[0]["scale"] == pytest.approx(-100 * (1 - 9 / 19), abs=0.05)
+    assert models.heat_model(Skill("Ice Shot", group=1), {"Speed": 8}, rapid, []) == ([], [])
+
+
+def test_a_pressed_cadence_skill_is_held_to_its_pace():
+    """COVE6's open item: a pressed skill with Cadence is used at most 5 times in 4 s (CADENCE_PACE 1.25/s)."""
+    rates = [{"index": 1, "name": "Main", "speed": 2.0},
+             {"index": 2, "name": "Quick", "speed": 3.0, "cooldown": 0.5, "repeats": 1}]
+    plain, _ = models.press_model(rates, 1, {2})
+    paced, notes = models.press_model(rates, 1, {2}, {2: models.CADENCE_PACE})
+    assert plain["Quick"] == pytest.approx(2.0 / 3.0) and paced["Quick"] == pytest.approx(1.25 / 3.0)
+    assert "Cadence" in notes[0]["basis"]
+
+
+def test_ancestral_bond_places_spell_totems_without_charges_paid_in_spirit():
+    """AUDIT13 A13-1 / research #64: with Ancestral Bond a Spell Totem needs no charges (the build isn't zeroed), the
+    limit doubles (2 -> 4 at gem level 20), and each totem past PoB's one reservation costs 75 Spirit the build has free."""
+    main = Skill("Fireball", group=1, spell=True, cast_time=0.75)
+    totem = Skill("Spell Totem", group=1)
+    texts = ["Your Totem Limit is doubled", "No Charge requirement for placing Totems", "Totems reserve 75 Spirit each"]
+    mods, notes = models.totem_model([main, totem], {"SpiritUnreserved": 160}, texts, {"Spell Totem": 20}, main)
+    assert notes[0]["value"] == 3  # 1 + floor(160 / 75), under the doubled 4
+    assert scaled(mods, {})["1% more Attack and Cast Speed"] == pytest.approx(200)
+    assert "1% more Damage" not in scaled(mods, {})  # no charges consumed: no Power bonus, and not zeroed
+    mods, notes = models.totem_model([main, totem], {"SpiritUnreserved": 500}, texts, {"Spell Totem": 20}, main)
+    assert notes[0]["value"] == 4
+    # without the keystone and no charges: no totem (unchanged)
+    mods, notes = models.totem_model([main, totem], {}, [], {"Spell Totem": 20}, main)
+    assert notes[0]["value"] == 0
+
+
+def test_different_non_instant_skills_per_8_seconds():
+    """MECHB4 (A7-2): the main spell plus another non-instant spell whose cooldown allows a use per 8 s count 2; a
+    triggered, Persistent, instant or long-cooldown spell doesn't; attacks are counted apart."""
+    main = Skill("Fireball", group=1, spell=True, cast_time=0.75)
+    skills = [main, Skill("Frost Wall", group=2, spell=True, cast_time=0.5, cooldown=3.0),
+              Skill("Comet", group=3, spell=True, triggered=True, cast_time=1.2),
+              Skill("Herald", group=4, spell=True, cast_time=1.0),
+              Skill("Flash", group=5, spell=True, cast_time=0.0),
+              Skill("Slow Cooldown", group=6, spell=True, cast_time=1.0, cooldown=12.0),
+              Skill("Boneshatter", group=7, attack=True, melee=True, cast_time=1.0)]
+    mods, notes = models.different_skills_counts(skills, main, {"Herald"})
+    values = {m.get("name"): m["value"] for m in mods}
+    assert values["DifferentNonInstantSpells8s"] == 2 and values["DifferentNonInstantAttacks8s"] == 1
+    assert values["Multiplier:NonInstantSpellCastRecently"] == 2

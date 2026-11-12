@@ -414,10 +414,16 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
         hand_notes = hand_notes + models.channel_windup_note(main)  # (MECH-B: a channel's wind-up, labelled, not counted)
         warcries = {s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
-        if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo" once it lands)
-            echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries,
-                                                             getattr(models, "support_part_scale", None))
+        if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")
+            echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries, models.support_part_scale)
             hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
+        persistent = {s.name for s in found if "Persistent" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
+        diff_mods, diff_notes = models.different_skills_counts(found, main, persistent)  # (MECH-B: different skills per 8 s)
+        hand_mods, hand_notes = hand_mods + diff_mods, hand_notes + diff_notes
+        if main is not None and main.name == models.RAPID_SHOT:  # (MECH-B: Rapid Shot's Heat lockout)
+            heat_mods, heat_notes = models.heat_model(main, stats, next((s for s in found if s.name == models.RAPID_SHOT),
+                                                                         None), self.heat_spenders(found))
+            hand_mods, hand_notes = hand_mods + heat_mods, hand_notes + heat_notes
         if main is not None:  # (returning projectiles' second boss hit: MECH-B, models.return_model)
             gem = build.ctx.gems.get(name) or {}
             back_mods, back_notes = models.return_model(
@@ -472,12 +478,30 @@ class Assumptions:
             build.objective.press_scales = {}
             return []
         rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
-        build.objective.press_scales, notes = models.press_model(rates, main, pressed)
+        paced = {g["index"]: models.CADENCE_PACE for g in groups["groups"] if g["index"] in pressed
+                 and any(x["enabled"] and x["name"] in models.CADENCE_SUPPORTS for x in g["gems"])}
+        build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced)
         return notes
+
+    def heat_spenders(self, found: list) -> list[tuple[str, float, str]]:
+        """The build's Heat spenders (models.HEAT_SPENDERS) other than the main skill, at their pressed use rate
+        (models.press_use_rate: cooldown, duration, else every PRESS_EVERY s, LOW)."""
+        groups = {s.group for s in found if s.name in models.HEAT_SPENDERS and s.group is not None}
+        if not groups:
+            return []
+        rates = self.build.call("useRates", indices=sorted(groups))["rates"]
+        out = []
+        for rate in rates:  # (the display name may carry its stat set's label after the skill's name)
+            spender = next((n for n in models.HEAT_SPENDERS if str(rate.get("name") or "").startswith(n)), None)
+            if spender is not None:
+                uses, how, _ = models.press_use_rate(rate)
+                if uses > 0:
+                    out.append((spender, uses, how))
+        return out
 
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
-            models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, *models.gem_stat_skills()],
+            models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, *models.gem_stat_skills()],
             supportStats=models.gem_stat_support_stats())["skills"]
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
