@@ -91,6 +91,12 @@ class Charges:
     life_loss_per_use: float = 0.0
     main_rate: float = 0.0
     flask_not_consume: float = 0.0
+    # (MECHC7, #105) Wildwood's Gifts: Ancient Blooms per second and the charges a Bloom of each kind gives (bloom_charges)
+    bloom_rate: float = 0.0
+    bloom_life: float = 0.0
+    bloom_mana: float = 0.0
+    bloom_charm: float = 0.0
+    bloom_effect: float = 0.0
 
     @classmethod
     def from_bridge(cls, data: dict) -> Charges:
@@ -115,7 +121,8 @@ class Charges:
                    mana_used_inc=float(data.get("manaChargesUsedInc") or 0.0),
                    mana_used_more=float(data.get("manaChargesUsedMore") or 1.0),
                    life_loss_per_use=float(data.get("lifeLossPerUse") or 0.0), main_rate=float(data.get("mainRate") or 0.0),
-                   flask_not_consume=float(data.get("flaskNotConsume") or 0.0))
+                   flask_not_consume=float(data.get("flaskNotConsume") or 0.0),
+                   **bloom_fields(data.get("blooms") or {}))
 
 
 # Charm triggers other than a kill (MECHC2, FIX_QUEUE: each counted as firing whenever its charges allowed, whether or not
@@ -170,16 +177,54 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
                   "(LOW: how often a boss does it no data gives)")
 
 
+# Wildwood's Gifts' Ancient Blooms (MECHC7; RESEARCH19 #105, wildwood-gifts-flask-charges.md). KeywordPopups AncientBlooms:
+# "Ancient Blooms are Remnants that grant the following bonuses when collected: Vivid Blooms grant 5 Charges to all of your
+# Charms; Primal Blooms grant 5 Charges to all of your Mana Flasks; Wild Blooms grant 5 Charges to all of your Life Flasks"
+# (HIGH; the skill's ancient_gifts_*_charges_restored 5). One Bloom per breach_flame_spawn_rate_ms (1.4 s at level 1,
+# 1.21 s at 20; PoB's level stats via bridge.chargeGain). Which kind each Bloom is: no source gives the split, a third
+# each (LOW-MEDIUM, UNVERIFIED). Every Bloom collected (as assumptions.py's Remnants; a play note: walk to each; it clashes
+# with standing still, labelled there). Whether "Ancient Blooms have N% increased effect" (remnant_effect_+%, 100 at level
+# 20) scales the 5: UNVERIFIED, leaning yes: the headline counts 5 (the lower reading), bloom_note gives the higher.
+# Charges a Bloom gives go to every flask of that kind; generation modifiers ("increased Flask Charges gained") taken to
+# apply (MEDIUM: they are charges gained).
+BLOOM_KIND_SHARE = 1 / 3
+
+
+def bloom_fields(blooms: dict) -> dict:
+    return {"bloom_rate": float(blooms.get("rate") or 0.0), "bloom_life": float(blooms.get("life") or 0.0),
+            "bloom_mana": float(blooms.get("mana") or 0.0), "bloom_charm": float(blooms.get("charm") or 0.0),
+            "bloom_effect": float(blooms.get("effect") or 0.0)}
+
+
+def bloom_charges(gain: Charges, kind: str | None, effect: bool = False) -> float:
+    """Charges per second Ancient Blooms give one flask (kind "Life" / "Mana") or charm ("Charm"); with `effect`, scaled by
+    the Blooms' increased effect (the upper reading)."""
+    each = {"Life": gain.bloom_life, "Mana": gain.bloom_mana, "Charm": gain.bloom_charm}.get(kind or "", 0.0)
+    scale = 1 + gain.bloom_effect / 100 if effect else 1.0
+    return gain.bloom_rate * BLOOM_KIND_SHARE * each * scale
+
+
+def bloom_note(gain: Charges) -> str:
+    if gain.bloom_rate <= 0:
+        return ""
+    return (f"Wildwood's Gifts: {gain.bloom_rate:.2f} Ancient Blooms/s, a third of them each kind (LOW-MEDIUM), "
+            f"{gain.bloom_mana:g} charges each: {bloom_charges(gain, 'Mana'):.2f} charges/s to each Mana Flask, "
+            f"{bloom_charges(gain, 'Life'):.2f} to each Life Flask, {bloom_charges(gain, 'Charm'):.2f} to each Charm, "
+            f"every Bloom collected (walk to each); {bloom_charges(gain, 'Mana', True):.2f} each if their "
+            f"{gain.bloom_effect:g}% increased effect scales the charges (UNVERIFIED, not counted)")
+
+
 def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
     """Charges an item gains per second without kills."""
     if info.get("kind") == "Charm":
-        generated, inc = gain.charm + info.get("gainBase", 0), gain.charm_gain_inc
+        generated, inc = gain.charm + info.get("gainBase", 0) + bloom_charges(gain, "Charm"), gain.charm_gain_inc
     else:
         specific = gain.life_flask if pool == "Life" else gain.mana_flask if pool == "Mana" else 0.0
         # (MECHC5, A14-2: "Gain a Flask Charge when you deal a Critical Hit" gives each flask a charge, at the main skill's
         # crits per second; PoB's own reading, CalcPerform's FlaskChargeOnCritChance, counted only in its flask outputs)
         on_crit = min(gain.flask_on_crit, 100) / 100 * gain.crit_rate
-        generated, inc = gain.flask + specific + on_crit + info.get("gainBase", 0), gain.flask_gain_inc
+        generated, inc = (gain.flask + specific + on_crit + info.get("gainBase", 0) + bloom_charges(gain, pool),
+                          gain.flask_gain_inc)
     return max(0.0, generated * (1 + (inc + info.get("gainInc", 0)) / 100) * info.get("gainMod", 1))
 
 
@@ -369,7 +414,8 @@ def charge_use_rate(info: dict | None, gain: Charges, pool: str, per_use: float)
     if generated <= 0:
         return 0.0, (f"the {pool} Flask gains no charges in a boss fight (no kills; no 'charges per second' line): "
                      f"none for the {per_use:g} a use takes")
-    return generated / per_use, f"the {pool} Flask gains {generated:.2f} charges/s, {per_use:g} per use"
+    blooms = f" ({bloom_note(gain)})" if gain.bloom_rate > 0 else ""
+    return generated / per_use, f"the {pool} Flask gains {generated:.2f} charges/s{blooms}, {per_use:g} per use"
 
 
 def reverie_constant(info: dict, gain: Charges, pool: str | None) -> bool:

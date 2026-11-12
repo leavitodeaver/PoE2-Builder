@@ -2834,3 +2834,19 @@ def test_totem_count_counts_each_totem_up_less_other_totem_skills():
     assert models.totem_count_model([Skill("Dark Effigy", group=1, totem_limit=1), effusion], effusion) == ([], [])
     spell_totem = Skill("Spell Totem", group=1, totem_limit=2)
     assert models.totem_count_model([spell_totem, effusion], effusion) == ([], [])  # (totem_model's)
+
+
+def test_wildwoods_gifts_blooms_give_flasks_and_charms_charges():
+    """MECHC7 (#105): one Ancient Bloom per breach_flame_spawn_rate_ms, a third each kind (LOW-MEDIUM), 5 charges to every
+    flask / charm of its kind; the Blooms' increased effect only in the note (UNVERIFIED that it scales the 5)."""
+    from builder.search.flasks import Charges, bloom_charges, charge_use_rate, charges_per_second
+
+    gain = Charges.from_bridge({"blooms": {"rate": 1000 / 1210, "life": 5, "mana": 5, "charm": 5, "effect": 100}})
+    each = 1000 / 1210 / 3 * 5
+    assert bloom_charges(gain, "Mana") == pytest.approx(each)
+    assert bloom_charges(gain, "Mana", effect=True) == pytest.approx(2 * each)
+    assert charges_per_second({"kind": "Flask"}, gain, "Mana") == pytest.approx(each)
+    assert charges_per_second({"kind": "Charm"}, gain, None) == pytest.approx(each)
+    rate, how = charge_use_rate({"kind": "Flask"}, gain, "Mana", 5)
+    assert rate == pytest.approx(each / 5) and "Ancient Blooms" in how and "UNVERIFIED" in how
+    assert bloom_charges(Charges.from_bridge({}), "Life") == 0.0

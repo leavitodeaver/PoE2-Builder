@@ -3325,6 +3325,33 @@ function bridge.chargeGain()
 			perfectMain = perfectMain or skill == main
 		end
 	end
+	-- Wildwood's Gifts (MECHC7; RESEARCH19 #105, KeywordPopups AncientBlooms: "Vivid Blooms grant 5 Charges to all of your
+	-- Charms; Primal Blooms grant 5 Charges to all of your Mana Flasks; Wild Blooms grant 5 Charges to all of your Life
+	-- Flasks"): Blooms per second from the skill's breach_flame_spawn_rate_ms at its level, each kind's charges, and the
+	-- "increased effect" of Ancient Blooms (remnant_effect_+%) for the upper reading (flasks.bloom_charges)
+	local blooms = { rate = 0, life = 0, mana = 0, charm = 0, effect = 0 }
+	for _, skill in ipairs(build.calcsTab.mainEnv.player.activeSkillList) do
+		local effect = skill.activeEffect and skill.activeEffect.grantedEffect
+		if effect and effect.name == "Wildwood's Gifts" and effect.statSets then
+			local stats = { }
+			for _, set in ipairs(effect.statSets) do
+				local ok, built = pcall(calcLib.buildSkillInstanceStats, skill.activeEffect, effect, set)
+				for stat, value in pairs(ok and built or { }) do
+					if type(value) == "number" and stats[stat] == nil then
+						stats[stat] = value
+					end
+				end
+			end
+			local ms = stats["breach_flame_spawn_rate_ms"] or 0
+			if ms > 0 then
+				blooms.rate = blooms.rate + 1000 / ms
+				blooms.life = stats["ancient_gifts_life_flask_charges_restored"] or 0
+				blooms.mana = stats["ancient_gifts_mana_flask_charges_restored"] or 0
+				blooms.charm = stats["ancient_gifts_charm_charges_restored"] or 0
+				blooms.effect = stats["remnant_effect_+%"] or 0
+			end
+		end
+	end
 	return {
 		active = active, lifeFlaskBlocked = lifeFlaskBlocked, lifeFlaskUnusable = lifeFlaskUnusable,
 		lifeFlaskConstant = lifeFlaskConstant, lifeFlaskLess = lifeFlaskLess, lifeEffectKept = lifeEffectKept,
@@ -3336,6 +3363,7 @@ function bridge.chargeGain()
 		lifeCost = output.LifePerSecondCost or 0, manaCost = output.ManaPerSecondCost or 0,
 		bossDamage = boss, enemySkillTime = output.enemySkillTime or 0, evade = output.EvadeChance or 0,
 		block = output.EffectiveBlockChance or 0, perfectSkills = perfect,
+		blooms = blooms,
 		perfectMainRate = perfectMain and (output.Speed or 0) or 0,
 		-- the main skill's name (MECHC3: a Concoction main skill spends the Mana Flask's charges, flasks.THROW_CHARGES)
 		mainSkill = main and main.activeEffect and main.activeEffect.grantedEffect and main.activeEffect.grantedEffect.name or "",
