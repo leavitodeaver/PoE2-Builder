@@ -1111,8 +1111,12 @@ def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
     slam = models.Skill("Boneshatter", attack=True, melee=True)
     stats = {"Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000, "HeavyStunBuildupAvg": 10.0}
     stuns = models.heavy_stun_rate(stats)[0]
-    assert models.glory_uses(["Hammer of the Gods"], stats, slam)[0] == pytest.approx(stuns)  # one per 22.8 s
-    assert models.glory_uses(["War Banner"], stats, slam)[0] == pytest.approx(2.0 * 20 / 200)  # one per 5 s
+    # A skill gains Glory once per 0.5 s per monster (KeywordPopups Glory; MECHC2): E events/s give E / (1 + 0.5 E) gains
+    assert models.glory_uses(["Hammer of the Gods"], stats, slam)[0] == pytest.approx(stuns / (1 + 0.5 * stuns))
+    assert models.glory_uses(["War Banner"], stats, slam)[0] == pytest.approx(2.0 / 2.0 * 20 / 200)  # one per 10 s
+    fast = models.glory_uses(["War Banner"], {**stats, "Speed": 6.0}, slam)
+    assert fast[0] == pytest.approx(6.0 / 4.0 * 20 / 200) and "one gain per 0.5 s" in fast[1]  # was one per 1.7 s
+    assert fast[0] < 2.0 * 20 / 200  # never more than two gains a second
     spell = models.Skill("Spark", spell=True)
     uses, how = models.glory_uses(["War Banner"], {**stats, "PhysicalHitAverage": 0, "LightningHitAverage": 1000}, spell)
     assert uses == 0 and "never" in how  # a spell makes no attack hits

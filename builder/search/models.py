@@ -2518,6 +2518,12 @@ GLORY_SKILLS = {  # skill: (Glory per use, {event: Glory per event on a boss})
     "Molten Blast": (20, {"ignite": 20}), "Walking Calamity": (50, {}), "Skyfall": (270, {}),
 }
 GLORY_FROM_LIFE = {"Zerphi's Infamy": (50, 0.05)}  # Glory per use, share of Life spent on skills that becomes Glory
+# KeywordPopups Glory (build 26476662): "each Skill can only generate Glory once every 0.5 seconds per monster" (MECHC2,
+# RESEARCH4 glory-warcry-flat-rates.md, HIGH for the text; before, every event counted: a Banner at 6 hits/s got a use
+# every 1.7 s). On one boss: a gain, then 0.5 s, then the wait for the skill's next event, so gains/s = E / (1 + 0.5 E)
+# for E events/s (as the hit-Remnant cooldowns, assumptions.hit_remnant_rate), each gain the events' average Glory
+# (MEDIUM: which event wins a window is taken as proportional). Life spent (Zerphi's Infamy) isn't a per-monster event.
+GLORY_GAIN_EVERY = 0.5
 
 
 def glory_events(stats: dict, main: Skill | None) -> dict[str, float]:
@@ -2577,8 +2583,13 @@ def glory_uses(names: list[str], stats: dict, main: Skill | None) -> tuple[float
     for name in names:
         if name in GLORY_SKILLS:
             cost, gains = GLORY_SKILLS[name]
+            rate = sum(events[e] for e in gains)
             glory = sum(events[e] * g for e, g in gains.items())
             how = " + ".join(f"{events[e]:.2f} {e}s/s x {g}" for e, g in gains.items()) or "no source counted"
+            if rate > 0:  # one gain per 0.5 s per monster
+                kept = 1.0 / (1.0 + GLORY_GAIN_EVERY * rate)
+                glory *= kept
+                how += f", at most one gain per {GLORY_GAIN_EVERY:g} s on the boss ({kept:.0%} of them count)"
         elif name in GLORY_FROM_LIFE:
             cost, share = GLORY_FROM_LIFE[name]
             glory = share * number(stats.get("LifePerSecondCost"))
