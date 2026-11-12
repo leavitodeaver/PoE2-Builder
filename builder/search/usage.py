@@ -6,7 +6,15 @@ a use needs (`active_skill_requires_X_glory`, `..._required_number_of_combo_stac
 them from PoB's gem data (bridge `usageRules`), not from a list of names. PoB itself calculates such
 a skill as if it were used at will, so the search allows one only where the build has a real,
 sustainable source for what a use needs:
-- charges a use needs (Charged Staff, Spell Totem): while the resolver has evidence for that charge
+- charges a use needs (Charged Staff, Spell Totem): while the resolver has evidence for that charge. With the keystone
+  Ancestral Bond, a totem skill's charges (PoB type SummonsTotem: Spell Totem's 3 Power and/or Endurance Charges,
+  Ancestral Warrior Totem's 3 Endurance Charges) need no source (COVC8, A13-1, RESEARCH18 #64, MEDIUM-HIGH): the game
+  text (passive_skill_stat_descriptions.csd keystone_ancestral_bond) "No [Charges|Charge] requirement for placing
+  [Totem|Totems]"; three 0.5 community sources (Mobalytics, aoeah, the 0.5.0 notes) agree. The four gems with a
+  charge requirement are those two, Charged Staff and Wind Serpent's Fury (checked: PoB Data/Skills constantStats
+  active_skill_requires_X_*_charges; RESEARCH18: every ActiveSkills description holding "Totem" and "Charge" names
+  the two totems only). Whether charges held are still consumed (and Spell Totem's per-charge bonuses apply) is
+  UNVERIFIED: the totem model's part (MECH-B)
 - Glory a support adds together with its own source (Zerphi's Infamy: 5% of Life spent on skills
   becomes Glory, 50 per use): while the main skill's Life spending pays for UPTIME of its uses, so
   never on a build that spends no Life
@@ -154,6 +162,7 @@ BASE_RUN = 3.8  # metres a second at 0% increased movement speed (LOW: one 2016 
 ROLL_METRES = 4.6  # a dodge roll's distance (DodgeRollPlayer dodge_roll_base_travel_distance 46)
 # "N% chance to build an additional Combo on Hit" (module docstring; A13-2)
 COMBO_CHANCE = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to build|build) an additional combo on hit$", re.I)
+ANCESTRAL_BOND = "Ancestral Bond"  # the keystone (module docstring: totems' charges)
 # The Invoker's Combo passives (module docstring)
 MARTIAL_MASTER = "Martial Master"
 MARTIAL_ADEPT = "Martial Adept"
@@ -266,6 +275,8 @@ class Usage:
                 blocked.append(f"{name}: {need.label} ({travel_seconds(need.amount):.1f} s of walking at a base "
                                f"{BASE_RUN:g} m/s*, LOW; less with movement speed), but the tool doesn't yet scale its "
                                "damage to that use rate (Usage.travel_rate; PoB counts it used at will)")
+            elif need.kind == "charges" and self.totem_bond(name):
+                continue  # (Ancestral Bond: no charges needed to place a totem)
             elif not self.sustained(need, stats or {}):
                 blocked.append(f"{name}: {need.label}")
         return talisman + blocked
@@ -293,6 +304,10 @@ class Usage:
 
     def has_passive(self, name: str) -> bool:
         return any(p["name"] == name for p in self.build.call("facts", fields=[]).get("passives") or [])
+
+    def totem_bond(self, name: str) -> bool:
+        """Does Ancestral Bond lift this totem skill's charge requirement (module docstring)?"""
+        return self.has_passive(ANCESTRAL_BOND) and "SummonsTotem" in (self.gem(name).get("skillTypes") or [])
 
     def combo_reason(self, name: str, amount: float) -> str:
         builders = self.combo_builders(name)

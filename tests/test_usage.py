@@ -86,6 +86,17 @@ def test_charges_follow_the_resolver_and_flasks_their_generation(fresh_rules):
     assert Usage(build, FakeConditions(), lambda pool: (20.0, 60.0)).usable("Ambrosia")  # 2 × 14% × 60 = 16.8/s
     assert not Usage(build, FakeConditions("usePowerCharges")).usable("Hit and Run")
     assert Usage(build, FakeConditions()).usable("Rapid Attacks II")  # no requirement at all
+    # A13-1 (COVC8, RESEARCH18 #64): Ancestral Bond lifts a totem's charge requirement, not Charged Staff's
+    rules.update({"Spell Totem": {"usageCondition": True, "stats": {"active_skill_requires_X_power_or_endurance_charges": 3}},
+                  "Ancestral Warrior Totem": {"usageCondition": True,
+                                              "stats": {"active_skill_requires_X_endurance_charges": 3}}})
+    types = {"Spell Totem": ["SummonsTotem", "Meta"], "Ancestral Warrior Totem": ["SummonsTotem", "Attack"],
+             "Charged Staff": ["Attack"]}
+    totems = ComboBuild(rules, types, [], {})
+    assert not Usage(totems, FakeConditions()).usable("Spell Totem")
+    totems.stats = {"passives": [{"name": "Ancestral Bond"}]}
+    bond = Usage(totems, FakeConditions())
+    assert bond.usable("Spell Totem") and bond.usable("Ancestral Warrior Totem") and not bond.usable("Charged Staff")
 
 
 def test_distance_travelled_and_combo_bar_a_support_with_their_own_amounts():
