@@ -339,7 +339,28 @@ class Context:
             elif fixed := wrong(text):
                 line = prefix + (fixed[1] if fixed[1] is not None else "{disabled}" + text)
             lines.append(line)
-        return "\n".join(lines + added)
+        return "\n".join(self._with_quality(name, lines) + added)
+
+    @cached_property
+    def _unique_types(self) -> dict[str, tuple[str, str]]:
+        return {u["name"]: (u.get("type") or "", u.get("base") or "") for u in self.data.uniques}
+
+    def _with_quality(self, name: str, lines: list[str]) -> list[str]:
+        """The manager's ruling (12 Nov ~12:55, on COV6's finding; COV7): an uncorrupted unique weapon, armour piece,
+        shield, focus or flask (rares.QUALITY_TYPES) with no "Quality:" line gets Quality 20, as a generated item does:
+        a player can raise it with currency, and PoB gives an item with no Quality line 0% (57 such uniques in the dump,
+        12 Nov; the other 265 of those types already say Quality: 20). A corrupted unique keeps the quality its text
+        gives (0 if none): currency can't change it. Placed after the base name line, before the implicits."""
+        from builder.search.rares import QUALITY, QUALITY_TYPES
+
+        kind, base = self._unique_types.get(name, ("", ""))
+        bare = [re.sub(r"^(?:\{[^}]*\})*", "", l).strip() for l in lines]
+        if kind not in QUALITY_TYPES or any(b.startswith("Quality:") or b == "Corrupted" for b in bare):
+            return lines
+        at = max((i for i, b in enumerate(bare[:20]) if base and b.endswith(base)), default=None)
+        if at is None:
+            return lines
+        return lines[:at + 1] + [f"Quality: {QUALITY}"] + lines[at + 1:]
 
     def unique_price(self, name: str) -> tuple[float | None, str] | None:
         if self.ssf:

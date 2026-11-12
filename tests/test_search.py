@@ -1973,3 +1973,19 @@ def test_heavy_stunned_box_at_the_share_the_build_stuns():
     assert on is (up >= MIN_UPTIME) and "Heavy Stunned" in basis
     assert _heavy_stunned([], {**stats, "HeavyStunBuildupAvg": 0}) == (0.0, "")
     assert _heavy_stunned([], {**stats, "_boss": "Zarokh, the Temporal"})[2] <= 1
+
+
+def test_uncorrupted_uniques_of_quality_types_say_quality_20():
+    """The manager's ruling (12 Nov ~12:55; COV7): an uncorrupted unique weapon / armour / shield / focus / flask with no
+    Quality line gets Quality 20 (PoB gave it 0%), placed after the base name; a corrupted one keeps its own (none)."""
+    from builder.search.rares import QUALITY_TYPES
+
+    ctx = context(main_skill="Spark")
+    uniques = [u for u in ctx.data.uniques if u["type"] in QUALITY_TYPES]
+    assert uniques and all(ctx.corrected_raw(u["name"], u["raw"]).split("\n").count("Quality: 20") == 1 for u in uniques)
+    bare = next(u for u in uniques if "Quality:" not in u["raw"])
+    lines = ctx.corrected_raw(bare["name"], bare["raw"]).split("\n")
+    assert lines[lines.index("Quality: 20") - 1].endswith(bare["base"])
+    assert "Quality" not in ctx.corrected_raw(bare["name"], bare["raw"] + "\nCorrupted")
+    other = next(u for u in ctx.data.uniques if u["type"] in ("Ring", "Amulet", "Belt", "Jewel", "Charm"))
+    assert ctx.corrected_raw(other["name"], other["raw"]).count("Quality: 20") == other["raw"].count("Quality: 20")
