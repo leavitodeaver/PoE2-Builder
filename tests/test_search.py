@@ -1777,3 +1777,43 @@ def test_a_named_boss_goes_to_reset_config():
         assert boss_config(SimpleNamespace(boss="Arbiter of Ash")) == {}  # (no presets in this tree yet)
     else:
         assert boss_config(SimpleNamespace(boss=bosses.DEFAULT)) == {"boss": bosses.config_vars(bosses.DEFAULT)}
+
+
+def test_a_flask_up_part_of_the_fight_is_ranked_at_its_share():
+    """MECHC5's spec (SEARCH5): a flask or charm up between conditions.MIN_UPTIME and flasks.ACTIVE_UPTIME of the fight
+    is switched on and ranked at its share, d_off + ln(u e^(d_on - d_off) + 1 - u); before, it counted 0 under 90%."""
+    import math
+
+    from builder.search.gear import Gear
+
+    class FakeBuild:
+        def item_deltas(self, cases):
+            return [((0.2 if c["active"] else -0.1), {"active": c["active"]}) for c in cases]
+
+    gear = object.__new__(Gear)
+    gear.build = FakeBuild()
+    gear.flask_info = lambda raws: [{} for _ in raws]
+    gear.recovery_stats = lambda replace=None: {}
+    shares = {"half": 0.5, "most": 0.95, "rare": 0.01}
+    gear.share = lambda slot, info, raw: shares[raw]
+    half, most, rare = gear.deltas("Flask 2", ["half", "most", "rare"])
+    assert half[0] == pytest.approx(-0.1 + math.log(0.5 * math.exp(0.3) + 0.5)) and half[1]["active"]
+    assert most[0] == pytest.approx(0.2)  # from ACTIVE_UPTIME: whole
+    assert rare[0] == pytest.approx(-0.1) and not rare[1]["active"]  # under MIN_UPTIME: off
+
+
+def test_support_gems_that_scale_with_distance_put_their_distances_in_the_trials():
+    """COVE9 (SEARCH5): a ranged build with Lockdown is tried at close range, Longshot beyond 7 m, from the supports'
+    own game texts (choose_distance read item and passive lines only)."""
+    from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE, distance_candidates
+    from builder.search.inner import support_distance_lines
+
+    def groups(*names, enabled=True):
+        return [{"enabled": enabled, "gems": [{"name": "Lightning Arrow", "support": False}]
+                 + [{"name": n, "support": True} for n in names]}]
+
+    ranged = {"Attack", "Projectile"}
+    assert distance_candidates(support_distance_lines(groups("Martial Tempo")), ranged) == []
+    assert distance_candidates(support_distance_lines(groups("Lockdown")), ranged) == [RANGED_DISTANCE, MELEE_DISTANCE]
+    assert 7.5 in distance_candidates(support_distance_lines(groups("Longshot II")), ranged)
+    assert support_distance_lines(groups("Lockdown", enabled=False)) == []

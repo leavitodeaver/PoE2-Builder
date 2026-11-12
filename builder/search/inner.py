@@ -448,9 +448,10 @@ class Search:
         last round (weigh_uptimes), and an effect the round didn't see gets its own one-off recalculation (cached until the
         next round), so a trial that raises an effect from 0% counts it at its share, not fully up (MECH31). The uptimes
         are the current ones; the ratios are the round's (an estimate between rounds; exact at finalize)."""
-        objective, conditions = self.build.objective, self.conditions
+        objective = self.build.objective
         cache = self.uptime_cache
-        live = {var: up for var, up in conditions.uptimes.items() if var in conditions.active}
+        effects = self.part_time()
+        live = {var: up for var, (up, _) in effects.items()}
         missing = [var for var in sorted(live) if var not in cache]
         if missing:
             on_stats = dict(self.build.stats)
@@ -458,7 +459,7 @@ class Search:
             if on <= 0:
                 return
             for var in missing:
-                cache[var] = _without(self, var, conditions.active[var], on_stats, on)[:2]
+                cache[var] = _without(self, var, effects[var][1], on_stats, on)[:2]
         factor = 1.0
         for var in sorted(live):
             factor *= live[var] + (1.0 - live[var]) * cache[var][0]
@@ -485,6 +486,7 @@ class Search:
         if any(g["name"] == "Blasphemy" and g.get("enabled", True) for grp in self.build.groups()
                if grp.get("enabled", True) for g in grp["gems"]):
             lines.append("Blasphemy: Curse Auras on enemies in your Presence (models.curse_uses)")
+        lines += support_distance_lines(self.build.groups())
         candidates = distance_candidates(lines, conditions.main_types)
         before = conditions.distance
         if not candidates:
@@ -500,7 +502,7 @@ class Search:
             scores[metres] = self.build.score
         best = max(candidates, key=lambda m: (scores[m], m == natural))
         tried = ", ".join(f"{m:g} m {scores[m]:,.0f}" for m in candidates)
-        why = ("close range: the build leans into Presence or close-range lines" if best <= MELEE_DISTANCE
+        why = ("close range: the build leans into Presence, close-range or support lines" if best <= MELEE_DISTANCE
                else "beyond its \"further than\" lines") + f" (score at {tried}, defence floors included)"
         conditions.distance = None if best == natural else (best, why)
         self.settle()
@@ -572,6 +574,16 @@ class Search:
                              f"them 65% / 35% of its life", "confidence": "theory"}
         self.build.score = objective.score(self.build.stats)
 
+    def part_time(self) -> dict[str, tuple[float, dict]]:
+        """The effects on for only part of the fight: var -> (share, info). The conditions' (conditions.uptimes, the
+        active ones) and the flask and charm slots up between conditions.MIN_UPTIME and flasks.ACTIVE_UPTIME of the fight
+        (Gear.part_time, FLASK_VAR; MECHC5's spec), switched through _switch."""
+        conditions = self.conditions
+        out = {var: (up, conditions.active[var]) for var, up in conditions.uptimes.items() if var in conditions.active}
+        for slot, (up, name) in self.gear.part_time().items():
+            out[f"{FLASK_VAR}{slot}:{name}"] = (up, {"label": f"{name} ({slot})", "value": True, "off": False})
+        return out
+
     def weigh_uptimes(self) -> None:
         """Effects the build keeps up for only part of the fight (conditions.uptimes: ailments, Onslaught, Arcane Surge,
         Armour Broken, Exposure, the debuffs) count at their real share (the user, 9 Nov 2026). With all of them on the
@@ -580,18 +592,18 @@ class Search:
         (labelled: effects that add into one pool, like Shock's and Intimidate's damage taken, interact a little). The
         floors are checked with all of them off at once (floor_without: one more recalculation), each one's time-weighted
         defence kept in its play note. Refreshed each conditions round and reused between them (as weigh_life); exact at finalize."""
-        objective, conditions = self.build.objective, self.conditions
+        objective = self.build.objective
         objective.uptime_factor, objective.floor_deltas = 1.0, []
         self.uptime_rows, self.uptime_cache, self.uptime_floor = [], {}, {}
         for key in [k for k in self.play_notes if k.startswith("uptime:")]:
             del self.play_notes[key]
-        if conditions.uptimes:
+        effects = self.part_time()
+        if effects:
             on_stats = dict(self.build.stats)
             on = objective.dps(on_stats)
             factor = 1.0
-            for var, up in sorted(conditions.uptimes.items()):
-                info = conditions.active.get(var)
-                if info is None or on <= 0:
+            for var, (up, info) in sorted(effects.items()):
+                if on <= 0:
                     continue
                 ratio, deltas, off_stats = _without(self, var, info, on_stats, on)
                 self.uptime_cache[var] = (ratio, deltas)
@@ -611,8 +623,7 @@ class Search:
                              f"of each other" + (f". Defences: {defence}" if defence else ""),
                     "confidence": "theory"}
             objective.uptime_factor = factor
-            objective.floor_deltas = self.floor_without(
-                {var: up for var, up in conditions.uptimes.items() if var in conditions.active}, on_stats)
+            objective.floor_deltas = self.floor_without({var: up for var, (up, _) in effects.items()}, on_stats)
         self.build.score = objective.score(self.build.stats)
 
     def floor_without(self, live: dict, on_stats: dict | None) -> list[dict]:
@@ -628,7 +639,8 @@ class Search:
             return [deltas] if deltas else []
         if names not in self.uptime_floor:
             stats = dict(self.build.stats) if on_stats is None else on_stats
-            infos = {var: self.conditions.active[var] for var in names}
+            effects = self.part_time()
+            infos = {var: effects[var][1] for var in names if var in effects}
             self.uptime_floor[names] = _all_off(self, infos, stats)
         deltas = self.uptime_floor[names]
         return [deltas] if deltas else []
@@ -1025,22 +1037,68 @@ def _without(search: Any, var: str, info: dict, on_stats: dict, on: float) -> tu
     """One recalculation with a part-time effect off, then back on: (DPS without it / with it, the stats it changes
     (off - on), the stats without it). (Search.weigh_uptimes and follow_uptimes)"""
     objective = search.build.objective
-    search.build.set_config({var: info.get("off", False)})
+    _switch(search, {var: info.get("off", False)})
     search.assumptions.apply()
     off_stats = dict(search.build.stats)
-    search.build.set_config({var: info["value"]})
+    _switch(search, {var: info["value"]})
     search.assumptions.apply()
     deltas = {k: number(v) - number(on_stats.get(k)) for k, v in off_stats.items()
               if isinstance(v, (int, float)) and number(v) != number(on_stats.get(k))}
     return max(objective.dps(off_stats), 0.0) / on, deltas, off_stats
 
 
+# Support gems whose stats scale with the distance from you to the enemy, by their game text (gem_stat_descriptions.csd,
+# build 26476662): choose_distance reads only the build's item and passive lines (sourceLines), so a ranged build with
+# Lockdown was never tried at 2 m (COVE9). Found by scratch/search5/distance_supports.py: every English stat text in
+# gem_stat_descriptions.csd naming a distance (32 stats) mapped to support gems through GrantedEffectStatSets /
+# GrantedEffectStatSetsPerLevel and PoB's gems.json (24 supports). The other 19 of them measure distances between
+# enemies, minions, Remnants or objects, or Knockback, not you to the boss (checked: their texts, listed in the script's
+# output; second source: poe2db's Lockdown, Close Combat and Longshot pages give the same texts; UNVERIFIED that no
+# later patch added another: rerun the script on a new game build).
+SUPPORT_DISTANCE_TEXT = {
+    "Lockdown": "Supported Skills have more Pin Buildup against enemies within 2 metres of you, scaling to no change "
+                "at 12 metres",
+    "Close Combat I": "Supported Skills deal more Attack Damage to enemies within 1 metre of you, scaling down to no "
+                      "bonus at 3.5 metres or further",
+    "Longshot I": "Supported Skills deal more Attack Damage to enemies further than 7 metres from you, scaling down to "
+                  "no bonus at 3.5 metres or closer",
+}
+SUPPORT_DISTANCE_TEXT["Close Combat II"] = SUPPORT_DISTANCE_TEXT["Close Combat I"]
+SUPPORT_DISTANCE_TEXT["Longshot II"] = SUPPORT_DISTANCE_TEXT["Longshot I"]
+
+
+def support_distance_lines(groups: list[dict]) -> list[str]:
+    """The distance texts (SUPPORT_DISTANCE_TEXT) of the support gems socketed in the build's enabled groups."""
+    names = {g["name"] for grp in groups if grp.get("enabled", True) for g in grp["gems"]
+             if g.get("enabled", True) and g.get("support")}
+    return [f"{name}: {SUPPORT_DISTANCE_TEXT[name]}" for name in sorted(names) if name in SUPPORT_DISTANCE_TEXT]
+
+
+FLASK_VAR = "flaskSlot:"  # a part-time flask or charm effect: "flaskSlot:<slot>:<item name>" (Search.part_time)
+
+
+def _switch(search: Any, values: dict[str, Any]) -> None:
+    """Set part-time effects on or off: PoB config vars, and flask / charm slots (FLASK_VAR) through the slot's active
+    flag (the item stays equipped; its recovery, Gear.recovery_stats, doesn't depend on the flag)."""
+    config = {}
+    for var, value in values.items():
+        if var.startswith(FLASK_VAR):
+            slot = var[len(FLASK_VAR):].split(":", 1)[0]
+            option = search.build.equipped.get(slot)
+            if option is not None:
+                search.build.equip(slot, option, active=bool(value))
+        else:
+            config[var] = value
+    if config:
+        search.build.set_config(config)
+
+
 def _all_off(search: Any, infos: dict[str, dict], on_stats: dict) -> dict:
     """One recalculation with every given part-time effect off, then back on: the stats that change (off - on)."""
-    search.build.set_config({var: info.get("off", False) for var, info in infos.items()})
+    _switch(search, {var: info.get("off", False) for var, info in infos.items()})
     search.assumptions.apply()
     off_stats = dict(search.build.stats)
-    search.build.set_config({var: info["value"] for var, info in infos.items()})
+    _switch(search, {var: info["value"] for var, info in infos.items()})
     search.assumptions.apply()
     return {k: number(v) - number(on_stats.get(k)) for k, v in off_stats.items()
             if isinstance(v, (int, float)) and number(v) != number(on_stats.get(k))}

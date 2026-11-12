@@ -809,3 +809,38 @@ def test_a_restore_gives_back_its_snapshots_score(engine):
     assert build.objective.multipliers["test floor"] == 4.0  # (an escalation isn't undone)
     drift = restore_drift(build)
     assert drift["restores"] >= 1 and drift["drifted"] == 0
+
+
+def test_a_flask_up_part_of_the_fight_is_weighed_at_its_share(engine):
+    """MECHC5's spec (SEARCH5): the slot stays on, Search.part_time lists it, weigh_uptimes weighs it (one recalculation
+    with the slot off, then on again) and the flask report says it counted at its share."""
+    from builder.search.conditions import MIN_UPTIME
+    from builder.search.flasks import ACTIVE_UPTIME
+    from builder.search.inner import FLASK_VAR, Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Spark")
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    gear = search.gear
+    option = next(o for o in gear.options("Flask 2") if not o.unique)
+    info = gear.flask_info([option.raw])[0]
+    gear.charges = gear.charges.__class__(flask=1.0, mana_cost=10_000.0)
+    one = gear.share("Flask 2", info, option.raw)
+    assert one > 0
+    gear.charges = gear.charges.__class__(flask=0.5 / one, mana_cost=10_000.0)
+    share = gear.share("Flask 2", info, option.raw)
+    assert MIN_UPTIME <= share < ACTIVE_UPTIME and gear.counts("Flask 2", info, option.raw)
+    gear.put("Flask 2", option)
+    effects = search.part_time()
+    var = f"{FLASK_VAR}Flask 2:{option.name}"
+    assert effects[var][0] == pytest.approx(share)
+    search.weigh_uptimes()
+    assert any(row["var"] == var and row["uptime"] == pytest.approx(share) for row in search.uptime_rows)
+    assert search.build.objective.uptime_factor <= 1.0 + 1e-9
+    xml = engine.call("exportXml")["xml"]  # switched back on after the recalculation without it
+    assert any('name="Flask 2"' in t and 'active="true"' in t for t in re.findall(r"<Slot [^>]*>", xml))
+    search.follow_uptimes()
+    row = next(r for r in gear.flask_report() if r["slot"] == "Flask 2")
+    assert row["counted"] and row["part_time"]

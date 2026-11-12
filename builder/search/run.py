@@ -556,6 +556,10 @@ class Run:
                               "the build sustains and the request applied" + (f" ({taken})" if taken else "")
                               + f". Its line of searches never ends below that; this result: {final['dps']:,.0f}.")
         for flask in final.get("flasks") or []:
+            if flask.get("part_time"):  # (Search.weigh_uptimes: MECHC5's flask share-of-fight spec)
+                self.notes.append(f"{flask['slot']} ({flask['name']}): its effect is up {flask['uptime']:.0%} of a boss "
+                                  "fight, and the DPS above counts it at that share; the code leaves its slot switched "
+                                  "on, so PoB itself counts it whole")
             if not flask["counted"]:
                 why = (flask.get("full_pool") or "")  # (MECHC4: Life / Mana filling up ends it, not only its charges)
                 why = (f"{why[0].upper()}{why[1:]}" if why else

@@ -15,6 +15,7 @@ layers the requested style allows.
 from __future__ import annotations
 
 import dataclasses
+import math
 import os
 import random
 import re
@@ -34,6 +35,7 @@ from builder.search.rares import (
     socket_count, with_runes,
 )
 from builder.search.state import EPSILON, Build
+from builder.search.conditions import MIN_UPTIME
 from builder.search.models import GRANTED_FILLED
 
 # A unique's line granting a meta skill with an Energy model (Mjolner: "Grants Skill: Level (1-20) Thundergod's Wrath"),
@@ -260,11 +262,24 @@ class Gear:
         """Item what-ifs for one slot; a flask or charm is scored with its slot on only if a boss
         fight sustains its effect, and with the flask recovery it would bring."""
         cases = [{"slot": slot, "raw": raw} for raw in raws]
-        if is_flask_slot(slot):
-            for case, raw, info in zip(cases, raws, self.flask_info(raws)):
-                case["active"] = self.counts(slot, info, raw)
-                case["extra"] = self.recovery_stats({slot: info})
-        return self.build.item_deltas(cases)
+        if not is_flask_slot(slot):
+            return self.build.item_deltas(cases)
+        shares = []
+        for case, raw, info in zip(cases, raws, self.flask_info(raws)):
+            shares.append(self.share(slot, info, raw))
+            case["active"] = shares[-1] >= MIN_UPTIME
+            case["extra"] = self.recovery_stats({slot: info})
+        # An effect up only part of the fight: scored on and off, blended at its share, d_off + ln(u e^(d_on - d_off)
+        # + 1 - u) (the score is ln DPS; the off case's floors, as weigh_uptimes checks them). A ranking estimate:
+        # once equipped, Search.follow_uptimes weighs it with a real recalculation
+        part = [i for i, up in enumerate(shares) if MIN_UPTIME <= up < ACTIVE_UPTIME]
+        scored = self.build.item_deltas(cases + [{**cases[i], "active": False} for i in part])
+        out = scored[:len(cases)]
+        for i, (d_off, _) in zip(part, scored[len(cases):]):
+            d_on, stats = out[i]
+            up = shares[i]
+            out[i] = (d_off + math.log(up * math.exp(min(d_on - d_off, 50.0)) + 1.0 - up), stats)
+        return out
 
     def put(self, slot: str, option: ItemOption | None) -> float:
         """Equip (or empty) a slot; a flask or charm slot is switched on only if its effect is sustained."""
@@ -336,9 +351,26 @@ class Gear:
                 self._flask_info[raw] = info
         return [self._flask_info[raw] for raw in raws]
 
+    def share(self, slot: str, info: dict, raw: str) -> float:
+        """The item's effect's share of a boss fight (flasks.uptime: generated charges, Life / Mana filling up)."""
+        return uptime(info, self.charges, slot_pool(slot), raw)
+
     def counts(self, slot: str, info: dict, raw: str) -> bool:
-        """Whether PoB may count the item's effect: generated charges keep it up in a boss fight."""
-        return uptime(info, self.charges, slot_pool(slot), raw) >= ACTIVE_UPTIME
+        """Whether the slot is switched on: its effect is up at least conditions.MIN_UPTIME of a boss fight. Up from
+        ACTIVE_UPTIME it counts whole (flasks.py's labelled cut-off); between the two it counts at its share of the
+        fight (part_time, Search.weigh_uptimes: MECHC5's spec; before, a flask up 10-89% of the fight counted 0)."""
+        return self.share(slot, info, raw) >= MIN_UPTIME
+
+    def part_time(self) -> dict[str, tuple[float, str]]:
+        """Equipped flask and charm slots switched on whose effect is up only part of the fight: slot -> (share, name)."""
+        out = {}
+        for slot in [*FLASK_SLOTS, *CHARM_SLOTS]:
+            option = self.build.equipped.get(slot)
+            if option is not None:
+                up = self.share(slot, self.flask_info([option.raw])[0], option.raw)
+                if MIN_UPTIME <= up < ACTIVE_UPTIME:
+                    out[slot] = (up, option.name)
+        return out
 
     def recovery_stats(self, replace: dict[str, dict] | None = None) -> dict:
         """Flask recovery per second (the sustain floor's flask share), with `replace`d slots."""
@@ -384,6 +416,7 @@ class Gear:
             share = uptime(info, self.charges, pool, option.raw)
             rows.append({"slot": slot, "name": option.name, "pool": pool, "uptime": share,
                          "counted": self.counts(slot, info, option.raw),
+                         "part_time": MIN_UPTIME <= share < ACTIVE_UPTIME,  # counted at its share (weigh_uptimes)
                          "recovery": recovery_per_second(info, self.charges, pool) if pool else 0.0,
                          "full_pool": self.full_pool_reason(info, pool, option.raw, share)})
         return rows
