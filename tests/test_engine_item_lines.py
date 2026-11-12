@@ -148,3 +148,9 @@ def test_the_coverage_audit_reads_a_two_line_stat_description_as_one_line_as_pob
     assert [(a["line"], a["supported"]) for a in wave] == [
         ("Increases and Reductions to Mana Regeneration Rate also apply to Energy Shield Recharge Rate", True)]
     assert "ManaRegenAppliesToEnergyShieldRecharge" in wave[0]["names"]
+    # Rune lines aren't joined: PoB rebuilds them from the rune's name and reads neither half of Jiquani's Thesis's
+    # boots pair, which items-two-line.yaml's whole-sentence stand-in needs listed as unparsed (COV9)
+    boots = [a for a in affixes if a["pool"] == "Runes" and a["id"] == "Jiquani's Thesis" and a.get("slot") == "boots"]
+    assert [a["line"].strip() for a in boots if not a.get("bonded")][:2] == [
+        "Increases and Reductions to Movement Speed also", "apply to Energy Shield Recharge Rate"]
+    assert not any(a["supported"] for a in boots[:2])

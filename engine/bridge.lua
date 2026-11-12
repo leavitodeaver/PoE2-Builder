@@ -2612,13 +2612,16 @@ function bridge.auditCoverage()
 	-- A mod's lines as PoB reads them on an item: a line it can't parse is joined with the next one when the two parse
 	-- together (Item.lua's "Try to combine it with the next line"), so a two-line stat description ("Increases and
 	-- Reductions to Mana Regeneration Rate also" / "apply to Energy Shield Recharge Rate") is one line PoB counts, not
-	-- two it ignores (COV11; FIX_QUEUE, PLANS1's catalog finding). Yields line, supported, names, mods.
-	local function modLines(part)
+	-- two it ignores (COV11; FIX_QUEUE, PLANS1's catalog finding). Not for runes: PoB rebuilds an item's rune lines
+	-- from the rune's name (ItemClass:UpdateRunes), and reads neither half of Jiquani's Thesis's boots pair (COV9,
+	-- items-two-line.yaml, whose whole-sentence stand-in needs the halves listed as unparsed). Yields line, supported,
+	-- names, mods.
+	local function modLines(part, join)
 		local found, i = { }, 1
 		while part[i] do
 			local line = part[i]
 			local supported, names, _, mods = parse(line)
-			if not supported and part[i + 1] then
+			if join and not supported and part[i + 1] then
 				local joined = line .. " " .. part[i + 1]:gsub("%b{}", ""):gsub(" ?%(%l+%)", "")
 				local ok, joinedNames, _, joinedMods = parse(joined)
 				if ok then
@@ -2637,7 +2640,7 @@ function bridge.auditCoverage()
 				for slot, mod in pairs(rune) do
 					if type(mod) == "table" then
 						for _, part in ipairs({ mod, mod.bonded }) do
-							for _, l in ipairs(modLines(part)) do
+							for _, l in ipairs(modLines(part, false)) do
 								affixes[#affixes + 1] = { pool = "Runes", id = name, slot = slot, bonded = part == mod.bonded or nil,
 									line = l.line, supported = l.supported, names = l.names, rune = mod.type, mods = l.mods }
 							end
@@ -2647,7 +2650,7 @@ function bridge.auditCoverage()
 			end
 		else
 			for id, mod in pairs(mods) do
-				for _, l in ipairs(modLines(mod)) do
+				for _, l in ipairs(modLines(mod, true)) do
 					affixes[#affixes + 1] = { pool = pool, id = id, type = mod.type, line = l.line, supported = l.supported,
 						names = l.names, level = mod.level, tags = mod.modTags, mods = l.mods }
 				end
