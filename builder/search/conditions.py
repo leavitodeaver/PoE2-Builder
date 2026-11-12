@@ -242,6 +242,71 @@ def _incision_consumed(lines: list[str], stats: dict) -> tuple:
 # sources; on a single boss nothing dies, so on-kill sources give none. A source whose rate its line doesn't say (on use,
 # when you stun, on reaching something) is assumed once per 4 s, labelled.
 CHARGE_DEFAULT_EVERY = 4.0
+# Events a line names without its rate (FLAT_RATES A3; MECH47): a Warcry used, a Totem summoned, a Mark activating.
+# Before, each fell to one per CHARGE_DEFAULT_EVERY s whether or not the build had such a skill (an overcount with
+# none). Now the rate comes from the build's own skills (event_rates, in Conditions.evidence as stats["_events"]): the
+# main skill's uses if it is one; else each such skill's group at its use rate (bridge useRates: its cooldown, else its
+# duration, else models.PRESS_EVERY, LOW); none of that kind in the build's enabled groups: 0, labelled. A Mark is taken
+# to activate as often as it is applied (an upper bound). Other wordings keep the 4 s default, labelled LOW.
+EVENT_WORDS = {
+    "Warcry": re.compile(r"\b(?:use|using|uses) (?:a )?warcr(?:y|ies)|\bon warcry|warcr(?:y|ies) (?:is|are) used|"
+                         r"when you warcry", re.I),
+    "SummonsTotem": re.compile(r"\b(?:summon|plac)\w* (?:a |an )?(?:\w+ )?totems?|totems? (?:is|are) (?:summoned|placed)",
+                               re.I),
+    "Mark": re.compile(r"\bmarks? activat|\b(?:use|apply|applying) a mark\b|mark (?:you have applied )?activates", re.I),
+}
+EVENT_NAMES = {"Warcry": "a Warcry used", "SummonsTotem": "a Totem summoned", "Mark": "a Mark activating"}
+
+
+def _named_event(when: str, stats: dict) -> tuple[float, str] | None:
+    """(events per second, how) for a line's event from the build's own skills (stats["_events"]), or None if the line
+    names none of EVENT_WORDS (or the table wasn't built)."""
+    events = stats.get("_events") or {}
+    for kind, pattern in EVENT_WORDS.items():
+        if pattern.search(when) and kind in events:
+            rate, how = events[kind]
+            return rate, f"{EVENT_NAMES[kind]}: {how}"
+    return None
+
+
+def event_rates(groups: list[dict], gems: dict[str, dict], main_skill: str, main_types: set[str], speed: float,
+                use_rates: Callable[[list[int]], list[dict]], texts: list[str]) -> dict[str, tuple[float, str]]:
+    """{kind: (events per second, how)} for each EVENT_WORDS kind a line names. `use_rates` is the bridge's useRates
+    on group indices (called only when a non-main group holds such a skill)."""
+    out: dict[str, tuple[float, str]] = {}
+    for kind, pattern in EVENT_WORDS.items():
+        if not any(pattern.search(t) for t in texts):
+            continue
+        if kind in main_types:
+            out[kind] = (speed, f"the main skill {main_skill} is one, {speed:.2f} uses/s")
+            continue
+        found = {g["index"]: n["name"] for g in groups if g.get("enabled") is not False
+                 for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")
+                 and kind in ((gems.get(n["name"]) or {}).get("skillTypes") or [])}
+        if not found:
+            out[kind] = (0.0, f"no {kind if kind != 'SummonsTotem' else 'Totem'} skill in the build's enabled groups: 0")
+            continue
+        total, parts, low = 0.0, [], False
+        for rate in use_rates(sorted(found)):
+            name = found.get(rate.get("index"))
+            if name is None:
+                continue
+            cooldown, duration = number(rate.get("cooldown")), number(rate.get("duration"))
+            repeats = number(rate.get("repeats")) or 1.0
+            if cooldown > 0:
+                each, why = repeats / cooldown, f"its {cooldown:.2f} s cooldown"
+            elif duration > 0:
+                each, why = repeats / duration, f"once per its {duration:.2f} s duration"
+            else:
+                each, why, low = repeats / models.PRESS_EVERY, f"once every {models.PRESS_EVERY:g} s (LOW: no cooldown or duration)", True
+            if (speed_g := number(rate.get("speed"))) > 0:
+                each = min(each, speed_g)
+            total += each
+            parts.append(f"{name} on {why}, {each:.2f}/s")
+        out[kind] = (total, "; ".join(parts) + (" (LOW)" if low else " (MEDIUM: used on cooldown or to keep it up)"))
+    return out
+
+
 CHARGE_SOURCE = r"(?:(\d+(?:\.\d+)?)% chance (?:to|when you \w+ (?:a|an) \w+ Charge to)?\s*)?(?:gain|grants?)\w* (?:an? |\d+ )?(?:[\w, ]*?\b{kind}\b[\w, ]*?) Charges?(.*)$"
 
 
@@ -274,7 +339,9 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     if m2 := re.search(r"every (\d+(?:\.\d+)?)? ?seconds?|once per second|every second", when):
         every = float(m2.group(1)) if m2.groups() and m2.group(1) else 1.0
         return chance / every, f"one every {every:g} s"
-    return chance / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed"
+    if (named := _named_event(when, stats)) is not None:
+        return chance * named[0], f"{chance:.0%} x {named[0]:.3f}/s ({named[1]})"
+    return chance / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
 
 
 # The boss's distance: PoB's Configuration "Distance to enemy" (10 units a metre). PoB compares its Presence radius with it
@@ -534,8 +601,10 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
             how = f"{events:.2f} crits/s"
         elif "hit" in when:
             events, how = hits, f"{hits:.2f} hits/s"
+        elif (named := _named_event(when, stats)) is not None:
+            events, how = named
         else:
-            events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed"
+            events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
     events = min(events * chance, 1 / RAGE_HIT_EVERY)  # (one Hit every 0.5 s can gain Rage)
     if cap := re.search(r"no more than once every (\d+(?:\.\d+)?) seconds?", when):
         events = min(events, 1 / float(cap.group(1)))
@@ -625,8 +694,10 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
         how = f"{events:.2f} crits/s"
     elif "hit" in when:
         events, how = hits, f"{hits:.2f} hits/s"
+    elif (named := _named_event(when, stats)) is not None:
+        events, how = named
     else:
-        events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed"
+        events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
     up = 1 - (1 - min(chance, 1.0)) ** (events * duration) if chance < 1 else (1.0 if events * duration >= 1 else events * duration)
     return up, f"{chance:.0%} x {how}, {duration:g} s: {up:.0%} up"
 
@@ -701,8 +772,10 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
         events, how = models.crits_per_second(stats), "crits"
     elif "hit" in when:
         events, how = hits, "hits"
+    elif (named := _named_event(when, stats)) is not None:
+        events, how = named
     else:
-        events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed"
+        events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
     n = events * duration
     up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
     return up, f"{chance:.0%} x {events:.2f} {how}/s, {duration:g} s: {up:.0%} up"
@@ -1213,7 +1286,7 @@ def _immobilised(ailment: str, name: str) -> Callable[[list[str], dict], tuple[o
     return share
 
 
-PARRY_GRANT = re.compile(r"Grants Skill:[^.;]*Parry", re.I)  # (a Buckler's implicit)
+PARRY_GRANT = re.compile(r"Grants Skill:[^.;]*\bParry\b", re.I)  # (a Buckler's implicit)
 
 
 def _parried(lines: list[str], stats: dict) -> tuple[object, str]:
@@ -1444,7 +1517,11 @@ class Conditions:
             elif name in RAGE_PER_SECOND:
                 rage_spend[name] = RAGE_PER_SECOND[name] * (1.0 if name == self.main_skill else 1 / CHARGE_DEFAULT_EVERY)
         texts = [line["text"] for line in lines]
-        stats = {**stats, "_consumers": consumers, "_rage_spend": rage_spend,
+        groups_now = self.build.call("groups")["groups"] if any(
+            p.search(t) for p in EVENT_WORDS.values() for t in texts) else []
+        events = event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),
+                             lambda idx: self.build.call("useRates", indices=idx)["rates"], texts) if groups_now else {}
+        stats = {**stats, "_events": events, "_consumers": consumers, "_rage_spend": rage_spend,
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_distance_choice": self.distance,
                  "_stationary_off": self.stationary_off, "_rolling": self.rolling,
                  "_curse_uses": curse_uses(self.build, stats, texts, (self.distance or (natural_distance(main_types), ""))[0])

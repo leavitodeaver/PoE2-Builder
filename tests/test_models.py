@@ -1405,3 +1405,35 @@ def test_snap_needs_an_ailment_and_its_presses_cost_the_main_skill_time():
     mods, _ = a.remnant_presses(skills, "Transmutation Explosion")
     assert mods[0]["scale"] == pytest.approx(-100 * (busy + REMNANT_SOURCES["Snap"][0] * 0.5), rel=1e-4)
     assert a.remnant_presses(skills[:1], "Snap") == ([], [])  # Snap as the main skill: no press cost of its own
+
+
+def test_a_named_event_takes_the_builds_own_rate_not_the_4s_default():
+    """FLAT_RATES A3 (MECH47): a line that names a Warcry / Totem / Mark event without its rate reads the build's own
+    skills of that kind (conditions.event_rates): none in the build gives 0, not one per 4 s; a Warcry in a group runs
+    on its cooldown; a main skill of that kind at its speed. Other wordings keep the 4 s default, labelled LOW."""
+    from builder.search import conditions
+    text = "Gain a Power Charge when you use a Warcry"
+    gems = {"Infernal Cry": {"skillTypes": ["Warcry", "Cooldown"]}, "Spark": {"skillTypes": ["Spell"]}}
+    groups = [{"index": 1, "enabled": True, "gems": [{"name": "Spark"}]}]
+    calls = []
+    rates = lambda idx: calls.append(idx) or [{"index": 2, "cooldown": 8.0, "speed": 1.2}]
+    none = conditions.event_rates(groups, gems, "Spark", {"Spell"}, 2.0, rates, [text])
+    assert none["Warcry"][0] == 0.0 and calls == []
+    assert conditions._charge_rate(text, "Power", {"Speed": 2.0, "_events": none})[0] == 0.0
+    groups.append({"index": 2, "enabled": True, "gems": [{"name": "Infernal Cry"}]})
+    one = conditions.event_rates(groups, gems, "Spark", {"Spell"}, 2.0, rates, [text])
+    assert one["Warcry"][0] == pytest.approx(1 / 8) and calls == [[2]]
+    assert conditions._charge_rate(text, "Power", {"Speed": 2.0, "_events": one})[0] == pytest.approx(1 / 8)
+    main = conditions.event_rates(groups, gems, "Infernal Cry", {"Warcry"}, 0.5, rates, [text])
+    assert main["Warcry"][0] == 0.5
+    other = conditions._charge_rate("Gain a Frenzy Charge when you use a Life Flask", "Frenzy", {"Speed": 2.0, "_events": one})
+    assert other[0] == pytest.approx(0.25) and "assumed (LOW)" in other[1]  # (not a named event: the 4 s default)
+    assert conditions.event_rates(groups, gems, "Spark", {"Spell"}, 2.0, rates, ["10% increased Damage"]) == {}
+
+
+def test_a_bucklers_granted_parry_is_recognised():
+    """conditions.PARRY_GRANT held two backspace characters for its word boundaries (since 101ad14), so it never matched a
+    Buckler's "Grants Skill: Parry" (MECH47)."""
+    from builder.search import conditions
+    assert conditions.PARRY_GRANT.search("Grants Skill: Level 20 Parry")
+    assert not conditions.PARRY_GRANT.search("Grants Skill: Level 20 Parrying Stance")
