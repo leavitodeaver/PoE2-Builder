@@ -1108,7 +1108,7 @@ def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
 def test_freezes_electrocutes_and_stuns_of_the_boss_are_rated_from_the_build_not_one_per_30_s():
     """Charges on freeze / electrocute / pin / stun and Voltaic / Freezing Mark's buff took one such event per 30 s
     (assumed). Now Freeze and Electrocute come from PoB's buildup per hit x hits/s at the Arbiter of Ash's threshold,
-    stuns from heavy_stun_rate; Pins keep one per 30 s (PoB works out no Pin buildup), labelled."""
+    stuns from heavy_stun_rate; Pins from PoB's Pin buildup (MECH46)."""
     from builder.search.conditions import _charge_rate
 
     stats = {"Speed": 2.0, "HitChance": 100, "FreezeBuildupAvg": 10.0, "ColdHitAverage": 100.0}
@@ -1121,7 +1121,10 @@ def test_freezes_electrocutes_and_stuns_of_the_boss_are_rated_from_the_build_not
     rate, how = _charge_rate("50% chance to gain a Power Charge when you Freeze an enemy", "Power", stats)
     assert rate == pytest.approx(0.5 * freeze) and "Freeze" in how
     rate, how = _charge_rate("Gain a Frenzy Charge when you Pin an enemy", "Frenzy", stats)
-    assert rate == pytest.approx(1 / models.PIN_EVERY) and "assumed" in how
+    assert rate == 0.0  # no Pin source: no Pins (MECH46, FLAT_RATES A2: was one per 30 s for every build)
+    pinning = dict(stats, PinBuildupAvg=10.0)  # (3 s Pinned, x6 for 13 s after each)
+    rate, how = _charge_rate("Gain a Frenzy Charge when you Pin an enemy", "Frenzy", pinning)
+    assert rate == pytest.approx(1 / (3.0 + 10.0 + (1 - 10.0 / (6 * t)) * t)) and "Pin" in how
     rate, _ = _charge_rate("Gain an Endurance Charge when you Heavy Stun an enemy", "Endurance", stats)
     assert rate == 0.0  # (all Cold: builds no Heavy Stun)
     mark = Skill(name="Freezing Mark", cast_time=0.5)
@@ -1291,3 +1294,18 @@ def test_run_and_gun_counts_for_shotgun_and_sequence_fired_skills_while_moving()
     mods, notes = models.run_and_gun_model(line, {}, arrow, moving, False)
     assert mods == [] and "can't hit one target together" in notes[0]["basis"]
     assert models.run_and_gun_model([], {}, galvanic, moving, False) == ([], [])
+
+
+def test_hit_remnants_need_their_condition_and_the_main_skill_s_hits():
+    """Sanguine Revelry, Mana Remnants and Life Remnants make one per cooldown + the wait for a qualifying hit, not their
+    full 1/cooldown whenever the skill is there (MECH46, FLAT_RATES A1)."""
+    from builder.search.assumptions import hit_remnant_rate
+    assert hit_remnant_rate("Life Remnants", {"Speed": 2.0, "HitChance": 100})[0] == pytest.approx(1 / (3 + 0.5))
+    assert hit_remnant_rate("Life Remnants", {})[0] == 0.0  # no hits, no Remnants
+    assert hit_remnant_rate("Sanguine Revelry", {"Speed": 2.0, "HitChance": 100})[0] == 0.0  # no Bleed on the boss
+    bleed = {"Speed": 2.0, "HitChance": 100, "BleedChancePerHit": 100, "BleedDuration": 5}
+    assert hit_remnant_rate("Sanguine Revelry", bleed)[0] == pytest.approx(1 / (2 + 0.5))
+    assert hit_remnant_rate("Mana Remnants", {**bleed, "CritChance": 50})[0] == 0.0  # crits, but no Elemental Ailment
+    ignite = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "IgniteChancePerHit": 100, "IgniteDuration": 4}
+    rate, how = hit_remnant_rate("Mana Remnants", ignite)
+    assert rate == pytest.approx(1 / (2 + 1 / (2 * 0.5))) and "Ignited 100%" in how

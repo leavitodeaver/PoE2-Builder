@@ -1285,6 +1285,9 @@ CONDITIONS: list[Condition] = [
               fields=(*models.IMMOBILISE_FIELDS, "FreezeDurationMod")),
     Condition("conditionEnemyElectrocuted", "Electrocuted", value_fn=_immobilised("Electrocute", "Electrocuted"),
               fields=models.IMMOBILISE_FIELDS),
+    # (MECH46: "against Pinned enemies" lines at the share the main skill's Pin buildup keeps the boss Pinned; before,
+    # nothing set PoB's box, so they counted 0)
+    Condition("conditionEnemyPinned", "Pinned", value_fn=_immobilised("Pin", "Pinned"), fields=models.IMMOBILISE_FIELDS),
     Condition("multiplierIncisionStackCount", "Incision stacks on the boss", value_fn=_incision_stacks,
               fields=("Speed", "HitChance", "BleedChancePerHit")),
     Condition("incisionConsumedRecently", "Incisions consumed recently", value_fn=_incision_consumed,

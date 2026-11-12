@@ -26,7 +26,8 @@ import re
 from builder.ledger import conditions
 from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
 from builder.search import models
-from builder.search.conditions import INFUSED_SET, curse_uses, natural_distance
+from builder.search.conditions import INFUSED_SET, ailment_uptime, curse_uses, natural_distance, shock_share
+from builder.search.objective import number
 from builder.search.usage import usage_rules
 from builder.search.state import Build
 
@@ -39,9 +40,9 @@ from builder.search.state import Build
 REMNANT_SOURCES = {
     "Into the Breach": (0.82645, "Acolyte of Chayula: Flames of Chayula in your Breach"),
     "Wildwood's Gifts": (0.82645, "The Hollow Mask: Ancient Blooms"),
-    "Sanguine Revelry": (0.5, "while repeatedly hitting a Bleeding target"),
-    "Mana Remnants": (0.5, "while repeatedly critting an elementally ailmented target"),
-    "Life Remnants": (0.3333, "on hit"),
+    "Sanguine Revelry": (0.0, "once every 2 s while hitting a Bleeding target (hit_remnant_rate)"),
+    "Mana Remnants": (0.0, "once every 2 s while critting an Elementally Ailmented target (hit_remnant_rate)"),
+    "Life Remnants": (0.0, "once every 3 s on hit (hit_remnant_rate)"),
     "Snap": (0.25, "per cast, before cooldown recovery"),
     "Frost Bomb": (0.1667, "per cast, before cooldown recovery"),
     "Lingering Illusion": (0.352, "the boss destroys one of your dodge-roll copies every 5 s (the user's rate, 9 Nov), "
@@ -70,6 +71,47 @@ SIPHON, SIPHON_FREEZE_PER_POWER = "Siphon Elements", 0.05
 # wordings. Counted as that share of pickups counting twice (a second Infusion, a second explosion trigger)
 DUPLICATE_PICKUP = re.compile(r"(\d+(?:\.\d+)?)% chance for Remnants you (?:pick up to count as picking up an "
                               r"additional|create to grant their effects twice)", re.I)  # (PoB splits the line before "Remnant")
+
+
+# Remnant sources that make one per cooldown while the main skill's hits meet a condition (MECH46, FLAT_RATES A1: before,
+# each counted at its full 1/cooldown rate whenever the skill was there, an overcount). Game files (build 26476662,
+# GrantedEffectStatSets): Sanguine Revelry create_furious_remnant_when_hitting_bleeding_enemies_once_every_x_ms 2000, Mana
+# Remnants mana_remnants_spawn_remnant_on_crit_vs_elemental_ailment_enemy_every_X_ms 2000, Life Remnants
+# life_remnants_spawn_remnant_on_hit_vs_enemy_every_X_ms 3000 ("once every": a cooldown, then the next qualifying hit)
+HIT_REMNANTS = {"Sanguine Revelry": 2.0, "Mana Remnants": 2.0, "Life Remnants": 3.0}
+HIT_REMNANT_FIELDS = ("Speed", "HitChance", "CritChance", "BleedChancePerHit", "BleedDuration", "IgniteChancePerHit",
+                      "IgniteDuration", "ShockChancePerHit", "ShockDuration", "ChillChanceOnHit", *models.IMMOBILISE_FIELDS)
+CHILL_SECONDS = 2.0  # a Chill's duration on the boss, assumed (LOW): the shorter of PoB's two base Chill durations
+
+
+def hit_remnant_rate(name: str, stats: dict) -> tuple[float, str]:
+    """Remnants per second from Sanguine Revelry, Mana Remnants or Life Remnants: one per cooldown + the wait for the next
+    of the main skill's hits that qualifies (on a Bleeding boss; a Critical Hit on an Elementally Ailmented boss; any hit),
+    the ailments at their uptime from the main skill's own hits. Other skills' hits aren't counted (an undercount)."""
+    cooldown = HIT_REMNANTS[name]
+    hits = number(stats.get("Speed")) * min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
+    if name == "Sanguine Revelry":
+        share = ailment_uptime(stats, "Bleed")
+        how = f"hits on a Bleeding boss: {hits:.2f} hits/s, the boss Bleeding {share:.0%} of the fight"
+    elif name == "Mana Remnants":
+        crit = min(number(stats.get("CritChance")), 100.0) / 100.0
+        chill = min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
+        ups = {"Ignited": ailment_uptime(stats, "Ignite"), "Shocked": shock_share(stats),
+               "Chilled": 1.0 - (1.0 - chill) ** (hits * CHILL_SECONDS) if hits > 0 and chill > 0 else 0.0,
+               "Frozen": models.immobilised_share(stats, "Freeze")[0],
+               "Electrocuted": models.immobilised_share(stats, "Electrocute")[0]}
+        absent = 1.0
+        for up in ups.values():
+            absent *= 1.0 - min(1.0, max(0.0, up))
+        share = crit * (1.0 - absent)
+        named = ", ".join(f"{k} {v:.0%}" for k, v in ups.items() if v > 0) or "no Elemental Ailment on the boss"
+        how = (f"Critical Hits on an Elementally Ailmented boss: {hits:.2f} hits/s, {crit:.0%} critical, {named} "
+               f"(taken as independent; a Chill lasting {CHILL_SECONDS:g} s assumed, LOW)")
+    else:
+        share, how = 1.0, f"hits on the boss: {hits:.2f} hits/s"
+    events = hits * share
+    rate = 1.0 / (cooldown + 1.0 / events) if events > 0 else 0.0
+    return rate, f"once every {cooldown:g} s + the wait for the next of the main skill's {how}"
 
 
 def kalguur_rate(stuns: float) -> float:
@@ -384,6 +426,8 @@ class Assumptions:
                     rate, condition = kalguur_rate(stuns), f"50% per Stun, at most one per 3 s, {how}"
                 elif name == SIPHON:
                     rate, condition = siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS))
+                elif name in HIT_REMNANTS:
+                    rate, condition = hit_remnant_rate(name, self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
                 supply += rate
                 used.append(f"{name} {rate:.2f}/s ({condition})")
             lines = self.build.call("sourceLines")["lines"]

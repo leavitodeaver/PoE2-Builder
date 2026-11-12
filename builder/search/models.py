@@ -2105,10 +2105,13 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
 AILMENT_BOSS = HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1]  # the Arbiter of Ash's threshold over PoB's Pinnacle one (as stun)
 # Again afterwards (game files, GameConstants rows 38-39, 43-44): FreezeThresholdModifier 500 / FreezeModifierDuration 14 s,
 # ElectrocuteThresholdModifier 500 / ElectrocuteModifierDuration 15 s, read as Heavy Stun's are (+500% threshold for that
-# long after each one; PoB doesn't use them). PinThresholdModifier 500 / 13 s also exists; Pins aren't rated from buildup.
-AILMENT_REPEAT = {"Freeze": (6.0, 14.0), "Electrocute": (6.0, 15.0)}
-PIN_EVERY = 30.0  # seconds between Pins of the boss (assumed: PoB works out no Pin buildup to rate it from)
-IMMOBILISE_FIELDS = ("Speed", "HitChance", "CritChance", "FreezeBuildupAvg", "ElectrocuteBuildupAvg",
+# long after each one; PoB doesn't use them). PinThresholdModifier 500 / PinModifierDuration 13 s likewise (PoB's Misc.lua).
+# Pins (MECH46, FLAT_RATES A2: before, one Pin per 30 s for every build, with or without a Pin source, an overcount) come
+# from PoB's PinBuildupAvg, which is 0 unless the skill can Pin (base_all_damage_can_pin, support_pin_physical_damage_can_pin,
+# "X damage can Pin", "Projectile damage builds Pin"...): KeywordPopups Pinned, "Certain skills and effects allow damage to
+# build up Pinned ... Pinned ... for 3 seconds".
+AILMENT_REPEAT = {"Freeze": (6.0, 14.0), "Electrocute": (6.0, 15.0), "Pin": (6.0, 13.0)}
+IMMOBILISE_FIELDS = ("Speed", "HitChance", "CritChance", "FreezeBuildupAvg", "ElectrocuteBuildupAvg", "PinBuildupAvg",
                      "HeavyStunBuildupAvg", *(f"{t}HitAverage" for t in DAMAGE_TYPES),
                      *(f"{t}CritAverage" for t in DAMAGE_TYPES))
 
@@ -2143,7 +2146,8 @@ def immobilise_duration(stats: dict, ailment: str) -> float:
 # seconds by default", "Electrocution ... lasts 5 seconds by default" (PoB's Data/Misc.lua: the same). Freeze x PoB's
 # FreezeDurationMod; no Electrocute duration modifier exists (ModCache searched for every "Electrocut" line). A boss's own
 # duration reduction, if any, isn't in the game files we read (labelled MEDIUM).
-IMMOBILISE_DURATION = {"Freeze": 4.0, "Electrocute": 5.0}
+IMMOBILISE_DURATION = {"Freeze": 4.0, "Electrocute": 5.0, "Pin": 3.0}  # (Pin: KeywordPopups Pinned; pin_duration_+%
+# modifiers aren't read: PoB gives no Pin duration, LOW)
 
 
 def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
@@ -2359,9 +2363,9 @@ def parry_model(skills: list[Skill], stats: dict, main: Skill | None, consumes: 
 def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:
     """Times per second the main skill freezes, electrocutes, pins or heavy-stuns the boss, summed over `events` (a
     subset of freeze, electrocute, pin, stun), and how. Freeze and Electrocute from buildup_rate, stuns from
-    heavy_stun_rate (light stuns not counted), Pins one per PIN_EVERY s (assumed)."""
+    heavy_stun_rate (light stuns not counted), Pins from PoB's Pin buildup (0 when the main skill can't Pin)."""
     rate, parts = 0.0, []
-    for event, ailment in (("freeze", "Freeze"), ("electrocute", "Electrocute")):
+    for event, ailment in (("freeze", "Freeze"), ("electrocute", "Electrocute"), ("pin", "Pin")):
         if event in events:
             r = buildup_rate(stats, ailment)
             rate += r
@@ -2371,9 +2375,6 @@ def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:
         r, _ = heavy_stun_rate(stats)
         rate += r
         parts.append(f"Heavy Stun {r:.3f}/s (heavy_stun_rate; light stuns not counted)")
-    if "pin" in events:
-        rate += 1 / PIN_EVERY
-        parts.append(f"Pin one per {PIN_EVERY:.0f} s (assumed)")
     return rate, "; ".join(parts)
 
 # Guided Hand (model: guided_hand) --------------------------------------------------------------------------------------
