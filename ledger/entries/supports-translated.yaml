@@ -77,3 +77,114 @@
   sources: ["SupportEchoingCryPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Echoing_Cry"]
   test_in_game: "Compare the Warcry's radius with and without Echoing Cry: 0.5x the area."
   status: proposed
+
+# COVE3 (12 Nov 2026): the manager's rulings on COVE2's questions.
+
+- id: support-fluke-damage
+  title: Fluke / Ixchel's Torment, between 40% less and 60% more Damage on the skills the meta triggers (even spread, LOW)
+  kind: gem_stat
+  support: true
+  to: triggered
+  sum: true
+  factor: 0.5
+  skill: [Fluke, Ixchel's Torment]
+  support_stats: ['support_randomise_lower_damage_+%_final', 'support_randomise_higher_damage_+%_final']
+  match: '^support_randomise_(lower|higher)_damage_\+%_final$'
+  replace: ['1% more Damage']
+  confidence: theory
+  notes: >-
+    "Skills Triggered by Supported Skills deal between 40% less and 60% more Damage" (constants -40 and 60 on
+    SupportFlukePlayer and SupportFlukePlayerTwo). The support goes on the skill that triggers (PoB: requireSkillTypes
+    Triggers, so it sits in the meta gem's effect list, not the spells'), and PoB maps none of its stats (checked: grep of
+    support_randomise in PoB Modules/*.lua and SkillStatMap.lua: none, 12 Nov 2026). Each trigger rolls its own value
+    (poe2db's Fluke page: "randomly raised or lowered when Triggered"); the distribution is the game's and not in the
+    files, so the manager's ruling (12 Nov 2026) counts the middle of the range, an even spread: (-40 + 60) / 2 = 10% more
+    Damage on each skill the meta triggers. A flat average where the game decides the roll: LOW, named in COVE3's report,
+    for the user. The cost recovery (between 0% and 20% of cost) isn't counted.
+  sources: ["SupportFlukePlayer, SupportFlukePlayerTwo, GrantedEffectStatSets (build 26476662)",
+            "https://poe2db.tw/us/Fluke"]
+  test_in_game: "Hit a dummy many times with a triggered spell, with and without Fluke: the average of its hits, about 1.10x."
+  status: proposed
+
+- id: support-ixchels-torment-area-speed
+  title: Ixchel's Torment, between 40% less and 50% more Area of Effect and Projectile Speed on the triggered skills (even spread, LOW)
+  kind: gem_stat
+  support: true
+  to: triggered
+  sum: true
+  factor: 0.5
+  skill: Ixchel's Torment
+  support_stats: ['support_randomise_lower_aoe_+%_final', 'support_randomise_higher_aoe_+%_final']
+  match: '^support_randomise_(lower|higher)_aoe_\+%_final$'
+  replace: ['1% more Area of Effect']
+  confidence: theory
+  notes: >-
+    "Skills Triggered by Supported Skills have between 40% less and 50% more Area of Effect" (constants -40 and 50 on
+    SupportFlukePlayerTwo; PoB maps none). The same even-spread ruling as support-fluke-damage: 5% more Area of Effect,
+    LOW. Its Projectile Speed range (the same -40 and 50) has the next entry.
+  sources: ["SupportFlukePlayerTwo, GrantedEffectStatSets (build 26476662)"]
+  status: proposed
+
+- id: support-ixchels-torment-projectile-speed
+  title: Ixchel's Torment, between 40% less and 50% more Projectile Speed on the triggered skills (even spread, LOW)
+  kind: gem_stat
+  support: true
+  to: triggered
+  sum: true
+  factor: 0.5
+  skill: Ixchel's Torment
+  support_stats: ['support_randomise_lower_projectile_speed_+%_final', 'support_randomise_higher_projectile_speed_+%_final']
+  match: '^support_randomise_(lower|higher)_projectile_speed_\+%_final$'
+  replace: ['1% more Projectile Speed']
+  confidence: theory
+  notes: >-
+    "Skills Triggered by Supported Skills have between 40% less and 50% more Projectile Speed" (constants -40 and 50 on
+    SupportFlukePlayerTwo; PoB maps none). Even spread: 5% more Projectile Speed, LOW (support-fluke-damage).
+  sources: ["SupportFlukePlayerTwo, GrantedEffectStatSets (build 26476662)"]
+  status: proposed
+
+- id: support-alignment-damage
+  title: Alignment I/II, 30% / 40% more Projectile Damage when attacking in the indicated direction (a way to play it)
+  kind: gem_stat
+  support: true
+  skill: [Alignment I, Alignment II]
+  support_stats: ['support_called_shots_projectile_damage_+%_final_when_matching_direction']
+  match: '^support_called_shots_projectile_damage_\+%_final_when_matching_direction$'
+  replace: ['1% more Projectile Damage']
+  confidence: theory
+  play: >-
+    Attack in the direction the support indicates: it shows one of four directions and changes it each time an attack
+    matches, so turn to each new direction as it shows (stepping around the boss). Without it, the supported skill's
+    Projectile Damage is 1/1.30 (Alignment I) or 1/1.40 (Alignment II) of the headline's: 23% or 29% less from that skill.
+  notes: >-
+    "Supported Skills deal 30% more Projectile Damage when Attacking in indicated direction" (40% on Alignment II;
+    constants on SupportAlignmentPlayer / PlayerTwo; PoB maps none of the support's stats: checked, grep of called_shot in
+    PoB Modules/*.lua and SkillStatMap.lua, 12 Nov 2026: none). The player picks the direction, so under the manager's
+    ruling (12 Nov 2026) it is a play-strategy condition counted on every attack in the headline, with its without-it
+    figure in the play note. Open (UNVERIFIED): the hidden called_shot_aiming_delay_ms 1000 (poe2db lists it, with no
+    wording) may mean a new direction shows only 1 s after a match, which would cap matched attacks at about one a second:
+    an overcount for a build attacking faster, if so (for RESEARCH).
+  sources: ["SupportAlignmentPlayer, SupportAlignmentPlayerTwo, GrantedEffectStatSets (build 26476662)",
+            "https://poe2db.tw/us/Alignment_I"]
+  test_in_game: "Shoot a dummy in the indicated direction and outside it: 1.30x (I) or 1.40x (II) per hit."
+  status: proposed
+
+- id: support-alignment-projectiles
+  title: Alignment III, 4 additional Projectiles when attacking in the indicated direction (a way to play it)
+  kind: gem_stat
+  support: true
+  skill: Alignment III
+  support_stats: ['support_called_shots_additional_projectiles_when_matching_indicated_direction']
+  match: '^support_called_shots_additional_projectiles_when_matching_indicated_direction$'
+  replace: ['Skills fire an additional Projectile']
+  confidence: theory
+  play: >-
+    Attack in the direction the support indicates, turning to each new one as it shows. Without it the supported skill
+    fires 4 fewer Projectiles; what they add depends on how many of them hit the boss (PoB's own projectile rules).
+  notes: >-
+    "Supported Skills fire 4 additional Projectiles when Attacking in indicated direction" (constant 4 on
+    SupportAlignmentPlayerThree; PoB maps none). Counted on every attack under the same ruling as support-alignment-damage
+    (with its open question on the 1 s aiming delay). Extra Projectiles are counted the way PoB counts any other
+    "additional Projectiles" line on the skill (MECH-B owns how many hit a single boss).
+  sources: ["SupportAlignmentPlayerThree, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Alignment_I"]
+  status: proposed

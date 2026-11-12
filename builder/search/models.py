@@ -1866,6 +1866,11 @@ def iron_ward_model(skills: list[Skill], stats: dict, enabled: bool = True) -> t
 # the bridge must sum): read from each active skill's supports (bridge activeSkills supportStats: the named stats of the
 # supports in that skill's own effect list) and tagged to that skill, so it reaches the skill the support is on and no
 # other (two active skills with one name share PoB's SkillName tag: counted once, from the first that has the support).
+# `to: triggered` (a support of a skill that triggers others, as Fluke on a meta gem: PoB puts it in the meta's effect list
+# only, requireSkillTypes Triggers) tags the lines to the skills in the meta's group that it triggers instead (COVE3).
+# `sum: true` adds the matched stats into one line (× factor), so a range's two ends make one average line: two "more"
+# lines would multiply. An entry's `play` text goes in its note (what the player does for a condition counted in the
+# headline, the user's play-strategy design).
 
 def gem_stat_skills() -> list[str]:
     """Skills whose level stats the bridge must read for gem_stat entries."""
@@ -1908,7 +1913,15 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                       if entry.pattern is not None and entry.pattern.search(stat) and number(v)}
             if support and not values:  # (none of the entry's supports is on this skill)
                 continue
-            play, uptime = "", None
+            if entry.raw.get("sum") and values:
+                values = {" + ".join(sorted(values)): sum(values.values())}
+            targets = [name]
+            if entry.raw.get("to") == "triggered":  # (the skills the supported skill triggers: its group's triggered ones)
+                targets = [s.name for s in skills if s is not skill and s.group is not None and s.group == skill.group
+                           and s.triggered]
+                if not targets:
+                    continue
+            play, uptime = str(entry.raw.get("play") or ""), None
             if entry.raw.get("uptime") in UPTIMES:  # derived from the mechanic and the build's own numbers
                 factor, why, play = UPTIMES[entry.raw["uptime"]](skill, stats or {})
                 why = f"; uptime {factor:.0%}: {why}"
@@ -1935,12 +1948,14 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 for text in entry.replace if uptime is None else ():
                     m = SYNTAX.match(text)
                     when = [{"var": m.group(2)}] if m and m.group(1) == "if" else None
-                    mods.append(line(m.group(3) if when else text, value * factor, when=when,
-                                     skill=name if own else None))
+                    for target in targets:
+                        mods.append(line(m.group(3) if when else text, value * factor, when=when,
+                                         skill=target if own else None))
                 notes.append({
                     "label": entry.title,
                     "value": f"{value * factor:g}" + (f" ({value:g} × {factor:g})" if factor != 1 else ""),
                     "basis": (f"PoB never reads the support stat {stat} ({value:g}) of {' / '.join(names)} on {name}; counted as "
+                              + (f"(on the skills it triggers: {', '.join(targets)}) " if targets != [name] else "")
                               if support else f"PoB never reads the gem stat {stat} ({value:g} at this level); counted as ")
                              + "; ".join(t.replace("1%", f"{value * factor:g}%") for t in entry.replace)
                              + ("" if own else " for the whole build") + why + (f". {entry.notes.strip()}" if entry.notes else ""),

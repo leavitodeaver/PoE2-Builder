@@ -432,6 +432,29 @@ def test_a_support_stat_reaches_the_skill_the_support_is_on_and_only_it():
     assert models.Skill.of({"name": "Earthquake", "supportStats": {stat: -15}}).support_stats == {stat: -15}
 
 
+def test_fluke_counts_the_middle_of_its_range_on_the_skills_the_meta_triggers():
+    lo, hi = "support_randomise_lower_damage_+%_final", "support_randomise_higher_damage_+%_final"
+    meta = models.Skill("Cast on Critical", group=4, energy=True, support_stats={lo: -40, hi: 60})
+    spells = [models.Skill("Comet", group=4, spell=True, triggered=True),
+              models.Skill("Frost Bomb", group=4, spell=True, triggered=True)]
+    other = models.Skill("Fireball", group=5, spell=True, triggered=True)  # another group: not the meta's spell
+    mods, notes = models.gem_stat_model([meta, *spells, other])
+    # one 10% more line (not -20% and +30%, which would multiply to 4%) on each triggered spell, none on the meta
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [
+        ("1% more Damage", 10, "Comet"), ("1% more Damage", 10, "Frost Bomb")]
+    assert len(notes) == 1 and "Comet, Frost Bomb" in notes[0]["basis"] and notes[0]["confidence"] == "theory"
+    # a meta with no spells in its group: nothing
+    assert models.gem_stat_model([meta]) == ([], [])
+
+
+def test_alignment_is_counted_with_its_play_note():
+    stat = "support_called_shots_projectile_damage_+%_final_when_matching_direction"
+    bow = models.Skill("Lightning Arrow", group=1, attack=True, support_stats={stat: 30})
+    mods, notes = models.gem_stat_model([bow])
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [("1% more Projectile Damage", 30, "Lightning Arrow")]
+    assert "direction the support indicates" in notes[0]["play"] and "Without it" in notes[0]["play"]
+
+
 def test_support_entries_list_every_stat_their_match_takes():
     from builder.ledger import gem_stat_entries
 
