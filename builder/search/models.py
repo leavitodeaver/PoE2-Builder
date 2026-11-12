@@ -3098,6 +3098,9 @@ def immobilise_duration(stats: dict, ailment: str) -> float:
 # seconds by default", "Electrocution ... lasts 5 seconds by default" (PoB's Data/Misc.lua: the same). Freeze x PoB's
 # FreezeDurationMod; no Electrocute duration modifier exists (ModCache searched for every "Electrocut" line). A boss's own
 # duration reduction, if any, isn't in the game files we read (labelled MEDIUM).
+# Consuming a Debuff (an Ailment is one: KeywordPopups Ailments) makes the enemy immune to it for 1 s (KeywordPopups Consume,
+# game 26476662; poe2db's Keywords page mirrors it; RESEARCH18 #92, HIGH on the text; MECH51)
+CONSUME_IMMUNE = 1.0
 IMMOBILISE_DURATION = {"Freeze": 4.0, "Electrocute": 5.0, "Pin": 3.0}  # (Pin: KeywordPopups Pinned; pin_duration_+%
 # modifiers aren't read: PoB gives no Pin duration, LOW)
 
@@ -3112,6 +3115,18 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
         return 0.0, ""
     d, period = immobilise_duration(stats, ailment), immobilise_period(stats, ailment)
     window = AILMENT_REPEAT[ailment][1]
+    if ailment in (stats.get("_consumes") or {}) and (hits := hits_per_second(stats)) > 0:
+        # the main skill consumes it: it ends on the next hit, then the boss is immune for 1 s (KeywordPopups Consume;
+        # RESEARCH18 #92, MECH51); buildup during that second taken as kept (UNVERIFIED, #99), so the next one comes after
+        # max(1 s, the refill)
+        last = min(d, 1 / hits)
+        times = AILMENT_REPEAT[ailment][0]
+        period = last + max(CONSUME_IMMUNE, repeat_every(1 / fill, times, max(window - last, 0.0)))
+        share = min(1.0, last / period)
+        return share, (f"{fill * 100:.1f}% of the bar per s ({hits:.2f} hits/s, Arbiter of Ash threshold); consumed by "
+                       f"{stats['_consumes'][ailment]} on the next hit ({last:.2f} s), then immune {CONSUME_IMMUNE:g} s "
+                       f"(KeywordPopups Consume): one every {period:.2f} s: {share:.0%} (buildup during the immunity taken "
+                       f"as kept: UNVERIFIED)")
     share = min(1.0, d / period)
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
                    f"Arbiter of Ash threshold); {d:g} s each, one every {period:.1f} s (x6 threshold for "

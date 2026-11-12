@@ -1087,7 +1087,6 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
     d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
     duration = (float(d.group(1)) if d else DEBUFF_DURATION) * models.duration_scale(lines, DEBUFFS[var][0])
     every = number(stats.get("enemySkillTime")) or 0.7
-    block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
     if "presence" in when:
         metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set()), ""))[0]
         radius = number(stats.get("PresenceRadius")) / 10
@@ -1107,12 +1106,14 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         if most <= 0 or held < most:
             return 0.0, f"needs maximum Endurance Charges ({held:g} of {most:g} held)"
     if "block" in when:
-        events, how = block / every, "the boss's hits you Block"
+        # Only the boss's blockable hits, after evasion (red-flash hits can't be Blocked; an Evaded hit
+        # doesn't hit you at all: KeywordPopups "Block" / "Evasion"; boss_hits' LOW shares; MECHB6 / MECHC5)
+        events, how = boss_hits.block_share(stats) / every, "the boss's hits you Block (red-flash hits can't be)"
         if "permanently" in text.lower():
             return (1.0, "permanent after a Block") if events > 0 else (0.0, "no Block chance")
     elif "hit you" in when:
-        land = ((1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - block)) / every
-        events, how = land, "the boss's hits that land"
+        land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
+        events, how = land, "the boss's hits that land (red-flash hits always do)"
     elif "critical" in when:
         events, how = models.crits_per_second(stats), "crits"
     elif "on hit" in when:
@@ -1301,7 +1302,9 @@ def _exposure_uptime(element: str) -> Callable[[list[str], dict], tuple[object, 
 
 def _blocked_recently(stats: dict) -> bool:
     every = number(stats.get("enemySkillTime")) or 0.7
-    block = boss_hits.block_share(stats, evaded_first=False)  # (red-flash hits can't be Blocked, MECHC5)
+    # Red-flash hits can't be Blocked, and an Evaded hit doesn't hit you at all, so it can't be Blocked either
+    # (KeywordPopups "Block" / "Evasion", game 26476662; MECHC5's LOW red-flash shares)
+    block = boss_hits.block_share(stats)
     return 1 - (1 - block) ** (RECENTLY / every) >= UPTIME
 
 
@@ -1328,13 +1331,47 @@ def _uptime(stats: dict, chance_field: str) -> bool:
 
 def ailment_uptime(stats: dict, ailment: str) -> float:
     """Share of the fight the boss has the ailment: the chance that at least one hit applied it within its own duration
-    (hits that land: uses per second x hit chance)."""
+    (hits that land: uses per second x hit chance). A main skill that consumes it: consumed_share."""
     chance = min(number(stats.get(f"{ailment}ChancePerHit")) / 100.0, 1.0)
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
     duration = number(stats.get(f"{ailment}Duration")) or AILMENT_DURATION[ailment]
     if chance <= 0 or hits <= 0:
         return 0.0
+    if ailment in (stats.get("_consumes") or {}):
+        return consumed_share(hits, chance)
     return 1.0 - (1.0 - chance) ** (hits * duration)
+
+
+# Ailments the main skill consumes on hit (MECH51; FIX_QUEUE RESEARCH18 #92, HIGH): the stats of its own stat sets or its
+# supports that consume Freeze, Shock or Ignite on hit (checked: every Stats.json id holding "consum" and an ailment word,
+# game 26476662, 45 ids: the ones below make the hit itself consume; the rest trigger other skills, scale by Charges or
+# Incision, or are flask / Heat / corpse / Bleed / Poison stats, not modelled here). Consumed, the ailment ends on the main
+# skill's next hit and the boss is immune to it for 1 s (models.CONSUME_IMMUNE): the boss carries it
+# last / (last + 1 s + the wait to reapply it).
+CONSUME_STATS = {
+    "Freeze": ("base_consume_enemy_freeze_on_hit", "active_skill_consume_enemy_freeze_to_gain_damage_+%_final",
+               "active_skill_consume_enemy_freeze_to_gain_damage_against_unique_+%_final",
+               "support_active_skill_consume_enemy_freeze_to_gain_damage_+%_final", "consume_enemy_freeze_to_guarantee_crit",
+               "support_active_skill_consume_enemy_freeze_to_apply_chill", "damage_+%_final_from_consuming_freeze",
+               "support_damage_+%_final_from_consuming_freeze"),
+    "Shock": ("base_consume_enemy_shock_on_hit",
+              "consume_enemy_shock_to_gain_damage_+%_final_per_5%_increased_damage_taken_from_shock",
+              "damage_+%_final_from_consuming_shock"),
+    "Ignite": ("consume_ignite_on_hit",),
+}
+CONSUME_TEXT = re.compile(r"\bconsum\w*\b[^.]*\b(?:freez|frozen|shock|ignit)", re.I)
+
+
+def consumed_share(hits: float, chance: float, ground: float = 0.0) -> float:
+    """Share of the fight the boss carries an ailment the main skill consumes: it lasts until the next hit (1 / hits), then
+    the boss is immune for 1 s, then it waits to be reapplied: (1 - ground) / (hits x chance) (a ground reapplies it at
+    once the share of the time the boss stands in it)."""
+    if hits <= 0:
+        return 0.0
+    last = 1.0 / hits
+    if chance > 0:
+        return last / (last + models.CONSUME_IMMUNE + (1.0 - ground) / (hits * chance))
+    return ground * last / (last + models.CONSUME_IMMUNE)
 
 
 def _ailment_up(ailment: str):
@@ -1454,9 +1491,71 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
     return 1.0 - off, "; ".join(parts + notes) + "; each ground taken to be at the boss for its full duration (LOW)"
 
 
+# Jagged Ground (MECH51; RESEARCH5's spike-pit.md, game files HIGH; FIX_QUEUE RESEARCH12 / AUDIT10). Its ledger condition
+# switched on for any skill or gem whose name or description said "Jagged Ground": Shockwave Totem's text, Soaring
+# Midnight's "Jagged Ground duration" (it makes none), Jagged Ground I with no Endurance Charge to consume, Furious Slam
+# without Rage. Player sources (checked by RESEARCH5: every stat with "jagged" in its id and every stat set with
+# can_create_jagged_ground; the only other one, support_jagged_ground_chance_%, is on a monster skill): Earthquake (a patch
+# per use, none on an existing patch, skill_jagged_ground_base_duration_ms 4000), Stampede (a patch per footstep; its
+# closing slam explodes them, whether they end then: UNVERIFIED, counted), Furious Slam (only when it spends Rage, 4 s),
+# Jagged Ground I (when the supported Slam consumes an Endurance Charge, 4 s), Jagged Ground II (each Aftershock of the
+# supported Slam, 4 s). Each patch is taken to be made on the boss, and the boss to stay in it (LOW, as Shocked Ground).
+JAGGED_GROUND_SECONDS = 4.0
+JAGGED_GROUND_ASSUMED = 0.4  # the share the ledger's "if:JaggedGround" lines bake in (spike-pit, aggravate-bleed-jagged-ground)
+FURIOUS_SLAM_RAGE = 10  # bear_slam_spend_X_rage_for_stronger_slam (RAGE_PER_USE)
+
+
+def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], stats: dict, endurance_gains: float = 0.0,
+                  aftershock_pct: float = 0.0, rage: float = 0.0) -> tuple[float, str]:
+    """(share of the fight the boss stands in your Jagged Ground, how), from the main skill's own sources. Sources combine as
+    independent; a skill other than the main one makes none here (an undercount, said in the note)."""
+    uses = number(stats.get("Speed"))
+    off, parts, notes = 1.0, [], []
+    slam = "Slam" in main_types and "CannotCreateJaggedGround" not in main_types
+    if main == "Earthquake":
+        up = min(1.0, uses * JAGGED_GROUND_SECONDS)
+        parts.append(f"Earthquake's patch on each use ({uses:.2f}/s; none on an existing patch, {JAGGED_GROUND_SECONDS:g} s): "
+                     f"{up:.0%}")
+        off *= 1 - up
+    if main == "Stampede":
+        up = min(1.0, uses * 6.0)
+        parts.append(f"Stampede's footstep patches (6 s; whether its closing slam ends them: UNVERIFIED, counted): {up:.0%}")
+        off *= 1 - up
+    if main == "Furious Slam":
+        if rage >= FURIOUS_SLAM_RAGE:
+            up = min(1.0, uses * JAGGED_GROUND_SECONDS)
+            parts.append(f"Furious Slam spending Rage ({rage:.0f} held, {FURIOUS_SLAM_RAGE} a slam): {up:.0%}")
+            off *= 1 - up
+        else:
+            notes.append(f"Furious Slam makes it only when it spends Rage ({rage:.0f} held: none)")
+    if "Jagged Ground I" in main_gems and slam:
+        rate = min(uses, endurance_gains)
+        up = min(1.0, rate * JAGGED_GROUND_SECONDS)
+        if up > 0:
+            parts.append(f"Jagged Ground I, a patch per Endurance Charge consumed ({endurance_gains:.2f} gained/s, "
+                         f"{uses:.2f} uses/s): {up:.0%}")
+            off *= 1 - up
+        else:
+            notes.append("Jagged Ground I consumes an Endurance Charge for each patch: the build gains none")
+    if "Jagged Ground II" in main_gems and slam:
+        rate = uses * min(1.0, aftershock_pct / 100)
+        up = min(1.0, rate * JAGGED_GROUND_SECONDS)
+        if up > 0:
+            parts.append(f"Jagged Ground II, a patch per Aftershock ({aftershock_pct:.0f}% chance): {up:.0%}")
+            off *= 1 - up
+        else:
+            notes.append("Jagged Ground II makes it from Aftershocks: the main slam has no Aftershock chance")
+    if not parts:
+        return 0.0, "; ".join(notes) or "no source of Jagged Ground on the main skill"
+    return 1.0 - off, "; ".join(parts + notes) + "; each patch taken to be at the boss for its full duration (LOW)"
+
+
 def shock_share(stats: dict) -> float:
     """The boss Shocked: by hits (ailment_uptime) or by standing in your Shocked Ground, taken as independent."""
     ground = (stats.get("_shocked_ground") or (0.0, ""))[0]
+    if "Shock" in (stats.get("_consumes") or {}):  # (consumed: the ground reapplies it after the 1 s immunity too)
+        chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
+        return consumed_share(number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0, chance, ground)
     return 1.0 - (1.0 - ailment_uptime(stats, "Shock")) * (1.0 - ground)
 
 
@@ -1739,7 +1838,7 @@ CONDITIONS: list[Condition] = [
     Condition("conditionBeenHitRecently", "Been hit recently (the boss's hits that land, in any 4 s)", stat=_hit_recently,
               fields=("EvadeChance", "EffectiveBlockChance", "enemySkillTime")),
     Condition("conditionBlockedRecently", "Blocked recently (a block in any 4 s of the boss's hits)", stat=_blocked_recently,
-              fields=("EffectiveBlockChance", "enemySkillTime")),
+              fields=("EvadeChance", "EffectiveBlockChance", "enemySkillTime")),
     Condition("conditionHaveEnergyShield", "Have Energy Shield", stat=lambda s: number(s.get("EnergyShield")) > 0,
               fields=("EnergyShield",)),
     # Grinning Immolation (Infernalist): "Become Ignited when you deal a Critical Hit": with crits landing you stay Ignited,
@@ -2045,6 +2144,15 @@ class Conditions:
                 elif skill["name"] == WITHERING_PRESENCE:
                     stats["_wither_presence"] = (number(got.get(WITHERING_PRESENCE_STATS[0])) / 1000,
                                                  number(got.get(WITHERING_PRESENCE_STATS[1])) / 1000)
+        # Ailments the main skill consumes on hit (CONSUME_STATS; looked up only when a gem of its group says it consumes)
+        if any(CONSUME_TEXT.search((self.build.ctx.all_gems.get(n) or {}).get("description") or "") for n in main_gems):
+            every = [stat for ids in CONSUME_STATS.values() for stat in ids]
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=every)
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            own, sup = main.get("levelStats") or {}, main.get("supportStats") or {}
+            stats["_consumes"] = {ailment: (self.main_skill if any(number(own.get(i)) for i in ids) else "a support of it")
+                                  for ailment, ids in CONSUME_STATS.items()
+                                  if any(number(own.get(i)) or number(sup.get(i)) for i in ids)}
         # Shocked Ground (shocked_ground): the main skill's own, the Shocking Leap support on it, and the lines
         if self.main_skill in SHOCKED_GROUND_SKILLS or SHOCKED_GROUND_SUPPORT in main_gems:
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(SHOCKED_GROUND_SUPPORT_STATS))

@@ -707,6 +707,8 @@ def test_boss_fight_conditions_from_the_builds_own_numbers():
     # (MECHC5: only the Arbiter's 13 of 20 blockable skills can be Blocked: 40% blocks 26% of its hits, too few)
     assert block({**base, "EffectiveBlockChance": 60}) and not block({**base, "EffectiveBlockChance": 40})
     assert block({**base, "EffectiveBlockChance": 40, "_boss": "Atziri, the Red Queen"})
+    # an Evaded hit doesn't hit you, so it can't be Blocked (KeywordPopups "Evasion"; MECH51): 60% Block behind 50% Evade
+    assert not block({**base, "EvadeChance": 50, "EffectiveBlockChance": 60})
     assert by_var["conditionHaveEnergyShield"].stat({"EnergyShield": 1}) and not by_var["conditionHaveEnergyShield"].stat({})
     assert by_var["conditionAtCloseRange"].main_types == ("Melee",)
 
@@ -1403,6 +1405,13 @@ def test_debuffs_on_only_when_their_sources_keep_them_up():
     assert maimed(["Enemies you Fully Armour Break are Maimed"], {**stats, "_full_break_rate": 1 / 13})[2] < 0.9
     assert maimed(["Enemies you Fully Armour Break are Maimed"], {**stats, "_full_break_rate": 0.5})[2] >= 0.9
     assert ash(["Cover Enemies in Ash on Hit"], stats)[2] >= 0.9
+    # "on Block" / "hit you" sources count only the boss's hits that can be Blocked / that land (MECH51; boss_hits' red-flash
+    # shares: the Arbiter's 13 of 20 skills blockable; an Evaded hit can't be Blocked): 25% Block x 1 hit/s x 4 s was 100% up
+    on_block = intimidated(["Intimidate Enemies on Block"], stats)
+    assert on_block[2] < 0.9 and "red-flash" in on_block[1]
+    assert intimidated(["Intimidate Enemies on Block"], {**stats, "EvadeChance": 0, "EffectiveBlockChance": 75})[2] >= 0.9
+    hit_you = intimidated(["Intimidate Enemies that Hit you"], {**stats, "EvadeChance": 95, "EffectiveBlockChance": 0})
+    assert "red-flash" in hit_you[1]  # the Arbiter's red-flash hits land through 95% Evade
     assert debuff_uptime("conditionEnemyCoveredInFrost")(["Cover Enemies in Ash on Hit"], stats) == (0.0, "")
 
 
@@ -1892,3 +1901,45 @@ def test_steal_charges_and_vaal_lines_count_zero_with_their_evidence():
     assert held == 0 and "no Charges to steal" in basis
     up = onslaught_uptime(["Gain Onslaught for 4 seconds when you use a Vaal Skill"], stats)
     assert "Vaal" in up[1] and up[2] == 0
+
+
+def test_jagged_ground_from_the_builds_own_sources():
+    """MECH51 (RESEARCH5 spike-pit.md; FIX_QUEUE RESEARCH12 / AUDIT10): Jagged Ground comes from the main skill's sources,
+    not from any gem name or description saying "Jagged Ground"."""
+    from builder.search.conditions import jagged_ground
+
+    assert jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 1.2})[0] == 1.0
+    # Jagged Ground I needs an Endurance Charge to consume per patch: none gained, no ground
+    none = jagged_ground("Boneshatter", {"Slam"}, {"Jagged Ground I"}, {"Speed": 1.2})
+    assert none[0] == 0.0 and "gains none" in none[1]
+    share, how = jagged_ground("Boneshatter", {"Slam"}, {"Jagged Ground I"}, {"Speed": 1.2}, endurance_gains=0.05)
+    assert abs(share - 0.2) < 1e-9 and "Endurance" in how
+    # Shockwave Totem can't create it (its skill types hold CannotCreateJaggedGround in PoB's skill data)
+    assert jagged_ground("Shockwave Totem", {"Slam", "CannotCreateJaggedGround"}, {"Jagged Ground I"}, {"Speed": 1.2},
+                         endurance_gains=1.0)[0] == 0.0
+    # Furious Slam only when it spends Rage
+    assert jagged_ground("Furious Slam", {"Slam"}, set(), {"Speed": 1.0}, rage=0)[0] == 0.0
+    assert jagged_ground("Furious Slam", {"Slam"}, set(), {"Speed": 1.0}, rage=20)[0] == 1.0
+    # Jagged Ground II: a patch per Aftershock
+    assert jagged_ground("Boneshatter", {"Slam"}, {"Jagged Ground II"}, {"Speed": 1.0})[0] == 0.0
+    assert abs(jagged_ground("Boneshatter", {"Slam"}, {"Jagged Ground II"}, {"Speed": 1.0}, aftershock_pct=5)[0] - 0.2) < 1e-9
+    # a description naming Jagged Ground (Soaring Midnight's "Jagged Ground duration") is no source
+    assert jagged_ground("Soaring Midnight", {"Attack"}, set(), {"Speed": 2.0})[0] == 0.0
+
+
+def test_a_consumed_ailment_ends_on_the_next_hit_and_leaves_1_s_of_immunity():
+    """MECH51 (KeywordPopups Consume: "immune to that Debuff for 1 seconds"; RESEARCH18 #92): a main skill that consumes
+    Freeze / Shock / Ignite on hit keeps the boss carrying it only from one application to the next hit."""
+    from builder.search import conditions as c
+    from builder.search import models as m
+
+    # 2 hits/s, 50% Shock chance: 0.5 s Shocked, 1 s immune, 1 s to reapply: 20%, not 1 - 0.5^8
+    stats = {"Speed": 2.0, "HitChance": 100, "ShockChancePerHit": 50}
+    assert c.ailment_uptime(stats, "Shock") > 0.99
+    consumed = {**stats, "_consumes": {"Shock": "a support of it"}}
+    assert abs(c.ailment_uptime(consumed, "Shock") - 0.2) < 1e-9
+    assert abs(c.shock_share({**consumed, "_shocked_ground": (1.0, "")}) - 1 / 3) < 1e-9  # the ground reapplies it at once
+    freeze = {"Speed": 2.0, "HitChance": 100, "FreezeBuildupAvg": 50}
+    plain, eaten = m.immobilised_share(freeze, "Freeze")[0], m.immobilised_share({**freeze, "_consumes": {"Freeze": "X"}}, "Freeze")
+    assert eaten[0] < plain / 4 and "immune 1 s" in eaten[1]
+    assert c.CONSUME_TEXT.search("Supported Skills Consume Freeze on Hit") and not c.CONSUME_TEXT.search("Freeze enemies")

@@ -25,7 +25,7 @@ import re
 
 from builder.ledger import conditions
 from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
-from builder.search import models, passive_models
+from builder.search import conditions as conditions_mod, models, passive_models
 from builder.search.conditions import INFUSED_SET, ailment_uptime, curse_uses, natural_distance, shock_share
 from builder.search.objective import number
 from builder.search.usage import BASE_RUN, usage_rules
@@ -1046,6 +1046,17 @@ class Assumptions:
                          next((s for s in skills if s["name"] == main), {}))
         found, notes = [], []
         for condition in wanted:
+            if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
+                share, how = self.jagged_ground_share(main, main_types, main_group)
+                on = share >= conditions_mod.JAGGED_GROUND_ASSUMED
+                if share > 0 or any(re.search(condition.get("skills") or "$^", n, re.I) for n in names):
+                    notes.append({"label": "Jagged Ground under the boss", "value": round(share, 2),
+                                  "basis": f"{how}; its ledger lines assume {conditions_mod.JAGGED_GROUND_ASSUMED:.0%}, so "
+                                           + ("they count" if on else "they don't count (an undercount below that share)"),
+                                  "confidence": "LOW (each patch taken to be at the boss for its whole duration)"})
+                if on:
+                    found.append(condition["id"])
+                continue
             by_name = condition.get("skills") and any(re.search(condition["skills"], n, re.I) for n in names)
             by_text = condition.get("skill_text") and any(re.search(condition["skill_text"], t, re.I) for t in texts)
             if by_text and condition.get("usage_stat"):
@@ -1074,6 +1085,26 @@ class Assumptions:
             if by_name or by_text or by_type:
                 found.append(condition["id"])
         return sorted(found), notes
+
+    def jagged_ground_share(self, main: str | None, main_types: set[str], main_group: dict | None) -> tuple[float, str]:
+        """conditions.jagged_ground from the build: the main skill's speed, Endurance Charges gained per second (the build's
+        own sources, conditions._charge_rate), its Aftershock chance and the Rage it holds."""
+        main_gems = {g["name"] for g in (main_group or {}).get("gems") or [] if g.get("enabled", True)}
+        if not main or not ({"Earthquake", "Stampede", "Furious Slam"} & {main} or {"Jagged Ground I", "Jagged Ground II"} & main_gems):
+            return 0.0, "no source of Jagged Ground on the main skill"
+        stats = {**self.build.call("stats", fields=models.MODEL_FIELDS + ["enemySkillTime", "EvadeChance",
+                                                                          "EffectiveBlockChance"]),
+                 "_main_types": main_types}
+        texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]
+        gains = 0.0
+        if "Jagged Ground I" in main_gems:
+            gains = sum(r[0] for t in texts if (r := conditions_mod._charge_rate(t, "Endurance", stats)) is not None)
+        aftershock = 0.0
+        if "Jagged Ground II" in main_gems:
+            aftershock = models.aftershock_chance(texts, (main_group or {}).get("gems") or [], True, True,
+                                                  any("Shapeshift" in t for t in main_types))[0]
+        rage = conditions_mod.rage_held(texts, stats)[0] if main == "Furious Slam" else 0.0
+        return conditions_mod.jagged_ground(main, main_types, main_gems, stats, gains, aftershock, rage)
 
     def apply(self) -> bool:
         """Match PoB's assumed modifiers to the build. True if they changed."""
