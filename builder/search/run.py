@@ -620,9 +620,11 @@ MODEL_NAMES = {"archon": "Elemental Archon", "energy": "meta-skill Energy", "dar
                "leylines": "larger Time-Lost radius", "harmony": "Harmony Within",
                "resist_rings": "resistances per equipped item", "maelstrom": "Melting Maelstrom's pulses",
                "guided_hand": "Guided Hand's Ancestral Boost", "sanguine": "Sanguine Tides",
-               "deadly_resolve": "Deadly Resolve's slashes",
-               # COVB4's three (passive_models.py) and the other models the ledger names (a missing one reads as its id)
-               "no_mercy": "No Mercy's Hit share", "rhythm_of_ice": "Rhythm of Ice's echoed casts",
+               "deadly_resolve": "Deadly Resolve's slashes"}
+# Display names only, for the models the ledger names that MODEL_NAMES doesn't list (COVB4's three, passive_models.py,
+# and others). MODEL_NAMES is also the list tests/test_engine_whatif.py checks for what-if coverage; these haven't been
+# checked there yet (SEARCH4 routes it), so they stay out of it rather than claim a coverage nobody verified
+MODEL_LABELS = {"no_mercy": "No Mercy's Hit share", "rhythm_of_ice": "Rhythm of Ice's echoed casts",
                "different_skills": "different skills used recently", "arcane_surge": "Arcane Surge's uptime",
                "charges": "charge generation", "debuff_uptimes": "debuff uptimes", "gem_stat": "gem stats PoB never reads",
                "glory": "Glory", "infusion_supply": "Infusion supply", "iron_ward": "Iron Ward",
@@ -632,7 +634,7 @@ MODEL_NAMES = {"archon": "Elemental Archon", "energy": "meta-skill Energy", "dar
 
 def model_name(model: str) -> str:
     """A custom model's name in the result (a model MODEL_NAMES doesn't name yet: its id with spaces)."""
-    return MODEL_NAMES.get(model) or model.replace("_", " ")
+    return MODEL_NAMES.get(model) or MODEL_LABELS.get(model) or model.replace("_", " ")
 
 
 def annotate_blind_spots(lines: list[dict]) -> list[dict]:

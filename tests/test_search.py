@@ -1757,9 +1757,9 @@ def test_source_item_trials_build_a_rare_on_a_base_whose_implicit_grants_a_sourc
 def test_ledger_models_have_readable_names_in_the_result():
     """run.MODEL_NAMES names the custom models ledger entries point to (COVB4's three were missing: the result read
     'part of the no_mercy model'); a model added later without a name reads with spaces, not as its id."""
-    from builder.search.run import MODEL_NAMES, model_name
+    from builder.search.run import MODEL_LABELS, model_name
 
-    assert {"no_mercy", "rhythm_of_ice", "different_skills"} <= set(MODEL_NAMES)
+    assert {"no_mercy", "rhythm_of_ice", "different_skills"} <= set(MODEL_LABELS)
     assert model_name("no_mercy") == "No Mercy's Hit share" and model_name("some_new_model") == "some new model"
 
 
