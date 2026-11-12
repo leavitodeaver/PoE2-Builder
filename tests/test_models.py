@@ -1490,11 +1490,15 @@ def test_rage_on_melee_hit_needs_a_melee_main_skill():
     """MECH48 (catalog Melee Hit / Melee Axe Hit, 'PoB: wrong'): PoB drops the melee restriction of "Gain N Rage on Melee
     Hit"; our rate read the main skill's hits whatever it was. A Spell gains none; a Melee Axe Hit line needs an Axe."""
     from builder.search import conditions
-    stats = {"Speed": 2.0, "HitChance": 100, "_main_types": {"Attack", "Melee"}, "_weapon": "One Handed Axe"}
+    stats = {"Speed": 2.0, "HitChance": 100, "_main_types": {"Attack", "Melee"}, "_weapon": "One Handed Axe",
+             "_weapon_types": ["One Handed Axe"]}
     assert conditions._rage_gain("Gain 2 Rage on Melee Hit", stats, True)[0] > 0
     assert conditions._rage_gain("Gain 2 Rage on Melee Hit", {**stats, "_main_types": {"Spell"}}, True)[0] == 0.0
     assert conditions._rage_gain("Gain 1 Rage on Melee Axe Hit", stats, True)[0] > 0
-    assert conditions._rage_gain("Gain 1 Rage on Melee Axe Hit", {**stats, "_weapon": "Two Handed Mace"}, True)[0] == 0.0
+    assert conditions._rage_gain("Gain 1 Rage on Melee Axe Hit", {**stats, "_weapon": "Two Handed Mace", "_weapon_types": ["Two Handed Mace"]}, True)[0] == 0.0
+    # (MECHC2: either slot counts: an Axe in Weapon 2 still gains it)
+    assert conditions._rage_gain("Gain 1 Rage on Melee Axe Hit", {**stats, "_weapon": "Two Handed Mace",
+                                 "_weapon_types": ["Two Handed Mace", "One Handed Axe"]}, True)[0] > 0
 
 
 def test_a_charge_consumer_beside_the_main_skill_uses_its_groups_rate():

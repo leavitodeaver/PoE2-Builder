@@ -342,8 +342,10 @@ def _hit_restriction(when: str, stats: dict) -> str | None:
     if "Melee" not in (stats.get("_main_types") or {"Melee"}):
         return "on Melee Hits, and the main skill isn't Melee: 0"
     weapon = re.search(r"\bmelee (axe|mace|sword|spear|flail|dagger|claw|quarterstaff|staff) hit", when)
-    if weapon and weapon.group(1) not in (stats.get("_weapon") or weapon.group(1)).lower():
-        return f"on Melee {weapon.group(1).capitalize()} Hits, and the main weapon is a {stats.get('_weapon')}: 0"
+    # (either weapon slot, as MECHC2's check in _rage_gain reads them; Weapon 1's type when only that is known)
+    held = [t for t in (stats.get("_weapon_types") or [stats.get("_weapon")]) if t] or [weapon.group(1)] if weapon else []
+    if weapon and not any(weapon.group(1) in t.lower() for t in held):
+        return f"on Melee {weapon.group(1).capitalize()} Hits, and no {weapon.group(1).capitalize()} is held: 0"
     return None
 
 
