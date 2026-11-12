@@ -187,6 +187,18 @@ def test_spells_share_a_round_and_the_groups_energy_supports_count():
     assert rates(elsewhere)["Comet"] == pytest.approx(10 * 1.57 / 190, rel=1e-4)
 
 
+def test_midnight_zenith_cannot_feed_a_meta_skills_energy():
+    """base_skill_cannot_generate_energy (Midnight Zenith, game files; COV2's open stat, MECH47): its use gains a meta
+    skill no Energy, so the spells socketed in the meta trigger 0 times."""
+    coc = Skill("Cast on Critical", group=2, energy=True)
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
+    stats = {"Speed": 2, "HitChance": 100, "CritChance": 50}
+    zenith = Skill("Midnight Zenith", group=1)
+    mods, notes, _ = models.energy_model(Inputs(), stats, [zenith, coc, comet], zenith)
+    assert next(m["value"] for m in mods if m.get("key") == "triggerRate") == 0.0
+    assert "cannot cause Meta Skills" in notes[0]["basis"]
+
+
 def test_unmodeled_metas_count_nothing_rather_than_a_self_cast():
     dodge = Skill("Feral Invocation", group=2, energy=True)
     comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)

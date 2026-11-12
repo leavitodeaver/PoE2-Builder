@@ -460,6 +460,13 @@ DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files,
 DODGE_EVERY = 2.0  # seconds between dodge rolls against a boss: the user's default (7 Nov 2026), said in the guide
 DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); faster rolls from movement speed not counted
 NO_ENERGY_ON_A_BOSS = {"Reaper's Invocation": "kills"}
+# Skills whose own use can't feed a meta skill's Energy: base_skill_cannot_generate_energy, "This Skill cannot cause Meta
+# Skills to generate Energy" (active_skill_gem_stat_descriptions). (checked, MECH47: the game tables' GrantedEffectStatSets
+# carry the stat on MidnightStarPlayer alone and GrantedEffectStatSetsPerLevel on none; PoB's Skills/other.lua has it in
+# Midnight Zenith's two stat sets alone; poe2db not checked.) Only the gains the main skill's own use makes are zeroed;
+# Energy from blocks, dodges, Energy Shield lost or minion deaths still counts.
+CANNOT_GENERATE_ENERGY = {"Midnight Zenith"}
+OWN_USE_GAINS = ("crit", "ailment", "melee hit", "cast")
 # Your minions' deaths against a boss (MECH45, FIX_QUEUE; the user, 11 Nov 2026: "that's a dangerous assumption ... needs
 # to be smarter than just making a flat assumption"; CLAUDE.md "No flat rates"). Game files, KeywordPopups MinionDeath:
 # "Minions whose durations expire or that are despawned by the player are considered to have died. However, effects that
@@ -1574,8 +1581,11 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
             continue
         cost = sum(100 * (s.cast_time or 0.0) for s in spells)
         gain, gain_basis = energy_gain(meta.name, stats, main.name, main)
-        if cast_by_totem(skills, main) and META_GEMS[meta.name]["gain"] in ("crit", "ailment", "melee hit", "cast"):
+        if cast_by_totem(skills, main) and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
             gain, gain_basis = 0.0, f"{main.name} is cast by a totem, and the totem's hits and casts aren't yours (assumed)"
+        elif main.name in CANNOT_GENERATE_ENERGY and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
+            gain, gain_basis = 0.0, (f"{main.name} \"cannot cause Meta Skills to generate Energy\" "
+                                     "(its base_skill_cannot_generate_energy, game files): no Energy from its use")
         x = dict(x0)
         own = [n for n in (supports or {}).get(meta.group, []) if n in META_SUPPORTS]
         for name in own:
