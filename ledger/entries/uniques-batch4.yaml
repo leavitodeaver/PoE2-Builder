@@ -1,0 +1,114 @@
+# Unique items' lines, fourth batch (COVD4, 12 Nov 2026): the coverage audit's open unique lines from about rank 194 on
+# and the unique-sourced misparses (builder/ledger/coverage.py; the ranking as of origin/main 3ff1397 +
+# uniques-batch1/2/3.yaml).
+#
+# Game files: data/game-26476662/tables (Mods.json, Stats.json, KeywordPopups.json). Unique texts: PoB's export
+# (data/pob-bb52d6b368/uniques.json). A line PoB ignores stays in the item; a pob_gap entry's replace lines are added
+# after it (SearchContext.corrected_raw), so an empty replace changes nothing and only records the line as read.
+# PoE2 0.5.x; recheck at the 1.0 refresh.
+
+# Misparses that aren't (the audit's "condition lost" is PoB's own calculation) --------------------------------------
+
+- id: uniques-parse-mageblood-per-duplicate
+  title: "Mageblood, All Mage's Legacies have X% increased effect per duplicate Mage's Legacy: PoB multiplies by the duplicates"
+  kind: parse_checked
+  match: "^All Mage's Legacies have (\\(\\d+-\\d+\\)|\\d+)% increased effect per duplicate Mage's Legacy you have$"
+  confidence: datamined
+  notes: >-
+    ModParser.lua 5650 stores the line as MagesLegacyEffect INC num with no condition, which the audit read as
+    "per duplicate lost". It isn't: the only reader of MagesLegacyEffect is CalcPerform.lua 1550-1577 (with the
+    MagebloodEquipped flag), which counts each Legacy's stacks, sums (stacks - 1) over them as totalDuplicates and
+    scales every Legacy's effects by 1 + totalDuplicates x MagesLegacyEffect / 100. One Mageblood with one Legacy has
+    no duplicates, so the line adds nothing, as in the game (checked: grep MagesLegacyEffect over PoB's Modules and
+    Classes: ModParser 5650 and CalcPerform 1568 only). The same text from the mod
+    UniqueIncreasedMagesLegacyEffectPerDuplicateMagesLegacy (the audit's "exclusive" source) is this line.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (5650)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua (1550-1577)", "https://poe2db.tw/us/Mageblood"]
+  test_in_game: "With one Mageblood, a Legacy's numbers on the character sheet equal the Legacy's own text."
+  status: proposed
+
+# Exposure, read by conditions.py's Exposure uptime (MECH28) ---------------------------------------------------------
+
+- id: uniques-model-blessed-bonds-cold-exposure
+  title: Blessed Bonds, Inflict Cold Exposure on Igniting an Enemy (Exposure uptime)
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^Inflict Cold Exposure on Igniting an Enemy$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    builder/search/conditions.py reads it for the boss's Cold Exposure box: EXPOSURE_SOURCE matches "Inflict Cold
+    Exposure", and _exposure_source rates it at the build's Ignites per second (hits x PoB's Ignite chance per hit)
+    over Exposure's 4 s (checked by running _exposure_source on the line: it returns an Ignite-rated uptime). PoB
+    ignores the line (ModCache: no parse), so only the tool's model counts it.
+  sources: ["https://poe2db.tw/us/Blessed_Bonds", "builder/search/conditions.py (EXPOSURE_SOURCE, _exposure_source)",
+            "data/game-26476662/tables/KeywordPopups.json (Exposure)"]
+  test_in_game: "Ignite a dummy wearing the gloves: its Cold Resistance shows 20 lower for 4 s."
+  status: proposed
+
+- id: uniques-model-blessed-bonds-fire-exposure
+  title: Blessed Bonds, Inflict Fire Exposure on Shocking an Enemy (Exposure uptime)
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^Inflict Fire Exposure on Shocking an Enemy$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    As the Cold line: _exposure_source rates it at the build's Shocks per second (hits x PoB's Shock chance per hit),
+    4 s each (checked by running it on the line). PoB ignores the line.
+  sources: ["https://poe2db.tw/us/Blessed_Bonds", "builder/search/conditions.py (EXPOSURE_SOURCE, _exposure_source)"]
+  test_in_game: "Shock a dummy wearing the gloves: its Fire Resistance shows 20 lower for 4 s."
+  status: proposed
+
+- id: uniques-model-blessed-bonds-lightning-exposure
+  title: Blessed Bonds, Inflict Lightning Exposure on Critical Hit (Exposure uptime)
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^Inflict Lightning Exposure on Critical Hit$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    As the Cold line: _exposure_source rates it at the build's critical hits per second (models.crits_per_second), 4 s
+    each (checked by running it on the line). PoB ignores the line.
+  sources: ["https://poe2db.tw/us/Blessed_Bonds", "builder/search/conditions.py (EXPOSURE_SOURCE, _exposure_source)"]
+  test_in_game: "Crit a dummy wearing the gloves: its Lightning Resistance shows 20 lower for 4 s."
+  status: proposed
+
+- id: uniques-model-wylunds-stake-exposure
+  title: Wylund's Stake, Inflicts Elemental Exposure when this Weapon Fully Breaks Armour (Exposure uptime)
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^Inflicts Elemental Exposure when this Weapon Fully Breaks Armour$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    conditions.py reads it for all three Exposure boxes ("Elemental Exposure" counts for each): _exposure_source rates
+    it at the build's Full Breaks of the boss's Armour per second (the Armour Broken model's _full_break_rate), 4 s
+    each (checked by running it on the line). ARMOUR_BREAK_NOT_SOURCE keeps it out of the break model itself, as it
+    should. Known gap, as for Sculpted Suffering (uniques-batch3): "this Weapon" isn't kept, so breaks from another
+    source count too (routed to MECH-A with that one). PoB ignores the line.
+  sources: ["https://poe2db.tw/us/Wylunds_Stake", "builder/search/conditions.py (EXPOSURE_SOURCE, _exposure_source)"]
+  test_in_game: "Fully Break a dummy's Armour with the hammer: all three of its elemental Resistances show 20 lower for 4 s."
+  status: proposed
+
+# On-kill (RESEARCH2's lone-boss target, as uniques-batch2.yaml) --------------------------------------------------------
+
+- id: uniques-palm-dreamer-gloom-shrine
+  title: Palm of the Dreamer, Grants effect of Dreaming Gloom Shrine (slain enemies explode)
+  kind: pob_gap
+  match: '^Grants effect of Dreaming Gloom Shrine$'
+  replace: []
+  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  confidence: theory
+  notes: >-
+    The game's definition (KeywordPopups UniqueShrineChaos, "Dreaming Gloom Shrine"): "Slain enemies explode, dealing
+    Chaos damage equal to a quarter of their maximum Life." That is the whole effect named by the line; the generic
+    Gloom Shrine's "Gain Damage as Extra Chaos Damage" part (KeywordPopups GloomShrine) is not in this definition,
+    and the sceptre carries its own "Gain 27% of Damage as Extra Chaos Damage" line, which PoB parses. So the line is
+    an on-kill effect, 0 against a lone boss under the tool's premise (scratch/manager/research/boss-fight-kills.md).
+    Whether the dreaming shrine also grants the generic Gloom Shrine's extra chaos: UNVERIFIED (the definitions say
+    no; not tested in game).
+  sources: ["https://poe2db.tw/us/Palm_of_the_Dreamer", "data/game-26476662/tables/KeywordPopups.json (UniqueShrineChaos, GloomShrine)",
+            "scratch/manager/research/boss-fight-kills.md"]
+  test_in_game: "Hold the sceptre: does the buff bar show a Gloom Shrine, and does the character sheet's extra chaos rise above the sceptre's own 27%?"
+  status: proposed
