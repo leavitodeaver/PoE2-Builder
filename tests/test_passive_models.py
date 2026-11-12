@@ -203,7 +203,8 @@ def test_arcane_surge_on_crit_tree_lines_drop_pobs_parse():
     assert {f["id"] for f in surge} >= {2244, 54067, 27388}
     assert all(f["lines"] == [] and "Arcane Surge" in f["drop"] for f in surge)
     from builder.ledger import wrong
-    assert wrong("10% chance to Gain Arcane Surge when you deal a Critical Hit") is None  # item text: unchanged here
+    # item text: switched off with no replacement since COV7 (ledger.items.corrected_item writes it {disabled})
+    assert wrong("10% chance to Gain Arcane Surge when you deal a Critical Hit")[1] is None
 
 
 def test_engine_drops_the_arcane_surge_on_crit_parse(tmp_path):

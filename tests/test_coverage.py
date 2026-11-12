@@ -197,7 +197,8 @@ def test_a_noop_line_is_closed_only_by_what_really_applies_to_it():
     status, entry, reason = noop_status("Take 20% less Damage over time", missing, False)
     assert status == "none" and entry == "keeper-of-the-arc-dot" and "only on items" in reason
     assert noop_status("40% increased Archon Buff duration", missing, False)[:2] == ("model", "archon-duration")
-    assert noop_status("Withered you inflict also increases Fire Damage taken", missing, True)[0] == "ledger"
+    # (a "no effect" record; was Blackflame's, retired by COV7 for COVD8's stack-based entry)
+    assert noop_status("12% of Physical Damage prevented Recouped as Energy Shield per enemy Power", missing, True)[0] == "ledger"
     status, entry, _ = noop_status("Repeatable Spells have 20% chance to Repeat", missing, True)
     assert status == "none" and entry == "now-and-again-repeat"  # (a pob_gap translation isn't applied to parsed lines)
     assert noop_status("A line nothing knows", missing, True) == ("none", None, "parsed, but no calculation reads SomeName")
