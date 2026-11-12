@@ -15,9 +15,18 @@ sustainable source for what a use needs:
 - the Concoctions' Mana Flask charges per throw (Requirement kind "flask throw"; flasks.THROW_CHARGES, 5 a throw from
   the game files' flask_throw_base_charges_used, "Consumes {0} Charges from your Mana [Flask]"; PoB's data carries the
   stat on three of the five only, so the names come from flasks.py; COVC7, A8-2): throws a second = the Mana Flask's
-  charges a second / 5, flasks.charge_use_rate's formula (the flask's generation, nothing from kills on a lone boss;
-  the stock the fight starts with not counted). RESEARCH15: one web snippet says 3 charges (from 5), perhaps a patch's
-  or with "Flask Charges used" modifiers (UNVERIFIED, MEDIUM-LOW): 5 is the headline. Barred where that is 0 (no Mana
+  charges a second / the throw's cost, flasks.charge_use_rate's formula (the flask's generation, nothing from kills on a
+  lone boss; the stock the fight starts with not counted). The cost (throw_cost; COVC8, RESEARCH16 #82): 5 (HIGH: game
+  files, and 0.2.0's "consume 5 Mana Flask charges per use (previously 3)"; the old 3 was 0.1.0e's, reversed), x (1 +
+  the build's increased / reduced Flask Charges used, mana-flask ones included) x its "less / more" x (1 - its chance
+  for Flasks to not consume Charges) (MEDIUM: a guide's "with 20% reduced charges used, PConc will use 2.4 charges
+  instead of 3", poe-vault, 28 Mar 2025; no recorded test; "increased" raises it the same way). Carriers (checked: the
+  stats flask_charges_used_+%, flasks_%_chance_to_not_consume_charges, husk_of_dreams_flask_charges_used_-%_final in
+  every game table, scratch/covc5/where.py: belt mods (reduced, and two uniques' increased), Abyss belt prefixes, the
+  passives flasks5 / flasks18 / flasks21, Husk of Dreams; explosive_ / poisonous_concoction_flask_charges_consumed_+%
+  are on no Mod, passive or stat set: unused; PoB's ModCache parses the lines to FlaskChargesUsed INC / MORE and
+  FlaskChanceNotConsumeCharges, read by bridge flaskThrowCost). The Mana Flask's own local "charges per use" isn't
+  applied (UNVERIFIED whether it changes a throw). Barred where the throw rate is 0 (no Mana
   Flask, or no charge generation); otherwise allowed: as the main skill its throws are capped at that rate by MECH-C's
   Assumptions.flask_main; beside the main skill (a pressed group) the press model's rate is not yet capped by it
   (Usage.throw_rate gives it; routed to the mechanics lane, COVC7's report)
@@ -193,8 +202,8 @@ def requirements(name: str, rule: dict) -> list[Requirement]:
                                                                                 for r in found):
         found.append(Requirement("never", "a usage condition PoB doesn't model (e.g. standing still, recent blocks)"))
     if name in THROW_CHARGES:
-        found.append(Requirement("flask throw", f"{THROW_CHARGES[name]:g} {THROW_POOL} Flask charges per throw (3 in one "
-                                 "web snippet, UNVERIFIED)", THROW_CHARGES[name], pool=THROW_POOL))
+        found.append(Requirement("flask throw", f"{THROW_CHARGES[name]:g} {THROW_POOL} Flask charges per throw (before "
+                                 "the build's Flask Charges used modifiers, MEDIUM)", THROW_CHARGES[name], pool=THROW_POOL))
     return found
 
 
@@ -384,12 +393,29 @@ class Usage:
         group = self.build.main_group() if hasattr(self.build, "main_group") else None
         return bool(group) and next((g["name"] for g in group["gems"] if not g["support"]), None) == name
 
+    def throw_cost(self, need: Requirement) -> float:
+        """Mana Flask charges a throw takes on average with the build's modifiers (throw_cost, module docstring)."""
+        mods = self.build.call("flaskThrowCost")
+        return throw_cost(need.amount, number(mods.get("usedInc")), number(mods.get("usedMore", 1)),
+                          number(mods.get("notConsume")))
+
     def throw_rate(self, need: Requirement) -> float:
         """Throws a second the flask's own charge generation pays for (flasks.charge_use_rate's formula: charges a
-        second / charges a throw), 0 without the flask or a flask_rate. For the main skill's cap and the press hook."""
+        second / charges a throw, the cost with the build's modifiers), 0 without the flask or a flask_rate, inf when
+        no throw consumes charges. For the main skill's cap and the press hook."""
         if self.flask_rate is None or need.amount <= 0:
             return 0.0
-        return self.flask_rate(need.pool)[0] / need.amount
+        gained = self.flask_rate(need.pool)[0]
+        if gained <= 0:
+            return 0.0
+        cost = self.throw_cost(need)
+        return gained / cost if cost > 0 else math.inf
+
+
+def throw_cost(base: float, used_inc: float = 0.0, used_more: float = 1.0, not_consume: float = 0.0) -> float:
+    """Average flask charges a Concoction throw takes (module docstring; MEDIUM): `base` (5) x (1 + increased / reduced
+    Flask Charges used %/100) x their more / less multiplier x (1 - chance to not consume %/100), never below 0."""
+    return max(0.0, base * (1 + used_inc / 100) * used_more * (1 - min(max(not_consume, 0.0), 100.0) / 100))
 
 
 def combo_rotation(amount: float, builder_speed: float, speed: float, gain: float = 1.0) -> tuple[float, float]:

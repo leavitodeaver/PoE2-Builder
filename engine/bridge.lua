@@ -3155,6 +3155,19 @@ function bridge.usageRules()
 	return { gems = rules }
 end
 
+-- What a Concoction's throw costs, besides its base 5 Mana Flask charges (usage.py throw_cost; COVC8, RESEARCH16 #82):
+-- the player's "increased / reduced Flask Charges used" (FlaskChargesUsed and ManaFlaskChargesUsed, INC and MORE: belts,
+-- the passive flasks5, Husk of Dreams' "less") and "chance for Flasks to not consume Charges" (FlaskChanceNotConsumeCharges:
+-- Abyss belt prefixes, passives flasks18 / flasks21). PoB applies them to a flask's own use only (ItemsTab 4307-4344)
+function bridge.flaskThrowCost()
+	local modDB = build.calcsTab.mainEnv.modDB
+	return {
+		usedInc = modDB:Sum("INC", nil, "FlaskChargesUsed", "ManaFlaskChargesUsed"),
+		usedMore = modDB:More(nil, "FlaskChargesUsed", "ManaFlaskChargesUsed"),
+		notConsume = modDB:Sum("BASE", nil, "FlaskChanceNotConsumeCharges"),
+	}
+end
+
 -- Charge generation and flask/charm scaling from the committed build (passives, gear): what keeps
 -- flasks and charms going in a boss fight, where no kills refill them
 function bridge.chargeGain()

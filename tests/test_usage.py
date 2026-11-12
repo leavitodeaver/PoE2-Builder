@@ -11,7 +11,8 @@ import pytest
 from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
-from builder.search.usage import Usage, combo_rotation, requirements, travel_rotation, travel_seconds
+from builder.search.usage import (Usage, combo_rotation, requirements, throw_cost, travel_rotation,
+                                  travel_seconds)
 
 ZERPHI = {"stats": {"active_skill_requires_X_glory": 50, "active_skill_generates_%_of_life_spent_as_glory": 5}}
 
@@ -180,6 +181,16 @@ def test_concoctions_need_a_mana_flask_that_gains_charges(fresh_rules):
     assert Usage(build, main, lambda pool: (0.0, 0.0)).usable("Fulminating Concoction")
     wet = Usage(build, FakeConditions(), lambda pool: (1.5, 60.0))
     assert wet.usable("Fulminating Concoction") and wet.throw_rate(need[0]) == 0.3
+    # COVC8 (RESEARCH16 #82): the build's Flask Charges used modifiers change the 5 (MEDIUM)
+    assert throw_cost(5, -20) == pytest.approx(4.0) and throw_cost(5, 50) == pytest.approx(7.5)  # reduced / increased
+    assert throw_cost(5, 0, 0.5) == pytest.approx(2.5) and throw_cost(5, -20, 1.0, 25) == pytest.approx(3.0)
+    assert throw_cost(5, 0, 1.0, 150) == 0.0
+    belt = Usage(FakeBuild(rules, {"usedInc": -20, "usedMore": 1.0, "notConsume": 25}), FakeConditions(),
+                 lambda pool: (1.5, 60.0))
+    assert belt.throw_cost(need[0]) == pytest.approx(3.0) and belt.throw_rate(need[0]) == pytest.approx(0.5)
+    free = Usage(FakeBuild(rules, {"notConsume": 100}), FakeConditions(), lambda pool: (1.5, 60.0))
+    assert free.throw_rate(need[0]) == float("inf")
+    assert "before the build's Flask Charges used modifiers" in need[0].label and "snippet" not in need[0].label
 
 
 def test_echoing_cry_and_hit_and_run_get_a_walking_use_rate(fresh_rules):
@@ -246,6 +257,8 @@ def test_pob_marks_the_gems_that_cant_be_used_at_will(engine):
         assert rules[name]["stats"]["active_skill_requires_X_glory"] == 200, name  # (the GlorySkill condition reads it)
         assert [r.kind for r in requirements(name, rules[name])] == ["placed banner"], name
     assert "Rapid Attacks II" not in rules
+    cost = engine.call("flaskThrowCost")  # (COVC8: the Concoctions' throw cost modifiers; none on an empty build)
+    assert (cost["usedInc"], cost["usedMore"], cost["notConsume"]) == (0, 1, 0)
 
 
 def test_a_ci_build_never_picks_zerphis_infamy(engine, fresh_rules):
