@@ -2236,6 +2236,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 read = {**(stats or {}), "_groups": groups} if groups and entry.raw["share"] in GROUP_SHARES else stats
                 if entry.raw["share"] in SKILLS_SHARES:  # (reads the build's other skills: its minions, what kills them)
                     read = {**(read or {}), "_skills": skills}
+                if entry.raw["share"] in CONFIG_SHARES:  # (reads PoB's config: the boss distance the build is calculated at)
+                    read = {**(read or {}), "_config": config or {}}
                 factor, why, play = SHARES[entry.raw["share"]](skill, read or {}, main, prev)
                 why = f"; {why}"
             else:
@@ -2636,11 +2638,39 @@ def revived_recently_share(skill: Skill, stats: dict, main: Skill | None = None,
                    f"MEDIUM-LOW)"), play + f" Headline: {share:.0%} of their time alive."
 
 
+# `share: near_boss` (COVE9): Lockdown, "Supported Skills have 120% more Pin Buildup against enemies within 2 metres of
+# you, scaling to no change at 12 metres" (gem_stat_descriptions; PoB reads a MORE on EnemyPinBuildup, CalcOffence's
+# poise buildups, and rates the boss Pinned from its PinBuildupAvg: conditions' Pinned, MECH46). Sized by the distance
+# the build is calculated at (PoB's enemyDistance, set by conditions._boss_distance; the tool's natural distance when
+# unset): full within 2 m, falling linearly (assumed: "scaling") to 0 at 12 m. The search doesn't yet move a ranged build
+# closer for it (no DISTANCE_LINE matches a support stat): an undercount for such a build, said in the play row.
+NEAR_FULL_METRES, NEAR_NONE_METRES = 2.0, 12.0
+
+
+def near_boss_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE  # (conditions imports models)
+
+    units = number((stats.get("_config") or {}).get("enemyDistance"))
+    if units > 0:
+        metres, where = units / 10, "the boss distance this build is calculated at"
+    else:
+        metres = MELEE_DISTANCE if main is not None and main.melee else RANGED_DISTANCE
+        where = "the tool's natural distance for the main skill (none set)"
+    share = max(0.0, min(1.0, (NEAR_NONE_METRES - metres) / (NEAR_NONE_METRES - NEAR_FULL_METRES)))
+    play = (f"Fight within {NEAR_FULL_METRES:g} m of the boss for the full bonus (it falls to nothing at "
+            f"{NEAR_NONE_METRES:g} m); the headline counts {share:.0%} of it at {metres:g} m.")
+    return share, (f"{share:.0%} of it at {metres:g} m ({where}; full within {NEAR_FULL_METRES:g} m, none at "
+                   f"{NEAR_NONE_METRES:g} m, linear between assumed)"), play
+
+
+CONFIG_SHARES = {"near_boss"}  # (share functions that read PoB's config: gem_stat_model passes `_config`)
+
 SKILLS_SHARES = {"revived_recently"}  # (share functions that read the build's skills: gem_stat_model passes `_skills`)
 
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
-          "cull_buff": cull_buff_share, "revived_recently": revived_recently_share}
+          "cull_buff": cull_buff_share, "revived_recently": revived_recently_share,
+          "near_boss": near_boss_share}
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:

@@ -745,6 +745,17 @@ def test_crazed_minions_count_from_the_builds_own_minion_kills():
     assert [(m["line"], round(m["scale"], 6), m.get("skill")) for m in mods] == [("Minions deal 1% more Damage", 8.0, "Raise Zombie")]
 
 
+def test_lockdown_pin_buildup_scales_with_the_boss_distance():
+    lock = {"support_lockdown_distance_based_pin_damage_+%_final": 120}
+    spear = models.Skill("Spear Throw", group=1, attack=True, support_stats=lock)
+    for units, scale in [(20, 120.0), (70, 60.0), (150, None)]:
+        mods, notes = models.gem_stat_model([spear], main=spear, stats={}, config={"enemyDistance": units})
+        assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == (
+            [("1% more Pin Buildup", scale, "Spear Throw")] if scale else [])
+    mods, _ = models.gem_stat_model([spear], main=spear, stats={})  # (no distance set: ranged 5 m, 70%)
+    assert [m["scale"] for m in mods] == [pytest.approx(84.0)]
+
+
 def test_support_entries_list_every_stat_their_match_takes():
     from builder.ledger import gem_stat_entries
 

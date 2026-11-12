@@ -539,3 +539,24 @@
             "KeywordPopups Recently, Reviving (build 26476662)"]
   test_in_game: "Sacrifice one supported minion and compare its hit in the 4 s after it revives with a later one."
   status: proposed
+
+- id: support-lockdown-near-pin-buildup
+  title: Lockdown, 120% more Pin Buildup within 2 m of the boss, scaling to none at 12 m (at the build's boss distance)
+  kind: gem_stat
+  support: true
+  share: near_boss
+  skill: [Lockdown]
+  support_stats: ['support_lockdown_distance_based_pin_damage_+%_final']
+  match: '^support_lockdown_distance_based_pin_damage_\+%_final$'
+  replace: ['1% more Pin Buildup']
+  confidence: theory
+  notes: >-
+    "Supported Skills have 120% more Pin Buildup against enemies within 2 metres of you, scaling to no change at 12
+    metres" (SupportLockdownPlayer 120). PoB maps it to nothing (checked: no lockdown in SkillStatMap.lua or
+    Modules/*.lua, no statMap in sup_dex.lua's entry, 12 Nov 2026); it reads a MORE on EnemyPinBuildup (CalcOffence's
+    poise buildups), and the boss's Pinned uptime comes from PoB's PinBuildupAvg (conditions' Pinned, MECH46), which is 0
+    unless the skill can Pin. Tagged to the supported skill at the share models.near_boss_share gives from the boss
+    distance the build is calculated at: full within 2 m, none at 12 m, linear between (assumed from "scaling").
+  sources: ["SupportLockdownPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  test_in_game: "Pin a dummy from 2 m and from 7 m with a supported Pinning skill: hits to Pin (about 2.2x and 1.6x as fast as without)."
+  status: proposed
