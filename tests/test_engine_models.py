@@ -1339,3 +1339,29 @@ def test_the_boss_is_scored_with_its_own_resistances_not_pob_s_50(engine):
     assert {k: config[k] for k in pob} == bosses.config_vars()
     at_ash = build.call("stats", fields=FIELDS)["CombinedDPS"]
     assert at_50 > 0 and 1.5 < at_ash / at_50 <= 2.31
+
+
+def test_a_unique_granting_a_remnant_source_is_tried_for_real_in_the_gear_round(engine):
+    """SEARCH3: every Shaman of the Explosive Transmutation request scored 0 in POE2T733. The explosion's trigger rate
+    comes from the build's Remnant sources, and the gear what-if can see neither The Hollow Mask's granted Wildwood's
+    Gifts nor the rate it brings: it scored the mask below the bare build (probe POE2T738). Gear.assumption_trials equips
+    it for real, settles (the main group then calculates the Transmutation Explosion) and keeps it."""
+    import json
+
+    from builder import ROOT
+
+    body = json.loads((ROOT / "benchmarks/user_requests/et_acolyte_shaman.json").read_text(encoding="utf-8"))
+    payload = make_payload(BuildRequest.model_validate(body))
+    payload["unique_prices"] = {"The Hollow Mask": [0.01, 50]}
+    skeleton = next(s for s in enumerate_skeletons(Context(payload), ["Explosive Transmutation"])[0]
+                    if s.ascendancy == "Shaman" and "Wand + Focus" in s.label)
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    before = build.score
+    assert build.objective.dps(build.stats) == 0  # no Remnant source yet
+    assert search.gear.assumption_trials(float("inf"))
+    assert build.equipped["Helmet"].name == "The Hollow Mask" and build.score > before
+    assert build.objective.dps(build.stats) > 0
+    group = build.main_group()
+    assert group["skills"][group["mainActiveSkill"] - 1]["name"] == "Transmutation Explosion"

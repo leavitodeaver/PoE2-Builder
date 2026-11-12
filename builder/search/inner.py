@@ -115,6 +115,7 @@ class Search:
         self.gear.refill_main = self.gems.refill_main_supports
         self.gear.fit_requirements = self.tree.fit_requirements
         self.gear.resolve = self.resolve
+        self.gear.relevant_skill = self.assumptions.relevant
         self.usage = Usage(self.build, self.conditions, self.gear.flask_rate,  # (weapons: the Talisman rule, usage.py)
                            {1: sk.weapon, **({2: sk.swap_weapon} if sk.swap else {})})
         self.gems.usage = self.usage

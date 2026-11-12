@@ -63,6 +63,10 @@ SLOT_RESTRICTIONS = {
     "Can't use Helmets": ("Helmet", "empty"),
 }
 GRANTED_SKILL = re.compile(r"^Grants Skill: (?:Level \S+ )?")
+# Any line granting a skill, the skill's name in group 1 (a unique's raw keeps PoB's {variant:..}{range:..} tags in front)
+GRANTED_NAME = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$", re.M)
+# Switch for the source-item trials (assumption_trials): POE2_SOURCE_TRIALS=0 turns them off for a run
+SOURCE_TRIALS = os.environ.get("POE2_SOURCE_TRIALS", "1") != "0"
 AFFIX_ALLOWED = re.compile(r"^([+-]\d+) (Prefix|Suffix) Modifiers? allowed\s*$", re.M)
 
 
@@ -141,6 +145,7 @@ class Gear:
     fill_granted = None  # fills an item's granted meta group with a spell (gems.granted_meta_round); set by the search
     refill_main = None  # refills the main group's supports (gems.refill_main_supports); set by the search
     fit_requirements = None  # re-routes the tree to new gear's attribute requirements (tree.fit_requirements); set by the search
+    relevant_skill = None  # would a granted skill change an assumption (Assumptions.relevant)? set by the search
 
     def flask_rate(self, pool: str) -> tuple[float, float]:
         """(charges generated per second, maximum charges) of the equipped flask for this pool, for
@@ -626,6 +631,7 @@ class Gear:
         slots = list(self.slots)
         if full:  # a full round that ran out of time last task goes on from the slot it stopped at
             self._anoint_screen = None
+            improved = self.assumption_trials(deadline)
             start = slots.index(self.resume) if self.resume in slots else 0
             slots = slots[start:] + slots[:start]
             self.resume = None
@@ -693,6 +699,42 @@ class Gear:
             improved = self.granted_meta_trials(deadline) or improved
         if full:
             self.update_lambda()
+        return improved
+
+    def assumption_trials(self, deadline: float) -> bool:
+        """A unique granting a skill an assumption counts (Assumptions.relevant: a Remnant source while Explosive
+        Transmutation's explosion is in the build, e.g. The Hollow Mask's Wildwood's Gifts) is tried for real: equipped,
+        settled (the assumptions re-applied and the main group's calculated skill chosen again), kept if the build scores
+        better. A plain item what-if sees neither: PoB makes an item's granted skill only in its main calculation (CalcSetup
+        env.mode == "MAIN", variant_options' note), and the explosion's trigger rate is a modifier the assumptions set from the committed build (SEARCH3: the Shaman ET
+        builds of POE2T733 scored 0 with The Hollow Mask in their options). Run first in a full round, so a 60 s probe
+        reaches it before its skeleton is ranked."""
+        if not SOURCE_TRIALS or self.relevant_skill is None:
+            return False
+        build = self.build
+        improved = False
+        for slot in self.slots:
+            if slot in build.locked_slots or is_flask_slot(slot) or clock.now() > deadline:
+                continue
+            current = build.equipped.get(slot)
+            for option in self.candidates(slot):
+                if not option.unique or clock.now() > deadline:
+                    continue
+                granted = [m.group(1) for m in GRANTED_NAME.finditer(option.raw)]
+                if not any(self.relevant_skill(name) for name in granted):
+                    continue
+                if current is not None and current.raw and any(name in current.raw for name in granted):
+                    continue  # (the slot already holds an item granting it)
+                snap, before = build.snapshot(), build.score
+                self.put(slot, option)
+                self.settle()
+                if self.fit_requirements is not None:
+                    self.fit_requirements(min(deadline, clock.now() + REQUIREMENT_FIT_SECONDS))
+                if build.score > before + EPSILON and self.adjusted(build.score, option) > self.adjusted(before, current):
+                    improved, current = True, option
+                    continue
+                build.restore(snap)
+                self.settle()
         return improved
 
     def granted_meta_trials(self, deadline: float) -> bool:
