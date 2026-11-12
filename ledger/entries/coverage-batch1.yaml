@@ -470,8 +470,11 @@
     OVERCOUNT fixed (FIX_QUEUE, COV-D's leftover; MECHC4): PoB leaves the line unparsed, so it kept showing Energy
     Shield regeneration, and three readers use that number: the Energy model, objective.RECOVERY_POOLS and the flask
     cap. The stand-in is the wording ModParser.lua 5165 maps to flag NoEnergyShieldRegen ("you cannot regenerate
-    energy shield"). Regeneration only: Recharge, Leech and Recoup still recover Energy Shield (the line names
-    Regeneration alone).
+    energy shield"). This line stops Regeneration only; Scarred Faith's own "Energy Shield does not Recharge" (PoB
+    parses it: ModCache 7379, NoEnergyShieldRecharge) stops Recharge, and its "You cannot Recover Energy Shield to
+    above Armour" is parsed too (ModCache 9889, ArmourESRecoveryCap), so a Scarred Faith build recovers Energy
+    Shield by neither Regeneration nor Recharge (AUDIT20 A20-4: KeywordPopups ScarredFaith's four lines). Leech and
+    Recoup are not stopped by this line.
   sources: ["https://poe2db.tw/us/Scarred_Faith", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (you cannot regenerate energy shield)"]
   test_in_game: "With Scarred Faith and an Energy Shield regeneration source, the character sheet shows no Energy Shield regeneration."
   status: proposed

@@ -22,6 +22,23 @@
   sources: ["Pickup range; the Explosive Transmutation assumption uses Remnant creation rates"]
   status: approved
 
+- id: no-effect-flee
+  title: Making enemies Flee (no effect on a Unique boss)
+  kind: pob_gap
+  match: '(?i)\b(cause (bleeding )?(enemies|monsters?) to flee|chance to flee)\b'
+  replace: []
+  confidence: datamined
+  notes: >-
+    Flee has no damage part, and every Unique-rarity monster carries MonsterUnique7, monster_chance_to_not_flee_% 100
+    (Mods.json, the rarity mod set MonsterUnique1-14; the boss presets are Unique rarity), so on a boss these lines
+    do nothing (RESEARCH20 #117, HIGH; checked there: every use of monster_chance_to_not_flee_% is one of the three
+    rarity mods MonsterUnique7 / MonsterRare7 / MonsterMagic7; a second source for the mod itself was not fetched).
+    They still work on Magic monsters (50% chance not to flee). Lines today: Exclusive unique mods on Flee on block,
+    on hit, on flask use, Bleeding enemies on hit, and socketed Chance to Flee supports.
+  sources: ["data/game-26476662/tables/Mods.json MonsterUnique7", "scratch/manager/research/block-plan-cull-flee-fated-end.md"]
+  test_in_game: "Not needed for the calculated numbers."
+  status: proposed
+
 - id: no-effect-slow-potency
   title: Slowing potency of debuffs on you
   kind: pob_gap
