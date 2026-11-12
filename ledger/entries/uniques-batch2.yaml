@@ -1,0 +1,192 @@
+# Unique items' lines, second batch (COVD2, 12 Nov 2026): the coverage audit's open unique lines ranked 75-140
+# (builder/ledger/coverage.py; the ranking as of origin/main fe5bfa5 + uniques-batch1.yaml), translated into lines PoB
+# calculates, recorded as an input for a custom model, or recorded as absorbed by an assumption the tool already makes.
+# Lines that need a model stay open and are routed in scratch/manager/workers/COVD2.report.md.
+#
+# Game files: data/game-26476662/tables (Mods.json, Stats.json, KeywordPopups.json). Unique texts: PoB's export
+# (data/pob-bb52d6b368/uniques.json). Patterns accept a roll range or a rolled number: (\(\d+-\d+\)|\d+).
+# PoE2 0.5.x; recheck at the 1.0 refresh.
+
+# Translations -----------------------------------------------------------------------------------------------------
+
+- id: uniques-waveshaper-mana-regen-to-es-recharge
+  title: Waveshaper, increases to Mana Regeneration Rate also apply to Energy Shield Recharge Rate (first half of a two-line mod)
+  kind: pob_gap
+  match: '^Increases and Reductions to Mana Regeneration Rate also$'
+  replace: ['Increases and Reductions to Mana Regeneration Rate also apply to Energy Shield Recharge Rate']
+  confidence: datamined
+  notes: >-
+    PoB's export breaks the mod over two lines ("... also" / "apply to Energy Shield Recharge Rate"), so its parser
+    reads neither, though ModParser.lua has the whole sentence (flag ManaRegenAppliesToEnergyShieldRecharge, which
+    CalcDefence.lua reads where it works out Energy Shield Recharge). Same pattern as uniques-yoke-ailment-types.
+  sources: ["https://poe2db.tw/us/Waveshaper", "data/pob-bb52d6b368/uniques.json (Waveshaper)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (also apply to energy shield recharge rate)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcDefence.lua (ManaRegenAppliesToEnergyShieldRecharge)"]
+  test_in_game: "Wear Waveshaper, note the Energy Shield Recharge rate, add an increased Mana Regeneration Rate line: Recharge rises by the same percentage."
+  status: proposed
+
+- id: uniques-waveshaper-second-line
+  title: Waveshaper, second half of the two-line mod ("apply to Energy Shield Recharge Rate")
+  kind: pob_gap
+  match: '^apply to Energy Shield Recharge Rate$'
+  replace: []
+  confidence: datamined
+  notes: "Carried by uniques-waveshaper-mana-regen-to-es-recharge, which translates the whole sentence from its first line."
+  sources: ["data/pob-bb52d6b368/uniques.json (Waveshaper)"]
+  test_in_game: "As uniques-waveshaper-mana-regen-to-es-recharge."
+  status: proposed
+
+- id: uniques-twisted-empyrean-mace-conversion
+  title: Twisted Empyrean, Convert 100% of Fire Damage with Mace Skills to Cold Damage
+  kind: pob_gap
+  match: '^Convert (\d+)% of Fire Damage with Mace Skills to Cold Damage$'
+  replace: ['Convert {1}% of Fire Damage of Mace Skills to Cold Damage']
+  confidence: datamined
+  notes: >-
+    PoB's parser has this mod in another word order, "convert N% of <type> damage of <skill type> skills to <type>
+    damage" (ModParser.lua, commented "Twisted Empyrean"): FireDamageConvertToCold BASE N with ModFlag.Mace. The game's
+    text says "with Mace Skills", so PoB never matches it. ModFlag.Mace limits it to hits with a Mace, where the
+    game says Mace skills; a Mace skill used with a Mace (the unique is one) is the same set (UNVERIFIED for a Mace
+    skill used without one, which the weapon's own line can't reach while it's not equipped anyway).
+  sources: ["https://poe2db.tw/us/Twisted_Empyrean", "data/pob-bb52d6b368/uniques.json (Twisted Empyrean)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (convert (%d+)%% of (%a+) damage of (%a+) skills to (%a+) damage)"]
+  test_in_game: "With Twisted Empyrean and a Fire damage support on a Mace skill, the skill's tooltip shows Cold damage and no Fire."
+  status: proposed
+
+- id: uniques-blackgleam-pierce-ignited
+  title: Blackgleam, Projectiles Pierce all Ignited enemies
+  kind: pob_gap
+  match: '^Projectiles Pierce all Ignited enemies$'
+  replace: ['Projectiles Pierce all Burning enemies']
+  confidence: datamined
+  notes: >-
+    PoB knows the PoE1 wording "projectiles pierce all burning enemies" (ModParser.lua: PierceAllTargets while the
+    enemy is Burning), and its setup makes every Ignited actor Burning (CalcSetup.lua initModDB, applied to the enemy
+    too: Condition:Burning when Condition:Ignited). So the translation keeps the game's condition: Pierce while the
+    boss is Ignited, which is the condition resolver's Ignite uptime. Against one boss Pierce adds no hit on the
+    boss itself; it moves only lines that read the Pierce count (CalcOffence.lua PierceCount).
+  sources: ["https://poe2db.tw/us/Blackgleam", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (projectiles pierce all burning enemies)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcSetup.lua (Condition:Burning from Condition:Ignited)"]
+  test_in_game: "With Blackgleam, shoot a line of Ignited enemies: the arrow passes through all of them."
+  status: proposed
+
+# Energy model input -------------------------------------------------------------------------------------------------
+
+- id: uniques-energy-refund-always
+  title: Collapsing Horizon, Trigger skills refund half of Energy spent (always; Energy model input)
+  kind: pob_gap
+  model: energy
+  match: '^Trigger skills refund half of Energy spent$'
+  replace: ['mult:EnergyRefund 100']
+  confidence: datamined
+  notes: >-
+    The game files give this line the same stat as the "N% chance for Trigger skills to refund half of Energy Spent"
+    lines (Mods UniqueTriggersRefundEnergySpent1: trigger_skills_refund_half_energy_spent_chance_% [100, 100]); at 100
+    the text drops the "chance". So it is EnergyRefund 100 for the Energy model (models.py: Energy per trigger
+    x (1 - p/200), p capped at 100): an Energy-limited meta skill triggers twice as often. PoB leaves the line unparsed
+    (RESEARCH5, scratch/manager/research/meta-energy-refund.md: the earlier entries' regexes need "N% chance", so
+    nothing counted it: an undercount). Refund sources stack additively up to the 100 cap in the model.
+  sources: ["data/game-26476662/tables/Mods.json (UniqueTriggersRefundEnergySpent1)",
+            "data/game-26476662/tables/Stats.json (trigger_skills_refund_half_energy_spent_chance_%)",
+            "https://poe2db.tw/us/Collapsing_Horizon", "ledger/entries/custom-models.yaml (meta-energy-refund)"]
+  test_in_game: "With Collapsing Horizon and a Cast on Critical meta gem, watch the meta gem's Energy bar: each trigger takes half the Energy it takes without the staff."
+  status: proposed
+
+# On-kill lines: absorbed by the tool's boss-fight assumption --------------------------------------------------------
+# On-kill sources aren't counted against the lone-boss target (no adds modelled; some encounters, such as Simulacrum
+# waves and Breach domains, do have kills): conditions.py and flasks.py count no kills. That is the tool's modelling
+# premise, not a game rule (RESEARCH2, scratch/manager/research/boss-fight-kills.md: MEDIUM); the boss itself dies once,
+# at the end. These entries record that the lines fall under it, as uniques-batch1.yaml's on-kill entries do.
+
+- id: uniques-last-lament-bolt-on-kill
+  title: The Last Lament, chance to load a bolt into all Crossbow skills on Kill
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% chance to load a bolt into all Crossbow skills on Kill$'
+  replace: []
+  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  confidence: theory
+  sources: ["https://poe2db.tw/us/The_Last_Lament", "scratch/manager/research/boss-fight-kills.md"]
+  test_in_game: "None needed for a lone boss; on a map, kills reload Crossbow skills."
+  status: proposed
+
+- id: uniques-killjoy-on-kill-twice
+  title: Killjoy, On-Kill Effects happen twice
+  kind: pob_gap
+  match: '^On-Kill Effects happen twice$'
+  replace: []
+  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  confidence: theory
+  notes: "Doubles on-kill effects, which the tool counts at 0 against a lone boss, so twice 0."
+  sources: ["https://poe2db.tw/us/Killjoy", "scratch/manager/research/boss-fight-kills.md"]
+  test_in_game: "None needed for a lone boss."
+  status: proposed
+
+- id: uniques-runefather-boast-on-kill
+  title: Eyes of the Runefather, gain Runefather's Boast per Power of Challenged targets you kill
+  kind: pob_gap
+  match: "^Gain \\d+ Runefather's Boast per Power of targets affected by Runefather's Challenge you kill$"
+  replace: []
+  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  confidence: theory
+  notes: "Only the Boast line; the unique's \"Off-hand Hits inflict Runefather's Challenge\" stays open (COVD2 report)."
+  sources: ["https://poe2db.tw/us/Eyes_of_the_Runefather", "scratch/manager/research/boss-fight-kills.md"]
+  test_in_game: "None needed for a lone boss."
+  status: proposed
+
+- id: uniques-gravebind-kills-count-as-yours
+  title: Gravebind, enemies in your Presence killed by anyone count as being killed by you
+  kind: pob_gap
+  match: '^Enemies in your Presence killed by anyone count as being killed by you instead$'
+  replace: []
+  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  confidence: theory
+  notes: "Turns allies' and minions' kills into yours for on-kill lines; with no kills counted it changes nothing."
+  sources: ["https://poe2db.tw/us/Gravebind", "scratch/manager/research/boss-fight-kills.md"]
+  test_in_game: "None needed for a lone boss."
+  status: proposed
+
+- id: uniques-trampletoe-overkill
+  title: Trampletoe, deal a share of Overkill damage to enemies near the enemy killed
+  kind: pob_gap
+  match: '^Deal (\(\d+-\d+\)|\d+)% of Overkill damage to enemies within \d+ metres of the enemy killed$'
+  replace: []
+  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  confidence: theory
+  notes: "Overkill damage exists only when an enemy dies; the boss's own death ends the fight."
+  sources: ["https://poe2db.tw/us/Trampletoe", "scratch/manager/research/boss-fight-kills.md"]
+  test_in_game: "None needed for a lone boss."
+  status: proposed
+
+- id: uniques-es-recharge-on-kill
+  title: Deathrattle, chance for Energy Shield Recharge to start when you Kill an Enemy
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% chance for Energy Shield Recharge to start when you Kill an Enemy$'
+  replace: []
+  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  confidence: theory
+  sources: ["https://poe2db.tw/us/Deathrattle", "scratch/manager/research/boss-fight-kills.md"]
+  test_in_game: "None needed for a lone boss."
+  status: proposed
+
+- id: uniques-shatter-on-kill
+  title: Sculpted Suffering, Fully Armour Broken enemies you kill with Hits Shatter
+  kind: pob_gap
+  match: '^Fully Armour Broken enemies you kill with Hits Shatter$'
+  replace: []
+  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  confidence: theory
+  notes: "Shattering removes the corpse; it adds no damage to the boss fight."
+  sources: ["https://poe2db.tw/us/Sculpted_Suffering", "scratch/manager/research/boss-fight-kills.md"]
+  test_in_game: "None needed for a lone boss."
+  status: proposed
+
+- id: uniques-life-on-poisoned-kill
+  title: Heart of the Well, Recover a share of maximum Life on Killing a Poisoned Enemy
+  kind: pob_gap
+  match: '^Recover (\(\d+-\d+\)|\d+)% of maximum Life on Killing a Poisoned Enemy$'
+  replace: []
+  absorbed_by: "on-kill sources aren't counted against the lone-boss target (conditions.py, flasks.py; no adds modelled)"
+  confidence: theory
+  sources: ["https://poe2db.tw/us/Heart_of_the_Well", "scratch/manager/research/boss-fight-kills.md"]
+  test_in_game: "None needed for a lone boss."
+  status: proposed
