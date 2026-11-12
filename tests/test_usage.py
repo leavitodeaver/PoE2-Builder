@@ -162,6 +162,22 @@ def test_combo_finishers_name_the_builds_strikes_and_their_rate(fresh_rules):
     build.stats = {"passives": [{"name": "Martial Master"}, {"name": "Martial Adept"}]}
     uses, share, builder = usage.combo_rate("Combo Finisher II", 5)  # 2.5 Boneshatters at 3/s, then 1 s: 1/(5/6 + 1)
     assert builder == "Boneshatter" and abs(uses - 6 / 11) < 1e-9
+    # A13-2 (COVC8): "N% chance to build an additional Combo on Hit" from passives and items (each gain), Practiced
+    # Combo (40%, the builder in its group): 1 + 1 (Adept) + 0.1 + 0.4 = 2.5 a gain: 2 Boneshatters (2/3 s), then 1 s
+    rules["Practiced Combo"] = {"comboChance": 40, "stats": {}}
+    types["Practiced Combo"] = []
+    build.group_list = [combo_group(0, "Falling Thunder", "Combo Finisher II"),
+                        combo_group(1, "Boneshatter", "Practiced Combo")]
+    build.stats = {"passives": [{"name": "Martial Master"}, {"name": "Martial Adept"}],
+                   "lines": [{"source": "passive:Combo Gain", "text": "10% chance to build an additional Combo on Hit"},
+                             {"source": "gem:Practiced Combo", "text": "10% chance to build an additional Combo on Hit"},
+                             {"source": "item:Belt", "text": "5% chance to build an additional Combo on Hit while x"}]}
+    assert usage.combo_chance() == 10 and usage.group_combo_chance(1) == 40 and usage.group_combo_chance(0) == 0
+    uses, share, builder = usage.combo_rate("Combo Finisher II", 5)
+    assert builder == "Boneshatter" and abs(uses - 0.6) < 1e-9
+    build.stats["lines"].append({"source": "item:Amulet", "text": "Build an additional Combo on Hit"})
+    assert usage.combo_chance() == 110  # (capped at 100% in the gain: 1 + 1 + 1 = 3 a gain)
+    assert abs(usage.combo_rate("Combo Finisher II", 6)[0] - 1 / (2 / 3 + 1)) < 1e-9
 
 
 def test_concoctions_need_a_mana_flask_that_gains_charges(fresh_rules):
@@ -257,6 +273,7 @@ def test_pob_marks_the_gems_that_cant_be_used_at_will(engine):
         assert rules[name]["stats"]["active_skill_requires_X_glory"] == 200, name  # (the GlorySkill condition reads it)
         assert [r.kind for r in requirements(name, rules[name])] == ["placed banner"], name
     assert "Rapid Attacks II" not in rules
+    assert rules["Practiced Combo"]["comboChance"] == 40 and not requirements("Practiced Combo", rules["Practiced Combo"])
     cost = engine.call("flaskThrowCost")  # (COVC8: the Concoctions' throw cost modifiers; none on an empty build)
     assert (cost["usedInc"], cost["usedMore"], cost["notConsume"]) == (0, 1, 0)
 

@@ -3123,6 +3123,13 @@ function bridge.usageRules()
 							talismanStat(stat[1])
 						end
 					end
+					-- "N% chance to build an additional Combo on Hit" (Practiced Combo; usage.py combo_rate, COVC8)
+					for _, stat in ipairs(statSet.constantStats or { }) do
+						if stat[1] == "additional_combo_gain_chance_%" then
+							rule.comboChance = stat[2]
+							found = true
+						end
+					end
 					-- Skyfall's Glory gate is a per-level stat, not a constant one: its value at level 20
 					for i, name in ipairs(statSet.stats or { }) do
 						if name == "active_skill_requires_X_glory" and stats[name] == nil then

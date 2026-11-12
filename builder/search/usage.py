@@ -62,10 +62,19 @@ sustainable source for what a use needs:
   of [Weapon Set]": stat_descriptions.csd) makes any Attack of the build a builder, on any weapon set; Martial Adept
   (AscendancyMonk1Notable1_: additional_combo_gain_on_hit, "When you gain [Combo], gain an additional [Combo]") makes
   each gain 2 (COVC7, A11-4; checked: both passives' stats' columns in every game table, scratch/covc5/where.py: those
-  two passives only; PoB's ModCache parses none of their lines). UNVERIFIED and left out, all on the side of fewer
-  uses: the Combo skill's own Strikes building its next use, Combo from several hits of one use and the chance-based
-  extra Combo (additional_combo_gain_chance_%: Practiced Combo, 7 passives, 3 mods) (checked: every game-table row
-  holding a Stats id with "combo", scratch/covc5/where.py; RULE_AUDIT row 12 lists the same carriers)
+  two passives only; PoB's ModCache parses none of their lines). The chance-based extra Combo (COVC8, A13-2;
+  additional_combo_gain_chance_%, "{0}% chance to build an additional [Combo] on [Hit]", 100 and up "Build an
+  additional [Combo] on [Hit]": stat_descriptions.csd; HIGH for the text) adds its chance to each gain: the passives'
+  and items' lines (bridge sourceLines; carriers, checked: the stat's columns in every game table, where.py: the
+  passives area_attacks45__ / 46 / 49 (5%), unarmed1 (5%), unarmed2 / unarmed6 (10%), unarmed11 Chakra of Rhythm
+  (20%), the Mods BerserkInfluenceAdditionalCombo1 / 2 and AbyssModQuarterstaffAmanamuSuffix..., and Practiced Combo's
+  support set (40%); PoB's ModCache leaves "N% chance to build an additional Combo on Hit" unparsed) for every
+  builder, and Practiced Combo (bridge usageRules comboChance; it supports Strikes, so the builders) for the builder
+  in its group; the total chance is capped at 100%. With Martial Adept the two are added (1 + chance + 1 a gain;
+  UNVERIFIED whether Adept's extra also doubles the chanced one: the lower figure). UNVERIFIED and left out, all on
+  the side of fewer uses: the Combo skill's own Strikes building its next use and Combo from several hits of one use
+  (checked: every game-table row holding a Stats id with "combo", scratch/covc5/where.py; RULE_AUDIT row 12 lists the
+  same carriers)
 - a banner's placed effect (Requirement kind "placed banner", never a blocker; COVC8, COVC7's find). War, Dread and
   Defiance Banner (the three banners; checked: PoB Data/Skills SkillType.Banner, and the game's ActiveSkills ids
   holding "banner": the same three, each with a _reservation twin) are two effects (PoB: WarBannerReservationPlayer etc., HasReservation and Persistent, which "While
@@ -143,6 +152,8 @@ MOVED = "skill_unusable_until_moved_X_distance"
 UNITS_PER_METRE = 10  # (the stat text's divide_by_ten; HIGH)
 BASE_RUN = 3.8  # metres a second at 0% increased movement speed (LOW: one 2016 PoE1 measurement; module docstring)
 ROLL_METRES = 4.6  # a dodge roll's distance (DodgeRollPlayer dodge_roll_base_travel_distance 46)
+# "N% chance to build an additional Combo on Hit" (module docstring; A13-2)
+COMBO_CHANCE = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to build|build) an additional combo on hit$", re.I)
 # The Invoker's Combo passives (module docstring)
 MARTIAL_MASTER = "Martial Master"
 MARTIAL_ADEPT = "Martial Adept"
@@ -305,9 +316,29 @@ class Usage:
                       default=None)
         if builder is None or own <= 0 or number(builder.get("speed")) <= 0:
             return None
-        gain = 2.0 if self.has_passive(MARTIAL_ADEPT) else 1.0
-        uses, share = combo_rotation(amount, number(builder["speed"]), own, gain)
+        adept = 1.0 if self.has_passive(MARTIAL_ADEPT) else 0.0
+        chance = self.combo_chance()
+        gain = lambda r: 1.0 + adept + min(chance + self.group_combo_chance(r["index"]), 100.0) / 100
+        builder = max((r for r in rates if r["index"] != mine[0]["index"] and number(r.get("speed")) > 0),
+                      key=lambda r: number(r.get("speed")) * gain(r), default=builder)
+        uses, share = combo_rotation(amount, number(builder["speed"]), own, gain(builder))
         return uses, share, builder["name"]
+
+    def combo_chance(self) -> float:
+        """% chance to build an additional Combo on Hit from the build's passives and items (module docstring)."""
+        total = 0.0
+        for line in self.build.call("sourceLines").get("lines") or []:
+            if str(line.get("source", "")).startswith(("passive:", "item:")):
+                m = COMBO_CHANCE.match(str(line.get("text", "")).strip())
+                if m:
+                    total += float(m.group(1)) if m.group(1) else 100.0
+        return total
+
+    def group_combo_chance(self, index: int | None) -> float:
+        """% chance to build an additional Combo from the supports in group `index` (Practiced Combo)."""
+        group = next((g for g in self.build.groups() if g.get("index") == index), None)
+        return sum(number((self.rules.get(g["name"]) or {}).get("comboChance")) for g in (group or {}).get("gems", [])
+                   if g.get("enabled", True))
 
     def travel_rate(self, name: str) -> tuple[float, float, float, float] | None:
         """(uses per second, share of PoB's at-will damage, share of the fight spent walking, uses per second if dodge
