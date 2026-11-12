@@ -1,0 +1,303 @@
+# Active-gem stats PoB never reads, batch 2 (COVC2, 12 Nov 2026): the next rows of the coverage audit's gem-stat ranking
+# and the stats COVC1 left unclear. Skill lists are the active skills (not supports: COV-E's) whose stat set carries the
+# stat in the data dump (data/pob-bb52d6b368/coverage.json); the same stat on any other skill stays open.
+# Values are the game's (data/game-26476662/tables GrantedEffectStatSets / ...PerLevel, scratch/covc2/gv.py in cov3).
+# "No effect" records were each checked: no line in any stat description (.csd) of build 26476662, no reader in PoB
+# (vendor src, every .lua outside the skill data and stat descriptions), none in our code (scratch/covc2/check.py).
+
+# 1. PoB counts it another way ----------------------------------------------------------------------------------------
+
+- id: gem-active-pob-arrow-flag
+  title: "Fires arrows: PoB's stat map makes it the Arrow keyword"
+  kind: gem_stat
+  match: '^skill_can_fire_arrows$'
+  replace: []
+  skill: ["Bow Shot", "Detonating Arrow", "Electrocuting Arrow", "Escape Shot", "Freezing Salvo", "Gas Arrow",
+          "Ice Shot", "Lightning Arrow", "Lightning Rod", "Magnetic Salvo", "Phantasmal Arrow",
+          "Poisonburst Arrow", "Rain of Arrows", "Shockchain Arrow", "Snipe", "Spiral Volley",
+          "Stormcaller Arrow", "Tornado Shot", "Toxic Growth", "Vine Arrow"]
+  confidence: datamined
+  notes: >-
+    The audit lists it as 'PoB maps the stat to nothing' because its map entry holds no modifier, only skillFlag =
+    "arrow" (Data/SkillStatMap.lua 1799). CalcActiveSkill.lua 576-577 sets that flag for any non-zero mapped stat, and
+    646-648 turns it into KeywordFlag.Arrow, which arrow modifiers need. The stat's game text is the projectile count
+    ('Fires {0} Arrows', skill_stat_descriptions.csd, paired with base_number_of_projectiles, which PoB maps to
+    ProjectileCount). So PoB counts both. (checked: every SkillStatMap.lua and Data/Skills entry with only a
+    skillFlag, against the open ranking: this is the only one open; scratch/covc2 in cov3.) For COV-A: the audit could
+    count a skillFlag map as read.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/SkillStatMap.lua 1799-1801",
+           "vendor/PathOfBuilding-PoE2/src/Modules/CalcActiveSkill.lua 576-577, 646-648",
+           "data/game-26476662/files skill_stat_descriptions.csd"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-pob-not-melee
+  title: "Attacks that aren't Melee: PoB never gives these stat sets the melee flag"
+  kind: gem_stat
+  match: '^attack_is_not_melee_override$'
+  replace: []
+  skill: ["Crackling Palm", "Fan the Flames", "Freezing Explosion", "Gelid Palm", "Herald of Blood",
+          "Herald of Ice", "Herald of Thunder", "Herald of the Royal Queen", "Meteors", "Moonbeam",
+          "Vivid Stampede"]
+  confidence: datamined
+  notes: >-
+    The game marks these attacks (Herald explosions and bolts, palm bursts and bolts, Fan the Flames, Meteors,
+    Moonbeam, Vivid Stampede) as not Melee. PoB's melee flag comes only from a stat set's baseFlags
+    (CalcActiveSkill.lua 170-179), and none of these sets has melee = true (checked: every PoB stat set carrying the
+    stat, 13 sets of 11 skills; SkillType.Melee absent from each skill's types too). So PoB gives them no Melee
+    modifiers, as in the game.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/CalcActiveSkill.lua 170-179, 527-541",
+           "vendor/PathOfBuilding-PoE2/src/Data/Skills (each skill's statSets baseFlags)"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+# 2. Read by our models ----------------------------------------------------------------------------------------------
+
+- id: gem-active-model-mark-limit
+  title: "One Mark of each type on an enemy: the Mark model counts one"
+  kind: model
+  model: marks
+  stats: ["number_of_marks_allowed_per_type"]
+  skill: ["Bloodhound's Mark", "Freezing Mark", "Predator's Mark", "Sniper's Mark", "Voltaic Mark"]
+  confidence: datamined
+  notes: >-
+    number_of_marks_allowed_per_type 1 ('Limit {0} Marked target', skill_stat_descriptions.csd): each Mark can be on
+    one enemy at a time. The tool's fight is one boss, and models.mark_model counts one Mark on it at a time
+    (marks[:1]), which keeps within the limit.
+  sources: ["builder/search/models.py mark_model", "data/game-26476662/files skill_stat_descriptions.csd"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+
+# 3. Translated -----------------------------------------------------------------------------------------------------
+
+- id: gem-active-shattering-spite-ailments
+  title: "Shattering Spite: 50% less Magnitude of Damaging Ailments"
+  kind: gem_stat
+  match: '^active_skill_damaging_ailment_effect_\+%_final$'
+  replace: ["1% more Magnitude of Damaging Ailments you inflict"]
+  skill: ["Shattering Spite"]
+  confidence: datamined
+  notes: >-
+    active_skill_damaging_ailment_effect_+%_final -50 on the skill's only stat set ('{0}% less Magnitude of Damaging
+    Ailments inflicted', skill_stat_descriptions.csd). PoB has the stat in its skill data but maps it to nothing, so
+    its Ignite, Bleeding and Poison from the explosion were counted at full magnitude: an overcount. Counted as more
+    AilmentMagnitude (PoB's Poison, Bleed and Ignite keywords) for this skill.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (ShatteringSpitePlayer)",
+           "data/game-26476662/files skill_stat_descriptions.csd", "https://poe2db.tw/us/Shattering_Spite"]
+  test_in_game: "Shattering Spite with a Bleed or Ignite source: the ailment from the explosion is half the size of the same hit's from another skill."
+  status: proposed
+
+# 4. Changes nothing the tool calculates ------------------------------------------------------------------------------
+
+- id: gem-active-noeffect-skill-desired-amount-override
+  title: "Desired-amount override (1 on every persistent skill)"
+  kind: gem_stat
+  match: '^skill_desired_amount_override$'
+  replace: []
+  skill: ["Align Fate", "Azmerian Swarms", "Azmerian Wolf", "Black Powder Blitz", "Blood Boil",
+          "Cackling Companions", "Called Shots", "Cast on Block", "Cast on Charm Use", "Crackling Palm",
+          "Curse on Block", "Discipline", "Fire Spell on Melee Hit", "Fulmination", "Future-Past", "Gelid Palm",
+          "Harbinger of Madness", "Heart of Ice", "Herald of the Royal Queen", "Hollow Focus", "Impurity",
+          "Into the Breach", "Kelari's Malediction", "Kelari, the Tainted Sands", "Life Remnants", "Malice",
+          "Manifest Weapon", "Midnight Zenith", "Mirage Deadeye", "Mirror of Refraction", "Mist Raven",
+          "Navira, the Last Mirage", "Purity of Fire", "Purity of Ice", "Purity of Lightning",
+          "Ruzhan, the Blazing Sword", "Sanguine Revelry", "Sorcery Ward", "Spellslinger",
+          "Spiraling Conspiracy", "Spirit Vessel", "Summon Infernal Hound", "Supporting Fire", "Temporal Rift",
+          "Thundergod's Wrath", "Virtuous Barrier", "Void Illusion", "Wild Protector", "Wildwood's Gifts",
+          "Winged Entropy"]
+  confidence: theory
+  notes: >-
+    1 on all 58 player stat sets that carry it (Auras, Heralds, Companions, meta gems, buffs): a constant for how many
+    instances the game keeps up. The skill's own limit and reservation are what PoB and our models read. (checked: no
+    stat description in any .csd, no PoB reader outside the skill data, none in our code; scratch/covc2/check.py.)
+    What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-ballistic-projectiles-always-bounce
+  title: "Grenades always bounce before they land"
+  kind: gem_stat
+  match: '^ballistic_projectiles_always_bounce$'
+  replace: []
+  skill: ["Cluster Grenade", "Explosive Grenade", "Flash Grenade", "Gas Grenade", "Grenade", "Ice Fragments",
+          "Oil Grenade", "Voltaic Grenade"]
+  confidence: theory
+  notes: >-
+    Where a grenade comes to rest; its fuse and detonation are other stats (PoB's grenade skills). (checked: no stat
+    description in any .csd, no PoB reader outside the skill data, none in our code; scratch/covc2/check.py.) What it
+    does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-skill-minion-summon-delay-interval-ms
+  title: "Pause between summoning each minion (100 ms)"
+  kind: gem_stat
+  match: '^skill_minion_summon_delay_interval_ms$'
+  replace: []
+  skill: ["Cackling Companions", "Wolf Pack"]
+  confidence: theory
+  notes: >-
+    Cackling Companions and Wolf Pack summon their pack 0.1 s apart; how many and how long they last are other stats.
+    (checked: no stat description in any .csd, no PoB reader outside the skill data, none in our code;
+    scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-projectiles-not-offset
+  title: "Projectiles start from the caster, not offset"
+  kind: gem_stat
+  match: '^projectiles_not_offset$'
+  replace: []
+  skill: ["Caltrops", "Cluster Grenade", "Runeforged Blades", "Volcano"]
+  confidence: theory
+  notes: >-
+    Spawn position. (checked: no stat description in any .csd, no PoB reader outside the skill data, none in our code;
+    scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-console-cast-on-self-custom-range
+  title: "Controller targeting range"
+  kind: gem_stat
+  match: '^console_cast_on_self_custom_range$'
+  replace: []
+  skill: ["Flame Wall", "Frost Wall", "Shockwave Totem", "Tornado Shot", "Voltaic Barrier"]
+  confidence: theory
+  notes: >-
+    Controller aiming only. (checked: no stat description in any .csd, no PoB reader outside the skill data, none in
+    our code; scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-disable-quadruped-head-control
+  title: "Shapeshifted head animation"
+  kind: gem_stat
+  match: '^disable_quadruped_head_control$'
+  replace: []
+  skill: ["Devour", "Hollow Form", "Rend", "Rolling Magma", "Wing Blast"]
+  confidence: theory
+  notes: >-
+    Animation. (checked: no stat description in any .csd, no PoB reader outside the skill data, none in our code;
+    scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-channel-start-lock-cancelling-of-attack-time-pct
+  title: "When a channel can be cancelled after it starts"
+  kind: gem_stat
+  match: '^channel_start_lock_cancelling_of_attack_time_%$'
+  replace: []
+  skill: ["Detonating Arrow", "Gathering Storm", "Hollow Form", "Perfect Strike", "Snipe"]
+  confidence: theory
+  notes: >-
+    Input handling: how soon you may cancel. The channel's start time itself is channel_start_duration_as_%_of_*, left
+    open. (checked: no stat description in any .csd, no PoB reader outside the skill data, none in our code;
+    scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-range-backflip-conditional-distance
+  title: "Backflip only when an enemy is close"
+  kind: gem_stat
+  match: '^range_backflip_conditional_distance$'
+  replace: []
+  skill: ["Comet", "His Foul Emergence", "Lightning Conduit", "Skyfall", "Toxic Growth"]
+  confidence: theory
+  notes: >-
+    Movement (Toxic Growth, Skyfall, ...). (checked: no stat description in any .csd, no PoB reader outside the skill
+    data, none in our code; scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-main-hand-weapon-range-plus
+  title: "Reach added to the weapon's"
+  kind: gem_stat
+  match: '^main_hand_weapon_range_\+$'
+  replace: []
+  skill: ["Glacial Lance", "Lightning Spear", "Spear Throw", "Twister", "Whirlwind Lance"]
+  confidence: theory
+  notes: >-
+    Reach, as the reach stats in batch 1. (checked: no stat description in any .csd, no PoB reader outside the skill
+    data, none in our code; scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-totem-targets-ignoring-action-distance
+  title: "Totems target past their action distance"
+  kind: gem_stat
+  match: '^totem_targets_ignoring_action_distance$'
+  replace: []
+  skill: ["Artillery Ballista", "Dark Effigy", "Mortar Cannon", "Shockwave Totem", "Siege Ballista"]
+  confidence: theory
+  notes: >-
+    Targeting. (checked: no stat description in any .csd, no PoB reader outside the skill data, none in our code;
+    scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-ice-fragment-max-chunk-distance
+  title: "Ice Fragments: farthest chunk placement"
+  kind: gem_stat
+  match: '^ice_fragment_max_chunk_distance$'
+  replace: []
+  skill: ["Ice Fragments"]
+  confidence: theory
+  notes: >-
+    Placement of the chunks. (checked: no stat description in any .csd, no PoB reader outside the skill data, none in
+    our code; scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-ice-fragment-min-chunk-distance
+  title: "Ice Fragments: nearest chunk placement"
+  kind: gem_stat
+  match: '^ice_fragment_min_chunk_distance$'
+  replace: []
+  skill: ["Ice Fragments"]
+  confidence: theory
+  notes: >-
+    Placement of the chunks. (checked: no stat description in any .csd, no PoB reader outside the skill data, none in
+    our code; scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-skill-leylines-minimum-distance-between-leyline-ground-units
+  title: "Leylines: spacing between ground patches"
+  kind: gem_stat
+  match: '^skill_leylines_minimum_distance_between_leyline_ground_units$'
+  replace: []
+  skill: ["Leylines"]
+  confidence: theory
+  notes: >-
+    Placement. (checked: no stat description in any .csd, no PoB reader outside the skill data, none in our code;
+    scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-noeffect-minions-do-not-move-to-skill-target
+  title: "Command skills: the minion doesn't walk to the target first"
+  kind: gem_stat
+  match: '^minions_do_not_move_to_skill_target$'
+  replace: []
+  skill: ["Command"]
+  confidence: theory
+  notes: >-
+    Minion pathing. (checked: no stat description in any .csd, no PoB reader outside the skill data, none in our code;
+    scratch/covc2/check.py.) What it does is read from the id, so: theory.
+  sources: ["data/game-26476662/files (every .csd)", "vendor/PathOfBuilding-PoE2/src"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-curse-level-cap
+  title: "Curses can't apply above a level: 0 at gem level 18 and up"
+  kind: gem_stat
+  match: '^skill_curses_cannot_apply_to_targets_above_level$'
+  replace: []
+  skill: ["Despair", "Elemental Weakness", "Enfeeble", "Repulsion", "Temporal Chains", "Vulnerability"]
+  confidence: datamined
+  notes: >-
+    'Curse does not apply to enemies above level {0}' (skill_stat_descriptions.csd): 72 at gem level 14, 78 at 17, 0
+    (no cap) from 18 (GrantedEffectStatSetsPerLevel, Despair and the other five). The search sockets active gems at
+    level 20 (context.GEM_LEVEL) and item-granted ones at 18 (granted_rolls.ENDGAME_LEVEL), so it never caps a curse.
+    A build with a lower gem would need it.
+  sources: ["data/game-26476662/tables/GrantedEffectStatSetsPerLevel.json", "builder/search/context.py GEM_LEVEL"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed

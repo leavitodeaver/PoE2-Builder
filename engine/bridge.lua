@@ -2870,7 +2870,9 @@ end
 -- and the constant stats that name what a use needs or costs (Glory or Combo required, charges
 -- required, flask charges consumed, Glory built from Life spent). PoB calculates these skills as if
 -- they were used at will. Stat names are matched loosely; usage.py decides what each one means.
-local USAGE_STAT_WORDS = { "require", "cannot_be_used_unless", "flask_charges_on_skill_use", "as_glory" }
+-- "flask_throw": the Concoctions' flask_throw_base_charges_used (5 Mana Flask charges a throw; COVC2, the manager's
+-- ruling of 12 Nov 2026). usage.py reads it but doesn't act on it yet (an open overcount: see FLASK_THROW there).
+local USAGE_STAT_WORDS = { "require", "cannot_be_used_unless", "flask_charges_on_skill_use", "as_glory", "flask_throw" }
 function bridge.usageRules()
 	local rules = setmetatable({ }, { __jsontype = "object" })
 	for _, gem in pairs(build.data.gems) do

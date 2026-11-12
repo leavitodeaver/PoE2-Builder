@@ -36,6 +36,11 @@ CHARGE_VARS = {"frenzy": ("useFrenzyCharges",), "power": ("usePowerCharges",), "
 GLORY = "active_skill_requires_X_glory"
 GLORY_FROM_LIFE = "active_skill_generates_%_of_life_spent_as_glory"
 FLASK = re.compile(r"consume_%_of_maximum_(life|mana)_flask_charges_on_skill_use$")
+# The Concoctions' flat flask cost: flask_throw_base_charges_used 5 (Mana Flask charges a throw; Shattering, Acidic,
+# Fulminating, Explosive, Poisonous Concoction). Read here but left unacted on, by the manager's ruling (12 Nov 2026):
+# PoB throws them at will, an OPEN OVERCOUNT, until MECH-C's rate function (charges gained a second / 5 caps the throws)
+# is on main and wired in (COVC2's report). Kept out of `needs` so the Concoctions' numbers don't change before then.
+FLASK_THROW = "flask_throw_base_charges_used"
 FIELDS = ["Speed", "LifePerSecondCost"]
 
 _RULES: dict[str, dict] | None = None  # PoB's gem data doesn't change within a process
@@ -56,7 +61,7 @@ def requirements(name: str, rule: dict) -> list[Requirement]:
     stats = rule.get("stats") or {}
     found = []
     for stat, value in stats.items():
-        if IGNORED.search(stat):
+        if IGNORED.search(stat) or stat == FLASK_THROW:
             continue
         if m := CHARGES.search(stat):
             kind = m.group(1)
