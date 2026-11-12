@@ -1717,7 +1717,10 @@ class CurseUse:
     name: str
     share: float  # of the fight the boss carries it
     how: str
-    by_hand: bool = False  # cast by hand: one cast per CURSE_DURATION
+    by_hand: bool = False  # cast by hand: one cast per duration
+    # its duration on the boss: PoB's, with the build's Curse Duration modifiers (bridge activeSkills curseDuration, the
+    # stats' "_curse_durations"; AUDIT25 A25-41, MECHB12), else the level-20 base CURSE_DURATION
+    duration: float = CURSE_DURATION
 
 
 def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
@@ -1737,6 +1740,10 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
             name = gem["name"]
             if gem.get("support") or "AppliesCurse" not in types[name]:
                 continue
+            read = number((stats.get("_curse_durations") or {}).get(name))
+            duration = read or CURSE_DURATION
+            lasts = f"{duration:.3g} s" + (" (PoB's, with the build's duration modifiers)" if read else
+                                           " (the level-20 base; PoB gave none)")
             if "Blasphemy" in types:
                 up = 1.0 if radius >= metres else 0.0
                 how = (f"an Aura (Blasphemy) on enemies nearby, taken as your Presence ({radius:.1f} m) with the boss "
@@ -1744,9 +1751,9 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                 uses.append(CurseUse(name, up, how))
             elif meta is not None and rates is not None and name in rates:
                 rate = number(rates[name])
-                up = min(1.0, rate * CURSE_DURATION)
+                up = min(1.0, rate * duration)
                 uses.append(CurseUse(name, up, f"triggered by {meta} {rate:.3f} times/s (its Energy), "
-                                               f"{CURSE_DURATION:g} s each: {up:.0%} of the fight"))
+                                               f"{lasts} each: {up:.0%} of the fight", duration=duration))
             elif meta is not None:
                 uses.append(CurseUse(name, 1.0, f"triggered by {meta}: assumed applied when needed (LOW: no model gives "
                                                 "its trigger rate)"))
@@ -1754,8 +1761,8 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                 uses.append(CurseUse(name, 1.0, "cast by hand once: 'Curses you inflict have infinite Duration' (no "
                                                 "recasts; the first cast at the fight's start isn't counted)"))
             else:
-                uses.append(CurseUse(name, 1.0, f"cast by hand every {CURSE_DURATION:g} s (its duration; recast "
-                                                f"{CURSE_DELAY:g} s before it runs out, the curse delay)", True))
+                uses.append(CurseUse(name, 1.0, f"cast by hand every {lasts} (its duration; recast "
+                                                f"{CURSE_DELAY:g} s before it runs out, the curse delay)", True, duration))
     hits = hits_per_second(stats) > 0
     for text in lines:
         if m := CURSE_ON_HIT.search(text):
@@ -1787,9 +1794,9 @@ def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
         cast = by_name.get(use.name)
         if use.by_hand and main is not None and cast is not None and cast is not main:
             took = cast.cast_time or 0.7
-            lost = min(1.0, took / CURSE_DURATION)
+            lost = min(1.0, took / use.duration)
             mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
-            basis += f"; casting it ({took:.2f} s every {CURSE_DURATION:g} s) takes {lost:.0%} of {main.name}'s time"
+            basis += f"; casting it ({took:.2f} s every {use.duration:.3g} s) takes {lost:.0%} of {main.name}'s time"
         notes.append({"label": f"{use.name}: share of the fight on the boss", "value": round(use.share, 2),
                       "basis": basis + " (PoB counts every curse always up)", "confidence": "theory"})
     share, how = curse_share(uses)
@@ -4792,8 +4799,9 @@ def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict],
 # DoomBlastPlayer: cooldown 150 ms, 3-4 stored uses: no rate of its own. PoB has no trigger for it, so it scored Doom Blast
 # at its own cast speed whenever its curse's group was in Full DPS (toad_model put Doedre's Undoing's group there, MECHB8).
 # The model: one Doom Blast each time the curse expires on the boss:
-#   - a curse cast by hand (curse_uses' by_hand) is recast each CURSE_DURATION, landing as the last one runs out (its
-#     1.5 s delay), so it expires once a cast: 1 / CURSE_DURATION a second (MEDIUM: whether a curse replaced at the
+#   - a curse cast by hand (curse_uses' by_hand) is recast each duration (CurseUse.duration: PoB's, with the build's
+#     modifiers, AUDIT25 A25-41), landing as the last one runs out (its 1.5 s delay), so it expires once a cast:
+#     1 / duration a second (MEDIUM: whether a curse replaced at the
 #     moment it ends counts as expiring is UNVERIFIED; a player can let it lapse first, at the cost of curse uptime);
 #     a Cursed Ground area (Doedre's Undoing) is counted the same (when its curse expires on the boss: UNVERIFIED);
 #   - "Curses you inflict have infinite Duration" (CURSE_FOREVER): the curse never expires on a boss that lives, 0;
@@ -4819,8 +4827,8 @@ def doom_blast_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[
             rate, how = 0.0, (f"{curse.name} is {curse.how.split(':')[0]}; Impending Doom supports only curses you cast "
                               "yourself (it excludes Triggered, Persistent, Aura and UsedByProxy curses: game files) (0)")
         else:
-            rate = curse.share / CURSE_DURATION
-            how = (f"{curse.name} cast by hand every {CURSE_DURATION:g} s, expiring once a cast as the next lands (MEDIUM: "
+            rate = curse.share / curse.duration
+            how = (f"{curse.name} cast by hand every {curse.duration:.3g} s (its duration), expiring once a cast as the next lands (MEDIUM: "
                    "whether a curse replaced as it ends counts as expiring is UNVERIFIED)")
         mods += trigger_rate(DOOM_BLAST, rate)
         if rate > 0:

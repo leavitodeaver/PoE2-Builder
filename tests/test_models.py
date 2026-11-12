@@ -3259,3 +3259,27 @@ def test_doom_blast_fires_once_each_time_its_curse_expires():
     mods, notes, groups = models.doom_blast_model([despair, blast], [meta])
     assert next(m for m in mods if m["key"] == "triggerRate")["value"] == 0 and "excludes Triggered" in notes[0]["basis"]
     assert models.doom_blast_model([despair], [by_hand]) == ([], [], set())
+
+
+def test_a_curses_own_duration_sets_its_uptime_recast_time_and_doom_blasts():
+    """AUDIT25 A25-41 (MECHB12): a curse lasts PoB's duration with the build's Curse Duration modifiers (bridge
+    activeSkills curseDuration, the stats' _curse_durations), not the level-20 base 7.4 s: a triggered curse's uptime, a
+    hand-cast curse's recast cost and Doom Blast's expiries all read it; with none read, the base stays."""
+    gems = {"Despair": {"skillTypes": ["Spell", "AppliesCurse"]}, "Cast on Critical": {"skillTypes": ["Meta"]}}
+    meta = [{"enabled": True, "gems": [{"name": "Cast on Critical", "support": False}, {"name": "Despair", "support": False}]}]
+    longer = {"_curse_durations": {"Despair": 11.1}}
+    (use,) = models.curse_uses(meta, gems, longer, 8.0, [], {"Despair": 0.05})
+    assert use.share == pytest.approx(0.05 * 11.1) and use.duration == 11.1 and "PoB's" in use.how
+    hand = [{"enabled": True, "gems": [{"name": "Despair", "support": False}]}]
+    (use,) = models.curse_uses(hand, gems, longer, 8.0)
+    assert use.by_hand and use.duration == 11.1
+    despair = Skill("Despair", group=4, spell=True, cast_time=0.7)
+    main = Skill("Spark", group=1, spell=True)
+    mods, notes = models.curse_model([use], [despair, main], main)
+    speed = next(m for m in mods if "Attack and Cast Speed" in str(m))
+    assert "every 11.1 s" in notes[0]["basis"] and speed is not None
+    blast = Skill(models.DOOM_BLAST, group=4, spell=True, triggered=True, cast_time=1.0)
+    mods, _, _ = models.doom_blast_model([despair, blast], [use])
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(1 / 11.1, abs=1e-3)
+    (base,) = models.curse_uses(hand, gems, {}, 8.0)
+    assert base.duration == models.CURSE_DURATION and "level-20 base" in base.how

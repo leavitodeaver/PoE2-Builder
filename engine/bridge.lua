@@ -2371,6 +2371,11 @@ function bridge.activeSkills(args)
 			corpses = (types[SkillType.TargetsDestructibleCorpses] or types[SkillType.TargetsDestructibleRareCorpses]
 				or types[SkillType.CanTargetUnusableCorpse]) and true or nil,
 			triggered = types[SkillType.Triggered] and true or false,
+			-- (MECHB12, AUDIT25 A25-41) a curse's own duration with the build's modifiers ("curse duration" is Duration
+			-- with the Curse keyword, ModParser 483): base x Duration / PrimaryDuration, as PoB builds a skill's duration
+			curseDuration = types[SkillType.AppliesCurse] and activeSkill.skillData.duration and jsonNumber(
+				((activeSkill.skillData.duration or 0) + activeSkill.skillModList:Sum("BASE", activeSkill.skillCfg, "Duration", "PrimaryDuration"))
+				* calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "Duration", "PrimaryDuration")) or nil,
 			-- it summons minions (assumptions.NEEDS_MINIONS: Grim Feast's Remnants come from their deaths)
 			minions = types[SkillType.CreatesMinion] and true or nil,
 			-- current PoB keeps the flags on the stat set (activeSkill.skillFlags is v0.23's)

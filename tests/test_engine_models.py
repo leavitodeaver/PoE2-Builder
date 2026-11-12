@@ -1781,3 +1781,17 @@ def test_use_rates_reports_a_minion_groups_minion_life(engine):
     assert rate.get("minionLife", 0) > 0
     spark = build.call("useRates", indices=[build.main_group()["index"]])["rates"][0]
     assert "minionLife" not in spark
+
+
+def test_active_skills_reports_a_curses_duration(engine):
+    """MECHB12 (AUDIT25 A25-41): the bridge reports each curse's duration as PoB builds it (Despair at level 20: 7.4 s,
+    the game files' base_skill_effect_duration), which curse_uses reads instead of a flat 7.4 s."""
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("addSkillGroup", text="Despair 20/0 1")
+    skills = {s["name"]: s for s in build.call("activeSkills")["skills"]}
+    assert skills["Despair"].get("curseDuration") == pytest.approx(7.4, abs=0.05)
+    assert skills["Spark"].get("curseDuration") is None

@@ -371,7 +371,9 @@ class Assumptions:
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**stats, **bosses.kill_stats(boss)}
         build.minion_lives = minion_lives(build, found)  # (MECHB12, A25-2: Minion Pact's Kills read the minions' Life)
-        stats = {**stats, "_minion_lives": build.minion_lives}
+        # (MECHB12, A25-41: each curse's own duration, PoB's with the build's modifiers, for curse_uses)
+        build.curse_durations = {s["name"]: s["curseDuration"] for s in skills if s.get("curseDuration")}
+        stats = {**stats, "_minion_lives": build.minion_lives, "_curse_durations": build.curse_durations}
         if any(s.name == "Cast on Charm Use" for s in found):  # (its Energy: charm charges spent, from the flask model)
             stats = {**stats, **charm_stats(build)}
         if any(s.name == "Cast on Minion Death" for s in found):  # (its Energy: the build's minions dying)
