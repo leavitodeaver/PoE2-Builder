@@ -416,6 +416,8 @@ class Assumptions:
         if build.self_damage > 0:  # (MECHC9: in PoB as Physical damage over time, so recovery and the Life flask see it)
             hand_mods = hand_mods + [models.line("1 Physical Damage taken per second", build.self_damage)]
         hand_notes = hand_notes + models.kills_note(build.kills) + heart_notes
+        jiquani_mods, jiquani_notes = models.jiquani_model([e["text"] for e in source_lines])  # (MECHC9, A12-2)
+        hand_mods, hand_notes = hand_mods + jiquani_mods, hand_notes + jiquani_notes
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
         echo_mods, echo_notes = models.repeat_echo_model([e["text"] for e in source_lines], main_types, forbidden, main)
         hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes

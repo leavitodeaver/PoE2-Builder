@@ -2040,6 +2040,30 @@ def low_life_cap_note(stats: dict) -> dict | None:
             "confidence": "datamined rule; LOW for how much of a fight a flask keeps Life higher (not counted)"}
 
 
+# Jiquani's Thesis (MECHC9, AUDIT12 A12-2; research 18w): the boots Soul Core's "Increases and Reductions to Movement
+# Speed also apply to Energy Shield Recharge Rate" (PoB ModRunes.lua 1293-1297, stat order 7327). The pinned PoB parses
+# the whole line (ModParser: flag MovementSpeedAppliesToEnergyShieldRecharge; CalcDefence copies each increased /
+# reduced Movement Speed modifier to Energy Shield Recharge INC, as for Waveshaper), but a socketed Soul Core reaches its
+# parser as two halves (Item.lua UpdateRunes parses each rune line alone: "... Movement Speed also" / " apply to Energy
+# Shield Recharge Rate"), neither of which parses: its Recharge Rate went uncounted (an UNDERCOUNT; an engine test
+# records it). Given the first half on any item, the model hands PoB the whole line. PoB's flag is on or off, so a
+# ledger entry joining the halves too (COV-A's, routed) counts nothing twice. Movement Speed PoB adds during its own
+# calculation reaches it as PoB orders it (PoB's behaviour, not checked in game).
+JIQUANI_HALF = re.compile(r"^\s*Increases and Reductions to Movement Speed also\s*$", re.I)
+JIQUANI_LINE = "Increases and Reductions to Movement Speed also apply to Energy Shield Recharge Rate"
+
+
+def jiquani_model(texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """The whole Jiquani's Thesis line for PoB when only its first half is in the build's lines (a socketed Soul Core)."""
+    if not any(JIQUANI_HALF.match(t) for t in texts):
+        return [], []
+    return [line(JIQUANI_LINE)], [{
+        "label": "Jiquani's Thesis: Movement Speed also raises Energy Shield Recharge Rate",
+        "value": "counted", "confidence": "datamined rule (PoB's own reading of the whole line)",
+        "basis": "the socketed Soul Core reaches PoB as two half-lines it can't parse; the model gives PoB the whole line, "
+                 "so each increased or reduced Movement Speed modifier also raises Energy Shield Recharge Rate"}]
+
+
 def darkness_note(stats: dict) -> dict | None:
     darkness = number(stats.get("Darkness"))
     if darkness <= 0:

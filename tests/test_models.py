@@ -3049,3 +3049,12 @@ def test_the_builds_own_damage_over_time_counts_in_recovery_and_the_life_flask()
     capped, how = full_pool_cap(life, replace(hit, life_degen=100.0), "Life")
     assert capped == pytest.approx(0.75) and "own damage over time" in how
 
+
+def test_jiquanis_thesis_first_half_gets_the_whole_line():
+    """MECHC9, A12-2: a socketed Jiquani's Thesis reaches PoB as two half-lines; the model hands PoB the whole line (its
+    own flag); Waveshaper's Mana Regeneration half and a build without the line get nothing."""
+    halves = ["Increases and Reductions to Movement Speed also", " apply to Energy Shield Recharge Rate"]
+    mods, notes = models.jiquani_model(halves)
+    assert [m["line"] for m in mods] == [models.JIQUANI_LINE] and notes
+    assert models.jiquani_model(["Increases and Reductions to Mana Regeneration Rate also"]) == ([], [])
+    assert models.jiquani_model(["30% increased Movement Speed"]) == ([], [])

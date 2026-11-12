@@ -1512,3 +1512,34 @@ def test_heartbound_damage_reaches_pobs_degen_recovery_and_the_life_flask(engine
     assert build.call("chargeGain")["lifeDegen"] > 0
     build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
 
+
+def test_jiquanis_thesis_line_reaches_pobs_own_flag_and_its_socketed_halves_dont(engine):
+    """MECHC9, A12-2: "Increases and Reductions to Movement Speed also apply to Energy Shield Recharge Rate" (Jiquani's
+    Thesis, boots Soul Core). The pinned PoB parses the whole line (ModParser: MovementSpeedAppliesToEnergyShieldRecharge;
+    CalcDefence copies each Movement Speed INC to Energy Shield Recharge), so the full line counts a +30% Movement Speed
+    as +30% Recharge Rate. Socketed, PoB's UpdateRunes parses the Soul Core's two halves apart, and neither parses: the
+    model (models.jiquani_model) hands PoB the whole line."""
+    search = spark_with(engine, [])
+    build = search.build
+    base = ["Rarity: Rare", "Test Stride", "Straw Sandals", "Implicits: 0", "+60 to maximum Energy Shield",
+            "30% increased Movement Speed"]
+
+    def recharge(lines):
+        build.call("equip", slot="Boots", raw=chr(10).join(lines), fields=[])
+        return build.call("stats", fields=["EnergyShieldRecharge"])["EnergyShieldRecharge"]
+
+    plain = recharge(base)
+    flat = recharge(base + ["30% increased Energy Shield Recharge Rate"])
+    whole = recharge(base + ["Increases and Reductions to Movement Speed also apply to Energy Shield Recharge Rate"])
+    assert plain > 0 and whole == pytest.approx(flat, abs=0.11)
+    socketed = recharge(["Rarity: Rare", "Test Stride", "Straw Sandals", "Sockets: S", "Rune: Jiquani's Thesis",
+                         "Implicits: 0", "+60 to maximum Energy Shield", "30% increased Movement Speed"])
+    assert socketed == pytest.approx(plain)  # (PoB alone: the two halves parse to nothing)
+    from builder.search import models
+
+    texts = [e["text"] for e in build.call("sourceLines")["lines"]]
+    mods, notes = models.jiquani_model(texts)
+    assert mods and "Recharge" in notes[0]["label"]
+    build.call("setAssumptions", mods=search.assumptions.mods + mods, fields=[])
+    assert build.call("stats", fields=["EnergyShieldRecharge"])["EnergyShieldRecharge"] == pytest.approx(flat, abs=0.11)
+    build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
