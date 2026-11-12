@@ -673,6 +673,10 @@ def test_spear_throw_from_a_plain_spear_is_the_main_skill(engine):
 @pytest.mark.parametrize("skill, ascendancy, bases", [
     ("Wither", "Infernalist", {"Primordial Wand"}),  # no unique grants it
     ("Chaos Bolt", "Infernalist", {"Critical Wand", "Frigid Wand", "Torture Wand", "Withered Wand"}),
+    # (PoB's gem is "Skeletal Warrior"; the item line and PoB's grantedEffect say "Skeletal Warrior Minion", COV5)
+    ("Skeletal Warrior Minion", "Infernalist", {"Aromatic Sceptre", "Devotional Sceptre", "Devouring Sceptre",
+                                                "Hallowed Sceptre", "Lupine Sceptre", "Ochre Sceptre", "Pious Sceptre",
+                                                "Rattling Sceptre"}),
 ])
 def test_a_skill_some_wand_bases_grant_is_the_main_skill(engine, skill, ascendancy, bases):
     """A "bases:Wand" skeleton: the main-hand slot offers only the bases whose implicit grants the skill, the setup
@@ -681,7 +685,7 @@ def test_a_skill_some_wand_bases_grant_is_the_main_skill(engine, skill, ascendan
     from builder.search.skeletons import enumerate_skeletons
 
     payload = make_payload(BuildRequest(main_skill=skill, ascendancies=[ascendancy]))
-    skeleton = next(s for s in enumerate_skeletons(Context(payload), [skill])[0] if s.granted_by == "bases:Wand")
+    skeleton = next(s for s in enumerate_skeletons(Context(payload), [skill])[0] if s.granted_by.startswith("bases:"))
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
     search.setup(quests=False)
     assert search.gear.slots["Weapon 1"].bases == tuple(sorted(bases))
@@ -692,3 +696,43 @@ def test_a_skill_some_wand_bases_grant_is_the_main_skill(engine, skill, ascendan
     assert not any("didn't appear" in p for p in search.problems), search.problems
     main = [g for g in search.build.groups() if g["main"]]
     assert main and any(s["name"] == skill for s in main[0]["skills"])
+
+
+def test_compose_requiem_from_the_last_lament_is_the_main_skill(engine):
+    """The Last Lament grants "Compose Requiem", PoB's gem "Requiem" (baseTypeName "Compose Requiem"; its effects are
+    "Compose Requiem", the ammo, and "Requiem", the shots): the skeleton holds the unique and PoB's group for it is the
+    main group (COV5; before, the search said the name didn't match)."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Compose Requiem", ascendancies=["Witchhunter"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Compose Requiem"])[0][0]
+    assert skeleton.granted_by == "unique:The Last Lament"
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    weapon = search.build.equipped.get("Weapon 1")
+    assert weapon is not None and weapon.unique and weapon.name == "The Last Lament"
+    assert not any("didn't appear" in p for p in search.problems), search.problems
+    main = [g for g in search.build.groups() if g["main"]]
+    names = {s["name"] for s in main[0]["skills"]} if main else set()
+    print("main group skills:", names)
+    assert "Compose Requiem" in names
+
+
+def test_an_off_hand_sceptres_skill_can_be_the_main_skill(engine):
+    """A Wand + Sceptre skeleton for Malice (Omen Sceptre): the off-hand slot keeps to the granting base and PoB grants
+    the skill from Weapon 2 (CalcSetup 1214-1250 adds every slot's grantedSkills; COV5)."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Malice", ascendancies=["Infernalist"]))
+    skeleton = next(s for s in enumerate_skeletons(Context(payload), ["Malice"])[0]
+                    if s.granted_by == "bases:Sceptre" and s.weapon == "Wand")
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    assert search.gear.slots["Weapon 2"].bases == ("Omen Sceptre",)
+    offhand = search.build.equipped.get("Weapon 2")
+    assert offhand is not None and offhand.base == "Omen Sceptre"
+    assert not any("didn't appear" in p for p in search.problems), search.problems
+    main = [g for g in search.build.groups() if g["main"]]
+    assert main and any(s["name"] == "Malice" for s in main[0]["skills"])

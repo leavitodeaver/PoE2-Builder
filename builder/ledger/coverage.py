@@ -381,11 +381,29 @@ def not_applied(status: str, entry: str | None, reason: str, pool: str = "Item",
 def resolver_condition(line: str):
     """The condition resolver (builder/search/conditions.py) reads every line of the build as
     evidence, ignored lines included: one that grants Onslaught or a charge switches it on."""
-    from builder.search.conditions import CONDITIONS, _PATTERNS
+    from builder.search import conditions as c
 
-    for condition in CONDITIONS:
-        positive, negative = _PATTERNS[condition.var]
+    for condition in c.CONDITIONS:
+        positive, negative = c._PATTERNS[condition.var]
         if any(p.search(line) for p in positive) and not any(p.search(line) for p in negative):
+            return condition
+    # The sources Conditions.could_source rates by an uptime model rather than a text rule (COV5; before, the audit called
+    # every Maim / Blind / Hinder / Exposure / Arcane Surge / Armour Break line uncounted): the line at its low roll, and
+    # not a debuff line whose event the model rates 0 (a kill, a Heavy Stun, ...: _debuff_source), which stays open
+    rolled = re.sub(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)", r"\1", line)
+    for condition in c.CONDITIONS:
+        var = condition.var
+        if var in c.DEBUFFS and (m := c._debuff_pattern(var).search(rolled)) and not c.DEBUFF_NOT_SOURCE.search(rolled):
+            when = (m.group(2) if m.group(2) is not None else f"{m.group(3)} {m.group(4)}").lower()
+            # (the events _debuff_source rates: your hits and crits, the boss's hits on you or your Blocks, your
+            # Presence, your curses, Full Breaks; any other wording it rates 0, so the line stays open here)
+            if not re.search(r"kill|heavy stun|immobilis|shapeshift|burning|socketed|frozen by", when) and                     re.search(r"presence|you curse|fully (?:armour )?break|block|hit you|critical|on hit", when):
+                return condition
+        elif var.endswith("Exposure") and (m := c.EXPOSURE_SOURCE.search(rolled)) and                 m.group(2).lower() in ("elemental", var[len("conditionEnemy"):-len("Exposure")].lower()):
+            return condition
+        elif var == "buffArcaneSurge" and c.ARCANE_SURGE_SOURCE.search(rolled) and not c.ARCANE_SURGE_NOT_SOURCE.search(rolled):
+            return condition
+        elif var == "conditionEnemyArmourBroken" and c.ARMOUR_BREAK_LINE.search(rolled) and                 not c.ARMOUR_BREAK_NOT_SOURCE.search(rolled):
             return condition
     return None
 

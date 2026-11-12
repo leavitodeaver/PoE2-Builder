@@ -358,9 +358,14 @@ def base_grants(ctx: Context, skill: str) -> list[tuple[str, str]]:
 def slot_bases(ctx: Context, skeleton: Skeleton) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
     """The bases the main hand and the off hand keep to (() = any) so the skeleton's skills that only weapon bases
     grant come with them: its main skill ("bases:<type>") and required skills no gem, allowed passive or unique
-    gives (a required Spear Throw: a Spear main hand). A Shield / Focus / Quiver base sits in the off hand, any other
-    in the main hand (Spear Throw only from the main hand: CalcSetup's default attack; an off-hand Sceptre's grant
-    isn't relied on, UNVERIFIED either way). None when the skeleton can't hold them all."""
+    gives (a required Spear Throw: a Spear main hand). A Shield / Focus / Quiver base sits in the off hand; a skill
+    some bases of a type grant ("bases") comes from the main hand when it holds that type, else from the off hand
+    (an off-hand Sceptre's Purity, Malice or Skeletal Warrior Minion). Spear Throw ("base") only from the main hand:
+    CalcSetup's default attack. (checked, COV5: PoB adds every equipped item's grantedSkills, Weapon 2 included, with
+    no hand test, CalcSetup.lua 1214-1250, Item.lua 2845-2857; poe2db's Sceptres page: "Sceptres can be equipped in
+    your main hand or off hand", and no "Grants Skill" line there or in Bases.lua names a hand. That the game itself
+    grants the skill from the off hand is not stated anywhere I read: test in game.) None when the skeleton can't
+    hold them all."""
     needs: list[tuple[str, str, str]] = []
     kind, _, source = (skeleton.granted_by or "").partition(":")
     if kind in ("base", "bases"):
@@ -374,7 +379,7 @@ def slot_bases(ctx: Context, skeleton: Skeleton) -> tuple[tuple[str, ...], tuple
             needs.append((name, *held[0]))
     hands: list[set[str] | None] = [None, None]
     for skill, kind, item_type in needs:
-        hand = 1 if item_type in OFFHAND_ONLY else 0
+        hand = grant_hand(kind, item_type, skeleton.weapon)
         if (skeleton.offhand if hand else skeleton.weapon) != item_type:
             return None
         if kind == "bases":
@@ -424,14 +429,9 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
                          and not any(p.startswith(f"a {w} takes no off-hand weapon") for w in extra)]
             continue
         # A skill only a passive or a unique grants: that source becomes part of the skeleton
-        if skill not in ctx.all_gems:  # main_hands reads the skill's gem data by name
+        if skill not in ctx.all_gems:  # main_hands reads the skill's gem data by name (or PoB's baseTypeName)
             sources = ", ".join(sorted({s for _, s, _ in ctx.granted_by[skill]}))
-            alias = next((n for n, g in ctx.all_gems.items() if g.get("baseTypeName") == skill), None)
-            # PoB's gem data names a few granted skills otherwise (Skeletal Warrior Minion: gem "Skeletal Warrior")
-            problems.append(f"{skill} is granted ({sources}); PoB's gem data lists it as {alias}, a name the search "
-                            f"doesn't match yet, so it can't be the main skill" if alias else
-                            f"{skill} is granted ({sources}) but PoB has no gem data for it, "
-                            f"so the tool can't score it")
+            problems.append(f"{skill} is granted ({sources}) but PoB has no gem data for it, so the tool can't score it")
             continue
         for kind, source, source_ascendancy in ctx.granted_by.get(skill, []):
             if kind == "passive" and source in ctx.compiled.filters.forbidden_passives:
@@ -442,8 +442,8 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
                 continue
             archetypes, found = weapon_archetypes(ctx, skill, source if kind == "unique" and _is_weapon(ctx, source) else None)
             if kind in ("base", "bases"):  # (some of) this type's bases grant it: that hand holds one of them
-                hand = 2 if source in OFFHAND_ONLY else 0  # a Shield's Parry / Raise Shield: the off hand
-                archetypes = [a for a in archetypes if a[hand] == source]
+                # (a Shield's Parry / Raise Shield: the off hand; a Sceptre's grant: either hand, slot_bases)
+                archetypes = [a for a in archetypes if a[0 if grant_hand(kind, source, a[0]) == 0 else 2] == source]
                 if not archetypes:
                     problems.append(f"{skill} comes from a {source}, which no allowed weapon setup holds")
             problems += found
@@ -470,6 +470,17 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
 
 # Item types only an off hand holds (a base of one that grants a skill sits in Weapon 2)
 OFFHAND_ONLY = ("Shield", "Focus", "Quiver")
+
+
+def grant_hand(kind: str, item_type: str, weapon: str | None) -> int:
+    """Which hand (0 main, 1 off) holds the base that grants a skill: a Shield / Focus / Quiver the off hand; Spear
+    Throw ("base") the main hand; a skill some bases grant ("bases": PoB grants item skills from any slot) the main
+    hand if it is that type, else the off hand (slot_bases' docstring has the evidence)."""
+    if item_type in OFFHAND_ONLY:
+        return 1
+    if kind == "bases" and weapon != item_type:
+        return 1
+    return 0
 
 
 def _is_weapon(ctx: Context, unique: str) -> bool:

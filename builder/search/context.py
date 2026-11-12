@@ -198,10 +198,18 @@ class Context:
 
     @cached_property
     def all_gems(self) -> dict[str, dict]:
-        """Every gem by name, including skills only passives or items grant."""
+        """Every gem by name, including skills only passives or items grant, and also by PoB's baseTypeName where it
+        differs: an item's "Grants Skill" line names the skill as the game does, which PoB's gem data keeps as
+        baseTypeName (the Sceptres' "Skeletal Warrior Minion" is gem "Skeletal Warrior", The Last Lament's "Compose
+        Requiem" gem "Requiem"; PoB's ModParser grants them by that name, gemIdLookup). A real gem name always wins,
+        and templated names ("Companion: {0}") are skipped."""
         gems: dict[str, dict] = {}
         for gem in self.data.gems:
             gems.setdefault(gem["name"], gem)
+        for gem in self.data.gems:
+            alias = gem.get("baseTypeName")
+            if alias and "{" not in alias:
+                gems.setdefault(alias, gem)
         return gems
 
     @cached_property

@@ -15,7 +15,7 @@ from builder.search.conditions import CONDITIONS, Conditions, qualifies, stat_se
 from builder.search.context import Context, make_payload
 from builder.search.objective import Objective
 from builder.search.skeletons import (
-    enumerate_skeletons, offhand_types, offhand_weapon_types, swap_skills,
+    enumerate_skeletons, offhand_types, offhand_weapon_types, slot_bases, swap_skills,
 )
 from builder.search.tree import rooted_subsets
 
@@ -179,14 +179,20 @@ def test_a_required_skill_a_weapon_base_grants_needs_that_weapon():
 
 
 def test_a_granted_skill_without_gem_data_is_reported_not_crashed():
-    """main_hands reads a skill's gem data by name: Dark Staff's Dark Pact has none in PoB, and the Sceptres' Skeletal
-    Warrior Minion is the gem "Skeletal Warrior" there. Both say why instead of a KeyError."""
+    """main_hands reads a skill's gem data by name: Dark Staff's Dark Pact has none in PoB and says why instead of a
+    KeyError. The Sceptres' Skeletal Warrior Minion is the gem "Skeletal Warrior" there, found by its baseTypeName
+    (COV5): it gets skeletons."""
     ctx = context(main_skill="Dark Pact", ascendancies=["Infernalist"])
     skeletons, problems = enumerate_skeletons(ctx, ["Dark Pact"])
     assert skeletons == [] and any("no gem data" in p for p in problems)
     ctx = context(main_skill="Skeletal Warrior Minion", ascendancies=["Infernalist"])
     skeletons, problems = enumerate_skeletons(ctx, ["Skeletal Warrior Minion"])
-    assert skeletons == [] and any("lists it as Skeletal Warrior" in p for p in problems)
+    assert {s.granted_by for s in skeletons} == {"bases:Sceptre", "unique:The Dark Defiler"} and not problems
+    # PoB grants an item's skill from any slot (CalcSetup 1214-1250): an off-hand Sceptre beside a Wand is a source
+    off = next(s for s in skeletons if s.granted_by == "bases:Sceptre" and s.weapon == "Wand")
+    assert off.offhand == "Sceptre" and slot_bases(ctx, off)[0] == () and "Rattling Sceptre" in slot_bases(ctx, off)[1]
+    ctx = context(main_skill="Compose Requiem", ascendancies=["Witchhunter"])
+    assert {s.granted_by for s in enumerate_skeletons(ctx, ["Compose Requiem"])[0]} == {"unique:The Last Lament"}
 
 
 def test_true_dual_wielding_is_two_one_handed_maces():

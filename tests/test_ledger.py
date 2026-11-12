@@ -54,3 +54,31 @@ def test_conditions_and_wrong_lines_load():
     assert {"GlorySkill", "SpellEcho", "JaggedGround"} <= {c["id"] for c in conditions()}
     fixed = wrong("Take 40% less Damage over time")
     assert fixed is not None and fixed[1] == "20% less Damage over Time taken"
+
+
+def test_an_entry_matches_a_rolled_range_at_both_ends():
+    """A line as the audit sees it, "(16-23)% chance ...", against a pattern with a plain-number group: matched at the
+    range's two ends and translated as a range (COV5; before, 17 entries missed every ranged line)."""
+    from builder.ledger import model_entry, translate
+
+    entry, lines = translate("(16-23)% chance for Mace Slam Skills you use yourself to cause an additional Aftershock")
+    assert entry.id == "aftershock-chance-mace"
+    assert lines == ["Slam Skills deal (16-23)% more Damage while wielding a Mace"]
+    assert translate("16% chance for Mace Slam Skills you use yourself to cause an additional Aftershock")[1] == \
+        ["Slam Skills deal 16% more Damage while wielding a Mace"]
+    assert model_entry("Projectile Attacks have a (10-18)% chance to fire two additional Projectiles while moving") is None
+    assert translate("Projectile Attacks have a (10-18)% chance to fire two additional Projectiles while moving")[0].id \
+        == "no-effect-run-and-gun"
+
+
+def test_the_audit_counts_debuff_lines_the_uptime_models_rate():
+    """Maim / Blind / Intimidate lines on your hits, crits or Blocks feed conditions.debuff_uptime; wordings it rates 0
+    (a kill, a Stun on you) or that aren't sources stay open (COV5)."""
+    from builder.ledger.coverage import resolver_condition
+
+    assert resolver_condition("(10-15)% chance to Maim on Hit").var == "conditionEnemyMaimed"
+    assert resolver_condition("Intimidate Enemies on Block for 8 seconds").var == "conditionEnemyIntimidated"
+    assert resolver_condition("Break Armour equal to (2-4)% of Physical Damage dealt").var == "conditionEnemyArmourBroken"
+    for line in ("Blind does not affect your Light Radius", "Blind Enemies when they Stun you",
+                 "Socketed Gems are supported by Level 10 Blind"):
+        assert resolver_condition(line) is None, line

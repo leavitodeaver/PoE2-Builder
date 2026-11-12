@@ -58,6 +58,17 @@ ACTIVE = {"proposed", "approved"}
 TEMPLATE = re.compile(r"\{([^{}]+)\}")
 RANGE = re.compile(r"^\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)$")
 SYNTAX = re.compile(r"^(flag|if|mult):(\w+)\s*(.*)$")
+ROLLED = re.compile(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)")  # a roll range inside a line
+NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def merge_ends(low: str, high: str) -> str:
+    """Two replacement lines that differ only in their numbers, as one line with "(low-high)" ranges."""
+    lows, highs = NUMBER.findall(low), NUMBER.findall(high)
+    if NUMBER.split(low) != NUMBER.split(high) or len(lows) != len(highs):
+        return low
+    numbers = iter(f"({a}-{b})" if a != b else a for a, b in zip(lows, highs))
+    return NUMBER.sub(lambda _: next(numbers), low)
 
 
 @dataclass(frozen=True)
@@ -78,7 +89,7 @@ class Entry:
             return None
         match = self.pattern.search(line)
         if not match:
-            return None
+            return self._translate_rolled(line)
         groups: dict[str, tuple[float, float]] = {}
         for i, g in enumerate(match.groups(), start=1):
             if g and _number(g):
@@ -101,6 +112,25 @@ class Entry:
             return str(low) if low == high else f"({low}-{high})"
 
         return [TEMPLATE.sub(fill, template) for template in self.replace]
+
+    def _translate_rolled(self, line: str) -> list[str] | None:
+        """A rolled range the pattern's plain-number groups can't match ("(10-18)% chance ..." against a plain-number group): the
+        line at the range's low and high ends, the replacements merged number by number into ranges (COV5)."""
+        if not ROLLED.search(line):
+            return None
+        ends = [self.translate(ROLLED.sub(lambda m: m.group(end), line)) for end in (1, 2)]
+        if ends[0] is None or ends[1] is None or len(ends[0]) != len(ends[1]):
+            return None
+        return [merge_ends(low, high) for low, high in zip(*ends)]
+
+    def matches(self, line: str) -> bool:
+        """The pattern finds the line, or the line at both ends of its rolled ranges."""
+        if self.pattern is None:
+            return False
+        if self.pattern.search(line):
+            return True
+        return bool(ROLLED.search(line)) and all(self.pattern.search(ROLLED.sub(lambda m: m.group(end), line))
+                                                 for end in (1, 2))
 
     @property
     def conditional(self) -> bool:
@@ -166,7 +196,7 @@ def checked_parse(line: str, source: str | None = None) -> Entry | None:
 def model_entry(line: str) -> Entry | None:
     """The entry that feeds this line to a custom model, if any (wherever the line is)."""
     for entry in entries():
-        if entry.raw.get("model") and entry.pattern is not None and entry.pattern.search(line):
+        if entry.raw.get("model") and entry.matches(line):
             return entry
     return None
 
