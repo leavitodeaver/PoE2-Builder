@@ -12,13 +12,21 @@ sustainable source for what a use needs:
   never on a build that spends no Life
 - flask charges consumed on use (Ambrosia, Concoct): while the flask's charge generation pays for
   UPTIME of the uses (a boss fight refills flasks only by generation)
-- distance travelled before each use (`skill_unusable_until_moved_X_distance` 100: Echoing Cry and Hit and Run, the
-  two stat sets that carry it; checked: the stat's columns in every game table (no Mod, passive or other stat set
-  holds it) and PoB src (Data/Skills sup_str/sup_dex only, no ModParser line)): never yet,
-  labelled. The rate is the build's (how fast and how much it moves between uses), but the tool's boss fight has no
-  movement model and the game data gives no base movement speed in distance units to turn the build's movement speed
-  into uses a second (UNVERIFIED; for RESEARCH). Zero, not a guessed rate (CLAUDE.md: no source means 0, with a note);
-  this is an undercount of those two supports, never an overcount (AUDIT6 A6-2)
+- distance travelled before each use (Requirement kind "travel"; `skill_unusable_until_moved_X_distance` 100: Echoing
+  Cry and Hit and Run, the two stat sets that carry it; checked: the stat's columns in every game table (no Mod, passive
+  or other stat set holds it) and PoB src (Data/Skills sup_str/sup_dex only, no ModParser line)). The game: "Supported
+  Skills become usable after you have moved {0} metres" (gem_stat_descriptions.csd, divide_by_ten: 100 = 10 m; HIGH).
+  A play strategy (CLAUDE.md: the player who takes it walks on purpose): walk 10 m between uses. travel_rotation gives
+  the rate: walking 10 m takes 10 / (BASE_RUN x the build's movement speed) s, BASE_RUN 3.8 m/s* (LOW: the only figure
+  is a 2016 PoE1 forum measurement, 38 units/s; the game files have no player movement speed; RESEARCH15
+  base-movement-speed.md), so about 2.6 s at base; a use then comes every max(its cooldown, use time + walk) s, and the
+  walk is time no skill is used (headline: walking only). With dodge rolls (UNVERIFIED that a roll counts as "moved"; a
+  with-it figure only): whole rolls of ROLL_METRES (DodgeRollPlayer dodge_roll_base_travel_distance 46, scaled by
+  movement speed) of models.DODGE_ROLL_SECONDS each. Blink and other teleports: not counted (UNVERIFIED).
+  Usage.travel_rate gives (uses/s, share of PoB's at-will rate, share of the fight spent walking, uses/s with rolls)
+  for the group holding it. Still barred, labelled with that rate, because nothing yet scales the skill's Full DPS (and
+  the main skill's time) to it: PoB counts it used at will, an overcount if allowed as it is. The hook is routed to the
+  mechanics lane with Combo's (COVC6 and COVC7 reports)
 - Combo (Requirement kind "combo"; RULE_AUDIT row 2b): Combo Finisher I needs 3 and II needs 5
   (support_combo_finisher_required_number_of_combo_stacks), Tempest Bell and Mantra of Destruction their own
   (active_skill_required_number_of_combo_stacks). The game (KeywordPopups 'Combo'): "Skills gain Combo when you Strike
@@ -31,11 +39,15 @@ sustainable source for what a use needs:
   because nothing yet scales the skill's Full DPS to it (PoB counts it used at will: an overcount if allowed as it
   is). The hook it needs (scale the Combo skill's Full DPS entry by combo_rotation's share, as models.press_model does
   for presses, with a play row "Strike with X N times, then use Y") is routed to the mechanics lane (COVC6's report).
-  UNVERIFIED and left out, all on the side of fewer uses: the Combo skill's own Strikes building its next use, Combo
-  from several hits of one use, extra Combo gain (additional_combo_gain_chance_%: Practiced Combo, 7 passives, 3 mods;
-  Martial Adept's additional_combo_gain_on_hit) and Martial Master's Combo from any Attack Hit (can_gain_combo_from_any
-  _attack_hit) (checked: every game-table row holding a Stats id with "combo", scratch/covc5/where.py; RULE_AUDIT row 12
-  lists the same carriers)
+  The Invoker's Martial Master (AscendancyMonk1Notable2: can_gain_combo_from_any_attack_hit, "Gain [Combo] from all
+  [Attack] [Hits]", and share_combo_across_weapon_sets_and_weapon_types, "Skills can build and retain [Combo] regardless
+  of [Weapon Set]": stat_descriptions.csd) makes any Attack of the build a builder, on any weapon set; Martial Adept
+  (AscendancyMonk1Notable1_: additional_combo_gain_on_hit, "When you gain [Combo], gain an additional [Combo]") makes
+  each gain 2 (COVC7, A11-4; checked: both passives' stats' columns in every game table, scratch/covc5/where.py: those
+  two passives only; PoB's ModCache parses none of their lines). UNVERIFIED and left out, all on the side of fewer
+  uses: the Combo skill's own Strikes building its next use, Combo from several hits of one use and the chance-based
+  extra Combo (additional_combo_gain_chance_%: Practiced Combo, 7 passives, 3 mods) (checked: every game-table row
+  holding a Stats id with "combo", scratch/covc5/where.py; RULE_AUDIT row 12 lists the same carriers)
 - everything else (Glory a skill builds from its own hits, standing still, recent blocks, Volatility,
   ...): never, since the skill wouldn't be used at the rate PoB calculates
 
@@ -68,11 +80,13 @@ Persistent type counts as Persistent.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder.search.conditions import UPTIME
+from builder.search.models import DODGE_ROLL_SECONDS
 from builder.search.objective import number
 
 # Stats that mention a requirement but don't gate a use
@@ -94,6 +108,12 @@ FLASK_THROW = "flask_throw_base_charges_used"
 COMBO = re.compile(r"required_number_of_combo_stacks$")
 # Distance travelled before each use (module docstring)
 MOVED = "skill_unusable_until_moved_X_distance"
+UNITS_PER_METRE = 10  # (the stat text's divide_by_ten; HIGH)
+BASE_RUN = 3.8  # metres a second at 0% increased movement speed (LOW: one 2016 PoE1 measurement; module docstring)
+ROLL_METRES = 4.6  # a dodge roll's distance (DodgeRollPlayer dodge_roll_base_travel_distance 46)
+# The Invoker's Combo passives (module docstring)
+MARTIAL_MASTER = "Martial Master"
+MARTIAL_ADEPT = "Martial Adept"
 FIELDS = ["Speed", "LifePerSecondCost"]
 TALISMAN = "Talisman"
 # PoB skill types a Talisman doesn't shut out (module docstring)
@@ -105,7 +125,7 @@ _RULES: dict[str, dict] | None = None  # PoB's gem data doesn't change within a 
 
 @dataclass(frozen=True)
 class Requirement:
-    kind: str  # "charges", "glory from life", "flask", "combo" or "never"
+    kind: str  # "charges", "glory from life", "flask", "combo", "travel" or "never"
     label: str  # what a use needs, for notes and tests
     amount: float = 0.0
     rate: float = 0.0  # Glory per Life spent (fraction), or the share of flask charges a use takes
@@ -135,8 +155,8 @@ def requirements(name: str, rule: dict) -> list[Requirement]:
         elif COMBO.search(stat):
             found.append(Requirement("combo", f"{number(value):g} Combo per use", number(value)))
         elif stat == MOVED:
-            found.append(Requirement("never", f"travel {number(value):g} units before each use (the tool has no "
-                                     "movement model for the boss fight)", number(value)))
+            found.append(Requirement("travel", f"move {number(value) / UNITS_PER_METRE:g} m before each use",
+                                     number(value)))
         elif REQUIRED.search(stat):
             found.append(Requirement("never", f"{stat.replace('_', ' ')} {number(value):g}", number(value)))
     if (rule.get("usageCondition") or rule.get("addsUsageCondition")) and not found:
@@ -181,6 +201,10 @@ class Usage:
         for need in needs:
             if need.kind == "combo":
                 blocked.append(f"{name}: {need.label}, {self.combo_reason(name, need.amount)}")
+            elif need.kind == "travel":
+                blocked.append(f"{name}: {need.label} ({travel_seconds(need.amount):.1f} s of walking at a base "
+                               f"{BASE_RUN:g} m/s*, LOW; less with movement speed), but the tool doesn't yet scale its "
+                               "damage to that use rate (Usage.travel_rate; PoB counts it used at will)")
             elif not self.sustained(need, stats or {}):
                 blocked.append(f"{name}: {need.label}")
         return talisman + blocked
@@ -193,22 +217,28 @@ class Usage:
         """(group index, skill) of the build's skills that build `name`'s Combo (module docstring): Strikes in another
         enabled group sharing a weapon set with it (any set when `name` isn't in the build yet)."""
         mine = self.combo_groups(name)
-        sets = {s for g in mine for s in (1, 2) if g.get(f"set{s}", True)} if mine else {1, 2}
+        master = self.has_passive(MARTIAL_MASTER)  # (any Attack Hit, any weapon set)
+        sets = {s for g in mine for s in (1, 2) if g.get(f"set{s}", True)} if mine and not master else {1, 2}
         found = []
         for group in self.build.groups():
             if not group["enabled"] or group in mine or not any(group.get(f"set{s}", True) for s in sets):
                 continue
             for gem in group["gems"]:
                 types = set(self.gem(gem["name"]).get("skillTypes") or [])
-                if not gem["support"] and {"Attack", "Melee"} <= types and "Slam" not in types:
+                builds = "Attack" in types if master else {"Attack", "Melee"} <= types and "Slam" not in types
+                if not gem["support"] and builds:
                     found.append((group.get("index"), gem["name"]))
         return found
+
+    def has_passive(self, name: str) -> bool:
+        return any(p["name"] == name for p in self.build.call("facts", fields=[]).get("passives") or [])
 
     def combo_reason(self, name: str, amount: float) -> str:
         builders = self.combo_builders(name)
         if not builders:
             return "and no skill of the build Strikes to build it (Combo comes from Strikes on the same weapon set)"
-        return (f"built by {', '.join(sorted({b for _, b in builders}))} (Strikes), but the tool doesn't yet scale its "
+        how = "Attack Hits, Martial Master" if self.has_passive(MARTIAL_MASTER) else "Strikes"
+        return (f"built by {', '.join(sorted({b for _, b in builders}))} ({how}), but the tool doesn't yet scale its "
                 "damage to the use rate that Combo allows (Usage.combo_rate; PoB counts it used at will)")
 
     def combo_rate(self, name: str, amount: float) -> tuple[float, float, str] | None:
@@ -225,8 +255,30 @@ class Usage:
                       default=None)
         if builder is None or own <= 0 or number(builder.get("speed")) <= 0:
             return None
-        uses, share = combo_rotation(amount, number(builder["speed"]), own)
+        gain = 2.0 if self.has_passive(MARTIAL_ADEPT) else 1.0
+        uses, share = combo_rotation(amount, number(builder["speed"]), own, gain)
         return uses, share, builder["name"]
+
+    def travel_rate(self, name: str) -> tuple[float, float, float, float] | None:
+        """(uses per second, share of PoB's at-will damage, share of the fight spent walking, uses per second if dodge
+        rolls count) of the skill in the first enabled group holding `name` with a travel requirement (module
+        docstring), at the build's movement speed; None when `name` has none or isn't in an enabled group. For the
+        hook that will scale its Full DPS and the main skill's time (module docstring)."""
+        rule = self.rules.get(name)
+        need = next((r for r in requirements(name, rule) if r.kind == "travel"), None) if rule else None
+        mine = self.combo_groups(name)
+        if need is None or not mine or mine[0].get("index") is None:
+            return None
+        rate = next(iter(self.build.call("useRates", indices=[mine[0]["index"]])["rates"]), None) or {}
+        speed = number(rate.get("speed"))
+        if speed <= 0:
+            return None
+        movement = number(self.build.call("stats", fields=["EffectiveMovementSpeedMod"]).get(
+            "EffectiveMovementSpeedMod")) or 1.0
+        cooldown = number(rate.get("cooldown"))
+        uses, share, walking = travel_rotation(need.amount, movement, speed, cooldown)
+        rolled = travel_rotation(need.amount, movement, speed, cooldown, rolls=True)[0]
+        return uses, share, walking, rolled
 
     def gem(self, name: str) -> dict:
         ctx = self.build.ctx
@@ -292,3 +344,24 @@ def combo_rotation(amount: float, builder_speed: float, speed: float, gain: floa
     cycle = amount / (gain * builder_speed) + 1.0 / speed
     uses = 1.0 / cycle
     return uses, uses / speed
+
+
+def travel_seconds(distance: float, movement: float = 1.0, rolls: bool = False) -> float:
+    """Seconds to cover `distance` units (10 a metre) at `movement` (PoB's EffectiveMovementSpeedMod: 1 + increased
+    movement speed, with its penalties), walking at BASE_RUN (LOW), or by whole dodge rolls (UNVERIFIED that they count)."""
+    metres = distance / UNITS_PER_METRE
+    if rolls:
+        return math.ceil(metres / (ROLL_METRES * movement) - 1e-9) * DODGE_ROLL_SECONDS
+    return metres / (BASE_RUN * movement)
+
+
+def travel_rotation(distance: float, movement: float, speed: float, cooldown: float = 0.0,
+                    rolls: bool = False) -> tuple[float, float, float]:
+    """(uses per second, share of the at-will rate, share of the fight spent moving) of a skill usable once per
+    `distance` units moved: a use takes 1 / `speed` s, then the player moves (travel_seconds), and the next use waits
+    for its cooldown too. The time moving is time no skill is used (the headline: no skill used while walking)."""
+    if speed <= 0:
+        return 0.0, 0.0, 0.0
+    moving = travel_seconds(distance, movement, rolls)
+    uses = 1.0 / max(cooldown, 1.0 / speed + moving)
+    return uses, min(uses / speed, 1.0), min(moving * uses, 1.0)

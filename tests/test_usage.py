@@ -11,7 +11,7 @@ import pytest
 from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
-from builder.search.usage import Usage, combo_rotation, requirements
+from builder.search.usage import Usage, combo_rotation, requirements, travel_rotation, travel_seconds
 
 ZERPHI = {"stats": {"active_skill_requires_X_glory": 50, "active_skill_generates_%_of_life_spent_as_glory": 5}}
 
@@ -23,7 +23,7 @@ def kinds(rule: dict) -> list[str]:
 def test_requirements_come_from_pobs_usage_markers():
     glory = requirements("Zerphi's Infamy", ZERPHI)
     assert [(r.kind, r.amount, r.rate) for r in glory] == [("glory from life", 50, 0.05)]
-    assert kinds({"addsUsageCondition": True, "stats": {}}) == ["never"]  # Hit and Run: distance moved
+    assert kinds({"addsUsageCondition": True, "stats": {}}) == ["never"]  # a usage condition with no stat naming it
     assert kinds({"addsUsageCondition": True,
                   "stats": {"support_combo_finisher_required_number_of_combo_stacks": 3}}) == ["combo"]
     assert kinds({"usageCondition": True, "stats": {"active_skill_requires_X_glory": 200}}) == ["never"]  # a banner
@@ -80,11 +80,11 @@ def test_charges_follow_the_resolver_and_flasks_their_generation(fresh_rules):
 
 
 def test_distance_travelled_and_combo_bar_a_support_with_their_own_amounts():
-    """AUDIT6 A6-2 / A6-5: Echoing Cry's "travel a distance before each use" is barred (no movement model), named as
-    such; each Combo Finisher carries its own Combo count."""
+    """AUDIT6 A6-2 / A6-5, AUDIT9 A9-4: Echoing Cry's "move 10 metres before each use" is its own kind (barred until
+    its damage is scaled, labelled with the walk); each Combo Finisher carries its own Combo count."""
     echo = requirements("Echoing Cry", {"addsUsageCondition": True,
                                         "stats": {"skill_unusable_until_moved_X_distance": 100}})
-    assert [(r.kind, r.amount) for r in echo] == [("never", 100)] and "travel 100 units" in echo[0].label
+    assert [(r.kind, r.amount) for r in echo] == [("travel", 100)] and echo[0].label == "move 10 m before each use"
     two = requirements("Combo Finisher II", {"addsUsageCondition": True,
                                              "stats": {"support_combo_finisher_required_number_of_combo_stacks": 5}})
     assert [(r.kind, r.amount) for r in two] == [("combo", 5)] and two[0].label == "5 Combo per use"
@@ -143,6 +143,42 @@ def test_combo_finishers_name_the_builds_strikes_and_their_rate(fresh_rules):
                         combo_group(3, "Quarterstaff Strike", set1=False)]
     assert usage.combo_builders("Combo Finisher II") == []
     assert combo_rotation(3, 2.0, 1.0, gain=1.5) == (0.5, 0.5)
+    # Martial Master (A11-4): any Attack Hit builds Combo, on any weapon set; Martial Adept: 2 Combo per gain
+    build.stats = {"passives": [{"name": "Martial Master"}]}
+    build.group_list = [combo_group(0, "Falling Thunder", "Combo Finisher II", set2=False),
+                        combo_group(2, "Boneshatter", set1=False), combo_group(1, "Fireball")]
+    assert usage.combo_builders("Combo Finisher II") == [(2, "Boneshatter")]
+    assert "(Attack Hits, Martial Master)" in usage.blockers("Combo Finisher II")[0]
+    build.group_list = [combo_group(0, "Falling Thunder", "Combo Finisher II"), combo_group(1, "Boneshatter")]
+    build.stats = {"passives": [{"name": "Martial Master"}, {"name": "Martial Adept"}]}
+    uses, share, builder = usage.combo_rate("Combo Finisher II", 5)  # 2.5 Boneshatters at 3/s, then 1 s: 1/(5/6 + 1)
+    assert builder == "Boneshatter" and abs(uses - 6 / 11) < 1e-9
+
+
+def test_echoing_cry_and_hit_and_run_get_a_walking_use_rate(fresh_rules):
+    """AUDIT9 A9-4 (RESEARCH15 base-movement-speed.md): 10 m at 3.8 m/s* (LOW) x the build's movement speed between
+    uses, the cooldown permitting; whole dodge rolls of 4.6 m, 0.75 s each, as the with-it figure. Still barred."""
+    assert abs(travel_seconds(100) - 10 / 3.8) < 1e-9
+    assert abs(travel_seconds(100, 1.25) - 10 / 4.75) < 1e-9
+    assert travel_seconds(100, rolls=True) == 3 * 0.75 and travel_seconds(100, 1.1, rolls=True) == 2 * 0.75
+    # A 0.5 s attack: 0.5 + 2.63 s a use; walking is 84% of the fight
+    uses, share, walking = travel_rotation(100, 1.0, 2.0)
+    assert abs(uses - 1 / (0.5 + 10 / 3.8)) < 1e-9 and abs(share - uses / 2) < 1e-9 and abs(walking - uses * 10 / 3.8) < 1e-9
+    # A warcry on a 10 s cooldown: the walk fits inside it
+    assert travel_rotation(100, 1.0, 1.0, cooldown=10.0)[0] == 0.1
+    rules = {"Hit and Run": {"addsUsageCondition": True, "stats": {"skill_unusable_until_moved_X_distance": 100}}}
+    types = {"Hit and Run": [], "Quarterstaff Strike": ["Attack", "Melee"]}
+    build = ComboBuild(rules, types, [{"index": 0, "enabled": True, "gems": [
+        {"name": "Quarterstaff Strike", "support": False}, {"name": "Hit and Run", "support": True}]}],
+                       {"Quarterstaff Strike": 4.0})
+    build.stats = {"EffectiveMovementSpeedMod": 1.3}
+    usage = Usage(build, FakeConditions())
+    blocked = usage.blockers("Hit and Run")
+    assert len(blocked) == 1 and "move 10 m before each use (2.6 s of walking" in blocked[0]
+    uses, share, walking, rolled = usage.travel_rate("Hit and Run")
+    assert abs(uses - 1 / (0.25 + 10 / (3.8 * 1.3))) < 1e-9 and abs(share - uses / 4) < 1e-9
+    assert abs(rolled - 1 / (0.25 + 2 * 0.75)) < 1e-9  # (two rolls of 4.6 x 1.3 m)
+    assert usage.travel_rate("Quarterstaff Strike") is None
 
 
 # Through a real engine --------------------------------------------------------------------------
