@@ -46,3 +46,25 @@
   sources: ["SupportBountyPlayer, SupportBountyPlayerTwo, SupportCharmBountyPlayer, SupportLifeFlaskPlayer, SupportManaFlaskPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
   test_in_game: "Not needed for a single boss."
   status: proposed
+
+- id: supports-acrimony-enemy-life-regeneration
+  title: Acrimony, 50% reduced Life Regeneration rate of enemies hit by its non-Ailment DoT (the tool counts no boss Life regeneration)
+  kind: gem_stat
+  skill: Acrimony
+  match: '^skill_enemies_affected_by_non_ailment_damage_over_time_life_regeneration_rate_\+%$'
+  replace: []
+  confidence: theory
+  notes: >-
+    "Enemies affected by non-Ailment Damage over time from Supported Skills have 50% reduced Life regeneration rate"
+    (SupportAcrimonyPlayer: constant -50, its only stat: GrantedEffectStatSets, build 26476662). PoB maps none of it
+    (checked: sup_int.lua's entry, the stat id in SkillStatMap.lua and Modules/*.lua, 12 Nov 2026). A statement about the
+    tool's rating, not the game: the tool rates DPS and time to kill against the boss's Life with no Life regeneration for
+    the boss (checked: no enemy Life regeneration in builder/search/*.py or engine/*.lua, and PoB's enemyIsBoss config
+    sets none), so halving it moves no number. Whether a target boss regenerates Life in the game is UNVERIFIED: the
+    unique-rarity monster mods (MonsterUnique1-14) carry none (checked: Mods table), but MonsterVarieties isn't in the
+    tool's export, and monster Life-regeneration mods exist (MonsterImplicitAuraLifeRegenBossStrIntMission 300/min,
+    LanternBossLifeRegenerationOnLowLife), as do waystone modifiers. If a boss-regen model is added, this support
+    halves the regen while the boss is under the supported skill's DoT: reopen it then. Left as PoB has it (no effect).
+  sources: ["SupportAcrimonyPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd", "Mods table (MonsterUnique*)"]
+  test_in_game: "Not needed until a boss Life-regeneration model exists."
+  status: proposed

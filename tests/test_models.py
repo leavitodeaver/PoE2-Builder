@@ -2568,3 +2568,56 @@ def test_danse_macabre_needs_a_second_skeleton_per_offering_cast():
 def test_coursing_current_is_noted_as_zero_on_a_lone_boss():
     assert models.coursing_current_note([Skill("Spark")]) == []
     assert models.coursing_current_note([Skill("Coursing Current", triggered=True)])[0]["value"] == 0
+
+
+def test_culling_strike_ii_threshold_buff_is_fed_by_culled_adds_for_20_seconds():
+    cs = {"support_culling_strike_threshold_+%_on_cull_for_seconds_from_code": 20}
+    attack = models.Skill("Spear Throw", group=1, attack=True, support_stats=cs)
+    mods, notes = models.gem_stat_model([attack], main=attack, stats={})
+    assert mods == [] and any("lone boss" in n["basis"] for n in notes if "Culling Strike II" in n["label"])
+    mods, _ = models.gem_stat_model([attack], main=attack, stats={models.CULLS_STAT: 1 / 40})  # (20 s of every 40)
+    assert [(m["line"], round(m["scale"], 6), m.get("skill")) for m in mods] == [
+        ("1% increased Culling Strike Threshold", 10.0, None)]
+
+
+def test_profanity_needs_the_builds_own_corpses_and_is_0_without():
+    for stats_, label in [({"support_chaos_damage_+%_final_if_corpse_consumed_on_use": 30,
+                            "skill_consume_up_to_X_corpses_on_use": 1}, "Profanity I"),
+                          ({"support_chaos_damage_+%_final_per_corpse_consumed_on_use": 5,
+                            "skill_consume_up_to_X_corpses_on_use": 10}, "Profanity II")]:
+        spell = models.Skill("Bone Cage", group=1, support_stats=stats_)
+        mods, notes = models.gem_stat_model([spell], main=spell, stats={"Speed": 2})
+        assert mods == [] and any("single boss" in n["basis"] for n in notes if label in n["label"])
+
+
+def test_retaliate_waits_for_the_players_stun_bar_and_scales_with_it():
+    ret = {"support_max_attack_damage_+%_final_from_current_poise": 40}
+    strike = models.Skill("Falling Thunder", group=1, attack=True, support_stats=ret)
+    mods, notes = models.gem_stat_model([strike], main=strike, stats={})
+    assert mods == [] and "Stun Bar" in notes[0]["basis"]
+    mods, _ = models.gem_stat_model([strike], main=strike, stats={models.STUN_BAR_STAT: 0.25})
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [("1% more Attack Damage", 10.0, "Falling Thunder")]
+
+
+def test_encroaching_ground_and_tremors_are_parts_for_their_models():
+    ground = models.Skill("Flame Wall", group=1, support_stats={
+        "support_ground_effect_area_of_effect_+%_final_per_second": 20,
+        "support_ground_effect_area_of_effect_+%_final_per_second_max": 100})
+    assert models.support_part_scale(ground, "ground_area")[0] == {"GroundAreaIncPercentPerSecond": 20,
+                                                                   "GroundAreaIncPercentMax": 100}
+    tremors = {"support_slam_chance_for_one_additional_aftershock_%": 30,
+               "support_slam_chance_for_two_additional_aftershocks_%": 15,
+               "support_slam_chance_for_three_additional_aftershocks_%": 10, "support_unstable_earth_damage_+%_final": -35}
+    slam = models.Skill("Earthquake", group=1, attack=True, support_stats=tremors)
+    assert models.support_part_scale(slam, "aftershocks")[0] == {"AftershockChanceOne": 30, "AftershockChanceTwo": 15,
+                                                                 "AftershockChanceThree": 10}
+    mods, _ = models.gem_stat_model([slam], main=slam, stats={})  # (the 35% less on every use: no part needed)
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [("1% more Damage", -35.0, "Earthquake")]
+
+
+def test_acrimony_moves_nothing_the_tool_rates():
+    from builder.ledger import gem_stat_entries
+
+    entry = next(e for e in gem_stat_entries() if e.id == "supports-acrimony-enemy-life-regeneration")
+    assert not entry.replace and entry.pattern.search(
+        "skill_enemies_affected_by_non_ailment_damage_over_time_life_regeneration_rate_+%")

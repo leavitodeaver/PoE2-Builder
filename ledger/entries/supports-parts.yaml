@@ -382,3 +382,113 @@
     the crystals' 1.5 s duration (base_skill_effect_duration on the hidden skill).
   sources: ["SupportHaemocrystalsPlayer, TriggeredHaemocrystalsPlayer, GrantedEffectStatSets (build 26476662)"]
   status: proposed
+
+# Encroaching Ground (COVE10): "Ground Surfaces created by Supported Skills gain 20% increased Area of Effect per second, up
+# to a maximum of 100%" (SupportEncroachingGroundPlayer: support_ground_effect_area_of_effect_+%_final_per_second 20,
+# ..._max 100; the id says "final", the text "increased"). PoB maps neither (checked: sup_int.lua's entry has no statMap;
+# the ids in SkillStatMap.lua and Modules/*.lua, 12 Nov 2026), and PoB rates a ground while the boss stands in it, so its
+# area moves no PoB number; it moves the share of the fight the boss stands in the ground, which the ground models work
+# out (MECH-A: conditions.shocked_ground). Two parts for that model: a ground gets area 1 + min(rate x t, max) / 100 at
+# t seconds into its life (its average over the duration, or the radius as the square root, is the model's to take).
+# The active skills' own growth (active_skill_ground_effect_area_of_effect_+%_final_per_second 20 / max 80 on three
+# active skills, PoB act_dex 3001, act_int 5067, act_str 6795) is COV-C's (active-gem stats).
+- id: support-encroaching-ground-area-per-second
+  title: Encroaching Ground, 20% increased ground area per second (for the ground models)
+  kind: gem_stat
+  support: true
+  to: part:ground_area
+  skill: Encroaching Ground
+  support_stats: ['support_ground_effect_area_of_effect_+%_final_per_second']
+  match: '^support_ground_effect_area_of_effect_\+%_final_per_second$'
+  replace: ['mult:GroundAreaIncPercentPerSecond']
+  confidence: datamined
+  notes: >-
+    The growth rate (20 per second). The model takes area 1 + min(GroundAreaIncPercentPerSecond x t,
+    GroundAreaIncPercentMax) / 100 at t seconds into the ground's life (an undercount until it does).
+  sources: ["SupportEncroachingGroundPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  status: proposed
+
+- id: support-encroaching-ground-area-max
+  title: Encroaching Ground, up to 100% increased ground area (for the ground models)
+  kind: gem_stat
+  support: true
+  to: part:ground_area
+  skill: Encroaching Ground
+  support_stats: ['support_ground_effect_area_of_effect_+%_final_per_second_max']
+  match: '^support_ground_effect_area_of_effect_\+%_final_per_second_max$'
+  replace: ['mult:GroundAreaIncPercentMax']
+  confidence: datamined
+  notes: The growth's cap (100), reached after 5 s.
+  sources: ["SupportEncroachingGroundPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  status: proposed
+
+# Tremors (COVE10; MECHB5's ask): "Supported Skills have 30% chance to cause an additional Aftershock", "15% chance to cause
+# two additional Aftershocks", "10% chance to cause three additional Aftershocks" and "deal 35% less Damage"
+# (SupportTremorsPlayer: support_slam_chance_for_one/two/three_additional_aftershock(s)_% 30/15/10,
+# support_unstable_earth_damage_+%_final -35; poe2db's Tremors page the same four lines; added 0.1.0e, 0.2.0 "Fixed a bug
+# where Tremors Support could interfere with aftershock chances from other sources"). PoB has no Tremors at all (checked:
+# grep of the four stat ids and "Tremors" over vendor/PathOfBuilding-PoE2/src/Data), so the bridge never sees it on a
+# skill and these entries are dormant until gem resolution (COV-C) can socket a gem PoB lacks. The game files list it
+# "live (inferred)": no uncut-gem tier, live only by its SupportGems weight (data/game-26476662/live.json); poe2db shows
+# no drop level either: whether a player can get it now is UNVERIFIED.
+# For MECH-B's aftershock_model: the three chances as parts (support_part_scale(skill, "aftershocks")), each the chance of
+# that many extra Aftershocks. Whether they're one roll (exclusive outcomes: 0.3 x 1 + 0.15 x 2 + 0.1 x 3 = 0.9 expected)
+# or three independent rolls, and how they combine with the summed "additional Aftershock" chance (which the model caps
+# at one extra), is UNVERIFIED (the 0.2.0 fix says they interact); the model should say which it assumes.
+- id: support-tremors-one-aftershock
+  title: Tremors, 30% chance for one additional Aftershock (for the aftershock model)
+  kind: gem_stat
+  support: true
+  to: part:aftershocks
+  skill: Tremors
+  support_stats: ['support_slam_chance_for_one_additional_aftershock_%']
+  match: '^support_slam_chance_for_one_additional_aftershock_%$'
+  replace: ['mult:AftershockChanceOne']
+  confidence: datamined
+  notes: Chance (%) of one extra Aftershock.
+  sources: ["SupportTremorsPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tremors"]
+  status: proposed
+
+- id: support-tremors-two-aftershocks
+  title: Tremors, 15% chance for two additional Aftershocks (for the aftershock model)
+  kind: gem_stat
+  support: true
+  to: part:aftershocks
+  skill: Tremors
+  support_stats: ['support_slam_chance_for_two_additional_aftershocks_%']
+  match: '^support_slam_chance_for_two_additional_aftershocks_%$'
+  replace: ['mult:AftershockChanceTwo']
+  confidence: datamined
+  notes: Chance (%) of two extra Aftershocks.
+  sources: ["SupportTremorsPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tremors"]
+  status: proposed
+
+- id: support-tremors-three-aftershocks
+  title: Tremors, 10% chance for three additional Aftershocks (for the aftershock model)
+  kind: gem_stat
+  support: true
+  to: part:aftershocks
+  skill: Tremors
+  support_stats: ['support_slam_chance_for_three_additional_aftershocks_%']
+  match: '^support_slam_chance_for_three_additional_aftershocks_%$'
+  replace: ['mult:AftershockChanceThree']
+  confidence: datamined
+  notes: Chance (%) of three extra Aftershocks.
+  sources: ["SupportTremorsPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tremors"]
+  status: proposed
+
+- id: support-tremors-less-damage
+  title: Tremors, 35% less Damage
+  kind: gem_stat
+  support: true
+  skill: Tremors
+  support_stats: ['support_unstable_earth_damage_+%_final']
+  match: '^support_unstable_earth_damage_\+%_final$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  notes: >-
+    "Supported Skills deal 35% less Damage" (-35), on every use of the supported skill whatever the Aftershocks do, so
+    it's a plain line, not a part: it applies even before the aftershock model reads the chances (an undercount of
+    Tremors meanwhile, never an overcount).
+  sources: ["SupportTremorsPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tremors"]
+  status: proposed

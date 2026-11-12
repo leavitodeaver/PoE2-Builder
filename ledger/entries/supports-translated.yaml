@@ -560,3 +560,96 @@
   sources: ["SupportLockdownPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
   test_in_game: "Pin a dummy from 2 m and from 7 m with a supported Pinning skill: hits to Pin (about 2.2x and 1.6x as fast as without)."
   status: proposed
+
+# COVE10 (12 Nov 2026) -------------------------------------------------------------------------------------------------
+- id: support-culling-strike-ii-threshold-buff
+  title: Culling Strike II, 20% increased Culling Strike Threshold for 20 s on Culling (fed by culled adds; 0 against a lone boss)
+  kind: gem_stat
+  support: true
+  applies_to: build
+  share: cull_buff
+  share_seconds: 20
+  skill: Culling Strike II
+  support_stats: ['support_culling_strike_threshold_+%_on_cull_for_seconds_from_code']
+  match: '^support_culling_strike_threshold_\+%_on_cull_for_seconds_from_code$'
+  replace: ['1% increased Culling Strike Threshold']
+  confidence: theory
+  notes: >-
+    "Gain 20% increased Culling Strike Threshold for 20 seconds on Culling with Supported Skills"
+    (SupportCullingStrikePlayerTwo: constant 20; the 20 seconds is in the game text only, the stat being "..._from_code").
+    PoB maps only the gem's Culling Strike against Rare or Unique enemies (CanCull), not this stat (checked:
+    sup_dex.lua's statMap for SupportCullingStrikePlayerTwo, the stat id in SkillStatMap.lua and Modules/*.lua, 12 Nov
+    2026), so PoB never overcounts it. PoB reads "increased Culling Strike Threshold" as CullPercent INC
+    (ModParser.lua 925; CalcOffence.lua 4076: the boss's 5% Unique threshold x 1.2 = 6%). A buff on you, so counted for the
+    whole build, at min(1, culls/s x 20 s) (models.cull_buff_share). Against a lone boss the first Cull is the kill
+    (KeywordPopups CullingStrike; RESEARCH20 #117: the cull itself is worth at most 5% of the time to kill), so the buff
+    can't raise the boss's threshold: 0 with a note until an add-kill rate exists (models.CULLS_STAT; the King in the
+    Mists' totems, Atziri's cultists: RESEARCH14/15/16). MECH-A's planned cull model (plans kw-culling-strike) reads
+    CullPercent and so would take this line.
+  sources: ["SupportCullingStrikePlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd",
+            "scratch/manager/research/block-plan-cull-flee-fated-end.md (#117)"]
+  test_in_game: "Against the King in the Mists, Cull a totem, then check the cull threshold on the boss within 20 s (6% instead of 5%)."
+  status: proposed
+
+- id: support-profanity-i-chaos-if-corpse
+  title: Profanity I, 30% more Chaos Damage if consuming a Corpse (0 on a lone boss without the build's own corpse source)
+  kind: gem_stat
+  support: true
+  share: corpse_consumed
+  skill: Profanity I
+  support_stats: ['support_chaos_damage_+%_final_if_corpse_consumed_on_use']
+  share_stats: ['skill_consume_up_to_X_corpses_on_use']
+  match: '^support_chaos_damage_\+%_final_if_corpse_consumed_on_use$'
+  replace: ['1% more Chaos Damage']
+  confidence: theory
+  notes: >-
+    "Supported Skills deal 30% more Chaos Damage if consuming a Corpse" (SupportProfanityPlayer: 30; consumes up to 1
+    corpse within 50 units, 5 m, on use). PoB maps none of its stats (checked: no statMap in sup_int.lua's Profanity
+    entries, the stat ids in SkillStatMap.lua and Modules/*.lua, 12 Nov 2026). Tagged to the supported skill at the
+    share of its uses that consume a corpse (models.corpse_share: the build's own corpse supply over the skill's uses);
+    on a single boss nothing dies, and MECH-B's corpse_supply prices no source yet, so 0 with its note.
+  sources: ["SupportProfanityPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  test_in_game: "Not needed until a corpse source is priced."
+  status: proposed
+
+- id: support-profanity-ii-chaos-per-corpse
+  title: Profanity II, 5% more Chaos Damage per Corpse consumed on use, up to 10 (0 on a lone boss without the build's own corpse source)
+  kind: gem_stat
+  support: true
+  share: corpses_per_use
+  skill: Profanity II
+  support_stats: ['support_chaos_damage_+%_final_per_corpse_consumed_on_use']
+  share_stats: ['skill_consume_up_to_X_corpses_on_use']
+  match: '^support_chaos_damage_\+%_final_per_corpse_consumed_on_use$'
+  replace: ['1% more Chaos Damage']
+  confidence: theory
+  notes: >-
+    "Supported Skills deal 5% more Chaos Damage for each Corpse consumed this way" (SupportProfanityPlayerTwo: 5, up to
+    10 corpses within 5 m on use). PoB maps none of it (checked as Profanity I). Counted as 5% x the corpses each use
+    consumes (models.corpse_share: min(10, supply / uses); the game's per-corpse "more" read as additive in the count,
+    5% x n, UNVERIFIED whether it compounds), 0 on a lone boss with corpse_supply's note.
+  sources: ["SupportProfanityPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  test_in_game: "Not needed until a corpse source is priced."
+  status: proposed
+
+- id: support-retaliate-stun-bar-damage
+  title: Retaliate I/II, up to 40% more Attack Damage scaling with your Stun Bar (0 until the player's Stun Bar is modelled)
+  kind: gem_stat
+  support: true
+  share: stun_bar
+  skill: [Retaliate I, Retaliate II]
+  support_stats: ['support_max_attack_damage_+%_final_from_current_poise']
+  match: '^support_max_attack_damage_\+%_final_from_current_poise$'
+  replace: ['1% more Attack Damage']
+  confidence: theory
+  notes: >-
+    "Supported Skills deal up to 40% more Attack Damage, scaling up as your Stun Bar increases" (SupportRetaliatePlayer
+    and ...PlayerTwo: 40; melee attacks you use yourself). PoB maps none of it (checked: no statMap in sup_str.lua's two
+    entries, "from_current_poise" in SkillStatMap.lua and Modules/*.lua, 12 Nov 2026). Counted at the average fill of your
+    Stun Bar (models.stun_bar_share, linear in the fill assumed), which MECH-C's player Stun-bar model gives as
+    models.STUN_BAR_STAT; 0 with a note until then. Retaliate II's (and Spar's) "Hits Stun as though dealing more Damage
+    equivalent to the current percentage of your Stun Bar" (support_hit_damage_stun_multiplier_+%_final_from_current_poise)
+    isn't written here.
+  sources: ["SupportRetaliatePlayer, SupportRetaliatePlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  test_in_game: "Hit a dummy with an empty and a half-full Stun Bar: about 20% more damage at half, if the scaling is linear."
+  status: proposed

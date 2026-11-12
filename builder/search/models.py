@@ -2236,6 +2236,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 read = {**(stats or {}), "_groups": groups} if groups and entry.raw["share"] in GROUP_SHARES else stats
                 if entry.raw["share"] in SKILLS_SHARES:  # (reads the build's other skills: its minions, what kills them)
                     read = {**(read or {}), "_skills": skills}
+                if entry.raw.get("share_seconds"):  # (the buff's duration the game text gives, no stat: COVE10)
+                    read = {**(read or {}), "_seconds": float(entry.raw["share_seconds"])}
                 if entry.raw["share"] in CONFIG_SHARES:  # (reads PoB's config: the boss distance the build is calculated at)
                     read = {**(read or {}), "_config": config or {}}
                 factor, why, play = SHARES[entry.raw["share"]](skill, read or {}, main, prev)
@@ -2352,7 +2354,9 @@ PARTS = {"cascade": "Spell Cascade's Cascades", "offering": "spells cast around 
          "pin_duration": "the Pins it inflicts (no Pinned uptime is modelled yet)",
          "curse_duration": "the Curse's duration when the cast consumes a Power Charge (curse model)",
          "ground_duration": "the Ground Surfaces it creates (read by the ground models: conditions.shocked_ground)",
-         "haemocrystals": "the Haemocrystals it creates from Consumed Bleeding (no crystal damage is counted yet)"}
+         "haemocrystals": "the Haemocrystals it creates from Consumed Bleeding (no crystal damage is counted yet)",
+         "ground_area": "the Ground Surfaces it creates, growing (read by the ground models: conditions.shocked_ground)",
+         "aftershocks": "the extra Aftershocks of a Slam (read by MECH-B's aftershock_model)"}
 
 
 def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[dict]]:
@@ -2594,11 +2598,14 @@ def supported_main_share(skill: Skill, stats: dict, main: Skill | None = None, p
 # culls of adds feed it (RESEARCH14/15/16: the King in the Mists' totems on a 25 s / 15 s summon cooldown, Atziri's
 # cultists every 45 s). The tool has no add-kill rate yet (MECH-A / MECH-C), so this reads one from the stats as
 # CULLS_STAT (culls per second the build makes) and is 0 with a note while it's missing: no flat guess.
+# Culling Strike II (COVE10): "Gain 20% increased Culling Strike Threshold for 20 seconds on Culling with Supported Skills"
+# is the same case, its 20 s from the game text (the stat is ..._for_seconds_from_code: an entry's `share_seconds`).
 CULLS_STAT = "AddCullsPerSecond"
 
 
 def cull_buff_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
-    seconds = number(skill.support_stats.get("support_thrill_of_the_kill_buff_base_duration_ms")) / 1000 or 8.0
+    seconds = (number(stats.get("_seconds"))  # (an entry's own `share_seconds`: Culling Strike II's 20 s)
+               or number(skill.support_stats.get("support_thrill_of_the_kill_buff_base_duration_ms")) / 1000 or 8.0)
     culls = number(stats.get(CULLS_STAT))
     play = ("Cull the boss's adds (the King in the Mists' totems, Atziri's cultists) with the supported skill to start the "
             "buff; Culling the boss itself ends the fight, so it gives nothing there.")
@@ -2663,14 +2670,72 @@ def near_boss_share(skill: Skill, stats: dict, main: Skill | None = None, prev: 
                    f"{NEAR_NONE_METRES:g} m, linear between assumed)"), play
 
 
+# `share: corpse_consumed` / `corpses_per_use` (COVE10): Profanity I, "Supported Skills deal 30% more Chaos Damage if
+# consuming a Corpse", and Profanity II, "5% more Chaos Damage for each Corpse consumed this way" (up to 10 within 5 m on
+# use: skill_consume_up_to_X_corpses_on_use). The supported skill still works without a corpse, so only the bonus needs
+# one. Corpses come from the build's own sources only (corpse_supply, MECH-B's: nothing dies on a lone boss, and no
+# source is priced yet, so 0 with its note: no flat guess). With a supply S per second and U uses per second of the
+# supported skill (the main skill's Speed; a side skill's use rate isn't read: 0, said so), Profanity I counts at
+# min(1, S / U) of its uses and Profanity II at min(cap, S / U) corpses per use. Other corpse users in the build would
+# share S (not split here: MECH-B's supply model would say how).
+def corpse_share(skill: Skill, stats: dict, main: Skill | None, per_use: bool) -> tuple[float, str, str]:
+    present = {s.name for s in stats.get("_skills") or [skill]}
+    supply = corpse_supply(present)
+    play = ("Consume corpses with the supported skill: on a lone boss nothing leaves one, so it needs the build's own "
+            "corpse source (Sacrifice's Reviving minions, once priced); without one the bonus is 0.")
+    if supply <= 0:
+        sources = [f"{name}: {why}" for name, why in CORPSE_SOURCES.items() if name in present]
+        return 0.0, ("0: the bonus needs a corpse consumed on use, nothing dies on a single boss, and "
+                     + (f"the build's corpse source isn't priced yet ({'; '.join(sources)})" if sources
+                        else "the build has no corpse source of its own")
+                     + " (models.corpse_supply)"), play
+    if main is None or main.name != skill.name or main.group != skill.group:
+        return 0.0, f"0: {supply:.3g} corpses/s, but the use rate of a non-main skill isn't read (an undercount)", play
+    uses = number(stats.get("Speed"))
+    if uses <= 0:
+        return 0.0, f"0: {supply:.3g} corpses/s, but the skill's use rate is unknown", play
+    cap = number(skill.support_stats.get("skill_consume_up_to_X_corpses_on_use")) or 1.0
+    share = min(cap if per_use else 1.0, supply / uses)
+    return share, (f"{share:.3g} {'corpses per use' if per_use else 'of its uses consume a corpse'}: {supply:.3g} "
+                   f"corpses/s over {uses:.3g} uses/s (other corpse users not split off)"), play
+
+
+def corpse_consumed_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    return corpse_share(skill, stats, main, per_use=False)
+
+
+def corpses_per_use_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    return corpse_share(skill, stats, main, per_use=True)
+
+
+# `share: stun_bar` (COVE10): Retaliate I/II, "Supported Skills deal up to 40% more Attack Damage, scaling up as your Stun
+# Bar increases" (gem_stat_descriptions). PoB maps nothing (checked: no statMap in sup_str.lua's two entries, no
+# from_current_poise in SkillStatMap.lua or Modules/*.lua). Counted at the average fill of your Stun Bar through the fight
+# (linear in the fill assumed: "scaling up"), read from the stats as STUN_BAR_STAT, a 0-1 share MECH-C's player Stun-bar
+# model will give from the boss's hits; 0 with a note while it's missing (no flat guess).
+STUN_BAR_STAT = "PlayerStunBarAverage"
+
+
+def stun_bar_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    fill = number(stats.get(STUN_BAR_STAT))
+    play = ("Take the boss's hits without being Heavily Stunned: the fuller your Stun Bar, the more damage (Stun Threshold "
+            "lets it fill further before you're Heavily Stunned).")
+    if fill <= 0:
+        return 0.0, ("0: it scales with how full your Stun Bar is, and the tool doesn't model the player's Stun Bar against "
+                     "the boss's hits yet (MECH-C; UNVERIFIED fill)"), play
+    fill = min(1.0, fill)
+    return fill, f"at {fill:.0%}, your Stun Bar's average fill through the fight (linear in the fill assumed)", play
+
+
 CONFIG_SHARES = {"near_boss"}  # (share functions that read PoB's config: gem_stat_model passes `_config`)
 
-SKILLS_SHARES = {"revived_recently"}  # (share functions that read the build's skills: gem_stat_model passes `_skills`)
+SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use"}  # (read the build's skills: `_skills`)
 
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
           "cull_buff": cull_buff_share, "revived_recently": revived_recently_share,
-          "near_boss": near_boss_share}
+          "near_boss": near_boss_share, "corpse_consumed": corpse_consumed_share,
+          "corpses_per_use": corpses_per_use_share, "stun_bar": stun_bar_share}
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
