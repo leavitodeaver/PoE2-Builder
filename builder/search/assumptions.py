@@ -536,7 +536,8 @@ class Assumptions:
             return []
         gems = {g["name"] for g in group["gems"] if g.get("enabled", True)}
         consumer = conditions_mod.main_consumes(build, main, gems).get("Ignite")
-        if consumer is None:
+        side = None if consumer is not None else conditions_mod.side_consumes(build, main, groups).get("Ignite")
+        if consumer is None and side is None:
             return []
         stats = build.call("stats", fields=list(conditions_mod.CONSUME_IGNITE_FIELDS))
         hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
@@ -548,14 +549,19 @@ class Assumptions:
             rate = next((r for r in rates if r.get("name") == source), None)
             potential = (number(stats.get("IgniteStackPotential")) if own
                          else number(((rate or {}).get("stackPotential") or {}).get("Ignite")))
-            scale, how = conditions_mod.consumed_ignite_scale(potential, hits, chance, number(stats.get("IgniteDuration")), own)
+            if side is not None:  # (MECH53: a skill beside the main one consumes it)
+                scale, how = conditions_mod.side_consumed_ignite_scale(potential, hits, chance, own, side[0])
+                by, why, confidence = side[1], f"{side[1]} consumes Ignite (KeywordPopups Consume: then immune 1 s)", side[2]
+            else:
+                scale, how = conditions_mod.consumed_ignite_scale(potential, hits, chance,
+                                                                  number(stats.get("IgniteDuration")), own)
+                by, why, confidence = consumer, f"{main} consumes Ignite on hit (KeywordPopups Consume: then immune 1 s)",                     "MEDIUM"
             if scale >= 1.0:
                 continue
             key = models.press_key("Best Ignite DPS", source or None)
             build.objective.press_scales[key] = build.objective.press_scales.get(key, 1.0) * scale
-            notes.append({"label": f"Ignite from {source or 'the build'}: consumed by {consumer}*", "value": f"x{scale:.3f}",
-                          "basis": f"{main} consumes Ignite on hit (KeywordPopups Consume: then immune 1 s); {how}",
-                          "confidence": "MEDIUM"})
+            notes.append({"label": f"Ignite from {source or 'the build'}: consumed by {by}*", "value": f"x{scale:.3f}",
+                          "basis": f"{why}; {how}", "confidence": confidence})
         return notes
 
     def press_caps(self, groups: list[dict], indices: set[int]) -> dict[int, "models.PressCap"]:

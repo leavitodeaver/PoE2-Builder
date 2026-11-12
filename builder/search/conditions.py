@@ -1392,7 +1392,7 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
         return 0.0
     if ailment in (stats.get("_consumes") or {}):
         return consumed_share(hits, chance)
-    return 1.0 - (1.0 - chance) ** (hits * duration)
+    return side_consumed(1.0 - (1.0 - chance) ** (hits * duration), stats, ailment, hits, chance)
 
 
 # Ailments the main skill consumes on hit (MECH51; FIX_QUEUE RESEARCH18 #92, HIGH): the stats of its own stat sets or its
@@ -1475,6 +1475,87 @@ def consumed_ignite_scale(potential: float, hits: float, chance: float, duration
            + (f", then {wait:.2f} s to Ignite again" if wait else ", reapplied at once (another skill's Ignite: an upper bound)")
            + f": Ignited {share:.0%} of the fight, PoB counts {counted:.0%}")
     return scale, how
+
+
+# Ailments consumed by a skill beside the main one (MECH53; MECH52's item 2, an OVERCOUNT): a skill in another enabled group
+# (its own stat sets or its supports holding a CONSUME_STATS stat) ends the boss's Freeze / Shock / Ignite each time it
+# consumes it, then the boss is immune 1 s (KeywordPopups Consume) and waits for the main skill to reapply it. Its uses
+# per second: the press model's (models.press_use_rate: its cooldown, else its duration, else one per PRESS_EVERY s, LOW);
+# a triggered one at PoB's own rate for it (its useRates speed, MEDIUM). Each use is taken to find the ailment while the
+# boss has it (an upper bound on what it ends: a use that misses consumes nothing). Uses are taken as random in time.
+# With the share u the boss would carry it, consumed at r a second, reapplied after the 1 s immunity plus w:
+# u / (1 + u x r x (1 s + w)) (a renewal: each consumption adds 1 s + w off). Not when the main skill consumes it itself
+# (its own next hit ends it first: consumed_share).
+def side_consumes(build, main_skill: str, groups: dict | None = None) -> dict[str, tuple[float, str, str]]:
+    """{ailment: (consumptions per second, how, confidence)} from skills beside the main one that consume it. `groups`:
+    the bridge's groups (read when not given)."""
+    groups = groups or build.call("groups")
+    main_index = groups.get("mainSocketGroup")
+    gems = build.ctx.all_gems
+    candidates = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")]
+                  for g in groups["groups"] if g.get("enabled") is not False and g["index"] != main_index
+                  and any(n.get("enabled", True) and CONSUME_TEXT.search((gems.get(n["name"]) or {}).get("description") or "")
+                          for n in g.get("gems") or [])}
+    names = sorted({n for found in candidates.values() for n in found if n != main_skill})
+    if not names:
+        return {}
+    every = [stat for ids in CONSUME_STATS.values() for stat in ids]
+    raw = build.call("activeSkills", levelStats=names, supportStats=every)
+    consumers: dict[str, list[tuple[str, int, bool]]] = {}
+    for skill in raw["skills"]:
+        if skill.get("disabled") or skill.get("group") not in candidates or skill["name"] == main_skill:
+            continue
+        own, sup = skill.get("levelStats") or {}, skill.get("supportStats") or {}
+        for ailment, ids in CONSUME_STATS.items():
+            if any(number(own.get(i)) or number(sup.get(i)) for i in ids):
+                consumers.setdefault(ailment, []).append((skill["name"], skill["group"], bool(skill.get("triggered"))))
+    if not consumers:
+        return {}
+    indices = sorted({g for found in consumers.values() for _, g, _ in found})
+    rates = {r.get("index"): r for r in build.call("useRates", indices=indices)["rates"]}
+    out = {}
+    for ailment, found in consumers.items():
+        total, parts, confidence = 0.0, [], "MEDIUM"
+        for name, group, triggered in found:
+            row = rates.get(group) or {}
+            if triggered:
+                uses, how, conf = number(row.get("speed")), "PoB's trigger rate", "MEDIUM"
+            else:
+                uses, how, conf = models.press_use_rate(row)
+            if uses <= 0:
+                continue
+            total += uses
+            parts.append(f"{name} ({uses:.2f} uses/s, {how})")
+            confidence = "LOW" if conf == "LOW" else confidence
+        if total > 0:
+            out[ailment] = (total, "; ".join(parts), confidence)
+    return out
+
+
+def side_consumed_ignite_scale(potential: float, hits: float, chance: float, own: bool, rate: float) -> tuple[float, str]:
+    """(the scale on PoB's Best Ignite DPS, how) when a skill beside the main one consumes Ignite `rate` times a second:
+    of the min(potential, 1) PoB counts, u / (1 + u x r x (1 s + w)) kept (side_consumed); w the wait for the main
+    skill's own Ignite, 1 / (hits x chance), or none for another skill's (an upper bound, as consumed_ignite_scale)."""
+    counted = min(potential, 1.0) if potential > 0 else 1.0
+    wait = 1.0 / (hits * chance) if own and hits > 0 and chance > 0 else 0.0
+    scale = 1.0 / (1.0 + counted * rate * (models.CONSUME_IMMUNE + wait))
+    how = (f"{rate:.2f} consumptions/s (each use taken to find it), then immune {models.CONSUME_IMMUNE:g} s"
+           + (f", then {wait:.2f} s to Ignite again" if wait else ", reapplied at once (an upper bound)")
+           + f": Ignited {counted * scale:.0%} of the fight, PoB counts {counted:.0%}")
+    return scale, how
+
+
+SIDE_CONSUMED_BOXES = {"conditionEnemyShocked": "Shock", "conditionEnemyIgnited": "Ignite"}
+
+
+def side_consumed(share: float, stats: dict, ailment: str, hits: float, chance: float, ground: float = 0.0) -> float:
+    """`share` of the fight the boss carries `ailment`, cut by the skills beside the main one that consume it
+    (side_consumes, `stats["_side_consumes"]`): share / (1 + share x r x (1 s + the wait to reapply it))."""
+    side = (stats.get("_side_consumes") or {}).get(ailment)
+    if not side or share <= 0 or ailment in (stats.get("_consumes") or {}):
+        return share
+    wait = (1.0 - ground) / (hits * chance) if hits > 0 and chance > 0 else 0.0
+    return share / (1.0 + share * side[0] * (models.CONSUME_IMMUNE + wait))
 
 
 def _ailment_up(ailment: str):
@@ -1659,6 +1740,12 @@ def shock_share(stats: dict) -> float:
     if "Shock" in (stats.get("_consumes") or {}):  # (consumed: the ground reapplies it after the 1 s immunity too)
         chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
         return consumed_share(number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0, chance, ground)
+    if (stats.get("_side_consumes") or {}).get("Shock"):  # (consumed beside: on the combined share, the ground reapplying)
+        hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+        chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
+        duration = number(stats.get("ShockDuration")) or AILMENT_DURATION["Shock"]
+        by_hits = 1.0 - (1.0 - chance) ** (hits * duration) if hits > 0 and chance > 0 else 0.0
+        return side_consumed(1.0 - (1.0 - by_hits) * (1.0 - ground), stats, "Shock", hits, chance, ground)
     return 1.0 - (1.0 - ailment_uptime(stats, "Shock")) * (1.0 - ground)
 
 
@@ -2273,6 +2360,8 @@ class Conditions:
         # Ailments the main skill consumes on hit (CONSUME_STATS; looked up only when a gem of its group says it consumes)
         if consumes := main_consumes(self.build, self.main_skill, main_gems):
             stats["_consumes"] = consumes
+        if side := side_consumes(self.build, self.main_skill):  # (MECH53: skills beside the main one)
+            stats["_side_consumes"] = side
         # Shocked Ground (shocked_ground): the main skill's own, the Shocking Leap support on it, and the lines
         if self.main_skill in SHOCKED_GROUND_SKILLS or SHOCKED_GROUND_SUPPORT in main_gems:
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(SHOCKED_GROUND_SUPPORT_STATS))
@@ -2321,6 +2410,8 @@ class Conditions:
                 if condition.uptime_fn is not None:
                     up = uptimes[condition.var] = condition.uptime_fn(stats)
                     reason += f"; up {up:.0%} of the fight ({shared(up)})"
+                    if side := (stats.get("_side_consumes") or {}).get(SIDE_CONSUMED_BOXES.get(condition.var, "")):
+                        reason += f"; consumed by {side[1]} ({side[2]}): each takes it off, then immune 1 s"
             if condition.value_fn is not None:
                 value, basis, *share = condition.value_fn([line["text"] for line in lines], stats)
                 if value > 0 or basis:  # (a basis with 0: the build has sources, none of which a boss fight feeds)

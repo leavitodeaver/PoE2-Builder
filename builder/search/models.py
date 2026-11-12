@@ -3242,6 +3242,18 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
                        f"{stats['_consumes'][ailment]} on the next hit ({last:.2f} s), then immune {CONSUME_IMMUNE:g} s "
                        f"(KeywordPopups Consume): one every {period:.2f} s: {share:.0%} (buildup during the immunity taken "
                        f"as kept: UNVERIFIED)")
+    if side := (stats.get("_side_consumes") or {}).get(ailment):
+        # a skill beside the main one consumes it (MECH53; conditions.side_consumes): each Freeze lasts until its next use
+        # or d, (1 - e^(-r d)) / r on average with uses random in time; the bar refills from then (buildup paused while
+        # Frozen), at least the 1 s immunity (buildup during it taken as kept: UNVERIFIED, #99)
+        rate = side[0]
+        last = (1 - math.exp(-rate * d)) / rate
+        period = last + max(CONSUME_IMMUNE, period - d)
+        share = min(1.0, last / period)
+        return share, (f"{fill * 100:.1f}% of the bar per s ({hits_per_second(stats):.2f} hits/s, "
+                       f"{bosses.of(stats).name}'s threshold); consumed by {side[1]} ({side[2]}): each lasts "
+                       f"{last:.2f} s of its {d:g} s on average, then the bar refills (at least the 1 s immunity, "
+                       f"KeywordPopups Consume): one every {period:.2f} s: {share:.0%}")
     share = min(1.0, d / period)
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
                    f"{bosses.of(stats).name}'s threshold); {d:g} s each, one every {period:.1f} s (x6 threshold for "

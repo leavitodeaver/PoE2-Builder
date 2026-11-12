@@ -2029,3 +2029,61 @@ def test_a_main_skill_that_consumes_ignite_keeps_pobs_ignite_dps_to_the_share_th
     a.build.objective.press_scales = {}
     assert a.consume_ignite({**groups, "groups": [{"index": 1, "gems": [{"name": "Earthquake"}]}]}, []) == []
     assert a.build.objective.press_scales == {}
+
+
+def test_an_ailment_consumed_by_a_skill_beside_the_main_one_is_carried_less():
+    """MECH53 (MECH52's item 2, an OVERCOUNT): a skill in another group that consumes Freeze / Shock / Ignite ends it at
+    each use, then the boss is immune 1 s (KeywordPopups Consume): u / (1 + u x r x (1 s + the wait to reapply))."""
+    from types import SimpleNamespace
+    from builder.search import conditions as c
+    from builder.search import models
+    from builder.search.assumptions import Assumptions
+
+    side = {"Shock": (0.5, "Elemental Discharge (0.50 uses/s, x)", "MEDIUM"),
+            "Ignite": (0.5, "Elemental Discharge", "MEDIUM"), "Freeze": (0.5, "Elemental Discharge", "MEDIUM")}
+    stats = {"Speed": 2.0, "HitChance": 100, "ShockChancePerHit": 50, "ShockDuration": 4,
+             "IgniteChancePerHit": 50, "IgniteDuration": 4}
+    plain_shock, plain_ignite = c.shock_share(stats), c.ailment_uptime(stats, "Ignite")
+    stats["_side_consumes"] = side
+    u = plain_ignite
+    assert abs(c.ailment_uptime(stats, "Ignite") - u / (1 + u * 0.5 * (1 + 1 / (2 * 0.5)))) < 1e-9
+    assert c.shock_share(stats) < plain_shock
+    assert abs(c.shock_share(stats) - plain_shock / (1 + plain_shock * 0.5 * 2.0)) < 1e-9
+    # the main skill consumes it itself: its own next hit ends it first, the side consumer adds nothing
+    assert c.ailment_uptime({**stats, "_consumes": {"Ignite": "x"}}, "Ignite") == c.consumed_share(2.0, 0.5)
+    # Freeze: lasts (1 - e^-rd) / r of its d, then the bar refills (at least 1 s)
+    frozen = {"Speed": 2.0, "HitChance": 100, "FreezeBuildupAvg": 30, "PhysicalHitAverage": 100}
+    before = models.immobilised_share(frozen, "Freeze")[0]
+    after, how = models.immobilised_share({**frozen, "_side_consumes": side}, "Freeze")
+    assert 0 < after < before and "consumed by Elemental Discharge" in how
+    # Best Ignite DPS: own Ignite, PoB counts 100%: 1 / (1 + 0.5 x (1 + 1)) = 0.5
+    assert abs(c.side_consumed_ignite_scale(4.0, 2.0, 0.5, True, 0.5)[0] - 0.5) < 1e-9
+    assert abs(c.side_consumed_ignite_scale(4.0, 2.0, 0.5, False, 0.5)[0] - 1 / 1.5) < 1e-9
+
+    class FakeBuild:
+        ctx = SimpleNamespace(all_gems={"Elemental Discharge": {"description": "Consume Elemental Ailments on enemies"}})
+        stats = {"SkillDPS": [{"name": "Best Ignite DPS", "source": "Fireball", "dps": 1000.0, "count": 1}]}
+        objective = SimpleNamespace(press_scales={})
+
+        def call(self, name, **kw):
+            if name == "activeSkills":
+                return {"skills": [{"name": "Elemental Discharge", "group": 2, "levelStats": {
+                    "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge": 1}}]}
+            if name == "useRates":
+                return {"rates": [{"index": 2, "speed": 1.5, "cooldown": 2.0}]}
+            return {"Speed": 2.0, "HitChance": 100, "IgniteChancePerHit": 50, "IgniteDuration": 4,
+                    "IgniteStackPotential": 4.0}
+
+    groups = {"mainSocketGroup": 1, "groups": [{"index": 1, "gems": [{"name": "Fireball"}]},
+                                               {"index": 2, "gems": [{"name": "Elemental Discharge"}]}]}
+    found = c.side_consumes(FakeBuild(), "Fireball", groups)
+    assert set(found) == {"Freeze", "Shock", "Ignite"} and abs(found["Ignite"][0] - 0.5) < 1e-9
+    a = Assumptions.__new__(Assumptions)
+    a.build = FakeBuild()
+    a.main_skill = lambda: "Fireball"
+    notes = a.consume_ignite(groups, [])
+    assert abs(a.build.objective.press_scales["Best Ignite DPS from Fireball"] - 0.5) < 1e-9
+    assert notes and "Elemental Discharge" in notes[0]["label"]
+    # a disabled group beside it: nothing consumed
+    off = {**groups, "groups": [groups["groups"][0], {**groups["groups"][1], "enabled": False}]}
+    assert c.side_consumes(FakeBuild(), "Fireball", off) == {}
