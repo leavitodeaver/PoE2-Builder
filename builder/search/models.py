@@ -1898,8 +1898,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods: list[dict] = []
     notes: list[dict] = []
     for entry in gem_stat_entries():
-        if entry.id in forbidden or not entry.replace:
-            continue
+        if entry.id in forbidden or not entry.replace or str(entry.raw.get("to", "")).startswith("part:"):
+            continue  # (a `to: part:` entry is read by the model that counts that part: support_part_scale)
         names = _skill_names(entry)
         factor = float(entry.raw.get("factor", 1.0))
         own = entry.raw.get("applies_to", "skill") == "skill"
@@ -1965,6 +1965,45 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
             else:
                 names = [n for n in names if n != name]  # one copy of each skill (a buff applies once)
     return mods, notes
+
+
+# `to: part:<name>` (COVE4): a support stat acting only on a part of what the skill does that neither PoB nor the tool
+# counts yet (Spell Cascade's Cascades, Kulemak's Dominion's spells around Offerings, Trickster's Shard's Fractured Mimic
+# casts, Spectral Volley's Spectral Projectiles). gem_stat_model makes no line for it: while the part isn't counted the
+# stat has nothing to act on. The model that counts the part (MECH-B) asks support_part_scale for its multipliers and
+# puts the notes it returns in the build's notes.
+PARTS = {"cascade": "Spell Cascade's Cascades", "offering": "spells cast around Offerings (Kulemak's Dominion)",
+         "mimic": "spells cast by Fractured Mimics (Trickster's Shard)",
+         "spectral": "Spectral Volley's Spectral Projectiles"}
+
+
+def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[dict]]:
+    """Multipliers the supports on `skill` put on one uncounted part of what it does, keyed by the modifier the entry's
+    line names ("Damage", "Area of Effect"), for the model that counts that part; and the notes saying so.
+    `skill` is the skill the support is on: the spell for Spell Cascade and Trickster's Shard, the Offering for Kulemak's
+    Dominion (its penalty is on the spells you cast around the Offering, and the support sits in the Offering's effect list, not theirs)."""
+    from builder.ledger import gem_stat_entries
+
+    scale: dict[str, float] = {}
+    notes: list[dict] = []
+    for entry in gem_stat_entries():
+        if entry.raw.get("to") != f"part:{part}" or not entry.replace:
+            continue
+        for stat, raw in sorted(skill.support_stats.items()):
+            value = number(raw)
+            if not value or entry.pattern is None or not entry.pattern.search(stat):
+                continue
+            for text in entry.replace:
+                m = re.match(r"1% more (.+)$", text)
+                if not m:
+                    continue
+                scale[m.group(1)] = scale.get(m.group(1), 1.0) * max(0.0, 1 + value / 100)
+            notes.append({"label": entry.title, "value": f"{value:g}% on {PARTS.get(part, part)}",
+                          "basis": f"PoB never reads the support stat {stat} ({value:g}) of {' / '.join(_skill_names(entry))} on "
+                                   f"{skill.name}; counted on {PARTS.get(part, part)} only"
+                                   + (f". {entry.notes.strip()}" if entry.notes else ""),
+                          "confidence": entry.confidence, "entry": entry.id})
+    return scale, notes
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

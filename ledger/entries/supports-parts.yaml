@@ -1,0 +1,88 @@
+# Support-gem stats acting only on a part of what the skill does that neither PoB nor the tool counts yet (COVE4,
+# 12 Nov 2026). Kind `gem_stat`, `support: true`, `to: part:<name>`: models.gem_stat_model makes no line for them (the
+# part they act on isn't counted, so today they move nothing); the model that counts the part (MECH-B: extra hits)
+# reads them through models.support_part_scale(skill, part) and gets the multipliers and notes. Values are the game
+# files' (GrantedEffectStatSets, build 26476662). Checked that the parts aren't counted: grep -i of cascade, mimic,
+# fractured, offering_casted in PoB Modules/*.lua and Data/SkillStatMap.lua (only Storm Cascade's own trigger and Spell
+# Echo's cascades, neither these supports') and of cascade, mimic, tricksters, kulemak in builder/search/*.py and
+# engine/bridge.lua (none), 12 Nov 2026.
+
+- id: support-spell-cascade-cascade-area
+  title: Spell Cascade, 20% less Area of Effect on the Cascades
+  kind: gem_stat
+  support: true
+  to: part:cascade
+  skill: Spell Cascade
+  support_stats: ['support_spell_cascade_area_of_effect_+%_for_cascade']
+  match: '^support_spell_cascade_area_of_effect_\+%_for_cascade$'
+  replace: ['1% more Area of Effect']
+  confidence: datamined
+  notes: >-
+    "Cascades from Supported Skills have 20% less Area of Effect" (constant -20 on SupportSpellCascadePlayer), on top of
+    the "20% less Area of Effect" and "30% less Damage" every use of the supported skill gets, which PoB reads (its stat
+    map has both). The Cascades themselves ("Cascade to either side of the targeted Area along a random axis", one per
+    side) aren't counted by PoB or the tool, so this has nothing to act on until MECH-B counts them: then each Cascade's
+    area is 0.8 x 0.8 = 0.64 of the unsupported skill's, which decides how many of them reach a lone boss.
+  sources: ["SupportSpellCascadePlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Spell_Cascade"]
+  test_in_game: "Cast a supported area spell at a dummy: the side Cascades' radius against the centre one's (0.8x the area)."
+  status: proposed
+
+- id: support-kulemaks-dominion-offering-damage
+  title: Kulemak's Dominion, 50% less Damage for spells around the Offerings
+  kind: gem_stat
+  support: true
+  to: part:offering
+  skill: Kulemak's Dominion
+  support_stats: ['cascadeable_offering_support_offering_casted_spell_damage_+%_final']
+  match: '^cascadeable_offering_support_offering_casted_spell_damage_\+%_final$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  notes: >-
+    "Spells you cast which affect an area around you or a targeted location also affect an area around Supported
+    Offerings; Spells deal 50% less damage when affecting areas around Offerings this way" (constant -50 on
+    SupportKulemaksDominionPlayer). The support goes on the Offering; the penalty is on the copies of your other
+    Cascadable spells around it, which PoB doesn't count (PoB maps neither stat), nor does the tool, so it has nothing to
+    act on until MECH-B counts those copies. Then each copy is 0.5x the spell's own hit (support_part_scale on the
+    Offering skill, part "offering").
+  sources: ["SupportKulemaksDominionPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Kulemaks_Dominion"]
+  test_in_game: "Cast an area spell with a supported Offering out: the hit around the Offering against the spell's own (0.5x)."
+  status: proposed
+
+- id: support-tricksters-shard-mimic-damage
+  title: Trickster's Shard, 50% less Damage for the Fractured Mimics' casts
+  kind: gem_stat
+  support: true
+  to: part:mimic
+  skill: Trickster's Shard
+  support_stats: ['skill_used_by_fractured_mimic_spell_damage_+%_final']
+  match: '^skill_used_by_fractured_mimic_spell_damage_\+%_final$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  notes: >-
+    "Supported Spells deal 50% less Damage when cast by Fractured Mimics" (constant -50 on SupportTrickstersShardPlayer).
+    Your own casts are at full damage. The Mimics (the spell "Triggers Fragment Self, creating a Fractured Mimic which will
+    cast that Spell if you get enough of them") aren't counted by PoB (it maps neither stat) or the tool, so this has
+    nothing to act on until MECH-B counts the Mimics' casts: then each is 0.5x the spell's hit.
+  sources: ["SupportTrickstersShardPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tricksters_Shard"]
+  test_in_game: "Cast the supported spell until a Mimic casts it: the Mimic's hit against yours (0.5x)."
+  status: proposed
+
+- id: support-spectral-volley-spectral-damage
+  title: Spectral Volley, 20% more Damage for the Spectral Projectiles
+  kind: gem_stat
+  support: true
+  to: part:spectral
+  skill: Spectral Volley
+  support_stats: ['support_spectral_arrows_damage_+%_final_with_spectral_projectiles']
+  match: '^support_spectral_arrows_damage_\+%_final_with_spectral_projectiles$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  notes: >-
+    "Supported Skills deal 20% more Damage when fired from Spectral Projectiles" (constant 20 on
+    SupportSpectralVolleyPlayer). The Spectral Projectiles (one per attack, at most 5, fired once none has been created
+    for 3 seconds, 0.1 s apart) aren't counted yet, so this waits for MECH-B. How often they fire is the player's choice
+    (attack, then stop for 3 s): a play pattern with without/with rows, not a flat rate. Against the attack's own
+    projectiles (60% less, supports-translated.yaml) each Spectral one is 1.2 / 0.4 = 3x.
+  sources: ["SupportSpectralVolleyPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Spectral_Volley"]
+  test_in_game: "Attack a dummy 5 times, stop for 3 s: each Spectral Projectile's hit against the unsupported attack's (1.2x)."
+  status: proposed

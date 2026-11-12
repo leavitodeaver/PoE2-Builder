@@ -455,6 +455,30 @@ def test_alignment_is_counted_with_its_play_note():
     assert "direction the support indicates" in notes[0]["play"] and "Without it" in notes[0]["play"]
 
 
+def test_penalties_on_uncounted_parts_wait_for_the_model_that_counts_them():
+    area, mimic = "support_spell_cascade_area_of_effect_+%_for_cascade", "skill_used_by_fractured_mimic_spell_damage_+%_final"
+    offering = "cascadeable_offering_support_offering_casted_spell_damage_+%_final"
+    spell = models.Skill("Ice Nova", group=1, spell=True, support_stats={area: -20, mimic: -50})
+    bones = models.Skill("Bone Offering", group=2, spell=True, support_stats={offering: -50})
+    # nothing today: the Cascades, Mimic casts and spells around Offerings aren't counted, so their penalties cut nothing
+    assert models.gem_stat_model([spell, bones]) == ([], [])
+    # the model that counts a part gets its multiplier and a note
+    scale, notes = models.support_part_scale(spell, "cascade")
+    assert scale == {"Area of Effect": pytest.approx(0.8)} and notes[0]["entry"] == "support-spell-cascade-cascade-area"
+    assert models.support_part_scale(spell, "mimic")[0] == {"Damage": pytest.approx(0.5)}
+    assert models.support_part_scale(bones, "offering")[0] == {"Damage": pytest.approx(0.5)}
+    assert models.support_part_scale(bones, "mimic") == ({}, [])  # (the support isn't on it)
+
+
+def test_spectral_volley_cuts_the_attacks_own_projectiles():
+    own, spectral = ("support_spectral_arrows_damage_+%_final_with_non_spectral_projectiles",
+                     "support_spectral_arrows_damage_+%_final_with_spectral_projectiles")
+    bow = models.Skill("Lightning Arrow", group=1, attack=True, support_stats={own: -60, spectral: 20})
+    mods, notes = models.gem_stat_model([bow])
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [("1% more Damage", -60, "Lightning Arrow")]
+    assert models.support_part_scale(bow, "spectral")[0] == {"Damage": pytest.approx(1.2)}
+
+
 def test_support_entries_list_every_stat_their_match_takes():
     from builder.ledger import gem_stat_entries
 

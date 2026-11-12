@@ -188,3 +188,26 @@
     "additional Projectiles" line on the skill (MECH-B owns how many hit a single boss).
   sources: ["SupportAlignmentPlayerThree, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Alignment_I"]
   status: proposed
+
+- id: support-spectral-volley-own-projectiles
+  title: Spectral Volley, 60% less Damage for the attack's own projectiles
+  kind: gem_stat
+  support: true
+  skill: Spectral Volley
+  support_stats: ['support_spectral_arrows_damage_+%_final_with_non_spectral_projectiles']
+  match: '^support_spectral_arrows_damage_\+%_final_with_non_spectral_projectiles$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  notes: >-
+    "Supported Skills deal 60% less Damage when not fired from Spectral Projectiles" (constant -60 on
+    SupportSpectralVolleyPlayer). PoB maps none of the support's stats (its statSets have no statMap) and counts the
+    attack's own projectiles at full damage, so a Bow or Spear attack with it was rated 1/0.4 = 2.5x too high (an
+    overcount). Everything PoB counts of the attack is its own projectiles, so the line goes on the whole skill. The
+    Spectral Projectiles ("Attacks with Supported Skills create a Spectral Projectile", at most 5, which "will fire if no
+    Spectral Projectiles have been created in the last 3 seconds", at 20% more Damage) aren't counted by PoB or the tool
+    (checked: grep -i spectral in PoB Modules/*.lua, builder/search/*.py, engine/bridge.lua, 12 Nov 2026: only Spectral
+    Shield Throw and Summon Spectral Wolf, other skills), so the
+    support is now a loss until MECH-B counts them (supports-parts.yaml support-spectral-volley-spectral-damage).
+  sources: ["SupportSpectralVolleyPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Spectral_Volley"]
+  test_in_game: "Compare a supported attack's tooltip damage with and without Spectral Volley: 0.4x."
+  status: proposed
