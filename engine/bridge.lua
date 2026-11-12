@@ -391,6 +391,37 @@ function DERIVED.maelstrom(out, a)
 	return math.floor(num(out.ManaPerSecondCost) * (a.share or 1) * (1 - (a.chaosResist or 0) / 100) * 100 + 0.5)
 end
 
+-- No Mercy (builder/search/passive_models.py no_mercy_more, COV-B): its average more Damage % x DERIVED_UNIT over a
+-- fight from full Life, from the main skill's Hit share (only Hits break Concentration)
+function DERIVED.noMercy(out, a)
+	local combined, hits = num(out.CombinedDPS), num(out.TotalDPS)
+	local B, C, b = (a.maximum or 0) / 100, (a.concentration or 30) / 100, (a.broken or 100) / 100
+	if combined <= 0 or hits <= 0 or B <= 0 or C <= 0 or b <= 0 then
+		return 0
+	end
+	local h = math.min(hits / combined, 1)
+	local k = B * h * b / C
+	local rampEnd = C / (h * b)
+	local t
+	if rampEnd >= 1 then
+		t = math.log(1 + k) / k
+	else
+		t = math.log(1 + B) / k + (1 - rampEnd) / (1 + B)
+	end
+	return math.floor(DERIVED_UNIT * (1 / t - 1) * 100 + 0.5)
+end
+
+-- Rhythm of Ice (passive_models.rhythm_speed, COV-B): increased Cast Speed % x DERIVED_UNIT from the main spell's
+-- Echoes in the past 4 s, a.per each up to a.cap; its cooldown caps its uses
+function DERIVED.rhythmOfIce(out, a)
+	local rate, cooldown = num(out.Speed), num(out.Cooldown)
+	if cooldown > 0 then
+		rate = math.min(rate, 1 / cooldown)
+	end
+	local gain = math.min(a.cap or 0, (a.per or 0) * 4 * math.max(rate, 0) * (a.chance or 0))
+	return math.floor(DERIVED_UNIT * gain + 0.5)
+end
+
 local function setDerived(env)
 	local modDB = env and env.modDB
 	if not modDB or #derivedInputs == 0 or env.build ~= build then

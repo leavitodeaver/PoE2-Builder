@@ -1,0 +1,91 @@
+# Passive tree lines, third batch (COV-B lane, COVB4, 12 Nov 2026; PoB bb52d6b, game files build 26476662).
+# Lines whose worth the build decides (the user's rule of 11 Nov: no flat rates where the build decides the rate),
+# replacing flat-rate entries in pob-gaps-boss.yaml (no-mercy, rhythm-of-ice: retired there). Each is a model entry:
+# `flag:` switches the passive's condition on, and builder/search/passive_models.py works the value out from the build
+# (again on every calculation in engine/bridge.lua DERIVED, so what-ifs see it).
+# Recheck every one at the 1.0 refresh (11 Dec 2026) and at each PoB update.
+
+- id: passives-model-no-mercy
+  title: No Mercy, more damage by missing Concentration, from the build's Hit share (custom model)
+  kind: pob_gap
+  model: no_mercy
+  match: '^Deal up to (\d+)% more Damage to Enemies based on their missing Concentration$'
+  replace: ['flag:NoMercy']
+  confidence: theory
+  notes: >-
+    PoB ignores the line (ModCache: nil). Witchbane gives enemies Concentration equal to 30% of their Life, broken on
+    Hit by 100% of the damage dealt; it comes back only after 5 s without losing any (game files: PassiveSkills
+    Witchbane AscendancyMercenary2Notable3_, stats %_maximum_life_as_focus, drain_focus_%_of_damage_dealt_on_hit,
+    focus_decay_delay_ms; poe2db Witchbane). Hits only: damage over time breaks none. builder/search/passive_models.py
+    no_mercy_more averages the bonus over a fight from full Life to death, the bonus taken as linear in the missing
+    share (MEDIUM: "up to ... based on"), the hit share h = the main skill's Hit DPS / combined DPS: h = 1 gives 32.9%
+    more (82% of the 40%, not the flat 90% the old entry counted: an overcount), h = 0.5 26.5%, h = 0.2 12.8%
+    (research no-mercy-concentration.md, RESEARCH8). Needs Witchbane (condition Witchbane, pob-gaps-boss.yaml
+    witchbane-concentration). Not counted: boss phase pauses of 5 s or more (Concentration regained: UNVERIFIED how
+    long the pinnacles pause), and other skills' Hits breaking it (only the main skill's split is read).
+  sources: ["https://poe2db.tw/us/No_Mercy", "https://poe2db.tw/us/Witchbane",
+            "game files PassiveSkills AscendancyMercenary2Notable3_ / AscendancyMercenary2Notable4 (RESEARCH8)"]
+  test_in_game: "With Witchbane, hit a boss with a Hit-only skill: its Concentration bar should be empty after about 30% of its Life is dealt; a Bleed or Ignite build takes longer."
+  status: proposed
+
+- id: passives-model-rhythm-of-ice
+  title: Rhythm of Ice, cast speed per Spell Echoed Recently, from the main spell's echoed casts (custom model)
+  kind: pob_gap
+  model: rhythm_of_ice
+  match: '^(\d+)% increased Cast Speed per Spell Echoed Recently, up to (\d+)%$'
+  replace: ['flag:RhythmOfIce']
+  confidence: theory
+  notes: >-
+    PoB parses the line only in part (ModCache leftover "per Echoed Recently, up to 30%"), so never applies it.
+    Recently is the past 4 s (KeywordPopups), so the cap needs 5 Spells Echoed in 4 s (1.25 a second).
+    builder/search/passive_models.py rhythm_model: 6% x 4 x the main spell's uses per second (capped by its cooldown:
+    Zarokh's Refrain gives one) x its chance to Echo, up to 30%. Echo sources (checked: every stat with "echo" in its
+    id and its stat sets, passives and mods, RESEARCH5 rhythm-of-ice.md; poe2db Spell Echo, Now and Again): Spell Echo
+    and Zarokh's Refrain on the main spell (every use; Cascadable spells you use yourself, not Triggered, Persistent or
+    by proxy: their PoB data), else Now and Again's "Cascadable Spells have 20% chance to Echo". Zarokh's three Echoes
+    count as one Spell Echoed (LOW: the lower reading). Tul's Avalanche's Echo per Seal broken: not counted (which
+    skills it applies to is UNVERIFIED). Only the main spell's Echoes are counted: an Echo-supported spell pressed
+    beside it adds none (a small undercount, noted in the result). The old entry gave the full 30% whenever any Spell
+    Echo gem was in the build: an overcount below 1.25 echoed casts a second, and Zarokh's Refrain / Now and Again
+    gave nothing.
+  sources: ["https://poe2db.tw/us/Rhythm_of_Ice", "https://poe2db.tw/us/Spell_Echo", "https://poe2db.tw/us/Stormweaver",
+            "game files PassiveSkills cold58, KeywordPopups Recently / Cascadable (RESEARCH5)"]
+  test_in_game: "Cast an Echo-supported spell once a second: the buff should show 24% (4 Echoes in 4 s), and 30% at 1.25 casts a second or more."
+  status: proposed
+
+# Per different skill used in 8 s (AUDIT7 A7-2): ready for MECH-B's count, 0 until it lands --------------------------
+
+- id: passives-model-emboldening-casts
+  title: Emboldening Casts, Attack Damage per different Non-Instant Spell used in 8 s (custom model, count pending)
+  kind: pob_gap
+  model: different_skills
+  match: '^(\d+)% increased Attack Damage for each different Non-Instant Spell you''ve used in the past 8 seconds$'
+  replace: ['flag:EmboldeningCasts']
+  confidence: theory
+  notes: >-
+    PoB parses the line only in part (ModCache 1954: leftover "for each different Non-Instant you've used in the past 8
+    seconds"), so it never applies it (AUDIT7 A7-2; checked: no ledger entry on origin/main before this one).
+    builder/search/passive_models.py different_skills_model gives "N% increased Attack Damage" per the PoB multiplier
+    LedgerDifferentNonInstantSpells8s: the number of different Non-Instant Spells the build uses at least once per 8 s,
+    which MECH-B's skills model is to set (with Rapid Casting III, the Kurgal suffix and Casting Cascade's counts:
+    research cast-speed-per-different-spell.md). Until it does the multiplier is 0 and so is this line (an
+    undercount for a hybrid build, labelled in the result). Passive attacks_and_spells12 (game files).
+  sources: ["game files PassiveSkills attacks_and_spells12 (AUDIT7 A7-2)", "https://poe2db.tw/us/Emboldening_Casts"]
+  test_in_game: "Use two different non-instant spells, then attack: the attack's damage should show 24% increased from this passive."
+  status: proposed
+
+- id: passives-model-enhancing-attacks
+  title: Enhancing Attacks, Spell Damage per different Non-Instant Attack used in 8 s (custom model, count pending)
+  kind: pob_gap
+  model: different_skills
+  match: '^(\d+)% increased Spell Damage for each different Non-Instant Attack you''ve used in the past 8 seconds$'
+  replace: ['flag:EnhancingAttacks']
+  confidence: theory
+  notes: >-
+    PoB parses the line only in part (ModCache 2028: leftover text), so it never applies it (AUDIT7 A7-2).
+    passive_models.different_skills_model gives "N% increased Spell Damage" per LedgerDifferentNonInstantAttacks8s (the
+    different Non-Instant Attacks used per 8 s, MECH-B's count), 0 until MECH-B sets it (an undercount, labelled).
+    Passive attacks_and_spells13 (game files).
+  sources: ["game files PassiveSkills attacks_and_spells13 (AUDIT7 A7-2)", "https://poe2db.tw/us/Enhancing_Attacks"]
+  test_in_game: "Use two different non-instant attacks, then cast a spell: its damage should show 24% increased from this passive."
+  status: proposed

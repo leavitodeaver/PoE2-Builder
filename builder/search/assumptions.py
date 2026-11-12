@@ -25,7 +25,7 @@ import re
 
 from builder.ledger import conditions
 from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
-from builder.search import models
+from builder.search import models, passive_models
 from builder.search.conditions import INFUSED_SET, ailment_uptime, curse_uses, natural_distance, shock_share
 from builder.search.objective import number
 from builder.search.usage import usage_rules
@@ -399,6 +399,8 @@ class Assumptions:
         rod_mods, rod_notes = models.rod_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + rod_mods, hand_notes + rod_notes
         texts = [e["text"] for e in source_lines]
+        passive_mods, passive_notes = passive_models.build_models(build, inputs, texts, found, main, supports)  # (COV-B)
+        hand_mods, hand_notes = hand_mods + passive_mods, hand_notes + passive_notes
         if any(models.RUN_AND_GUN.search(t.strip()) for t in texts):  # (Run and Gun: shotgun and sequence-fired skills)
             main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or [])
             standing = bool(build.call("getConfig")["input"].get("conditionStationary"))

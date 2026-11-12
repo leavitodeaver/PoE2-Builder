@@ -139,7 +139,7 @@
 - id: passives-slow-magnitude-chill
   title: Debuffs you inflict have increased Slow Magnitude (counted on Chill)
   kind: pob_gap
-  match: '^Debuffs you inflict have (\d+)% increased Slow Magnitude$'
+  match: '^Debuffs you inflict have (\(\d+-\d+\)|\d+)% increased Slow Magnitude$'
   replace: ['{1}% increased Magnitude of Chill you inflict']
   confidence: theory
   notes: >-
@@ -152,6 +152,10 @@
     the checked numbers reads one (UNVERIFIED for every source: a boss slowed harder hits less often, which the
     tool's hit-rate models don't read). The Hazards-only form ("Debuffs inflicted by Hazards have ...") isn't matched
     and stays open. Assumption: Slow Magnitude doesn't raise Chill's 50% maximum.
+    One owner for the pattern (AUDIT6 A6-1, COVB4): this entry, for passives and items alike (The Prisoner's
+    Manacles, Grip of Kulemak: PoB's range "(12-30)%" and a rolled value); uniques-batch1.yaml uniques-slow-magnitude
+    ("no effect") matched the same lines and zeroed them, an undercount of the unique's Chill magnitude: COV-D retires
+    it (routed). As files load alphabetically this entry already wins for both forms.
   sources: ["KeywordPopups SlowMagnitudeModifier, Chill, Ailments (game files, build 26476662)",
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (EnemyChillMagnitude, ChillMax)",
             "data/game-26476662 Stats: debuff_slow_magnitude_+%"]

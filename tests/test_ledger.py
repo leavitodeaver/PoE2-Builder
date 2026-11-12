@@ -40,9 +40,11 @@ def test_rolled_ranges_stay_ranges():
 def test_conditional_corrections_read_as_conditions():
     from builder.ledger import readable
 
+    # (No Mercy's flat "if:Witchbane 36% more Damage" is retired: passive_models.no_mercy_model works it out, COVB4)
     found = translate("Deal up to 40% more Damage to Enemies based on their missing Concentration")
     assert found is not None and found[0].conditional
-    assert [readable(line) for line in found[1]] == ["36% more Damage (with Witchbane)"]
+    assert [readable(line) for line in found[1]] == ["enables NoMercy"]
+    assert readable("if:Witchbane 36% more Damage") == "36% more Damage (with Witchbane)"
     assert readable("flag:Witchbane") == "enables Witchbane"
 
 

@@ -73,7 +73,7 @@
     the maximum. Needs Witchbane for enemies to have Concentration at all.
   sources: ["https://poe2db.tw/No_Mercy", "https://poe2db.tw/Witchbane",
             "https://pcgamer.com/games/rpg/path-of-exile-2-mercenary-build"]
-  status: proposed
+  status: retired  # COVB4: the flat 90% overcounted; passives-batch3.yaml passives-model-no-mercy counts it from the build's Hit share
 
 # Lines with no effect on a single boss ----------------------------------------------------------
 
@@ -351,7 +351,7 @@
   confidence: theory
   notes: "'Echoed' read as repeated by Spell Echo; the cap is reached at 1.25 echoed casts per second."
   sources: ["https://poe2db.tw/Rhythm_of_Ice", "https://poe2db.tw/Spell_Echo"]
-  status: proposed
+  status: retired  # COVB4: the flat 30% overcounted; passives-batch3.yaml passives-model-rhythm-of-ice counts the main spell's echoed casts
 
 - id: escalation
   title: Escalation, damage per different warcry used recently
