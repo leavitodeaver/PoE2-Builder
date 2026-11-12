@@ -2039,7 +2039,12 @@ end
 -- The boss's own resistances (MECH50; builder/search/bosses.py PRESETS, the Arbiter of Ash by default:
 -- poe2db 12 Nov 2026, game 0.5.5), not PoB's Pinnacle placeholder 50/50/50/0. Must equal
 -- bosses.config_vars(bosses.DEFAULT) (tests/test_models.py checks it).
-local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = -15, enemyLightningResist = 0, enemyChaosResist = 0 }
+local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = -15, enemyLightningResist = 0, enemyChaosResist = 0,
+	enemySpeed = 2250, cullingStrikeUniqueThreshold = 5 }
+-- PoB's own Unique Culling Strike threshold (Data/Misc.lua: 5%). The boss's `cullingStrikeUniqueThreshold` (MECHD4,
+-- bosses.cull_threshold: 5% x Life / (Life + Energy Shield), so CullMultiplier is the gain over the whole pool) replaces
+-- it in data.gameConstants, which CalcOffence reads (4071 / 4075); every resetConfig puts PoB's back first.
+local POB_CULL_UNIQUE  -- (read at the first resetConfig, once PoB's data is loaded)
 -- The Arbiter of Ash's hits (MECHC6): must equal boss_hits.config_vars(boss_hits.DEFAULT_BOSS) (tests/test_models.py)
 local BOSS_HITS_DEFAULT = { enemyPhysicalDamage = 1034, enemyFireDamage = 4138, enemyColdDamage = 0,
 	enemyLightningDamage = 0, enemyChaosDamage = 0 }
@@ -2058,8 +2063,13 @@ function bridge.resetConfig(args)
 			fresh.input[var] = value
 		end
 	end
+	POB_CULL_UNIQUE = POB_CULL_UNIQUE or data.gameConstants["CullingStrikeUniqueThreshold"]
+	data.gameConstants["CullingStrikeUniqueThreshold"] = POB_CULL_UNIQUE
 	for var, value in pairs((args and args.boss) or BOSS_DEFAULT) do
 		fresh.input[var] = value
+		if var == "cullingStrikeUniqueThreshold" then
+			data.gameConstants["CullingStrikeUniqueThreshold"] = value
+		end
 	end
 	-- The boss's hits per damage type (MECHC6, builder/search/boss_hits.py config_vars: the game's monster tables, not
 	-- PoB's Pinnacle 965 per type): each type the boss deals at its full size, the others 0 (args.bossHits, else the

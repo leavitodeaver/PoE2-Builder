@@ -2485,7 +2485,8 @@ def test_the_bridge_s_default_boss_is_the_presets_default():
     table = re.search(r"local BOSS_DEFAULT = \{([^}]*)\}", lua).group(1)
     found = {k: int(v) for k, v in re.findall(r"(\w+) = (-?\d+)", table)}
     assert found == bosses.config_vars() == {"enemyFireResist": 45, "enemyColdResist": -15, "enemyLightningResist": 0,
-                                             "enemyChaosResist": 0}
+                                             "enemyChaosResist": 0, "enemySpeed": 2250,
+                                             "cullingStrikeUniqueThreshold": 5}
     note = bosses.note()
     assert note["label"] == "Boss: Arbiter of Ash" and "Cold -15%" in note["value"]
     assert all(b.chaos == 0 for b in bosses.PRESETS.values()) and len(bosses.PRESETS) == 12
@@ -3188,3 +3189,42 @@ def test_the_boss_presets_killed_adds_supply_corpses():
     spark = models.Skill("Spark", group=1, spell=True)
     share, why, _ = models.corpse_consumed_share(spark, {**stats, "Speed": 2.0}, spark)
     assert share == pytest.approx(0.1) and "UNVERIFIED" in why
+
+def test_the_boss_preset_sends_its_hit_cadence_to_pob_and_the_floors_keep_the_faster_one():
+    """MECHD4: config_vars sends each preset's HIT_EVERY to PoB's enemySpeed (ms; LOW, PoB's 700 has no source), so
+    enemySkillTime follows the boss; the defence floors read floor_skill_time, the scored figure rescaled to 0.7 s (the
+    boss's Slow kept), never slower than the scored one."""
+    from builder.search import bosses
+
+    for name, every in bosses.HIT_EVERY.items():
+        assert bosses.config_vars(name)["enemySpeed"] == round(every * 1000) > 700
+    # the Arbiter of Ash (2.25 s), Slowed so its hits come every 3.0 s: the floors read 3.0 x 0.7 / 2.25
+    assert bosses.floor_skill_time({"enemySkillTime": 3.0}) == pytest.approx(3.0 * 0.7 / 2.25)
+    assert bosses.floor_skill_time({"enemySkillTime": 1.12, "_boss": "Vessel of Kulemak"}) == pytest.approx(0.7)
+    assert bosses.floor_skill_time({}) == 0.7
+
+
+def test_culling_takes_5_percent_of_the_boss_s_life_not_of_its_energy_shield():
+    """MECHD4 (A22-5): PoB's CullMultiplier treats the whole pool as Life; Energy Shield (f% of base Life converted, x5
+    rarity against Life's x29) isn't Culled, so the threshold PoB is given is 5% x Life / (Life + ES)."""
+    from builder.search import bosses
+
+    assert bosses.cull_threshold("Arbiter of Ash") == 5.0  # (no ES)
+    atziri = bosses.cull_threshold("Atziri, the Red Queen")  # 33%: ES = 5 x 0.33 / (29 x 0.67) of Life
+    assert atziri == pytest.approx(5 * 29 * 0.67 / (29 * 0.67 + 5 * 0.33), rel=1e-3)
+    assert all(0 < bosses.cull_threshold(n) <= 5 for n in bosses.PRESETS)
+    assert "Culling Strike takes 4.6086% of the pool" in bosses.note("Atziri, the Red Queen")["basis"]
+
+
+def test_the_boss_ignites_you_for_a_share_of_the_fight():
+    """MECHD4 (MECH53's note): the boss's landed Fire hits x the Flammability chance (boss_hits.ignite_chance) x
+    (1 - avoidance), 4 s each, as a Poisson stream; 0 for a boss with no Fire hits or full avoidance; a slower cadence
+    gives the smaller uptime."""
+    from builder.search import bosses
+
+    s = {"enemySkillTime": 2.25, "Life": 5000, "AilmentThreshold": 2500, "FireTakenHit": 3000}
+    share, how = bosses.self_ignite_uptime(s)
+    assert 0 < share < 1 and "Ignited" in how
+    assert bosses.self_ignite_uptime({**s, "enemySkillTime": 0.7})[0] > share
+    assert bosses.self_ignite_uptime({**s, "IgniteAvoidChance": 100})[0] == 0
+    assert bosses.self_ignite_uptime({**s, "_boss": "Zarokh, the Temporal"})[0] == 0

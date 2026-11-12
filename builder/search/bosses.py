@@ -51,9 +51,9 @@ class Boss(NamedTuple):
     # Freeze / Electrocute / Pin buildup the same (they read the same threshold, CalcOffence.lua 5570: MEDIUM).
     poise: int = 938
     heavy_stun_s: float = 4.0  # BossBase.ot set_base_heavy_stun_duration_ms 4000 (RESEARCH19 #98, HIGH; Zarokh HIGH too: its chain ApparitionBoss -> SanctumBossBase -> BossBase / SanctumMonsterBase sets no other, MECHD2)
-    # MonsterTypes.EnergyShieldFromLife, % (AUDIT18 A18-4; the values match the table, AUDIT22 A22-5). What it means in
-    # the fight is UNVERIFIED: how it combines with the Unique rarity's +2,800% Life / +400% ES (a share of base Life:
-    # ES about 1.7% of final Life; or of final Life: about 50% at 33%) is open. In notes only: nothing reads it yet.
+    # MonsterTypes.EnergyShieldFromLife, % (AUDIT18 A18-4; the values match the table, AUDIT22 A22-5). Read as f% of base
+    # Life converted to ES, then the Unique rarity's +2,800% Life / +400% ES (PoB's monster reading and the game's
+    # "unscaled ... to_convert" stat: MEDIUM-LOW, MECHD4): ES = 5f / (29 (1 - f)) of Life. Read by cull_threshold.
     es_from_life: int = 0
     immune: frozenset = frozenset()  # ailments the boss can't have (AUDIT9 A9-7: Zarokh's own monster mod)
     kills: tuple = ()  # Kills rows (empty: no killable adds with a known rate; see the comment under PRESETS)
@@ -151,8 +151,10 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
 # Every preset reads slower than PoB's 0.7 s placeholder (enemySpeed 700, ConfigOptions.lua 2279 "Enemy attack / cast
 # time in ms", no source given; the per-skill speeds in its Data/BossSkills.lua are for its ten PoE1 boss skills,
 # Shaper / Sirus / Maven / Exarch / Eater / PoE1 Atziri, checked: the file's ten keys, read only by the
-# presetBossSkills option): 1.12 s to 2.25 s. Nothing writes this into PoB's enemySpeed yet: models that want it read
-# hit_interval().
+# presetBossSkills option): 1.12 s to 2.25 s. Since MECHD4 config_vars writes it into PoB's enemySpeed (ms), so
+# enemySkillTime (CalcDefence 3427: enemySpeed / (1 + the boss's Speed) / its action speed) and every model that reads it
+# use the preset's cadence (the manager's ruling, held for the user to veto). The defence floors keep reading the
+# faster placeholder: floor_skill_time().
 HIT_EVERY: dict[str, float] = {
     "Arbiter of Ash": 2.25,  # its cooldowns overfill the time (busy x2.15), so their mix sets the rate
     "Arbiter of Divinity": 1.36,
@@ -178,6 +180,22 @@ def hit_interval(stats: dict | None = None) -> tuple[float, str]:
     b = of(stats)
     s = HIT_EVERY[b.name]
     return s, HIT_EVERY_BASIS.format(s=s, name=b.name)
+
+
+# The defence floors' cadence (MECHD4): PoB's 0.7 s placeholder, faster than every preset's HIT_EVERY. A floor that
+# reads the boss's damage per second (the recovery floor, objective.boss_recovery) or whether a hit landed recently must
+# not get easier to pass on the LOW per-boss cadence, so it reads enemySkillTime rescaled to this one (the boss's Slow
+# and Speed kept: the same ratio).
+FLOOR_HIT_EVERY = 0.7
+
+
+def floor_skill_time(stats: dict) -> float:
+    """enemySkillTime as the defence floors read it: the scored seconds between the boss's hits rescaled from the
+    preset's HIT_EVERY to PoB's 0.7 s placeholder (never slower than the scored figure). 0.7 when the stats have none."""
+    every = float((stats or {}).get("enemySkillTime") or 0.0)
+    if every <= 0:
+        return FLOOR_HIT_EVERY
+    return min(every, every * FLOOR_HIT_EVERY / HIT_EVERY[of(stats).name])
 
 
 
@@ -251,11 +269,48 @@ def kill_stats(name: str = DEFAULT) -> dict:
     return {"_boss": name, KILLS_STAT: rate, CULLS_STAT: rate}
 
 
-def config_vars(name: str = DEFAULT) -> dict[str, int]:
-    """PoB config inputs that set the boss's resistances (bridge resetConfig's `boss` argument)."""
+# Culling Strike against the boss (MECHD4, A22-5). KeywordPopups CullingStrike: "Culling Strikes kill ... Unique at 5%.
+# These thresholds are checked before the damage of the [Hit] is applied": a share of the boss's Life. PoB counts it as
+# CullMultiplier = 100 / (100 - 5) (CalcOffence 4071-4079, 6467-6470: x1.053 on CombinedDPS for any build that can
+# Cull), as if the whole pool the player takes off were Life. Energy Shield is taken off before Life and isn't Culled,
+# so the true gain is 1 / (1 - 5% x Life / (Life + ES)): PoB's is an OVERCOUNT for the bosses with Energy Shield.
+# The ES share: MonsterTypes.EnergyShieldFromLife f%, read as PoB reads it for monsters (Export/Scripts/minions.lua
+# writes MonsterTypes' value as energyShield, CalcPerform 1066 applies it as LifeConvertToEnergyShield: f% of base Life
+# converted) and as the game's own stat name reads (Stats unscaled_maximum_life_%_to_convert_to_maximum_energy_shield:
+# of unscaled Life); then the Unique rarity mod MonsterUnique2 scales Life x29 (monster_life_+%_final_from_rarity 2800)
+# and ES x5 (monster_energy_shield_+%_final_from_rarity 400). So ES / Life = 5f / (29 (1 - f)): 1.9% of Life at 10%,
+# 8.5% at Atziri's 33%. MEDIUM-LOW (which stat MonsterTypes' column feeds isn't in the exported files: no .ot names it,
+# checked research19's Monster.ot / BossBase.ot / PinnacleBossBase.ot and the presets' own .ot). If ES were instead f%
+# of the final Life, the gain would fall further (Atziri x1.042 instead of x1.048): this reading is the smaller cut.
+# No preset is Cull-proof (checked: the only Mods row with immune_to_culling_strike / cannot_be_culled is
+# MonsterCannotBeCulled, on none of MonsterVarieties' rows' Mods / Mods2; no exported .ot names a cull stat).
+# Forms and lives (the King's two forms, Kulemak's revive, Atziri's two phases) each Cull at 5% of their own Life,
+# the same share of the whole fight, so they don't change it (UNVERIFIED that a form that transforms can be Culled).
+CULL_UNIQUE = 5.0  # % of Life (KeywordPopups CullingStrike; PoB's CullingStrikeUniqueThreshold, Data/Misc.lua 108)
+RARITY_LIFE, RARITY_ES = 29.0, 5.0  # MonsterUnique2: +2,800% / +400% final
+
+
+def life_share_of_pool(name: str = DEFAULT) -> float:
+    """The boss's Life as a share of Life + Energy Shield (the reading above; 1.0 with no ES)."""
+    f = PRESETS[name].es_from_life / 100
+    life, es = RARITY_LIFE * (1 - f), RARITY_ES * f
+    return life / (life + es)
+
+
+def cull_threshold(name: str = DEFAULT) -> float:
+    """PoB's Unique Culling Strike threshold to use against this boss: 5% x Life / (Life + ES), so PoB's
+    CullMultiplier, 100 / (100 - it), is the gain over the whole pool (MEDIUM-LOW, above)."""
+    return round(CULL_UNIQUE * life_share_of_pool(name), 4)
+
+
+def config_vars(name: str = DEFAULT) -> dict[str, float]:
+    """PoB config inputs that set the boss's resistances, its hit cadence and its Culling threshold (bridge resetConfig's
+    `boss` argument): enemySpeed is HIT_EVERY in ms (LOW; PoB's placeholder 700 has no source; MECHD4);
+    cullingStrikeUniqueThreshold isn't a PoB config input: the bridge writes it into PoB's game constant (MECHD4)."""
     b = PRESETS[name]
     return {"enemyFireResist": b.fire, "enemyColdResist": b.cold, "enemyLightningResist": b.lightning,
-            "enemyChaosResist": b.chaos}
+            "enemyChaosResist": b.chaos, "enemySpeed": round(HIT_EVERY[name] * 1000),
+            "cullingStrikeUniqueThreshold": cull_threshold(name)}
 
 
 def note(name: str = DEFAULT) -> dict:
@@ -270,5 +325,40 @@ def note(name: str = DEFAULT) -> dict:
                      "0% (PoB and the game agree). Other pinnacles differ: elemental damage moves up to x2.3 between "
                      f"them. Life {b.life:,} at level 82; Monster Category {category}; stun threshold {b.poise}% "
                      f"(PoB's buildup x{threshold_scale({'_boss': name}):.2f}); Heavy Stun {b.heavy_stun_s:g} s; "
+                     f"Energy Shield {1 / life_share_of_pool(name) - 1:.1%} of Life (MEDIUM-LOW), so Culling Strike "
+                     f"takes {cull_threshold(name):g}% of the pool, not 5%; one hit every {HIT_EVERY[name]:g} s (LOW); "
                      f"add kills {kills * 60:.2f}/min ({how})" + (f"; {b.note}" if b.note else ""),
             "confidence": "MEDIUM-HIGH (recheck after the 12 Nov game update)"}
+
+
+# "Ignited yourself" from the boss (MECHD4; MECH53's note): the box (conditions' conditionIgnited) was on only for
+# Grinning Immolation's self-Ignite. The boss Ignites you too: its landed Fire hits x MECH-C's chance per hit
+# (boss_hits.ignite_chance: Flammability from the hit's size against your Ailment Threshold, KeywordPopups Flammability,
+# MEDIUM-LOW) x (1 - your Ignite avoidance), each lasting 4 s x your SelfIgniteDuration (KeywordPopups Ignite). Taken
+# as a Poisson stream: Ignited 1 - e^(-rate x duration) of the fight. Read at the scored cadence (enemySkillTime, the
+# preset's LOW rate): the slower rate is the smaller uptime, so the "while Ignited" lines it turns on aren't raised by it.
+def self_ignite_uptime(stats: dict) -> tuple[float, str]:
+    """Share of the fight the boss keeps you Ignited, and how (0 when it deals no Fire or you can't be Ignited)."""
+    import math
+
+    from builder.search import boss_hits  # (boss_hits reads this module's PRESETS)
+
+    def num(key: str, default: float = 0.0) -> float:
+        try:
+            return float(stats.get(key, default) or 0.0)
+        except (TypeError, ValueError):
+            return default
+
+    name = boss_hits.boss_name(stats)
+    fire = boss_hits.type_shares(name)["Fire"]
+    avoid = min(max(num("IgniteAvoidChance"), 0.0), 100.0) / 100
+    if fire <= 0 or avoid >= 1:
+        return 0.0, (f"{name} deals no Fire hits" if fire <= 0 else "you can't be Ignited") + ": not Ignited by the boss"
+    land = boss_hits.landing_hits(stats)
+    chance, how = boss_hits.ignite_chance(stats, land)
+    seconds = boss_hits.IGNITE_SECONDS * (num("SelfIgniteDuration") / 100 if "SelfIgniteDuration" in stats else 1.0)
+    rate = land * fire * chance * (1 - avoid)
+    share = 1 - math.exp(-rate * seconds)
+    return share, (f"the boss Ignites you {rate * 60:.1f} times a minute ({land:.2f} landed hits/s, {fire:.0%} Fire; "
+                   f"{how}; {avoid:.0%} avoided), {seconds:g} s each: Ignited {share:.0%} of the fight (LOW: the "
+                   "hit cadence is the preset's estimate)")

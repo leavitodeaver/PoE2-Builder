@@ -1336,10 +1336,25 @@ def test_the_boss_is_scored_with_its_own_resistances_not_pob_s_50(engine):
     pob = {"enemyFireResist": 50, "enemyColdResist": 50, "enemyLightningResist": 50, "enemyChaosResist": 0}
     build.call("resetConfig", boss=pob)
     at_50 = build.call("stats", fields=FIELDS)["CombinedDPS"]
+    pob_time = build.call("stats", fields=["enemySkillTime"])["enemySkillTime"]
     config = build.call("resetConfig")["input"]
-    assert {k: config[k] for k in pob} == bosses.config_vars()
+    assert {k: config[k] for k in bosses.config_vars()} == bosses.config_vars()
     at_ash = build.call("stats", fields=FIELDS)["CombinedDPS"]
     assert at_50 > 0 and 1.5 < at_ash / at_50 <= 2.31
+    # MECHD4: the preset's hit cadence reaches PoB's enemySkillTime (2.25 s for the Arbiter, not the placeholder 0.7 s;
+    # the same boss Slow on both)
+    ash_time = build.call("stats", fields=["enemySkillTime"])["enemySkillTime"]
+    assert pob_time > 0 and ash_time / pob_time == pytest.approx(2250 / 700, rel=1e-3)
+    # MECHD4: the boss's Culling threshold reaches PoB's game constant (5% x Life / (Life + ES)); every reset puts the
+    # preset's back (the Arbiter has no ES: PoB's 5)
+    def cull():
+        return float(engine.lua.run('return tostring(data.gameConstants["CullingStrikeUniqueThreshold"])', "cull")[0])
+    assert cull() == 5
+    build.call("resetConfig", boss=bosses.config_vars("Atziri, the Red Queen"))
+    assert cull() == pytest.approx(bosses.cull_threshold("Atziri, the Red Queen")) and cull() < 4.7
+    build.call("resetConfig", boss=pob)
+    assert cull() == 5
+    build.call("resetConfig")
 
 
 def test_a_unique_granting_a_remnant_source_is_tried_for_real_in_the_gear_round(engine):
