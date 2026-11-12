@@ -401,8 +401,10 @@ class Gear:
         no longer let it use comes off (enforce_restrictions)."""
         self.enforce_restrictions()
         build = self.build
+        # (Charges.of: with the request's boss preset's add kills, which give flasks and charms charges on the King /
+        # Atziri presets, MECHC9; from_bridge alone counted none)
+        self.charges = Charges.of(build)
         data = build.call("chargeGain")
-        self.charges = Charges.from_bridge(data)
         changed = False
         for slot in [*FLASK_SLOTS, *CHARM_SLOTS]:
             option = build.equipped.get(slot)
