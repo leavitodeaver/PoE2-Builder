@@ -4412,7 +4412,8 @@ def apocalypse_model(uses: float, basis: str, frequency: float = 0.0,
 # spawn_doedre_toads_on_cursed_ground; maximum_curse_zones_allowed 2, max_toads_per_doedre_cursed_ground 4,
 # doedre_cursed_ground_toad_spawn_interval_ms 250). PoB (engine probe POE2T1015) rates Dark Consequences at one explosion
 # per spawn interval, castTime 1 x hitTimeMultiplier 0.25 = 4 a second, whether or not a cursed area is up, and only in
-# Full DPS if the curse's group is in it (the search never put it there: 0). The model:
+# Full DPS if the curse's group is in it (no model put it there: checked, every extra_groups source in
+# Assumptions.models (energy, mirage, Spirit Vessel, Expression groups); a group the player marks keeps PoB's flag). The model:
 #   - explosions per second = (1 / spawn interval) x the share of the fight the boss stands in one area: the curse's
 #     own share (curse_uses: a meta's rate x its duration, else recast by hand each duration). A trigger rate r gives PoB
 #     4r hits a second (its hit time is the use time x 0.25), so r = that share;
