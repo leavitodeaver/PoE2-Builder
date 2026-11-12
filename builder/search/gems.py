@@ -678,6 +678,18 @@ class Gems:
         if group is None:
             return
         options = self.active_options(group)
+        if build.objective.full:
+            # On Full DPS every skill counts whichever is calculated, so the score barely moves between them and the
+            # choice drifted to a buff or a support-granted skill: gate 2b75b delivered Explosive Transmutation's buff
+            # (MECHC8, 15:20) and Living Lightning (15:34, its plain DPS 0) as the main skill, not Transmutation
+            # Explosion (SEARCH7, Defect B). The skill the search chose on its own DPS stays; only its parts and stat
+            # sets are chosen here (a calculated skill with no DPS of its own may still change)
+            skills = group["skills"]
+            index = group.get("mainActiveSkill") or 1
+            current = skills[index - 1]["name"] if 0 < index <= len(skills) else None
+            kept = [o for o in options if skills[o[0] - 1]["name"] == current]
+            if kept and main_dps(build.stats) > 0:
+                options = kept
         if len(options) <= 1:
             return
         settle_fn = self.settle if settle else None
