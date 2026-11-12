@@ -739,6 +739,19 @@ def test_resonance_switches_the_use_box_of_the_kind_it_feeds():
         ["Gain a Frenzy Charge on Critical Hit", "Gain Power Charges instead of Frenzy Charges"],
         {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "PowerChargesDuration": 15})[1]
 
+
+def test_rage_on_melee_axe_hit_needs_an_axe():
+    """"Gain 1 Rage on Melee Axe Hit" counted any melee hit (FIX_QUEUE, an overcount): only with an Axe equipped (MECHC2)."""
+    from builder.search.conditions import rage_held
+
+    melee = {"Speed": 3.0, "HitChance": 100, "CritChance": 0, "MaximumRage": 30, "enemySkillTime": 0.7,
+             "EvadeChance": 100, "_main_types": {"Attack", "Melee"}}
+    line = ["Gain 2 Rage on Melee Axe Hit"]
+    held, basis = rage_held(line, {**melee, "_weapon_types": ["One Handed Mace"]})
+    assert held == 0.0
+    assert rage_held(line, {**melee, "_weapon_types": ["Two Handed Axe"]})[0] > 0
+    assert rage_held(["Gain 2 Rage on Melee Hit"], {**melee, "_weapon_types": ["One Handed Mace"]})[0] > 0
+
 def test_rage_held_from_gains_spends_and_its_decay():
     """KeywordPopups Rage: 1 lost per 0.2 s, the loss paused 4 s on a gain or a hit taken, one Hit per 0.5 s gains."""
     from builder.search.conditions import rage_held

@@ -727,6 +727,11 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
             (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)) / every
     if "kill" in when:
         return 0.0, 0.0, "on kill (nothing dies on a single boss)"
+    # "Gain N Rage on Melee Axe Hit": only with that weapon equipped (MECHC2; before, any melee hit counted; checked: the
+    # only weapon-named Rage gain among PoB's ModCache Rage lines; any weapon word is read the same way)
+    if (weapon := re.search(r"\b(axe|mace|sword|spear|flail|quarterstaff|dagger|claw|crossbow|bow)\b[^.;]*\bhit", when)) \
+            and not any(weapon.group(1) in t.lower().split() for t in stats.get("_weapon_types") or ()):
+        return 0.0, 0.0, f"on {weapon.group(1).capitalize()} hits, and no {weapon.group(1).capitalize()} is equipped"
     if "critically hit" in when or "critical|critically hit" in when:
         events, how = land * 0.05, "when the boss crits you (5% of its hits that land)"
     elif "hit] by" in when or "hit by" in when:
@@ -1835,6 +1840,8 @@ class Conditions:
             FLASK_EVENT.search(t) for t in texts) else {}
         stats = {**stats, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend,
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_distance_choice": self.distance,
+                 "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
+                                   if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],
                  "_stationary_off": self.stationary_off, "_rolling": self.rolling,
                  "_curse_uses": curse_uses(self.build, stats, texts, (self.distance or (natural_distance(main_types), ""))[0])
                  if any("AppliesCurse" in types for types in gem_types.values())
