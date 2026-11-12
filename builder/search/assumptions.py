@@ -293,6 +293,7 @@ class Assumptions:
         # damage scaled to plain + share x (Infused - plain)), share, basis. `infused_skipped`: label -> why it isn't
         self.infused: dict | None = None
         self.infused_skipped: dict[str, str] = {}
+        self.press_busy = 0.0  # the share of the fight remnant_presses took from the main skill in the last wanted()
 
     def main_skill(self) -> str | None:
         group = self.build.main_group()
@@ -524,9 +525,11 @@ class Assumptions:
             if chosen is None or label != chosen["label"]:
                 notes.append({"label": f"{main}: {label} cast not counted", "value": 0,
                               "basis": self.infused_skipped.get(label, INFUSED_NOTE), "confidence": "theory"})
+        self.press_busy = 0.0
         if explosion is not None or chosen is not None:
             press_mods, press_notes = self.remnant_presses(skills, main)
             mods, notes = mods + press_mods, notes + press_notes
+            self.press_busy = press_notes[0]["value"] if press_notes else 0.0
         found, condition_notes = self.ledger_conditions(skills)
         mods += [{"kind": "Condition", "name": name} for name in found]
         return mods, notes + condition_notes
@@ -676,12 +679,17 @@ class Assumptions:
         """The share of the main skill's casts that find an Elemental Infusion of `element` (one consumed per cast):
         the build's supply (infusion_supply) over its casts per second, less those that keep the Infusion."""
         build = self.build
-        present = {s["name"]: s for s in build.call("activeSkills")["skills"] if not s["disabled"]}
+        raw = build.call("activeSkills")["skills"]
+        present = {s["name"]: s for s in raw if not s["disabled"]}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
         siphon = siphon_freezes(build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present else (0.0, "")
         supply, used = infusion_supply(present, lines, ailments, siphon)
         keep = min(1.0, sum(float(m.group(1)) for t in lines if (m := KEEP_INFUSION.search(t.strip()))) / 100.0)
         uses = float(build.call("stats", fields=["Speed"]).get("Speed") or 0.0)
+        # (MECH46: the main skill's casts net of the time pressing Snap / Frost Bomb takes, whether or not that press
+        # line is on PoB's numbers now)
+        busy = (self.remnant_presses(raw, self.main_skill())[1] or [{"value": 0.0}])[0]["value"]
+        uses *= (1.0 - busy) / (1.0 - self.press_busy)
         have = supply[element] + supply["Any"]
         needed = uses * (1.0 - keep)
         share = min(1.0, have / needed) if needed > 0 else float(have > 0)
