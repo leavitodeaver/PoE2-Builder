@@ -318,6 +318,24 @@ def pressed_group(group: dict, gems: dict[str, dict]) -> bool:
     return any(presses(g) for g in active)
 
 
+def minion_lives(build: Build, found: list[models.Skill]) -> dict[str, float]:
+    """{Reviving minion skill: its minion's maximum Life} when a skill in the build has Minion Pact (models.pact_uses_per_kill;
+    PoB calculates a minion's Life only as the main skill, so the bridge's useRates sets each minion group as main)."""
+    if not any(models.number(s.support_stats.get(models.MINION_PACT_STAT)) > 0 for s in found):
+        return {}
+    wanted = {s.name for s in found if s.summon and s.summon.get("persistent") and not models.number(s.summon.get("duration"))}
+    indices, actives, names = [], [], []
+    for group in build.groups():
+        for n, skill in enumerate(group["skills"], 1):
+            if skill["name"] in wanted and skill["name"] not in names:
+                indices.append(group["index"]); actives.append(n); names.append(skill["name"])
+    if not indices:
+        return {}
+    rates = {(r["index"], r.get("active")): r for r in build.call("useRates", indices=indices, actives=actives)["rates"]}
+    lives = {name: models.number((rates.get((i, a)) or {}).get("minionLife")) for i, a, name in zip(indices, actives, names)}
+    return {name: life for name, life in lives.items() if life > 0}
+
+
 class Assumptions:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -352,6 +370,8 @@ class Assumptions:
         from builder.search import bosses  # (MECH-D: the request's boss, its add kills / Culls per second, for the models)
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**stats, **bosses.kill_stats(boss)}
+        build.minion_lives = minion_lives(build, found)  # (MECHB12, A25-2: Minion Pact's Kills read the minions' Life)
+        stats = {**stats, "_minion_lives": build.minion_lives}
         if any(s.name == "Cast on Charm Use" for s in found):  # (its Energy: charm charges spent, from the flask model)
             stats = {**stats, **charm_stats(build)}
         if any(s.name == "Cast on Minion Death" for s in found):  # (its Energy: the build's minions dying)
@@ -709,7 +729,8 @@ class Assumptions:
                     group = self.build.main_group()
                     main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill()),
                                 None)
-                    rate, condition = models.minion_deaths(found, main, self.build.call("stats", fields=models.MODEL_FIELDS))
+                    rate, condition = models.minion_deaths(found, main, {**self.build.call("stats", fields=models.MODEL_FIELDS),
+                                                                         "_minion_lives": getattr(self.build, "minion_lives", {})})
                     if rate <= 0:
                         used.append(f"{name} 0/s ({condition})")
                         continue

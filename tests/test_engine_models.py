@@ -1765,3 +1765,19 @@ def test_explosive_transmutations_trigger_assumption_keeps_the_explosions_runic_
     warning = "You do not have enough Runic Ward to use: Transmutation Explosion"
     assert warning in plain["warnings"] and warning in assumed["warnings"]
     assert plain["stats"].get("WardCostWarningList") == assumed["stats"].get("WardCostWarningList") == 1
+
+
+def test_use_rates_reports_a_minion_groups_minion_life(engine):
+    """MECHB12 (AUDIT25 A25-2): Minion Pact's Kills read the minions' Life, which PoB calculates only for the main skill's
+    minion; the bridge's useRates sets each group as main and reports it (minionLife)."""
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("addSkillGroup", text="Raise Zombie 20/0 1")
+    group = next(g for g in build.groups() if any(s["name"] == "Raise Zombie" for s in g["skills"]))
+    rate = build.call("useRates", indices=[group["index"]])["rates"][0]
+    assert rate.get("minionLife", 0) > 0
+    spark = build.call("useRates", indices=[build.main_group()["index"]])["rates"][0]
+    assert "minionLife" not in spark

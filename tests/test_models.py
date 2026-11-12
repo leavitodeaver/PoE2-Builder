@@ -3149,23 +3149,31 @@ def test_a_one_totem_support_holds_pobs_ailment_stacks_to_one_totem():
 
 
 def test_minion_pact_kills_a_minion_each_use_and_holds_its_bonus_to_uses_that_find_one():
-    """AUDIT23 A23-2 (MECHB11): Minion Pact removes 100% / 150% of your maximum Life from a nearby minion on use; a minion
-    its summoner brings to 0 Life is Killed (KeywordPopups Sacrifice / MinionDeath): one Killed per use (LOW: minion Life
-    not read), capped by revival. Its 30% more is held to the uses that find a minion."""
+    """AUDIT23 A23-2 (MECHB11), AUDIT25 A25-2 (MECHB12): Minion Pact removes 100% / 150% of YOUR maximum Life from a nearby
+    minion on use; a minion its summoner brings to 0 Life is Killed (KeywordPopups Sacrifice / MinionDeath): one Killed
+    per ceil(minion Life / Life removed) uses, capped by revival; none counted when no minion's Life is read. Its 30% more
+    is held to the uses that find a minion."""
     from builder.search import models
 
     zombies = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "undead": True})
     main = models.Skill("Spark", group=1, spell=True)
-    stats = {"Speed": 2.0}
+    stats = {"Speed": 2.0, "Life": 2000, "_minion_lives": {"Raise Zombie": 1500}}
     assert models.minion_deaths([zombies, main], main, stats)[0] == 0.0  # (without it: nothing kills them)
     assert models.minion_pact_model([zombies, main], main, stats) == ([], [])
     main.support_stats = {models.MINION_PACT_STAT: 100, "support_minion_pact_damage_+%_final": 30}
-    rate, how = models.minion_deaths([zombies, main], main, stats)
+    rate, how = models.minion_deaths([zombies, main], main, stats)  # (2,000 removed >= 1,500: one use a kill)
     assert rate == pytest.approx(6 * 2 / (6 + 7.5 * 2)) and "Minion Pact" in how and "Without it: 0.00" in how
     mods, notes = models.minion_pact_model([zombies, main], main, stats)
     share = 6 / (6 + 7.5 * 2)  # (a minion is there for this share of uses)
     assert mods == [models.raw_mod("Damage", "MORE", 100 * ((1 + 0.3 * share) / 1.3 - 1), "Spark")]
-    assert notes[0]["confidence"].startswith("LOW")
+    assert notes[0]["confidence"].startswith("MEDIUM-LOW")
+    # a sturdier minion (5,000 Life against 2,000 removed) dies every 3 uses
+    sturdy = {**stats, "_minion_lives": {"Raise Zombie": 5000}}
+    rate, how = models.minion_deaths([zombies, main], main, sturdy)
+    assert rate == pytest.approx(6 * (2 / 3) / (6 + 7.5 * (2 / 3))) and "every 3 uses" in how
+    # no minion Life read: no Kills counted (a note, not a flat guess)
+    rate, how = models.minion_deaths([zombies, main], main, {"Speed": 2.0, "Life": 2000})
+    assert rate == 0.0 and "no minion's Life" in how
     # no minions at all: PoB gives no bonus either (MinionPresenceCount 0): nothing to cut; temporary minions feed it too
     assert models.minion_pact_model([main], main, stats) == ([], [])
     spirits = models.Skill("Raging Spirits", summon={"limit": 20, "duration": 8, "persistent": False})

@@ -689,9 +689,9 @@ OWN_USE_GAINS = ("crit", "ailment", "melee hit", "cast")
 #    PlayerTwo; PoB's sup_int.lua, which reads only its 30% / 35% more damage, with a minion in your Presence). Removing
 #    Life is Sacrificing it ("Sacrifices you cause on others (such as Sacrificing Minion Life) can lead to their death",
 #    KeywordPopups Sacrifice) and a minion brought to 0 Life by its summoner is Killed (KeywordPopups MinionDeath). Counted:
-#    one minion Killed per use of the main skill it supports (PoB's Speed), i.e. a minion with no more Life than your
-#    maximum (x1.5) when it's taken. Assumed, LOW: a minion's Life isn't read (PoB calculates it only for a minion skill),
-#    and a build feeding Minion Pact keeps such minions (CLAUDE.md's second rule); the "without it" rate is in the note.
+#    one minion Killed per ceil(its Life / Life removed) uses of the main skill it supports (PoB's Speed): pact_uses_per_kill
+#    (AUDIT25 A25-2, MECHB12: before, one per use whatever the minion's Life, an overcount); the "without it" rate is in
+#    the note.
 # Not counted (labelled): Dark Pact ("Sacrifices 13% of Minion's life", skeletal_chains_aoe_%_health_dealt_as_chaos_damage
 # 13 at level 20) and Abyssal Pact (20%, ..._as_physical_damage): PoB has no skill for them, so the build has no use rate
 # to read (no source, so 0); whether "13% of life" is of maximum or current Life is UNVERIFIED (of current Life it never
@@ -703,6 +703,28 @@ EXPLOSIVE_DEMISE_COOLDOWN = 3.0  # s (PoB minion.lua:815 levels; game files)
 SACRIFICE = "Sacrifice"
 ARSONIST = "Skeletal Arsonist Minion"
 MINION_PACT_STAT = "support_minion_pact_user_life_%_removed_from_nearby_minion"
+
+
+# How many uses of Minion Pact Kill one minion (AUDIT25 A25-2, MECHB12; an OVERCOUNT before: one per use whatever the
+# minion's Life). Each use removes p% of YOUR maximum Life (stats "Life") from a nearby minion; it dies when the removals
+# reach its maximum Life (PoB's env.minion Life, which the bridge's useRates reports per minion group: stats
+# "_minion_lives", {skill: Life}, filled by Assumptions.models). So uses per kill = ceil(minion Life / removed). Taken: the
+# build's lowest-Life Reviving minion (a player feeding Minion Pact keeps its weakest minions near; which minion the gem
+# picks is UNVERIFIED), uses landing on the same minion until it dies, and no regeneration or recovery in between (an
+# overcount where minions regenerate fast, small at Minion Pact's use rates; Energy Shield doesn't shield Life removal:
+# UNVERIFIED, not added). No Life read for any minion: 0 Kills, with a note (CLAUDE.md: no flat guess).
+def pact_uses_per_kill(reviving: list[Skill], pact: float, stats: dict) -> tuple[float, str]:
+    lives = stats.get("_minion_lives") or {}
+    found = {s.name: number(lives.get(s.name)) for s in reviving if number(lives.get(s.name)) > 0}
+    removed = number(stats.get("Life")) * pact / 100
+    if not found or removed <= 0:
+        return 0.0, ("no minion's Life or your maximum Life was read, so no Kills are counted (0, a note: not a flat "
+                     "guess)")
+    name, life = min(found.items(), key=lambda kv: kv[1])
+    per_kill = float(math.ceil(life / removed - 1e-9))
+    return per_kill, (f"it removes {removed:,.0f} Life a use; your weakest Reviving minion ({name}) has {life:,.0f}, so "
+                      f"one dies every {per_kill:g} use{'s' if per_kill != 1 else ''} (MEDIUM: the same minion until it "
+                      "dies, no regeneration between uses; which minion the gem picks is UNVERIFIED)")
 
 
 def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[float, str]:
@@ -725,11 +747,12 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple
     if pact > 0 and number(stats.get("Speed")) > 0:
         uses = number(stats.get("Speed"))
         without = kills
-        kills += uses
+        per_kill, how = pact_uses_per_kill(reviving, pact, stats)
+        if per_kill > 0:
+            kills += uses / per_kill
         parts.append(f"Minion Pact: each use of {main.name} removes {pact:g}% of your maximum Life from a nearby minion "
-                     f"({uses:.2f} uses/s), Killing one whose Life is no more than that (KeywordPopups Sacrifice / "
-                     f"MinionDeath); assumed, LOW: your minions' Life isn't read. Without it: {without:.2f} deaths/s from "
-                     "the other sources before revival")
+                     f"({uses:.2f} uses/s; KeywordPopups Sacrifice / MinionDeath: a minion its summoner brings to 0 Life is "
+                     f"Killed): {how}. Without it: {without:.2f} deaths/s from the other sources before revival")
     arsonist = next((s for s in skills if s.name == ARSONIST), None)
     if arsonist is not None and count > number(arsonist.summon.get("limit")):
         every = EXPLOSIVE_DEMISE_COOLDOWN / (arsonist.cooldown_recovery or 1.0)
@@ -741,7 +764,7 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple
                    "undercount); Dark Pact / Abyssal Pact (13% / 20% of a minion's Life a use) have no skill in PoB, so no "
                    "use rate here")
     if kills <= 0:
-        return 0.0, f"nothing in this build kills its minions ({not_counted})"
+        return 0.0, f"nothing in this build kills its minions ({'; '.join(parts + [not_counted])})"
     revive, how = revive_seconds(reviving)
     rate = count * kills / (count + revive * kills)
     return rate, (f"{rate:.3f} of your {count:g} Reviving minions Killed per second: " + "; ".join(parts)
@@ -5058,7 +5081,7 @@ def minion_pact_model(skills: list[Skill], main: Skill | None, stats: dict) -> t
         "basis": f"{why}. PoB counts its {more:g}% more on every use while a minion is in your Presence; the gem gives it "
                  f"for removing a minion's Life, so x{scale:.3f}. Without Minion Pact the minions aren't killed "
                  f"this way. ({how})",
-        "confidence": "LOW (minion Life not read; the damage-per-removal reading of the gem's text)"}]
+        "confidence": "MEDIUM-LOW (the minions' Life read, pact_uses_per_kill; the damage-per-removal reading of the gem's text)"}]
 
 
 # Poison Spores' Pustule Explosion (MECHB10; COVC12's finding, POE2T1425) ---------------------------------------------------

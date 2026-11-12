@@ -2235,6 +2235,11 @@ function bridge.useRates(args)
 			-- (MECHB7, for COVE8: a side skill's own Heavy Stun buildup, hit / crit chance and per-type averages under
 			-- PoB's own output names, models.HEAVY_STUN_GROUP_FIELDS: Practical Magic on a stunning side skill)
 			local entry = rates[#rates]
+			-- (MECHB12, AUDIT25 A25-2: Minion Pact) the group's minion's maximum Life, which PoB calculates only for the
+			-- main skill's minion (env.minion)
+			if env.minion and type(env.minion.output.Life) == "number" then
+				entry.minionLife = jsonNumber(env.minion.output.Life)
+			end
 			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])

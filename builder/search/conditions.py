@@ -2285,7 +2285,8 @@ class Conditions:
         found = [models.Skill.of(s) for s in self.build.call("activeSkills")["skills"] if not s["disabled"]]
         group = self.build.main_group()
         main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
-        return models.minion_deaths(found, main, self.build.call("stats", fields=models.MODEL_FIELDS))
+        return models.minion_deaths(found, main, {**self.build.call("stats", fields=models.MODEL_FIELDS),  # (MECHB12: A25-2)
+                                                  "_minion_lives": getattr(self.build, "minion_lives", {})})
 
     def _kills(self) -> tuple[float, float, str]:
         """models.kill_rate's (enemies/s, all/s, how) for the request's boss: its preset's add kills (bosses.kill_stats,
