@@ -324,14 +324,7 @@ class Search:
             notes.append(f"removed {len(banned)} banned passive(s)")
         self.tree.choose_default_attribute(sk.main_skill)
         self.problems += [f"required passive {n} isn't reachable" for n in self.tree.allocate_required(sk.class_name)]
-        trimmed = 0
-        while self.tree.points_left() < 0:
-            ranked = self.tree.weakest_branches()
-            if not ranked:
-                break
-            trimmed += len(ranked[0][1])
-            self.tree.remove_branch(ranked[0][1])
-        if trimmed:
+        if trimmed := self.tree.trim_to_budget():
             notes.append(f"removed {trimmed} passive(s) over a level {ctx.level} character's points")
         self.resolve()
         self.gems.choose_active_skill()
@@ -910,8 +903,11 @@ class Search:
                 self.build.restore(closest)
         self.keep_feasible()
         lost = "a required passive had gone from the tree during the search; it was put back"
-        if self.tree.ensure_required() and lost not in self.problems:
-            self.problems.append(lost)
+        if self.tree.ensure_required():
+            if lost not in self.problems:
+                self.problems.append(lost)
+            # (its path back may cost more points than are free: SEARCH8, Defect C)
+            self.tree.trim_to_budget()
         self.resolve()
 
     def _ascend(self, deadline: float, start: dict | None, best: dict | None,
@@ -1022,7 +1018,7 @@ class Search:
             "evals": build.evals, "commits": build.commits, "seconds": clock.now() - build.started,
             "kicks": self.kicks, "kicks_kept": self.kicks_kept, "kick_kinds": dict(self.kick_kinds),
             "passes": self.passes, "passes_done": self.passes_done, "problems": self.problems, "reverts": build.reverts,
-            "restore_drift": restore_drift(build),
+            "restore_drift": restore_drift(build), "over_budget": build.over_budget,
             "line": {"passes": self.line_passes, "resume": self.resume_step},  # (M1: the line's pass, where it goes on)
             "condition_sources": list(self.sources.kept),
             "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
@@ -1329,7 +1325,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     assumptions += list(search.play_notes.values())  # standing still not counted, the Low Life weighting
     return {
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
-        "play_guide": play, "finalize_trace": trace, "finalize_drift": restore_drift(build),
+        "play_guide": play, "finalize_trace": trace, "finalize_drift": restore_drift(build), "over_budget": build.over_budget,
         "pob_full_dps": facts["stats"].get("FullDPS"), "excluded_dps": excluded, "excluded_from": excluded_names,
         "clear_estimate": build.objective.clear(build.stats),
         "blind_spots": blind_spots,

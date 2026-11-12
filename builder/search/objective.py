@@ -55,6 +55,9 @@ COST_WARNINGS = {
     "WardCostWarningList": "Runic Ward", "RageCostWarningList": "Rage",
     "LifePercentCostPercentCostWarningList": "unreserved Life", "ManaPercentCostPercentCostWarningList": "unreserved Mana",
 }
+# Passive (and ascendancy) points allocated beyond the level's budget (bridge setPointsOver, as PoB's "You have too many
+# passive points allocated" counts them): a hard limit (SEARCH8, Defect C: gate 2b75b delivered a tree 19 points over)
+POINTS_OVER = "PassivePointsOver"
 # Damage that only happens when enemies die (Fiery Death's explosions, Plague Burst, ...): PoB's
 # Full DPS counts it as if it were sustained, but a single boss never triggers it
 # (ledger/proposed/pob-full-dps-on-death-damage.yaml). Matched on gem descriptions.
@@ -270,7 +273,7 @@ class Objective:
         # The request's goal unless overridden: balanced runs some searches on boss DPS (run.py)
         self.goal = Goal(goal or ctx.request.objective)
         # Clear fields in every mode, so a boss result can still show its clear estimate
-        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS)
+        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS) | {POINTS_OVER}
         if any(p.stat == "BossRecoveryPercent" for p in self.penalties):
             fields |= set(RECOVERY_INPUTS)
         fields |= {"Missing" + p.stat for p in self.penalties if p.stat in RESIST_FIELDS}  # (maximum_resist)
@@ -383,6 +386,9 @@ class Objective:
             count = number(stats.get(field))
             if count > 0:
                 found.append((f"Skill costs: not enough {pool}", count, True))
+        over = number(stats.get(POINTS_OVER))
+        if over > 0:
+            found.append(("Passive points over the level's budget", over, True))
         share, pool = sustain(stats)
         if share < SUSTAIN_FLOOR:
             found.append((f"Skill cost sustain: {pool}", (SUSTAIN_FLOOR - share) / SUSTAIN_FLOOR, False))

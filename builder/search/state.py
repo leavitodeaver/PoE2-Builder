@@ -11,7 +11,7 @@ from typing import Any
 
 from builder import clock
 from builder.search.context import Context, ItemOption
-from builder.search.objective import CLEAR_FIELDS, EHP_FIELDS_PREFIXES, Objective
+from builder.search.objective import CLEAR_FIELDS, EHP_FIELDS_PREFIXES, POINTS_OVER, Objective
 
 EPSILON = 1e-6  # smallest score gain worth committing
 PROGRESS_INTERVAL = 1.0
@@ -22,6 +22,9 @@ class OutOfTime(Exception):
     """Raised once, at the first evaluation after `Build.stop_at`: a search step that doesn't watch
     the deadline itself (or watches it only between long trials) stops there. Search.run catches it
     and keeps the best build it holds, so a task ends on time with what it has."""
+
+
+OVER_TRACES = 5
 
 
 class Build:
@@ -53,6 +56,9 @@ class Build:
         # their sum and the worst), in the task events: a search must get back the score it kept
         self.restores = 0
         self.drifts: list[float] = []
+        # Where a commit first took the tree over the level's points (SEARCH8, Defect C: which step leaks), the calling
+        # functions innermost last, at most OVER_TRACES of them
+        self.over_budget: list[str] = []
         # Stats PoB doesn't calculate, added to every result before scoring (flask recovery per
         # second, builder/search/flasks.py); what-if cases may override them with an "extra" entry
         self.extra_stats: dict = {}
@@ -80,6 +86,13 @@ class Build:
 
     def _committed(self, result: dict) -> float:
         self.commits += 1
+        before = (self.__dict__.get("stats") or {}).get(POINTS_OVER) or 0
+        if (result["stats"].get(POINTS_OVER) or 0) > 0 >= before and len(self.over_budget) < OVER_TRACES:
+            import traceback
+
+            frames = traceback.extract_stack(limit=8)[:-1]
+            self.over_budget.append(f"{self.phase}: +{result['stats'][POINTS_OVER]:g} via "
+                                    + " < ".join(f"{f.name}:{f.lineno}" for f in reversed(frames)))
         self.stats = self.objective.prepare({**result["stats"], **self.extra_stats, **self.boss_stats})
         self.score = self.objective.score(self.stats)
         self.tick()

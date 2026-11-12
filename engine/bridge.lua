@@ -734,6 +734,45 @@ local function installBossSlow()
 	end
 end
 
+-- Passive points over the level's budget (SEARCH8, Defect C: gate 2b75b delivered a tree 19 points over, which no
+-- search check saw). Counted as PoB's CountAllocNodes and its "too many passive points" warning count them (Build.lua
+-- 1053: points used less the smaller weapon set's, over level - 1 + quest points + ExtraPoints; a weapon set over its
+-- own allowance; ascendancy points over 8), from a calculation's own allocated nodes, so a what-if adding nodes counts
+-- them too. treeCheck reports the same numbers for the committed tree.
+local function pointsOver(allocNodes, output)
+	local used, ascUsed, set1, set2 = 0, 0, 0, 0
+	for _, node in pairs(allocNodes or { }) do
+		if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and node.isFreeAllocate == nil then
+			if not node.ascendancyName then
+				used = used + 1
+			elseif not node.isMultipleChoiceOption and not (build.spec.tree.secondaryAscendNameMap
+				and build.spec.tree.secondaryAscendNameMap[node.ascendancyName]) then
+				ascUsed = ascUsed + 1
+			end
+		end
+		if node.allocMode == 1 then
+			set1 = set1 + 1
+		elseif node.allocMode == 2 then
+			set2 = set2 + 1
+		end
+	end
+	output = output or { }
+	local passives = math.max(build.characterLevel - 1, 0) + build.acts[build.maxActs].questPoints
+	local setPoints = (build.maxWeaponSets or 0) + (output.PassivePointsToWeaponSetPoints or 0)
+	local over = math.max(used - math.min(set1, set2) - passives - (output.ExtraPoints or 0), 0)
+	over = over + math.max(set1 - setPoints, 0) + math.max(set2 - setPoints, 0)
+	return over, math.max(ascUsed - 8, 0)
+end
+
+-- PassivePointsOver on every calculation's output (objective.py: a hard deficit)
+local function setPointsOver(env)
+	local output = env and env.player and env.player.output
+	if output then
+		local over, overAscendancy = pointsOver(env.allocNodes or build.spec.allocNodes, output)
+		output.PassivePointsOver = over + overAscendancy
+	end
+end
+
 -- Cat O' Nine Tails (MECHC8; MECHC6's design): "Life Recovery other than Flasks cannot Recover Life to above Low Life"
 -- (Mods UniqueCannotRecoverAboveLowLifeExceptFlasks1, stat cannot_recover_above_low_life_except_flasks; PoB parses it to
 -- nothing). Its stat is on that one mod and on no passive or skill stat set (checked: game 26476662 Mods,
@@ -835,6 +874,7 @@ local function installDerived()
 			setLowLifeCap(env, env and env.player and env.player.output)
 			markShowAverage(env)
 			setChillDamage(env)
+			setPointsOver(env)
 			return ...
 		end
 		return finish(perform(env, ...))
@@ -1310,13 +1350,7 @@ function bridge.treeCheck(args)
 	table.sort(unconnected)
 	-- Points as PoB's EstimatePlayerProgress counts them: a passive on each weapon set costs one
 	-- point between them, and each set holds at most its weapon-set allowance
-	local budget = bridge.pointBudget()
-	local _, _, _, _, set1, set2 = spec:CountAllocNodes()
-	local output = build.calcsTab.mainOutput or { }
-	local setPoints = (build.maxWeaponSets or 0) + (output.PassivePointsToWeaponSetPoints or 0)
-	local over = math.max(budget.used - math.min(set1, set2) - budget.passives - (output.ExtraPoints or 0), 0)
-	local overAscendancy = math.max(budget.ascendancyUsed - budget.ascendancy, 0)
-	over = over + math.max(set1 - setPoints, 0) + math.max(set2 - setPoints, 0)
+	local over, overAscendancy = pointsOver(spec.allocNodes, build.calcsTab.mainOutput)
 	if args.prune and #broken > 0 then
 		for _, entry in ipairs(broken) do
 			local node = spec.nodes[entry.id]

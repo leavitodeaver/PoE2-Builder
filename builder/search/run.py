@@ -155,7 +155,8 @@ class Run:
                       passes=result.get("passes"), passes_done=result.get("passes_done"), kicks=result.get("kicks"),
                       kicks_kept=result.get("kicks_kept"), kick_kinds=result.get("kick_kinds"),
                       # restores and how far their scores came back from the snapshots' (inner.restore_drift)
-                      restore_drift=result.get("restore_drift"), line=result.get("line"))
+                      restore_drift=result.get("restore_drift"), line=result.get("line"),
+                      over_budget=result.get("over_budget"))  # (SEARCH8: where the tree first went over its points)
             if result.get("seed_start") and self.seed_start is None:
                 self.seed_start = result["seed_start"]
             # Ranked on the request's goal, whichever the search had; its own goal picks the state
@@ -462,7 +463,7 @@ class Run:
                       value=self.goal_of(final), score=final["score"],
                       deficits=[d["label"] for d in final["deficits"]], final=True,
                       trace=final.get("finalize_trace"), searched=best.get("score"),
-                      drift=final.get("finalize_drift"))
+                      drift=final.get("finalize_drift"), over_budget=final.get("over_budget"))
             return self.result(final, problems)
 
     # Results -----------------------------------------------------------------------------------

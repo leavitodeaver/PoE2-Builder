@@ -357,6 +357,18 @@ class Tree:
             self.grow(deadline)
             self.attributes_round()
 
+    def trim_to_budget(self) -> int:
+        """Remove the weakest branches until the tree fits the level's points (points_left); the number of passives
+        removed."""
+        trimmed = 0
+        while self.points_left() < 0:
+            ranked = self.weakest_branches()
+            if not ranked:
+                break
+            trimmed += len(ranked[0][1])
+            self.remove_branch(ranked[0][1])
+        return trimmed
+
     def remove_branch(self, branch: frozenset[int]) -> None:
         self.build.allocate(remove=sorted(branch))
         self.round += 1
