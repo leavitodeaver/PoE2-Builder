@@ -132,7 +132,7 @@ Priority 1636.8 · impact 3 · effort S · 67 lines not counted of 103 linked ·
 
 - **Game:** Aftershocks repeat a slam's damage in the same area; Echo / Repeat recast a spell. (https://poe2db.tw/us/Keywords)
 - **PoB (checked):** No aftershock or repeat chance in PoB's calculations (lines ignored).
-- **Now:** Translated to more damage by chance (Earthbreaker, Mace, Shapeshift slams; Now and Again).
+- **Now:** Translated to more damage by chance (Earthbreaker, Mace, Shapeshift slams; Now and Again: a spell that can both Repeat and Echo gets 1 + .95(r + e), since a Repeat doesn't Echo itself but the use still Echoes, KeywordPopups Cascadable "while Repeating", MEDIUM).
 - **Plan:** translation: Done; Mountain Splitter's offset aftershocks by boss size. Inputs: chance.
 - **Guide note:** Aftershocks counted as extra hits on the boss.
 - **PoB options:** `repeatMode` (off)

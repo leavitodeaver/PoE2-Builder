@@ -337,7 +337,7 @@
   game_source: https://poe2db.tw/us/Keywords
   pob: none
   pob_check: "No aftershock or repeat chance in PoB's calculations (lines ignored)."
-  handling: "Translated to more damage by chance (Earthbreaker, Mace, Shapeshift slams; Now and Again)."
+  handling: "Translated to more damage by chance (Earthbreaker, Mace, Shapeshift slams; Now and Again: a spell that can both Repeat and Echo gets 1 + .95(r + e), since a Repeat doesn't Echo itself but the use still Echoes, KeywordPopups Cascadable \"while Repeating\", MEDIUM)."
   plan: {approach: translation, how: "Done; Mountain Splitter's offset aftershocks by boss size.", inputs: [chance]}
   what_if: visible
   guide_note: "Aftershocks counted as extra hits on the boss."

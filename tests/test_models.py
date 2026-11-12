@@ -1343,13 +1343,14 @@ def test_a_meta_triggered_curse_or_mark_is_up_at_the_meta_s_trigger_rate():
     assert models.mark_use(mark, [mark, coc], rates={"Sniper's Mark": 0.0}).period == math.inf
 
 
-def test_a_use_that_repeats_does_not_echo():
+def test_a_repeat_does_not_echo_but_its_use_still_does():
     """KeywordPopups Cascadable: "A Cascadable Spell that Repeats will not Cascade or Echo while Repeating" (MECH46,
-    FLAT_RATES C8): the two ledger lines' product is corrected to 1 + .95(r + (1 - r)e)."""
+    FLAT_RATES C8; MECH47 narrowed it to "while Repeating"): the use still Echoes, its Repeat doesn't, so the two ledger
+    lines' product is corrected to 1 + .95(r + e)."""
     texts = ["Repeatable Spells have 20% chance to Repeat", "Cascadable Spells have 20% chance to Echo"]
     both = {"Spell", "Multicastable", "Cascadable"}
     mods, notes = models.repeat_echo_model(texts, both, set())
-    want = (1 + 0.95 * (0.2 + 0.8 * 0.2)) / (1.19 * 1.19)
+    want = (1 + 0.95 * (0.2 + 0.2)) / (1.19 * 1.19)  # x1.380 in all
     assert mods[0]["scale"] == pytest.approx(100 * (want - 1), abs=1e-3) and notes[0]["value"] == pytest.approx(want, abs=1e-4)
     assert models.repeat_echo_model(texts, {"Spell", "Cascadable"}, set()) == ([], [])  # can't Repeat: nothing to fix
     assert models.repeat_echo_model(texts[:1], both, set()) == ([], [])

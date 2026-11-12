@@ -1033,9 +1033,12 @@ def roar_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
 
 # Now and Again's Repeat and Echo on one spell (MECH46, FLAT_RATES group C8). The ledger entries now-and-again-repeat and
 # now-and-again-echo each add their chance x 0.95 as "more Spell Damage", which PoB multiplies: (1 + .95r)(1 + .95e).
-# The game files' KeywordPopups Cascadable: "A Cascadable Spell that Repeats will not Cascade or Echo while Repeating", so
-# a use that Repeats doesn't Echo: 1 + .95(r + (1 - r)e). A spell both Repeatable and Cascadable gets the difference as a
-# correction line. Each copy hits the boss as the use does (Repeat: KeywordPopups, aimed where the use was), so PoB's
+# The game files' KeywordPopups Cascadable: "A Cascadable Spell that Repeats will not Cascade or Echo while Repeating"
+# (poe2db's Cascadable page the same). The scope is "while Repeating": the original use still rolls its Echo, only the
+# repeated performance can't Echo (MECH47; two guides: the two rolls are independent and "both can proc on the same cast",
+# switchbladegaming.com chronomancer build, kami-labs.fr ascendancy changes). So 1 + .95(r + e): only the product's r.e
+# term (a Repeat's own Echo) is lost. MEDIUM: game text plus two guides, nothing official on which part may Echo. A
+# spell both Repeatable and Cascadable gets the difference as a correction line. Each copy hits the boss as the use does (Repeat: KeywordPopups, aimed where the use was), so PoB's
 # own hit share on the boss carries through the "more" lines.
 REPEAT_LINE = re.compile(r"^Repeatable Spells have (\d+(?:\.\d+)?)% chance to Repeat$", re.I)
 ECHO_LINE = re.compile(r"^Cascadable Spells have (\d+(?:\.\d+)?)% chance to Echo$", re.I)
@@ -1050,12 +1053,15 @@ def repeat_echo_model(texts: list[str], main_types: set[str], forbidden: set[str
     if r <= 0 or e <= 0:
         return [], []
     product = (1 + 0.95 * r) * (1 + 0.95 * e)
-    target = 1 + 0.95 * (r + (1 - r) * e)
+    target = 1 + 0.95 * (r + e)
     return [line("1% more Spell Damage", 100 * (target / product - 1))], [{
-        "label": "Now and Again: no Echo on a use that Repeats", "value": round(target / product, 4),
-        "basis": f"{r:.0%} Repeat and {e:.0%} Echo: a use that Repeats doesn't Echo (KeywordPopups Cascadable), so "
-                 f"x{target:.3f} in all, not x{product:.3f} as two independent chances",
-        "confidence": "game files' rule; the ledger entries' 5% for the longer use as labelled there"}]
+        "label": "Now and Again: a Repeat doesn't Echo itself", "value": round(target / product, 4),
+        "basis": f"{r:.0%} Repeat and {e:.0%} Echo: a Cascadable spell won't Echo \"while Repeating\" (KeywordPopups "
+                 f"Cascadable), so the use still Echoes but its Repeat doesn't: x{target:.3f} in all, not x{product:.3f} "
+                 "as two independent chances. In-game test: cast a spell many times with Now and Again and count "
+                 "impacts; a cast where both land shows three (the cast, its Echo, the Repeat), not two or four",
+        "confidence": "MEDIUM: game text plus two guides (the two rolls independent); nothing official says which "
+                      "part may Echo. The ledger entries' 5% for the longer use as labelled there"}]
 
 
 MARK_BUFFS = {"Voltaic Mark": "Electrocute", "Freezing Mark": "Freeze"}
