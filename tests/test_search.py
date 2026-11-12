@@ -814,6 +814,15 @@ def test_shocked_ground_shocks_the_boss_and_counts_you_standing_in_it():
     # the ground's Shock at the base 20% (PoB keeps the strongest), only with a ground
     assert by["conditionShockEffect"].value_fn(thunder, stats)[0] == 20
     assert by["conditionShockEffect"].value_fn(thunder, {"ShockChancePerHit": 40, "Speed": 2})[0] == 0
+    # MECH45 (the user's expectation, MEDIUM): the ground's 20% scales by the build's Shock magnitude, capped
+    from builder.search.conditions import ground_shock_magnitude
+
+    stats["_sg_magnitude"] = {"inc": 50, "more": 1.2, "enemy": 1.0, "max": 100, "left": []}
+    value, basis = by["conditionShockEffect"].value_fn(thunder, stats)
+    assert value == pytest.approx(36) and "MEDIUM" in basis and "Overcharge" not in basis
+    assert ground_shock_magnitude({"inc": 400, "more": 1, "enemy": 1, "max": 50, "left": ["Skill:SupportOverchargePlayer"]})[0] == 50
+    assert "Overcharge left out" in ground_shock_magnitude({"inc": 0, "max": 100, "left": ["x"]})[1]
+    assert ground_shock_magnitude(None)[0] == 20
     # the main skill's own ground on each use, and Shocking Leap on the first crit of a use
     own, _ = shocked_ground({"Speed": 0.25, "_sg_skill": ("Storm Lance", 2000)}, [])
     assert own == pytest.approx(0.5)

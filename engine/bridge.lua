@@ -2937,6 +2937,42 @@ function bridge.chargeGain()
 	}
 end
 
+-- The Shock magnitude of your Shocked Ground (MECH45, FIX_QUEUE; the user's expectation, 11 Nov 2026): PoB takes its
+-- "Effect of Shock" box raw (ShockVal, capped at MaximumShock), so the conditions scale the ground's base Shock by the main
+-- skill's Shock-magnitude modifiers (global ones plus the skill's own: KeywordPopups BuffMagnitude, "come from whoever
+-- applies it"), as PoB itself does for its own ground skills (CalcPerform's "Shock Ground"). Left out: Overcharge (it
+-- makes the skill's Shocks from hits stronger) and crit-only lines (their CriticalStrike condition isn't met here).
+function bridge.shockMagnitude()
+	local env = build.calcsTab.mainEnv
+	local skill = env.player.mainSkill
+	local inc, more, left = 0, 1, { }
+	if skill then
+		for _, kind in ipairs({ "INC", "MORE" }) do
+			for _, row in ipairs(skill.skillModList:Tabulate(kind, skill.skillCfg, "EnemyShockMagnitude", "AilmentMagnitude")) do
+				local source = tostring(row.mod.source or "")
+				if source:match("Overcharge") then
+					table.insert(left, source)
+				elseif kind == "INC" then
+					inc = inc + row.value
+				else
+					more = more * (1 + row.value / 100)
+				end
+			end
+		end
+	end
+	local max = env.modDB:Override(nil, "ShockMax")
+	if not max then  -- as CalcPerform: the highest over the active skills
+		max = 0
+		for _, active in ipairs(env.player.activeSkillList) do
+			max = math.max(max, data.nonDamagingAilment.Shock.max + active.baseSkillModList:Sum("BASE", nil, "ShockMax"))
+		end
+	end
+	return {
+		inc = inc, more = more, enemy = calcLib.mod(env.enemyDB, nil, "SelfShockMagnitude", "AilmentMagnitude"),
+		max = max, left = left,
+	}
+end
+
 function bridge.equipped()
 	local slots = { }
 	for name, slot in pairs(build.itemsTab.slots) do

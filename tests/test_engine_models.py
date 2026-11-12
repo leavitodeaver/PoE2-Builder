@@ -1237,3 +1237,17 @@ def test_withering_presence_withers_the_boss_in_your_presence(engine):
     print("PROBE", found.get("multiplierWitheredStackCount"))
     value, basis = found["multiplierWitheredStackCount"][:2]
     assert 1 <= value <= 10 and "Withering Presence" in basis
+
+
+def test_shocked_ground_reads_the_builds_shock_magnitude_but_not_crit_only_lines(engine):
+    """MECH45 (FIX_QUEUE, the user's expectation): the bridge's shockMagnitude sums the main skill's Shock-magnitude
+    modifiers for your Shocked Ground's Shock; a crit-only line (hits only) isn't counted."""
+    build = spark_with(engine, []).build
+    before = build.call("shockMagnitude")
+    amulet = "\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                        "30% increased Magnitude of Shock you inflict",
+                        "40% increased Magnitude of Shock you inflict with Critical Hits"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    after = build.call("shockMagnitude")
+    assert after["inc"] - before["inc"] == 30 and after["max"] >= 20
+

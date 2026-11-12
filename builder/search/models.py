@@ -2199,8 +2199,9 @@ PARRY_ACTION = 0.75  # Parry's retaliation (attackTime 750 ms); attack speed isn
 REFUTATION_BUFF = 4.0  # base_skill_effect_duration; duration modifiers aren't read
 # How often the player parries with Parry (the user, 11 Nov 2026: "any player is going to be hitting as often as possible
 # even when trying to actively parry, so assuming they're only able to parry telegraphed hits is probably safe, or maybe
-# even a little generous"). We have no source for which boss hits are telegraphed or how often (UNVERIFIED; PoB's boss
-# preset gives only one hit every enemySkillTime, 0.7 s), so the cadence is assumed: one telegraphed hit every 5 s (LOW).
+# even a little generous"). We have no source for which boss hits are telegraphed or how often (PoB's boss preset gives
+# only one hit every enemySkillTime, 0.7 s), so the cadence is assumed: one telegraphed hit every 5 s, which the user
+# called fair (11 Nov 2026, ~17:45): MEDIUM.
 PARRY_EVERY = 5.0
 
 
@@ -2235,7 +2236,7 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
         share = min(1.0, (PARRIED_SECONDS - PARRY_ACTION / 2) / attacking)
         box = min(share, 1 / (hps * attacking)) if consumes and hps > 0 else share
         options.append(((1 + PARRIED_MORE * box) * (1 - lost), ParryPlan(
-            box, lost, f"Parry the boss's telegraphed hits (one every {PARRY_EVERY:g} s, assumed, LOW) and attack the rest "
+            box, lost, f"Parry the boss's telegraphed hits (one every {PARRY_EVERY:g} s, assumed; the user called it fair, MEDIUM) and attack the rest "
                        f"of the time: each parry costs its {PARRY_ACTION:g} s retaliation ({lost:.0%} of the main skill's "
                        f"time) and leaves the boss Parried {PARRIED_SECONDS:g} s from the parry, taken as half-way through "
                        f"the retaliation (LOW), so {share:.0%} of the main skill's hits land on a Parried boss (the play "

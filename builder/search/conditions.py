@@ -1161,15 +1161,35 @@ def _ground_shock_effect(lines: list[str], stats: dict) -> tuple[object, str]:
     share, how = stats.get("_shocked_ground") or (0.0, "")
     if share < MIN_UPTIME:
         return 0.0, ""
-    return SHOCKED_GROUND_MAGNITUDE, (f"the boss stands in your Shocked Ground {share:.0%} of the fight: {how}; its Shock "
-                                      f"taken at the base {SHOCKED_GROUND_MAGNITUDE}% (whether your Shock-effect modifiers "
-                                      f"raise it is UNVERIFIED: not counted)")
+    value, basis = ground_shock_magnitude(stats.get("_sg_magnitude"))
+    return value, f"the boss stands in your Shocked Ground {share:.0%} of the fight: {how}; its Shock {basis}"
+
+
+def ground_shock_magnitude(mag: dict | None) -> tuple[float, str]:
+    """Your Shocked Ground's Shock (the bridge's shockMagnitude; MECH45, FIX_QUEUE; the user expected it, 11 Nov 2026):
+    the base 20% scaled by the build's Shock-magnitude modifiers, global and the main skill's own (KeywordPopups
+    BuffMagnitude: magnitude modifiers "come from whoever applies it"; shocked_ground_base_magnitude_override's text
+    "Shocked Ground you create causes {0}% increased Damage taken" is the creator's; PoB scales its own ground skills'
+    Shock by EnemyShockMagnitude), capped at the Shock maximum. Not hit-only lines (Overcharge, crit-only), and not Shock
+    duration (how long it lingers once the boss leaves the ground is unknown). MEDIUM: two sources and the user's
+    expectation, not tested in game (GroundEffectTypes / BuffDefinitions would settle it)."""
+    base = SHOCKED_GROUND_MAGNITUDE
+    if not mag:
+        return base, f"taken at the base {base}% (the build's Shock-magnitude modifiers weren't read)"
+    raw = base * (1 + number(mag.get("inc")) / 100) * number(mag.get("more", 1)) * number(mag.get("enemy", 1))
+    top = number(mag.get("max")) or 100.0
+    value = max(0.0, min(raw, top))
+    left = " (Overcharge left out: it strengthens Shocks from hits)" if mag.get("left") else ""
+    return round(value, 1), (f"{value:g}%: the base {base}% scaled by your Shock-magnitude modifiers ({number(mag.get('inc')):+g}% "
+                             f"increased, x{number(mag.get('more', 1)) * number(mag.get('enemy', 1)):.2f} more and on the boss)"
+                             f"{', capped at ' + format(top, 'g') + '%' if raw > top else ''}{left}; crit-only lines and Shock "
+                             f"duration not counted (MEDIUM: two sources and the user's expectation, not tested in game)")
 
 
 def _on_shocked_ground(lines: list[str], stats: dict) -> tuple[object, str]:
     """You on your own Shocked Ground (Stormwalker: "Gain 15% of Damage as Extra Lightning Damage while on Shocked Ground"):
-    the ground's share, when you stand within SHOCKED_GROUND_RADIUS of the boss. That your own ground counts for "on
-    Shocked Ground" is UNVERIFIED (labelled). Enemy-made ground isn't counted on a lone boss."""
+    the ground's share, when you stand within SHOCKED_GROUND_RADIUS of the boss. Your own ground counts for "on Shocked
+    Ground" (the user, 11 Nov 2026: MEDIUM, not tested in game). Enemy-made ground isn't counted on a lone boss."""
     if not any(ON_SHOCKED_GROUND.search(t) for t in lines):
         return 0.0, ""
     share, how = stats.get("_shocked_ground") or (0.0, "")
@@ -1177,8 +1197,8 @@ def _on_shocked_ground(lines: list[str], stats: dict) -> tuple[object, str]:
         return 0.0, how or "no Shocked Ground of your own (enemy-made ground not counted on a lone boss)"
     if (metres := _boss_metres(stats)) > SHOCKED_GROUND_RADIUS:
         return 0.0, f"you stand {metres:g} m from the boss, outside your Shocked Ground ({SHOCKED_GROUND_RADIUS:g} m assumed)"
-    return _box(share, f"in your own Shocked Ground at the boss {share:.0%} of the fight ({shared(share)}): {how}; that "
-                       f"your own ground counts is UNVERIFIED")
+    return _box(share, f"in your own Shocked Ground at the boss {share:.0%} of the fight ({shared(share)}): {how}; your own "
+                       f"ground counts (the user, 11 Nov 2026; MEDIUM, not tested in game)")
 
 
 def _immobilised(ailment: str, name: str) -> Callable[[list[str], dict], tuple[object, str]]:
@@ -1475,6 +1495,8 @@ class Conditions:
         stats["_sg_charged_mark"] = "Charged Mark" in names
         stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)
         stats["_shocked_ground"] = shocked_ground(stats, texts)
+        if stats["_shocked_ground"][0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)
+            stats["_sg_magnitude"] = self.build.call("shockMagnitude")
         self.parry_plan = None
         if any(n in gem_types for n in models.PARRY_SKILLS) or any(PARRY_GRANT.search(t) for t in texts):  # (Parried)
             raw = self.build.call("activeSkills")
