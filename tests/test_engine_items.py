@@ -726,9 +726,8 @@ def test_compose_requiem_from_the_last_lament_is_the_main_skill(engine):
     from builder.search.usage import Usage
     gem = next(g["name"] for g in main[0]["gems"] if not g["support"])
     assert gem == "Requiem" and Usage(search.build, None).blockers(gem) == []
-    cap = search.assumptions.press_caps(main, {main[0]["index"]}).get(main[0]["index"])
-    print("Requiem cap:", cap)
-    assert cap is not None and cap.how.startswith("anguish: the Requiem up 29%")
+    # (the cap itself is test_usage.test_the_press_hook_caps_a_requiem_main_skill_at_its_share: this bare setup gives
+    # every skill speed 0 and the build 0 DPS, so the hook has no rate to cap here; COVC11 POE2T1418-1419)
 
 
 def test_an_off_hand_sceptres_skill_can_be_the_main_skill(engine):
