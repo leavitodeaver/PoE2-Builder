@@ -2123,6 +2123,16 @@ function bridge.activeSkills(args)
 			end)
 			skills[#skills].totalTimeAdded = ok and added ~= 0 and added or nil
 		end
+		-- A totem-summoning skill's Totem Limit (models.totem_count_model, MECHB8): PoB reports ActiveTotemLimit only for the
+		-- skill it calculates, and the damaging part beside it (Shockwave Slam, Ballista Bolt, Vile Effusion) has none
+		if types[SkillType.SummonsTotem] then
+			local ok, limit = pcall(function()
+				local list, cfg = activeSkill.skillModList, activeSkill.skillCfg
+				return list:Override(cfg, "ActiveTotemLimit", "ActiveBallistaLimit")
+					or list:Sum("BASE", cfg, "ActiveTotemLimit", "ActiveBallistaLimit")
+			end)
+			skills[#skills].totemLimit = ok and limit or nil
+		end
 		-- Every minion skill's minions (models.minion_deaths): how many, how long they last (0: until killed), Persistent
 		if activeSkill.minion and activeSkill.minion.minionData then
 			local ok, summon = pcall(function()

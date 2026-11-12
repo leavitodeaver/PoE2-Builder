@@ -368,6 +368,8 @@ class Assumptions:
         levels = {g["name"]: g["level"] for grp in build.groups() for g in grp["gems"] if g.get("level")}
         totem_mods, totem_notes = models.totem_model(found, stats, [e["text"] for e in source_lines], levels, main)
         energy_mods, energy_notes = energy_mods + totem_mods, energy_notes + totem_notes
+        count_mods, count_notes = models.totem_count_model(found, main)  # (MECH-B, MECHB8: other totems' count)
+        energy_mods, energy_notes = energy_mods + count_mods, energy_notes + count_notes
         ward_mods, ward_notes = models.iron_ward_model(
             found, stats, enabled=models.IRON_WARD_ENTRY not in build.ctx.request.forbid_ledger_entries)
         # (a non-main skill's own output for a support counted from it, Practical Magic on a stunning attack: the bridge's

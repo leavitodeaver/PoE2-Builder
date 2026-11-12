@@ -4,6 +4,7 @@ the module (a few seconds) and needs the game-data dump."""
 from __future__ import annotations
 
 import faulthandler
+from dataclasses import replace
 
 import pytest
 
@@ -1438,3 +1439,24 @@ def test_doedres_witchtoads_count_in_full_dps_at_their_curse_areas_share(engine)
     half = build.call("setGroup", index=group, main=True, mainActiveSkill=names.index(models.DARK_CONSEQUENCES) + 1,
                       fields=["HitTime"])["stats"]
     assert half["HitTime"] == pytest.approx(0.5)  # 2 explosions a second at half the share
+
+
+def test_a_second_dark_effigy_doubles_vile_effusions_damage(engine):
+    """MECHB8 (engine probe POE2T1018): Vile Effusion carries no ActiveTotemLimit; the bridge reports Dark Effigy's, and
+    the totem count model counts each totem placed."""
+    payload = make_payload(BuildRequest(main_skill="Dark Effigy", ascendancies=["Lich"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Dark Effigy"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    effigy = next(s for s in build.call("activeSkills")["skills"] if s["name"] == "Dark Effigy")
+    assert effigy["totemLimit"] == 1
+    search.assumptions.apply()
+    one = build.call("stats", fields=["TotalDPS"])["TotalDPS"]
+    found = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
+    main = next(s for s in found if s.name == "Vile Effusion")
+    mods = [models.line("+1 to maximum number of Summoned Totems", 1.0)] + models.totem_count_model(
+        [replace(s, totem_limit=2) if s.name == "Dark Effigy" else s for s in found], main)[0]
+    build.call("setAssumptions", mods=search.assumptions.mods + mods, fields=[])
+    assert next(s for s in build.call("activeSkills")["skills"] if s["name"] == "Dark Effigy")["totemLimit"] == 2
+    assert build.call("stats", fields=["TotalDPS"])["TotalDPS"] == pytest.approx(2 * one, rel=0.02)

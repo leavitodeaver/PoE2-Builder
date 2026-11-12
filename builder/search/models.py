@@ -230,6 +230,7 @@ class Skill:
     energy_final: float = 0.0  # its own active_skill_energy_generated_+%_final (energy_gain; Incinerate -98)
     total_time_added: float = 0.0  # its "+N seconds to Total Cast / Attack Time" (PoB's TotalCastTime; energy_cost)
     stat_set: str | None = None  # the label of the stat set PoB calculates for it (bridge activeSkills statSet; COVE8)
+    totem_limit: float = 0.0  # a totem-summoning skill's Totem Limit (bridge activeSkills totemLimit; totem_count_model)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -239,7 +240,7 @@ class Skill:
                    dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
                    bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"),
                    dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")),
-                   number(raw.get("totalTimeAdded")), raw.get("statSet"))
+                   number(raw.get("totalTimeAdded")), raw.get("statSet"), number(raw.get("totemLimit")))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -4513,3 +4514,49 @@ def minion_died_rate(skills: list[Skill], main: Skill | None, stats: dict, suppo
                  "without a kill), a second Witchtoad area (undercounts); Offerings and Sacrifice sharing skeletons isn't "
                  "held to their revival together (a possible small overcount)")
     return total, "; ".join(parts)
+
+
+# Totems other than Spell Totem (MECHB8; MECHB7's Handover item 2). PoB prices one totem: the damaging part beside a
+# totem-summoning skill (Shockwave Totem's Shockwave Slam, Artillery Ballista's Ballista Bolt, Siege Ballista's
+# Artillery, Dark Effigy's Vile Effusion, a Mortar Cannon's grenade) carries no ActiveTotemLimit (engine probe POE2T1018:
+# 0), and PoB multiplies only ailment stacks by the totem count (CalcOffence 5099-5101, a Single-ailment flag), never the
+# hits. The game (KeywordPopups Totem): "Totems are allied constructs which use skills for you ... Totem Limit is shared
+# between different types of Totem by default". The model:
+#   - totems up = the summoning skill's Totem Limit (the bridge's totemLimit: PoB's ActiveTotemLimit / ActiveBallistaLimit
+#     for that skill, with the build's "+N Totems" lines), less one for each other totem-summoning skill in the build
+#     (the shared limit; each assumed to keep one totem placed), at least 1;
+#   - each totem uses the skill at PoB's one-totem rate, all in reach of the boss (MEDIUM: the player places them at the
+#     boss; base_totem_range 60-120 is a placement range, not the skill's reach); placing them (one cast each per 8-12 s
+#     duration) isn't taken from anything (the player's own skill time isn't the damage);
+#   - counted as more attack and cast speed on the damaging part, as totem_model does: Ignites from several totems don't
+#     add up (only the strongest deals damage), Poison stacks and hits do.
+# Left to their own models: Spell Totem (totem_model, its charges) and Ancestral Warrior Totem (3 Endurance Charges a
+# totem; not modelled here, labelled).
+TOTEM_OWN_MODEL = {"Spell Totem", "Ancestral Warrior Totem"}
+
+
+def totem_count_model(skills: list[Skill], main: Skill | None) -> tuple[list[dict], list[dict]]:
+    """More totems than one for the main skill's totem (see above): a speed line on the main skill and its note."""
+    if main is None or main.group is None:
+        return [], []
+    group = [s for s in skills if s.group == main.group]
+    if any(s.name in TOTEM_OWN_MODEL for s in group):
+        return [], []
+    summoner = next((s for s in group if s.totem_limit > 0), None)
+    if summoner is None:
+        return [], []
+    others = sorted({s.name for s in skills if s.totem_limit > 0 and s.group != main.group})
+    limit = int(summoner.totem_limit)
+    up = max(1, limit - len(others))
+    if up <= 1 and not others:
+        return [], []
+    mods = [line("1% more Attack and Cast Speed", 100.0 * (up - 1), skill=main.name)] if up > 1 else []
+    basis = (f"{summoner.name}'s Totem Limit {limit} (PoB's, with the build's +Totem lines)"
+             + (f", less {len(others)} for {', '.join(others)} (KeywordPopups Totem: the limit is shared; each assumed to "
+                "keep one totem placed)" if others else "")
+             + f": {up} totems, each using {main.name} at PoB's one-totem rate, all in reach of the boss (MEDIUM: placed "
+               "at it); PoB counts one. Counted as more speed: Ignites from several totems don't add up (only the "
+               "strongest deals damage); placing them isn't taken from your time")
+    return mods, [{"label": f"Totems up ({main.name})", "value": up, "basis": basis,
+                   "play": f"Keep {up} {summoner.name} totems placed at the boss; re-place them as they expire.",
+                   "confidence": "MEDIUM"}]

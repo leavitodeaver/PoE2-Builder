@@ -2788,3 +2788,18 @@ def test_minion_died_rate_sums_kills_toads_offerings_and_temporary_minions():
     ward = Skill("Wardbound Minions", group=5, spell=True, triggered=True, minion={"duration": 15})
     temp, _ = models.minion_died_rate([ward], None, {}, rates={"Wardbound Minions": 0.2})
     assert temp == pytest.approx(0.2)
+
+
+def test_totem_count_counts_each_totem_up_less_other_totem_skills():
+    """MECHB8: PoB prices one totem; the damaging part (Vile Effusion) counts the summoner's Totem Limit, shared with the
+    build's other totem skills (KeywordPopups Totem)."""
+    effigy = Skill("Dark Effigy", group=1, totem_limit=3)
+    effusion = Skill("Vile Effusion", group=1, spell=True)
+    mods, notes = models.totem_count_model([effigy, effusion], effusion)
+    assert mods[0]["skill"] == "Vile Effusion" and mods[0]["scale"] == pytest.approx(200.0) and notes[0]["value"] == 3
+    shockwave = Skill("Shockwave Totem", group=2, totem_limit=3)
+    mods, notes = models.totem_count_model([effigy, effusion, shockwave], effusion)
+    assert mods[0]["scale"] == pytest.approx(100.0) and "Shockwave Totem" in notes[0]["basis"]
+    assert models.totem_count_model([Skill("Dark Effigy", group=1, totem_limit=1), effusion], effusion) == ([], [])
+    spell_totem = Skill("Spell Totem", group=1, totem_limit=2)
+    assert models.totem_count_model([spell_totem, effusion], effusion) == ([], [])  # (totem_model's)
