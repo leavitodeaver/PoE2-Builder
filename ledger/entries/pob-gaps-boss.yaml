@@ -25,12 +25,16 @@
   status: approved
 
 - id: SpellEcho
-  title: Uses Spell Echo
+  title: Uses Spell Echo (retired, no reader)
   kind: condition
   skills: '^Spell Echo'
   confidence: datamined
+  notes: >-
+    Its only reader was rhythm-of-ice's 'if:SpellEcho' (retired by COVB4: passives-batch3.yaml
+    passives-model-rhythm-of-ice counts the main spell's echoed casts, Spell Echo, Zarokh's Refrain and Now and
+    Again included) (checked, COV8: SpellEcho over ledger/, builder/, engine/ and tests/).
   sources: ["Support gem name"]
-  status: approved
+  status: retired  # COV8: no reader since rhythm-of-ice was retired (FIX_QUEUE, COVB4's findings)
 
 - id: JaggedGround
   title: Creates Jagged Ground

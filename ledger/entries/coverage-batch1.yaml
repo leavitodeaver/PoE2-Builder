@@ -184,12 +184,13 @@
   stats: [mana_tempest_mana_cost_%_to_add_to_cost_per_second]  # the storm's drain, read by the uptime model
   confidence: theory
   notes: >-
-    "Empowered Spells Gain (40-78)% of damage as Lightning Damage" (poe2db; 78% at level 20), for mana-costing spells
-    while you stand in the storm. The storm costs 1% of maximum Mana per second plus 30% of the Mana spent in it, and
-    ends when you leave it or run out of Mana. Uptime from the build's own Mana, regeneration and spending
-    (models.mana_tempest_uptime, the user's rule of 6 Nov 2026): up for good if regeneration covers it all, otherwise
-    while the Mana lasts, recast once it has refilled. Spells that cost no Mana (triggered by a meta gem, Infernal Flame)
-    get it in this count but not in game.
+    "Empowered Spells Gain (40-78)% of damage as Lightning Damage" (poe2db; 78% at level 20), for mana-costing
+    spells while you stand in the storm. The storm costs 1% of maximum Mana per second plus 30% of the Mana and Life
+    spent in it, and ends when you leave it or run out of Mana. Uptime from the build's own Mana, regeneration and
+    spending (models.mana_tempest_uptime, the user's rule of 6 Nov 2026): up for good if regeneration covers it all,
+    otherwise while the Mana lasts, recast once it has refilled. A main skill that costs no Mana (triggered by a
+    meta gem, a Life-cost spell) gets 0, as in game (MECHC3's model change, on main). Not counted: the 2 s its
+    effects linger after you leave the storm (0.4.0; a small undercount).
   sources: ["https://poe2db.tw/us/Mana_Tempest", "the user, 6 Nov 2026: uptimes from cooldowns, costs and regeneration"]
   test_in_game: "Hit a dummy with your spell outside and then inside the storm: about 1.78x inside with the gem at 20. Time how long a storm lasts in a boss fight."
   status: proposed
@@ -327,15 +328,24 @@
   status: proposed
 
 - id: tribute-stat
-  title: Tribute (Undying Hate's conquered passives); only Grand Tribute and Twice Bled read it
+  title: "Tribute (Undying Hate's conquered passives): PoB parses \"+N to Tribute\" and the threshold lines itself; entry inert, retired"
   kind: pob_gap
   match: '^\+(\(\d+-\d+\)|\d+) to Tribute$'
   replace: []
   confidence: datamined
-  notes: "Conquered small passives give +5 Tribute, attribute passives +3 (poe2db Undying Hate). Its only readers are the two notables below, neither of which changes a calculated number."
+  notes: >-
+    Retired (COV8; AUDIT14 A14-1). The old note said only Grand Tribute and Twice Bled read Tribute: WRONG. 25
+    Undying Hate conquest notables (PassiveSkills AbyssJewelHistoricOverrideNotable_T_T_1 to _25) read "if you have
+    at least 100 (200) Tribute" (maximum resistances, +1 maximum charges, Kingslayer's damage, an extra Poison
+    stack, Aura effect, Spirit, Life, Mana...), and rage_decay_speed_+%_per_10_tribute reads it too (RESEARCH17 #89)
+    (checked by AUDIT14: every Stats.json id holding "tribute" and its carriers in Mods, PassiveSkills and stat
+    sets; PoB ModParser 172 / 1656 / 1699). PoB parses "+5 to Tribute" itself (ModCache 1061, Tribute BASE;
+    CalcPerform 493 sums it into output.Tribute) and the threshold wordings (StatThreshold / PerStat on Tribute),
+    and a pob_gap entry is consulted only for lines PoB ignores, so this entry never fired: retiring it moves no
+    number. Nothing may drop Tribute lines on the old claim.
   sources: ["https://poe2db.tw/us/Undying_Hate"]
   test_in_game: "Not needed for the calculated numbers."
-  status: proposed
+  status: retired  # COV8: PoB parses the Tribute lines itself (A14-1); the old "only two readers" note was wrong
 
 - id: grand-tribute
   title: Grand Tribute, Remnants collected from further away (pickup range)
@@ -393,22 +403,34 @@
   status: proposed
 
 - id: ancestral-bond
-  title: Ancestral Bond, your Totem Limit is doubled
+  title: Ancestral Bond, your Totem Limit is doubled (PoB's totem limit +1; Spell Totem's count is models.totem_model's)
   kind: pob_gap
   match: '^Your Totem Limit is doubled$'
   replace: ['+1 to maximum number of Summoned Totems']
   confidence: reported
-  notes: "The base limit is 1 totem; doubled is one more. A build with more totem limit from elsewhere gets more (not counted: an undercount)."
+  notes: >-
+    PoB's totem limit starts at 1 here; doubled is one more, so the stand-in adds +1 to PoB's ActiveTotemLimit,
+    which PoB uses for a totem skill's ailment stacks (CalcOffence 5264: stacks x active totems) and "per Summoned
+    Totem" lines (TotemsSummoned). A build with more totem limit from elsewhere gets only +1, not double (an
+    undercount, not counted). Spell Totem's own count is models.totem_model's (MECHB4): it reads this line itself
+    and doubles the gem level's limit (2 -> 4 at level 20), capped by free Spirit at 75 per totem; PoB's one-totem
+    DPS is scaled there, not by this +1.
   sources: ["https://poe2db.tw/us/Ancestral_Bond"]
   test_in_game: "Place totems with Ancestral Bond: two of the same totem stay at once."
   status: proposed
 
 - id: ancestral-bond-charges
-  title: Ancestral Bond, no charge requirement for placing totems (the optimizer doesn't check that requirement)
+  title: Ancestral Bond, no charge requirement for placing totems (read by models.totem_model and usage.py)
   kind: pob_gap
   match: '^No Charge requirement for placing Totems$'
   replace: []
   confidence: reported
+  notes: >-
+    Not a no-effect line (AUDIT13 A13-1; MECHB4): models.totem_model reads it (ANCESTRAL_BOND_FREE), so a Spell
+    Totem needs no charges and keeps its allowed totems placed, held to free Spirit at 75 each; usage.py lets
+    charge-using totem skills through with the keystone. Whether charges you hold are still consumed (and their
+    per-charge bonus) is UNVERIFIED: none counted, the lower bound. PoB applies nothing for the line; this entry
+    only records that the model reads it.
   sources: ["https://poe2db.tw/us/Ancestral_Bond"]
   test_in_game: "Not needed for the calculated numbers."
   status: proposed
@@ -556,11 +578,11 @@
   status: proposed
 
 - id: life-flask-effect-kept
-  title: Life flask effect not removed when Life is full (the flask model counts its whole duration already)
+  title: "Life flask effect not removed when Life is full (read by flasks.full_pool_cap: such a flask keeps its whole duration)"
   kind: pob_gap
   match: '^Effect is not removed when Unreserved Life is Filled$'
   replace: []
-  absorbed_by: "builder/search/flasks.py counts a flask's effect for its whole duration whenever charges allow"
+  absorbed_by: "builder/search/flasks.py: full_pool_cap ends a Life / Mana flask's effect when the pool is full (MECHC4), except for a flask carrying this line (KEPT_AT_FULL) or a build with Enduring Elixirs' 'Life Flask Effects are not removed when Unreserved Life is Filled' (life_effect_kept): those keep the whole duration whenever charges allow"
   confidence: reported
   sources: ["https://poe2db.tw/us/Blood_of_the_Warrior"]
   test_in_game: "Drink it at full Life: the effect stays for its full duration."

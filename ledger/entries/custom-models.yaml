@@ -134,15 +134,20 @@
   status: approved
 
 - id: archon-infernal-rest
-  title: Seething Body's other lines (the Archon model keeps the normal duration)
+  title: Seething Body's Infernal Flame lines (read by the Archon model's Infernal Flame cycle, models.flame_uptime)
   kind: pob_gap
   model: archon
   match: '^(Elemental Archon does not expire while on High Infernal Flame|Lose Elemental Archon on reaching maximum Infernal Flame)$'
   replace: []
   confidence: theory
   notes: >-
-    How long a build stays on High Infernal Flame isn't modeled, so Seething Body's Archon keeps
-    the normal duration and recovery: an undercount for builds that hold High Infernal Flame.
+    "Elemental Archon does not expire while on High Infernal Flame" and "Lose Elemental Archon on reaching maximum
+    Infernal Flame" are read by models.flame_uptime (MECHC4, on main; RESEARCH12 18af, rules HIGH): Archon comes
+    with the first spell cast on High Infernal Flame (65% of maximum) once the recovery period is over and lasts
+    until Flame resets at its maximum, from the build's own skill costs and maximum Mana, so Archon Duration lines
+    don't lengthen it. PoB applies neither line; this entry only records that the model reads them. (The old note
+    called leaving them out an undercount only; losing Archon at maximum Flame is a downside, so it was an overcount
+    too: AUDIT14 A14-4.)
   sources: ["https://poe2db.tw/Seething_Body"]
   status: approved
 

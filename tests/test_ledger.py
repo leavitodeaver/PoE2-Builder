@@ -51,7 +51,7 @@ def test_conditional_corrections_read_as_conditions():
 def test_conditions_and_wrong_lines_load():
     from builder.ledger import conditions, wrong
 
-    assert {"GlorySkill", "SpellEcho", "JaggedGround"} <= {c["id"] for c in conditions()}
+    assert {"GlorySkill", "JaggedGround"} <= {c["id"] for c in conditions()} and "SpellEcho" not in {c["id"] for c in conditions()}
     fixed = wrong("Take 40% less Damage over time")
     assert fixed is not None and fixed[1] == "20% less Damage over Time taken"
 
