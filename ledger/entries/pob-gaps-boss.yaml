@@ -314,14 +314,22 @@
   status: approved
 
 - id: lucky-spell-crits
-  title: Chance for spell critical hits to be Lucky
+  title: Chance for spell critical hits to be Lucky (counted by the bridge's LuckyHitsChance hook since MECHB10; this entry adds nothing)
   kind: pob_gap
   match: '^(\(\d+-\d+\)|\d+)% chance for Spell Damage with Critical Hits to be Lucky$'
-  replace: ['{g1*0.04}% more Spell Damage']
+  replace: []
   confidence: theory
   notes: >-
-    Lucky keeps the better of two damage rolls: +(max-min)/(6*average), 6.7% for a +-20% spread.
-    Times the chance and an assumed 60% of hits being critical.
+    Retired as a translation (COV9, paired with MECH-B's 41bfdcc, MECHB10; they must land in the same train). It was
+    '{g1*0.04}% more Spell Damage': a flat 6.7% Lucky gain for every spell times an assumed 60% of spell hits
+    critting, an UNDERCOUNT ~4.5x for lightning spells (RESEARCH3: the gain follows the spell's damage spread) and
+    wrong for any build not critting 60%. Now engine/bridge.lua's parseMod hook turns the line into PoB's own
+    LuckyHitsChance on Spell hits in the crit pass (Condition:CriticalStrike; CalcOffence rolls min/3 + 2max/3 for
+    the Lucky share), so the spell's own spread and the build's own crit chance decide it (Spark L20 at 36% crit,
+    100%: x1.1594 = RESEARCH3's formula; MECH-B's engine test). The replacement is empty so nothing is counted
+    twice; the entry stays active only so the coverage audit records the line as counted (absorbed_by) instead of a
+    gap.
+  absorbed_by: "engine/bridge.lua's parseMod hook (MECHB10): the line becomes PoB's LuckyHitsChance on Spell hits while critting"
   sources: ["https://poe2db.tw/us/Lucky"]
   status: proposed
 

@@ -549,7 +549,7 @@
   pob: partial
   pob_check: "PoB calculates most; the lines it ignores or misparses are listed per mechanic."
   handling: "PoB's own; ignored lines per mechanic. Iron Ward (models.py Iron Ward, ledger iron-ward-store, theory): PoB reads none of its warding_steel_* stats, so the store is modelled: it fills between uses from the boss's hits that land times the share of each Physical hit the build prevents, counting only the boss's Physical hits (MECHB9: 7 of the Arbiter's 24 hit types; it counted every hit, x24/7 too fast, an overcount), up to the gem's maximum; the full store is the nova's base Physical damage."
-  plan: {approach: translation, how: "Line by line: each family's ignored and misparsed lines translated where PoB can express them; Lucky as an expected value (lucky-spell-crits).", inputs: []}
+  plan: {approach: translation, how: "Line by line: each family's ignored and misparsed lines translated where PoB can express them; Lucky spell crits as PoB's own LuckyHitsChance on spell crits (engine/bridge.lua's parseMod hook, MECHB10; the ledger's lucky-spell-crits only records it).", inputs: []}
   what_if: visible
   guide_note: ""
   impact: 2
