@@ -761,7 +761,7 @@ def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None
     """The build's curses and how it applies each (models.curse_uses), the boss at `metres` or the config's distance."""
     if metres is None:
         metres = number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(set())
-    return models.curse_uses(build.groups(), build.ctx.gems, stats, metres, texts)
+    return models.curse_uses(build.groups(), build.ctx.gems, stats, metres, texts, getattr(build, "trigger_rates", None))
 
 
 def _debuff_pattern(var: str) -> re.Pattern:

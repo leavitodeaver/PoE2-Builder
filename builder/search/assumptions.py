@@ -308,6 +308,9 @@ class Assumptions:
         supports = {g["index"]: [x["name"] for x in g["gems"] if x["support"] and x.get("enabled", True)]
                     for g in build.groups()}
         energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports)
+        # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
+        build.trigger_rates = {m["skill"]: m["value"] for m in energy_mods
+                               if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"}
         expression_mods, expression_notes, expression_groups = models.expression_model(found, stats, main)
         levels = {g["name"]: g["level"] for grp in build.groups() for g in grp["gems"] if g.get("level")}
         totem_mods, totem_notes = models.totem_model(found, stats, [e["text"] for e in source_lines], levels, main)
@@ -326,7 +329,8 @@ class Assumptions:
         if any(s.name == models.PREDATORS_MARK for s in found):  # (it counts you within 6 m of the boss)
             metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(set())
         mark_mods, mark_notes = models.mark_model(
-            found, stats, main, source_lines, metres, [models.Skill.of(s) for s in skills if s["disabled"]])
+            found, stats, main, source_lines, metres, [models.Skill.of(s) for s in skills if s["disabled"]],
+            rates=build.trigger_rates)
         hand_mods, hand_notes = hand_mods + mark_mods, hand_notes + mark_notes
         build.objective.entry_scales = {k: v for n in mark_notes for k, v in (n.get("full_dps") or {}).items()}
         curses = curse_uses(build, stats, [e["text"] for e in source_lines])

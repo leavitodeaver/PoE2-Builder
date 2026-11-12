@@ -1309,3 +1309,35 @@ def test_hit_remnants_need_their_condition_and_the_main_skill_s_hits():
     ignite = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "IgniteChancePerHit": 100, "IgniteDuration": 4}
     rate, how = hit_remnant_rate("Mana Remnants", ignite)
     assert rate == pytest.approx(1 / (2 + 1 / (2 * 0.5))) and "Ignited 100%" in how
+
+
+def test_archon_of_the_blizzard_waits_for_a_gap_in_the_boss_s_landing_hits():
+    """Energy Shield Recharge needs `delay` s with no damage: every landing boss hit restarts it (MECH46, FLAT_RATES A8:
+    was a flat 2 x delay)."""
+    import math
+    base = {"EnergyShield": 1000, "EnergyShieldRechargeDelay": 4.0, "enemySkillTime": 0.7}
+    blizzard = lambda stats: next(s for s in models.archon_sources(stats, set()) if s.name == "Archon of the Blizzard")
+    rate = 1 / 0.7
+    assert blizzard(base).wait == pytest.approx(math.expm1(rate * 4.0) / rate)  # ~209 s: hit often, rarely recharges
+    dodgy = dict(base, EvadeChance=50, EffectiveBlockChance=50)
+    assert blizzard(dodgy).wait == pytest.approx(math.expm1(rate / 4 * 4.0) / (rate / 4))
+    assert blizzard(dict(base, EvadeChance=100)).wait == pytest.approx(4.0)  # never hit: just the delay
+
+
+def test_a_meta_triggered_curse_or_mark_is_up_at_the_meta_s_trigger_rate():
+    """MECH46 (FLAT_RATES A5): a curse or Mark in an Energy meta is applied at the meta's trigger rate (energy_model),
+    not always up."""
+    gems = {"Elemental Weakness": {"skillTypes": ["Spell", "AppliesCurse"]}, "Cast on Critical": {"skillTypes": ["Meta"]}}
+    meta = [{"enabled": True, "gems": [{"name": "Cast on Critical", "support": False},
+                                       {"name": "Elemental Weakness", "support": False}]}]
+    (use,) = models.curse_uses(meta, gems, {}, 8.0, [], {"Elemental Weakness": 0.05})
+    assert use.share == pytest.approx(0.05 * models.CURSE_DURATION) and "0.050" in use.how
+    (use,) = models.curse_uses(meta, gems, {}, 8.0, [], {"Elemental Weakness": 1.0})
+    assert use.share == 1.0
+    (use,) = models.curse_uses(meta, gems, {}, 8.0)  # no model's rate: the labelled assumption stays
+    assert use.share == 1.0 and "LOW" in use.how
+    mark = Skill(name="Sniper's Mark", group=1, triggered=True, cast_time=0.5)
+    coc = Skill(name="Cast on Critical", group=1, energy=True)
+    use = models.mark_use(mark, [mark, coc], rates={"Sniper's Mark": 0.25})
+    assert use.period == pytest.approx(4.0) and not use.on_demand
+    assert models.mark_use(mark, [mark, coc], rates={"Sniper's Mark": 0.0}).period == math.inf

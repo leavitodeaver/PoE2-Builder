@@ -298,10 +298,19 @@ def archon_sources(stats: dict, main_gems: set[str]) -> list[ArchonSource]:
                                     f"spending {mana:,.0f} Mana takes {spend:.1f}s at {cost:,.0f} Mana per second; "
                                     "half of that on average after the recovery ends"))
     if number(stats.get("EnergyShield")) > 0:
+        # (MECH46, FLAT_RATES A8: before, a flat 2 x delay, though every boss hit that lands restarts the delay.) The
+        # boss's landing hits taken as a Poisson stream (enemySkillTime, less evaded and blocked hits): the expected wait
+        # for a gap of `delay` with none is (e^(rate x delay) - 1) / rate. Damage over time and the boss's misses by
+        # timing aren't counted (MEDIUM).
         delay = number(stats.get("EnergyShieldRechargeDelay")) or 4.0
-        sources.append(ArchonSource("Archon of the Blizzard", "ArchonRecharge", 2 * delay,
-                                    f"Energy Shield Recharge begins after {delay:g}s without damage; against a boss "
-                                    f"assumed {2 * delay:g}s after the recovery ends"))
+        every = number(stats.get("enemySkillTime")) or 0.7
+        land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (
+            1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100) / every
+        wait = math.expm1(min(land * delay, 700.0)) / land if land > 0 else delay
+        sources.append(ArchonSource("Archon of the Blizzard", "ArchonRecharge", wait,
+                                    f"Energy Shield Recharge begins after {delay:g}s without damage; the boss lands "
+                                    f"{land:.2f} hits/s (one per {every:g}s, less evaded and blocked), each restarting "
+                                    f"it: a {delay:g}s gap comes after {wait:.1f}s on average"))
     if "Arbiter's Ignition" in main_gems:
         crit = number(stats.get("CritChance")) / 100
         chance = (number(stats.get("IgniteChanceOnHit")) * (1 - crit) + number(stats.get("IgniteChanceOnCrit")) * crit) / 100
@@ -1039,7 +1048,8 @@ class MarkUse:
     on_demand: bool = True  # applied when needed (recast as it runs out or is consumed), not on a fixed timer
 
 
-def mark_use(mark: Skill, skills: list[Skill], disabled: list[Skill] | None = None) -> MarkUse:
+def mark_use(mark: Skill, skills: list[Skill], disabled: list[Skill] | None = None,
+             rates: dict[str, float] | None = None) -> MarkUse:
     """How often the Mark is applied, and by what. `disabled` are the skills PoB disables: a Mark gem in a Pounce PoB
     disables (no Talisman) is never applied, though PoB still applies its effect and reads the Mark as cast by you."""
     off = next((s for s in disabled or [] if s.group == mark.group and s.name != mark.name and s.name in MARK_CARRIERS),
@@ -1057,7 +1067,14 @@ def mark_use(mark: Skill, skills: list[Skill], disabled: list[Skill] | None = No
         return MarkUse(max(own, mark.cast_time), "cast by you", mark)
     trigger = next((s for s in skills if s.group == mark.group and s.name != mark.name), None)
     if trigger is None:
-        return MarkUse(own, "triggered by a skill the model doesn't know: assumed applied when needed, at no cost")
+        return MarkUse(own, "triggered by a skill the model doesn't know: assumed applied when needed, at no cost (LOW)")
+    if trigger.energy and rates is not None and mark.name in rates:  # (MECH46, FLAT_RATES A5: was "when needed")
+        rate = number(rates[mark.name])
+        if rate <= 0:
+            return MarkUse(math.inf, f"triggered by {trigger.name}, whose Energy never fills: never applied",
+                           on_demand=False)
+        return MarkUse(max(own, 1 / rate), f"triggered by {trigger.name} {rate:.3f} times/s (its Energy)",
+                       on_demand=False)
     if trigger.cooldown:
         every = trigger.cooldown / (trigger.cooldown_recovery or 1.0)
         return MarkUse(max(own, every), f"triggered by {trigger.name}, used on its {every:.1f} s cooldown", trigger,
@@ -1083,7 +1100,7 @@ MARKED_LINES = (
 
 def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                lines: list[dict] | None = None, metres: float | None = None,
-               disabled: list[Skill] | None = None) -> tuple[list[dict], list[dict]]:
+               disabled: list[Skill] | None = None, rates: dict[str, float] | None = None) -> tuple[list[dict], list[dict]]:
     """Each Mark's effect scaled from PoB's always-up to what consumption on a boss leaves, the build's "Enemies you Mark
     take ..." and "against Marked Enemies" lines scaled to the share of the fight the boss carries the Mark (MARKED_LINES),
     and the time the skill you press for it (the Mark, Pounce, Hand of Chayula) takes from the main skill. `metres` is the
@@ -1104,7 +1121,7 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                 every = (pounce.cooldown or 0.0) / (pounce.cooldown_recovery or 1.0)
                 use = MarkUse(max(every, MARK_DURATION), "triggered by Pounce, used as the Mark runs out (assumed)", pounce)
         else:
-            use = mark_use(mark, skills, disabled)
+            use = mark_use(mark, skills, disabled, rates)
         period, how = use.period, use.how
         # the time a Mark stays on the boss after each application: until consumed, at most its duration
         held, consumed_by = MARK_DURATION, "Bloodhound's Mark's consumption on a Heavy Stun isn't rated (held its full duration)"
@@ -1232,7 +1249,8 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
 # How the build applies each (curse_uses):
 # - in a Blasphemy group: an Aura on "all nearby enemies" (the gem's description), taken as your Presence: up while the
 #   boss stands inside it (the build's distance); the support's base radius stat isn't read;
-# - with a Meta gem in its group: triggered, assumed applied when needed (its trigger rate isn't read, labelled);
+# - with a Meta gem in its group: triggered at the meta's rate (its Energy, energy_model), up min(1, rate x duration)
+#   (MECH46, FLAT_RATES A5: before, always up); a meta whose rate no model gives keeps "applied when needed" (LOW);
 # - else cast by hand, recast each duration (1.5 s before it runs out, so always up after the fight's first 1.5 s,
 #   not counted), which takes its cast time from the main skill (duration modifiers aren't read);
 # - "Curse ... with X on Hit" item lines: up while the main skill hits.
@@ -1265,8 +1283,9 @@ class CurseUse:
 
 
 def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
-               lines: list[str] = ()) -> list[CurseUse]:
-    """How the build applies each of its curses, and the share of the fight each is on the boss."""
+               lines: list[str] = (), rates: dict[str, float] | None = None) -> list[CurseUse]:
+    """How the build applies each of its curses, and the share of the fight each is on the boss. `rates`: triggered
+    skills' uses per second from the models (energy_model), by name."""
     uses = []
     radius = number(stats.get("PresenceRadius")) / 10
     forever = any(CURSE_FOREVER.search(text) for text in lines)
@@ -1285,9 +1304,14 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                 how = (f"an Aura (Blasphemy) on enemies nearby, taken as your Presence ({radius:.1f} m) with the boss "
                        f"{metres:g} m away: {'inside' if up else 'outside'} it")
                 uses.append(CurseUse(name, up, how))
+            elif meta is not None and rates is not None and name in rates:
+                rate = number(rates[name])
+                up = min(1.0, rate * CURSE_DURATION)
+                uses.append(CurseUse(name, up, f"triggered by {meta} {rate:.3f} times/s (its Energy), "
+                                               f"{CURSE_DURATION:g} s each: {up:.0%} of the fight"))
             elif meta is not None:
-                uses.append(CurseUse(name, 1.0, f"triggered by {meta}: assumed applied when needed (its trigger rate "
-                                                "isn't read)"))
+                uses.append(CurseUse(name, 1.0, f"triggered by {meta}: assumed applied when needed (LOW: no model gives "
+                                                "its trigger rate)"))
             elif forever:
                 uses.append(CurseUse(name, 1.0, "cast by hand once: 'Curses you inflict have infinite Duration' (no "
                                                 "recasts; the first cast at the fight's start isn't counted)"))
