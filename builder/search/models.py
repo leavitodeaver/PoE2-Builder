@@ -1980,7 +1980,8 @@ PARTS = {"cascade": "Spell Cascade's Cascades", "offering": "spells cast around 
          "mimic": "spells cast by Fractured Mimics (Trickster's Shard)",
          "spectral": "Spectral Volley's Spectral Projectiles",
          "warcry_echo": "the Warcry's Echoes (Echoing Cry)",
-         "tectonic_aftershock": "Tectonic Slams' extra Aftershock"}
+         "tectonic_aftershock": "Tectonic Slams' extra Aftershock",
+         "branch_fissure": "the branched Fissures (Branching Fissures)"}
 
 
 def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[dict]]:

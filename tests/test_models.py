@@ -505,6 +505,12 @@ def test_echo_and_aftershock_parts_wait_for_their_models():
         "aftershock_area_of_effect_+%_final_from_support_dual_cascade_aftershocks": -30})
     assert models.support_part_scale(slam, "tectonic_aftershock")[0] == {
         "TectonicAftershocks": 1, "Damage": pytest.approx(0.55), "Area of Effect": pytest.approx(0.7)}
+    crash = models.Skill("Volcanic Fissure", group=1, attack=True, support_stats={
+        "number_of_branching_fissures": 2, "branching_fissure_damage_+%_final": -40,
+        "branching_fissure_area_of_effect_+%_final": -35})
+    assert models.gem_stat_model([crash]) == ([], [])
+    assert models.support_part_scale(crash, "branch_fissure")[0] == {
+        "BranchingFissures": 2, "Damage": pytest.approx(0.6), "Area of Effect": pytest.approx(0.65)}
 
 
 def test_slow_potency_counts_as_chill_magnitude_on_its_skill():

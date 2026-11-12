@@ -154,9 +154,10 @@
   replace: ['mult:TectonicAftershocks 1']
   confidence: datamined
   notes: >-
-    number_of_dual_cascade_aftershocks 1 on SupportSlamAftershocksPlayer: the supported Slam makes an extra Aftershock
-    ("behind the Slam" in PoB's description of the gem). No game text says whether it reaches a boss in front of you
-    (UNVERIFIED, RULE_AUDIT A6-3: for RESEARCH or an in-game test). If it hits, the Slam is worth about 0.85 x (1 + 0.55) =
+    number_of_dual_cascade_aftershocks 1 on SupportSlamAftershocksPlayer: "Supported Skills cause {0} additional
+    Aftershock ahead and to each side of the initial area" (gem_stat_descriptions; PoB's gem description says "behind the
+    Slam"). The game's "ahead" puts one in front of the Slam's area, so it may reach a large boss there; how much of a
+    boss it overlaps is UNVERIFIED (RULE_AUDIT A6-3: for RESEARCH or an in-game test). If it hits, the Slam is worth about 0.85 x (1 + 0.55) =
     1.32x; if not, the 15% less Attack Speed (support-tectonic-slams-attack-speed) is the whole effect.
   sources: ["SupportSlamAftershocksPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tectonic_Slams"]
   status: proposed
@@ -190,4 +191,57 @@
   confidence: datamined
   notes: Constant -30 on SupportSlamAftershocksPlayer, kept to the support's own Aftershocks as the damage one.
   sources: ["SupportSlamAftershocksPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tectonic_Slams"]
+  status: proposed
+
+# COVE5 (12 Nov 2026): Branching Fissures I/II act only on the branched Fissures, which PoB counts no hit for (checked:
+# PoB's Volcanic Fissure / Molten Crash stat sets carry number_of_branching_fissures without a part or stat map, and no
+# Modules/Calc*.lua line names fissure or branch; grep of fissure / branch in builder/search/*.py and engine/bridge.lua: none;
+# 12 Nov 2026). Written ready for the model that counts branches (MECH-B): part branch_fissure.
+
+- id: support-branching-fissures-branches
+  title: Branching Fissures I/II, the supported skill's Fissures branch 2 more times
+  kind: gem_stat
+  support: true
+  to: part:branch_fissure
+  skill: [Branching Fissures I, Branching Fissures II]
+  support_stats: ['number_of_branching_fissures']
+  match: '^number_of_branching_fissures$'
+  replace: ['mult:BranchingFissures 1']
+  confidence: datamined
+  notes: >-
+    "Supported Skills' Fissures branch {0} times" (constant 2 on SupportBranchingFissuresPlayer / PlayerTwo). The skills'
+    own branches (Volcanic Fissure's and Molten Crash's number_of_branching_fissures 2) aren't counted either (COV-C /
+    MECH-B). How many branches reach a lone boss is the counting model's call (UNVERIFIED).
+  sources: ["SupportBranchingFissuresPlayer, SupportBranchingFissuresPlayerTwo, GrantedEffectStatSets (build 26476662)"]
+  status: proposed
+
+- id: support-branching-fissures-damage
+  title: Branching Fissures I/II, 40% / 30% less Damage on the branched Fissures
+  kind: gem_stat
+  support: true
+  to: part:branch_fissure
+  skill: [Branching Fissures I, Branching Fissures II]
+  support_stats: ['branching_fissure_damage_+%_final']
+  match: '^branching_fissure_damage_\+%_final$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  notes: >-
+    "Supported Skills' Branched Fissures deal {0}% more damage" (-40 on I, -30 on II). Kept to the branches, as its text
+    says; whether it also cuts the skill's own branches (Volcanic Fissure's) is read as yes from "Branched Fissures"
+    (UNVERIFIED).
+  sources: ["SupportBranchingFissuresPlayer, SupportBranchingFissuresPlayerTwo, GrantedEffectStatSets (build 26476662)"]
+  status: proposed
+
+- id: support-branching-fissures-area
+  title: Branching Fissures I/II, 35% less Area of Effect on the branched Fissures
+  kind: gem_stat
+  support: true
+  to: part:branch_fissure
+  skill: [Branching Fissures I, Branching Fissures II]
+  support_stats: ['branching_fissure_area_of_effect_+%_final']
+  match: '^branching_fissure_area_of_effect_\+%_final$'
+  replace: ['1% more Area of Effect']
+  confidence: datamined
+  notes: '"Supported Skills'' Branched Fissures have {0}% more area of effect" (-35 on I and II), kept to the branches.'
+  sources: ["SupportBranchingFissuresPlayer, SupportBranchingFissuresPlayerTwo, GrantedEffectStatSets (build 26476662)"]
   status: proposed

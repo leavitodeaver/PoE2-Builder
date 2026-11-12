@@ -17,8 +17,8 @@
     PoB's skill data maps none of the support's four stats, so a Slam with it was rated 15% too fast. Penalty only: the
     support's extra Aftershock (number_of_dual_cascade_aftershocks 1, at 45% less damage and 30% less area) isn't counted
     by PoB or the tool (checked: grep -i aftershock in PoB Modules/Calc*.lua, builder/search/*.py, engine/bridge.lua, 12
-    Nov 2026: none; RULE_AUDIT A6-3, A6-29), so the net direction is UNVERIFIED: if that Aftershock hits a boss in front
-    of you the support is worth about 0.85 x 1.55 = 1.32x and the tool's 0.85x is an undercount; if it doesn't, 0.85x is
+    Nov 2026: none; RULE_AUDIT A6-3, A6-29), so the net direction is UNVERIFIED: the game puts it "ahead and to each
+    side of the initial area"; if it hits a boss in front of you the support is worth about 0.85 x 1.55 = 1.32x and the tool's 0.85x is an undercount; if it doesn't, 0.85x is
     right. The Aftershock is written ready for MECH-B's summed Aftershock model in supports-parts.yaml
     (support-tectonic-slams-aftershock*, part tectonic_aftershock).
   sources: ["SupportSlamAftershocksPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tectonic_Slams"]
