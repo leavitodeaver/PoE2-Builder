@@ -2,7 +2,7 @@
 
 - The goal (request `objective`): boss DPS, a clear-speed estimate (mapping), or by default their
   geometric mean (balanced), so neither can be traded down to nothing (PLAN.md §5.5).
-- Screening uses main-skill DPS (CombinedDPS, or the minion's for minion skills); finalists use
+- Screening uses main-skill DPS (CombinedDPS per second, or the minion's for minion skills); finalists use
   Full DPS, which costs far more per what-if on real builds (PLAN.md Phase 0 findings).
 - Request floors (life, resistances, max hit, ...) are layer 2 of the constraint compiler:
   normalized deficits that pull the search toward feasible builds without hiding them.
@@ -37,9 +37,14 @@ HARD_OFFSET = 8.0
 ESCALATION = 4.0
 MAX_MULTIPLIER = 64.0
 MAIN_DPS_FIELDS = ["CombinedDPS", "Minion.CombinedDPS"]
+# For a skill PoB shows per use (ShowAverage, the bridge's flag: Sunder, Earthquake, other slams) its CombinedDPS is the
+# average damage per use (CalcOffence.lua 6265), blind to attack speed and DPS multipliers (COVD6: the Hymn's Aftershock
+# moved it 0%); main_dps puts it per second from these (SEARCH7)
+AVERAGE_FIELDS = ["ShowAverage", "TotalDPS", "AverageDamage", "TotalDotDPS", "CullMultiplier", "ReservationDpsMultiplier"]
 BASE_FIELDS = [
     "FullDPS", *MAIN_DPS_FIELDS, "Life", "EnergyShield", "Mana", "Armour", "Evasion", "Spirit",
     "SpiritUnreserved", "Str", "Dex", "Int", "ReqStr", "ReqDex", "ReqInt",
+    *AVERAGE_FIELDS, *(f"Minion.{f}" for f in AVERAGE_FIELDS),
 ]
 # What Darkness needs to join the maximum-hit pools
 DARKNESS_FIELDS = ["Darkness", "LowLifeRecoveryCap", "Life", *(f"{t}TotalHitPool" for t in DAMAGE_TYPES), *(f"{t}MaximumHitTaken" for t in DAMAGE_TYPES)]
@@ -182,15 +187,29 @@ def number(value: object) -> float:
     return 0.0
 
 
+def per_second(stats: dict, prefix: str = "") -> float:
+    """The main skill's (or with prefix "Minion.", the minion's) CombinedDPS, per second. For a ShowAverage skill PoB
+    builds CombinedDPS as (AverageDamage [+ per-use Impale]) x cull x the boss's Life-reservation multiplier, with no
+    damage over time (CalcOffence.lua 6265-6470); per second it is what PoB builds for every other skill, TotalDPS (=
+    AverageDamage x use rate x DPS multiplier) plus TotalDotDPS, under the same cull and reservation multipliers. Impale
+    stays per use, as PoB's Full DPS has it (Calcs.lua harvests ImpaleDPS as it is)."""
+    combined = number(stats.get(prefix + "CombinedDPS"))
+    if number(stats.get(prefix + "ShowAverage")) != 1 or combined <= 0:
+        return combined
+    scale = max(number(stats.get(prefix + "CullMultiplier")), 1.0) * (number(stats.get(prefix + "ReservationDpsMultiplier")) or 1.0)
+    hits = number(stats.get(prefix + "TotalDPS")) - number(stats.get(prefix + "AverageDamage"))
+    return max(combined + scale * (hits + number(stats.get(prefix + "TotalDotDPS"))), 0.0)
+
+
 def main_dps(stats: dict) -> float:
-    return max(number(stats.get(field)) for field in MAIN_DPS_FIELDS)
+    return max(per_second(stats), per_second(stats, "Minion."))
 
 
 def clear_estimate(stats: dict, damage: float) -> dict:
     """Clear speed from a build's damage per target and the main skill's reach (module constants):
     the score (monster life cleared per second) and the parts behind it."""
     # A minion skill's reach and speed are the minion's; movement is always the player's
-    prefix = "Minion." if number(stats.get("Minion.CombinedDPS")) > number(stats.get("CombinedDPS")) else ""
+    prefix = "Minion." if per_second(stats, "Minion.") > per_second(stats) else ""
 
     def part(field: str) -> float:
         return max(number(stats.get(prefix + field)), 0.0)

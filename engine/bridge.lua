@@ -760,6 +760,18 @@ local function setLowLifeCap(env, output)
 	output.LowLifeRecoveryCap = found
 end
 
+-- ShowAverage (SEARCH7, the manager's ruling 12 Nov): 1 when PoB shows the main skill's damage per use (skillData.showAverage:
+-- Sunder, Earthquake and other slams), so its CombinedDPS is AverageDamage, blind to attack speed and DPS multipliers
+-- (CalcOffence.lua 6265); objective.main_dps then reads the per-second damage. The minion's under Minion.ShowAverage.
+local function markShowAverage(env)
+	for _, actor in ipairs({ env.player, env.minion }) do
+		local skill = actor and actor.mainSkill
+		if actor.output then
+			actor.output.ShowAverage = (skill and skill.skillData and skill.skillData.showAverage) and 1 or 0
+		end
+	end
+end
+
 local function installDerived()
 	installSpiritVessel()
 	installBossSlow()
@@ -775,6 +787,7 @@ local function installDerived()
 		setNoCritReroll(env)
 		local function finish(...)
 			setLowLifeCap(env, env and env.player and env.player.output)
+			markShowAverage(env)
 			return ...
 		end
 		return finish(perform(env, ...))
