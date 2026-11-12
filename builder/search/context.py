@@ -113,7 +113,9 @@ def normal_item(base: dict) -> str:
     lines = [re.sub(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)",
                     lambda m: str(int(round((float(m.group(1)) + float(m.group(2))) / 2))) if "." not in m.group(0)
                     else f"{(float(m.group(1)) + float(m.group(2))) / 2:.1f}", line) for line in implicit.splitlines()]
-    return "\n".join([f"Rarity: Normal", base["name"], f"Implicits: {len(lines)}", *lines])
+    from builder.ledger.items import corrected_item  # ledger translations on the implicit (COV2)
+
+    return corrected_item("\n".join([f"Rarity: Normal", base["name"], f"Implicits: {len(lines)}", *lines]))
 
 
 class Context:

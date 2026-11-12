@@ -578,3 +578,43 @@ def test_only_a_skill_that_spends_glory_switches_on_the_glory_condition(engine, 
     assert "GlorySkill" in assumptions.ledger_conditions([{"name": spenders[0], "disabled": False}])[0]
     for name in others:
         assert "GlorySkill" not in assumptions.ledger_conditions([{"name": name, "disabled": False}])[0]
+
+
+def test_ledger_corrections_on_runes_reach_pob(engine):
+    """builder/ledger/items.py through a real engine: a rune line PoB can't parse ("10% chance for Slam Skills ... an
+    additional Aftershock", Ancient Rune of the Titan) arrives as its ledger stand-in, which PoB parses; a rune line a
+    `pob_wrong` entry corrects (Legacy of Keeper of the Arc's "Take 20% less Damage over time") stays switched off
+    after PoB rebuilds the rune lines, and its correction is parsed."""
+    from builder.search.rares import with_runes
+
+    ctx = context(main_skill="Boneshatter")
+    engine.call("newBuild")
+    mace = with_runes(f"Rarity: Rare\nOptimizer Weapon 1\n{base_of(ctx, 'Two Hand Mace')['name']}\nItem Level: 82\n"
+                      "Implicits: 0\n+10 to Strength", ["Ancient Rune of the Titan"] * 2)
+    engine.call("equip", slot="Weapon 1", raw=mace, fields=[])
+    helmet = with_runes(f"Rarity: Rare\nOptimizer Helmet\n{base_of(ctx, 'Helmet')['name']}\nItem Level: 82\n"
+                        "Implicits: 0\n+10 to Strength", ["Legacy of Keeper of the Arc"])
+    engine.call("equip", slot="Helmet", raw=helmet, fields=[])
+    mods = engine.call("itemMods")
+    weapon = {l["line"]: l for l in mods["Weapon 1"]["lines"]}
+    assert weapon["Slam Skills deal 20% more Damage"]["supported"] and weapon["Slam Skills deal 20% more Damage"]["kind"] == "explicit"
+    head = {l["line"]: l for l in mods["Helmet"]["lines"]}
+    assert head["10% less Damage over Time taken"]["supported"] and head["10% less Damage taken from Hits"]["supported"]
+    xml = engine.call("exportXml")["xml"]
+    off = [l for l in xml.splitlines() if "Take 20% less Damage over time" in l]
+    assert off and all("{disabled}" in l for l in off)
+
+
+def test_a_staff_with_a_focus_requires_instruments_of_power(engine):
+    """A skeleton whose off hand a passive allows (game_rules.yaml off_hand.passive_exceptions) has the search
+    allocate that passive, and its off-hand slot takes the Focus."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Fireball", offhand="focus", weapon_type="Staff"))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    assert skeleton.requires_passive == "Instruments of Power"
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    assert "Instruments of Power" in search.tree.required_names
+    assert search.gear.slots["Weapon 2"].types == ("Focus",)

@@ -331,15 +331,28 @@ def ignored_line_status(line: str, on_passive: bool) -> tuple[str, str | None, s
     return "none", None, "PoB ignores the line"
 
 
-def not_applied(status: str, entry: str | None, reason: str) -> tuple[str, str | None, str]:
-    """The search applies ledger translations to passive-tree lines (applyPassiveCorrections) and unique items'
-    lines (SearchContext.corrected_raw) only: an affix, rune, jewel, base implicit or Timeless jewel line an entry
-    translates into lines is still not counted in a build, so it stays "none" (COV1, 12 Nov 2026; until then the
-    audit counted 64 such lines as covered). An entry recording "no effect" needs nothing applied and stays."""
-    if status == "ledger" and reason == "translated":
-        return "none", entry, ("a ledger entry translates it, but the search doesn't apply ledger corrections to "
-                               "item affixes, runes, jewels, base implicits or Timeless passives yet")
-    return status, entry, reason
+APPLIED_POOLS = {"Item", "Jewel", "Flask", "Charm", "Runes", "implicit"}
+
+
+def not_applied(status: str, entry: str | None, reason: str, pool: str = "Item", bonded: bool = False,
+                unique_templates: frozenset[str] = frozenset(), line: str = "") -> tuple[str, str | None, str]:
+    """Whether the search applies a ledger translation of this item line (COV1's finding, 12 Nov 2026: until then
+    only passive lines and unique items' text got them, and the audit counted 64 item lines covered that no build got).
+    Since COV2 (builder/ledger/items.py) the search applies them to rare, magic and normal items' affix and implicit
+    lines and to socketed runes (`pool` "Item", "Jewel", "Flask", "Charm", "Runes", "implicit"). Still not applied:
+    a rune's Bonded line, desecrated, corruption and limb mods (the search never rolls them), a unique's own mod
+    ("Exclusive": applied through the unique's text when PoB lists the line among the unique's ignored ones, so it
+    is counted there), and Timeless jewels' passives ("legion"). An entry recording "no effect" needs nothing applied."""
+    if status != "ledger" or reason != "translated":
+        return status, entry, reason
+    if pool in APPLIED_POOLS and not bonded:
+        return status, entry, reason
+    if pool == "Exclusive" and template(line) in unique_templates:
+        return status, entry, "translated in the unique's own text (its unique record)"
+    why = {"Runes": "a rune's Bonded line, which counts only with a source that makes Bonded modifiers apply",
+           "Exclusive": "a unique's mod PoB doesn't list among the unique's ignored lines",
+           "legion": "a Timeless jewel's passive (the tree side)"}.get(pool, f"the search never rolls {pool} mods")
+    return "none", entry, f"a ledger entry translates it, but the search doesn't apply it: {why}"
 
 
 def resolver_condition(line: str):
@@ -354,14 +367,25 @@ def resolver_condition(line: str):
     return None
 
 
-def stat_entries() -> dict[str, tuple[str, str]]:
+def stat_entries() -> dict[str, list[tuple[str, str, frozenset | None]]]:
     """Gem stats a ledger entry covers: `stats` on a model entry (fed to the model), or a
-    `gem_stat` entry (`no effect on what's calculated` with an empty replace)."""
-    covered = {}
+    `gem_stat` entry (`no effect on what's calculated` with an empty replace). An entry's `skill` (a name or a list)
+    limits it to those skills (a `model` entry with `stats`, ledger/entries/gem-stats-energy.yaml: the skills whose stat the model reads)."""
+    covered: dict[str, list[tuple[str, str, frozenset | None]]] = {}
     for entry in entries():
+        skills = entry.raw.get("skill")
+        skills = frozenset([skills] if isinstance(skills, str) else skills) if skills else None
         for stat in entry.raw.get("stats") or ():
-            covered[stat] = ("model" if entry.raw.get("model") else "ledger", entry.id)
+            covered.setdefault(stat, []).append(("model" if entry.raw.get("model") else "ledger", entry.id, skills))
     return covered
+
+
+def stat_covered(covered: dict, stat: str, skill: str) -> tuple[str, str] | None:
+    """(status, entry id) of the entry in `stat_entries()` covering this skill's stat, if any."""
+    for status, entry, skills in covered.get(stat, ()):
+        if skills is None or skill in skills:
+            return status, entry
+    return None
 
 
 def gem_stat_pattern_entry(stat: str, skill: str | None = None):
@@ -401,6 +425,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             popularity.get(gap["unique"], SOURCE_WEIGHT["unique"]))
 
     if raw:
+        unique_templates = frozenset(template(gap["line"]) for gap in gaps["uniques"])
         # b. affixes, runes, jewel mods
         for affix in raw["affixes"]:
             kind = POOLS.get(affix["pool"], "affix")
@@ -414,7 +439,8 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 category = "affix-noop" if missing else "affix"
             else:
                 category = "affix"
-                status, entry, reason = not_applied(*ignored_line_status(text, False))
+                status, entry, reason = not_applied(*ignored_line_status(text, False), affix["pool"],
+                                                    bool(affix.get("bonded")), unique_templates, text)
             group = f"{affix['pool']}:{re.sub(r'\d+$', '', affix['id'])}"
             add(category, f"{affix['pool']} {affix['id']}" + (f" ({affix['slot']})" if affix.get("slot") else ""),
                 kind, text, status, entry, reason, SOURCE_WEIGHT[kind], group=group)
@@ -436,8 +462,8 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 for stat in stats:
                     name = stat["stat"]
                     names = stat.get("names") or []
-                    if name in covered:
-                        status, entry = covered[name]
+                    if found_entry := stat_covered(covered, name, skill["name"]):
+                        status, entry = found_entry
                         reason = "fed to a custom model" if status == "model" else "ledger entry"
                     elif found := gem_stat_pattern_entry(name, skill["name"]):
                         status, entry = "ledger", found.id
@@ -476,7 +502,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     "parsed, but no calculation reads " + ", ".join(missing), weight)
         for line in raw.get("base_implicits", []):  # base items' implicit lines
             if not line["supported"]:
-                status, entry, reason = not_applied(*ignored_line_status(line["line"], False))
+                status, entry, reason = not_applied(*ignored_line_status(line["line"], False), "implicit")
                 add("base-implicit", line["base"], "affix", line["line"], status, entry, reason, SOURCE_WEIGHT["affix"])
             elif missing := unread(line.get("names") or [], reads):
                 add("base-implicit-noop", line["base"], "affix", line["line"], "none", None,
@@ -484,7 +510,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
         for line in raw.get("legion", []):
             kind = "notable" if line.get("notable") or line.get("kind") == "nodes" else "small"
             if not line["supported"]:
-                status, entry, reason = not_applied(*ignored_line_status(line["line"], False))
+                status, entry, reason = not_applied(*ignored_line_status(line["line"], False), "legion")
                 add("timeless", line["node"], kind, line["line"], status, entry,
                     reason + " (a Timeless jewel's passive)", SOURCE_WEIGHT[kind] * 0.5)
             elif missing := unread(line.get("names") or [], reads):
@@ -709,7 +735,7 @@ def _build_index(data_dir: str) -> dict:
             stats = set_.get("stats") or []
             for stat in list(stats.values()) if isinstance(stats, dict) else stats:
                 name = stat["stat"]
-                if stat_mechanic(name) in ("flavour", "unclassified") or name in covered or gem_stat_pattern_entry(name, skill["name"]):
+                if stat_mechanic(name) in ("flavour", "unclassified") or stat_covered(covered, name, skill["name"]) or gem_stat_pattern_entry(name, skill["name"]):
                     continue
                 if stat.get("mapped") and stat.get("names") and not unread(stat["names"], reads):
                     continue

@@ -32,11 +32,17 @@ class Skeleton:
     swap_sub: str | None = None
     swap_offhand: str | None = None
     seeded: bool = False  # starts from the request's PoB code (the seed) instead of from scratch
+    # A passive the off hand needs (game_rules.yaml off_hand.passive_exceptions: Instruments of Power lets a Staff
+    # hold a Focus); the search allocates it (inner.Search.setup)
+    requires_passive: str | None = None
 
     @property
     def label(self) -> str:
         source = f" (from {self.granted_by.split(':', 1)[1]})" if self.granted_by else ""
-        label = f"{self.ascendancy} · {self.main_skill}{source} · {_hands(self.weapon, self.weapon_sub, self.offhand)}"
+        hands = _hands(self.weapon, self.weapon_sub, self.offhand)
+        if self.requires_passive:
+            hands += f" (with {self.requires_passive})"
+        label = f"{self.ascendancy} · {self.main_skill}{source} · {hands}"
         if self.swap:
             label += f" · swap: {_hands(self.swap_weapon, self.swap_sub, self.swap_offhand)}"
         return label + (" · from your PoB code" if self.seeded else "")
@@ -72,6 +78,16 @@ def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
     """(weapon, sub-type, offhand) choices for a main skill under the request. `weapon_unique`
     fixes the weapon (the request's, or a unique that grants the skill). For weapon set 2 (`swap`)
     the request's weapon, weapon type and offhand don't apply: they describe set 1."""
+    mains, problems = main_hands(ctx, skill, weapon_unique, swap)
+    rules = game_rules()
+    forbidden = ctx.compiled.filters.forbidden_item_classes
+    offhand_choice = Offhand.ANY if swap else Offhand(ctx.request.offhand)
+    return _with_offhands(skill, mains, problems, rules, forbidden, offhand_choice)
+
+
+def main_hands(ctx: Context, skill: str, weapon_unique: str | None = None, swap: bool = False
+               ) -> tuple[list[tuple[str | None, str | None]], list[str]]:
+    """(weapon, sub-type) main hands a main skill can use under the request (weapon_archetypes)."""
     gem = ctx.all_gems[skill]
     request = ctx.request
     weapon_unique = weapon_unique or (None if swap else request.weapon_unique)
@@ -106,8 +122,11 @@ def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
             problems.append(f"{skill} can't be used with a {request.weapon_type}")
     # Weapon classes PoB has bases for but the game doesn't drop yet are never a skeleton's weapons
     mains = [m for m in mains if m[0] is None or (m[0] not in forbidden and rules.weapon_in_game(m[0]))]
+    return mains, problems
 
-    offhand_choice = Offhand.ANY if swap else Offhand(request.offhand)
+
+def _with_offhands(skill: str, mains: list[tuple[str | None, str | None]], problems: list[str], rules, forbidden,
+                   offhand_choice: Offhand) -> tuple[list[tuple[str | None, str | None, str | None]], list[str]]:
     archetypes = []
     for weapon, sub in mains:
         # What the game lets this main hand hold in the off hand (game_rules.yaml)
@@ -140,8 +159,51 @@ def weapon_archetypes(ctx: Context, skill: str, weapon_unique: str | None = None
             if name in allowed:
                 archetypes.append((weapon, sub, name))
     if not archetypes and not problems:
-        problems.append(f"no weapon setup for {skill} satisfies the weapon, offhand and item-class rules")
+        problems.append(no_setup(skill))
     return archetypes, problems
+
+
+def no_setup(skill: str) -> str:
+    return f"no weapon setup for {skill} satisfies the weapon, offhand and item-class rules"
+
+
+_OFFHAND_CHOICES = {"Focus": (Offhand.ANY, Offhand.FOCUS), "Shield": (Offhand.ANY, Offhand.SHIELD),
+                    "Quiver": (Offhand.ANY, Offhand.QUIVER)}
+
+
+def passive_ascendancy(ctx: Context, name: str) -> str | None:
+    """The ascendancy a passive belongs to (None: the main tree)."""
+    return next((n.get("ascendancy") for n in ctx.data.tree["nodes"] if n.get("name") == name), None)
+
+
+def passive_offhand_archetypes(ctx: Context, skill: str, ascendancy: str, weapon_unique: str | None = None
+                               ) -> list[tuple[str | None, str | None, str, str]]:
+    """(weapon, sub-type, offhand, passive): off hands a passive lets a main hand hold (game_rules.yaml
+    off_hand.passive_exceptions: Instruments of Power, a Disciple of Varashta notable, lets a caster Staff hold a
+    Focus), for this ascendancy and request (its offhand choice, banned passives and item classes)."""
+    rules = game_rules()
+    choice = Offhand(ctx.request.offhand)
+    forbidden = ctx.compiled.filters.forbidden_item_classes
+    found = []
+    mains = None
+    for rule in rules.passive_exceptions:
+        passive, offhand = rule["passive"], rule["off_hand"]
+        if passive in ctx.compiled.filters.forbidden_passives or offhand in forbidden \
+                or choice not in _OFFHAND_CHOICES.get(offhand, (Offhand.ANY, Offhand.WEAPON)):
+            continue
+        if passive_ascendancy(ctx, passive) not in (None, ascendancy):
+            continue
+        if mains is None:
+            mains, _ = main_hands(ctx, skill, weapon_unique)
+        for weapon, sub in mains:
+            if weapon != rule["main_hand"]:
+                continue
+            if "sub_type" in rule:
+                if sub not in (None, rule["sub_type"]):
+                    continue
+                sub = rule["sub_type"]
+            found.append((weapon, sub, offhand, passive))
+    return found
 
 
 def usable_with(gem: dict, weapon: str | None, offhands: tuple[str, ...] = ()) -> bool:
@@ -301,10 +363,16 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
             continue
         if skill in ctx.gems:
             archetypes, found = weapon_archetypes(ctx, skill)
-            problems += found
+            extra = 0
             for ascendancy in ascendancies:
                 for weapon, sub, offhand in archetypes:
                     skeletons.append(Skeleton(ctx.class_of[ascendancy], ascendancy, skill, weapon, sub, offhand))
+                # off hands a passive allows (Instruments of Power: a Staff with a Focus), the passive required
+                for weapon, sub, offhand, passive in passive_offhand_archetypes(ctx, skill, ascendancy):
+                    skeletons.append(Skeleton(ctx.class_of[ascendancy], ascendancy, skill, weapon, sub, offhand,
+                                              requires_passive=passive))
+                    extra += 1
+            problems += [p for p in found if not (extra and p == no_setup(skill))]
             continue
         # A skill only a passive or a unique grants: that source becomes part of the skeleton
         for kind, source, source_ascendancy in ctx.granted_by.get(skill, []):

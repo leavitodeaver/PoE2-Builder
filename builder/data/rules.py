@@ -24,6 +24,7 @@ class GameRules:
     off_hand: dict[str, tuple[str, ...]]
     unique_only_tags: frozenset[str]
     floor_blockers: dict[str, tuple[str, ...]]  # item line -> floors it makes unreachable
+    passive_exceptions: tuple[dict, ...] = ()  # off-hand pairs a passive allows (off_hand.passive_exceptions)
 
     def weapon_in_game(self, item_class: str | None) -> bool:
         """False for weapon classes whose bases are in PoB's data but don't drop yet."""
@@ -58,4 +59,5 @@ def rules(path: Path = RULES_FILE) -> GameRules:
         off_hand={main: tuple(off) for main, off in data["off_hand"]["by_main_hand"].items()},
         unique_only_tags=frozenset(data["unique_only_bases"]["tags"]),
         floor_blockers={line: tuple(floors) for line, floors in data["floor_blockers"]["lines"].items()},
+        passive_exceptions=tuple(e for e in data["off_hand"].get("passive_exceptions") or () if e.get("enabled", True)),
     )

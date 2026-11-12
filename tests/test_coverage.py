@@ -93,11 +93,61 @@ def test_parse_checked_entries_and_item_lines_the_search_does_not_correct():
     # an entry limited to one item doesn't close the same text elsewhere
     assert checked_parse("(100-160)% increased Chaos Damage", "The Unborn Lich")
     assert checked_parse("(100-160)% increased Chaos Damage", "Some Other Staff") is None
-    # a ledger translation of an affix line isn't applied to items by the search: still not counted
-    assert coverage.not_applied("ledger", "x", "translated")[0] == "none"
-    assert coverage.not_applied("ledger", "x", "no effect on what's calculated")[0] == "ledger"
+    # the search applies ledger translations to rare, magic and normal items' lines and to runes (COV2,
+    # builder/ledger/items.py), not to Bonded rune lines, pools it never rolls or Timeless passives
+    assert coverage.not_applied("ledger", "x", "translated")[0] == "ledger"
+    assert coverage.not_applied("ledger", "x", "translated", "Runes")[0] == "ledger"
+    assert coverage.not_applied("ledger", "x", "translated", "Runes", bonded=True)[0] == "none"
+    assert coverage.not_applied("ledger", "x", "translated", "Desecrated")[0] == "none"
+    assert coverage.not_applied("ledger", "x", "translated", "legion")[0] == "none"
+    assert coverage.not_applied("ledger", "x", "translated", "Exclusive", line="Take 4% less Damage")[0] == "none"
+    assert coverage.not_applied("ledger", "x", "translated", "Exclusive", unique_templates=frozenset({"Take #% less Damage"}),
+                                line="Take 4% less Damage")[0] == "ledger"
+    assert coverage.not_applied("ledger", "x", "no effect on what's calculated", "legion")[0] == "ledger"
+
+
+def test_ledger_translations_reach_rune_and_affix_lines():
+    """A rune's line PoB can't parse gets the ledger's stand-in, summed over runes as PoB sums them; a rune's line a
+    `pob_wrong` entry corrects is switched off and replaced; re-socketing starts over; a unique's own lines are left to
+    corrected_raw."""
+    from builder.ledger.items import ADDED, SWITCHED_OFF, _bases, corrected_item, unparsed_templates
+    from builder.search.rares import with_runes
+
+    if not unparsed_templates():
+        pytest.skip("no coverage.json in the data dump")
+    mace = next(n for n, b in _bases().items() if b["type"] == "Two Hand Mace" and not b.get("hidden"))
+    rare = f"Rarity: Rare\nOptimizer Weapon 1\n{mace}\nItem Level: 82\nImplicits: 0\n+10 to Strength"
+    two = with_runes(rare, ["Ancient Rune of the Titan"] * 2)
+    assert two.splitlines()[-1] == ADDED + "Slam Skills deal 20% more Damage"  # 10% + 10% chance, entry aftershock-chance
+    one = with_runes(two, ["Ancient Rune of the Titan"])
+    assert [l for l in one.splitlines() if l.startswith(ADDED)] == [ADDED + "Slam Skills deal 10% more Damage"]
+    assert with_runes(one, []) == rare and corrected_item(one) == one
+    helmet = next(n for n, b in _bases().items() if b["type"] == "Helmet" and not b.get("hidden"))
+    unique = f"Rarity: Unique\nCrown\n{helmet}\nImplicits: 1\n+10 to Armour\nTake 20% less Damage from Hits"
+    keeper = with_runes(unique, ["Legacy of Keeper of the Arc"]).splitlines()
+    assert keeper[keeper.index("Implicits: 2") + 1] == SWITCHED_OFF + "Take 20% less Damage over time"
+    assert keeper[-2:] == [ADDED + "10% less Damage taken from Hits", ADDED + "10% less Damage over Time taken"]
+    assert keeper.count(ADDED + "10% less Damage taken from Hits") == 1  # the unique's own line: corrected_raw's job
+    assert with_runes("\n".join(keeper), []) == unique
 
 
 def test_the_tools_own_engine_reads_count_as_reads():
     # the charm uptime (builder/search/flasks.py) reads CharmChargesGained through the bridge's inc("...") helper
     assert coverage.name_read("CharmChargesGained", coverage.calc_reads())
+
+
+def test_model_stats_entries_cover_a_stat_for_their_skills_only():
+    """`model` entries with `stats` (ledger/entries/gem-stats-energy.yaml): the Energy model reads energy_generated_+% for the
+    meta skills it prices, not for Feral Invocation (models.NOT_MODELED_YET), so that one stays open."""
+    covered = coverage.stat_entries()
+    assert coverage.stat_covered(covered, "energy_generated_+%", "Cast on Critical") == ("model", "model-stats-energy-gain")
+    assert coverage.stat_covered(covered, "energy_generated_+%", "Feral Invocation") is None
+    assert coverage.stat_covered(covered, "generic_ongoing_trigger_1_maximum_energy_per_Xms_total_cast_time",
+                                 "SupportMetaCastOnCritPlayer")[0] == "model"
+    assert coverage.stat_covered(covered, "generic_ongoing_trigger_1_maximum_energy_per_Xms_total_cast_time",
+                                 "SupportReapersInvocationPlayer") is None
+    from builder.search import models
+
+    named = {n for e in ("model-stats-energy-gain", "model-stats-energy-sources")
+             for n in next(x for x in __import__("builder.ledger", fromlist=["entries"]).entries() if x.id == e).raw["skill"]}
+    assert named - {"Boundless Energy I", "Boundless Energy II"} <= set(models.META_GEMS)  # only skills the model prices

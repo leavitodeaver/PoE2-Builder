@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from builder.data import rare_prices
+from builder.ledger.items import corrected_item  # ledger translations on affix, implicit and rune lines (COV2)
 from builder.request.schema import GearTier
 from builder.search.context import Context, ItemOption, implicit_variant
 
@@ -217,7 +218,7 @@ def rare_text(slot: str, base: dict, item_level: int, affixes: list[Affix], rune
     lines += [f"Implicits: {len(implicits)}", *implicits]
     for affix in affixes:
         lines += affix.lines
-    return "\n".join(lines)
+    return corrected_item("\n".join(lines))
 
 
 def magic_text(slot: str, base: dict, item_level: int, affixes: list[Affix]) -> str:
@@ -226,7 +227,7 @@ def magic_text(slot: str, base: dict, item_level: int, affixes: list[Affix]) -> 
     lines = ["Rarity: Magic", base["name"], f"Item Level: {item_level}", f"Implicits: {len(implicits)}", *implicits]
     for affix in affixes:
         lines += affix.lines
-    return "\n".join(lines)
+    return corrected_item("\n".join(lines))
 
 
 def magic_price(slot: str, affixes: list[Affix]) -> float:
@@ -249,7 +250,7 @@ def with_runes(raw: str, runes: list[str]) -> str:
     if at is None:  # header: [Rarity,] [name,] base
         at = 2 if not lines[0].startswith("Rarity:") or lines[0] == "Rarity: Normal" else 3
         at = min(at, len(lines))
-    return "\n".join(lines[:at] + socket_lines(runes) + lines[at:])
+    return corrected_item("\n".join(lines[:at] + socket_lines(runes) + lines[at:]))  # the runes' ledger corrections
 
 
 def rare_price(slot: str, affixes: list[Affix]) -> float:

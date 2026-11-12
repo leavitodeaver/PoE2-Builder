@@ -43,6 +43,28 @@ off_hand:
     - "https://www.poe2wiki.net/wiki/Master_Weapon"
     - "https://steamcommunity.com/app/2694490/discussions/0/596260925367967924"
   test_in_game: "Try a sceptre in the off hand beside a spear, and a one-handed mace beside a spear."
+  # Passives that let a main hand hold one more off hand (RULE_AUDIT #7). A skeleton with such a
+  # pair requires the passive (Skeleton.requires_passive; the search allocates it). PoB allows both
+  # under the flags these lines parse to (ModParser "you can equip a focus while wielding a staff":
+  # InstrumentsOfPower, "... non-unique sceptre while wielding a talisman": LordOfTheWilds;
+  # ItemsTab:IsItemValidForSlot), and calculates Instruments of Power's own "50% reduced bonuses
+  # gained from Equipped Focus" (CalcSetup EffectOfBonusesFromFocus).
+  passive_exceptions:
+    - main_hand: Staff
+      sub_type: ""  # a caster staff. PoB's check takes any "Staff" type, quarterstaves too; in the
+      # game the Quarterstaff is its own item class and the line says "Staff" (UNVERIFIED: no
+      # in-game test). Left out until checked: a build the game won't allow is worse than a missed one.
+      off_hand: Focus
+      passive: Instruments of Power  # Disciple of Varashta notable (tree.json node 20701)
+      sources: ["tree.json node 20701 stats", "PoB ModParser.lua:2620, ItemsTab.lua:2712-2716"]
+    - main_hand: Talisman
+      off_hand: Sceptre
+      non_unique: true  # "a non-Unique Sceptre"
+      passive: Lord of the Wilds  # keystone (tree.json node 61942); 50% less Spirit, 50% less Reservation Efficiency
+      # Off until the gear search can keep unique sceptres out of that off hand (gear.py's options take
+      # every Sceptre, 9 unique ones among them): a build holding one would be one the game refuses.
+      enabled: false
+      sources: ["tree.json node 61942 stats", "PoB ModParser.lua:2621, ItemsTab.lua:2714-2715"]
 
 floor_blockers:
   # Item lines that pin a stat, so a request's floor on that stat can never be met while the item

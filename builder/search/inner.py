@@ -137,6 +137,8 @@ class Search:
                             fullDPS=True)
         elif kind == "passive":
             self.tree.required_names.add(source)
+        if sk.requires_passive:  # the passive the skeleton's off hand needs (Instruments of Power: Staff + Focus)
+            self.tree.required_names.add(sk.requires_passive)
         granted_uniques = []
         required = [n for n in self.ctx.request.require.skills if n != sk.main_skill]
         # A required meta skill that gains Energy (Cast on Critical, an Invocation) gets the other

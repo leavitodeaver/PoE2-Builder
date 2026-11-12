@@ -1,0 +1,87 @@
+# Meta skills' Energy stats the Energy model reads (COV2, 12 Nov 2026). PoB reads none of these stats; the Energy model
+# (builder/search/models.py: META_GEMS, gem_energy, energy_rate, META_SUPPORTS, energy_model) prices each meta skill's
+# triggers from them, as constants taken from the game files (build 26476662), not from PoB's skill data. Kind
+# `model` with `stats`: nothing is applied from here; the coverage audit counts the listed stats of the listed skills as
+# "fed to a custom model". `skill` names the skills (as the data dump names them) whose stat the model reads; the same
+# stat on another skill stays open.
+#
+# Left open on purpose (not read, or read only for some skills): Feral Invocation (models.NOT_MODELED_YET), Reaper's
+# Invocation (models.NO_ENERGY_ON_A_BOSS: Energy on kills, none counted on a boss), Curse on Block, Cast on Melee
+# Stun and Cast on Melee Kill (models.DEPRECATED, MECH's evidence there), generic_ongoing_trigger_maximum_energy (the
+# Invocations' 500 store: the model names it in its explanation but its rate doesn't read it), skill_maximum_energy_+%
+# (Energy Capacitor), active_skill_energy_generated_+%_final (Flame Breath, Flame Wall, Incinerate, Solar Orb),
+# generic_ongoing_trigger_does_not_use_energy (Trail of Caltrops), base_skill_cannot_generate_energy (Midnight Zenith),
+# Savage Fury's wild_beast_* (another Energy). Listed for the mechanics lane in COV2's report.
+
+- id: model-stats-energy-gain
+  title: Meta skills' increased Energy from their level (Energy model)
+  kind: model
+  model: energy
+  stats: ["energy_generated_+%"]
+  skill: [Barrier Invocation, Cast on Block, Cast on Charm Use, Cast on Critical, Cast on Dodge, Cast on Elemental Ailment,
+          Cast on Minion Death, Elemental Invocation, Fire Spell on Melee Hit, Spellslinger, "Thundergod's Wrath",
+          Boundless Energy I, Boundless Energy II]
+  confidence: datamined
+  notes: "models.gem_energy: 3% a level above 1 (Elemental Invocation 3.6%) from GrantedEffectStatSetsPerLevel;
+    Boundless Energy I and II 35% and 45% (models.META_SUPPORTS)."
+  sources: ["builder/search/models.py META_GEMS, gem_energy, META_SUPPORTS", "https://poe2db.tw/us/Cast_on_Critical"]
+  status: approved
+
+- id: model-stats-energy-cost
+  title: A triggered spell's Energy cost, and triggering at the socketed spells' total (Energy model)
+  kind: model
+  model: energy
+  stats: ["generic_ongoing_trigger_1_maximum_energy_per_Xms_total_cast_time",
+          "generic_ongoing_trigger_maximum_energy_is_total_of_socketed_skills",
+          "generic_ongoing_trigger_triggers_at_maximum_energy"]
+  skill: [Cast on Block, Cast on Charm Use, Cast on Critical, Cast on Dodge, Cast on Elemental Ailment, Cast on Minion Death,
+          Fire Spell on Melee Hit, "Thundergod's Wrath",
+          SupportBarrierInvocationPlayer, SupportElementalInvocationPlayer, SupportMetaCastFireSpellOnHitPlayer,
+          SupportMetaCastLightningSpellOnHitPlayer, SupportMetaCastOnBlockPlayer, SupportMetaCastOnCharmUsePlayer,
+          SupportMetaCastOnCritPlayer, SupportMetaCastOnDodgePlayer, SupportMetaCastOnElementalAilmentPlayer,
+          SupportMetaCastOnMinionDeathPlayer, SupportSpellslingerPlayer]
+  confidence: datamined
+  notes: "models.energy_model: one round of triggers costs the sum over the socketed spells of 100 x base cast time
+    (10 Energy per 0.1 s), and the rate is Energy gained per second over that sum."
+  sources: ["builder/search/models.py energy_model (cost = sum(100 * cast_time)), energy_rate"]
+  status: approved
+
+- id: model-stats-energy-sources
+  title: What each meta skill gains Energy from (Energy model)
+  kind: model
+  model: energy
+  stats: ["cast_on_crit_gain_X_centienergy_per_monster_power_on_crit",
+          "cast_on_block_gain_X_centienergy_on_block",
+          "cast_lightning_spell_on_hit_gain_X_centienergy_per_monster_power_on_hit",
+          "cast_fire_spell_on_hit_gain_X_centienergy_per_monster_power_on_hit",
+          "cast_on_dodge_roll_gain_X_centienergy_per_unit_travelled_while_dodge_rolling",
+          "cast_on_freeze_gain_X_centienergy_per_monster_power_on_freeze",
+          "cast_on_ignite_gain_X_centienergy_per_monster_power_on_ignite",
+          "cast_on_shock_gain_X_centienergy_per_monster_power_on_shock",
+          "elemental_invocation_gain_X_centienergy_per_monster_power_on_freeze",
+          "elemental_invocation_gain_X_centienergy_per_monster_power_on_ignite",
+          "elemental_invocation_gain_X_centienergy_per_monster_power_on_shock",
+          "cast_on_using_charm_gain_X_centienergy_per_charm_charge_used_on_using_charm",
+          "cast_on_minion_death_gain_1_energy_per_X_minion_relative_defensiveness_%",
+          "spellslinger_invocation_gain_X_centienergy_per_10ms_base_cast_time",
+          "barrier_invocation_gain_1_energy_per_X_energy_shield_damage_taken_when_hit"]
+  skill: [Cast on Critical, Cast on Block, "Thundergod's Wrath", Fire Spell on Melee Hit, Cast on Dodge,
+          Cast on Elemental Ailment, Elemental Invocation, Cast on Charm Use, Cast on Minion Death, Spellslinger,
+          Barrier Invocation]
+  confidence: datamined
+  notes: "Each gem's gain in models.META_GEMS ('gain', 'per') and its gain function (crit Power share, ailments per
+    Power, blocks, melee hits, dodge metres, charm charges, minion deaths, cast time, Energy Shield lost), with the
+    labelled assumptions there (boss Power, dodge cadence, Minion Power 100%)."
+  sources: ["builder/search/models.py META_GEMS and the Meta-skill Energy comment block"]
+  status: approved
+
+- id: model-stats-energy-refund
+  title: Energy Retention's chance to refund half the Energy spent (Energy model)
+  kind: model
+  model: energy
+  stats: ["trigger_skills_refund_half_energy_spent_chance_%"]
+  skill: [Energy Retention]
+  confidence: datamined
+  notes: "models.META_SUPPORTS EnergyRefund 35; energy_rate spends cost x (1 - chance/200)."
+  sources: ["builder/search/models.py META_SUPPORTS, energy_rate"]
+  status: approved

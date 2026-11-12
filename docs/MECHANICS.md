@@ -9,27 +9,16 @@ PoB status, worked out from the audit's evidence: **none** (no line counted), **
 | Category | Mechanics |
 |---|---|
 | charges and resources | 20 |
-| damage sources | 122 |
+| damage sources | 121 |
 | items | 102 |
 | recovery and flasks | 50 |
 | stun and ailments | 103 |
 | the fight | 37 |
-| your state | 82 |
+| your state | 83 |
 | keyword (to plan) | 37 |
 | no lines in 0.5 data (possibly deprecated) | 354 |
 
 ## charges and resources
-
-### Meta-skill Energy and Invocations — PoB: partial
-Priority 6868.4 · impact 4 · effort M · 195 lines not counted of 2062 linked · 42 gems mention it · what-ifs: visible
-
-- **Game:** Meta gems gain Energy from their condition and trigger socketed spells when full. (https://poe2db.tw/us/Energy)
-- **PoB (checked):** PoB counts the socketed spells at their full self-cast rate.
-- **Now:** Custom model (models.energy_model) for Cast on Critical, Cast on Elemental Ailment, Elemental Invocation; Cast on Block (Svalinn; 25 Energy per block of the boss's hits that land), Thundergod's Wrath (Mjolner; 3 per Power per melee hit), Spellslinger (Dueling Wand; 0.2 per 10 ms of the cast spell's base cast time), Barrier Invocation (gem, and on Lament Amulet; 1 Energy per 10 Energy Shield the boss's hits take after mitigation), and (7 Nov) Cast on Dodge: 2 Energy per metre (its in-game text) over the dodge roll's base 4.6 m (dodge_roll_base_travel_distance 46 units, game files; the user had heard 3.7 m), at the user's default of one roll per 2 s against a boss; a build counting on it loses the roll time (0.75 s per roll, DodgeRollPlayer's cast time) from its main skill as less Attack and Cast Speed; both said in the guide. Energy on kills (Reaper's Invocation) counts none on a boss. Cast on Minion Death (MECH44, 11 Nov; before, none on a boss): 50 Energy per Persistent minion Killed (its description; KeywordPopups MinionDeath: expiring or despawned minions aren't Killed; the minion's Power at 100% assumed, LOW), at the rate the build itself kills them (models.minion_deaths, MECH45; the flat one every 10 s is gone, the user 11 Nov): Sacrifice with a corpse-consuming main skill (one minion per use, LOW), Explosive Demise on its cooldown (LOW), capped by Reviving (7.5 s after the last death); 0 with a note when nothing in the build kills its minions. Not counted yet (undercounts): the boss killing minions, damage taken for you, Dark Pact, Offerings, the search adding a source on purpose. Deprecated by the game files and poe2db together: Curse on Block, Cast on Melee Stun, Cast on Melee Kill. Inventory from the 0.5 game files (docs/GAMEFILES.md): 25 live Meta gems, 17 socketable. The search proposes Cast on Critical, Cast on Elemental Ailment (Energy: 1 per Power per Shock or Ignite, 10 per Freeze of the boss at models.buildup_rate, MECH41, game files) and Cast on Dodge with a spell (Gems.meta_round, candidates from the gem data); every other Meta gem is reported with why (models.meta_handling: not modeled yet, no Energy on a boss, or not a trigger the search sets up yet), and PLAN.md has the slices for the rest. Ritual Cadence: not modeled yet.
-- **Plan:** custom model: Next: Cast on Dodge (dodge rolls per fight assumed from the boss's telegraphed hits), Barrier Invocation (Energy Shield damage taken per second from the boss's hits), Cast on Charm Use (charm uses from the flask model), Ritual Cadence; Energy from the gem's own level instead of level 20. Inputs: crits/s, ailments/s, blocks/s, melee hits/s, casts/s, heavy stuns, Energy multipliers.
-- **Guide note:** Triggered spells counted at X per second from your Energy.
-- **PoB options:** `conditionFullEnergyShield` (off), `conditionLowEnergyShield` (off), `conditionHaveEnergyShield` (on (condition resolver)), `multiplierCurrentEnergyShield` (off), `minionsConditionFullEnergyShield` (off), `conditionLeechingEnergyShield` (off)
-- **Lines:** `Invocation Skills instead Trigger Spells every 2 seconds` (Ritual Cadence); `Invocation Skills cannot gain Energy while Triggering Spells` (Ritual Cadence); `Invoked Spells consume 50% less Energy` (Ritual Cadence); `-0.2 seconds to current Energy Shield Recharge delay per Combo expended when usi` (Martial Adept)
 
 ### Elemental Infusions and Remnants — PoB: config-only (lines say: partial)
 Priority 6859.2 · impact 4 · effort M · 187 lines not counted of 237 linked · 38 gems mention it · what-ifs: invisible
@@ -43,6 +32,17 @@ Priority 6859.2 · impact 4 · effort M · 187 lines not counted of 237 linked �
 - **Lines:** `5% chance when collecting an Elemental Infusion to gain an` (Infusion Chance); `additional Elemental Infusion of the same type` (Infusion Chance); `10% chance when collecting an Elemental Infusion to gain an` (Infusing Power); `additional Elemental Infusion of the same type` (Infusing Power)
 
 - **Charges** — PoB: partial; 131 lines not counted; plan from family *Power, Frenzy and Endurance Charges*
+### Meta-skill Energy and Invocations — PoB: partial
+Priority 4580.4 · impact 4 · effort M · 140 lines not counted of 2062 linked · 42 gems mention it · what-ifs: visible
+
+- **Game:** Meta gems gain Energy from their condition and trigger socketed spells when full. (https://poe2db.tw/us/Energy)
+- **PoB (checked):** PoB counts the socketed spells at their full self-cast rate.
+- **Now:** Custom model (models.energy_model) for Cast on Critical, Cast on Elemental Ailment, Elemental Invocation; Cast on Block (Svalinn; 25 Energy per block of the boss's hits that land), Thundergod's Wrath (Mjolner; 3 per Power per melee hit), Spellslinger (Dueling Wand; 0.2 per 10 ms of the cast spell's base cast time), Barrier Invocation (gem, and on Lament Amulet; 1 Energy per 10 Energy Shield the boss's hits take after mitigation), and (7 Nov) Cast on Dodge: 2 Energy per metre (its in-game text) over the dodge roll's base 4.6 m (dodge_roll_base_travel_distance 46 units, game files; the user had heard 3.7 m), at the user's default of one roll per 2 s against a boss; a build counting on it loses the roll time (0.75 s per roll, DodgeRollPlayer's cast time) from its main skill as less Attack and Cast Speed; both said in the guide. Energy on kills (Reaper's Invocation) counts none on a boss. Cast on Minion Death (MECH44, 11 Nov; before, none on a boss): 50 Energy per Persistent minion Killed (its description; KeywordPopups MinionDeath: expiring or despawned minions aren't Killed; the minion's Power at 100% assumed, LOW), at the rate the build itself kills them (models.minion_deaths, MECH45; the flat one every 10 s is gone, the user 11 Nov): Sacrifice with a corpse-consuming main skill (one minion per use, LOW), Explosive Demise on its cooldown (LOW), capped by Reviving (7.5 s after the last death); 0 with a note when nothing in the build kills its minions. Not counted yet (undercounts): the boss killing minions, damage taken for you, Dark Pact, Offerings, the search adding a source on purpose. Deprecated by the game files and poe2db together: Curse on Block, Cast on Melee Stun, Cast on Melee Kill. Inventory from the 0.5 game files (docs/GAMEFILES.md): 25 live Meta gems, 17 socketable. The search proposes Cast on Critical, Cast on Elemental Ailment (Energy: 1 per Power per Shock or Ignite, 10 per Freeze of the boss at models.buildup_rate, MECH41, game files) and Cast on Dodge with a spell (Gems.meta_round, candidates from the gem data); every other Meta gem is reported with why (models.meta_handling: not modeled yet, no Energy on a boss, or not a trigger the search sets up yet), and PLAN.md has the slices for the rest. Ritual Cadence: not modeled yet.
+- **Plan:** custom model: Next: Cast on Dodge (dodge rolls per fight assumed from the boss's telegraphed hits), Barrier Invocation (Energy Shield damage taken per second from the boss's hits), Cast on Charm Use (charm uses from the flask model), Ritual Cadence; Energy from the gem's own level instead of level 20. Inputs: crits/s, ailments/s, blocks/s, melee hits/s, casts/s, heavy stuns, Energy multipliers.
+- **Guide note:** Triggered spells counted at X per second from your Energy.
+- **PoB options:** `conditionFullEnergyShield` (off), `conditionLowEnergyShield` (off), `conditionHaveEnergyShield` (on (condition resolver)), `multiplierCurrentEnergyShield` (off), `minionsConditionFullEnergyShield` (off), `conditionLeechingEnergyShield` (off)
+- **Lines:** `Invocation Skills instead Trigger Spells every 2 seconds` (Ritual Cadence); `Invocation Skills cannot gain Energy while Triggering Spells` (Ritual Cadence); `Invoked Spells consume 50% less Energy` (Ritual Cadence); `-0.2 seconds to current Energy Shield Recharge delay per Combo expended when usi` (Martial Adept)
+
 ### Power, Frenzy and Endurance Charges — PoB: config-only (lines say: partial)
 Priority 4263.9 · impact 5 · effort M · 105 lines not counted of 667 linked · 56 gems mention it · what-ifs: visible
 
@@ -102,7 +102,7 @@ Priority 742.6 · impact 3 · effort M · 65 lines not counted of 80 linked · 1
 ## damage sources
 
 ### Skills triggered by items and passives — PoB: partial
-Priority 19203.5 · impact 4 · effort M · 482 lines not counted of 699 linked · 88 gems mention it · what-ifs: visible
+Priority 17795.5 · impact 4 · effort M · 446 lines not counted of 699 linked · 88 gems mention it · what-ifs: visible
 
 - **Game:** 'Trigger X Skill on Y' lines grant and trigger a skill. (https://poe2db.tw/us/Trigger)
 - **PoB (checked):** PoB grants some item skills (Grants Skill lines parse) but not most 'Trigger X Skill on' lines.
@@ -114,7 +114,7 @@ Priority 19203.5 · impact 4 · effort M · 482 lines not counted of 699 linked 
 
 - **Projectile** — PoB: partial; 815 lines not counted; plan from family *Projectile behaviour (pierce, chain, fork, split, count)*
 ### Minions, totems and ballistas — PoB: partial
-Priority 5917.2 · impact 4 · effort L · 286 lines not counted of 1521 linked · 129 gems mention it · what-ifs: visible
+Priority 5869.2 · impact 4 · effort L · 285 lines not counted of 1521 linked · 129 gems mention it · what-ifs: visible
 
 - **Game:** Minions and totems fight for you; their count, revive and command skills decide their damage. (https://poe2db.tw/us/Minion)
 - **PoB (checked):** PoB calculates minion and totem damage per minion; minion counts, revives and command skills are partly config.
@@ -126,8 +126,9 @@ Priority 5917.2 · impact 4 · effort L · 286 lines not counted of 1521 linked 
 
 - **Consume** — PoB: partial; 193 lines not counted; plan from family *Kills, corpses, explosions and consuming*
 - **Melee** — PoB: partial; 219 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
+- **Throw** — PoB: partial; 57 lines not counted; plan from family *Projectile behaviour (pierce, chain, fork, split, count)*
 ### Aftershocks and repeats — PoB: none (lines say: partial)
-Priority 1684.8 · impact 3 · effort S · 69 lines not counted of 103 linked · 31 gems mention it · what-ifs: visible
+Priority 1636.8 · impact 3 · effort S · 67 lines not counted of 103 linked · 31 gems mention it · what-ifs: visible
 
 - **Game:** Aftershocks repeat a slam's damage in the same area; Echo / Repeat recast a spell. (https://poe2db.tw/us/Keywords)
 - **PoB (checked):** No aftershock or repeat chance in PoB's calculations (lines ignored).
@@ -137,15 +138,14 @@ Priority 1684.8 · impact 3 · effort S · 69 lines not counted of 103 linked ·
 - **PoB options:** `repeatMode` (off)
 - **Lines:** `Slam Skills you use yourself have 30% increased Aftershock Area of Effect` (Aftershocks); `Final Echo of Cascadable Spells also Cascades to either side of the targeted Are` (Mystic Avalanche); `Echoed Spells have 25% increased Area of Effect` (Echoing Pulse); `Slam Skills you use yourself cause an additional Aftershock` (Hrimnor's Hymn)
 
-- **Throw** — PoB: partial; 57 lines not counted; plan from family *Projectile behaviour (pierce, chain, fork, split, count)*
-- **Attacks** — PoB: partial; 86 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
+- **Attacks** — PoB: partial; 84 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Consumed** — PoB: partial; 61 lines not counted; plan from family *Kills, corpses, explosions and consuming*
-- **Targets** — PoB: partial; 116 lines not counted; plan from family *Projectile behaviour (pierce, chain, fork, split, count)*
+- **Targets** — PoB: partial; 114 lines not counted; plan from family *Projectile behaviour (pierce, chain, fork, split, count)*
 - **Empowered** — PoB: partial; 27 lines not counted; plan from family *Ancestral Boost*
-- **Spells** — PoB: partial; 41 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
+- **Spells** — PoB: partial; 40 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Explode** — PoB: partial; 20 lines not counted; plan from family *Kills, corpses, explosions and consuming*
 - **Companions** — PoB: partial; 16 lines not counted; plan from family *Minions, totems and ballistas*
-- **Strike** — PoB: partial; 43 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
+- **Strike** — PoB: partial; 42 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 ### Thorns — PoB: none (lines say: partial)
 Priority 647.4 · impact 3 · effort M · 25 lines not counted of 168 linked · 9 gems mention it · what-ifs: invisible
 
@@ -170,12 +170,11 @@ Priority 647.4 · impact 3 · effort M · 25 lines not counted of 168 linked · 
 - **Puppet Master** — PoB: none; 15 lines not counted; plan from family *Minions, totems and ballistas*
 - **Beasts** — PoB: partial; 6 lines not counted; plan from family *Minions, totems and ballistas*
 - **Thorns Damage to Enemies** — PoB: none; 9 lines not counted; plan from family *Thorns*
-- **Critical Hits** — PoB: partial; 17 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
+- **Critical Hits** — PoB: partial; 14 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Empowered Attacks** — PoB: partial; 10 lines not counted; plan from family *Ancestral Boost*
 - **Minion Damage** — PoB: partial; 7 lines not counted; plan from family *Minions, totems and ballistas*
 - **Hit Damage** — PoB: partial; 51 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Undead Minion** — PoB: partial; 5 lines not counted; plan from family *Minions, totems and ballistas*
-- **Critically Hit** — PoB: partial; 13 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 ### Ancestral Boost — PoB: partial
 Priority 231.5 · impact 3 · effort S · 8 lines not counted of 23 linked · 12 gems mention it · what-ifs: visible
 
@@ -186,8 +185,8 @@ Priority 231.5 · impact 3 · effort S · 8 lines not counted of 23 linked · 12
 - **Guide note:** X% of attacks Ancestrally Boosted.
 - **Lines:** `The next Fire Spell you cast yourself after using a Warcry is Ancestrally Booste` (Kaom's Blessing); `Every second Slam Skill you use while Shapeshifted is Ancestrally Boosted` (Surge of the Tide); `Every second Strike Skill you use while Shapeshifted is Ancestrally Boosted` (Surge of the Tide); `Every second Slam Skill you use while Shapeshifted is Ancestrally Boosted` (Exclusive UniqueAncestralBoost)
 
-- **Slam Skills** — PoB: partial; 9 lines not counted; plan from family *Aftershocks and repeats*
 - **Fork** — PoB: partial; 11 lines not counted; plan from family *Projectile behaviour (pierce, chain, fork, split, count)*
+- **Critically Hit** — PoB: partial; 11 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Pierced** — PoB: partial; 8 lines not counted; plan from family *Projectile behaviour (pierce, chain, fork, split, count)*
 - **Impale** — PoB: partial; 12 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Channelling** — PoB: partial; 7 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
@@ -214,16 +213,16 @@ Priority 231.5 · impact 3 · effort S · 8 lines not counted of 23 linked · 12
 - **Extra Lightning Damage** — PoB: partial; 3 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Slams** — PoB: none; 2 lines not counted; plan from family *Aftershocks and repeats*
 - **Unarmed** — PoB: partial; 28 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
-- **Unlucky** — PoB: partial; 12 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
+- **Unlucky** — PoB: partial; 7 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Skeletons** — PoB: partial; 10 lines not counted; plan from family *Minions, totems and ballistas*
 - **Crossbow Ammunition Skills** — PoB: no lines; 0 lines not counted; plan from family *Projectile behaviour (pierce, chain, fork, split, count)*
 - **Empowered Skills** — PoB: none; 1 lines not counted; plan from family *Ancestral Boost*
 - **Reviving Minions** — PoB: none; 1 lines not counted; plan from family *Minions, totems and ballistas*
 - **Effigy** — PoB: partial; 3 lines not counted; plan from family *Skills triggered by items and passives*
-- **Lucky** — PoB: partial; 8 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Retaliate against all Hits** — PoB: none; 2 lines not counted; plan from family *Thorns*
 - **Extra Chaos Damage** — PoB: partial; 3 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Melee Physical Damage** — PoB: partial; 6 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
+- **Lucky** — PoB: partial; 5 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Spectres** — PoB: partial; 9 lines not counted; plan from family *Minions, totems and ballistas*
 - **Damage Types** — PoB: partial; 1 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Damage to Melee Attackers** — PoB: partial; 10 lines not counted; plan from family *Thorns*
@@ -260,12 +259,12 @@ Priority 231.5 · impact 3 · effort S · 8 lines not counted of 23 linked · 12
 - **Prismatic Skills** — PoB: partial; 3 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Nova Skills** — PoB: partial; 1 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Unarmed Attacks** — PoB: partial; 2 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
-- **Decimating Strike** — PoB: partial; 1 lines not counted; plan from family *Kills, corpses, explosions and consuming*
 - **Traps** — PoB: partial; 1 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Eaten Souls** — PoB: none; 1 lines not counted; plan from family *Kills, corpses, explosions and consuming*
 - **Default Attack** — PoB: none; 1 lines not counted; plan from family *Skill families and hit rules (warcries, channelling, strikes, crits, Lucky ...)*
 - **Summoning Circle** — PoB: none; 3 lines not counted; plan from family *Minions, totems and ballistas*
 - **Ballista Totems** — PoB: full; 0 lines not counted; plan from family *Minions, totems and ballistas*
+- **Decimating Strike** — PoB: full; 0 lines not counted; plan from family *Kills, corpses, explosions and consuming*
 ### Kills, corpses, explosions and consuming — PoB: partial (lines say: no lines)
 Priority 0.0 · impact 3 · effort M · 0 lines not counted of 0 linked · 0 gems mention it · what-ifs: invisible
 
@@ -296,19 +295,19 @@ Priority 0.0 · impact 2 · effort M · 0 lines not counted of 0 linked · 0 gem
 - **Splash Damage** — PoB: full; 0 lines not counted; plan from family *Projectile behaviour (pierce, chain, fork, split, count)*
 ## items
 
-- **Maximum** — PoB: partial; 479 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
-- **Power** — PoB: partial; 119 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
+- **Maximum** — PoB: partial; 444 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
+- **Power** — PoB: partial; 110 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
 - **Int** — PoB: partial; 75 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
-- **Physical Damage** — PoB: partial; 80 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
+- **Physical Damage** — PoB: partial; 79 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
 - **Abyss** — PoB: partial; 23 lines not counted; plan from family *Item systems (runes, Soul Cores, Idols, quality, corruption, Abyss, sockets)*
-- **Str** — PoB: partial; 72 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
+- **Str** — PoB: partial; 71 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
 - **Abyssal Wasting** — PoB: partial; 18 lines not counted; plan from family *Item systems (runes, Soul Cores, Idols, quality, corruption, Abyss, sockets)*
 - **Rune** — PoB: partial; 41 lines not counted; plan from family *Item systems (runes, Soul Cores, Idols, quality, corruption, Abyss, sockets)*
 - **Fire Damage** — PoB: partial; 48 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
 - **Cold Damage** — PoB: partial; 41 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
 - **Allies** — PoB: partial; 32 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
 - **Quality** — PoB: partial; 153 lines not counted; plan from family *Item systems (runes, Soul Cores, Idols, quality, corruption, Abyss, sockets)*
-- **Lightning Damage** — PoB: partial; 39 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
+- **Lightning Damage** — PoB: partial; 37 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
 - **Equipped** — PoB: partial; 32 lines not counted; plan from family *Item systems (runes, Soul Cores, Idols, quality, corruption, Abyss, sockets)*
 - **Chaos Damage** — PoB: partial; 38 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
 - **Maximum Mana** — PoB: partial; 31 lines not counted; plan from family *Stats, attributes, weapon kinds and keystones PoB calculates*
@@ -426,7 +425,7 @@ Priority 3935.4 · impact 3 · effort M · 252 lines not counted of 2370 linked 
 - **Lines:** `Recover 2% of maximum Mana when you consume a Power Charge` (Recover Mana on consuming Powe); `Consume all Rage when Shapeshifting to Human form to recover 1% of maximum life ` (Invigorating Hate); `Recover 50% of maximum Life when you Heavy Stun a Rare or Unique Enemy` (Flip the Script); `Recover 2% of maximum Life and Mana when you use a Warcry` (Urgent Call)
 
 ### Flask and charm charges and triggers — PoB: config-only (lines say: partial)
-Priority 3637.6 · impact 3 · effort S · 162 lines not counted of 853 linked · 21 gems mention it · what-ifs: invisible
+Priority 3601.6 · impact 3 · effort S · 161 lines not counted of 853 linked · 21 gems mention it · what-ifs: invisible
 
 - **Game:** Flasks and charms gain charges (kills, or charges per second) and are used manually or on a trigger. (https://poe2db.tw/us/Flasks)
 - **PoB (checked):** PoB counts an active flask or charm as up all the time.
@@ -437,10 +436,10 @@ Priority 3637.6 · impact 3 · effort S · 162 lines not counted of 853 linked �
 - **Lines:** `Remove a Curse when you use a Mana Flask` (Warding Potions); `Life Flasks applied to you grant Guard for 4 seconds equal to 8% of the Life Rec` (Heavy Drinker); `Recover 2% of maximum Life when you use a Mana Flask` (Waters of Life); `Gain 8 Rage when you use a Life Flask` (Blood of Rage)
 
 - **Armour** — PoB: partial; 104 lines not counted; plan from family *Defence layers PoB calculates but the optimizer doesn't check (Guard, Runic Ward, Deflection, Block ...)*
-- **Energy Shield** — PoB: partial; 77 lines not counted; plan from family *Defence layers PoB calculates but the optimizer doesn't check (Guard, Runic Ward, Deflection, Block ...)*
+- **Energy Shield** — PoB: partial; 76 lines not counted; plan from family *Defence layers PoB calculates but the optimizer doesn't check (Guard, Runic Ward, Deflection, Block ...)*
 - **Spirit** — PoB: partial; 45 lines not counted; plan from family *Defence layers PoB calculates but the optimizer doesn't check (Guard, Runic Ward, Deflection, Block ...)*
 - **Guard** — PoB: none; 43 lines not counted; plan from family *Defence layers PoB calculates but the optimizer doesn't check (Guard, Runic Ward, Deflection, Block ...)*
-- **Block** — PoB: partial; 55 lines not counted; plan from family *Defence layers PoB calculates but the optimizer doesn't check (Guard, Runic Ward, Deflection, Block ...)*
+- **Block** — PoB: partial; 54 lines not counted; plan from family *Defence layers PoB calculates but the optimizer doesn't check (Guard, Runic Ward, Deflection, Block ...)*
 - **Runic Ward** — PoB: partial; 30 lines not counted; plan from family *Defence layers PoB calculates but the optimizer doesn't check (Guard, Runic Ward, Deflection, Block ...)*
 - **Mana Flask** — PoB: partial; 21 lines not counted; plan from family *Flask and charm charges and triggers*
 - **Efficiency** — PoB: partial; 22 lines not counted; plan from family *Defence layers PoB calculates but the optimizer doesn't check (Guard, Runic Ward, Deflection, Block ...)*
@@ -495,7 +494,7 @@ Priority 0.0 · impact 3 · effort M · 0 lines not counted of 0 linked · 0 gem
 ## stun and ailments
 
 ### Ignite, Bleed, Poison, Shock and Chill uptime — PoB: partial
-Priority 8648.0 · impact 3 · effort S · 393 lines not counted of 2065 linked · 172 gems mention it · what-ifs: visible
+Priority 8472.8 · impact 3 · effort S · 386 lines not counted of 2065 linked · 172 gems mention it · what-ifs: visible
 
 - **Game:** Hits inflict ailments with a chance; damaging ailments deal damage over time; Shock and Chill change damage taken and speed. (https://poe2db.tw/us/Ailments)
 - **PoB (checked):** PoB calculates ailment damage and magnitudes; the enemy being Shocked / Ignited / Poisoned for conditions is a Configuration box.
@@ -518,7 +517,7 @@ Priority 2967.9 · impact 4 · effort L · 91 lines not counted of 648 linked ·
 - **Lines:** `Recover 50% of maximum Life when you Heavy Stun a Rare or Unique Enemy` (Flip the Script); `Your Heavy Stun buildup empties 50% faster` (Defender's Resolve); `Enemies you Heavy Stun while Shapeshifted are Intimidated for 6 seconds` (Bashing Beast); `15% increased Magnitude of Daze` (Daze Magnitude)
 
 ### Exposure, Withered and Curses — PoB: partial
-Priority 2270.9 · impact 3 · effort S · 151 lines not counted of 702 linked · 51 gems mention it · what-ifs: invisible
+Priority 2263.7 · impact 3 · effort S · 149 lines not counted of 702 linked · 51 gems mention it · what-ifs: invisible
 
 - **Game:** Debuffs that raise damage taken or lower resistances; Withered stacks to 10 (5% chaos damage taken each). (https://poe2db.tw/us/Withered)
 - **PoB (checked):** PoB applies curses the build has; Exposure and Withered are Configuration options.
@@ -539,7 +538,6 @@ Priority 2012.6 · impact 4 · effort L · 78 lines not counted of 576 linked ·
 - **PoB options:** `conditionFrozen` (off), `conditionFrozenEnemyRecently` (off), `conditionPinnedEnemyRecently` (off), `conditionEnemyHeavyStunned` (off), `conditionEnemyPinned` (off), `conditionEnemyImmobilised` (off)
 - **Lines:** `Break 50% of Armour on Pinning an Enemy` (Eroding Chains); `20% increased Freeze Buildup with Empowered Attacks` (Empowered Attack Freeze Buildu); `20% increased Freeze Buildup with Empowered Attacks` (Empowered Attack Freeze Buildu); `8% increased Skill Effect Duration per Enemy you've Frozen in the last 8 seconds` (Blessing of the Moon)
 
-- **Freeze** — PoB: partial; 36 lines not counted; plan from family *Freeze, Electrocute, Pin and other buildup ailments*
 ### Intimidated, Unnerved, Maimed, Hindered, Covered in Ash and Frost — PoB: config-only (lines say: partial)
 Priority 1265.6 · impact 3 · effort S · 65 lines not counted of 120 linked · 18 gems mention it · what-ifs: visible
 
@@ -551,6 +549,7 @@ Priority 1265.6 · impact 3 · effort S · 65 lines not counted of 120 linked ·
 - **PoB options:** `conditionChampionIntimidate` (off), `conditionEnemyMaimed` (on (condition resolver)), `conditionEnemyHindered` (on (condition resolver)), `conditionEnemyIntimidated` (on (condition resolver)), `conditionEnemyUnnerved` (on (condition resolver)), `conditionEnemyCoveredInAsh` (on (condition resolver))
 - **Lines:** `20% increased Hinder Duration` (Slow Effect and Hinder Duratio); `Enemies you Heavy Stun while Shapeshifted are Intimidated for 6 seconds` (Bashing Beast); `Attacks have 25% chance to Maim on Hit` (Maiming Strike); `Enemies are Maimed for 4 seconds after becoming Unpinned` (Lockdown)
 
+- **Freeze** — PoB: partial; 34 lines not counted; plan from family *Freeze, Electrocute, Pin and other buildup ailments*
 ### Parry, Parried and Blind — PoB: none (lines say: partial)
 Priority 1135.9 · impact 3 · effort S · 49 lines not counted of 283 linked · 15 gems mention it · what-ifs: visible
 
@@ -698,10 +697,9 @@ Priority 765.8 · impact 4 · effort M · 24 lines not counted of 69 linked · 6
 - **PoB options:** `configBossFaceBroken` (off), `multiplierNearbyRareOrUniqueEnemies` (off), `conditionKilledUniqueEnemy` (off), `enemyIsBoss` (off), `presetBossSkills` (off)
 - **Lines:** `Recover 50% of maximum Life when you Heavy Stun a Rare or Unique Enemy` (Flip the Script); `Skills gain 1 Glory every 2 seconds for each Rare or Unique monster in your Pres` (Glorious Anticipation); `Reveal Weaknesses against Rare and Unique enemies` (Predatory Instinct); `Used when you kill a Rare or Unique enemy` (Rite of Passage)
 
-- **Monster Power** — PoB: partial; 20 lines not counted; plan from family *The boss (hit rate, movement, phases, life)*
 - **Unique Enemy** — PoB: partial; 20 lines not counted; plan from family *The boss (hit rate, movement, phases, life)*
 ### Dodge Roll — PoB: none (lines say: partial)
-Priority 331.2 · impact 1 · effort S · 40 lines not counted of 48 linked · 11 gems mention it · what-ifs: visible
+Priority 319.2 · impact 1 · effort S · 39 lines not counted of 48 linked · 11 gems mention it · what-ifs: visible
 
 - **Game:** Dodge roll avoids hits during its frames. (https://poe2db.tw/us/Dodge_Roll)
 - **PoB (checked):** No dodge roll avoidance in PoB.
@@ -711,9 +709,10 @@ Priority 331.2 · impact 1 · effort S · 40 lines not counted of 48 linked · 1
 - **PoB options:** `conditionInDodgeRoll` (off), `conditionDodgeRolledRecently` (off)
 - **Lines:** `+0.5 metres to Dodge Roll distance while Surrounded` (Tactical Retreat); `Unaffected by Chill during Dodge Roll` (Slippery Ice); `Expend an Owl Feather when you Dodge to trigger Primal Bounty` (Primal Bounty); `(20-30)% faster Dodge Roll` (Decree of Flight)
 
+- **Monster Power** — PoB: partial; 11 lines not counted; plan from family *The boss (hit rate, movement, phases, life)*
 - **Enemy Hit** — PoB: partial; 8 lines not counted; plan from family *The boss (hit rate, movement, phases, life)*
 - **Back Enemies** — PoB: partial; 4 lines not counted; plan from family *The boss (hit rate, movement, phases, life)*
-- **Damage of Enemies Hitting** — PoB: partial; 13 lines not counted; plan from family *The boss (hit rate, movement, phases, life)*
+- **Damage of Enemies Hitting** — PoB: partial; 8 lines not counted; plan from family *The boss (hit rate, movement, phases, life)*
 - **Surrounded** — PoB: partial; 6 lines not counted; plan from family *The boss (hit rate, movement, phases, life)*
 - **Hits to Rare** — PoB: partial; 3 lines not counted; plan from family *The boss (hit rate, movement, phases, life)*
 - **Close Range** — PoB: config-only; 2 lines not counted; plan from family *The boss (hit rate, movement, phases, life)*
@@ -773,7 +772,7 @@ Priority 3057.4 · impact 4 · effort S · 130 lines not counted of 425 linked �
 - **Lines:** `40% increased Elemental Ailment Application if you have Shapeshifted to an Anima` (Wyvern's Breath); `20% increased Elemental Ailment Application if you have Shapeshifted to an Anima` (Shapeshifting Elemental Ailmen); `You cannot be Light Stunned if you've been Stunned Recently` (Steadfast Resolve); `Offerings cannot be damaged if they have been created Recently` (Utmost Offering)
 
 ### Presence — PoB: partial
-Priority 2281.9 · impact 2 · effort S · 156 lines not counted of 758 linked · 19 gems mention it · what-ifs: visible
+Priority 2277.1 · impact 2 · effort S · 154 lines not counted of 758 linked · 19 gems mention it · what-ifs: visible
 
 - **Game:** An area around you; 'in your Presence' bonuses need the enemy inside it. (https://poe2db.tw/us/Presence)
 - **PoB (checked):** PoB does read Presence Area: CalcPerform's calcBuffRadius scales its 4 m radius (Misc base_presence_radius 40; the game files' KeywordPopups Presence: 4 m) and sets EnemyInPresence when the radius reaches the Configuration's distance to the enemy, whose placeholder is 2 m for every build, so every boss sat in every build's Presence. 'While a (Rare or) Unique Enemy / Pinnacle Atlas Boss is in your Presence' is tagged with the enemy's rarity only, true at any distance (checked 9 Nov, MECH21).
@@ -806,9 +805,10 @@ Priority 875.7 · impact 3 · effort S · 63 lines not counted of 477 linked · 
 - **PoB options:** `conditionStationary` (on (condition resolver)), `conditionMoving` (off), `conditionSprinting` (off), `conditionEnemyMoving` (off), `multiplierEnsnaredStackCount` (off)
 - **Lines:** `Moving while Bleeding doesn't cause you to take extra damage` (The Road Warrior); `Drop Shocked Ground while moving, lasting 8 seconds` (Wake of Destruction); `Your speed is Unaffected by Slows while Sprinting` (Ab Aeterno); `You have a Smoke Cloud around you while stationary` (Gloomform)
 
+- **Hitting** — PoB: partial; 22 lines not counted; plan from family *"Recently" conditions (been Hit, Killed, used a skill, crit ...)*
 - **Possessed** — PoB: none; 20 lines not counted; plan from family *Buffs you gain (Onslaught, Arcane Surge, Archons, Unholy Might ...)*
 ### Low / Full Life, Mana and Energy Shield — PoB: config-only (lines say: partial)
-Priority 692.0 · impact 3 · effort M · 40 lines not counted of 377 linked · 18 gems mention it · what-ifs: visible
+Priority 686.6 · impact 3 · effort M · 38 lines not counted of 377 linked · 18 gems mention it · what-ifs: visible
 
 - **Game:** Bonuses while a pool is low (35% or less) or full. (https://poe2db.tw/us/Low_Life)
 - **PoB (checked):** conditionLowLife / FullLife ... are boxes.

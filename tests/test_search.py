@@ -83,6 +83,28 @@ def test_off_hand_skeletons_follow_the_games_rules_not_pobs():
     assert skeletons == [] and any("off hand takes only Shield, Focus" in p for p in problems)
 
 
+def test_a_passive_can_let_a_staff_hold_a_focus():
+    """game_rules.yaml off_hand.passive_exceptions (RULE_AUDIT #7): Instruments of Power, a Disciple of Varashta notable,
+    lets a caster Staff hold a Focus; the skeleton requires the passive. Other ascendancies, a banned passive or a
+    request for no off hand get no such skeleton; Lord of the Wilds (Talisman + non-unique Sceptre) stays off until
+    the gear search can keep unique sceptres out of that hand."""
+    ctx = context(main_skill="Fireball", offhand="focus", weapon_type="Staff")
+    skeletons, problems = enumerate_skeletons(ctx, ["Fireball"])
+    assert [(s.ascendancy, s.weapon, s.weapon_sub, s.offhand, s.requires_passive) for s in skeletons] == \
+        [("Disciple of Varashta", "Staff", "", "Focus", "Instruments of Power")] and not problems
+    assert skeletons[0].label.endswith("Staff + Focus (with Instruments of Power)")
+    others = context(main_skill="Fireball", offhand="focus", weapon_type="Staff", ascendancies=["Stormweaver"])
+    assert enumerate_skeletons(others, ["Fireball"])[0] == []
+    banned = context(main_skill="Fireball", offhand="focus", weapon_type="Staff",
+                     forbid={"passives": ["Instruments of Power"]})
+    assert enumerate_skeletons(banned, ["Fireball"])[0] == []
+    bare = context(main_skill="Fireball", offhand="none", weapon_type="Staff", ascendancies=["Disciple of Varashta"])
+    assert [s.offhand for s in enumerate_skeletons(bare, ["Fireball"])[0]] == [None]
+    quarterstaff = context(main_skill="Falling Thunder", offhand="any", ascendancies=["Disciple of Varashta"])
+    assert not any(s.requires_passive for s in enumerate_skeletons(quarterstaff, ["Falling Thunder"])[0])
+    assert not any(s.weapon == "Talisman" and s.offhand for s in enumerate_skeletons(context(), ["Fireball"])[0])
+
+
 def test_true_dual_wielding_is_two_one_handed_maces():
     ctx = context(main_skill="Boneshatter", ascendancies=["Titan"], offhand="weapon")
     skeletons, problems = enumerate_skeletons(ctx, ["Boneshatter"])
