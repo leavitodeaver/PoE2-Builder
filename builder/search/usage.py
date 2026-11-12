@@ -43,9 +43,11 @@ sustainable source for what a use needs:
   or other stat set holds it) and PoB src (Data/Skills sup_str/sup_dex only, no ModParser line)). The game: "Supported
   Skills become usable after you have moved {0} metres" (gem_stat_descriptions.csd, divide_by_ten: 100 = 10 m; HIGH).
   A play strategy (CLAUDE.md: the player who takes it walks on purpose): walk 10 m between uses. travel_rotation gives
-  the rate: walking 10 m takes 10 / (BASE_RUN x the build's movement speed) s, BASE_RUN 3.8 m/s* (LOW: the only figure
-  is a 2016 PoE1 forum measurement, 38 units/s; the game files have no player movement speed; RESEARCH15
-  base-movement-speed.md), so about 2.6 s at base; a use then comes every max(its cooldown, use time + walk) s, and the
+  the rate: walking 10 m takes 10 / (BASE_RUN x the build's movement speed) s, BASE_RUN 3.7 m/s* (MEDIUM: the game's
+  Character.ot Pathfinding `base_speed = 37`, HIGH for the number, read directly by RESEARCH21 and through PoB's
+  exporter, Data/Misc.lua 244, by RESEARCH20; the unit, tenths of a metre a second, is inferred and agrees with PoE1's
+  2016 measured 38 units/s; research character-ot-base-speed.md, base-movement-speed-character-ot.md), so about 2.7 s
+  at base; a use then comes every max(its cooldown, use time + walk) s, and the
   walk is time no skill is used (headline: walking only). With dodge rolls (UNVERIFIED that a roll counts as "moved"; a
   with-it figure only): whole rolls of ROLL_METRES (DodgeRollPlayer dodge_roll_base_travel_distance 46, scaled by
   movement speed) of models.DODGE_ROLL_SECONDS each. Blink and other teleports: not counted (UNVERIFIED).
@@ -158,7 +160,7 @@ COMBO = re.compile(r"required_number_of_combo_stacks$")
 # Distance travelled before each use (module docstring)
 MOVED = "skill_unusable_until_moved_X_distance"
 UNITS_PER_METRE = 10  # (the stat text's divide_by_ten; HIGH)
-BASE_RUN = 3.8  # metres a second at 0% increased movement speed (LOW: one 2016 PoE1 measurement; module docstring)
+BASE_RUN = 3.7  # metres a second at 0% increased movement speed (MEDIUM: Character.ot base_speed 37, unit inferred; module docstring)
 ROLL_METRES = 4.6  # a dodge roll's distance (DodgeRollPlayer dodge_roll_base_travel_distance 46)
 # "N% chance to build an additional Combo on Hit" (module docstring; A13-2)
 COMBO_CHANCE = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to build|build) an additional combo on hit$", re.I)
@@ -273,7 +275,7 @@ class Usage:
                                    "(none equipped, or no charges a second without kills)")
             elif need.kind == "travel":
                 blocked.append(f"{name}: {need.label} ({travel_seconds(need.amount):.1f} s of walking at a base "
-                               f"{BASE_RUN:g} m/s*, LOW; less with movement speed), but the tool doesn't yet scale its "
+                               f"{BASE_RUN:g} m/s*, MEDIUM; less with movement speed), but the tool doesn't yet scale its "
                                "damage to that use rate (Usage.travel_rate; PoB counts it used at will)")
             elif need.kind == "charges" and self.totem_bond(name):
                 continue  # (Ancestral Bond: no charges needed to place a totem)
@@ -477,7 +479,7 @@ def combo_rotation(amount: float, builder_speed: float, speed: float, gain: floa
 
 def travel_seconds(distance: float, movement: float = 1.0, rolls: bool = False) -> float:
     """Seconds to cover `distance` units (10 a metre) at `movement` (PoB's EffectiveMovementSpeedMod: 1 + increased
-    movement speed, with its penalties), walking at BASE_RUN (LOW), or by whole dodge rolls (UNVERIFIED that they count)."""
+    movement speed, with its penalties), walking at BASE_RUN (MEDIUM), or by whole dodge rolls (UNVERIFIED that they count)."""
     metres = distance / UNITS_PER_METRE
     if rolls:
         return math.ceil(metres / (ROLL_METRES * movement) - 1e-9) * DODGE_ROLL_SECONDS

@@ -221,14 +221,15 @@ def test_concoctions_need_a_mana_flask_that_gains_charges(fresh_rules):
 
 
 def test_echoing_cry_and_hit_and_run_get_a_walking_use_rate(fresh_rules):
-    """AUDIT9 A9-4 (RESEARCH15 base-movement-speed.md): 10 m at 3.8 m/s* (LOW) x the build's movement speed between
-    uses, the cooldown permitting; whole dodge rolls of 4.6 m, 0.75 s each, as the with-it figure. Still barred."""
-    assert abs(travel_seconds(100) - 10 / 3.8) < 1e-9
-    assert abs(travel_seconds(100, 1.25) - 10 / 4.75) < 1e-9
+    """AUDIT9 A9-4 (RESEARCH21 character-ot-base-speed.md): 10 m at 3.7 m/s* (MEDIUM, Character.ot base_speed 37) x
+    the build's movement speed between uses, the cooldown permitting; whole dodge rolls of 4.6 m, 0.75 s each, as the
+    with-it figure. Still barred."""
+    assert abs(travel_seconds(100) - 10 / 3.7) < 1e-9
+    assert abs(travel_seconds(100, 1.25) - 10 / (3.7 * 1.25)) < 1e-9
     assert travel_seconds(100, rolls=True) == 3 * 0.75 and travel_seconds(100, 1.1, rolls=True) == 2 * 0.75
-    # A 0.5 s attack: 0.5 + 2.63 s a use; walking is 84% of the fight
+    # A 0.5 s attack: 0.5 + 2.70 s a use; walking is 84% of the fight
     uses, share, walking = travel_rotation(100, 1.0, 2.0)
-    assert abs(uses - 1 / (0.5 + 10 / 3.8)) < 1e-9 and abs(share - uses / 2) < 1e-9 and abs(walking - uses * 10 / 3.8) < 1e-9
+    assert abs(uses - 1 / (0.5 + 10 / 3.7)) < 1e-9 and abs(share - uses / 2) < 1e-9 and abs(walking - uses * 10 / 3.7) < 1e-9
     # A warcry on a 10 s cooldown: the walk fits inside it
     assert travel_rotation(100, 1.0, 1.0, cooldown=10.0)[0] == 0.1
     rules = {"Hit and Run": {"addsUsageCondition": True, "stats": {"skill_unusable_until_moved_X_distance": 100}}}
@@ -239,9 +240,9 @@ def test_echoing_cry_and_hit_and_run_get_a_walking_use_rate(fresh_rules):
     build.stats = {"EffectiveMovementSpeedMod": 1.3}
     usage = Usage(build, FakeConditions())
     blocked = usage.blockers("Hit and Run")
-    assert len(blocked) == 1 and "move 10 m before each use (2.6 s of walking" in blocked[0]
+    assert len(blocked) == 1 and "move 10 m before each use (2.7 s of walking" in blocked[0]
     uses, share, walking, rolled = usage.travel_rate("Hit and Run")
-    assert abs(uses - 1 / (0.25 + 10 / (3.8 * 1.3))) < 1e-9 and abs(share - uses / 4) < 1e-9
+    assert abs(uses - 1 / (0.25 + 10 / (3.7 * 1.3))) < 1e-9 and abs(share - uses / 4) < 1e-9
     assert abs(rolled - 1 / (0.25 + 2 * 0.75)) < 1e-9  # (two rolls of 4.6 x 1.3 m)
     assert usage.travel_rate("Quarterstaff Strike") is None
 

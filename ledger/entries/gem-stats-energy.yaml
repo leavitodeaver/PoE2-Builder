@@ -9,7 +9,7 @@
 # Invocation (models.NO_ENERGY_ON_A_BOSS: Energy on kills, none counted on a boss), Curse on Block, Cast on Melee
 # Stun and Cast on Melee Kill (models.DEPRECATED, MECH's evidence there), generic_ongoing_trigger_maximum_energy (the
 # Invocations' 500 store: the model names it in its explanation but its rate doesn't read it), skill_maximum_energy_+%
-# (Energy Capacitor), active_skill_energy_generated_+%_final (Flame Breath, Flame Wall, Incinerate, Solar Orb),
+# (Energy Capacitor),
 # generic_ongoing_trigger_does_not_use_energy (Trail of Caltrops), base_skill_cannot_generate_energy (Midnight Zenith),
 # Savage Fury's wild_beast_* (another Energy). Listed for the mechanics lane in COV2's report.
 
@@ -84,4 +84,22 @@
   confidence: datamined
   notes: "models.META_SUPPORTS EnergyRefund 35; energy_rate spends cost x (1 - chance/200)."
   sources: ["builder/search/models.py META_SUPPORTS, energy_rate"]
+  status: approved
+
+- id: model-stats-energy-penalty
+  title: A skill's own Energy penalty (Incinerate, Flame Breath, Flame Wall, Solar Orb) in the Energy it feeds a meta
+    skill (Energy model)
+  kind: model
+  model: energy
+  stats: ["active_skill_energy_generated_+%_final"]
+  skill: [Incinerate, Flame Breath, Flame Wall, Solar Orb]
+  confidence: datamined
+  notes: "MECHB4 (mech2 7466324, train 7; COVC9 recorded it): the bridge reports the stat per skill (energyFinal) and
+    models.energy_model multiplies the Energy a meta skill gains from the main skill's own use (crit, ailment, melee
+    hit, cast) by (1 + it/100): Incinerate and Flame Breath -98 (x0.02), Flame Wall and Solar Orb -50 (x0.5), from
+    GrantedEffectStatSets (PoB act_int.lua holds the same values). Its reach is UNVERIFIED (the stat has no game text);
+    block, dodge, Energy Shield lost, minion death and charm gains are left untouched. Covered only once MECHB4's
+    commit is on main."
+  sources: ["builder/search/models.py energy_model (MECHB4)", "data/game-26476662/tables GrantedEffectStatSets",
+            "https://poe2db.tw/us/Incinerate"]
   status: approved
