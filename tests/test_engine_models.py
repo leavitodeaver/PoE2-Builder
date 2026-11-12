@@ -1395,3 +1395,24 @@ def test_the_bridge_reports_the_calculated_stat_set_and_a_groups_hit_fields(engi
     rate = search.build.call("useRates", indices=[index])["rates"][0]
     assert rate["HitChance"] > 0 and "CritChance" in rate
     assert rate.get("ColdHitAverage", 0) > 0 or rate.get("FireHitAverage", 0) > 0
+
+
+def test_apocalypses_disasters_count_through_full_dps(engine):
+    """MECHB8 (engine probe POE2T1012-1014): Apocalypse's Hailstorm, Meteor and Crash Lightning sit in the granted skill's
+    own group, which PoB leaves out of Full DPS: their trigger rates alone moved nothing until the group was added."""
+    from builder.request.schema import Choices
+
+    payload = make_payload(BuildRequest(main_skill="Volcano", ascendancies=["Shaman"],
+                                        require=Choices(skills=["Apocalypse"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Volcano"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("allocate", add=[28745], fields=[])  # Bringer of the Apocalypse: "Grants Skill: Apocalypse"
+    search.assumptions.apply()
+    skills = build.call("activeSkills")["skills"]
+    group = next(s["group"] for s in skills if s["name"] == "Meteor")
+    assert {s["name"] for s in skills if s["group"] == group} >= {"Apocalypse", "Hailstorm", "Meteor", "Crash Lightning"}
+    assert group in search.assumptions.extra_groups
+    stats = build.call("stats", fields=["CombinedDPS", "FullDPS"])
+    assert stats["FullDPS"] > 2 * stats["CombinedDPS"]

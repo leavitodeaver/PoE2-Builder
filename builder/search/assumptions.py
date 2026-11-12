@@ -864,7 +864,14 @@ class Assumptions:
             found = (1 / models.APOCALYPSE_DURATION, found[1] + " (taken as kept up)")
         info = next(s for s in skills if s["name"] == models.APOCALYPSE)
         frequency = number((info.get("levelStats") or {}).get(models.APOCALYPSE_FREQUENCY))
-        return models.apocalypse_model(found[0], found[1], frequency, present)
+        mods, notes = models.apocalypse_model(found[0], found[1], frequency, present)
+        # The disasters count through Full DPS (MECHB8's engine probe POE2T1012: they sit in Apocalypse's own group, the
+        # granted skill's, which PoB leaves out of Full DPS, so their rates alone moved nothing)
+        groups = {s["group"] for s in skills if s["name"] in present and not s["disabled"] and s.get("group")}
+        if any(m["key"] == "triggerRate" and m["value"] > 0 for m in mods):
+            for group in groups:
+                self.extra_groups.setdefault(group, None)
+        return mods, notes
 
     def life_flask_charges(self) -> float:
         """The equipped Life Flask's maximum charges (Sanguine Tides' cap), 0 with none."""
@@ -1102,6 +1109,8 @@ class Assumptions:
             return True
         if gem_name == models.EXPRESSION:
             return True  # its trigger rate and Full DPS share only arrive with the assumptions
+        if gem_name == models.APOCALYPSE:
+            return True  # its disasters' rates and Full DPS share only arrive with the assumptions (MECHB8)
         text = (self.build.ctx.all_gems.get(gem_name) or {}).get("description") or ""
         return any((c.get("skills") and re.search(c["skills"], gem_name, re.I))
                    or (c.get("skill_text") and re.search(c["skill_text"], text, re.I)) for c in conditions())
