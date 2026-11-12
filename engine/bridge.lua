@@ -491,6 +491,47 @@ local function installSpiritVessel()
 	end
 end
 
+-- Augments socketed in the equipment (COV-B, COVB3), for the lines PoB parses with a multiplier it never sets:
+-- Idolatry's "per Idol in your Equipment" / "per non-Idol Augment in your Equipment" (Multiplier IdolsInEquipment,
+-- NonIdolAugmentsInEquipment) and the Carved Majesty rune's "+3 to Spirit per Idol socketed in your Equipment".
+-- Counted from the items of each calculation (what-ifs included), as PoB reads sockets (Item:BuildModList: runes
+-- 1..itemSocketCount, "None" empty). An augment is an Idol when its ModRunes entry is of type "Idol"; every other
+-- socketed augment (Rune, SoulCore, AbyssalEye, and the Raven-Touched Shard, type CongealedMist) is non-Idol: the
+-- game's KeywordPopups "Augment" is "items which can be placed into Augment sockets" and names Runes, Soul Cores,
+-- Abyssal Eyes and Idols as augments. The shard is ASSUMED to count (it goes in an augment socket; no game text
+-- says either way). Only the active weapon set's items are in PoB's item list: a swap set's augments aren't
+-- counted (UNVERIFIED whether the game counts them).
+local function setAugmentCounts(env)
+	local modDB = env and env.modDB
+	if not modDB or not env.player then
+		return
+	end
+	local idols, others = 0, 0
+	local runes = data.itemMods and data.itemMods.Runes or { }
+	for _, item in pairs(env.player.itemList or { }) do
+		if type(item) == "table" and item.runes then
+			for i = 1, item.itemSocketCount or 0 do
+				local name = item.runes[i]
+				if name and name ~= "None" then
+					local isIdol = false
+					for _, entry in pairs(runes[name] or { }) do
+						if type(entry) == "table" and entry.type == "Idol" then
+							isIdol = true
+						end
+					end
+					if isIdol then
+						idols = idols + 1
+					else
+						others = others + 1
+					end
+				end
+			end
+		end
+	end
+	modDB.multipliers["IdolsInEquipment"] = idols
+	modDB.multipliers["NonIdolAugmentsInEquipment"] = others
+end
+
 local function installDerived()
 	installSpiritVessel()
 	local calcs = require("Modules.CalcBase")
@@ -500,6 +541,7 @@ local function installDerived()
 	local perform = calcs.perform
 	wrappedPerform = function(env, ...)
 		setDerived(env)
+		setAugmentCounts(env)
 		return perform(env, ...)
 	end
 	calcs.perform = wrappedPerform

@@ -53,6 +53,15 @@ REQUIREMENT_FIT_SECONDS = 30.0  # tree re-routing a granted-meta unique's trial 
 VARIANT_META_TRIALS = os.environ.get("POE2_VARIANT_TRIALS", "1") != "0"
 VARIANT_TRIALS = 2  # a variant base's non-meta variants (Archmage, a herald, ...) tried for real per slot and full round
 AFFIX_LIMIT = {"Prefix": 3, "Suffix": 3}
+# Equipment restrictions on the build's own lines (COV-B, COVB3). PoB ignores both lines (ModCache: no modifier), so
+# without this a build taking the passive could wear what the game won't let it use:
+#   Smith's Masterwork (Smith of Kitava): "Can only use a Normal Body Armour"
+#   Dance with Death (a Timeless jewel's conquered notable): "Can't use Helmets"
+# Matched by line, from every allocated passive and equipped item (Build sourceLines), not by passive name.
+SLOT_RESTRICTIONS = {
+    "Can only use a Normal Body Armour": ("Body Armour", "normal"),
+    "Can't use Helmets": ("Helmet", "empty"),
+}
 GRANTED_SKILL = re.compile(r"^Grants Skill: (?:Level \S+ )?")
 AFFIX_ALLOWED = re.compile(r"^([+-]\d+) (Prefix|Suffix) Modifiers? allowed\s*$", re.M)
 
@@ -86,6 +95,12 @@ def extra_ring_passive(ctx, ascendancy: str) -> str | None:
         if node.get("ascendancy") == ascendancy and "+1 Ring Slot" in (node.get("stats") or []):
             return node.get("name")
     return None
+
+
+def is_normal(option: ItemOption) -> bool:
+    """A Normal-rarity item (a plain base, with or without augments in its sockets)."""
+    first = option.raw.split("\n", 1)[0].strip()
+    return not option.unique and not option.rare and (first == "Rarity: Normal" or not first.startswith("Rarity:"))
 
 
 class Gear:
@@ -167,6 +182,9 @@ class Gear:
                 kept = variant + [o for group in bases.values() for o in group[:keep]]
                 options = kept + [o for o in options if o.unique]
             self._options[slot] = options
+        rule = self.restriction(slot)
+        if rule is not None:
+            return [o for o in self._options[slot] if self.allowed(slot, o, rule)]
         return self._options[slot]
 
     def add_ring_slot(self) -> None:
@@ -246,6 +264,59 @@ class Gear:
         self.build.extra_stats = self.recovery_stats({slot: info})
         return self.build.equip(slot, option, active=option is not None and self.counts(slot, info, option.raw))
 
+    # Restrictions from the build's own lines (SLOT_RESTRICTIONS; COV-B) ---------------------------
+
+    def restriction(self, slot: str) -> str | None:
+        """"normal" (only a Normal item), "empty" (nothing) or None, from the build's current lines. Read once per
+        commit (Build._build_texts caches sourceLines by commit)."""
+        commits = getattr(self.build, "commits", None)
+        cached = self.__dict__.get("_restrictions")
+        if cached is None or cached[0] != commits:
+            texts = set(self.build._build_texts())
+            rules: dict[str, str] = {}
+            for line, (restricted, rule) in SLOT_RESTRICTIONS.items():
+                if line in texts:
+                    rules[restricted] = "empty" if rule == "empty" or rules.get(restricted) == "empty" else rule
+            cached = self._restrictions = (commits, rules)
+        return cached[1].get(slot)
+
+    def allowed(self, slot: str, option: ItemOption | None, rule: str | None = None) -> bool:
+        if option is None:
+            return True
+        rule = rule or self.restriction(slot)
+        if rule == "empty":
+            return False
+        if rule == "normal":
+            return is_normal(option)
+        return True
+
+    def enforce_restrictions(self) -> list[str]:
+        """Take off what the build can't use now (a passive that restricts the slot was allocated): the best Normal
+        item for a "normal" slot (its runes kept if it has them), nothing for an "empty" one. A locked slot (a
+        required unique) is left as it is and reported. Returns what it changed or couldn't."""
+        build = self.build
+        notes = []
+        for slot in list(self.slots):
+            current = build.equipped.get(slot)
+            rule = self.restriction(slot) if current is not None else None
+            if rule is None or self.allowed(slot, current, rule):
+                continue
+            if slot in build.locked_slots:
+                notes.append(f"{slot}: a required item the build's passives don't allow ({rule})")
+                continue
+            replacement = None
+            if rule == "normal":
+                bases = [o for o in self.options(slot) if (o.price or 0.0) <= self.left_for(slot) + 1e-9]
+                if bases:
+                    scored = self.deltas(slot, [o.raw for o in bases])
+                    replacement = max(zip((s for s, _ in scored), bases), key=lambda x: x[0])[1]
+            self.put(slot, replacement)
+            self.rares.pop(slot, None)
+            notes.append(f"{slot}: {current.name} off ({rule})")
+        if notes:
+            self.settle()
+        return notes
+
     # Flasks and charms -----------------------------------------------------------------------
 
     def flask_info(self, raws: list[str]) -> list[dict]:
@@ -275,7 +346,9 @@ class Gear:
 
     def sync_flasks(self) -> None:
         """After the build changed elsewhere (passives, other gear): re-read charge generation, switch
-        flask and charm slots on or off to match it, and refresh flask recovery."""
+        flask and charm slots on or off to match it, and refresh flask recovery. First, an item the build's passives
+        no longer let it use comes off (enforce_restrictions)."""
+        self.enforce_restrictions()
         build = self.build
         data = build.call("chargeGain")
         self.charges = Charges.from_bridge(data)
@@ -312,6 +385,8 @@ class Gear:
         best magic item: one prefix and one suffix). With `required`, the rare starts from the best
         affix that passes it (a condition's source, builder/search/sources.py), on the best base
         that can roll one. With `variant`, the base's implicit is that variant's (Absent Amulet's Cast on Critical)."""
+        if self.restriction(slot) is not None:  # a rare isn't a Normal item; an unusable slot takes nothing
+            return None
         bases = [o for o in self.options(slot) if not o.unique and (base_name is None or o.base == base_name)]
         if not bases or clock.now() > deadline:
             return None
@@ -571,7 +646,8 @@ class Gear:
                 if rare is not None:
                     self.rares[slot] = rare
             rare = self.rares.get(slot)
-            if rare is not None and rare != build.equipped.get(slot) and (rare.price or 0.0) <= self.left_for(slot) + 1e-9:
+            if (rare is not None and rare != build.equipped.get(slot) and (rare.price or 0.0) <= self.left_for(slot) + 1e-9
+                    and self.allowed(slot, rare)):
                 options.append(rare)
             scored = self.deltas(slot, [o.raw for o in options])
             current = build.equipped.get(slot)
