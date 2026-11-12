@@ -2161,6 +2161,10 @@ def test_different_non_instant_skills_per_8_seconds():
     values = {m.get("name"): m["value"] for m in mods}
     assert values["DifferentNonInstantSpells8s"] == 2 and values["DifferentNonInstantAttacks8s"] == 1
     assert values["Multiplier:NonInstantSpellCastRecently"] == 2
+    # (MECHB6, A17-2) "Cast Recently" is 4 s: a 6 s cooldown spell counts per 8 s but not Recently
+    skills.append(Skill("Six Second", group=8, spell=True, cast_time=0.8, cooldown=6.0))
+    values = {m.get("name"): m["value"] for m in models.different_skills_counts(skills, main, {"Herald"})[0]}
+    assert values["DifferentNonInstantSpells8s"] == 3 and values["Multiplier:NonInstantSpellCastRecently"] == 2
 
 
 def test_a_concoction_main_skill_leaves_its_mana_flask_no_charges_for_recovery():

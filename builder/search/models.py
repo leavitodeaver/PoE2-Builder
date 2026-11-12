@@ -3842,37 +3842,45 @@ def heat_model(main: Skill | None, stats: dict, rapid: Skill | None, spenders: l
 # Rapid Casting III ("for each different Non-Instant Spell you've Cast Recently") and the Kurgal wand suffix read and nothing
 # set (0 before). A skill counts when the player uses it at least once per window: the main skill, and every other
 # non-instant skill the build has that its cooldown allows that often (a skill in the build is used: a play strategy, with
-# the "only the main skill" row in the note). Not counted: triggered skills (whether a trigger is a use "you've Cast" has no
-# game text: UNVERIFIED, so left out of the headline), Persistent skills (placed once), skills a totem uses, instant skills
-# (base cast time 0, the bridge's own test). PoB's one NonInstantSpellCastRecently takes the 8 s count; the Kurgal suffix's
-# own window is 4 s (Recently): at most one spell more than the game gives it when a spell's cooldown is 4-8 s (small, LOW).
+# the "only the main skill" row in the note). Not counted: triggered skills (see below), Persistent skills (placed once),
+# skills a totem uses, instant skills
+# (base cast time 0, the bridge's own test). Triggered skills stay out: the game's Trigger definition says "Triggering a
+# Skill does not count as using it" (AUDIT17 A17-x: HIGH). PoB's NonInstantSpellCastRecently (Rapid Casting III, the Kurgal
+# suffix: "for each different Non-Instant Spell you've Cast Recently", ModParser.lua 1998, SkillStatMap.lua 630; no other
+# reader, checked: grep of PoB's src and our builder) takes its own count over Recently, 4 s (MECHB6, AUDIT17 A17-2; before,
+# the 8 s count: one spell more where a cooldown is 4-8 s).
 DIFFERENT_WINDOW = 8.0
 
 
 def different_skills_counts(skills: list[Skill], main: Skill | None, persistent: set[str]
                             ) -> tuple[list[dict], list[dict]]:
     """The different Non-Instant Spells and Attacks the build uses per 8 s, as model inputs (see above)."""
-    def used(s: Skill) -> bool:
+    def used(s: Skill, window: float = DIFFERENT_WINDOW) -> bool:
         if s.triggered or s.name in persistent or (s.cast_time or 0.0) <= 0 or cast_by_totem(skills, s):
             return False
         if main is not None and s.name == main.name:
             return True
         cooldown = number(s.cooldown) / (s.cooldown_recovery or 1.0)
-        return cooldown <= DIFFERENT_WINDOW
+        return cooldown <= window
 
     counts = {}
     for kind, test in (("Spells", lambda s: s.spell), ("Attacks", lambda s: s.attack and not s.spell)):
         counts[kind] = sorted({s.name for s in skills if test(s) and used(s)})
     mods = [derived("DifferentNonInstantSpells8s", "", len(counts["Spells"])),
             derived("DifferentNonInstantAttacks8s", "", len(counts["Attacks"]))]
-    if counts["Spells"]:
-        mods.append(raw_mod("Multiplier:NonInstantSpellCastRecently", "BASE", len(counts["Spells"])))
+    recent = sorted({s.name for s in skills if s.spell and used(s, RECENTLY)})
+    if recent:
+        mods.append(raw_mod("Multiplier:NonInstantSpellCastRecently", "BASE", len(recent)))
     notes = [{"label": f"Different Non-Instant {kind} used per {DIFFERENT_WINDOW:g} s", "value": len(names),
               "basis": (", ".join(names) if names else "none") + ": the main skill and every other non-instant one the "
                        f"build has whose cooldown lets you use it once per {DIFFERENT_WINDOW:g} s (a play strategy: use each "
                        "that often; with only the main skill: 1). Triggered, Persistent, totem and instant skills not "
-                       "counted (whether a triggered spell counts: UNVERIFIED)",
+                       "counted (\"Triggering a Skill does not count as using it\": the game's Trigger definition)",
               "confidence": "MEDIUM"} for kind, names in counts.items() if names]
+    if recent:
+        notes.append({"label": f"Different Non-Instant Spells Cast Recently ({RECENTLY:g} s)", "value": len(recent),
+                      "basis": ", ".join(recent) + f": the same play, over Recently ({RECENTLY:g} s), for Rapid Casting III "
+                               "and the Kurgal wand suffix (\"... you've Cast Recently\")", "confidence": "MEDIUM"})
     return mods, notes
 
 
