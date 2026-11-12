@@ -1158,11 +1158,13 @@ def test_lines_far_behind_the_best_continue_from_it_and_the_best_goes_on():
     assert Run.restart_behind(run, lines, tasks, raw) == 3
     label = Skeleton(**skeleton).label
     assert [lines[(label, r, "")]["xml"] for r in range(5)] == ["line 1", "line 1", "line 2", "line 1", "line 1"]
+    # the restarted copies are marked, so optimize_task kicks them first (else they'd repeat the best line's work)
+    assert [bool(lines[(label, r, "")].get("restarted")) for r in range(5)] == [True, False, False, True, True]
     # a line short of a requirement restarts from a feasible best, however high its own damage
     raw = [{"dps": 9e6, "search_value": 9e6, "deficits": [{"amount": 0.2, "hard": True}], "state": {"xml": "short"}},
            {"dps": 1e5, "search_value": 1e5, "deficits": [], "state": {"xml": "feasible"}}]
     lines = {}
-    assert Run.restart_behind(run, lines, tasks[:2], raw) == 1 and lines == {(label, 0, ""): {"xml": "feasible"}}
+    assert Run.restart_behind(run, lines, tasks[:2], raw) == 1 and lines == {(label, 0, ""): {"xml": "feasible", "restarted": True}}
 
 
 def test_each_task_event_names_the_requirements_its_build_still_misses():

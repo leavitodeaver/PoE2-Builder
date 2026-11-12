@@ -208,7 +208,7 @@ class Run:
             (top_short, top_value), _, top = entries[0]
             for (short, value), replica, _ in entries[1:]:
                 if short > top_short or -value < RESTART_BELOW * -top_value:
-                    lines[(label, replica, goal)] = top["state"]
+                    lines[(label, replica, goal)] = {**top["state"], "restarted": True}  # (kicked first: optimize_task)
                     restarted += 1
         if restarted:
             self.emit("status", message=f"{restarted} search(es) far behind the best continue from it")

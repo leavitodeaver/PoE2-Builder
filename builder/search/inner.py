@@ -949,11 +949,18 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
     deadline = clock.now() + seconds
     wall, left_out = time.perf_counter(), clock.paused()
     search = Search(engine, report, payload, skeleton, seed, goal=goal, full=full)
-    start = None
+    start = floor = None
     if state is not None:
         search.load(state)
         if full:
             search.include_in_full_dps()
+        if state.get("restarted"):
+            # A line restarted from the best line's state (run.restart_behind) starts with a kick from its own rng:
+            # the search is deterministic from a state until its first kick, which a 235 s round seldom reaches, so
+            # copies did the same work (2b75b POE2T649 and POE2T654: all five round-3 tasks the same evals and DPS).
+            # It never ends below the state it was given
+            floor = search.build.snapshot()
+            search.kick()
     elif search.skeleton.seeded:
         # The search never ends below the PoB code it started from (PLAN.md §8, gate 4)
         search.setup_seed()
@@ -965,10 +972,11 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
     from builder.pob.pool import Cancelled
 
     try:
-        search.run(deadline, best=start)
+        search.run(deadline, best=start or floor)
     except Cancelled:
-        if start is not None and start["score"] > search.build.score:
-            search.build.restore(start)
+        kept = start or floor
+        if kept is not None and kept["score"] > search.build.score:
+            search.build.restore(kept)
         search.keep_feasible()
     summary = search.summary()
     # The task's wall time and what its clock left out as suspended (the queue's holds), to check the budget held
@@ -1038,6 +1046,11 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     trace: list[list] = [["loaded", round(build.score, 4)]]
     search.include_in_full_dps()
     trace.append(["full dps", round(build.score, 4)])
+    # A loaded state has no uptime weighting yet (objective.uptime_factor 1.0): 2b75e (POE2T653) loaded at 14.43 against
+    # its searched 14.27, so the Full DPS supports sweep below ranked supports with every partial-uptime effect at full
+    # uptime. Weigh them first; the polish's conditions rounds refresh them as before
+    search.weigh_uptimes()
+    trace.append(["weighed", round(build.score, 4)])
     # The search's support shortlists were ranked on the main skill's DPS, which never counts a skill a support grants
     # (Deadly Resolve's slash): with them, finalize spent its polish on shortlist moves and its sweep came too late or
     # not at all. 2b75d, 8 Nov: the same build went 264,520 -> 575,512 on Close Combat II + Deadly Resolve when the
