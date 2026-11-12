@@ -86,8 +86,8 @@ def test_off_hand_skeletons_follow_the_games_rules_not_pobs():
 def test_a_passive_can_let_a_staff_hold_a_focus():
     """game_rules.yaml off_hand.passive_exceptions (RULE_AUDIT #7): Instruments of Power, a Disciple of Varashta notable,
     lets a caster Staff hold a Focus; the skeleton requires the passive. Other ascendancies, a banned passive or a
-    request for no off hand get no such skeleton; Lord of the Wilds (Talisman + non-unique Sceptre) stays off until
-    the gear search can keep unique sceptres out of that hand."""
+    request for no off hand get no such skeleton. Lord of the Wilds, a keystone, lets a Talisman hold a non-unique
+    Sceptre for every ascendancy (its off-hand slot takes no unique: test_engine_items)."""
     ctx = context(main_skill="Fireball", offhand="focus", weapon_type="Staff")
     skeletons, problems = enumerate_skeletons(ctx, ["Fireball"])
     assert [(s.ascendancy, s.weapon, s.weapon_sub, s.offhand, s.requires_passive) for s in skeletons] == \
@@ -103,6 +103,14 @@ def test_a_passive_can_let_a_staff_hold_a_focus():
     quarterstaff = context(main_skill="Falling Thunder", offhand="any", ascendancies=["Disciple of Varashta"])
     assert not any(s.requires_passive for s in enumerate_skeletons(quarterstaff, ["Falling Thunder"])[0])
     assert not any(s.weapon == "Talisman" and s.offhand for s in enumerate_skeletons(context(), ["Fireball"])[0])
+    wilds = context(main_skill="Furious Slam", ascendancies=["Shaman"], offhand="weapon")
+    skeletons, problems = enumerate_skeletons(wilds, ["Furious Slam"])
+    assert [(s.weapon, s.offhand, s.requires_passive) for s in skeletons] == \
+        [("Talisman", "Sceptre", "Lord of the Wilds")] and not problems
+    tame = context(main_skill="Furious Slam", ascendancies=["Shaman"], offhand="weapon",
+                   forbid={"passives": ["Lord of the Wilds"]})
+    skeletons, problems = enumerate_skeletons(tame, ["Furious Slam"])
+    assert skeletons == [] and any("Talisman takes no off-hand weapon" in p for p in problems)
 
 
 def test_true_dual_wielding_is_two_one_handed_maces():

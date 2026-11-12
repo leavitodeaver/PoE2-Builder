@@ -139,7 +139,8 @@ def _with_offhands(skill: str, mains: list[tuple[str | None, str | None]], probl
                 problems.append(f"beside a {weapon} the off hand takes only {', '.join(allowed) or 'nothing'} "
                                 f"(patch {rules.patch} rules and the request's bans)" if rules.off_hands(weapon) else
                                 f"a {weapon or 'bare hand'} takes no off-hand weapon (two-handed weapons dual "
-                                "wield only with Giant's Blood, not modeled)")
+                                "wield with Giant's Blood, not modeled; a Talisman holds a non-unique Sceptre "
+                                "with Lord of the Wilds, unless banned)")
             continue
         if not rules.off_hands(weapon) or weapon == "Bow":
             # Two-handed weapons and bare hands hold nothing else; a bow holds a quiver
@@ -204,6 +205,12 @@ def passive_offhand_archetypes(ctx: Context, skill: str, ascendancy: str, weapon
                 sub = rule["sub_type"]
             found.append((weapon, sub, offhand, passive))
     return found
+
+
+def offhand_non_unique(passive: str | None, offhand: str | None) -> bool:
+    """Whether the off hand a passive allows must be non-unique (Lord of the Wilds: "a non-Unique Sceptre")."""
+    return bool(passive) and any(r["passive"] == passive and r["off_hand"] == offhand and r.get("non_unique")
+                                 for r in game_rules().passive_exceptions)
 
 
 def usable_with(gem: dict, weapon: str | None, offhands: tuple[str, ...] = ()) -> bool:
@@ -363,7 +370,7 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
             continue
         if skill in ctx.gems:
             archetypes, found = weapon_archetypes(ctx, skill)
-            extra = 0
+            extra: set[str | None] = set()  # main hands a passive gives an off hand
             for ascendancy in ascendancies:
                 for weapon, sub, offhand in archetypes:
                     skeletons.append(Skeleton(ctx.class_of[ascendancy], ascendancy, skill, weapon, sub, offhand))
@@ -371,8 +378,9 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
                 for weapon, sub, offhand, passive in passive_offhand_archetypes(ctx, skill, ascendancy):
                     skeletons.append(Skeleton(ctx.class_of[ascendancy], ascendancy, skill, weapon, sub, offhand,
                                               requires_passive=passive))
-                    extra += 1
-            problems += [p for p in found if not (extra and p == no_setup(skill))]
+                    extra.add(weapon)
+            problems += [p for p in found if not (extra and p == no_setup(skill))
+                         and not any(p.startswith(f"a {w} takes no off-hand weapon") for w in extra)]
             continue
         # A skill only a passive or a unique grants: that source becomes part of the skeleton
         for kind, source, source_ascendancy in ctx.granted_by.get(skill, []):

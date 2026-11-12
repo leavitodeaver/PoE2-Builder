@@ -618,3 +618,28 @@ def test_a_staff_with_a_focus_requires_instruments_of_power(engine):
     search.setup(quests=False)
     assert "Instruments of Power" in search.tree.required_names
     assert search.gear.slots["Weapon 2"].types == ("Focus",)
+
+
+def test_a_talisman_holds_only_a_non_unique_sceptre_with_lord_of_the_wilds(engine):
+    """Lord of the Wilds lets a Talisman hold "a non-Unique Sceptre" (game_rules.yaml off_hand.passive_exceptions):
+    the search allocates the keystone and the off-hand slot offers Sceptres but none of the unique ones."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Furious Slam", offhand="weapon", ascendancies=["Shaman"],
+                                        budget={"ssf": True}))  # SSF: uniques offered unpriced
+    ctx = Context(payload)
+    skeleton = enumerate_skeletons(ctx, ["Furious Slam"])[0][0]
+    assert (skeleton.weapon, skeleton.offhand, skeleton.requires_passive) == ("Talisman", "Sceptre", "Lord of the Wilds")
+    assert any(o.unique for o in ctx.item_options["Sceptre"])  # the game has unique sceptres to keep out
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    assert "Lord of the Wilds" in search.tree.required_names
+    gear = search.gear
+    assert gear.slots["Weapon 2"].types == ("Sceptre",) and gear.slots["Weapon 2"].non_unique
+    options = gear.options("Weapon 2")
+    assert options and not any(o.unique for o in options)
+    sceptre = next(o for o in ctx.item_options["Sceptre"] if o.unique)
+    assert gear.slot_for(sceptre) is None
+    held = search.build.equipped.get("Weapon 2")
+    assert held is None or not held.unique

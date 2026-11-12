@@ -35,7 +35,7 @@ from builder.search.objective import (
     CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, number, shortfall,
     with_boss_recovery,
 )
-from builder.search.skeletons import Skeleton, is_button, offhand_types, seed_skeleton, swap_skills
+from builder.search.skeletons import Skeleton, is_button, offhand_non_unique, offhand_types, seed_skeleton, swap_skills
 from builder.search.sources import Sources
 from builder.search.state import EPSILON, Build, OutOfTime
 from builder.search.tree import Tree
@@ -73,8 +73,8 @@ class Search:
         self.gems.checkpoint = self.checkpoint
         weapon = SlotSpec(self.skeleton.weapon, self.skeleton.weapon_sub) if self.skeleton.weapon else None
         held = offhand_types(self.ctx, self.skeleton.weapon, self.skeleton.offhand)
-        offhand = SlotSpec(held[0], None, held[1:]) if held else None
         sk = self.skeleton
+        offhand = SlotSpec(held[0], None, held[1:], offhand_non_unique(sk.requires_passive, sk.offhand)) if held else None
         swap: tuple = (None, None)
         if sk.swap:
             held = offhand_types(self.ctx, sk.swap_weapon, sk.swap_offhand)

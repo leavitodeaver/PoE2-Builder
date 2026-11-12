@@ -61,9 +61,8 @@ off_hand:
       off_hand: Sceptre
       non_unique: true  # "a non-Unique Sceptre"
       passive: Lord of the Wilds  # keystone (tree.json node 61942); 50% less Spirit, 50% less Reservation Efficiency
-      # Off until the gear search can keep unique sceptres out of that off hand (gear.py's options take
-      # every Sceptre, 9 unique ones among them): a build holding one would be one the game refuses.
-      enabled: false
+      # The off-hand slot then takes no unique (gear.py SlotSpec.non_unique, set by inner.py from this
+      # flag): the 9 unique sceptres stay out of that hand, as the game requires.
       sources: ["tree.json node 61942 stats", "PoB ModParser.lua:2621, ItemsTab.lua:2714-2715"]
 
 floor_blockers:
