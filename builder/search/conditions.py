@@ -865,8 +865,10 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
     if re.search(r"\bkill|culling strike", when):
         return 0.0, "on kill (nothing dies on a single boss)"
-    if "minion dies" in when or "vaal skill" in when:
+    if "vaal skill" in when:
         return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
+    if MINION_DIES.search(when):
+        return _minion_death_uptime(stats, chance, duration)
     if "during effect" in when or not when.strip():
         return 1.0, "during its effect (the flask or charm model decides its uptime)"
     if "maximum frenzy" in when:
@@ -893,7 +895,9 @@ def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     main_types = stats.get("_main_types") or set()
     down, how = 1.0, []
     for text in lines:
-        if not qualifies(text, main_types) or (r := _onslaught_source(text, lines, stats)) is None:
+        # ("when a Minion Dies" is yours, not a minion's line, as for Arcane Surge; MECHC7)
+        own = re.sub(r"when a minion dies", "", text, flags=re.I)
+        if not qualifies(own, main_types) or (r := _onslaught_source(text, lines, stats)) is None:
             continue
         down *= 1 - r[0]
         how.append(f"{text[:60]} ({r[1]})")
@@ -909,8 +913,8 @@ def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # as Onslaught's (1 - (1 - chance)^(events x duration)), combined as independent; PoB's box is on at UPTIME. Events: the
 # main skill's crits and hits ("with Spells": QUALIFIERS needs a Spell); "if you have at least N Devotion" by PoB's
 # Devotion; "while at maximum Power Charges" only when the Power Charges held reach it; "after Channelling for 1 second"
-# when the main skill channels; a kill, a Minion dying, Shapeshifting back, a Mine or Trap: 0 (no rate modelled,
-# labelled); a Totem summoned: once per CHARGE_DEFAULT_EVERY s (assumed). The Arcane Surge support (GrantedEffectStatSets
+# when the main skill channels; a Minion dying at the build's own minion deaths (MECHC7: _minion_death_uptime); a kill,
+# Shapeshifting back, a Mine or Trap: 0 (no rate modelled, labelled); a Totem summoned: once per CHARGE_DEFAULT_EVERY s (assumed). The Arcane Surge support (GrantedEffectStatSets
 # SupportArcaneSurgePlayer: 10 s after spending 100% of maximum Mana on Supported Skills) on the main skill: PoB's mana
 # spent per second (ManaPerSecondCost) against the threshold. Whether Mana spent while the buff is up counts toward the
 # next one is unsettled (RESEARCH1, scratch/manager/research/mana-spend-counters.md, LOW: no game text, patch note or test
@@ -957,6 +961,8 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
     if "channelling" in when:
         up = 1.0 if "Channel" in (stats.get("_main_types") or set()) else 0.0
         return up, "the main skill channels" if up else "the main skill doesn't channel"
+    if MINION_DIES.search(when):
+        return _minion_death_uptime(stats, chance, duration)
     if re.search(r"\bkill|minion|shapeshift|\bmines?\b|\btraps?\b", when):
         return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
     hits = models.hits_per_second(stats)
@@ -1498,6 +1504,43 @@ INFUSION_CONSUMERS = {
 INFUSION_CONSUMED = re.compile(r"consumed an elemental infusion recently", re.I)
 
 
+# Your minions dying (MECHC7, AUDIT18 A18-1; before, "when a Minion Dies" lines counted 0: an undercount for builds that
+# kill their own minions): the rate comes from the build's own sources, models.minion_deaths (Sacrifice's corpses,
+# Explosive Demise, capped by revival), set as stats["_minion_deaths"] by Conditions.evidence when a line names a minion's
+# death. The lines: "Gain Arcane Surge when a Minion Dies" / "Gain Onslaught for 4 seconds when a Minion Dies" (the game's
+# gain_arcane_surge_for_4_seconds_on_minion_death / gain_onslaught_for_4_seconds_on_minion_death: Kulemak's Loreweave mods
+# and the Kurgal / Ulaman passages; PoB gives them to your minions instead, MinionModifier) and "if one of your Minions has
+# died Recently" (passive spells60, PoB's conditionMinionsDiedRecently). Not counted: the boss killing your minions,
+# temporary minions expiring (whether that is "dying" is UNVERIFIED), Dark Pact, Offerings (an undercount, said in
+# minion_deaths' note).
+MINION_DIES = re.compile(r"\bminions? (?:dies|died|has died)\b|on minion death|minions have died", re.I)
+
+
+def _minion_death_events(stats: dict) -> tuple[float, str]:
+    rate, how = stats.get("_minion_deaths") or (0.0, "the build's minions weren't read")
+    return max(rate, 0.0), f"your minions dying {max(rate, 0.0):.3f}/s ({how})"
+
+
+def _minion_death_uptime(stats: dict, chance: float, duration: float) -> tuple[float, str]:
+    """(uptime, how) of a buff gained for `duration` s on a minion of yours dying, deaths taken as evenly random (LOW)."""
+    events, how = _minion_death_events(stats)
+    up = 1 - math.exp(-events * duration * min(chance, 1.0))
+    return up, f"{chance:.0%} x {how}, {duration:g} s: {up:.0%} up (deaths taken as evenly random, LOW)"
+
+
+def _minion_died_recently(lines: list[str], stats: dict) -> tuple[object, str]:
+    """PoB's "Has a Minion Died Recently?" box at the share of the fight one of your minions died in the past 4 s
+    (models.minion_deaths; evenly random, LOW). None dying: 0, said."""
+    if "_minion_deaths" not in stats:
+        return 0.0, ""
+    rate, how = _minion_death_events(stats)
+    if rate <= 0:
+        return 0.0, f"no minion of yours dies against the boss: {how}"
+    up = 1.0 - math.exp(-rate * RECENTLY)
+    return _box(up, f"one of your minions died in the past {RECENTLY:g} s {up:.0%} of the fight: {how} (LOW: deaths taken "
+                    f"as evenly random)")
+
+
 def _infusion_recently(lines: list[str], stats: dict) -> tuple[object, str]:
     """PoB's "Infusion consumed recently?" box at the share of the fight one was consumed in the past 4 s: the build's
     consumers (INFUSION_CONSUMERS: the main skill at its casts, any other at its group's rate) take the Infusions it
@@ -1632,6 +1675,7 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
     Condition("conditionEnemyLightningExposure", "Lightning Exposure", value_fn=_exposure_uptime("Lightning"),
               fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
+    Condition("conditionMinionsDiedRecently", "A minion of yours died recently", value_fn=_minion_died_recently, fields=()),
     Condition("conditionInfusionConsumedRecently", "Infusion consumed recently", value_fn=_infusion_recently, fields=("Speed",)),
     Condition("buffDivinity", "Divinity (on reaching maximum Divine Charges)", value_fn=_divinity, fields=("Speed", "HitChance")),
     Condition("conditionEnemyArmourBroken", "Armour Broken"),  # (armour_broken_uptime, Conditions.evidence)
@@ -1752,6 +1796,13 @@ class Conditions:
                     for r in self.build.call("useRates", indices=sorted(set(where.values())))["rates"]}
         return {n: by_index[i] for n, i in where.items() if i in by_index}
 
+    def _minion_deaths(self) -> tuple[float, str]:
+        """Your minions Killed per second against a boss and how (models.minion_deaths, from the build's skills; MECHC7)."""
+        found = [models.Skill.of(s) for s in self.build.call("activeSkills")["skills"] if not s["disabled"]]
+        group = self.build.main_group()
+        main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
+        return models.minion_deaths(found, main, self.build.call("stats", fields=models.MODEL_FIELDS))
+
     def _infusion_consumed(self, lines: list[dict], stats: dict) -> tuple[float, str]:
         """(Infusions consumed per second, how): the build's consumers (INFUSION_CONSUMERS) take what it makes."""
         from builder.search.assumptions import SIPHON, infusion_supply, siphon_freezes
@@ -1856,6 +1907,8 @@ class Conditions:
             for n in [n for n, u in rage_spend.items() if u is None]:
                 each = uses.get(n, 1 / models.PRESS_EVERY)
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
+        if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
+            stats["_minion_deaths"] = self._minion_deaths()
         if any(INFUSION_CONSUMED.search(t) for t in texts):
             stats["_infusion_consumed"] = self._infusion_consumed(lines, stats)
         events = event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),

@@ -1338,7 +1338,7 @@ def test_arcane_surge_on_only_when_its_sources_keep_it_up():
     crit = arcane_surge_uptime(["10% chance to Gain Arcane Surge when you deal a Critical Hit"], spell)
     assert crit[2] < 0.9 and "8%" in crit[1]
     minion = arcane_surge_uptime(["Gain Arcane Surge when a Minion Dies"], spell)
-    assert minion[2] < 0.9 and "isn't modelled" in minion[1]
+    assert minion[2] < 0.9 and "minions weren't read" in minion[1]  # (MECHC7: the build's minion deaths when read)
     assert arcane_surge_uptime(["You have Arcane Surge"], spell)[2] >= 0.9
     assert arcane_surge_uptime(["15% increased Spell Damage while you have Arcane Surge"], spell) == (0.0, "")
     devotion = "Gain Arcane Surge on Hit with Spells if you have at least 150 Devotion"
@@ -1817,3 +1817,19 @@ def test_support_gems_that_scale_with_distance_put_their_distances_in_the_trials
     assert distance_candidates(support_distance_lines(groups("Lockdown")), ranged) == [RANGED_DISTANCE, MELEE_DISTANCE]
     assert 7.5 in distance_candidates(support_distance_lines(groups("Longshot II")), ranged)
     assert support_distance_lines(groups("Lockdown", enabled=False)) == []
+def test_buffs_on_a_minion_dying_come_from_the_builds_own_minion_deaths():
+    """MECHC7 (AUDIT18 A18-1): "Gain Arcane Surge / Onslaught when a Minion Dies" and "if one of your Minions has died
+    Recently" read models.minion_deaths' rate (stats["_minion_deaths"]), deaths taken as evenly random; none dying: 0."""
+    from builder.search.conditions import CONDITIONS, arcane_surge_uptime, onslaught_uptime
+
+    stats = {"Speed": 1.0, "HitChance": 100, "Mana": 100, "_main_types": {"Spell"},
+             "_minion_deaths": (0.25, "Sacrifice")}
+    up = 1 - math.exp(-0.25 * 4)
+    assert arcane_surge_uptime(["Gain Arcane Surge when a Minion Dies"], stats)[2] == pytest.approx(up)
+    assert onslaught_uptime(["Gain Onslaught for 4 seconds when a Minion Dies"], stats)[2] == pytest.approx(up)
+    recently = next(c for c in CONDITIONS if c.var == "conditionMinionsDiedRecently")
+    on, basis, share = recently.value_fn(["40% increased Spell Damage if one of your Minions has died Recently"], stats)
+    assert on and share == pytest.approx(up) and "Sacrifice" in basis
+    none = {**stats, "_minion_deaths": (0.0, "nothing in this build kills its minions")}
+    assert onslaught_uptime(["Gain Onslaught for 4 seconds when a Minion Dies"], none)[2] == 0
+    assert recently.value_fn([], none)[0] == 0.0
