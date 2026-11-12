@@ -391,7 +391,7 @@ class Assumptions:
             curse_mods, curse_notes = models.curse_model(curses, found, main, source_lines)
             hand_mods, hand_notes = hand_mods + curse_mods, hand_notes + curse_notes
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
-        echo_mods, echo_notes = models.repeat_echo_model([e["text"] for e in source_lines], main_types, forbidden)
+        echo_mods, echo_notes = models.repeat_echo_model([e["text"] for e in source_lines], main_types, forbidden, main)
         hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
         parry_mods, parry_notes = models.parry_model(found, stats, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS))
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
@@ -407,6 +407,8 @@ class Assumptions:
             standing = bool(build.call("getConfig")["input"].get("conditionStationary"))
             gun_mods, gun_notes = models.run_and_gun_model(texts, stats, main, main_types, standing)
             hand_mods, hand_notes = hand_mods + gun_mods, hand_notes + gun_notes
+        early_mods, early_notes = models.hazard_early_model(found, stats, forbidden)  # (MECH-B: hazards set off early)
+        hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
         if main is not None:  # (returning projectiles' second boss hit: MECH-B, models.return_model)
             gem = build.ctx.gems.get(name) or {}
             back_mods, back_notes = models.return_model(

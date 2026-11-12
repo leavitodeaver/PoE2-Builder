@@ -337,11 +337,26 @@
   game_source: https://poe2db.tw/us/Keywords
   pob: none
   pob_check: "No aftershock or repeat chance in PoB's calculations (lines ignored)."
-  handling: "Translated to more damage by chance (Earthbreaker, Mace, Shapeshift slams; Now and Again: a spell that can both Repeat and Echo gets 1 + .95(r + e), since a Repeat doesn't Echo itself but the use still Echoes, KeywordPopups Cascadable \"while Repeating\", MEDIUM)."
+  handling: "Translated to more damage by chance (Earthbreaker, Mace, Shapeshift slams; Now and Again: a spell that can both Repeat and Echo gets 1 + .95(r + e), since a Repeat doesn't Echo itself but the use still Echoes, KeywordPopups Cascadable \"while Repeating\", MEDIUM; no Repeat, and so no Repeat-Echo correction, for a Triggered, Instant or Channelling main spell: KeywordPopups Repeat, condition RepeatableSpell and models.can_repeat)."
   plan: {approach: translation, how: "Done; Mountain Splitter's offset aftershocks by boss size.", inputs: [chance]}
   what_if: visible
   guide_note: "Aftershocks counted as extra hits on the boss."
   impact: 3
+  effort: S
+
+- id: hazard-early-trigger
+  name: Hazards set off in their first half second
+  terms: [Hazard, Hazards, Ice Crystals]
+  category: damage sources
+  game: "Spearfield, Grim Pillars, Brambles, Ice Shards' shards, Frost Wall, Glacial Bolt's wall and Shield Wall deal 80% less damage if destroyed within 0.5 seconds by something other than you (skill stat sets, datamined)."
+  game_source: https://poe2db.tw/us/Keywords
+  pob: none
+  pob_check: "PoB maps the three first_500_ms stats to nothing (SkillStatMap.lua, each set's statMap): every hazard at full damage."
+  handling: "models.hazard_early_model (MECH-B): x0.2 on hazards the boss sets off at once (Spearfield, Brambles: placed where it stands, LOW play assumption), none for Ice Crystals (Frost Wall, Glacial Bolt's wall, Grim Pillars: typed is_ice_crystal_explosion) and Shield Wall you break yourself (LOW), none with an arming time of 0.5 s or more (Ice Shards 1.5 s), Controlled Hazard or Delayed Reaction; rearms taken as later (UNVERIFIED). Play-guide rows for laying hazards ahead of the boss."
+  plan: {approach: custom model, how: "Done; who sets the hazard off is a play choice (rows in the guide).", inputs: [scored stat set, arming time, supports, rearm chance]}
+  what_if: visible
+  guide_note: "Hazards placed on the boss deal 80% less; lay them in its path 0.5 s ahead for full damage."
+  impact: 2
   effort: S
 
 - id: triggered-skills

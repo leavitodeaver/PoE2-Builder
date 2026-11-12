@@ -1077,6 +1077,11 @@ def test_cast_on_minion_death_gains_energy_only_from_minions_the_build_kills():
     assert energy == pytest.approx(50 * rate) and "100% relative Power assumed" in basis
     assert models.energy_gain("Cast on Minion Death", {"_minion_deaths": (0.0, "x")}, "Spark")[0] == 0.0
     assert models.energy_gain("Cast on Minion Death", {}, "Spark")[0] == 0.0
+    # MECHB2: Sacrifice's 40% slower revival (PoB's MinionRevivalSpeed x0.6, which the bridge reports): 7.5 / 0.6 = 12.5 s
+    slow = models.Skill("Raise Zombie", summon={"limit": 6, "duration": 0, "persistent": True, "undead": True,
+                                                "reviveSpeed": 0.6, "reviveBase": 12})
+    rate, how = models.minion_deaths([slow, sacrifice, main], main, {"Speed": 2.0})
+    assert rate == pytest.approx(6 * 2 / (6 + 12.5 * 2)) and "12.5 s" in how and "12 s" in how
     # Explosive Demise: one of the other minions every 3 s / cooldown recovery
     arsonist = models.Skill("Skeletal Arsonist Minion", cooldown_recovery=1.5,
                             summon={"limit": 2, "duration": 0, "persistent": True, "undead": True})
@@ -1523,6 +1528,12 @@ def test_a_repeat_does_not_echo_but_its_use_still_does():
     assert models.repeat_echo_model(texts, {"Spell", "Cascadable"}, set()) == ([], [])  # can't Repeat: nothing to fix
     assert models.repeat_echo_model(texts[:1], both, set()) == ([], [])
     assert models.repeat_echo_model(texts, both, {"now-and-again-echo"}) == ([], [])
+    # KeywordPopups Repeat: "Triggered skills, Instant skills, and Channelling skills cannot Repeat" (MECHB2, with COV6's
+    # RepeatableSpell condition): no Repeat counted, so no Repeat-Echo to take back either
+    assert models.repeat_echo_model(texts, both, set(), models.Skill("Spark", spell=True, triggered=True)) == ([], [])
+    assert models.repeat_echo_model(texts, both | {"Instant"}, set(), models.Skill("Spark", spell=True)) == ([], [])
+    assert models.repeat_echo_model(texts, both | {"Channel"}, set()) == ([], [])
+    assert models.repeat_echo_model(texts, both, set(), models.Skill("Spark", spell=True))[0]
 
 
 def test_snap_needs_an_ailment_and_its_presses_cost_the_main_skill_time():
@@ -1806,3 +1817,47 @@ def test_returning_projectiles_hit_a_lone_boss_again_only_after_piercing_it():
     soaring = models.Skill(models.SOARING_MIDNIGHT, group=1, attack=True)
     mods, _ = models.return_model([], {"PierceCount": 3}, soaring, {"Attack", "Projectile"}, [], {"Shield"})
     assert mods[0]["scale"] == pytest.approx(100.0)
+
+
+def test_hazards_set_off_in_their_first_half_second_deal_80_percent_less():
+    """MECHB2 (FIX_QUEUE, COVC2): "-80% ... damage if destroyed within 0.5 seconds by something other than you" on seven
+    player stat sets, which PoB maps to nothing. A hazard placed where the boss stands is set off at once (LOW); an
+    arming time of 0.5 s or more, Controlled Hazard or Delayed Reaction keep it from being early; Ice Crystals and Shield
+    Wall are taken as broken by you (no penalty); a rearmed trigger is taken as later, at full damage."""
+    spearfield = models.Skill("Spearfield", attack=True, early_hazard={"kind": "hazard", "more": -80})
+    mods, notes = models.hazard_early_model([spearfield], {})
+    assert mods == [models.line("1% more Damage", -80.0, skill="Spearfield")]
+    assert notes[0]["value"] == pytest.approx(0.2) and "x5.00" in notes[0]["play"]
+    # rearm 30%: PoB x1.3, the game 0.2 + 0.3
+    mods, _ = models.hazard_early_model([spearfield], {"HazardRearmChance": 30})
+    assert mods[0]["scale"] == pytest.approx(100 * ((0.2 + 0.3) / 1.3 - 1), abs=1e-3)
+    shards = models.Skill("Ice Shards", early_hazard={"kind": "hazard", "more": -80, "arming": 1500})
+    brambles = models.Skill("Brambles", early_hazard={"kind": "hazard", "more": -80, "arming": 400})
+    controlled = models.Skill("Grim Pillars", early_hazard={"kind": "hazard", "more": -80, "delay": 3,
+                                                             "delayBy": "Controlled Hazard"})
+    delayed = models.Skill("Spearfield", early_hazard={"kind": "hazard", "more": -80, "atEnd": "Delayed Reaction"})
+    wall = models.Skill("Frost Wall", spell=True, early_hazard={"kind": "ice_crystals", "more": -80})
+    for skill in (shards, controlled, delayed, wall):
+        mods, notes = models.hazard_early_model([skill], {})
+        assert mods == [] and notes[0]["value"] == 1
+    assert models.hazard_early_model([brambles], {})[0][0]["scale"] == pytest.approx(-80.0)
+    assert models.hazard_early_model([models.Skill("Glacial Bolt")], {}) == ([], [])  # its Projectile set: no stat
+    assert models.hazard_early_model([spearfield], {}, {models.EARLY_HAZARD_ENTRY}) == ([], [])
+
+
+def test_the_hazard_stat_sets_are_the_game_files():
+    """The seven sets the model's comment names carry the stat at -80 (checked against the game files)."""
+    import json
+    from pathlib import Path
+
+    tables = Path("data/game-26476662/tables")
+    if not tables.exists():
+        pytest.skip("no game files")
+    stats = json.loads((tables / "Stats.json").read_text(encoding="utf-8"))
+    ids = {i for i, r in enumerate(stats) if "first_500_ms_when_not_killed_by_self" in r["Id"]}
+    sets = json.loads((tables / "GrantedEffectStatSets.json").read_text(encoding="utf-8"))
+    found = {r["Id"]: v for r in sets for s, v in zip(r["ConstantStats"], r["ConstantStatsValues"]) if s in ids
+             and r["Id"].endswith("Player")}
+    assert found == {k: -80 for k in ("FrostWallPlayer", "SpearfieldPlayer", "GlacialBoltWallPlayer",
+                                      "IceShardsShardPlayer", "GrimPillarsPlayer", "TriggeredBrambleslamPlayer",
+                                      "ShieldWallPlayer")}

@@ -1926,6 +1926,61 @@ function bridge.useRates(args)
 	return { rates = rates }
 end
 
+-- MECH-B (models.hazard_early_model): "N% less damage if destroyed within 0.5 seconds by something other than you", a
+-- stat PoB maps to nothing, read from the skill's scored stat set with what keeps the boss from setting it off that
+-- early: the set's arming time, and supports that delay triggering (Controlled Hazard's "can't trigger for N seconds
+-- after creation", Delayed Reaction's "trigger at the end of their duration instead").
+local EARLY_HAZARD = {
+	["hazard_damage_+%_final_for_first_500_ms_when_not_killed_by_self"] = "hazard",
+	["ice_crystals_damage_+%_final_for_first_500_ms_when_not_killed_by_self"] = "ice_crystals",
+	["shield_wall_damage_+%_final_for_first_500_ms_when_not_killed_by_self"] = "shield_wall",
+}
+local HAZARD_ARMING = { ["permafrost_shard_arming_time_ms"] = true, ["briarpatches_arming_time_ms"] = true }
+local function earlyHazard(activeSkill)
+	-- (current PoB wraps the scored set: activeEffect.statSet = { statSet = <the set>, index, skillFlags })
+	local set = activeSkill.activeEffect.statSet
+	set = set and (set.statSet or set)
+	local early
+	for _, pair in ipairs(set and set.constantStats or { }) do
+		if EARLY_HAZARD[pair[1]] then
+			early = { kind = EARLY_HAZARD[pair[1]], more = pair[2] }
+		end
+	end
+	if not early then
+		return nil
+	end
+	-- Ice Crystals by the game's own type, whatever the stat's name (Grim Pillars' "Ice-Crystal spears" carry the
+	-- hazard_ id but explode as is_ice_crystal_explosion, like Frost Wall's and Glacial Bolt's)
+	for _, other in ipairs(activeSkill.activeEffect.grantedEffect.statSets or { }) do
+		for _, stat in ipairs(other.stats or { }) do
+			if stat == "is_ice_crystal_explosion" then
+				early.kind = "ice_crystals"
+			end
+		end
+	end
+	for _, pair in ipairs(set.constantStats) do
+		if HAZARD_ARMING[pair[1]] then
+			early.arming = pair[2]
+		end
+	end
+	for _, support in ipairs(activeSkill.effectList or { }) do
+		local granted = support.grantedEffect
+		local first = granted and granted.support and granted.statSets and granted.statSets[1]
+		for _, pair in ipairs(first and first.constantStats or { }) do
+			if pair[1] == "hazards_cant_trigger_x_seconds_after_creation" then
+				early.delay = (early.delay or 0) + pair[2]
+				early.delayBy = granted.name
+			end
+		end
+		for _, stat in ipairs(first and first.stats or { }) do
+			if stat == "hazards_trigger_at_end_of_duration_instead" then
+				early.atEnd = granted.name
+			end
+		end
+	end
+	return early
+end
+
 -- Active skills of the current build with what an assumption needs about them: base cooldown,
 -- cooldown recovery, and whether they generate Remnants. `levelStats = {names}` adds those skills'
 -- stats at their current level and quality (e.g. Iron Ward's store, which PoB doesn't read).
@@ -1973,6 +2028,10 @@ function bridge.activeSkills(args)
 			wrongWeapon = effect.weaponTypes and not (weapon1 and effect.weaponTypes[weapon1] or weapon2
 				and effect.weaponTypes[weapon2]) or nil,
 		}
+		do
+			local ok, early = pcall(earlyHazard, activeSkill)
+			skills[#skills].earlyHazard = ok and early or nil
+		end
 		-- Every minion skill's minions (models.minion_deaths): how many, how long they last (0: until killed), Persistent
 		if activeSkill.minion and activeSkill.minion.minionData then
 			local ok, summon = pcall(function()
@@ -1984,6 +2043,10 @@ function bridge.activeSkills(args)
 					duration = base * calcLib.mod(list, cfg, "Duration", "PrimaryDuration"),
 					persistent = types[SkillType.Persistent] and true or false,
 					undead = types[SkillType.CreatesUndeadMinion] and true or false,
+					-- (models.minion_deaths, MECH-B) revival: PoB's MinionRevivalSpeed modifier (Sacrifice's 40% slower,
+					-- "Minions Revive N% faster") and the skill's own base resummon time (minion_base_resummon_time_ms)
+					reviveSpeed = list:Flag(cfg, "RevivingMinion") and calcLib.mod(list, cfg, "MinionRevivalSpeed") or nil,
+					reviveBase = list:Flag(cfg, "RevivingMinion") and list:Override(cfg, "BaseReviveTime") or nil,
 				}
 			end)
 			if ok then

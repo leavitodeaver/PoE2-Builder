@@ -30,7 +30,7 @@ BOSS_POWER = 20  # "Unique monsters always have 20 Power" (https://poe2db.tw/us/
 DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
 # PoB stats the models read (beyond the objective's own fields)
 MODEL_FIELDS = sorted({
-    "Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
+    "Speed", "HitChance", "CritChance", "HazardRearmChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
     "EnergyShieldRegenRecovery", "EnergyShieldRecharge", "PresenceRadius",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
     "FreezeBuildupAvg", "ElectrocuteBuildupAvg", "HeavyStunBuildupAvg",
@@ -221,6 +221,7 @@ class Skill:
     minion: dict | None = None  # a triggered skill summoning Temporary minions: their duration, casts, limit (minion_count)
     summon: dict | None = None  # any minion skill's minions: limit, duration (0: until killed), persistent (minion_deaths)
     support_stats: dict[str, float] = field(default_factory=dict)  # named stats of its supports, summed (gem_stat_model)
+    early_hazard: dict | None = None  # its scored set's "less damage if set off in its first 0.5 s" (hazard_early_model)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -229,7 +230,7 @@ class Skill:
                    number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0,
                    dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
                    bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"),
-                   dict(raw.get("supportStats") or {}))
+                   dict(raw.get("supportStats") or {}), raw.get("earlyHazard"))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -542,11 +543,35 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple
                    "(an undercount)")
     if kills <= 0:
         return 0.0, f"nothing in this build kills its minions ({not_counted})"
-    rate = count * kills / (count + RESUMMON_SECONDS * kills)
+    revive, how = revive_seconds(reviving)
+    rate = count * kills / (count + revive * kills)
     return rate, (f"{rate:.3f} of your {count:g} Reviving minions Killed per second: " + "; ".join(parts)
-                  + f"; each revives {RESUMMON_SECONDS:g} s after the last death (KeywordPopups Reviving: the delay "
-                    f"resets on each death), so {count:g} x {kills:.2f} / ({count:g} + {RESUMMON_SECONDS:g} x {kills:.2f}); "
+                  + f"; each revives {revive:.3g} s after the last death (KeywordPopups Reviving: the delay "
+                    f"resets on each death; {how}), so {count:g} x {kills:.2f} / ({count:g} + {revive:.3g} x {kills:.2f}); "
                   + not_counted)
+
+
+# Revival time (MECHB2; FIX_QUEUE: Sacrifice makes revival 40% slower, AUDIT5). PoB works it out per Reviving minion skill
+# (CalcOffence: base / MinionRevivalSpeed): Sacrifice's harvester_minion_resummon_speed_+%_final (-40% at level 20, a
+# MORE buff) and "Minions Revive N% faster" lines are in its MinionRevivalSpeed, which the bridge reports. The base stays
+# RESUMMON_SECONDS (the manager's ruling, FIX_QUEUE: no number change until an in-game test), though the sources disagree:
+# the game constant global_resummon_time_ms 7.5 s (PoB Misc.lua), each player minion skill's minion_base_resummon_time_ms
+# 12 s (PoB overrides its base with it), and the 0.2.0e notes (each later death adds less, capped at 7.5 s).
+def revive_seconds(reviving: list[Skill]) -> tuple[float, str]:
+    """Seconds a Reviving minion takes to revive: RESUMMON_SECONDS over the build's revival speed (the minions' count-weighted
+    mean of PoB's MinionRevivalSpeed), and how."""
+    weights = [(number(s.summon.get("limit")), number(s.summon.get("reviveSpeed")) or 1.0) for s in reviving]
+    total = sum(w for w, _ in weights)
+    speed = sum(w * v for w, v in weights) / total if total > 0 else 1.0
+    skill_base = max((number(s.summon.get("reviveBase")) for s in reviving), default=0.0)
+    bases = (f"base {RESUMMON_SECONDS:g} s, the game constant; the skills' own stat says "
+             f"{skill_base:g} s and the 0.2.0e notes a shorter, capped delay: LOW until an in-game test"
+             if skill_base and skill_base != RESUMMON_SECONDS else
+             f"base {RESUMMON_SECONDS:g} s, the game constant (LOW: the 0.2.0e notes say each later death adds less)")
+    if abs(speed - 1.0) < 1e-6:
+        return RESUMMON_SECONDS, bases
+    return RESUMMON_SECONDS / speed, (f"{bases}; revival speed x{speed:.2f} (PoB's MinionRevivalSpeed: Sacrifice's "
+                                      "40% slower at level 20, Revive-faster lines)")
 MINION_TYPES = {"Minion", "CreatesMinion"}
 
 
@@ -1073,8 +1098,23 @@ ECHO_LINE = re.compile(r"^Cascadable Spells have (\d+(?:\.\d+)?)% chance to Echo
 REPEAT_ECHO_ENTRIES = ("now-and-again-repeat", "now-and-again-echo")
 
 
-def repeat_echo_model(texts: list[str], main_types: set[str], forbidden: set[str]) -> tuple[list[dict], list[dict]]:
-    if not {"Spell", "Multicastable", "Cascadable"} <= main_types or set(REPEAT_ECHO_ENTRIES) & forbidden:
+# MECHB2: KeywordPopups Repeat (game files 26476662): "Triggered skills, Instant skills, and Channelling skills cannot
+# Repeat". A main spell that can't Repeat gets no Repeat (the ledger condition RepeatableSpell is off for it: COV6,
+# 5f3ae4f, the same rule) and so loses no Repeat-Echo: this correction must not apply there either.
+NO_REPEAT_TYPES = frozenset({"Instant", "Channel"})
+
+
+def can_repeat(main: "Skill | None", main_types: set[str]) -> bool:
+    """The main skill is a spell that can Repeat: Spell + Multicastable (PoB's name for Repeatable), not Instant or
+    Channelling, and not Triggered in PoB's calculation (a meta gem or trigger support adds Triggered)."""
+    return ({"Spell", "Multicastable"} <= main_types and not NO_REPEAT_TYPES & main_types
+            and not (main is not None and main.triggered))
+
+
+def repeat_echo_model(texts: list[str], main_types: set[str], forbidden: set[str],
+                      main: "Skill | None" = None) -> tuple[list[dict], list[dict]]:
+    if (not {"Cascadable"} <= main_types or not can_repeat(main, main_types)
+            or set(REPEAT_ECHO_ENTRIES) & forbidden):
         return [], []
     r = min(1.0, sum(float(m.group(1)) for t in texts if (m := REPEAT_LINE.search(t.strip()))) / 100)
     e = min(1.0, sum(float(m.group(1)) for t in texts if (m := ECHO_LINE.search(t.strip()))) / 100)
@@ -3040,4 +3080,74 @@ def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: 
         notes.append({"label": label, "value": round(more, 1), "confidence": "LOW",
                       "basis": f"{how}: {share:.3g} of projectiles x {pierce:.0%} pierce the boss on the way out{returned} "
                                f"= {more:.1f}% more damage; {RETURN_RULE}"})
+    return mods, notes
+
+
+# Hazards set off in their first half second (MECHB2, 12 Nov 2026; FIX_QUEUE, COVC2's finding). Seven player stat sets
+# carry "-80% ... damage if destroyed within 0.5 seconds by something other than you" (stat description; checked: every
+# Stats.json id with "first_500_ms" (3: hazard_, ice_crystals_, shield_wall_damage_+%_final_for_first_500_ms_when_not_
+# killed_by_self), looked up in GrantedEffectStatSets / PerLevel, Mods, PassiveSkills, GrantedEffectQualityStats: only
+# skill stat sets use them: Spearfield, Ice Shards' shards, Grim Pillars, Brambles (Briarpatch), Frost Wall, Glacial
+# Bolt's wall, Shield Wall; second source: PoB's Data/Skills holds the same -80 on the same sets). PoB maps the stat to
+# nothing (checked: SkillStatMap.lua and each set's statMap), so it counts every hazard at full damage: an overcount
+# wherever the boss sets one off at once. The bridge reads it from the scored stat set (Glacial Bolt's Projectile set
+# and Ice Shards' Projectile set don't carry it) with what delays the trigger:
+#   - an arming time of 0.5 s or more (Ice Shards' shards arm in 1.5 s: never early; Brambles' 0.4 s doesn't help);
+#   - Controlled Hazard ("can't trigger for 3 seconds after creation") or Delayed Reaction ("trigger at the end of
+#     their duration instead", whose -70% duration still leaves Spearfield 3 s): never early.
+# Who sets it off (LOW, a play assumption; KeywordPopups Hazard: "destroyed when traversed by an enemy"):
+#   - hazards (Spearfield, Brambles): placed where the boss stands, so it traverses them at once: all early (x0.2).
+#     Laying them in the boss's path at least 0.5 s ahead avoids it: the play guide's "with it" row.
+#   - Ice Crystals (any skill with a set typed is_ice_crystal_explosion: Frost Wall, Glacial Bolt's wall, and Grim
+#     Pillars, whose "Ice-Crystal spears ... can be destroyed for an explosion" carry the hazard_ stat id) and Shield
+#     Wall: broken by the player's own hits (KeywordPopups
+#     IceCrystals: Consume-Freeze skills shatter them; Shield Wall's own "more damage when slammed"), which the penalty
+#     doesn't touch ("something other than you"): none early; the boss breaking them is the "without it" row.
+# Rearm (PoB: DPS x (1 + rearm chance)): a rearmed hazard's later trigger is taken as after 0.5 s, so at full damage
+# (UNVERIFIED: whether the window restarts on rearming isn't in the game files' text).
+EARLY_HAZARD_WINDOW = 0.5  # seconds (the stats' "first_500_ms")
+EARLY_HAZARD_BY_BOSS = {"hazard": True, "ice_crystals": False, "shield_wall": False}
+EARLY_HAZARD_ENTRY = "hazard-early-trigger"
+
+
+def hazard_early_share(early: dict) -> tuple[float, str]:
+    """The share of the skill's hazards the boss sets off in their first 0.5 s, and why."""
+    arming = number(early.get("arming")) / 1000
+    if arming >= EARLY_HAZARD_WINDOW:
+        return 0.0, f"they arm after {arming:g} s, past the 0.5 s window"
+    if early.get("atEnd"):
+        return 0.0, f"{early['atEnd']} sets them off at the end of their duration instead"
+    if number(early.get("delay")) >= EARLY_HAZARD_WINDOW:
+        return 0.0, f"{early.get('delayBy') or 'a support'}: they can't trigger for {number(early['delay']):g} s"
+    if EARLY_HAZARD_BY_BOSS.get(early.get("kind"), True):
+        return 1.0, "placed where the boss stands, it sets them off at once (LOW, a play assumption)"
+    return 0.0, "you break them with your own hits, which the penalty doesn't touch (LOW, a play assumption)"
+
+
+def hazard_early_model(skills: list[Skill], stats: dict, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    if EARLY_HAZARD_ENTRY in forbidden:
+        return [], []
+    mods, notes, seen = [], [], set()
+    rearm = min(1.0, max(0.0, number(stats.get("HazardRearmChance")) / 100))
+    for skill in skills:
+        early = skill.early_hazard
+        if not early or skill.name in seen:
+            continue
+        seen.add(skill.name)
+        less = number(early.get("more")) / 100  # -0.8
+        share, why = hazard_early_share(early)
+        factor = (1 + less * share + rearm) / (1 + rearm)
+        by_boss = (1 + less + rearm) / (1 + rearm)
+        if factor != 1:
+            mods.append(line("1% more Damage", 100 * (factor - 1), skill=skill.name))
+        crystals = early.get("kind") != "hazard"
+        notes.append({
+            "label": f"{skill.name}: {abs(less):.0%} less if set off in its first 0.5 s", "value": round(factor, 4),
+            "basis": f"{why}; PoB counts every one at full damage"
+                     + (f"; rearms ({rearm:.0%}) taken as later, at full damage (UNVERIFIED)" if rearm else ""),
+            "play": (f"{'Break them yourself' if crystals else 'Lay them in the boss path at least 0.5 s before it gets there'}"
+                     f": x{1 if crystals else 1 / by_boss:.2f} on {skill.name}'s damage. Without it (the boss "
+                     f"{'breaks them' if crystals else 'sets them off at once'}): x{by_boss:.2f}"
+                     if share or crystals else ""),
+            "confidence": "LOW: who sets the hazard off is how it's played; the -80% is the game files' (datamined)"})
     return mods, notes

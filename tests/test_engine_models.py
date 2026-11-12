@@ -1277,3 +1277,17 @@ def test_return_model_lines_parse_in_pob(engine):
     texts = ["1% more Damage", "1% more Damage against Enemies with Fully Broken Armour"]
     results = engine.call("parseLines", lines=texts)["results"]
     assert [r["line"] for r in results if not r["supported"]] == []
+
+
+def test_the_bridge_reports_a_hazards_first_half_second_penalty(engine):
+    """MECHB2: the bridge reads "-80% damage if destroyed within 0.5 s by something other than you" from the scored stat
+    set (PoB maps it to nothing) and models.hazard_early_model counts 80% less for Spearfield placed on the boss."""
+    payload = make_payload(BuildRequest(main_skill="Spearfield"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spearfield"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    skills = search.build.call("activeSkills")["skills"]
+    early = next(s for s in skills if s["name"] == "Spearfield").get("earlyHazard")
+    assert early and early["kind"] == "hazard" and early["more"] == -80
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Spearfield: 80% less"))
+    assert 0.15 < note["value"] < 0.5  # x0.2, or more with a rearm chance
