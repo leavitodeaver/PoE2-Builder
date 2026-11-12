@@ -1992,7 +1992,7 @@ def test_a_placed_banner_stands_its_glory_share_of_the_fight():
     cond = Conditions.__new__(Conditions)
     cond.build, cond.main_skill = build, "Mace Strike"
     up, how = cond._banner_share(["War Banner"])
-    glory = 2.0 * 20 / (1 + 0.5 * 2.0)  # 2 hits/s x 20 Glory, one gain per 0.5 s
+    glory = 2.0 * 20  # 2 hits/s x 20 Glory: one every 0.5 s, so each one gains (MECHC11: uses come regularly)
     assert up == pytest.approx(min(1.0, glory / 200 * 9.8)) and "Valour not counted" in how
     planted = next(c for c in CONDITIONS if c.var == "bannerPlanted")
     on, basis, share = planted.value_fn([], {"_banner": (up, how)})

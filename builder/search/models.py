@@ -3709,7 +3709,23 @@ GLORY_FROM_LIFE = {"Zerphi's Infamy": (50, 0.05)}  # Glory per use, share of Lif
 # every 1.7 s). On one boss: a gain, then 0.5 s, then the wait for the skill's next event, so gains/s = E / (1 + 0.5 E)
 # for E events/s (as the hit-Remnant cooldowns, assumptions.hit_remnant_rate), each gain the events' average Glory
 # (MEDIUM: which event wins a window is taken as proportional). Life spent (Zerphi's Infamy) isn't a per-monster event.
+# The skill's uses come one every 1/U s, not at random (MECHC11; the random form undercounted a regular rhythm: a Banner at
+# 6 attacks/s got 1.5 gains/s where the game gives 2, at 1 attack/s 0.67 where every hit counts): after a gain the next
+# use that can gain is the k = ceil(0.5 U)-th, and each use makes an event with p = E / U (an event per use, the hits of
+# one use counted once: they land together), so gains/s = 1 / ((k + (1 - p) / p) / U) (glory_gains; the random form when
+# U isn't known). Events of a use taken as independent of the use before (MEDIUM).
 GLORY_GAIN_EVERY = 0.5
+
+
+def glory_gains(events: float, uses: float) -> float:
+    """Glory gains per second on one boss from `events` per second made by a skill used `uses` times a second."""
+    if events <= 0:
+        return 0.0
+    if uses <= 0:
+        return events / (1.0 + GLORY_GAIN_EVERY * events)
+    p = min(1.0, events / uses)
+    k = max(1, math.ceil(GLORY_GAIN_EVERY * uses - 1e-9))
+    return uses / (k + (1.0 - p) / p)
 # Same popup: "You cannot gain Glory for a Skill while any instance of that Skill is active unless that Skill is a Banner"
 # (MECHC4; RESEARCH12, absorbed-rage-and-glory.md 4, HIGH for the rule: the three banners carry
 # active_skill_can_generate_glory_even_if_an_instance_of_this_skill_is_active, checked there over every stat set, passive and
@@ -3788,7 +3804,7 @@ def glory_uses(names: list[str], stats: dict, main: Skill | None) -> tuple[float
             glory = sum(events[e] * g for e, g in gains.items())
             how = " + ".join(f"{events[e]:.2f} {e}s/s x {g}" for e, g in gains.items()) or "no source counted"
             if rate > 0:  # one gain per 0.5 s per monster
-                kept = 1.0 / (1.0 + GLORY_GAIN_EVERY * rate)
+                kept = glory_gains(rate, number(stats.get("Speed"))) / rate
                 glory *= kept
                 how += f", at most one gain per {GLORY_GAIN_EVERY:g} s on the boss ({kept:.0%} of them count)"
         elif name in GLORY_FROM_LIFE:

@@ -1480,15 +1480,20 @@ def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
     slam = models.Skill("Boneshatter", attack=True, melee=True)
     stats = {"Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000, "HeavyStunBuildupAvg": 10.0}
     stuns = models.heavy_stun_rate(stats)[0]
-    # A skill gains Glory once per 0.5 s per monster (KeywordPopups Glory; MECHC2): E events/s give E / (1 + 0.5 E) gains
-    gains = stuns / (1 + 0.5 * stuns)
+    # A skill gains Glory once per 0.5 s per monster (KeywordPopups Glory; MECHC2): uses come every 1/U s (MECHC11), so
+    # after a gain the ceil(0.5 U)-th use can gain again, then each use with p = E / U
+    p = stuns / 2.0
+    gains = 2.0 / (1 + (1 - p) / p)
     # ... and none while an instance of the skill is up (MECHC4): Hammer of the Gods' 2.5 s, banners excepted
     hammer = models.glory_uses(["Hammer of the Gods"], stats, slam)
     assert hammer[0] == pytest.approx(1 / (2.5 + 1 / gains)) and "2.5 s instance" in hammer[1]
-    assert models.glory_uses(["War Banner"], stats, slam)[0] == pytest.approx(2.0 / 2.0 * 20 / 200)  # one per 10 s
+    assert models.glory_uses(["War Banner"], stats, slam)[0] == pytest.approx(2.0 * 20 / 200)  # every hit: one per 5 s
     fast = models.glory_uses(["War Banner"], {**stats, "Speed": 6.0}, slam)
-    assert fast[0] == pytest.approx(6.0 / 4.0 * 20 / 200) and "one gain per 0.5 s" in fast[1]  # was one per 1.7 s
-    assert fast[0] < 2.0 * 20 / 200  # never more than two gains a second
+    assert fast[0] == pytest.approx(2.0 * 20 / 200) and "one gain per 0.5 s" in fast[1]  # every third hit (was 1.7 s)
+    odd = models.glory_uses(["War Banner"], {**stats, "Speed": 5.0}, slam)  # every third hit at 5/s: 0.6 s apart
+    assert odd[0] == pytest.approx(5.0 / 3 * 20 / 200)
+    assert models.glory_gains(1.0, 0.0) == pytest.approx(1 / 1.5)  # rhythm unknown: the random form
+    assert models.glory_gains(0.5, 4.0) == pytest.approx(4.0 / (2 + 7))  # 1 use in 8 makes the event
     spell = models.Skill("Spark", spell=True)
     uses, how = models.glory_uses(["War Banner"], {**stats, "PhysicalHitAverage": 0, "LightningHitAverage": 1000}, spell)
     assert uses == 0 and "never" in how  # a spell makes no attack hits
