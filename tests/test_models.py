@@ -1749,6 +1749,13 @@ def test_the_bosss_ignites_delay_energy_shield_recharge():
     assert boss_hits.es_dot({"_boss": "Zarokh, the Temporal"}) == []  # (Physical only: no Fire hits)
 
 
+def test_a_flask_or_charm_counts_whole_only_at_full_uptime():
+    """MECHC7 (AUDIT19 A19-1): flasks.ACTIVE_UPTIME is the conditions' FULL_UPTIME (99.5%), not 90%."""
+    from builder.search import conditions, flasks
+
+    assert flasks.ACTIVE_UPTIME == conditions.FULL_UPTIME
+
+
 def test_the_bosss_fire_hits_ignite_you_by_flammability_against_your_ailment_threshold():
     """MECHC7 (AUDIT21 A21-1): KeywordPopups Flammability: 1% Ignite chance per 5% of your Ailment Threshold dealt as Fire,
     stacking over 8 s, raised by the boss skill's increased Ignite chance; a CI build (threshold ~0) Ignites every time."""

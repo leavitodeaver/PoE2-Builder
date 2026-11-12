@@ -3,8 +3,9 @@
 PoB counts a flask or charm in an active slot as up all the time. In a boss fight nothing dies, so
 charges come only from charge generation (passives, gear, the item's own "gains charges per
 second"). The search therefore counts:
-- an item's effect (PoB's buffs while it is active) only when generated charges keep it up at least
-  ACTIVE_UPTIME of the fight; the slot is switched off otherwise and the result says why
+- an item's effect (PoB's buffs while it is active) whole only when generated charges keep it up at least
+  ACTIVE_UPTIME (conditions.FULL_UPTIME, 99.5%) of the fight, and at its share of the fight below that (the gear side,
+  gear.FLASK_ON .. FLASK_WHOLE; the user's 9 Nov rule: defence floors count it only at full uptime)
 - a Life or Mana flask's recovery at the rate generated charges pay for, toward the skill-cost
   sustain floor (objective.SUSTAIN_POOLS), whether or not its effect counts
 
@@ -19,7 +20,11 @@ from dataclasses import dataclass
 
 from builder.search.boss_hits import land_share, type_taken
 
-ACTIVE_UPTIME = 0.9  # share of a boss fight a flask or charm effect must be up to be counted
+# The share of a boss fight a flask or charm effect must be up to count whole (and toward the defence floors): the
+# conditions' FULL_UPTIME, 99.5% (MECHC7, AUDIT19 A19-1, WRONG, an OVERCOUNT: before, 0.9, so an effect down 10% of the
+# fight counted whole, up to x1.11 on what it adds, and met a floor; the user's 9 Nov rule counts floors only at full
+# uptime). Below it the gear side counts the effect at its share (SEARCH5/6: gear.FLASK_ON .. FLASK_WHOLE).
+ACTIVE_UPTIME = 0.995  # = conditions.FULL_UPTIME (not imported: conditions -> objective -> flasks; a test keeps them equal)
 FLASK_SLOTS = {"Flask 1": "Life", "Flask 2": "Mana"}  # PoB: Life flasks in Flask 1, Mana in Flask 2
 CHARM_SLOTS = ["Charm 1", "Charm 2", "Charm 3"]
 RECOVERY_FIELDS = {"Life": "FlaskLifeRecoveryRate", "Mana": "FlaskManaRecoveryRate"}  # pseudo-stats
