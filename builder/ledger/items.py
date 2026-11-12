@@ -20,8 +20,15 @@ Which lines PoB can't parse comes from the data dump's coverage.json (`supported
 implicit line, through PoB's own parser); PoB's parse depends on the wording only, so a rolled line is matched by its
 template (numbers as #). With no coverage.json nothing is added (the old behaviour).
 
-Not applied (UNVERIFIED how often they matter; listed in COV2's report): a rune's Bonded lines (they count only with a
-source of "Bonded modifiers apply", or on an idol PoB marks so); soul cores' own slot entries; "increased effect of
+Not applied (UNVERIFIED how often they matter; listed in COV2's report): the ledger's stand-ins for a rune's Bonded
+lines. PoB itself applies the Bonded lines it parses (COV12, checked in the pinned PoB: ModParser's "gain the benefits of
+bonded modifiers on runes and idols" sets CanUseBonded from the passive tree, Wisdom of the Maji's line; "idols socketed in
+this item gain the benefits of their bonded modifiers" sets SocketedIdolsUseBondedModifiers; Item.lua
+GetActiveModListForSlotNum then adds each socketed rune's / idol's Bonded mod list), so only the Bonded lines PoB can't
+parse and the ledger translates are lost with such a source (14 in runes.json: Archon buff effect / duration / recovery,
+Glory generation, Invocated energy, Slowing Potency, Unlucky enemy damage, Slam Aftershock, Fork projectile ...): an
+undercount for those builds. A fix needs the stand-in under PoB's CanUseBonded flag, which the item text can't carry
+(the bridge's equip would have to add it); soul cores' own slot entries; "increased effect of
 socketed items" on the stand-in lines (PoB scales the rune's own line, not the stand-in); Timeless jewels' passives
 (the tree, not item text); conditional entries (passives only, as for uniques).
 """

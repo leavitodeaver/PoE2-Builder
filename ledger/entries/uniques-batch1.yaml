@@ -112,7 +112,7 @@
   kind: pob_gap
   match: '^(\(\d+-\d+\)|\d+)% Chance to gain a Charge when you kill an enemy$'
   replace: []
-  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
+  absorbed_by: "0 against a lone boss, where nothing dies before it. On the add presets (the King in the Mists', Atziri's: MECHD1, models.kill_rate) (COV12): not read: conditions._charge_rate needs the charge's kind (Power / Frenzy / Endurance) and this line names none (checked by a probe of the three kinds, COV12); an undercount there, routed to MECH-C"
   confidence: theory
   sources: ["https://poe2db.tw/us/Beiras_Anguish", "https://poe2db.tw/us/Nascent_Hope", "builder/search/conditions.py"]
   test_in_game: "None needed for a lone boss; on a map, charges rise on kills."
@@ -123,7 +123,7 @@
   kind: pob_gap
   match: '^When you kill a Rare monster, you gain its Modifiers for \d+ seconds$'
   replace: []
-  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
+  absorbed_by: "0 against a lone boss, where nothing dies before it. On the add presets (the King in the Mists', Atziri's: MECHD1, models.kill_rate) (COV12): 0 still: the adds are taken as Normal or Magic (conditions.kill_events; their rarity isn't in the presets, UNVERIFIED, LOW; A24-5), so no Rare is killed; an undercount if some are Rare"
   confidence: theory
   notes: "A boss is Unique, not Rare, and killing it ends the fight; Rare adds a boss summons would count in game."
   sources: ["https://poe2db.tw/us/Headhunter", "builder/search/conditions.py"]
@@ -135,7 +135,7 @@
   kind: pob_gap
   match: '^Trigger Spark Skill on killing a Shocked Enemy$'
   replace: []
-  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
+  absorbed_by: "0 against a lone boss, where nothing dies before it. On the add presets (the King in the Mists', Atziri's: MECHD1, models.kill_rate) (COV12): not read: the Spark triggered on killing a Shocked add could hit the boss; an undercount there, a triggered-skill model (MECH-B's) not built"
   confidence: theory
   notes: "The staff's own Grants Skill: Spark line still lets the build cast Spark itself."
   sources: ["https://poe2db.tw/us/Earthbound", "builder/search/conditions.py"]
@@ -148,7 +148,7 @@
   match: >-
     ^\s*(?:(?:\(\d+-\d+\)|\d+)% chance to gain Onslaught for \d+ seconds when you kill an|enemy affected by Abyssal Wasting|Gain \d+ Rage when you kill an enemy affected by Abyssal Wasting|Gain \d+ Volatility when you kill an enemy affected by Abyssal Wasting|\d+% chance to revive one of your Persistent Minions when you kill an|Enemies you kill while they are affected by Abyssal Wasting|grant \d+% increased Flask Charges|Abyssal Wasting you inflict also gives targets \d+% chance to explode on death, dealing a tenth of their life as Physical Damage)$
   replace: []
-  absorbed_by: "0 against a lone boss, where nothing dies before it; not read against the boss presets' adds (the King in the Mists' and Atziri's, MECHD1; models.kill_rate): an undercount on those presets, not modelled yet"
+  absorbed_by: "0 against a lone boss, where nothing dies before it. On the add presets (the King in the Mists', Atziri's: MECHD1, models.kill_rate) (COV12): the Rage and Onslaught pieces are read by MECH-C's conditions.rage_held / onslaught_uptime at the adds' kill rate (every kill taken as affected by Abyssal Wasting, LOW; checked by a probe, COV12); the Volatility, minion revive, flask-charge and explosion pieces are not read (an undercount there)"
   confidence: theory
   notes: >-
     Several of these mods are two lines in PoB's export ("... when you kill an" / "enemy affected by Abyssal
