@@ -545,6 +545,11 @@ class Assumptions:
                             cap = models.PressCap(found[0], f"walking 10 m before each use ({moving:.2f} s at the build's "
                                                   f"movement speed and a base {BASE_RUN:g} m/s*, MEDIUM; COV-C's "
                                                   "travel_rate)", moving, "MEDIUM")
+                    elif need.kind == "anguish" and hasattr(usage, "anguish_rate"):  # (COVC11: Compose Requiem)
+                        if found := usage.anguish_rate(name):
+                            cap = models.PressCap(found[0], f"anguish: the Requiem up {found[1]:.0%} of the fight "
+                                                  "(12 s per 30 s fill; 40% if anguish builds during it, UNVERIFIED)",
+                                                  0.0, "MEDIUM")
                     if cap is not None:
                         break
                 if cap is not None:

@@ -425,4 +425,47 @@ def test_four_item_and_tree_skills_requirements_are_read_not_never(fresh_rules, 
     assert "at least 10000 Mana" in poor.blockers("The Stars Answer")[0] and rich.usable("The Stars Answer")
     assert "Runic Ward" in poor.blockers("Runic Reprieve")[0] and rich.usable("Runic Reprieve")
     assert poor.usable("Unbound Avatar") and rich.usable("Unbound Avatar")
-    assert "Requiem shot fired at will" in rich.blockers("Compose Requiem")[0]
+    # (Compose Requiem's own gate: test_compose_requiem_counts_at_its_share, COVC11)
+
+
+def test_compose_requiem_counts_at_its_share(fresh_rules, monkeypatch):
+    """COVC11 (the manager's ruling on AUDIT19 A19-4): Compose Requiem is counted, not barred: the Requiem shot at
+    PoB's at-will rate x 12 / 42 (100 anguish at 200 a minute is 30 s, then a 12 s Requiem), which the press hook
+    applies; barred only in a Full DPS group the hook doesn't cap."""
+    monkeypatch.setattr(Usage, "talisman_blockers", lambda self, name: [])
+    rules = {"Requiem": {"usageCondition": True, "stats": {
+        "rapidshot_requiem_base_buff_count_requirement": 100, "rapidshot_requiem_number_of_stacks_per_minute": 200,
+        "rapidshot_requiem_active_duration_ms": 12000}}}
+    types = {"Requiem": ["Attack", "Projectile"], "Cast on Critical": ["Meta", "Persistent"]}
+    build = ComboBuild(rules, types, [{"index": 0, "enabled": True, "gems": [{"name": "Requiem", "support": False}]}],
+                       {"Requiem": 4.2, "Cast on Critical": 1.0})
+    usage = Usage(build, FakeConditions())
+    assert usage.blockers("Requiem") == []
+    uses, share = usage.anguish_rate("Requiem")
+    assert abs(share - 12 / 42) < 1e-9 and abs(uses - 4.2 * 12 / 42) < 1e-9
+    note = usage.play_note("Requiem")
+    assert note.startswith("Requiem: compose the Requiem each time anguish is full") and "x0.286" in note
+    assert "without the Requiem: none" in note
+    # A group counted in Full DPS that the hook doesn't cap (a triggered one): barred, labelled with the share
+    build.group_list = [{"index": 0, "enabled": True, "fullDPS": True, "fromItem": False, "label": "CoC", "gems": [
+        {"name": "Cast on Critical", "support": False}, {"name": "Requiem", "support": False}]}]
+    blocked = usage.blockers("Requiem")
+    assert len(blocked) == 1 and "up 29%-40%" in blocked[0] and "Requiem shot fired at will" in blocked[0]
+
+
+def test_the_press_hook_caps_a_requiem_main_skill_at_its_share(fresh_rules, monkeypatch):
+    """COVC11: Assumptions.press_caps gives the Requiem's group a PressCap at anguish_rate's uses, so main_cap scales
+    a Requiem main skill to x(12 / 42) of PoB's at-will damage."""
+    from builder.search.assumptions import Assumptions
+
+    rules = {"Requiem": {"usageCondition": True, "stats": {
+        "rapidshot_requiem_base_buff_count_requirement": 100, "rapidshot_requiem_number_of_stacks_per_minute": 200,
+        "rapidshot_requiem_active_duration_ms": 12000}}}
+    group = {"index": 0, "enabled": True, "gems": [{"name": "Requiem", "support": False, "enabled": True}]}
+    build = ComboBuild(rules, {"Requiem": ["Attack"]}, [group], {"Requiem": 4.2})
+    hook = Assumptions.__new__(Assumptions)
+    hook.build = build
+    cap = hook.press_caps([group], {0})[0]
+    assert abs(cap.uses - 4.2 * 12 / 42) < 1e-9 and cap.how.startswith("anguish: the Requiem up 29%")
+    mods, notes = hook.main_cap(group, "Requiem")
+    assert len(mods) == 1 and notes[0]["value"] == "x0.286" and "anguish" in notes[0]["label"]

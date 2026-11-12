@@ -131,8 +131,15 @@ Cannot be cast if already active" (the_stars_answer.csd; poe2db the same,
     anguish, where.py: rapidshot_requiem_buff_count_requirement is on nothing). The Requiem shot is up 12 / (30 + 12) =
     29% of the fight, or 40% if anguish also builds while it's up (UNVERIFIED). PoB's gem (Gems.lua "Requiem") grants
     the shot (CrossbowRequiemPlayer) beside it and counts it fired at will (checked: no Requiem / anguish /
-    rapidshot_requiem line in PoB's Modules or SkillStatMap), so it stays barred, labelled with that
-    share, until something scales its damage to it (routed to MECH-B with the press hook)
+    rapidshot_requiem line in PoB's Modules or SkillStatMap). Counted at its share (COVC11; the manager's ruling on
+    AUDIT19 A19-4): a play strategy, compose the Requiem whenever anguish is full and fire it for the 12 s. Usage.
+    anguish_rate gives (uses/s, share) for the group holding it: PoB's at-will rate x 12 / 42 (the lower share; MEDIUM,
+    since the 40% one is UNVERIFIED). On MECH-B's press hook: Assumptions.press_caps holds a pressed group to it and
+    Assumptions.main_cap scales a Requiem main skill to the share (a DPS "more", its ailments following). Still barred
+    (anguish_blocker) only where a group holding it counts in Full DPS without that cap (uncapped_groups). Not counted:
+    what the build fires during the 30 s fill (another skill's damage then is left out: an undercount, labelled) and
+    whether Skill Effect Duration lengthens the Requiem (UNVERIFIED; PoB reads no such line, so the base 12 s).
+    Usage.play_note gives the play line (without the Requiem: none; with it: the share)
 - everything else (Glory a skill builds from its own hits, standing still, recent blocks, Volatility,
   ...): never, since the skill wouldn't be used at the rate PoB calculates
 
@@ -326,8 +333,8 @@ class Usage:
             if need.kind in ("placed banner", "fury"):
                 continue  # (the reserved banner is used at will, Unbound Avatar's buff isn't counted: module docstring)
             if need.kind == "anguish":
-                blocked.append(f"{name}: {need.label}, but PoB counts the Requiem shot fired at will, and the tool "
-                               "doesn't yet scale it to that share (routed to the mechanics lane)")
+                if reason := self.anguish_blocker(name):
+                    blocked.append(f"{name}: {need.label}, {reason}")
                 continue
             if need.kind == "combo":
                 if reason := self.combo_blocker(name, need):
@@ -397,6 +404,14 @@ class Usage:
                     "pressed skill: PoB would count it used at will)")
         return ""
 
+    def anguish_blocker(self, name: str) -> str:
+        """Why the Requiem gem `name` is barred, or "" (module docstring, Compose Requiem): only where a group holding it
+        counts in Full DPS without a press cap (uncapped_groups), since PoB counts the Requiem shot fired at will."""
+        if uncapped := self.uncapped_groups(name):
+            return (f"and its group {uncapped[0]} counts in Full DPS without a press cap (neither the main skill nor a "
+                    "pressed skill: PoB would count the Requiem shot fired at will)")
+        return ""
+
     def uncapped_groups(self, name: str) -> list[str]:
         """Labels of the enabled groups holding `name` that count in PoB's Full DPS but that the press hook doesn't cap:
         neither the main group (Assumptions.main_cap) nor a pressed group (assumptions.pressed_group, capped by
@@ -431,7 +446,28 @@ class Usage:
                 return (f"{name}: walk 10 m between uses ({walking:.0%} of the fight spent walking, no skill used then): "
                         f"about {uses:.2f} uses a second, x{share:.3f} of PoB's at-will damage (standing still: none; "
                         f"with dodge rolls counted as moving, UNVERIFIED: {rolled:.2f} a second)")
+            if need.kind == "anguish" and (found := self.anguish_rate(name)):
+                uses, share = found
+                return (f"{name}: compose the Requiem each time anguish is full ({need.label}), then fire the Requiem "
+                        f"shot for its whole duration: about {uses:.2f} shots a second over the fight, x{share:.3f} of "
+                        "PoB's at-will damage (without the Requiem: none; with it: that share; x0.400 if anguish also "
+                        "builds while it's up, UNVERIFIED; what you fire during the fill isn't counted)")
         return ""
+
+    def anguish_rate(self, name: str) -> tuple[float, float] | None:
+        """(uses per second over the fight, share of PoB's at-will damage) of the Requiem shot in the first enabled
+        group holding `name` (module docstring, Compose Requiem): PoB's at-will rate x the Requiem's share (12 / 42),
+        or None when `name` has no anguish requirement, isn't in an enabled group or has no use rate."""
+        rule = self.rules.get(name)
+        need = next((r for r in requirements(name, rule) if r.kind == "anguish"), None) if rule else None
+        mine = self.combo_groups(name)
+        if need is None or need.rate <= 0 or not mine or mine[0].get("index") is None:
+            return None
+        rate = next(iter(self.build.call("useRates", indices=[mine[0]["index"]])["rates"]), None) or {}
+        speed = number(rate.get("speed"))
+        if speed <= 0:
+            return None
+        return speed * need.rate, need.rate
 
     def combo_rate(self, name: str, amount: float) -> tuple[float, float, str] | None:
         """(uses per second, share of PoB's at-will damage, builder) of the Combo skill in `name`'s group, built by the

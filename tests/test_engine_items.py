@@ -722,6 +722,13 @@ def test_compose_requiem_from_the_last_lament_is_the_main_skill(engine):
     names = {s["name"] for s in main[0]["skills"]} if main else set()
     print("main group skills:", names)
     assert "Compose Requiem" in names
+    # COVC11: counted at its share, not barred: the press hook caps the group's Requiem shot at 12 / 42 of PoB's rate
+    from builder.search.usage import Usage
+    gem = next(g["name"] for g in main[0]["gems"] if not g["support"])
+    assert gem == "Requiem" and Usage(search.build, None).blockers(gem) == []
+    cap = search.assumptions.press_caps(main, {main[0]["index"]}).get(main[0]["index"])
+    print("Requiem cap:", cap)
+    assert cap is not None and cap.how.startswith("anguish: the Requiem up 29%")
 
 
 def test_an_off_hand_sceptres_skill_can_be_the_main_skill(engine):

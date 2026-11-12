@@ -65,7 +65,7 @@
   status: approved
 
 - id: model-stats-compose-requiem-anguish
-  title: Compose Requiem's anguish (usage gate, labelled with the Requiem's share)
+  title: Compose Requiem's anguish (the Requiem shot counted at its share of the fight)
   kind: model
   model: usage
   stats: ["rapidshot_requiem_base_buff_count_requirement", "rapidshot_requiem_number_of_stacks_per_minute",
@@ -73,8 +73,10 @@
   skill: [Compose Requiem]
   confidence: datamined
   notes: >-
-    100 anguish at 200 a minute (30 s) for a 12 s Requiem: up 29% of the fight (40% if anguish builds while it's up,
-    UNVERIFIED). usage.py's "anguish" requirement keeps it barred, labelled with that share, because PoB counts the
-    Requiem shot fired at will; the scaling is routed to MECH-B.
-  sources: ["builder/search/usage.py ANGUISH, ANGUISH_PER_MINUTE, REQUIEM_MS, requirements, blockers"]
+    100 anguish at 200 a minute (30 s) for a 12 s Requiem: up 12 / 42 = 29% of the fight (40% if anguish builds while
+    it's up, UNVERIFIED). COVC11: counted at the 29% share, not barred: usage.anguish_rate gives the press hook its
+    cap (Assumptions.press_caps / main_cap, a DPS more on the Requiem main skill); barred only in a Full DPS group the
+    hook doesn't cap. MEDIUM for the share.
+  sources: ["builder/search/usage.py ANGUISH, ANGUISH_PER_MINUTE, REQUIEM_MS, requirements, anguish_rate, blockers",
+            "builder/search/assumptions.py press_caps"]
   status: approved
