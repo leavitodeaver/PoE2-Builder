@@ -370,8 +370,14 @@ class Assumptions:
         energy_mods, energy_notes = energy_mods + totem_mods, energy_notes + totem_notes
         ward_mods, ward_notes = models.iron_ward_model(
             found, stats, enabled=models.IRON_WARD_ENTRY not in build.ctx.request.forbid_ledger_entries)
+        # (a non-main skill's own output for a support counted from it, Practical Magic on a stunning attack: the bridge's
+        # useRates for its group, with the share of its nonstop uses the press model last gave it)
+        side = models.gem_stat_side_groups(found, main)
+        press = getattr(build.objective, "press_scales", None) or {}
+        side_groups = {r["index"]: {**r, "_press": press.get(r["name"])}
+                       for r in build.call("useRates", indices=side)["rates"]} if side else None
         stat_mods, stat_notes = models.gem_stat_model(found, set(build.ctx.request.forbid_ledger_entries), stats, main,
-                                                      self.mods, build.call("getConfig")["input"])
+                                                      self.mods, build.call("getConfig")["input"], side_groups)
         harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
         ring_mods, ring_notes = models.resist_rings_model(source_lines) if models.RESIST_ENTRY not in forbidden else ([], [])
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()

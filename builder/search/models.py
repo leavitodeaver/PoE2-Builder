@@ -2040,10 +2040,11 @@ def _skill_names(entry) -> list[str]:
 
 def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats: dict | None = None,
                    main: Skill | None = None, previous: list[dict] | None = None,
-                   config: dict | None = None) -> tuple[list[dict], list[dict]]:
+                   config: dict | None = None, groups: dict | None = None) -> tuple[list[dict], list[dict]]:
     """`previous`: the lines applied when `stats` was calculated (Assumptions.mods), so a `share:` entry whose own line
     moves the stat it reads (Cadence's Attack Speed) can take its own last line back out (SHARES). `config`: PoB's config
-    input (bridge getConfig), whose boxes an `additive:` entry counts (additive_value)."""
+    input (bridge getConfig), whose boxes an `additive:` entry counts (additive_value). `groups`: {group index: the
+    bridge's useRates entry + `_press`} for gem_stat_side_groups, read by GROUP_SHARES (a non-main skill's own output)."""
     from builder.ledger import SYNTAX, gem_stat_entries
 
     mods: list[dict] = []
@@ -2092,7 +2093,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
             elif entry.raw.get("share") in SHARES:  # a share of the skill's uses, from the build's own output (SHARES)
                 prev = sum(m.get("scale", 0.0) for m in previous or () if m.get("entry") == entry.id
                            and m.get("skill") == name)  # (its own line, in the stats it reads)
-                factor, why, play = SHARES[entry.raw["share"]](skill, stats or {}, main, prev)
+                read = {**(stats or {}), "_groups": groups} if groups and entry.raw["share"] in GROUP_SHARES else stats
+                factor, why, play = SHARES[entry.raw["share"]](skill, read or {}, main, prev)
                 why = f"; {why}"
             else:
                 why = ""
@@ -2365,8 +2367,7 @@ def heavy_stun_buff_share(skill: Skill, stats: dict, main: Skill | None = None,
     seconds = (number(skill.support_stats.get("support_stunning_magic_buff_duration_ms")) or 8000.0) / 1000
     play = (f"Heavy Stun the boss with the supported skill: each Heavy Stun gives the Spell damage for {seconds:g} s.")
     if main is None or main.name != skill.name or main.group != skill.group:
-        return 0.0, ("not the main skill: its Heavy Stuns of the boss aren't worked out, so the buff isn't counted (0; an "
-                     "undercount if it stuns)"), play
+        return heavy_stun_buff_side(skill, stats, seconds, play)
     rate, how = heavy_stun_rate(stats)
     if rate <= 0:
         return 0.0, f"no Heavy Stuns: {how}", play
@@ -2378,7 +2379,55 @@ def heavy_stun_buff_share(skill: Skill, stats: dict, main: Skill | None = None,
     return share, why, play
 
 
+# A13-3 (AUDIT13): Practical Magic's natural use is on a stunning attack beside a main spell. Its Heavy Stuns come from
+# that skill's own group (`stats["_groups"][group]`: the bridge's useRates entry, the group calculated as if it were the
+# main one, which gem_stat_model is given as `groups`), at the share of its nonstop uses the press model gives it
+# (`_press`: objective.press_scales, the same rate whose time the main skill loses, so nothing is counted twice).
+GROUP_SHARES = {"heavy_stun_buff"}  # (share functions that read a non-main skill's own group)
+HEAVY_STUN_GROUP_FIELDS = ("HeavyStunBuildupAvg", "HitChance", "CritChance",
+                           *(f"{t}{k}Average" for t in DAMAGE_TYPES for k in ("Hit", "Crit")))
+
+
+def heavy_stun_buff_side(skill: Skill, stats: dict, seconds: float, play: str) -> tuple[float, str, str]:
+    """Practical Magic's share on a supported skill that isn't the main one, from its own group's Heavy Stuns."""
+    own = (stats.get("_groups") or {}).get(skill.group)
+    if own is None or "HeavyStunBuildupAvg" not in own:
+        return 0.0, ("not the main skill, and the bridge doesn't report its own group's Heavy Stun buildup (useRates), so "
+                     "its Heavy Stuns of the boss aren't worked out: not counted (0; an undercount if it stuns)"), play
+    press = own.get("_press")
+    if not press:
+        return 0.0, ("not the main skill, and the press model gives it no use rate (it isn't a pressed skill in Full DPS): "
+                     "not counted (0)"), play
+    nonstop, how = heavy_stun_rate({**own, "Speed": own.get("Speed", own.get("speed"))})
+    rate = nonstop * min(1.0, number(press))
+    if rate <= 0:
+        return 0.0, f"no Heavy Stuns from it: {how}", play
+    share = min(1.0, rate * seconds)
+    why = (f"up {share:.0%} of the fight: used beside the main skill at {number(press):.0%} of its nonstop rate (the press "
+           f"model's, whose time the main skill loses), a Heavy Stun every {1 / rate:.1f} s (nonstop: {how}), {seconds:g} s "
+           f"each; the main skill's own stun buildup towards the same bar not counted (an undercount)")
+    play += (f" Use {skill.name} beside the main skill to Heavy Stun the boss. Headline: up {share:.0%} of the fight (a "
+             f"Heavy Stun every {1 / rate:.1f} s at the rate the tool presses it). Without it the buff gives nothing.")
+    return share, why, play
+
+
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share}
+
+
+def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
+    """Non-main groups whose own output a GROUP_SHARES entry reads (the bridge's useRates for them: gem_stat_model's
+    `groups`)."""
+    from builder.ledger import gem_stat_entries
+
+    found = set()
+    for entry in gem_stat_entries():
+        if entry.raw.get("share") not in GROUP_SHARES or entry.pattern is None:
+            continue
+        for skill in skills:
+            if skill.group is not None and (main is None or skill.group != main.group) and any(
+                    entry.pattern.search(stat) and number(v) for stat, v in skill.support_stats.items()):
+                found.add(skill.group)
+    return sorted(found)
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

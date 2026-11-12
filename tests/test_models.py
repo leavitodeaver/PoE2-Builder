@@ -584,6 +584,27 @@ def test_practical_magic_counts_at_the_main_skills_heavy_stun_share_and_new_part
         "HaemocrystalsPerConsume": 4, "HaemocrystalsExtraIfAggravated": 2, "HaemocrystalsMax": 20}
 
 
+def test_practical_magic_on_a_stunning_attack_beside_the_main_spell_counts_from_its_own_group():
+    # A13-3: the stunning attack's own group output (bridge useRates) at the press model's share of its nonstop uses
+    stats = {"support_stunning_magic_grant_spell_damage_+%_buff_on_heavy_stunning": 40,
+             "support_stunning_magic_buff_duration_ms": 8000}
+    spell = models.Skill("Fireball", group=1, spell=True)
+    axe = models.Skill("Boneshatter", group=2, attack=True, support_stats=stats)
+    assert models.gem_stat_side_groups([spell, axe], spell) == [2]
+    assert models.gem_stat_side_groups([spell, axe], axe) == []
+    own = {"index": 2, "name": "Boneshatter", "speed": 2, "HeavyStunBuildupAvg": 10, "HitChance": 100,
+           "PhysicalHitAverage": 1000, "CritChance": 0, "_press": 0.25}
+    nonstop = models.heavy_stun_rate({**own, "Speed": 2})[0]
+    mods, notes = models.gem_stat_model([spell, axe], stats={}, main=spell, groups={2: own})
+    assert mods[0]["line"] == "1% increased Spell Damage" and "skill" not in mods[0]
+    assert mods[0]["scale"] == pytest.approx(40 * min(1.0, 8 * nonstop * 0.25), rel=1e-4)
+    assert "Use Boneshatter beside the main skill" in notes[0]["play"]
+    # no press rate, or no stun fields from the bridge: not counted, said so
+    assert models.gem_stat_model([spell, axe], main=spell, groups={2: {**own, "_press": None}})[0] == []
+    mods, notes = models.gem_stat_model([spell, axe], main=spell, groups={2: {"index": 2, "speed": 2, "_press": 0.25}})
+    assert mods == [] and "doesn't report its own group's Heavy Stun buildup" in notes[0]["basis"]
+
+
 def test_penalties_on_uncounted_parts_wait_for_the_model_that_counts_them():
     area, mimic = "support_spell_cascade_area_of_effect_+%_for_cascade", "skill_used_by_fractured_mimic_spell_damage_+%_final"
     offering = "cascadeable_offering_support_offering_casted_spell_damage_+%_final"

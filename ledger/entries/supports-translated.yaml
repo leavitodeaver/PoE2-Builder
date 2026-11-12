@@ -344,7 +344,10 @@
     (SupportPracticalMagicPlayer 30 / 8000, ...PlayerTwo 40 / 8000). PoB maps neither stat (checked: sup_int.lua and
     SkillStatMap.lua, Modules/*.lua, 12 Nov 2026). Counted for the whole build (a buff on you: it reaches every Spell)
     at the share of the fight it's up, min(1, 8 s x the main skill's Heavy Stuns per second (models.heavy_stun_rate)).
-    On a supported skill that isn't the main skill it's 0 with a note (no Heavy Stun rate for it).
+    On a supported skill that isn't the main skill (its natural use: a stunning attack beside a main spell, AUDIT13 A13-3)
+    its Heavy Stuns come from that skill's own group (the bridge's useRates, models.heavy_stun_buff_side) at the share
+    of its nonstop uses the press model gives it (whose time the main skill loses); 0 with a note until useRates
+    reports the group's Heavy Stun buildup and hit averages (asked of MECH-B), or when the press model gives it no rate.
   sources: ["SupportPracticalMagicPlayer, SupportPracticalMagicPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
   test_in_game: "Heavy Stun a boss with the supported skill, then compare a Spell's damage within 8 s and after."
   status: proposed
