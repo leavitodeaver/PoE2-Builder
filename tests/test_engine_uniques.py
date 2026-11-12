@@ -1,0 +1,91 @@
+"""Unique items' ledger lines (COV-D, ledger/entries/uniques-*.yaml) through a real engine. Boots one PoB engine for
+the module (a few seconds) and needs the game-data dump."""
+
+from __future__ import annotations
+
+import faulthandler
+
+import pytest
+
+from builder.data import GameData
+from builder.request.schema import BuildRequest
+from builder.search.context import Context, make_payload
+from builder.search.inner import Search
+from builder.search.skeletons import enumerate_skeletons
+
+FIELDS = ["TotalDPS", "IgniteDPS", "BleedDPS", "PoisonDPS", "FullDPS"]
+
+
+@pytest.fixture(scope="module")
+def engine():
+    try:
+        GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump; run `uv run python -m builder.data dump`")
+    from builder.pob.engine import PobEngine
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()  # LuaJIT's Lua errors are Windows exceptions PoB's pcall catches
+    yield PobEngine()
+    if enabled:
+        faulthandler.enable()
+
+
+def test_hrimnors_hymn_aftershock_doubles_slam_hits_not_ignite(engine):
+    """Hrimnor's Hymn's extra Aftershock (uniques-hrimnors-hymn-aftershock): a second equal hit doubles the slam's hit
+    DPS, but a second Ignite or Bleed of the same size doesn't stack (KeywordPopups Debuff), so they stay well under
+    x2 (only the higher roll and uptime of more applications; AUDIT8 A8-1)."""
+    payload = make_payload(BuildRequest(main_skill="Sunder"))
+    ctx = Context(payload)
+    skeleton = enumerate_skeletons(ctx, ["Sunder"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    hymn = next(u for u in ctx.data.uniques if u["name"] == "Hrimnor's Hymn")
+    stand_in = "Slam Skills have 100% more DPS"
+    assert stand_in in ctx.corrected_raw(hymn["name"], hymn["raw"]).split("\n")
+
+    def amulet(extra: list[str]) -> str:
+        return "\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                          "Adds 100 to 200 Fire Damage to Attacks", "Adds 100 to 200 Physical Damage to Attacks",
+                          "+100% chance to Ignite", "25% chance to cause Bleeding on Hit", "100% chance to Poison on Hit",
+                          *extra])
+
+    build.call("equip", slot="Amulet", raw=amulet([]), fields=[])
+    before = build.call("stats", fields=FIELDS)
+    build.call("equip", slot="Amulet", raw=amulet([stand_in]), fields=[])
+    after = build.call("stats", fields=FIELDS)
+    assert before["IgniteDPS"] > 0 and before["PoisonDPS"] > 0
+    assert after["TotalDPS"] == pytest.approx(2 * before["TotalDPS"], rel=0.01)
+    assert after["IgniteDPS"] < 1.5 * before["IgniteDPS"]
+    assert after["PoisonDPS"] < 1.5 * before["PoisonDPS"]  # one Poison at a time without an extra-stacks line
+    assert after["FullDPS"] > 1.4 * before["FullDPS"]
+
+
+def test_veilpiercer_hit_damage_in_presence_follows_the_boss_distance(engine):
+    """Veilpiercer's "increased Damage with Hits against targets in your Presence" (uniques-veilpiercer-hit-damage-in-
+    presence) reaches PoB gated on the boss standing inside the Presence radius (4 m by default)."""
+    payload = make_payload(BuildRequest(main_skill="Sunder"))
+    ctx = Context(payload)
+    skeleton = enumerate_skeletons(ctx, ["Sunder"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    veil = next(u for u in ctx.data.uniques if u["name"] == "Veilpiercer")
+    stand_in = next(line for line in ctx.corrected_raw(veil["name"], veil["raw"]).split("\n")
+                    if "Rare or Unique Enemy is in your Presence" in line)
+    assert "% increased Damage with Hits while a Rare or Unique Enemy" in stand_in
+    parsed = build.call("parseLines", lines=["40% increased Damage with Hits while a Rare or Unique Enemy is in your Presence"])
+    assert "Condition:EnemyInPresence" in parsed["results"][0]["parsed"][0]["tags"]
+
+    def hits_at(metres: float, extra: list[str]) -> float:
+        build.call("equip", slot="Amulet", raw="\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82",
+                                                          "Implicits: 0", "Adds 100 to 200 Physical Damage to Attacks",
+                                                          *extra]), fields=[])
+        search.conditions.distance = (metres, "test")
+        search.settle()
+        return build.call("stats", fields=["TotalDPS"])["TotalDPS"]
+
+    line = ["40% increased Damage with Hits while a Rare or Unique Enemy is in your Presence"]
+    assert hits_at(2.0, line) > 1.1 * hits_at(2.0, [])
+    assert hits_at(8.0, line) == pytest.approx(hits_at(8.0, []), rel=0.001)

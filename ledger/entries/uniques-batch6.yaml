@@ -1,0 +1,34 @@
+# Unique items' lines, sixth batch (COVD6, 12 Nov 2026): open unique lines from builder/ledger/coverage.py's ranking
+# as of origin/main aefbd1a + uniques-batch5.yaml (scratch/covd/open.py).
+#
+# Game files: data/game-26476662/tables (Mods.json, Stats.json, KeywordPopups.json). Unique texts: PoB's export.
+# Patterns accept a roll range or a rolled number: (\(\d+-\d+\)|\d+). PoE2 0.5.x; recheck at the 1.0 refresh.
+
+- id: uniques-veilpiercer-hit-damage-in-presence
+  title: Veilpiercer, (20-40)% increased Damage with Hits against targets in your Presence (the boss's distance decides)
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% increased Damage with Hits against targets in your Presence$'
+  replace: ['{1}% increased Damage with Hits while a Rare or Unique Enemy is in your Presence']
+  confidence: datamined
+  notes: >-
+    Mods UniqueHitDamageAgainstEnemiesInPresence1: stat hit_damage_+%_against_enemies_in_presence, 20-40. PoB leaves
+    the sentence unparsed ("Damage with Hits" with the leftover " against targets in your Presence"; Item.lua applies
+    no line with leftover text), so builds got 0. The stand-in is a sentence PoB parses as Damage INC with KeywordFlag
+    Hit, tagged with the enemy's rarity, and engine/bridge.lua adds PoB's own EnemyInPresence condition to every
+    "Unique Enemy is in your Presence" line (CalcPerform 526: PresenceRadius >= the distance to the enemy). The target
+    here is always the boss, a Unique monster, so the rarity tag is always met and only the distance decides, as the
+    game's line does. KeywordPopups Presence: "an area around your character ... By default this has a 4 metre radius";
+    PoB's PresenceRadius gives it. The distance is the build's: conditions.py DISTANCE_LINE matches "in your Presence"
+    in the line, so Search.choose_distance tries close range (2 m) against the build's natural distance and keeps the
+    better score, with Accuracy and the defence checks at the same distance (a ranged build standing close is a play
+    choice the guide states). Presence Area modifiers count: PoB's PresenceRadius is the base radius scaled by
+    PresenceRadius and then by PresenceArea (CalcPerform.lua 203-218 calcBuffRadius, the key built as key .. "Area"),
+    so a build that enlarges its Presence past its natural distance gets the bonus without standing closer. (The
+    coverage audit lists Presence Area lines as "no calculation reads PresenceArea": a false alarm of its reader
+    search, routed to COV-A.) Against targets other than the boss (clear) the stand-in reads only Rare or Unique ones: not scored.
+  sources: ["https://poe2db.tw/us/Veilpiercer", "data/game-26476662/tables/Mods.json (UniqueHitDamageAgainstEnemiesInPresence1)",
+            "data/game-26476662/tables/KeywordPopups.json (Presence)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (1920)", "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua (526)",
+            "engine/bridge.lua (the Presence gate)"]
+  test_in_game: "Hit a training dummy with Veilpiercer from inside 4 m and from 8 m away: the damage is (20-40)% higher (as increased) from inside."
+  status: proposed

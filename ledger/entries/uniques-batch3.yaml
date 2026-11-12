@@ -12,26 +12,48 @@
   title: Hrimnor's Hymn, Slam Skills you use yourself cause an additional Aftershock (100% chance)
   kind: pob_gap
   match: '^Slam Skills you use yourself cause an additional Aftershock$'
-  replace: ['Slam Skills deal 100% more Damage']
+  replace: ['Slam Skills have 100% more DPS']
   confidence: datamined
   notes: >-
     The line is Mods UniqueAftershockChance1: stat 21650 your_slam_aftershock_chance_% at 100 (the same stat as
-    Earthbreaker's 25% and UniqueMutatedVaalAftershockChance's 5-10%, which ledger aftershock-chance already
-    translates). KeywordPopups Aftershock: "If not otherwise specified, the Aftershock will deal the same damage as
-    the initial impact, in the same area", so a boss inside the slam is hit twice by every slam: x2 slam damage.
-    PoB leaves the line unparsed (ModCache: nil; the audit lists it "PoB ignores the line"), so before this entry
-    the build got x1. Same translation and the same two known gaps as aftershock-chance: (1) "you use yourself" is
-    dropped (a triggered or totem slam gets the more too, an overcount for those builds, as aftershock-chance has
-    today); (2) STACKING: the game sums every your_slam_aftershock_chance_% source into one chance and rolls it once
-    (RESEARCH7 aftershock-chance-stacking.md, the virtual_*_slam_aftershock_chance_% stats), while each ledger line
-    here is its own MORE. With Hrimnor's Hymn at 100% any other chance line likely adds nothing (over 100% assumed
-    capped at one extra Aftershock: UNVERIFIED, research INDEX #40), so Hymn + Earthbreaker reads x2.5 where the
-    capped game gives x2 (+25% overcount) until COV-A's summed model, min(1, total chance / 100), replaces the
-    per-line MOREs. That model must count this line as 100.
+    Earthbreaker's 25% and UniqueMutatedVaalAftershockChance's 5-10%, which ledger aftershock-chance translates).
+    KeywordPopups Aftershock: "If not otherwise specified, the Aftershock will deal the same damage as the initial
+    impact, in the same area", so a boss inside the slam is hit twice by every slam: x2 slam hit damage. PoB leaves
+    the line unparsed (ModCache: nil), so before COVD3 the build got x1.
+    FORM (COVD6, AUDIT8 A8-1): a second hit is a second application, not a bigger one. "Slam Skills deal 100% more
+    Damage" (COVD3's form) doubled the Ignite, Bleed and Poison too, since PoB takes an ailment's base from the hit's
+    stored damage (CalcOffence.lua 5040-5061, StoredHitMin / Max). "more Damage with Hits" does the same (KeywordFlag
+    Hit, but the stored hit already holds it): measured with Ignite, Bleed and Poison, "more Damage" gave Ignite,
+    Bleed and Poison x2.0 on Sunder, and "more Damage with Hits" gave exactly the same numbers on Earthquake. KeywordPopups Debuff: "Unless otherwise stated, Debuffs of the same type do not stack
+    - only the copy with the strongest effect applies"; the Ignite, Bleeding and Poison definitions state no
+    stacking, and PoB starts every build at one Poison (CalcSetup.lua 57 PoisonStacksMax 1; more only from lines
+    such as "Targets can be affected by +N of your Poisons", stats number_of_additional_poison_stacks,
+    poisons_can_stack_infinitely). So a second equal hit adds a second chance to apply and a second roll, not a
+    bigger ailment (the audit's "Poison stacks" holds only with such a line; checked: KeywordPopups Debuff, Ignite,
+    Bleeding, Poison; Stats.json ids with poison + stack / additional; PoB CalcSetup and ModParser 3258 / 3974).
+    PoB's "DPS" MORE (the mod Supercharged Slam's stages use, act_str.lua 18913) is that: it multiplies hits per
+    second (TotalDPS, CalcOffence 4576) and ailment applications (ailmentStacks 5254, capped by the max stacks at
+    5398); it leaves the ailment's base (the stored hit) alone. Measured on Sunder (Ignite, Bleed, Poison, 25-100% chances): hit DPS x2.00,
+    Ignite x1.15, Poison x1.25 (one stack; from the higher roll that wins), Bleed x1.84 (its uptime was 0.9 and its
+    roll range is wide); with extra Poison stacks Poison rises with the applications, up to x2.
+    Not counted: a second chance at Shock / Freeze / Electrocute / stun buildup per slam (PoB's buildup reads the
+    per-hit damage): a small undercount. Counted though UNVERIFIED: the skill's own damage over time
+    (TotalDot x DpsMultiplier, CalcOffence 6139), i.e. it assumes the Aftershock repeats the slam's own ground
+    effect too. SCREENING: for slams PoB shows as an average hit (showAverage, e.g. Sunder, Earthquake),
+    CombinedDPS is the per-use damage and no "DPS" multiplier reaches it; the finalists' FullDPS has it. Routed to
+    SEARCH (the same holds for attack speed on those skills).
+    Same two known gaps as aftershock-chance: (1) "you use yourself" is dropped (a triggered or totem slam gets the
+    more too, an overcount for those builds); (2) STACKING: the game sums every your_slam_aftershock_chance_% source
+    into one chance and rolls it once (RESEARCH7 aftershock-chance-stacking.md), while each ledger line here is its
+    own MORE. With Hrimnor's Hymn at 100% any other chance line likely adds nothing (over 100% assumed capped at one
+    extra Aftershock: UNVERIFIED, research INDEX #40), so Hymn + Earthbreaker reads x2.5 where the capped game gives
+    x2 until COV-A's summed model, min(1, total chance / 100), replaces the per-line MOREs. That model must count
+    this line as 100.
   sources: ["https://poe2db.tw/us/Hrimnors_Hymn", "data/game-26476662/tables/Mods.json (UniqueAftershockChance1)",
             "data/game-26476662/tables/KeywordPopups.json (Aftershock)",
             "scratch/manager/research/aftershock-chance-stacking.md (RESEARCH7)",
-            "vendor/PathOfBuilding-PoE2/src/Data/Uniques/mace.lua (Hrimnor's Hymn)"]
+            "vendor/PathOfBuilding-PoE2/src/Data/Uniques/mace.lua (Hrimnor's Hymn)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (4065, 5040-5061, 5254, 5398)"]
   test_in_game: "Slam a training dummy with Hrimnor's Hymn: every slam shows a second impact in the same place for the same damage. Then add Earthbreaker: does any slam ever show a third impact?"
   status: proposed
 
