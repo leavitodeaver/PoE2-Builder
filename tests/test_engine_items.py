@@ -163,7 +163,7 @@ def test_a_seeds_own_configuration_is_not_evidence(engine):
             continue
         assert var not in config or (active is not None and config[var] == active["value"]), (var, config.get(var))
     changed = {var for var in set(config) | set(fresh) if config.get(var) != fresh.get(var) and not var.startswith("quest")}
-    assert changed <= set(search.conditions.active)
+    assert changed - set(bosses.config_vars()) <= set(search.conditions.active)  # (the boss's: checked above)
 
 
 def test_a_loaded_build_never_reads_the_previous_builds_cached_skills(engine):
