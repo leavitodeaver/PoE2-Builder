@@ -2850,3 +2850,35 @@ def test_wildwoods_gifts_blooms_give_flasks_and_charms_charges():
     rate, how = charge_use_rate({"kind": "Flask"}, gain, "Mana", 5)
     assert rate == pytest.approx(each / 5) and "Ancient Blooms" in how and "UNVERIFIED" in how
     assert bloom_charges(Charges.from_bridge({}), "Life") == 0.0
+
+def test_boss_model_fields_mechd1():
+    """MECHD1 (the boss model): one Monster Category per boss (RESEARCH23 #138; the King by form, #147), the King's 1.75
+    bars, add kills per preset (AUDIT16 A16-2), the boss's own stun threshold (RESEARCH18 #91) and Heavy Stun duration
+    (RESEARCH19 #98), Zarokh's Freeze / Electrocute immunity (AUDIT9 A9-7)."""
+    from builder.search import bosses
+    p = bosses.PRESETS
+    assert p["Arbiter of Ash"].category == "Demon" and p["Olroth, Origin of the Fall"].category == "Undead"
+    assert p["Zarokh, the Temporal"].category == "Construct" and p["The Raven Trickster"].category == "Humanoid"
+    assert p["The King in the Mists"].category == {"Humanoid": 0.43, "Demon": 0.57}
+    assert p["The Aberration"].category is None
+    assert p["The King in the Mists"].life == 6271939  # 1.75 x 3,583,965
+    king, _ = bosses.kills_per_second("The King in the Mists")
+    assert king == pytest.approx(0.43 / 25)
+    assert bosses.kills_per_second("Atziri, the Red Queen")[0] == pytest.approx(1 / 45)
+    assert bosses.kills_per_second()[0] == 0.0  # the Arbiter of Ash: no adds found
+    assert bosses.kill_stats("Atziri, the Red Queen")[models.CULLS_STAT] == pytest.approx(1 / 45)
+    # stun: the default's scale is the old Arbiter one; Olroth's lower threshold and longer stun
+    stats = {"HeavyStunBuildupAvg": 10, "Speed": 2, "HitChance": 100, "PhysicalHitAverage": 100}
+    assert models.ailment_scale(stats, "Freeze") == pytest.approx(models.AILMENT_BOSS)
+    olroth = {**stats, "_boss": "Olroth, Origin of the Fall"}
+    t = 1 / (0.10 * 938 / 703 * 2.0)
+    every = models.repeat_every(t, 6.0, 16.5)
+    assert models.heavy_stun_rate(olroth)[0] == pytest.approx(1 / every)
+    assert models.heavy_stunned_share(olroth)[0] == pytest.approx(min(1.0, 6.066 / every))
+    # Heavy Stunned share at a 2 s fill (A16-3): 6t = 12 s <= 16.5 s, so 4 / 12
+    fast = {**stats, "HeavyStunBuildupAvg": 25 / (938 / 1235)}  # 25% of the bar per hit at 2 hits/s: 2 s
+    assert models.heavy_stunned_share(fast)[0] == pytest.approx(4 / 12)
+    zarokh = {"_boss": "Zarokh, the Temporal", "Speed": 2, "HitChance": 100, "FreezeBuildupAvg": 50,
+              "ElectrocuteBuildupAvg": 50, "PinBuildupAvg": 50}
+    assert models.buildup_rate(zarokh, "Freeze") == 0.0 and models.buildup_rate(zarokh, "Electrocute") == 0.0
+    assert models.buildup_rate(zarokh, "Pin") == 0.0 or models.ailment_scale(zarokh, "Pin") == 1.0

@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from builder.ledger import model_entry
-from builder.search import boss_hits
+from builder.search import boss_hits, bosses
 
 BOSS_POWER = 20  # "Unique monsters always have 20 Power" (https://poe2db.tw/us/Monster_Power)
 DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
@@ -1517,7 +1517,7 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
                 consumed_by = f"never consumed (no {ailment})"
             label, basis = f"{mark.name}: buff uptime", (
                 (f"the boss {ailment.lower()}d once per {(1 / rate) if rate else math.inf:.1f} s while marked (PoB's buildup per hit x "
-                 f"{hits_per_second(stats):.2f} hits/s, Arbiter of Ash threshold, x6 for "
+                 f"{hits_per_second(stats):.2f} hits/s, {bosses.of(stats).name}'s threshold, x6 for "
                  f"{AILMENT_REPEAT[ailment][1]:g} s after each), "
                  f"{MARK_BUFF_DURATION:.0f} s buff; marked {marked:.0%} of the time ({how})") if inflicts else
                 f"the main skill can't {ailment.lower()} the boss, so the Mark is never consumed and gives no buff"
@@ -3042,19 +3042,41 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
               * (HEAVY_STUN_PHYSICAL if t == "Physical" else 1.0) for t in DAMAGE_TYPES}
     total = sum(weight.values())
     uncold = 1 - weight["Cold"] / total if total > 0 else 1.0
-    fill = per_hit * uncold * HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1] * hits  # bars per second at the plain threshold
+    scale = bosses.threshold_scale(stats)  # (938 / the boss's own threshold: MECHD1, RESEARCH18 #91)
+    fill = per_hit * uncold * scale * hits  # bars per second at the plain threshold
     if fill <= 0:
         return 0.0, "Cold hits build no Heavy Stun (the game's Cold text; PoB counts them)"
     t = 1 / fill
     every = repeat_every(t, *HEAVY_STUN_REPEAT)
     basis = (f"{per_hit:.2%} of the boss's Stun bar per hit (PoB){f', {1 - uncold:.0%} of it Cold, which builds none' if uncold < 1 else ''}, "
-             f"x{HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1]:.2f} for the Arbiter of Ash's threshold (the game files; the boss the user chose), {hits:.2f} hits/s: "
+             f"x{scale:.2f} for {bosses.of(stats).name}'s threshold ({bosses.of(stats).poise}%, the game files; PoB's is 938%), {hits:.2f} hits/s: "
              f"full in {t:.1f} s, then +500% threshold for 16.5 s after each stun: one every {every:.1f} s")
     return 1 / every, basis
 
 
+def heavy_stunned_share(stats: dict) -> tuple[float, str]:
+    """Share of the fight the boss is Heavy Stunned by the main skill's hits (MECHD1; RESEARCH19 #98): one stun every
+    1 / heavy_stun_rate s, each lasting the boss's own Heavy Stun duration (BossBase.ot 4 s; Olroth 6.07 s): min(1,
+    duration / every). A "vs Heavy Stunned" line counted always on is an overcount once the bar takes over ~0.67 s to
+    fill (4 / 6). The stun's own wait isn't taken off the next fill (buildup during a Heavy Stun: UNVERIFIED)."""
+    rate, how = heavy_stun_rate(stats)
+    if rate <= 0:
+        return 0.0, how
+    d = bosses.of(stats).heavy_stun_s
+    share = min(1.0, d * rate)
+    return share, f"{how}; each lasts {d:g} s ({bosses.of(stats).name}): Heavy Stunned {share:.0%} of the fight"
+
+
 
 AILMENT_BOSS = HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1]  # the Arbiter of Ash's threshold over PoB's Pinnacle one (as stun)
+
+
+def ailment_scale(stats: dict, ailment: str) -> float:
+    """PoB's Freeze / Electrocute / Pin buildup x this = the buildup against the boss the calculation is scored against
+    (MECHD1): 938 / its own threshold (PoB reads the same threshold for them as for stun: CalcOffence.lua 5570, MEDIUM),
+    0 for an ailment the boss can't have (Zarokh: Freeze, Electrocute; AUDIT9 A9-7)."""
+    boss = bosses.of(stats)
+    return 0.0 if ailment in boss.immune else bosses.threshold_scale(stats)
 # Again afterwards (game files, GameConstants rows 38-39, 43-44): FreezeThresholdModifier 500 / FreezeModifierDuration 14 s,
 # ElectrocuteThresholdModifier 500 / ElectrocuteModifierDuration 15 s, read as Heavy Stun's are (+500% threshold for that
 # long after each one; PoB doesn't use them). PinThresholdModifier 500 / PinModifierDuration 13 s likewise (PoB's Misc.lua).
@@ -3070,7 +3092,7 @@ IMMOBILISE_FIELDS = ("Speed", "HitChance", "CritChance", "FreezeBuildupAvg", "El
 
 def buildup_rate(stats: dict, ailment: str) -> float:
     """Freezes or Electrocutes of the boss per second from the main skill's hits: PoB's average buildup per hit (% of the
-    threshold) x hits per second, with the Arbiter of Ash's threshold (AILMENT_BOSS), the threshold x6 for 14 / 15 s
+    threshold) x hits per second, with the boss's own threshold (ailment_scale; 0 if it's immune), the threshold x6 for 14 / 15 s
     after each one (AILMENT_REPEAT, repeat_every), and buildup paused while the boss is Frozen / Electrocuted (the user,
     11 Nov 2026; MECH41: before, the rate left the pause out, a small overcount). Buildup decay between hits isn't
     modelled (as Heavy Stun's)."""
@@ -3081,7 +3103,7 @@ def buildup_rate(stats: dict, ailment: str) -> float:
 def immobilise_period(stats: dict, ailment: str) -> float:
     """Seconds from one Freeze / Electrocute to the next (0 with no buildup): its duration, then the time to fill the bar
     again at x6 for the rest of the 14 / 15 s after it."""
-    fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * AILMENT_BOSS
+    fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * ailment_scale(stats, ailment)
     if fill <= 0:
         return 0.0
     d = immobilise_duration(stats, ailment)
@@ -3110,7 +3132,7 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
     fill the bar again, buildup paused while the boss is Frozen / Electrocuted (the user, 11 Nov 2026: it pauses; the game
     files don't say, MEDIUM), the threshold x6 for the rest of the
     14 / 15 s after each one (AILMENT_REPEAT)."""
-    fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * AILMENT_BOSS
+    fill = hits_per_second(stats) * number(stats.get(f"{ailment}BuildupAvg")) / 100 * ailment_scale(stats, ailment)
     if fill <= 0:
         return 0.0, ""
     d, period = immobilise_duration(stats, ailment), immobilise_period(stats, ailment)
@@ -3129,7 +3151,7 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
                        f"as kept: UNVERIFIED)")
     share = min(1.0, d / period)
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
-                   f"Arbiter of Ash threshold); {d:g} s each, one every {period:.1f} s (x6 threshold for "
+                   f"{bosses.of(stats).name}'s threshold); {d:g} s each, one every {period:.1f} s (x6 threshold for "
                    f"{window:g} s after each, buildup paused while it lasts, the user's word, MEDIUM): {share:.0%}")
 
 
@@ -3163,7 +3185,7 @@ def rod_share(skill: Skill, stats: dict, main: Skill | None) -> tuple[float, str
     share = max(0.0, 1.0 - rate * gap)
     if rate <= 0:
         return 1.0, f"the build doesn't Electrocute the boss with its main skill, so the Rod stays on ({how})"
-    return share, (f"{rate * 60:.1f} Electrocutes of the boss per minute (main skill's buildup, Arbiter of Ash threshold), "
+    return share, (f"{rate * 60:.1f} Electrocutes of the boss per minute (main skill's buildup, {bosses.of(stats).name}'s threshold), "
                    f"the Rod off from each until the next hit: {how}; on {share:.1%} of the fight")
 
 
@@ -3336,7 +3358,7 @@ def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:
         if event in events:
             r = buildup_rate(stats, ailment)
             rate += r
-            parts.append(f"{ailment} {r:.3f}/s (PoB's buildup per hit, Arbiter of Ash threshold, x6 for "
+            parts.append(f"{ailment} {r:.3f}/s (PoB's buildup per hit, {bosses.of(stats).name}'s threshold, x6 for "
                          f"{AILMENT_REPEAT[ailment][1]:g} s after each)")
     if "stun" in events:
         r, _ = heavy_stun_rate(stats)
@@ -3384,7 +3406,7 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
         return [], []
     # (the bridge works the share out again from each calculation's own buildup and attack speed)
     mods = [line("1% increased Attack Damage", boost / UNIT, when=when, per=GUIDED_HAND),
-            derived(GUIDED_HAND, "guidedHand", share * UNIT, boss=HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1],
+            derived(GUIDED_HAND, "guidedHand", share * UNIT, boss=bosses.threshold_scale(stats),
                     physical=HEAVY_STUN_PHYSICAL, times=HEAVY_STUN_REPEAT[0], window=HEAVY_STUN_REPEAT[1])]
     if slam:
         mods.append(line("1% more Damage", ANCESTRAL_SLAM_MORE / UNIT, when=when, per=GUIDED_HAND, skill=main.name))
@@ -3405,7 +3427,7 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
 # monster Power per event; a pinnacle boss's Power is 20, as PoB's Multiplier:EnemyPower) or
 # active_skill_hundred_times_generates_glory_per_<event> (/100 Glory per event). Events come from the main skill: its hits
 # (attack, elemental or chaos hits), the boss's Heavy Stuns (heavy_stun_rate), Freezes (PoB's per-hit Freeze buildup, the
-# same Arbiter of Ash threshold correction, no re-freeze window: an overcount if one exists), Ignites and Shocks (PoB's chance per
+# same boss threshold correction, no re-freeze window: an overcount if one exists), Ignites and Shocks (PoB's chance per
 # hit). Not counted (undercounts, labelled): Glory from other skills' hits, armour breaks (Molten Blast), Ward spent
 # (Skyfall), Walking Calamity's own source, increased Glory generation and Daresso's Passion's lower cost.
 BOSS_POWER = 20

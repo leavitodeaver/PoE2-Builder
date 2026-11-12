@@ -348,6 +348,9 @@ class Assumptions:
         main = next((s for s in found if group and s.group == group["index"] and s.name == name), None)
         main_gems = {g["name"] for g in group["gems"]} if group else set()
         stats = build.call("stats", fields=models.MODEL_FIELDS)
+        from builder.search import bosses  # (MECH-D: the request's boss, its add kills / Culls per second, for the models)
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        stats = {**stats, **bosses.kill_stats(boss)}
         if any(s.name == "Cast on Charm Use" for s in found):  # (its Energy: charm charges spent, from the flask model)
             stats = {**stats, **charm_stats(build)}
         if any(s.name == "Cast on Minion Death" for s in found):  # (its Energy: the build's minions dying)
@@ -736,7 +739,8 @@ class Assumptions:
         from builder.search import bosses
 
         from builder.search import boss_hits  # (MECHC6: how hard it hits, per damage type)
-        return mods, [bosses.note(), boss_hits.hits_note()] + notes + condition_notes + self.unbuilt_grants(skills)  # (the boss first)
+        boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        return mods, [bosses.note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + self.unbuilt_grants(skills)  # (the boss first)
 
     def unbuilt_grants(self, skills: list[dict]) -> list[dict]:
         """A note for each skill the build's passives or items grant ("Grants Skill: ...") that PoB built no skill for
