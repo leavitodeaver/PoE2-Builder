@@ -15,6 +15,7 @@
 #   length): still a possible overcount, MECH-B's.
 # - active_skill_required_number_of_combo_stacks (Mantra of Destruction, Tempest Bell), skill_unusable_until_moved_X_
 #   distance: usage.py reads them but bars the skill beside the main one until the press hook scales it (undercount).
+#   (COVC10: on the press hook now; the active-skill one is recorded in gems-active-batch7.yaml.)
 # - orb_of_storms_maximum_number_of_hits, orb_of_storms_base_bolt_frequency_ms: routed to MECH-B (PoB prices the orb as
 #   one hit per cast).
 

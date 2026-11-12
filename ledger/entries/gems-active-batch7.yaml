@@ -1,0 +1,80 @@
+# Active-gem stats, batch 7 (COVC10, 12 Nov 2026): usage requirements usage.py now reads and acts on. Kind `model` with
+# `stats` and `skill`: nothing is applied from here; the audit counts the listed stats of the listed skills as "fed to a
+# custom model". The same stat on any other skill stays open.
+#
+# Left to COV-E (support-gem stats, their lane): support_combo_finisher_required_number_of_combo_stacks on Combo
+# Finisher I / II and skill_unusable_until_moved_X_distance on Echoing Cry / Hit and Run are read the same way
+# (usage.py combo_blocker / travel_blocker, capped by MECH-B's press hook).
+
+- id: model-stats-combo-skills
+  title: Combo a use needs, on the Combo skills (usage gate and the press hook)
+  kind: model
+  model: usage
+  stats: ["active_skill_required_number_of_combo_stacks"]
+  skill: [Mantra of Destruction, Tempest Bell]
+  confidence: datamined
+  notes: >-
+    usage.py requirements() makes a "combo" requirement. The skill is allowed when the build has a builder (Strikes on
+    the same weapon set; Martial Master: any Attack Hit) and its group is the main or a pressed one; MECH-B's press hook
+    (Assumptions.press_caps / main_cap, MECHB5) then holds it to Usage.combo_rate (builder Strikes, then one use). Barred
+    with no builder, or in a Full DPS group the hook doesn't cap (usage.uncapped_groups).
+  sources: ["builder/search/usage.py COMBO, requirements, combo_blocker, combo_rate, uncapped_groups",
+            "builder/search/assumptions.py press_caps, main_cap"]
+  status: approved
+
+- id: model-stats-stars-answer-mana
+  title: The Stars Answer needs 10000 Mana to cast (usage gate)
+  kind: model
+  model: usage
+  stats: ["mana_required_to_activate_skill"]
+  skill: [The Stars Answer]
+  confidence: datamined
+  notes: >-
+    "Cannot be cast if you have less than {0} Mana" (the_stars_answer.csd; poe2db the same, with Cost: 10000 Mana).
+    usage.py's "mana pool" requirement bars it below 10000 maximum Mana (PoB's Mana). The buff's duration is in neither
+    the game files nor poe2db (UNVERIFIED): PoB counts Starfall every 0.3 s as if always up (routed to MECH-B).
+  sources: ["builder/search/usage.py MANA_POOL, requirements, sustained"]
+  status: approved
+
+- id: model-stats-runic-reprieve-ward
+  title: Runic Reprieve needs 20% of maximum Runic Ward (usage gate)
+  kind: model
+  model: usage
+  stats: ["rune_ward_requires_%_maximum_ward_to_perform"]
+  skill: [Runic Reprieve]
+  confidence: datamined
+  notes: >-
+    "Requires at least {0}% of maximum Runic Ward to be able to use this Skill" (runic_reprieve.csd). usage.py's "ward"
+    requirement allows it when the build has any Runic Ward (PoB's Ward), bars it with none. It deals no damage and PoB
+    applies none of its stats.
+  sources: ["builder/search/usage.py WARD_SHARE, requirements, sustained"]
+  status: approved
+
+- id: model-stats-unbound-avatar-fury
+  title: Unbound Avatar's 100 Unbound Fury (usage gate, never a blocker)
+  kind: model
+  model: usage
+  stats: ["ailment_bearer_required_stacks_to_use"]
+  skill: [Unbound Avatar]
+  confidence: datamined
+  notes: >-
+    usage.py's "fury" requirement never bars it: PoB applies the Unbound buff only under Condition:Unbound, which the tool
+    never sets, so allowing it counts nothing (no overcount). The buff at its uptime is an undercount routed to MECH-C;
+    its own stats (ailment_bearer_elemental_damage_+%_final etc.) stay open.
+  sources: ["builder/search/usage.py FURY, requirements, blockers"]
+  status: approved
+
+- id: model-stats-compose-requiem-anguish
+  title: Compose Requiem's anguish (usage gate, labelled with the Requiem's share)
+  kind: model
+  model: usage
+  stats: ["rapidshot_requiem_base_buff_count_requirement", "rapidshot_requiem_number_of_stacks_per_minute",
+          "rapidshot_requiem_active_duration_ms"]
+  skill: [Compose Requiem]
+  confidence: datamined
+  notes: >-
+    100 anguish at 200 a minute (30 s) for a 12 s Requiem: up 29% of the fight (40% if anguish builds while it's up,
+    UNVERIFIED). usage.py's "anguish" requirement keeps it barred, labelled with that share, because PoB counts the
+    Requiem shot fired at will; the scaling is routed to MECH-B.
+  sources: ["builder/search/usage.py ANGUISH, ANGUISH_PER_MINUTE, REQUIEM_MS, requirements, blockers"]
+  status: approved

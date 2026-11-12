@@ -36,8 +36,8 @@ sustainable source for what a use needs:
   FlaskChanceNotConsumeCharges, read by bridge flaskThrowCost). The Mana Flask's own local "charges per use" isn't
   applied (UNVERIFIED whether it changes a throw). Barred where the throw rate is 0 (no Mana
   Flask, or no charge generation); otherwise allowed: as the main skill its throws are capped at that rate by MECH-C's
-  Assumptions.flask_main; beside the main skill (a pressed group) the press model's rate is not yet capped by it
-  (Usage.throw_rate gives it; routed to the mechanics lane, COVC7's report)
+  Assumptions.flask_main; beside the main skill (a pressed group) MECH-B's press hook (Assumptions.press_caps,
+  MECHB5) caps it at the Mana Flask's throws a second (its own Assumptions.throw_rate, at the base 5 charges a throw)
 - distance travelled before each use (Requirement kind "travel"; `skill_unusable_until_moved_X_distance` 100: Echoing
   Cry and Hit and Run, the two stat sets that carry it; checked: the stat's columns in every game table (no Mod, passive
   or other stat set holds it) and PoB src (Data/Skills sup_str/sup_dex only, no ModParser line)). The game: "Supported
@@ -52,9 +52,10 @@ sustainable source for what a use needs:
   with-it figure only): whole rolls of ROLL_METRES (DodgeRollPlayer dodge_roll_base_travel_distance 46, scaled by
   movement speed) of models.DODGE_ROLL_SECONDS each. Blink and other teleports: not counted (UNVERIFIED).
   Usage.travel_rate gives (uses/s, share of PoB's at-will rate, share of the fight spent walking, uses/s with rolls)
-  for the group holding it. Still barred, labelled with that rate, because nothing yet scales the skill's Full DPS (and
-  the main skill's time) to it: PoB counts it used at will, an overcount if allowed as it is. The hook is routed to the
-  mechanics lane with Combo's (COVC6 and COVC7 reports)
+  for the group holding it. Allowed (COVC10, on MECH-B's press hook, MECHB5): Assumptions.press_caps holds a pressed
+  group to travel_rate's uses and takes the walk out of the main skill's time; Assumptions.main_cap scales a walking
+  main skill to its share. Still barred (travel_blocker) only where a group holding it counts in Full DPS without that
+  cap (uncapped_groups, as for Combo). Usage.play_note gives the play line (walk 10 m between uses; without / with)
 - Combo (Requirement kind "combo"; RULE_AUDIT row 2b): Combo Finisher I needs 3 and II needs 5
   (support_combo_finisher_required_number_of_combo_stacks), Tempest Bell and Mantra of Destruction their own
   (active_skill_required_number_of_combo_stacks). The game (KeywordPopups 'Combo'): "Skills gain Combo when you Strike
@@ -63,10 +64,12 @@ sustainable source for what a use needs:
   skills build it: Usage.combo_builders finds them (PoB types Attack and Melee, not Slam, in an enabled group sharing a
   weapon set with the Combo skill). Barred with "no skill of the build Strikes" when there's none. Where there is one,
   combo_rotation gives the real use rate (the player alternates: Combo-per-use Strikes of the fastest builder, then
-  one use; uses/s = 1 / (amount / builder speed + 1 / its own speed)); it's still barred, labelled with that rate,
-  because nothing yet scales the skill's Full DPS to it (PoB counts it used at will: an overcount if allowed as it
-  is). The hook it needs (scale the Combo skill's Full DPS entry by combo_rotation's share, as models.press_model does
-  for presses, with a play row "Strike with X N times, then use Y") is routed to the mechanics lane (COVC6's report).
+  one use; uses/s = 1 / (amount / builder speed + 1 / its own speed)). Allowed then (COVC10, on MECH-B's press hook,
+  MECHB5): Assumptions.press_caps holds a pressed group to combo_rate (0 with no builder) and Assumptions.main_cap the
+  main skill (a DPS "more" at combo_rate's share). Still barred (combo_blocker) where a group holding it counts in
+  Full DPS but the hook doesn't cap it (uncapped_groups: neither the main group nor a pressed one, e.g. triggered or
+  a totem's), or where combo_rate finds no builder's use rate. Usage.play_note gives the play line ("Strike with X
+  until you hold N Combo, then use Y", its rate, and without / with the builder).
   The Invoker's Martial Master (AscendancyMonk1Notable2: can_gain_combo_from_any_attack_hit, "Gain [Combo] from all
   [Attack] [Hits]", and share_combo_across_weapon_sets_and_weapon_types, "Skills can build and retain [Combo] regardless
   of [Weapon Set]": stat_descriptions.csd) makes any Attack of the build a builder, on any weapon set; Martial Adept
@@ -99,6 +102,37 @@ sustainable source for what a use needs:
   condition; grep in builder/, engine/, ledger/: none). The reserved effect's own stat set holds base_deal_no_damage only,
   so PoB counts the banner at nothing today: the placed buff at its Glory uptime (models.glory_uses) is an UNDERCOUNT
   routed to MECH-C (buffs with uptimes)
+- four item / tree skills' own requirements (COVC10; each stat is on that skill's stat set only, checked: the stat's
+  columns in every game table, scratch/covc5/where.py; none is in PoB's SkillStatMap or a skill statMap):
+  - The Stars Answer (Runeseeker's Call; Requirement kind "mana pool"): mana_required_to_activate_skill 10000, "Cannot
+    be cast if you have less than {0} Mana
+Cannot be cast if already active" (the_stars_answer.csd; poe2db the same,
+    with "Cost: 10000 Mana"). Mana can't exceed its maximum, so barred below 10000 maximum Mana (PoB's Mana); allowed
+    at or above it. Its buff's duration is in neither the game's stat sets nor poe2db (UNVERIFIED): PoB counts Starfall
+    every 0.3 s (hitTimeOverride, the game's walking_calamity_spawn_meteor_every_ms 300) as if always up, and whether
+    the 10000-Mana recast keeps it up is the mechanics lane's (a possible overcount, routed)
+  - Runic Reprieve (Requirement kind "ward"): rune_ward_requires_%_maximum_ward_to_perform 20, "Requires at least {0}%
+    of maximum [Ward|Runic Ward] to be able to use this Skill" (runic_reprieve.csd). Allowed when the build has any
+    Runic Ward (PoB's Ward; it refills between uses: "You cannot recover Runic Ward while this Skill is active" is its
+    only pause), barred with none. It deals no damage and PoB applies none of its stats (its block of every Hit while
+    channelling is an unmodelled defence: routed to MECH-C)
+  - Unbound Avatar (Requirement kind "fury", never a blocker): ailment_bearer_required_stacks_to_use 100 Unbound Fury,
+    "Gain [UnboundFury|Unbound Fury] when you inflict an [ElementalAilments|Elemental Ailment] with a [Hit] on an Enemy
+    / Maximum 100 Unbound Fury / Cannot gain Unbound Fury while Unbound" (stat_descriptions.csd). PoB applies the
+    Unbound buff and every "while Unbound" line only under Condition:Unbound, which only its config box "Are you
+    Unbound?" sets, and the tool never sets it (checked: grep Unbound in PoB Modules (ConfigOptions 267, ModParser
+    3371-3376) and builder/, engine/, ledger/: none); the skill's own stats are in no statMap. So allowing it counts
+    nothing: no overcount. The buff at its uptime (Fury from the build's elemental ailment rate, 8-11.4 s duration,
+    12 s cooldown) is an UNDERCOUNT routed to MECH-C (buffs with uptimes)
+  - Compose Requiem (The Last Lament; Requirement kind "anguish"): rapidshot_requiem_base_buff_count_requirement 100,
+    "Requires {0} anguish to use", accumulated at rapidshot_requiem_number_of_stacks_per_minute 200 ("Accumulates {0}
+    anguish per second", per minute: 3.33/s, so 30 s), for rapidshot_requiem_active_duration_ms 12000 ("Requiem lasts for
+    {0} seconds"; requiem_ammo.csd). No other stat or source changes either (checked: every Stats id holding requiem /
+    anguish, where.py: rapidshot_requiem_buff_count_requirement is on nothing). The Requiem shot is up 12 / (30 + 12) =
+    29% of the fight, or 40% if anguish also builds while it's up (UNVERIFIED). PoB's gem (Gems.lua "Requiem") grants
+    the shot (CrossbowRequiemPlayer) beside it and counts it fired at will (checked: no Requiem / anguish /
+    rapidshot_requiem line in PoB's Modules or SkillStatMap), so it stays barred, labelled with that
+    share, until something scales its damage to it (routed to MECH-B with the press hook)
 - everything else (Glory a skill builds from its own hits, standing still, recent blocks, Volatility,
   ...): never, since the skill wouldn't be used at the rate PoB calculates
 
@@ -168,7 +202,14 @@ ANCESTRAL_BOND = "Ancestral Bond"  # the keystone (module docstring: totems' cha
 # The Invoker's Combo passives (module docstring)
 MARTIAL_MASTER = "Martial Master"
 MARTIAL_ADEPT = "Martial Adept"
-FIELDS = ["Speed", "LifePerSecondCost"]
+# Build-up and pool requirements of four item / tree skills (module docstring: COVC10)
+MANA_POOL = "mana_required_to_activate_skill"  # The Stars Answer: 10000
+WARD_SHARE = "rune_ward_requires_%_maximum_ward_to_perform"  # Runic Reprieve: 20
+FURY = "ailment_bearer_required_stacks_to_use"  # Unbound Avatar: 100 Unbound Fury
+ANGUISH = "rapidshot_requiem_base_buff_count_requirement"  # Compose Requiem: 100 anguish
+ANGUISH_PER_MINUTE = "rapidshot_requiem_number_of_stacks_per_minute"  # 200 a minute
+REQUIEM_MS = "rapidshot_requiem_active_duration_ms"  # 12000
+FIELDS = ["Speed", "LifePerSecondCost", "Mana", "Ward"]
 TALISMAN = "Talisman"
 # PoB skill types a Talisman doesn't shut out (module docstring)
 FORM_FREE = {"Shapeshift", "Bear", "Wolf", "Wyvern", "UsableWhileShapeshifted", "Persistent", "HasReservation",
@@ -179,7 +220,8 @@ _RULES: dict[str, dict] | None = None  # PoB's gem data doesn't change within a 
 
 @dataclass(frozen=True)
 class Requirement:
-    kind: str  # "charges", "glory from life", "flask", "combo", "travel", "placed banner" (never blocks) or "never"
+    kind: str  # "charges", "glory from life", "flask", "combo", "travel", "mana pool", "ward", "anguish", "placed
+    # banner" or "fury" (never block), or "never"
     label: str  # what a use needs, for notes and tests
     amount: float = 0.0
     rate: float = 0.0  # Glory per Life spent (fraction), or the share of flask charges a use takes
@@ -218,6 +260,23 @@ def requirements(name: str, rule: dict) -> list[Requirement]:
         elif stat == MOVED:
             found.append(Requirement("travel", f"move {number(value) / UNITS_PER_METRE:g} m before each use",
                                      number(value)))
+        elif stat == MANA_POOL:
+            found.append(Requirement("mana pool", f"at least {number(value):g} Mana to cast (and its cost)", number(value),
+                                     pool="Mana"))
+        elif stat == WARD_SHARE:
+            found.append(Requirement("ward", f"at least {number(value):g}% of maximum Runic Ward to use", number(value),
+                                     pool="Ward"))
+        elif stat == FURY:
+            found.append(Requirement("fury", f"{number(value):g} Unbound Fury, gained by inflicting Elemental Ailments "
+                                     "with Hits (not counted: PoB's Unbound condition is never set)", number(value)))
+        elif stat == ANGUISH:
+            per_second = number(stats.get(ANGUISH_PER_MINUTE)) / 60
+            fill = number(value) / per_second if per_second > 0 else math.inf
+            active = number(stats.get(REQUIEM_MS)) / 1000
+            share = (active / (fill + active), active / fill if fill > active else 1.0) if math.isfinite(fill) else (0, 0)
+            found.append(Requirement("anguish", f"{number(value):g} anguish, accumulated at {per_second:.2f} a second "
+                                     f"({fill:.0f} s), for a {active:g} s Requiem: up {share[0]:.0%}-{share[1]:.0%} of "
+                                     "the fight", number(value), share[0]))
         elif REQUIRED.search(stat):
             found.append(Requirement("never", f"{stat.replace('_', ' ')} {number(value):g}", number(value)))
     if (rule.get("usageCondition") or rule.get("addsUsageCondition")) and not any(r.kind != "placed banner"
@@ -260,23 +319,29 @@ class Usage:
         needs = requirements(name, rule or {})
         if not needs:
             return talisman
-        if stats is None and any(r.kind in ("glory from life", "flask") for r in needs):
+        if stats is None and any(r.kind in ("glory from life", "flask", "mana pool", "ward") for r in needs):
             stats = self.build.call("stats", fields=FIELDS)
         blocked = []
         for need in needs:
-            if need.kind == "placed banner":
-                continue  # (the reserved banner is used at will; its placed buff isn't counted)
+            if need.kind in ("placed banner", "fury"):
+                continue  # (the reserved banner is used at will, Unbound Avatar's buff isn't counted: module docstring)
+            if need.kind == "anguish":
+                blocked.append(f"{name}: {need.label}, but PoB counts the Requiem shot fired at will, and the tool "
+                               "doesn't yet scale it to that share (routed to the mechanics lane)")
+                continue
             if need.kind == "combo":
-                blocked.append(f"{name}: {need.label}, {self.combo_reason(name, need.amount)}")
+                if reason := self.combo_blocker(name, need):
+                    blocked.append(f"{name}: {need.label}, {reason}")
             elif need.kind == "flask throw":
-                # (the main skill's throws are rated by Assumptions.flask_main, once the gear is on: never barred here)
+                # (the main skill's throws are rated by Assumptions.flask_main, once the gear is on; a pressed one is
+                # capped by the press hook, Assumptions.press_caps: barred here only when no throw is ever paid for)
                 if not self.is_main(name) and self.throw_rate(need) <= 0:
                     blocked.append(f"{name}: {need.label}, and the {need.pool} Flask gains no charges in a boss fight "
                                    "(none equipped, or no charges a second without kills)")
             elif need.kind == "travel":
-                blocked.append(f"{name}: {need.label} ({travel_seconds(need.amount):.1f} s of walking at a base "
-                               f"{BASE_RUN:g} m/s*, MEDIUM; less with movement speed), but the tool doesn't yet scale its "
-                               "damage to that use rate (Usage.travel_rate; PoB counts it used at will)")
+                if reason := self.travel_blocker(name, need):
+                    blocked.append(f"{name}: {need.label} ({travel_seconds(need.amount):.1f} s of walking at a base "
+                                   f"{BASE_RUN:g} m/s*, MEDIUM; less with movement speed), {reason}")
             elif need.kind == "charges" and self.totem_bond(name):
                 continue  # (Ancestral Bond: no charges needed to place a totem)
             elif not self.sustained(need, stats or {}):
@@ -311,13 +376,62 @@ class Usage:
         """Does Ancestral Bond lift this totem skill's charge requirement (module docstring)?"""
         return self.has_passive(ANCESTRAL_BOND) and "SummonsTotem" in (self.gem(name).get("skillTypes") or [])
 
-    def combo_reason(self, name: str, amount: float) -> str:
+    def combo_blocker(self, name: str, need: Requirement) -> str:
+        """Why the Combo gem `name` is barred, or "" (module docstring, the press hook): barred with no builder in the
+        build, or where a group holding it counts in Full DPS without a press cap (uncapped_groups)."""
         builders = self.combo_builders(name)
         if not builders:
             return "and no skill of the build Strikes to build it (Combo comes from Strikes on the same weapon set)"
-        how = "Attack Hits, Martial Master" if self.has_passive(MARTIAL_MASTER) else "Strikes"
-        return (f"built by {', '.join(sorted({b for _, b in builders}))} ({how}), but the tool doesn't yet scale its "
-                "damage to the use rate that Combo allows (Usage.combo_rate; PoB counts it used at will)")
+        if self.combo_groups(name) and self.combo_rate(name, need.amount) is None:
+            return "and no builder's Strikes reach it (no group of the build Strikes at a use rate PoB gives)"
+        if uncapped := self.uncapped_groups(name):
+            return (f"and its group {uncapped[0]} counts in Full DPS without a press cap (neither the main skill nor a "
+                    "pressed skill: PoB would count it used at will)")
+        return ""
+
+    def travel_blocker(self, name: str, need: Requirement) -> str:
+        """Why the walking gem `name` is barred, or "" (module docstring, the press hook): only where a group holding it
+        counts in Full DPS without a press cap (uncapped_groups). Walking needs nothing from the build."""
+        if uncapped := self.uncapped_groups(name):
+            return (f"and its group {uncapped[0]} counts in Full DPS without a press cap (neither the main skill nor a "
+                    "pressed skill: PoB would count it used at will)")
+        return ""
+
+    def uncapped_groups(self, name: str) -> list[str]:
+        """Labels of the enabled groups holding `name` that count in PoB's Full DPS but that the press hook doesn't cap:
+        neither the main group (Assumptions.main_cap) nor a pressed group (assumptions.pressed_group, capped by
+        Assumptions.press_caps). A triggered, totem, Invocation, Mark-carrier or item-granted group is used at its own
+        rate, which the hook doesn't hold to Combo or walking (module docstring)."""
+        from builder.search.assumptions import pressed_group
+
+        main = self.build.main_group() if hasattr(self.build, "main_group") else None
+        gems = getattr(getattr(self.build, "ctx", None), "gems", None) or {}
+        found = []
+        for group in self.combo_groups(name):
+            if not group.get("fullDPS") or (main is not None and group.get("index") == main.get("index")):
+                continue
+            if pressed_group({"fromItem": False, **group, "gems": [{"enabled": True, **g} for g in group["gems"]]}, gems):
+                continue
+            found.append(group.get("label") or next((g["name"] for g in group["gems"] if not g["support"]), "?"))
+        return found
+
+    def play_note(self, name: str) -> str:
+        """What the player does to feed the Combo or walking gem `name` in the build as it is, with its rate and the
+        "without it / with it" figures (CLAUDE.md, the play guide's rows; "" when it has no such need or no rate). The
+        rate is the press hook's (Assumptions.press_caps / main_cap); this is its plain-English line."""
+        rule = self.rules.get(name)
+        for need in requirements(name, rule) if rule else []:
+            if need.kind == "combo" and (found := self.combo_rate(name, need.amount)):
+                uses, share, builder = found
+                return (f"{name}: Strike with {builder} until you hold {need.amount:g} Combo, then use it: about "
+                        f"{uses:.2f} uses a second, x{share:.3f} of PoB's at-will damage (without a {builder} between "
+                        "uses: none; with it: that share)")
+            if need.kind == "travel" and (found := self.travel_rate(name)):
+                uses, share, walking, rolled = found
+                return (f"{name}: walk 10 m between uses ({walking:.0%} of the fight spent walking, no skill used then): "
+                        f"about {uses:.2f} uses a second, x{share:.3f} of PoB's at-will damage (standing still: none; "
+                        f"with dodge rolls counted as moving, UNVERIFIED: {rolled:.2f} a second)")
+        return ""
 
     def combo_rate(self, name: str, amount: float) -> tuple[float, float, str] | None:
         """(uses per second, share of PoB's at-will damage, builder) of the Combo skill in `name`'s group, built by the
@@ -432,6 +546,10 @@ class Usage:
             return speed > 0 and maximum > 0 and generated >= need.rate * maximum * speed * UPTIME
         if need.kind == "flask throw":
             return self.throw_rate(need) > 0
+        if need.kind == "mana pool":  # (Mana can't exceed its maximum: below it, never castable)
+            return number(stats.get("Mana")) >= need.amount
+        if need.kind == "ward":  # (any Runic Ward refills to the share between uses; module docstring)
+            return number(stats.get("Ward")) > 0
         return False
 
     def is_main(self, name: str) -> bool:

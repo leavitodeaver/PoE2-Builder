@@ -126,8 +126,9 @@ class ComboBuild(FakeBuild):
 
     def call(self, name, **kwargs):
         if name == "useRates":
-            return {"rates": [{"index": i, "name": g["gems"][0]["name"], "speed": self.speeds[g["gems"][0]["name"]]}
-                              for i, g in enumerate(self.group_list) if i in kwargs["indices"]]}
+            return {"rates": [{"index": g.get("index", i), "name": g["gems"][0]["name"],
+                               "speed": self.speeds[g["gems"][0]["name"]]}
+                              for i, g in enumerate(self.group_list) if g.get("index", i) in kwargs["indices"]]}
         return super().call(name, **kwargs)
 
 
@@ -137,8 +138,8 @@ def combo_group(index: int, *names: str, set1: bool = True, set2: bool = True) -
 
 
 def test_combo_finishers_name_the_builds_strikes_and_their_rate(fresh_rules):
-    """RULE_AUDIT row 2b: Combo comes from the build's Strikes (KeywordPopups 'Combo', 'Strike'). Barred either way
-    until the Full DPS is scaled, but the label says which, and combo_rate gives the rotation's rate."""
+    """RULE_AUDIT row 2b: Combo comes from the build's Strikes (KeywordPopups 'Combo', 'Strike'). On MECH-B's press
+    hook (COVC10): allowed with a builder (the hook caps it at combo_rate), barred without one."""
     rules = {"Combo Finisher II": {"addsUsageCondition": True,
                                    "stats": {"support_combo_finisher_required_number_of_combo_stacks": 5}}}
     types = {"Combo Finisher II": [], "Falling Thunder": ["Attack", "Melee", "Area"],
@@ -155,20 +156,39 @@ def test_combo_finishers_name_the_builds_strikes_and_their_rate(fresh_rules):
     # A Strike on the same weapon set builds it: 5 Strikes at 2.5/s (2 s), then one use (1 s) -> 1/3 use a second
     build.group_list = groups + [combo_group(3, "Quarterstaff Strike")]
     assert usage.combo_builders("Combo Finisher II") == [(3, "Quarterstaff Strike")]
-    assert "built by Quarterstaff Strike" in usage.blockers("Combo Finisher II")[0]  # (still barred: no scaling yet)
+    assert usage.blockers("Combo Finisher II") == [] and usage.usable("Combo Finisher II")  # (the hook caps it)
     uses, share, builder = usage.combo_rate("Combo Finisher II", 5)
     assert builder == "Quarterstaff Strike" and abs(uses - 1 / 3) < 1e-9 and abs(share - 1 / 3) < 1e-9
+    assert usage.play_note("Combo Finisher II").startswith(
+        "Combo Finisher II: Strike with Quarterstaff Strike until you hold 5 Combo, then use it: about 0.33 uses a second")
     # Combo is lost on a weapon swap: a Strike held only on the other set builds nothing
     build.group_list = [combo_group(0, "Falling Thunder", "Combo Finisher II", set2=False),
                         combo_group(3, "Quarterstaff Strike", set1=False)]
     assert usage.combo_builders("Combo Finisher II") == []
+    assert "no skill of the build Strikes" in usage.blockers("Combo Finisher II")[0]
     assert combo_rotation(3, 2.0, 1.0, gain=1.5) == (0.5, 0.5)
+    # A candidate not yet in the build: allowed when the build has a builder (the hook caps it once it's placed)
+    build.group_list = [combo_group(3, "Quarterstaff Strike")]
+    assert usage.blockers("Combo Finisher II") == []
+    build.group_list = [combo_group(1, "Fireball")]
+    assert "no skill of the build Strikes" in usage.blockers("Combo Finisher II")[0]
+    # In a Full DPS group the hook doesn't cap (triggered by a meta gem: neither main nor pressed): still barred
+    rules["Cast on Critical"] = {"stats": {}}
+    triggered = {**combo_group(0, "Cast on Critical", "Falling Thunder", "Combo Finisher II"), "fullDPS": True,
+                 "fromItem": False, "label": "Cast on Critical"}
+    build.speeds["Cast on Critical"] = 1.0
+    build.ctx.gems["Cast on Critical"] = {"skillTypes": ["Meta", "Persistent"], "support": False}
+    build.group_list = [triggered, combo_group(1, "Quarterstaff Strike")]
+    blocked = usage.blockers("Combo Finisher II")
+    assert len(blocked) == 1 and "without a press cap" in blocked[0]
+    build.group_list = [{**triggered, "gems": triggered["gems"][1:], "label": ""}, combo_group(1, "Quarterstaff Strike")]
+    assert usage.blockers("Combo Finisher II") == []  # (a pressed Falling Thunder: the hook caps it)
     # Martial Master (A11-4): any Attack Hit builds Combo, on any weapon set; Martial Adept: 2 Combo per gain
     build.stats = {"passives": [{"name": "Martial Master"}]}
     build.group_list = [combo_group(0, "Falling Thunder", "Combo Finisher II", set2=False),
                         combo_group(2, "Boneshatter", set1=False), combo_group(1, "Fireball")]
     assert usage.combo_builders("Combo Finisher II") == [(2, "Boneshatter")]
-    assert "(Attack Hits, Martial Master)" in usage.blockers("Combo Finisher II")[0]
+    assert usage.blockers("Combo Finisher II") == []  # (Martial Master: Boneshatter builds it from the other set)
     build.group_list = [combo_group(0, "Falling Thunder", "Combo Finisher II"), combo_group(1, "Boneshatter")]
     build.stats = {"passives": [{"name": "Martial Master"}, {"name": "Martial Adept"}]}
     uses, share, builder = usage.combo_rate("Combo Finisher II", 5)  # 2.5 Boneshatters at 3/s, then 1 s: 1/(5/6 + 1)
@@ -223,7 +243,7 @@ def test_concoctions_need_a_mana_flask_that_gains_charges(fresh_rules):
 def test_echoing_cry_and_hit_and_run_get_a_walking_use_rate(fresh_rules):
     """AUDIT9 A9-4 (RESEARCH21 character-ot-base-speed.md): 10 m at 3.7 m/s* (MEDIUM, Character.ot base_speed 37) x
     the build's movement speed between uses, the cooldown permitting; whole dodge rolls of 4.6 m, 0.75 s each, as the
-    with-it figure. Still barred."""
+    with-it figure. Allowed on MECH-B's press hook (COVC10), which caps it at travel_rate."""
     assert abs(travel_seconds(100) - 10 / 3.7) < 1e-9
     assert abs(travel_seconds(100, 1.25) - 10 / (3.7 * 1.25)) < 1e-9
     assert travel_seconds(100, rolls=True) == 3 * 0.75 and travel_seconds(100, 1.1, rolls=True) == 2 * 0.75
@@ -239,12 +259,21 @@ def test_echoing_cry_and_hit_and_run_get_a_walking_use_rate(fresh_rules):
                        {"Quarterstaff Strike": 4.0})
     build.stats = {"EffectiveMovementSpeedMod": 1.3}
     usage = Usage(build, FakeConditions())
-    blocked = usage.blockers("Hit and Run")
-    assert len(blocked) == 1 and "move 10 m before each use (2.7 s of walking" in blocked[0]
+    assert usage.blockers("Hit and Run") == []
     uses, share, walking, rolled = usage.travel_rate("Hit and Run")
     assert abs(uses - 1 / (0.25 + 10 / (3.7 * 1.3))) < 1e-9 and abs(share - uses / 4) < 1e-9
     assert abs(rolled - 1 / (0.25 + 2 * 0.75)) < 1e-9  # (two rolls of 4.6 x 1.3 m)
     assert usage.travel_rate("Quarterstaff Strike") is None
+    assert usage.play_note("Hit and Run").startswith("Hit and Run: walk 10 m between uses (")
+    # A triggered group counted in Full DPS isn't capped by the hook: barred, with the walk in the label
+    rules["Cast on Critical"] = {"stats": {}}
+    build.ctx.gems["Cast on Critical"] = {"skillTypes": ["Meta", "Persistent"], "support": False}
+    build.speeds["Cast on Critical"] = 1.0
+    build.group_list = [{"index": 0, "enabled": True, "fullDPS": True, "fromItem": False, "label": "CoC", "gems": [
+        {"name": "Cast on Critical", "support": False}, {"name": "Quarterstaff Strike", "support": False},
+        {"name": "Hit and Run", "support": True}]}]
+    blocked = usage.blockers("Hit and Run")
+    assert len(blocked) == 1 and "move 10 m before each use (2.7 s of walking" in blocked[0] and "CoC" in blocked[0]
 
 
 # Through a real engine --------------------------------------------------------------------------
@@ -286,6 +315,13 @@ def test_pob_marks_the_gems_that_cant_be_used_at_will(engine):
         assert [r.kind for r in requirements(name, rules[name])] == ["placed banner"], name
     assert "Rapid Attacks II" not in rules
     assert rules["Practiced Combo"]["comboChance"] == 40 and not requirements("Practiced Combo", rules["Practiced Combo"])
+    # COVC10: the four item / tree skills' own requirements, under PoB's gem names (Compose Requiem is "Requiem")
+    found = {n: [r.kind for r in requirements(n, rules[n])] for n in rules
+             if any(k in (rules[n].get("stats") or {}) for k in ("mana_required_to_activate_skill",
+                    "rune_ward_requires_%_maximum_ward_to_perform", "ailment_bearer_required_stacks_to_use",
+                    "rapidshot_requiem_base_buff_count_requirement"))}
+    assert sorted(k for kinds_ in found.values() for k in kinds_) == ["anguish", "fury", "mana pool", "ward"], found
+    assert not any("never" in kinds_ for kinds_ in found.values()), found
     cost = engine.call("flaskThrowCost")  # (COVC8: the Concoctions' throw cost modifiers; none on an empty build)
     assert (cost["usedInc"], cost["usedMore"], cost["notConsume"]) == (0, 1, 0)
 
@@ -363,3 +399,30 @@ def test_a_talisman_shuts_out_skills_that_cant_be_used_in_a_shapeshift_form(fres
     # No Talisman: nothing changes
     assert Usage(build, FakeConditions(), weapons={1: "Two Hand Mace"}).usable("Ancestral Cry")
     assert Usage(build, FakeConditions()).usable("Ancestral Cry")
+
+
+def test_four_item_and_tree_skills_requirements_are_read_not_never(fresh_rules, monkeypatch):
+    """COVC10: The Stars Answer needs 10000 Mana ("Cannot be cast if you have less than {0} Mana"), Runic Reprieve 20%
+    of maximum Runic Ward, Unbound Avatar 100 Unbound Fury (never barred: PoB counts its buff at nothing), Compose
+    Requiem 100 anguish at 200 a minute for a 12 s Requiem (barred, labelled with its 29-40% share)."""
+    monkeypatch.setattr(Usage, "talisman_blockers", lambda self, name: [])
+    rules = {
+        "The Stars Answer": {"usageCondition": True, "stats": {"mana_required_to_activate_skill": 10000,
+                                                                "walking_calamity_spawn_meteor_every_ms": 300}},
+        "Runic Reprieve": {"stats": {"rune_ward_requires_%_maximum_ward_to_perform": 20}},
+        "Unbound Avatar": {"usageCondition": True, "stats": {"ailment_bearer_required_stacks_to_use": 100,
+                                                              "display_max_ailment_bearer_charges": 100}},
+        "Compose Requiem": {"usageCondition": True, "stats": {
+            "rapidshot_requiem_base_buff_count_requirement": 100, "rapidshot_requiem_number_of_stacks_per_minute": 200,
+            "rapidshot_requiem_active_duration_ms": 12000}},
+    }
+    assert {n: kinds(r) for n, r in rules.items()} == {"The Stars Answer": ["mana pool"], "Runic Reprieve": ["ward"],
+                                                       "Unbound Avatar": ["fury"], "Compose Requiem": ["anguish"]}
+    requiem = requirements("Compose Requiem", rules["Compose Requiem"])[0]
+    assert abs(requiem.rate - 12 / 42) < 1e-9 and "(30 s), for a 12 s Requiem: up 29%-40%" in requiem.label
+    poor = Usage(FakeBuild(rules, {"Mana": 2400, "Ward": 0}), FakeConditions())
+    rich = Usage(FakeBuild(rules, {"Mana": 10500, "Ward": 300}), FakeConditions())
+    assert "at least 10000 Mana" in poor.blockers("The Stars Answer")[0] and rich.usable("The Stars Answer")
+    assert "Runic Ward" in poor.blockers("Runic Reprieve")[0] and rich.usable("Runic Reprieve")
+    assert poor.usable("Unbound Avatar") and rich.usable("Unbound Avatar")
+    assert "Requiem shot fired at will" in rich.blockers("Compose Requiem")[0]
