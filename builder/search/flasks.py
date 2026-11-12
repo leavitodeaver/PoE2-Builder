@@ -96,6 +96,22 @@ def charm_charges_used(charms: list[tuple[dict, str]], gain: Charges) -> tuple[f
     return total, "; ".join(how)
 
 
+def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tuple[float, str]:
+    """(uses per second, how) of one flask or charm against a boss: as often as its generated charges pay for a use,
+    never again while its effect lasts (as charm_charges_used; a player feeding a "when you use a Flask" line uses it
+    the moment it can be), and 0 when it waits for a kill or can't be used (MECH48: its "on use" lines were one per 4 s)."""
+    used = info.get("chargesUsed") or 0
+    if not info.get("kind") or info.get("constant") or KILL_TRIGGER in raw.lower():
+        return 0.0, "can't be used against a lone boss (waits for a kill, or can't be used)"
+    if used <= 0:
+        return 0.0, "no charges per use read"
+    made = charges_per_second(info, gain, pool)
+    uses, how = made / used, f"{made:.2f} charges/s / {used:g} per use"
+    if (length := duration(info, gain)) > 0 and uses > 1 / length:
+        uses, how = 1 / length, how + f", at most once per its {length:.1f} s effect"
+    return uses, how
+
+
 def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
     """A Life or Mana flask's recovery per second at the rate its generated charges allow (one use
     at a time: never faster than one per duration)."""

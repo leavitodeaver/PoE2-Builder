@@ -258,15 +258,43 @@ EVENT_WORDS = {
 EVENT_NAMES = {"Warcry": "a Warcry used", "SummonsTotem": "a Totem summoned", "Mark": "a Mark activating"}
 
 
+# A flask used (MECH48; before, one per 4 s): the build's equipped flasks at the uses their generated charges pay for
+# (flasks.uses_per_second; Conditions._item_uses), 0 with none. A flask's or charm's own "on use" line reads that item's
+# uses the same way (stats["_item_uses"], by line text).
+FLASK_EVENT = re.compile(r"\b(?:use|using|uses) an? (life |mana )?flask", re.I)
+ON_USE = re.compile(r"\bon use\s*$", re.I)
+USED_SLOTS = ("item:Flask", "item:Charm")
+
+
 def _named_event(when: str, stats: dict) -> tuple[float, str] | None:
     """(events per second, how) for a line's event from the build's own skills (stats["_events"]), or None if the line
     names none of EVENT_WORDS (or the table wasn't built)."""
     events = stats.get("_events") or {}
+    if (flask := FLASK_EVENT.search(when)) and (kind := f"{(flask.group(1) or '').strip().capitalize()}Flask") in events:
+        rate, how = events[kind]
+        return rate, f"a {(flask.group(1) or '')}Flask used: {how}"
     for kind, pattern in EVENT_WORDS.items():
         if pattern.search(when) and kind in events:
             rate, how = events[kind]
             return rate, f"{EVENT_NAMES[kind]}: {how}"
     return None
+
+
+def skill_use_rate(rate: dict) -> tuple[float, str, bool]:
+    """(uses per second, why, LOW?) of a non-main skill from the bridge's useRates entry for its group: on its cooldown,
+    else once per its duration, else once every models.PRESS_EVERY s (LOW), never faster than its own speed."""
+    cooldown, duration = number(rate.get("cooldown")), number(rate.get("duration"))
+    repeats = number(rate.get("repeats")) or 1.0
+    low = False
+    if cooldown > 0:
+        each, why = repeats / cooldown, f"its {cooldown:.2f} s cooldown"
+    elif duration > 0:
+        each, why = repeats / duration, f"once per its {duration:.2f} s duration"
+    else:
+        each, why, low = repeats / models.PRESS_EVERY, f"once every {models.PRESS_EVERY:g} s (LOW: no cooldown or duration)", True
+    if (speed_g := number(rate.get("speed"))) > 0:
+        each = min(each, speed_g)
+    return each, why, low
 
 
 def event_rates(groups: list[dict], gems: dict[str, dict], main_skill: str, main_types: set[str], speed: float,
@@ -291,23 +319,30 @@ def event_rates(groups: list[dict], gems: dict[str, dict], main_skill: str, main
             name = found.get(rate.get("index"))
             if name is None:
                 continue
-            cooldown, duration = number(rate.get("cooldown")), number(rate.get("duration"))
-            repeats = number(rate.get("repeats")) or 1.0
-            if cooldown > 0:
-                each, why = repeats / cooldown, f"its {cooldown:.2f} s cooldown"
-            elif duration > 0:
-                each, why = repeats / duration, f"once per its {duration:.2f} s duration"
-            else:
-                each, why, low = repeats / models.PRESS_EVERY, f"once every {models.PRESS_EVERY:g} s (LOW: no cooldown or duration)", True
-            if (speed_g := number(rate.get("speed"))) > 0:
-                each = min(each, speed_g)
+            each, why, guess = skill_use_rate(rate)
+            low = low or guess
             total += each
             parts.append(f"{name} on {why}, {each:.2f}/s")
         out[kind] = (total, "; ".join(parts) + (" (LOW)" if low else " (MEDIUM: used on cooldown or to keep it up)"))
     return out
 
 
-CHARGE_SOURCE = r"(?:(\d+(?:\.\d+)?)% chance (?:to|when you \w+ (?:a|an) \w+ Charge to)?\s*)?(?:gain|grants?)\w* (?:an? |\d+ )?(?:[\w, ]*?\b{kind}\b[\w, ]*?) Charges?(.*)$"
+CHARGE_SOURCE = r"(?:(\d+(?:\.\d+)?)% chance (?:to|when you \w+ (?:a|an) \w+ Charge to)?\s*)?(?:gain|grants?)\w* (?:an? |(?P<count>\d+) )?(?:[\w, ]*?\b{kind}\b[\w, ]*?) Charges?(.*)$"
+
+
+def _hit_restriction(when: str, stats: dict) -> str | None:
+    """Why the main skill's hits can't be the line's "on Melee (Axe) Hit" event, or None (MECH48). PoB parses "Gain N
+    Rage on Melee Hit" with the melee restriction lost (the catalog's Melee Hit / Melee Axe Hit 'misparse' lines), and
+    our rates read the main skill's hits: a Spell or ranged main skill gained Rage from them (an overcount). Only the
+    main skill's hits are rated here, so other Melee skills beside it aren't counted (LOW, an undercount)."""
+    if not re.search(r"\bmelee\b[^.;]*\bhit", when):
+        return None
+    if "Melee" not in (stats.get("_main_types") or {"Melee"}):
+        return "on Melee Hits, and the main skill isn't Melee: 0"
+    weapon = re.search(r"\bmelee (axe|mace|sword|spear|flail|dagger|claw|quarterstaff|staff) hit", when)
+    if weapon and weapon.group(1) not in (stats.get("_weapon") or weapon.group(1)).lower():
+        return f"on Melee {weapon.group(1).capitalize()} Hits, and the main weapon is a {stats.get('_weapon')}: 0"
+    return None
 
 
 def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
@@ -316,7 +351,8 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     if not m or re.search(r"\bcannot gain\b|instead|allies|when you gain|if you would gain|per \w+ charge|lose|at maximum \w+ charges", text, re.I):
         return None
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
-    when = m.group(2).lower()
+    chance *= float(m.group("count") or 1)  # ("Gain 3 Power Charges on use": three per event; MECH48, was one)
+    when = m.group(3).lower()
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     crits = hits * number(stats.get("CritChance")) / 100
     boss = 1 / (number(stats.get("enemySkillTime")) or 0.7)
@@ -327,6 +363,8 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
                   else {e for e in ("freeze", "electrocute", "pin", "stun") if e in when})
         rate, how = models.immobilise_rate(stats, events)
         return chance * rate, f"{chance:.0%} x {rate:.3f}/s ({how})"
+    if (why := _hit_restriction(when, stats)) is not None:
+        return 0.0, why
     if "critical hit" in when and "take" not in when:
         return chance * crits, f"{chance:.0%} x {crits:.2f} crits/s"
     if "take a critical hit" in when:
@@ -341,7 +379,44 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
         return chance / every, f"one every {every:g} s"
     if (named := _named_event(when, stats)) is not None:
         return chance * named[0], f"{chance:.0%} x {named[0]:.3f}/s ({named[1]})"
+    if re.fullmatch(r"\s*on use\s*", when) and (used := (stats.get("_item_uses") or {}).get(text)) is not None:
+        # a flask's or charm's own "on use" line (MECH48): that item's uses, from its generated charges
+        return chance * used[0], f"{chance:.0%} x {used[0]:.3f} uses/s ({used[1]})"
+    if "attack ignites" in when:
+        if "Attack" not in (stats.get("_main_types") or set()):
+            return 0.0, "the main skill isn't an Attack: no Attack Ignites (other Attacks not counted, LOW)"
+        ignites = min(number(stats.get("IgniteChancePerHit")) / 100, 1.0) * hits
+        return chance * ignites, f"{chance:.0%} x {ignites:.2f} Ignites/s (the main Attack's hits x its Ignite chance)"
+    if reach := re.search(r"on reaching maximum (\w+) charges", when):
+        return _reaching_maximum(reach.group(1).capitalize(), chance, stats)
     return chance / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
+
+
+CHARGE_EVENT_FIELDS = ("HitChance", "IgniteChancePerHit", "PowerChargesMax", "PowerChargesDuration",
+                       "FrenzyChargesMax", "EnduranceChargesMax")  # (_charge_rate: Attack Ignites, reaching a maximum)
+
+
+def _reaching_maximum(kind: str, chance: float, stats: dict) -> tuple[float, str]:
+    """(events per second, how) for "on reaching maximum <kind> Charges" (MECH48; before, one per 4 s). Gaining a charge
+    refreshes them all, so a build whose gains keep it at the maximum reaches it once and stays: 0 after that. It is
+    reached again only after charges go: "Lose all <kind> Charges on reaching maximum" (each refill of the maximum: gains
+    / maximum), or a skill spending one per use while gains outrun it (each spend's refill: the spends per second, LOW:
+    one charge per use assumed, as _charges_held)."""
+    if stats.get("_reaching"):
+        return 0.0, "a reaching-maximum line inside another: not followed"
+    texts = stats.get("_texts") or []
+    inner = {**stats, "_reaching": True}
+    gains = sum(r[0] for t in texts if (r := _charge_rate(t, kind, inner)) is not None)
+    most = number(stats.get(f"{kind}ChargesMax"))
+    if gains <= 0 or most <= 0:
+        return 0.0, f"no {kind} Charge gains against a boss (or no maximum): never reached"
+    spent = sum((stats.get("_consumers") or {}).get(kind, {}).values())
+    if any(re.search(rf"lose all {kind} charges on reaching maximum", t, re.I) for t in texts):
+        return chance * gains / most, f"{chance:.0%} x {gains:.2f} gains/s / {most:g} (all lost on reaching it)"
+    if spent and gains > spent:
+        return chance * spent, f"{chance:.0%} x {spent:.2f}/s ({kind} Charges spent one per use, refilled by {gains:.2f} gains/s; LOW)"
+    return 0.0, (f"{gains:.2f} {kind} gains/s, " + ("spent faster than made: the maximum isn't reached" if spent
+                 else "nothing spends them: reached once, then held (0 per second)"))
 
 
 # The boss's distance: PoB's Configuration "Distance to enemy" (10 units a metre). PoB compares its Presence radius with it
@@ -593,6 +668,8 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
     else:
         if not own_hits and re.search(r"hit", when):
             return 0.0, 0.0, "on your hits, but the main skill can't gain Rage while used"
+        if (why := _hit_restriction(when, stats)) is not None:
+            return 0.0, 0.0, why
         if "ignite" in when:
             events = hits * min(number(stats.get("IgniteChancePerHit")), 100) / 100
             how = f"{events:.2f} Ignites/s"
@@ -601,6 +678,8 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
             how = f"{events:.2f} crits/s"
         elif "hit" in when:
             events, how = hits, f"{hits:.2f} hits/s"
+        elif re.fullmatch(r"\s*on use\s*", when) and (used := (stats.get("_item_uses") or {}).get(text)) is not None:
+            events, how = used[0], f"the item's uses: {used[1]}"  # (a flask's or charm's own line, MECH48)
         elif (named := _named_event(when, stats)) is not None:
             events, how = named
         else:
@@ -1386,11 +1465,11 @@ CONDITIONS: list[Condition] = [
     # Grinning Immolation (Infernalist): "Become Ignited when you deal a Critical Hit": with crits landing you stay Ignited,
     # so every "while Ignited" line of the build counts (its self-damage is a drain outside the checked defences)
     Condition("overridePowerCharges", "Power Charges held", value_fn=_charges_held("Power"),
-              fields=("Speed", "CritChance", "PowerChargesMax", "PowerChargesDuration", *models.IMMOBILISE_FIELDS)),
+              fields=("Speed", "CritChance", "PowerChargesMax", "PowerChargesDuration", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS)),
     Condition("overrideFrenzyCharges", "Frenzy Charges held", value_fn=_charges_held("Frenzy"),
-              fields=("Speed", "CritChance", "FrenzyChargesMax", "FrenzyChargesDuration", *models.IMMOBILISE_FIELDS)),
+              fields=("Speed", "CritChance", "FrenzyChargesMax", "FrenzyChargesDuration", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS)),
     Condition("overrideEnduranceCharges", "Endurance Charges held", value_fn=_charges_held("Endurance"),
-              fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration", *models.IMMOBILISE_FIELDS)),
+              fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS)),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
               fields=WITHER_FIELDS),
     Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)",
@@ -1478,6 +1557,42 @@ class Conditions:
         self.found_uptimes: dict[str, float] = {}  # var -> share of the fight, from the last evidence
         self.uptimes: dict[str, float] = {}  # the active ones up for only part of it (Search.weigh_uptimes)
 
+    def _group_uses(self, groups: list[dict], names: set[str]) -> dict[str, float]:
+        """{gem name: uses per second} for skills beside the main one, each at its enabled group's rate
+        (skill_use_rate); a name in no enabled group is left out (the caller's PRESS_EVERY guess)."""
+        where = {n["name"]: g["index"] for g in groups if g.get("enabled") is not False
+                 for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in names}
+        if not where:
+            return {}
+        by_index = {r.get("index"): skill_use_rate(r)[0]
+                    for r in self.build.call("useRates", indices=sorted(set(where.values())))["rates"]}
+        return {n: by_index[i] for n, i in where.items() if i in by_index}
+
+    def _item_uses(self, lines: list[dict], events: dict) -> dict[str, tuple[float, str]]:
+        """{line text: (uses per second, how)} for the equipped flasks' and charms' own "on use" lines, and the flask
+        events (Flask, LifeFlask, ManaFlask) added to `events`: each item at flasks.uses_per_second."""
+        from builder.search.flasks import CHARM_SLOTS, FLASK_SLOTS, Charges, slot_pool, uses_per_second
+
+        gain = Charges.from_bridge(self.build.call("chargeGain"))
+        slots = [s for s in (*FLASK_SLOTS, *CHARM_SLOTS[:gain.charm_limit]) if self.build.equipped.get(s) is not None]
+        raws = [self.build.equipped[s].raw for s in slots]
+        infos = self.build.call("flaskData", raws=raws)["results"] if raws else []
+        per_slot = {s: uses_per_second(info, gain, raw, slot_pool(s)) for s, raw, info in zip(slots, raws, infos)}
+        for kind, pools in (("Flask", ("Life", "Mana")), ("LifeFlask", ("Life",)), ("ManaFlask", ("Mana",))):
+            used = [(s, per_slot[s]) for s in FLASK_SLOTS if s in per_slot and slot_pool(s) in pools]
+            events[kind] = (sum(u for _, (u, _) in used), "; ".join(f"{s} {u:.3f}/s ({h})" for s, (u, h) in used)
+                            or "no flask equipped: 0")
+        found: dict[str, list] = {}
+        for line in lines:
+            slot = line["source"][5:]
+            if slot in per_slot and ON_USE.search(line["text"]):
+                entry = found.setdefault(line["text"], [0.0, 0, []])
+                entry[0] += per_slot[slot][0]
+                entry[1] += 1
+                entry[2].append(f"{slot}: {per_slot[slot][1]}")
+        # the same text on two items: each copy takes the average, so the copies together count both items' uses
+        return {text: (total / count, "; ".join(how)) for text, (total, count, how) in found.items()}
+
     def evidence(self) -> dict[str, tuple[object, str]]:
         """What the build can sustain now: var -> (value, evidence)."""
         lines = self.build.call("sourceLines")["lines"]
@@ -1487,7 +1602,7 @@ class Conditions:
             if line["source"].startswith("gem:"):
                 name = line["source"][4:]
                 gem_types[name] = set((self.build.ctx.gems.get(name) or {}).get("skillTypes") or [])
-        # Charge consumers and their uses per second (the main skill at its speed, any other at one use per 4 s)
+        # Charge consumers and their uses per second (the main skill at its speed, any other at its group's rate)
         from builder.search.models import HOLLOW_FORM
 
         # Hollow Form holding the main skill is channelled at its speed, and the Attack in it can't consume charges
@@ -1503,25 +1618,40 @@ class Conditions:
                     if hollow and types == main_types and name != HOLLOW_FORM:
                         continue
                     uses = (number(stats.get("Speed")) if types == main_types or (hollow and name == HOLLOW_FORM)
-                            else 1 / CHARGE_DEFAULT_EVERY)
+                            else None)  # (None: rated from its group below)
                     consumers.setdefault(kind, {})[name] = uses
         # Rage spenders (RAGE_PER_USE / RAGE_PER_SECOND): the main skill, or a support in its group, at the main skill's
-        # uses per second; any other at one use per CHARGE_DEFAULT_EVERY s
+        # uses per second; any other at its group's rate (per-second spenders other than the main skill: 1/4 of the time)
         main_gems = {g["name"] for g in group["gems"]} if group is not None else set()
         rage_spend: dict[str, float] = {}
         for name in gem_types:
             uses = number(stats.get("Speed")) if name == self.main_skill or (
-                name in main_gems and name.startswith("Rageforged")) else 1 / CHARGE_DEFAULT_EVERY
+                name in main_gems and name.startswith("Rageforged")) else None
             if name in RAGE_PER_USE:
-                rage_spend[name] = RAGE_PER_USE[name] * uses
+                rage_spend[name] = RAGE_PER_USE[name] * uses if uses is not None else None
             elif name in RAGE_PER_SECOND:
                 rage_spend[name] = RAGE_PER_SECOND[name] * (1.0 if name == self.main_skill else 1 / CHARGE_DEFAULT_EVERY)
         texts = [line["text"] for line in lines]
-        groups_now = self.build.call("groups")["groups"] if any(
+        unrated = {n for each in consumers.values() for n, u in each.items() if u is None} | {
+            n for n, u in rage_spend.items() if u is None}
+        groups_now = self.build.call("groups")["groups"] if unrated or any(
             p.search(t) for p in EVENT_WORDS.values() for t in texts) else []
+        if unrated:
+            # FLAT_RATES A4 (MECH48): a consumer / Rage spender beside the main skill is used at its own group's rate
+            # (skill_use_rate: its cooldown, else its duration, else PRESS_EVERY, LOW), not one use per 4 s
+            uses = self._group_uses(groups_now, unrated)
+            for each in consumers.values():
+                for n in [n for n, u in each.items() if u is None]:
+                    # (a support in the main skill's group consumes on the main skill's uses)
+                    each[n] = number(stats.get("Speed")) if n in main_gems else uses.get(n, 1 / models.PRESS_EVERY)
+            for n in [n for n, u in rage_spend.items() if u is None]:
+                rage_spend[n] = RAGE_PER_USE[n] * uses.get(n, 1 / models.PRESS_EVERY)
         events = event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),
                              lambda idx: self.build.call("useRates", indices=idx)["rates"], texts) if groups_now else {}
-        stats = {**stats, "_events": events, "_consumers": consumers, "_rage_spend": rage_spend,
+        item_uses = self._item_uses(lines, events) if any(
+            ON_USE.search(line["text"]) and line["source"].startswith(USED_SLOTS) for line in lines) or any(
+            FLASK_EVENT.search(t) for t in texts) else {}
+        stats = {**stats, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend,
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_distance_choice": self.distance,
                  "_stationary_off": self.stationary_off, "_rolling": self.rolling,
                  "_curse_uses": curse_uses(self.build, stats, texts, (self.distance or (natural_distance(main_types), ""))[0])
@@ -1721,7 +1851,8 @@ class Conditions:
         if (kind := CHARGE_OVERRIDES.get(condition.var)) is not None:  # a generator of that charge a boss fight feeds
             rate = _charge_rate(text, kind, {"Speed": 1.0, "HitChance": 100, "CritChance": 50, "EffectiveBlockChance": 30,
                                              "FreezeBuildupAvg": 10, "ElectrocuteBuildupAvg": 10,
-                                             "HeavyStunBuildupAvg": 10, "PhysicalHitAverage": 1})
+                                             "HeavyStunBuildupAvg": 10, "PhysicalHitAverage": 1,
+                                             "IgniteChancePerHit": 50, "_main_types": {"Attack"}})
             return rate is not None and rate[0] > 0
         return condition.stat is not None and any(
             word.lower() in text.lower() for word in TRIAL_WORDS.get(condition.var, ()))

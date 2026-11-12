@@ -1431,6 +1431,68 @@ def test_a_named_event_takes_the_builds_own_rate_not_the_4s_default():
     assert conditions.event_rates(groups, gems, "Spark", {"Spell"}, 2.0, rates, ["10% increased Damage"]) == {}
 
 
+def test_flask_use_ignites_and_reaching_maximum_read_the_build_not_4s():
+    """MECH48 (FLAT_RATES A3, rest): a flask's or charm's own "on use" line reads that item's uses (generated charges /
+    charges per use, at most once per its effect; a kill-triggered charm 0); "when you use a Flask" the build's flasks;
+    "if an Attack Ignites" the main Attack's hits x Ignite chance (0 for a Spell); "on reaching maximum Power Charges"
+    0 while nothing spends them, gains / maximum when all are lost on reaching it."""
+    from builder.search import conditions, flasks
+    gain = flasks.Charges(flask=1.0)
+    flask = {"kind": "Flask", "chargesUsed": 10, "duration": 2.0}
+    assert flasks.uses_per_second(flask, gain, "Ruby Flask", "Life")[0] == pytest.approx(0.1)
+    assert flasks.uses_per_second({**flask, "chargesUsed": 1}, gain, "Ruby Flask", "Life")[0] == pytest.approx(0.5)
+    charm = {"kind": "Charm", "chargesUsed": 10, "duration": 2.0, "gainBase": 1.0}
+    assert flasks.uses_per_second(charm, gain, "Golden Charm\nUsed when you Kill a Rare or Unique enemy", None)[0] == 0
+    on_use = "Gain 1 Endurance Charge on use"
+    stats = {"Speed": 2.0, "_item_uses": {on_use: (0.1, "Charm 1")}}
+    assert conditions._charge_rate(on_use, "Endurance", stats)[0] == pytest.approx(0.1)
+    three = "Gain 3 Power Charge on use"  # (three per use: the count was dropped before MECH48)
+    assert conditions._charge_rate(three, "Power", {"Speed": 2.0, "_item_uses": {three: (0.1, "Charm 1")}})[0] == pytest.approx(0.3)
+    events = {"Flask": (0.3, "two"), "LifeFlask": (0.1, "one"), "ManaFlask": (0.2, "one")}
+    life = conditions._charge_rate("Gain a Frenzy Charge when you use a Life Flask", "Frenzy", {"Speed": 2.0, "_events": events})
+    assert life[0] == pytest.approx(0.1)
+    ignites = "Gain a Frenzy Charge if an Attack Ignites an Enemy"
+    attack = {"Speed": 2.0, "HitChance": 50, "IgniteChancePerHit": 20, "_main_types": {"Attack"}}
+    assert conditions._charge_rate(ignites, "Frenzy", attack)[0] == pytest.approx(0.2)
+    assert conditions._charge_rate(ignites, "Frenzy", {**attack, "_main_types": {"Spell"}})[0] == 0.0
+    reach = "Gain a Frenzy Charge on reaching Maximum Power Charges"
+    held = {"Speed": 2.0, "PowerChargesMax": 4, "CritChance": 50, "_texts": [reach, "Gain a Power Charge on Critical Hit"]}
+    assert conditions._charge_rate(reach, "Frenzy", held)[0] == 0.0  # (reached once, then held)
+    lost = {**held, "_texts": held["_texts"] + ["Lose all Power Charges on reaching maximum Power Charges"]}
+    assert conditions._charge_rate(reach, "Frenzy", lost)[0] == pytest.approx(1.0 / 4)  # (1 crit/s / 4)
+
+
+def test_rage_on_melee_hit_needs_a_melee_main_skill():
+    """MECH48 (catalog Melee Hit / Melee Axe Hit, 'PoB: wrong'): PoB drops the melee restriction of "Gain N Rage on Melee
+    Hit"; our rate read the main skill's hits whatever it was. A Spell gains none; a Melee Axe Hit line needs an Axe."""
+    from builder.search import conditions
+    stats = {"Speed": 2.0, "HitChance": 100, "_main_types": {"Attack", "Melee"}, "_weapon": "One Handed Axe"}
+    assert conditions._rage_gain("Gain 2 Rage on Melee Hit", stats, True)[0] > 0
+    assert conditions._rage_gain("Gain 2 Rage on Melee Hit", {**stats, "_main_types": {"Spell"}}, True)[0] == 0.0
+    assert conditions._rage_gain("Gain 1 Rage on Melee Axe Hit", stats, True)[0] > 0
+    assert conditions._rage_gain("Gain 1 Rage on Melee Axe Hit", {**stats, "_weapon": "Two Handed Mace"}, True)[0] == 0.0
+
+
+def test_a_charge_consumer_beside_the_main_skill_uses_its_groups_rate():
+    """FLAT_RATES A4 (MECH48): a charge consumer or Rage spender beside the main skill is used at its own group's rate
+    (cooldown, else duration, else PRESS_EVERY, LOW), not one use per 4 s."""
+    from builder.search import conditions, models
+    assert conditions.skill_use_rate({"cooldown": 8.0, "speed": 1.0})[0] == pytest.approx(1 / 8)
+    assert conditions.skill_use_rate({"duration": 2.0, "speed": 0.25})[0] == pytest.approx(0.25)  # (capped by its speed)
+    each, _, low = conditions.skill_use_rate({"speed": 2.0})
+    assert each == pytest.approx(1 / models.PRESS_EVERY) and low
+
+    class Fake:
+        def call(self, name, indices=()):
+            return {"rates": [{"index": 3, "cooldown": 10.0, "speed": 1.0}]}
+
+    resolver = conditions.Conditions.__new__(conditions.Conditions)
+    resolver.build = Fake()
+    groups = [{"index": 3, "enabled": True, "gems": [{"name": "Charged Staff"}]},
+              {"index": 4, "enabled": False, "gems": [{"name": "Other"}]}]
+    assert resolver._group_uses(groups, {"Charged Staff", "Other"}) == {"Charged Staff": pytest.approx(0.1)}
+
+
 def test_a_bucklers_granted_parry_is_recognised():
     """conditions.PARRY_GRANT held two backspace characters for its word boundaries (since 101ad14), so it never matched a
     Buckler's "Grants Skill: Parry" (MECH47)."""
