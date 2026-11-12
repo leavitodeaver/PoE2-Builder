@@ -26,7 +26,8 @@ import re
 from builder.ledger import conditions
 from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
 from builder.search import conditions as conditions_mod, models, passive_models
-from builder.search.conditions import INFUSED_SET, ailment_uptime, curse_uses, natural_distance, shock_share
+from builder.search.conditions import (CHILL_FIELDS, INFUSED_SET, ailment_uptime, chill_share, curse_uses, natural_distance,
+                                       shock_share)
 from builder.search.objective import number
 from builder.search.usage import BASE_RUN, usage_rules
 from builder.search.state import Build
@@ -108,7 +109,7 @@ DUPLICATE_PICKUP = re.compile(r"(\d+(?:\.\d+)?)% chance for Remnants you (?:pick
 HIT_REMNANTS = {"Sanguine Revelry": 2.0, "Mana Remnants": 2.0, "Life Remnants": 3.0}
 HIT_REMNANT_FIELDS = ("Speed", "HitChance", "CritChance", "BleedChancePerHit", "BleedDuration", "IgniteChancePerHit",
                       "IgniteDuration", "ShockChancePerHit", "ShockDuration", "ChillChanceOnHit", "ChillDuration",
-                      *models.IMMOBILISE_FIELDS)
+                      *models.IMMOBILISE_FIELDS, *CHILL_FIELDS)
 # A Chill's base duration on the boss (MECHC2, the manager's ruling): KeywordPopups Chill (build 26476662) "lasts 2 seconds
 # on players or 8 seconds on non-players by default" (HIGH; RESEARCH1 chill-duration-on-boss.md; PoB Misc.lua
 # BaseChillDuration 8). PoB's ChillDuration (CalcOffence, the non-damaging ailments) scales it by the build's Chill
@@ -127,10 +128,9 @@ def hit_remnant_rate(name: str, stats: dict) -> tuple[float, str]:
         how = f"hits on a Bleeding boss: {hits:.2f} hits/s, the boss Bleeding {share:.0%} of the fight"
     elif name == "Mana Remnants":
         crit = min(number(stats.get("CritChance")), 100.0) / 100.0
-        chill = min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
         chill_seconds = number(stats.get("ChillDuration")) or CHILL_SECONDS
         ups = {"Ignited": ailment_uptime(stats, "Ignite"), "Shocked": shock_share(stats),
-               "Chilled": 1.0 - (1.0 - chill) ** (hits * chill_seconds) if hits > 0 and chill > 0 else 0.0,
+               "Chilled": chill_share(stats),  # (with the game's 30% Chill floor; MECH54)
                "Frozen": models.immobilised_share(stats, "Freeze")[0],
                "Electrocuted": models.immobilised_share(stats, "Electrocute")[0]}
         absent = 1.0

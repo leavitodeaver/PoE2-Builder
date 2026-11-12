@@ -2072,11 +2072,13 @@ def test_an_ailment_consumed_by_a_skill_beside_the_main_one_is_carried_less():
                     "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge": 1}}]}
             if name == "useRates":
                 return {"rates": [{"index": 2, "speed": 1.5, "cooldown": 2.0}]}
+            if name == "usageRules":
+                return {"gems": {}}
             return {"Speed": 2.0, "HitChance": 100, "IgniteChancePerHit": 50, "IgniteDuration": 4,
                     "IgniteStackPotential": 4.0}
 
-    groups = {"mainSocketGroup": 1, "groups": [{"index": 1, "gems": [{"name": "Fireball"}]},
-                                               {"index": 2, "gems": [{"name": "Elemental Discharge"}]}]}
+    groups = {"mainSocketGroup": 1, "groups": [{"index": 1, "gems": [{"name": "Fireball", "support": False}]},
+                                               {"index": 2, "gems": [{"name": "Elemental Discharge", "support": False}]}]}
     found = c.side_consumes(FakeBuild(), "Fireball", groups)
     assert set(found) == {"Freeze", "Shock", "Ignite"} and abs(found["Ignite"][0] - 0.5) < 1e-9
     a = Assumptions.__new__(Assumptions)
@@ -2114,3 +2116,76 @@ def test_self_ignite_and_debuffs_on_an_ailing_boss_count_at_their_share():
     assert c._debuff_source(blind, "conditionEnemyBlinded", [blind], hit)[0] == 0.0
     up, how = c._debuff_source(blind, "conditionEnemyBlinded", [blind], {**hit, "ChillChanceOnHit": 100})
     assert up == 1.0 and "chilled boss" in how
+
+
+def test_a_chill_under_30_percent_is_ignored():
+    """MECH54 (an OVERCOUNT): KeywordPopups Chill, "Chills smaller than 30% will be ignored, so small Hits can fail to
+    Chill". PoB Chills at 1% (ChillEffectMultiplier 100); the Chilled box, the "Chilled enemies" lines and Mana Remnants
+    now count a hit only when 100 x cold hit / threshold x ChillEffectMod >= 30, a critical hit on its own."""
+    from builder.search import conditions as c
+    from builder.search.assumptions import hit_remnant_rate
+    base = {"Speed": 2.0, "HitChance": 100, "ChillChanceOnHit": 100, "EnemyAilmentThreshold": 1000.0, "CritChance": 0}
+    assert c.chill_share({**base, "ColdHitAverage": 200.0}) == 0.0  # a 20% Chill (no ChillEffectMod: x1)
+    assert c.chill_share({**base, "ColdHitAverage": 200.0, "ChillEffectMod": 1.5}) == 1.0
+    assert c.chill_share({**base, "ColdHitAverage": 200.0, "ChillEffectMod": 1.0}) == 0.0  # 20%: ignored
+    assert c.chill_share({**base, "ColdHitAverage": 299.0}) == 0.0
+    assert c.chill_share({**base, "ColdHitAverage": 300.0}) == 1.0
+    # only the critical hits Chill: 25% of hits, 2 hits/s, 8 s
+    crit = {**base, "ColdHitAverage": 100.0, "ColdCritAverage": 400.0, "CritChance": 25}
+    assert abs(c.chill_share(crit) - (1 - 0.75 ** 16)) < 1e-9
+    assert abs(c.chill_share({**crit, "Speed": 0.05}) - (1 - 0.75 ** 0.4)) < 1e-9
+    # PoB says it can't Chill (Icestorm: cold_damage_cannot_chill, mapped by the bridge): none
+    assert c.chill_share({**base, "ColdHitAverage": 900.0, "ChillChanceOnHit": 0}) == 0.0
+    # no cold hit but PoB Chills (another type can Chill): every type's hit, an upper bound
+    assert c.chill_share({**base, "LightningHitAverage": 400.0}) == 1.0
+    assert "upper bound" in c.chill_effect({**base, "LightningHitAverage": 400.0})[2]
+    # a Blind on a Chilled boss reads the same share
+    blind = "Blind Chilled enemies on Hit"
+    assert c._debuff_source(blind, "conditionEnemyBlinded", [blind], {**base, "ColdHitAverage": 100.0})[0] == 0.0
+    # Mana Remnants' Chilled share is chill_share
+    small = {**base, "ColdHitAverage": 100.0, "CritChance": 100, "ColdCritAverage": 100.0}
+    rate, how = hit_remnant_rate("Mana Remnants", small)
+    assert rate == 0.0 and "no Elemental Ailment" in how
+    rate, how = hit_remnant_rate("Mana Remnants", {**small, "ColdCritAverage": 300.0})
+    assert rate > 0 and "Chilled 100%" in how
+
+
+def test_a_side_consumer_consumes_at_the_rate_its_damage_is_counted():
+    """MECH54 (CLAUDE.md's flat-rate rule): one rate for both sides. A pressed consumer beside the main skill consumes at
+    models.press_group_rate, the rate press_model counts its damage at: held to Cadence's pace and to the build's caps
+    (Combo, walking, flask charges); the 5 s guess only when nothing sets it (LOW)."""
+    from types import SimpleNamespace
+    from builder.search import conditions as c, models
+
+    def fake(rate):
+        class B:
+            ctx = SimpleNamespace(all_gems={"Elemental Discharge": {"description": "Consume Elemental Ailments"}})
+
+            def call(self, name, **kw):
+                if name == "activeSkills":
+                    return {"skills": [{"name": "Elemental Discharge", "group": 2, "levelStats": {
+                        "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge": 1}}]}
+                if name == "useRates":
+                    return {"rates": [{"index": 2, **rate}]}
+                return {"gems": {}}
+        return B()
+
+    def groups(*supports):
+        return {"mainSocketGroup": 1, "groups": [
+            {"index": 1, "gems": [{"name": "Fireball", "support": False}]},
+            {"index": 2, "gems": [{"name": "Elemental Discharge", "support": False},
+                                  *({"name": n, "support": True} for n in supports)]}]}
+
+    # a 0.5 s cooldown: 2 uses/s; with Cadence, its pace
+    assert abs(c.side_consumes(fake({"speed": 3.0, "cooldown": 0.5}), "Fireball", groups())["Shock"][0] - 2.0) < 1e-9
+    paced = c.side_consumes(fake({"speed": 3.0, "cooldown": 0.5}), "Fireball", groups("Cadence"))["Shock"]
+    assert abs(paced[0] - models.CADENCE_PACE) < 1e-9 and "Cadence" in paced[1]
+    # held to what the build feeds it
+    cap = {2: models.PressCap(0.25, "Combo: 3 Strikes a use", 0.0, "MEDIUM")}
+    held = c.side_consumes(fake({"speed": 3.0, "cooldown": 0.5}), "Fireball", groups(), cap)["Shock"]
+    assert abs(held[0] - 0.25) < 1e-9 and "Combo" in held[1]
+    # nothing sets it: one use per PRESS_EVERY s, LOW
+    low = c.side_consumes(fake({"speed": 3.0}), "Fireball", groups())["Shock"]
+    assert abs(low[0] - 1 / models.PRESS_EVERY) < 1e-9 and low[2] == "LOW"
+    # the press model's own rate for its damage is the same function
+    assert models.press_group_rate({"speed": 3.0, "cooldown": 0.5}, None, cap[2])[0] == held[0]

@@ -772,8 +772,20 @@ local function markShowAverage(env)
 	end
 end
 
+-- Icestorm's "cold_damage_cannot_chill" (its GrantedEffectStatSets ImplicitStats, game 26476662; MECH54, an OVERCOUNT):
+-- PoB's SkillStatMap has no entry for it, so PoB Chills with Icestorm's cold hits (ChillChanceOnHit 100 above a 1%
+-- Chill). Mapped to the ColdCannotChill flag CalcOffence's canDoAilment reads (damageType.."Cannot"..ailment, line
+-- 5006). In the game files only Icestorm carries the stat (checked: Stats.json ids holding "chill" with cannot / never;
+-- GrantedEffectStatSets implicit and constant stats, Mods Stat1-4, PassiveSkills; never_freeze_or_chill, Frost Darts',
+-- is PoB-mapped already; never_ignite_chill_freeze_shock has no carrier there).
+local function installCannotChill()
+	if data and data.skillStatMap and not data.skillStatMap.cold_damage_cannot_chill then
+		data.skillStatMap.cold_damage_cannot_chill = { { name = "ColdCannotChill", type = "FLAG", value = true, flags = 0, keywordFlags = 0 } }
+	end
+end
 local function installDerived()
 	installSpiritVessel()
+	installCannotChill()
 	installBossSlow()
 	installNoCritReroll()
 	local calcs = require("Modules.CalcBase")

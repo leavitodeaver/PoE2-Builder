@@ -1684,3 +1684,13 @@ def test_the_kings_adds_supply_detonate_dead_its_corpses(engine, monkeypatch):
     king = next(n for n in search.assumptions.active if n["label"].startswith("Corpses per second"))
     assert king["value"] == pytest.approx(rate, rel=1e-3) and "UNVERIFIED" in king["basis"]
     print("King corpses", king, build.call("stats", fields=["TotalDPS", "FullDPS"]))
+def test_icestorm_cannot_chill(engine):
+    """MECH54 (an OVERCOUNT): Icestorm's cold_damage_cannot_chill (its GrantedEffectStatSets implicit stat) has no PoB
+    SkillStatMap entry, so PoB Chilled with it. The bridge maps it to ColdCannotChill (CalcOffence canDoAilment)."""
+    payload = make_payload(BuildRequest(main_skill="Icestorm", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Icestorm"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    stats = search.build.call("stats", fields=["ChillChanceOnHit", "ColdHitAverage", "EnemyAilmentThreshold"])
+    assert stats["ColdHitAverage"] > stats["EnemyAilmentThreshold"] / 100  # PoB would Chill this hit
+    assert stats["ChillChanceOnHit"] == 0

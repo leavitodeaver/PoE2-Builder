@@ -3921,6 +3921,19 @@ def press_use_rate(rate: dict) -> tuple[float, str, str]:
     return min(real, speed), how, confidence
 
 
+def press_group_rate(rate: dict, pace: float | None = None, cap: "PressCap | None" = None) -> tuple[float, str, str]:
+    """A pressed group's uses per second as press_model counts its damage: press_use_rate, held to Cadence's pace
+    (`pace`) and to the most uses the build can feed it (`cap`, Assumptions.press_caps). The one rate for its benefit
+    and its side effects (conditions.side_consumes reads it too; MECH54, CLAUDE.md's flat-rate rule)."""
+    real, how, confidence = press_use_rate(rate)
+    if pace is not None and real > pace:
+        real, how = pace, how + (f", held to Cadence's {pace:g} uses/s (at most 5 uses in any 4 s: a 6th locks the "
+                                 "skill for 10 s; game files SupportCadencePlayer)")
+    if cap is not None and real > cap.uses:
+        real, how = cap.uses, how + f", held to {cap.uses:.3g} uses/s by {cap.how}"
+    return real, how, confidence
+
+
 def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
                 paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None
                 ) -> tuple[dict[str, float], list[dict]]:
@@ -3940,14 +3953,8 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
         if speed <= 0:
             continue
         cooldown = number(rate.get("cooldown"))
-        real, how, confidence = press_use_rate(rate)
-        pace = (paced or {}).get(rate["index"])
-        if pace is not None and real > pace:
-            real, how = pace, how + (f", held to Cadence's {pace:g} uses/s (at most 5 uses in any 4 s: a 6th locks the "
-                                     "skill for 10 s; game files SupportCadencePlayer)")
         cap = (caps or {}).get(rate["index"])
-        if cap is not None and real > cap.uses:
-            real, how = cap.uses, how + f", held to {cap.uses:.3g} uses/s by {cap.how}"
+        real, how, confidence = press_group_rate(rate, (paced or {}).get(rate["index"]), cap)
         if cap is not None and cap.moving > 0:
             busy += real * cap.moving  # (no skill is used while walking between its uses)
         capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)

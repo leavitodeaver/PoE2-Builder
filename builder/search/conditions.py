@@ -49,7 +49,7 @@ EVIDENCE_FIELDS = [
     "ChaosHitAverage", "MainHand.ChaosHitAverage", "EnemyAilmentThreshold",  # (Withering Touch, _withered_stacks)
     # (the boss's Ignite on you, which pauses Rage loss while it burns: boss_hits.es_dot; MECHC7)
     "AilmentThreshold", "Life", "FireTakenHit", "IgniteAvoidChance", "SelfIgniteDuration",
-    "ChillDuration",  # (chill_share; MECH53)
+    "ChillDuration", "ChillEffectMod",  # (chill_share; MECH53, MECH54)
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -1191,13 +1191,50 @@ TARGET_AILMENT = re.compile(r"\b(chilled|frozen|shocked|ignited|poisoned|bleedin
 CHILL_SECONDS = 8.0  # KeywordPopups Chill: "lasts ... 8 seconds on non-players by default"
 
 
+CHILL_FLOOR = 30.0  # KeywordPopups Chill: "Chills smaller than 30% will be ignored, so small Hits can fail to Chill"
+# The fields chill_share reads (the Chilled box, "Chilled enemies" lines, Mana Remnants' Chilled share)
+CHILL_FIELDS = ("ChillChanceOnHit", "Speed", "HitChance", "ChillDuration", "ChillEffectMod", "EnemyAilmentThreshold",
+                "CritChance", *(f"{t}{a}" for t in models.DAMAGE_TYPES for a in ("HitAverage", "CritAverage")))
+EVIDENCE_FIELDS.extend(f for f in CHILL_FIELDS if f not in EVIDENCE_FIELDS)
+
+
+def chill_effect(stats: dict) -> tuple[float, float, str]:
+    """(Chill magnitude of a non-critical hit, of a critical hit, the damage basis) from the main skill's hits, in %: the
+    game's KeywordPopups Chill, "Chill Magnitude depends on the Chilling damage dealt relative to the target's Elemental
+    Ailment Threshold", PoB's formula 100 x damage / threshold x ChillEffectMod (CalcOffence 5674; ChillEffectMultiplier
+    100, Data/Misc.lua 77). The damage is PoB's {Cold}HitAverage / CritAverage, after the boss's resistances ("dealt";
+    PoB's own Chill check reads the same outputs, CalcOffence 5022-5033 / 5550). Cold only: other types that can Chill
+    through PoB flags (Chilling Conflux and the like) aren't readable here; when the cold hit is 0 but PoB says the hit
+    Chills, every type's hit is taken (an upper bound, MEDIUM). The average hit stands for every hit (MEDIUM: a roll
+    under the average can fall below 30%)."""
+    threshold = number(stats.get("EnemyAilmentThreshold"))
+    mod = number(stats.get("ChillEffectMod")) or 1.0
+    types, basis = ("Cold",), "the cold hit"
+    if not number(stats.get("ColdHitAverage")) and not number(stats.get("ColdCritAverage")):
+        types, basis = models.DAMAGE_TYPES, "the whole hit (PoB lets another type Chill; an upper bound)"
+    hit = sum(number(stats.get(f"{t}HitAverage")) for t in types)
+    crit = sum(number(stats.get(f"{t}CritAverage")) for t in types)
+    if threshold <= 0:
+        return 0.0, 0.0, basis
+    return 100.0 * hit / threshold * mod, 100.0 * crit / threshold * mod, basis
+
+
 def chill_share(stats: dict) -> float:
-    """Share of the fight the boss is Chilled by the main skill's hits: PoB's ChillChanceOnHit (100 when the unmitigated
-    cold hit beats the boss's threshold / ChillEffectMultiplier 100, i.e. a 1% Chill, else 0: CalcOffence 5550-5558,
-    Data/Misc.lua 77); each lasts PoB's ChillDuration, else 8 s. The game ignores Chills under 30% (KeywordPopups
-    Chill): not applied yet, an OVERCOUNT left open (FIX_QUEUE's 30% Chill floor; MECH53's handover)."""
-    chill = min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
+    """Share of the fight the boss is Chilled by the main skill's hits. PoB's ChillChanceOnHit must be on (0 when the
+    skill can't Chill, Icestorm's never_chill -> CannotChill, or the hit is under a 1% Chill: CalcOffence 5550-5558).
+    The game ignores Chills under 30% (KeywordPopups Chill), which PoB doesn't (its floor is ChillEffectMultiplier 100,
+    a 1% Chill): a hit Chills only when chill_effect's magnitude is >= CHILL_FLOOR, a critical hit on its own
+    (CritChance; MECH54, an OVERCOUNT before). Each Chill lasts PoB's ChillDuration, else 8 s. Without the boss's
+    threshold in the stats, PoB's check alone (as before)."""
+    if number(stats.get("ChillChanceOnHit")) <= 0:
+        return 0.0
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+    if number(stats.get("EnemyAilmentThreshold")) > 0:
+        normal, critical, _ = chill_effect(stats)
+        crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100.0
+        chill = (1.0 - crit) * (normal >= CHILL_FLOOR) + crit * (critical >= CHILL_FLOOR)
+    else:
+        chill = min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
     if chill <= 0 or hits <= 0:
         return 0.0
     return 1.0 - (1.0 - chill) ** (hits * (number(stats.get("ChillDuration")) or CHILL_SECONDS))
@@ -1546,9 +1583,13 @@ def consumed_ignite_scale(potential: float, hits: float, chance: float, duration
 # With the share u the boss would carry it, consumed at r a second, reapplied after the 1 s immunity plus w:
 # u / (1 + u x r x (1 s + w)) (a renewal: each consumption adds 1 s + w off). Not when the main skill consumes it itself
 # (its own next hit ends it first: consumed_share).
-def side_consumes(build, main_skill: str, groups: dict | None = None) -> dict[str, tuple[float, str, str]]:
+def side_consumes(build, main_skill: str, groups: dict | None = None,
+                  caps: dict | None = None) -> dict[str, tuple[float, str, str]]:
     """{ailment: (consumptions per second, how, confidence)} from skills beside the main one that consume it. `groups`:
-    the bridge's groups (read when not given)."""
+    the bridge's groups (read when not given). A pressed consumer consumes at the rate its own damage is counted at
+    (models.press_group_rate: its cooldown, else its duration, else one per PRESS_EVERY s, LOW; held to Cadence's pace
+    and to `caps`, Assumptions.press_caps, computed here when not given; MECH54, CLAUDE.md's flat-rate rule: one rate
+    for both sides); a triggered one at PoB's trigger rate, as Full DPS counts it."""
     groups = groups or build.call("groups")
     main_index = groups.get("mainSocketGroup")
     gems = build.ctx.all_gems
@@ -1573,6 +1614,10 @@ def side_consumes(build, main_skill: str, groups: dict | None = None) -> dict[st
         return {}
     indices = sorted({g for found in consumers.values() for _, g, _ in found})
     rates = {r.get("index"): r for r in build.call("useRates", indices=indices)["rates"]}
+    by_index = {g["index"]: g for g in groups["groups"]}
+    if caps is None:
+        from builder.search.assumptions import Assumptions
+        caps = Assumptions(build).press_caps(groups["groups"], set(indices))
     out = {}
     for ailment, found in consumers.items():
         total, parts, confidence = 0.0, [], "MEDIUM"
@@ -1581,7 +1626,10 @@ def side_consumes(build, main_skill: str, groups: dict | None = None) -> dict[st
             if triggered:
                 uses, how, conf = number(row.get("speed")), "PoB's trigger rate", "MEDIUM"
             else:
-                uses, how, conf = models.press_use_rate(row)
+                cadence = any(x.get("enabled", True) and x["name"] in models.CADENCE_SUPPORTS
+                              for x in (by_index.get(group) or {}).get("gems") or [])
+                uses, how, conf = models.press_group_rate(row, models.CADENCE_PACE if cadence else None,
+                                                          caps.get(group))
             if uses <= 0:
                 continue
             total += uses
@@ -2079,7 +2127,7 @@ CONDITIONS: list[Condition] = [
     Condition("conditionEnemyBleeding", "Bleeding", stat=_ailment_up("Bleed"), uptime_fn=_ailment_share("Bleed"),
               fields=("BleedChancePerHit", "Speed", "HitChance", "BleedDuration")),
     Condition("conditionEnemyChilled", "Chilled", stat=lambda s: chill_share(s) >= MIN_UPTIME, uptime_fn=chill_share,
-              fields=("ChillChanceOnHit", "Speed", "HitChance", "ChillDuration")),
+              fields=CHILL_FIELDS),
     Condition("parryActive", "Parried", value_fn=_parried, fields=("enemySkillTime", "Ward")),
     Condition("conditionEnemyFrozen", "Frozen", value_fn=_immobilised("Freeze", "Frozen"),
               fields=(*models.IMMOBILISE_FIELDS, "FreezeDurationMod")),
