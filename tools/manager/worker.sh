@@ -1,12 +1,13 @@
 #!/bin/bash
 # Runs a PoE2 Builder worker on another of the user's Claude accounts (6 Nov 2026; copied from Beastking's
-# tools/lead/worker.sh, as its manager advised). Each account has its own folder and login: account 2 is designkoalas,
-# account 3 is leavitodeaver. The user gave PoE2 one worker on designkoalas; ask them before using account 3.
+# tools/lead/worker.sh, as its manager advised). Each account has its own folder and login: account 1 is wizzleteeks
+# (C:\Users\conve\.claude-account1, a copy of the managers' login), account 2 is designkoalas, account 3 is leavitodeaver.
+# Which accounts PoE2 may use is the user's call (12 Nov 2026: leavitodeaver and wizzleteeks).
 # The desktop app stays on its own account; a worker run here does not show in its sidebar and cannot message the
 # manager: it ends its turn to report, and the manager continues it with "more".
 #
-#   bash tools/manager/worker.sh <2|3> <JOB> new  "<what to do>"     starts it
-#   bash tools/manager/worker.sh <2|3> <JOB> more "<message>"        continues the same worker
+#   bash tools/manager/worker.sh <1|2|3> <JOB> new  "<what to do>"     starts it
+#   bash tools/manager/worker.sh <1|2|3> <JOB> more "<message>"        continues the same worker
 #
 # Run it with the Bash tool's run_in_background: the manager is told when the turn ends. Its last answer is in
 # scratch/manager/workers/<JOB>.last.json (its session id in <JOB>.id, each turn's answer in <JOB>.turn_<n>.json).
@@ -30,9 +31,9 @@ ACCOUNT="$1"; JOB="$2"; MODE="$3"; TEXT="$4"
 if [ "$TEXT" = "-" ] && [ -f "$WORKER_TEXT_FILE" ]; then   # (the Workers page hands the user's words over in a file: no quoting trouble)
 	TEXT=$(cat "$WORKER_TEXT_FILE"); rm -f "$WORKER_TEXT_FILE"
 fi
-if [ -z "$TEXT" ] || { [ "$ACCOUNT" != "2" ] && [ "$ACCOUNT" != "3" ]; } || { [ "$MODE" != "new" ] && [ "$MODE" != "more" ]; } \
+if [ -z "$TEXT" ] || { [ "$ACCOUNT" != "1" ] && [ "$ACCOUNT" != "2" ] && [ "$ACCOUNT" != "3" ]; } || { [ "$MODE" != "new" ] && [ "$MODE" != "more" ]; } \
 	|| ! [[ "$JOB" =~ ^[A-Za-z0-9_]+$ ]]; then
-	echo "use: worker.sh <2|3> <JOB> new|more \"text\""; return 2
+	echo "use: worker.sh <1|2|3> <JOB> new|more \"text\""; return 2
 fi
 ROOT1="$LOCALAPPDATA/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/claude-code"
 ROOT2="$APPDATA/Claude/claude-code"
