@@ -98,6 +98,21 @@ def _param_built_names(text: str) -> set[str]:
     return names
 
 
+@lru_cache(maxsize=1)
+def skill_flag_stats(src: Path = POB_SRC) -> dict[str, str]:
+    """Stats PoB maps to a skill flag and no modifier (SkillStatMap.lua, the skills' own statMaps): `skill_can_fire_arrows`
+    sets skillFlag "arrow", which CalcActiveSkill turns into KeywordFlag.Arrow (COVC2). The audit called those "maps to
+    nothing" because the map holds no modifier; a flag map counts as read."""
+    found: dict[str, str] = {}
+    files = [src / "Data" / "SkillStatMap.lua", *sorted((src / "Data" / "Skills").glob("*.lua"))]
+    for path in files:
+        if path.exists():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for stat, flag in re.findall(r'\["([^"]+)"\]\s*=\s*\{\s*skillFlag\s*=\s*"(\w+)"', text):
+                found[stat] = flag
+    return found
+
+
 def calc_reads(src: Path = POB_SRC) -> dict:
     """Names PoB's calculations query: exact names, wildcard patterns from concatenations, and every
     string literal and skillData key in the code (for condition and skill-data checks)."""
@@ -554,6 +569,8 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                         reason = "translated" if found.replace else "no effect on what's calculated"
                     elif not stat.get("mapped"):
                         status, entry, reason = "none", None, "PoB never reads this stat"
+                    elif not names and (flag := skill_flag_stats().get(name)):
+                        status, entry, reason = "pob", None, f"PoB sets the skill flag {flag!r} from it"
                     elif not names:
                         status, entry, reason = "none", None, "PoB maps the stat to nothing"
                     elif missing := unread(names, reads):

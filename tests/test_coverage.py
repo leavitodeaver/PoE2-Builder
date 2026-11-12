@@ -192,3 +192,8 @@ def test_calc_reads_follows_a_helper_that_builds_names_from_its_argument():
     assert _param_built_names(text) == {"PresenceArea"}
     reads = calc_reads()
     assert name_read("PresenceArea", reads) and name_read("SurroundedArea", reads)
+
+
+def test_a_stat_pob_maps_to_a_skill_flag_counts_as_read():
+    """COVC2: skill_can_fire_arrows maps to skillFlag "arrow" and no modifier; the audit called it "maps to nothing"."""
+    assert coverage.skill_flag_stats().get("skill_can_fire_arrows") == "arrow"
