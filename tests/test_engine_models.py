@@ -1877,3 +1877,23 @@ def test_frostflame_nova_in_full_dps_is_held_to_the_ignite(engine):
         assert rates[fire["index"]]["IgniteDuration"] > 0 and "Fireball" in notes[0]["basis"]
     else:
         assert mods[0]["value"] == pytest.approx(-100)  # (no Ignite: the ice never latches)
+
+
+def test_hollow_masks_wildwoods_gifts_reaches_the_bloom_charges(engine):
+    """MECHC11 (MECHC7's #105 leftover): The Hollow Mask's "Grants Skill: Level 20 Wildwood's Gifts" reaches
+    bridge.chargeGain's blooms (breach_flame_spawn_rate_ms at the skill's level, 5 charges a kind) and so the flasks'
+    and charms' charge rates; without the mask, none."""
+    from builder.search.flasks import Charges, bloom_charges
+
+    build = spark_with(engine, []).build
+    assert Charges.from_bridge(build.call("chargeGain")).bloom_rate == 0.0
+    mask = chr(10).join(["Rarity: Unique", "The Hollow Mask", "Hewn Mask", "Item Level: 82", "Implicits: 1",
+                         "Grants Skill: Level 20 Wildwood's Gifts"])
+    build.call("equip", slot="Helmet", raw=mask, fields=[])
+    data = build.call("chargeGain")
+    blooms = data["blooms"]
+    assert 0.5 < blooms["rate"] < 2.0, blooms  # one Bloom every ~1.2 s at level 20 (game files: 1210 ms)
+    assert blooms["life"] == blooms["mana"] == blooms["charm"] == 5, blooms
+    gain = Charges.from_bridge(data)
+    for kind in ("Life", "Mana", "Charm"):
+        assert bloom_charges(gain, kind) == pytest.approx(blooms["rate"] / 3 * 5)

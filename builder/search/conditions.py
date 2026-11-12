@@ -55,7 +55,7 @@ RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
 
 def _hit_recently(stats: dict) -> bool:
-    """At least one boss hit lands in any 4 s with chance UPTIME (landing hits come one after another, about every 0.7 s)."""
+    """At least one boss hit lands in any 4 s with chance UPTIME (landing hits come one after another, one every enemySkillTime)."""
     every = number(stats.get("enemySkillTime")) or 0.7
     land = boss_hits.land_share(stats)  # (red-flash hits always land, MECHC5)
     return 1 - (1 - land) ** (RECENTLY / every) >= UPTIME

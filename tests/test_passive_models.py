@@ -348,3 +348,21 @@ def test_monster_category_lines_read_the_boss_one_category():
     for name in ("Arbiter of Ash", "Xesht, We That Are One", "The Raven Trickster"):
         shares, _ = pm.boss_categories(name)
         assert sum(shares.values()) == pytest.approx(1.0) and not {"Demon", "Humanoid"} <= set(shares)
+
+
+def test_flask_uses_read_the_requests_boss_through_charges_of(monkeypatch):
+    """MECHC11 (MECHC9's note): flask_uses builds its charge gain with Charges.of(build), so the request's boss preset's
+    add kills (half a flask charge per add, flasks.kill_charges) reach the tree's "if you've used a Flask" lines; before,
+    Charges.from_bridge read none."""
+    from types import SimpleNamespace
+
+    from builder.search import flasks
+
+    seen = []
+    monkeypatch.setattr(flasks.Charges, "of", classmethod(lambda cls, build: seen.append(build) or "gain"))
+    monkeypatch.setattr(flasks, "uses_per_second", lambda info, gain, raw, pool: (1.0 if gain == "gain" else 0.0, pool))
+    flask = SimpleNamespace(raw="flask")
+    build = SimpleNamespace(equipped={slot: flask for slot in flasks.FLASK_SLOTS},
+                            call=lambda what, **_: {"results": [{}]})
+    uses = pm.flask_uses(build)
+    assert seen == [build] and all(u[0] == 1.0 for u in uses.values())

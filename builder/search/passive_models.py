@@ -356,7 +356,7 @@ def flask_uses(build) -> dict[str, tuple[float, str]]:
     """{"Life" / "Mana": (uses per second, how)} of the build's Life and Mana flask (flasks.uses_per_second)."""
     from builder.search.flasks import FLASK_SLOTS, Charges, uses_per_second
 
-    gain = Charges.from_bridge(build.call("chargeGain"))
+    gain = Charges.of(build)  # (with the request's boss preset's add kills: flasks gain half a charge per add, MECHC9)
     found = {}
     for slot, pool in FLASK_SLOTS.items():
         item = build.equipped.get(slot)
