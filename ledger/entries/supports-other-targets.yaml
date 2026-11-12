@@ -7,19 +7,21 @@
 # Checked: each stat's own wording in the game files (gem_stat_descriptions.csd, build 26476662) names other/nearby
 # enemies; poe2db's gem pages carry the same wording (Shock Conduction, Wildfire). The hit enemy itself gets nothing
 # extra from these stats: Shock Conduction's own Shock is the hit's normal Shock; Wildfire spreads the Ignite "to other
-# enemies"; the Deadeye marks support marks "another Enemy".
+# enemies"; the Deadeye marks support marks "another Enemy"; Impact Shockwave's
+# Aftershock damages "other enemies" (poe2db's page reads the same).
 
 - id: supports-other-targets
   title: Supports that act only on other enemies (none beside a lone boss)
   kind: gem_stat
-  skill: [Shock Conduction, Shock Conduction II, Wildfire, SupportMetaDeadeyeMarksPlayer]
-  match: '^(?:support_%_chance_to_shock_nearby_enemy_on_shock|shock_nearby_enemy_base_area_of_effect_radius|support_ignite_proliferation_radius|your_marks_spread_to_a_nearby_enemies_on_consume_%_chance)$'
+  skill: [Shock Conduction, Shock Conduction II, Wildfire, SupportMetaDeadeyeMarksPlayer, Impact Shockwave]
+  match: '^(?:support_%_chance_to_shock_nearby_enemy_on_shock|shock_nearby_enemy_base_area_of_effect_radius|support_ignite_proliferation_radius|your_marks_spread_to_a_nearby_enemies_on_consume_%_chance|support_impact_shockwave_base_non_slam_aftershock_on_heavy_stun_radius)$'
   replace: []
   confidence: datamined
   notes: "Game wording: Shock Conduction 'Shocking Hits from supported Skills have a 50% chance to also Shock enemies in a
     2.5 metre radius'; Wildfire 'Ignites inflicted by Supported Skills Spread to other enemies that stay within 1.5 metre
     for 1 second'; the Deadeye marks support '100% chance to Mark another Enemy within 3 Metres of Marked Enemy when
-    Consumed'. Shock Conduction II's always_shock_wet_enemies is not covered here (it shocks the hit target)."
-  sources: ["gem_stat_descriptions.csd (build 26476662)", "https://poe2db.tw/us/Shock_Conduction", "https://poe2db.tw/us/Wildfire"]
+    Consumed'; Impact Shockwave 'cause an Aftershock when they Heavy Stun an enemy, Damaging other enemies within 1.5
+    metres'. Shock Conduction II's always_shock_wet_enemies is not covered here (it shocks the hit target)."
+  sources: ["gem_stat_descriptions.csd (build 26476662)", "https://poe2db.tw/us/Shock_Conduction", "https://poe2db.tw/us/Wildfire", "https://poe2db.tw/us/Impact_Shockwave"]
   test_in_game: "Not needed for single-boss damage."
   status: proposed
