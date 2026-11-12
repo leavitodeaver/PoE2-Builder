@@ -7,7 +7,8 @@ line that an entry translates never reached a build, though the audit counted it
 `corrected_item(raw)` returns the item's text with:
 - for a rare, magic or normal item (not a unique: `corrected_raw` handles those), each line PoB can't parse that a
   `pob_gap` entry translates without a condition: the entry's lines added at the end; a line PoB parses that a
-  `pob_wrong` entry corrects: replaced in place;
+  `pob_wrong` entry corrects: replaced in place (switched off, `{disabled}`, for an entry with no replacement line:
+  a model reads it, through bridge.sourceLines, which still lists disabled lines; COV7);
 - for any item, its socketed runes' lines (PoB rebuilds them from the rune names, summing one rune's lines with
   another's of the same wording, as `ItemClass:UpdateRunes` does): a translated line's stand-ins added at the end, and
   a `pob_wrong` line switched off (a disabled rune line, which PoB keeps disabled after its rebuild) with its
@@ -36,6 +37,7 @@ from builder.ledger import translate, wrong
 
 ADDED = "{custom}"
 SWITCHED_OFF = "{rune}{disabled}"
+DISABLED = "{disabled}"  # an affix or implicit a `pob_wrong` entry with no replacement switches off (a model reads it)
 NUMBER = re.compile(r"[+-]?\(?-?\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)?\)?")  # coverage.template's
 PLAIN_NUMBER = re.compile(r"\d+(?:\.\d+)?")
 NOT_UNIQUE = ("Rarity: Rare", "Rarity: Magic", "Rarity: Normal")
@@ -140,7 +142,7 @@ def corrected_item(raw: str, directory: Path | None = None) -> str:
                 if (translated := translate(line)) and not translated[0].conditional:
                     added += translated[1]
             elif fixed := wrong(line):
-                lines[i] = fixed[1]
+                lines[i] = fixed[1] if fixed[1] is not None else DISABLED + line
     runes = [l.split(":", 1)[1].strip() for l in lines if l.startswith("Rune:")]
     if runes and (base := _base_of(lines, directory)):
         for line in rune_lines(runes, base, directory):
@@ -149,7 +151,8 @@ def corrected_item(raw: str, directory: Path | None = None) -> str:
                     added += translated[1]
             elif fixed := wrong(line):
                 off.append(line)
-                added.append(fixed[1])
+                if fixed[1] is not None:
+                    added.append(fixed[1])
     if off:
         at = next((i for i, l in enumerate(lines) if l.startswith("Implicits:")), None)
         if at is None:  # after the header and socket lines, as anoints.with_anoints places implicits

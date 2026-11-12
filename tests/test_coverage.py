@@ -144,6 +144,26 @@ def test_ledger_translations_reach_rune_and_affix_lines():
     assert with_runes("\n".join(keeper), []) == unique
 
 
+def test_a_pob_wrong_entry_with_no_replacement_switches_the_item_line_off():
+    """COV7 (FIX_QUEUE 1b): passives-wrong-arcane-surge-on-crit has no replacement line (conditions.arcane_surge_uptime
+    reads the line); on item text it used to change nothing, so the (10-15)% glove affix kept PoB's Arcane Surge held
+    whenever you crit. It is switched off now ({disabled}: PoB skips it, bridge.sourceLines still hands it to the models)."""
+    from builder.ledger import wrong
+    from builder.ledger.items import DISABLED, _bases, corrected_item, unparsed_templates
+
+    if not unparsed_templates():
+        pytest.skip("no coverage.json in the data dump")
+    line = "13% chance to Gain Arcane Surge when you deal a Critical Hit"
+    entry, replacement = wrong(line)
+    assert entry.id == "passives-wrong-arcane-surge-on-crit" and replacement is None
+    assert coverage.noop_status(line, ["x"], on_item=True)[0] in ("model", "ledger")  # the uptime model reads it
+    gloves = next(n for n, b in _bases().items() if b["type"] == "Gloves" and not b.get("hidden"))
+    rare = f"Rarity: Rare\nOptimizer Gloves\n{gloves}\nItem Level: 82\nImplicits: 0\n+10 to Strength\n{line}"
+    fixed = corrected_item(rare)
+    assert fixed.splitlines()[-1] == DISABLED + line and corrected_item(fixed) == fixed
+    assert wrong("Take 40% less Damage over time")[1] == "20% less Damage over Time taken"  # a replacement still replaces
+
+
 def test_the_tools_own_engine_reads_count_as_reads():
     # the charm uptime (builder/search/flasks.py) reads CharmChargesGained through the bridge's inc("...") helper
     assert coverage.name_read("CharmChargesGained", coverage.calc_reads())

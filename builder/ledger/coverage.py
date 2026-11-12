@@ -402,6 +402,8 @@ def noop_status(line: str, missing: list[str], on_item: bool) -> tuple[str, str 
     if condition := resolver_condition(line):
         return "model", f"condition:{condition.var}", f"{unread_why}; a source of {condition.label} for the condition resolver"
     if fixed := wrong(line):
+        if on_item and fixed[1] is None:
+            return "ledger", fixed[0].id, f"{unread_why}; switched off on items, a model reads it (pob_wrong)"
         if on_item:
             return "ledger", fixed[0].id, f"{unread_why}; replaced by a line PoB calculates (pob_wrong)"
         return "none", fixed[0].id, f"{unread_why}; a pob_wrong entry replaces it, but only on items, not passives"

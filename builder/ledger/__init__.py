@@ -172,14 +172,16 @@ def translate(line: str) -> tuple[Entry, list[str]] | None:
     return None
 
 
-def wrong(line: str) -> tuple[Entry, str] | None:
-    """A `pob_wrong` entry for a unique line PoB parses but calculates wrongly, with the one line
-    that replaces it."""
+def wrong(line: str) -> tuple[Entry, str | None] | None:
+    """A `pob_wrong` entry for an item line PoB parses but calculates wrongly, with the one line that replaces it, or
+    None for an entry with no replacement (a model reads the line: the line is switched off, PoB's `{disabled}`, and
+    still reaches the models through bridge.sourceLines; COV7: before, an empty replace left PoB's reading on items,
+    such as the Arcane Surge on Critical Hit affix held all fight)."""
     for entry in entries():
         if entry.kind == "pob_wrong":
             lines = entry.translate(line)
-            if lines:
-                return entry, lines[0]
+            if lines is not None:
+                return entry, (lines[0] if lines else None)
     return None
 
 

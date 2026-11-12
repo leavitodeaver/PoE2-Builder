@@ -337,7 +337,7 @@ class Context:
             if text in ignored and (translated := translate(text)) and not translated[0].conditional:
                 added += [prefix + extra for extra in translated[1]]
             elif fixed := wrong(text):
-                line = prefix + fixed[1]
+                line = prefix + (fixed[1] if fixed[1] is not None else "{disabled}" + text)
             lines.append(line)
         return "\n".join(lines + added)
 
