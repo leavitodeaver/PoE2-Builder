@@ -450,7 +450,7 @@ class Search:
         are the current ones; the ratios are the round's (an estimate between rounds; exact at finalize)."""
         objective = self.build.objective
         cache = self.uptime_cache
-        effects = self.part_time()
+        effects = _part_time(self)
         live = {var: up for var, (up, _) in effects.items()}
         missing = [var for var in sorted(live) if var not in cache]
         if missing:
@@ -575,14 +575,8 @@ class Search:
         self.build.score = objective.score(self.build.stats)
 
     def part_time(self) -> dict[str, tuple[float, dict]]:
-        """The effects on for only part of the fight: var -> (share, info). The conditions' (conditions.uptimes, the
-        active ones) and the flask and charm slots up between conditions.MIN_UPTIME and flasks.ACTIVE_UPTIME of the fight
-        (Gear.part_time, FLASK_VAR; MECHC5's spec), switched through _switch."""
-        conditions = self.conditions
-        out = {var: (up, conditions.active[var]) for var, up in conditions.uptimes.items() if var in conditions.active}
-        for slot, (up, name) in self.gear.part_time().items():
-            out[f"{FLASK_VAR}{slot}:{name}"] = (up, {"label": f"{name} ({slot})", "value": True, "off": False})
-        return out
+        """The effects on for only part of the fight: var -> (share, info) (_part_time)."""
+        return _part_time(self)
 
     def weigh_uptimes(self) -> None:
         """Effects the build keeps up for only part of the fight (conditions.uptimes: ailments, Onslaught, Arcane Surge,
@@ -597,7 +591,7 @@ class Search:
         self.uptime_rows, self.uptime_cache, self.uptime_floor = [], {}, {}
         for key in [k for k in self.play_notes if k.startswith("uptime:")]:
             del self.play_notes[key]
-        effects = self.part_time()
+        effects = _part_time(self)
         if effects:
             on_stats = dict(self.build.stats)
             on = objective.dps(on_stats)
@@ -639,7 +633,7 @@ class Search:
             return [deltas] if deltas else []
         if names not in self.uptime_floor:
             stats = dict(self.build.stats) if on_stats is None else on_stats
-            effects = self.part_time()
+            effects = _part_time(self)
             infos = {var: effects[var][1] for var in names if var in effects}
             self.uptime_floor[names] = _all_off(self, infos, stats)
         deltas = self.uptime_floor[names]
@@ -1075,6 +1069,18 @@ def support_distance_lines(groups: list[dict]) -> list[str]:
 
 
 FLASK_VAR = "flaskSlot:"  # a part-time flask or charm effect: "flaskSlot:<slot>:<item name>" (Search.part_time)
+
+
+def _part_time(search: Any) -> dict[str, tuple[float, dict]]:
+    """The effects on for only part of the fight: var -> (share, info). The conditions' (conditions.uptimes, the active
+    ones) and the flask and charm slots up between conditions.MIN_UPTIME and flasks.ACTIVE_UPTIME of the fight
+    (Gear.part_time, FLASK_VAR; MECHC5's spec), switched through _switch. (A search without gear: the conditions' only.)"""
+    conditions = search.conditions
+    out = {var: (up, conditions.active[var]) for var, up in conditions.uptimes.items() if var in conditions.active}
+    gear = getattr(search, "gear", None)
+    for slot, (up, name) in (gear.part_time() if gear is not None else {}).items():
+        out[f"{FLASK_VAR}{slot}:{name}"] = (up, {"label": f"{name} ({slot})", "value": True, "off": False})
+    return out
 
 
 def _switch(search: Any, values: dict[str, Any]) -> None:
