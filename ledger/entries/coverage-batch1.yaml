@@ -109,7 +109,7 @@
     it; other Fire damage would (not counted, an undercount).
   sources: ["https://poe2db.tw/us/Blackflame"]
   test_in_game: "Not needed for a Blackflame chaos-ignite build."
-  status: proposed
+  status: retired  # COV7: uniques-batch8.yaml uniques-blackflame-withered-fire-taken counts it from the build's Withered stacks (COVD8; AUDIT12 A12-4)
 
 - id: veilpiercer-dark-whisper
   title: Veilpiercer, Dark Whispers while a cursed enemy is in your Presence
