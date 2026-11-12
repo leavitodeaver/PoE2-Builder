@@ -607,14 +607,18 @@ class Assumptions:
     def pustule_cap(self, found: list["models.Skill"]) -> tuple[list[dict], list[dict]]:
         """Poison Spores' Pustule Explosion at one a fuse on the boss (models.pustule_cap): PoB's rate for each group's
         Spores skill (useRates with that active skill), and its Detonation Time."""
-        indices = models.pustule_groups(found)
-        if not indices:
-            return [], []
-        by_index = {g["index"]: g for g in self.build.groups()}
-        actives = [next((i for i, s in enumerate(by_index[n]["skills"], start=1) if s["name"] == models.PUSTULE_SKILL), 0)
-                   if n in by_index else 0 for n in indices]
-        rates = self.build.call("useRates", indices=indices, actives=actives)["rates"]
-        return models.pustule_cap(rates)
+        mods, notes, by_index = [], [], None
+        for name in models.PUSTULE_SKILLS:  # (Poison Spores, Toxic Domain: AUDIT23 A23-1)
+            indices = models.pustule_groups(found, name)
+            if not indices:
+                continue
+            by_index = by_index or {g["index"]: g for g in self.build.groups()}
+            actives = [next((i for i, s in enumerate(by_index[n]["skills"], start=1) if s["name"] == name), 0)
+                       if n in by_index else 0 for n in indices]
+            rates = self.build.call("useRates", indices=indices, actives=actives)["rates"]
+            more, why = models.pustule_cap(rates, name)
+            mods, notes = mods + more, notes + why
+        return mods, notes
 
     def throw_rate(self, name: str) -> tuple[float, str]:
         """Throws a second of a Concoction (flasks.THROW_CHARGES) the Mana Flask's own charge generation pays for (the
@@ -670,7 +674,7 @@ class Assumptions:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
             *models.gem_stat_skills()],
-            supportStats=models.gem_stat_support_stats())["skills"]
+            supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT])["skills"]  # (MECH-B: A23-3)
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:

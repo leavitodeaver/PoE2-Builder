@@ -4696,6 +4696,13 @@ def heartbound_damage(texts: list[str], died: tuple[float, str]) -> tuple[float,
 #     add up (only the strongest deals damage), Poison stacks and hits do.
 # Left to their own models: Spell Totem (totem_model, its charges) and Ancestral Warrior Totem (3 Endurance Charges a
 # totem; not modelled here, labelled).
+# One-totem supports (AUDIT23 A23-3): Splinter Totem I / II, Greatwood II and Cirel's Cultivation carry
+# number_of_totems_allowed_is_1, "Supported Skills can only have one active Totem" (gem_stat_descriptions; game files
+# GrantedEffectStatSets; PoB's sup_str.lua lists it and reads it nowhere). The model reads the stat from the group's
+# supports (bridge activeSkills supportStats; a flag stat reads 1, CalcTools 183), not the gem names, so a fifth carrier
+# counts too: then one totem, no extra speed. (PoB's own ailment stacks still multiply by its Totem Limit, CalcOffence
+# 5264: routed, see MECHB10's report.)
+TOTEM_ONE_STAT = "number_of_totems_allowed_is_1"
 TOTEM_OWN_MODEL = {"Spell Totem", "Ancestral Warrior Totem"}
 
 
@@ -4709,6 +4716,8 @@ def totem_count_model(skills: list[Skill], main: Skill | None) -> tuple[list[dic
     summoner = next((s for s in group if s.totem_limit > 0), None)
     if summoner is None:
         return [], []
+    if any(number(s.support_stats.get(TOTEM_ONE_STAT)) > 0 for s in group):
+        return [], []  # (a one-totem support: "Supported Skills can only have one active Totem", as PoB's one)
     others = sorted({s.name for s in skills if s.totem_limit > 0 and s.group != main.group})
     limit = int(summoner.totem_limit)
     up = max(1, limit - len(others))
@@ -4739,16 +4748,22 @@ def totem_count_model(skills: list[Skill], main: Skill | None) -> tuple[list[dic
 # Data/SkillStatMap.lua and Modules/*.lua for "toxic_pustule": none). Whether the build's Poisons on the boss count as
 # Poisons "inflicted on" the Pustule is UNVERIFIED, so the speed-up isn't guessed. Pustules on adds that burst next to the
 # boss are left out (a lone boss).
+# Toxic Domain (AUDIT23 A23-1): the same rule, "Each enemy can have up to 1 Pustule attached" (toxic_domain/statset_0.csd,
+# its mode 1) and base_skill_detonation_time 15000 on its Pustule Explosion set (PoB's act_dex.lua ToxicDomainPlayer).
+# Each skill is held to its own one Pustule: whether Spores' and Domain's Pustules share the one slot is UNVERIFIED (a
+# build with both would count up to two). Not this rule: Toxic Growth's Pustules lie on the ground under a Pustule Limit
+# (5; its statset_0.csd "Pustule Limit"), not one per enemy (open: its detonation rate against that limit).
 PUSTULE_SKILL, PUSTULE_SET, PUSTULE_FUSE = "Poison Spores", "Pustule Explosion", 15.0
+PUSTULE_SKILLS = (PUSTULE_SKILL, "Toxic Domain")
 
 
-def pustule_groups(skills: list[Skill]) -> list[int]:
-    """Groups whose Poison Spores PoB calculates at its Pustule Explosion set (in Full DPS, or as the main skill)."""
-    return sorted({s.group for s in skills if s.name == PUSTULE_SKILL and s.stat_set == PUSTULE_SET and s.group is not None})
+def pustule_groups(skills: list[Skill], name: str = PUSTULE_SKILL) -> list[int]:
+    """Groups whose `name` (a PUSTULE_SKILLS skill) PoB calculates at its Pustule Explosion set (Full DPS or main)."""
+    return sorted({s.group for s in skills if s.name == name and s.stat_set == PUSTULE_SET and s.group is not None})
 
 
-def pustule_cap(rates: list[dict]) -> tuple[list[dict], list[dict]]:
-    """The Pustule Explosion held to one a fuse (see above). `rates`: bridge useRates for each group's Poison Spores."""
+def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL) -> tuple[list[dict], list[dict]]:
+    """The Pustule Explosion held to one a fuse (see above). `rates`: bridge useRates for each group's `name` skill."""
     speed = sum(number(r.get("speed")) * (number(r.get("repeats")) or 1.0) for r in rates)
     if speed <= 0:
         return [], []
@@ -4757,8 +4772,8 @@ def pustule_cap(rates: list[dict]) -> tuple[list[dict], list[dict]]:
     share = min(1.0, 1.0 / fuse / speed)
     if share >= 1.0:
         return [], []
-    return [raw_mod("DPS", "MORE", 100 * (share - 1), PUSTULE_SKILL)], [{
-        "label": f"{PUSTULE_SKILL}: one Pustule on the boss at a time*", "value": f"x{share:.3f}",
+    return [raw_mod("DPS", "MORE", 100 * (share - 1), name)], [{
+        "label": f"{name}: one Pustule on the boss at a time*", "value": f"x{share:.3f}",
         "basis": f"PoB counts {speed:.2f} Pustule Explosions/s; the game allows one Pustule per enemy, bursting after its "
                  f"{fuse:.1f} s fuse{'' if fuses else ' (base; PoB gave no Detonation Time)'}: {1 / fuse:.3f}/s. Not "
                  "counted (undercount side): stored Poison making it burst sooner and up to 300% harder (UNVERIFIED "

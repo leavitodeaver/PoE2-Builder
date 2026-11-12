@@ -2945,3 +2945,26 @@ def test_pustule_cap_holds_the_explosion_to_one_a_fuse():
     assert models.pustule_cap([{"speed": 1.0}])[1][0]["basis"].count("PoB gave no Detonation Time") == 1
     found = [models.Skill("Poison Spores", 2, stat_set="Pustule Explosion"), models.Skill("Poison Spores", 3, stat_set="Toxic Pustule")]
     assert models.pustule_groups(found) == [2]
+
+
+def test_toxic_domain_pustules_are_held_to_one_a_fuse_too():
+    """Toxic Domain (AUDIT23 A23-1): "Each enemy can have up to 1 Pustule attached", 15 s fuse, like Poison Spores."""
+    from builder.search import models
+
+    found = [models.Skill("Toxic Domain", 4, stat_set="Pustule Explosion"), models.Skill("Poison Spores", 2, stat_set="Pustule Explosion")]
+    assert models.pustule_groups(found, "Toxic Domain") == [4] and models.pustule_groups(found) == [2]
+    mods, notes = models.pustule_cap([{"speed": 2.0, "detonationTime": 15}], "Toxic Domain")
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (1 / 30 - 1), "Toxic Domain")]
+    assert notes[0]["label"].startswith("Toxic Domain")
+
+
+def test_a_one_totem_support_keeps_one_totem_up():
+    """Splinter Totem I / II, Greatwood II, Cirel's Cultivation: "Supported Skills can only have one active Totem"
+    (number_of_totems_allowed_is_1, AUDIT23 A23-3): no extra totems counted, whatever the Totem Limit."""
+    from builder.search import models
+
+    hammer = models.Skill("Hammer of the Gods", 1, attack=True)
+    totem = models.Skill("Totem", 1, totem_limit=3, support_stats={models.TOTEM_ONE_STAT: 1})
+    assert models.totem_count_model([hammer, totem], hammer) == ([], [])
+    totem.support_stats = {}
+    assert models.totem_count_model([hammer, totem], hammer)[1][0]["value"] == 3
