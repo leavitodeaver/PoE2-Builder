@@ -1715,11 +1715,11 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
     kind, per = META_GEMS[meta]["gain"], META_GEMS[meta].get("per", 0.0)
     if kind == "block":
         every = number(stats.get("enemySkillTime")) or 0.7
-        land = 1 - min(number(stats.get("EvadeChance")), 100) / 100
-        block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
-        blocks = land * block / every
-        return blocks * per, (f"you block {blocks:.2f} of the boss's hits per second (one every {every:g} s, {land:.0%} not evaded, "
-                              f"{block:.0%} blocked) for {per:g} Energy each")
+        share = boss_hits.block_share(stats)  # (MECHB6: only the boss's blockable hits, after evasion; MECHC5's shares)
+        blocks = share / every
+        return blocks * per, (f"you block {blocks:.2f} of the boss's hits per second (one every {every:g} s, {share:.0%} of them "
+                              f"blocked: its red-flash hits can't be, the rest after evasion; boss_hits, LOW share) for "
+                              f"{per:g} Energy each")
     if kind == "dodge":
         roll = stats.get("_dodge_roll") or dodge_roll([], stats)
         energy = roll["metres"] * per
@@ -1731,7 +1731,7 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         if pool <= 0:
             return 0.0, "the build has no Energy Shield: no Energy"
         every = number(stats.get("enemySkillTime")) or 0.7
-        land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)
+        land = boss_hits.land_share(stats)  # (MECHB6: red-flash hits always land; MECHC5's shares)
         hit = sum(number(stats.get(f"{t}TakenHit")) for t in DAMAGE_TYPES)
         hits = land / every
         if hits <= 0:
@@ -1744,7 +1744,7 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         restored = regen * gap + recharge * max(0.0, gap - delay)
         taken = min(hit, pool, restored)
         return hits * taken * per, (f"the boss's hits land {hits:.2f} times per second (one every {every:g} s, {land:.0%} neither "
-                                    f"evaded nor blocked), each taking {taken:,.0f} Energy Shield after mitigation (PoB's boss "
+                                    f"evaded nor blocked; red-flash hits always land, boss_hits), each taking {taken:,.0f} Energy Shield after mitigation (PoB's boss "
                                     f"preset; a hit of {hit:,.0f}, at most the {restored:,.0f} that returns between hits: "
                                     f"{regen:,.0f}/s regenerated, {recharge:,.0f}/s recharge after {delay:g} s): "
                                     f"1 Energy per 10 lost")
@@ -2075,8 +2075,7 @@ class IronWardStore:
 
 def iron_ward_store(skill: Skill, stats: dict) -> IronWardStore:
     skill_time = number(stats.get("enemySkillTime"))
-    hits = ((1 / skill_time if skill_time > 0 else 0.0) * (1 - min(number(stats.get("EvadeChance")), 100) / 100)
-            * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100))
+    hits = (1 / skill_time if skill_time > 0 else 0.0) * boss_hits.land_share(stats)  # (MECHB6: red-flash hits land)
     return IronWardStore(number(skill.level_stats.get(STORE_CAP)), number(skill.level_stats.get(STORE_GAIN)) / 100,
                          number(stats.get("PhysicalEnemyDamage")), number(stats.get("PhysicalDamageReduction")), hits,
                          skill.cast_time or 1.0)
@@ -3324,14 +3323,14 @@ def deadly_resolve_model(skills: list[Skill], stats: dict, main: Skill | None) -
             "basis": "its channelled skill isn't the main skill, so it isn't channelled through the fight: not counted",
             "confidence": "theory", "entry": "deadly-resolve-rate"}]
     every = number(stats.get("enemySkillTime")) or 0.7
-    land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)
+    land = boss_hits.land_share(stats)  # (MECHB6: red-flash hits always land; MECHC5's shares)
     hits = land / every
     rate = min(1 / DEADLY_RESOLVE_STAGE_EVERY, hits, 1 / DEADLY_RESOLVE_COOLDOWN)
     limit = "a stage per second of channelling" if rate < hits else "the boss's hits that land"
     return trigger_rate(DEADLY_RESOLVE, rate), [{
         "label": "Deadly Resolve slashes per second", "value": round(rate, 3),
         "basis": f"one per stage (a stage per {DEADLY_RESOLVE_STAGE_EVERY:g} s of channelling {main.name}) when the boss hits you: "
-                 f"{hits:.2f} hits/s land (one every {every:g} s, {land:.0%} neither evaded nor blocked; blocked and evaded hits "
+                 f"{hits:.2f} hits/s land (one every {every:g} s, {land:.0%} neither evaded nor blocked, red-flash hits always landing; blocked and evaded hits "
                  f"assumed not to count); limited by {limit}. PoB alone counts it at its own use rate.",
         "play": "Channel the supported skill through the fight and let the boss hit you; stepping out of its hits stops the slashes.",
         "confidence": "theory", "entry": "deadly-resolve-rate"}]

@@ -8,7 +8,7 @@ import math
 import pytest
 
 from builder.ledger import model_entry, translate
-from builder.search import models
+from builder.search import boss_hits, models
 from builder.search.models import Inputs, Skill
 
 
@@ -273,8 +273,9 @@ def test_the_other_metas_gain_energy_from_their_own_events():
         mods, notes, _ = models.energy_model(Inputs(), stats, [main, Skill(meta, group=2, energy=True), comet], main)
         return next(m["value"] for m in mods if m.get("key") == "triggerRate")
 
-    # Cast on Block: 2 boss hits/s, 80% not evaded, 50% blocked = 0.8 blocks/s x 25 Energy, x1.57, over 120 Energy
-    assert rate("Cast on Block", SPARK) == pytest.approx(0.8 * 25 * 1.57 / 120, rel=1e-4)
+    # Cast on Block: 2 boss hits/s, the Arbiter's 13 of 20 blockable (7 red-flash: boss_hits, MECHB6), 80% not evaded, 50%
+    # blocked = 0.52 blocks/s x 25 Energy, x1.57, over 120 Energy
+    assert rate("Cast on Block", SPARK) == pytest.approx(2 * 0.65 * 0.8 * 0.5 * 25 * 1.57 / 120, rel=1e-3)
     # Thundergod's Wrath: 2 melee hits/s x 3 per Power x 20; nothing from a spell
     slam = Skill("Boneshatter", group=1, attack=True, melee=True)
     assert rate("Thundergod's Wrath", slam) == pytest.approx(2 * 60 * 1.57 / 120, rel=1e-4)
@@ -388,7 +389,8 @@ def test_iron_ward_store_fills_at_the_boss_hit_rate_after_mitigation():
     assert store.fill == pytest.approx(fill)
     assert store.uses == pytest.approx(fill / 22886) and not store.use_capped  # released whenever full
     dodgy = models.iron_ward_store(WARD, {**PINNACLE, "EvadeChance": 50, "EffectiveBlockChance": 20})
-    assert dodgy.fill == pytest.approx(fill * 0.5 * 0.8)  # evaded and blocked hits store nothing
+    land = boss_hits.land_share({"EvadeChance": 50, "EffectiveBlockChance": 20})  # (MECHB6: red-flash hits land)
+    assert dodgy.fill == pytest.approx(fill * land, rel=1e-6)  # evaded and blocked hits store nothing
     flooded = models.iron_ward_store(WARD, {**PINNACLE, "PhysicalEnemyDamage": 50000})
     assert flooded.use_capped and flooded.uses == pytest.approx(1.0)  # at most one use per 1 s use time
     assert models.iron_ward_store(WARD, {**PINNACLE, "enemySkillTime": 0}).uses == 0.0
@@ -863,7 +865,8 @@ def test_deadly_resolve_slashes_once_per_stage_when_the_boss_hits():
     assert "a stage per second" in notes[0]["basis"]
     # a build that blocks half and evades half: 0.36 hits/s
     few = models.deadly_resolve_model([shield, slash], {"enemySkillTime": 0.7, "EvadeChance": 50, "EffectiveBlockChance": 50}, shield)[0]
-    assert next(m["value"] for m in few if m["key"] == "triggerRate") == pytest.approx(0.25 / 0.7, rel=1e-3)
+    land = boss_hits.land_share({"EvadeChance": 50, "EffectiveBlockChance": 50})  # (MECHB6: red-flash hits land)
+    assert next(m["value"] for m in few if m["key"] == "triggerRate") == pytest.approx(land / 0.7, rel=1e-3)
     # not the main skill's group: not channelled through the fight
     other = Skill("Boneshatter", group=1, attack=True, melee=True)
     assert next(m["value"] for m in models.deadly_resolve_model([other, slash], stats, other)[0] if m["key"] == "triggerRate") == 0.0
@@ -882,14 +885,17 @@ def test_barrier_invocation_gains_energy_from_the_energy_shield_the_boss_takes()
     stats = {"EnergyShield": 3000, "enemySkillTime": 0.5, "EvadeChance": 0, "EffectiveBlockChance": 50,
              "PhysicalTakenHit": 600, "FireTakenHit": 400, "EnergyShieldRegenRecovery": 1500}
     gain, basis = models.energy_gain("Barrier Invocation", stats, "Spark", Skill("Spark", spell=True))
-    assert gain == pytest.approx(1.0 * 1000 * 0.1) and "1 Energy per 10 lost" in basis  # 1 hit/s lands, 1,000 ES each
+    land = boss_hits.land_share(stats)  # (MECHB6: the Arbiter's red-flash hits can't be blocked)
+    assert gain == pytest.approx(2 * land * 1000 * 0.1) and "1 Energy per 10 lost" in basis  # 1,000 ES each
     assert models.energy_gain("Barrier Invocation", {**stats, "EnergyShield": 0}, "Spark")[0] == 0.0
     # Only what comes back between hits can be lost again: 300/s regenerated, a hit every second, recharge never starts
     # (2 s delay) -> 300 per hit. A bare 40 Energy Shield with no recovery gives nothing over a fight.
     slow = {**stats, "EnergyShieldRegenRecovery": 300, "EnergyShieldRecharge": 600, "EnergyShieldRechargeDelay": 2}
     assert models.energy_gain("Barrier Invocation", slow, "Spark")[0] == pytest.approx(300 * 0.1)
-    gaps = {**slow, "enemySkillTime": 1.5}  # a hit lands every 3 s: 3 × 300 regenerated + 1 s × 600 recharged
-    assert models.energy_gain("Barrier Invocation", gaps, "Spark")[0] == pytest.approx(1000 / 3 * 0.1)
+    gaps = {**slow, "enemySkillTime": 1.5}  # a hit lands every 1.5 / land s: regenerated + recharged after 2 s, up to 1,000
+    gap = 1.5 / land
+    assert models.energy_gain("Barrier Invocation", gaps, "Spark")[0] == pytest.approx(
+        min(1000, 300 * gap + 600 * max(0.0, gap - 2)) / gap * 0.1)
     bare = {"EnergyShield": 40, "enemySkillTime": 0.7, "EffectiveBlockChance": 25, "PhysicalTakenHit": 500,
             "EnergyShieldRecharge": 50, "EnergyShieldRechargeDelay": 2}
     assert models.energy_gain("Barrier Invocation", bare, "Boneshatter")[0] == 0.0
