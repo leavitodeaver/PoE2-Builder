@@ -260,10 +260,39 @@
   title: Lightning damage of enemies hitting you is Unlucky
   kind: pob_gap
   match: '^Lightning Damage of Enemies Hitting you is Unlucky$'
-  replace: ['4% less Lightning Damage taken', '3% less Lightning Damage taken']
+  replace: ['4% less Lightning Damage taken when Hit', '3% less Lightning Damage taken when Hit']
   confidence: reported
-  notes: "PoB has no 'Lightning damage taken from Hits'; lightning damage over time is rare."
-  sources: ["https://poe2db.tw/The_Burrower", "https://poe2db.tw/Unlucky"]
+  notes: >-
+    As unlucky-enemy-damage (6.67%, written as 4% and 3% less). Unlucky changes a Hit's damage roll only, so the
+    reduction is on Lightning Hits: PoB's 'lightning damage taken when hit' (ModParser, LightningDamageTakenWhenHit,
+    read by CalcDefence's Hit multiplier only, not its damage-over-time one). AUDIT10 A10-2: it was 'less Lightning
+    Damage taken', which also cut Lightning damage over time (the Arbiter of Divinity's ground), a small overcount.
+  sources: ["https://poe2db.tw/The_Burrower", "https://poe2db.tw/Unlucky",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua ('lightning damage taken when hit')",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcDefence.lua 2475-2481 (the Hit multiplier)"]
+  status: proposed
+
+- id: unlucky-enemy-lightning-charm
+  title: The Black Cat, Lightning damage of enemies hitting you is Unlucky during the charm's effect
+  kind: pob_gap
+  match: '^Lightning Damage of Enemies Hitting you is Unlucky during effect$'
+  replace: ['4% less Lightning Damage taken when Hit', '3% less Lightning Damage taken when Hit']
+  confidence: reported
+  notes: >-
+    The Black Cat (Grounding Charm, 'Used when you become Shocked'). PoB parses nothing of the line (ModCache: nil).
+    Written as unlucky-enemy-lightning (6.67% less from Lightning Hits, as 4% and 3%) WITHOUT 'during effect' on
+    purpose: PoB's 'during effect' tag is Condition UsingFlask (ModParser 1876), which only an active Life or Mana
+    flask sets (CalcPerform 1726; charms set UsingCharm / Using<base> only, 1845-1846), so with it the line would
+    count only while a flask is also up. A charm's own lines join the build only while the charm is in an active
+    slot (CalcPerform mergeCharms over env.charms; CalcSetup 1438-1441), so the line follows the charm's modelled
+    uptime (flasks.py, gear.FLASK_ON .. FLASK_WHOLE) and a switched-off charm adds nothing (engine-checked, COV10).
+    PoB scales a charm's lines by increased Charm effect (calcCharmMods, ScaleAddList, truncated to whole
+    percents): Unlucky is not a magnitude, so from +25% Charm effect the 4% reads 5% (x0.9215 instead of x0.9312):
+    a small overcount of defences for those builds only (UNVERIFIED that charm effect does nothing to Unlucky in
+    game; it has no number to scale).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Uniques/flask.lua (The Black Cat)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua (calcCharmMods, mergeCharms)",
+            "https://poe2db.tw/The_Black_Cat", "https://poe2db.tw/Unlucky"]
   status: proposed
 
 - id: reactive-growth
@@ -398,9 +427,18 @@
   title: Spike Pit, enemies in your Jagged Ground take more damage
   kind: pob_gap
   match: '^Enemies in Jagged Ground you create take (\d+)% increased Damage$'
-  replace: ['if:JaggedGround {g1*0.4}% more Damage']
+  replace: ['if:JaggedGround Nearby Enemies have {g1*0.4}% increased Damage taken']
   confidence: theory
-  notes: "Bosses move; the boss assumed in your Jagged Ground 40% of the time."
+  notes: >-
+    Bosses move; the boss assumed in your Jagged Ground 40% of the time. The line counts only while the JaggedGround
+    condition is on: since MECH51 that is when the main skill's own Jagged Ground sources keep it under the boss at
+    least 40% of the fight (conditions.jagged_ground; assumptions.ledger_conditions), so a build above 40% still gets
+    40% of the bonus (an undercount) and one below it none (an undercount): scaling by the build's share needs a
+    share-weighted ledger condition (COV10's proposal: a Multiplier tag on 'if:' lines, set by the condition setter).
+    The game's 'increased Damage taken' is a debuff on the enemy that adds to its other increased Damage taken, so it
+    is written as PoB's enemy debuff ('Nearby Enemies have N% increased Damage taken': EnemyModifier DamageTaken INC,
+    engine-checked COV10); before, '% more Damage', a separate multiplier (a small overcount; FIX_QUEUE, MECH51's
+    findings).
   sources: ["https://poe2db.tw/Spike_Pit", "https://poe2db.tw/us/Jagged_Ground"]
   status: proposed
 

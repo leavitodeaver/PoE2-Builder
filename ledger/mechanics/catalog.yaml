@@ -421,6 +421,22 @@
   impact: 3
   effort: M
 
+- id: flask-used-recently
+  name: "If you've used a Life / Mana Flask (recently, in the past N seconds)"
+  terms: [used a Life Flask, used a Mana Flask, Flask Recently]
+  category: recovery and flasks
+  game: "A bonus that holds for a window after you use a Life or Mana flask (Reinvigoration: Regenerate 1% of maximum Life per second for 10 s after a Life Flask; Arcane Mixtures: 10% increased Cast Speed if you've used a Mana Flask Recently)."
+  game_source: https://poe2db.tw/us/Reinvigoration
+  game_check: "COVB7 (12 Nov): every Stats.json id holding flask with used / recent / past and their PassiveSkills and Mods users (game 26476662), and PoB's ModCache keys holding 'used a ... Flask': the two tree notables above, and the life-regen stat on one unique (UniqueHeartPrefixFlaskLifeRegenForXSeconds; its item line is not read by the model: an open item for COV-A). poe2db not checked for more sources: UNVERIFIED as a complete list."
+  pob: wrong
+  pob_check: "ModParser maps 'if you've used a Life Flask in the past 10 seconds' / 'a Mana Flask Recently' to the flask-EFFECT conditions UsingLifeFlask / UsingManaFlask (ModParser 1884 / 1886), set whenever that flask's slot is active (CalcPerform 1724-1733): on under Reverie though no flask is ever used (an overcount), off for a flask used every few seconds whose effect the uptime rule switches off (an undercount)."
+  handling: "passive_models.flask_used_model (COVB7): a pob_wrong entry (passives-batch4.yaml) drops PoB's parse from the node, and the line counts for the share of the fight a flask was used within its window, min(1, uses/s x window), the uses being flasks.uses_per_second (what generated charges pay for; 0 for Reverie's Life Flask, a constant flask, a Mana Flask a Concoction throws, or none equipped). Tree lines only; the unique's line keeps PoB's reading (COV8's item_off rule: it isn't switched off with nothing counting it)."
+  plan: {approach: custom model, how: "Done for the tree; the unique's line through the same share (an item hook).", inputs: [flask uses per second, window]}
+  what_if: invisible
+  guide_note: "Bonus after a flask use counted on X% of the fight from your flask uses."
+  impact: 1
+  effort: S
+
 # --- The fight -----------------------------------------------------------------------------------------------------
 
 - id: boss-behaviour
@@ -467,6 +483,22 @@
   guide_note: ""
   impact: 2
   effort: L
+
+- id: monster-category
+  name: Monster Category (against Demons / Humanoids / Beasts / Constructs / Undead)
+  terms: [Monster Category, against Demons, against Humanoids, against Beasts, against Constructs, against Undead]
+  category: the fight
+  game: "KeywordPopups MonsterCategory: 'Every Monster has exactly one Monster Category. These are Humanoid, Beast, Undead, Construct, Demon and Eldritch.' Lines that work against one category work against the boss only if it is of that category."
+  game_source: https://poe2db.tw/us/Monster_Category
+  game_check: "The game files' KeywordPopups (0.5 dump); each boss's category from poe2db's category field (RESEARCH23 #138, HIGH), the King in the Mists split 43% Humanoid / 57% Demon by Life (#147)."
+  pob: none
+  pob_check: "PoB parses each tree line only in part (ModCache leftover ' against Demons ' and so on), so never applies it (Item.lua / PassiveTree.lua: not modLine.extra)."
+  handling: "passive_models.monster_category_model (COVB7): the tree's lines (the Hunter notable and the smalls mercenary1-4, Necromantic Ward's damage against Undead) count as their plain form for the share of the fight the boss is of that category: the boss the request names (inner.boss_config), its preset's category once MECH-D's bosses.py carries one, else the ruling's table (BOSS_CATEGORY); a boss with no known category counts 0, labelled. Item lines against a category (physical damage taken from Beasts) are not read."
+  plan: {approach: custom model, how: "Done for the tree; the presets' own category field (MECH-D) replaces the fallback table.", inputs: [boss category]}
+  what_if: invisible
+  guide_note: "Bonus against <category> counted against <boss> (its category), 0 against other bosses."
+  impact: 2
+  effort: S
 
 # --- Families added 7 Nov 2026 (each covers many automatic mechanics: ledger/mechanics/families.yaml) ---------------------
 
