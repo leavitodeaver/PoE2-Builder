@@ -727,7 +727,8 @@ def test_a_flask_that_applies_its_effect_constantly():
 def test_grinning_immolation_ignites_you():
     by_var = {c.var: c for c in CONDITIONS}
     line = "Become Ignited when you deal a Critical Hit, taking 15% of your maximum Life and Energy Shield as Fire Damage per second"
-    assert text_evidence(by_var["conditionIgnited"], line)
+    # (MECH53: at the share your crits keep you Ignited, not on its text alone)
+    assert by_var["conditionIgnited"].value_fn([line], {"Speed": 1.0, "HitChance": 100, "CritChance": 50})[0]
 
 
 def test_withered_stacks_from_the_builds_lines():
@@ -2087,3 +2088,29 @@ def test_an_ailment_consumed_by_a_skill_beside_the_main_one_is_carried_less():
     # a disabled group beside it: nothing consumed
     off = {**groups, "groups": [groups["groups"][0], {**groups["groups"][1], "enabled": False}]}
     assert c.side_consumes(FakeBuild(), "Fireball", off) == {}
+
+
+def test_self_ignite_and_debuffs_on_an_ailing_boss_count_at_their_share():
+    """MECH53: Grinning Immolation's "Become Ignited when you deal a Critical Hit" is off when you can't be Ignited and at
+    the share your crits keep you Ignited otherwise (RESEARCH12); Pandemonius' "Blind Chilled enemies on Hit" counts only
+    the hits on a Chilled boss (COVD5); the Chilled box at the share the main skill's hits keep it."""
+    from builder.search import conditions as c
+
+    line = ["Become Ignited when you deal a Critical Hit"]
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "IgniteAvoidChance": 0, "SelfIgniteDuration": 100}
+    on, basis, up = c._self_ignited(line, stats)
+    assert abs(up - 1.0) < 1e-9 and on  # (no avoidance: the first crit Ignites you)
+    on, basis, up = c._self_ignited(line, {**stats, "IgniteAvoidChance": 100})
+    assert up == 0.0 and not on and "immune" in basis
+    up = c._self_ignited(line, {**stats, "IgniteAvoidChance": 90, "CritChance": 5})[2]
+    assert abs(up - (1 - 0.9 ** (0.1 * 4.0))) < 1e-9
+    assert c._self_ignited(["something else"], stats) == (0.0, "")
+    # the Chilled box from the main skill's hits (8 s each by default)
+    assert c.chill_share({"Speed": 2.0, "HitChance": 100, "ChillChanceOnHit": 100}) == 1.0
+    assert c.chill_share({"Speed": 2.0, "HitChance": 100, "ChillChanceOnHit": 0}) == 0.0
+    # Blind on a Chilled boss: none Chilled, none Blinded
+    blind = "Blind Chilled enemies on Hit"
+    hit = {"Speed": 2.0, "HitChance": 100, "ChillChanceOnHit": 0}
+    assert c._debuff_source(blind, "conditionEnemyBlinded", [blind], hit)[0] == 0.0
+    up, how = c._debuff_source(blind, "conditionEnemyBlinded", [blind], {**hit, "ChillChanceOnHit": 100})
+    assert up == 1.0 and "chilled boss" in how

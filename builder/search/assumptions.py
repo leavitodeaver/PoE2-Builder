@@ -555,7 +555,8 @@ class Assumptions:
             else:
                 scale, how = conditions_mod.consumed_ignite_scale(potential, hits, chance,
                                                                   number(stats.get("IgniteDuration")), own)
-                by, why, confidence = consumer, f"{main} consumes Ignite on hit (KeywordPopups Consume: then immune 1 s)",                     "MEDIUM"
+                why = f"{main} consumes Ignite on hit (KeywordPopups Consume: then immune 1 s)"
+                by, confidence = consumer, "MEDIUM"
             if scale >= 1.0:
                 continue
             key = models.press_key("Best Ignite DPS", source or None)

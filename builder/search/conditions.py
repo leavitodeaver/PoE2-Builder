@@ -49,6 +49,7 @@ EVIDENCE_FIELDS = [
     "ChaosHitAverage", "MainHand.ChaosHitAverage", "EnemyAilmentThreshold",  # (Withering Touch, _withered_stacks)
     # (the boss's Ignite on you, which pauses Rage loss while it burns: boss_hits.es_dot; MECHC7)
     "AilmentThreshold", "Life", "FireTakenHit", "IgniteAvoidChance", "SelfIgniteDuration",
+    "ChillDuration",  # (chill_share; MECH53)
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -1056,6 +1057,9 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
         events, how = named
     else:
         events, how = 1 / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
+    if q := TARGET_AILMENT.search(when):  # ("Blind Chilled enemies on Hit": only the hits on a Chilled boss; MECH53)
+        share = target_ailment_share(stats, q.group(1).lower())
+        events, how = events * share, f"{how} on a {q.group(1).lower()} boss ({share:.0%} of the fight)"
     n = events * duration
     up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
     return up, f"{chance:.0%} x {events:.2f} {how}/s, {duration:g} s: {up:.0%} up"
@@ -1176,6 +1180,60 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
     n = events * duration
     up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
     return up, f"{chance:.0%} x {events:.2f} {how}/s, {duration:g} s: {up:.0%} up"
+
+
+# A debuff line that names the target's ailment ("Blind Chilled enemies on Hit", Pandemonius; MECH53, COVD5's OVERCOUNT:
+# before, read as Blinded all fight whether or not the boss was Chilled): only the hits on a boss carrying it count, at
+# the share of the fight it carries it from the main skill's hits (chill_share, ailment_uptime, shock_share,
+# models.immobilised_share). Chill from other skills or grounds isn't counted (labelled in the share's basis).
+TARGET_AILMENT = re.compile(r"\b(chilled|frozen|shocked|ignited|poisoned|bleeding|electrocuted) (?:enemies|targets)\b",
+                            re.I)
+CHILL_SECONDS = 8.0  # KeywordPopups Chill: "lasts ... 8 seconds on non-players by default"
+
+
+def chill_share(stats: dict) -> float:
+    """Share of the fight the boss is Chilled by the main skill's hits: PoB's ChillChanceOnHit is 100 when a hit's Chill
+    reaches the 30% floor, else 0 (CalcOffence 5550-5558); each lasts PoB's ChillDuration, else 8 s."""
+    chill = min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+    if chill <= 0 or hits <= 0:
+        return 0.0
+    return 1.0 - (1.0 - chill) ** (hits * (number(stats.get("ChillDuration")) or CHILL_SECONDS))
+
+
+def target_ailment_share(stats: dict, participle: str) -> float:
+    """Share of the fight the boss carries the ailment a line names (TARGET_AILMENT's word)."""
+    if participle == "chilled":
+        return chill_share(stats)
+    if participle == "shocked":
+        return shock_share(stats)
+    if participle in ("frozen", "electrocuted"):
+        return models.immobilised_share(stats, "Freeze" if participle == "frozen" else "Electrocute")[0]
+    return ailment_uptime(stats, {"ignited": "Ignite", "poisoned": "Poison", "bleeding": "Bleed"}[participle])
+
+
+# Grinning Immolation (Infernalist): "Become Ignited when you deal a Critical Hit" (MECH53, RESEARCH12's OVERCOUNT: before,
+# the Ignited-yourself box was on whenever the line was there). Ignited at the share of the fight one of your crits in the
+# last Ignite's duration got through: crits per second x (1 - PoB's IgniteAvoidChance, 100 when immune: CalcDefence 2005,
+# IgniteImmune / ElementalAilmentImmune) over 4 s (KeywordPopups Ignite) x PoB's SelfIgniteDuration. Avoidance taken to
+# apply to this Ignite as to any (MEDIUM). The boss's own Ignite on you (boss_hits.ignite_chance) isn't added here.
+SELF_IGNITE_LINE = re.compile(r"become ignited when you deal a critical hit", re.I)
+
+
+def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
+    if not any(SELF_IGNITE_LINE.search(t) for t in lines):
+        return 0.0, ""
+    avoid = min(max(number(stats.get("IgniteAvoidChance")), 0.0), 100.0) / 100.0
+    crits = models.crits_per_second(stats)
+    scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
+    seconds = AILMENT_DURATION["Ignite"] * scale
+    up = 1.0 - avoid ** (crits * seconds) if crits > 0 and avoid < 1.0 else 0.0  # (no crit Ignite got through)
+    if avoid >= 1.0:
+        how = "you can't be Ignited (PoB's Ignite avoidance 100%: immune)"
+    else:
+        how = (f"{crits:.2f} crits/s, {1 - avoid:.0%} not avoided, Ignited {seconds:.1f} s each: up {up:.0%} of the fight "
+               f"({shared(up)}; avoidance taken to apply, MEDIUM)")
+    return _box(up, "Grinning Immolation: become Ignited when you crit: " + how)
 
 
 def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
@@ -2005,8 +2063,8 @@ CONDITIONS: list[Condition] = [
               fields=("PoisonChancePerHit", "Speed", "HitChance", "PoisonDuration")),
     Condition("conditionEnemyBleeding", "Bleeding", stat=_ailment_up("Bleed"), uptime_fn=_ailment_share("Bleed"),
               fields=("BleedChancePerHit", "Speed", "HitChance", "BleedDuration")),
-    Condition("conditionEnemyChilled", "Chilled", stat=lambda s: number(s.get("ChillChanceOnHit")) >= 100,
-              fields=("ChillChanceOnHit",)),
+    Condition("conditionEnemyChilled", "Chilled", stat=lambda s: chill_share(s) >= MIN_UPTIME, uptime_fn=chill_share,
+              fields=("ChillChanceOnHit", "Speed", "HitChance", "ChillDuration")),
     Condition("parryActive", "Parried", value_fn=_parried, fields=("enemySkillTime", "Ward")),
     Condition("conditionEnemyFrozen", "Frozen", value_fn=_immobilised("Freeze", "Frozen"),
               fields=(*models.IMMOBILISE_FIELDS, "FreezeDurationMod")),
@@ -2054,8 +2112,8 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS)),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
               fields=WITHER_FIELDS),
-    Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)",
-              (r"become ignited when you deal a critical hit",)),
+    Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)", value_fn=_self_ignited,
+              fields=("CritChance", "Speed", "HitChance", "IgniteAvoidChance", "SelfIgniteDuration")),
     Condition("enemyDistance", "Boss distance (play-style assumption; 10 units a metre)", value_fn=_boss_distance,
               fields=("PresenceRadius",)),
     Condition("conditionStationary", "Standing still (play-style choice)", value_fn=_standing_still, fields=()),
