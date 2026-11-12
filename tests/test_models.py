@@ -1323,6 +1323,19 @@ def test_hit_remnants_need_their_condition_and_the_main_skill_s_hits():
     assert rate == pytest.approx(1 / (2 + 1 / (2 * 0.5))) and "Ignited 100%" in how
 
 
+def test_a_chill_lasts_8_s_on_the_boss_or_pob_s_chill_duration():
+    """KeywordPopups Chill: 2 s on players, 8 s on non-players by default (MECHC2, the manager's ruling; was 2 s). PoB's
+    ChillDuration, with the build's Chill Duration lines, wins when it has one."""
+    from builder.search.assumptions import hit_remnant_rate, CHILL_SECONDS
+    assert CHILL_SECONDS == 8.0
+    chill = {"Speed": 1.0, "HitChance": 100, "CritChance": 100, "ChillChanceOnHit": 10}
+    up = 1 - 0.9 ** 8  # 1 hit/s at 10% for 8 s
+    rate, how = hit_remnant_rate("Mana Remnants", chill)
+    assert rate == pytest.approx(1 / (2 + 1 / up)) and "8 s" in how
+    rate, how = hit_remnant_rate("Mana Remnants", {**chill, "ChillDuration": 12})
+    assert rate == pytest.approx(1 / (2 + 1 / (1 - 0.9 ** 12))) and "12 s" in how
+
+
 def test_archon_of_the_blizzard_waits_for_a_gap_in_the_boss_s_landing_hits():
     """Energy Shield Recharge needs `delay` s with no damage: every landing boss hit restarts it (MECH46, FLAT_RATES A8:
     was a flat 2 x delay)."""

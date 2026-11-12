@@ -107,8 +107,13 @@ DUPLICATE_PICKUP = re.compile(r"(\d+(?:\.\d+)?)% chance for Remnants you (?:pick
 # life_remnants_spawn_remnant_on_hit_vs_enemy_every_X_ms 3000 ("once every": a cooldown, then the next qualifying hit)
 HIT_REMNANTS = {"Sanguine Revelry": 2.0, "Mana Remnants": 2.0, "Life Remnants": 3.0}
 HIT_REMNANT_FIELDS = ("Speed", "HitChance", "CritChance", "BleedChancePerHit", "BleedDuration", "IgniteChancePerHit",
-                      "IgniteDuration", "ShockChancePerHit", "ShockDuration", "ChillChanceOnHit", *models.IMMOBILISE_FIELDS)
-CHILL_SECONDS = 2.0  # a Chill's duration on the boss, assumed (LOW): the shorter of PoB's two base Chill durations
+                      "IgniteDuration", "ShockChancePerHit", "ShockDuration", "ChillChanceOnHit", "ChillDuration",
+                      *models.IMMOBILISE_FIELDS)
+# A Chill's base duration on the boss (MECHC2, the manager's ruling): KeywordPopups Chill (build 26476662) "lasts 2 seconds
+# on players or 8 seconds on non-players by default" (HIGH; RESEARCH1 chill-duration-on-boss.md; PoB Misc.lua
+# BaseChillDuration 8). PoB's ChillDuration (CalcOffence, the non-damaging ailments) scales it by the build's Chill
+# Duration lines; this is the fallback when PoB gives none.
+CHILL_SECONDS = 8.0
 
 
 def hit_remnant_rate(name: str, stats: dict) -> tuple[float, str]:
@@ -123,8 +128,9 @@ def hit_remnant_rate(name: str, stats: dict) -> tuple[float, str]:
     elif name == "Mana Remnants":
         crit = min(number(stats.get("CritChance")), 100.0) / 100.0
         chill = min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
+        chill_seconds = number(stats.get("ChillDuration")) or CHILL_SECONDS
         ups = {"Ignited": ailment_uptime(stats, "Ignite"), "Shocked": shock_share(stats),
-               "Chilled": 1.0 - (1.0 - chill) ** (hits * CHILL_SECONDS) if hits > 0 and chill > 0 else 0.0,
+               "Chilled": 1.0 - (1.0 - chill) ** (hits * chill_seconds) if hits > 0 and chill > 0 else 0.0,
                "Frozen": models.immobilised_share(stats, "Freeze")[0],
                "Electrocuted": models.immobilised_share(stats, "Electrocute")[0]}
         absent = 1.0
@@ -133,7 +139,7 @@ def hit_remnant_rate(name: str, stats: dict) -> tuple[float, str]:
         share = crit * (1.0 - absent)
         named = ", ".join(f"{k} {v:.0%}" for k, v in ups.items() if v > 0) or "no Elemental Ailment on the boss"
         how = (f"Critical Hits on an Elementally Ailmented boss: {hits:.2f} hits/s, {crit:.0%} critical, {named} "
-               f"(taken as independent; a Chill lasting {CHILL_SECONDS:g} s assumed, LOW)")
+               f"(taken as independent; a Chill lasting {chill_seconds:g} s on the boss, KeywordPopups Chill's 8 s base)")
     else:
         share, how = 1.0, f"hits on the boss: {hits:.2f} hits/s"
     events = hits * share
