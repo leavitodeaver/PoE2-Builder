@@ -427,3 +427,24 @@ def test_alignment_row_compares_stepping_round_the_boss_with_standing_still():
     assert calls[-1] == mods and build.stats["dps"] == 1200.0  # (put back)
     none = SimpleNamespace(build=build, assumptions=SimpleNamespace(mods=[{"line": "y"}], active=[]))
     assert play_guide.alignment_row(none, 1200.0) is None
+
+
+def test_boss_moving_row_takes_a_melee_skills_dps_at_mech_ds_ceiling():
+    """MECHC11 (MECH-D's bosses.moving_ceiling): a Melee main skill loses up to the boss's moving share (an upper bound,
+    never counted); a ranged main skill or a boss with no dashes gets no row."""
+    from builder.search import bosses
+
+    def search(boss: str, types: set[str]):
+        build = SimpleNamespace(ctx=SimpleNamespace(request=SimpleNamespace(boss=boss)))
+        return SimpleNamespace(build=build, conditions=SimpleNamespace(main_types=types))
+
+    olroth = "Olroth, Origin of the Fall"
+    share = bosses.moving_ceiling({"_boss": olroth})[0]
+    assert share > 0.1
+    row = play_guide.boss_moving_row(search(olroth, {"Attack", "Melee"}), 1000.0)
+    assert row["counted"] is False and row["kind"] == play_guide.FIGHT
+    assert row["dps_without"] == approx(1000.0 * (1 - share)) and row["dps_with"] == 1000.0
+    assert "upper bound" in row["play"] and "UNVERIFIED" in row["confidence"]
+    assert play_guide.boss_moving_row(search(olroth, {"Spell", "Projectile"}), 1000.0) is None
+    still = next(n for n, v in bosses.MOVING_CEILING.items() if v == 0)
+    assert play_guide.boss_moving_row(search(still, {"Attack", "Melee"}), 1000.0) is None

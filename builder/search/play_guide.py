@@ -166,6 +166,8 @@ def guide(search: Any) -> list[dict]:
         rows.append(row)
     if row := alignment_row(search, headline):
         rows.append(row)
+    if row := boss_moving_row(search, headline):
+        rows.append(row)
     after, base = build.objective.dps(build.stats), headline
     if abs(after - base) > 1e-6 * base:  # the switches must leave the build as it was; say so if they didn't
         rows.append({"var": "", "label": "(restore check)", "kind": BUILD, "counted": False, "play": "",
@@ -237,6 +239,30 @@ def alignment_row(search: Any, headline: float) -> dict | None:
                                                   f"{still:,.0f} standing still",
             "dps_with": headline, "dps_without": still, "change": (headline - still) / still if still else 0.0,
             "confidence": "theory (the match interval LOW)"}
+
+
+def boss_moving_row(search: Any, headline: float) -> dict | None:
+    """"Boss moving" (MECHC11; MECH-D's bosses.moving_ceiling, MECHD3 / RESEARCH22 #122): the headline counts the boss
+    standing in reach; the chosen boss spends up to that share of the fight in its own dashes, leaps and charges (an
+    UPPER BOUND, LOW). A Melee main skill can't reach it while it travels, so its DPS at the ceiling is the headline x (1 -
+    share): a "with it" row, never counted. Other main skills (projectiles, targeted spells, minions, totems) are taken as
+    still hitting a moving boss (UNVERIFIED: a ground effect or totem out of reach loses some too), so no row."""
+    from builder.search import bosses
+
+    build = search.build
+    request = getattr(getattr(build, "ctx", None), "request", None)
+    stats = {"_boss": getattr(request, "boss", None) or bosses.DEFAULT}
+    share, basis = bosses.moving_ceiling(stats)
+    types = getattr(getattr(search, "conditions", None), "main_types", None) or set()
+    if share < MIN_CHANGE or "Melee" not in types:
+        return None
+    moving = headline * (1 - share)
+    return {"var": "boss:moving", "label": f"Boss moving: {bosses.of(stats).name}'s dashes, leaps and charges",
+            "kind": FIGHT, "counted": False,
+            "play": (f"{basis}; a melee skill can't reach it while it travels: {moving:,.0f} DPS at that ceiling, "
+                     f"{headline:,.0f} with the boss in reach (the headline). Close the gap at once after each dash"),
+            "dps_with": headline, "dps_without": moving, "change": (headline - moving) / moving if moving else 0.0,
+            "confidence": "theory (an upper bound on the loss; the travel time UNVERIFIED, MECH-D's LOW)"}
 
 
 __all__ = ["guide", "kind", "KINDS", "OFF_OPTIONS", "PLAYER", "BUILD", "FIGHT"]
