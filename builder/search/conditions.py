@@ -781,7 +781,7 @@ RAGE_NO_LOSS = re.compile(r"^No Inherent loss of Rage(?: during effect)?$", re.I
 #   its level. The line's "Gain a random Charge on reaching Maximum Rage, no more than once every 6 seconds" isn't
 #   counted (an undercount).
 RAGE_LOST_ON_CRIT_STAT = "lose_%_of_maximum_rage_on_dealing_critical_strike"
-RAGE_RESET_AT_MAX = re.compile(r"lose all rage on reaching maximum rage", re.I)
+RAGE_RESET_AT_MAX = re.compile(r"\blose all rage on reaching maximum rage\b", re.I)
 RAGE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\bgain (\d+|an?)? ?Rage\b(.*)$", re.I)
 RAGE_REGEN = re.compile(r"\bregenerate (\d+(?:\.\d+)?)(%)?(?: of your maximum)? Rage per second(.*)$|"
                         r"\b1 Rage Regenerated for every", re.I)
@@ -2750,8 +2750,7 @@ class Conditions:
             if number((main.get("supportStats") or {}).get(NO_BLIND_STAT)) or number(
                     (main.get("levelStats") or {}).get(NO_BLIND_STAT)):
                 stats["_main_no_blind"] = NO_BLIND_STAT
-
-        if any(re.search(r"Rage", t) for t in texts):
+        if any(re.search(r"\bRage\b", t) for t in texts):
             # Prototype Seventeen on the main skill (MECHC11): its Rage is lost on each crit (rage_held)
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[RAGE_LOST_ON_CRIT_STAT])
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
