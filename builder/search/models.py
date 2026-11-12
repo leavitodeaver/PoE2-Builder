@@ -31,7 +31,7 @@ DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
 # PoB stats the models read (beyond the objective's own fields)
 MODEL_FIELDS = sorted({
     "Speed", "HitChance", "CritChance", "HazardRearmChance", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
-    "EnergyShieldRegenRecovery", "EnergyShieldRecharge", "PresenceRadius",
+    "EnergyShieldRegenRecovery", "EnergyShieldRecharge", "PresenceRadius", "MovementSpeedMod",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
     "FreezeBuildupAvg", "ElectrocuteBuildupAvg", "HeavyStunBuildupAvg",
     "Darkness", "Str", "Dex", "Int", *(f"{t}CritAverage" for t in DAMAGE_TYPES), *(f"{t}HitAverage" for t in DAMAGE_TYPES),
@@ -480,7 +480,63 @@ META_SUPPORTS = {"Boundless Energy I": ("MetaEnergy", 35.0), "Boundless Energy I
 INVOCATION_MAX_ENERGY = 500  # generic_ongoing_trigger_maximum_energy of every Invocation (game files, build 26476662)
 DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files, build 26476662); distance mods not counted
 DODGE_EVERY = 2.0  # seconds between dodge rolls against a boss: the user's default (7 Nov 2026), said in the guide
-DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); faster rolls from movement speed not counted
+DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); movement speed doesn't shorten it (RESEARCH 18w)
+# The build's own roll (MECHB3, COVD4 / FIX_QUEUE "Dodge roll and movement speed"): flat distance lines add to
+# dodge_roll_base_travel_distance (10 units a metre): "+1 metre to Dodge Roll distance" (Surefooted Sigil, Amanamu boots,
+# time-influenced boots, Rune of Acrobatics +0.3), Lioneye's Glare's "+2 metres ... if you haven't Dodge Rolled Recently"
+# and "-1 metre ... if you've Dodge Rolled Recently" (dodge_roll_travel_distance_+_if_(not_)dodge_rolled_recently; a
+# build that rolls every DODGE_EVERY s has always rolled within RECENTLY's 4 s, so only the -1 m holds), Tactical Retreat's
+# "+0.5 metres ... while Surrounded" (Surrounded: "at least 5 enemies within 3 metres", KeywordPopups; one unique,
+# UniqueLessEnemiesToBeSurrounded1, "Require 2-4 fewer enemies": at 4 fewer one enemy is enough, so the line counts there
+# while you stay within 3 m of the boss, a play condition). (checked: the game tables' Stats with dodge_roll and distance
+# or speed in their ids; Mods, PassiveSkills, SoulCoreStats, GrantedEffectStatSets(PerLevel) and GrantedEffectQuality-
+# Stats for them; PoB ModCache: none of these lines is applied, all leave text; the Sanctum-only map_player_ stat is left
+# out, a Sanctum relic.) Distance scales with movement speed (community sources only, RESEARCH 18w: LOW). "X% faster
+# Dodge Roll" (dodge_roll_speed_+%, one unique) shortens the roll's 0.75 s (assumed: time / (1 + X%), LOW); it doesn't
+# change the distance. Cast on Dodge's alternate quality (cast_on_dodge_dodge_roll_distance_granted_+, +0.05 m a quality)
+# isn't read: the builder sets no alternate qualities.
+DODGE_DISTANCE = re.compile(r"^([+-]?\d+(?:\.\d+)?) metres? to Dodge Roll distance(?: (.+))?$", re.I)
+DODGE_SPEED = re.compile(r"^(\d+(?:\.\d+)?)% (faster|slower) Dodge Roll$", re.I)
+FEWER_TO_BE_SURROUNDED = re.compile(r"^Require (\d+) fewer enemies to be Surrounded$", re.I)
+SURROUNDED_NEEDS = 5  # KeywordPopups Surrounded: "at least 5 enemies within 3 metres of you"
+
+
+def dodge_roll(texts: list[str], stats: dict) -> dict:
+    """The build's own dodge roll against a lone boss, rolling every DODGE_EVERY s: {"metres", "base_metres" (before
+    movement speed), "seconds" (the roll's time), "basis"}."""
+    flat, used, skipped = 0.0, [], []
+    fewer = sum(float(m.group(1)) for t in texts if (m := FEWER_TO_BE_SURROUNDED.match(t.strip())))
+    surrounded = SURROUNDED_NEEDS - fewer <= 1
+    faster = 0.0
+    for text in texts:
+        text = text.strip()
+        if m := DODGE_SPEED.match(text):
+            faster += float(m.group(1)) * (1 if m.group(2).lower() == "faster" else -1)
+            used.append(text)
+            continue
+        m = DODGE_DISTANCE.match(text)
+        if not m:
+            continue
+        when = (m.group(2) or "").lower()
+        if not when or ("dodge rolled recently" in when and "haven't" not in when and "not" not in when.split()):
+            flat += float(m.group(1))
+            used.append(text)
+        elif "while surrounded" in when and surrounded:
+            flat += float(m.group(1))
+            used.append(f"{text} (one enemy is enough with \"Require {fewer:g} fewer enemies\": "
+                                                    "within 3 m of the boss, a play condition)")
+        else:
+            skipped.append(text + (" (a lone boss doesn't Surround you: 5 enemies within 3 m)" if "surrounded" in when
+                                   else " (you roll every %g s, so you have always rolled recently)" % DODGE_EVERY
+                                   if "haven't" in when else " (condition not read)"))
+    base = max(DODGE_ROLL_METRES + flat, 0.0)
+    speed = number(stats.get("MovementSpeedMod")) or 1.0
+    seconds = DODGE_ROLL_SECONDS / max(1 + faster / 100, 0.1)
+    basis = (f"{base:g} m a roll ({DODGE_ROLL_METRES:g} m base"
+             + (f"; {'; '.join(used)}" if used else "") + (f"; not counted: {'; '.join(skipped)}" if skipped else "")
+             + f"), x{speed:g} movement speed = {base * speed:.2f} m (rolls scaling with movement speed: community sources "
+               "only, LOW)" + (f"; each roll takes {seconds:.3g} s" if faster else ""))
+    return {"metres": base * speed, "base_metres": base, "seconds": seconds, "basis": basis}
 NO_ENERGY_ON_A_BOSS = {"Reaper's Invocation": "kills"}
 # Skills whose own use can't feed a meta skill's Energy: base_skill_cannot_generate_energy, "This Skill cannot cause Meta
 # Skills to generate Energy" (active_skill_gem_stat_descriptions). (checked, MECH47: the game tables' GrantedEffectStatSets
@@ -1500,10 +1556,11 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         return blocks * per, (f"you block {blocks:.2f} of the boss's hits per second (one every {every:g} s, {land:.0%} not evaded, "
                               f"{block:.0%} blocked) for {per:g} Energy each")
     if kind == "dodge":
-        energy = DODGE_ROLL_METRES * per
+        roll = stats.get("_dodge_roll") or dodge_roll([], stats)
+        energy = roll["metres"] * per
         return energy / DODGE_EVERY, (f"one dodge roll every {DODGE_EVERY:g} s assumed against a boss (how often you roll is up to "
-                                      f"you), {DODGE_ROLL_METRES:g} m each (the game files' base distance; distance modifiers not "
-                                      f"counted) for {energy:g} Energy")
+                                      f"you), {roll['basis']}, for {energy:.3g} Energy a roll (without the movement speed: "
+                                      f"{roll['base_metres'] * per:.3g})")
     if kind == "energy shield lost":
         pool = number(stats.get("EnergyShield"))
         if pool <= 0:
@@ -1689,13 +1746,15 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                      + (f"; its spells deal {info['less']:.0f}% less damage" if info.get("less") else ""),
             "confidence": "theory"})
         if META_GEMS[meta.name]["gain"] == "dodge" and rate > 0:
-            busy = min(DODGE_ROLL_SECONDS / DODGE_EVERY, 0.95)
+            roll_seconds = (stats.get("_dodge_roll") or {}).get("seconds", DODGE_ROLL_SECONDS)
+            busy = min(roll_seconds / DODGE_EVERY, 0.95)
             mods.append(line("1% more Attack and Cast Speed", -100 * busy, skill=main.name))
             notes.append({
                 "label": f"Time spent dodge rolling ({main.name})", "value": f"{busy:.1%} less Attack and Cast Speed",
                 "basis": f"a build that counts on {meta.name} rolls every {DODGE_EVERY:g} s (assumed; how often you roll is up "
-                         f"to you), and each roll takes {DODGE_ROLL_SECONDS:g} s (the dodge roll's own cast time in the game "
-                         f"files) away from {main.name}; rolls sped up by movement speed aren't counted",
+                         f"to you), and each roll takes {roll_seconds:.3g} s (the dodge roll's own cast time in the game "
+                         f"files" + (", sped up by the build's faster Dodge Roll" if roll_seconds != DODGE_ROLL_SECONDS else "")
+                         + f") away from {main.name}",
                 "confidence": "theory"})
     return mods, notes, groups
 
@@ -2669,14 +2728,29 @@ def immobilise_rate(stats: dict, events: set[str]) -> tuple[float, str]:
 # Ancestral Boost uptime only its known sources set, so on its own the node does nothing. Share of attacks boosted = Heavy
 # Stuns per second (heavy_stun_rate, from the main skill's own buildup) / attacks per second. Counted as the equivalent
 # increased Attack Damage, only while the passive's ledger condition is on.
+# MECHB3 (RESEARCH11 guided-hand-boost): KeywordPopups AncestralBoost (build 26476662): "An Ancestrally Boosted Slam has
+# 30% more damage and 25% increased area of effect, and an Ancestrally Boosted Strike will target 2 additional Enemies.
+# Triggered Skills cannot be Ancestrally Boosted. Ancestrally Boosted Attacks count as being Empowered." So a Slam main
+# skill also gets ANCESTRAL_SLAM_MORE more on the boosted share (PoB adds it only inside its Fist of War / Ancestral Call /
+# Ancestral Empowerment uptimes, CalcOffence 3691-3717; never for Guided Hand), and a triggered main skill gets nothing
+# (checked: KeywordPopups AncestralBoost's own words; RESEARCH11; poe2db not checked). Not counted (labelled): the 25%
+# area (it matters only where the damage depends on the area: UNDERCOUNT, small), and the Empowered-only lines on the
+# same share (MECH-C's kw-empowered model takes this share as one source; until then an UNDERCOUNT). The boosted hit's
+# 30% increased and 30% more are counted as (1 + 0.3 s / (1 + inc)) x (1 + 0.3 s), a little under the exact average.
 
+ANCESTRAL_SLAM_MORE = 30  # AncestralBoost: "30% more damage" for a Slam (KeywordPopups; PoB's AncestralBoostMoreDamage 30)
 GUIDED_HAND = "GuidedHand"
 BOOSTED_LINE = re.compile(r"^Ancestrally Boosted Attacks deal (\d+)% increased Damage$", re.I)
 
 
-def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skill | None,
+                      slam: bool = False) -> tuple[list[dict], list[dict]]:
     if not inputs.has(GUIDED_HAND) or main is None or not main.attack:
         return [], []
+    if main.triggered:
+        return [], [{"label": "Guided Hand: Ancestrally Boosted attacks after a Heavy Stun", "value": "0 (triggered)",
+                     "basis": f"{main.name} is triggered, and \"Triggered Skills cannot be Ancestrally Boosted\" "
+                              "(KeywordPopups AncestralBoost)", "confidence": "theory", "entry": "guided-hand-boost"}]
     boost = sum(int(m.group(1)) for entry in lines if (m := BOOSTED_LINE.match(entry["text"].strip())))
     speed = number(stats.get("Speed"))
     if boost <= 0 or speed <= 0:
@@ -2687,12 +2761,18 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
     if when is None:
         return [], []
     # (the bridge works the share out again from each calculation's own buildup and attack speed)
-    return [line("1% increased Attack Damage", boost / UNIT, when=when, per=GUIDED_HAND),
+    mods = [line("1% increased Attack Damage", boost / UNIT, when=when, per=GUIDED_HAND),
             derived(GUIDED_HAND, "guidedHand", share * UNIT, boss=HEAVY_STUN_BOSS[0] / HEAVY_STUN_BOSS[1],
-                    physical=HEAVY_STUN_PHYSICAL, times=HEAVY_STUN_REPEAT[0], window=HEAVY_STUN_REPEAT[1])], [{
+                    physical=HEAVY_STUN_PHYSICAL, times=HEAVY_STUN_REPEAT[0], window=HEAVY_STUN_REPEAT[1])]
+    if slam:
+        mods.append(line("1% more Damage", ANCESTRAL_SLAM_MORE / UNIT, when=when, per=GUIDED_HAND, skill=main.name))
+    return mods, [{
         "label": "Guided Hand: Ancestrally Boosted attacks after a Heavy Stun",
-        "value": f"{share:.1%} of attacks boosted ({boost}% increased Damage on those)",
-        "basis": f"{basis}; against {speed:.2f} attacks per second",
+        "value": f"{share:.1%} of attacks boosted ({boost}% increased Damage on those"
+                 + (f", and {ANCESTRAL_SLAM_MORE}% more: a Slam" if slam else "") + ")",
+        "basis": f"{basis}; against {speed:.2f} attacks per second"
+                 + ("; a boosted Slam's 25% increased area and the Empowered-only lines on those attacks aren't counted"
+                    if slam else "; the Empowered-only lines on those attacks aren't counted"),
         "play": "A build made to stun (more stun buildup, Physical melee slams) heavy-stuns more often and boosts more attacks.",
         "confidence": "theory", "entry": "guided-hand-boost"}]
 
@@ -3150,4 +3230,72 @@ def hazard_early_model(skills: list[Skill], stats: dict, forbidden: set[str] = f
                      f"{'breaks them' if crystals else 'sets them off at once'}): x{by_boss:.2f}"
                      if share or crystals else ""),
             "confidence": "LOW: who sets the hazard off is how it's played; the -80% is the game files' (datamined)"})
+    return mods, notes
+
+
+# Channel wind-up (MECHB3; FIX_QUEUE MECHB2 handover / AUDIT6) ----------------------------------------------------------
+# Player stat sets with a channel start time (game files 26476662, GrantedEffectStatSets): OilBarragePlayer
+# channel_start_duration_as_%_of_attack_time 350 (and channel_end 1000, display_attack_time_+% 350),
+# BearFuryOfTheMountainPlayer 36 (attack time), MetaHollowFormPlayer 30 (attack time), VolcanoPlayer 50 (cast time),
+# RunicReprievePlayer 200 (cast time). PoB reads none of these stats (checked: grep of PoB's src, outside its skill data
+# and stat descriptions, for channel_start and display_attack_time finds no use). Not counted: how much of each channel
+# is wind-up depends on how long the channel lasts (Oil Barrage's channelled barrage consumes a Power Charge per 1.5 s, so its length is the build's Power Charge
+# supply, MECH-C's), and whether PoB's attack time already holds the 350% (display_attack_time_+% 350) is UNVERIFIED. No
+# honest lower bound exists without them, so the note says the DPS may be too high instead of guessing a channel length.
+CHANNEL_WINDUP = {"Oil Barrage": (350, "attack"), "Fury of the Mountain": (36, "attack"), "Hollow Form": (30, "attack"),
+                  "Volcano": (50, "cast"), "Runic Reprieve": (200, "cast")}
+
+
+def channel_windup_note(main: Skill | None) -> list[dict]:
+    """A labelled note for a main skill whose channel wind-up isn't counted (CHANNEL_WINDUP)."""
+    if main is None or main.name not in CHANNEL_WINDUP:
+        return []
+    pct, kind = CHANNEL_WINDUP[main.name]
+    return [{"label": f"{main.name}'s channel wind-up (not counted)", "value": f"{pct}% of its {kind} time a channel",
+             "basis": f"the game files' channel_start_duration_as_%_of_{kind}_time {pct}, which PoB doesn't read; its share "
+                      "of the fight depends on how long each channel lasts" + (
+                          " (Oil Barrage's barrage consumes a Power Charge every 1.5 s, so its length is the build's Power "
+                          "Charge supply), and whether PoB's attack time already holds it (display_attack_time_+% 350) is "
+                          "UNVERIFIED" if main.name == "Oil Barrage" else "") + ": the DPS may be too high",
+             "confidence": "UNVERIFIED"}]
+
+
+# Warcry Echoes (MECHB3; AUDIT6 A6-2) -------------------------------------------------------------------------------------
+# Echoing Cry: "Supported Warcries Echo 2 times" with a 1.3 s delay (SupportEchoingCryPlayer: base_warcry_echo_X_times 2,
+# warcry_echo_delay_ms_from_support 1300, warcry_echo_area_of_effect_+%_final_per_repeat 100; game files 26476662). Its
+# 40% less Damage and 50% less Area (COVE2's ledger entries) are on the Warcry, so each Echo repeats the penalised hit:
+# a damaging Warcry deals (1 + 2) x 0.6 = 1.8x, not 0.6x. PoB counts no Echo. The part is COV-E's "warcry_echo"
+# (support_part_scale, ledger supports-parts.yaml on cov5: WarcryEchoes, EchoAreaMorePercentPerEcho, WarcryEchoDelayMs);
+# until that lands, WARCRY_ECHO holds the same game-file values. Whether each Echo hits the boss (it repeats at the first
+# use's location 1.3 and 2.6 s later; KeywordPopups Echo) is an in-game question held for the user: counted as hitting
+# (UNVERIFIED), with the x1 "without it" row in the note. Not read: the Echoes' larger area (a lone boss is in the area
+# or not), whether a new use cancels Echoes still pending (UNVERIFIED), the Echoes' Warcry buffs, and Echoing Cry's
+# "travel a distance before each use" (COV-C's, usage).
+WARCRY_ECHO = {"WarcryEchoes": 2.0, "EchoAreaMorePercentPerEcho": 100.0, "WarcryEchoDelayMs": 1300.0}
+ECHOING_SUPPORTS = ("Echoing Cry",)
+
+
+def warcry_echo_model(skills: list[Skill], supports: dict[int, list[str]], warcries: set[str],
+                      part_scale: Callable[[Skill, str], tuple[dict[str, float], list[dict]]] | None = None
+                      ) -> tuple[list[dict], list[dict]]:
+    """Each Warcry supported by Echoing Cry deals its (penalised) hit 1 + Echoes times. `warcries`: the names of the
+    build's Warcry skills; `part_scale`: COV-E's support_part_scale when it exists."""
+    mods: list[dict] = []
+    notes: list[dict] = []
+    for skill in skills:
+        if skill.name not in warcries or skill.group is None:
+            continue
+        if not any(n in ECHOING_SUPPORTS for n in supports.get(skill.group, [])):
+            continue
+        scale, part_notes = part_scale(skill, "warcry_echo") if part_scale else ({}, [])
+        echoes = scale.get("WarcryEchoes") or WARCRY_ECHO["WarcryEchoes"]
+        delay = (scale.get("WarcryEchoDelayMs") or WARCRY_ECHO["WarcryEchoDelayMs"]) / 1000
+        mods.append(line("1% more Damage", 100 * echoes, skill=skill.name))
+        notes += part_notes
+        notes.append({"label": f"{skill.name}: Echoing Cry's Echoes", "value": f"x{1 + echoes:g} hits",
+                      "basis": f"\"Supported Warcries Echo {echoes:g} times\", {delay:g} s apart, each with the support's 40% "
+                               "less Damage (counted on the Warcry); PoB counts no Echo. Each Echo is counted as hitting the "
+                               f"boss at the first use's location (UNVERIFIED: an in-game test). Without the Echoes: x1, "
+                               f"x{1 / (1 + echoes):.2f} on this number",
+                      "confidence": "UNVERIFIED"})
     return mods, notes

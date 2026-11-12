@@ -734,7 +734,7 @@ def test_barrier_invocation_gains_energy_from_the_energy_shield_the_boss_takes()
     assert models.energy_gain("Barrier Invocation", bare, "Boneshatter")[0] == 0.0
     comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
     _, notes, _ = models.energy_model(Inputs(), {}, [SPARK, Skill("Cast on Dodge", group=2, energy=True), comet], SPARK)
-    assert "4.6 m each" in notes[0]["basis"] and "up to you" in notes[0]["basis"]  # the guide says it's play-style
+    assert "4.6 m a roll" in notes[0]["basis"] and "up to you" in notes[0]["basis"]  # the guide says it's play-style
 
 
 def test_every_meta_gem_in_the_game_files_is_handled_or_says_why():
@@ -1861,3 +1861,66 @@ def test_the_hazard_stat_sets_are_the_game_files():
     assert found == {k: -80 for k in ("FrostWallPlayer", "SpearfieldPlayer", "GlacialBoltWallPlayer",
                                       "IceShardsShardPlayer", "GrimPillarsPlayer", "TriggeredBrambleslamPlayer",
                                       "ShieldWallPlayer")}
+
+
+def test_cast_on_dodge_reads_the_builds_own_roll():
+    """MECHB3 (COVD4): Cast on Dodge's Energy is 2 a metre over the build's own roll, not a fixed 4.6 m. Lioneye's Glare's
+    "-1 metre ... if you've Dodge Rolled Recently" always holds for a build that rolls every 2 s, its "+2 metres ... if you
+    haven't" never; "while Surrounded" needs 5 enemies (one with "Require 4 fewer"); movement speed scales the distance
+    (LOW); "faster Dodge Roll" shortens the roll's time only."""
+    plain = models.dodge_roll([], {})
+    assert plain["metres"] == pytest.approx(4.6) and plain["seconds"] == pytest.approx(0.75)
+    lioneye = models.dodge_roll(["+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently",
+                                 "-1 metre to Dodge Roll distance if you've Dodge Rolled Recently"], {})
+    assert lioneye["metres"] == pytest.approx(3.6) and "always rolled recently" in lioneye["basis"]
+    gain, basis = models.energy_gain("Cast on Dodge", {"_dodge_roll": lioneye}, "Fireball")
+    assert gain == pytest.approx(3.6 * 2 / models.DODGE_EVERY) and "3.6 m" in basis
+    assert models.energy_gain("Cast on Dodge", {}, "Fireball")[0] == pytest.approx(4.6 * 2 / models.DODGE_EVERY)
+    sigil = models.dodge_roll(["+1 metre to Dodge Roll distance", "30% faster Dodge Roll",
+                               "+0.5 metres to Dodge Roll distance while Surrounded"], {"MovementSpeedMod": 1.25})
+    assert sigil["base_metres"] == pytest.approx(5.6) and sigil["metres"] == pytest.approx(7.0)
+    assert sigil["seconds"] == pytest.approx(0.75 / 1.3) and "Surround" in sigil["basis"]
+    alone = models.dodge_roll(["+0.5 metres to Dodge Roll distance while Surrounded", "Require 4 fewer enemies to be Surrounded"], {})
+    assert alone["metres"] == pytest.approx(5.1)
+    assert models.dodge_roll(["+0.5 metres to Dodge Roll distance while Surrounded",
+                              "Require 3 fewer enemies to be Surrounded"], {})["metres"] == pytest.approx(4.6)
+
+
+def test_guided_hand_gives_a_boosted_slam_30_percent_more_and_triggered_skills_nothing():
+    """MECHB3 (RESEARCH11): KeywordPopups AncestralBoost: a boosted Slam has 30% more damage; Triggered Skills cannot be
+    Ancestrally Boosted."""
+    passive = models.Inputs(flags={"GuidedHand"})
+    lines = [{"source": "passive:Guided Hand", "text": "Ancestrally Boosted Attacks deal 30% increased Damage"}]
+    stats = {"Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000, "HeavyStunBuildupAvg": 10.0}
+    slam = models.Skill("Earthquake", attack=True, melee=True)
+    mods, notes = models.guided_hand_model(passive, lines, stats, slam, slam=True)
+    more = mods[2]
+    assert more["line"] == "1% more Damage" and more["per"] == "GuidedHand" and more["skill"] == "Earthquake"
+    assert more["scale"] == pytest.approx(30 / models.UNIT) and "30% more" in notes[0]["value"]
+    assert len(models.guided_hand_model(passive, lines, stats, slam)[0]) == 2  # a Strike: no more
+    triggered = models.Skill("Earthquake", attack=True, melee=True, triggered=True)
+    mods, notes = models.guided_hand_model(passive, lines, stats, triggered, slam=True)
+    assert mods == [] and "cannot be Ancestrally Boosted" in notes[0]["basis"]
+
+
+def test_a_channels_wind_up_is_labelled_not_guessed():
+    """MECHB3: Oil Barrage's 350% channel start isn't counted (its length is the build's Power Charge supply): a note."""
+    note, = models.channel_windup_note(models.Skill("Oil Barrage", attack=True))
+    assert note["confidence"] == "UNVERIFIED" and "Power Charge" in note["basis"] and "too high" in note["basis"]
+    assert models.channel_windup_note(models.Skill("Fireball", spell=True)) == []
+
+
+def test_echoing_cry_counts_each_echo_of_the_warcry():
+    """MECHB3 (AUDIT6 A6-2): a Warcry with Echoing Cry hits 1 + 2 times (each with the 40% less counted on the Warcry)."""
+    cry = models.Skill("Seismic Cry", group=2)
+    other = models.Skill("Infernal Cry", group=3)
+    mods, notes = models.warcry_echo_model([cry, other], {2: ["Echoing Cry"], 3: []}, {"Seismic Cry", "Infernal Cry"})
+    assert mods == [models.line("1% more Damage", 200, skill="Seismic Cry")]
+    assert notes[0]["confidence"] == "UNVERIFIED" and "x3 hits" == notes[0]["value"] and "Without the Echoes" in notes[0]["basis"]
+
+    def part(skill, name):
+        assert name == "warcry_echo"
+        return {"WarcryEchoes": 3.0, "WarcryEchoDelayMs": 1000.0}, [{"label": "part"}]
+    mods, notes = models.warcry_echo_model([cry], {2: ["Echoing Cry"]}, {"Seismic Cry"}, part)
+    assert mods[0]["scale"] == 300 and notes[0] == {"label": "part"}
+    assert models.warcry_echo_model([cry], {2: ["Echoing Cry"]}, set()) == ([], [])

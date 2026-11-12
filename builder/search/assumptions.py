@@ -353,6 +353,8 @@ class Assumptions:
         if any(s.name == "Cast on Minion Death" for s in found):  # (its Energy: the build's minions dying)
             stats = {**stats, "_minion_deaths": models.minion_deaths(found, main, stats)}
         source_lines = build.call("sourceLines")["lines"]  # (one call: the models below all read the build's lines)
+        if any(s.name == "Cast on Dodge" for s in found):  # (its Energy: the build's own roll distance; MECH-B, MECHB3)
+            stats = {**stats, "_dodge_roll": models.dodge_roll([e["text"] for e in source_lines], stats)}
         forbidden = set(build.ctx.request.forbid_ledger_entries)
         inputs = models.read_inputs(source_lines)
         mods, notes = models.archon_model(inputs, stats, main, main_gems)
@@ -372,7 +374,8 @@ class Assumptions:
                                                       self.mods)
         harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
         ring_mods, ring_notes = models.resist_rings_model(source_lines) if models.RESIST_ENTRY not in forbidden else ([], [])
-        hand_mods, hand_notes = models.guided_hand_model(inputs, source_lines, stats, main)
+        main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()
+        hand_mods, hand_notes = models.guided_hand_model(inputs, source_lines, stats, main, slam="Slam" in main_types)
         sanguine_mods, sanguine_notes = models.sanguine_model(inputs, stats)
         hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
         resolve_mods, resolve_notes = models.deadly_resolve_model(found, stats, main)             if "deadly-resolve-rate" not in forbidden else ([], [])
@@ -409,6 +412,12 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + gun_mods, hand_notes + gun_notes
         early_mods, early_notes = models.hazard_early_model(found, stats, forbidden)  # (MECH-B: hazards set off early)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
+        hand_notes = hand_notes + models.channel_windup_note(main)  # (MECH-B: a channel's wind-up, labelled, not counted)
+        warcries = {s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
+        if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo" once it lands)
+            echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries,
+                                                             getattr(models, "support_part_scale", None))
+            hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
         if main is not None:  # (returning projectiles' second boss hit: MECH-B, models.return_model)
             gem = build.ctx.gems.get(name) or {}
             back_mods, back_notes = models.return_model(
