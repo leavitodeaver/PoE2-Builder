@@ -4724,3 +4724,43 @@ def totem_count_model(skills: list[Skill], main: Skill | None) -> tuple[list[dic
     return mods, [{"label": f"Totems up ({main.name})", "value": up, "basis": basis,
                    "play": f"Keep {up} {summoner.name} totems placed at the boss; re-place them as they expire.",
                    "confidence": "MEDIUM"}]
+
+
+# Poison Spores' Pustule Explosion (MECHB10; COVC12's finding, POE2T1425) ---------------------------------------------------
+# The game: "Each enemy can have up to 1 Pustule attached" (statset_0.csd, skill_specific_stat_description_mode 1) and the
+# Pustule "Detonates after a delay" (base_skill_detonation_time 15000 ms) (checked: the game files' poison_spore_support
+# statset_0 / statset_1 .csd and PoB's sup_dex.lua TriggeredPoisonSporesPustule; poe2db Poison_Spores, 12 Nov 2026: "Each
+# enemy can have up to 1 Pustule attached", "Detonation Time is 15 seconds"). PoB scores the Pustule Explosion set as an
+# attack used at the weapon's rate (1.2/s on a bow, POE2T1425): against a lone boss at most one explodes per fuse, so its
+# damage is held to (1 / fuse) / PoB's rate. The fuse is PoB's DetonationTime (base x the build's Detonation Time lines).
+# Not counted (UNDERCOUNT side, labelled): Poison stored on the Pustule makes it expire faster
+# (toxic_pustule_duration_expires_1%_faster_per_x_stored_poison_damage_multiplied_by_sixty) and burst harder (up to 300%
+# more, toxic_pustule_burst_1%_more_damage_per_x_stored_poison); PoB reads neither (checked: grep of PoB's
+# Data/SkillStatMap.lua and Modules/*.lua for "toxic_pustule": none). Whether the build's Poisons on the boss count as
+# Poisons "inflicted on" the Pustule is UNVERIFIED, so the speed-up isn't guessed. Pustules on adds that burst next to the
+# boss are left out (a lone boss).
+PUSTULE_SKILL, PUSTULE_SET, PUSTULE_FUSE = "Poison Spores", "Pustule Explosion", 15.0
+
+
+def pustule_groups(skills: list[Skill]) -> list[int]:
+    """Groups whose Poison Spores PoB calculates at its Pustule Explosion set (in Full DPS, or as the main skill)."""
+    return sorted({s.group for s in skills if s.name == PUSTULE_SKILL and s.stat_set == PUSTULE_SET and s.group is not None})
+
+
+def pustule_cap(rates: list[dict]) -> tuple[list[dict], list[dict]]:
+    """The Pustule Explosion held to one a fuse (see above). `rates`: bridge useRates for each group's Poison Spores."""
+    speed = sum(number(r.get("speed")) * (number(r.get("repeats")) or 1.0) for r in rates)
+    if speed <= 0:
+        return [], []
+    fuses = [number(r.get("detonationTime")) for r in rates if number(r.get("detonationTime")) > 0]
+    fuse = min(fuses) if fuses else PUSTULE_FUSE
+    share = min(1.0, 1.0 / fuse / speed)
+    if share >= 1.0:
+        return [], []
+    return [raw_mod("DPS", "MORE", 100 * (share - 1), PUSTULE_SKILL)], [{
+        "label": f"{PUSTULE_SKILL}: one Pustule on the boss at a time*", "value": f"x{share:.3f}",
+        "basis": f"PoB counts {speed:.2f} Pustule Explosions/s; the game allows one Pustule per enemy, bursting after its "
+                 f"{fuse:.1f} s fuse{'' if fuses else ' (base; PoB gave no Detonation Time)'}: {1 / fuse:.3f}/s. Not "
+                 "counted (undercount side): stored Poison making it burst sooner and up to 300% harder (UNVERIFIED "
+                 "whether Poisons on the boss feed it), and Pustules on adds",
+        "confidence": "MEDIUM (game files and poe2db agree on one Pustule and the 15 s fuse)"}]

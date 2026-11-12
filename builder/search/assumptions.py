@@ -462,6 +462,8 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + shock_mods, hand_notes + shock_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
         hand_mods, hand_notes = hand_mods + cap_mods, hand_notes + cap_notes
+        spore_mods, spore_notes = self.pustule_cap(found)  # (MECH-B: Poison Spores' one Pustule a fuse, MECHB10)
+        hand_mods, hand_notes = hand_mods + spore_mods, hand_notes + spore_notes
         mirage_mods, mirage_notes, mirage_groups = models.mirage_model(
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))
@@ -601,6 +603,18 @@ class Assumptions:
                     old = caps.get(group["index"])
                     caps[group["index"]] = cap if old is None or cap.uses < old.uses else old
         return caps
+
+    def pustule_cap(self, found: list["models.Skill"]) -> tuple[list[dict], list[dict]]:
+        """Poison Spores' Pustule Explosion at one a fuse on the boss (models.pustule_cap): PoB's rate for each group's
+        Spores skill (useRates with that active skill), and its Detonation Time."""
+        indices = models.pustule_groups(found)
+        if not indices:
+            return [], []
+        by_index = {g["index"]: g for g in self.build.groups()}
+        actives = [next((i for i, s in enumerate(by_index[n]["skills"], start=1) if s["name"] == models.PUSTULE_SKILL), 0)
+                   if n in by_index else 0 for n in indices]
+        rates = self.build.call("useRates", indices=indices, actives=actives)["rates"]
+        return models.pustule_cap(rates)
 
     def throw_rate(self, name: str) -> tuple[float, str]:
         """Throws a second of a Concoction (flasks.THROW_CHARGES) the Mana Flask's own charge generation pays for (the

@@ -2931,3 +2931,17 @@ def test_heartbound_loop_hurts_you_at_the_minion_death_rate():
     taken, notes = models.heartbound_damage(lines[:1], (0.0, "nothing kills them"))
     assert taken == 0.0 and "costs no Life" in notes[0]["play"]
     assert models.heartbound_damage(lines[2:], (1.0, "")) == (0.0, [])
+
+
+def test_pustule_cap_holds_the_explosion_to_one_a_fuse():
+    """Poison Spores (MECHB10): one Pustule per enemy, bursting after PoB's Detonation Time (15 s base)."""
+    from builder.search import models
+
+    mods, notes = models.pustule_cap([{"speed": 1.2, "detonationTime": 15}])
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (1 / 18 - 1), "Poison Spores")] and notes[0]["value"] == "x0.056"
+    mods, _ = models.pustule_cap([{"speed": 0.6, "detonationTime": 12}, {"speed": 0.6, "detonationTime": 15}])
+    assert abs(mods[0]["value"] - 100 * (1 / 12 / 1.2 - 1)) < 0.01  # (two Spores groups share the boss's one Pustule)
+    assert models.pustule_cap([{"speed": 0.05, "detonationTime": 15}]) == ([], [])  # (slower than the fuse: as PoB)
+    assert models.pustule_cap([{"speed": 1.0}])[1][0]["basis"].count("PoB gave no Detonation Time") == 1
+    found = [models.Skill("Poison Spores", 2, stat_set="Pustule Explosion"), models.Skill("Poison Spores", 3, stat_set="Toxic Pustule")]
+    assert models.pustule_groups(found) == [2]

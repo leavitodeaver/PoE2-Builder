@@ -1996,14 +1996,28 @@ function bridge.useRates(args)
 	local calcs = require("Modules.CalcBase")
 	local saved = build.mainSocketGroup
 	local rates = { }
-	for _, index in ipairs(args and args.indices or { }) do
+	for n, index in ipairs(args and args.indices or { }) do
 		build.mainSocketGroup = index
+		-- (MECHB10: args.actives[n], if given, is the active skill of that group to rate, for a skill Full DPS counts
+		-- beside the group's calculated one, e.g. Poison Spores' Pustule Explosion; put back after)
+		local group = build.skillsTab.socketGroupList[index]
+		local active = args.actives and tonumber(args.actives[n])
+		-- (initEnv's "CALCULATOR" mode reads mainActiveSkill; only "CALCS" reads mainActiveSkillCalcs: CalcSetup 2393-2397)
+		local savedActive = group and group.mainActiveSkill
+		if group and active and active > 0 then
+			group.mainActiveSkill = active
+		end
 		local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
+		if group and active and active > 0 then
+			group.mainActiveSkill = savedActive
+		end
 		local skill = ok and env and env.player.mainSkill
 		if skill and pcall(calcs.perform, env, true) then
 			local output = env.player.output
 			rates[#rates + 1] = {
-				index = index, name = calcs.getActiveSkillDisplayName(skill),
+				index = index, name = calcs.getActiveSkillDisplayName(skill), active = active,
+				-- (MECHB10) a DetonatesAfterTime skill's fuse, PoB's DetonationTime (base x inc x more)
+				detonationTime = output.DetonationTime and jsonNumber(output.DetonationTime) or nil,
 				speed = jsonNumber(output.Speed or 0), cooldown = output.Cooldown and jsonNumber(output.Cooldown) or nil,
 				repeats = jsonNumber(output.Repeats or 1),
 				duration = output.Duration and jsonNumber(output.Duration) or nil,

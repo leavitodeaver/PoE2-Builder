@@ -867,3 +867,37 @@ def test_a_flask_up_part_of_the_fight_is_weighed_at_its_share(engine):
     search.follow_uptimes()
     row = next(r for r in gear.flask_report() if r["slot"] == "Flask 2")
     assert row["counted"] and row["part_time"]
+
+
+def test_poison_spores_pustule_explosion_is_held_to_one_a_fuse(engine):
+    """Poison Spores' Pustule Explosion (COVC12, POE2T1425: PoB 1.2 explosions/s): the game allows one Pustule per enemy,
+    bursting after its 15 s fuse, so its damage is held to (1 / fuse) / PoB's rate (MECHB10). The bridge rates the
+    Spores skill beside the group's calculated one (useRates actives) and gives PoB's Detonation Time."""
+    from builder.search import models
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    group = next(g for g in build.groups() if g["main"])
+    gems = [x for x in group["gems"] if not x["support"]] + [{"name": "Poison Spores", "support": True, "level": 20,
+                                                              "quality": 0, "enabled": True}]
+    build.call("setGroup", index=group["index"], gems=gems)
+    group = next(g for g in build.groups() if g["index"] == group["index"])
+    spores = next(i for i, s in enumerate(group["skills"], start=1) if s["name"] == "Poison Spores")
+    build.call("setGroup", index=group["index"], mainActiveSkill=spores, statSet=2)  # (the Pustule Explosion)
+    build.call("setGroup", index=group["index"], mainActiveSkill=1)  # (Lightning Arrow calculated; Spores keeps set 2)
+    found = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
+    assert models.pustule_groups(found) == [group["index"]]
+    rate = build.call("useRates", indices=[group["index"]], actives=[spores])["rates"][0]
+    print("Spores rate:", rate)
+    assert rate["name"].startswith("Poison Spores") and rate["speed"] > 0 and abs(rate["detonationTime"] - 15) < 1e-6
+    assert build.call("useRates", indices=[group["index"]])["rates"][0]["name"].startswith("Lightning Arrow")  # (put back)
+    mods, notes = search.assumptions.pustule_cap(found)
+    share = 1 / 15 / rate["speed"]
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (share - 1), "Poison Spores")], mods
+    assert notes[0]["value"] == f"x{share:.3f}"
+
