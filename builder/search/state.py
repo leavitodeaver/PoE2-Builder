@@ -56,6 +56,8 @@ class Build:
         # Stats PoB doesn't calculate, added to every result before scoring (flask recovery per
         # second, builder/search/flasks.py); what-if cases may override them with an "extra" entry
         self.extra_stats: dict = {}
+        # The request's boss for models reading it from the stats ({"_boss": name}; inner.boss_stats), on every result
+        self.boss_stats: dict = {}
         # The what-if limit: re-scoring item moves a model reads (set by the search; see item_deltas)
         self.reassume: Callable[[], Any] | None = None  # re-applies the custom models to the current build
         self.rescored = 0  # item candidates re-scored with a real trial
@@ -78,7 +80,7 @@ class Build:
 
     def _committed(self, result: dict) -> float:
         self.commits += 1
-        self.stats = self.objective.prepare({**result["stats"], **self.extra_stats})
+        self.stats = self.objective.prepare({**result["stats"], **self.extra_stats, **self.boss_stats})
         self.score = self.objective.score(self.stats)
         self.tick()
         return self.score
@@ -122,6 +124,7 @@ class Build:
         scored = []
         for index, stats in enumerate(results):
             stats.update(self.extra_stats)
+            stats.update(self.boss_stats)
             if extras and extras[index]:
                 stats.update(extras[index])
             if fill_from_base:
@@ -185,7 +188,8 @@ class Build:
             old = current.get(case["slot"])
             self.call("equip", slot=case["slot"], raw=case.get("raw"), fields=[])
             self.reassume()
-            stats = self.objective.prepare({**self.call("stats", fields=self.objective.fields), **self.extra_stats})
+            stats = self.objective.prepare({**self.call("stats", fields=self.objective.fields), **self.extra_stats,
+                                             **self.boss_stats})
             scored[i] = (self.objective.score(stats), stats)
             self.call("equip", slot=case["slot"], raw=old, fields=[])
             self.rescored += 1

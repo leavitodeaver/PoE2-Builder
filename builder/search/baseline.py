@@ -14,7 +14,7 @@ from typing import Any
 
 from builder import clock
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, SUPPORT_SLOTS
-from builder.search.inner import Search
+from builder.search.inner import Search, boss_config, boss_stats
 from builder.search.objective import Objective, main_dps
 
 REACH = 4
@@ -67,6 +67,8 @@ def baseline_task(engine: Any, report: Any, payload: dict, skeleton: dict) -> di
     search = Search(engine, report, payload, skeleton, 0)
     build, sk = search.build, search.skeleton
     build.call("newBuild")
+    build.call("resetConfig", **boss_config(search.ctx.request))  # the boss preset's resistances (SEARCH6)
+    build.boss_stats = boss_stats(search.ctx.request)
     build.call("setClass", className=sk.class_name, ascendancy=sk.ascendancy)
     build.call("setLevel", level=search.ctx.level)
     build.set_group(gems=[{"name": sk.main_skill, "level": GEM_LEVEL, "quality": GEM_QUALITY}], main=True, fullDPS=True)

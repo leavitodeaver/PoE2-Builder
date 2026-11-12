@@ -1040,6 +1040,19 @@ function bridge.allocatedNodes()
 	return { nodes = nodes }
 end
 
+-- The lines of the nodes a socketed Timeless jewel conquered (PassiveSpec replaces a conquered keystone by its
+-- legion keystone, e.g. Dance with Death's "Can't use Helmets"; the search's tree reads the raw tree's lines, SEARCH6)
+function bridge.conqueredNodes()
+	local nodes = { }
+	for id, node in pairs(build.spec.nodes) do
+		if node.conqueredBy and node.type ~= "Socket" then
+			nodes[#nodes + 1] = { id = id, name = node.dn, lines = node.sd or { } }
+		end
+	end
+	table.sort(nodes, function(a, b) return a.id < b.id end)
+	return { nodes = nodes }
+end
+
 -- What-if passive changes. Each case: { add = {ids}, remove = {ids}, addPaths = bool,
 -- attribute = 1|2|3, switch = {id, attribute} }. With addPaths, each added id brings its whole
 -- path from the allocated tree; attribute nodes on it take the given option (default 1, as

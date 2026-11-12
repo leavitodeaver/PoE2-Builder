@@ -1688,6 +1688,8 @@ class _AscendancyBuild:
         return (10.0 if self.body == "rare" else self.smith_real) if 2 in self.alloc else 5.0 if 3 in self.alloc else 0.0
 
     def call(self, method: str, **kwargs):
+        if method == "conqueredNodes":
+            return {"nodes": []}
         assert method == "facts"
         return {"ascendClassName": "Smith of Kitava", "passives": [{"id": i} for i in sorted(self.alloc)]}
 
@@ -1747,6 +1749,82 @@ def test_a_restricting_ascendancy_notable_is_not_offered_when_the_slot_holds_a_r
     assert build.alloc == {3} and all(2 not in ids for ids in build.asked)
 
 
+class _GrowBuild:
+    """Just what Tree.grow touches. Node 7 is a keystone a socketed Timeless jewel conquered into Dance with Death
+    ("Can't use Helmets", only in the bridge's conqueredNodes: ctx.nodes has the raw keystone); its what-if says 10 with
+    today's helmet on, its real score with the helmet off is `real`. Node 8 scores 4."""
+
+    def __init__(self, real: float) -> None:
+        self.alloc: set[int] = set()
+        self.helmet, self.real_dwd, self.score, self.commits = True, real, 0.0, 0
+
+    def real(self) -> float:
+        return sum((10.0 if self.helmet else self.real_dwd) if i == 7 else 4.0 for i in self.alloc)
+
+    def call(self, method: str, **kwargs):
+        if method == "conqueredNodes":
+            return {"nodes": [{"id": 7, "name": "Dance with Death", "lines": ["Can't use Helmets",
+                                                                              "Your Critical Hit Chance is Lucky"]}]}
+        if method == "allocatedNodes":
+            return {"nodes": [{"id": i} for i in sorted(self.alloc)]}
+        raise AssertionError(method)
+
+    def node_deltas(self, cases):
+        return [(self.score + (10.0 if c["add"] == [7] else 4.0), {}) for c in cases]
+
+    def allocate(self, add=(), remove=(), attribute=None):
+        self.alloc = (self.alloc - set(remove)) | set(add)
+        self.commits += 1
+        self.score = self.real()
+
+    def snapshot(self):
+        return (set(self.alloc), self.helmet, self.score)
+
+    def restore(self, snap):
+        self.alloc, self.helmet, self.score = set(snap[0]), snap[1], snap[2]
+        self.commits += 1
+
+    def worse(self, before: float) -> bool:
+        return self.score < before - 1e-9
+
+
+def _grow_tree(build: _GrowBuild, monkeypatch):
+    from types import SimpleNamespace
+
+    from builder import clock
+    from builder.search.tree import Candidate, Tree
+
+    monkeypatch.setattr(clock, "now", lambda: 0.0)
+    tree = Tree.__new__(Tree)
+    tree.build, tree.round, tree.attribute, tree.allocations_since_full = build, 0, 1, 0
+    tree.ctx = SimpleNamespace(nodes={7: {"name": "Iron Reflexes", "stats": ["raw keystone line"]}, 8: {"stats": []}})
+    tree.candidates, tree.checkpoint, tree.resolve = {}, None, None
+    tree.points_left = lambda: 1 - len(build.alloc)
+    tree.frontier = lambda left: [tree.candidates.setdefault(i, Candidate(i, (i,))) for i in (7, 8) if i not in build.alloc]
+
+    def enforce():
+        build.helmet = False
+        build.score = build.real()
+    tree.enforce = enforce
+    return tree
+
+
+def test_a_conquered_keystone_that_bans_helmets_is_committed_with_the_helmet_off(monkeypatch):
+    """SEARCH6 (SEARCH4's open item): the search never proposes a Timeless jewel (no seed tables), but a pasted or
+    required one conquers a keystone PoB replaces whole (PassiveSpec's legion keystone: Dance with Death, "Can't use
+    Helmets"). Tree.restricting read only the raw tree's lines, so grow took it on a what-if with the helmet on. It now
+    reads the conquered lines and judges the commit with the helmet off; a loss puts the build back, helmet included."""
+    build = _GrowBuild(real=3.0)
+    tree = _grow_tree(build, monkeypatch)
+    assert tree.restricting({7, 8}) == {7: "Helmet"}
+    assert tree.grow(1.0)
+    assert build.alloc == {8} and build.helmet  # 3 with the helmet off loses to node 8's 4: put back, helmet on
+
+    build = _GrowBuild(real=6.0)
+    assert _grow_tree(build, monkeypatch).grow(1.0)
+    assert build.alloc == {7} and not build.helmet and build.score == 6.0
+
+
 def test_source_item_trials_build_a_rare_on_a_base_whose_implicit_grants_a_source():
     """A12-5: the source-item trials tried uniques only; Lament Amulet (an ordinary base) has Mana Remnants among its
     implicit variants. Gear.source_bases builds a rare on that variant for the trial; other variants and bases aren't."""
@@ -1793,6 +1871,21 @@ def test_a_named_boss_goes_to_reset_config():
         assert boss_config(SimpleNamespace(boss="Arbiter of Ash")) == {}  # (no presets in this tree yet)
     else:
         assert boss_config(SimpleNamespace(boss=bosses.DEFAULT)) == {"boss": bosses.config_vars(bosses.DEFAULT)}
+
+
+def test_the_request_names_its_boss():
+    """SEARCH6: the request's `boss` (a bosses.py preset) reaches resetConfig (inner.boss_config) and the models that read
+    it from the stats (inner.boss_stats: boss_hits.boss_name's `_boss`); a name that isn't a preset is refused."""
+    from builder.request.schema import BuildRequest
+    from builder.search import bosses
+    from builder.search.inner import boss_config, boss_stats
+
+    other = next(name for name in bosses.PRESETS if name != bosses.DEFAULT) if len(bosses.PRESETS) > 1 else bosses.DEFAULT
+    request = BuildRequest(boss=other)
+    assert boss_config(request) == {"boss": bosses.config_vars(other)} and boss_stats(request) == {"_boss": other}
+    assert boss_config(BuildRequest()) == {} and boss_stats(BuildRequest()) == {}
+    with pytest.raises(ValueError, match="not a preset"):
+        BuildRequest(boss="No Such Boss")
 
 
 def test_a_flask_up_part_of_the_fight_is_ranked_at_its_share():

@@ -89,9 +89,21 @@ class Tree:
         """The nodes here whose lines restrict an equipment slot (gear.SLOT_RESTRICTIONS), with that slot."""
         from builder.search.gear import SLOT_RESTRICTIONS
 
-        nodes = self.ctx.nodes
-        return {i: SLOT_RESTRICTIONS[line][0] for i in adjacency for line in (nodes[i].get("stats") or [])
+        nodes, conquered = self.ctx.nodes, self.conquered_lines()
+        return {i: SLOT_RESTRICTIONS[line][0] for i in adjacency
+                for line in (conquered[i] if i in conquered else nodes.get(i, {}).get("stats") or [])
                 if line in SLOT_RESTRICTIONS}
+
+    def conquered_lines(self) -> dict[int, list[str]]:
+        """The lines of the nodes a socketed Timeless jewel conquered (bridge conqueredNodes: PoB replaces a conquered
+        keystone by the jewel's keystone, e.g. Dance with Death's "Can't use Helmets"; ctx.nodes has the raw tree's
+        lines). Read once per commit."""
+        commits = getattr(self.build, "commits", None)
+        cached = self.__dict__.get("_conquered")
+        if cached is None or cached[0] != commits:
+            found = self.build.call("conqueredNodes").get("nodes") or []
+            cached = self._conquered = (commits, {int(n["id"]): list(n.get("lines") or []) for n in found})
+        return cached[1]
 
     def __init__(self, build: Build, rng: random.Random) -> None:
         self.build = build
@@ -252,9 +264,29 @@ class Tree:
                 continue
             before = self.build.score
             allocated = {n["id"] for n in self.build.call("allocatedNodes")["nodes"]}
+            # A node restricting an equipment slot (SLOT_RESTRICTIONS: a Timeless jewel's conquered Dance with Death,
+            # "Can't use Helmets") was ranked by a what-if with today's helmet on: its commit is judged with the slot
+            # made legal (Gear.enforce_restrictions), and a loss puts the build back, gear included (SEARCH6)
+            restricting = (set(self.restricting({c.id for c in candidates} | set(self.conquered_lines()))) - allocated
+                           if self.enforce is not None else set())  # (the frontier and conquered nodes: grow takes no ascendancy)
+            snap = self.build.snapshot() if restricting else None
             self.build.allocate(add=choice, attribute=self.attribute)
             self.round += 1
             self.allocations_since_full += 1
+            added = {n["id"] for n in self.build.call("allocatedNodes")["nodes"]} - allocated if snap is not None else set()
+            if restricting & added:
+                self.enforce()
+                if self.resolve is not None:
+                    self.resolve()
+                # (its real gain per point must also beat the next best candidate's what-if, which it was ranked over)
+                runner_up = max((c.value for c in fresh if c.id not in choice), default=EPSILON)
+                if self.build.worse(before) or (self.build.score - before) / max(len(added), 1) < runner_up:
+                    self.build.restore(snap)
+                    for node_id in choice:
+                        self.candidates.pop(node_id, None)
+                    rejected.update(choice)
+                    self.allocations_since_full = FULL_EVERY
+                    continue
             if self.build.worse(before):
                 added = {n["id"] for n in self.build.call("allocatedNodes")["nodes"]} - allocated
                 self.build.allocate(remove=sorted(added))

@@ -136,6 +136,9 @@ class BuildRequest(Model):
     budget: Budget = Budget()
 
     objective: Objective = Objective.BALANCED
+    # The boss the numbers are scored against: a builder/search/bosses.py preset name (its resistances, hits per damage
+    # type). None: the default preset (bosses.DEFAULT)
+    boss: str | None = None
     dps_gate: float | None = Field(None, ge=0)  # below this, report infeasible with the closest result
 
     allow_exploits: bool = True
@@ -155,6 +158,11 @@ class BuildRequest(Model):
             problems.append(f"main skill {self.main_skill} is forbidden")
         if self.weapon_unique and ("uniques", self.weapon_unique) in set(self.forbid.items()):
             problems.append(f"weapon {self.weapon_unique} is forbidden")
+        if self.boss:
+            from builder.search import bosses
+
+            if self.boss not in bosses.PRESETS:
+                problems.append(f"boss {self.boss!r} is not a preset (one of: {', '.join(sorted(bosses.PRESETS))})")
         if problems:
             raise ValueError("; ".join(problems))
         return self

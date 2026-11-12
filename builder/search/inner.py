@@ -161,6 +161,10 @@ class Search:
         build, sk = self.build, self.skeleton
         build.phase = "setup"
         build.call("newBuild")
+        # The boss preset's resistances (the request's boss, else the bridge's default, bosses.DEFAULT's): a new build
+        # had PoB's own configuration (its Pinnacle placeholder 50/50/50/0), only a seed code's resetConfig set them (SEARCH6)
+        build.call("resetConfig", **boss_config(self.ctx.request))
+        build.boss_stats = boss_stats(self.ctx.request)
         self.correct_passives()
         build.call("setClass", className=sk.class_name, ascendancy=sk.ascendancy)
         build.call("setLevel", level=self.ctx.level)
@@ -220,6 +224,7 @@ class Search:
         # The code's configuration isn't trusted: a new build's, then the resolver turns on what
         # the build sustains (the code's quest choices stay, choose_quests revisits them)
         build.call("resetConfig", **boss_config(ctx.request))
+        build.boss_stats = boss_stats(ctx.request)
         self.correct_passives()
         build.call("setLevel", level=ctx.level)
         notes = self.seed_notes
@@ -1175,6 +1180,13 @@ def boss_config(request: Any) -> dict:
     return {"boss": bosses.config_vars(name)}
 
 
+def boss_stats(request: Any) -> dict:
+    """The request's boss for the models that read it from the stats (boss_hits.boss_name's `_boss`: its hits per
+    damage type, red-flash share): {} when it names none (they use the default preset)."""
+    name = getattr(request, "boss", None)
+    return {"_boss": name} if name else {}
+
+
 def seed_task(engine: Any, report: Any, payload: dict) -> dict:
     """The skeleton of the request's PoB code, or why it can't be one."""
     ctx = context_for(payload)
@@ -1298,6 +1310,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     mismatched = [k for k in RESULT_FIELDS if facts["stats"].get(k) != reloaded["stats"].get(k)]
     facts["warnings"] = list(dict.fromkeys([*facts["warnings"], *reloaded["warnings"], *plain]))
     facts["stats"].update(build.extra_stats)  # flask recovery, for the sustain check
+    facts["stats"].update(build.boss_stats)  # the request's boss (boss_hits.boss_name)
     with_life_es(with_boss_recovery(facts["stats"]))  # recovery against the boss, for the (optional) recovery floor and the report
     build.objective.prepare(facts["stats"])  # what the checks see: Darkness in maximum hit taken
     excluded, excluded_names = build.objective.excluded(build.stats)

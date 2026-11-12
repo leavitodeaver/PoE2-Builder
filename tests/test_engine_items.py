@@ -933,3 +933,19 @@ def test_lucky_spell_crits_are_pobs_own_lucky_on_spell_crits(engine):
     print("Lucky spell crits:", lucky["TotalDPS"] / base["TotalDPS"], expect)
     assert expect > 1.01 and abs(lucky["TotalDPS"] / base["TotalDPS"] - expect) < 1e-3
     assert base["LightningStoredHitAvg"] == lucky["LightningStoredHitAvg"]  # (non-crit hits aren't Lucky)
+
+
+def test_a_new_build_is_scored_against_the_boss_preset(engine):
+    """SEARCH6: Search.setup (a build from a skeleton, no seed code) called newBuild only, so it kept PoB's configuration
+    (its Pinnacle placeholder resistances); only a seed code's resetConfig set the boss preset's. Now both do."""
+    from builder.search import bosses
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Spark")
+    skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    config = search.build.call("getConfig")["input"]
+    for var, value in bosses.config_vars().items():
+        assert config.get(var) == value, var

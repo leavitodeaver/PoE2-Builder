@@ -67,7 +67,7 @@ AFFIX_LIMIT = {"Prefix": 3, "Suffix": 3}
 # Equipment restrictions on the build's own lines (COV-B, COVB3). PoB ignores both lines (ModCache: no modifier), so
 # without this a build taking the passive could wear what the game won't let it use:
 #   Smith's Masterwork (Smith of Kitava): "Can only use a Normal Body Armour"
-#   Dance with Death (a Timeless jewel's conquered notable): "Can't use Helmets"
+#   Dance with Death (the keystone a Timeless jewel conquers into; PoB replaces the keystone whole): "Can't use Helmets"
 # Matched by line, from every allocated passive and equipped item (Build sourceLines), not by passive name.
 SLOT_RESTRICTIONS = {
     "Can only use a Normal Body Armour": ("Body Armour", "normal"),
