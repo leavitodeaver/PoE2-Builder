@@ -2645,3 +2645,23 @@ def test_reverberate_and_aftershock_iii_raise_the_summed_aftershock_chance_by_at
     total, why = models.aftershock_chance(any_slam, gems, False, True, False, 1.0)
     assert total == pytest.approx(50 * 1.6) and "Reverberate" in why[-1]
     assert fired.triggered
+
+
+def test_apocalypse_disasters_fire_a_third_each_while_its_buff_is_up():
+    """MECHB7 (kw-unleash item 1, RESEARCH20 #114: PoB gives the three disasters 0 uses): one every 0.75 s while the
+    12 s buff is up, a third each; Hailstorm's 9 bolts as 9 hits."""
+    mods, notes = models.apocalypse_model(1 / 24, "test")  # up half the fight
+    rates = {m["skill"]: m["value"] for m in mods if m["key"] == "triggerRate"}
+    each = 0.5 / 0.75 / 3
+    assert rates["Meteor"] == pytest.approx(each, rel=1e-4)
+    assert rates["Crash Lightning"] == pytest.approx(each, rel=1e-4)
+    assert rates["Hailstorm"] == pytest.approx(9 * each, rel=1e-4)
+    assert all(m["value"] is True for m in mods if m["key"] == "triggered")
+    assert notes[0]["confidence"] == "LOW"
+    # kept up all fight, 20% increased frequency; only the sub-skills present get a rate
+    mods, _ = models.apocalypse_model(1.0, "test", 20.0, {"Meteor"})
+    assert [m["skill"] for m in mods] == ["Meteor", "Meteor"]
+    assert mods[0]["value"] == pytest.approx(1.2 / 0.75 / 3, rel=1e-4)
+    # no Glory: no disasters
+    mods, _ = models.apocalypse_model(0.0, "test")
+    assert all(m["value"] == 0 for m in mods if m["key"] == "triggerRate")

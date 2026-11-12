@@ -596,7 +596,8 @@ class Assumptions:
 
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
-            models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, *models.gem_stat_skills()],
+            models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
+            *models.gem_stat_skills()],
             supportStats=models.gem_stat_support_stats())["skills"]
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
@@ -672,6 +673,8 @@ class Assumptions:
         if glory is not None:
             mods += glory[0]
             notes.append(glory[1])
+        apocalypse_mods, apocalypse_notes = self.apocalypse(skills)  # (MECH-B: Apocalypse's disasters, MECHB7)
+        mods, notes = mods + apocalypse_mods, notes + apocalypse_notes
         if glory is None:
             glory = self.flask_main(skills, main)  # (also a use rate set from a resource; it rules out the fallback)
             if glory is not None:
@@ -800,6 +803,20 @@ class Assumptions:
         uses per second become its trigger rate (capped at one per cast time). None for any other main skill."""
         if main not in models.GLORY_SKILLS:
             return None
+        found = self.glory_rate(skills, main)
+        if found is None:
+            return None
+        rate, basis = found
+        return models.trigger_rate(main, rate), {
+            "label": f"{main} uses per second (Glory)", "value": round(rate, 3),
+            "basis": basis + "; the time spent on the skill that builds it isn't taken from that skill's own DPS",
+            "play": f"Use {main} whenever you have the Glory for it.",
+            "confidence": "theory: game files' Glory costs and gains; event rates as glory_uses labels them",
+        }
+
+    def glory_rate(self, skills: list[dict], main: str) -> tuple[float, str] | None:
+        """A Glory skill's uses per second and how (glory_main's rule, for any Glory skill in the build); None if it
+        isn't an enabled skill. The skill whose hits build it is never one of Apocalypse's own disasters."""
         info = next((s for s in skills if s["name"] == main and not s["disabled"]), None)
         if info is None:
             return None
@@ -811,6 +828,7 @@ class Assumptions:
                 continue
             names = [s["name"] for s in group.get("skills") or []]
             position = next((i for i, n in enumerate(names, 1) if n != main and n not in models.GLORY_SKILLS
+                             and n not in models.APOCALYPSE_SUBS
                              and any(s["name"] == n and not s["disabled"] for s in skills)), None)
             if position is not None:
                 builder = (group, position, names[position - 1])
@@ -830,12 +848,22 @@ class Assumptions:
             rate = cap if per_use >= 1.0 else 0.0
             basis = (f"no other skill builds its Glory; its own hits (assumed to count for it), per use at one use/s: "
                      f"{how}: " + ("a use builds its own cost: at will" if rate else "less than a use's cost: never"))
-        return models.trigger_rate(main, rate), {
-            "label": f"{main} uses per second (Glory)", "value": round(rate, 3),
-            "basis": basis + "; the time spent on the skill that builds it isn't taken from that skill's own DPS",
-            "play": f"Use {main} whenever you have the Glory for it.",
-            "confidence": "theory: game files' Glory costs and gains; event rates as glory_uses labels them",
-        }
+        return rate, basis
+
+    def apocalypse(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Apocalypse's disasters (models.apocalypse_model) at the rate the build's Glory gives Apocalypse, wherever it
+        is socketed. ([], []) without an enabled Apocalypse."""
+        present = {s["name"] for s in skills if s["name"] in models.APOCALYPSE_SUBS}
+        if not present:
+            return [], []
+        found = self.glory_rate(skills, models.APOCALYPSE)
+        if found is None:
+            return [], []
+        if not math.isfinite(found[0]):
+            found = (1 / models.APOCALYPSE_DURATION, found[1] + " (taken as kept up)")
+        info = next(s for s in skills if s["name"] == models.APOCALYPSE)
+        frequency = number((info.get("levelStats") or {}).get(models.APOCALYPSE_FREQUENCY))
+        return models.apocalypse_model(found[0], found[1], frequency, present)
 
     def life_flask_charges(self) -> float:
         """The equipped Life Flask's maximum charges (Sanguine Tides' cap), 0 with none."""

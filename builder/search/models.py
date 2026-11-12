@@ -4307,3 +4307,53 @@ def coursing_current_note(skills: list[Skill]) -> list[dict]:
                       "files): with no second Drenched enemy it has no target. PoB scores it 0 as well (its player trigger "
                       "calculation is off). It would hit adds (not counted). In-game test held for the user",
              "confidence": "MEDIUM"}]
+
+
+# Apocalypse's disasters (MECHB7; plans/kw-unleash.md item 1, RESEARCH20 #114, RESEARCH #103). ApocalypsePlayer (PoB
+# Data/Skills/other.lua 895; game files): "When you have maximum Glory, you may become the walking Apocalypse for a
+# duration, Triggering one of multiple powerful Elemental Skills at an interval while this Buff lasts":
+# unleash_the_elements_base_trigger_frequency_ms 750, unleash_the_elements_trigger_frequency_+% (0.75 per quality),
+# 12 s buff, 100 Glory a use (GLORY_SKILLS). The gem grants three hidden sub-skills, castTime 0, InbuiltTrigger:
+# Hailstorm (cold, unleash_blizzard_number_of_bolts 9), Meteor (fire, one impact after 2 s) and Crash Lightning
+# (lightning: 3 pulses, set 1, then a "Final Strike", set 2, after 3 s). PoB gives all three Speed 0 (its player trigger
+# calculation is switched off, CalcPerform.lua 3514-3515; CalcOffence 2848): 0 DPS, a pure undercount (RESEARCH20 #114,
+# HIGH from the code). The model:
+#   - the buff's share of the fight U = min(1, Apocalypse's uses per second (glory_uses, from the build's own elemental
+#     hits: no flat rate) x 12 s); increased skill duration isn't read (an undercount, labelled);
+#   - triggers per second while it's up = (1 + frequency %) / 0.75 s (HIGH: game files);
+#   - each disaster a third of them (RESEARCH #103: no rule anywhere says which fires; 1/3 holds for random or a cycle,
+#     MEDIUM; in-game test #109);
+#   - hits on the boss per trigger: Meteor 1; Hailstorm 9 bolts, all on the boss (LOW: each bolt lands at a random spot
+#     in the 2 m area, a 0.8 m blast; "Targets an area or an enemy", where they land is UNVERIFIED #109), counted as 9
+#     hits; Crash Lightning 1 of whichever set PoB calculates (an undercount: the pulses' other 2 and the other set aren't
+#     counted, since one rate covers both sets and the gem search switches between them).
+# Each sub-skill gets that rate as its trigger rate, so PoB's own average hit x the rate is its DPS (Full DPS sums them;
+# a sub-skill picked as the main skill counts alone).
+APOCALYPSE = "Apocalypse"
+APOCALYPSE_SUBS = {"Hailstorm": 9, "Meteor": 1, "Crash Lightning": 1}  # hits on the boss per trigger
+APOCALYPSE_DURATION = 12.0
+APOCALYPSE_INTERVAL = 0.75
+APOCALYPSE_FREQUENCY = "unleash_the_elements_trigger_frequency_+%"
+
+
+def apocalypse_model(uses: float, basis: str, frequency: float = 0.0,
+                     present: set[str] | frozenset[str] = frozenset(APOCALYPSE_SUBS)) -> tuple[list[dict], list[dict]]:
+    """Trigger rates for Apocalypse's sub-skills from its uses per second (`uses`, glory_uses; `basis` says how) and its
+    trigger frequency increase in % (quality)."""
+    share = min(1.0, max(uses, 0.0) * APOCALYPSE_DURATION)
+    per_second = (1 + frequency / 100) / APOCALYPSE_INTERVAL
+    each = share * per_second / len(APOCALYPSE_SUBS)
+    mods: list[dict] = []
+    for name, hits in APOCALYPSE_SUBS.items():
+        if name in present:
+            mods += trigger_rate(name, each * hits)
+    notes = [{"label": "Apocalypse's disasters per second", "value": round(share * per_second, 3),
+              "basis": (f"the buff is up {share:.0%} of the fight ({uses:.3f} uses/s x {APOCALYPSE_DURATION:g} s; {basis}); "
+                        f"one disaster every {APOCALYPSE_INTERVAL / (1 + frequency / 100):.2f} s while it's up "
+                        f"({frequency:g}% increased frequency); a third each Hailstorm, Meteor, Crash Lightning "
+                        "(MEDIUM: no rule says which fires); Hailstorm's 9 bolts all counted on the boss (LOW: where they "
+                        "land is UNVERIFIED); Crash Lightning counts one hit of the set calculated (an undercount: its "
+                        "other pulses and its Final Strike aren't counted); increased duration isn't read (an undercount)"),
+              "play": "Use Apocalypse whenever you have 100 Glory; its disasters fire by themselves while it lasts.",
+              "confidence": "LOW"}]
+    return mods, notes
