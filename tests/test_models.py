@@ -1713,7 +1713,8 @@ def test_archon_of_the_blizzard_waits_for_a_gap_in_the_boss_s_landing_hits():
     """Energy Shield Recharge needs `delay` s with no damage: every landing boss hit restarts it (MECH46, FLAT_RATES A8:
     was a flat 2 x delay)."""
     import math
-    base = {"EnergyShield": 1000, "EnergyShieldRechargeDelay": 4.0, "enemySkillTime": 0.7}
+    # (Ignite-immune here: the damage over time the boss's hits leave is the next test's, MECHC6)
+    base = {"EnergyShield": 1000, "EnergyShieldRechargeDelay": 4.0, "enemySkillTime": 0.7, "IgniteAvoidChance": 100}
     blizzard = lambda stats: next(s for s in models.archon_sources(stats, set()) if s.name == "Archon of the Blizzard")
     rate = 1 / 0.7
     assert blizzard(base).wait == pytest.approx(math.expm1(rate * 4.0) / rate)  # ~209 s: hit often, rarely recharges
@@ -1721,10 +1722,31 @@ def test_archon_of_the_blizzard_waits_for_a_gap_in_the_boss_s_landing_hits():
     dodgy = dict(base, EvadeChance=50, EffectiveBlockChance=50)
     land = rate * (0.35 + 0.65 / 4)
     assert blizzard(dodgy).wait == pytest.approx(math.expm1(land * 4.0) / land)
-    phase1 = dict(dodgy, _boss="Atziri, the Red Queen")
-    assert blizzard(phase1).wait == pytest.approx(math.expm1(rate / 4 * 4.0) / (rate / 4))
+    phase1 = dict(dodgy, _boss="Atziri, the Red Queen")  # (her Corrupted Blood: 1 of 28 hits leaves 3 s more, MECHC6)
+    q = rate / 4
+    assert blizzard(phase1).wait == pytest.approx((27 / 28 * math.exp(q * 4.0) + 1 / 28 * math.exp(q * 7.0) - 1) / q)
     assert blizzard(dict(base, EvadeChance=100, _boss="Atziri, the Red Queen")).wait == pytest.approx(4.0)  # never hit
     assert blizzard(dict(base, EvadeChance=100)).wait > 4.0  # the Arbiter's red-flash hits still land
+
+
+def test_the_bosss_ignites_delay_energy_shield_recharge():
+    """MECHC6 (RESEARCH21 #126): an Ignite from a landed Fire hit keeps removing Energy Shield for 4 s x your Ignite
+    duration, so Recharge needs delay + 4 s after it; headline every landed Fire hit Ignites (LOW), less your Ignite
+    avoidance, with the "none" figure in the text."""
+    import math
+    from builder.search import boss_hits
+
+    stats = {"EnergyShield": 1000, "EnergyShieldRechargeDelay": 4.0, "enemySkillTime": 1.0, "EvadeChance": 100}
+    land = 7 / 20  # (the Arbiter's red-flash hits)
+    p = 17 / 24  # (his Fire hits)
+    wait = (1 - p) * math.exp(land * 4.0) + p * math.exp(land * 8.0) - 1
+    assert boss_hits.recharge_wait(stats, 4.0, land) == pytest.approx(wait / land)
+    assert boss_hits.recharge_wait(stats, 4.0, land, ignite=False) == pytest.approx(math.expm1(land * 4.0) / land)
+    half = boss_hits.recharge_wait({**stats, "IgniteAvoidChance": 50, "SelfIgniteDuration": 50}, 4.0, land)
+    assert half == pytest.approx(((1 - p / 2) * math.exp(land * 4.0) + p / 2 * math.exp(land * 6.0) - 1) / land)
+    text = next(s for s in models.archon_sources(stats, set()) if s.name == "Archon of the Blizzard").basis
+    assert "Ignite on 71% of landed hits" in text and "if none did" in text and "grounds" in text
+    assert boss_hits.es_dot({"_boss": "Zarokh, the Temporal"}) == []  # (Physical only: no Fire hits)
 
 
 def test_a_meta_triggered_curse_or_mark_is_up_at_the_meta_s_trigger_rate():

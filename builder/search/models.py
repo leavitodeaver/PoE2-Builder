@@ -32,6 +32,7 @@ DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
 # PoB stats the models read (beyond the objective's own fields)
 MODEL_FIELDS = sorted({
     "Speed", "HitChance", "CritChance", "HazardRearmChance", "SpiritUnreserved", "Mana", "ManaPerSecondCost", "EnergyShield", "EnergyShieldRechargeDelay",
+    "IgniteAvoidChance", "SelfIgniteDuration",
     "EnergyShieldRegenRecovery", "EnergyShieldRecharge", "PresenceRadius", "MovementSpeedMod",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
     "FreezeBuildupAvg", "ElectrocuteBuildupAvg", "HeavyStunBuildupAvg",
@@ -359,16 +360,18 @@ def archon_sources(stats: dict, main_gems: set[str]) -> list[ArchonSource]:
     if number(stats.get("EnergyShield")) > 0:
         # (MECH46, FLAT_RATES A8: before, a flat 2 x delay, though every boss hit that lands restarts the delay.) The
         # boss's landing hits taken as a Poisson stream (enemySkillTime, less evaded and blocked hits): the expected wait
-        # for a gap of `delay` with none is (e^(rate x delay) - 1) / rate. Damage over time and the boss's misses by
-        # timing aren't counted (MEDIUM).
+        # for a gap of `delay` with none is (e^(rate x delay) - 1) / rate. The boss's misses by timing aren't counted
+        # (MEDIUM). Damage over time its hits leave on you (Ignite, Corrupted Blood) lengthens the gap it needs (MECHC6,
+        # RESEARCH21 #126: boss_hits.recharge_wait; before, hits only: an overcount against the Arbiter's Fire hits).
         delay = number(stats.get("EnergyShieldRechargeDelay")) or 4.0
         every = number(stats.get("enemySkillTime")) or 0.7
         land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
-        wait = math.expm1(min(land * delay, 700.0)) / land if land > 0 else delay
+        wait = boss_hits.recharge_wait(stats, delay, land)
         sources.append(ArchonSource("Archon of the Blizzard", "ArchonRecharge", wait,
                                     f"Energy Shield Recharge begins after {delay:g}s without damage; the boss lands "
-                                    f"{land:.2f} hits/s (one per {every:g}s, less evaded and blocked), each restarting "
-                                    f"it: a {delay:g}s gap comes after {wait:.1f}s on average"))
+                                    f"{land:.2f} hits/s (one per {every:g}s, LOW: PoB's placeholder; less evaded and "
+                                    f"blocked), each restarting it: a {delay:g}s gap comes after {wait:.1f}s on average; "
+                                    + boss_hits.recharge_text(stats, delay, land)))
     if "Arbiter's Ignition" in main_gems:
         crit = number(stats.get("CritChance")) / 100
         chance = (number(stats.get("IgniteChanceOnHit")) * (1 - crit) + number(stats.get("IgniteChanceOnCrit")) * crit) / 100

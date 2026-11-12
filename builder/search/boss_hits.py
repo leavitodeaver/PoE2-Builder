@@ -21,6 +21,8 @@ blocked or dodge-rolled) when they're there, and its own table below otherwise.
 """
 from __future__ import annotations
 
+import math
+
 
 
 def number(value: object) -> float:
@@ -242,3 +244,59 @@ def hits_note(name: str | None = None) -> dict:
                      "level base damage x skill x the boss's damage multiplier x unique 35% less x the level's more for "
                      "Elemental (x4) and Chaos (x2)",
             "confidence": "; ".join(f"{k} {v}" for k, v in CONFIDENCE_HITS.items())}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Damage over time from the boss's hits, which keeps Energy Shield Recharge from starting (MECHC6; FIX_QUEUE RESEARCH21
+# #126, research/boss-dot-on-player-es.md). KeywordPopups EnergyShield: "Rapidly Recharges if you don't lose Energy
+# Shield for a short time ... Damage from Bleeding and Poison bypasses Energy Shield" (HIGH): an Ignite or Corrupted
+# Blood on you keeps removing ES, so Recharge can't start until it ends plus the delay.
+# - Ignite: any landed Fire hit can Ignite you (Flammability; no chance stat needed). How often it does depends on the
+#   hit against your ailment threshold, which PoB doesn't give: LOW. Headline: every landed Fire hit Ignites (the lower
+#   uptime; less your Ignite avoidance, PoB's IgniteAvoidChance), with the "never Ignites" figure beside it. 4 s base
+#   (KeywordPopups Ignite) x PoB's SelfIgniteDuration.
+# - Corrupted Blood (Atziri's BloodSpearPulse, 3 s, stacking; "is not Bleeding", so it hits ES: MEDIUM-HIGH): one of her
+#   damaging skills, at its share of her hits (LOW).
+# - Degen grounds (8 bosses): you can step out of them: 0, with a play note (RESEARCH21's advice; LOW).
+# - Bleeding (Olroth) and Poison bypass ES: they don't delay its Recharge.
+# ---------------------------------------------------------------------------------------------------------------------
+IGNITE_SECONDS = 4.0  # KeywordPopups Ignite: Fire damage over time for 4 s by default (HIGH)
+CORRUPTED_BLOOD = {"Atziri, the Red Queen": 3.0, "Atziri, the Fell Serpent": 3.0}  # seconds (BloodSpearPulse, RESEARCH13)
+GROUNDS_NOTE = ("the boss's damaging grounds aren't counted: step out of them (8 of 13 bosses have one; LOW)")
+
+
+def es_dot(stats: dict, ignite: bool = True) -> list[tuple[float, float, str]]:
+    """(share of the boss's landed hits that leave damage over time on your Energy Shield, its seconds, what)."""
+    name = boss_name(stats)
+    out = []
+    fire = type_shares(name)["Fire"]
+    avoid = min(max(number(stats.get("IgniteAvoidChance")), 0.0), 100) / 100
+    if ignite and fire > 0 and avoid < 1:
+        scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
+        out.append((fire * (1 - avoid), IGNITE_SECONDS * scale, "Ignite"))
+    if name in CORRUPTED_BLOOD:
+        out.append((1 / sum(hit_table(name)[1].values()), CORRUPTED_BLOOD[name], "Corrupted Blood"))
+    return out
+
+
+def recharge_wait(stats: dict, delay: float, land: float, ignite: bool = True) -> float:
+    """Expected wait for Energy Shield Recharge to start: the boss's landed hits as a Poisson stream (`land` per second),
+    each needing a quiet `delay` after it, plus its damage over time's seconds when it leaves one:
+    (sum of p x e^(land x (delay + D)) - 1) / land. A new hit while an older Ignite still burns isn't followed (a slight
+    undercount of the wait)."""
+    if land <= 0:
+        return delay
+    dots = es_dot(stats, ignite)
+    plain = 1 - sum(p for p, _, _ in dots)
+    total = plain * math.exp(min(land * delay, 700.0)) + sum(p * math.exp(min(land * (delay + d), 700.0)) for p, d, _ in dots)
+    return (total - 1) / land
+
+
+def recharge_text(stats: dict, delay: float, land: float) -> str:
+    dots = es_dot(stats)
+    if not dots:
+        return GROUNDS_NOTE
+    parts = ", ".join(f"{what} on {p:.0%} of landed hits for {d:g} s" for p, d, what in dots)
+    bare = recharge_wait(stats, delay, land, ignite=False)
+    return (f"damage over time on your Energy Shield delays it: {parts} (Ignite: every landed Fire hit assumed to Ignite "
+            f"you, LOW; if none did: {bare:.1f} s); " + GROUNDS_NOTE)
