@@ -1762,7 +1762,9 @@ def test_a_flask_or_charm_counts_whole_only_at_full_uptime():
 
 def test_the_bosss_fire_hits_ignite_you_by_flammability_against_your_ailment_threshold():
     """MECHC7 (AUDIT21 A21-1): KeywordPopups Flammability: 1% Ignite chance per 5% of your Ailment Threshold dealt as Fire,
-    stacking over 8 s, raised by the boss skill's increased Ignite chance; a CI build (threshold ~0) Ignites every time."""
+    stacking over 8 s, raised by the boss skill's increased Ignite chance; a CI build with no other Ailment Threshold
+    source (threshold ~0) Ignites every time (A22-4: Energy Shield, Evasion, Dexterity and flat threshold lines raise it,
+    and ignite_chance reads PoB's AilmentThreshold, so those builds are computed right)."""
     import math
     from builder.search import boss_hits
 

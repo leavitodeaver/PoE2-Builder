@@ -250,8 +250,15 @@ def hits_note(name: str | None = None) -> dict:
 # "when Hit" buffs, charms, Iron Ward, parries, flasks' Life lost) takes one every enemySkillTime, PoB's boss-preset
 # placeholder of 0.7 s. The game decides it per boss skill and no data we hold gives it: a flat number of the last-resort
 # kind (CLAUDE.md rule 2), LOW, said once in every build's assumptions here.
+#
+# Slows on the boss (MECHC8, MECHD1 / MECHD2): PoB's enemySkillTime is the 0.7 s divided by the boss's action speed
+# (CalcDefence.lua 3426-3429, calcs.actionSpeedMod), so a build's Chill, Temporal Chains or other Slow on the boss
+# lengthens it, and every model above reads that slowed figure. PoB alone sums Slows in full; MECH-D's bridge patch
+# (bosses.Boss.slow_taken) applies the unique boss's 50% less Slow taken, multiplicative Slows and the 25% floor, so the
+# figure these models read is the corrected one once that lands (no change needed here: they read only enemySkillTime).
 CADENCE_NOTE = ("the boss's hits come one every 0.7 s (PoB's boss-preset enemySkillTime; LOW: the game's per-skill cadence "
-                "isn't in our data) for every model that reads them")
+                "isn't in our data), slower by the build's Slows on the boss (at a unique boss's 50% less Slow taken), "
+                "for every model that reads them")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
