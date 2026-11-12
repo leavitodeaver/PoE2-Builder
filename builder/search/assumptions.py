@@ -170,6 +170,7 @@ EXTRA_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance to gain an additional Infu
 OTHER_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance when collecting an Elemental Infusion to gain another different", re.I)
 KEEP_INFUSION = re.compile(r"^(\d+(?:\.\d+)?)% chance to not remove an Infusion but still count as consuming", re.I)
 VERISIUM_EVERY = re.compile(r"Every (?:(\d+(?:\.\d+)?) )?seconds?, gain an? Verisium Infusion", re.I)
+GRANTED_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")  # (context.granted_by's pattern)
 INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
 
 
@@ -532,7 +533,26 @@ class Assumptions:
             self.press_busy = press_notes[0]["value"] if press_notes else 0.0
         found, condition_notes = self.ledger_conditions(skills)
         mods += [{"kind": "Condition", "name": name} for name in found]
-        return mods, notes + condition_notes
+        return mods, notes + condition_notes + self.unbuilt_grants(skills)
+
+    def unbuilt_grants(self, skills: list[dict]) -> list[dict]:
+        """A note for each skill the build's passives or items grant ("Grants Skill: ...") that PoB built no skill for
+        (MECH49; FIX_QUEUE "COV3's skills PoB has no data for": Dark Staff's Dark Pact, Ritualist's Queen's Procession,
+        the Unborn Lich's His Dark Horizon and His Grave Command have no skill file in PoB): it counts 0 in our numbers,
+        an undercount, said rather than dropped silently. Not modelled yet."""
+        built = {s["name"] for s in skills}
+        notes, seen = [], set()
+        for line in self.build.call("sourceLines")["lines"]:
+            m = GRANTED_SKILL.search(line["text"])
+            if not m or m.group(1) in built or m.group(1) in seen:
+                continue
+            seen.add(m.group(1))
+            notes.append({"label": f"{m.group(1)}: not counted", "value": 0,
+                          "basis": f"granted by {line['source']}, but PoB built no skill of that name (it has no data for "
+                                   "some granted skills), so its damage and effects count 0 here: an undercount, not "
+                                   "modelled yet",
+                          "confidence": "LOW (an undercount)"})
+        return notes
 
     def remnant_presses(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """The time pressing Snap or Frost Bomb for its Remnants takes from the main skill (MECH46, FLAT_RATES A14: before,

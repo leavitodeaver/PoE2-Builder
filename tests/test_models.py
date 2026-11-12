@@ -1499,3 +1499,94 @@ def test_a_bucklers_granted_parry_is_recognised():
     from builder.search import conditions
     assert conditions.PARRY_GRANT.search("Grants Skill: Level 20 Parry")
     assert not conditions.PARRY_GRANT.search("Grants Skill: Level 20 Parrying Stance")
+
+
+def test_infusion_consumed_recently_from_the_builds_consumers_and_supply():
+    """MECH49: "if you have consumed an Elemental Infusion Recently" (Empowering Infusions, Infused Spell Damage) was set
+    by nothing (an undercount). Its box is on at 1 - e^(-consumed per second x 4 s), weighed by that share; no consumer
+    or no supply: 0 with its reason."""
+    from builder.search import conditions
+
+    import math
+
+    assert conditions._infusion_recently([], {}) == (0.0, "")
+    assert conditions._infusion_recently([], {"_infusion_consumed": (0.0, "no skill of the build consumes Infusions: 0")}) \
+        == (0.0, "no skill of the build consumes Infusions: 0")
+    on, basis, up = conditions._infusion_recently([], {"_infusion_consumed": (0.25, "Frost Bomb")})
+    assert on and up == pytest.approx(1 - math.exp(-1.0)) and "Frost Bomb" in basis and "LOW" in basis
+    var = next(c for c in conditions.CONDITIONS if c.var == "conditionInfusionConsumedRecently")
+    assert var.value_fn is conditions._infusion_recently
+    assert conditions.INFUSION_CONSUMED.search("35% increased Spell Damage if you have consumed an Elemental Infusion Recently")
+
+
+def test_infusion_consumers_match_the_game_files():
+    """INFUSION_CONSUMERS is every player skill whose stat set holds active_skill_consumes_(a_)<element>_infusion
+    (GrantedEffectStatSets), named as its ActiveSkills entry; skipped without the export."""
+    from builder.search import conditions
+
+    import json
+    import re
+    from pathlib import Path
+
+    roots = sorted((Path(__file__).resolve().parents[1] / "data").glob("game-*/tables"))
+    if not roots or not (roots[-1] / "GrantedEffectStatSets.json").exists():
+        pytest.skip("no game-file export; run `python -m builder.data.gamefiles`")
+
+    def rows(name):
+        data = json.loads((roots[-1] / f"{name}.json").read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else data["rows"]
+
+    stats = rows("Stats")
+    consume = {i: m.group(1).capitalize() for i, r in enumerate(stats)
+               if (m := re.fullmatch(r"active_skill_consumes_(?:a_)?(\w+)_infusion", r["Id"]))}
+    found = {}
+    for r in rows("GrantedEffectStatSets"):
+        if not r["Id"].endswith("Player"):
+            continue
+        ids = [x for k in ("ImplicitStats", "ConstantStats") for x in r.get(k) or [] if isinstance(x, int)]
+        if els := {consume[i] for i in ids if i in consume}:
+            found[r["Id"]] = els
+    effects = {g["Id"]: g for g in rows("GrantedEffects")}
+    actives = rows("ActiveSkills")
+    named = {}
+    for set_id, els in found.items():
+        effect = effects.get(set_id)
+        name = actives[effect["ActiveSkill"]]["DisplayedName"] if effect and isinstance(effect.get("ActiveSkill"), int) else None
+        name = {"Empowered Sparks": "Spark"}.get(name, name)
+        named.setdefault(name, set()).update(e for e in els if e != "Verisium")
+    assert set(named) == set(conditions.INFUSION_CONSUMERS)
+    for name, els in named.items():
+        assert els == set(conditions.INFUSION_CONSUMERS[name]), name
+
+
+def test_divinity_from_the_builds_divine_charge_gain():
+    """MECH49: Divinity ("on reaching maximum Divine Charges") was set by nothing. 10 charges at 2 landed hits/s fill in
+    5 s, inside Divinity's 10 s: always up; at 0.5/s they fill in 20 s: half the fight; no "Lose all" line: held at the
+    maximum, reached once: 0."""
+    from builder.search import conditions
+
+    lines = ["+10 to maximum Divine Charges", "Gain a Divine Charge on Hit",
+             "You gain Divinity for 10 seconds on reaching maximum Divine Charges",
+             "Lose all Divine Charges when you gain Divinity"]
+    assert conditions._divinity([], {"Speed": 2.0}) == (0.0, "")
+    on, _, up = conditions._divinity(lines, {"Speed": 2.0, "HitChance": 100})
+    assert on and up == 1.0
+    assert conditions._divinity(lines, {"Speed": 1.0, "HitChance": 50})[2] == pytest.approx(0.5)
+    assert conditions._divinity(lines[:3], {"Speed": 2.0})[0] == 0.0
+    assert conditions._divinity(lines[1:], {"Speed": 2.0})[0] == 0.0
+
+
+def test_a_granted_skill_pob_builds_nothing_for_is_noted_not_dropped():
+    """MECH49: Dark Pact, Queen's Procession, His Dark Horizon, His Grave Command (no skill file in PoB) counted 0 in
+    silence; now each granted one PoB built nothing for gets a labelled 'not counted' note."""
+    from types import SimpleNamespace
+
+    from builder.search.assumptions import Assumptions
+
+    lines = [{"source": "item:Weapon 1", "text": "Grants Skill: Level (1-20) Dark Pact"},
+             {"source": "passive:Devotion to the King", "text": "Grants Skill: Queen's Procession"},
+             {"source": "item:Weapon 2", "text": "Grants Skill: Level 20 Parry"}]
+    fake = SimpleNamespace(build=SimpleNamespace(call=lambda name, **_: {"lines": lines}))
+    notes = Assumptions.unbuilt_grants(fake, [{"name": "Parry"}])
+    assert [n["label"] for n in notes] == ["Dark Pact: not counted", "Queen's Procession: not counted"]
+    assert all(n["value"] == 0 and "undercount" in n["basis"] for n in notes)

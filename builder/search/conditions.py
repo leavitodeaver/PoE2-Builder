@@ -327,7 +327,9 @@ def event_rates(groups: list[dict], gems: dict[str, dict], main_skill: str, main
     return out
 
 
-CHARGE_SOURCE = r"(?:(\d+(?:\.\d+)?)% chance (?:to|when you \w+ (?:a|an) \w+ Charge to)?\s*)?(?:gain|grants?)\w* (?:an? |(?P<count>\d+) )?(?:[\w, ]*?\b{kind}\b[\w, ]*?) Charges?(.*)$"
+CHARGE_SOURCE = r"(?:(\d+(?:\.\d+)?)% chance (?:to|when you \w+ (?:a|an) \w+ Charge to)?\s*)?(?:gain|grants?)\w* (?:an? |(?P<count>\d+) )?(?:(?:(?!\bcharges?\b)[\w, ])*?\b{kind}\b[\w, ]*?) Charges?(.*)$"
+# (the kind is named before the first "Charge": "Gain a Frenzy Charge on reaching Maximum Power Charges" is no Power gain;
+# MECH49, it read as one per hit before)
 
 
 def _hit_restriction(when: str, stats: dict) -> str | None:
@@ -1365,6 +1367,70 @@ def _immobilised(ailment: str, name: str) -> Callable[[list[str], dict], tuple[o
     return share
 
 
+# "if you have consumed an Elemental Infusion Recently" (PoB Condition:InfusionConsumedRecently; Empowering Infusions 35%,
+# Infused Spell Damage 15%; MECH49: before, nothing set it, so both counted 0). The skills that consume Infusions, by the
+# elements they take (game files 26476662, GrantedEffectStatSets holding active_skill_consumes_(a_)<element>_infusion,
+# player sets; checked: ImplicitStats / ConstantStats of every stat set, and GrantedEffectStatSetsPerLevel, which holds
+# none of those stats; second source poe2db's skill pages for the Infused variants (UNVERIFIED, not reached this turn)).
+# "Any": a Verisium Infusion (KeywordPopups VerisiumInfusion: usable as any element), which Skyfall alone of these takes.
+INFUSION_CONSUMERS = {
+    "Ice Nova": ("Cold",), "Frost Wall": ("Lightning",), "Firestorm": ("Fire", "Cold", "Lightning"),
+    "Arc": ("Lightning",), "Ball Lightning": ("Fire",), "Incinerate": ("Fire",), "Flame Wall": ("Lightning",),
+    "Comet": ("Fire",), "Frost Darts": ("Cold",), "Spark": ("Cold",), "Skyfall": (), "Fireball": ("Fire",),
+    "Ember Fusillade": ("Lightning",),
+}
+INFUSION_CONSUMED = re.compile(r"consumed an elemental infusion recently", re.I)
+
+
+def _infusion_recently(lines: list[str], stats: dict) -> tuple[object, str]:
+    """PoB's "Infusion consumed recently?" box at the share of the fight one was consumed in the past 4 s: the build's
+    consumers (INFUSION_CONSUMERS: the main skill at its casts, any other at its group's rate) take the Infusions it
+    makes (Assumptions.infusion_supply), at most one per cast; consumptions taken as evenly random (1 - e^(-rate x 4 s)),
+    LOW. No consumer or no supply: 0, said."""
+    got = stats.get("_infusion_consumed")
+    if not got:
+        return 0.0, ""
+    rate, how = got
+    if rate <= 0:
+        return 0.0, how
+    up = 1.0 - math.exp(-rate * RECENTLY)
+    return _box(up, f"an Infusion consumed in the past {RECENTLY:g} s {up:.0%} of the fight: {how} (LOW: consumptions "
+                    f"taken as evenly random)")
+
+
+# Divinity (PoB's "Do you have Divinity?" box: 50% more Elemental Damage, 20% less taken; MECH49: before, nothing set it,
+# so "You gain Divinity for 10 seconds on reaching maximum Divine Charges" counted 0). The game files' Divine Charge
+# sources: mods DivineChargeOnHitUnique__1_ (gain_divine_charge_on_hit_% 100, maximum_divine_charges 10) and
+# GainDivinityOnMaxDivineChargeUnique__1 (10000 ms; "Lose all Divine Charges when you gain Divinity") (checked: every
+# Stats id holding divine_charge / divinity_ms, used in Mods, PassiveSkills and GrantedEffectStatSets: those two mods
+# only; PoB's Data/Uniques has no item carrying them, so the search can't reach it today; second source poe2db UNVERIFIED).
+DIVINITY_ON_MAX = re.compile(r"gain Divinity for (\d+(?:\.\d+)?) seconds on reaching maximum Divine Charges", re.I)
+DIVINE_MAX = re.compile(r"^\+?(\d+) to maximum Divine Charges", re.I)
+DIVINE_ON_HIT = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to )?gain an? Divine Charge on Hit", re.I)
+DIVINE_LOSE = re.compile(r"Lose all Divine Charges when you gain Divinity", re.I)
+
+
+def _divinity(lines: list[str], stats: dict) -> tuple[object, str]:
+    """The Divinity box at its share of the fight: the main skill's landed hits fill the Divine Charge maximum, Divinity
+    lasts its seconds and the charges are lost; refilled within that time it never drops. Other skills' hits aren't
+    counted (an undercount, LOW). Without the "Lose all" line the maximum is reached once and then held: 0."""
+    durations = [float(m.group(1)) for t in lines if (m := DIVINITY_ON_MAX.search(t))]
+    if not durations:
+        return 0.0, ""
+    maximum = sum(float(m.group(1)) for t in lines if (m := DIVINE_MAX.search(t.strip())))
+    chance = sum(float(m.group(1) or 100) / 100 for t in lines if (m := DIVINE_ON_HIT.search(t.strip())))
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
+    if maximum <= 0 or chance * hits <= 0:
+        return 0.0, (f"Divinity on reaching maximum Divine Charges, but the build "
+                     + ("has no maximum Divine Charges" if maximum <= 0 else "gains no Divine Charges") + ": 0")
+    if not any(DIVINE_LOSE.search(t) for t in lines):
+        return 0.0, "the Divine Charge maximum is reached once and then held (no line loses them): no Divinity after that, 0"
+    fill = maximum / (chance * hits)
+    up = min(1.0, max(durations) / fill)
+    return _box(up, f"Divinity {up:.0%} of the fight: {maximum:g} Divine Charges filled in {fill:.1f} s "
+                    f"({chance * hits:.2f}/s from the main skill's landed hits), Divinity {max(durations):g} s, then lost")
+
+
 PARRY_GRANT = re.compile(r"Grants Skill:[^.;]*\bParry\b", re.I)  # (a Buckler's implicit)
 
 
@@ -1450,6 +1516,8 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
     Condition("conditionEnemyLightningExposure", "Lightning Exposure", value_fn=_exposure_uptime("Lightning"),
               fields=("Speed", "HitChance", "CritChance", "ShockChancePerHit", "IgniteChancePerHit")),
+    Condition("conditionInfusionConsumedRecently", "Infusion consumed recently", value_fn=_infusion_recently, fields=("Speed",)),
+    Condition("buffDivinity", "Divinity (on reaching maximum Divine Charges)", value_fn=_divinity, fields=("Speed", "HitChance")),
     Condition("conditionEnemyArmourBroken", "Armour Broken"),  # (armour_broken_uptime, Conditions.evidence)
     Condition("conditionEnemyCursed", "Cursed", value_fn=lambda lines, stats: _cursed(stats),
               fields=("PresenceRadius",)),
@@ -1568,6 +1636,30 @@ class Conditions:
                     for r in self.build.call("useRates", indices=sorted(set(where.values())))["rates"]}
         return {n: by_index[i] for n, i in where.items() if i in by_index}
 
+    def _infusion_consumed(self, lines: list[dict], stats: dict) -> tuple[float, str]:
+        """(Infusions consumed per second, how): the build's consumers (INFUSION_CONSUMERS) take what it makes."""
+        from builder.search.assumptions import SIPHON, infusion_supply, siphon_freezes
+
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)}
+        consumers = {n: INFUSION_CONSUMERS[n] for n in names | {self.main_skill} if n in INFUSION_CONSUMERS}
+        if not consumers:
+            return 0.0, "no skill of the build consumes Infusions: 0"
+        others = self._group_uses(groups, set(consumers) - {self.main_skill})
+        uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, 1 / models.PRESS_EVERY)
+                for n in consumers}
+        raw = self.build.call("activeSkills")["skills"]
+        present = {s["name"]: s for s in raw if not s["disabled"]}
+        siphon = (siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present
+                  else (0.0, ""))
+        supply, made = infusion_supply(present, [line["text"] for line in lines], self.found_uptimes, siphon)
+        elements = {e for each in consumers.values() for e in each}
+        have = sum(supply[e] for e in elements) + supply["Any"]
+        cast = sum(uses.values())
+        rate = min(have, cast)
+        return rate, (f"{rate:.2f}/s: {have:.2f} {'/'.join(sorted(elements)) or 'Verisium'} Infusions/s from "
+                      f"{', '.join(made) or 'nothing'}, for {', '.join(f'{n} {u:.2f}/s' for n, u in uses.items())}")
+
     def _item_uses(self, lines: list[dict], events: dict) -> dict[str, tuple[float, str]]:
         """{line text: (uses per second, how)} for the equipped flasks' and charms' own "on use" lines, and the flask
         events (Flask, LifeFlask, ManaFlask) added to `events`: each item at flasks.uses_per_second."""
@@ -1646,6 +1738,8 @@ class Conditions:
                     each[n] = number(stats.get("Speed")) if n in main_gems else uses.get(n, 1 / models.PRESS_EVERY)
             for n in [n for n, u in rage_spend.items() if u is None]:
                 rage_spend[n] = RAGE_PER_USE[n] * uses.get(n, 1 / models.PRESS_EVERY)
+        if any(INFUSION_CONSUMED.search(t) for t in texts):
+            stats["_infusion_consumed"] = self._infusion_consumed(lines, stats)
         events = event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),
                              lambda idx: self.build.call("useRates", indices=idx)["rates"], texts) if groups_now else {}
         item_uses = self._item_uses(lines, events) if any(
