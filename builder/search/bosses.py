@@ -51,7 +51,10 @@ class Boss(NamedTuple):
     # Freeze / Electrocute / Pin buildup the same (they read the same threshold, CalcOffence.lua 5570: MEDIUM).
     poise: int = 938
     heavy_stun_s: float = 4.0  # BossBase.ot set_base_heavy_stun_duration_ms 4000 (RESEARCH19 #98, HIGH; Zarokh HIGH too: its chain ApparitionBoss -> SanctumBossBase -> BossBase / SanctumMonsterBase sets no other, MECHD2)
-    es_from_life: int = 0  # MonsterTypes.EnergyShieldFromLife, % (AUDIT18 A18-4; in notes only: nothing reads it yet)
+    # MonsterTypes.EnergyShieldFromLife, % (AUDIT18 A18-4; the values match the table, AUDIT22 A22-5). What it means in
+    # the fight is UNVERIFIED: how it combines with the Unique rarity's +2,800% Life / +400% ES (a share of base Life:
+    # ES about 1.7% of final Life; or of final Life: about 50% at 33%) is open. In notes only: nothing reads it yet.
+    es_from_life: int = 0
     immune: frozenset = frozenset()  # ailments the boss can't have (AUDIT9 A9-7: Zarokh's own monster mod)
     kills: tuple = ()  # Kills rows (empty: no killable adds with a known rate; see the comment under PRESETS)
     inflicts: tuple = ()  # ailments its fight puts on the player (RESEARCH13 #60, A9-1, A10-1), for MECH-C's triggers
@@ -68,25 +71,25 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
     Boss("Arbiter of Ash", 45, -15, 0, 0, 9461668, "Demon", "the default target (RESEARCH4)", poise=1235,
          inflicts=("Ignite", "Chill", "Freeze")),
     Boss("Arbiter of Divinity", -15, 0, 45, 0, 9461668, "Demon",
-         "0.5 apex; 10% of Life as ES; Monster Category Demon (its own MonsterVarieties row, MECHD2)",
+         "0.5 apex; EnergyShieldFromLife 10 (its meaning UNVERIFIED, A22-5); Monster Category Demon (its own MonsterVarieties row, MECHD2)",
          poise=1235, es_from_life=10, inflicts=("Shock",)),
     Boss("Xesht, We That Are One", 15, 15, 15, 0, 13762425, "Demon",
-         "Breach; PoB's spectre block 0/0/0 is not the boss; 5% of Life as ES", poise=1700, es_from_life=5,
+         "Breach; PoB's spectre block 0/0/0 is not the boss; EnergyShieldFromLife 5 (its meaning UNVERIFIED, A22-5)", poise=1700, es_from_life=5,
          inflicts=("Ignite", "Shock", "Chill", "Freeze")),
     Boss("The King in the Mists", 0, 0, 0, 0, 6271939, {"Humanoid": 0.43, "Demon": 0.57},
          "Ritual, whole fight: the first form (Humanoid, Armour 20) goes immune at 25% Life, the second (Demon, Armour "
          "65) starts at full Life, both 375%: 1.75 bars (RESEARCH25 #147; the maze between them is downtime, not "
-         "counted); 10% of Life as ES; the pinnacle King's Chaos resistance is 0% (the campaign King's 60% isn't this)",
+         "counted); EnergyShieldFromLife 10 (its meaning UNVERIFIED, A22-5); the pinnacle King's Chaos resistance is 0% (the campaign King's 60% isn't this)",
          poise=468, es_from_life=10,
          kills=(Kills(25.0, 0.43, "the King's Affliction Totems / Mystic Fetishes, first form only (the second form's "
                                   "effigies can't be killed, RESEARCH25 #147)",
                       "MEDIUM: summon cooldown, RESEARCH14 #66"),),
          inflicts=("Withered", "Ignite", "Slow")),
     Boss("Zarokh, the Temporal", 15, 15, 15, 0, 7167930, "Construct",
-         "Sekhemas; can't be Frozen or Electrocuted (its own monster mod, AUDIT9 A9-7); 7% of Life as ES; its "
+         "Sekhemas; can't be Frozen or Electrocuted (its own monster mod, AUDIT9 A9-7); EnergyShieldFromLife 7 (its meaning UNVERIFIED, A22-5); its "
          "'Lightning' skills deal Physical", poise=938, es_from_life=7, immune=_NO_FREEZE_ELECTROCUTE,
          inflicts=("Slow",)),
-    Boss("The Raven Trickster", 0, 0, 0, 0, 9461668, "Humanoid", "Delirium; 10% of Life as ES", poise=1235,
+    Boss("The Raven Trickster", 0, 0, 0, 0, 9461668, "Humanoid", "Delirium; EnergyShieldFromLife 10 (its meaning UNVERIFIED, A22-5)", poise=1235,
          es_from_life=10, inflicts=("Ignite", "Shock", "Chill", "Freeze")),
     Boss("The Bodach", 0, 0, 0, 0, 17394177, "Demon", "Ritual tier 14+; one bar for both phases (MEDIUM)", poise=2275),
     Boss("Olroth, Origin of the Fall", 0, 45, 0, 0, 3364148, "Undead",
@@ -97,17 +100,17 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
          "agrees, RESEARCH INDEX #49; MECHD2)",
          poise=1235, inflicts=("Shock", "Chill", "Freeze")),
     Boss("Vessel of Kulemak", 0, 0, 0, 0, 2484882, "Demon",
-         "Abyss; empowerment by Liches not modelled (UNVERIFIED); 10% of Life as ES; stun threshold 81% (its own "
+         "Abyss; empowerment by Liches not modelled (UNVERIFIED); EnergyShieldFromLife 10 (its meaning UNVERIFIED, A22-5); stun threshold 81% (its own "
          "MonsterVarieties PoiseThreshold, the lowest ratio to its Life of any boss: MEDIUM; it has no separate parts: "
          "MonsterSegment empty, its .ot preloads adds only, MECHD2); it can revive (KulemakBoss.ot on_revive): whether "
          "a revive refills Life is UNVERIFIED (if so, Life here is one life's worth)",
          poise=81, es_from_life=10, inflicts=("Shock", "Chill", "Freeze", "Ignite")),
-    Boss("Atziri, the Red Queen", 15, 15, 15, 0, 7091472, "Demon", "Vaal; phase 1; 33% of Life as ES", poise=926,
+    Boss("Atziri, the Red Queen", 15, 15, 15, 0, 7091472, "Demon", "Vaal; phase 1; EnergyShieldFromLife 33 (its meaning UNVERIFIED, A22-5)", poise=926,
          es_from_life=33,
          kills=(Kills(45.0, 1.0, "Atziri's Royal Acolytes, killed before they reach you and explode (1 per wave: the "
                                  "wave size is UNVERIFIED, so its lower bound)", "LOW: RESEARCH16 #81"),),
          inflicts=("Ignite", "Shock", "Corrupted Blood")),
-    Boss("Atziri, the Fell Serpent", 15, 15, 15, 0, 9461668, "Demon", "Vaal phase 2; 33% of Life as ES", poise=1235,
+    Boss("Atziri, the Fell Serpent", 15, 15, 15, 0, 9461668, "Demon", "Vaal phase 2; EnergyShieldFromLife 33 (its meaning UNVERIFIED, A22-5)", poise=1235,
          es_from_life=33, inflicts=("Ignite", "Shock", "Corrupted Blood")),
 )}
 # Kill sources (AUDIT16 A16-2): the King's totems and Atziri phase 1's acolytes above. The others: 0 kills. Kulemak
@@ -120,6 +123,13 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
 # that can't be killed (MEDIUM-LOW), 0 kills, UNVERIFIED (MECHD2). The 25 s Affliction Totem skill is listed on both
 # forms (VoodooKingBoss3MAP.ot preloads the totem too; only its second-form dialogue hook is commented out): whether the
 # second form casts it is MEDIUM-LOW, so share 0.43 may undercount (ceiling 1.0): a question for the user.
+# The Arbiter of Divinity's helpers (AUDIT22 A22-6; MECHD2, research13 MonsterVarieties + game-26476662 Mods / Tags):
+# ArbiterofDivinityOrbitTotem is tagged is_daemon (a skill-casting object), no Monster Category, Life x100: not an add
+# (MEDIUM); ArbiterofDivinityBoltClone and ArbiterOfDivinityTriangulateClone are named "Daemon", ObjectSize 0, no drops
+# or experience: the boss's skill clones ("Holy Clone Bolts", "Triangulate" in its .ot), not adds (MEDIUM-LOW); the
+# Divine Clone ("Aspect of Divinity", phase 2's arena mechanic) has MonsterNoFlaskCharges ("monster_slain_flask_charges")
+# so it may be slain, but with the boss's own Life multiplier 990: no add-kill rate from it, 0 (UNVERIFIED; poe2db not
+# checked; an in-game question).
 # The ailments on the player (`inflicts`): RESEARCH13 #60 (skill damage types and explicit stats), A9-1 (Xesht's corpses:
 # Shock, Chill / Freeze), A10-1 (the King's tar swamp Slow), the King's toads and Kulemak's Shamblers' Ignite (MEDIUM-LOW /
 # LOW). Poison: none found for any preset (the same search, buff-applied debuffs RESEARCH14 #67; UNVERIFIED as a zero).
