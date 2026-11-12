@@ -140,6 +140,7 @@ def test_a_seeds_own_configuration_is_not_evidence(engine):
     """2b75c's config has the boss frozen and shocked at -100% elemental resistances, 6 Frenzy and
     3 Power Charges. After setup_seed only what a new build has and what the resolver found stays."""
     from builder import ROOT
+    from builder.search import bosses
     from builder.search.inner import Search, seed_task
 
     code = (ROOT / "benchmarks" / "reference" / "2b75c.txt").read_text(encoding="utf-8").strip()
@@ -157,6 +158,9 @@ def test_a_seeds_own_configuration_is_not_evidence(engine):
                 "overrideFrenzyCharges", "overridePowerCharges", "conditionUsingFlask"):
         # (a charge count may be there only as the resolver's own, from the build's sources: not the seed's 6)
         active = search.conditions.active.get(var)
+        if var in bosses.config_vars():  # (MECH50: the boss preset's own resistances replace the seed's -100%)
+            assert config[var] == bosses.config_vars()[var], (var, config.get(var))
+            continue
         assert var not in config or (active is not None and config[var] == active["value"]), (var, config.get(var))
     changed = {var for var in set(config) | set(fresh) if config.get(var) != fresh.get(var) and not var.startswith("quest")}
     assert changed <= set(search.conditions.active)
