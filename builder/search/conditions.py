@@ -1194,7 +1194,7 @@ CHILL_SECONDS = 8.0  # KeywordPopups Chill: "lasts ... 8 seconds on non-players 
 CHILL_FLOOR = 30.0  # KeywordPopups Chill: "Chills smaller than 30% will be ignored, so small Hits can fail to Chill"
 # The fields chill_share reads (the Chilled box, "Chilled enemies" lines, Mana Remnants' Chilled share)
 CHILL_FIELDS = ("ChillChanceOnHit", "Speed", "HitChance", "ChillDuration", "ChillEffectMod", "EnemyAilmentThreshold",
-                "CritChance", *(f"{t}{a}" for t in models.DAMAGE_TYPES for a in ("HitAverage", "CritAverage")))
+                "CritChance", "ChillHitDamage", "ChillCritDamage", *(f"{t}{a}" for t in models.DAMAGE_TYPES for a in ("HitAverage", "CritAverage")))
 EVIDENCE_FIELDS.extend(f for f in CHILL_FIELDS if f not in EVIDENCE_FIELDS)
 
 
@@ -1202,18 +1202,24 @@ def chill_effect(stats: dict) -> tuple[float, float, str]:
     """(Chill magnitude of a non-critical hit, of a critical hit, the damage basis) from the main skill's hits, in %: the
     game's KeywordPopups Chill, "Chill Magnitude depends on the Chilling damage dealt relative to the target's Elemental
     Ailment Threshold", PoB's formula 100 x damage / threshold x ChillEffectMod (CalcOffence 5674; ChillEffectMultiplier
-    100, Data/Misc.lua 77). The damage is PoB's {Cold}HitAverage / CritAverage, after the boss's resistances ("dealt";
-    PoB's own Chill check reads the same outputs, CalcOffence 5022-5033 / 5550). Cold only: other types that can Chill
-    through PoB flags (Chilling Conflux and the like) aren't readable here; when the cold hit is 0 but PoB says the hit
-    Chills, every type's hit is taken (an upper bound, MEDIUM). The average hit stands for every hit (MEDIUM: a roll
-    under the average can fall below 30%)."""
+    100, Data/Misc.lua 77). The damage is every type that can Chill, as PoB sums it (the bridge's ChillHitDamage /
+    ChillCritDamage: Cold unless it can't Chill, other types made able to, Shaper of Winter or the uniques letting
+    Physical or all damage Chill; AUDIT25 A25, an UNDERCOUNT when it was Cold only), from PoB's {Type}HitAverage /
+    CritAverage, after the boss's resistances ("dealt"; PoB's own Chill check reads the same outputs, CalcOffence
+    5022-5033 / 5550). Without the bridge's totals: the cold hit, or every type's when the cold hit is 0 but PoB Chills
+    (an upper bound, MEDIUM). The average hit stands for every hit (MEDIUM: a roll under the average can fall below
+    30%)."""
     threshold = number(stats.get("EnemyAilmentThreshold"))
     mod = number(stats.get("ChillEffectMod")) or 1.0
-    types, basis = ("Cold",), "the cold hit"
-    if not number(stats.get("ColdHitAverage")) and not number(stats.get("ColdCritAverage")):
-        types, basis = models.DAMAGE_TYPES, "the whole hit (PoB lets another type Chill; an upper bound)"
-    hit = sum(number(stats.get(f"{t}HitAverage")) for t in types)
-    crit = sum(number(stats.get(f"{t}CritAverage")) for t in types)
+    if stats.get("ChillHitDamage") is not None or stats.get("ChillCritDamage") is not None:
+        hit, crit = number(stats.get("ChillHitDamage")), number(stats.get("ChillCritDamage"))
+        basis = "the hit's damage of every type that can Chill (PoB's rule)"
+    else:
+        types, basis = ("Cold",), "the cold hit"
+        if not number(stats.get("ColdHitAverage")) and not number(stats.get("ColdCritAverage")):
+            types, basis = models.DAMAGE_TYPES, "the whole hit (PoB lets another type Chill; an upper bound)"
+        hit = sum(number(stats.get(f"{t}HitAverage")) for t in types)
+        crit = sum(number(stats.get(f"{t}CritAverage")) for t in types)
     if threshold <= 0:
         return 0.0, 0.0, basis
     return 100.0 * hit / threshold * mod, 100.0 * crit / threshold * mod, basis

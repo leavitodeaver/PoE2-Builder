@@ -2139,6 +2139,11 @@ def test_a_chill_under_30_percent_is_ignored():
     # no cold hit but PoB Chills (another type can Chill): every type's hit, an upper bound
     assert c.chill_share({**base, "LightningHitAverage": 400.0}) == 1.0
     assert "upper bound" in c.chill_effect({**base, "LightningHitAverage": 400.0})[2]
+    # the bridge's Chill-able total (AUDIT25 A25: Physical allowed to Chill): the cold part alone is 10%, the total 40%
+    allowed = {**base, "ColdHitAverage": 100.0, "PhysicalHitAverage": 300.0, "ChillHitDamage": 400.0,
+               "ChillCritDamage": 0.0}
+    assert c.chill_share(allowed) == 1.0 and "every type" in c.chill_effect(allowed)[2]
+    assert c.chill_share({**allowed, "ChillHitDamage": 100.0}) == 0.0  # (PoB's total says only the cold part Chills)
     # a Blind on a Chilled boss reads the same share
     blind = "Blind Chilled enemies on Hit"
     assert c._debuff_source(blind, "conditionEnemyBlinded", [blind], {**base, "ColdHitAverage": 100.0})[0] == 0.0

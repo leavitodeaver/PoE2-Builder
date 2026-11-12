@@ -1693,6 +1693,27 @@ def test_icestorm_cannot_chill(engine):
     search.setup(quests=False)
     raw = chr(10).join(["Rarity: Rare", "Test Amulet", "Stellar Amulet", "Implicits: 0", "5000% increased Cold Damage"])
     stats = search.build.call("equip", slot="Amulet", raw=raw,
-                              fields=["ChillChanceOnHit", "ColdHitAverage", "EnemyAilmentThreshold"])["stats"]
+                              fields=["ChillChanceOnHit", "ColdHitAverage", "EnemyAilmentThreshold", "ChillHitDamage"])["stats"]
     assert stats["ColdHitAverage"] > stats["EnemyAilmentThreshold"] / 100  # PoB would Chill this hit
     assert stats["ChillChanceOnHit"] == 0
+    assert stats["ChillHitDamage"] == 0  # (the bridge's Chill-able total skips a type that can't Chill)
+
+
+def test_the_chill_able_hit_counts_every_type_allowed_to_chill(engine):
+    """MECH54, AUDIT25 A25: the bridge's ChillHitDamage is PoB's sum for Chill: the cold hit, plus another type once a
+    line lets it Chill ("Your Physical Damage can Chill" sets PhysicalCanChill, ModParser 3946)."""
+    payload = make_payload(BuildRequest(main_skill="Ice Nova", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Ice Nova"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    fields = ["ChillHitDamage", "ColdHitAverage", "PhysicalHitAverage"]
+
+    def wear(lines):
+        raw = chr(10).join(["Rarity: Rare", "Test Amulet", "Stellar Amulet", "Implicits: 0", *lines])
+        return search.build.call("equip", slot="Amulet", raw=raw, fields=fields)["stats"]
+
+    added = "Gain 50% of Damage as Extra Physical Damage"
+    cold = wear([added])
+    assert cold["PhysicalHitAverage"] > 0 and cold["ChillHitDamage"] == pytest.approx(cold["ColdHitAverage"])
+    both = wear([added, "Your Physical Damage can Chill"])
+    assert both["ChillHitDamage"] == pytest.approx(both["ColdHitAverage"] + both["PhysicalHitAverage"])

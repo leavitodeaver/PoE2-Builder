@@ -763,6 +763,40 @@ end
 -- ShowAverage (SEARCH7, the manager's ruling 12 Nov): 1 when PoB shows the main skill's damage per use (skillData.showAverage:
 -- Sunder, Earthquake and other slams), so its CombinedDPS is AverageDamage, blind to attack speed and DPS multipliers
 -- (CalcOffence.lua 6265); objective.main_dps then reads the per-second damage. The minion's under Minion.ShowAverage.
+-- The main skill's Chill-able hit (MECH54, AUDIT25 A25): PoB sums, for Chill's magnitude, the HitAverage / CritAverage
+-- of every damage type that can Chill (CalcOffence 5022-5033 calcAverageUnmitigatedSourceDamage; canDoAilment 4999-5016:
+-- Cold unless <Type>CannotChill / CannotChill, any other type with <Type>CanChill / CanChill, e.g. Shaper of Winter or
+-- the uniques letting Physical or all damage Chill; crits off with AilmentsAreNeverFromCrit). Those are locals of
+-- CalcOffence, so the same rule is applied here to its outputs: output.ChillHitDamage / ChillCritDamage, read by
+-- conditions.chill_effect for the game's 30% floor.
+local CHILL_TYPES = { "Physical", "Lightning", "Cold", "Fire", "Chaos" }
+local function setChillDamage(env)
+	local skill = env and env.player and env.player.mainSkill
+	local output = env and env.player and env.player.output
+	if not skill or not output or not skill.skillModList then
+		return
+	end
+	local mods, cfg = skill.skillModList, skill.skillCfg
+	local canCrit = not mods:Flag(cfg, "AilmentsAreNeverFromCrit")
+	local hit, crit = 0, 0
+	for _, t in ipairs(CHILL_TYPES) do
+		local allowed
+		if t == "Cold" then
+			allowed = not (mods:Flag(cfg, "ColdCannotChill") or mods:Flag(cfg, "CannotChill"))
+		else
+			allowed = mods:Flag(cfg, t .. "CanChill") or mods:Flag(cfg, "CanChill")
+		end
+		if allowed then
+			local hand = type(output.MainHand) == "table" and output.MainHand or { }
+			hit = hit + num(output[t .. "HitAverage"] or hand[t .. "HitAverage"])
+			if canCrit then
+				crit = crit + num(output[t .. "CritAverage"] or hand[t .. "CritAverage"])
+			end
+		end
+	end
+	output.ChillHitDamage, output.ChillCritDamage = hit, crit
+end
+
 local function markShowAverage(env)
 	for _, actor in ipairs({ env.player, env.minion }) do
 		local skill = actor and actor.mainSkill
@@ -800,6 +834,7 @@ local function installDerived()
 		local function finish(...)
 			setLowLifeCap(env, env and env.player and env.player.output)
 			markShowAverage(env)
+			setChillDamage(env)
 			return ...
 		end
 		return finish(perform(env, ...))
