@@ -251,29 +251,65 @@ def hits_note(name: str | None = None) -> dict:
 # #126, research/boss-dot-on-player-es.md). KeywordPopups EnergyShield: "Rapidly Recharges if you don't lose Energy
 # Shield for a short time ... Damage from Bleeding and Poison bypasses Energy Shield" (HIGH): an Ignite or Corrupted
 # Blood on you keeps removing ES, so Recharge can't start until it ends plus the delay.
-# - Ignite: any landed Fire hit can Ignite you (Flammability; no chance stat needed). How often it does depends on the
-#   hit against your ailment threshold, which PoB doesn't give: LOW. Headline: every landed Fire hit Ignites (the lower
-#   uptime; less your Ignite avoidance, PoB's IgniteAvoidChance), with the "never Ignites" figure beside it. 4 s base
-#   (KeywordPopups Ignite) x PoB's SelfIgniteDuration.
+# - Ignite (MECHC7, AUDIT21 A21-1; before, every landed Fire hit was taken to Ignite: a flat LOW guess): the game's rule,
+#   KeywordPopups Flammability: "1% chance to Ignite the target for every 5% of the target's Ailment Threshold dealt as
+#   Fire damage", applied before the hit rolls; "Multiple instances of Flammability stack ... up to 100%. Each instance
+#   ... lasting 8 seconds by default"; "modifiers which increase the chance to inflict Ailments will increase the
+#   Magnitude of Flammability" (HIGH). The player's threshold is PoB's AilmentThreshold (CalcDefence.lua 1999; half of
+#   Life by default, KeywordPopups AilmentThreshold); the Fire dealt is PoB's FireTakenHit (the boss's full Fire hit,
+#   config_vars, after your mitigation). The Flammability of the boss's other landed Fire hits in the last 8 s counts at
+#   its mean (MEDIUM-LOW: whether an Ignite clears the Flammability on you is UNVERIFIED; if it does, the chance is
+#   lower). The bosses' "increased Ignite chance" stats (IGNITE_INCREASE) are averaged over their Fire skills (LOW: each
+#   skill's share of the Fire hits). Less your Ignite avoidance (PoB's IgniteAvoidChance). 4 s base (KeywordPopups
+#   Ignite) x PoB's SelfIgniteDuration.
 # - Corrupted Blood (Atziri's BloodSpearPulse, 3 s, stacking; "is not Bleeding", so it hits ES: MEDIUM-HIGH): one of her
 #   damaging skills, at its share of her hits (LOW).
 # - Degen grounds (8 bosses): you can step out of them: 0, with a play note (RESEARCH21's advice; LOW).
 # - Bleeding (Olroth) and Poison bypass ES: they don't delay its Recharge.
 # ---------------------------------------------------------------------------------------------------------------------
 IGNITE_SECONDS = 4.0  # KeywordPopups Ignite: Fire damage over time for 4 s by default (HIGH)
+FLAMMABILITY_PER_THRESHOLD = 0.2  # KeywordPopups Flammability: 1% Ignite chance per 5% of the Ailment Threshold (HIGH)
+FLAMMABILITY_SECONDS = 8.0  # KeywordPopups Flammability: each instance lasts 8 s by default (HIGH)
+# The bosses' Fire skills with an "ignite_chance_+%" stat (GrantedEffectStatSets, read 12 Nov 2026 by
+# scratch/mechc7/ignitechance.py): Arbiter of Ash's MASDemonClawBossFire +20 (one of its 17 Fire skills; RESEARCH21 #126
+# names the same); Atziri's fire melee MeleeAtAnimationSpeedFire +80 (that Atziri uses it: RESEARCH21's monster scan
+# only, LOW; taken for both phases). Others: none found among the presets' skills by RESEARCH21 (UNVERIFIED beyond its
+# scan).
+IGNITE_INCREASE = {"Arbiter of Ash": (20,), "Atziri, the Red Queen": (80,), "Atziri, the Fell Serpent": (80,)}
 CORRUPTED_BLOOD = {"Atziri, the Red Queen": 3.0, "Atziri, the Fell Serpent": 3.0}  # seconds (BloodSpearPulse, RESEARCH13)
 GROUNDS_NOTE = ("the boss's damaging grounds aren't counted: step out of them (8 of 13 bosses have one; LOW)")
 
 
-def es_dot(stats: dict, ignite: bool = True) -> list[tuple[float, float, str]]:
+def ignite_chance(stats: dict, land: float = 0.0) -> tuple[float, str]:
+    """Chance a landed Fire hit of the boss Ignites you (before your Ignite avoidance), and how it was worked out.
+    `land` is the boss's landed hits per second (their Fire share stacks Flammability over 8 s)."""
+    name = boss_name(stats)
+    fire = type_shares(name)["Fire"]
+    taken = number(stats.get("FireTakenHit")) if "FireTakenHit" in stats else hit_sizes(name)["Fire"]
+    threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
+    if threshold <= 0:
+        return 1.0, "no Ailment Threshold read: every landed Fire hit taken to Ignite (LOW)"
+    count = hit_table(name)[1].get("Fire", 0)
+    increase = sum(IGNITE_INCREASE.get(name, ())) / count if count else 0.0
+    per_hit = max(taken, 0.0) / threshold * FLAMMABILITY_PER_THRESHOLD * (1 + increase / 100)
+    others = max(land, 0.0) * fire * FLAMMABILITY_SECONDS
+    chance = min(1.0, per_hit * (1 + others))
+    return chance, (f"a {taken:,.0f} Fire hit against your {threshold:,.0f} Ailment Threshold gives {per_hit:.1%} "
+                    f"Flammability (+{increase:.1f}% increased from the boss's skills), plus that of the "
+                    f"{others:.1f} other Fire hits landed in the last 8 s: {chance:.0%} to Ignite (MEDIUM-LOW)")
+
+
+def es_dot(stats: dict, ignite: bool = True, land: float = 0.0) -> list[tuple[float, float, str]]:
     """(share of the boss's landed hits that leave damage over time on your Energy Shield, its seconds, what)."""
     name = boss_name(stats)
     out = []
     fire = type_shares(name)["Fire"]
     avoid = min(max(number(stats.get("IgniteAvoidChance")), 0.0), 100) / 100
     if ignite and fire > 0 and avoid < 1:
+        chance = ignite_chance(stats, land)[0]
         scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
-        out.append((fire * (1 - avoid), IGNITE_SECONDS * scale, "Ignite"))
+        if chance > 0:
+            out.append((fire * chance * (1 - avoid), IGNITE_SECONDS * scale, "Ignite"))
     if name in CORRUPTED_BLOOD:
         out.append((1 / sum(hit_table(name)[1].values()), CORRUPTED_BLOOD[name], "Corrupted Blood"))
     return out
@@ -286,17 +322,18 @@ def recharge_wait(stats: dict, delay: float, land: float, ignite: bool = True) -
     undercount of the wait)."""
     if land <= 0:
         return delay
-    dots = es_dot(stats, ignite)
+    dots = es_dot(stats, ignite, land)
     plain = 1 - sum(p for p, _, _ in dots)
     total = plain * math.exp(min(land * delay, 700.0)) + sum(p * math.exp(min(land * (delay + d), 700.0)) for p, d, _ in dots)
     return (total - 1) / land
 
 
 def recharge_text(stats: dict, delay: float, land: float) -> str:
-    dots = es_dot(stats)
+    dots = es_dot(stats, land=land)
     if not dots:
         return GROUNDS_NOTE
     parts = ", ".join(f"{what} on {p:.0%} of landed hits for {d:g} s" for p, d, what in dots)
     bare = recharge_wait(stats, delay, land, ignite=False)
-    return (f"damage over time on your Energy Shield delays it: {parts} (Ignite: every landed Fire hit assumed to Ignite "
-            f"you, LOW; if none did: {bare:.1f} s); " + GROUNDS_NOTE)
+    how = ignite_chance(stats, land)[1] if any(what == "Ignite" for _, _, what in dots) else ""
+    return (f"damage over time on your Energy Shield delays it: {parts}" + (f" (Ignite: {how}; if none did: {bare:.1f} s)"
+            if how else "") + "; " + GROUNDS_NOTE)

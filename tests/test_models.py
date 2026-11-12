@@ -1745,8 +1745,32 @@ def test_the_bosss_ignites_delay_energy_shield_recharge():
     half = boss_hits.recharge_wait({**stats, "IgniteAvoidChance": 50, "SelfIgniteDuration": 50}, 4.0, land)
     assert half == pytest.approx(((1 - p / 2) * math.exp(land * 4.0) + p / 2 * math.exp(land * 6.0) - 1) / land)
     text = next(s for s in models.archon_sources(stats, set()) if s.name == "Archon of the Blizzard").basis
-    assert "Ignite on 71% of landed hits" in text and "if none did" in text and "grounds" in text
+    assert "Ignite on 71% of landed hits" in text and "if none did" in text and "grounds" in text  # (no threshold read)
     assert boss_hits.es_dot({"_boss": "Zarokh, the Temporal"}) == []  # (Physical only: no Fire hits)
+
+
+def test_the_bosss_fire_hits_ignite_you_by_flammability_against_your_ailment_threshold():
+    """MECHC7 (AUDIT21 A21-1): KeywordPopups Flammability: 1% Ignite chance per 5% of your Ailment Threshold dealt as Fire,
+    stacking over 8 s, raised by the boss skill's increased Ignite chance; a CI build (threshold ~0) Ignites every time."""
+    import math
+    from builder.search import boss_hits
+
+    stats = {"EnergyShield": 1000, "EnergyShieldRechargeDelay": 4.0, "enemySkillTime": 1.0, "EvadeChance": 100,
+             "AilmentThreshold": 5000, "FireTakenHit": 1000, "Life": 10000}
+    land = 7 / 20
+    per_hit = 1000 / 5000 * 0.2 * (1 + 20 / 17 / 100)
+    chance = per_hit * (1 + land * 17 / 24 * 8)
+    assert boss_hits.ignite_chance(stats, land)[0] == pytest.approx(chance)
+    p = 17 / 24 * chance
+    wait = ((1 - p) * math.exp(land * 4.0) + p * math.exp(land * 8.0) - 1) / land
+    assert boss_hits.recharge_wait(stats, 4.0, land) == pytest.approx(wait)
+    assert boss_hits.ignite_chance({**stats, "AilmentThreshold": 0.5, "Life": 1}, land)[0] == 1.0  # (CI)
+    no_read = {k: v for k, v in stats.items() if k != "AilmentThreshold"}
+    assert boss_hits.ignite_chance(no_read, 0.0)[0] == pytest.approx(per_hit)  # (half of Life: 5,000)
+    atziri = boss_hits.ignite_chance({**stats, "_boss": "Atziri, the Red Queen"}, 0.0)[0]
+    assert atziri == pytest.approx(0.04 * (1 + 80 / 10 / 100))
+    text = next(s for s in models.archon_sources(stats, set()) if s.name == "Archon of the Blizzard").basis
+    assert "Ailment Threshold" in text and "if none did" in text
 
 
 def test_a_meta_triggered_curse_or_mark_is_up_at_the_meta_s_trigger_rate():
