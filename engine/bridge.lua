@@ -3000,8 +3000,27 @@ function bridge.chargeGain()
 			lifeFlaskBlocked = true
 		end
 	end
+	-- What a charm's "Used when ..." trigger needs from the fight (MECHC2, flasks.trigger_rate): the boss preset's hit
+	-- cadence and the damage types it deals, your evade and block, and the build's Perfect Timing skills (the main skill's
+	-- uses per second when it is one)
+	local output = build.calcsTab.mainOutput or { }
+	local boss = setmetatable({ }, { __jsontype = "object" })
+	for _, kind in ipairs({ "Physical", "Fire", "Cold", "Lightning", "Chaos" }) do
+		boss[kind] = output[kind .. "EnemyDamage"] or 0
+	end
+	local perfect, perfectMain = 0, false
+	local main = build.calcsTab.mainEnv.player.mainSkill
+	for _, skill in ipairs(build.calcsTab.mainEnv.player.activeSkillList) do
+		if skill.skillTypes and skill.skillTypes[SkillType.PerfectTiming] then
+			perfect = perfect + 1
+			perfectMain = perfectMain or skill == main
+		end
+	end
 	return {
 		active = active, lifeFlaskBlocked = lifeFlaskBlocked,
+		bossDamage = boss, enemySkillTime = output.enemySkillTime or 0, evade = output.EvadeChance or 0,
+		block = output.EffectiveBlockChance or 0, perfectSkills = perfect,
+		perfectMainRate = perfectMain and (output.Speed or 0) or 0,
 		flask = base("FlaskChargesGenerated"), lifeFlask = base("LifeFlaskChargesGenerated"),
 		manaFlask = base("ManaFlaskChargesGenerated"), flaskGainInc = inc("FlaskChargesGained"),
 		charm = base("CharmChargesGenerated"), charmGainInc = inc("CharmChargesGained"),

@@ -553,7 +553,17 @@ def test_flask_effects_count_only_while_generated_charges_keep_them_up():
     assert uptime(mana, Charges(life_flask=5), "Mana") == 0.0  # Life flask generation doesn't fill Mana flasks
     golden = {"kind": "Charm", "duration": 4, "chargesUsed": 20}
     assert uptime(golden, Charges(charm=50), trigger="Used when you kill a Rare or Unique enemy") == 0.0
-    assert uptime(golden, Charges(charm=5), trigger="Used when you become Frozen") == 1.0
+    assert uptime(golden, Charges(charm=5), trigger="Used when you take Fire damage from a Hit") == 0.0  # no boss hits
+    # A charm fires only on its event (MECHC2): charges and the boss's landing Fire hits (1/s) both needed
+    fire = Charges(charm=5, boss_hits=1.0, boss_types=("Fire",))
+    assert uptime(golden, fire, trigger="Used when you take Fire damage from a Hit") == 1.0  # 0.25 uses/s x 4 s
+    assert uptime(golden, fire, trigger="Used when you take Cold damage from a Hit") == 0.0  # the boss deals no Cold
+    assert uptime(golden, fire, trigger="Used when you become Ignited") == pytest.approx(0.4)  # one per 10 s (LOW) x 4 s
+    assert uptime(golden, fire, trigger="Used when you become Frozen") == 0.0
+    assert uptime(golden, fire, trigger="Used when you become Cursed") == 0.0  # pinnacle bosses don't curse
+    assert uptime(golden, fire, trigger="Used when you release a skill with Perfect Timing") == 0.0  # no such skill
+    perfect = Charges(charm=5, perfect_skills=1, perfect_main_rate=2.0)
+    assert uptime(golden, perfect, trigger="Used when you release a skill with Perfect Timing") == 1.0
 
 
 def test_flask_recovery_counts_toward_sustain_at_the_rate_charges_allow():

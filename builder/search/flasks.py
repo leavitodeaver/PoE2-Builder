@@ -39,13 +39,76 @@ class Charges:
     mana_recovery_inc: float = 0.0
     charm_limit: int = 0
     life_flask_blocked: bool = False  # "Flasks do not recover Life" (Sanguine Tides, UniqueLifeFlaskNoRecovery1)
+    # What charm triggers need from the fight (trigger_rate): the boss's hits that land per second, the damage types it
+    # deals, the build's Perfect Timing skills and the main skill's uses per second when it is one
+    boss_hits: float = 0.0
+    boss_types: tuple[str, ...] = ()
+    perfect_skills: int = 0
+    perfect_main_rate: float = 0.0
 
     @classmethod
     def from_bridge(cls, data: dict) -> Charges:
+        every = float(data.get("enemySkillTime") or 0.0)
+        land = ((1 - min(float(data.get("evade") or 0.0), 100) / 100) * (1 - min(float(data.get("block") or 0.0), 100) / 100)
+                / every) if every > 0 else 0.0
+        types = tuple(k for k, v in (data.get("bossDamage") or {}).items() if float(v or 0) > 0)
         return cls(data.get("flask", 0), data.get("lifeFlask", 0), data.get("manaFlask", 0), data.get("flaskGainInc", 0),
                    data.get("charm", 0), data.get("charmGainInc", 0), data.get("flaskDurationInc", 0),
                    data.get("charmDurationInc", 0), data.get("lifeRecoveryInc", 0), data.get("manaRecoveryInc", 0),
-                   int(data.get("charmLimit", 0)), bool(data.get("lifeFlaskBlocked", False)))
+                   int(data.get("charmLimit", 0)), bool(data.get("lifeFlaskBlocked", False)), land, types,
+                   int(data.get("perfectSkills") or 0), float(data.get("perfectMainRate") or 0.0))
+
+
+# Charm triggers other than a kill (MECHC2, FIX_QUEUE: each counted as firing whenever its charges allowed, whether or not
+# the event can happen on a boss: an overcount). Every charm trigger in PoB's bases and ModCache (checked: "Used when"
+# lines of Data/Bases/flask.lua and ModCache.lua; the uniques Beira's Anguish, Nascent Hope, Opportunity, Sanguis Heroum
+# and The Black Cat use the same wordings) is one of these. Events per second on a lone boss:
+# - "take <Type> damage from a Hit": the boss's hits that land, if its preset deals that type (PoB's <Type>EnemyDamage);
+# - "become Cursed": none against a pinnacle boss (RESEARCH #33, boss-curses-player.md, MEDIUM-HIGH: no pinnacle boss
+#   skill carries a curse stat; checked by the research there against every GrantedEffect and poe2db);
+# - "release a skill with Perfect Timing": the main skill's uses when it is a Perfect Timing skill, else one press per
+#   models.PRESS_EVERY s of the build's Perfect Timing skill (LOW, as other pressed skills), none without one;
+# - the boss's ailments, Stun and Slow on you ("become Ignited / Frozen / Shocked / Poisoned / Stunned", "start Bleeding",
+#   "affected by a Slow"): only when the boss deals the damage type behind it (Fire, Cold, Lightning, Chaos, Physical; any
+#   for Stun and Slow); how often the game's boss inflicts them no data gives: one per BOSS_AILMENT_EVERY s, at most one
+#   per landing hit (a flat rate where the game decides it: LOW, named in the report for the manager).
+BOSS_AILMENT_EVERY = 10.0
+TRIGGER_DAMAGE = {"ignited": "Fire", "frozen": "Cold", "shocked": "Lightning", "poisoned": "Chaos", "bleeding": "Physical",
+                  "stunned": None, "slow": None}
+
+
+def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
+    """Events per second that can fire a charm's "Used when ..." trigger on a lone boss, and how; None when the text has no
+    trigger this reads (its charges alone decide, as before)."""
+    import re
+
+    from builder.search.models import PRESS_EVERY
+
+    text = trigger.lower()
+    if m := re.search(r"used when you take (fire|cold|lightning|chaos|physical) damage from a hit", text):
+        kind = m.group(1).capitalize()
+        if kind not in gain.boss_types:
+            return 0.0, f"the boss deals no {kind} damage"
+        return gain.boss_hits, f"the boss's hits that land, {gain.boss_hits:.2f}/s ({kind} among its damage)"
+    if "used when you become cursed" in text:
+        return 0.0, "pinnacle bosses don't curse you (research: no pinnacle boss skill carries a curse stat)"
+    if "perfect timing" in text and "used when" in text:
+        if gain.perfect_main_rate > 0:
+            return gain.perfect_main_rate, f"the main skill's Perfect Timing releases, {gain.perfect_main_rate:.2f}/s"
+        if gain.perfect_skills > 0:
+            return 1 / PRESS_EVERY, f"a Perfect Timing skill pressed once per {PRESS_EVERY:g} s (LOW)"
+        return 0.0, "no Perfect Timing skill in the build"
+    m = re.search(r"used when you (?:become (ignited|frozen|shocked|poisoned|stunned)|start (bleeding)|are affected by a (slow))",
+                  text)
+    if m is None:
+        return None
+    event = next(g for g in m.groups() if g)
+    kind = TRIGGER_DAMAGE[event]
+    if kind is not None and kind not in gain.boss_types:
+        return 0.0, f"the boss deals no {kind} damage to make you {event}"
+    rate = min(1 / BOSS_AILMENT_EVERY, gain.boss_hits)
+    return rate, (f"you {'are ' if event != 'slow' else ''}{event} by the boss once per {BOSS_AILMENT_EVERY:g} s assumed "
+                  "(LOW: how often a boss does it no data gives)")
 
 
 def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
@@ -74,7 +137,10 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
     rate = charges_per_second(info, gain, pool)
     if used <= 0:
         return 1.0
-    return min(1.0, rate * duration(info, gain) / used)
+    uses = rate / used
+    if info.get("kind") == "Charm" and (event := trigger_rate(trigger, gain)) is not None:
+        uses = min(uses, event[0])  # (a charm is used by its trigger only: charges and the event both needed)
+    return min(1.0, uses * duration(info, gain))
 
 
 def charm_charges_used(charms: list[tuple[dict, str]], gain: Charges) -> tuple[float, str]:
@@ -90,9 +156,12 @@ def charm_charges_used(charms: list[tuple[dict, str]], gain: Charges) -> tuple[f
         length = duration(info, gain)
         if length > 0:
             uses = min(uses, 1 / length)
+        event = trigger_rate(raw, gain)
+        if event is not None:
+            uses = min(uses, event[0])
         total += uses * used
         name = next((line for line in raw.splitlines()[1:3] if line and ":" not in line), "a charm")
-        how.append(f"{name}: {uses:.3f} uses/s x {used:g} charges")
+        how.append(f"{name}: {uses:.3f} uses/s x {used:g} charges" + (f" (its trigger: {event[1]})" if event else ""))
     return total, "; ".join(how)
 
 
