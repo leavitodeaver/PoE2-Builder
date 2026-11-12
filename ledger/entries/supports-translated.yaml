@@ -348,3 +348,48 @@
   sources: ["SupportPracticalMagicPlayer, SupportPracticalMagicPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
   test_in_game: "Heavy Stun a boss with the supported skill, then compare a Spell's damage within 8 s and after."
   status: proposed
+
+- id: support-long-fuse-detonation-damage
+  title: Long Fuse I/II, 30% / 35% more Damage on the skill's Detonations (only on the stat sets that are the Detonation)
+  kind: gem_stat
+  support: true
+  skill: [Long Fuse I, Long Fuse II]
+  support_stats: ['support_long_fuse_detonation_damage_+%_final']
+  match: '^support_long_fuse_detonation_damage_\+%_final$'
+  replace: ['1% more Damage']
+  # Which of each skill's stat sets is the Detonation (PoB labels). `all`: every damaging set is. A skill whose stat set
+  # isn't in its list, or whose calculated set the tool doesn't know, gets nothing (models.stat_set_counts).
+  stat_sets:
+    Explosive Grenade: all
+    Flash Grenade: all
+    Voltaic Grenade: all
+    Frost Bomb: all
+    Ice Fragments: all
+    Toxic Domain: all
+    Explosive Spear: [Explosion]
+    Gas Grenade: [Impact]
+    Toxic Growth: [Explosion]
+    Oil Grenade: [Primary Grenade]
+    Cluster Grenade: [Primary Grenade]
+  confidence: datamined
+  notes: >-
+    "Detonations from supported Skills deal 30% (35%) more Damage" (SupportLongFusePlayer 30, ...PlayerTwo 35); PoB maps
+    only its "50% (70%) increased Detonation Time" (skill_detonation_time_+%), not the damage (checked: SkillStatMap.lua
+    and Modules/*.lua for support_long_fuse, 12 Nov 2026). Detonation Time's definition (KeywordPopups DetonationTime):
+    "Skills with a Detonation Time Detonate once this time has elapsed". So the line goes only on the stat set that is
+    that event, from the game's skill descriptions: the whole skill for Explosive / Flash / Voltaic Grenade, Frost Bomb
+    ("When the Orb's duration ends, it Detonates"), Ice Fragments and Toxic Domain (its Toxic Bloom set deals no damage,
+    base_deal_no_damage); Explosive Spear's Explosion ("will explode at the end of its Detonation Time"), not the thrown
+    Spear's hit; Gas Grenade's Impact set (the "burst of Poison gas when its fuse expires"), not the Poison Cloud;
+    Toxic Growth's Explosion ("deal damage on impact, then Detonate"), not the Pustules' impact; Oil Grenade's and
+    Cluster Grenade's Primary Grenade. Left out, UNVERIFIED whether they are Detonations (the game's text and poe2db
+    don't say): Explosive Spear's Frenzy-Charged explosion ("explode immediately"), Gas Grenade's Explosion (the cloud
+    set off by Burning or a Detonator), Cluster Grenade's Mini Grenades ("explode when they come to a stop", though they
+    carry a Detonation Time) and Oil Grenade's Oil Ground. Those stay as PoB has them (no bonus: a possible undercount).
+    PoB has no modifier tag for a stat set, so the line (tagged to the skill's name) reaches every set of that skill: on a
+    listed set it's counted only while the skill's calculated set is one of them, and today the tool doesn't know the
+    calculated set (the bridge doesn't report it), so only the `all` skills get it until it does.
+  sources: ["SupportLongFusePlayer, SupportLongFusePlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd",
+            "ActiveSkills descriptions (build 26476662)", "https://poe2db.tw/us/Long_Fuse_I"]
+  test_in_game: "Explosive Grenade at a dummy with and without Long Fuse I: the blast's hit (1.3x with it, before the longer fuse)."
+  status: proposed

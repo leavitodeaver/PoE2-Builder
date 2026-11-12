@@ -2064,6 +2064,14 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                       if entry.pattern is not None and entry.pattern.search(stat) and number(v)}
             if support and not values:  # (none of the entry's supports is on this skill)
                 continue
+            set_why = ""
+            if entry.raw.get("stat_sets") is not None:  # (acts on some of the skill's stat sets only: stat_set_counts)
+                counted, set_why = stat_set_counts(skill, entry.raw["stat_sets"])
+                if not counted:
+                    notes.append({"label": entry.title, "value": "not counted", "basis": f"{name}: {set_why}",
+                                  "confidence": entry.confidence, "entry": entry.id})
+                    done.add(name)
+                    continue
             if entry.raw.get("sum") and values:
                 values = {" + ".join(sorted(values)): sum(values.values())}
             targets = [name]
@@ -2088,6 +2096,7 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 why = f"; {why}"
             else:
                 why = ""
+            why += set_why
             boxes = [str(b) for b in entry.raw.get("additive") or ()]
             on = sum(1 for b in boxes if (config or {}).get(b))
             for stat, value in sorted(values.items()):
@@ -2154,6 +2163,32 @@ def additive_value(value: float, on: int) -> tuple[float, str]:
     return each, (f"; {on} of its conditions are on in this calculation, so each line is {each:.3g}% and they multiply to "
                   f"{1 + on * value / 100:.3g}x, the game's 1 + {on} x {value:g}% (they add in the game; PoB would multiply "
                   f"them); a box turned off by the uptime weighing leaves the others at this size, under 1% low")
+
+
+# `stat_sets: {skill: all | [label, ...]}` (COVE8): the entry's line acts on some of a skill's stat sets only (Long Fuse's
+# "Detonations from supported Skills deal 30% more Damage": Explosive Spear's Explosion, not the thrown Spear). PoB has no
+# modifier tag for a stat set (checked: the tag types in Classes/ModStore.lua EvalMod; SkillPart reads the skill's
+# `parts`, which these skills don't have, and BaseFlag reads stat set 1 only), so the line (tagged to the skill's name)
+# reaches every set: it's counted only while the skill's calculated set is a listed one (Skill.stat_set, the label, once
+# the bridge reports it: MECH-B), and on `all` skills, whose every damaging set is. A skill not in the map gets nothing.
+
+
+def stat_set_counts(skill: Skill, sets: dict) -> tuple[bool, str]:
+    """Whether a `stat_sets` entry's line counts on `skill`'s calculated stat set; and why (basis text)."""
+    wanted = sets.get(skill.name)
+    if wanted is None:
+        return False, "not one of the skills the entry lists its parts for (UNVERIFIED which of its parts it acts on): not counted"
+    if wanted == "all":
+        return True, "; on every damaging stat set of the skill"
+    wanted = [str(w) for w in wanted]
+    label = getattr(skill, "stat_set", None)
+    if label is None:
+        return False, (f"only its {' / '.join(wanted)} stat set gets it, and the tool doesn't know which stat set is calculated "
+                       f"(the bridge doesn't report it yet): not counted (an undercount when that set is the one)")
+    if label not in wanted:
+        return False, f"its calculated stat set {label} isn't one it acts on ({' / '.join(wanted)}): not counted"
+    return True, (f"; its calculated stat set {label} is one it acts on (the line, tagged to the skill's name, would also "
+                  f"reach another group's copy of {skill.name} at another stat set)")
 
 
 # `to: part:<name>` (COVE4): a support stat acting only on a part of what the skill does that neither PoB nor the tool

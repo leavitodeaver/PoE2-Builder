@@ -638,6 +638,23 @@ def test_slow_potency_counts_as_chill_magnitude_on_its_skill():
     assert notes[0]["entry"] == "support-slow-potency-chill"
 
 
+def test_long_fuse_counts_on_the_detonating_stat_sets_only():
+    fuse = {"support_long_fuse_detonation_damage_+%_final": 35}
+    grenade = models.Skill("Explosive Grenade", group=1, attack=True, support_stats=fuse)
+    mods, notes = models.gem_stat_model([grenade])
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [("1% more Damage", 35, "Explosive Grenade")]
+    assert notes[0]["entry"] == "support-long-fuse-detonation-damage"
+    spear = models.Skill("Explosive Spear", group=2, attack=True, support_stats=fuse)
+    mods, notes = models.gem_stat_model([spear])  # (calculated stat set unknown: not counted, said so)
+    assert mods == [] and "doesn't know which stat set" in notes[0]["basis"]
+    spear.stat_set = "Spear"  # (the thrown hit isn't the Detonation)
+    assert models.gem_stat_model([spear])[0] == []
+    spear.stat_set = "Explosion"
+    assert [m["scale"] for m in models.gem_stat_model([spear])[0]] == [35]
+    other = models.Skill("Some Unlisted Skill", group=3, support_stats=fuse)
+    assert models.gem_stat_model([other])[0] == []
+
+
 def test_support_entries_list_every_stat_their_match_takes():
     from builder.ledger import gem_stat_entries
 
