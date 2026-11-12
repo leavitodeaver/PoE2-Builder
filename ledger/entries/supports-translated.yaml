@@ -396,3 +396,25 @@
             "ActiveSkills descriptions (build 26476662)", "https://poe2db.tw/us/Long_Fuse_I"]
   test_in_game: "Explosive Grenade at a dummy with and without Long Fuse I: the blast's hit (1.3x with it, before the longer fuse)."
   status: proposed
+
+- id: support-upwelling-minion-damage
+  title: Upwelling I/II, 30% / 50% increased Minion Damage while you're not on full Mana (at the share of the fight the build's Mana spending keeps you below full)
+  kind: gem_stat
+  support: true
+  applies_to: build
+  share: not_full_mana
+  skill: [Upwelling I, Upwelling II]
+  support_stats: ['support_minion_damage_spirit_cost_minion_damage_+%_while_missing_mana']
+  match: '^support_minion_damage_spirit_cost_minion_damage_\+%_while_missing_mana$'
+  replace: ['Minions deal 1% increased Damage']
+  confidence: theory
+  notes: >-
+    "Your Minions deal 30% (50%) increased Damage while you are not on full Mana while a Supported Skill is active"
+    (SupportUpwellingPlayer 30, ...PlayerTwo 50; supports Persistent Buff skills, which are active while reserved). PoB
+    maps the stat to nothing and doesn't parse "not on full mana" (checked: SkillStatMap.lua and sup_int.lua; ModParser.lua
+    has FullMana / not FullLife patterns only, 12 Nov 2026). Counted for the whole build (it's your minions' damage, not
+    the buff skill's) at the share of the fight you're below full Mana, min(1, Mana spent per second / Mana regenerated
+    per second), from the main skill's PoB cost (models.not_full_mana_share); no Mana spent: 0 with a note.
+  sources: ["SupportUpwellingPlayer, SupportUpwellingPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  test_in_game: "With a supported Persistent Buff up, compare a minion's hit at full Mana and after spending some."
+  status: proposed

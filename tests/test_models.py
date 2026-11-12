@@ -605,6 +605,17 @@ def test_practical_magic_on_a_stunning_attack_beside_the_main_spell_counts_from_
     assert mods == [] and "doesn't report its own group's Heavy Stun buildup" in notes[0]["basis"]
 
 
+def test_upwelling_counts_at_the_share_below_full_mana_from_the_builds_spending():
+    stat = "support_minion_damage_spirit_cost_minion_damage_+%_while_missing_mana"
+    buff = models.Skill("Some Persistent Buff", group=2, support_stats={stat: 50})
+    mods, notes = models.gem_stat_model([buff], stats={"ManaPerSecondCost": 10, "ManaRegenRecovery": 40})
+    assert [(m["line"], m.get("skill")) for m in mods] == [("Minions deal 1% increased Damage", None)]
+    assert mods[0]["scale"] == pytest.approx(50 * 0.25)
+    assert models.gem_stat_model([buff], stats={"ManaPerSecondCost": 60, "ManaRegenRecovery": 40})[0][0]["scale"] == 50
+    mods, notes = models.gem_stat_model([buff], stats={"ManaRegenRecovery": 40})
+    assert mods == [] and "spends no Mana" in notes[0]["basis"]
+
+
 def test_penalties_on_uncounted_parts_wait_for_the_model_that_counts_them():
     area, mimic = "support_spell_cascade_area_of_effect_+%_for_cascade", "skill_used_by_fractured_mimic_spell_damage_+%_final"
     offering = "cascadeable_offering_support_offering_casted_spell_damage_+%_final"

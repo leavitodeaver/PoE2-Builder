@@ -2411,7 +2411,30 @@ def heavy_stun_buff_side(skill: Skill, stats: dict, seconds: float, play: str) -
     return share, why, play
 
 
-SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share}
+# Upwelling (COVE8): "Your Minions deal 30% increased Damage while you are not on full Mana while a Supported Skill is
+# active". PoB parses "while on full mana" but not "not on full mana" (checked: ModParser.lua's FullMana / FullLife
+# patterns), and maps neither stat. The share of the fight below full Mana, from the build's own spending: each spend of
+# c Mana takes c / regen seconds to refill, so at S Mana/s spent against R regenerated it's below full min(1, S / R) of the
+# time (any S >= R never refills). S is the main skill's ManaPerSecondCost (PoB); other skills' costs not counted (an
+# undercount), nor Mana flasks or leech topping it up faster (an overcount).
+
+
+def not_full_mana_share(skill: Skill, stats: dict, main: Skill | None = None,
+                        prev: float = 0.0) -> tuple[float, str, str]:
+    spend, regen = number(stats.get("ManaPerSecondCost")), number(stats.get("ManaRegenRecovery"))
+    play = "Keep spending Mana (the main skill's cost) so you're never back on full Mana while the minions fight."
+    if spend <= 0:
+        return 0.0, ("the main skill spends no Mana, so you're on full Mana (0; other skills' Mana costs aren't counted: "
+                     "an undercount if they keep you below full)"), play
+    share = 1.0 if regen <= 0 else min(1.0, spend / regen)
+    why = (f"below full Mana {share:.0%} of the fight: the main skill spends {spend:.1f} Mana/s against {regen:.1f} "
+           f"regenerated (each spend takes cost / regen to refill; other skills' costs and Mana flasks / leech not counted)")
+    play += f" Headline: below full Mana {share:.0%} of the fight. On full Mana the minions get nothing from it."
+    return share, why, play
+
+
+SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
+          "not_full_mana": not_full_mana_share}
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
