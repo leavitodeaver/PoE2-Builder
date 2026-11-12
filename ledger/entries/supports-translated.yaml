@@ -41,3 +41,39 @@
             "https://poe2db.tw/us/Combo_Finisher_I"]
   test_in_game: "Hit a dummy with the finisher and without the support: 1.25x (I) or 1.40x (II)."
   status: proposed
+
+- id: support-echoing-cry-penalties
+  title: Echoing Cry, 40% less Damage on the supported Warcry
+  kind: gem_stat
+  support: true
+  skill: Echoing Cry
+  support_stats: ['support_echoing_cry_damage_+%_final']
+  match: '^support_echoing_cry_damage_\+%_final$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  notes: >-
+    "Supported Skills deal 40% less Damage" (constant -40 on SupportEchoingCryPlayer; PoB maps none of the support's
+    stats, so a Warcry with it was rated at full damage: an overcount). Its "50% less Area of Effect" is the same kind of
+    line but needs its own text, so it has the next entry. The two Echoes ("Echo 2 times, with a 1.3 second delay"),
+    their "100% more area of effect per time they have Echoed" and "count enemies as having 50% less Power" stay open:
+    the tool doesn't count Warcry Echoes yet (checked: grep -i echo in builder/search/*.py, engine/bridge.lua and PoB
+    Modules/Calc*.lua, 12 Nov 2026: none; MECH-B) or the Power change (MECH-C).
+  sources: ["SupportEchoingCryPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Echoing_Cry"]
+  test_in_game: "Compare a damaging Warcry's tooltip damage with and without Echoing Cry: 0.6x."
+  status: proposed
+
+- id: support-echoing-cry-area
+  title: Echoing Cry, 50% less Area of Effect on the supported Warcry
+  kind: gem_stat
+  support: true
+  skill: Echoing Cry
+  support_stats: ['support_echoing_cry_area_of_effect_+%_final']
+  match: '^support_echoing_cry_area_of_effect_\+%_final$'
+  replace: ['1% more Area of Effect']
+  confidence: datamined
+  notes: >-
+    "Supported Skills have 50% less Area of Effect" (constant -50 on SupportEchoingCryPlayer). The Echoes' "100% more area
+    of effect per time they have Echoed" isn't counted (the Echoes aren't, see support-echoing-cry-penalties).
+  sources: ["SupportEchoingCryPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Echoing_Cry"]
+  test_in_game: "Compare the Warcry's radius with and without Echoing Cry: 0.5x the area."
+  status: proposed
