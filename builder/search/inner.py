@@ -118,6 +118,7 @@ class Search:
         self.gems.assumptions = self.assumptions
         self.tree.resolve = self.resolve
         self.tree.relevant_skill = self.assumptions.relevant
+        self.tree.enforce = self.gear.enforce_restrictions
         self.tree.fill_granted = self.gems.fill_granted
         self.gear.fill_granted = self.gems.granted_meta_round
         self.gear.refill_main = self.gems.refill_main_supports
@@ -218,7 +219,7 @@ class Search:
         build.call("loadXml", xml=codes.decode(ctx.request.seed_code))
         # The code's configuration isn't trusted: a new build's, then the resolver turns on what
         # the build sustains (the code's quest choices stay, choose_quests revisits them)
-        build.call("resetConfig")
+        build.call("resetConfig", **boss_config(ctx.request))
         self.correct_passives()
         build.call("setLevel", level=ctx.level)
         notes = self.seed_notes
@@ -1094,6 +1095,20 @@ def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, secon
                                  "deficits": [label for label, _, _ in objective.deficits(start["stats"])],
                                  "notes": search.seed_notes}
     return {**summary, "state": search.state()}
+
+
+def boss_config(request: Any) -> dict:
+    """resetConfig's `boss` argument when the request names a boss (MECH50's presets, builder/search/bosses.py): {} for
+    none, and while bosses.py isn't in this tree, so the bridge writes its own default (the Arbiter of Ash once 95eceb1
+    lands, PoB's otherwise)."""
+    name = getattr(request, "boss", None)
+    if not name:
+        return {}
+    try:
+        from builder.search import bosses
+    except ImportError:
+        return {}
+    return {"boss": bosses.config_vars(name)}
 
 
 def seed_task(engine: Any, report: Any, payload: dict) -> dict:

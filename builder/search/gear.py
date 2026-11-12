@@ -381,11 +381,21 @@ class Gear:
             if option is None:
                 continue
             info, pool = self.flask_info([option.raw])[0], slot_pool(slot)
-            rows.append({"slot": slot, "name": option.name, "pool": pool,
-                         "uptime": uptime(info, self.charges, pool, option.raw),
+            share = uptime(info, self.charges, pool, option.raw)
+            rows.append({"slot": slot, "name": option.name, "pool": pool, "uptime": share,
                          "counted": self.counts(slot, info, option.raw),
-                         "recovery": recovery_per_second(info, self.charges, pool) if pool else 0.0})
+                         "recovery": recovery_per_second(info, self.charges, pool) if pool else 0.0,
+                         "full_pool": self.full_pool_reason(info, pool, option.raw, share)})
         return rows
+
+    def full_pool_reason(self, info: dict, pool: str | None, raw: str, share: float) -> str | None:
+        """How Life (Mana) filling up ends a flask's effect, when that, not its charges, sets its uptime (MECHC4's
+        flasks.full_pool_cap; None while that isn't in this tree, or when the cap doesn't bind)."""
+        from builder.search import flasks
+
+        cap_of = getattr(flasks, "full_pool_cap", None)
+        cap = cap_of(info, self.charges, pool, raw) if cap_of is not None else None
+        return cap[1] if cap is not None and cap[0] < 1.0 and abs(cap[0] - share) < 1e-9 else None
 
     # Rares -----------------------------------------------------------------------------------
 
@@ -702,7 +712,7 @@ class Gear:
         return improved
 
     def assumption_trials(self, deadline: float) -> bool:
-        """A unique granting a skill an assumption counts (Assumptions.relevant: a Remnant source while Explosive
+        """A unique (or a rare on a base whose implicit grants it: source_bases) granting a skill an assumption counts (Assumptions.relevant: a Remnant source while Explosive
         Transmutation's explosion is in the build, e.g. The Hollow Mask's Wildwood's Gifts) is tried for real: equipped,
         settled (the assumptions re-applied and the main group's calculated skill chosen again), kept if the build scores
         better. A plain item what-if sees neither: PoB makes an item's granted skill only in its main calculation (CalcSetup
@@ -717,8 +727,8 @@ class Gear:
             if slot in build.locked_slots or is_flask_slot(slot) or clock.now() > deadline:
                 continue
             current = build.equipped.get(slot)
-            for option in self.candidates(slot):
-                if not option.unique or clock.now() > deadline:
+            for option in [o for o in self.candidates(slot) if o.unique] + self.source_bases(slot, current, deadline):
+                if clock.now() > deadline:
                     continue
                 granted = [m.group(1) for m in GRANTED_NAME.finditer(option.raw)]
                 if not any(self.relevant_skill(name) for name in granted):
@@ -736,6 +746,27 @@ class Gear:
                 build.restore(snap)
                 self.settle()
         return improved
+
+    def source_bases(self, slot: str, current: ItemOption | None, deadline: float) -> list[ItemOption]:
+        """For assumption_trials: a rare on each ordinary base whose implicit grants a skill an assumption counts (A12-5:
+        Lament Amulet's Mana Remnants, Lingering Illusion and Siphon Elements variants), one per such variant, built for
+        the slot. Its bare base scores nothing for the source, so the rare builder's own base ranking never picks it."""
+        options = []
+        for base in self.options(slot):
+            if base.unique or clock.now() > deadline:
+                continue
+            implicit = (self.ctx.bases_by_name.get(base.base) or {}).get("implicit") or ""
+            variants = implicit_variants(implicit) or [(None, implicit)]
+            for variant, line in variants:
+                names = [m.group(1) for m in GRANTED_NAME.finditer(line)]
+                if not any(self.relevant_skill(n) for n in names) or clock.now() > deadline:
+                    continue
+                if current is not None and current.base == base.base and all(n in current.raw for n in names):
+                    continue  # (that variant is on already)
+                option = self.build_rare(slot, deadline, base_name=base.base, variant=variant)
+                if option is not None and self.allowed(slot, option):
+                    options.append(option)
+        return options
 
     def granted_meta_trials(self, deadline: float) -> bool:
         """Slice 8: a unique granting a meta skill (GRANTS_META: Mjolner's Thundergod's Wrath, Svalinn's Cast on Block,

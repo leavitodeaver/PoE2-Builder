@@ -557,8 +557,10 @@ class Run:
                               + f". Its line of searches never ends below that; this result: {final['dps']:,.0f}.")
         for flask in final.get("flasks") or []:
             if not flask["counted"]:
-                self.notes.append(f"{flask['slot']} ({flask['name']}): charge generation keeps its effect up "
-                                  f"{flask['uptime']:.0%} of a boss fight (no kills refill it), so its effect isn't "
+                why = (flask.get("full_pool") or "")  # (MECHC4: Life / Mana filling up ends it, not only its charges)
+                why = (f"{why[0].upper()}{why[1:]}" if why else
+                       f"Charge generation keeps its effect up {flask['uptime']:.0%} of a boss fight (no kills refill it)")
+                self.notes.append(f"{flask['slot']} ({flask['name']}): {why}, so its effect isn't "
                                   "counted and its slot is left switched off in the code"
                                   + (f"; its {flask['pool']} recovery counts at {flask['recovery']:,.0f}/s"
                                      if flask["pool"] and flask["recovery"] > 0 else ""))
@@ -618,7 +620,19 @@ MODEL_NAMES = {"archon": "Elemental Archon", "energy": "meta-skill Energy", "dar
                "leylines": "larger Time-Lost radius", "harmony": "Harmony Within",
                "resist_rings": "resistances per equipped item", "maelstrom": "Melting Maelstrom's pulses",
                "guided_hand": "Guided Hand's Ancestral Boost", "sanguine": "Sanguine Tides",
-               "deadly_resolve": "Deadly Resolve's slashes"}
+               "deadly_resolve": "Deadly Resolve's slashes",
+               # COVB4's three (passive_models.py) and the other models the ledger names (a missing one reads as its id)
+               "no_mercy": "No Mercy's Hit share", "rhythm_of_ice": "Rhythm of Ice's echoed casts",
+               "different_skills": "different skills used recently", "arcane_surge": "Arcane Surge's uptime",
+               "charges": "charge generation", "debuff_uptimes": "debuff uptimes", "gem_stat": "gem stats PoB never reads",
+               "glory": "Glory", "infusion_supply": "Infusion supply", "iron_ward": "Iron Ward",
+               "marks": "Mark limit", "parry": "Parry", "rage": "Rage", "remnant_supply": "Remnant supply",
+               "shocked_ground": "Shocked Ground", "usage": "skill usage", "wither": "Wither stacks"}
+
+
+def model_name(model: str) -> str:
+    """A custom model's name in the result (a model MODEL_NAMES doesn't name yet: its id with spaces)."""
+    return MODEL_NAMES.get(model) or model.replace("_", " ")
 
 
 def annotate_blind_spots(lines: list[dict]) -> list[dict]:
@@ -630,7 +644,7 @@ def annotate_blind_spots(lines: list[dict]) -> list[dict]:
         translated = translate(line["line"])
         if entry := model_entry(line["line"]):
             # builder/search/models.py: its effect is in the result's assumptions
-            model = MODEL_NAMES.get(entry.raw["model"], entry.raw["model"])
+            model = model_name(entry.raw["model"])
             line = {**line, "modeled_by": entry.raw["model"], "corrected_by": entry.id,
                     "as": [f"part of the {model} model (see the assumptions)"], "confidence": entry.confidence}
         elif translated and not (translated[0].conditional and not line["source"].startswith("passive:")):

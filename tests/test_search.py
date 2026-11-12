@@ -1655,3 +1655,124 @@ def test_a_line_rebuilds_its_tree_once_from_its_second_pass_and_keeps_it_only_if
 
     search.tree_rebuilt, regrown[0] = False, 1.5  # a rebuild that scores lower is put back
     assert not inner.Search.tree_rebuild(search, 1000.0) and build.score == 2.0 and calls[-1] == "restore"
+
+
+class _AscendancyBuild:
+    """Just what Tree.ascendancy_round touches. Node 2 restricts the body armour (Smith's Masterwork's line): its what-if
+    scores it with today's rare body armour on (10), its real score with a Normal one is `smith_real`; node 3 scores 5."""
+
+    def __init__(self, smith_real: float, locked: bool = False) -> None:
+        self.alloc: set[int] = set()
+        self.body, self.smith_real, self.score = "rare", smith_real, 0.0
+        self.locked_slots = {"Body Armour"} if locked else set()
+        self.asked: list[list[int]] = []
+
+    def real(self) -> float:
+        return (10.0 if self.body == "rare" else self.smith_real) if 2 in self.alloc else 5.0 if 3 in self.alloc else 0.0
+
+    def call(self, method: str, **kwargs):
+        assert method == "facts"
+        return {"ascendClassName": "Smith of Kitava", "passives": [{"id": i} for i in sorted(self.alloc)]}
+
+    def node_deltas(self, cases):
+        self.asked += [c["add"] for c in cases]
+        return [(10.0 if 2 in c["add"] else 5.0, {}) for c in cases]
+
+    def allocate(self, remove=(), add=()):
+        self.alloc = (self.alloc - set(remove)) | set(add)
+        self.score = self.real()
+
+    def snapshot(self):
+        return (set(self.alloc), self.body, self.score)
+
+    def restore(self, snap):
+        self.alloc, self.body, self.score = set(snap[0]), snap[1], snap[2]
+
+    def worse(self, before: float) -> bool:
+        return self.score < before - 1e-9
+
+
+def _ascendancy_tree(build: _AscendancyBuild):
+    from types import SimpleNamespace
+
+    from builder.search.tree import Tree
+
+    tree = Tree.__new__(Tree)
+    nodes = {1: {}, 2: {"name": "Smith's Masterwork", "stats": ["Can only use a Normal Body Armour"]}, 3: {"stats": []}}
+    tree.build, tree.round = build, 0
+    tree.ctx = SimpleNamespace(nodes=nodes, ascendancy_graph=lambda name: (1, {1: [2, 3], 2: [1], 3: [1]}))
+    tree.required_names, tree.resolve, tree.relevant_skill, tree.fill_granted = set(), None, None, None
+    tree.narrowed_allocations = lambda *args: [[2], [3]]
+
+    def enforce():
+        build.body = "normal"
+        build.score = build.real()
+    tree.enforce = enforce
+    return tree
+
+
+def test_a_restricting_ascendancy_notable_is_scored_with_its_slot_made_legal():
+    """FIX_QUEUE (COVB3's routed item): the ascendancy round's what-if scored Smith's Masterwork with the current rare body
+    armour still on (an overcount until the next gear round swapped it). The best such allocations are now scored for
+    real with the slot made legal (Gear.enforce_restrictions), and a kept one takes the rare off at once."""
+    build = _AscendancyBuild(smith_real=3.0)
+    assert _ascendancy_tree(build).ascendancy_round()
+    assert build.alloc == {3} and build.body == "rare"  # 3 with a Normal body armour loses to node 3's 5
+
+    build = _AscendancyBuild(smith_real=8.0)
+    assert _ascendancy_tree(build).ascendancy_round()
+    assert build.alloc == {2} and build.body == "normal" and build.score == 8.0
+
+
+def test_a_restricting_ascendancy_notable_is_not_offered_when_the_slot_holds_a_required_item():
+    build = _AscendancyBuild(smith_real=8.0, locked=True)
+    assert _ascendancy_tree(build).ascendancy_round()
+    assert build.alloc == {3} and all(2 not in ids for ids in build.asked)
+
+
+def test_source_item_trials_build_a_rare_on_a_base_whose_implicit_grants_a_source():
+    """A12-5: the source-item trials tried uniques only; Lament Amulet (an ordinary base) has Mana Remnants among its
+    implicit variants. Gear.source_bases builds a rare on that variant for the trial; other variants and bases aren't."""
+    from types import SimpleNamespace
+
+    from builder.search.gear import Gear
+
+    implicit = ("-1 Prefix Modifier allowed\n{variant:1}Grants Skill: Level (1-20) Herald of Ash\n"
+                "{variant:9}Grants Skill: Level (1-20) Mana Remnants")
+    bases = [SimpleNamespace(unique=False, base="Lament Amulet"), SimpleNamespace(unique=False, base="Gold Amulet"),
+             SimpleNamespace(unique=True, base="Lament Amulet")]
+    built = []
+    gear = SimpleNamespace(options=lambda slot: bases, relevant_skill=lambda name: name == "Mana Remnants",
+                           ctx=SimpleNamespace(bases_by_name={"Lament Amulet": {"implicit": implicit},
+                                                              "Gold Amulet": {"implicit": "+1 to Level"}}),
+                           allowed=lambda slot, option: True,
+                           build_rare=lambda slot, deadline, base_name=None, variant=None:
+                           built.append((base_name, variant)) or f"rare {base_name} {variant}")
+    assert Gear.source_bases(gear, "Amulet", None, float("inf")) == ["rare Lament Amulet 9"]
+    assert built == [("Lament Amulet", 9)]
+    current = SimpleNamespace(base="Lament Amulet", raw="Grants Skill: Level 20 Mana Remnants")
+    assert Gear.source_bases(gear, "Amulet", current, float("inf")) == []  # (that variant is on already)
+
+
+def test_ledger_models_have_readable_names_in_the_result():
+    """run.MODEL_NAMES names the custom models ledger entries point to (COVB4's three were missing: the result read
+    'part of the no_mercy model'); a model added later without a name reads with spaces, not as its id."""
+    from builder.search.run import MODEL_NAMES, model_name
+
+    assert {"no_mercy", "rhythm_of_ice", "different_skills"} <= set(MODEL_NAMES)
+    assert model_name("no_mercy") == "No Mercy's Hit share" and model_name("some_new_model") == "some new model"
+
+
+def test_a_named_boss_goes_to_reset_config():
+    """MECH50: resetConfig takes the chosen boss preset's configuration; none named, the bridge's own default."""
+    from types import SimpleNamespace
+
+    from builder.search.inner import boss_config
+
+    assert boss_config(SimpleNamespace()) == {} and boss_config(SimpleNamespace(boss=None)) == {}
+    try:
+        from builder.search import bosses
+    except ImportError:
+        assert boss_config(SimpleNamespace(boss="Arbiter of Ash")) == {}  # (no presets in this tree yet)
+    else:
+        assert boss_config(SimpleNamespace(boss=bosses.DEFAULT)) == {"boss": bosses.config_vars(bosses.DEFAULT)}

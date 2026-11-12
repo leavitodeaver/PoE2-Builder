@@ -85,6 +85,14 @@ def rooted_subsets(root: int, adjacency: dict[int, list[int]], limit: int) -> li
 
 
 class Tree:
+    def restricting(self, adjacency: dict[int, list[int]]) -> dict[int, str]:
+        """The nodes here whose lines restrict an equipment slot (gear.SLOT_RESTRICTIONS), with that slot."""
+        from builder.search.gear import SLOT_RESTRICTIONS
+
+        nodes = self.ctx.nodes
+        return {i: SLOT_RESTRICTIONS[line][0] for i in adjacency for line in (nodes[i].get("stats") or [])
+                if line in SLOT_RESTRICTIONS}
+
     def __init__(self, build: Build, rng: random.Random) -> None:
         self.build = build
         self.ctx = build.ctx
@@ -100,6 +108,9 @@ class Tree:
         self.resolve = None  # re-resolves conditions and assumptions (set by the search)
         self.checkpoint = None  # marks a kept passive as where the hard stop goes back to (set by the search)
         self.relevant_skill = None  # does granting this skill change an assumption?
+        # Takes off gear the build's passives no longer allow (Gear.enforce_restrictions; set by the search): an
+        # ascendancy allocation with a restricting notable (Smith's Masterwork) is scored with its slot made legal
+        self.enforce = None
         # Fills the group of a meta skill a notable grants (GRANTED_METAS) with what it uses; set by the search
         self.fill_granted = None
         # Nodes kept as a condition's source (builder/search/sources.py): a what-if removing one
@@ -410,11 +421,31 @@ class Tree:
         required = {i for i in adjacency if nodes[i].get("name") in self.required_names}
 
         allocations = self.narrowed_allocations(start, core, options, required, adjacency, current)
+        # A notable restricting an equipment slot (SLOT_RESTRICTIONS: Smith's Masterwork's "Can only use a Normal Body
+        # Armour"): not offered when that slot holds a required item (unless the request requires the notable too)
+        restricting = self.restricting(adjacency)
+        locked = {i for i, slot in restricting.items() if slot in build.locked_slots and i not in required}
+        allocations = [ids for ids in allocations if not locked & set(ids)]
         if not allocations:
             return False
-        scored = build.node_deltas([{"add": ids, "remove": current} for ids in allocations])
-        best_score, best_ids = max(zip((s for s, _ in scored), allocations), key=lambda x: x[0])
+        scored = list(build.node_deltas([{"add": ids, "remove": current} for ids in allocations]))
         previous = self.bfs_order(start, set(current) | {start}, adjacency)
+        # ... and its what-if is scored with today's gear still on (a rare body armour: an overcount until the next gear
+        # round swaps it): the best few such allocations are scored for real with the slot made legal instead
+        held = {i for i in restricting if i in current}  # (already allocated: the gear obeys it already)
+        if restricting and self.enforce is not None:
+            fresh = [k for k, ids in enumerate(allocations) if (set(restricting) - held) & set(ids)]
+            trial = sorted(fresh, key=lambda k: -scored[k][0])[:TRIALS]
+            snap = build.snapshot()
+            for k in trial:
+                build.allocate(remove=current, add=allocations[k])
+                self.enforce()
+                if self.resolve is not None:
+                    self.resolve()
+                scored[k] = (build.score, scored[k][1])
+                build.restore(snap)
+            scored = [(-math.inf, x) if k in set(fresh) - set(trial) else (s, x) for k, (s, x) in enumerate(scored)]
+        best_score, best_ids = max(zip((s for s, _ in scored), allocations), key=lambda x: x[0])
         # Nodes granting a skill an assumption depends on (e.g. a Remnant source) only show their
         # worth once the assumption updates: try the best few such allocations for real
         if self.resolve is not None and self.relevant_skill is not None:
@@ -451,10 +482,17 @@ class Tree:
         if sorted(best_ids) == current or (best_score <= build.score + EPSILON and not missing_required):
             return False
         before = build.score
+        restricts = self.enforce is not None and bool(set(restricting) & set(best_ids))
+        snap = build.snapshot() if restricts else None
         build.allocate(remove=current, add=best_ids)
+        if restricts:
+            self.enforce()
         if self.resolve is not None:
             self.resolve()
         self.round += 1
+        if not missing_required and build.worse(before) and snap is not None:
+            build.restore(snap)  # (the gear the restriction took off comes back too)
+            return False
         if not missing_required and build.worse(before):
             build.allocate(remove=best_ids, add=previous)
             if self.resolve is not None:
