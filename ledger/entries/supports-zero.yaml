@@ -1,0 +1,30 @@
+# Support-gem stats whose value is 0 in every stat set that holds them (COVE1, 12 Nov 2026): the stat is on the gem, but
+# with 0 it changes nothing, and the game shows no line for it. Kind `gem_stat` with an empty `replace`: recorded as
+# "no effect on what's calculated", limited to the supports named.
+#
+# Checked: GrantedEffectStatSets ConstantStats/ConstantStatsValues, GrantedEffectStatSetsPerLevel AdditionalStats and
+# FloatStats, and GrantedEffectQualityStats (build 26476662; scratch/cove/zeros.py): no non-zero value for these stats
+# on these supports at any level or from quality. Second source, poe2db's gem pages (12 Nov 2026): none of these gems
+# shows a line for the stat (Rage I, Compressed Duration I, Lifetap, Magnified Area I, Mobility, Streamlined Rounds,
+# Flame Pillar read; Mobility's history says "no longer has a Damage Penalty", 0.1.0e). If a later patch gives one a
+# value, the audit reopens nothing by itself: recheck these on each data dump.
+# Left open on purpose: support_randomise_lower_recover_%_cost_on_use (Fluke, Ixchel's Torment) is 0, but it's the lower
+# end of "recover between 0% and 20% of cost", so it isn't "no effect" on its own.
+
+- id: supports-zero-value
+  title: Support stats held at 0 (no effect)
+  kind: gem_stat
+  skill: [Rage I, Rage II, Rage III, Compressed Duration I, Compressed Duration II, Lifetap, "Atalui's Bloodletting",
+          Magnified Area I, Mobility, Streamlined Rounds, Flame Pillar]
+  match: '^(?:support_rage_attack_damage_\+%_final|support_reduced_duration_damage_\+%_final|blood_magic_skill_life_cost_\+%_final|support_increased_area_damage_\+%_final|support_mobility_damage_\+%_final|support_auto_shotgun_projectile_count_\+%_final|pillar_of_flame_X_additional_pillars_on_consuming_aggravated_ignite)$'
+  replace: []
+  confidence: datamined
+  notes: "Each is 0 in its support's stat set (Rage I-III 'more Attack Damage', Compressed Duration I/II 'more Damage',
+    Lifetap and Atalui's Bloodletting 'more Life cost', Magnified Area I 'more Area Damage', Mobility 'more Damage',
+    Streamlined Rounds 'more projectile count', Flame Pillar 'additional pillars on consuming Aggravated Ignite')."
+  sources: ["GrantedEffectStatSets, GrantedEffectStatSetsPerLevel, GrantedEffectQualityStats (build 26476662)",
+            "https://poe2db.tw/us/Rage_I", "https://poe2db.tw/us/Compressed_Duration_I", "https://poe2db.tw/us/Lifetap",
+            "https://poe2db.tw/us/Magnified_Area_I", "https://poe2db.tw/us/Mobility", "https://poe2db.tw/us/Streamlined_Rounds",
+            "https://poe2db.tw/us/Flame_Pillar"]
+  test_in_game: "Not needed: the game shows no line for these stats."
+  status: proposed

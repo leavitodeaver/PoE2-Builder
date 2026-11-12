@@ -1,0 +1,88 @@
+# Support-gem stats PoB never reads that the tool's own code reads (COVE1, 12 Nov 2026). Kind `model` with `stats`:
+# nothing is applied from here; the coverage audit counts the listed stats of the listed supports (`skill`, the names the
+# data dump gives them) as "fed to a custom model". Each entry names where the code reads the stat, and what it doesn't.
+# Found by searching builder/ and engine/bridge.lua for every support stat the audit had open (scratch/cove/reads.py).
+#
+# Left open on purpose (read only in part, or named in a comment but not read):
+# - consume_parry_debuff_on_hit_to_gain_X_frenzy_charges (Frenzied Riposte): models.PARRY_CONSUMERS reads the consume
+#   (Parried is eaten by the next hit), but the Frenzy Charge it grants isn't a charge source anywhere (conditions.py).
+# - support_pin_pin_duration_+%_final (Pin III): models.py names it, but nothing rates the boss Pinned yet.
+# - generic_ongoing_trigger_1_maximum_energy_per_Xms_total_cast_time on Curse on Block / Cast on Melee Stun / Cast on
+#   Melee Kill / Reaper's Invocation: left open by COV2 (gem-stats-energy.yaml header).
+# - rage_skip_consume_chance_% (Rageforged II, 30%): conditions.py doesn't read it.
+
+- id: supports-read-zerphi-glory
+  title: Zerphi's Infamy, Glory per use built from Life spent (usage requirements)
+  kind: model
+  model: usage
+  stats: ["active_skill_requires_X_glory", "active_skill_generates_%_of_life_spent_as_glory"]
+  skill: ["Zerphi's Infamy"]
+  confidence: datamined
+  notes: "builder/search/usage.py requirements(): GLORY (50 Glory a use, SupportZerphisLegacyPlayer) with
+    GLORY_FROM_LIFE (5% of Life spent on other skills) becomes a 'glory from life' requirement, and the use rate of the
+    supported skill is worked out from the build's Life spending (usage.py, the bridge's usageRules)."
+  sources: ["builder/search/usage.py GLORY, GLORY_FROM_LIFE, requirements", "engine/bridge.lua usageRules (USAGE_STAT_WORDS 'as_glory', 'require')",
+            "GrantedEffectStatSets SupportZerphisLegacyPlayer (build 26476662)"]
+  status: proposed
+
+- id: supports-read-charge-profusion-random
+  title: Charge Profusion II, chance of an additional random Charge (charge rates)
+  kind: model
+  model: charges
+  stats: ["chance_to_gain_1_more_random_charge_%"]
+  skill: [Charge Profusion II]
+  confidence: datamined
+  notes: "builder/search/conditions.py CHARGE_PROFUSION: Charge Profusion II's 15% (the game files' constant), a third
+    to each of Power, Frenzy and Endurance (labelled assumption there: the random pick's pool isn't in the line)."
+  sources: ["builder/search/conditions.py CHARGE_PROFUSION, _extra_charges", "GrantedEffectStatSets SupportChargeProfusionPlayerTwo"]
+  status: proposed
+
+- id: supports-read-arcane-surge
+  title: Arcane Surge support, Mana spent threshold and buff duration (Arcane Surge uptime)
+  kind: model
+  model: arcane_surge
+  stats: ["support_arcane_surge_gain_buff_on_%_of_maximum_mana_use_threshold", "support_arcane_surge_base_duration_ms"]
+  skill: [Arcane Surge]
+  confidence: datamined
+  notes: "builder/search/conditions.py ARCANE_SURGE_SUPPORT_STATS: read from the bridge (activeSkills supportStats) for the
+    support on the main skill and turned into the line 'Gain Arcane Surge for N seconds after Spending a total of X% of
+    your Maximum Mana on Supported Skills' for arcane_surge_uptime. Read for the main skill's group only."
+  sources: ["builder/search/conditions.py ARCANE_SURGE_SUPPORT_STATS, arcane_surge_uptime"]
+  status: proposed
+
+- id: supports-read-rageforged
+  title: Rageforged, Rage spent per use (Rage model)
+  kind: model
+  model: rage
+  stats: ["support_rageforged_consumes_X_rage_to_enrage_skill_use"]
+  skill: [Rageforged I, Rageforged II]
+  confidence: datamined
+  notes: "builder/search/conditions.py RAGE_PER_USE: 10 Rage a use for Rageforged I and II, the game files' constant
+    (GrantedEffectStatSets SupportRageforgedPlayer / ...Two: 10). Rageforged II's rage_skip_consume_chance_% (30%) is not
+    read and stays open."
+  sources: ["builder/search/conditions.py RAGE_PER_USE", "GrantedEffectStatSets SupportRageforgedPlayer, SupportRageforgedPlayerTwo"]
+  status: proposed
+
+- id: supports-read-shocking-leap-ground
+  title: Shocking Leap support, Shocked Ground duration (Shocked Ground uptime)
+  kind: model
+  model: shocked_ground
+  stats: ["support_shocking_leap_shocked_ground_duration_ms"]
+  skill: [Shocking Leap]
+  confidence: datamined
+  notes: "builder/search/conditions.py SHOCKED_GROUND_SUPPORT_STATS: read from the bridge for the main skill's support
+    (stats['_sg_support']) and used in the Shocked Ground uptime."
+  sources: ["builder/search/conditions.py SHOCKED_GROUND_SUPPORT_STATS, _sg_support"]
+  status: proposed
+
+- id: supports-read-withering-touch
+  title: Withering Touch, Withered duration (Withered stacks)
+  kind: model
+  model: wither
+  stats: ["support_withered_base_duration_ms"]
+  skill: [Withering Touch]
+  confidence: datamined
+  notes: "builder/search/conditions.py WITHER_SUPPORT_STATS: the support's 4 s Withered duration and its chance stat, read
+    from the bridge for the main skill (stats['_wither_support'])."
+  sources: ["builder/search/conditions.py WITHER_SUPPORT_STATS, _wither_support"]
+  status: proposed
