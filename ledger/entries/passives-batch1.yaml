@@ -1,0 +1,159 @@
+# Passive tree lines, first batch (COV-B lane, COVB1, 12 Nov 2026; PoB bb52d6b, game files build 26476662).
+# Top of the coverage audit's ranking for the tree's lines (small, notable, keystone, ascendancy), overcounts first.
+# Each entry is one of:
+#   - parse_checked: a line the audit's misparse check flags whose effect on the numbers was read by hand and is right;
+#   - a model entry (`model:`, empty `replace`): a line the tool's own models already read from the build's lines
+#     (builder/search/conditions.py, assumptions.py, models.py), which the audit couldn't see; nothing is applied;
+#   - pob_gap: a translation into lines PoB calculates.
+# Recheck every one at the 1.0 refresh (11 Dec 2026) and at each PoB update.
+
+# Misparses ----------------------------------------------------------------------------------------------------------
+
+- id: passives-parse-rage-on-melee-hit
+  title: '"Gain N Rage on Melee Hit": PoB''s flag only allows Rage; the tool''s Rage model applies the melee restriction'
+  kind: parse_checked
+  match: '^Gain [(\d.\-)]+ Rage on Melee Hit$'
+  confidence: datamined
+  notes: >-
+    PoB parses the line to the flag Condition:CanGainRage alone (Data/ModCache.lua), so the audit saw the melee
+    restriction lost. The flag gives no Rage by itself: CalcPerform.lua (line ~784) takes Rage stacks from the
+    configuration's Multiplier:RageStack (ConfigOptions multiplierRage), capped at MaximumRage. The tool sets that
+    configuration from builder/search/conditions.py rage_held, which takes a line as a Rage source only if
+    `qualifies(text, main_types)`: "melee" in the text requires a Melee main skill (QUALIFIERS). So a build whose
+    main skill isn't Melee gets no Rage from this line, and a Melee one gets it at its hit rate (one hit every 0.5 s,
+    KeywordPopups Rage). The Axe form ("Gain N Rage on Melee Axe Hit", 3 small passives) is NOT closed here: the
+    qualifier checks Melee but not the Axe, an overcount for a Melee build without an Axe (routed to the mechanics
+    lane in COVB1's report).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (Gain 1 Rage on Melee Hit)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua (Condition:CanGainRage, Multiplier:RageStack)",
+            "builder/search/conditions.py (rage_held, _rage_gain, qualifies)", "KeywordPopups Rage (game files)"]
+  test_in_game: "With a non-melee main skill and this passive, the Rage bar stays empty while hitting a boss; with a melee skill it fills."
+  status: proposed
+
+# Lines the tool's own models read -----------------------------------------------------------------------------------
+
+- id: passives-model-elemental-equilibrium
+  title: Elemental Equilibrium, Infusion Remnants of the next element (Infusion supply)
+  kind: pob_gap
+  model: infusion_supply
+  match: '^Create (Lightning|Cold|Fire) Infusion Remnants instead of (Fire|Lightning|Cold)$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    builder/search/assumptions.py infusion_supply: when the build has the keystone's first line (EQUILIBRIUM) every
+    Remnant the build makes shifts element by EQUILIBRIUM_SHIFT (Fire to Lightning, Lightning to Cold, Cold to Fire),
+    which is the three lines together; the other two lines are the same keystone, read through it.
+  sources: ["builder/search/assumptions.py (EQUILIBRIUM, EQUILIBRIUM_SHIFT, infusion_supply)", "https://poe2db.tw/us/Elemental_Equilibrium"]
+  test_in_game: "With the keystone, Frost Bomb's Remnant grants a Fire Infusion."
+  status: proposed
+
+- id: passives-model-remnants-reappear
+  title: Storm's Recollection, Remnants reappear once after being collected (Remnant rates)
+  kind: pob_gap
+  model: remnant_supply
+  match: '^Remnants you create reappear once, \d+(\.\d+)? seconds? after being collected$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    builder/search/assumptions.py (REAPPEAR): each Remnant is collected twice, both in the Remnant rate the
+    Explosive Transmutation assumption uses and in the Infusion supply. The delay before it reappears isn't counted
+    (it only moves the second pickup later in a long fight).
+  sources: ["builder/search/assumptions.py (REAPPEAR, infusion_supply, the Remnant rate)", "https://poe2db.tw/us/Storm%27s_Recollection"]
+  test_in_game: "Collect a Remnant: it comes back once a few seconds later."
+  status: proposed
+
+- id: passives-model-additional-remnant
+  title: Chance to create an additional Remnant (Remnant rates)
+  kind: pob_gap
+  model: remnant_supply
+  match: '^(\d+(\.\d+)?)% chance to create an additional Remnant$'
+  replace: []
+  confidence: datamined
+  notes: "builder/search/assumptions.py ADDITIONAL_REMNANT: the build's Remnant rate x (1 + the summed chance). Not read by infusion_supply (an undercount of Infusions: listed in COVB1's report)."
+  sources: ["builder/search/assumptions.py (ADDITIONAL_REMNANT)"]
+  test_in_game: "Count Remnants from 50 uses of a Remnant skill: about 5 extra at 10%."
+  status: proposed
+
+- id: passives-model-remnant-effects-twice
+  title: Empowering Remnants, chance for Remnants to grant their effects twice (Remnant rates)
+  kind: pob_gap
+  model: remnant_supply
+  match: '^(\d+(\.\d+)?)% chance for Remnants you create to grant their effects twice$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    builder/search/assumptions.py DUPLICATE_PICKUP / duplicate_pickups: that share of pickups counts twice (the game
+    files give one stat, created_remnants_have_%_chance_to_duplicate_pick_up_results, with this wording on passives).
+  sources: ["builder/search/assumptions.py (DUPLICATE_PICKUP)"]
+  test_in_game: "Collect 20 Infusion Remnants: about 3 grant two Infusions at 15%."
+  status: proposed
+
+- id: passives-model-debuff-durations
+  title: Armour Break, Hinder and Blind duration (debuff uptimes)
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^\d+(\.\d+)?% (increased|reduced) (Armour Break|Hinder|Blind) [Dd]uration$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    builder/search/models.py duration_scale (MECH44): Hinder and Blind lines scale each inflicting line's duration
+    in the debuff uptimes (conditions._debuff_source), Armour Break the 12 s Fully Broken (full_break_duration, read
+    by the Armour Break uptime). PoB itself drops these lines (the Armour Break one parses as "increased Armour" with
+    "Break Duration" left over, and PassiveTree.lua applies no line with leftover text: no Armour overcount).
+  sources: ["builder/search/models.py (DURATION_LINE, duration_scale, full_break_duration)",
+            "builder/search/conditions.py (_debuff_source, the Armour Break uptime)",
+            "vendor/PathOfBuilding-PoE2/src/Classes/PassiveTree.lua (mods with extra text not applied)",
+            "KeywordPopups ArmourBreak: Fully Broken 12 s; Hinder: 4 s"]
+  test_in_game: "Fully Break a dummy's Armour with and without the passive: the broken icon lasts 12 s x (1 + the increase)."
+  status: proposed
+
+- id: passives-model-endurance-fill
+  title: Chance to gain up to maximum Endurance Charges instead (charge uptimes)
+  kind: pob_gap
+  model: charges
+  match: '^(\d+(\.\d+)?)% chance that if you would gain Endurance Charges, you instead gain up to maximum Endurance Charges$'
+  replace: []
+  confidence: datamined
+  notes: "builder/search/conditions.py FILL_CHARGES: read by the charge uptime (`fill`, per gain of that charge type) for builds that gain Endurance Charges."
+  sources: ["builder/search/conditions.py (FILL_CHARGES, charge gains)"]
+  test_in_game: "Not needed: the chance is per gain, as the line says."
+  status: proposed
+
+- id: passives-model-rage-on-ignite
+  title: Gain Rage when your Hit Ignites a target (Rage held)
+  kind: pob_gap
+  model: rage
+  match: '^Gain (\d+) Rage when your Hit Ignites a target$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    builder/search/conditions.py rage_held / _rage_gain (RAGE_SOURCE): Rage per second from the main skill's Ignites
+    per second (hits x IgniteChancePerHit), at most one gain every 0.5 s (KeywordPopups Rage), set as PoB's Rage
+    configuration.
+  sources: ["builder/search/conditions.py (RAGE_SOURCE, _rage_gain)", "KeywordPopups Rage"]
+  test_in_game: "Ignite a boss repeatedly: the Rage bar fills by the line's amount per Ignite, at most twice a second."
+  status: proposed
+
+# Translations ------------------------------------------------------------------------------------------------------
+
+- id: passives-slow-magnitude-chill
+  title: Debuffs you inflict have increased Slow Magnitude (counted on Chill)
+  kind: pob_gap
+  match: '^Debuffs you inflict have (\d+)% increased Slow Magnitude$'
+  replace: ['{1}% increased Magnitude of Chill you inflict']
+  confidence: theory
+  notes: >-
+    KeywordPopups SlowMagnitudeModifier: "applies to Debuffs you inflict that Slow enemies, and scales only the
+    specific Magnitude that slows the target". Chill is an Ailment, Ailments are Debuffs (KeywordPopups Ailments),
+    and Chill's one magnitude is its Slow (KeywordPopups Chill), so for Chill the line is "increased Magnitude of
+    Chill you inflict", which PoB parses (EnemyChillMagnitude) and caps at Chill's maximum (CalcOffence.lua, 50% by
+    default). Chill moves the numbers through lines that read its magnitude (CalcPerform.lua). The line also slows
+    Hindered, Maimed and Temporal Chains-cursed bosses harder; PoB models no Slow magnitude for those and none of
+    the checked numbers reads one (UNVERIFIED for every source: a boss slowed harder hits less often, which the
+    tool's hit-rate models don't read). The Hazards-only form ("Debuffs inflicted by Hazards have ...") isn't matched
+    and stays open. Assumption: Slow Magnitude doesn't raise Chill's 50% maximum.
+  sources: ["KeywordPopups SlowMagnitudeModifier, Chill, Ailments (game files, build 26476662)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (EnemyChillMagnitude, ChillMax)",
+            "data/game-26476662 Stats: debuff_slow_magnitude_+%"]
+  test_in_game: "Chill a dummy with a fixed cold hit, with and without the passive: the Chill's slow % on the dummy's debuff rises by the line's share (until 50%)."
+  status: proposed
