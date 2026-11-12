@@ -23,7 +23,7 @@
     main skill isn't Melee gets no Rage from this line, and a Melee one gets it at its hit rate (one hit every 0.5 s,
     KeywordPopups Rage). The Axe form ("Gain N Rage on Melee Axe Hit", 3 small passives) is NOT closed here: the
     qualifier checks Melee but not the Axe, an overcount for a Melee build without an Axe (routed to the mechanics
-    lane in COVB1's report).
+    lane in COVB1's report; closed since MECHC2's Axe check: passives-batch4.yaml passives-parse-rage-on-melee-axe-hit).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (Gain 1 Rage on Melee Hit)",
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua (Condition:CanGainRage, Multiplier:RageStack)",
             "builder/search/conditions.py (rage_held, _rage_gain, qualifies)", "KeywordPopups Rage (game files)"]

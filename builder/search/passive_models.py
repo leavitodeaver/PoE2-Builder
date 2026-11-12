@@ -239,6 +239,16 @@ def build_models(build, inputs: Inputs, texts: list[str], skills: list[Skill], m
                  supports: dict[int, list[str]]) -> tuple[list[dict], list[dict]]:
     """The lane's models for the current build: their lines (with derived inputs) and notes."""
     different = different_skills_model(inputs, texts)
+    if any(pattern.match(t.strip()) for t in texts for pattern, *_ in FLASK_USED_LINES.values()):
+        tree = [e["text"] for e in build.call("sourceLines")["lines"] if e["source"].startswith("passive:")]
+        flask = flask_used_model(tree, flask_uses(build) if any(
+            pattern.match(t.strip()) for t in tree for pattern, *_ in FLASK_USED_LINES.values()) else {})
+        different = (different[0] + flask[0], different[1] + flask[1])
+    if inputs.has(CATEGORY):
+        from builder.search.boss_hits import boss_name
+
+        category = monster_category_model(inputs, texts, boss_name({}))
+        different = (different[0] + category[0], different[1] + category[1])
     if not (inputs.has(NO_MERCY) or inputs.has(RHYTHM)):
         return different
     from builder.search.models import cast_by_totem
@@ -259,9 +269,10 @@ def build_models(build, inputs: Inputs, texts: list[str], skills: list[Skill], m
 # Emboldening Casts / Enhancing Attacks (AUDIT7 A7-2) ------------------------------------------------------------------
 # "12% increased Attack Damage for each different Non-Instant Spell you've used in the past 8 seconds" and its mirror
 # for Spell Damage per different Non-Instant Attack. PoB parses both only in part (ModCache leftover text), so never
-# applies them. The count of different skills used per 8 s is MECH-B's (with Rapid Casting III, the Kurgal suffix and
-# Casting Cascade: research cast-speed-per-different-spell.md): it is read here as the PoB multipliers
-# Ledger<COUNT_NAME>, 0 until MECH-B sets them (an undercount, labelled).
+# applies them. The count of different skills used per 8 s is MECH-B's (MECHB4: models.different_skills_counts, set
+# in Assumptions.models as the PoB multipliers Ledger<COUNT_NAME>: the main skill and every other non-instant one the
+# build has whose cooldown allows a use per 8 s; triggered, Persistent, totem and instant skills not counted). Read here
+# through those multipliers, so the value follows the count (COVB7: the "0 until the count lands" label dropped).
 DIFFERENT_LINES = {
     "EmboldeningCasts": (re.compile(r"^(\d+)% increased Attack Damage for each different Non-Instant Spell you've used "
                                     r"in the past 8 seconds$", re.I),
@@ -284,9 +295,10 @@ def different_skills_model(inputs: Inputs, texts: list[str]) -> tuple[list[dict]
         notes.append({
             "label": f"{'Emboldening Casts' if flag == 'EmboldeningCasts' else 'Enhancing Attacks'}: "
                      f"{each:g}% per {what[10:]} used in 8 s",
-            "value": "0 until the count lands",
-            "basis": f"reads the count of {what} the build uses in the past 8 s (PoB multiplier Ledger{count}), which "
-                     "the skills model doesn't set yet: counted as 0 (an undercount when you use several)",
+            "value": f"{each:g}% x the count",
+            "basis": f"{each:g}% per {what[:-1]} used in the past 8 s, times the count of {what} the build uses (the "
+                     f"note \"Different Non-Instant {what.split()[-1]} used per 8 s\", PoB multiplier Ledger{count})",
+            "play": f"Use each of your {what} at least once every 8 s to keep the count up.",
             "confidence": "theory"})
     return mods, notes
 
@@ -311,3 +323,142 @@ def wrong_tree_lines(nodes: list[dict]) -> list[dict]:
                 if entry is not None:
                     found.append({"id": node["id"], "entry": entry.id, "lines": entry.translate(text) or [], "drop": text})
     return found
+
+
+# "If you've used a Life / Mana Flask" tree lines (COVB7; MECHC3's find) ---------------------------------------------
+# PoB maps "if you've used a Life Flask in the past 10 seconds" and "if you've used a Mana Flask Recently" to the
+# flask-EFFECT conditions UsingLifeFlask / UsingManaFlask (ModParser 1884 / 1886), which CalcPerform (1724-1733) sets
+# whenever a Life / Mana flask's slot is active. So the line is on whenever the flask's effect is counted, whether or not
+# a flask is used: with Reverie ("Non-Unique Life Flasks apply their Effects constantly", "Cannot use Life Flasks") always
+# on and never earned (an OVERCOUNT), and off for a flask used every few seconds whose effect is up under 90% of the fight
+# (flasks.ACTIVE_UPTIME; an undercount). A `pob_wrong` entry (passives-batch4.yaml) drops PoB's parse from the node; here
+# the line counts for the share of the fight a flask was used within its window: min(1, uses/s x window), the uses being
+# MECH-C's flasks.uses_per_second (what the build's generated charges pay for; 0 for Reverie's Life Flask, a constant
+# flask, a Mana Flask a Concoction throws, or none equipped), the same count conditions.py gives "when you use a Flask"
+# lines. Windows: 10 s as written; Recently is the past 4 s (KeywordPopups Recently). Tree lines (checked: every
+# Stats.json id holding "flask" with used / recent / past, and their PassiveSkills and Mods users, game 26476662; PoB's
+# ModCache keys holding "used a ... Flask"): Reinvigoration (life_flasks6, 35809: Regenerate 1% of maximum Life per
+# Second, 10 s) and Arcane Mixtures (energy_shield_recovery25, 46972: 10% increased Cast Speed, Mana Flask Recently).
+# The same life-regen stat is also a unique's mod (UniqueHeartPrefixFlaskLifeRegenForXSeconds): item lines aren't read
+# here (PoB's parse stays on them: COV-D's), so only "passive:" sources count.
+FLASK_USED_LINES = {
+    "Life": (re.compile(r"^Regenerate ([\d.]+)% of maximum Life per Second if you've used a Life Flask in the past 10 "
+                        r"seconds$", re.I), "Regenerate 1% of maximum Life per second", 10.0, "% of maximum Life regenerated per second"),
+    "Mana": (re.compile(r"^([\d.]+)% increased Cast Speed if you've used a Mana Flask Recently$", re.I),
+             "1% increased Cast Speed", RECENTLY, "% increased Cast Speed"),
+}
+
+
+def flask_uses(build) -> dict[str, tuple[float, str]]:
+    """{"Life" / "Mana": (uses per second, how)} of the build's Life and Mana flask (flasks.uses_per_second)."""
+    from builder.search.flasks import FLASK_SLOTS, Charges, uses_per_second
+
+    gain = Charges.from_bridge(build.call("chargeGain"))
+    found = {}
+    for slot, pool in FLASK_SLOTS.items():
+        item = build.equipped.get(slot)
+        if item is None:
+            found[pool] = (0.0, f"no {pool} Flask equipped")
+            continue
+        info = build.call("flaskData", raws=[item.raw])["results"][0]
+        found[pool] = uses_per_second(info, gain, item.raw, pool)
+    return found
+
+
+def flask_used_share(uses: float, window: float) -> float:
+    """The share of the fight a flask was used within the past `window` s, uses evenly spaced."""
+    return max(0.0, min(1.0, uses * window))
+
+
+def flask_used_model(tree_texts: list[str], uses: dict[str, tuple[float, str]]) -> tuple[list[dict], list[dict]]:
+    """The tree's "if you've used a Life / Mana Flask" lines at the share of the fight the build's flask uses keep them
+    on (PoB's parse of them is dropped by the pob_wrong entry)."""
+    mods, notes = [], []
+    for pool, (pattern, text, window, what) in FLASK_USED_LINES.items():
+        value = sum(float(m.group(1)) for t in tree_texts if (m := pattern.match(t.strip())))
+        if value <= 0:
+            continue
+        rate, how = uses.get(pool, (0.0, f"no {pool} Flask equipped"))
+        share = flask_used_share(rate, window)
+        if share > 0:
+            mods.append(line(text, value * share))
+        notes.append({
+            "label": f"{value:g}{what} if you've used a {pool} Flask in the past {window:g} s",
+            "value": f"{value * share:.2f}% on average ({share:.0%} of the fight)",
+            "basis": f"{pool} Flask uses {rate:.3f}/s ({how}) x {window:g} s, up to 1: on {share:.0%} of the fight "
+                     f"(PoB: on whenever the {pool} Flask's effect is counted, used or not)",
+            "play": f"Use your {pool} Flask at least once every {window:g} s (it needs charges for that) to keep it on: "
+                    f"without it 0, with it {value:g}{what}.",
+            "confidence": "theory"})
+    return mods, notes
+
+
+# "against Demons / Humanoids / ..." tree lines against the boss's one Monster Category (COVB7) -------------------------
+# KeywordPopups MonsterCategory: "Every Monster has exactly one Monster Category. These are Humanoid, Beast, Undead,
+# Construct, Demon and Eldritch." PoB parses each line only in part (ModCache leftover " against Demons " and so on), so
+# never applies it. Here a line counts as its plain form ("N% increased Damage") for the share of the fight the boss is
+# of that category: the boss preset's `category` (MECH-A's builder/search/bosses.py: a category name, or {category: share
+# of the fight} for a boss whose forms differ, as the King in the Mists' 43% Humanoid / 57% Demon by Life, RESEARCH23
+# #147), else the manager's ruling on RESEARCH23 #138 below (poe2db's category field, HIGH; the earlier ("Demon",
+# "Humanoid") tags are not what the lines test: never both). A boss with no known category: 0, labelled (UNVERIFIED).
+# Tree lines (checked: every PassiveSkills stat id holding demon / humanoid / construct / undead / beast / monster_categ,
+# game 26476662, and ModCache's keys ending in those words): the Hunter notable (mercenary5) and the smalls mercenary1-4,
+# Necromantic Ward's damage against Undead (mercenary9). Not here: Hunting Companion's Culling Strike against Beasts and
+# Zealous Inquisition's explosion chance doubled against Undead and Demons (a kill effect). Item mods with the same
+# wording: none (checked: Mods' stats with _vs_ / against_ a category: only physical damage taken from Beasts, COV-A's).
+CATEGORY = "MonsterCategoryLines"  # the ledger flag (passives-batch4.yaml passives-model-monster-category)
+CATEGORY_LINE = re.compile(r"^(\d+)% increased (Damage|Critical Hit Chance|Duration of Ailments|Immobilisation buildup) "
+                           r"(?:against|on) (Demons|Humanoids|Beasts|Constructs|Undead Enemies)$", re.I)
+CATEGORY_TEXT = {"damage": "1% increased Damage", "critical hit chance": "1% increased Critical Hit Chance",
+                 "duration of ailments": "1% increased Duration of Ailments on Enemies",
+                 "immobilisation buildup": "1% increased Immobilisation buildup"}
+CATEGORY_NAME = {"demons": "Demon", "humanoids": "Humanoid", "beasts": "Beast", "constructs": "Construct",
+                 "undead enemies": "Undead"}
+# The manager's ruling on RESEARCH23 #138 (monster-category-one-per-boss.md) and #147 (the King's split), until the
+# presets carry `category` themselves (asked of MECH-A).
+BOSS_CATEGORY = {
+    "Arbiter of Ash": "Demon", "Xesht, We That Are One": "Demon", "The Bodach": "Demon", "Vessel of Kulemak": "Demon",
+    "Atziri, the Red Queen": "Demon", "Atziri, the Fell Serpent": "Demon", "The Raven Trickster": "Humanoid",
+    "Olroth, Origin of the Fall": "Undead", "Zarokh, the Temporal": "Construct",
+    "The King in the Mists": {"Humanoid": 0.43, "Demon": 0.57},
+}
+
+
+def boss_categories(name: str) -> tuple[dict[str, float], str]:
+    """({Monster Category: share of the fight}, where from) for the boss preset `name`."""
+    try:
+        from builder.search import bosses
+        boss = bosses.PRESETS.get(name)
+    except ImportError:
+        boss = None
+    found, source = getattr(boss, "category", None), "the boss preset's category"
+    if not found:
+        found, source = BOSS_CATEGORY.get(name), "RESEARCH23 #138 / #147 (poe2db's category field)"
+    if isinstance(found, str):
+        return {found: 1.0}, source
+    return (dict(found), source) if found else ({}, "no Monster Category known for this boss (UNVERIFIED)")
+
+
+def monster_category_model(inputs: Inputs, texts: list[str], boss: str) -> tuple[list[dict], list[dict]]:
+    if not inputs.has(CATEGORY):
+        return [], []
+    shares, source = boss_categories(boss)
+    totals: dict[tuple[str, str], float] = {}
+    for t in texts:
+        if m := CATEGORY_LINE.match(t.strip()):
+            key = (m.group(2).lower(), CATEGORY_NAME[m.group(3).lower()])
+            totals[key] = totals.get(key, 0.0) + float(m.group(1))
+    mods, notes = [], []
+    for (what, category), value in totals.items():
+        share = shares.get(category, 0.0)
+        if share > 0:
+            mods.append(line(CATEGORY_TEXT[what], value * share))
+        on = ("on all fight" if share >= 1 else f"on {share:.0%} of the fight" if share > 0 else "off")
+        notes.append({
+            "label": f"{value:g}% increased {CATEGORY_TEXT[what][13:]} against "
+                     f"{next(k for k, v in CATEGORY_NAME.items() if v == category).title()}",
+            "value": f"{value * share:g}%" + ("" if share in (0, 1) else " on average"),
+            "basis": f"{boss} is {', '.join(f'{c} ({s:.0%})' for c, s in shares.items()) or 'of no known category'} "
+                     f"({source}; one Monster Category per monster, KeywordPopups MonsterCategory): {on}",
+            "confidence": "MEDIUM-HIGH" if shares else "UNVERIFIED"})
+    return mods, notes

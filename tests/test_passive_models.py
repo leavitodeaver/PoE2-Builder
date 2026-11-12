@@ -135,7 +135,7 @@ def test_engine_applies_the_derived_values(tmp_path):
             faulthandler.enable()
 
 
-def test_emboldening_casts_and_enhancing_attacks_read_the_pending_counts():
+def test_emboldening_casts_and_enhancing_attacks_read_the_counts():
     emboldening = "12% increased Attack Damage for each different Non-Instant Spell you've used in the past 8 seconds"
     enhancing = "12% increased Spell Damage for each different Non-Instant Attack you've used in the past 8 seconds"
     assert translate(emboldening)[1] == ["flag:EmboldeningCasts"] and model_entry(enhancing).raw["model"] == "different_skills"
@@ -143,7 +143,8 @@ def test_emboldening_casts_and_enhancing_attacks_read_the_pending_counts():
     assert [(m["line"], m["scale"], m["per"]) for m in mods] == [
         ("1% increased Attack Damage", 12.0, "DifferentNonInstantSpells8s"),
         ("1% increased Spell Damage", 12.0, "DifferentNonInstantAttacks8s")]
-    assert all(n["value"] == "0 until the count lands" for n in notes)
+    assert [n["value"] for n in notes] == ["12% x the count"] * 2  # (MECHB4's count is on main: no "0 until" label)
+    assert all("until" not in n["basis"] for n in notes)
     assert pm.different_skills_model(Inputs(), [emboldening]) == ([], [])
 
 
@@ -243,3 +244,105 @@ def test_engine_drops_the_arcane_surge_on_crit_parse(tmp_path):
     finally:
         if enabled:
             faulthandler.enable()
+
+
+REINVIGORATION = "Regenerate 1% of maximum Life per Second if you've used a Life Flask in the past 10 seconds"
+ARCANE_MIXTURES = "10% increased Cast Speed if you've used a Mana Flask Recently"
+
+
+def test_flask_used_lines_follow_the_builds_flask_uses():
+    """COVB7 (MECHC3's find): PoB turns these on whenever the flask's effect is counted; here they count for the share
+    of the fight a flask was used within the window (10 s, or Recently: 4 s), from flasks.uses_per_second."""
+    assert pm.flask_used_share(0.05, 10.0) == pytest.approx(0.5)
+    assert pm.flask_used_share(0.5, 4.0) == 1.0
+    assert pm.flask_used_share(0.0, 10.0) == 0.0
+    mods, notes = pm.flask_used_model([REINVIGORATION, ARCANE_MIXTURES],
+                                      {"Life": (0.05, "x"), "Mana": (0.125, "y")})
+    assert [(m["line"], m["scale"]) for m in mods] == [("Regenerate 1% of maximum Life per second", 0.5),
+                                                      ("1% increased Cast Speed", 5.0)]
+    assert "50%" in notes[0]["value"] and "without it 0" in notes[0]["play"]
+    # Reverie (Cannot use Life Flasks): no uses, nothing counted, with the note saying why
+    mods, notes = pm.flask_used_model([REINVIGORATION], {"Life": (0.0, "Life Flasks can't be used (Cannot use Life Flasks)")})
+    assert mods == [] and "Cannot use Life Flasks" in notes[0]["basis"]
+    assert pm.flask_used_model(["Regenerate 1% of maximum Life per second"], {}) == ([], [])
+
+
+def test_flask_used_tree_lines_drop_pobs_parse():
+    from builder.data import GameData
+    try:
+        data = GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump")
+    found = pm.wrong_tree_lines(data.tree["nodes"])
+    life = {f["id"] for f in found if f["entry"] == "passives-wrong-life-flask-used-10s"}
+    mana = {f["id"] for f in found if f["entry"] == "passives-wrong-mana-flask-used-recently"}
+    assert 35809 in life and 46972 in mana
+    assert all(f["lines"] == [] for f in found if f["entry"].startswith("passives-wrong-") and "flask" in f["entry"])
+    from builder.ledger import wrong
+    assert wrong("Regenerate 1.5% of maximum Life per Second if you've used a Life Flask in the past 10 seconds") is None
+
+
+def test_engine_flask_used_lines_drop_and_rate(tmp_path):
+    """Reinvigoration allocated: the bridge drops PoB's UsingLifeFlask parse from node 35809, and the model reads the
+    tree line from sourceLines and rates it from the build's flasks (none equipped here: 0, with the note)."""
+    import faulthandler
+
+    from builder.data import GameData
+    try:
+        GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump")
+    from builder.pob.engine import PobEngine
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()
+    try:
+        engine = PobEngine()
+        payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+        skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+        search = Search(engine, None, payload, skeleton.as_dict(), 0)
+        search.setup(quests=False)
+        build = search.build
+        assert any(c.get("drop") and c["id"] == 35809 for c in search.ctx.passive_corrections)
+        build.allocate(add=[35809])
+        texts = [e["text"] for e in build.call("sourceLines")["lines"]]
+        assert REINVIGORATION in texts or any(t.lower() == REINVIGORATION.lower() for t in texts)
+        uses = pm.flask_uses(build)
+        assert set(uses) == {"Life", "Mana"}
+        mods, notes = pm.build_models(build, Inputs(), texts, [], None, {})
+        flask = [n for n in notes if "Life Flask" in n["label"]]
+        assert flask and (mods == [] or uses["Life"][0] > 0)
+    finally:
+        if enabled:
+            faulthandler.enable()
+
+
+HUNTER = ["50% increased Damage against Demons", "50% increased Duration of Ailments on Beasts",
+          "50% increased Critical Hit Chance against Humanoids", "50% increased Immobilisation buildup against Constructs"]
+
+
+def test_monster_category_lines_read_the_boss_one_category():
+    """RESEARCH23 #138: one Monster Category per boss. Against the Arbiter of Ash (Demon) the Hunter's damage counts and
+    its crit chance against Humanoids doesn't (never both); the King in the Mists splits 43% Humanoid / 57% Demon."""
+    from builder.ledger import model_entry, translate
+    for text in HUNTER + ["10% increased Damage against Demons", "30% increased damage against Undead Enemies"]:
+        assert translate(text)[1] == ["flag:MonsterCategoryLines"] and model_entry(text).raw["model"] == "monster_category"
+    inputs = Inputs(flags={pm.CATEGORY})
+    mods, notes = pm.monster_category_model(inputs, HUNTER + ["10% increased Damage against Demons"], "Arbiter of Ash")
+    assert [(m["line"], m["scale"]) for m in mods] == [("1% increased Damage", 60.0)]
+    assert len(notes) == 4 and sum("off" in n["basis"] for n in notes) == 3
+    mods, _ = pm.monster_category_model(inputs, HUNTER, "The King in the Mists")
+    assert sorted((m["line"], m["scale"]) for m in mods) == [("1% increased Critical Hit Chance", 21.5),
+                                                            ("1% increased Damage", 28.5)]
+    mods, _ = pm.monster_category_model(inputs, ["30% increased damage against Undead Enemies"], "Olroth, Origin of the Fall")
+    assert mods[0]["scale"] == 30.0
+    mods, notes = pm.monster_category_model(inputs, HUNTER, "No Such Boss")
+    assert mods == [] and notes[0]["confidence"] == "UNVERIFIED"
+    assert pm.monster_category_model(Inputs(), HUNTER, "Arbiter of Ash") == ([], [])
+    for name in ("Arbiter of Ash", "Xesht, We That Are One", "The Raven Trickster"):
+        shares, _ = pm.boss_categories(name)
+        assert sum(shares.values()) == pytest.approx(1.0) and not {"Demon", "Humanoid"} <= set(shares)

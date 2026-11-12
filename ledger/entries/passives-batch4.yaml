@@ -26,6 +26,76 @@
   test_in_game: "With Aspiring Genius only, crit a boss once every 2 s: Arcane Surge should show up about 18% of the time, not all fight."
   status: proposed
 
+- id: passives-wrong-life-flask-used-10s
+  title: '"if you''ve used a Life Flask in the past 10 seconds" (Reinvigoration) from the build''s flask uses, not the flask''s effect being up'
+  kind: pob_wrong
+  match: '^Regenerate ([\d.]+)% of maximum Life per Second if you''ve used a Life Flask in the past 10 seconds$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    OVERCOUNT by PoB with Reverie (MECHC3's find), undercount otherwise. ModParser 1884 maps the condition to
+    Condition:UsingLifeFlask, which CalcPerform (1724-1730) sets whenever a Life Flask's slot is active, i.e. while its
+    effect is counted: with Reverie's constant Life Flask effect ("Cannot use Life Flasks") it is on all fight though no
+    flask is ever used; and when the search switches the flask off (effect up under flasks.ACTIVE_UPTIME) it is off even
+    if the flask is used every few seconds. The node's parsed modifier is removed; builder/search/passive_models.py
+    flask_used_model counts the line for min(1, Life Flask uses/s x 10 s) of the fight, the uses from MECH-C's
+    flasks.uses_per_second (0 under Reverie or with no Life Flask). Tree lines (checked: every Stats.json id holding
+    "flask" with used / recent / past, and their PassiveSkills and Mods users, game 26476662; ModCache's "used a ...
+    Flask" keys): Reinvigoration (life_flasks6, node 35809, 1%). The same stat is a unique's mod
+    (UniqueHeartPrefixFlaskLifeRegenForXSeconds, 1-1.5%): item text is unchanged here (COV-D's).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 1884", "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua 1724-1733",
+            "game files PassiveSkills life_flasks6 (life_regeneration_rate_per_minute_%_if_used_life_flask_in_past_10_seconds 60)",
+            "https://poe2db.tw/us/Reinvigoration", "builder/search/passive_models.py (flask_used_model)"]
+  test_in_game: "With Reinvigoration and Reverie, check the Life regeneration on the character sheet: it should not include the 1%."
+  status: proposed
+
+- id: passives-wrong-mana-flask-used-recently
+  title: '"if you''ve used a Mana Flask Recently" (Arcane Mixtures) from the build''s Mana Flask uses, not the flask''s effect being up'
+  kind: pob_wrong
+  match: '^(\d+)% increased Cast Speed if you''ve used a Mana Flask Recently$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    ModParser 1886 maps "if you've used a mana flask recently" to Condition:UsingManaFlask, set whenever the Mana
+    Flask's slot is active (CalcPerform 1731-1733): on whenever its effect is counted, off when the search switches the
+    flask off though it is used (an undercount), and on for a Mana Flask whose charges a Concoction main skill throws
+    (no use of the flask itself: flasks.thrown; an overcount). The node's parsed modifier is removed;
+    passive_models.flask_used_model counts the line for min(1, Mana Flask uses/s x 4 s) of the fight (Recently: the
+    past 4 s, KeywordPopups). Tree lines (checked as the Life Flask entry): Arcane Mixtures (energy_shield_recovery25,
+    node 46972, 10%, with its own 6 Mana Flask charges per minute, which chargeGain counts).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 1886", "game files PassiveSkills energy_shield_recovery25",
+            "https://poe2db.tw/us/Arcane_Mixtures", "builder/search/passive_models.py (flask_used_model)"]
+  test_in_game: "With Arcane Mixtures, cast without using the Mana Flask for 5 s: the 10% Cast Speed should drop off."
+  status: proposed
+
+- id: passives-model-monster-category
+  title: Lines "against Demons / Humanoids / Beasts / Constructs / Undead" (the Hunter family) against the boss's one Monster Category (custom model)
+  kind: pob_gap
+  model: monster_category
+  match: '^(\d+)% increased (Damage|Critical Hit Chance|Duration of Ailments|Immobilisation buildup) (against|on) (Demons|Humanoids|Beasts|Constructs|Undead Enemies)$'
+  replace: ['flag:MonsterCategoryLines']
+  confidence: theory
+  notes: >-
+    PoB parses each line only in part (ModCache leftover " against Demons " etc.), so never applies it. KeywordPopups
+    MonsterCategory: "Every Monster has exactly one Monster Category. These are Humanoid, Beast, Undead, Construct, Demon
+    and Eldritch." builder/search/passive_models.py monster_category_model gives the plain line ("N% increased Damage",
+    "... Critical Hit Chance", "... Duration of Ailments on Enemies", "... Immobilisation buildup") for the share of the
+    fight the boss is of that category: the boss preset's `category` (MECH-A's bosses.py, asked for), else the
+    manager's ruling on RESEARCH23 #138 / #147 (poe2db's category field): Arbiter of Ash, Xesht, the Bodach, Vessel of
+    Kulemak, Atziri = Demon; the Raven = Humanoid; Olroth = Undead; Zarokh = Construct; the King in the Mists 43%
+    Humanoid / 57% Demon by Life. Never both Demon and Humanoid (the presets' old ("Demon", "Humanoid") are tags, which
+    the lines don't test: RESEARCH23 #138). So against the default Arbiter of Ash the Hunter's 50% Damage against Demons
+    counts and its 50% Critical Hit Chance against Humanoids doesn't. Tree lines (checked: every PassiveSkills stat id
+    holding demon / humanoid / construct / undead / beast / monster_categ, game 26476662; ModCache's keys ending in
+    those words): Hunter (mercenary5), the smalls mercenary1-4, Necromantic Ward (mercenary9, "damage against Undead
+    Enemies"). Item mods with this wording: none (checked: Mods' stats with _vs_ / against_ a category: only
+    physical_damage_taken_+_vs_beasts, a defence line, COV-A's).
+  sources: ["KeywordPopups MonsterCategory (game files)", "game files PassiveSkills mercenary1-5, mercenary9",
+            "scratch/manager/research/monster-category-one-per-boss.md (RESEARCH23 #138)", "king-in-the-mists-phase-split.md (#147)",
+            "https://poe2db.tw/us/Hunter (poe2wiki Passive_Skill:Mercenary5: the same four bonuses)"]
+  test_in_game: "With the Hunter notable against the Arbiter of Ash, the crit chance on the character's hit should not include the 50% against Humanoids; the damage should include the 50% against Demons."
+  status: proposed
+
 # Lines the misparse check flags whose PoB parse is right (parse_checked: nothing applied) ------------------------------
 
 - id: passives-parse-shocking-creates-shocked-ground
@@ -46,4 +116,22 @@
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua (ailment Base -> Override)",
             "builder/search/conditions.py (SHOCK_MAKES_GROUND)", "https://poe2db.tw/us/I_am_the_Thunder..."]
   test_in_game: "With the notable, Shock a boss often: Shocked Ground appears under it on about a quarter of the Shocks, and it shows the base Shock."
+  status: proposed
+
+- id: passives-parse-rage-on-melee-axe-hit
+  title: '"Gain N Rage on Melee Axe Hit": PoB''s flag only allows Rage; the tool''s Rage model needs a Melee main skill and an Axe held'
+  kind: parse_checked
+  match: '^Gain [(\d.\-)]+ Rage on Melee Axe Hit$'
+  confidence: datamined
+  notes: >-
+    RESEARCH/COVD8 #241. PoB parses the line to the flag Condition:CanGainRage alone (ModCache "Gain 1 / 2 Rage on
+    Melee Axe Hit"), which gives no Rage by itself (CalcPerform takes Rage stacks from Multiplier:RageStack, the
+    configuration the tool sets from builder/search/conditions.py). The audit saw the restriction lost; the tool's Rage
+    model keeps it: _rage_gain returns 0 "on Axe hits, and no Axe is equipped" unless an Axe is in Weapon 1 or 2
+    (MECHC2, stats["_weapon_types"]), and _hit_restriction needs a Melee main skill. passives-batch1.yaml's
+    passives-parse-rage-on-melee-hit left this Axe form open as an overcount; it is closed since MECHC2. Tree lines:
+    the "Axe Rage on Hit" smalls (1 and 2 Rage).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua (Gain 1 Rage on Melee Axe Hit)",
+            "builder/search/conditions.py (_rage_line's weapon check, _hit_restriction)"]
+  test_in_game: "With the small passive and a Mace, hit a boss: Rage should not rise from it; with an Axe it should."
   status: proposed

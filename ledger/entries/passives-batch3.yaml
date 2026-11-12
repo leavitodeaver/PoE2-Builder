@@ -61,7 +61,7 @@
 # Per different skill used in 8 s (AUDIT7 A7-2): ready for MECH-B's count, 0 until it lands --------------------------
 
 - id: passives-model-emboldening-casts
-  title: Emboldening Casts, Attack Damage per different Non-Instant Spell used in 8 s (custom model, count pending)
+  title: Emboldening Casts, Attack Damage per different Non-Instant Spell used in 8 s (custom model)
   kind: pob_gap
   model: different_skills
   match: '^(\d+)% increased Attack Damage for each different Non-Instant Spell you''ve used in the past 8 seconds$'
@@ -72,15 +72,16 @@
     seconds"), so it never applies it (AUDIT7 A7-2; checked: no ledger entry on origin/main before this one).
     builder/search/passive_models.py different_skills_model gives "N% increased Attack Damage" per the PoB multiplier
     LedgerDifferentNonInstantSpells8s: the number of different Non-Instant Spells the build uses at least once per 8 s,
-    which MECH-B's skills model is to set (with Rapid Casting III, the Kurgal suffix and Casting Cascade's counts:
-    research cast-speed-per-different-spell.md). Until it does the multiplier is 0 and so is this line (an
-    undercount for a hybrid build, labelled in the result). Passive attacks_and_spells12 (game files).
+    set by MECH-B's builder/search/models.py different_skills_counts (MECHB4): the main skill and every other
+    non-instant skill the build has whose cooldown lets it be used once per 8 s (a play strategy, in the result's note);
+    triggered, Persistent, totem and instant skills not counted (whether a triggered spell counts: UNVERIFIED, left
+    out). Research cast-speed-per-different-spell.md. Passive attacks_and_spells12 (game files).
   sources: ["game files PassiveSkills attacks_and_spells12 (AUDIT7 A7-2)", "https://poe2db.tw/us/Emboldening_Casts"]
   test_in_game: "Use two different non-instant spells, then attack: the attack's damage should show 24% increased from this passive."
   status: proposed
 
 - id: passives-model-enhancing-attacks
-  title: Enhancing Attacks, Spell Damage per different Non-Instant Attack used in 8 s (custom model, count pending)
+  title: Enhancing Attacks, Spell Damage per different Non-Instant Attack used in 8 s (custom model)
   kind: pob_gap
   model: different_skills
   match: '^(\d+)% increased Spell Damage for each different Non-Instant Attack you''ve used in the past 8 seconds$'
@@ -89,7 +90,7 @@
   notes: >-
     PoB parses the line only in part (ModCache 2028: leftover text), so it never applies it (AUDIT7 A7-2).
     passive_models.different_skills_model gives "N% increased Spell Damage" per LedgerDifferentNonInstantAttacks8s (the
-    different Non-Instant Attacks used per 8 s, MECH-B's count), 0 until MECH-B sets it (an undercount, labelled).
+    different Non-Instant Attacks used per 8 s, MECH-B's count: models.different_skills_counts, MECHB4).
     Passive attacks_and_spells13 (game files).
   sources: ["game files PassiveSkills attacks_and_spells13 (AUDIT7 A7-2)", "https://poe2db.tw/us/Enhancing_Attacks"]
   test_in_game: "Use two different non-instant attacks, then cast a spell: its damage should show 24% increased from this passive."
