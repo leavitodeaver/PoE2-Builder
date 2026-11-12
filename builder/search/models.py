@@ -2478,9 +2478,12 @@ def harmony_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]:
                        "confidence": "theory"}]
     return mods, [{
         "label": "Harmony Within", "value": "hits taken from Mana first",
-        "basis": f"unreserved Mana {mana:,.0f} is above Life {life:,.0f}: counted as 100% of damage taken from Mana before Life, "
-                 "both pools full (a fight where Mana drains below Life, and overflow of a hit bigger than the Mana, are not "
-                 "counted)", "confidence": "theory"}]
+        "basis": f"unreserved Mana {mana:,.0f} is above Life {life:,.0f}: counted as 100% of Hit damage taken from Mana before "
+                 "Life, both pools full; a hit bigger than the Mana overflows into Life (one player's test, MEDIUM: RESEARCH4 "
+                 "harmony-within.md); a fight where Mana drains below Life isn't counted. Only hits: PoB's line also moves the "
+                 "build's own damage over time onto Mana, but only in its net-regeneration outputs, which no number here reads "
+                 "(checked: builder/ and the bridge read no NetLifeRegen, NetManaRegen or BuildDegen; the floors read "
+                 "MaximumHitTaken and TotalEHP, both from hits)", "confidence": "theory"}]
 
 
 # Safrin's Resolve, Eshtera's Path, Zaida's Longevity (model: resist_rings) --------------------------------------------
@@ -2549,25 +2552,36 @@ def _mana_tempest_spent(skill: Skill) -> float:
 
 
 def mana_tempest_uptime(skill: Skill, stats: dict) -> tuple[float, str, str]:
+    """Mana Tempest's storm (RESEARCH3, mana-tempest-lunar-blessing.md, game files ManaTempestPlayer and mana_tempest.csd):
+    it "Empowers your Mana-costing Spells", so a main skill that costs no Mana (a meta-triggered spell, a Life-cost spell)
+    gets nothing: 0 (before, counted in full: an overcount); "30% of Mana and Life spent while in the storm is added to this
+    Skill's Mana Cost per Second", so Life spent (LifePerSecondCost) drains the storm too (before, Mana only: an
+    overcount for skills that also cost Life). Not counted: its effects "linger for 2 seconds after leaving the Tempest"
+    (0.4.0), whether that also follows a storm ended by running out of Mana is UNVERIFIED (a small undercount)."""
     mana, regen, spend = number(stats.get("Mana")), number(stats.get("ManaRegenRecovery")), number(stats.get("ManaPerSecondCost"))
+    life_spend = number(stats.get("LifePerSecondCost"))
     spent_share = _mana_tempest_spent(skill)
-    drain = MANA_TEMPEST_DRAIN * mana + spent_share * spend
+    drain = MANA_TEMPEST_DRAIN * mana + spent_share * (spend + life_spend)
     deficit = spend + drain - regen
     if mana <= 0:
         return 0.0, "no Mana", ""
+    if spend <= 0:
+        return 0.0, ("the main skill costs no Mana: Mana Tempest Empowers only Mana-costing Spells (its game description; "
+                     "a meta-triggered or Life-cost spell gets nothing)"), ""
+    paid = f"30% of the {spend:,.0f} Mana" + (f" and {life_spend:,.0f} Life" if life_spend > 0 else "") + " you spend per second"
     if deficit <= 0:
         return 1.0, (f"Mana regenerates {regen:,.0f}/s, more than the main skill's {spend:,.0f}/s plus the storm's drain "
-                     f"{drain:,.0f}/s (1% of {mana:,.0f} Mana and 30% of what you spend): the storm lasts as long as you stay in it"), \
-            "Assumes you stand in the storm for the whole fight; every step out of it ends it."
+                     f"{drain:,.0f}/s (1% of {mana:,.0f} Mana and {paid}): the storm lasts as long as you stay in it"),             "Assumes you stand in the storm for the whole fight; every step out of it ends it (2 s later)."
     on = mana / deficit
     refill = regen - spend
     if refill <= 0:
         return 0.0, f"the main skill alone spends {spend:,.0f} Mana/s against {regen:,.0f}/s regenerated: no Mana left to keep a storm", ""
     off = mana / refill
     up = on / (on + off)
-    return up, (f"the storm drains {drain:,.0f} Mana/s on top of the main skill's {spend:,.0f}/s against {regen:,.0f}/s regenerated: "
-                f"{mana:,.0f} Mana lasts {on:.1f} s; then {off:.1f} s to refill without it, recast at full Mana"), \
-        "Assumes you recast it whenever your Mana is full again and stand in it; recasting earlier gives shorter storms."
+    return up, (f"the storm drains {drain:,.0f} Mana/s (1% of {mana:,.0f} Mana and {paid}) on top of the main skill's "
+                f"{spend:,.0f}/s against {regen:,.0f}/s regenerated: {mana:,.0f} Mana lasts {on:.1f} s; then {off:.1f} s to "
+                "refill without it, recast at full Mana; the 2 s its effects linger after a storm isn't counted (UNVERIFIED "
+                "when the storm ends from running out of Mana)"),         "Assumes you recast it whenever your Mana is full again and stand in it; recasting earlier gives shorter storms."
 
 
 def _lunar_blessing_times(skill: Skill) -> tuple[float, float, float]:
@@ -3171,9 +3185,15 @@ def deadly_resolve_model(skills: list[Skill], stats: dict, main: Skill | None) -
 
 SANGUINE = "SanguineTides"
 SANGUINE_PER_PERCENT = 5.0 / 2.0  # 5 s per charge, 1 charge per 2% of Life spent
+SANGUINE_CONSUMED = 0.4  # of the full Life Flask's charges, consumed on Hit, 1% each (AscendancyWitch2Notable9)
 
 
-def sanguine_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]:
+def sanguine_model(inputs: Inputs, stats: dict, flask_charges: float | None = None) -> tuple[list[dict], list[dict]]:
+    """Sanguine Tides (RESEARCH4, sanguine-tides.md): 1 Life Flask charge per 2% of Life spent; on Hit with a full Life Flask,
+    40% of its charges are consumed for 1% of damage as Physical each, for 5 s. The buff refreshes rather than stacks
+    (poe2wiki, MEDIUM), so it is one value, 0.4 x the flask's maximum charges, up while refills come within 5 s: gain =
+    min(0.4 C, 2.5 x % of Life spent per second) (before, 2.5 x L% uncapped: an overcount above the cap). `flask_charges`:
+    the equipped Life Flask's maximum charges, 0 with none (no flask to consume: nothing); None leaves it uncapped (tests)."""
     if not inputs.has(SANGUINE):
         return [], []
     life, spent = number(stats.get("Life")), number(stats.get("LifePerSecondCost"))
@@ -3181,16 +3201,29 @@ def sanguine_model(inputs: Inputs, stats: dict) -> tuple[list[dict], list[dict]]
     if when is None:
         return [], []
     gain = SANGUINE_PER_PERCENT * spent / life * 100 if life > 0 and spent > 0 else 0.0
-    # (worked out again by the bridge from each calculation's Life and Life cost)
+    cap = SANGUINE_CONSUMED * flask_charges if flask_charges is not None else None
+    capped = cap is not None and gain > cap
+    if cap is not None:
+        gain = min(gain, cap)
+    # (worked out again by the bridge from each calculation's Life and Life cost, capped by the flask)
     mods = [line("Gain 1% of Damage as Extra Physical Damage", 1 / UNIT, when=when, per=SANGUINE),
-            derived(SANGUINE, "sanguine", gain * UNIT, perPercent=SANGUINE_PER_PERCENT)]
+            derived(SANGUINE, "sanguine", gain * UNIT, perPercent=SANGUINE_PER_PERCENT,
+                    **({"cap": cap} if cap is not None else {}))]
+    if cap == 0:
+        return mods, [{"label": "Sanguine Tides", "value": "not counted",
+                       "basis": "no Life Flask equipped: the charges it consumes on Hit come from a full Life Flask",
+                       "confidence": "theory"}]
     if gain <= 0:
         return mods, [{"label": "Sanguine Tides", "value": "not counted", "basis": "the build spends no Life on its skills",
                        "confidence": "theory"}]
     return mods, [{
         "label": "Sanguine Tides: damage gained as Physical", "value": f"{gain:.1f}%",
         "basis": f"the main skill spends {spent:,.0f} Life/s ({spent / life:.1%} of {life:,.0f} per second): 1 Life Flask charge per 2% spent, "
-                 "each consumed charge 1% for 5 s; every charge filled assumed consumed (you hit the boss whenever the flask is full)",
+                 "40% of the full flask's charges consumed on Hit, 1% each for 5 s; the buff refreshes, it doesn't stack "
+                 "(poe2wiki, MEDIUM)"
+                 + (f", so it is capped at {cap:.0f}% (40% of the Life Flask's {flask_charges:.0f} charges)" if capped else
+                    (f"; the flask refills too slowly to keep its {cap:.0f}% up, so it is up part of the time" if cap else ""))
+                 + "; you hit the boss whenever the flask is full",
         "play": "Hitting less often than the flask fills, or a flask that never fills, lowers it.", "confidence": "theory"}]
 
 

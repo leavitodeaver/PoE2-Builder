@@ -696,6 +696,19 @@ def test_support_entries_list_every_stat_their_match_takes():
             assert ids and all(entry.pattern.search(stat) for stat in ids), entry.id
 
 
+def test_mana_tempest_empowers_only_mana_costing_spells_and_life_spent_drains_it():
+    """MECHC3 (RESEARCH3, mana-tempest-lunar-blessing.md): "Empowers your Mana-costing Spells", so a main skill that costs no
+    Mana gets 0; "30% of Mana and Life spent while in the storm" is added to its drain."""
+    tempest = models.Skill("Mana Tempest", level_stats={"mana_tempest_mana_cost_%_to_add_to_cost_per_second": 30})
+    up, why, _ = models.mana_tempest_uptime(tempest, {"Mana": 2000, "ManaRegenRecovery": 500, "ManaPerSecondCost": 0})
+    assert up == 0.0 and "costs no Mana" in why
+    mana_only = {"Mana": 2000, "ManaRegenRecovery": 120, "ManaPerSecondCost": 100}
+    up_mana = models.mana_tempest_uptime(tempest, mana_only)[0]
+    up_life, why, _ = models.mana_tempest_uptime(tempest, {**mana_only, "LifePerSecondCost": 100})
+    # drain 20 + 30% of (100 + 100) = 80: 2000 Mana last 2000 / (100 + 80 - 120) = 33.3 s; refill 100 s
+    assert up_life == pytest.approx(33.333 / 133.333, rel=1e-3) and up_life < up_mana and "100 Life" in why
+
+
 def test_lunar_blessing_uptime_from_rage_and_cooldown():
     skill = models.Skill("Lunar Blessing", cooldown=22.0, cooldown_recovery=1.0,
                          level_stats={"base_skill_effect_duration": 5000, "skill_lunar_blessing_extend_buff_by_X_ms_per_rage": 200})
@@ -813,6 +826,12 @@ def test_sanguine_tides_gain_follows_the_life_spent():
     assert derived_fns(mods) == {"SanguineTides": "sanguine"}
     assert effective(models.sanguine_model(passive, {"Life": 2000})[0])[0][1] == 0
     assert models.sanguine_model(models.Inputs(), {"Life": 2000, "LifePerSecondCost": 100}) == ([], [])
+    # MECHC3: the buff refreshes, it doesn't stack: at most 40% of the Life Flask's charges (60 charges: 24%)
+    mods, notes = models.sanguine_model(passive, {"Life": 2000, "LifePerSecondCost": 400}, 60)  # 20% of Life/s: 50% uncapped
+    assert effective(mods)[0][1] == 24.0 and "capped at 24%" in notes[0]["basis"]
+    assert effective(models.sanguine_model(passive, {"Life": 2000, "LifePerSecondCost": 100}, 60)[0])[0][1] == 12.5
+    mods, notes = models.sanguine_model(passive, {"Life": 2000, "LifePerSecondCost": 100}, 0)
+    assert effective(mods)[0][1] == 0 and "no Life Flask" in notes[0]["basis"]
 
 
 def test_deadly_resolve_slashes_once_per_stage_when_the_boss_hits():
@@ -1730,7 +1749,8 @@ def test_flask_use_ignites_and_reaching_maximum_read_the_build_not_4s():
     gain = flasks.Charges(flask=1.0)
     flask = {"kind": "Flask", "chargesUsed": 10, "duration": 2.0}
     assert flasks.uses_per_second(flask, gain, "Ruby Flask", "Life")[0] == pytest.approx(0.1)
-    assert flasks.uses_per_second({**flask, "chargesUsed": 1}, gain, "Ruby Flask", "Life")[0] == pytest.approx(0.5)
+    # Life / Mana flask effects queue (RESEARCH A5-6; MECHC3, merged in MECHC4): capped by charges only, not 1 / effect
+    assert flasks.uses_per_second({**flask, "chargesUsed": 1}, gain, "Ruby Flask", "Life")[0] == pytest.approx(1.0)
     charm = {"kind": "Charm", "chargesUsed": 10, "duration": 2.0, "gainBase": 1.0}
     assert flasks.uses_per_second(charm, gain, "Golden Charm\nUsed when you Kill a Rare or Unique enemy", None)[0] == 0
     on_use = "Gain 1 Endurance Charge on use"
@@ -2107,3 +2127,47 @@ def test_different_non_instant_skills_per_8_seconds():
     values = {m.get("name"): m["value"] for m in mods}
     assert values["DifferentNonInstantSpells8s"] == 2 and values["DifferentNonInstantAttacks8s"] == 1
     assert values["Multiplier:NonInstantSpellCastRecently"] == 2
+
+
+def test_a_concoction_main_skill_leaves_its_mana_flask_no_charges_for_recovery():
+    """MECHC3: the throws take every charge the Mana Flask gains (flask_main's rate comes from them), so its recovery and
+    effect uptime aren't counted from the same charges; a Life Flask and any other main skill are untouched."""
+    from dataclasses import replace
+
+    from builder.search.flasks import Charges, recovery_per_second, uptime
+    flask = {"kind": "Flask", "chargesMax": 75, "chargesUsed": 15, "duration": 3, "manaTotal": 300, "lifeTotal": 300}
+    gain = Charges(flask=3.0)
+    assert recovery_per_second(flask, gain, "Mana") > 0 and uptime(flask, gain, "Mana") > 0
+    thrown = replace(gain, main_skill="Explosive Concoction")
+    assert recovery_per_second(flask, thrown, "Mana") == 0.0 and uptime(flask, thrown, "Mana") == 0.0
+    assert recovery_per_second(flask, thrown, "Life") == recovery_per_second(flask, gain, "Life") > 0
+
+
+def test_reverie_s_life_flasks_apply_constantly_and_are_never_used():
+    """MECHC3: Reverie ("Cannot use Life Flasks", "Non-Unique Life Flasks apply their Effects constantly", "(40-60)% less
+    Life Flask Recovery"; PoB parses none of them): a non-unique Life Flask's recovery is constant, less by the line, and
+    "when you use a Life Flask" lines get no uses; flask uses otherwise come from the flask's own charges."""
+    from dataclasses import replace
+
+    from builder.search.flasks import Charges, recovery_per_second, uptime, uses_per_second
+    life = {"kind": "Flask", "chargesMax": 60, "chargesUsed": 10, "duration": 4, "lifeTotal": 400}
+    gain = Charges(flask=1.0)
+    assert uses_per_second(life, gain, "", "Life")[0] == pytest.approx(0.1)  # (effects queue: not capped at 1 / 4 s)
+    assert recovery_per_second(life, gain, "Life") == pytest.approx(400 * 0.1)
+    reverie = replace(gain, life_flask_unusable=True, life_flask_constant=True, life_flask_less=50)
+    assert uses_per_second(life, reverie, "", "Life")[0] == 0.0
+    assert recovery_per_second(life, reverie, "Life") == pytest.approx(400 * 0.5 / 4) and uptime(life, reverie, "Life") == 1.0
+    unique = {**life, "unique": True}
+    assert recovery_per_second(unique, reverie, "Life") == 0.0 and uptime(unique, reverie, "Life") == 0.0
+
+
+def test_a_main_skill_that_cannot_generate_frenzy_charges_feeds_no_frenzy_hit_line():
+    """MECHC3 (FIX_QUEUE): Ferocity's skill_cannot_generate_frenzy_charges on the main skill: its hits and crits make no
+    Frenzy Charges (before, counted: an overcount of Frenzy held and of Ferocity's share); other charges and the boss's
+    events (Block) still count."""
+    from builder.search import conditions as c
+    stats = {"Speed": 3, "HitChance": 100, "CritChance": 50, "EffectiveBlockChance": 30, "_main_no_frenzy": c.NO_FRENZY_STAT}
+    assert c._charge_rate("Gain a Frenzy Charge on Critical Hit", "Frenzy", stats)[0] == 0.0
+    assert c._charge_rate("Gain a Frenzy Charge on Critical Hit", "Frenzy", {**stats, "_main_no_frenzy": None})[0] == 1.5
+    assert c._charge_rate("Gain a Power Charge on Critical Hit", "Power", stats)[0] == 1.5
+    assert c._charge_rate("20% chance to gain a Frenzy Charge when you Block", "Frenzy", stats)[0] > 0

@@ -45,6 +45,12 @@ class Charges:
     boss_types: tuple[str, ...] = ()
     perfect_skills: int = 0
     perfect_main_rate: float = 0.0
+    main_skill: str = ""  # (a Concoction main skill spends the Mana Flask's charges: THROW_CHARGES, thrown)
+    # Reverie (MECHC3): "Cannot use Life Flasks"; "Non-Unique Life Flasks apply their Effects constantly"; "% less Life
+    # Flask Recovery" (summed). PoB parses none of them (ModCache leftover text)
+    life_flask_unusable: bool = False
+    life_flask_constant: bool = False
+    life_flask_less: float = 0.0
 
     @classmethod
     def from_bridge(cls, data: dict) -> Charges:
@@ -56,7 +62,9 @@ class Charges:
                    data.get("charm", 0), data.get("charmGainInc", 0), data.get("flaskDurationInc", 0),
                    data.get("charmDurationInc", 0), data.get("lifeRecoveryInc", 0), data.get("manaRecoveryInc", 0),
                    int(data.get("charmLimit", 0)), bool(data.get("lifeFlaskBlocked", False)), land, types,
-                   int(data.get("perfectSkills") or 0), float(data.get("perfectMainRate") or 0.0))
+                   int(data.get("perfectSkills") or 0), float(data.get("perfectMainRate") or 0.0),
+                   str(data.get("mainSkill") or ""), bool(data.get("lifeFlaskUnusable", False)),
+                   bool(data.get("lifeFlaskConstant", False)), float(data.get("lifeFlaskLess") or 0.0))
 
 
 # Charm triggers other than a kill (MECHC2, FIX_QUEUE: each counted as firing whenever its charges allowed, whether or not
@@ -131,8 +139,10 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
     `chargesUsed`, and each use lasts its duration."""
     if not info.get("kind") or KILL_TRIGGER in trigger.lower():
         return 0.0
-    if info.get("constant"):  # "cannot be Used but applies its Effect constantly" (Lavianga's Spirits)
+    if info.get("constant") or reverie_constant(info, gain, pool):  # (Lavianga's Spirits; Reverie's non-unique Life Flasks)
         return 1.0
+    if thrown(gain, pool) or (pool == "Life" and gain.life_flask_unusable):
+        return 0.0
     used = info.get("chargesUsed") or 0
     rate = charges_per_second(info, gain, pool)
     if used <= 0:
@@ -174,9 +184,16 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
         return 0.0, "can't be used against a lone boss (waits for a kill, or can't be used)"
     if used <= 0:
         return 0.0, "no charges per use read"
+    # (MECHC3, merged in MECHC4: Reverie's "Cannot use Life Flasks"; a Mana Flask whose charges a Concoction main skill
+    # throws. Life and Mana flask effects queue (RESEARCH A5-6, MEDIUM-HIGH: "Life Flask Effects do not Queue" exists only
+    # as Enduring Elixirs' exception), so their uses aren't capped by the duration; charms keep the cap, no rule found)
+    if pool == "Life" and gain.life_flask_unusable:
+        return 0.0, "Life Flasks can't be used (Cannot use Life Flasks)"
+    if thrown(gain, pool):
+        return 0.0, f"its charges are thrown by {gain.main_skill}"
     made = charges_per_second(info, gain, pool)
     uses, how = made / used, f"{made:.2f} charges/s / {used:g} per use"
-    if (length := duration(info, gain)) > 0 and uses > 1 / length:
+    if pool not in ("Life", "Mana") and (length := duration(info, gain)) > 0 and uses > 1 / length:
         uses, how = 1 / length, how + f", at most once per its {length:.1f} s effect"
     return uses, how
 
@@ -189,17 +206,18 @@ def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
     total = info.get("lifeTotal" if pool == "Life" else "manaTotal") or 0
     used = info.get("chargesUsed") or 0
     inc = gain.life_recovery_inc if pool == "Life" else gain.mana_recovery_inc
-    if info.get("constant") and total > 0:
+    less = (1 - min(gain.life_flask_less, 100) / 100) if pool == "Life" else 1.0
+    if (info.get("constant") or reverie_constant(info, gain, pool)) and total > 0:
         # theory: its effect is its recovery, applied without a use, so the whole amount over every duration, end to end
         length = info.get("duration") or 0
-        return total * (1 + inc / 100) / length if length > 0 else 0.0
-    if total <= 0 or used <= 0:
+        return total * (1 + inc / 100) * less / length if length > 0 else 0.0
+    if total <= 0 or used <= 0 or thrown(gain, pool) or (pool == "Life" and gain.life_flask_unusable):
         return 0.0
     uses = charges_per_second(info, gain, pool) / used
     length = info.get("duration") or 0
     if length > 0:
         uses = min(uses, 1 / length)
-    return total * (1 + inc / 100) * uses
+    return total * (1 + inc / 100) * less * uses
 
 
 # Skills that spend flask charges per use (MECHC2, FIX_QUEUE's usage-rate cap; the manager's ruling 12 Nov 08:30). Game files
@@ -224,6 +242,19 @@ def charge_use_rate(info: dict | None, gain: Charges, pool: str, per_use: float)
         return 0.0, (f"the {pool} Flask gains no charges in a boss fight (no kills; no 'charges per second' line): "
                      f"none for the {per_use:g} a use takes")
     return generated / per_use, f"the {pool} Flask gains {generated:.2f} charges/s, {per_use:g} per use"
+
+
+def reverie_constant(info: dict, gain: Charges, pool: str | None) -> bool:
+    """Reverie's "Non-Unique Life Flasks apply their Effects constantly" (MECHC3), for a non-unique Life Flask."""
+    return pool == "Life" and gain.life_flask_constant and info.get("kind") == "Flask" and not info.get("unique")
+
+
+def thrown(gain: Charges, pool: str | None) -> bool:
+    """Whether a Concoction main skill throws away the `pool` flask's charges (MECHC3): its throw rate is set from every charge
+    the flask gains (Assumptions.flask_main), so none are left for the flask's own use: no recovery, no effect uptime.
+    Charges left over when a throw per cast time spends fewer than the flask gains (above 5 per cast time) aren't counted
+    (an undercount only there, labelled in flask_main's note)."""
+    return pool == THROW_POOL and gain.main_skill in THROW_CHARGES
 
 
 def slot_pool(slot: str) -> str | None:

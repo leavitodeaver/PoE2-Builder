@@ -313,13 +313,14 @@ local function num(value)
 end
 
 -- Mana Tempest (models.mana_tempest_uptime): the storm drains 1% of maximum Mana per second plus
--- args.spent of what you spend; it lasts while Mana lasts, then refills without it
+-- args.spent of the Mana and Life you spend; it lasts while Mana lasts, then refills without it; nothing for a main skill
+-- that costs no Mana (it Empowers only Mana-costing Spells)
 function DERIVED.manaTempest(out, a)
 	local mana, regen, spend = num(out.Mana), num(out.ManaRegenRecovery), num(out.ManaPerSecondCost)
-	if mana <= 0 then
+	if mana <= 0 or spend <= 0 then
 		return 0
 	end
-	local drain = 0.01 * mana + (a.spent or 0.3) * spend
+	local drain = 0.01 * mana + (a.spent or 0.3) * (spend + num(out.LifePerSecondCost))
 	local deficit = spend + drain - regen
 	if deficit <= 0 then
 		return DERIVED_UNIT
@@ -346,7 +347,11 @@ function DERIVED.sanguine(out, a)
 	if life <= 0 or spent <= 0 then
 		return 0
 	end
-	return math.floor(DERIVED_UNIT * (a.perPercent or 2.5) * spent / life * 100 + 0.5)
+	local gain = (a.perPercent or 2.5) * spent / life * 100
+	if a.cap then  -- 40% of the Life Flask's maximum charges: the buff refreshes, it doesn't stack (models.sanguine_model)
+		gain = math.min(gain, a.cap)
+	end
+	return math.floor(DERIVED_UNIT * gain + 0.5)
 end
 
 -- Guided Hand (models.guided_hand_model): share of attacks after a Heavy Stun, the boss's Heavy Stuns per second as
@@ -3042,6 +3047,7 @@ function bridge.flaskData(args)
 		local entry = setmetatable({ }, { __jsontype = "object" })
 		if data then
 			entry.kind = item.base.flask and "Flask" or "Charm"
+			entry.unique = item.rarity == "UNIQUE"
 			for _, key in ipairs(keys) do
 				entry[key] = data[key]
 			end
@@ -3191,9 +3197,23 @@ function bridge.chargeGain()
 	end
 	-- "Flasks do not recover Life" (Sanguine Tides; the unique mod UniqueLifeFlaskNoRecovery1): PoB doesn't parse it
 	local lifeFlaskBlocked = false
+	-- Reverie (MECHC3): "Cannot use Life Flasks", "Non-Unique Life Flasks apply their Effects constantly", "(40-60)% less
+	-- Life Flask Recovery"; PoB leaves all three unparsed (ModCache: leftover text, so never applied)
+	local lifeFlaskUnusable, lifeFlaskConstant, lifeFlaskLess = false, false, 0
 	for _, line in ipairs(bridge.sourceLines().lines) do
-		if line.text:lower():match("^%s*flasks do not recover life%s*$") then
+		local text = line.text:lower()
+		if text:match("^%s*flasks do not recover life%s*$") then
 			lifeFlaskBlocked = true
+		end
+		if text:match("^%s*cannot use life flasks%s*$") then
+			lifeFlaskUnusable = true
+		end
+		if text:match("^%s*non%-unique life flasks apply their effects constantly%s*$") then
+			lifeFlaskConstant = true
+		end
+		local less = text:match("^%s*(%d+)%% less life flask recovery%s*$")
+		if less then
+			lifeFlaskLess = lifeFlaskLess + tonumber(less)
 		end
 	end
 	-- What a charm's "Used when ..." trigger needs from the fight (MECHC2, flasks.trigger_rate): the boss preset's hit
@@ -3213,10 +3233,13 @@ function bridge.chargeGain()
 		end
 	end
 	return {
-		active = active, lifeFlaskBlocked = lifeFlaskBlocked,
+		active = active, lifeFlaskBlocked = lifeFlaskBlocked, lifeFlaskUnusable = lifeFlaskUnusable,
+		lifeFlaskConstant = lifeFlaskConstant, lifeFlaskLess = lifeFlaskLess,
 		bossDamage = boss, enemySkillTime = output.enemySkillTime or 0, evade = output.EvadeChance or 0,
 		block = output.EffectiveBlockChance or 0, perfectSkills = perfect,
 		perfectMainRate = perfectMain and (output.Speed or 0) or 0,
+		-- the main skill's name (MECHC3: a Concoction main skill spends the Mana Flask's charges, flasks.THROW_CHARGES)
+		mainSkill = main and main.activeEffect and main.activeEffect.grantedEffect and main.activeEffect.grantedEffect.name or "",
 		flask = base("FlaskChargesGenerated"), lifeFlask = base("LifeFlaskChargesGenerated"),
 		manaFlask = base("ManaFlaskChargesGenerated"), flaskGainInc = inc("FlaskChargesGained"),
 		charm = base("CharmChargesGenerated"), charmGainInc = inc("CharmChargesGained"),

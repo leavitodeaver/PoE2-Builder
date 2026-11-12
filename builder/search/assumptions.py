@@ -382,7 +382,7 @@ class Assumptions:
         ring_mods, ring_notes = models.resist_rings_model(source_lines) if models.RESIST_ENTRY not in forbidden else ([], [])
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()
         hand_mods, hand_notes = models.guided_hand_model(inputs, source_lines, stats, main, slam="Slam" in main_types)
-        sanguine_mods, sanguine_notes = models.sanguine_model(inputs, stats)
+        sanguine_mods, sanguine_notes = models.sanguine_model(inputs, stats, self.life_flask_charges())             if inputs.has(models.SANGUINE) else ([], [])
         hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
         resolve_mods, resolve_notes = models.deadly_resolve_model(found, stats, main)             if "deadly-resolve-rate" not in forbidden else ([], [])
         hand_mods, hand_notes = hand_mods + resolve_mods, hand_notes + resolve_notes
@@ -745,6 +745,17 @@ class Assumptions:
             "confidence": "theory: game files' Glory costs and gains; event rates as glory_uses labels them",
         }
 
+    def life_flask_charges(self) -> float:
+        """The equipped Life Flask's maximum charges (Sanguine Tides' cap), 0 with none."""
+        from builder.search.flasks import FLASK_SLOTS
+
+        slot = next(k for k, v in FLASK_SLOTS.items() if v == "Life")
+        option = self.build.equipped.get(slot)
+        if option is None:
+            return 0.0
+        info = self.build.call("flaskData", raws=[option.raw])["results"][0]
+        return float(info.get("chargesMax") or 0) if info.get("kind") else 0.0
+
     def flask_main(self, skills: list[dict], main: str | None) -> tuple[list[dict], dict] | None:
         """A Concoction as the main skill (flasks.THROW_CHARGES): each throw spends 5 Mana Flask charges, but PoB throws at
         will. Its uses per second, from the Mana Flask's own charge generation (flasks.charge_use_rate), become its trigger
@@ -769,7 +780,8 @@ class Assumptions:
             "label": f"{main} throws per second (Mana Flask charges)", "value": round(rate, 3),
             "basis": (f"each throw consumes {per_use} charges from your Mana Flask (game files, "
                       f"flask_throw_base_charges_used); {how}; the charges the flask starts the fight with aren't "
-                      "counted; Mana Flask recovery from the same charges is still counted separately (an overcount, open)"),
+                      "counted; the flask's own recovery and effect get none of them (flasks.thrown), and charges left over above "
+                      f"{per_use} per cast time aren't counted"),
             "play": f"Throw {main} whenever your Mana Flask has {per_use} charges.",
             "confidence": "theory: game files' throw cost; the flask's charge generation from PoB",
         }

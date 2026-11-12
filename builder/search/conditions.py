@@ -255,7 +255,8 @@ EVENT_WORDS = {
                                re.I),
     "Mark": re.compile(r"\bmarks? activat|\b(?:use|apply|applying) a mark\b|mark (?:you have applied )?activates", re.I),
 }
-EVENT_NAMES = {"Warcry": "a Warcry used", "SummonsTotem": "a Totem summoned", "Mark": "a Mark activating"}
+EVENT_NAMES = {"Warcry": "a Warcry used", "SummonsTotem": "a Totem summoned", "Mark": "a Mark activating",
+               "LifeFlask": "a Life Flask used", "ManaFlask": "a Mana Flask used", "Flask": "a Flask used"}
 
 
 # A flask used (MECH48; before, one per 4 s): the build's equipped flasks at the uses their generated charges pay for
@@ -349,6 +350,12 @@ def _hit_restriction(when: str, stats: dict) -> str | None:
     return None
 
 
+# Game files: GrantedEffectStatSets SupportFerocityPlayer carries it (checked: the stat's index in every table under 400 MB;
+# PoB's sup_dex.lua Ferocity); read from the main skill's own stats and its supports' in the build, so any other carrier
+# counts too
+NO_FRENZY_STAT = "skill_cannot_generate_frenzy_charges"
+
+
 def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     """(charges per second, how) from one line, or None if it isn't a source of that charge."""
     m = re.search(CHARGE_SOURCE.format(kind=kind), text, re.I)
@@ -362,6 +369,10 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     boss = 1 / (number(stats.get("enemySkillTime")) or 0.7)
     if "kill" in when:
         return 0.0, "on kill (nothing dies on a single boss)"
+    if kind == "Frenzy" and stats.get("_main_no_frenzy") and re.search(r"\bhit|critical|freeze|electrocute|\bpin|stun|immobilise",
+                                                                    when) and "take" not in when and "block" not in when:
+        # (MECHC3, FIX_QUEUE: Ferocity's skill_cannot_generate_frenzy_charges on the main skill: its hits make none)
+        return 0.0, f"the main skill can't generate Frenzy Charges ({stats['_main_no_frenzy']}): its hits make none"
     if re.search(r"when you (freeze|electrocute|pin|stun|immobilise|heavy stun)|freeze, electrocute or pin", when):
         events = ({"freeze", "electrocute", "pin", "stun"} if "immobilise" in when
                   else {e for e in ("freeze", "electrocute", "pin", "stun") if e in when})
@@ -1858,6 +1869,14 @@ class Conditions:
                         profusion[line["text"]] = more
         if profusion:
             stats["_profusion"] = profusion
+        if any(re.search(r"Frenzy Charge", t, re.I) for t in texts):
+            # a main skill that "cannot generate Frenzy Charges" (Ferocity's skill_cannot_generate_frenzy_charges, on the
+            # skill or a support of it; MECHC3): its hits feed no Frenzy Charge line (_charge_rate)
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[NO_FRENZY_STAT])
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            if number((main.get("supportStats") or {}).get(NO_FRENZY_STAT)) or number(
+                    (main.get("levelStats") or {}).get(NO_FRENZY_STAT)):
+                stats["_main_no_frenzy"] = NO_FRENZY_STAT
         if "Arcane Surge" in main_gems:  # (the support: its threshold and duration from the gem, arcane_surge_uptime)
             raw = self.build.call("activeSkills", supportStats=list(ARCANE_SURGE_SUPPORT_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
