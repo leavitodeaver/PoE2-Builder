@@ -112,3 +112,15 @@
     then 10 s locked). A Cadence skill that isn't the main skill gets neither its stacks nor its lockout (no rate)."
   sources: ["builder/search/models.py cadence_share", "GrantedEffectStatSets SupportCadencePlayer (build 26476662)"]
   status: proposed
+
+- id: supports-read-practical-magic-duration
+  title: Practical Magic I/II, the buff's 8 s sets the share of the fight its Spell damage line counts at
+  kind: model
+  model: gem_stat
+  stats: ["support_stunning_magic_buff_duration_ms"]
+  skill: [Practical Magic I, Practical Magic II]
+  confidence: theory
+  notes: "builder/search/models.py heavy_stun_buff_share (support-practical-magic-spell-damage's `share_stats`): the buff
+    is up min(1, 8 s x the main skill's Heavy Stuns per second) of the fight."
+  sources: ["builder/search/models.py heavy_stun_buff_share", "GrantedEffectStatSets SupportPracticalMagicPlayer (build 26476662)"]
+  status: proposed

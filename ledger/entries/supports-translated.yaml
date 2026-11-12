@@ -282,6 +282,8 @@
   replace: ['1% more Attack Damage against Ignited Enemies', '1% more Attack Damage against Chilled Enemies',
             '1% more Attack Damage against Frozen Enemies', '1% more Attack Damage against Shocked Enemies',
             '1% more Attack Damage against Electrocuted Enemies']
+  additive: [conditionEnemyIgnited, conditionEnemyChilled, conditionEnemyFrozen, conditionEnemyShocked,
+             conditionEnemyElectrocuted]
   confidence: theory
   notes: >-
     "Supported Skills deal 12% more Attack Damage for each Elemental Ailment on Enemies they Hit" (constant 12 on
@@ -291,8 +293,10 @@
     writes "increased damage for each type of elemental ailment on enemy", ModParser.lua 3876). The supported skill
     "cannot inflict Elemental Ailments" (cannot_inflict_elemental_ailments, which PoB reads), so the ailments must come
     from other skills. Where the resolver sets them from the main skill's own ailments, a main skill with this support
-    gets ~0 until other skills' ailments are counted (MECH-A). Small overcount: the five lines multiply (1.12^n) where
-    the game adds (1 + 0.12n): +1.2% with two on at once, at most +10% with all five.
+    gets ~0 until other skills' ailments are counted (MECH-A). The game adds them (1 + 0.12n), PoB would multiply the five
+    lines (1.12^n: +1.2% too much with two on, +10% with all five), so `additive:` sizes each line from the number of the
+    five boxes on (models.additive_value, COVE7): exact with every counted box on, under 1% low while the uptime
+    weighing turns one off.
   sources: ["SupportElementalArmamentPlayerThree, GrantedEffectStatSets (build 26476662)", "KeywordPopups ElementalAilments"]
   test_in_game: "Hit a Chilled and Shocked dummy with and without the support: 24% more."
   status: proposed
@@ -313,7 +317,34 @@
     being used 6 or more times within four seconds" (constants 8, 6, 10000 on SupportCadencePlayer). PoB maps none of
     the three (checked: sup_dex.lua, SkillStatMap.lua, 12 Nov 2026), so it rated a Cadence skill at its plain speed with
     no lockout: an overcount above 1.25 uses/s. Counted on the main skill from its own rate (models.cadence_share);
-    the stacks are UNVERIFIED by one (whether a use counts itself).
-  sources: ["SupportCadencePlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd", "KeywordPopups Recently"]
+    the stacks are UNVERIFIED by one (whether a use counts itself). Sustained skills (skill type Sustained; KeywordPopups:
+    "cause a large number of Hits over a period of time": Resonating Shield, Rain of Arrows, Lightning Rod and 13 more)
+    are left at PoB's plain speed with no lockout (COVE7): the gem's description says they "will instead gain Attack
+    speed periodically while being used", and no stat on SupportCadencePlayer says how much or how often (checked: its
+    stat set has only the three constants); an UNVERIFIED undercount, for RESEARCH.
+  sources: ["SupportCadencePlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd", "KeywordPopups Recently",
+            "Gems SupportCadencePlayer description", "KeywordPopups Sustained"]
   test_in_game: "Attack 5 times in 4 s with Cadence: the 5th attack takes 1/1.32 (or 1/1.40) of the first's time."
+  status: proposed
+
+- id: support-practical-magic-spell-damage
+  title: Practical Magic I/II, 30% / 40% increased Spell damage for 8 s on Heavy Stunning (at the share of the fight the main skill's Heavy Stuns keep it up)
+  kind: gem_stat
+  support: true
+  applies_to: build
+  share: heavy_stun_buff
+  skill: [Practical Magic I, Practical Magic II]
+  support_stats: ['support_stunning_magic_grant_spell_damage_+%_buff_on_heavy_stunning']
+  share_stats: ['support_stunning_magic_buff_duration_ms']
+  match: '^support_stunning_magic_grant_spell_damage_\+%_buff_on_heavy_stunning$'
+  replace: ['1% increased Spell Damage']
+  confidence: theory
+  notes: >-
+    "Gain 30% (40%) increased Spell damage for 8 seconds on Heavy Stunning an enemy with Supported Skills"
+    (SupportPracticalMagicPlayer 30 / 8000, ...PlayerTwo 40 / 8000). PoB maps neither stat (checked: sup_int.lua and
+    SkillStatMap.lua, Modules/*.lua, 12 Nov 2026). Counted for the whole build (a buff on you: it reaches every Spell)
+    at the share of the fight it's up, min(1, 8 s x the main skill's Heavy Stuns per second (models.heavy_stun_rate)).
+    On a supported skill that isn't the main skill it's 0 with a note (no Heavy Stun rate for it).
+  sources: ["SupportPracticalMagicPlayer, SupportPracticalMagicPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  test_in_game: "Heavy Stun a boss with the supported skill, then compare a Spell's damage within 8 s and after."
   status: proposed

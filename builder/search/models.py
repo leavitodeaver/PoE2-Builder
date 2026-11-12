@@ -1992,9 +1992,11 @@ def _skill_names(entry) -> list[str]:
 
 
 def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats: dict | None = None,
-                   main: Skill | None = None, previous: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+                   main: Skill | None = None, previous: list[dict] | None = None,
+                   config: dict | None = None) -> tuple[list[dict], list[dict]]:
     """`previous`: the lines applied when `stats` was calculated (Assumptions.mods), so a `share:` entry whose own line
-    moves the stat it reads (Cadence's Attack Speed) can take its own last line back out (SHARES)."""
+    moves the stat it reads (Cadence's Attack Speed) can take its own last line back out (SHARES). `config`: PoB's config
+    input (bridge getConfig), whose boxes an `additive:` entry counts (additive_value)."""
     from builder.ledger import SYNTAX, gem_stat_entries
 
     mods: list[dict] = []
@@ -2039,7 +2041,13 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 why = f"; {why}"
             else:
                 why = ""
+            boxes = [str(b) for b in entry.raw.get("additive") or ()]
+            on = sum(1 for b in boxes if (config or {}).get(b))
             for stat, value in sorted(values.items()):
+                raw = value
+                if boxes:  # (lines the game adds, on PoB's boxes: sized so the ones on multiply to 1 + n x value)
+                    value, added = additive_value(value, on)
+                    why = (why or "") + added
                 if uptime is not None:
                     for text in entry.replace:
                         m = SYNTAX.match(text)
@@ -2048,8 +2056,10 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                                          skill=name if own else None))
                 if value * factor == 0:
                     if why:  # an uptime of 0 from the build's own numbers: the guide says why
-                        notes.append({"label": entry.title, "value": "not counted (uptime 0%)",
-                                      "basis": f"{name} can't be kept up{why}", "confidence": entry.confidence,
+                        shared_ = entry.raw.get("share") in SHARES
+                        notes.append({"label": entry.title, "value": "not counted" if shared_ else "not counted (uptime 0%)",
+                                      "basis": f"{name}: not counted{why}" if shared_ else f"{name} can't be kept up{why}",
+                                      "confidence": entry.confidence,
                                       "entry": entry.id, **({"play": play} if play else {})})
                     continue
                 for text in entry.replace if uptime is None else ():
@@ -2063,9 +2073,9 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 notes.append({
                     "label": entry.title,
                     "value": f"{value * factor:g}" + (f" ({value:g} × {factor:g})" if factor != 1 else ""),
-                    "basis": (f"PoB never reads the support stat {stat} ({value:g}) of {' / '.join(names)} on {name}; counted as "
+                    "basis": (f"PoB never reads the support stat {stat} ({raw:g}) of {' / '.join(names)} on {name}; counted as "
                               + (f"(on the skills it triggers: {', '.join(targets)}) " if targets != [name] else "")
-                              if support else f"PoB never reads the gem stat {stat} ({value:g} at this level); counted as ")
+                              if support else f"PoB never reads the gem stat {stat} ({raw:g} at this level); counted as ")
                              + "; ".join(t.replace("1%", f"{value * factor:g}%") for t in entry.replace)
                              + ("" if own else " for the whole build") + why + (f". {entry.notes.strip()}" if entry.notes else ""),
                     "confidence": entry.confidence, "entry": entry.id, **({"play": play} if play else {})})
@@ -2074,6 +2084,29 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
             else:
                 names = [n for n in names if n != name]  # one copy of each skill (a buff applies once)
     return mods, notes
+
+
+# `additive: [box, ...]` (COVE7): the entry's lines are one per PoB config box (each line conditioned on what the box sets,
+# as "against Ignited Enemies"), but the game adds them into one "more" (Elemental Armament III: "12% more Attack Damage
+# for each Elemental Ailment on Enemies they Hit": 1 + 12% x n, not 1.12^n). PoB multiplies "more" lines one by one and
+# has no count of the boss's ailments to read a single line from (checked: ModParser.lua writes its own "for each type of
+# elemental ailment on enemy" lines one per ailment, INC, which add anyway; no Multiplier counts enemy ailments, grep of
+# Modules/*.lua for AilmentCount / Multiplier:*Ailment*). So with n of the boxes on, each line is set to
+# (1 + n x value)^(1/n) - 1, and the n lines multiply to exactly 1 + n x value. The uptime weighing then turns boxes off one
+# at a time (Search.weigh_uptimes) without a new resolve: n - 1 lines at the n-box size give (1 + n v)^((n-1)/n), a hair
+# under 1 + (n-1) v (two of 12%: x1.114 for x1.12; an undercount of under 1%, labelled). An ailment on the boss from a
+# source other than its box (none counted: the resolver sets them through the boxes) is left out of n: its line then
+# multiplies at the n-box size (at most the old small overcount).
+
+
+def additive_value(value: float, on: int) -> tuple[float, str]:
+    """One line's value (%) so that `on` of the entry's lines multiply to 1 + on x value; and the basis text."""
+    if on < 2 or value <= -100 / on:
+        return value, (f"; one of its conditions is on in this calculation ({value:g}% as it is)" if on == 1 else "")
+    each = ((1 + on * value / 100) ** (1 / on) - 1) * 100
+    return each, (f"; {on} of its conditions are on in this calculation, so each line is {each:.3g}% and they multiply to "
+                  f"{1 + on * value / 100:.3g}x, the game's 1 + {on} x {value:g}% (they add in the game; PoB would multiply "
+                  f"them); a box turned off by the uptime weighing leaves the others at this size, under 1% low")
 
 
 # `to: part:<name>` (COVE4): a support stat acting only on a part of what the skill does that neither PoB nor the tool
@@ -2089,7 +2122,9 @@ PARTS = {"cascade": "Spell Cascade's Cascades", "offering": "spells cast around 
          "branch_fissure": "the branched Fissures (Branching Fissures)",
          "glory_cost": "the Glory the skill requires (read by the Glory models: glory_uses, usage.py)",
          "pin_duration": "the Pins it inflicts (no Pinned uptime is modelled yet)",
-         "curse_duration": "the Curse's duration when the cast consumes a Power Charge (curse model)"}
+         "curse_duration": "the Curse's duration when the cast consumes a Power Charge (curse model)",
+         "ground_duration": "the Ground Surfaces it creates (read by the ground models: conditions.shocked_ground)",
+         "haemocrystals": "the Haemocrystals it creates from Consumed Bleeding (no crystal damage is counted yet)"}
 
 
 def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[dict]]:
@@ -2172,7 +2207,32 @@ def alignment_match_share(skill: Skill, stats: dict, main: Skill | None = None, 
 # (`prev`); a skill that isn't the main skill gets 0 (no rate here to take its stacks or lockout from).
 
 
+# A Sustained skill (COVE7): the gem's description says "Sustained Skills will instead gain Attack speed periodically while
+# being used" (Gems SupportCadencePlayer description; PoB sup_dex.lua the same). Its three stats (8 / 6 / 10000) are the
+# only ones on SupportCadencePlayer (GrantedEffectStatSets ConstantStats 20826-20828, no other stat: checked, game files
+# build 26476662), so how much speed and how often is in no stat: UNVERIFIED (for RESEARCH). A channelled skill's PoB Speed
+# is its hit rate, not its uses, so pacing it to 1.25 uses/s (as COVE6's model did) cut it wrongly (Resonating Shield). It
+# gets 0 from Cadence and no lockout: PoB's plain speed, as before COVE6, a labelled undercount of the periodic speed.
+
+
+_SKILL_TYPES: dict[str, frozenset[str]] = {}
+
+
+def _skill_types() -> dict[str, frozenset[str]]:
+    """Active skill gems' skill types by name (the game data, loaded once)."""
+    if not _SKILL_TYPES:
+        from builder.data import GameData
+
+        _SKILL_TYPES.update({g["name"]: frozenset(g.get("skillTypes") or ()) for g in GameData().gems
+                             if not g.get("support")})
+    return _SKILL_TYPES
+
+
 def cadence_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    if "Sustained" in _skill_types().get(skill.name, ()):
+        return 0.0, ("a Sustained skill: the game says it \"will instead gain Attack speed periodically while being used\" "
+                     "(no lockout), and no stat gives how much or how often (UNVERIFIED), so PoB's plain speed stands: the "
+                     "periodic speed is not counted (an undercount)"),             "Cadence on a Sustained (channelled) skill gains Attack speed periodically while you keep using it; not counted."
     st = skill.support_stats
     per = number(st.get("support_measured_speed_attack_speed_+%_final_per_stack")) or 8.0
     most = number(st.get("support_measured_speed_maximum_stacks")) or 6.0
@@ -2206,7 +2266,37 @@ def cadence_share(skill: Skill, stats: dict, main: Skill | None = None, prev: fl
     return pct / per, why, play
 
 
-SHARES = {"alignment": alignment_match_share, "cadence": cadence_share}
+# Practical Magic I/II (COVE7). Game files (GrantedEffectStatSets SupportPracticalMagicPlayer / ...Two, gem_stat_descriptions):
+# "Gain 30% (40%) increased Spell damage for 8 seconds on Heavy Stunning an enemy with Supported Skills"
+# (support_stunning_magic_grant_spell_damage_+%_buff_on_heavy_stunning, support_stunning_magic_buff_duration_ms 8000).
+# PoB maps neither (checked: sup_int.lua's stat lists only; no statMap, nothing in SkillStatMap.lua or Modules/). The buff's
+# share of the fight comes from the build: the main skill's Heavy Stuns of the boss per second (heavy_stun_rate: its own
+# hits' buildup against the Arbiter of Ash's threshold, +500% for 16.5 s after each), one every `every` s, each giving
+# 8 s: min(1, 8 / every). Increased damage adds, so the line at that share is the fight's average exactly. A supported
+# skill that isn't the main skill gets 0 (no Heavy Stun rate for it: an undercount, noted). Buff duration modifiers aren't
+# read (an undercount). When the main skill is a Spell, the buff raises its own buildup, as in the game: PoB's buildup
+# here already has the line's last share in it.
+
+
+def heavy_stun_buff_share(skill: Skill, stats: dict, main: Skill | None = None,
+                          prev: float = 0.0) -> tuple[float, str, str]:
+    seconds = (number(skill.support_stats.get("support_stunning_magic_buff_duration_ms")) or 8000.0) / 1000
+    play = (f"Heavy Stun the boss with the supported skill: each Heavy Stun gives the Spell damage for {seconds:g} s.")
+    if main is None or main.name != skill.name or main.group != skill.group:
+        return 0.0, ("not the main skill: its Heavy Stuns of the boss aren't worked out, so the buff isn't counted (0; an "
+                     "undercount if it stuns)"), play
+    rate, how = heavy_stun_rate(stats)
+    if rate <= 0:
+        return 0.0, f"no Heavy Stuns: {how}", play
+    share = min(1.0, rate * seconds)
+    why = (f"up {share:.0%} of the fight: a Heavy Stun every {1 / rate:.1f} s ({how}), {seconds:g} s each; buff duration "
+           f"modifiers not read")
+    play += (f" Headline: up {share:.0%} of the fight (a Heavy Stun every {1 / rate:.1f} s). Without Heavy Stuns the "
+             f"buff gives nothing.")
+    return share, why, play
+
+
+SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share}
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

@@ -305,3 +305,80 @@
     UNVERIFIED (if it can't, usage.py should gate it: COV-C). Until then it is an undercount (recasts cost a little more of the main skill's time).
   sources: ["SupportAbidingHexPlayer, GrantedEffectStatSets (build 26476662)", "PoB sup_int.lua SupportAbidingHexPlayer"]
   status: proposed
+
+- id: support-ground-surface-duration
+  title: Lasting Ground / Persistent Ground I-III, 50% increased duration of the Ground Surfaces the skill creates (for the ground models)
+  kind: gem_stat
+  support: true
+  to: part:ground_duration
+  skill: [Lasting Ground, Persistent Ground I, Persistent Ground II, Persistent Ground III]
+  support_stats: ['ground_effect_duration_+%']
+  match: '^ground_effect_duration_\+%$'
+  replace: ['mult:GroundDurationIncPercent']
+  confidence: datamined
+  notes: >-
+    "50% increased duration of Ground Surfaces created by Supported Skills" (constant 50 on SupportLastingGroundPlayer,
+    SupportPersistentGroundPlayer, ...PlayerTwo and ...PlayerThree). PoB reads none of it (checked: the stat id and
+    "duration of ground" / "ground surfaces" in Data/SkillStatMap.lua and Modules/*.lua, 12 Nov 2026: only the stat lists
+    in sup_str.lua name it). PoB rates a ground's damage per second while the boss stands in it, so the duration moves
+    no PoB number; it moves the share of the fight a ground is down, which the tool's ground models work out
+    (conditions.shocked_ground: "ground duration modifiers" listed as not counted). The model (MECH-A) takes a ground the
+    supported skill makes for its duration x (1 + support_part_scale(skill, "ground_duration")["GroundDurationIncPercent"]
+    / 100), added to the build's other increased ground duration (an undercount until then). Persistent Ground II/III's
+    "ground_effects_cannot_trigger" and III's Suppressive Ground (30% less cooldown speed for those in it) are not
+    written here.
+  sources: ["SupportLastingGroundPlayer, SupportPersistentGroundPlayer(Two, Three), GrantedEffectStatSets (build 26476662)"]
+  status: proposed
+
+# Haemocrystals (COVE7): the support makes the skill Consume Bleeding on Hit to create crystals (the hidden skill
+# TriggeredHaemocrystalsPlayer: Physical damage equal to 8% of the Consumed Bleeding's remaining damage, in a 1 m radius,
+# 1.5 s) and stops the skill inflicting Bleeding itself (cannot_cause_bleeding), so the Bleeding comes from other skills.
+# PoB gives the crystals no damage (sup_str.lua: no damage stat on the hidden skill, no statMap: checked 12 Nov 2026), so
+# the crystals are a damage source nothing counts yet (MECH-B). Their three counts are written as parts for that model.
+- id: support-haemocrystals-per-consume
+  title: Haemocrystals, 4 crystals per Consumed Bleeding (for the crystal model)
+  kind: gem_stat
+  support: true
+  to: part:haemocrystals
+  skill: Haemocrystals
+  support_stats: ['consume_bleed_to_create_X_haemocrystals']
+  match: '^consume_bleed_to_create_X_haemocrystals$'
+  replace: ['mult:HaemocrystalsPerConsume']
+  confidence: datamined
+  notes: >-
+    "Supported Skills Consume Bleeding on Hit to create 4 Haemocrystals" (consume_bleed_to_create_X_haemocrystals 4 on
+    SupportHaemocrystalsPlayer). The model counting the crystals takes this many per Consumed Bleeding.
+  sources: ["SupportHaemocrystalsPlayer, TriggeredHaemocrystalsPlayer, GrantedEffectStatSets (build 26476662)"]
+  status: proposed
+
+- id: support-haemocrystals-aggravated-extra
+  title: Haemocrystals, 2 more crystals when the Consumed Bleeding is Aggravated (for the crystal model)
+  kind: gem_stat
+  support: true
+  to: part:haemocrystals
+  skill: Haemocrystals
+  support_stats: ['haemocrystals_X_additional_crystals_on_consuming_aggravated_bleed']
+  match: '^haemocrystals_X_additional_crystals_on_consuming_aggravated_bleed$'
+  replace: ['mult:HaemocrystalsExtraIfAggravated']
+  confidence: datamined
+  notes: >-
+    "Supported Skills create 2 additional Haemocrystals when Consuming Aggravated Bleeding" (constant 2). Only while the
+    build Aggravates the boss's Bleeding (a source the model must find in the build: no source, no extra crystals).
+  sources: ["SupportHaemocrystalsPlayer, GrantedEffectStatSets (build 26476662)", "KeywordPopups Aggravate"]
+  status: proposed
+
+- id: support-haemocrystals-maximum
+  title: Haemocrystals, at most 20 crystals at once (for the crystal model)
+  kind: gem_stat
+  support: true
+  to: part:haemocrystals
+  skill: Haemocrystals
+  support_stats: ['support_haemocrystals_maximum_allowed_crystals']
+  match: '^support_haemocrystals_maximum_allowed_crystals$'
+  replace: ['mult:HaemocrystalsMax']
+  confidence: datamined
+  notes: >-
+    support_haemocrystals_maximum_allowed_crystals 20: a cap on the crystals at once, which the model applies against
+    the crystals' 1.5 s duration (base_skill_effect_duration on the hidden skill).
+  sources: ["SupportHaemocrystalsPlayer, TriggeredHaemocrystalsPlayer, GrantedEffectStatSets (build 26476662)"]
+  status: proposed

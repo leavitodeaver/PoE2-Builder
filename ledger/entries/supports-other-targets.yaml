@@ -25,3 +25,24 @@
   sources: ["gem_stat_descriptions.csd (build 26476662)", "https://poe2db.tw/us/Shock_Conduction", "https://poe2db.tw/us/Wildfire", "https://poe2db.tw/us/Impact_Shockwave"]
   test_in_game: "Not needed for single-boss damage."
   status: proposed
+
+- id: supports-bounty-kill-charges
+  title: Bounty I/II, Charm / Life / Mana Bounty, more flask and charm charges from killing blows (no kill before the lone boss dies)
+  kind: gem_stat
+  skill: [Bounty I, Bounty II, Charm Bounty, Life Bounty, Mana Bounty]
+  match: '^support_(?:charm|life_flask|mana_flask)_charges_gained_\+%_final_from_killing_blow$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    "Enemies killed by Hits from Supported Skills grant 50% / 100% more Charm charges / Life Flask Charges / Mana Flask
+    Charges" (SupportBountyPlayer 50/50/50, ...PlayerTwo 100/100/100, SupportCharmBountyPlayer, SupportLifeFlaskPlayer,
+    SupportManaFlaskPlayer 100: GrantedEffectStatSets, build 26476662). A "more" on the charges a kill grants: in the
+    tool's lone-boss fight no enemy dies before the boss (the same reading as the on-kill sources in conditions.py and
+    flasks.charges_per_second, "charges an item gains per second without kills"), so it multiplies 0 charges and moves
+    no flask or charm uptime. A statement about the tool's rating, not the game: with adds (a boss that summons them,
+    or mapping) these supports feed flasks and charms; a fight model that counts adds' deaths would need them (and the
+    play guide could then say how the build feeds them). PoB reads none of them (checked: the stat ids in
+    Data/SkillStatMap.lua and Modules/*.lua, 12 Nov 2026).
+  sources: ["SupportBountyPlayer, SupportBountyPlayerTwo, SupportCharmBountyPlayer, SupportLifeFlaskPlayer, SupportManaFlaskPlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  test_in_game: "Not needed for a single boss."
+  status: proposed

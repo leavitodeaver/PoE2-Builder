@@ -486,6 +486,10 @@ def test_cadence_stacks_from_the_use_rate_and_keeps_below_its_lockout():
     # its own line, already in the stats it reads, is taken back out: the same answer again
     again, _ = models.gem_stat_model([axe], stats={"Speed": 1.25}, main=axe, previous=mods)
     assert again[0]["scale"] == pytest.approx(25)
+    # a Sustained skill (the game: "will instead gain Attack speed periodically"): no pacing of its hit rate, no lockout
+    shield = models.Skill("Resonating Shield", group=1, attack=True, support_stats=stats)
+    mods, notes = models.gem_stat_model([shield], stats={"Speed": 4.0}, main=shield)
+    assert mods == [] and "Sustained" in notes[0]["basis"] and notes[0]["value"] == "not counted"
     # not the main skill: no rate, so 0 and a note
     other = models.Skill("Boneshatter", group=2, attack=True, support_stats=stats)
     mods, notes = models.gem_stat_model([other], stats={"Speed": 2.0}, main=axe)
@@ -500,6 +504,18 @@ def test_ailment_supports_count_on_the_boss_conditions_and_cost_parts_wait():
     assert ("1% more Magnitude of Ignite against Frozen Enemies", 25) in lines
     for ailment in ("Ignited", "Chilled", "Frozen", "Shocked", "Electrocuted"):  # (KeywordPopups ElementalAilments)
         assert (f"1% more Attack Damage against {ailment} Enemies", 12) in lines
+    # the game adds them (1 + 12% x n): with Chill and Shock boxes on, the two lines multiply to 1.24, not 1.12^2
+    config = {"conditionEnemyChilled": True, "conditionEnemyShocked": True, "conditionEnemyFrozen": False}
+    mods, notes = models.gem_stat_model([axe], config=config)
+    each = [m["scale"] for m in mods if "Chilled" in m["line"]][0]
+    assert (1 + each / 100) ** 2 == pytest.approx(1.24, rel=1e-4)
+    assert {m["scale"] for m in mods if "Attack Damage" in m["line"]} == {each}
+    armament_note = next(n for n in notes if n["entry"] == "support-elemental-armament-per-ailment")
+    assert "(12)" in armament_note["basis"] and "2 of its conditions are on" in armament_note["basis"]
+    all_five = {f"conditionEnemy{a}": True for a in ("Ignited", "Chilled", "Frozen", "Shocked", "Electrocuted")}
+    each = [m["scale"] for m in models.gem_stat_model([axe], config=all_five)[0] if "Ignited" in m["line"]
+            and "Attack" in m["line"]][0]
+    assert (1 + each / 100) ** 5 == pytest.approx(1.6, rel=1e-4)  # (not 1.12^5 = 1.76)
     banner = models.Skill("War Banner", group=1, support_stats={"support_glory_required_+%_final": -50,
                                                                 "support_pin_pin_duration_+%_final": 30})
     assert models.gem_stat_model([banner]) == ([], [])  # (read by the Glory and Pin models, not applied here)
@@ -508,6 +524,30 @@ def test_ailment_supports_count_on_the_boss_conditions_and_cost_parts_wait():
     hex_ = models.Skill("Despair", group=2, spell=True,
                         support_stats={"support_consume_power_charge_to_gain_curse_duration_+%_final": 80})
     assert models.support_part_scale(hex_, "curse_duration")[0] == {"CurseDurationMorePercent": 80}
+
+
+def test_practical_magic_counts_at_the_main_skills_heavy_stun_share_and_new_parts_wait():
+    stats = {"support_stunning_magic_grant_spell_damage_+%_buff_on_heavy_stunning": 40,
+             "support_stunning_magic_buff_duration_ms": 8000}
+    axe = models.Skill("Boneshatter", group=1, attack=True, support_stats=stats)
+    boss = {"HeavyStunBuildupAvg": 10, "Speed": 2, "HitChance": 100, "PhysicalHitAverage": 1000, "CritChance": 0}
+    rate = models.heavy_stun_rate(boss)[0]
+    mods, notes = models.gem_stat_model([axe], stats=boss, main=axe)
+    assert mods[0]["line"] == "1% increased Spell Damage" and "skill" not in mods[0]  # (a buff on you: every Spell)
+    assert mods[0]["scale"] == pytest.approx(40 * min(1.0, 8 * rate), rel=1e-4)
+    assert models.gem_stat_model([axe], stats={}, main=axe)[0] == []  # (no Heavy Stuns, no buff)
+    other = models.Skill("Boneshatter", group=2, attack=True, support_stats=stats)
+    mods, notes = models.gem_stat_model([other], stats=boss, main=axe)
+    assert mods == [] and "not the main skill" in notes[0]["basis"]
+    # Lasting / Persistent Ground and Haemocrystals: parts for the ground and crystal models, no line today
+    slam = models.Skill("Earthquake", group=3, attack=True, support_stats={
+        "ground_effect_duration_+%": 50, "consume_bleed_to_create_X_haemocrystals": 4,
+        "haemocrystals_X_additional_crystals_on_consuming_aggravated_bleed": 2,
+        "support_haemocrystals_maximum_allowed_crystals": 20})
+    assert models.gem_stat_model([slam]) == ([], [])
+    assert models.support_part_scale(slam, "ground_duration")[0] == {"GroundDurationIncPercent": 50}
+    assert models.support_part_scale(slam, "haemocrystals")[0] == {
+        "HaemocrystalsPerConsume": 4, "HaemocrystalsExtraIfAggravated": 2, "HaemocrystalsMax": 20}
 
 
 def test_penalties_on_uncounted_parts_wait_for_the_model_that_counts_them():
