@@ -2731,3 +2731,24 @@ def test_flasks_weight_the_damage_taken_per_type_by_the_bosss_hits():
     assert taken_per_hit({"takenHit": 900, "takenByType": {"Physical": 700, "Fire": 1700, "Cold": 0}}) == pytest.approx(
         700 * 7 / 24 + 1700 * 17 / 24)
     assert taken_per_hit({"takenHit": 900}) == 900.0
+
+
+def test_einhars_beastrite_strike_deals_nothing_to_a_boss_above_low_life():
+    strike = models.Skill("Bone Splinter", group=1, attack=True, support_stats={"can_only_damage_low_life_enemies": 1})
+    mods, notes = models.gem_stat_model([strike], main=strike, stats={})
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [("1% more Damage", -100.0, "Bone Splinter")]
+    assert "Low Life" in notes[0]["basis"] and "play" in notes[0]
+
+
+def test_tuls_avalanche_echoes_once_per_seal_from_the_builds_blocks():
+    tul = {"skill_echoes_per_seal_broken": 1, "base_maximum_seals_for_skill": 4}
+    spell = models.Skill("Frost Bomb", group=1, spell=True, support_stats=tul)
+    base = {"Speed": 2.0, "enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 50}
+    mods, _ = models.gem_stat_model([spell], main=spell, stats=base)  # 0.5 blocks/s -> 0.25 Seals/s over 2 casts/s
+    assert [(m["line"], round(m["scale"], 6), m.get("skill")) for m in mods] == [("1% more Damage", 12.5, "Frost Bomb")]
+    mods, notes = models.gem_stat_model([spell], main=spell, stats={**base, "EffectiveBlockChance": 0})
+    assert mods == [] and "Block" in notes[0]["basis"]
+    side = models.Skill("Frost Bomb", group=2, spell=True, support_stats=tul)
+    assert models.gem_stat_model([side], main=spell, stats=base)[0] == []
+    other = models.Skill("Frost Bomb", group=1, spell=True, support_stats={**tul, "base_maximum_seals_for_skill": 7})
+    assert models.gem_stat_model([other], main=other, stats=base)[0] == []  # (another Seal support: A13-4)

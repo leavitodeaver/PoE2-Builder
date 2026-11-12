@@ -2731,6 +2731,48 @@ def stun_bar_share(skill: Skill, stats: dict, main: Skill | None = None, prev: f
     return fill, f"at {fill:.0%}, your Stun Bar's average fill through the fight (linear in the fill assumed)", play
 
 
+# `share: seal_echo` (COVE11; COVB6's open question): Tul's Avalanche, "Supported Spells Echo 1 time per Seal broken"
+# (skill_echoes_per_seal_broken 1), "gain a Seal every 2 times you Block" (skill_gain_seal_every_x_hits_blocked), a
+# maximum of 4. PoB counts none of the Echoes (checked: PoB maps only base_maximum_seals_for_skill -> SealCount and
+# base_skill_is_sealed_skill -> HasSeals, SkillStatMap.lua 2329-2343; its Seal damage, CalcOffence.lua 1291-1323 and 4573 /
+# 6205, runs only under Unleash's DamageSeal / Expand's AreaSeal flags, and SealGainFrequency is 0 without them;
+# skill_echoes_per_seal_broken and skill_gain_seal_every_x_hits_blocked are read nowhere in PoB src): an UNDERCOUNT.
+# Seals come from the build's own Blocks (passive_models.seal_rate, COVB6's, the one Rhythm of Ice reads: the boss's
+# landing hits x Block chance / 2). Every Seal is broken by a use and Echoes once ("1 time per Seal broken"), so the
+# Echoes per second are the Seals per second whenever the spell is cast at least once per 4 Seals (always here: the cap
+# is never reached), and each Echo hits the same place again ("affecting the same targeted location again after a
+# delay", KeywordPopups Cascadable), counted as one more use of the spell: 1 + Seals/s / casts/s, as "more Damage".
+# Assumed: an Echo deals the use's full damage (no less-damage stat on Tul's; MEDIUM); the boss stays in the area.
+# On the main skill only (its casts/s is PoB's Speed); on a side spell: 0, an undercount, said so. Another Seal source on
+# the skill (a summed maximum above Tul's 4: Expand, Unleash, Salvo, Zarokh's Revolt) makes it 0 (A13-4: Tul's can't
+# support a skill that already gains Seals).
+TULS_SEALS = 4.0
+
+
+def seal_echo_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    from builder.search import passive_models
+
+    play = ("Block the boss's hits: every 2 Blocks give the spell a Seal (up to 4), and your next cast breaks them, "
+            "Echoing once per Seal.")
+    if main is None or main.name != skill.name or main.group != skill.group:
+        return 0.0, ("not the main skill: its casts per second aren't known here, so its Echoes aren't counted (an "
+                     "undercount)"), play
+    if number(skill.support_stats.get("base_maximum_seals_for_skill")) > TULS_SEALS:
+        return 0.0, ("the spell also gains Seals from another support, so Tul's Avalanche can't support it (\"Cannot "
+                     "support skills ... which already gain Seals\")"), play
+    # (PoB applies Tul's only to a Cascadable spell, so the supported skill is one: CalcActiveSkill.lua 187)
+    types = (set(_skill_types().get(skill.name, ())) | {"Cascadable"}) if skill.spell else set()
+    seals = passive_models.seal_rate(skill, types, {passive_models.TULS_AVALANCHE}, stats)
+    casts = number(stats.get("Speed"))
+    if seals <= 0 or casts <= 0:
+        return 0.0, ("no Seals: the build Blocks none of the boss's hits (Seals come every 2 Blocks)" if casts > 0 else
+                     "the spell isn't cast"), play
+    share = seals / casts
+    return share * 100, (f"{seals:.3f} Seals/s from your Blocks (every 2 Blocks of the boss's landing hits), each broken "
+                         f"by a cast and Echoing once: +{share:.1%} uses over {casts:.2f} casts/s (an Echo counted as a "
+                         f"full use, MEDIUM)"), play + f" Headline: one Echo per {1 / seals:.1f} s."
+
+
 CONFIG_SHARES = {"near_boss"}  # (share functions that read PoB's config: gem_stat_model passes `_config`)
 
 SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use"}  # (read the build's skills: `_skills`)
@@ -2739,7 +2781,8 @@ SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_s
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
           "cull_buff": cull_buff_share, "revived_recently": revived_recently_share,
           "near_boss": near_boss_share, "corpse_consumed": corpse_consumed_share,
-          "corpses_per_use": corpses_per_use_share, "stun_bar": stun_bar_share}
+          "corpses_per_use": corpses_per_use_share, "stun_bar": stun_bar_share,
+          "seal_echo": seal_echo_share}
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:

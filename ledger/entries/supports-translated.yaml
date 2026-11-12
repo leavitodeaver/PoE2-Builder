@@ -653,3 +653,57 @@
   sources: ["SupportRetaliatePlayer, SupportRetaliatePlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
   test_in_game: "Hit a dummy with an empty and a half-full Stun Bar: about 20% more damage at half, if the scaling is linear."
   status: proposed
+
+- id: support-einhars-beastrite-low-life-only
+  title: Einhar's Beastrite, the supported Strike can only Damage Low Life Enemies (counted as no damage to the boss)
+  kind: gem_stat
+  support: true
+  factor: -100
+  skill: ["Einhar's Beastrite"]
+  support_stats: ['can_only_damage_low_life_enemies']
+  match: '^can_only_damage_low_life_enemies$'
+  replace: ['1% more Damage']
+  confidence: datamined
+  play: >-
+    Einhar's Beastrite's Strike can't hurt the boss until it's on Low Life (35% of its Life or less): another skill has to
+    take it there first. Against a boss it only gives its Rare-monster modifiers, which need a kill of a Rare.
+  notes: >-
+    "Supported Skills can only Damage Low Life Enemies" (gem_stat_descriptions, the implicit stat
+    can_only_damage_low_life_enemies on SupportEinharsBeastritePlayer, a Lineage support for Melee single-target Strikes;
+    poe2db's Einhar's Beastrite page the same line, and "unable to damage enemies not on low Life" in its description,
+    12 Nov 2026). Low Life: "35% of its Maximum Life or less" (KeywordPopups; conditions.LOW_LIFE_SHARE). PoB maps none
+    of it (checked: grep of the stat id over PoB src: sup_str.lua's stat list and the stat description only, no statMap,
+    SkillStatMap or Modules line), so PoB counts the Strike's full damage on the boss from the start: an OVERCOUNT, now
+    -100% more Damage on the supported skill (its ailments too). That is exact for the main skill when nothing else
+    damages the boss, and an UNDERCOUNT of the last 35% of the boss's Life where other skills bring it to Low Life (the
+    score doesn't sum other skills' damage into the fight's time, so that phase isn't modelled). Its other stat (two
+    modifiers from a Rare it kills, 300 s) moves nothing against a lone boss.
+  sources: ["GrantedEffectStatSets SupportEinharsBeastritePlayer (build 26476662)", "KeywordPopups LowLife",
+            "https://poe2db.tw/us/Einhars_Beastrite"]
+  test_in_game: "Not needed for the restriction (the game's text); the Low Life phase with other skills is an open model."
+  status: proposed
+
+- id: support-tuls-avalanche-seal-echoes
+  title: Tul's Avalanche, the spell Echoes once per Seal broken (Seals from your Blocks)
+  kind: gem_stat
+  support: true
+  share: seal_echo
+  skill: ["Tul's Avalanche"]
+  support_stats: ['skill_echoes_per_seal_broken']
+  share_stats: ['base_maximum_seals_for_skill']
+  match: '^skill_echoes_per_seal_broken$'
+  replace: ['1% more Damage']
+  confidence: theory
+  notes: >-
+    "Supported Spells Echo 1 time per Seal broken", "Supported Skills gain a Seal every 2 times you Block", "a maximum of
+    4 Seals" (gem_stat_descriptions; SupportTulsAvalanche, a Lineage support for Cascadable spells you cast yourself).
+    PoB counts none of the Echoes (checked: PoB src: skill_echoes_per_seal_broken and skill_gain_seal_every_x_hits_blocked
+    are read nowhere; base_maximum_seals_for_skill / base_skill_is_sealed_skill map to SealCount / HasSeals, and its Seal
+    damage code, CalcOffence.lua 1291-1323, runs only under Unleash's DamageSeal and Expand's AreaSeal flags): an
+    UNDERCOUNT. Counted on the main spell as 1 + Seals/s over its casts/s (models.seal_echo_share, Seals from
+    passive_models.seal_rate, COVB6's, which Rhythm of Ice reads); an Echo counted as a full use (MEDIUM; no less-damage
+    stat on the gem). A side spell's Echoes: not counted (an undercount).
+  sources: ["GrantedEffectStatSets SupportTulsAvalanche (build 26476662)", "KeywordPopups Cascadable, Seal",
+            "https://poe2db.tw/us/Tuls_Avalanche"]
+  test_in_game: "Whether an Echo deals the cast's full damage."
+  status: proposed
