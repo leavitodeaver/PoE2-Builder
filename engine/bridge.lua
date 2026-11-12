@@ -3204,6 +3204,7 @@ function bridge.chargeGain()
 	-- Reverie (MECHC3): "Cannot use Life Flasks", "Non-Unique Life Flasks apply their Effects constantly", "(40-60)% less
 	-- Life Flask Recovery"; PoB leaves all three unparsed (ModCache: leftover text, so never applied)
 	local lifeFlaskUnusable, lifeFlaskConstant, lifeFlaskLess, lifeEffectKept = false, false, 0, false
+	local lifeLossPerUse = 0
 	for _, line in ipairs(bridge.sourceLines().lines) do
 		local text = line.text:lower()
 		if text:match("^%s*flasks do not recover life%s*$") then
@@ -3218,6 +3219,11 @@ function bridge.chargeGain()
 		-- Enduring Elixirs (MECHC4, flasks.full_pool_cap): Life flask effects outlast full Life
 		if text:match("^%s*life flask effects are not removed when unreserved life is filled%s*$") then
 			lifeEffectKept = true
+		end
+		-- Crown of Thorns (MECHC5, COVD7): "Lose 5 Life when you use a Skill", a Life loss (not a cost) per skill use
+		local lose = text:match("^%s*lose (%d+) life when you use a skill%s*$")
+		if lose then
+			lifeLossPerUse = lifeLossPerUse + tonumber(lose)
 		end
 		local less = text:match("^%s*(%d+)%% less life flask recovery%s*$")
 		if less then
@@ -3261,6 +3267,15 @@ function bridge.chargeGain()
 		lifeRecoveryInc = inc("FlaskRecovery") + inc("FlaskLifeRecovery"),
 		manaRecoveryInc = inc("FlaskRecovery") + inc("FlaskManaRecovery"),
 		charmLimit = math.min(modDB:Override(nil, "CharmLimit") or modDB:Sum("BASE", nil, "CharmLimit"), 3),
+		-- (MECHC5, AUDIT14 A14-2) "Gain a Flask Charge when you deal a Critical Hit" (PoB's FlaskChargeOnCritChance, its
+		-- "while at maximum Frenzy Charges" threshold tag evaluated here), the main skill's crits; "reduced / increased Flask
+		-- Charges used" (and "from Mana Flasks"), which change a Concoction throw's cost; Crown of Thorns' Life loss
+		flaskOnCrit = base("FlaskChargeOnCritChance"),
+		critRate = (output.Speed or 0) * (output.HitChance or 100) / 100 * (output.CritChance or 0) / 100,
+		manaChargesUsedInc = inc("FlaskChargesUsed") + inc("ManaFlaskChargesUsed"),
+		manaChargesUsedMore = modDB:More(nil, "FlaskChargesUsed", "ManaFlaskChargesUsed"),
+		lifeLossPerUse = lifeLossPerUse, mainRate = output.Speed or 0,
+		flaskNotConsume = base("FlaskChanceNotConsumeCharges"),
 	}
 end
 

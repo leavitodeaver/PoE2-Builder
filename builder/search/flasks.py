@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from builder.search.boss_hits import land_share
+
 ACTIVE_UPTIME = 0.9  # share of a boss fight a flask or charm effect must be up to be counted
 FLASK_SLOTS = {"Flask 1": "Life", "Flask 2": "Mana"}  # PoB: Life flasks in Flask 1, Mana in Flask 2
 CHARM_SLOTS = ["Charm 1", "Charm 2", "Charm 3"]
@@ -64,12 +66,23 @@ class Charges:
     life_cost: float = 0.0
     mana_cost: float = 0.0
     life_effect_kept: bool = False
+    # (MECHC5, AUDIT14 A14-2, COVD7) flask charges on crit (chance %, PoB's FlaskChargeOnCritChance) and the main skill's crits
+    # per second; the Mana Flask charges a use costs: increased / reduced and more / less (a Concoction throw's 5);
+    # Crown of Thorns' "Lose N Life when you use a Skill" and the main skill's uses per second
+    flask_on_crit: float = 0.0
+    crit_rate: float = 0.0
+    mana_used_inc: float = 0.0
+    mana_used_more: float = 1.0
+    life_loss_per_use: float = 0.0
+    main_rate: float = 0.0
+    flask_not_consume: float = 0.0
 
     @classmethod
     def from_bridge(cls, data: dict) -> Charges:
         every = float(data.get("enemySkillTime") or 0.0)
-        land = ((1 - min(float(data.get("evade") or 0.0), 100) / 100) * (1 - min(float(data.get("block") or 0.0), 100) / 100)
-                / every) if every > 0 else 0.0
+        # (red-flash hits land whatever the evade and block: builder/search/boss_hits.py, MECHC5)
+        land = land_share({"EvadeChance": float(data.get("evade") or 0.0),
+                                     "EffectiveBlockChance": float(data.get("block") or 0.0)}) / every if every > 0 else 0.0
         types = tuple(k for k, v in (data.get("bossDamage") or {}).items() if float(v or 0) > 0)
         return cls(data.get("flask", 0), data.get("lifeFlask", 0), data.get("manaFlask", 0), data.get("flaskGainInc", 0),
                    data.get("charm", 0), data.get("charmGainInc", 0), data.get("flaskDurationInc", 0),
@@ -82,7 +95,12 @@ class Charges:
                    energy_shield=float(data.get("energyShield") or 0.0), es_regen=float(data.get("esRegen") or 0.0),
                    life_regen=float(data.get("lifeRegen") or 0.0), mana_regen=float(data.get("manaRegen") or 0.0),
                    life_cost=float(data.get("lifeCost") or 0.0), mana_cost=float(data.get("manaCost") or 0.0),
-                   life_effect_kept=bool(data.get("lifeEffectKept", False)))
+                   life_effect_kept=bool(data.get("lifeEffectKept", False)),
+                   flask_on_crit=float(data.get("flaskOnCrit") or 0.0), crit_rate=float(data.get("critRate") or 0.0),
+                   mana_used_inc=float(data.get("manaChargesUsedInc") or 0.0),
+                   mana_used_more=float(data.get("manaChargesUsedMore") or 1.0),
+                   life_loss_per_use=float(data.get("lifeLossPerUse") or 0.0), main_rate=float(data.get("mainRate") or 0.0),
+                   flask_not_consume=float(data.get("flaskNotConsume") or 0.0))
 
 
 # Charm triggers other than a kill (MECHC2, FIX_QUEUE: each counted as firing whenever its charges allowed, whether or not
@@ -143,8 +161,21 @@ def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
         generated, inc = gain.charm + info.get("gainBase", 0), gain.charm_gain_inc
     else:
         specific = gain.life_flask if pool == "Life" else gain.mana_flask if pool == "Mana" else 0.0
-        generated, inc = gain.flask + specific + info.get("gainBase", 0), gain.flask_gain_inc
+        # (MECHC5, A14-2: "Gain a Flask Charge when you deal a Critical Hit" gives each flask a charge, at the main skill's
+        # crits per second; PoB's own reading, CalcPerform's FlaskChargeOnCritChance, counted only in its flask outputs)
+        on_crit = min(gain.flask_on_crit, 100) / 100 * gain.crit_rate
+        generated, inc = gain.flask + specific + on_crit + info.get("gainBase", 0), gain.flask_gain_inc
     return max(0.0, generated * (1 + (inc + info.get("gainInc", 0)) / 100) * info.get("gainMod", 1))
+
+
+def charges_per_use(info: dict, gain: Charges) -> float:
+    """Charges a use costs on average: a Flask's after "N% chance for Flasks you use to not consume Charges" (MECHC5;
+    flasks_%_chance_to_not_consume_charges; PoB parses it, FlaskChanceNotConsumeCharges, but only shows it in its calcs
+    tab). Charms' own "chance for Charms you use to not consume Charges" isn't read yet (an undercount, labelled)."""
+    used = info.get("chargesUsed") or 0
+    if info.get("kind") == "Flask":
+        used *= 1 - min(max(gain.flask_not_consume, 0.0), 100) / 100
+    return used
 
 
 def duration(info: dict, gain: Charges) -> float:
@@ -161,7 +192,7 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
         return 1.0
     if thrown(gain, pool) or (pool == "Life" and gain.life_flask_unusable):
         return 0.0
-    used = info.get("chargesUsed") or 0
+    used = charges_per_use(info, gain)
     rate = charges_per_second(info, gain, pool)
     if used <= 0:
         return 1.0
@@ -208,7 +239,9 @@ def full_pool_cap(info: dict, gain: Charges, pool: str | None, raw: str = "") ->
     hits = gain.taken_hit * gain.boss_hits
     if pool == "Life":
         lost_hits = max(0.0, hits * (1 - min(gain.mom, 100) / 100) - (gain.es_regen if gain.energy_shield > 0 else 0.0))
-        lost, regen, spend = lost_hits + gain.life_cost, max(0.0, gain.life_regen), gain.life_cost
+        # (MECHC5, COVD7: Crown of Thorns' Life lost per skill use, the main skill's uses; other skills' uses not counted)
+        spend = gain.life_cost + gain.life_loss_per_use * gain.main_rate
+        lost, regen = lost_hits + spend, max(0.0, gain.life_regen)
     else:
         lost_hits = hits * min(gain.mom, 100) / 100
         lost, regen, spend = lost_hits + gain.mana_cost, max(0.0, gain.mana_regen), gain.mana_cost
@@ -246,7 +279,7 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
     """(uses per second, how) of one flask or charm against a boss: as often as its generated charges pay for a use,
     never again while its effect lasts (as charm_charges_used; a player feeding a "when you use a Flask" line uses it
     the moment it can be), and 0 when it waits for a kill or can't be used (MECH48: its "on use" lines were one per 4 s)."""
-    used = info.get("chargesUsed") or 0
+    used = charges_per_use(info, gain)
     if not info.get("kind") or info.get("constant") or KILL_TRIGGER in raw.lower():
         return 0.0, "can't be used against a lone boss (waits for a kill, or can't be used)"
     if used <= 0:
@@ -271,7 +304,7 @@ def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
     if pool == "Life" and gain.life_flask_blocked:
         return 0.0  # "Flasks do not recover Life" (game stats base_/life_flasks_do_not_recover_life; PoB ignores it)
     total = info.get("lifeTotal" if pool == "Life" else "manaTotal") or 0
-    used = info.get("chargesUsed") or 0
+    used = charges_per_use(info, gain)
     inc = gain.life_recovery_inc if pool == "Life" else gain.mana_recovery_inc
     less = (1 - min(gain.life_flask_less, 100) / 100) if pool == "Life" else 1.0
     if (info.get("constant") or reverie_constant(info, gain, pool)) and total > 0:
@@ -296,6 +329,19 @@ def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
 THROW_CHARGES = {"Explosive Concoction": 5, "Fulminating Concoction": 5, "Shattering Concoction": 5,
                  "Acidic Concoction": 5, "Bleeding Concoction": 5}
 THROW_POOL = "Mana"
+
+
+def throw_cost(gain: Charges, per_use: float) -> tuple[float, str]:
+    """A Concoction throw's Mana Flask charges after "increased / reduced Flask Charges used" (and "from Mana Flasks") and
+    "less Flask Charges used" (MECHC5; RESEARCH16: 5 charges a throw, HIGH, 0.1.0e's 3 reverted in 0.2.0; that these lines
+    apply to a throw: MEDIUM, a March 2025 guide), and "N% chance for Flasks you use to not consume Charges" (a throw takes
+    the Mana Flask's charges without using the flask: whether it applies is UNVERIFIED; counted, as RESEARCH16 / the manager
+    ruled for these lines, MEDIUM)."""
+    cost = per_use * max(1 + gain.mana_used_inc / 100, 0.0) * max(gain.mana_used_more, 0.0)
+    cost *= 1 - min(max(gain.flask_not_consume, 0.0), 100) / 100
+    if abs(cost - per_use) < 1e-9:
+        return per_use, ""
+    return cost, f"{per_use:g} charges a throw changed to {cost:.2f} by the build's Flask Charges used lines (MEDIUM)"
 
 
 def charge_use_rate(info: dict | None, gain: Charges, pool: str, per_use: float) -> tuple[float, str]:

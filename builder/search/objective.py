@@ -20,6 +20,7 @@ import math
 import re
 
 from builder.request.schema import DefenceStyle, Objective as Goal
+from builder.search import boss_hits
 from builder.search.context import DEFENCE_LAYERS, Context
 from builder.search.flasks import RECOVERY_FIELDS
 from builder.search.models import DAMAGE_TYPES, press_key, with_darkness
@@ -64,7 +65,8 @@ SUSTAIN_POOLS = {
     "Life": ("LifePerSecondCost", ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", RECOVERY_FIELDS["Life"])),
 }
 # Recovery against a boss (the request's optional recovery floor; always reported): the boss's damage per second after
-# mitigation is its hits that land (one every enemySkillTime, PoB's boss preset, less evade and block) times what each
+# mitigation is its hits that land (one every enemySkillTime, PoB's boss preset, less evade and block, which the
+# red-flash share ignores: boss_hits.py), less Deflection's expected share (LOW against red-flash hits), times what each
 # takes after mitigation ({Type}TakenHit); recovery is each pool's regeneration, leech, on-hit recovery, flask recovery
 # (at the rate a boss fight refills them) and recoup (its % of the damage that pool's recoup takes back, per damage
 # type), less the skill costs paid from that pool. Mana counts only up to the share of damage Mind over Matter sends to
@@ -79,15 +81,20 @@ RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in
                          - set(RECOVERY_FIELDS.values())
                          | {f"{t}TakenHit" for t in RECOVERY_DAMAGE_TYPES}
                          | {f"{t}{p}Recoup" for t in RECOVERY_DAMAGE_TYPES for p in RECOVERY_POOLS}
-                         | {"enemySkillTime", "EvadeChance", "EffectiveBlockChance", "sharedMindOverMatter"})
+                         | {"enemySkillTime", "EvadeChance", "EffectiveBlockChance", "sharedMindOverMatter",
+                            "DeflectChance", "DeflectEffect"})
 
 
 def boss_recovery(stats: dict) -> dict:
     """Recovery per second against a boss, the boss's damage per second after mitigation, and the share recovered."""
     every = number(stats.get("enemySkillTime")) or 0.7
-    land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)
-    hits = land / every
-    taken = {t: max(number(stats.get(f"{t}TakenHit")), 0.0) * hits for t in RECOVERY_DAMAGE_TYPES}
+    hits = boss_hits.land_share(stats) / every  # (red-flash hits land whatever the evade and block, MECHC5)
+    # Deflection (KeywordPopups "Deflect": prevents DeflectEffect%, 40% by default, of a Deflected Hit's damage): PoB puts
+    # it in {Type}TakenHit only at a 100% chance, so below that it's the expected share here. Kept against the red-flash
+    # hits too (#78: no game text either way, LOW); `no_deflect_share` is the figure without it (MECHC5)
+    chance = min(max(number(stats.get("DeflectChance")), 0.0), 100) / 100
+    deflect = 1 - chance * min(max(number(stats.get("DeflectEffect")), 0.0), 100) / 100 if chance < 1 else 1.0
+    taken = {t: max(number(stats.get(f"{t}TakenHit")), 0.0) * hits * deflect for t in RECOVERY_DAMAGE_TYPES}
     incoming = sum(taken.values())
     parts = {}
     for pool, (fields, cost) in RECOVERY_POOLS.items():
@@ -98,7 +105,12 @@ def boss_recovery(stats: dict) -> dict:
         parts[pool] = net
     recovery = sum(parts.values())
     share = recovery / incoming if incoming > 0 else float("inf")
-    return {"recovery": recovery, "incoming": incoming, "share": share, "parts": parts, "hits": hits}
+    result = {"recovery": recovery, "incoming": incoming, "share": share, "parts": parts, "hits": hits,
+              "deflect": 1 - deflect, "no_deflect_share": share}
+    if deflect < 1:
+        bare = boss_recovery({**stats, "DeflectChance": 0})
+        result["no_deflect_share"] = bare["share"]
+    return result
 
 
 def with_boss_recovery(stats: dict) -> dict:

@@ -2244,3 +2244,100 @@ def test_other_pressed_skills_share_the_builds_infusions():
     uses, how = found.other_infusion_users("Fire")
     assert uses == pytest.approx(0.5) and "Arc 0.50/s" in how  # one press per its 2 s cooldown
     assert found.other_infusion_users("Cold") == (0.0, "")
+
+
+def test_red_flash_boss_hits_land_whatever_the_evade_and_block():
+    """MECHC5 (RESEARCH15 #71): since 0.3.0 evasion works on every boss hit except red-flash skills, which can't be evaded,
+    blocked or dodge-rolled; the Arbiter of Ash has 7 of its 20 damaging skills flagged (their share of hits: LOW)."""
+    from builder.search import boss_hits
+    from builder.search.objective import boss_recovery
+
+    stats = {"EvadeChance": 100, "EffectiveBlockChance": 100, "enemySkillTime": 1.0, "_boss": "Arbiter of Ash"}
+    assert boss_hits.land_share(stats) == pytest.approx(7 / 20)
+    assert boss_hits.landing_hits(stats) == pytest.approx(0.35)
+    assert boss_hits.block_share(stats) == 0.0  # (everything blockable was evaded first)
+    assert boss_hits.block_share(stats, evaded_first=False) == pytest.approx(13 / 20)
+    # the Bodach's Head Slam and Kulemak's Teleport Slam can be evaded, not blocked
+    kulemak = {"EvadeChance": 0, "EffectiveBlockChance": 100, "_boss": "Vessel of Kulemak"}
+    assert boss_hits.land_share(kulemak) == pytest.approx(2 / 9)
+    assert boss_hits.land_share({"EvadeChance": 50, "_boss": "Vessel of Kulemak"}) == pytest.approx(0.5)
+    assert boss_hits.land_share({}) == 1.0
+    assert "35%" in boss_hits.note(stats)["value"]
+    # the recovery check: a full-evasion build still takes the red-flash hits
+    r = boss_recovery({**stats, "PhysicalTakenHit": 1000})
+    assert r["incoming"] == pytest.approx(350)
+
+
+def test_recovery_counts_deflection_and_shows_the_figure_without_it():
+    """MECHC5 (RESEARCH16 #78): Deflection prevents 40% of a Deflected hit; PoB puts it in TakenHit only at 100% chance, so
+    below that the recovery check takes its expected share, against red-flash hits too (LOW), and reports the share
+    without it."""
+    from builder.search.objective import boss_recovery
+
+    base = {"enemySkillTime": 1.0, "PhysicalTakenHit": 1000, "LifeRegenRecovery": 400, "_boss": "Arbiter of Ash"}
+    r = boss_recovery({**base, "DeflectChance": 50, "DeflectEffect": 40})
+    assert r["incoming"] == pytest.approx(800)
+    assert r["share"] == pytest.approx(0.5) and r["no_deflect_share"] == pytest.approx(0.4)
+    assert boss_recovery({**base, "DeflectChance": 100, "DeflectEffect": 40})["incoming"] == pytest.approx(1000)
+    from builder.search.run import recovery_text
+    assert "without Deflection 40%" in recovery_text(r)
+
+
+def test_rage_loss_reads_the_builds_later_faster_and_slower_lines():
+    """MECHC5 (RESEARCH17 #89, AUDIT11 A11-2): Anger Management's "200% faster start" makes the 4 s pause 1.33 s; "starts N
+    seconds later" adds to it first; "N% slower / faster" scales the 5 Rage/s loss."""
+    hold, loss, how = models.rage_loss(["200% faster start of inherent Rage loss"])
+    assert hold == pytest.approx(4 / 3) and loss == 5.0 and "faster" in how
+    hold, loss, _ = models.rage_loss(["Inherent Rage loss starts 1 second later", "Inherent Rage loss starts 3 seconds later",
+                                      "Inherent loss of Rage is 25% slower", "Inherent loss of Rage is 15% slower"])
+    assert hold == pytest.approx(8.0) and loss == pytest.approx(3.0)
+    assert models.rage_loss([])[:2] == (4.0, 5.0)
+    assert "Tribute" in models.rage_loss(["Inherent loss of Rage is 2% slower per 10 Tribute"])[2]
+    # the roar's average Rage: a shorter pause keeps less
+    assert models.rage_average(10, 30, 8.0, 4 / 3, 5.0) < models.rage_average(10, 30, 8.0)
+
+
+def test_rage_held_loss_is_paused_by_landing_hits_at_random():
+    """MECHC5: a landing boss hit restarts the pause too, so after a gain's own pause Rage is lost only while no hit landed
+    in the last pause: e^(-hits x pause) of the rate. One hit per 4 s no longer holds the maximum."""
+    from builder.search import conditions
+    line = "Gain 10 Rage when Hit by an Enemy"
+    stats = {"MaximumRage": 30, "enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0}
+    if conditions._rage_gain(line, stats, True) is None:
+        pytest.skip("the line's wording isn't a Rage source here")
+    many = conditions.rage_held([line], stats)[0]
+    assert many == 30  # (a hit every second: gains every second, paused)
+    few = conditions.rage_held([line], {**stats, "enemySkillTime": 8.0})[0]
+    faster = conditions.rage_held([line, "200% faster start of inherent Rage loss"], {**stats, "enemySkillTime": 8.0})[0]
+    assert 0 < faster <= few < 30
+
+
+def test_spear_of_solaris_gains_no_glory_while_its_spear_pulses():
+    """MECHC5 (AUDIT11 A11-1, RESEARCH17): the Ground Spear pulses 20 times 0.2 s apart; no Glory while it's up."""
+    assert models.GLORY_INSTANCE["Spear of Solaris"] == 4.0
+    assert models.GLORY_INSTANCE["Hammer of the Gods"] == 2.5
+
+
+def test_concoction_throws_read_the_builds_charge_cost_lines_and_crit_charges():
+    """MECHC5 (AUDIT14 A14-2, RESEARCH16): reduced / less Flask Charges used and the chance not to consume lower a throw's 5
+    charges (MEDIUM); "Gain a Flask Charge when you deal a Critical Hit" adds the main skill's crits to every flask."""
+    from builder.search.flasks import Charges, charge_use_rate, charges_per_second, charges_per_use, throw_cost
+    assert throw_cost(Charges(), 5) == (5, "")
+    cost, how = throw_cost(Charges(mana_used_inc=-20, mana_used_more=0.5, flask_not_consume=10), 5)
+    assert cost == pytest.approx(5 * 0.8 * 0.5 * 0.9) and "MEDIUM" in how
+    flask = {"kind": "Flask", "chargesMax": 75, "chargesUsed": 15, "duration": 3}
+    gain = Charges(flask_on_crit=100, crit_rate=2.0)
+    assert charges_per_second(flask, gain, "Mana") == pytest.approx(2.0)
+    assert charge_use_rate(flask, gain, "Mana", 4)[0] == pytest.approx(0.5)
+    assert charges_per_use(flask, Charges(flask_not_consume=20)) == pytest.approx(12)
+    assert charges_per_use({"kind": "Charm", "chargesUsed": 20}, Charges(flask_not_consume=20)) == 20
+
+
+def test_crown_of_thorns_life_loss_keeps_life_flask_effects_going():
+    """MECHC5 (COVD7): "Lose 5 Life when you use a Skill" is Life lost per use of the main skill, so a Life flask's effect
+    (which ends at full Life) lasts longer."""
+    from builder.search.flasks import Charges, full_pool_cap
+    flask = {"kind": "Flask", "lifeTotal": 1000, "duration": 2}
+    base = full_pool_cap(flask, Charges(), "Life")[0]
+    cap, how = full_pool_cap(flask, Charges(life_loss_per_use=5, main_rate=20), "Life")
+    assert base == 0.0 and cap == pytest.approx(100 / 500) and "100/s" in how

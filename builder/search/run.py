@@ -31,7 +31,8 @@ from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skele
 FINALIZE_SHARE = 0.12
 RECOVERY_NOTE = ("Life, Energy Shield and Mana regeneration, leech, on-hit recovery, flasks (at the rate a boss fight refills "
                  "them) and recoup, less skill costs, against the boss's damage per second after mitigation (PoB's boss "
-                 "preset: its hits that land, after evade and block). Mana counts only for damage Mind over Matter sends to "
+                 "preset: its hits that land, after evade and block, which red-flash hits ignore; less Deflection, LOW against "
+                 "red-flash hits). Mana counts only for damage Mind over Matter sends to "
                  "it; Energy Shield recharge isn't counted (the boss's hits keep interrupting it)")
 
 
@@ -39,7 +40,10 @@ def recovery_text(recovery: dict) -> str:
     if recovery["incoming"] <= 0:
         return "the boss's hits never land"
     parts = ", ".join(f"{pool} {value:,.0f}/s" for pool, value in recovery["parts"].items() if value > 0) or "none"
-    return f"{min(recovery['share'], 9.99):.0%} ({recovery['recovery']:,.0f}/s of {recovery['incoming']:,.0f}/s; {parts})"
+    text = f"{min(recovery['share'], 9.99):.0%} ({recovery['recovery']:,.0f}/s of {recovery['incoming']:,.0f}/s; {parts})"
+    if recovery.get("deflect"):  # (MECHC5: Deflection against red-flash hits is LOW, #78)
+        text += f"; without Deflection {min(recovery['no_deflect_share'], 9.99):.0%}"
+    return text
 FINALIZE_MAX = 60.0
 # What finalize does after its polish (export, reload check, blind spots, facts): 3-10 s in the gate runs of 8 Nov, so
 # the polish ends this much before the run's time is up and the whole run fits the time the user gave it

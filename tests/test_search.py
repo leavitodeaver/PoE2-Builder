@@ -1022,7 +1022,8 @@ def test_recovery_against_a_boss():
     boss's damage per second after mitigation; Mana only for the damage Mind over Matter sends to it."""
     from builder.search.objective import boss_recovery, with_boss_recovery
 
-    stats = {"enemySkillTime": 0.5, "EvadeChance": 50, "EffectiveBlockChance": 0,  # 1 hit lands per second
+    # (MECHC5: 7 of the Arbiter's 20 skills can't be evaded: 0.35 + 0.65 x 0.5 of its hits land, one per 0.675 s = 1 per second)
+    stats = {"enemySkillTime": 0.675, "EvadeChance": 50, "EffectiveBlockChance": 0,  # 1 hit lands per second
              "PhysicalTakenHit": 800, "FireTakenHit": 200, "PhysicalLifeRecoup": 10,
              "LifeRegenRecovery": 150, "LifeLeechRate": 100, "LifePerSecondCost": 50, "FlaskLifeRecoveryRate": 20,
              "EnergyShieldRegenRecovery": 30, "ManaRegenRecovery": 500, "ManaPerSecondCost": 100, "sharedMindOverMatter": 20}

@@ -17,7 +17,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from builder.search import models
+from builder.search import boss_hits, models
 from builder.search.objective import number
 from builder.search.state import EPSILON, Build
 
@@ -54,7 +54,7 @@ RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 def _hit_recently(stats: dict) -> bool:
     """At least one boss hit lands in any 4 s with chance UPTIME (landing hits come one after another, about every 0.7 s)."""
     every = number(stats.get("enemySkillTime")) or 0.7
-    land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)
+    land = boss_hits.land_share(stats)  # (red-flash hits always land, MECHC5)
     return 1 - (1 - land) ** (RECENTLY / every) >= UPTIME
 
 
@@ -385,7 +385,7 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     if "take a critical hit" in when:
         return chance * boss * 0.05, "when the boss crits you (5% of its hits)"
     if "block" in when:
-        block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
+        block = boss_hits.block_share(stats, evaded_first=False)  # (red-flash hits can't be Blocked, MECHC5)
         return chance * boss * block, f"{chance:.0%} x {boss * block:.2f} blocks/s"
     if "on hit" in when or when.strip() in ("", "on hit") or "hit" in when:
         return chance * hits, f"{chance:.0%} x {hits:.2f} hits/s"
@@ -737,8 +737,7 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
                                          f"spending {rate:.1f}/s (other skills' Mana not counted): {events:.2f} gains/s")
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     every = number(stats.get("enemySkillTime")) or 0.7
-    land = ((1 - min(number(stats.get("EvadeChance")), 100) / 100) *
-            (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)) / every
+    land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
     if "kill" in when:
         return 0.0, 0.0, "on kill (nothing dies on a single boss)"
     # "Gain N Rage on Melee Axe Hit": only with that weapon equipped (MECHC2; before, any melee hit counted; checked: the
@@ -802,9 +801,11 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     elif refund and not gain:
         return 0.0, ""  # (a refund with nothing gained: no Rage to spend in the first place)
     every = number(stats.get("enemySkillTime")) or 0.7
-    land = ((1 - min(number(stats.get("EvadeChance")), 100) / 100) *
-            (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)) / every
+    land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
+    pause, decay, loss_how = models.rage_loss(lines)  # (the build's later / faster / slower lines, MECHC5)
     basis = f"{gain:.2f} Rage/s gained"
+    if loss_how:
+        basis += f" (Rage loss waits {pause:.2g} s, then {decay:.2g}/s: {loss_how})"
     if spent:
         basis += f", {spent:.2f}/s spent by " + ", ".join(f"{n} {v:.2f}/s" for n, v in spend.items())
     net = gain - spent
@@ -814,15 +815,23 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     elif any(RAGE_NO_LOSS.search(t) for t in lines):
         held = most  # (MECHC4: Blood of the Warrior; its line reaches here only while the flask's slot counts, sourceLines)
         basis += ", no inherent loss of Rage (a line of the build): the maximum"
-    elif events * RAGE_PAUSE >= 1 or land * RAGE_PAUSE >= 1:
+    elif events * pause >= 1:
         held = most
-        basis += f", its loss paused (gains {events:.2f}/s, boss hits landing {land:.2f}/s, one per 4 s needed): the maximum"
+        basis += f", its loss paused (gains {events:.2f}/s, one per {pause:.2g} s needed): the maximum"
     else:
-        level = min(most, net / events)  # (each gain, held 4 s, then lost 1 per 0.2 s)
+        # (MECHC5, RESEARCH17 #89: a landing hit restarts the pause too. The boss's hits come at random, so after a gain's
+        # own pause the loss runs only while no hit landed in the last `pause` s: e^(-hits x pause) of the time. Before,
+        # one landing hit per 4 s on average held the maximum, though 37% of that time has no hit in the last 4 s)
+        level = min(most, net / events)  # (each gain, held `pause` s, then lost `decay` per s while no hit pauses it)
         gap = 1 / events
-        down = min(level / RAGE_DECAY, gap - RAGE_PAUSE)
-        held = (level * RAGE_PAUSE + level * down - RAGE_DECAY * down * down / 2) / gap
-        basis += f", one gain every {gap:.1f} s of {level:.0f} Rage held 4 s then lost 5/s: {held:.1f} on average"
+        rate = decay * math.exp(-land * pause)
+        if rate <= 0:
+            held = level
+        else:
+            down = min(level / rate, gap - pause)
+            held = (level * pause + level * down - rate * down * down / 2) / gap
+        basis += (f", one gain every {gap:.1f} s of {level:.0f} Rage held {pause:.2g} s, then lost {decay:.2g}/s while no "
+                  f"boss hit ({land:.2f}/s landing) paused it ({rate:.2g}/s on average): {held:.1f} on average")
     held = float(int(held))
     return held, f"{basis} = {held:.0f} held, at most {most:g}: " + "; ".join(how[:3])
 
@@ -853,8 +862,7 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     duration = float(d.group(1)) if d else ONSLAUGHT_DURATION
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     every = number(stats.get("enemySkillTime")) or 0.7
-    land = ((1 - min(number(stats.get("EvadeChance")), 100) / 100) *
-            (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)) / every
+    land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
     if re.search(r"\bkill|culling strike", when):
         return 0.0, "on kill (nothing dies on a single boss)"
     if "minion dies" in when or "vaal skill" in when:
@@ -1258,7 +1266,7 @@ def _exposure_uptime(element: str) -> Callable[[list[str], dict], tuple[object, 
 
 def _blocked_recently(stats: dict) -> bool:
     every = number(stats.get("enemySkillTime")) or 0.7
-    block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
+    block = boss_hits.block_share(stats, evaded_first=False)  # (red-flash hits can't be Blocked, MECHC5)
     return 1 - (1 - block) ** (RECENTLY / every) >= UPTIME
 
 

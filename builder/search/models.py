@@ -25,6 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from builder.ledger import model_entry
+from builder.search import boss_hits
 
 BOSS_POWER = 20  # "Unique monsters always have 20 Power" (https://poe2db.tw/us/Monster_Power)
 DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
@@ -356,8 +357,7 @@ def archon_sources(stats: dict, main_gems: set[str]) -> list[ArchonSource]:
         # timing aren't counted (MEDIUM).
         delay = number(stats.get("EnergyShieldRechargeDelay")) or 4.0
         every = number(stats.get("enemySkillTime")) or 0.7
-        land = (1 - min(number(stats.get("EvadeChance")), 100) / 100) * (
-            1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100) / every
+        land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
         wait = math.expm1(min(land * delay, 700.0)) / land if land > 0 else delay
         sources.append(ArchonSource("Archon of the Blizzard", "ArchonRecharge", wait,
                                     f"Energy Shield Recharge begins after {delay:g}s without damage; the boss lands "
@@ -1035,14 +1035,52 @@ def roar_rage(skill: Skill) -> float:
     return per_power * BOSS_POWER
 
 
-def rage_average(gain: float, maximum: float, period: float) -> float:
-    """Average Rage over one roar to the next: full (capped) for RAGE_HOLD s, then RAGE_LOSS per second down to 0."""
+# Inherent Rage loss's modifiers (MECHC5; RESEARCH17 #89, research/rage-loss-modifiers.md; AUDIT11 A11-2). The game's
+# KeywordPopups "Rage": "lose 1 Rage every 0.2 seconds. Rage loss is paused for 4 seconds upon gaining Rage, or after
+# taking damage". The stats that change it (checked by RESEARCH17: every .csd for Rage with loss / lose / decay / later /
+# slower / faster, their uses over every stat set, passive and mod, the 0.5 tree, PoB's ModCache; poe2db / outof.games for
+# the Berserker suffix): rage_loss_delay_ms_+ "Inherent Rage loss starts N second(s) later" (five passives, the "of the
+# Berserker" suffix), rage_loss_delay_recovery_rate_+% "N% faster / slower start of inherent Rage loss" (Anger Management
+# +200%: the pause counts down 3x as fast, (4 + later) / 3 s: MEDIUM, PoE's rule for recovery-rate stats; which applies
+# first is UNVERIFIED), rage_decay_speed_+% "Inherent loss of Rage is N% slower / faster" (summed, as PoB's
+# InherentRageLoss INC). "2% slower per 10 Tribute" (a Timeless-jewel passive) needs the build's Tribute, which nothing
+# here reads: not counted (an undercount, named in the note).
+RAGE_LATER = re.compile(r"^Inherent Rage loss starts (\d+(?:\.\d+)?|1) seconds? later$", re.I)
+RAGE_START_RATE = re.compile(r"^(\d+(?:\.\d+)?)% (faster|slower) start of inherent Rage loss$", re.I)
+RAGE_DECAY_RATE = re.compile(r"^Inherent loss of Rage is (\d+(?:\.\d+)?)% (slower|faster)$", re.I)
+RAGE_TRIBUTE = re.compile(r"^Inherent loss of Rage is \d+% slower per \d+ Tribute$", re.I)
+
+
+def rage_loss(texts: list[str]) -> tuple[float, float, str]:
+    """(seconds the loss waits after a gain or a hit taken, Rage lost per second after it, how) from the build's lines."""
+    later = rate = decay = 0.0
+    how = []
+    for text in texts:
+        t = text.strip()
+        if m := RAGE_LATER.search(t):
+            later += float(m.group(1))
+        elif m := RAGE_START_RATE.search(t):
+            rate += float(m.group(1)) * (1 if m.group(2).lower() == "faster" else -1)
+        elif m := RAGE_DECAY_RATE.search(t):
+            decay += float(m.group(1)) * (-1 if m.group(2).lower() == "slower" else 1)
+        else:
+            continue
+        how.append(t)
+    hold = (RAGE_HOLD + later) / max(1 + rate / 100, 0.01)
+    loss = RAGE_LOSS * max(1 + decay / 100, 0.0)
+    if any(RAGE_TRIBUTE.search(t.strip()) for t in texts):
+        how.append("per-Tribute slower loss not counted (Tribute isn't read)")
+    return hold, loss, "; ".join(how)
+
+
+def rage_average(gain: float, maximum: float, period: float, hold: float = RAGE_HOLD, loss: float = RAGE_LOSS) -> float:
+    """Average Rage over one roar to the next: full (capped) for `hold` s, then `loss` per second down to 0."""
     top = min(gain, maximum)
     if period <= 0 or top <= 0:
         return 0.0
-    decay = min(max(period - RAGE_HOLD, 0.0), top / RAGE_LOSS)
-    held = min(period, RAGE_HOLD)
-    return (top * held + top * decay - RAGE_LOSS * decay * decay / 2) / period
+    decay = min(max(period - hold, 0.0), top / loss) if loss > 0 else max(period - hold, 0.0)
+    held = min(period, hold)
+    return (top * held + top * decay - loss * decay * decay / 2) / period
 
 
 def roar_empowered() -> int:
@@ -1204,13 +1242,16 @@ def roar_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
     notes: list[dict] = []
     if main.attack and number(stats.get("Rage")) <= 0:
         gain = roar_rage(skill)
-        rage = rage_average(gain, number(stats.get("MaximumRage")) or RAGE_MAXIMUM, period)
+        hold, loss, how = rage_loss(stats.get("_texts") or [])
+        rage = rage_average(gain, number(stats.get("MaximumRage")) or RAGE_MAXIMUM, period, hold, loss)
         mods.append(line("1% more Attack Damage", rage))
         notes.append({"label": f"{FEROCIOUS_ROAR}: average Rage", "value": round(rage, 1), "confidence": "theory",
                       "basis": f"{gain:g} Rage per roar ({BOSS_POWER} Power x {gain / BOSS_POWER:g}), capped at "
                                f"{number(stats.get('MaximumRage')) or RAGE_MAXIMUM:g}, used every {period:.1f} s; held "
-                               f"{RAGE_HOLD:g} s, then 1 lost per 0.2 s (game files); 1% more Attack damage each. "
-                               "Loss paused by the boss's hits isn't counted; Rage-per lines of the build aren't fed"})
+                               f"{hold:.2g} s, then {loss:.2g} lost per second (game files: 4 s and 5/s"
+                               + (f"; the build's {how}" if how else "") + "); 1% more Attack damage each. "
+                               "Loss paused by the boss's hits isn't counted (an undercount); Rage-per lines of the build "
+                               "aren't fed"})
     lost = min(1.0, (skill.cast_time or 1.1) / period)
     mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
     notes.append({"label": f"{FEROCIOUS_ROAR}: time it takes from {main.name}", "value": round(lost, 3),
@@ -3119,10 +3160,14 @@ GLORY_GAIN_EVERY = 0.5
 # (duration + cost / Glory per second). Durations: base_skill_effect_duration of the skill's stat set (game files, build
 # 26476662, level 20; read with RESEARCH6's gestats.py): Ancestral Cry 8 s, Apocalypse 12 s, Walking Calamity 10 s, Skyfall
 # 20 s, Starborn Onslaught 8 s, Hammer of the Gods 2.5 s; Archon of Chayula's own stat set has none, its tornado 8 s (taken
-# as the instance, MEDIUM). Spear of Solaris and Molten Blast carry none (0). Increased skill duration isn't read (the
-# instance lasts longer then: a small overcount left, labelled).
+# as the instance, MEDIUM). Spear of Solaris carries no duration, but its Ground Spear pulses 20 times 0.2 s apart
+# (SpearOfSolarisPulsePlayer: solaris_spear_number_of_pulses 20, solaris_spear_pulse_delay_ms 200; poe2db "pulses every 0.2
+# seconds, up to 20 times"): 4 s, the spear taken as the skill's active instance (MEDIUM; RESEARCH17, AUDIT11 A11-1, MECHC5;
+# before, 0: about 5x its uses at a high Glory rate). Hammer of the Gods' 2.5 s is the delay before the hammer lands (#87,
+# MEDIUM), so its own Heavy Stun isn't counted toward the next one (UNVERIFIED either way; the lower reading). Molten Blast
+# carries none (0). Increased skill duration isn't read (the instance lasts longer then: a small overcount left, labelled).
 GLORY_INSTANCE = {"Ancestral Cry": 8.0, "Apocalypse": 12.0, "Walking Calamity": 10.0, "Skyfall": 20.0,
-                  "Starborn Onslaught": 8.0, "Hammer of the Gods": 2.5, "Archon of Chayula": 8.0}
+                  "Starborn Onslaught": 8.0, "Hammer of the Gods": 2.5, "Archon of Chayula": 8.0, "Spear of Solaris": 4.0}
 
 
 def glory_events(stats: dict, main: Skill | None) -> dict[str, float]:

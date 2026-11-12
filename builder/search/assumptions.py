@@ -404,7 +404,7 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
         parry_mods, parry_notes = models.parry_model(found, stats, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS))
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
-        roar_mods, roar_notes = models.roar_model(found, stats, main)
+        roar_mods, roar_notes = models.roar_model(found, {**stats, "_texts": [e["text"] for e in source_lines]}, main)
         hand_mods, hand_notes = hand_mods + roar_mods, hand_notes + roar_notes
         rod_mods, rod_notes = models.rod_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + rod_mods, hand_notes + rod_notes
@@ -760,7 +760,7 @@ class Assumptions:
         """A Concoction as the main skill (flasks.THROW_CHARGES): each throw spends 5 Mana Flask charges, but PoB throws at
         will. Its uses per second, from the Mana Flask's own charge generation (flasks.charge_use_rate), become its trigger
         rate when lower than PoB's; capped at one per cast time. None for any other main skill (MECHC2)."""
-        from builder.search.flasks import FLASK_SLOTS, THROW_CHARGES, THROW_POOL, Charges, charge_use_rate
+        from builder.search.flasks import FLASK_SLOTS, THROW_CHARGES, THROW_POOL, Charges, charge_use_rate, throw_cost
 
         if main not in THROW_CHARGES:
             return None
@@ -771,18 +771,19 @@ class Assumptions:
         slot = next(k for k, v in FLASK_SLOTS.items() if v == THROW_POOL)
         raw = self.build.equipped[slot].raw if self.build.equipped.get(slot) is not None else None
         flask = self.build.call("flaskData", raws=[raw])["results"][0] if raw else None
-        per_use = THROW_CHARGES[main]
+        per_use, changed = throw_cost(gain, THROW_CHARGES[main])
         rate, how = charge_use_rate(flask, gain, THROW_POOL, per_use)
+        how = f"{how}; {changed}" if changed else how
         skill = models.Skill.of(info)
         cap = 1 / skill.cast_time if skill.cast_time else math.inf
         rate = min(rate, cap)
         return models.trigger_rate(main, rate), {
             "label": f"{main} throws per second (Mana Flask charges)", "value": round(rate, 3),
-            "basis": (f"each throw consumes {per_use} charges from your Mana Flask (game files, "
+            "basis": (f"each throw consumes {THROW_CHARGES[main]} charges from your Mana Flask (game files, "
                       f"flask_throw_base_charges_used); {how}; the charges the flask starts the fight with aren't "
                       "counted; the flask's own recovery and effect get none of them (flasks.thrown), and charges left over above "
                       f"{per_use} per cast time aren't counted"),
-            "play": f"Throw {main} whenever your Mana Flask has {per_use} charges.",
+            "play": f"Throw {main} whenever your Mana Flask has {math.ceil(per_use - 1e-9)} charges.",
             "confidence": "theory: game files' throw cost; the flask's charge generation from PoB",
         }
 
