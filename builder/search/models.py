@@ -227,6 +227,7 @@ class Skill:
     support_stats: dict[str, float] = field(default_factory=dict)  # named stats of its supports, summed (gem_stat_model)
     early_hazard: dict | None = None  # its scored set's "less damage if set off in its first 0.5 s" (hazard_early_model)
     energy_final: float = 0.0  # its own active_skill_energy_generated_+%_final (energy_gain; Incinerate -98)
+    total_time_added: float = 0.0  # its "+N seconds to Total Cast / Attack Time" (PoB's TotalCastTime; energy_cost)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -235,7 +236,8 @@ class Skill:
                    number(raw.get("castTime")), raw.get("cooldown"), number(raw.get("cooldownRecovery")) or 1.0,
                    dict(raw.get("levelStats") or {}), bool(raw.get("wrongWeapon")),
                    bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"),
-                   dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")))
+                   dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")),
+                   number(raw.get("totalTimeAdded")))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -473,7 +475,7 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
 # Quality adds none (GrantedEffectQualityStats has no row for any of them). PoB's data gave 72% at 20/20 to some, which counted
 # Thundergod's Wrath, Cast on Elemental Ailment, Spellslinger and Barrier Invocation 15 points high, and Mjolner's level-11
 # Thundergod's Wrath (30%) as 72%. A level the bridge doesn't report is taken as 20 (labelled). Each triggered
-# spell costs 10 Energy per 0.1 s of its base cast time (support stat
+# spell costs 10 Energy per 0.1 s of its base cast time, its "+N s to Total Cast Time" counted double (energy_seconds) (support stat
 # "generic_ongoing_trigger_1_maximum_energy_per_Xms_total_cast_time" = 10). Cast on Critical gains
 # 1 Energy per Power of the enemy it critically hits, scaled by the share of the enemy's Ailment
 # Threshold the hit deals, and its spells deal 20% less damage; the elemental-ailment metas gain 1
@@ -533,6 +535,30 @@ def gem_energy(meta: str, level: int | None) -> float:
 # "trigger_skills_refund_half_energy_spent_chance_%" 35. They count for the meta skill they support only.
 META_SUPPORTS = {"Boundless Energy I": ("MetaEnergy", 35.0), "Boundless Energy II": ("MetaEnergy", 45.0),
                  "Energy Retention": ("EnergyRefund", 35.0)}
+
+
+def energy_seconds(skill: Skill) -> float:
+    """A skill's use time as Energy counts it (MECHB6, AUDIT17 A17-1): its base cast time plus twice its "+N seconds to
+    Total Cast Time". The game's Energy definition (KeywordPopups Energy): "When calculating Energy gain or consumption
+    from the use time of a Skill, modifiers to Total use time are treated as though they were double the value." Comet,
+    Lightning Conduit, Skyfall and His Foul Emergence carry +1 s, Crushing Earth +1.5 s, Plasma Blast +2 s
+    (total_cast_time_+_ms in their own stat sets, game files): Comet's base 1 s costs 300 Energy, not 100. Whether a
+    skill's own +N s is such a modifier (300) or part of its base (200) has no game text beyond the definition: the
+    definition's reading is taken (MEDIUM; Cast on Critical's tooltip with Comet in game settles it, held for the user)."""
+    return (skill.cast_time or 0.0) + 2 * (skill.total_time_added or 0.0)
+
+
+def energy_cost(skill: Skill) -> float:
+    """Energy one trigger of `skill` costs: 10 per 0.1 s of its use time as Energy counts it (energy_seconds)."""
+    return 100 * energy_seconds(skill)
+
+
+def energy_time_note(skills: list[Skill]) -> str:
+    added = [s for s in skills if s.total_time_added]
+    return "".join(f"; {s.name}: {s.cast_time:g} s base + 2 x its {s.total_time_added:+g} s to Total Cast Time (the game's "
+                   f"Energy definition counts Total use time modifiers double) = {energy_cost(s):.0f} Energy" for s in added)
+
+
 INVOCATION_MAX_ENERGY = 500  # generic_ongoing_trigger_maximum_energy of every Invocation (game files, build 26476662)
 DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files, build 26476662); distance mods not counted
 DODGE_EVERY = 2.0  # seconds between dodge rolls against a boss: the user's default (7 Nov 2026), said in the guide
@@ -1743,11 +1769,13 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
     if kind == "cast":
         if skill is not None and not skill.spell:
             return 0.0, f"{main} is not a spell: no Energy"
-        cast = skill.cast_time if skill is not None else 0.0
+        cast = energy_seconds(skill) if skill is not None else 0.0
         each = per * cast * 100
         casts = number(stats.get("Speed"))
         return casts * each, (f"{main} is cast {casts:.2f} times per second for {each:.1f} Energy each ({per:g} per 10 ms of its "
-                              f"{cast:g} s base cast time)")
+                              f"{cast:g} s base cast time" + (f", its {skill.total_time_added:+g} s to Total Cast Time counted double: the "
+                              "game's Energy definition, gain or consumption" if skill is not None and skill.total_time_added
+                              else "") + ")")
     crit = number(stats.get("CritChance")) / 100
     if kind == "crit":
         crits = crits_per_second(stats)
@@ -1837,11 +1865,12 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                           "confidence": "theory"})
             continue
         too_big = [s for s in spells if META_GEMS.get(meta.name, {}).get("invocation")
-                   and 100 * (s.cast_time or 0.0) > INVOCATION_MAX_ENERGY]
+                   and energy_cost(s) > INVOCATION_MAX_ENERGY]
         for spell in too_big:  # (MECHB4, COVC6: the Invocation's store can never hold its cost)
             mods += trigger_rate(spell.name, 0.0)
             notes.append({"label": f"{meta.name} triggers per second ({spell.name}; not counted)", "value": 0,
-                          "basis": f"{spell.name} costs {100 * spell.cast_time:.0f} Energy (10 per 0.1 s of base cast time), "
+                          "basis": f"{spell.name} costs {energy_cost(spell):.0f} Energy (10 per 0.1 s of base cast time"
+                                   f"{', its Total Cast Time addition counted double' if spell.total_time_added else ''}), "
                                    f"more than the {INVOCATION_MAX_ENERGY} Energy an Invocation can store "
                                    "(generic_ongoing_trigger_maximum_energy, game files): it never triggers",
                           "confidence": "theory"})
@@ -1849,7 +1878,7 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
         if not spells:
             continue
         names = ", ".join(s.name for s in spells)
-        cost = sum(100 * (s.cast_time or 0.0) for s in spells)
+        cost = sum(energy_cost(s) for s in spells)
         gain, gain_basis = energy_gain(meta.name, stats, main.name, main)
         if gain > 0 and main.energy_final and META_GEMS[meta.name]["gain"] in OWN_USE_GAINS:
             gain *= max(0.0, 1 + main.energy_final / 100)
@@ -1898,6 +1927,7 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                      + (", doubled" if doubled else "")
                      + (f" (supported by {', '.join(own)})" if own else "")
                      + f"; one round costs {cost:.0f} Energy (10 per 0.1s of base cast time)"
+                     + energy_time_note(spells)
                      + (f", {x['EnergyRefund']:.0f}% chance to refund half" if x["EnergyRefund"] else "")
                      + ("; an Invocation: you press it to release its Energy (instant in the game files), assumed often "
                         f"enough that its {INVOCATION_MAX_ENERGY} Energy store never fills" if info.get("invocation") else "")

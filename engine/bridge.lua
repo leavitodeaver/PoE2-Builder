@@ -2075,6 +2075,15 @@ function bridge.activeSkills(args)
 			local ok, final = pcall(energyFinal, activeSkill)
 			skills[#skills].energyFinal = ok and final or nil
 		end
+		-- "+N seconds to Total Cast / Attack Time" (total_cast_time_+_ms, PoB's TotalCastTime: Comet, Lightning Conduit,
+		-- Crushing Earth, Skyfall ...): the game's Energy definition counts it double in Energy costs (models.energy_cost)
+		do
+			local ok, added = pcall(function()
+				local list, cfg = activeSkill.skillModList, activeSkill.skillCfg
+				return list:Sum("BASE", cfg, "TotalCastTime") + list:Sum("BASE", cfg, "TotalAttackTime")
+			end)
+			skills[#skills].totalTimeAdded = ok and added ~= 0 and added or nil
+		end
 		-- Every minion skill's minions (models.minion_deaths): how many, how long they last (0: until killed), Persistent
 		if activeSkill.minion and activeSkill.minion.minionData then
 			local ok, summon = pcall(function()

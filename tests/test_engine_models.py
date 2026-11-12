@@ -1365,3 +1365,16 @@ def test_a_unique_granting_a_remnant_source_is_tried_for_real_in_the_gear_round(
     assert build.objective.dps(build.stats) > 0
     group = build.main_group()
     assert group["skills"][group["mainActiveSkill"] - 1]["name"] == "Transmutation Explosion"
+
+
+def test_the_bridge_reports_a_skills_total_cast_time_addition(engine):
+    """MECHB6 (AUDIT17 A17-1): Comet's "+1 second to Total Cast Time" (total_cast_time_+_ms 1000, game files; PoB's
+    TotalCastTime) comes through activeSkills as totalTimeAdded, which the Energy cost counts double (models.energy_cost)."""
+    payload = make_payload(BuildRequest(main_skill="Comet"))
+    skeleton = enumerate_skeletons(Context(payload), ["Comet"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    skills = search.build.call("activeSkills")["skills"]
+    comet = next(s for s in skills if s["name"] == "Comet")
+    assert comet.get("totalTimeAdded") == pytest.approx(1.0)
+    assert models.energy_cost(models.Skill.of(comet)) == pytest.approx(100 * comet["castTime"] + 200)

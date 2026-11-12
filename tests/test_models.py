@@ -2452,3 +2452,28 @@ def test_press_hook_caps_combo_walking_and_throw_rates():
     assert scales["Cry"] == 0.0 and scales.get("Main", 1.0) == pytest.approx(1.0)
     # a cap above the press rate changes nothing
     assert models.press_model(rates, 1, {2}, caps={2: models.PressCap(5.0, "x")})[0] == models.press_model(rates, 1, {2})[0]
+
+
+def test_a_triggered_spells_total_cast_time_addition_counts_double_in_its_energy_cost():
+    """MECHB6 (AUDIT17 A17-1, overcount): the game's Energy definition counts "modifiers to Total use time" double, and
+    Comet carries "+1 second to Total Cast Time" (total_cast_time_+_ms 1000, game files): base 1 s + 2 x 1 s = 300 Energy
+    a trigger, not 100. A spell without one keeps 10 per 0.1 s; Spellslinger's gain from the cast spell counts it too."""
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.0, total_time_added=1.0)
+    assert models.energy_cost(comet) == pytest.approx(300)
+    assert models.energy_cost(Skill("Spark", cast_time=0.7)) == pytest.approx(70)
+    assert Skill.of({"name": "Comet", "castTime": 1, "totalTimeAdded": 1}).total_time_added == 1.0
+    coc = Skill("Cast on Critical", group=2, energy=True)
+    stats = {"Speed": 2, "HitChance": 100, "CritChance": 50, "LightningCritAverage": 50000,
+             "EnemyAilmentThreshold": 100000}
+    main = Skill("Arc", group=1, spell=True, cast_time=0.8)
+    rate = lambda skills: next(m["value"] for m in models.energy_model(Inputs(), stats, skills, main)[0]
+                               if m.get("key") == "triggerRate")
+    plain = rate([main, coc, replace(comet, total_time_added=0.0)])
+    assert rate([main, coc, comet]) == pytest.approx(plain / 3, rel=1e-3)
+    notes = models.energy_model(Inputs(), stats, [main, coc, comet], main)[1]
+    assert "300 Energy" in notes[0]["basis"]
+    # an Invocation can't store a spell costing more than 500: Crushing Earth 1 s + 2 x 1.5 s = 400 still fits
+    crushing = Skill("Crushing Earth", group=2, spell=True, triggered=True, cast_time=1.0, total_time_added=1.5)
+    assert models.energy_cost(crushing) == pytest.approx(400) and 400 < models.INVOCATION_MAX_ENERGY
+    gain, how = models.energy_gain("Spellslinger", {"Speed": 1}, "Comet", comet)
+    assert gain == pytest.approx(0.2 * 3.0 * 100) and "counted double" in how
