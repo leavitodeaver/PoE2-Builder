@@ -2007,9 +2007,13 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
 def with_darkness(stats: dict) -> dict:
     """Maximum hit taken with Darkness: the biggest hit comes out of Darkness before Life and
     Energy Shield, so Darkness adds to every pool. PoB's own value is kept as PoB<Type>Maximum-
-    HitTaken (and used again if the stats are adjusted twice)."""
+    HitTaken (and used again if the stats are adjusted twice). Cat O' Nine Tails' Low Life cap (LowLifeRecoveryCap, the
+    bridge's) takes the Life above Low Life out of the pool (MECHC8): Life recovery other than flasks stops at Low Life,
+    so the build meets the boss's hits at Low Life once its first hits land (LOW_LIFE_SHARE of maximum Life; LOW for
+    how much of the fight a Life flask holds it higher, said in its note)."""
     darkness = number(stats.get("Darkness"))
-    if darkness <= 0:
+    lost = (1 - LOW_LIFE_SHARE) * number(stats.get("Life")) if number(stats.get("LowLifeRecoveryCap")) > 0 else 0.0
+    if darkness <= 0 and lost <= 0:
         return stats
     for kind in DAMAGE_TYPES:
         key, raw_key = f"{kind}MaximumHitTaken", f"PoB{kind}MaximumHitTaken"
@@ -2017,8 +2021,23 @@ def with_darkness(stats: dict) -> dict:
         pool = number(stats.get(f"{kind}TotalHitPool"))
         if isinstance(raw, (int, float)) and math.isfinite(raw) and pool > 0:
             stats[raw_key] = raw
-            stats[key] = raw * (pool + darkness) / pool
+            stats[key] = raw * max(pool + darkness - lost, 0.0) / pool
     return stats
+
+
+LOW_LIFE_SHARE = 0.35  # KeywordPopups LowLife: "35% of its Maximum Life or less" (conditions.LOW_LIFE_SHARE, the same)
+
+
+def low_life_cap_note(stats: dict) -> dict | None:
+    """Cat O' Nine Tails' cap on Life recovery, for the build's notes (MECHC8)."""
+    if number(stats.get("LowLifeRecoveryCap")) <= 0:
+        return None
+    life = number(stats.get("Life"))
+    return {"label": "Life recovery stops at Low Life (Cat O' Nine Tails)", "value": round(LOW_LIFE_SHARE * life),
+            "basis": f"Life Recovery other than Flasks cannot Recover Life to above Low Life: maximum hit taken counts "
+                     f"{LOW_LIFE_SHARE:.0%} of your {life:,.0f} Life, not all of it (PoB parses the line to nothing)",
+            "play": "a Life Flask can still fill Life: right after one, you take bigger hits; the floor checks use Low Life",
+            "confidence": "datamined rule; LOW for how much of a fight a flask keeps Life higher (not counted)"}
 
 
 def darkness_note(stats: dict) -> dict | None:

@@ -1475,3 +1475,22 @@ def test_a_boss_takes_half_the_slow(engine):
     slow = 0.30 * bosses.PRESETS[bosses.DEFAULT].slow_taken
     assert chilled["enemySkillTime"] == pytest.approx(plain["enemySkillTime"] / (1 - slow), rel=1e-3)
     engine.call("setConfig", vars={"conditionEnemyChilled": False, "conditionEnemyChilledEffect": False})
+
+def test_cat_o_nine_tails_takes_life_above_low_life_out_of_max_hit(engine):
+    """MECHC8: PoB parses "Life Recovery other than Flasks cannot Recover Life to above Low Life" to nothing; the bridge
+    flags it (LowLifeRecoveryCap) and objective.prepare counts only Low Life's 35% of Life in max hit taken."""
+    from builder.search.objective import Objective
+
+    search = spark_with(engine, [])
+    build = search.build
+    fields = ["LowLifeRecoveryCap", "Life", "Darkness", "PhysicalMaximumHitTaken", "PhysicalTotalHitPool"]
+    assert not build.call("stats", fields=fields).get("LowLifeRecoveryCap")
+    belt = "\n".join(["Rarity: Unique", "Cat O' Nine Tails", "Utility Belt", "Implicits: 1", "Has 2 Charm Slot",
+                      "+200 to maximum Life", "Life Recovery other than Flasks cannot Recover Life to above Low Life"])
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    stats = build.call("stats", fields=fields)
+    assert stats["LowLifeRecoveryCap"] == 1
+    raw, pool, life = stats["PhysicalMaximumHitTaken"], stats["PhysicalTotalHitPool"], stats["Life"]
+    adjusted = Objective.prepare(dict(stats))
+    assert adjusted["PoBPhysicalMaximumHitTaken"] == raw
+    assert adjusted["PhysicalMaximumHitTaken"] == pytest.approx(raw * (pool + stats.get("Darkness", 0) - 0.65 * life) / pool)

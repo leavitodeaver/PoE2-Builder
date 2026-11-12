@@ -42,7 +42,7 @@ BASE_FIELDS = [
     "SpiritUnreserved", "Str", "Dex", "Int", "ReqStr", "ReqDex", "ReqInt",
 ]
 # What Darkness needs to join the maximum-hit pools
-DARKNESS_FIELDS = ["Darkness", *(f"{t}TotalHitPool" for t in DAMAGE_TYPES), *(f"{t}MaximumHitTaken" for t in DAMAGE_TYPES)]
+DARKNESS_FIELDS = ["Darkness", "LowLifeRecoveryCap", "Life", *(f"{t}TotalHitPool" for t in DAMAGE_TYPES), *(f"{t}MaximumHitTaken" for t in DAMAGE_TYPES)]
 # PoB's lists of skills whose cost a pool can't pay (reported as counts by the bridge): a skill
 # you can't pay for can't be used, so each is a hard limit like attribute requirements
 COST_WARNINGS = {

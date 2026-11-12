@@ -497,6 +497,8 @@ class Assumptions:
                 "confidence": "datamined"})
         if note := models.darkness_note(build.stats):
             notes.append(note)
+        if note := models.low_life_cap_note(build.stats):
+            notes.append(note)
         notes += self.rate_presses()
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups},

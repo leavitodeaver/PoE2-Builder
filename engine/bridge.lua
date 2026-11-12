@@ -659,6 +659,32 @@ local function installBossSlow()
 	end
 end
 
+-- Cat O' Nine Tails (MECHC8; MECHC6's design): "Life Recovery other than Flasks cannot Recover Life to above Low Life"
+-- (Mods UniqueCannotRecoverAboveLowLifeExceptFlasks1, stat cannot_recover_above_low_life_except_flasks; PoB parses it to
+-- nothing). Its stat is on that one mod and on no passive or skill stat set (checked: game 26476662 Mods,
+-- PassiveSkills, GrantedEffectStatSets by stat index); matched here by its text on any equipped item, so another item
+-- that gains it is caught too. Sets output.LowLifeRecoveryCap = 1 for models.with_darkness (max hit from Low Life).
+local LOW_LIFE_CAP_TEXT = "cannot recover life to above low life"
+local function setLowLifeCap(env, output)
+	if not env or not env.player or not output then
+		return
+	end
+	local found = 0
+	for _, item in pairs(env.player.itemList or { }) do
+		if type(item) == "table" then
+			for _, list in ipairs({ item.implicitModLines, item.explicitModLines, item.enchantModLines,
+				item.runeModLines, item.crucibleModLines }) do
+				for _, line in ipairs(list or { }) do
+					if type(line) == "table" and type(line.line) == "string" and line.line:lower():find(LOW_LIFE_CAP_TEXT, 1, true) then
+						found = 1
+					end
+				end
+			end
+		end
+	end
+	output.LowLifeRecoveryCap = found
+end
+
 local function installDerived()
 	installSpiritVessel()
 	installBossSlow()
@@ -670,7 +696,11 @@ local function installDerived()
 	wrappedPerform = function(env, ...)
 		setDerived(env)
 		setAugmentCounts(env)
-		return perform(env, ...)
+		local function finish(...)
+			setLowLifeCap(env, env and env.player and env.player.output)
+			return ...
+		end
+		return finish(perform(env, ...))
 	end
 	calcs.perform = wrappedPerform
 end

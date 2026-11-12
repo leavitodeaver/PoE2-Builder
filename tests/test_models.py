@@ -2970,3 +2970,14 @@ def test_a_one_totem_support_keeps_one_totem_up():
     assert models.totem_count_model([hammer, totem], hammer) == ([], [])
     totem.support_stats = {}
     assert models.totem_count_model([hammer, totem], hammer)[1][0]["value"] == 3
+
+
+def test_cat_o_nine_tails_low_life_cap_in_max_hit():
+    """MECHC8: with LowLifeRecoveryCap the pool loses 65% of Life (Darkness still added); PoB's value kept."""
+    stats = {"LowLifeRecoveryCap": 1, "Life": 1000, "Darkness": 0, "PhysicalTotalHitPool": 2000,
+             "PhysicalMaximumHitTaken": 4000}
+    out = models.with_darkness(dict(stats))
+    assert out["PhysicalMaximumHitTaken"] == pytest.approx(4000 * (2000 - 650) / 2000)
+    assert out["PoBPhysicalMaximumHitTaken"] == 4000
+    assert models.with_darkness({**stats, "LowLifeRecoveryCap": 0})["PhysicalMaximumHitTaken"] == 4000
+    assert "Low Life" in models.low_life_cap_note(stats)["label"] and models.low_life_cap_note({}) is None
