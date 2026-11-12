@@ -30,4 +30,15 @@ A false "no" claim hides an undercount, and a false "always" claim hides an over
 4. **Write the claim with its evidence**: "(checked: <what you searched>; <second source>)". If you couldn't do all of the above, write "(UNVERIFIED)" and treat it as an open question.
 5. **Never zero, drop or exclude a mechanic on an unverified claim.** Model it with a labelled assumption instead, or leave it as it is and say so.
 
+## No flat rates where the build decides the rate (the user's standing rule, 11 Nov 2026)
+
+The user, on a fixed "one minion dies every 10 s" for Cast on Minion Death: "that's a dangerous assumption. if you're taking that ability, you're probably going to keep a bunch of low-health minions around, or find a way to sacrifice them yourself, or make them take damage for you, etc. That's the kind of thing that needs to be smarter than just making a flat assumption and using that assumption as a concrete rule".
+
+When how often something happens depends on the build, work it out from the build. Examples: minion deaths, kills, hits taken, presses, stacks, charges, ground under the boss.
+- **Use the build's own sources:** its skills' cooldowns, durations, limits and use rates; its supports, items and passives; the boss preset's hits. A player who takes the mechanic plays to feed it, so let the search pick a source on purpose as a play strategy, within the request's bans and button cap. Say in the play guide how the build feeds it, with "without it / with it" rows.
+- **No source means 0**, with a note, never a flat guess.
+- **A flat number is a last resort**, only where the game decides the rate and no data gives it (for example how often a boss telegraphs a hit). Label it LOW, name it in the report, and tell the manager, who asks the user.
+
+## Managers
+
 **Managers:** before passing any such claim to the user, check its evidence tag, and check the claim yourself if the tag is missing or thin. Workers: the manager will reject a report whose "only / never / none" claims carry no evidence tag.
