@@ -577,6 +577,8 @@ class Gems:
             return False
         first = next((i for i, g in enumerate(group["gems"]) if g["support"]), len(names))
         actives = names[:first]
+        # Hollow Form's moved Attack takes one of its sockets, as in supports_round (UNVERIFIED, COVC5's cautious reading)
+        cap = SUPPORT_SLOTS - (first - 1 if self.hollow_main(group, False) else 0)
         kept = [n for n in names[first:] if n in self.required_supports]
         # (not a limited support another group holds: candidates() leaves those out; a sweep's donor moves rank them)
         offered = set(self.candidates(index, build.groups()))
@@ -594,7 +596,7 @@ class Gems:
             if not self.affordable(seed, 0.0, free - sum(self.gem_cost(n) for n in kept)):
                 continue
             current = actives + kept + [seed]
-            while len(current) - first < SUPPORT_SLOTS and clock.now() < deadline:
+            while len(current) - first < cap and clock.now() < deadline:
                 taken = set().union(*(self.families(n) for n in current[first:]))
                 spend = sum(self.gem_cost(n) for n in current[first:])
                 options = [n for n in dict.fromkeys(pool) if n not in current and not (self.families(n) & taken)
