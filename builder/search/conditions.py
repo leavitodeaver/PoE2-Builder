@@ -583,19 +583,56 @@ def charges_with_refresh(gains: float, duration: float, most: float, extra: floa
     return min(held, most)
 
 
+# Charges gained as another kind, or by allies instead (MECHC2, FIX_QUEUE: nothing read either keystone, so the player
+# kept charges of the original kind: an overcount). Resonance (passive_keystone_resonance, KeywordPopups ChargeCycle):
+# "Gain Power Charges instead of Frenzy Charges / Frenzy instead of Endurance / Endurance instead of Power": a source of
+# one kind feeds the next (one step: the cycle can't chain, assumed). Conduit (passive_keystone_conduit, KeywordPopups
+# Conduit): "If you would gain a Charge, Allies in your Presence gain that Charge instead": the player holds none (and the
+# one-kind wording, "If you would gain an Endurance Charge, ...", ModCache, for that kind). (checked: PoB's ModCache leaves
+# all of these unparsed, and nothing in builder/search read them; the tree's text is PoB tree.json 0_5)
+CHARGE_KINDS = ("Power", "Frenzy", "Endurance")
+CHARGE_INSTEAD = re.compile(r"\bgain (power|frenzy|endurance) charges instead of (power|frenzy|endurance) charges\b", re.I)
+CHARGE_TO_ALLIES = re.compile(r"\bif you would gain an? ?(power|frenzy|endurance)? charge, allies\b[^.;]*\bgain that charge "
+                              r"instead", re.I)
+CHARGE_REDIRECTED = "gained instead of"  # (in a basis: the use box goes on from the redirected sources)
+
+
+def _charge_sources(lines: list[str], kind: str) -> tuple[list[str], str]:
+    """The kinds whose sources feed `kind` (itself unless redirected away; others redirected to it), and how."""
+    given = {}
+    for text in lines:
+        if m := CHARGE_INSTEAD.search(text):
+            given[m.group(2).capitalize()] = m.group(1).capitalize()
+    kinds = [k for k in CHARGE_KINDS if given.get(k, k) == kind]
+    moved = [k for k in kinds if k != kind]
+    how = []
+    if moved:
+        how.append(f"{kind} Charges {CHARGE_REDIRECTED} {', '.join(moved)} Charges (Resonance)")
+    if given.get(kind, kind) != kind:
+        how.append(f"{kind} Charge sources give {given[kind]} Charges instead (Resonance)")
+    return kinds, "; ".join(how)
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
+        kinds, redirected = _charge_sources(lines, kind)
+        allies = next((t for t in lines if (m := CHARGE_TO_ALLIES.search(t))
+                       and (m.group(1) is None or m.group(1).capitalize() == kind)), None)
+        if allies is not None:  # (a basis with 0 switches the use box off: Conditions.resolve)
+            sourced = any(_charge_rate(t, k, stats) is not None for t in lines for k in {*kinds, kind})
+            return 0.0, (f"'{allies}': allies in your Presence gain the {kind} Charges instead (Conduit)" if sourced else "")
         gains, bonus, how = 0.0, 0.0, []
         profusion = stats.get("_profusion") or {}  # gem description -> (chance of one more, of a random one)
         for text in lines:
-            if (r := _charge_rate(text, kind, stats)) is not None:
+            if (r := next((x for k in kinds if (x := _charge_rate(text, k, stats)) is not None), None)) is not None:
                 more = profusion.get(text)
                 plus = (more[0] + more[1] / 3) if more else 0.0
                 gains += r[0]
                 bonus += r[0] * plus
                 how.append(f"{text[:60]} ({r[1]}" + (f"; Charge Profusion +{plus:.0%} per gain" if more else "") + ")")
-        if not how:
-            return 0.0, ""
+        if not how:  # (its own sources feeding another kind: Resonance; a basis with 0 switches the use box off)
+            own = redirected and any(_charge_rate(t, kind, stats) is not None for t in lines)
+            return 0.0, (redirected if own else "")
         extra, fill, extra_how = _extra_charges(lines, kind)
         if bonus:
             extra_how.append(f"Charge Profusion {bonus / gains:.0%} of gains")
@@ -624,7 +661,8 @@ def _charges_held(kind: str):
             count = charges_with_refresh(gains, duration, most, extra, fill)
             basis = (f"{gains:.2f} gains/s{extra_text}, all dropping after {duration:g} s without a gain (gains taken as "
                      f"random arrivals)" + (f"; {fill:.0%} chance a gain fills to the maximum" if fill else ""))
-        return round(count, 1), f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3])
+        return round(count, 1), ((redirected + "; ") if redirected else "") + (
+            f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3]))
     return held
 
 
@@ -1924,7 +1962,10 @@ class Conditions:
             elif held is None:
                 pass
             elif f"use{kind}Charges" not in found:
-                found.pop(f"override{kind}Charges")  # (no source the resolver accepts for the box itself)
+                if CHARGE_REDIRECTED in held[1]:  # (its sources name another kind: Resonance)
+                    found[f"use{kind}Charges"] = (True, held[1])
+                else:
+                    found.pop(f"override{kind}Charges")  # (no source the resolver accepts for the box itself)
         return found
 
     def roar_evidence(self) -> tuple[bool, str, float] | None:

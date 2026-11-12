@@ -704,6 +704,41 @@ def test_charges_held_follow_the_builds_sources():
     assert _charges_held("Power")(["+1 to Maximum Power Charges"], stats) == (0.0, "")  # not a source
 
 
+
+def test_resonance_and_conduit_move_the_charges_a_build_gains():
+    """Resonance (KeywordPopups ChargeCycle): Power instead of Frenzy, Frenzy instead of Endurance, Endurance instead of
+    Power. Conduit: "If you would gain a Charge, Allies in your Presence gain that Charge instead". Nothing read either,
+    so the player kept the original charges (MECHC2)."""
+    from builder.search.conditions import _charges_held
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "PowerChargesDuration": 15,
+             "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15, "EnduranceChargesMax": 3, "EnduranceChargesDuration": 15}
+    resonance = ["Gain Power Charges instead of Frenzy Charges", "Gain Frenzy Charges instead of Endurance Charges",
+                 "Gain Endurance Charges instead of Power Charges"]
+    crit_frenzy = "Gain a Frenzy Charge on Critical Hit"
+    alone = _charges_held("Frenzy")([crit_frenzy], stats)
+    assert alone[0] == 3
+    frenzy = _charges_held("Frenzy")([crit_frenzy, *resonance], stats)
+    assert frenzy[0] == 0.0 and "Power Charges instead" in frenzy[1]  # a basis with 0: the use box goes off
+    power = _charges_held("Power")([crit_frenzy, *resonance], stats)
+    assert power[0] == alone[0] and "Power Charges gained instead of Frenzy" in power[1]
+    assert _charges_held("Endurance")([crit_frenzy, *resonance], stats) == (0.0, "")  # no Power source to feed it
+    conduit = "If you would gain a Charge, Allies in your Presence gain that Charge instead"
+    held, basis = _charges_held("Frenzy")([crit_frenzy, conduit], stats)
+    assert held == 0.0 and "Conduit" in basis
+    assert _charges_held("Power")(["Gain a Power Charge on Critical Hit", conduit.replace("a Charge", "an Endurance Charge")],
+                                  stats)[0] == 3  # the one-kind wording leaves the others
+
+
+def test_resonance_switches_the_use_box_of_the_kind_it_feeds():
+    """A Power Charge gained from a Frenzy source names no Power source, so the resolver's text match never switches
+    usePowerCharges on: the redirected basis does (Conditions.resolve)."""
+    from builder.search import conditions
+
+    assert conditions.CHARGE_REDIRECTED in conditions._charges_held("Power")(
+        ["Gain a Frenzy Charge on Critical Hit", "Gain Power Charges instead of Frenzy Charges"],
+        {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "PowerChargesDuration": 15})[1]
+
 def test_rage_held_from_gains_spends_and_its_decay():
     """KeywordPopups Rage: 1 lost per 0.2 s, the loss paused 4 s on a gain or a hit taken, one Hit per 0.5 s gains."""
     from builder.search.conditions import rage_held
