@@ -47,3 +47,41 @@
             "https://poe2db.tw/us/Compose_Requiem"]
   test_in_game: "Not needed: the skill only composes the Requiem."
   status: proposed
+
+# skill_specific_stat_description_mode (COVC12): PoB marks it "-- Display Only" (SkillStatMap), but on 12 player skills
+# its value picks game text for a real mechanic (13 blocks in specific_skill_stat_descriptions/*.csd; checked:
+# scratch/covc12/csdblock.py over every .csd file, and each skill's statDescriptionScope in PoB's skill data). The two
+# below are read by the tool's own models; the other 10 are in COVC12's report (open, routed, or PoB's own statMap:
+# Voltaic Fulmination's corpseExplosionLifeMultiplier, sup_dex.lua 2096). summon_water_djinn.csd has a 14th block, but no stat set carries the stat there (checked: scratch/covc12/where.py over GrantedEffectStatSets). On the other 14 skills that carry it, no .csd
+# block in their scope or in the included skill_stat_descriptions.csd names it (checked: same script); what it does
+# there is UNVERIFIED, and they stay open.
+
+- id: model-stats-rapid-shot-heat-lockout
+  title: "Rapid Shot: can't fire or reload for 10 s on reaching maximum Heat (Heat model)"
+  kind: model
+  model: heat
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Rapid Shot]
+  confidence: datamined
+  notes: >-
+    rapid_shot.csd: "Cannot fire or reload for {0} seconds on reaching maximum Heat" (milliseconds_to_seconds; value
+    10000). MECH-B's heat model (models.py RAPID_SHOT, HEAT_LOCKOUT) reads the gem's value as the lockout and counts
+    Rapid Shot at its share of the fight.
+  sources: ["builder/search/models.py Rapid Shot's Heat (MECHB4)",
+            "data/game-26476662/files/data/statdescriptions/specific_skill_stat_descriptions/rapid_shot.csd"]
+  status: approved
+
+- id: model-stats-explosive-transmutation-trigger
+  title: "Explosive Transmutation: Triggers Transmutation Explosion on picking up a Remnant (Remnant trigger model)"
+  kind: model
+  model: remnants
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Explosive Transmutation]
+  confidence: datamined
+  notes: >-
+    transmutation_reservation.csd: "Trigger Transmutation Explosion on picking up a Remnant". PoB has no trigger for
+    it; Assumptions.wanted gives the explosion a trigger rate from the build's own Remnant sources (REMNANT_SOURCES),
+    capped by its cooldown (assumptions.py module docstring).
+  sources: ["builder/search/assumptions.py Explosive Transmutation, REMNANT_SOURCES",
+            "data/game-26476662/files/data/statdescriptions/specific_skill_stat_descriptions/transmutation_reservation.csd"]
+  status: approved
