@@ -427,3 +427,46 @@
   sources: ["SupportUpwellingPlayer, SupportUpwellingPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
   test_in_game: "With a supported Persistent Buff up, compare a minion's hit at full Mana and after spending some."
   status: proposed
+
+- id: support-steadfast-stun-threshold
+  title: Steadfast I/II, 50% more Stun Threshold while Channelling the supported skill (defence; counted when it's the main skill)
+  kind: gem_stat
+  support: true
+  applies_to: build
+  share: supported_main
+  skill: [Steadfast I, Steadfast II]
+  support_stats: ['support_steadfast_stun_threshold_+%_final_while_channelling']
+  match: '^support_steadfast_stun_threshold_\+%_final_while_channelling$'
+  replace: ['1% more Stun Threshold while Channelling']
+  confidence: datamined
+  notes: >-
+    "You have 50% more Stun Threshold while Channelling Supported Skills" (SupportSteadfastPlayer and ...PlayerTwo 50;
+    the support requires a Channel skill). PoB maps it to nothing (checked: no statMap in sup_str.lua's two Steadfast
+    entries, no steadfast in SkillStatMap.lua, 12 Nov 2026); it parses "more Stun Threshold" and "while channelling"
+    (ModParser StunThreshold, Condition:Channelling, set while the main skill channels: CalcPerform.lua 394). Defence
+    only (the player's Stun Threshold, CalcDefence). Counted when the supported skill is the main skill
+    (models.supported_main_share); on a channelled side skill PoB's condition would follow the main skill instead, so
+    it's left out there (an undercount, said so).
+  sources: ["SupportSteadfastPlayer, SupportSteadfastPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  test_in_game: "Not needed for damage: the character sheet's Stun Threshold while channelling, with and without the support."
+  status: proposed
+
+- id: support-steadfast-ailment-threshold
+  title: Steadfast II, 100% more Ailment Threshold while Channelling the supported skill (defence; counted when it's the main skill)
+  kind: gem_stat
+  support: true
+  applies_to: build
+  share: supported_main
+  skill: [Steadfast II]
+  support_stats: ['support_steadfast_ailment_threshold_+%_final_while_channelling']
+  match: '^support_steadfast_ailment_threshold_\+%_final_while_channelling$'
+  replace: ['1% more Ailment Threshold while Channelling']
+  confidence: datamined
+  notes: >-
+    "You have 100% more Ailment Threshold while Channelling Supported Skills" (SupportSteadfastPlayerTwo 100). PoB maps
+    it to nothing (checked as for its Stun Threshold line) and parses "more Ailment Threshold" (AilmentThreshold,
+    calcLib.val in CalcDefence) and "while channelling". Defence only. Counted as Steadfast's Stun Threshold line is:
+    on the main skill only (models.supported_main_share).
+  sources: ["SupportSteadfastPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  test_in_game: "Not needed for damage: the character sheet's Ailment Threshold while channelling, with and without it."
+  status: proposed

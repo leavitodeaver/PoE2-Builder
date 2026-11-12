@@ -2573,8 +2573,19 @@ def not_full_mana_share(skill: Skill, stats: dict, main: Skill | None = None,
     return share, why, play
 
 
+# `share: supported_main` (COVE9): a line PoB conditions on what the main skill does (Steadfast's "while Channelling
+# Supported Skills": PoB's Condition:Channelling is set from the main skill only, CalcPerform.lua 394). Counted only when
+# the supported skill is the main skill; on a side skill PoB's condition would follow the main skill, not the supported
+# one, so it's left out (an undercount for the time you channel the side skill, said so).
+def supported_main_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    if main is not None and main.name == skill.name and main.group == skill.group:
+        return 1.0, "on the main skill, whose channelling PoB's condition follows", ""
+    return 0.0, ("not on the main skill: PoB's Channelling condition follows the main skill, so the time you channel this "
+                 "one isn't counted (an undercount)"), ""
+
+
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
-          "not_full_mana": not_full_mana_share}
+          "not_full_mana": not_full_mana_share, "supported_main": supported_main_share}
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:

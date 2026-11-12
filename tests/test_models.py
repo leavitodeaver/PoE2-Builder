@@ -710,6 +710,18 @@ def test_long_fuse_counts_on_the_detonating_stat_sets_only():
     assert [m["scale"] for m in models.gem_stat_model([plain])[0]] == [35]
 
 
+def test_steadfast_counts_while_channelling_the_main_skill_only():
+    stats = {"support_steadfast_stun_threshold_+%_final_while_channelling": 50,
+             "support_steadfast_ailment_threshold_+%_final_while_channelling": 100}
+    channel = models.Skill("Incinerate", group=1, spell=True, support_stats=stats)
+    mods, notes = models.gem_stat_model([channel], main=channel)
+    assert sorted((m["line"], m["scale"], m.get("skill")) for m in mods) == [
+        ("1% more Ailment Threshold while Channelling", 100, None), ("1% more Stun Threshold while Channelling", 50, None)]
+    main = models.Skill("Lightning Arrow", group=2, attack=True)
+    mods, notes = models.gem_stat_model([main, channel], main=main)  # (PoB's Channelling condition follows the main skill)
+    assert mods == [] and all("not on the main skill" in n["basis"] for n in notes if "Steadfast" in n["label"])
+
+
 def test_support_entries_list_every_stat_their_match_takes():
     from builder.ledger import gem_stat_entries
 
