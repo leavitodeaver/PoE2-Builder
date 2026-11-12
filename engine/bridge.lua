@@ -3150,7 +3150,9 @@ end
 -- "flask_throw": the Concoctions' flask_throw_base_charges_used (5 Mana Flask charges a throw; COVC2, the manager's
 -- ruling of 12 Nov 2026). usage.py reads it but doesn't act on it yet (an open overcount: see FLASK_THROW there).
 -- unusable_until_moved: Echoing Cry and Hit and Run's "travel a distance before each use" (usage.py MOVED)
-local USAGE_STAT_WORDS = { "require", "cannot_be_used_unless", "unusable_until", "flask_charges_on_skill_use", "as_glory", "flask_throw" }
+-- "rapidshot_requiem": Compose Requiem's anguish fill rate and Requiem duration beside its 100-anguish requirement
+-- (usage.py ANGUISH_PER_MINUTE, REQUIEM_MS; COVC12: without them the rate read 0 and no build got the 12 / 42 cap)
+local USAGE_STAT_WORDS = { "require", "cannot_be_used_unless", "unusable_until", "flask_charges_on_skill_use", "as_glory", "flask_throw", "rapidshot_requiem" }
 function bridge.usageRules()
 	local rules = setmetatable({ }, { __jsontype = "object" })
 	for _, gem in pairs(build.data.gems) do

@@ -726,8 +726,21 @@ def test_compose_requiem_from_the_last_lament_is_the_main_skill(engine):
     from builder.search.usage import Usage
     gem = next(g["name"] for g in main[0]["gems"] if not g["support"])
     assert gem == "Requiem" and Usage(search.build, None).blockers(gem) == []
-    # (the cap itself is test_usage.test_the_press_hook_caps_a_requiem_main_skill_at_its_share: this bare setup gives
-    # every skill speed 0 and the build 0 DPS, so the hook has no rate to cap here; COVC11 POE2T1418-1419)
+    # COVC12: the bridge's usage rule carries the fill rate and duration (before, only the 100 anguish: rate 0, no cap)
+    from builder.search.assumptions import usage_rules
+    stats = usage_rules(search.build)["Requiem"]["stats"]
+    assert {"rapidshot_requiem_number_of_stacks_per_minute", "rapidshot_requiem_active_duration_ms"} <= set(stats)
+    # COVC12 (gems-active-batch8.yaml): the shot fires freely (PoB gave it 0 bolts, so speed 0) and the ammo effect
+    # deals no damage (PoB scored it as a crossbow attack), so the shot is the calculated skill, with a real rate
+    skills = [s["name"] for s in main[0]["skills"]]
+    assert skills[(main[0].get("mainActiveSkill") or 1) - 1] == "Requiem"
+    rate = search.build.call("useRates", indices=[main[0]["index"]])["rates"][0]
+    assert rate["name"] == "Requiem" and rate["speed"] > 0
+    cap = search.assumptions.press_caps(main, {main[0]["index"]}).get(main[0]["index"])
+    assert cap is not None and cap.how.startswith("anguish: the Requiem up 29%")
+    assert abs(cap.uses / rate["speed"] - 12 / 42) < 1e-6
+    mods, notes = search.assumptions.main_cap(main[0], "Requiem")
+    assert mods and abs(mods[0]["value"] - 100 * (12 / 42 - 1)) < 0.01 and notes[0]["value"] == "x0.286"
 
 
 def test_an_off_hand_sceptres_skill_can_be_the_main_skill(engine):

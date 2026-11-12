@@ -1,0 +1,49 @@
+# COVC12 (12 Nov 2026): the Last Lament's Requiem, as PoB scores it on a searched build (COVC12 POE2T1421-1422).
+# A 60 s search for Compose Requiem (Witchhunter, The Last Lament) ended with PoB's "Compose Requiem" effect (the ammo)
+# as the calculated skill at 1.52 uses/s and 1,407 DPS, no anguish cap, and the Requiem shot itself at speed 0:
+# - PoB maps no `base_deal_no_damage` (checked: grep of PoB's src outside Data/Skills finds it only in
+#   StatDescriptions; SkillStatMap has only minions_deal_no_damage), so the ammo effect is scored as a crossbow attack;
+# - the shot takes its bolt count from the ammo effect (CalcOffence.lua 381-397), which has none
+#   (crossbow_ammo_has_no_ammo), so PoB's reload formula (CalcOffence.lua 3019-3036) gives it 0 uses a second. PoB
+#   reads neither crossbow_ammo_has_no_ammo nor crossbow_skill_has_no_ammo (checked: grep of PoB's src outside
+#   Data/Skills: none; PoB's skill data: CrossbowRequiemAmmoPlayer and CrossbowRequiemPlayer only).
+
+- id: gem-active-requiem-fires-freely
+  title: "Requiem: fired freely while it lasts (no ammunition, no reload)"
+  kind: gem_stat
+  match: '^crossbow_skill_has_no_ammo$'
+  replace: ["Bolts fired by Crossbow Attacks have 1% chance to not expend Ammunition"]
+  factor: 100
+  stats: ["crossbow_skill_has_no_ammo"]
+  skill: ["Requiem"]
+  confidence: datamined
+  notes: >-
+    The game's description of the shot (CrossbowRequiemPlayer, also PoB's skill data): "Does not use Ammunition and can
+    be fired freely until the Requiem ends". Counted as PoB's ChanceToNotConsumeAmmo 100 on the shot, so PoB gives it
+    its firing rate with no reload (CalcOffence.lua 3036). The fight's share it's up (12 s per 42 s) is the anguish cap
+    (usage.anguish_rate, model-stats-compose-requiem-anguish), applied on top.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua CrossbowRequiemPlayer",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 381-407, 3019-3036",
+            "https://poe2db.tw/us/Compose_Requiem"]
+  test_in_game: "With the Requiem up, fire it for its 12 s: no reload pauses."
+  status: proposed
+
+- id: gem-active-compose-requiem-deals-no-damage
+  title: "Compose Requiem (the ammo effect) deals no damage"
+  kind: gem_stat
+  match: '^base_deal_no_damage$'
+  replace: ["1% less Damage"]
+  factor: 100
+  stats: ["base_deal_no_damage"]
+  skill: ["Compose Requiem"]
+  confidence: datamined
+  notes: >-
+    Its only stat set carries base_deal_no_damage, it has no Damage skill type, and its description only composes the
+    Requiem (checked: PoB's skill data CrossbowRequiemAmmoPlayer; poe2db's Compose Requiem page shows "base deal no damage
+    [1]" and "Does not use Ammunition"). PoB scores it as a crossbow attack (1,407 DPS on COVC12's searched build); counted
+    as 100% less Damage on it, so the search calculates the Requiem shot instead. base_deal_no_damage on PoB's other
+    187 skills is not reviewed here (open, COVC12's report).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua CrossbowRequiemAmmoPlayer",
+            "https://poe2db.tw/us/Compose_Requiem"]
+  test_in_game: "Not needed: the skill only composes the Requiem."
+  status: proposed
