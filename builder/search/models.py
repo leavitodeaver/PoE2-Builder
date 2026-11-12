@@ -2584,8 +2584,31 @@ def supported_main_share(skill: Skill, stats: dict, main: Skill | None = None, p
                  "one isn't counted (an undercount)"), ""
 
 
+# `share: cull_buff` (COVE9): a buff the supported skill gains for a time on Culling an enemy (Thrill of the Kill I/II:
+# "Attacks Gain 25% of Damage as Lightning Damage for 8 seconds on Culling an enemy with Supported Skills"). Against one
+# boss the Cull is the kill (KeywordPopups CullingStrike: the enemy is killed), so the buff only starts after the fight;
+# culls of adds feed it (RESEARCH14/15/16: the King in the Mists' totems on a 25 s / 15 s summon cooldown, Atziri's
+# cultists every 45 s). The tool has no add-kill rate yet (MECH-A / MECH-C), so this reads one from the stats as
+# CULLS_STAT (culls per second the build makes) and is 0 with a note while it's missing: no flat guess.
+CULLS_STAT = "AddCullsPerSecond"
+
+
+def cull_buff_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    seconds = number(skill.support_stats.get("support_thrill_of_the_kill_buff_base_duration_ms")) / 1000 or 8.0
+    culls = number(stats.get(CULLS_STAT))
+    play = ("Cull the boss's adds (the King in the Mists' totems, Atziri's cultists) with the supported skill to start the "
+            "buff; Culling the boss itself ends the fight, so it gives nothing there.")
+    if culls <= 0:
+        return 0.0, ("0: the buff starts on Culling an enemy, and against a lone boss the Cull is the kill; no add-kill rate "
+                     "is modelled yet for the boss presets with adds (UNVERIFIED rate; MECH-A / MECH-C)"), play
+    share = min(1.0, culls * seconds)
+    return share, (f"buff up {share:.0%} of the fight: {culls:.3g} culls/s x {seconds:g} s (its base duration; Skill "
+                   f"Effect Duration increases not counted)"), play + f" Headline: up {share:.0%} of the fight."
+
+
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
-          "not_full_mana": not_full_mana_share, "supported_main": supported_main_share}
+          "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
+          "cull_buff": cull_buff_share}
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:

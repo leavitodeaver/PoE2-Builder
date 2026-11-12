@@ -722,6 +722,17 @@ def test_steadfast_counts_while_channelling_the_main_skill_only():
     assert mods == [] and all("not on the main skill" in n["basis"] for n in notes if "Steadfast" in n["label"])
 
 
+def test_thrill_of_the_kill_is_fed_by_culled_adds_and_0_against_a_lone_boss():
+    stats = {"support_thrill_of_the_kill_buff_grant_%_added_lightning_attack_damage": 25,
+             "support_thrill_of_the_kill_buff_base_duration_ms": 8000, "support_thrill_of_the_kill_buff_shock_chance_+%": 40}
+    attack = models.Skill("Lightning Arrow", group=1, attack=True, support_stats=stats)
+    mods, notes = models.gem_stat_model([attack], main=attack, stats={})
+    assert mods == [] and all("lone boss" in n["basis"] for n in notes if "Thrill" in n["label"]) and len(notes) == 2
+    mods, notes = models.gem_stat_model([attack], main=attack, stats={models.CULLS_STAT: 1 / 25})  # (a cull per 25 s)
+    assert sorted((m["line"], round(m["scale"], 6), m.get("skill")) for m in mods) == [
+        ("1% increased chance to Shock", 12.8, None), ("Gain 1% of Damage as Extra Lightning Damage with Attacks", 8.0, None)]
+
+
 def test_support_entries_list_every_stat_their_match_takes():
     from builder.ledger import gem_stat_entries
 

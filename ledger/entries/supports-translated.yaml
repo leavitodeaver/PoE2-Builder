@@ -470,3 +470,49 @@
   sources: ["SupportSteadfastPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
   test_in_game: "Not needed for damage: the character sheet's Ailment Threshold while channelling, with and without it."
   status: proposed
+
+- id: support-thrill-of-the-kill-buff
+  title: Thrill of the Kill I/II, Attacks gain 25% of Damage as Lightning (and II's 40% increased Shock chance) for 8 s on Culling an enemy (fed by culled adds; 0 against a lone boss)
+  kind: gem_stat
+  support: true
+  applies_to: build
+  share: cull_buff
+  skill: [Thrill of the Kill, Thrill of the Kill II]
+  support_stats: ['support_thrill_of_the_kill_buff_grant_%_added_lightning_attack_damage']
+  share_stats: ['support_thrill_of_the_kill_buff_base_duration_ms']
+  match: '^support_thrill_of_the_kill_buff_grant_%_added_lightning_attack_damage$'
+  replace: ['Gain 1% of Damage as Extra Lightning Damage with Attacks']
+  confidence: theory
+  notes: >-
+    "Attacks Gain 25% of Damage as Lightning Damage for 8 seconds on Culling an enemy with Supported Skills"
+    (SupportThrillOfTheKillPlayer and ...PlayerTwo: 25, support_thrill_of_the_kill_buff_base_duration_ms 8000; PoB's
+    description adds "a Shocked enemy"). PoB maps none of its stats (checked: no statMap in sup_int.lua's two entries,
+    no thrill_of_the_kill in SkillStatMap.lua or Modules/*.lua, 12 Nov 2026). The buff is "all of your Attacks", so it's
+    counted for the whole build, at the share of the fight it's up (models.cull_buff_share: min(1, culls/s x 8 s)). Against
+    a lone boss the Cull is the kill, so the buff only starts once the fight is over; adds feed it (RESEARCH14/15/16: the
+    King in the Mists' totems, Atziri's cultists), and the tool has no add-kill rate yet, so it's 0 with a note until
+    MECH-A / MECH-C give one (models.CULLS_STAT). The build also needs a Culling Strike source (not checked here).
+  sources: ["SupportThrillOfTheKillPlayer, SupportThrillOfTheKillPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd",
+            "scratch/manager/research/pinnacle-killable-adds.md, on-kill-no-xp-adds.md"]
+  test_in_game: "Against the King in the Mists, Cull a Shocked totem with the supported attack and compare the next hits' Lightning."
+  status: proposed
+
+- id: support-thrill-of-the-kill-shock-chance
+  title: Thrill of the Kill II, the buff's 40% increased Shock chance (fed by culled adds; 0 against a lone boss)
+  kind: gem_stat
+  support: true
+  applies_to: build
+  share: cull_buff
+  skill: [Thrill of the Kill II]
+  support_stats: ['support_thrill_of_the_kill_buff_shock_chance_+%']
+  share_stats: ['support_thrill_of_the_kill_buff_base_duration_ms']
+  match: '^support_thrill_of_the_kill_buff_shock_chance_\+%$'
+  replace: ['1% increased chance to Shock']
+  confidence: theory
+  notes: >-
+    "Thrill of the Kill Buff also grants 40% increased Shock chance" (SupportThrillOfTheKillPlayerTwo 40). PoB maps it to
+    nothing (checked as for the buff's Lightning). Counted as the buff is (models.cull_buff_share): 0 against a lone boss
+    until an add-kill rate exists. Shock chance on the boss is MECH-A's ailment model, which reads PoB's chance.
+  sources: ["SupportThrillOfTheKillPlayerTwo, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd"]
+  test_in_game: "As for the buff's Lightning: the Shock chance on the character sheet while the buff is up."
+  status: proposed
