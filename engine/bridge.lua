@@ -2969,18 +2969,28 @@ function bridge.usageRules()
 							end
 						end
 					end
-					-- Talisman exemptions (usable_with_talisman, ignore_talisman_inherent_form_restriction,
-					-- ignore_shapeshift_talisman_requirement): flags in the stat set's stats list (usage.py talisman)
-					for _, name in ipairs(statSet.stats or { }) do
-						if type(name) == "string" and name:find("talisman", 1, true) then
+					-- Talisman stats (usage.py talisman; AUDIT7 A7-3), flags in the stat set's stats list:
+					-- usable_with_talisman is an exemption (the skill can be used under a Talisman);
+					-- ignore_talisman_inherent_form_restriction / ignore_shapeshift_talisman_requirement (Feral
+					-- Invocation, Spirit Vessel, Deadly Resolve's trigger) free the Shapeshift skills socketed in
+					-- it from the Talisman's form, never another skill (socketedFormFree)
+					local function talismanStat(name)
+						if name == "usable_with_talisman" then
 							rule.talismanExempt = true
+							found = true
+						elseif name == "ignore_talisman_inherent_form_restriction" or name == "ignore_shapeshift_talisman_requirement" then
+							rule.socketedFormFree = true
 							found = true
 						end
 					end
+					for _, name in ipairs(statSet.stats or { }) do
+						if type(name) == "string" then
+							talismanStat(name)
+						end
+					end
 					for _, stat in ipairs(statSet.constantStats or { }) do
-						if type(stat[1]) == "string" and stat[1]:find("talisman", 1, true) then
-							rule.talismanExempt = true
-							found = true
+						if type(stat[1]) == "string" then
+							talismanStat(stat[1])
 						end
 					end
 					-- Skyfall's Glory gate is a per-level stat, not a constant one: its value at level 20

@@ -11,7 +11,7 @@ import pytest
 from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
-from builder.search.usage import Usage, requirements
+from builder.search.usage import Usage, combo_rotation, requirements
 
 ZERPHI = {"stats": {"active_skill_requires_X_glory": 50, "active_skill_generates_%_of_life_spent_as_glory": 5}}
 
@@ -25,7 +25,7 @@ def test_requirements_come_from_pobs_usage_markers():
     assert [(r.kind, r.amount, r.rate) for r in glory] == [("glory from life", 50, 0.05)]
     assert kinds({"addsUsageCondition": True, "stats": {}}) == ["never"]  # Hit and Run: distance moved
     assert kinds({"addsUsageCondition": True,
-                  "stats": {"support_combo_finisher_required_number_of_combo_stacks": 3}}) == ["never"]
+                  "stats": {"support_combo_finisher_required_number_of_combo_stacks": 3}}) == ["combo"]
     assert kinds({"usageCondition": True, "stats": {"active_skill_requires_X_glory": 200}}) == ["never"]  # a banner
     staff = requirements("Charged Staff", {"usageCondition": True, "stats": {"active_skill_requires_X_power_charges": 1}})
     assert [(r.kind, r.vars) for r in staff] == [("charges", ("usePowerCharges",))]
@@ -87,7 +87,62 @@ def test_distance_travelled_and_combo_bar_a_support_with_their_own_amounts():
     assert [(r.kind, r.amount) for r in echo] == [("never", 100)] and "travel 100 units" in echo[0].label
     two = requirements("Combo Finisher II", {"addsUsageCondition": True,
                                              "stats": {"support_combo_finisher_required_number_of_combo_stacks": 5}})
-    assert [(r.kind, r.amount) for r in two] == [("never", 5)] and two[0].label.endswith("combo stacks 5")
+    assert [(r.kind, r.amount) for r in two] == [("combo", 5)] and two[0].label == "5 Combo per use"
+    bell = requirements("Tempest Bell", {"usageCondition": True,
+                                         "stats": {"active_skill_required_number_of_combo_stacks": 6}})
+    assert [(r.kind, r.amount) for r in bell] == [("combo", 6)]
+
+
+class ComboBuild(FakeBuild):
+    """Groups with indices and PoB skill types, and useRates speeds."""
+
+    def __init__(self, rules: dict, types: dict[str, list[str]], groups: list[dict], speeds: dict[str, float]) -> None:
+        super().__init__(rules, {})
+        self.ctx = type("Ctx", (), {"gems": {n: {"skillTypes": t, "support": not t} for n, t in types.items()}})()
+        self.group_list, self.speeds = groups, speeds
+
+    def groups(self) -> list[dict]:
+        return self.group_list
+
+    def call(self, name, **kwargs):
+        if name == "useRates":
+            return {"rates": [{"index": i, "name": g["gems"][0]["name"], "speed": self.speeds[g["gems"][0]["name"]]}
+                              for i, g in enumerate(self.group_list) if i in kwargs["indices"]]}
+        return super().call(name, **kwargs)
+
+
+def combo_group(index: int, *names: str, set1: bool = True, set2: bool = True) -> dict:
+    return {"index": index, "enabled": True, "set1": set1, "set2": set2,
+            "gems": [{"name": n, "support": n.startswith("Combo Finisher")} for n in names]}
+
+
+def test_combo_finishers_name_the_builds_strikes_and_their_rate(fresh_rules):
+    """RULE_AUDIT row 2b: Combo comes from the build's Strikes (KeywordPopups 'Combo', 'Strike'). Barred either way
+    until the Full DPS is scaled, but the label says which, and combo_rate gives the rotation's rate."""
+    rules = {"Combo Finisher II": {"addsUsageCondition": True,
+                                   "stats": {"support_combo_finisher_required_number_of_combo_stacks": 5}}}
+    types = {"Combo Finisher II": [], "Falling Thunder": ["Attack", "Melee", "Area"],
+             "Quarterstaff Strike": ["Attack", "Melee"], "Boneshatter": ["Attack", "Melee", "Slam"],
+             "Fireball": ["Spell", "Projectile"]}
+    groups = [combo_group(0, "Falling Thunder", "Combo Finisher II"), combo_group(1, "Fireball"),
+              combo_group(2, "Boneshatter")]
+    build = ComboBuild(rules, types, groups, {"Falling Thunder": 1.0, "Quarterstaff Strike": 2.5, "Boneshatter": 3.0})
+    usage = Usage(build, FakeConditions())
+    # A Slam and a spell don't Strike: no builder
+    assert usage.combo_builders("Combo Finisher II") == []
+    assert "no skill of the build Strikes" in usage.blockers("Combo Finisher II")[0]
+    assert usage.combo_rate("Combo Finisher II", 5) is None
+    # A Strike on the same weapon set builds it: 5 Strikes at 2.5/s (2 s), then one use (1 s) -> 1/3 use a second
+    build.group_list = groups + [combo_group(3, "Quarterstaff Strike")]
+    assert usage.combo_builders("Combo Finisher II") == [(3, "Quarterstaff Strike")]
+    assert "built by Quarterstaff Strike" in usage.blockers("Combo Finisher II")[0]  # (still barred: no scaling yet)
+    uses, share, builder = usage.combo_rate("Combo Finisher II", 5)
+    assert builder == "Quarterstaff Strike" and abs(uses - 1 / 3) < 1e-9 and abs(share - 1 / 3) < 1e-9
+    # Combo is lost on a weapon swap: a Strike held only on the other set builds nothing
+    build.group_list = [combo_group(0, "Falling Thunder", "Combo Finisher II", set2=False),
+                        combo_group(3, "Quarterstaff Strike", set1=False)]
+    assert usage.combo_builders("Combo Finisher II") == []
+    assert combo_rotation(3, 2.0, 1.0, gain=1.5) == (0.5, 0.5)
 
 
 # Through a real engine --------------------------------------------------------------------------
@@ -118,6 +173,9 @@ def test_pob_marks_the_gems_that_cant_be_used_at_will(engine):
     assert rules["Hit and Run"]["stats"]["skill_unusable_until_moved_X_distance"] == 100
     assert rules["Blink"].get("talismanExempt") and rules["Tame Beast"].get("talismanExempt")  # usable_with_talisman
     assert not rules["Blink"].get("stats")  # (an exemption, never a requirement)
+    # AUDIT7 A7-3: the socketed-Shapeshift stats are their own flag, not an exemption
+    for name in ("Spirit Vessel", "Feral Invocation"):
+        assert rules[name].get("socketedFormFree") and not rules[name].get("talismanExempt"), name
     assert rules["War Banner"].get("usageCondition")  # on the placed banner, the gem's second effect
     assert "Rapid Attacks II" not in rules
 
@@ -147,7 +205,7 @@ class TalismanBuild(FakeBuild):
 
     def __init__(self, rules: dict, types: dict[str, list[str]], groups: list[dict]) -> None:
         super().__init__(rules, {})
-        support = {"Feral Support"}
+        support = {"Feral Support", "Vessel Support"}
         self.ctx = type("Ctx", (), {"gems": {n: {"skillTypes": t, "support": n in support} for n, t in types.items()}})()
         self.group_list = groups
 
@@ -157,26 +215,30 @@ class TalismanBuild(FakeBuild):
 
 def group(*names: str, set1: bool = True, set2: bool = True) -> dict:
     return {"enabled": True, "set1": set1, "set2": set2,
-            "gems": [{"name": n, "support": n == "Feral Support"} for n in names]}
+            "gems": [{"name": n, "support": n in ("Feral Support", "Vessel Support")} for n in names]}
 
 
 TYPES = {"Ancestral Cry": ["Warcry", "Area", "Cooldown"], "Fireball": ["Spell", "Projectile", "Triggerable"],
          "Maul": ["Attack", "Melee", "Bear", "Shapeshift"], "Herald of Ash": ["Persistent", "HasReservation", "Buff"],
          "Cast on Shock": ["Meta", "Persistent", "Buff"], "Spell Totem": ["Meta", "SummonsTotem", "HasUsageCondition"],
-         "Blink": ["Spell", "Travel"], "Frost Bomb": ["Spell", "Area"], "Feral Support": [],
+         "Blink": ["Spell", "Travel"], "Frost Bomb": ["Spell", "Area"], "Feral Support": [], "Vessel Support": [],
+         "Ice Nova": ["Spell", "Area"],
          "Hollow Form": ["Meta", "Channel", "UsableWhileShapeshifted"]}
 
 
 def test_a_talisman_shuts_out_skills_that_cant_be_used_in_a_shapeshift_form(fresh_rules):
-    rules = {"Blink": {"stats": {}, "talismanExempt": True}, "Feral Support": {"stats": {}, "talismanExempt": True}}
+    rules = {"Blink": {"stats": {}, "talismanExempt": True}, "Feral Support": {"stats": {}, "talismanExempt": True},
+             "Vessel Support": {"stats": {}, "socketedFormFree": True}}
     groups = [group("Maul"), group("Herald of Ash"), group("Cast on Shock", "Fireball"), group("Ancestral Cry"),
-              group("Frost Bomb", "Feral Support"), group("Spell Totem", "Fireball")]
+              group("Frost Bomb", "Feral Support"), group("Spell Totem", "Fireball"), group("Ice Nova", "Vessel Support")]
     build = TalismanBuild(rules, TYPES, groups)
     usage = Usage(build, FakeConditions(), weapons={1: "Talisman"})
     # The game: "Skills that cannot be used in a Shapeshift form cannot be used with Talismans"
     assert usage.blockers("Ancestral Cry") and not usage.usable("Ancestral Cry")
     assert not usage.usable("Spell Totem")  # (its Fireball: assumption 2, follows the totem)
     assert usage.usable("Hollow Form")  # UsableWhileShapeshifted (not in the build yet)
+    # AUDIT7 A7-3: Spirit Vessel's / Feral Invocation's stats free socketed Shapeshift skills only, never a spell
+    assert not usage.usable("Ice Nova")
     # "Triggered Skills and Persistent Skills will continue to function"; form skills and exemptions stay
     for name in ("Maul", "Herald of Ash", "Cast on Shock", "Fireball", "Blink", "Frost Bomb", "Feral Support"):
         assert usage.usable(name), name
