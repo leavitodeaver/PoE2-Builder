@@ -285,6 +285,14 @@
     Aggravated Bleeding deals damage as if the target were moving (100% more). Share of bleed time
     aggravated, for chance p at 2 hits per second on 5 s bleeds, is about 6p/(1+6p) (10% -> 38%).
     Assumes a stationary boss; don't also set the enemy as moving.
+    LOW, A FLAT RATE THE BUILD DECIDES (CLAUDE.md rule 2; COVD7, FIX_QUEUE; COV7): 2 hits per second and a 5 s Bleed
+    are fixed here, not the build's own hits per second and Bleed duration. At 10% chance a 1 hit/s build gets 23%
+    aggravated time and a 4 hits/s one 71%, against the 38% assumed: an overcount for slow hitters, an undercount for
+    fast ones. Ledger translations are applied to item and passive text before any calculation, so they can't read
+    the build's rate: it needs a model (share = 1 - (1 - p)^(hits/s x Bleed duration), the share of Bleed time an
+    aggravation covers), which is models.py / conditions.py work, routed to MECH-A (FIX_QUEUE "the Aggravate share
+    model"). The on-crit, always-on-crit and Empowered entries below carry the same flat rate plus a fixed crit
+    share (50%) or Empowered share (10%): the same model should take the build's crit chance and Empowered rate.
   sources: ["https://poe2db.tw/us/Aggravated_Bleeding", "https://poe2db.tw/us/Bleeding"]
   status: proposed
 
@@ -294,7 +302,7 @@
   match: '^(\(\d+-\d+\)|\d+)% chance to Aggravate Bleeding on targets you Critically Hit with Attacks$'
   replace: ['{300*g1/(100+3*g1)}% more Damage with Bleeding']
   confidence: theory
-  notes: "As the on-hit chance, with half of hits assumed critical."
+  notes: "As the on-hit chance, with half of hits assumed critical. LOW: flat hit rate and crit share (see aggravate-bleed-on-hit; model routed to MECH-A)."
   sources: ["https://poe2db.tw/us/Aggravated_Bleeding"]
   status: proposed
 
@@ -304,7 +312,7 @@
   match: '^Aggravate Bleeding on targets you Critically Hit with Attacks$'
   replace: ['75% more Damage with Bleeding']
   confidence: theory
-  notes: "As the on-hit chance with p = 50% (half of hits assumed critical)."
+  notes: "As the on-hit chance with p = 50% (half of hits assumed critical). LOW: flat hit rate and crit share (see aggravate-bleed-on-hit; model routed to MECH-A)."
   sources: ["https://poe2db.tw/us/Aggravated_Bleeding"]
   status: proposed
 
@@ -314,7 +322,7 @@
   match: '^(\d+)% chance to Aggravate Bleeding on targets you Hit with Empowered Attacks$'
   replace: ['{60*g1/(100+0.6*g1)}% more Damage with Bleeding']
   confidence: theory
-  notes: "As the on-hit chance, with about 10% of attacks empowered against a single boss."
+  notes: "As the on-hit chance, with about 10% of attacks empowered against a single boss. LOW: flat hit rate and Empowered share (see aggravate-bleed-on-hit; model routed to MECH-A)."
   sources: ["https://poe2db.tw/us/Aggravated_Bleeding", "https://poe2db.tw/Empowered_Skills"]
   status: proposed
 
