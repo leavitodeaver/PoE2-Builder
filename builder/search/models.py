@@ -284,6 +284,9 @@ class ArchonSource:
     flag: str | None  # the condition its passive switches on; None: always there (a support gem)
     wait: float  # seconds from the end of the recovery period to the next gain
     basis: str
+    # True: the counter behind it may also run during the buff and its recovery (unsettled); the headline takes `wait`
+    # (it doesn't run) and the notes add the other reading, uncounted (MECHC2, the manager's ruling)
+    counter_may_run: bool = False
 
 
 def archon_sources(stats: dict, main_gems: set[str]) -> list[ArchonSource]:
@@ -294,11 +297,15 @@ def archon_sources(stats: dict, main_gems: set[str]) -> list[ArchonSource]:
     mana, cost = number(stats.get("Mana")), number(stats.get("ManaPerSecondCost"))
     if mana > 0 and cost > 0:
         spend = mana / cost
-        sources.append(ArchonSource("Archon of the Storm", "ArchonMana", spend / 2,
-                                    f"spending {mana:,.0f} Mana takes {spend:.1f}s at {cost:,.0f} Mana per second; "
-                                    "half of that on average after the recovery ends (LOW: whether Mana spent during the Archon and "
-                                    "its recovery counts is unsettled, research/mana-spend-counters.md; the bounds are "
-                                    f"0 and {spend:.1f}s)"))
+        # The lower uptime bound (MECHC2, the manager's ruling, as for the Arcane Surge support): only Mana spent after the
+        # recovery ends counts, so the next gain comes a full spend time later. Whether Mana spent during the Archon and its
+        # recovery counts is unsettled (RESEARCH1 mana-spend-counters.md, LOW); archon_model adds that reading as an
+        # uncounted note. (Before: half the spend time, the midpoint.)
+        sources.append(ArchonSource("Archon of the Storm", "ArchonMana", spend,
+                                    f"spending {mana:,.0f} Mana takes {spend:.1f}s at {cost:,.0f} Mana per second, counted "
+                                    "from the end of the recovery (LOW: Mana spent during the Archon and its recovery taken "
+                                    "as not counting toward the next, the lower bound; unsettled, "
+                                    "research/mana-spend-counters.md)", counter_may_run=True))
     if number(stats.get("EnergyShield")) > 0:
         # (MECH46, FLAT_RATES A8: before, a flat 2 x delay, though every boss hit that lands restarts the delay.) The
         # boss's landing hits taken as a Poisson stream (enemySkillTime, less evaded and blocked hits): the expected wait
@@ -388,6 +395,18 @@ def archon_model(inputs: Inputs, stats: dict, main: Skill | None, main_gems: set
                      + f", regained {current.wait:.1f}s later ({current.name}: {current.basis}); "
                      f"effect ×{e['effect']:.2f} (duration and recovery datamined; how soon it's regained assumed)",
             "confidence": "theory"})
+        if current.counter_may_run:  # the other reading, shown and not counted (accuracy first: the headline takes the lower)
+            alt_wait = max(0.0, current.wait - duration - recovery)
+            alt = archon_effects(x0, alt_wait, no_recovery)
+            if alt["uptime"] > e["uptime"] + 1e-9:
+                notes.append({
+                    "label": "Elemental Archon if Mana spent during it and its recovery counts (not counted)",
+                    "value": 0,
+                    "basis": f"{alt['more']:.2f}% more Elemental spell damage averaged (up {alt['uptime']:.0%} instead of "
+                             f"{e['uptime']:.0%}): the {current.wait:.1f}s of spending would run through the "
+                             f"{duration + recovery:.1f}s of Archon and recovery, regained {alt_wait:.1f}s after it ends. "
+                             "Unsettled (research/mana-spend-counters.md); the headline takes the lower uptime",
+                    "confidence": "theory"})
     return mods, notes
 
 

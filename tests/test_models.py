@@ -86,15 +86,19 @@ def test_ledger_turns_archon_lines_into_model_inputs():
 def test_archon_model_counts_the_best_source_averaged_over_the_fight():
     inputs = Inputs(flags={"ArchonMana"})
     mods, notes = models.archon_model(inputs, STORM_STATS, SPARK, {"Spark"})
-    # Archon of the Storm: 5 s to spend 1,000 Mana at 200/s, regained 2.5 s after the recovery
-    expected = 25 * 10 / (10 + 20 + 2.5)
+    # Archon of the Storm: 5 s to spend 1,000 Mana at 200/s, regained a full 5 s after the recovery (the lower bound,
+    # MECHC2: Mana spent during the Archon and its recovery not counted; was half, 2.5 s)
+    expected = 25 * 10 / (10 + 20 + 5)
     assert scaled(mods, {}, {"ArchonMana"})["1% more Elemental Damage with Spells"] == pytest.approx(expected, rel=1e-3)
     assert notes and notes[0]["confidence"] == "theory" and "Archon of the Storm" in notes[0]["basis"]
+    # The other reading, uncounted: the 5 s of spending runs through the 30 s of Archon and recovery, so no wait (10 / 30)
+    other = next(n for n in notes if "not counted" in n["label"])
+    assert other["value"] == 0 and "up 33% instead of 29%" in other["basis"]
     # Without a source passive no line counts, but allocating one (a what-if) switches its block on
     assert "1% more Elemental Damage with Spells" not in scaled(mods, {}, set())
     # Exhaust All Power in a what-if: its crit grant counts at the Archon's uptime and effect
     crit = scaled(mods, {"ArchonCritChance": 30.0}, {"ArchonMana"})["1% increased Critical Hit Chance"]
-    assert crit == pytest.approx(30 * 10 / 32.5, rel=1e-3)
+    assert crit == pytest.approx(30 * 10 / 35, rel=1e-3)
 
 
 def test_dominion_trades_effect_for_no_recovery():
@@ -114,7 +118,7 @@ def test_archon_costs_spells_their_non_elemental_damage():
     stats = {**STORM_STATS, "ChaosHitAverage": 500, "FireHitAverage": 500}
     mods, _ = models.archon_model(Inputs(flags={"ArchonMana"}), stats, SPARK, set())
     lost = scaled(mods, {}, {"ArchonMana"})["1% more Chaos Damage with Spells"]
-    assert lost == pytest.approx(-100 * 10 / 32.5, rel=1e-3)
+    assert lost == pytest.approx(-100 * 10 / 35, rel=1e-3)
 
 
 # Meta-skill Energy -------------------------------------------------------------------------------
