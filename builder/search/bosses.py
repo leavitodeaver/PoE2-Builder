@@ -54,6 +54,13 @@ class Boss(NamedTuple):
     # MonsterTypes.EnergyShieldFromLife, % (AUDIT18 A18-4; the values match the table, AUDIT22 A22-5). Read as f% of base
     # Life converted to ES, then the Unique rarity's +2,800% Life / +400% ES (PoB's monster reading and the game's
     # "unscaled ... to_convert" stat: MEDIUM-LOW, MECHD4): ES = 5f / (29 (1 - f)) of Life. Read by cull_threshold.
+    # Second source (MECHD5, poe2db's Atziri, the Red Queen page, 12 Nov 2026, its level-68 figures, before rarity):
+    # Life 61,267 = DefaultMonsterStats' 8,257 x 742% (not reduced by the 33%), Energy Shield 20,218 = 33% of that Life:
+    # poe2db adds f% of Life as ES, it doesn't convert. The two readings give the same ES at Normal rarity and differ in
+    # Life only (ours x(1 - f)). poe2db's figure is its own calculation, not a measurement, and PoB's export and the
+    # stat's "convert" wording read conversion, so ours stays; at Unique rarity poe2db's reading is ES = 5f / 29 of Life
+    # (Atziri 5.7% vs our 8.5%: Culling at 4.73% vs our 4.61% of the pool; ours is the smaller Cull gain). Both written
+    # down, as CLAUDE.md asks; still MEDIUM-LOW (an in-game Life / ES readout would settle it).
     es_from_life: int = 0
     immune: frozenset = frozenset()  # ailments the boss can't have (AUDIT9 A9-7: Zarokh's own monster mod)
     kills: tuple = ()  # Kills rows (empty: no killable adds with a known rate; see the comment under PRESETS)
@@ -143,7 +150,8 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
 # presets' rows, checked: every GrantedEffect on them); the rest of the time is its basic attack, or a 1.0 s action
 # where the row has none; teleports, dodges, summons, hexes and spawns (by skill name) aren't hits; skills that share a
 # CooldownGroup (other than 67, the column's default) share one timer (AUDIT18 A18-3's reading, MEDIUM: the Left / Right
-# and base / Augment variants). Each damaging use counts one hit. Why LOW: (1) 1000 ms is a table default, the animations' real lengths (.ast files) weren't read;
+# and base / Augment variants). Each damaging use counts one hit, except melee uses: those count their animation's
+# strikes (MECHD5, below the table). Why LOW: (1) 1000 ms is a table default, the animations' real lengths (.ast files) weren't read;
 # (2) multi-hit uses (Triple Slash, Bullet Hell, combos) land more than one hit, moves and walking between skills land
 # none; (3) skills with no cooldown can't be told from their sub-parts in the tables; (4) the AI's skill choice (.ais)
 # isn't read; (5) a phase's skills are counted as if all were available at once (fewer per phase would leave more
@@ -151,22 +159,37 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
 # Every preset reads slower than PoB's 0.7 s placeholder (enemySpeed 700, ConfigOptions.lua 2279 "Enemy attack / cast
 # time in ms", no source given; the per-skill speeds in its Data/BossSkills.lua are for its ten PoE1 boss skills,
 # Shaper / Sirus / Maven / Exarch / Eater / PoE1 Atziri, checked: the file's ten keys, read only by the
-# presetBossSkills option): 1.12 s to 2.25 s. Counting one hit per use, this is the FEWEST hits the tables allow (AUDIT25
-# A25-7: multi-hit uses count once), so only the "when hit" benefit counts may read it (benefit_skill_time); every
+# presetBossSkills option): 0.98 s (the Red Queen) to 2.10 s (the Raven). Counting one hit per spell use and a melee
+# use's strikes, this is the FEWEST hits the tables allow (AUDIT25 A25-7: a spell's sub-parts count once), so only the "when hit" benefit counts may read it (benefit_skill_time); every
 # defence / recovery reading uses HITS_EVERY or PoB's 0.7 s, whichever is faster (config_vars, the manager 12 Nov 16:50).
+# MECHD5: the melee strikes. Each boss's animated-object file (.ao, the row's AOFiles; read-only from the game bundle by
+# scratch/mechd5/export5.mjs) has a Melee section listing, per melee animation, its damage_patterns (one hit area each,
+# with its start time); the skill reaches its animation through GrantedEffects.Animation -> Animation.Id -> the row's
+# .act (action -> animation name, any stance). Patterns that start within 0.05 s of each other are shapes of one swing
+# (e.g. the Aberration's slice_01: two cones at 0.52 s), so here a melee use counts its strikes: Ash's Double Slash 2,
+# Triple Slash 3, Jump Slam Combo 2; the Arbiter of Divinity's basic melee 2, Extendo Spear Combo 3; Olroth's Cleave 3,
+# Dash2 3 (one rectangle three times), its Sword Throw 1 (its six patterns trace the sword out and back: a standing
+# target is in as few as one); the Aberration's Shotgun Combos 2; Atziri's Elemental Spear Combo 5 (both phases).
+# A second pattern hits a target the first one hit unless the file says otherwise (the Red Queen's attack_02 and the Fell
+# Serpent's phase2_attack_01 / phase2_attack_move_01 mark their second pattern previous_patterns_to_exclude_from 1, each
+# 0.01-0.04 s after the first; no other pattern carries that key, checked: the Melee sections of the 13 rows' main .ao
+# files, Xesht's has none; the attachments' .ao files weren't read). Spells keep one hit per use: their animation events (e.g. the Bodach's slam1-slam4, the Raven's
+# first_hit / second_hit / third_hit) agree with HITS_EVERY's part counts, but an event isn't a hit on the player.
+# Strike counts assume the player stands in the attack, as the headline does. scratch/mechd5/anim_hits.py,
+# cadence5.py (lower / upper), .txt.
 HIT_EVERY: dict[str, float] = {
-    "Arbiter of Ash": 2.25,  # its cooldowns overfill the time (busy x2.15), so their mix sets the rate
-    "Arbiter of Divinity": 1.36,
+    "Arbiter of Ash": 1.78,  # its cooldowns overfill the time (busy x2.15), so their mix sets the rate; 2.25 s before the strikes
+    "Arbiter of Divinity": 1.24,  # 1.36 s before the strikes
     "Xesht, We That Are One": 1.25,
     "The King in the Mists": 1.53,  # first form 2.33 s (43% of the fight), second 1.22 s (57%), by hit rate
     "Zarokh, the Temporal": 1.14,
     "The Raven Trickster": 2.1,
     "The Bodach": 1.27,
-    "Olroth, Origin of the Fall": 2.23,  # its own cast times (2.2-4.5 s) fill the time
-    "The Aberration": 1.66,
+    "Olroth, Origin of the Fall": 1.43,  # its own cast times (2.2-4.5 s) fill the time; 2.23 s before the strikes
+    "The Aberration": 1.50,  # 1.66 s before the strikes
     "Vessel of Kulemak": 1.12,
-    "Atziri, the Red Queen": 1.13,
-    "Atziri, the Fell Serpent": 1.38,
+    "Atziri, the Red Queen": 0.98,  # 1.13 s before the strikes (Elemental Spear Combo: 5)
+    "Atziri, the Fell Serpent": 1.13,  # 1.38 s before the strikes (Elemental Spear Combo: 5)
 }
 HIT_EVERY_BASIS = ("one damaging skill use every {s:g} s against {name} (LOW: the exported tables' action times are "
                    "defaults, multi-hit uses and moving time unmodelled; MECHD3); PoB's "
@@ -189,20 +212,22 @@ def hit_interval(stats: dict | None = None) -> tuple[float, str]:
 # MP* effect on its row whose Id holds its core name (WingFlapComboLeft / Right / Middle: 3, ExtendoSpearCombo's dash,
 # three lacerates and spell projectiles, SlamMeteorComboPunch1-3 + MeteorImpact), else Double 2 / Triple 3. That reads
 # alternatives (Left / Right) and sub-effects that may not hit as hits: an UPPER BOUND on the hit rate (LOW;
+# MECHD5: a melee use counts every damage pattern of its animation instead (Olroth's Sword Throw 6, its Cleave 3, not 4), the rest as
+# above with Jump Slam Combo 3 and Olroth's Dash1 2: the Melee sections' counts replace the name-based parts there;
 # scratch/mechd4/cadence_hits.py, .txt). The King: first form 1.89 s, second 1.22 s, weighted 43 / 57 by time.
 HITS_EVERY: dict[str, float] = {
-    "Arbiter of Ash": 1.10,
+    "Arbiter of Ash": 1.00,  # 1.10 s before the strikes
     "Arbiter of Divinity": 0.72,
     "Xesht, We That Are One": 0.91,
     "The King in the Mists": 1.43,
     "Zarokh, the Temporal": 0.83,
     "The Raven Trickster": 1.51,
     "The Bodach": 0.60,
-    "Olroth, Origin of the Fall": 1.74,
-    "The Aberration": 1.25,
+    "Olroth, Origin of the Fall": 0.94,  # 1.74 s before the strikes
+    "The Aberration": 1.08,  # 1.25 s before the strikes
     "Vessel of Kulemak": 0.91,
-    "Atziri, the Red Queen": 0.55,
-    "Atziri, the Fell Serpent": 1.38,
+    "Atziri, the Red Queen": 0.51,  # 0.55 s before the strikes
+    "Atziri, the Fell Serpent": 1.13,  # 1.38 s before the strikes
 }
 POB_HIT_EVERY = 0.7  # PoB's enemySpeed placeholder, ConfigOptions.lua 2279 (no source)
 

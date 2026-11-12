@@ -3242,10 +3242,27 @@ def test_defences_read_the_faster_boss_cadence_and_only_when_hit_benefits_the_sl
         assert bosses.HITS_EVERY[name] <= bosses.HIT_EVERY[name]
         assert bosses.config_vars(name)["enemySpeed"] == round(min(0.7, bosses.HITS_EVERY[name]) * 1000) <= 700
     assert bosses.config_vars("The Bodach")["enemySpeed"] == 600
-    # the Arbiter, Slowed so PoB reads 0.9 s: benefits read 0.9 x 2.25 / 0.7
-    assert bosses.benefit_skill_time({"enemySkillTime": 0.9}) == pytest.approx(0.9 * 2.25 / 0.7)
+    # the Arbiter, Slowed so PoB reads 0.9 s: benefits read 0.9 x 1.78 / 0.7 (MECHD5: its melee strikes counted)
+    assert bosses.benefit_skill_time({"enemySkillTime": 0.9}) == pytest.approx(0.9 * 1.78 / 0.7)
     assert bosses.benefit_skill_time({"enemySkillTime": 0.6, "_boss": "The Bodach"}) == pytest.approx(0.6 * 1.27 / 0.6)
-    assert bosses.benefit_skill_time({}) == pytest.approx(2.25)
+    assert bosses.benefit_skill_time({}) == pytest.approx(1.78)
+
+
+def test_melee_uses_count_their_animation_strikes_in_both_cadence_bounds():
+    """MECHD5: a melee use counts its animation's strikes (the .ao Melee section's damage patterns) in both bounds, so
+    the bosses with multi-strike melee read faster than one hit per use: the Arbiter of Ash 2.25 -> 1.78 s (benefits),
+    1.10 -> 1.00 s (the upper bound); the Red Queen's upper bound 0.55 -> 0.51 s reaches PoB's enemySpeed (defences
+    harder); spell-only bosses (Xesht, Zarokh, the Raven, the Bodach, Kulemak) and the King don't move."""
+    from builder.search import bosses
+
+    assert bosses.HIT_EVERY["Arbiter of Ash"] == 1.78 and bosses.HITS_EVERY["Arbiter of Ash"] == 1.00
+    assert bosses.HIT_EVERY["Olroth, Origin of the Fall"] == 1.43 and bosses.HITS_EVERY["Olroth, Origin of the Fall"] == 0.94
+    assert bosses.HIT_EVERY["Atziri, the Fell Serpent"] == bosses.HITS_EVERY["Atziri, the Fell Serpent"] == 1.13
+    assert bosses.config_vars("Atziri, the Red Queen")["enemySpeed"] == 510
+    assert bosses.config_vars("Arbiter of Ash")["enemySpeed"] == 700  # PoB's 0.7 s is still the faster
+    for name, (lo, hi) in {"Xesht, We That Are One": (1.25, 0.91), "The Bodach": (1.27, 0.60),
+                           "The King in the Mists": (1.53, 1.43), "Vessel of Kulemak": (1.12, 0.91)}.items():
+        assert (bosses.HIT_EVERY[name], bosses.HITS_EVERY[name]) == (lo, hi)
 
 
 def test_culling_takes_5_percent_of_the_boss_s_life_not_of_its_energy_shield():
@@ -3267,8 +3284,8 @@ def test_the_boss_ignites_you_for_a_share_of_the_fight():
     from builder.search import bosses
 
     s = {"enemySkillTime": 0.7, "Life": 5000, "AilmentThreshold": 2500, "FireTakenHit": 3000}
-    share, how = bosses.self_ignite_uptime(s)  # (read at benefit_skill_time: 2.25 s for the Arbiter)
-    assert 0 < share < 1 and "Ignited" in how and "0.44 landed hits/s" in how
+    share, how = bosses.self_ignite_uptime(s)  # (read at benefit_skill_time: 1.78 s for the Arbiter)
+    assert 0 < share < 1 and "Ignited" in how and "0.56 landed hits/s" in how
     assert bosses.self_ignite_uptime({**s, "enemySkillTime": 0.35})[0] > share
     assert bosses.self_ignite_uptime({**s, "IgniteAvoidChance": 100})[0] == 0
     assert bosses.self_ignite_uptime({**s, "_boss": "Zarokh, the Temporal"})[0] == 0
