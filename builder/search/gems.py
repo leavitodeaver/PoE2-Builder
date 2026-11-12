@@ -11,6 +11,7 @@ not buttons, so they never touch the button cap.
 
 from __future__ import annotations
 
+import os
 import math
 import re
 from collections import Counter
@@ -102,6 +103,7 @@ def highest_usable_level(levels: list[dict], attributes: dict[str, float], chara
             best = entry["level"] if best is None else max(best, entry["level"])
     return best
 SHORTLIST = 40
+SUPPORT_REBUILD = os.environ.get("POE2_SUPPORT_REBUILD", "1") != "0"  # rebuild_main on; POE2_SUPPORT_REBUILD=0 for an A/B run
 REBUILD_SEEDS = 3  # rebuild_main: the sweep's best new supports each tried as the seed of a rebuilt set
 REBUILD_POOL = 24  # and the sweep's best names the rebuild fills the other slots from
 REBUILD_DRAW = 6  # each task draws its REBUILD_SEEDS seeds from the sweep's best REBUILD_DRAW new names with its own rng:
@@ -561,7 +563,7 @@ class Gems:
         stuck on Concentrated Area / Heavy Swing / Deliberation (169K), where Styrn's Ferocity alone scored -0.047 ln,
         while two reached Styrn's Ferocity + Close Combat + Deadly Resolve (406-420K): three supports apart."""
         build = self.build
-        if self.rebuilt or not self.swept_ranking or clock.now() > deadline:
+        if not SUPPORT_REBUILD or self.rebuilt or not self.swept_ranking or clock.now() > deadline:
             return False
         self.rebuilt = True
         from builder.search.models import TOTEM_METAS

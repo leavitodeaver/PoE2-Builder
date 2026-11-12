@@ -1060,7 +1060,13 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     try:
         search.conditions.choose_quests()
         if deadline - clock.now() >= FINALIZE_SWEEP_MIN:  # (a sweep isn't cut by the deadline: 12-25 s on gate 4)
+            before = build.snapshot()
             search.step("supports", search.gems.optimize_supports, deadline, 12, True)
+            # Never below where it started: the Full DPS sweep's kept moves ended 2-3% under it in four gate runs
+            # (2b75b POE2T654/656/658/659: 13.2314 -> 13.2085, 13.0386 -> 13.0177, 13.2299 -> 13.2008, 13.3295 ->
+            # 13.3112), and the polish didn't win it back in three
+            if build.score < before["score"] - EPSILON:
+                build.restore(before)
             trace.append(["supports", round(build.score, 4)])
         search.run(deadline, escalate=False, feasible_first=True)
         trace.append(["polish", round(build.score, 4)])
