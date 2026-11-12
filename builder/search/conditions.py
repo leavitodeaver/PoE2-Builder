@@ -241,7 +241,8 @@ def _incision_consumed(lines: list[str], stats: dict) -> tuple:
 # Charges held (the mechanics catalog's first priority, 7 Nov 2026): PoB counts the maximum whenever its "use" box is on.
 # The count a build holds is min(maximum, generation per second x the charge's duration), from the build's own sources:
 # poe2db (https://poe2db.tw/us/Charges): charges last a duration (PoB: 15 s base, ChargeDuration) and come from specific
-# sources; on a single boss nothing dies, so on-kill sources give none. A source whose rate its line doesn't say (on use,
+# sources; on-kill sources at the build's kills (kill_events: the boss preset's adds, and your own minions Killed for
+# lines that don't say "enemy"; MECHC9, A23-4; none against a lone boss). A source whose rate its line doesn't say (on use,
 # when you stun, on reaching something) is assumed once per 4 s, labelled.
 CHARGE_DEFAULT_EVERY = 4.0
 # Events a line names without its rate (FLAT_RATES A3; MECH47): a Warcry used, a Totem summoned, a Mark activating.
@@ -330,6 +331,48 @@ def event_rates(groups: list[dict], gems: dict[str, dict], main_skill: str, main
     return out
 
 
+# On-kill events (MECHC9, AUDIT23 A23-4; before, every on-kill line read 0, "nothing dies on a single boss"). The build's
+# kills are models.kill_rate's (MECHB9): the boss preset's killable adds (bosses.kill_stats, MECH-D's AddKillsPerSecond:
+# the King in the Mists' totems, Atziri's Royal Acolytes; none against a lone boss, whose own death ends the fight) and
+# your own minions Killed (the manager's ruling on A17-4: Killed minions count as Kills, LOW, held for an in-game test).
+# Lines that say "enemy" or "monster" read the adds only (your minions are allies: KeywordPopups MinionDeath / Allies);
+# a plain "on Kill" line reads both. In stats["_kills"] (Conditions.evidence), (enemies/s, all/s, how).
+# - "Rare or Unique": the adds' rarity isn't in the presets; they're taken as Normal or Magic (UNVERIFIED, LOW: an
+#   undercount if some are Rare), your minions aren't enemies, and the boss's own death ends the fight: 0, labelled.
+# - "with <weapon>" / "Killing Blow with <weapon>": only with that weapon held (either slot).
+# - "affected by <X>" / "Culling Strike": counted as every kill (LOW, an overcount where the build doesn't apply X / can't
+#   Cull the adds: the preset counts Culls as its kills, bosses.kill_stats).
+# The adds come in waves (bosses.Kills: one per `every` s for `share` of the fight); their rate here is averaged over the
+# whole fight (LOW: a small overcount for charges and buffs, as a gain held 4-15 s counts for less in a wave than spread
+# out over the fight).
+KILL_LINE = re.compile(r"\bkill|culling strike", re.I)
+KILL_WEAPONS = r"axes?|maces?|swords?|spears?|flails?|quarterstaff|quarterstaves|daggers?|claws?|crossbows?|bows?|staff|staves"
+
+
+def kill_events(when: str, stats: dict) -> tuple[float, str]:
+    """(kills per second a line's "on kill" event fires at, how), from stats["_kills"] (models.kill_rate's tuple)."""
+    kills = stats.get("_kills")
+    if not kills:
+        return 0.0, "on kill: the build's kills weren't read (0)"
+    enemies, total, how = kills
+    if re.search(r"\brare\b|\bunique\b", when):
+        return 0.0, ("on killing a Rare or Unique enemy: 0 (the boss's death ends the fight; its adds taken as Normal or "
+                     "Magic, UNVERIFIED: the presets don't give their rarity; your minions aren't enemies)")
+    if weapon := re.search(rf"\b(?:with|using) (?:an? )?({KILL_WEAPONS})\b", when):
+        word = weapon.group(1)
+        word = {"quarterstaves": "quarterstaff", "staves": "staff", "axes": "axe"}.get(word, word.rstrip("s"))
+        held = [t.lower() for t in (stats.get("_weapon_types") or [stats.get("_weapon") or ""]) if t]
+        if not any(word in t for t in held):
+            return 0.0, f"on kills with a {word.capitalize()}, and none is held: 0"
+    enemy_only = bool(re.search(r"\benem(?:y|ies)\b|\bmonsters?\b", when))
+    rate = enemies if enemy_only else total
+    label = (f"{rate:.3f} kills/s" + (" (enemies only: the line says 'enemy')" if enemy_only and total > enemies else "")
+             + f": {how}")
+    if rate > 0 and re.search(r"affected by|culling strike|\bcull", when):
+        label += "; every kill taken to meet the line's condition (LOW: an overcount if the build doesn't)"
+    return rate, label
+
+
 CHARGE_SOURCE = r"(?:(\d+(?:\.\d+)?)% chance (?:to|when you \w+ (?:a|an) \w+ Charge to)?\s*)?(?:gain|grants?)\w* (?:an? |(?P<count>\d+) )?(?:(?:(?!\bcharges?\b)[\w, ])*?\b{kind}\b[\w, ]*?) Charges?(.*)$"
 # (the kind is named before the first "Charge": "Gain a Frenzy Charge on reaching Maximum Power Charges" is no Power gain;
 # MECH49, it read as one per hit before)
@@ -370,7 +413,8 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     crits = hits * number(stats.get("CritChance")) / 100
     boss = 1 / (number(stats.get("enemySkillTime")) or 0.7)
     if "kill" in when:
-        return 0.0, "on kill (nothing dies on a single boss)"
+        rate, how = kill_events(when, stats)
+        return chance * rate, f"{chance:.0%} x {how}"
     if kind == "Frenzy" and stats.get("_main_no_frenzy") and re.search(r"\bhit|critical|freeze|electrocute|\bpin|stun|immobilise",
                                                                     when) and "take" not in when and "block" not in when:
         # (MECHC3, FIX_QUEUE: Ferocity's skill_cannot_generate_frenzy_charges on the main skill: its hits make none)
@@ -701,8 +745,8 @@ CHARGE_OVERRIDES = {f"override{kind}Charges": kind for kind in ("Power", "Frenzy
 # Rage held (MECH27, 9 Nov 2026; before, any Rage source set the maximum, on-kill ones too). The game files' KeywordPopups
 # Rage (build 26476662): "you have 30 maximum Rage and lose 1 Rage every 0.2 seconds. Rage loss is paused for 4 seconds
 # upon gaining Rage, or after taking damage. Only one Hit every 0.5 seconds can cause you to gain Rage." Gains come from
-# the build's lines (every "gain # Rage" wording of the stat descriptions; nothing dies on a single boss, so on-kill gains
-# are 0), spends from the skills that spend it (GrantedEffectStatSets / GrantedEffectsPerLevel costs below). The maximum
+# the build's lines (every "gain # Rage" wording of the stat descriptions; on-kill gains at the build's kills, kill_events,
+# MECHC9: none against a lone boss; a kill isn't a Hit, so the one-Hit-per-0.5 s rule doesn't cap them), spends from the skills that spend it (GrantedEffectStatSets / GrantedEffectsPerLevel costs below). The maximum
 # is held while gains outrun spends and gains or the boss's landing hits come at least once per 4 s; else the average of
 # each gain held 4 s and then decaying. A source whose rate its line doesn't say (Warcry, Life Flask, on use) is assumed
 # once per CHARGE_DEFAULT_EVERY s, labelled. From the build's own rates (MECHC1, 12 Nov 2026; FLAT_RATES A3 and A10):
@@ -755,7 +799,9 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
     every = number(stats.get("enemySkillTime")) or 0.7
     land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
     if "kill" in when:
-        return 0.0, 0.0, "on kill (nothing dies on a single boss)"
+        rate, how = kill_events(when, stats)
+        events = chance * rate
+        return events * amount, events, f"{chance:.0%} x {amount:g} Rage on kill, {how}"
     # "Gain N Rage on Melee Axe Hit": only with that weapon equipped (MECHC2; before, any melee hit counted; checked: the
     # only weapon-named Rage gain among PoB's ModCache Rage lines; any weapon word is read the same way)
     if (weapon := re.search(r"\b(axe|mace|sword|spear|flail|quarterstaff|dagger|claw|crossbow|bow)\b[^.;]*\bhit", when)) \
@@ -866,7 +912,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
 # Unless specified, Onslaught lasts 4 seconds." Each source's uptime is the chance at least one of its events falls in
 # the last duration (1 - (1 - chance)^(events x duration)); sources combine as independent; PoB's box is on at UPTIME
 # (90%, as for ailments and flasks). Events: hits, crits from the main skill; the boss's landing hits for "when Hit"; on
-# kill / Culling Strike 0 (nothing dies before the boss); a Minion dying at the build's own minion deaths (MECHC7); a Vaal
+# kill / Culling Strike at the build's kills (kill_events, MECHC9: none against a lone boss); a Minion dying at the build's own minion deaths (MECHC7); a Vaal
 # skill's use 0 (no usable Vaal skill in this game version: RESEARCH #123, HIGH, labelled); Marks activating once per CHARGE_DEFAULT_EVERY s (assumed); "during effect" (a flask or charm) on (the flask
 # model decides whether the flask counts). "While at maximum Frenzy Charges": only when the Frenzy Charges held reach it.
 ONSLAUGHT_DURATION = 4.0
@@ -889,7 +935,9 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     every = number(stats.get("enemySkillTime")) or 0.7
     land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
     if re.search(r"\bkill|culling strike", when):
-        return 0.0, "on kill (nothing dies on a single boss)"
+        rate, how = kill_events(when, stats)
+        up = 1 - math.exp(-rate * duration * min(chance, 1.0))
+        return up, f"{chance:.0%} x {how}, {duration:g} s: {up:.0%} up (kills taken as evenly random, LOW)"
     if "vaal skill" in when:
         # (MECHC7, RESEARCH #123: no usable Vaal skill in game build 26476662 (checked by RESEARCH: no stat set uses
         # skill_is_vaal_skill, no GrantedEffect links the 38 PoE1 Vaal ActiveSkills, no Vaal SkillGems; poe2db /us/Vaal
@@ -942,7 +990,8 @@ def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # as Onslaught's (1 - (1 - chance)^(events x duration)), combined as independent; PoB's box is on at UPTIME. Events: the
 # main skill's crits and hits ("with Spells": QUALIFIERS needs a Spell); "if you have at least N Devotion" by PoB's
 # Devotion; "while at maximum Power Charges" only when the Power Charges held reach it; "after Channelling for 1 second"
-# when the main skill channels; a Minion dying at the build's own minion deaths (MECHC7: _minion_death_uptime); a kill,
+# when the main skill channels; a Minion dying at the build's own minion deaths (MECHC7: _minion_death_uptime); a kill at
+# the build's kills (kill_events, MECHC9);
 # Shapeshifting back, a Mine or Trap: 0 (no rate modelled, labelled); a Totem summoned: once per CHARGE_DEFAULT_EVERY s (assumed). The Arcane Surge support (GrantedEffectStatSets
 # SupportArcaneSurgePlayer: 10 s after spending 100% of maximum Mana on Supported Skills) on the main skill: PoB's mana
 # spent per second (ManaPerSecondCost) against the threshold. Whether Mana spent while the buff is up counts toward the
@@ -992,7 +1041,11 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
         return up, "the main skill channels" if up else "the main skill doesn't channel"
     if MINION_DIES.search(when):
         return _minion_death_uptime(stats, chance, duration)
-    if re.search(r"\bkill|minion|shapeshift|\bmines?\b|\btraps?\b", when):
+    if re.search(r"\bkill", when):  # (MECHC9, A23-4: at the build's kills, as Onslaught's)
+        rate, how = kill_events(when, stats)
+        up = 1 - math.exp(-rate * duration * min(chance, 1.0))
+        return up, f"{chance:.0%} x {how}, {duration:g} s: {up:.0%} up (kills taken as evenly random, LOW)"
+    if re.search(r"minion|shapeshift|\bmines?\b|\btraps?\b", when):
         return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
     hits = models.hits_per_second(stats)
     if "critical" in when:
@@ -2017,6 +2070,14 @@ class Conditions:
         main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
         return models.minion_deaths(found, main, self.build.call("stats", fields=models.MODEL_FIELDS))
 
+    def _kills(self) -> tuple[float, float, str]:
+        """models.kill_rate's (enemies/s, all/s, how) for the request's boss: its preset's add kills (bosses.kill_stats,
+        MECH-D's) and your own minions Killed (self._minion_deaths); MECHC9, A23-4."""
+        from builder.search import bosses
+
+        boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        return models.kill_rate(bosses.kill_stats(boss), *self._minion_deaths())
+
     def _banner_share(self, banners: list[str]) -> tuple[float, str]:
         """(share of the fight a placed banner stands, how): Glory uses (models.glory_uses) x PoB's duration (MECHC7)."""
         found = [models.Skill.of(s) for s in self.build.call("activeSkills")["skills"] if not s["disabled"]]
@@ -2066,7 +2127,7 @@ class Conditions:
         events (Flask, LifeFlask, ManaFlask) added to `events`: each item at flasks.uses_per_second."""
         from builder.search.flasks import CHARM_SLOTS, FLASK_SLOTS, Charges, slot_pool, uses_per_second
 
-        gain = Charges.from_bridge(self.build.call("chargeGain"))
+        gain = Charges.of(self.build)
         slots = [s for s in (*FLASK_SLOTS, *CHARM_SLOTS[:gain.charm_limit]) if self.build.equipped.get(s) is not None]
         raws = [self.build.equipped[s].raw for s in slots]
         infos = self.build.call("flaskData", raws=raws)["results"] if raws else []
@@ -2143,6 +2204,8 @@ class Conditions:
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
             stats["_minion_deaths"] = self._minion_deaths()
+        if any(KILL_LINE.search(t) for t in texts):  # (MECHC9, A23-4: on-kill lines at the build's kills)
+            stats["_kills"] = self._kills()
         if banners := sorted({n["name"] for g in self.build.call("groups")["groups"] if g.get("enabled") is not False
                               for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in BANNERS}):
             # (MECHC7: the placed banner at its Glory share)

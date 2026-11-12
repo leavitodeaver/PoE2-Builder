@@ -1,15 +1,17 @@
 """Flasks and charms (PLAN.md §5.2.3): what a boss fight sustains.
 
-PoB counts a flask or charm in an active slot as up all the time. In a boss fight nothing dies, so
-charges come only from charge generation (passives, gear, the item's own "gains charges per
-second"). The search therefore counts:
+PoB counts a flask or charm in an active slot as up all the time. In a boss fight charges come from
+charge generation (passives, gear, the item's own "gains charges per second") and from the boss
+preset's killable adds (MECHC9, A23-4: kill_charges; none against a lone boss, whose death ends the
+fight; your own minions aren't enemies, so killing them gives none). The search therefore counts:
 - an item's effect (PoB's buffs while it is active) whole only when generated charges keep it up at least
   ACTIVE_UPTIME (conditions.FULL_UPTIME, 99.5%) of the fight, and at its share of the fight below that (the gear side,
   gear.FLASK_ON .. FLASK_WHOLE; the user's 9 Nov rule: defence floors count it only at full uptime)
 - a Life or Mana flask's recovery at the rate generated charges pay for, toward the skill-cost
   sustain floor (objective.SUSTAIN_POOLS), whether or not its effect counts
 
-Charms that trigger on killing a Rare or Unique enemy fire once per boss, so they never count.
+Charms that trigger on killing a Rare or Unique enemy never count: the boss's own death ends the fight, and its
+adds are taken as Normal or Magic (UNVERIFIED: the boss presets don't give their rarity).
 Charge numbers per item come from PoB (bridge `flaskData`, local modifiers included); charge
 generation and scaling from the committed build (bridge `chargeGain`).
 """
@@ -81,6 +83,7 @@ class Charges:
     life_cost: float = 0.0
     mana_cost: float = 0.0
     life_effect_kept: bool = False
+    life_degen: float = 0.0  # (MECHC9) the build's own damage over time on Life per second (PoB's degen; Heartbound Loop)
     # (MECHC5, AUDIT14 A14-2, COVD7) flask charges on crit (chance %, PoB's FlaskChargeOnCritChance) and the main skill's crits
     # per second; the Mana Flask charges a use costs: increased / reduced and more / less (a Concoction throw's 5);
     # Crown of Thorns' "Lose N Life when you use a Skill" and the main skill's uses per second
@@ -97,9 +100,19 @@ class Charges:
     bloom_mana: float = 0.0
     bloom_charm: float = 0.0
     bloom_effect: float = 0.0
+    # (MECHC9, A23-4) the boss preset's adds killed per second (models.kill_rate's enemies; Charges.of reads them)
+    add_kills: float = 0.0
 
     @classmethod
-    def from_bridge(cls, data: dict) -> Charges:
+    def of(cls, build) -> Charges:
+        """from_bridge for the build, with the request's boss preset's add kills (bosses.kill_stats, MECH-D's)."""
+        from builder.search import bosses
+
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        return cls.from_bridge(build.call("chargeGain"), bosses.kill_stats(boss).get(bosses.KILLS_STAT) or 0.0)
+
+    @classmethod
+    def from_bridge(cls, data: dict, add_kills: float = 0.0) -> Charges:
         every = float(data.get("enemySkillTime") or 0.0)
         # (red-flash hits land whatever the evade and block: builder/search/boss_hits.py, MECHC5)
         land = land_share({"EvadeChance": float(data.get("evade") or 0.0),
@@ -117,12 +130,13 @@ class Charges:
                    life_regen=float(data.get("lifeRegen") or 0.0), mana_regen=float(data.get("manaRegen") or 0.0),
                    life_cost=float(data.get("lifeCost") or 0.0), mana_cost=float(data.get("manaCost") or 0.0),
                    life_effect_kept=bool(data.get("lifeEffectKept", False)),
+                   life_degen=float(data.get("lifeDegen") or 0.0),
                    flask_on_crit=float(data.get("flaskOnCrit") or 0.0), crit_rate=float(data.get("critRate") or 0.0),
                    mana_used_inc=float(data.get("manaChargesUsedInc") or 0.0),
                    mana_used_more=float(data.get("manaChargesUsedMore") or 1.0),
                    life_loss_per_use=float(data.get("lifeLossPerUse") or 0.0), main_rate=float(data.get("mainRate") or 0.0),
                    flask_not_consume=float(data.get("flaskNotConsume") or 0.0),
-                   **bloom_fields(data.get("blooms") or {}))
+                   add_kills=max(float(add_kills or 0.0), 0.0), **bloom_fields(data.get("blooms") or {}))
 
 
 # Charm triggers other than a kill (MECHC2, FIX_QUEUE: each counted as firing whenever its charges allowed, whether or not
@@ -214,16 +228,36 @@ def bloom_note(gain: Charges) -> str:
             f"{gain.bloom_effect:g}% increased effect scales the charges (UNVERIFIED, not counted)")
 
 
+# Charges from kills (MECHC9, AUDIT23 A23-4; before, none: "nothing dies"). The game files' KeywordPopups (build
+# 26476662): "Flask": "[Rarity|Normal] enemies grant Flask charges equal to half their [Power], [Rarity|Magic] enemies
+# ... equal to their [Power], [Rarity|Rare] and [Rarity|Unique] ... twice their [Power]"; "Charm": "Charm charges can be
+# regained by killing monsters, granting charges equal to half of the monster's [Power]". The boss preset's adds
+# (Charges.add_kills) are taken as Normal with Power models.ADD_POWER (1: KeywordPopups Power, "An average monster has a
+# Power of 1"; UNVERIFIED, LOW: their rarity and Power aren't in the presets): half a charge each, for flasks and charms,
+# before "increased Flask / Charm Charges gained". Your own minions aren't enemies or monsters you kill for charges (the
+# popups' "killing enemies"), so they give none.
+KILL_CHARGES_NORMAL = 0.5  # charges per kill of a Normal enemy, per Power (flasks and charms alike)
+
+
+def kill_charges(gain: Charges) -> float:
+    """Flask (or charm) charges per second from the boss's adds the build kills."""
+    from builder.search.models import ADD_POWER
+
+    return gain.add_kills * KILL_CHARGES_NORMAL * ADD_POWER
+
+
 def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
-    """Charges an item gains per second without kills."""
+    """Charges an item gains per second: generated, and from the boss's adds killed (kill_charges)."""
+    kills = kill_charges(gain) if gain.add_kills > 0 else 0.0
     if info.get("kind") == "Charm":
-        generated, inc = gain.charm + info.get("gainBase", 0) + bloom_charges(gain, "Charm"), gain.charm_gain_inc
+        generated, inc = (gain.charm + info.get("gainBase", 0) + bloom_charges(gain, "Charm") + kills,
+                          gain.charm_gain_inc)
     else:
         specific = gain.life_flask if pool == "Life" else gain.mana_flask if pool == "Mana" else 0.0
         # (MECHC5, A14-2: "Gain a Flask Charge when you deal a Critical Hit" gives each flask a charge, at the main skill's
         # crits per second; PoB's own reading, CalcPerform's FlaskChargeOnCritChance, counted only in its flask outputs)
         on_crit = min(gain.flask_on_crit, 100) / 100 * gain.crit_rate
-        generated, inc = (gain.flask + specific + on_crit + info.get("gainBase", 0) + bloom_charges(gain, pool),
+        generated, inc = (gain.flask + specific + on_crit + info.get("gainBase", 0) + bloom_charges(gain, pool) + kills,
                           gain.flask_gain_inc)
     return max(0.0, generated * (1 + (inc + info.get("gainInc", 0)) / 100) * info.get("gainMod", 1))
 
@@ -283,7 +317,8 @@ def full_pool_cap(info: dict, gain: Charges, pool: str | None, raw: str = "") ->
     Over a long fight everything that recovers Life equals the Life lost (Life can't rise above full), so the flask can
     recover at its rate f only for the share (L - g) / f of the time, where L is the Life lost per second (the boss
     preset's hits that land, after mitigation, less Mind over Matter's share and Energy Shield regeneration while the
-    build has Energy Shield, plus the build's Life cost per second) and g the Life regeneration. Mana: L = the build's Mana
+    build has Energy Shield, plus the build's Life cost per second and its own damage over time on Life, PoB's degen with
+    Heartbound Loop's damage on Minion Death in it: MECHC9) and g the Life regeneration. Mana: L = the build's Mana
     cost per second plus Mind over Matter's share of the hits, g = Mana regeneration. No loss: 0. Leech and recoup aren't
     subtracted (they fill Life too: the share is high there, a small overcount, labelled); hits are taken as a steady
     stream, not as lumps (MEDIUM)."""
@@ -300,12 +335,13 @@ def full_pool_cap(info: dict, gain: Charges, pool: str | None, raw: str = "") ->
     if pool == "Life":
         lost_hits = max(0.0, hits * (1 - min(gain.mom, 100) / 100) - (gain.es_regen if gain.energy_shield > 0 else 0.0))
         # (MECHC5, COVD7: Crown of Thorns' Life lost per skill use, the main skill's uses; other skills' uses not counted)
-        spend = gain.life_cost + gain.life_loss_per_use * gain.main_rate
+        spend = gain.life_cost + gain.life_loss_per_use * gain.main_rate + max(gain.life_degen, 0.0)
         lost, regen = lost_hits + spend, max(0.0, gain.life_regen)
     else:
         lost_hits = hits * min(gain.mom, 100) / 100
         lost, regen, spend = lost_hits + gain.mana_cost, max(0.0, gain.mana_regen), gain.mana_cost
-    how = (f"{pool} lost {lost:,.0f}/s (the boss's hits {lost_hits:,.0f}/s, {pool} costs {spend:,.0f}/s) against "
+    how = (f"{pool} lost {lost:,.0f}/s (the boss's hits {lost_hits:,.0f}/s, {pool} costs"
+           + (" and your own damage over time" if pool == "Life" and gain.life_degen > 0 else "") + f" {spend:,.0f}/s) against "
            f"regeneration {regen:,.0f}/s and the flask's {rate:,.0f}/s")
     if rate <= 0:
         return 0.0, f"the {pool} Flask recovers nothing, so its effect ends at once ({how})"
@@ -406,15 +442,17 @@ def throw_cost(gain: Charges, per_use: float) -> tuple[float, str]:
 
 def charge_use_rate(info: dict | None, gain: Charges, pool: str, per_use: float) -> tuple[float, str]:
     """Uses per second a skill that spends `per_use` charges of the `pool` flask can sustain on a boss, from the flask's own
-    charge generation (no kills on a lone boss); the stock a fight starts with isn't counted (an undercount for a short
+    charge generation and the boss's adds killed (none against a lone boss); the stock a fight starts with isn't counted (an undercount for a short
     fight). (0, why) with no such flask or no generation. For the main skill's cap (Assumptions.flask_main) and usage.py."""
     if info is None or not info.get("kind"):
         return 0.0, f"no {pool} Flask equipped: nothing to throw"
     generated = charges_per_second(info, gain, pool)
     if generated <= 0:
-        return 0.0, (f"the {pool} Flask gains no charges in a boss fight (no kills; no 'charges per second' line): "
+        return 0.0, (f"the {pool} Flask gains no charges in a boss fight (no adds killed; no 'charges per second' line): "
                      f"none for the {per_use:g} a use takes")
     blooms = f" ({bloom_note(gain)})" if gain.bloom_rate > 0 else ""
+    if gain.add_kills > 0:
+        blooms += f" (with {kill_charges(gain):.3f}/s from the boss's adds killed, LOW)"
     return generated / per_use, f"the {pool} Flask gains {generated:.2f} charges/s{blooms}, {per_use:g} per use"
 
 

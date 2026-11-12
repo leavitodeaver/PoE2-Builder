@@ -2981,3 +2981,71 @@ def test_cat_o_nine_tails_low_life_cap_in_max_hit():
     assert out["PoBPhysicalMaximumHitTaken"] == 4000
     assert models.with_darkness({**stats, "LowLifeRecoveryCap": 0})["PhysicalMaximumHitTaken"] == 4000
     assert "Low Life" in models.low_life_cap_note(stats)["label"] and models.low_life_cap_note({}) is None
+
+
+def test_on_kill_charges_rage_and_onslaught_read_the_builds_kills():
+    """MECHC9, AUDIT23 A23-4: on-kill lines read models.kill_rate's (enemies/s, all/s): "enemy" lines the boss's adds only,
+    plain "on Kill" lines your own minions Killed too; "Rare or Unique" 0 (labelled); a weapon named must be held. Before,
+    every one read 0 ("nothing dies on a single boss")."""
+    from builder.search import conditions
+
+    stats = {"_kills": (0.02, 0.1, "adds and minions"), "_weapon_types": ["Two Hand Axe"]}
+    rate, how = conditions._charge_rate("25% chance to gain a Power Charge when you kill an enemy", "Power", stats)
+    assert rate == pytest.approx(0.25 * 0.02) and "enemies only" in how
+    assert conditions._charge_rate("Gain a Frenzy Charge on Kill", "Frenzy", stats)[0] == pytest.approx(0.1)
+    assert conditions._charge_rate("Gain a Frenzy Charge on Kill", "Frenzy", {})[0] == 0.0  # (kills not read)
+    assert conditions.kill_events("when you kill a rare or unique enemy", stats)[0] == 0.0
+    rage, events, _ = conditions._rage_gain("Gain 5 Rage on Kill", stats, True)
+    assert (rage, events) == (pytest.approx(0.5), pytest.approx(0.1))
+    up, _ = conditions._onslaught_source("You gain Onslaught for 4 seconds on Kill", [], stats)
+    assert up == pytest.approx(1 - math.exp(-0.4))
+    up, _ = conditions._onslaught_source("50% chance to gain Onslaught on Killing Blow with Axes", [], stats)
+    assert up == pytest.approx(1 - math.exp(-0.2))
+    no_axe = {**stats, "_weapon_types": ["Quarterstaff"]}
+    assert conditions._onslaught_source("50% chance to gain Onslaught on Killing Blow with Axes", [], no_axe)[0] == 0.0
+    lone = {"_kills": (0.0, 0.0, "no enemy dies before the boss")}
+    assert conditions._onslaught_source("You gain Onslaught for 4 seconds on Kill", [], lone)[0] == 0.0
+
+
+def test_flasks_and_charms_gain_charges_from_the_bosss_adds():
+    """MECHC9, A23-4: KeywordPopups Flask / Charm: a Normal enemy gives half its Power in charges; the adds are taken as
+    Normal with Power models.ADD_POWER, before "increased Charges gained". Charges.of reads the request's boss preset."""
+    from builder.search import bosses
+    from builder.search.flasks import Charges, charge_use_rate, charges_per_second
+
+    flask = {"kind": "Flask", "chargesUsed": 10, "duration": 4, "lifeTotal": 800}
+    charm = {"kind": "Charm", "chargesUsed": 20, "duration": 4}
+    adds = Charges(add_kills=0.04, flask_gain_inc=50.0)
+    assert charges_per_second(flask, adds, "Life") == pytest.approx(0.04 * 0.5 * models.ADD_POWER * 1.5)
+    assert charges_per_second(charm, Charges(add_kills=0.04), None) == pytest.approx(0.02)
+    assert charges_per_second(flask, Charges(), "Life") == 0.0
+    assert "adds killed" in charge_use_rate(flask, adds, "Life", 5)[1]
+
+    class Fake:
+        class ctx:
+            class request:
+                boss = "The King in the Mists"
+
+        def call(self, name, **_):
+            return {}
+
+    assert Charges.of(Fake()).add_kills == pytest.approx(bosses.kills_per_second("The King in the Mists")[0])
+    assert bosses.kills_per_second("The King in the Mists")[0] > 0
+
+
+def test_the_builds_own_damage_over_time_counts_in_recovery_and_the_life_flask():
+    """MECHC9: PoB's TotalBuildDegen (Heartbound Loop's damage on Minion Death through its degen line) is incoming beside
+    the boss's hits in boss_recovery, and Life lost in the Life flask's full-pool cap."""
+    from builder.search.flasks import Charges, full_pool_cap
+    from builder.search.objective import boss_recovery
+
+    base = {"enemySkillTime": 1.0, "PhysicalTakenHit": 100 * 24 / 7, "_boss": "Arbiter of Ash", "LifeRegenRecovery": 50}
+    plain, hurt = boss_recovery(base), boss_recovery({**base, "TotalBuildDegen": 100})
+    assert hurt["incoming"] == pytest.approx(plain["incoming"] + 100) and hurt["share"] < plain["share"]
+    assert hurt["own_degen"] == 100
+    life = {"kind": "Flask", "chargesUsed": 10, "duration": 4, "lifeTotal": 800}  # 200 Life/s
+    hit = Charges(flask=5.0, taken_hit=100.0, boss_hits=1.0, life_regen=50.0)
+    assert full_pool_cap(life, hit, "Life")[0] == pytest.approx(0.25)
+    capped, how = full_pool_cap(life, replace(hit, life_degen=100.0), "Life")
+    assert capped == pytest.approx(0.75) and "own damage over time" in how
+

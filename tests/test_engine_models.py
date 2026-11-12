@@ -1494,3 +1494,21 @@ def test_cat_o_nine_tails_takes_life_above_low_life_out_of_max_hit(engine):
     adjusted = Objective.prepare(dict(stats))
     assert adjusted["PoBPhysicalMaximumHitTaken"] == raw
     assert adjusted["PhysicalMaximumHitTaken"] == pytest.approx(raw * (pool + stats.get("Darkness", 0) - 0.65 * life) / pool)
+
+
+def test_heartbound_damage_reaches_pobs_degen_recovery_and_the_life_flask(engine):
+    """MECHC9: Heartbound Loop's damage on Minion Death goes to PoB as "N Physical Damage taken per second"; PoB's
+    TotalBuildDegen carries it to objective.boss_recovery, and the bridge's chargeGain sends its Life share (lifeDegen)
+    to flasks.full_pool_cap."""
+    from builder.search import models
+
+    search = spark_with(engine, [])
+    build = search.build
+    before = build.call("stats", fields=["TotalBuildDegen"]).get("TotalBuildDegen") or 0
+    build.call("setAssumptions", mods=search.assumptions.mods + [models.line("1 Physical Damage taken per second", 300.0)],
+               fields=[])
+    after = build.call("stats", fields=["TotalBuildDegen"])["TotalBuildDegen"]
+    assert after - before == pytest.approx(300.0, rel=0.05)
+    assert build.call("chargeGain")["lifeDegen"] > 0
+    build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
+

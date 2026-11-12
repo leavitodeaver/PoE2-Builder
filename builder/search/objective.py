@@ -77,9 +77,15 @@ RECOVERY_POOLS = {
     "Mana": (("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", RECOVERY_FIELDS["Mana"]), "ManaPerSecondCost"),
 }
 RECOVERY_DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
+# The build's own damage over time (MECHC9): PoB's TotalBuildDegen, its "Lose / take N per second" lines after the
+# damage-over-time taken modifiers, with Heartbound Loop's damage on Minion Death in it (models.heartbound_damage's
+# degen line, MECH-B's rate). Before, boss_recovery read none of it (checked: builder/ and the bridge read no BuildDegen
+# or NetLifeRegen), so recovery had to outpace the boss's hits only: an overcount of the share recovered for a build
+# that hurts itself. Counted as incoming beside the boss's hits.
+BUILD_DEGEN = "TotalBuildDegen"
 RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in (*fields, cost) if f}
                          - set(RECOVERY_FIELDS.values())
-                         | {f"{t}TakenHit" for t in RECOVERY_DAMAGE_TYPES}
+                         | {f"{t}TakenHit" for t in RECOVERY_DAMAGE_TYPES} | {BUILD_DEGEN}
                          | {f"{t}{p}Recoup" for t in RECOVERY_DAMAGE_TYPES for p in RECOVERY_POOLS}
                          | {"enemySkillTime", "EvadeChance", "EffectiveBlockChance", "sharedMindOverMatter",
                             "DeflectChance", "DeflectEffect"})
@@ -97,7 +103,8 @@ def boss_recovery(stats: dict) -> dict:
     # each type at its full hit size in PoB, weighted by its share of the boss's hits (MECHC6, boss_hits.type_shares)
     weights = boss_hits.type_shares(boss_hits.boss_name(stats))
     taken = {t: max(number(stats.get(f"{t}TakenHit")), 0.0) * weights[t] * hits * deflect for t in RECOVERY_DAMAGE_TYPES}
-    incoming = sum(taken.values())
+    own = max(number(stats.get(BUILD_DEGEN)), 0.0)
+    incoming = sum(taken.values()) + own
     parts = {}
     for pool, (fields, cost) in RECOVERY_POOLS.items():
         recoup = sum(taken[t] * number(stats.get(f"{t}{pool}Recoup")) / 100 for t in RECOVERY_DAMAGE_TYPES)
@@ -108,7 +115,7 @@ def boss_recovery(stats: dict) -> dict:
     recovery = sum(parts.values())
     share = recovery / incoming if incoming > 0 else float("inf")
     result = {"recovery": recovery, "incoming": incoming, "share": share, "parts": parts, "hits": hits,
-              "deflect": 1 - deflect, "no_deflect_share": share}
+              "deflect": 1 - deflect, "no_deflect_share": share, "own_degen": own}
     if deflect < 1:
         bare = boss_recovery({**stats, "DeflectChance": 0})
         result["no_deflect_share"] = bare["share"]

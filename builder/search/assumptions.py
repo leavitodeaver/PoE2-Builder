@@ -293,7 +293,7 @@ def charm_stats(build: Build) -> dict:
     Cast on Charm Use (Bijouborne)."""
     from builder.search.flasks import CHARM_SLOTS, Charges, charm_charges_used
 
-    gain = Charges.from_bridge(build.call("chargeGain"))
+    gain = Charges.of(build)
     raws = [build.equipped[slot].raw for slot in CHARM_SLOTS[:gain.charm_limit] if build.equipped.get(slot) is not None]
     infos = build.call("flaskData", raws=raws)["results"] if raws else []
     spent, basis = charm_charges_used(list(zip(infos, raws)), gain)
@@ -413,6 +413,8 @@ class Assumptions:
         # build.kills = (enemies/s, all/s, how); Heartbound Loop's damage taken at the minion-death rate: build.self_damage)
         build.kills = models.kill_rate(stats, *models.minion_deaths(found, main, stats))
         build.self_damage, heart_notes = models.heartbound_damage([e["text"] for e in source_lines], build.minion_died)
+        if build.self_damage > 0:  # (MECHC9: in PoB as Physical damage over time, so recovery and the Life flask see it)
+            hand_mods = hand_mods + [models.line("1 Physical Damage taken per second", build.self_damage)]
         hand_notes = hand_notes + models.kills_note(build.kills) + heart_notes
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
         echo_mods, echo_notes = models.repeat_echo_model([e["text"] for e in source_lines], main_types, forbidden, main)
@@ -627,7 +629,7 @@ class Assumptions:
         formula Assumptions.flask_main uses for a main Concoction), and how."""
         from builder.search.flasks import FLASK_SLOTS, THROW_CHARGES, THROW_POOL, Charges, charge_use_rate
 
-        gain = Charges.from_bridge(self.build.call("chargeGain"))
+        gain = Charges.of(self.build)
         slot = next(k for k, v in FLASK_SLOTS.items() if v == THROW_POOL)
         raw = self.build.equipped[slot].raw if self.build.equipped.get(slot) is not None else None
         flask = self.build.call("flaskData", raws=[raw])["results"][0] if raw else None
@@ -974,7 +976,7 @@ class Assumptions:
         info = next((s for s in skills if s["name"] == main and not s["disabled"]), None)
         if info is None:
             return None
-        gain = Charges.from_bridge(self.build.call("chargeGain"))
+        gain = Charges.of(self.build)
         slot = next(k for k, v in FLASK_SLOTS.items() if v == THROW_POOL)
         raw = self.build.equipped[slot].raw if self.build.equipped.get(slot) is not None else None
         flask = self.build.call("flaskData", raws=[raw])["results"][0] if raw else None

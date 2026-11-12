@@ -3495,6 +3495,9 @@ function bridge.chargeGain()
 		energyShield = output.EnergyShield or 0, esRegen = output.EnergyShieldRegenRecovery or 0,
 		lifeRegen = output.LifeRegenRecovery or 0, manaRegen = output.ManaRegenRecovery or 0,
 		lifeCost = output.LifePerSecondCost or 0, manaCost = output.ManaPerSecondCost or 0,
+		-- the build's own damage over time on Life (MECHC9: PoB's degen share on Life, after Mind over Matter and Energy
+		-- Shield; Heartbound Loop's damage on Minion Death through the model's degen line), flasks.full_pool_cap
+		lifeDegen = output.TotalBuildDegen and math.max(0, (output.LifeRegenRecovery or 0) - (output.NetLifeRegen or 0)) or 0,
 		bossDamage = boss, enemySkillTime = output.enemySkillTime or 0, evade = output.EvadeChance or 0,
 		block = output.EffectiveBlockChance or 0, perfectSkills = perfect,
 		blooms = blooms,
