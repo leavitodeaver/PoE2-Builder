@@ -739,10 +739,12 @@ end
 -- 1053: points used less the smaller weapon set's, over level - 1 + quest points + ExtraPoints; a weapon set over its
 -- own allowance; ascendancy points over 8), from a calculation's own allocated nodes, so a what-if adding nodes counts
 -- them too. treeCheck reports the same numbers for the committed tree.
-local function pointsOver(allocNodes, output)
+local function pointsOver(allocNodes, output, granted)
 	local used, ascUsed, set1, set2 = 0, 0, 0, 0
-	for _, node in pairs(allocNodes or { }) do
-		if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and node.isFreeAllocate == nil then
+	for id, node in pairs(allocNodes or { }) do
+		-- (a passive an item grants, "Allocates X": CalcSetup's addGrantedPassiveNode, no point spent)
+		local spent = not (granted and granted[id] and not build.spec.allocNodes[id])
+		if spent and node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and node.isFreeAllocate == nil then
 			if not node.ascendancyName then
 				used = used + 1
 			elseif not node.isMultipleChoiceOption and not (build.spec.tree.secondaryAscendNameMap
@@ -750,9 +752,9 @@ local function pointsOver(allocNodes, output)
 				ascUsed = ascUsed + 1
 			end
 		end
-		if node.allocMode == 1 then
+		if spent and node.allocMode == 1 then
 			set1 = set1 + 1
-		elseif node.allocMode == 2 then
+		elseif spent and node.allocMode == 2 then
 			set2 = set2 + 1
 		end
 	end
@@ -768,7 +770,7 @@ end
 local function setPointsOver(env)
 	local output = env and env.player and env.player.output
 	if output then
-		local over, overAscendancy = pointsOver(env.allocNodes or build.spec.allocNodes, output)
+		local over, overAscendancy = pointsOver(env.allocNodes or build.spec.allocNodes, output, env.grantedPassives)
 		output.PassivePointsOver = over + overAscendancy
 	end
 end
@@ -982,6 +984,7 @@ end
 
 function bridge.loadXml(args)
 	wipeGlobalCache()
+	installDerived()  -- (the load calculates: a fresh engine's first load gets the derived outputs too, PassivePointsOver among them)
 	loadBuildFromXML(args.xml, args.name or "build")
 	if __mainObject__.promptMsg then
 		error("PoB rejected the build: " .. tostring(__mainObject__.promptMsg))

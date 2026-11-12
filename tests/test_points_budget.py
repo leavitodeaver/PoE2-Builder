@@ -16,8 +16,7 @@ from builder.pob import codes
 from builder.request.schema import BuildRequest
 from builder.search import objective
 from builder.search.context import Context, make_payload
-from builder.search.inner import Search
-from builder.search.skeletons import enumerate_skeletons
+from builder.search.inner import Search, seed_task
 
 OVER = Path(__file__).resolve().parents[1] / "benchmarks" / "results" / "gate4-20261112-153420.json"
 LABEL = "Passive points over the level's budget"
@@ -53,18 +52,29 @@ def test_an_over_budget_tree_is_a_hard_deficit_and_a_seed_is_trimmed(engine):
     # The same code as a seed: setup trims it to the level's points, and the trimmed build has no deficit for points
     request = BuildRequest.model_validate({**row["request"], "seed_code": row["code"]})
     payload = make_payload(request)
-    skeleton = enumerate_skeletons(Context(payload), [request.main_skill])[0][0]
-    search = Search(engine, None, payload, skeleton.as_dict(), 0)
-    search.setup(quests=False)
+    skeleton = seed_task(engine, None, payload)["skeleton"]
+    search = Search(engine, None, payload, skeleton, 0)
+    assert search.skeleton.seeded
+    search.setup_seed(quests=False)
+    assert any("over a level 93 character's points" in note for note in search.seed_notes), search.seed_notes
     build = search.build
-    assert build.call("pointBudget")["used"] <= 116
+    assert build.call("pointBudget")["used"] == 116  # (what was over, not a whole arm)
     assert build.stats[objective.POINTS_OVER] == 0
     assert not [d for d in build.objective.deficits(build.stats) if d[0] == LABEL]
-    assert any(trace.startswith("seed:") for trace in build.over_budget)  # (the seed's load went over: traced)
 
     # A what-if past the budget sees the points it would go over by
     left = search.tree.points_left()
-    far = [n for n in build.call("frontier", maxDistance=left + 2)["nodes"] if n["distance"] == left + 2]
+    far = [n for n in build.call("frontier", maxDistance=left + 4)["nodes"] if n["distance"] > left]
+    print("points left", left, "beyond them:", sorted({n["distance"] for n in far}))
     assert far
+    far.sort(key=lambda n: n["distance"])
+    over = far[0]["distance"] - left
     (_, what_if), = build.node_deltas([{"add": [far[0]["id"]], "addPaths": True}])
-    assert what_if[objective.POINTS_OVER] == 2
+    assert what_if[objective.POINTS_OVER] == over
+
+    # Committed, it is a hard deficit, and the commit that went over is traced
+    build.allocate(add=[far[0]["id"]])
+    assert build.stats[objective.POINTS_OVER] == over and (LABEL, over, True) in build.objective.deficits(build.stats)
+    print("over budget:", build.over_budget)
+    assert build.over_budget[0].startswith("seed: +19 via set_group")  # (the seed as loaded, before its trim)
+    assert len(build.over_budget) == 2 and build.over_budget[1].startswith(f"seed: +{over} via allocate")

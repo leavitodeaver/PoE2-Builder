@@ -361,12 +361,25 @@ class Tree:
         """Remove the weakest branches until the tree fits the level's points (points_left); the number of passives
         removed."""
         trimmed = 0
-        while self.points_left() < 0:
+        while (need := -self.points_left()) > 0:
             ranked = self.weakest_branches()
             if not ranked:
                 break
-            trimmed += len(ranked[0][1])
-            self.remove_branch(ranked[0][1])
+            # The weakest branches per point that fit in what's over, apart from each other, until it's covered (the
+            # weakest per point alone can be a whole arm: SEARCH8's seed test lost 112 passives for 19 over); only
+            # when none fits, the smallest
+            removed: set[int] = set()
+            for _, branch in ranked:
+                if len(branch) <= need - len(removed) and not branch & removed:
+                    removed |= branch
+                    self.remove_branch(branch)
+                if len(removed) >= need:
+                    break
+            if not removed:
+                branch = min(ranked, key=lambda r: (len(r[1]), r[0]))[1]
+                removed = set(branch)
+                self.remove_branch(branch)
+            trimmed += len(removed)
         return trimmed
 
     def remove_branch(self, branch: frozenset[int]) -> None:
