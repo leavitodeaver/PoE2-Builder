@@ -793,7 +793,7 @@ def test_a_meta_kick_takes_the_meta_group_out_and_the_meta_steps_rechoose_it_in_
 
     phases = []
     search.step = lambda phase, fn, *args: phases.append(phase) or False
-    search.passes = 1  # not a sweep pass
+    search.passes = search.line_passes = 1  # not a sweep pass (M1 counts the line's passes)
     search.kicked = {"meta"}
     search.blocks(time.perf_counter() + 60)
     assert "meta gems" in phases and "meta spells" in phases and "totems" not in phases
