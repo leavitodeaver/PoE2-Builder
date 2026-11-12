@@ -12,9 +12,16 @@ sustainable source for what a use needs:
   never on a build that spends no Life
 - flask charges consumed on use (Ambrosia, Concoct): while the flask's charge generation pays for
   UPTIME of the uses (a boss fight refills flasks only by generation)
-- everything else (Glory a skill builds from its own hits, Combo built by other skills, distance
-  moved, standing still, recent blocks, Volatility, ...): never, since the skill wouldn't be used at
-  the rate PoB calculates
+- distance travelled before each use (`skill_unusable_until_moved_X_distance` 100: Echoing Cry and Hit and Run, the
+  two stat sets that carry it; checked: the stat's columns in every game table (no Mod, passive or other stat set
+  holds it) and PoB src (Data/Skills sup_str/sup_dex only, no ModParser line)): never yet,
+  labelled. The rate is the build's (how fast and how much it moves between uses), but the tool's boss fight has no
+  movement model and the game data gives no base movement speed in distance units to turn the build's movement speed
+  into uses a second (UNVERIFIED; for RESEARCH). Zero, not a guessed rate (CLAUDE.md: no source means 0, with a note);
+  this is an undercount of those two supports, never an overcount (AUDIT6 A6-2)
+- everything else (Glory a skill builds from its own hits, Combo built by other skills (Combo Finisher I needs 3,
+  II needs 5: support_combo_finisher_required_number_of_combo_stacks), standing still, recent blocks, Volatility,
+  ...): never, since the skill wouldn't be used at the rate PoB calculates
 
 Talismans (Usage.talisman_blockers; the manager's ruling, 12 Nov 2026). The game (KeywordPopups 'Talisman', poe2db's
 Talisman page quotes the same): "While you have a Talisman in your active weapon set you will Shapeshift into its
@@ -51,10 +58,12 @@ GLORY = "active_skill_requires_X_glory"
 GLORY_FROM_LIFE = "active_skill_generates_%_of_life_spent_as_glory"
 FLASK = re.compile(r"consume_%_of_maximum_(life|mana)_flask_charges_on_skill_use$")
 # The Concoctions' flat flask cost: flask_throw_base_charges_used 5 (Mana Flask charges a throw; Shattering, Acidic,
-# Fulminating, Explosive, Poisonous Concoction). Read here but left unacted on, by the manager's ruling (12 Nov 2026):
+# Fulminating, Explosive, Bleeding Concoction; checked: game GrantedEffectStatSets and PoB c.py, AUDIT6 A6-5/A6-14). Read here but left unacted on, by the manager's ruling (12 Nov 2026):
 # PoB throws them at will, an OPEN OVERCOUNT, until MECH-C's rate function (charges gained a second / 5 caps the throws)
 # is on main and wired in (COVC2's report). Kept out of `needs` so the Concoctions' numbers don't change before then.
 FLASK_THROW = "flask_throw_base_charges_used"
+# Distance travelled before each use (module docstring)
+MOVED = "skill_unusable_until_moved_X_distance"
 FIELDS = ["Speed", "LifePerSecondCost"]
 TALISMAN = "Talisman"
 # PoB skill types a Talisman doesn't shut out (module docstring)
@@ -93,8 +102,11 @@ def requirements(name: str, rule: dict) -> list[Requirement]:
             pool = m.group(1).capitalize()
             found.append(Requirement("flask", f"{number(value):g}% of the {pool} Flask's charges per use",
                                      number(value), number(value) / 100, pool))
+        elif stat == MOVED:
+            found.append(Requirement("never", f"travel {number(value):g} units before each use (the tool has no "
+                                     "movement model for the boss fight)", number(value)))
         elif REQUIRED.search(stat):
-            found.append(Requirement("never", stat.replace("_", " ")))
+            found.append(Requirement("never", f"{stat.replace('_', ' ')} {number(value):g}", number(value)))
     if (rule.get("usageCondition") or rule.get("addsUsageCondition")) and not found:
         found.append(Requirement("never", "a usage condition PoB doesn't model (e.g. distance moved, Combo)"))
     return found

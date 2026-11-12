@@ -1,0 +1,37 @@
+# Active-gem stats, batch 5 (COVC5, 12 Nov 2026): the gem-stat ranking's next active rows (scratch/covc2/rank.py on
+# the coverage report regenerated 12 Nov). Skill lists are the active skills whose stat sets carry the stat (PoB's
+# skill data and the game's GrantedEffectStatSets); the same stat on any other skill stays open.
+#
+# Left open on purpose (no entry), routed in COVC5.report.md:
+# - poison_vine_arrow_vine_stored_poison_damage_+%_final -50 (Vine Arrow's Vines; game set VineArrowFlowerPlayer):
+#   "Poisoning the plant causes it to deal additional Chaos Damage per second equal to {0}% of Poison Damage per second"
+#   (PoB's poison_vine_arrow_statset_1 description; multiplicative modifier, so 50%). Neither PoB nor the tool counts
+#   that extra damage (checked: PoB src has no stored-poison read outside skill data and stat descriptions; grep of
+#   builder/ and engine/bridge.lua for vine / stored_poison), so the -50% scales nothing counted, and the extra plant
+#   damage is an UNDERCOUNT for MECH-A (poison). Not closed as "no effect": the mechanic itself is uncounted.
+# - incinerate_maximum_stages 1 (Incinerate): PoB maps it to Multiplier:IncinerateMaxStages, which no PoB module reads
+#   (grep of src/Modules); with 0% per stage it moves nothing today, but an item's "Incinerate damage for each stage"
+#   (ModParser 753, Multiplier:IncinerateStage, set by nothing) would be capped by it: left open with that line.
+# - wyvern_devour_near_target_attack_speed_+%_final -15 / ..._far_target_... +20 (Devour): read by nothing; which one a
+#   boss fight gets is a positioning question (RESEARCH / the tool's distance assumption); PoB counts neither, so the
+#   error is -15% to +20% either way (UNVERIFIED direction).
+# - active_skill_heavy_stun_decay_after_action_delay_ms (Raise Shield, Resonating Shield, Parry, Runic Reprieve,
+#   Hazardous Holdout 2000; Queen's Procession 4000) and ..._does_not_decay_heavy_stun_during_action: the player's own
+#   Heavy Stun build-up while using the skill; defence, no damage number (MECH-C, defences).
+
+- id: gem-active-noeffect-incinerate-stage-damage-zero
+  title: "Incinerate: 0% more Damage per stage"
+  kind: gem_stat
+  match: '^incinerate_damage_\+%_final_per_stage$'
+  replace: []
+  skill: ["Incinerate"]
+  confidence: datamined
+  notes: >-
+    A constant 0 on every set that has it (game GrantedEffectStatSets: IncineratePlayer 0; PoB: Incinerate's two sets,
+    Incinerate and Ignited Ground, 0; no quality or per-level copy in PoB's skill data or any other game table,
+    checked: scratch/covc5/where.py over every table's stat columns). PoB maps it on the first set (Damage MORE per
+    IncinerateStage) and not on Ignited Ground; 0% more changes nothing on either.
+  sources: ["data/game-26476662/tables/GrantedEffectStatSets.json (IncineratePlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua IncineratePlayer"]
+  test_in_game: "Not needed."
+  status: proposed

@@ -679,11 +679,30 @@ def test_hollow_form_takes_the_main_melee_attack_as_a_button_and_is_undone_witho
     assert build.stats.get("Speed") == pytest.approx(0.7 * speed, rel=1e-3)
     note = next(n for n in search.assumptions.active if n["label"] == "Hollow Form: images per use (Falling Thunder)")
     assert note["value"] == 1 and "no Power Charges" in note["basis"]
+    # (COVC5, the manager's ruling) the moved Attack gets support rounds: the granted group is the one a round fills,
+    # and the Attack counts against Hollow Form's sockets like a totem's spell (UNVERIFIED, the cautious reading)
+    gems = search.gems
+    assert gems.supports_group(build.groups(), False)["index"] == hollow["index"]
+    assert gems.supports_round() and len(build.main_group()["gems"]) == 3
+    assert build.main_group()["gems"][2]["support"]
     build.restore(snap)
-    search.gems.resolve()
-    assert not search.gems.hollow_round(float("inf"))
+    gems.resolve()
+    assert not gems.hollow_round(float("inf"))
     assert build.score == pytest.approx(before) and build.main_group()["index"] == main["index"]
-    assert search.gems.left_out["Hollow Form"].startswith("tried")
+    assert gems.left_out["Hollow Form"].startswith("tried")
+    # (COVC5) after the move the round chooses the Attack's part and stat set again, in the Hollow Form group, before it
+    # compares scores (with the resolver off, so only that call can choose)
+    resolve, gems.resolve, calls = gems.resolve, None, []
+    choose = gems.choose_active_skill
+    gems.choose_active_skill = lambda *a, **k: (calls.append(build.main_group()["index"]), choose(*a, **k))[1]
+    try:
+        gems.hollow_round(float("inf"))
+    finally:
+        gems.resolve = resolve
+        del gems.choose_active_skill
+        build.restore(snap)
+        gems.resolve()
+    assert calls == [hollow["index"]]
 
 
 def test_a_rare_dueling_wand_is_tried_for_its_spellslinger(engine):

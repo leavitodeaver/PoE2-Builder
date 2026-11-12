@@ -250,7 +250,17 @@ class Gems:
         if index is not None:
             return next((g for g in groups if g["index"] == index), None)
         group = next((g for g in groups if (g["label"] == META_LABEL if meta else g["main"])), None)
-        return None if group is None or group["fromItem"] else group
+        if group is None or (group["fromItem"] and not self.hollow_main(group, meta)):
+            return None
+        return group
+
+    @staticmethod
+    def hollow_main(group: dict, meta: bool) -> bool:
+        """The main group is the Hollow Form group a notable grants (fromItem) holding the moved main Attack
+        (hollow_round): its supports are the player's to fill (the manager's ruling, 12 Nov 2026, COVC5)."""
+        from builder.search.models import HOLLOW_FORM
+
+        return not meta and any(x["name"] == HOLLOW_FORM for x in group["gems"])
 
     def _shortlist(self, meta: bool, index: int | None) -> list[str] | None:
         if index is not None:
@@ -304,7 +314,10 @@ class Gems:
         from builder.search.models import TOTEM_METAS
 
         totem = any(n in TOTEM_METAS for n in names)
-        used = len(names) - 1 if meta or totem else len(supports)
+        # Hollow Form's moved Attack takes one of its sockets like a totem's spell: UNVERIFIED, the cautious reading
+        # (the manager's ruling, 12 Nov 2026, COVC5), until the game's socket rule for it is known
+        hollow = self.hollow_main(group, meta)
+        used = len(names) - 1 if meta or totem or hollow else len(supports)
         slots: list[int] = []
         if used < SUPPORT_SLOTS:
             slots.append(len(names) + 1)  # append into an empty socket
@@ -1398,6 +1411,9 @@ class Gems:
         build.set_group(index=hollow["index"], gems=keep + moved, main=True, mainActiveSkill=2)
         if self.resolve is not None:
             self.resolve()
+        # The new group starts on the Attack's default part and stat set: choose again, so a multi-part Attack is
+        # scored at its best part in Hollow Form (the manager's ruling, 12 Nov 2026, COVC5)
+        self.choose_active_skill()
         cap = self.ctx.request.max_buttons
         if build.score <= before + EPSILON or (cap is not None and len(self.buttons()) > cap):
             build.restore(snap)

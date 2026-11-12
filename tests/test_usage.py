@@ -79,6 +79,17 @@ def test_charges_follow_the_resolver_and_flasks_their_generation(fresh_rules):
     assert Usage(build, FakeConditions()).usable("Rapid Attacks II")  # no requirement at all
 
 
+def test_distance_travelled_and_combo_bar_a_support_with_their_own_amounts():
+    """AUDIT6 A6-2 / A6-5: Echoing Cry's "travel a distance before each use" is barred (no movement model), named as
+    such; each Combo Finisher carries its own Combo count."""
+    echo = requirements("Echoing Cry", {"addsUsageCondition": True,
+                                        "stats": {"skill_unusable_until_moved_X_distance": 100}})
+    assert [(r.kind, r.amount) for r in echo] == [("never", 100)] and "travel 100 units" in echo[0].label
+    two = requirements("Combo Finisher II", {"addsUsageCondition": True,
+                                             "stats": {"support_combo_finisher_required_number_of_combo_stacks": 5}})
+    assert [(r.kind, r.amount) for r in two] == [("never", 5)] and two[0].label.endswith("combo stacks 5")
+
+
 # Through a real engine --------------------------------------------------------------------------
 
 
@@ -102,6 +113,9 @@ def test_pob_marks_the_gems_that_cant_be_used_at_will(engine):
     assert rules["Zerphi's Infamy"]["stats"]["active_skill_requires_X_glory"] == 50
     assert rules["Hit and Run"].get("addsUsageCondition")
     assert rules["Combo Finisher I"].get("addsUsageCondition")
+    assert rules["Combo Finisher II"]["stats"]["support_combo_finisher_required_number_of_combo_stacks"] == 5
+    assert rules["Echoing Cry"]["stats"]["skill_unusable_until_moved_X_distance"] == 100
+    assert rules["Hit and Run"]["stats"]["skill_unusable_until_moved_X_distance"] == 100
     assert rules["Blink"].get("talismanExempt") and rules["Tame Beast"].get("talismanExempt")  # usable_with_talisman
     assert not rules["Blink"].get("stats")  # (an exemption, never a requirement)
     assert rules["War Banner"].get("usageCondition")  # on the placed banner, the gem's second effect

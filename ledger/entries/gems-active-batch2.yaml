@@ -53,7 +53,7 @@
 # 2. Read by our models ----------------------------------------------------------------------------------------------
 
 - id: gem-active-model-mark-limit
-  title: "One Mark of each type on an enemy: the Mark model counts one"
+  title: "One Mark on an enemy at a time (KeywordPopups Mark): the Mark model counts one"
   kind: model
   model: marks
   stats: ["number_of_marks_allowed_per_type"]
@@ -61,7 +61,8 @@
   confidence: datamined
   notes: >-
     number_of_marks_allowed_per_type 1 ('Limit {0} Marked target', skill_stat_descriptions.csd): each Mark can be on
-    one enemy at a time. The tool's fight is one boss, and models.mark_model counts one Mark on it at a time
+    one enemy at a time; and KeywordPopups Mark: "each individual enemy can only have a single Mark applied to them at
+    once", so one Mark in total on the boss, of any type (AUDIT6 A6-4). The tool's fight is one boss, and models.mark_model counts one Mark on it at a time
     (marks[:1]), which keeps within the limit.
   sources: ["builder/search/models.py mark_model", "data/game-26476662/files skill_stat_descriptions.csd"]
   test_in_game: "Not needed for boss damage."
