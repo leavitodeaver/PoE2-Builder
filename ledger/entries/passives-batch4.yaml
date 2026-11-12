@@ -9,6 +9,7 @@
 - id: passives-wrong-arcane-surge-on-crit
   title: Chance to Gain Arcane Surge on Critical Hit, rated by the Arcane Surge uptime model, not held whenever you crit
   kind: pob_wrong
+  item_off: true  # COV8: the Arcane Surge uptime model reads the item line too (bridge.sourceLines), so items switch it off
   match: '^(\d+)% chance to Gain Arcane Surge when you deal a Critical Hit$'
   replace: []
   confidence: datamined

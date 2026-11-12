@@ -237,3 +237,16 @@ def test_conquered_passives_of_factions_no_jewel_conquers_for_are_unreachable_no
     assert not any(g["category"] == "timeless-no-jewel" for g in report["ranking"])
     assert not any(r["status"] == "none" and coverage.no_jewel_faction({"id": r.get("node_id", "")})
                    for r in report["records"] if r["category"].startswith("timeless"))
+
+
+def test_an_empty_pob_wrong_switches_an_item_line_off_only_when_it_says_item_off():
+    """The manager's ruling after train 13 (COV8): COV7's switch-off is opt-in. COVB7's flask-used entries have no
+    replacement, but flask_used_model reads tree lines only, so on an item the line must stay PoB's (switching it off
+    would count it nowhere); the Arcane Surge on crit entry says item_off, its uptime model reading the item line."""
+    from builder.ledger import entries, wrong
+
+    assert wrong("Regenerate 1.5% of maximum Life per Second if you've used a Life Flask in the past 10 seconds") is None
+    assert wrong("10% chance to Gain Arcane Surge when you deal a Critical Hit")[1] is None
+    for entry in entries():
+        if entry.kind == "pob_wrong" and entry.raw.get("item_off"):
+            assert not entry.raw.get("replace"), entry.id  # (item_off means something only with no replacement)

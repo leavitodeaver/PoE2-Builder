@@ -30,7 +30,10 @@ their own name it with `model:` and use
 alongside `flag:` for the model's on/off inputs. The model reads the same lines on items itself.
 
 A `pob_wrong` entry is for a unique line PoB does calculate, but wrongly: the line is replaced in
-the item's text by the entry's single replacement line.
+the item's text by the entry's single replacement line. With an empty `replace` the item line is
+left alone unless the entry says `item_off: true` (then it's switched off, PoB's `{disabled}`); say
+that only when a model reads the item line itself, or the line is lost with nothing counting it
+(`wrong()`; on the tree an empty replace always drops PoB's parse).
 
 A `gem_stat` entry is for a skill's stat PoB never reads: `skill` names the skill, `match` is a regex
 on the stat id, and `replace` lines (written with a magnitude of 1) are scaled by the stat's value at
@@ -173,15 +176,20 @@ def translate(line: str) -> tuple[Entry, list[str]] | None:
 
 
 def wrong(line: str) -> tuple[Entry, str | None] | None:
-    """A `pob_wrong` entry for an item line PoB parses but calculates wrongly, with the one line that replaces it, or
-    None for an entry with no replacement (a model reads the line: the line is switched off, PoB's `{disabled}`, and
-    still reaches the models through bridge.sourceLines; COV7: before, an empty replace left PoB's reading on items,
-    such as the Arcane Surge on Critical Hit affix held all fight)."""
+    """A `pob_wrong` entry for an item line PoB parses but calculates wrongly, with the one line that replaces it.
+
+    An entry with no replacement switches the item line off (None as the line: PoB's `{disabled}`; the line still
+    reaches the models through bridge.sourceLines) ONLY if it says `item_off: true`, which it may say only when a model
+    reads the ITEM line (COV7 for the Arcane Surge on Critical Hit affix, whose uptime model reads item lines). Without
+    it an empty replace leaves items alone (None from here), since its model may read tree lines only: switching the
+    item line off would zero it with nothing counting it, an undercount (COV8, the manager's ruling after train 13:
+    COVB7's flask-used entries, whose flask_used_model reads tree lines only)."""
     for entry in entries():
         if entry.kind == "pob_wrong":
             lines = entry.translate(line)
-            if lines is not None:
-                return entry, (lines[0] if lines else None)
+            if lines is None or (not lines and not entry.raw.get("item_off")):
+                continue
+            return entry, (lines[0] if lines else None)
     return None
 
 

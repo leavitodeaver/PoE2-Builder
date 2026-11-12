@@ -7,7 +7,7 @@ line that an entry translates never reached a build, though the audit counted it
 `corrected_item(raw)` returns the item's text with:
 - for a rare, magic or normal item (not a unique: `corrected_raw` handles those), each line PoB can't parse that a
   `pob_gap` entry translates without a condition: the entry's lines added at the end; a line PoB parses that a
-  `pob_wrong` entry corrects: replaced in place (switched off, `{disabled}`, for an entry with no replacement line:
+  `pob_wrong` entry corrects: replaced in place (switched off, `{disabled}`, for an entry with no replacement line and `item_off: true`:
   a model reads it, through bridge.sourceLines, which still lists disabled lines; COV7);
 - for any item, its socketed runes' lines (PoB rebuilds them from the rune names, summing one rune's lines with
   another's of the same wording, as `ItemClass:UpdateRunes` does): a translated line's stand-ins added at the end, and
