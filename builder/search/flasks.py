@@ -133,6 +133,30 @@ def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
     return total * (1 + inc / 100) * uses
 
 
+# Skills that spend flask charges per use (MECHC2, FIX_QUEUE's usage-rate cap; the manager's ruling 12 Nov 08:30). Game files
+# (build 26476662, GrantedEffectStatSets constant stats): flask_throw_base_charges_used 5 on each Concoction, described
+# "Consumes {0} Charges from your Mana [Flask]" (skill_stat_descriptions). PoB's data has the stat on three of the five
+# (Acidic, Bleeding, Explosive) and none reads it: PoB throws at will. (checked: every Stats.json id holding "flask" with
+# throw / consume / charges; their users in GrantedEffectStatSets, PassiveSkills, Mods and ModType: the five Concoctions,
+# and two gem enchantments, Explosive / Poisonous Concoction charges consumed +%, not read here: labelled)
+THROW_CHARGES = {"Explosive Concoction": 5, "Fulminating Concoction": 5, "Shattering Concoction": 5,
+                 "Acidic Concoction": 5, "Bleeding Concoction": 5}
+THROW_POOL = "Mana"
+
+
+def charge_use_rate(info: dict | None, gain: Charges, pool: str, per_use: float) -> tuple[float, str]:
+    """Uses per second a skill that spends `per_use` charges of the `pool` flask can sustain on a boss, from the flask's own
+    charge generation (no kills on a lone boss); the stock a fight starts with isn't counted (an undercount for a short
+    fight). (0, why) with no such flask or no generation. For the main skill's cap (Assumptions.flask_main) and usage.py."""
+    if info is None or not info.get("kind"):
+        return 0.0, f"no {pool} Flask equipped: nothing to throw"
+    generated = charges_per_second(info, gain, pool)
+    if generated <= 0:
+        return 0.0, (f"the {pool} Flask gains no charges in a boss fight (no kills; no 'charges per second' line): "
+                     f"none for the {per_use:g} a use takes")
+    return generated / per_use, f"the {pool} Flask gains {generated:.2f} charges/s, {per_use:g} per use"
+
+
 def slot_pool(slot: str) -> str | None:
     return FLASK_SLOTS.get(slot)
 

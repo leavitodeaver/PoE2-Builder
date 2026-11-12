@@ -1623,3 +1623,16 @@ def test_living_bomb_explodes_when_the_build_deals_twice_the_boss_ailment_thresh
     slow, how = living_bomb_rate({"EnemyAilmentThreshold": 100000, "CombinedDPS": 5000}, 1.0)
     assert slow == pytest.approx(1 / 16) and "UNVERIFIED" in how
     assert living_bomb_rate({"EnemyAilmentThreshold": 100000, "CombinedDPS": 0}, 1.0)[0] == 0
+
+
+def test_a_concoction_is_thrown_as_often_as_its_mana_flask_charges_allow():
+    """Each Concoction throw consumes 5 Mana Flask charges (game files, flask_throw_base_charges_used, MECHC2); PoB throws
+    at will. On a lone boss the flask refills only by generation: no flask or no generation, no throws."""
+    from builder.search.flasks import THROW_CHARGES, Charges, charge_use_rate
+    assert set(THROW_CHARGES.values()) == {5} and len(THROW_CHARGES) == 5
+    flask = {"kind": "Flask", "chargesMax": 75, "chargesUsed": 15, "duration": 3}
+    assert charge_use_rate(None, Charges(), "Mana", 5)[0] == 0.0
+    rate, how = charge_use_rate(flask, Charges(), "Mana", 5)
+    assert rate == 0.0 and "gains no charges" in how
+    rate, how = charge_use_rate(flask, Charges(mana_flask=1.0, flask_gain_inc=50), "Mana", 5)
+    assert rate == pytest.approx(1.5 / 5) and "1.50 charges/s" in how

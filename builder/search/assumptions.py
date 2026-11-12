@@ -533,6 +533,11 @@ class Assumptions:
         if glory is not None:
             mods += glory[0]
             notes.append(glory[1])
+        if glory is None:
+            glory = self.flask_main(skills, main)  # (also a use rate set from a resource; it rules out the fallback)
+            if glory is not None:
+                mods += glory[0]
+                notes.append(glory[1])
         if (not (flare is not None and main == models.MANA_FLARE) and glory is None
                 and info is not None and main not in REMNANT_CONSUMERS and info.get("triggered") and info.get("cooldown")
                 and not info.get("corpses")  # (models.corpse_model rates those)
@@ -688,6 +693,35 @@ class Assumptions:
             "basis": basis + "; the time spent on the skill that builds it isn't taken from that skill's own DPS",
             "play": f"Use {main} whenever you have the Glory for it.",
             "confidence": "theory: game files' Glory costs and gains; event rates as glory_uses labels them",
+        }
+
+    def flask_main(self, skills: list[dict], main: str | None) -> tuple[list[dict], dict] | None:
+        """A Concoction as the main skill (flasks.THROW_CHARGES): each throw spends 5 Mana Flask charges, but PoB throws at
+        will. Its uses per second, from the Mana Flask's own charge generation (flasks.charge_use_rate), become its trigger
+        rate when lower than PoB's; capped at one per cast time. None for any other main skill (MECHC2)."""
+        from builder.search.flasks import FLASK_SLOTS, THROW_CHARGES, THROW_POOL, Charges, charge_use_rate
+
+        if main not in THROW_CHARGES:
+            return None
+        info = next((s for s in skills if s["name"] == main and not s["disabled"]), None)
+        if info is None:
+            return None
+        gain = Charges.from_bridge(self.build.call("chargeGain"))
+        slot = next(k for k, v in FLASK_SLOTS.items() if v == THROW_POOL)
+        raw = self.build.equipped[slot].raw if self.build.equipped.get(slot) is not None else None
+        flask = self.build.call("flaskData", raws=[raw])["results"][0] if raw else None
+        per_use = THROW_CHARGES[main]
+        rate, how = charge_use_rate(flask, gain, THROW_POOL, per_use)
+        skill = models.Skill.of(info)
+        cap = 1 / skill.cast_time if skill.cast_time else math.inf
+        rate = min(rate, cap)
+        return models.trigger_rate(main, rate), {
+            "label": f"{main} throws per second (Mana Flask charges)", "value": round(rate, 3),
+            "basis": (f"each throw consumes {per_use} charges from your Mana Flask (game files, "
+                      f"flask_throw_base_charges_used); {how}; the charges the flask starts the fight with aren't "
+                      "counted; Mana Flask recovery from the same charges is still counted separately (an overcount, open)"),
+            "play": f"Throw {main} whenever your Mana Flask has {per_use} charges.",
+            "confidence": "theory: game files' throw cost; the flask's charge generation from PoB",
         }
 
     def mana_flare(self, skills: list[dict]) -> tuple[list[dict], dict] | None:
