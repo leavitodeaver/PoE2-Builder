@@ -57,8 +57,16 @@ def test_liveness_rules_on_the_rest(live):
     assert gems["Coming Soon"]["status"] == "deprecated"  # placeholders
     assert "granted by the skill Shred" in gems["Ice Fragments"]["sources"]
     # No source found in the files, but PoB carries them: kept usable, never removed on the files' word alone
-    for kept in ("Explosive Transmutation", "Grenade", "Requiem", "Detonate Living"):
-        assert gems[kept]["status"] == "unresolved", kept
+    for kept in ("Explosive Transmutation", "Grenade", "Detonate Living"):
+        assert gems[kept]["status"] in ("unresolved", "live"), kept
+    # 0.5's Kalguuran gems are crafted from Expedition Remnants (Runeshape recipes), once that table is exported
+    if any(s.startswith("crafted from Expedition Remnants") for e in gems.values() for s in e["sources"]):
+        assert gems["Leylines"]["status"] == "live"
+    else:
+        assert gems["Leylines"]["status"] == "unresolved"
+    # A unique's text names the active skill, not the gem: "Grants Skill: Compose Requiem" (The Last Lament)
+    assert gems["Requiem"]["status"] == "live"
+    assert any("The Last Lament" in s for s in gems["Requiem"]["sources"])
     assert live["passives"]["graph_nodes"] == live["passives"]["live"] > 4000
     check = live["crosscheck"]
     assert check["passive_nodes_in_pob_not_in_graph"] == 0  # every node PoB knows is in the current graph

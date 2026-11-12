@@ -1,0 +1,77 @@
+# Active-gem stats PoB never reads, batch 3 (COVC3, 12 Nov 2026): the Talisman stats and the "replace unarmed attack
+# stats" stats COVC2 left for gem resolution. Skill lists are the active skills (not supports: COV-E's) whose stat set
+# carries the stat in the game data (data/game-26476662/tables GrantedEffectStatSets, implicit stats); the same stat on
+# any other skill stays open. Tools: scratch/covc3/wt.py and tal.py in cov3 (PoB skill blocks: weaponTypes, baseFlags,
+# skill types).
+#
+# Left open on purpose (no entry), routed in COVC3.report.md:
+# - replace_main_hand_unarmed_attack_stats_with_nothing_type on the 5 Concoctions: an OVERCOUNT in PoB (it gives them
+#   ModFlag.Unarmed and adds the class's unarmed base damage; the game: "This damage is not based on your unarmed
+#   damage, so this is not considered an Unarmed Attack").
+# - the same stat on Caltrops, Trail of Caltrops and Conductive Runes' rune set: attack sets with no weapon restriction,
+#   where PoB uses the held weapon's (or unarmed) damage; whether the game adds weapon damage there is UNVERIFIED.
+
+- id: gem-active-pob-shield-type
+  title: "Shield skills attack with the shield: PoB's shieldAttack flag does the same"
+  kind: gem_stat
+  match: '^replace_off_hand_unarmed_attack_stats_with_shield_type$'
+  replace: []
+  skill: ["Shield Charge", "Resonating Shield", "Shield Wall", "Parry", "Raise Shield", "Shield Wave",
+          "Soaring Midnight", "Embrace The Fall"]
+  confidence: datamined
+  notes: >-
+    The game makes these skills' off-hand attack use the Shield instead of unarmed stats. Every PoB stat set of these
+    skills has baseFlags shieldAttack (checked: each set's baseFlags, scratch/covc3/wt.py), which makes PoB attack with
+    the off hand only (CalcActiveSkill.lua 515-518: weapon2Attack, weapon2Flags 0), disables the skill without a
+    Shield (500-504, SkillType.RequiresShield or shieldAttack), and takes the base damage from the skill's own
+    per-armour / per-evasion stats (SkillStatMap.lua 2205-2232, read from 'ArmourOnWeapon 2' / 'EvasionOnWeapon 2').
+    So PoB counts it.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/CalcActiveSkill.lua 500-518",
+           "vendor/PathOfBuilding-PoE2/src/Data/SkillStatMap.lua 2205-2232",
+           "vendor/PathOfBuilding-PoE2/src/Data/Skills (each skill's statSets baseFlags)"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-pob-nothing-type-non-weapon
+  title: "Non-weapon attacks use no unarmed stats: PoB's nonWeaponAttack sets take no weapon damage"
+  kind: gem_stat
+  match: '^replace_main_hand_unarmed_attack_stats_with_nothing_type$'
+  replace: []
+  skill: ["Fan the Flames", "Deadly Resolve", "Blood Explosion", "Repulsion Wave", "Herald of Blood",
+          "Herald of the Royal Queen"]
+  confidence: datamined
+  notes: >-
+    The game replaces these attacks' unarmed stats with the 'nothing' type: no unarmed base damage, not an Unarmed
+    attack. Their PoB stat sets have no 'attack' base flag (Fan the Flames, Deadly Resolve, Blood Explosion,
+    Repulsion Wave: nonWeaponAttack; Herald of Blood's and the Royal Queen's explosions: no attack flag), so PoB runs
+    no Main Hand pass for them (CalcActiveSkill.lua 535-536 sets weapon1Attack only for skillFlags.attack) and takes
+    the damage from the skill's own stats (CalcOffence.lua 2593, source = skillData), with ModFlag.Attack but no weapon
+    or Unarmed flag (CalcActiveSkill.lua 585-586). So PoB counts it. Not the Concoctions, Caltrops or Conductive
+    Runes (see the file header).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/CalcActiveSkill.lua 527-560, 585-586",
+           "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 2520-2595",
+           "vendor/PathOfBuilding-PoE2/src/Data/Skills (each skill's statSets baseFlags)"]
+  test_in_game: "Not needed for boss damage."
+  status: proposed
+- id: gem-active-talisman-exemptions
+  title: "Usable with a Talisman: an exemption from a restriction neither PoB nor the tool applies"
+  kind: gem_stat
+  match: '^(usable_with_talisman|ignore_talisman_inherent_form_restriction|ignore_shapeshift_talisman_requirement)$'
+  replace: []
+  skill: ["Bind Spectre", "Blink", "Tame Beast", "Primal Avatar", "Summon Wolf", "Savage Fury", "Dodge Roll",
+          "Sanguine Revelry", "Deadly Resolve", "Spirit Vessel"]
+  confidence: datamined
+  notes: >-
+    The game (KeywordPopups 'Talisman'): "While you have a Talisman in your active weapon set you will Shapeshift into
+    its associated form. As a result, Skills that cannot be used in a Shapeshift form cannot be used with Talismans.
+    Triggered Skills and Persistent Skills will continue to function." These stats exempt a skill from that rule.
+    Neither PoB (no reader of the rule: grep Modules/*.lua for Shapeshift / UsableWhileShapeshifted) nor the tool
+    (grep builder/search) applies the restriction, so an exemption from it changes nothing we calculate: no effect.
+    The restriction itself is the open question (routed to SEARCH in COVC3.report.md): of PoB's 37 non-hidden skills a
+    Talisman can use, all but Ancestral Cry and Archon of Chayula are form skills, UsableWhileShapeshifted,
+    Persistent/reserving or Triggered (checked: scratch/covc3/tal.py; game ActiveSkillTypes for those two lack
+    UsableWhileShapeshifted). Second source: poe2db's Talisman page quotes the same rule (fetched 12 Nov 2026).
+  sources: ["data/game-26476662/tables/KeywordPopups.json (Talisman)",
+           "data/game-26476662/tables/ActiveSkills.json, ActiveSkillType.json",
+           "https://poe2db.tw/us/Talismans"]
+  test_in_game: "Not needed: the stat only lifts a restriction the tool doesn't apply."
+  status: proposed

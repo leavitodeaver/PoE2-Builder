@@ -34,7 +34,7 @@ TABLES = [
     "SkillGems", "UncutGems", "GemEffects", "GemTags", "GrantedEffects", "GrantedEffectsPerLevel",
     "GrantedEffectStatSets", "GrantedEffectStatSetsPerLevel", "GrantedEffectQualityStats", "ActiveSkills",
     "ActiveSkillType", "IndexableSupportGems", "SupportGems", "SkillGemSupports", "SupportGemFamily",
-    "Expedition2Runes", "Expedition2RemnantRewardPerArea", "QuestRewards", "QuestRewardType", "ArchetypeRewards",
+    "Expedition2Runes", "Expedition2RemnantRewardPerArea", "Expedition2Recipes", "QuestRewards", "QuestRewardType", "ArchetypeRewards",
     "ItemInherentSkills", "ModGrantedSkills", "CharacterShapeShiftBasicSkills", "CharacterMeleeSkills",
     # stats, mods, keywords
     "Stats", "Tags", "Mods", "ModType", "ModFamily", "KeywordPopups", "Essences", "EssenceMods",

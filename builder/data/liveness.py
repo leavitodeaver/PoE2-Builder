@@ -16,7 +16,11 @@ GEMS      live if any of these reaches it (SkillGems, named by BaseItemTypes.Nam
           - a modifier that can roll: ModGrantedSkills, the mod being rollable (MODS below);
           - a unique: ModGrantedSkills on a unique mod (Mods.GenerationType 3). Which unique carries a unique mod is
             server-side, not in the client files, so this needs a unique in the collection (UNIQUES below) whose
-            text grants the skill; the unique texts come from PoB's export (the only part not from the game files).
+            text grants the skill, by the gem's name or its active skill's displayed name (The Last Lament's
+            "Grants Skill: Compose Requiem" is the gem Requiem); the unique texts come from PoB's export (the only
+            part not from the game files);
+          - crafted: an Expedition Runeshape recipe (Expedition2Recipes.Reward, 0.5's Kalguuran skills and supports
+            "crafted from Remnants", poe2db's version history; read from the next export on, COVC3 12 Nov 2026).
           Names tagged [DNT] / [UNUSED] (GGG's "do not translate" and unused markers) and placeholder gems (base ids
           ...GemUnknownN, named "Coming Soon") are never live. The files also hold content not released yet, so a
           gem live only by the support weight is "live (inferred)", and the cross-check lists those PoB lacks.
@@ -108,6 +112,10 @@ class Tables:
             self._cache[name] = json.loads((self.dir / f"{name}.json").read_text(encoding="utf-8"))
         return self._cache[name]
 
+    def optional(self, name: str) -> list[dict]:
+        """A table added to gamefiles.TABLES after the last export: [] until the next export writes it."""
+        return self[name] if (self.dir / f"{name}.json").exists() else []
+
 
 def as_list(value) -> list:
     return value if isinstance(value, list) else [] if value is None else [value]
@@ -156,6 +164,10 @@ def analyse(out: Path, pob: Path | None = None) -> dict:
     for r in t["CharacterShapeShiftBasicSkills"]:
         for g in as_list(r["Skill"]):
             basic[g] = "shapeshift basic skill"
+    crafted: dict[int, list[str]] = {}  # base item -> Expedition Runeshape recipe ids rewarding it
+    for r in t.optional("Expedition2Recipes"):
+        if r.get("Reward") is not None:
+            crafted.setdefault(r["Reward"], []).append(r["Id"])
     by_mod: dict[int, list[dict]] = {}
     for r in t["ModGrantedSkills"]:
         by_mod.setdefault(r["Skill"], []).append(mods[r["Mod"]])
@@ -202,6 +214,8 @@ def analyse(out: Path, pob: Path | None = None) -> dict:
             sources.append(basic[g["_index"]])
         for item in inherent.get(g["_index"], []):
             sources.append(f"base item: {item}")
+        for recipe in crafted.get(g["BaseItemType"], []):
+            sources.append(f"crafted from Expedition Remnants (Runeshape recipe {recipe})")
         for other in granted_by.get(g["_index"], []):
             sources.append(f"granted by the skill {other}")
         for p in by_passive.get(g["_index"], []):
@@ -210,7 +224,10 @@ def analyse(out: Path, pob: Path | None = None) -> dict:
         for m in by_mod.get(g["_index"], []):
             kind = mod_kind(m)
             if kind == "unique":
-                carriers = unique_grants.get(plain(name), [])
+                shown = {plain(active[granted[effects[e]["GrantedEffect"]]["ActiveSkill"]]["DisplayedName"] or "")
+                         for e in as_list(g["GemEffects"])
+                         if granted[effects[e]["GrantedEffect"]].get("ActiveSkill") is not None}
+                carriers = [u for n in {plain(name)} | shown for u in unique_grants.get(n, [])]
                 if carriers:
                     sources.append(f"unique: {', '.join(sorted(set(carriers)))} (mod {m['Id']})")
             elif kind in ("rollable", "essence"):
