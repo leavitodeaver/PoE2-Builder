@@ -36,10 +36,20 @@ try:  # the boss preset (MECH50, master 95eceb1): the reference faces the boss t
     from builder.search import bosses
 except ImportError:  # (not on main yet: then both sides keep PoB's own boss configuration)
     bosses = None
+try:  # its hits per damage type (MECHC6; bridge resetConfig's bossHits, the default preset's)
+    from builder.search import boss_hits
+except ImportError:
+    boss_hits = None
+
+
+def boss_vars() -> dict:
+    """What bridge resetConfig writes into every build the search makes (no boss named): resistances and hits."""
+    return {**(bosses.config_vars() if bosses is not None else {}),
+            **(boss_hits.config_vars() if boss_hits is not None else {})}
 RESISTS = {"fire": "FireResist", "cold": "ColdResist", "lightning": "LightningResist", "chaos": "ChaosResist"}
 
 
-BOSS = (f"{bosses.DEFAULT}: {bosses.config_vars()}" if bosses is not None
+BOSS = (f"{bosses.DEFAULT}: {boss_vars()}" if bosses is not None
         else "none: no builder/search/bosses.py, the reference keeps its code's boss configuration")
 
 
@@ -95,7 +105,7 @@ def main() -> None:
             continue
         engine.call("loadXml", xml=xml)
         if bosses is not None:  # (bridge resetConfig writes the same preset into every build the search makes)
-            engine.call("setConfig", vars=bosses.config_vars())
+            engine.call("setConfig", vars=boss_vars())
         facts = engine.call("facts", fields=FACT_FIELDS + ["FullDPS", "SkillDPS"])
         tree_keystones = set(GameData().keystones)  # an item-granted keystone can't be required
         keystones = sorted(p["name"] for p in facts["passives"] if p["type"] == "Keystone" and p["name"] in tree_keystones)

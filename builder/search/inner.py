@@ -1177,7 +1177,9 @@ def boss_config(request: Any) -> dict:
         from builder.search import bosses
     except ImportError:
         return {}
-    return {"boss": bosses.config_vars(name)}
+    from builder.search import boss_hits  # (its hits per damage type, MECHC6; resetConfig's default is the default's)
+
+    return {"boss": bosses.config_vars(name), "bossHits": boss_hits.config_vars(name)}
 
 
 def boss_stats(request: Any) -> dict:

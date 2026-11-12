@@ -947,5 +947,7 @@ def test_a_new_build_is_scored_against_the_boss_preset(engine):
     search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
     search.setup(quests=False)
     config = search.build.call("getConfig")["input"]
-    for var, value in bosses.config_vars().items():
+    from builder.search import boss_hits
+
+    for var, value in {**bosses.config_vars(), **boss_hits.config_vars()}.items():  # resistances and hits per type
         assert config.get(var) == value, var

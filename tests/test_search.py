@@ -1870,19 +1870,23 @@ def test_a_named_boss_goes_to_reset_config():
     except ImportError:
         assert boss_config(SimpleNamespace(boss="Arbiter of Ash")) == {}  # (no presets in this tree yet)
     else:
-        assert boss_config(SimpleNamespace(boss=bosses.DEFAULT)) == {"boss": bosses.config_vars(bosses.DEFAULT)}
+        from builder.search import boss_hits
+
+        assert boss_config(SimpleNamespace(boss=bosses.DEFAULT)) == {"boss": bosses.config_vars(bosses.DEFAULT),
+                                                                      "bossHits": boss_hits.config_vars(bosses.DEFAULT)}
 
 
 def test_the_request_names_its_boss():
     """SEARCH6: the request's `boss` (a bosses.py preset) reaches resetConfig (inner.boss_config) and the models that read
     it from the stats (inner.boss_stats: boss_hits.boss_name's `_boss`); a name that isn't a preset is refused."""
     from builder.request.schema import BuildRequest
-    from builder.search import bosses
+    from builder.search import boss_hits, bosses
     from builder.search.inner import boss_config, boss_stats
 
     other = next(name for name in bosses.PRESETS if name != bosses.DEFAULT) if len(bosses.PRESETS) > 1 else bosses.DEFAULT
     request = BuildRequest(boss=other)
-    assert boss_config(request) == {"boss": bosses.config_vars(other)} and boss_stats(request) == {"_boss": other}
+    assert boss_config(request)["boss"] == bosses.config_vars(other) and boss_stats(request) == {"_boss": other}
+    assert boss_config(request)["bossHits"] == boss_hits.config_vars(other)
     assert boss_config(BuildRequest()) == {} and boss_stats(BuildRequest()) == {}
     with pytest.raises(ValueError, match="not a preset"):
         BuildRequest(boss="No Such Boss")
