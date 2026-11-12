@@ -494,10 +494,13 @@ def test_an_infused_stat_set_counts_at_the_share_of_casts_its_source_covers(engi
     blended = main_dps(build.stats)
     _, notes = assumptions.wanted()
     assert any("share of casts that are Cold-Infused" in n["label"] for n in notes)
+    # (MECH46: pressing Frost Bomb for its Infusions takes its cast time from Spark's casts)
+    busy = next(n["value"] for n in notes if n["label"] == "Time pressing Remnant skills")
+    assert busy > 0
     assumptions.infused = None
     assumptions.apply()
-    raw = main_dps(build.stats)  # every cast Infused, PoB's own number
-    assert raw > blended and blended / raw == pytest.approx(infused["factor"], rel=0.02)
+    raw = main_dps(build.stats)  # every cast Infused, PoB's own number, no press time
+    assert raw > blended and blended / raw == pytest.approx(infused["factor"] * (1 - busy), rel=0.02)
 
 
 def test_a_skill_tried_on_an_infused_set_and_not_chosen_goes_back_to_its_plain_cast(engine, monkeypatch):
