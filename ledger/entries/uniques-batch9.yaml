@@ -1,0 +1,124 @@
+# Unique items' lines, ninth batch (COVD9, 12 Nov 2026): RESEARCH19's items for COV-D
+# (scratch/manager/research/remnant-skills-scope.md #104, spirit-burst-spirit-charges.md #101,
+# precision-herald-efficiency-lines.md #106). PoE2 0.5.x, game build 26476662; recheck at the 1.0 refresh.
+
+# The Hollow Mask: Remnant Skills' Reservation Efficiency (an undercount fix) ------------------------------------
+
+- id: uniques-hollow-mask-remnant-reservation-efficiency
+  title: The Hollow Mask, (80-100)% increased Reservation Efficiency of Remnant Skills (the GeneratesRemnants skills, by name)
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% increased Reservation Efficiency of Remnant Skills$'
+  replace:
+    - "Lingering Illusion has {1}% increased Reservation Efficiency"
+    - "Mana Remnants has {1}% increased Reservation Efficiency"
+    - "Grim Feast has {1}% increased Reservation Efficiency"
+    - "Life Remnants has {1}% increased Reservation Efficiency"
+    - "Siphon Elements has {1}% increased Reservation Efficiency"
+    - "Into the Breach has {1}% increased Reservation Efficiency"
+    - "Remnants of Kalguur has {1}% increased Reservation Efficiency"
+  confidence: datamined
+  notes: >-
+    "Remnant Skills" are the game's skill type GeneratesRemnants (ActiveSkillType row 181, FlagStat
+    skill_is_remnant_skill; RESEARCH19 #104, HIGH). PoB parses the line only in part (ModCache: ReservationEfficiency
+    INC with leftover "of Remnant Skills"), so Item.lua never applies it: the tool counted 0 (an undercount; checked by
+    running it, scratch/covd9/spirit.py: an amulet granting Grim Feast reserved 30 Spirit with or without the original
+    line). PoB has no "of remnant skills" tag (checked: ModParser.lua's modTagList and every GeneratesRemnants use in
+    Modules/, which is only CalcOffence.lua 1660), so the line is written once per reserving skill of that type, by
+    name: PoB's preSkillNameList "<skill> has" form gives a SkillName tag ("Grim Feast has 100% increased Reservation
+    Efficiency": 30 -> 15 Spirit reserved in the same probe; Mana Remnants' line left Grim Feast at 30). The generic
+    ReservationEfficiency, as the game's stat reservation_efficiency_+%_of_remnant_skills, so any pool counts.
+    The skills of the type (PoB skillTypes GeneratesRemnants, checked against RESEARCH19's list from the game's
+    ActiveSkills): Frost Bomb, Lightning Warp, Living Bomb, Orb of Storms and Snap reserve nothing, so the line
+    doesn't touch them; the nine that reserve are the seven above plus Wildwood's Gifts and Sanguine Revelry.
+    UNDERCOUNT left: Wildwood's Gifts (which the mask itself grants) and Sanguine Revelry are item-granted skills
+    (fromItem in PoB's skill data), and PoB's skill-name forms list gem skills only (ModParser.lua 6563-6566:
+    `not grantedEffect.fromItem`), so no text names them ("Wildwood's Gifts has ..." parses to nothing). Counting them
+    needs a ledger form that carries a SkillType tag (COV-A, sole owner of the ledger code; COVD9.report.md).
+    The mask is this line's only source (checked by RESEARCH19: uses.py on both stat ids; PoB Uniques/helmet.lua 510).
+  sources: ["https://poe2db.tw/us/The_Hollow_Mask", "data/game-26476662/tables ActiveSkillType.json (181), Mods.json (UniqueRemnantSkillSpiritReservationEfficiency1)",
+            "PoB Data/Skills act_int.lua / other.lua skillTypes", "scratch/manager/research/remnant-skills-scope.md"]
+  test_in_game: "Wear The Hollow Mask with Grim Feast socketed: its Spirit reservation drops from 30 to about 15-17."
+  status: proposed
+
+# Lines on no live PoE2 item, or acting on a skill nothing grants: labelled, not counted ----------------------------
+# These move no build because no build can have them, not because the mechanic does nothing. Each is a PoB-ignored
+# line (the audit's status "none"); the two Spirit Charge lines PoB does parse (+1 Maximum Spirit Charges per Abyss
+# Jewel, Physical as extra per Spirit Charge) are left as they are.
+
+- id: uniques-no-live-source-spirit-charges
+  title: Spirit Charge and Spirit Burst lines (PoE1 uniques' Exclusive mods; on no live PoE2 item)
+  kind: pob_gap
+  match: '^(Gain a Spirit Charge on Kill|Gain a Spirit Charge every second|You lose all Spirit Charges when taking a Savage Hit|Recover (\(\d+-\d+\)|\d+)% of maximum (Life|Energy Shield) when you lose a Spirit Charge|Trigger Level \d+ Spirit Burst when you Use a Skill while you have a Spirit Charge)$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    No live PoE2 item carries a Spirit Charge line (RESEARCH19 #101, MEDIUM-HIGH; checked: uses.py over every stat id
+    holding spirit_charge or spirit_burst: only the eight *Unique__N Exclusive mods and the monster mods
+    SpiritChargeTier1-3 use them, no passive, stat set or support; their PoE1 uniques Lightpoacher, Shroud of the
+    Lightless and Bubonic Trail aren't among UniqueStashLayout's 449 PoE2 uniques; PoB's Data/Uniques has no item with
+    them; second source poe2db: /us/Spirit_Burst and /us/Lightpoacher 404, its search lists no Spirit Charge item).
+    Not counted because no build can carry them; the mechanic isn't zeroed. Whether Spirit Burst uses up a charge is
+    UNVERIFIED (moot while no source is live). If a patch brings a source back, model them (plans/kw-spirit.md).
+  sources: ["scratch/manager/research/spirit-burst-spirit-charges.md", "data/game-26476662/tables Mods.json, UniqueStashLayout.json"]
+  test_in_game: "Recheck at each patch: search the trade site for 'Spirit Charge'."
+  status: proposed
+
+- id: uniques-no-live-skill-precision-heralds
+  title: Precision / Herald of Purity / Herald of Agony lines (act on skills no gem or item grants)
+  kind: pob_gap
+  match: '^(Grants Level \d+ Precision Skill|Precision has (\(\d+-\d+\)|\d+)% increased Mana Reservation Efficiency|Herald of (Purity|Agony) has (\(\d+-\d+\)|\d+)% increased (Mana Reservation Efficiency|Buff Effect)|(\+)?(\(\d+-\d+\)|\d+)% (increased Physical Damage|increased Chaos Damage|additional Physical Damage Reduction|to Chaos Resistance) while affected by Herald of (Purity|Agony))$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    The skills don't exist in build 26476662 (RESEARCH19 #106, MEDIUM-HIGH; checked: no GrantedEffects row points at
+    ActiveSkills aura_accuracy_and_crits (Precision, 97) or herald_of_light (Herald of Purity, 176), both
+    HideOnWebsite, and Herald of Agony has no ActiveSkills row (rechecked by COVD9 on GrantedEffects.json); the only
+    gems named Precision are the supports Precision I/II (BaseItemTypes); "Grants Level 30 Precision Skill" is the
+    stat local_display_grants_skill_accuracy_crits_aura_level, with no GrantedEffectsPerLevel; second source poe2db:
+    its Herald of Purity page is PoE1 text with no legacy marker (poe2db keeps unmarked deprecated entries), its
+    search lists no Herald of Agony or Precision-efficiency item). All are GenerationType 3 Exclusive mods. A line
+    that needs one of these skills (its reservation, its buff, "while affected by" it) can't act in a PoE2 build:
+    not counted, the mechanic not zeroed. Recheck at each patch for a GrantedEffects row.
+  sources: ["scratch/manager/research/precision-herald-efficiency-lines.md", "data/game-26476662/tables GrantedEffects.json, ActiveSkills.json, Mods.json 11744-11789"]
+  test_in_game: "Recheck at each patch: Precision, Herald of Purity or Herald of Agony as a gem or a Grants Skill line."
+  status: proposed
+
+# Open rows COVD8 found no report for (COVD8.report.md section 4): lines that move none of the calculated numbers ---
+# corrected_raw keeps every original line and only appends translations (context.py 304-317), so an empty entry here
+# removes nothing from the item text PoB reads (variant and version lines still select the item's lines).
+
+- id: uniques-no-effect-road-warrior-moving-bleed
+  title: The Road Warrior, Moving while Bleeding doesn't cause you to take extra damage
+  kind: pob_gap
+  match: "^Moving while Bleeding doesn't cause you to take extra damage$"
+  replace: []
+  confidence: datamined
+  notes: >-
+    The line lowers Bleeding damage you take while moving. Nothing the tool calculates includes Bleeding damage on
+    the player (checked: builder/ and engine/bridge.lua read no player degeneration, NetLifeRegen or Bleeding-on-you
+    condition; the boss's Bleed on you is used only as a charm trigger, flasks.py TRIGGER_DAMAGE; PoB's EHP and
+    maximum hit are hit-based, and PoB itself parses the line to nothing, ModCache 8784). So it moves no number today;
+    it works in game. If the tool ever counts damage-over-time taken, this becomes an undercount to model (MECH-C,
+    defences). Not a claim that the mechanic does nothing.
+  sources: ["https://poe2db.tw/us/The_Road_Warrior", "builder/search/flasks.py (TRIGGER_DAMAGE)", "PoB Data/ModCache.lua 8784"]
+  test_in_game: "Not needed: no calculated number depends on it."
+  status: proposed
+
+- id: uniques-no-effect-item-labels-and-loot
+  title: Item labels and loot lines on uniques (Selected Alt Variant, Version, Mirrored, Can be modified while Corrupted, Experience gain, Gold dropped)
+  kind: pob_gap
+  match: '^(Selected Alt Variant( Two| Three)?: .+|Version: .+|Mirrored|Can be modified while Corrupted|(\(\d+-\d+\)|\d+)% (increased|reduced) (Experience gain|Quantity of Gold Dropped by Slain Enemies))$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    Item metadata and loot: PoB's item parser reads the variant and version lines to pick the item's lines
+    (unchanged here), and no calculation reads experience or gold (checked: no Experience or Gold modifier name in
+    PoB's Modules/Calc*.lua, whose only "gold" is the Legacy of Gold flask table; ModCache parses the gold and
+    experience lines to nothing; builder/ reads neither outside the audit, coverage.py). COV1 already named these
+    "true flavour" (COV1.report.md section 2). Left out on purpose: "Historic" (PoB's limit key for Timeless jewels,
+    CalcSetup.lua 1281: it limits a build), "Corrupted", "Raven-Touched", item rarity (Gravebind's "other Modifiers
+    to Rarity ... do not apply" and rarity-scaled lines can move numbers) and "Maximum Quality" (quality scales item
+    stats).
+  sources: ["COV1.report.md (flavour hand-read)", "PoB Modules/Calc*.lua (grep), Data/ModCache.lua"]
+  test_in_game: "Not needed."
+  status: proposed

@@ -122,3 +122,34 @@ def test_blackflame_withered_fire_taken_follows_the_withered_stacks(engine):
     assert dps(10, stand_in) == pytest.approx(dps(10, ["Nearby Enemies take 50% increased Fire Damage"]), rel=0.001)
     assert dps(10, stand_in) > 1.2 * dps(10, [])
     build.call("setConfig", vars={"multiplierWitheredStackCount": False}, fields=[])
+
+
+def test_hollow_mask_remnant_skills_reservation_efficiency_by_name(engine):
+    """The Hollow Mask's "Reservation Efficiency of Remnant Skills" (uniques-hollow-mask-remnant-reservation-efficiency,
+    RESEARCH19 #104): PoB applies none of the original line; the ledger's per-skill lines lower a Remnant skill's
+    Spirit reservation (Grim Feast 30 -> 15 at 100%) and leave a skill of another name alone."""
+    from builder import ledger
+
+    line = "100% increased Reservation Efficiency of Remnant Skills"
+    entry, lines = ledger.translate(line)
+    assert entry.id == "uniques-hollow-mask-remnant-reservation-efficiency"
+    assert "Grim Feast has 100% increased Reservation Efficiency" in lines
+
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+
+    def reserved(extra: list[str]) -> float:
+        build.call("equip", slot="Amulet", raw="\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet",
+                                                          "Item Level: 82", "Implicits: 0",
+                                                          "Grants Skill: Level 20 Grim Feast", *extra]), fields=[])
+        stats = build.call("stats", fields=["Spirit", "SpiritUnreserved"])
+        return stats["Spirit"] - stats["SpiritUnreserved"]
+
+    base = reserved([])
+    assert base > 0
+    assert reserved([line]) == base  # PoB leaves the original line unapplied (the undercount fixed here)
+    assert reserved(lines) == pytest.approx(base / 2, abs=1)
+    assert reserved(["Mana Remnants has 100% increased Reservation Efficiency"]) == base
