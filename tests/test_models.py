@@ -3058,3 +3058,24 @@ def test_jiquanis_thesis_first_half_gets_the_whole_line():
     assert [m["line"] for m in mods] == [models.JIQUANI_LINE] and notes
     assert models.jiquani_model(["Increases and Reductions to Mana Regeneration Rate also"]) == ([], [])
     assert models.jiquani_model(["30% increased Movement Speed"]) == ([], [])
+
+
+def test_every_boss_preset_has_a_labelled_hit_interval_slower_than_pobs_placeholder():
+    """MECHD3 (AUDIT18 A18-2): bosses.HIT_EVERY covers every preset, reads the chosen boss from stats["_boss"], and
+    every table estimate is slower than PoB's 0.7 s placeholder; the basis carries LOW and names the boss."""
+    from builder.search import bosses
+    assert set(bosses.HIT_EVERY) == set(bosses.PRESETS)
+    assert all(0.7 < s < 5 for s in bosses.HIT_EVERY.values())
+    every, basis = bosses.hit_interval()
+    assert every == bosses.HIT_EVERY[bosses.DEFAULT] and "LOW" in basis and bosses.DEFAULT in basis
+    assert bosses.hit_interval({"_boss": "The Bodach"})[0] == 1.27
+
+
+def test_every_boss_preset_has_a_moving_ceiling_and_the_king_s_dashes_share_one_timer():
+    """MECHD3 (RESEARCH22 #122, AUDIT18 A18-3): an upper bound per preset for the optional "boss moving" row; the
+    King's four dashes on one 6 s timer, first form only (0.43 x 1/6 x 0.5 s)."""
+    from builder.search import bosses
+    assert set(bosses.MOVING_CEILING) == set(bosses.PRESETS)
+    assert all(0 <= s < 1 for s in bosses.MOVING_CEILING.values())
+    assert bosses.moving_ceiling({"_boss": "The King in the Mists"})[0] == pytest.approx(0.43 / 6 * 0.5, abs=0.001)
+    assert "upper bound" in bosses.moving_ceiling()[1]

@@ -134,8 +134,88 @@ PRESETS: dict[str, Boss] = {b.name: b for b in (
 # Shock, Chill / Freeze), A10-1 (the King's tar swamp Slow), the King's toads and Kulemak's Shamblers' Ignite (MEDIUM-LOW /
 # LOW). Poison: none found for any preset (the same search, buff-applied debuffs RESEARCH14 #67; UNVERIFIED as a zero).
 # Bleed: Olroth only (the same search; MEDIUM-HIGH).
+# The boss's hit cadence (MECHD3; AUDIT18 A18-2): seconds between its damaging skill uses, a LOW estimate from the
+# exported tables (research13 MonsterVarieties GrantedEffects / AttackSpeed; game-26476662 GrantedEffects CastTime,
+# GrantedEffectsPerLevel Cooldown at the top level; MECHD3's report has the script and its output). The model: the boss
+# acts back to back; each cooldown skill is used once per cooldown, each taking its action time (a skill's own CastTime
+# where it isn't 1000 ms: six of Olroth's, 2.2-4.5 s; else attacks take the row's AttackSpeed, 1.5 s for most, 2.13 s
+# the Arbiter of Ash, 1.335 s the Bodach, and spells 1.0 s; CastTime is 1000 ms on every other skill of the 12
+# presets' rows, checked: every GrantedEffect on them); the rest of the time is its basic attack, or a 1.0 s action
+# where the row has none; teleports, dodges, summons, hexes and spawns (by skill name) aren't hits; skills that share a
+# CooldownGroup (other than 67, the column's default) share one timer (AUDIT18 A18-3's reading, MEDIUM: the Left / Right
+# and base / Augment variants). Each damaging use counts one hit. Why LOW: (1) 1000 ms is a table default, the animations' real lengths (.ast files) weren't read;
+# (2) multi-hit uses (Triple Slash, Bullet Hell, combos) land more than one hit, moves and walking between skills land
+# none; (3) skills with no cooldown can't be told from their sub-parts in the tables; (4) the AI's skill choice (.ais)
+# isn't read; (5) a phase's skills are counted as if all were available at once (fewer per phase would leave more
+# time to the filler: a faster rate for the bosses whose cooldowns overfill the time, the Arbiter of Ash above all).
+# Every preset reads slower than PoB's 0.7 s placeholder (enemySpeed 700, ConfigOptions.lua 2279 "Enemy attack / cast
+# time in ms", no source given; the per-skill speeds in its Data/BossSkills.lua are for its ten PoE1 boss skills,
+# Shaper / Sirus / Maven / Exarch / Eater / PoE1 Atziri, checked: the file's ten keys, read only by the
+# presetBossSkills option): 1.12 s to 2.25 s. Nothing writes this into PoB's enemySpeed yet: models that want it read
+# hit_interval().
+HIT_EVERY: dict[str, float] = {
+    "Arbiter of Ash": 2.25,  # its cooldowns overfill the time (busy x2.15), so their mix sets the rate
+    "Arbiter of Divinity": 1.36,
+    "Xesht, We That Are One": 1.25,
+    "The King in the Mists": 1.53,  # first form 2.33 s (43% of the fight), second 1.22 s (57%), by hit rate
+    "Zarokh, the Temporal": 1.14,
+    "The Raven Trickster": 2.1,
+    "The Bodach": 1.27,
+    "Olroth, Origin of the Fall": 2.23,  # its own cast times (2.2-4.5 s) fill the time
+    "The Aberration": 1.66,
+    "Vessel of Kulemak": 1.12,
+    "Atziri, the Red Queen": 1.13,
+    "Atziri, the Fell Serpent": 1.38,
+}
+HIT_EVERY_BASIS = ("one damaging skill use every {s:g} s against {name} (LOW: the exported tables' action times are "
+                   "defaults, multi-hit uses and moving time unmodelled; MECHD3); PoB's "
+                   "placeholder is 0.7 s")
+
+
+def hit_interval(stats: dict | None = None) -> tuple[float, str]:
+    """Seconds between the boss's damaging skill uses (HIT_EVERY, LOW) and its basis, for the boss `stats` names
+    (stats["_boss"], else the default). Before any Slow or the player's evasion and block."""
+    b = of(stats)
+    s = HIT_EVERY[b.name]
+    return s, HIT_EVERY_BASIS.format(s=s, name=b.name)
+
+
+
+# "Boss moving" ceiling (MECHD3; RESEARCH22 #122, AUDIT18 A18-3): the most of the fight the boss can spend in its own
+# dash / leap / charge skills (names matching Dash, Leap, HeadCharge, SwoopSlam, JumpSlam on its rows' GrantedEffects,
+# with a cooldown), each used off cooldown, one timer per shared CooldownGroup, x 0.5 s of travel each (the top of
+# RESEARCH22's assumed 0.3-0.5 s: UNVERIFIED, the traversal time is in the .ast files), and Olroth's dashes x their own
+# 2.2 s CastTime (the whole action). An UPPER BOUND for the play guide's optional "boss moving" row (MECH-C's), never the
+# headline, which stays at standing still. Walking isn't in it: the boss walks only when the player leaves its attack
+# range, which the player decides. Teleports don't count (RESEARCH22: MEDIUM-LOW). 0 = no such skill on its rows
+# (checked: those names over every GrantedEffect of its rows, MECHD3's moving script; RESEARCH22's table agrees);
+# it may still walk.
+MOVING_CEILING: dict[str, float] = {
+    "Arbiter of Ash": 0.225,  # Dash Slash Left / Right / Forward, Jump Slam Combo: 0.45 uses/s
+    "Arbiter of Divinity": 0.03,  # Swoop Slam, 16.5 s (phase 1; Blink Slam taken as a blink)
+    "Xesht, We That Are One": 0.0,
+    "The King in the Mists": 0.036,  # four dashes on one 6 s timer, first form only (43%); the second form has none
+    "Zarokh, the Temporal": 0.0,
+    "The Raven Trickster": 0.0,
+    "The Bodach": 0.0,  # its Reposition is a burrow (RESEARCH22)
+    "Olroth, Origin of the Fall": 0.55,  # three dashes, 12 s each, 2.2 s actions
+    "The Aberration": 0.107,  # three leaps, 14 s each
+    "Vessel of Kulemak": 0.025,  # Head Charge, 20 s
+    "Atziri, the Red Queen": 0.025,  # Lightning Dash, 20 s
+    "Atziri, the Fell Serpent": 0.104,  # Beast Dash 12 s, Dash Arc Left / Right on one 8 s timer
+}
+
+
+def moving_ceiling(stats: dict | None = None) -> tuple[float, str]:
+    """The most of the fight the chosen boss can spend moving in its own skills (an upper bound, LOW) and its basis."""
+    b = of(stats)
+    share = MOVING_CEILING[b.name]
+    return share, (f"at most {share:.0%} of the fight moving in its own dashes / leaps / charges against {b.name} "
+                   "(an upper bound: each used off cooldown, 0.5 s of travel each, UNVERIFIED; walking is the "
+                   "player's choice and teleports don't count; MECHD3, RESEARCH22 #122)")
+
 DEFAULT = "Arbiter of Ash"
-SOURCE = "poe2db's monster rows, read 12 Nov 2026 (game 0.5.5), RESEARCH9; MEDIUM-HIGH"
+SOURCE ="poe2db's monster rows, read 12 Nov 2026 (game 0.5.5), RESEARCH9; MEDIUM-HIGH"
 
 
 def of(stats: dict | None = None) -> Boss:
