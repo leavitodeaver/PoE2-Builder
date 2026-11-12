@@ -45,7 +45,7 @@ EVIDENCE_FIELDS = [
     *(f"{a}Duration" for a in AILMENT_DURATION),
     "ChillChanceOnHit", "MaximumRage", "EnergyShield", "EvadeChance", "EffectiveBlockChance", "enemySkillTime",
     "HitChance", *(f"{c}Charges{f}" for c in ("Power", "Frenzy", "Endurance") for f in ("Max", "Duration")),
-    "PresenceRadius", "Ward", "Mana", "ManaPerSecondCost", "Devotion", *models.IMMOBILISE_FIELDS,
+    "PresenceRadius", "Ward", "Mana", "ManaPerSecondCost", "ManaRegenRecovery", "Devotion", *models.IMMOBILISE_FIELDS,
     "ChaosHitAverage", "MainHand.ChaosHitAverage", "EnemyAilmentThreshold",  # (Withering Touch, _withered_stacks)
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
@@ -637,12 +637,18 @@ CHARGE_OVERRIDES = {f"override{kind}Charges": kind for kind in ("Power", "Frenzy
 # the build's lines (every "gain # Rage" wording of the stat descriptions; nothing dies on a single boss, so on-kill gains
 # are 0), spends from the skills that spend it (GrantedEffectStatSets / GrantedEffectsPerLevel costs below). The maximum
 # is held while gains outrun spends and gains or the boss's landing hits come at least once per 4 s; else the average of
-# each gain held 4 s and then decaying. A source whose rate its line doesn't say (Warcry, Life Flask, on use, Mana spent)
-# is assumed once per CHARGE_DEFAULT_EVERY s, labelled.
+# each gain held 4 s and then decaying. A source whose rate its line doesn't say (Warcry, Life Flask, on use) is assumed
+# once per CHARGE_DEFAULT_EVERY s, labelled. From the build's own rates (MECHC1, 12 Nov 2026; FLAT_RATES A3 and A10):
+# "after Spending a total of N Mana" at the main skill's Mana spent per second (PoB ManaPerSecondCost; other skills'
+# Mana isn't counted: an undercount for builds that press others), not a Hit, so the one-Hit-per-0.5 s rule doesn't
+# cap it; "1 Rage Regenerated for every N Mana Regeneration per Second" from PoB's ManaRegenRecovery; "Regenerate X Rage
+# per second per Y Rage spent Recently" (Primal Hunger; before, dropped) as X x 4 s / Y of the Rage the build spends,
+# taken as steady (its 4 s lag isn't modelled) and capped by the spend.
 RAGE_PAUSE, RAGE_DECAY, RAGE_HIT_EVERY = 4.0, 5.0, 0.5
 RAGE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\bgain (\d+|an?)? ?Rage\b(.*)$", re.I)
 RAGE_REGEN = re.compile(r"\bregenerate (\d+(?:\.\d+)?)(%)?(?: of your maximum)? Rage per second(.*)$|"
                         r"\b1 Rage Regenerated for every", re.I)
+RAGE_PER_SPENT = re.compile(r"\bregenerate (\d+(?:\.\d+)?) Rage per second per (\d+) Rage spent Recently", re.I)
 RAGE_NOT_SOURCE = re.compile(r"cannot gain|instead|\ballies\b|companions|benefits|per (?:\d+ )?Rage|when you lose|"
                              r"per enemy power|if you have gained", re.I)
 # Rage spent per use (molten_crash_optionally_consume_X_rage_for_fissures 10, bear_slam_spend_X_rage_for_stronger_slam 10,
@@ -658,8 +664,12 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
     if m := RAGE_REGEN.search(text):  # (Rage regenerated counted as gained for the pause, assumed)
         if re.search(r"per \d+ Rage spent|\ballies\b", text, re.I):
             return None
+        if per := re.search(r"for every (\d+(?:\.\d+)?) Mana Regeneration per Second", text, re.I):
+            regen = number(stats.get("ManaRegenRecovery"))
+            r = regen / float(per.group(1))
+            return r, 1.0 if r > 0 else 0.0, f"{r:.2f}/s regenerated from {regen:.1f} Mana Regeneration per second"
         if not m.group(1) or "for every" in (m.group(3) or ""):
-            return 1.0, 1.0, "regenerated at a rate set by Life or Mana regeneration: 1/s assumed"
+            return 1.0, 1.0, "regenerated at a rate set by Life or Mana regeneration: 1/s assumed (LOW)"
         r = float(m.group(1)) * (number(stats.get("MaximumRage")) / 100 if m.group(2) else 1.0)
         return r, 1.0, f"{r:g}/s regenerated"
     m = RAGE_SOURCE.search(text)
@@ -668,6 +678,11 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     amount = float(m.group(2)) if m.group(2) and m.group(2).isdigit() else 1.0
     when = m.group(3).lower()
+    if spend := re.search(r"after spending a total of (\d+(?:\.\d+)?) mana", when):
+        rate = number(stats.get("ManaPerSecondCost"))
+        events = chance * rate / float(spend.group(1))
+        return events * amount, events, (f"{chance:.0%} x {amount:g} Rage per {spend.group(1)} Mana spent, the main skill "
+                                         f"spending {rate:.1f}/s (other skills' Mana not counted): {events:.2f} gains/s")
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     every = number(stats.get("enemySkillTime")) or 0.7
     land = ((1 - min(number(stats.get("EvadeChance")), 100) / 100) *
@@ -707,9 +722,16 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     main_types = stats.get("_main_types") or set()
     spend = stats.get("_rage_spend") or {}
     own_hits = not (stats.get("_main_channel_rage") or False)
-    gain, events, how = 0.0, 0.0, []
+    gain, events, how, refund = 0.0, 0.0, [], 0.0
     for text in lines:
-        if not qualifies(text, main_types) or (r := _rage_gain(text, stats, own_hits)) is None:
+        if not qualifies(text, main_types):
+            continue
+        if per := RAGE_PER_SPENT.search(text):  # (Primal Hunger: a share of the spend comes back, below)
+            share = float(per.group(1)) * RECENTLY / float(per.group(2))
+            refund += share
+            how.append(f"{text[:60]} (regenerates {share:.0%} of the Rage spent, taken as steady)")
+            continue
+        if (r := _rage_gain(text, stats, own_hits)) is None:
             continue
         gain, events = gain + r[0], events + r[1]
         how.append(f"{text[:60]} ({r[2]})")
@@ -717,6 +739,11 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         return 0.0, ""
     most = number(stats.get("MaximumRage"))
     spent = sum(spend.values())
+    if refund and spent and gain:
+        back = min(refund, 1.0) * spent
+        events, spent = events + 1.0, spent - back  # (regenerated every second: the loss paused; the net spend falls)
+    elif refund and not gain:
+        return 0.0, ""  # (a refund with nothing gained: no Rage to spend in the first place)
     every = number(stats.get("enemySkillTime")) or 0.7
     land = ((1 - min(number(stats.get("EvadeChance")), 100) / 100) *
             (1 - min(number(stats.get("EffectiveBlockChance")), 100) / 100)) / every

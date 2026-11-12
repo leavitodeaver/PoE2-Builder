@@ -731,6 +731,26 @@ def test_rage_held_from_gains_spends_and_its_decay():
     # Regeneration gains every second (pause kept); Primal Hunger's regeneration needs Rage spent, so it's no source
     assert rage_held(["Regenerate 5 Rage per second"], melee)[0] == 30
     assert rage_held(["Regenerate 1 Rage per second per 4 Rage spent Recently"], melee) == (0.0, "")
+    # MECHC1, from the build's own rates (FLAT_RATES A3, A10): Mana spent at the main skill's ManaPerSecondCost, not a
+    # Hit (no 0.5 s cap): 8 Rage per 200 Mana at 100 Mana/s is 0.5 gains/s, the loss paused, the maximum
+    mana = rage_held(["Gain 8 Rage after Spending a total of 200 Mana"], {**melee, "ManaPerSecondCost": 100})
+    assert mana[0] == 30 and "0.50 gains/s" in mana[1]
+    # at 10 Mana/s: one gain of 8 every 20 s, held 4 s then lost over 1.6 s: (32 + 8 x 1.6 - 2.5 x 1.6^2) / 20 = 1.92
+    assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"], {**melee, "ManaPerSecondCost": 10})[0] == 1
+    assert rage_held(["Gain 8 Rage after Spending a total of 200 Mana"], melee)[0] == 0  # spends none: no gain
+    # Rage regenerated from Mana Regeneration: 50/s over 25 is 2 Rage/s; none without Mana regeneration
+    regen = rage_held(["1 Rage Regenerated for every 25 Mana Regeneration per Second"], {**melee, "ManaRegenRecovery": 50})
+    assert regen[0] == 30 and "2.00/s regenerated" in regen[1]
+    assert rage_held(["1 Rage Regenerated for every 25 Mana Regeneration per Second"], melee)[0] == 0
+    # Primal Hunger: 1/s per 4 spent in the last 4 s gives back all of a steady spend, so Molten Crash's 30/s no
+    # longer empties the 2/s gained (it was 0 above)
+    hunger = ["Gain 1 Rage on Melee Hit", "Regenerate 1 Rage per second per 4 Rage spent Recently"]
+    back = rage_held(hunger, {**melee, "_rage_spend": {"Molten Crash": 30.0}})
+    assert back[0] == 30 and "100% of the Rage spent" in back[1]
+    # half of it back at 1 per 8: 30/s spent less 15 back is more than the 2/s gained; 2/s spent less 1 back is less
+    half = ["Gain 1 Rage on Melee Hit", "Regenerate 1 Rage per second per 8 Rage spent Recently"]
+    assert rage_held(half, {**melee, "_rage_spend": {"Molten Crash": 2.0}})[0] == 30
+    assert rage_held(half, {**melee, "_rage_spend": {"Molten Crash": 30.0}})[0] == 0
 
 
 def test_onslaught_on_only_when_its_sources_keep_it_up():
