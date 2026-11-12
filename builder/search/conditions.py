@@ -1192,8 +1192,10 @@ CHILL_SECONDS = 8.0  # KeywordPopups Chill: "lasts ... 8 seconds on non-players 
 
 
 def chill_share(stats: dict) -> float:
-    """Share of the fight the boss is Chilled by the main skill's hits: PoB's ChillChanceOnHit is 100 when a hit's Chill
-    reaches the 30% floor, else 0 (CalcOffence 5550-5558); each lasts PoB's ChillDuration, else 8 s."""
+    """Share of the fight the boss is Chilled by the main skill's hits: PoB's ChillChanceOnHit (100 when the unmitigated
+    cold hit beats the boss's threshold / ChillEffectMultiplier 100, i.e. a 1% Chill, else 0: CalcOffence 5550-5558,
+    Data/Misc.lua 77); each lasts PoB's ChillDuration, else 8 s. The game ignores Chills under 30% (KeywordPopups
+    Chill): not applied yet, an OVERCOUNT left open (FIX_QUEUE's 30% Chill floor; MECH53's handover)."""
     chill = min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
     if chill <= 0 or hits <= 0:
