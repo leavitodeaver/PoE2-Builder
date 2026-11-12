@@ -331,6 +331,7 @@ class Assumptions:
         self.infused: dict | None = None
         self.infused_skipped: dict[str, str] = {}
         self.press_busy = 0.0  # the share of the fight remnant_presses took from the main skill in the last wanted()
+        self.ledger_shares: dict[str, int] = {}  # condition -> its share in whole percent, for the ledger's `share:` lines
 
     def main_skill(self) -> str | None:
         group = self.build.main_group()
@@ -810,8 +811,11 @@ class Assumptions:
             press_mods, press_notes = self.remnant_presses(skills, main)
             mods, notes = mods + press_mods, notes + press_notes
             self.press_busy = press_notes[0]["value"] if press_notes else 0.0
+        self.ledger_shares = {}  # (COV11; set again by ledger_conditions)
         found, condition_notes = self.ledger_conditions(skills)
         mods += [{"kind": "Condition", "name": name} for name in found]
+        mods += [models.raw_mod(f"Multiplier:LedgerShare{name}", "BASE", percent)
+                 for name, percent in sorted(self.ledger_shares.items())]
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
         from builder.search import bosses
 
@@ -1129,14 +1133,20 @@ class Assumptions:
         for condition in wanted:
             if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
                 share, how = self.jagged_ground_share(main, main_types, main_group)
-                on = share >= conditions_mod.JAGGED_GROUND_ASSUMED
+                # its ledger lines are `share:JaggedGround` (COV11): each counts its full value x this share (bridge
+                # applyLedger; Multiplier:LedgerShareJaggedGround in whole percent, as PoB floors a Multiplier's count)
+                percent = round(100 * min(max(share, 0.0), 1.0))
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
                 if share > 0 or any(re.search(condition.get("skills") or "$^", n, re.I) for n in names):
                     notes.append({"label": "Jagged Ground under the boss", "value": round(share, 2),
-                                  "basis": f"{how}; its ledger lines assume {conditions_mod.JAGGED_GROUND_ASSUMED:.0%}, so "
-                                           + ("they count" if on else "they don't count (an undercount below that share)"),
+                                  "basis": f"{how}; its passive lines (Spike Pit, the Jagged Ground Aggravate chance) "
+                                           f"count {percent}% of their value, the boss's share of the fight in it"
+                                           + ("" if percent else " (none: no Jagged Ground source on the main skill)"),
+                                  "play": "Keep the boss in your Jagged Ground: without it these lines add nothing, "
+                                          "always in it they add their full value",
                                   "confidence": "LOW (each patch taken to be at the boss for its whole duration)"})
-                if on:
-                    found.append(condition["id"])
                 continue
             by_name = condition.get("skills") and any(re.search(condition["skills"], n, re.I) for n in names)
             by_text = condition.get("skill_text") and any(re.search(condition["skill_text"], t, re.I) for t in texts)

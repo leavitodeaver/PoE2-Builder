@@ -240,7 +240,7 @@ def build_models(build, inputs: Inputs, texts: list[str], skills: list[Skill], m
     """The lane's models for the current build: their lines (with derived inputs) and notes."""
     different = different_skills_model(inputs, texts)
     if any(pattern.match(t.strip()) for t in texts for pattern, *_ in FLASK_USED_LINES.values()):
-        tree = [e["text"] for e in build.call("sourceLines")["lines"] if e["source"].startswith("passive:")]
+        tree = [e["text"] for e in build.call("sourceLines")["lines"]]  # (tree and items: COV11)
         flask = flask_used_model(tree, flask_uses(build) if any(
             pattern.match(t.strip()) for t in tree for pattern, *_ in FLASK_USED_LINES.values()) else {})
         different = (different[0] + flask[0], different[1] + flask[1])
@@ -341,8 +341,9 @@ def wrong_tree_lines(nodes: list[dict]) -> list[dict]:
 # Stats.json id holding "flask" with used / recent / past, and their PassiveSkills and Mods users, game 26476662; PoB's
 # ModCache keys holding "used a ... Flask"): Reinvigoration (life_flasks6, 35809: Regenerate 1% of maximum Life per
 # Second, 10 s) and Arcane Mixtures (energy_shield_recovery25, 46972: 10% increased Cast Speed, Mana Flask Recently).
-# The same life-regen stat is also a unique's mod (UniqueHeartPrefixFlaskLifeRegenForXSeconds): item lines aren't read
-# here (PoB's parse stays on them: COV-D's), so only "passive:" sources count.
+# The same life-regen stat is also a unique's mod (UniqueHeartPrefixFlaskLifeRegenForXSeconds, Heart of the Well's
+# desecrated variant): since COV11 its pob_wrong entry says item_off, so PoB's parse is switched off on the item too and
+# the item's line is read here with the tree's (bridge.sourceLines lists switched-off item lines, rolls applied).
 FLASK_USED_LINES = {
     "Life": (re.compile(r"^Regenerate ([\d.]+)% of maximum Life per Second if you've used a Life Flask in the past 10 "
                         r"seconds$", re.I), "Regenerate 1% of maximum Life per second", 10.0, "% of maximum Life regenerated per second"),

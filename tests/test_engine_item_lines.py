@@ -94,7 +94,57 @@ def test_spike_pit_is_increased_damage_taken_on_the_boss_not_more_damage(engine)
     from builder.ledger import entries
 
     spike = next(e for e in entries() if e.id == "spike-pit")
-    line = spike.replace[0].split(" ", 1)[1].replace("{g1*0.4}", "8")
+    line = spike.replace[0].split(" ", 1)[1].replace("{g1}", "8")
     parsed = engine.call("parseLines", lines=[line])["results"][0]
     assert parsed["supported"] and [(p["name"], p["type"], p["value"]) for p in parsed["parsed"]] == [
         ("EnemyModifier", "LIST", "DamageTaken")]
+
+
+def test_a_share_line_counts_its_value_times_the_share_the_assumptions_set(engine):
+    """The ledger's `share:` lines (COV11; spike-pit and aggravate-bleed-jagged-ground): the bridge counts a passive's
+    line at value / 100 x Multiplier:LedgerShare<Name>, which the assumptions set to the share in whole percent. So the
+    nested EnemyModifier line (Spike Pit's) and a plain line both scale linearly with the share: 0 adds nothing, 100
+    the full value."""
+    from builder.ledger import entries
+
+    spike = next(e for e in entries() if e.id == "spike-pit")
+    assert list(spike.replace) == ["share:JaggedGround Nearby Enemies have {g1}% increased Damage taken"]
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    node = 3698  # Spike Pit, with its path (the search's own ledger correction, spike-pit's share line, rides along)
+    build.call("allocate", add=[node], fields=[])
+    lines = ["share:JaggedGround Nearby Enemies have 40% increased Damage taken", "share:JaggedGround 20% more Damage",
+             "share:JaggedGround 30% increased maximum Life"]
+    applied = build.call("applyPassiveCorrections", nodes=[{"id": node, "entry": "test-share", "lines": lines}])
+    assert applied["applied"] == 3 and not applied["failed"]
+    base = list(search.assumptions.mods)
+
+    def stats(percent):
+        share = [{"kind": "Raw", "name": "Multiplier:LedgerShareJaggedGround", "type": "BASE", "value": percent}]
+        return build.call("setAssumptions", mods=base + share, fields=["TotalDPS", "Life"])["stats"]
+
+    def dps(percent):  # hit DPS (TotalDPS): an Ignite's chance grows with the hit (Flammability), so not linear
+        return stats(percent)["TotalDPS"]
+
+    life = [stats(p)["Life"] for p in (0, 50, 100)]  # a plain INC line: exactly linear in the share
+    assert life[2] > life[0] and life[1] == pytest.approx((life[0] + life[2]) / 2, abs=1)
+    none, half, full = dps(0), dps(50), dps(100)
+    assert build.call("setAssumptions", mods=base, fields=["TotalDPS"])["stats"]["TotalDPS"] == pytest.approx(none)
+    assert full > none * 1.2  # at least the 20% more, and some of the 40% increased taken
+    # (1 + a + c s) x (1 + 0.2 s) / (1 + a), c = 0.4 + Spike Pit's own 0.1: at s = 1/2 the product of the halves
+    assert half == pytest.approx(none * ((full / none / 1.2 - 1) / 2 + 1) * 1.1, rel=5e-3)  # (Shock's size follows the hit too)
+
+
+def test_the_coverage_audit_reads_a_two_line_stat_description_as_one_line_as_pob_does_on_an_item(engine):
+    """auditCoverage (COV11; PLANS1's catalog finding): a mod whose stat description spans two lines is one line PoB
+    counts on an item (Item.lua joins a line it can't parse with the next), so the audit records the joined line, not
+    two halves it can't parse. Waveshaper's (UniqueManaRegenAppliesToRecharge1) is the example."""
+    engine.call("newBuild")
+    affixes = engine.call("auditCoverage")["affixes"]
+    wave = [a for a in affixes if a["id"] == "UniqueManaRegenAppliesToRecharge1"]
+    assert [(a["line"], a["supported"]) for a in wave] == [
+        ("Increases and Reductions to Mana Regeneration Rate also apply to Energy Shield Recharge Rate", True)]
+    assert "ManaRegenAppliesToEnergyShieldRecharge" in wave[0]["names"]

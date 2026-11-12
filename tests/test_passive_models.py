@@ -280,7 +280,8 @@ def test_flask_used_tree_lines_drop_pobs_parse():
     assert 35809 in life and 46972 in mana
     assert all(f["lines"] == [] for f in found if f["entry"].startswith("passives-wrong-") and "flask" in f["entry"])
     from builder.ledger import wrong
-    assert wrong("Regenerate 1.5% of maximum Life per Second if you've used a Life Flask in the past 10 seconds") is None
+    # (on an item it's switched off too since COV11, item_off: flask_used_model reads item lines as well)
+    assert wrong("Regenerate 1.5% of maximum Life per Second if you've used a Life Flask in the past 10 seconds")[1] is None
 
 
 def test_engine_flask_used_lines_drop_and_rate(tmp_path):

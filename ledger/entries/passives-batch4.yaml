@@ -32,6 +32,7 @@
   kind: pob_wrong
   match: '^Regenerate ([\d.]+)% of maximum Life per Second if you''ve used a Life Flask in the past 10 seconds$'
   replace: []
+  item_off: true  # (COV11: flask_used_model reads item lines too, so Heart of the Well's line is counted there)
   confidence: datamined
   notes: >-
     OVERCOUNT by PoB with Reverie (MECHC3's find), undercount otherwise. ModParser 1884 maps the condition to
@@ -43,7 +44,9 @@
     flasks.uses_per_second (0 under Reverie or with no Life Flask). Tree lines (checked: every Stats.json id holding
     "flask" with used / recent / past, and their PassiveSkills and Mods users, game 26476662; ModCache's "used a ...
     Flask" keys): Reinvigoration (life_flasks6, node 35809, 1%). The same stat is a unique's mod
-    (UniqueHeartPrefixFlaskLifeRegenForXSeconds, 1-1.5%): item text is unchanged here (COV-D's).
+    (UniqueHeartPrefixFlaskLifeRegenForXSeconds, 1-1.5%, Heart of the Well's desecrated variant): since COV11 the
+    entry switches the item line off too (item_off) and flask_used_model reads it with the tree's (checked: every
+    unique in the data with "used a ... Flask": only that one line; the Mana line has no unique).
   sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 1884", "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua 1724-1733",
             "game files PassiveSkills life_flasks6 (life_regeneration_rate_per_minute_%_if_used_life_flask_in_past_10_seconds 60)",
             "https://poe2db.tw/us/Reinvigoration", "builder/search/passive_models.py (flask_used_model)"]

@@ -420,9 +420,13 @@
   title: Bleeding aggravated against enemies on Jagged Ground
   kind: pob_gap
   match: '^(\d+)% chance for Bleeding to be Aggravated when Inflicted against Enemies on Jagged Ground$'
-  replace: ['if:JaggedGround {g1*0.4}% more Damage with Bleeding']
+  replace: ['share:JaggedGround {g1}% more Damage with Bleeding']
   confidence: theory
-  notes: "Each new bleed is aggravated with this chance while the boss stands on your Jagged Ground (40% of the time assumed)."
+  notes: >-
+    Each new bleed is aggravated with this chance while the boss stands on your Jagged Ground. Counted at the boss's
+    share of the fight in it (COV11: a `share:` line, x the build's conditions.jagged_ground share, from the main
+    skill's own Jagged Ground sources; 0 with none). Before, a flat 40% that switched on only at a share of 40% or more.
+    The chance read as that much more Bleeding damage stays LOW (aggravated Bleeding's own value not modelled here).
   sources: ["https://poe2db.tw/us/Jagged_Ground", "https://poe2db.tw/us/Aggravated_Bleeding"]
   status: proposed
 
@@ -430,15 +434,13 @@
   title: Spike Pit, enemies in your Jagged Ground take more damage
   kind: pob_gap
   match: '^Enemies in Jagged Ground you create take (\d+)% increased Damage$'
-  replace: ['if:JaggedGround Nearby Enemies have {g1*0.4}% increased Damage taken']
+  replace: ['share:JaggedGround Nearby Enemies have {g1}% increased Damage taken']
   confidence: theory
   notes: >-
-    Bosses move; the boss assumed in your Jagged Ground 40% of the time. The line counts only while the JaggedGround
-    condition is on: since MECH51 that is when the main skill's own Jagged Ground sources keep it under the boss at
-    least 40% of the fight (conditions.jagged_ground; assumptions.ledger_conditions), so a build above 40% still gets
-    40% of the bonus (an undercount) and one below it none (an undercount): scaling by the build's share needs a
-    share-weighted ledger condition (COV10's proposal: a Multiplier tag on 'if:' lines, set by the condition setter).
-    The game's 'increased Damage taken' is a debuff on the enemy that adds to its other increased Damage taken, so it
+    Bosses move: the line counts at the boss's share of the fight in your Jagged Ground (COV11: a `share:` line,
+    value x conditions.jagged_ground's share from the main skill's own Jagged Ground sources, in whole percent; 0 with
+    none; the result's note "Jagged Ground under the boss" gives the share). Before, a flat 40% that counted only at a
+    share of 40% or more (an undercount above it and below it). The game's 'increased Damage taken' is a debuff on the enemy that adds to its other increased Damage taken, so it
     is written as PoB's enemy debuff ('Nearby Enemies have N% increased Damage taken': EnemyModifier DamageTaken INC,
     engine-checked COV10); before, '% more Damage', a separate multiplier (a small overcount; FIX_QUEUE, MECH51's
     findings).

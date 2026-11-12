@@ -46,6 +46,11 @@ def test_conditional_corrections_read_as_conditions():
     assert [readable(line) for line in found[1]] == ["enables NoMercy"]
     assert readable("if:Witchbane 36% more Damage") == "36% more Damage (with Witchbane)"
     assert readable("flag:Witchbane") == "enables Witchbane"
+    # a share of the fight (COV11): Spike Pit's line counts its full value x the boss's share in Jagged Ground
+    spike = translate("Enemies in Jagged Ground you create take 10% increased Damage")
+    assert spike is not None and spike[0].conditional
+    assert spike[1] == ["share:JaggedGround Nearby Enemies have 10% increased Damage taken"]
+    assert readable(spike[1][0]) == "Nearby Enemies have 10% increased Damage taken (x the share of the fight with JaggedGround)"
 
 
 def test_conditions_and_wrong_lines_load():

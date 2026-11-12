@@ -2609,16 +2609,37 @@ function bridge.auditCoverage()
 		return supported, modNames(list), extra, modDescs(list)
 	end
 	local affixes = { }
+	-- A mod's lines as PoB reads them on an item: a line it can't parse is joined with the next one when the two parse
+	-- together (Item.lua's "Try to combine it with the next line"), so a two-line stat description ("Increases and
+	-- Reductions to Mana Regeneration Rate also" / "apply to Energy Shield Recharge Rate") is one line PoB counts, not
+	-- two it ignores (COV11; FIX_QUEUE, PLANS1's catalog finding). Yields line, supported, names, mods.
+	local function modLines(part)
+		local found, i = { }, 1
+		while part[i] do
+			local line = part[i]
+			local supported, names, _, mods = parse(line)
+			if not supported and part[i + 1] then
+				local joined = line .. " " .. part[i + 1]:gsub("%b{}", ""):gsub(" ?%(%l+%)", "")
+				local ok, joinedNames, _, joinedMods = parse(joined)
+				if ok then
+					line, supported, names, mods = joined, ok, joinedNames, joinedMods
+					i = i + 1
+				end
+			end
+			found[#found + 1] = { line = line, supported = supported, names = names, mods = mods }
+			i = i + 1
+		end
+		return found
+	end
 	for pool, mods in pairs(build.data.itemMods) do
 		if pool == "Runes" then
 			for name, rune in pairs(mods) do
 				for slot, mod in pairs(rune) do
 					if type(mod) == "table" then
 						for _, part in ipairs({ mod, mod.bonded }) do
-							for i, line in ipairs(part) do
-								local supported, names, _, mods = parse(line)
+							for _, l in ipairs(modLines(part)) do
 								affixes[#affixes + 1] = { pool = "Runes", id = name, slot = slot, bonded = part == mod.bonded or nil,
-									line = line, supported = supported, names = names, rune = mod.type, mods = mods }
+									line = l.line, supported = l.supported, names = l.names, rune = mod.type, mods = l.mods }
 							end
 						end
 					end
@@ -2626,10 +2647,9 @@ function bridge.auditCoverage()
 			end
 		else
 			for id, mod in pairs(mods) do
-				for i, line in ipairs(mod) do
-					local supported, names, _, mods = parse(line)
-					affixes[#affixes + 1] = { pool = pool, id = id, type = mod.type, line = line, supported = supported,
-						names = names, level = mod.level, tags = mod.modTags, mods = mods }
+				for _, l in ipairs(modLines(mod)) do
+					affixes[#affixes + 1] = { pool = pool, id = id, type = mod.type, line = l.line, supported = l.supported,
+						names = l.names, level = mod.level, tags = mod.modTags, mods = l.mods }
 				end
 			end
 		end
@@ -2907,10 +2927,18 @@ function bridge.applyPassiveCorrections(args)
 			end
 			for _, line in ipairs(correction.lines or { }) do
 				-- "flag:Name" switches ledger condition Name on; "if:Name <line>" counts only while it's on;
-				-- "mult:Name N" adds N to a custom model's input Name (PoB multiplier LedgerName)
+				-- "mult:Name N" adds N to a custom model's input Name (PoB multiplier LedgerName);
+				-- "share:Name <line>" counts the line at the share of the fight condition Name holds: its value / 100 x
+				-- Multiplier:LedgerShareName, which the assumptions set to the share in whole percent (COV11; e.g. the
+				-- boss's share of the fight in the build's Jagged Ground, conditions.jagged_ground). PoB floors a
+				-- Multiplier tag's count (ModStore), so the share is carried in percent, not as a fraction.
 				local flag = line:match("^flag:(%w+)$")
 				local multName, multValue = line:match("^mult:(%w+)%s+(-?[%d%.]+)$")
 				local condition, rest = line:match("^if:(%w+)%s+(.+)$")
+				local share, shareRest = line:match("^share:(%w+)%s+(.+)$")
+				if share then
+					rest = shareRest
+				end
 				local list, extra
 				if flag then
 					list = { modLib.createMod("Condition:Ledger" .. flag, "FLAG", true) }
@@ -2924,6 +2952,14 @@ function bridge.applyPassiveCorrections(args)
 						local copy = copyTable(parsed)
 						if condition then
 							copy[#copy + 1] = { type = "Condition", var = "Ledger" .. condition }
+						elseif share then
+							if type(copy.value) == "number" then
+								copy.value = copy.value / 100
+							elseif type(copy.value) == "table" and type(copy.value.mod) == "table"
+									and type(copy.value.mod.value) == "number" then
+								copy.value.mod.value = copy.value.mod.value / 100  -- (a LIST of one nested mod: EnemyModifier)
+							end
+							copy[#copy + 1] = { type = "Multiplier", var = "LedgerShare" .. share }
 						end
 						modLib.setSource(copy, "Ledger:" .. correction.entry)
 						node.modList:AddMod(copy)

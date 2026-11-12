@@ -245,7 +245,9 @@ def test_an_empty_pob_wrong_switches_an_item_line_off_only_when_it_says_item_off
     would count it nowhere); the Arcane Surge on crit entry says item_off, its uptime model reading the item line."""
     from builder.ledger import entries, wrong
 
-    assert wrong("Regenerate 1.5% of maximum Life per Second if you've used a Life Flask in the past 10 seconds") is None
+    # (the Life one says item_off since COV11: flask_used_model reads item lines too)
+    assert wrong("Regenerate 1.5% of maximum Life per Second if you've used a Life Flask in the past 10 seconds")[1] is None
+    assert wrong("10% increased Cast Speed if you've used a Mana Flask Recently") is None
     assert wrong("10% chance to Gain Arcane Surge when you deal a Critical Hit")[1] is None
     for entry in entries():
         if entry.kind == "pob_wrong" and entry.raw.get("item_off"):

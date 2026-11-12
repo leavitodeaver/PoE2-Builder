@@ -20,9 +20,13 @@ and the entry's confidence.
 Corrections that only hold together with something else use conditions:
     flag:Witchbane                 # this passive switches on condition "Witchbane"
     if:Witchbane 36% more Damage   # this line only counts while "Witchbane" is on
+    share:JaggedGround 10% more Damage  # this line counts at the share of the fight "JaggedGround" holds
 A condition is switched on by a passive's `flag:` line or by a `condition` entry naming the skills
 that provide it (`skills`: regex on active skill and support gem names; `skill_text`: regex on
-active skills' gem descriptions). Conditional lines apply to passives only, not to uniques.
+active skills' gem descriptions). A condition the fight decides only in part (the boss stands in the build's
+Jagged Ground some of the time) is a share, not on / off: a `share:` line counts its full value x that share
+(bridge applyLedger: value / 100 x Multiplier:LedgerShare<Name>, which assumptions.ledger_conditions sets to the share
+in whole percent; COV11). Conditional lines apply to passives only, not to uniques.
 
 Lines that feed a custom model (builder/search/models.py) rather than standing for a modifier of
 their own name it with `model:` and use
@@ -60,7 +64,7 @@ ENTRY_DIR = ROOT / "ledger" / "entries"
 ACTIVE = {"proposed", "approved"}
 TEMPLATE = re.compile(r"\{([^{}]+)\}")
 RANGE = re.compile(r"^\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)$")
-SYNTAX = re.compile(r"^(flag|if|mult):(\w+)\s*(.*)$")
+SYNTAX = re.compile(r"^(flag|if|mult|share):(\w+)\s*(.*)$")
 ROLLED = re.compile(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)")  # a roll range inside a line
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 
@@ -230,6 +234,8 @@ def readable(line: str) -> str:
     kind, name, rest = m.groups()
     if kind == "mult":
         return f"{rest} to the model input {name}"
+    if kind == "share":
+        return f"{rest} (x the share of the fight with {name})"
     return f"enables {name}" if kind == "flag" else f"{rest} (with {name})"
 
 
