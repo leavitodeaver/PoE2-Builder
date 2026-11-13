@@ -389,7 +389,8 @@ def ignored_line_status(line: str, on_passive: bool) -> tuple[str, str | None, s
         return "model", entry.id, f"fed to the {entry.raw['model']} model"
     if translated := translate(line):
         entry, lines = translated
-        if entry.conditional and not on_passive:
+        if not entry.on_items and not on_passive:
+            # (a `share:` line has an item form since COV17: ledger.item_lines; flag:, if: and mult: lines don't)
             return "none", entry.id, "ledger entry is conditional, which applies on passives only"
         if not lines and entry.raw.get("absorbed_by"):
             return "ledger", entry.id, "absorbed by an assumption: " + entry.raw["absorbed_by"]
@@ -476,7 +477,16 @@ def resolver_condition(line: str):
             return condition
         elif var == "buffArcaneSurge" and c.ARCANE_SURGE_SOURCE.search(rolled) and not c.ARCANE_SURGE_NOT_SOURCE.search(rolled):
             return condition
-        elif var == "conditionEnemyArmourBroken" and c.ARMOUR_BREAK_LINE.search(rolled) and                 not c.ARMOUR_BREAK_NOT_SOURCE.search(rolled):
+        elif var == "buffOnslaught" and (m := c.ONSLAUGHT_SOURCE.search(rolled)) and \
+                not c.ONSLAUGHT_NOT_SOURCE.search(rolled) and (
+                    not m.group(2).strip() or re.search(r"\bkill|culling strike|minion|during effect|maximum frenzy|"
+                                                        r"\bhit\b|critical", m.group(2), re.I)) and \
+                not re.search(r"vaal skill", m.group(2), re.I) and not re.match(r"with an? .+ socketed", rolled, re.I):
+            # (COV17: conditions._onslaught_source rates these from the build's events; a Vaal skill's line it rates 0,
+            # a wording it has no event for gets its flat default (LOW), and a "With a ... Jewel Socketed" line's
+            # condition it doesn't check, so those stay open here)
+            return condition
+        elif var == "conditionEnemyArmourBroken" and c.ARMOUR_BREAK_LINE.search(rolled) and                not c.ARMOUR_BREAK_NOT_SOURCE.search(rolled):
             return condition
     return None
 

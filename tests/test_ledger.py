@@ -152,3 +152,81 @@ def test_cov16_item_lines_translate():
     assert translate("15% increased chance to inflict Bleeding")[1] == ["15% increased to inflict Bleeding"]
     entry, lines = translate("Rolls only the minimum or maximum Damage value for Physical Damage")
     assert entry.id == "items-physical-rolls-minimum-or-maximum" and lines == []
+
+
+def test_recovery_lines_the_audit_counts_are_the_lines_the_recovery_model_reads():
+    """COV17: models-recovery.yaml tells the audit that MECHC12's recovery model (builder/search/recovery.py) counts these
+    lines; each must be a line the model's own pattern reads (rolled, as bridge.sourceLines gives it), and the lines no
+    rate reads yet (recovery.EVENT_UNREAD) and Indigon's restriction (it zeroes only the model's own Mana parts, not
+    PoB's leech, on-hit Mana or flasks) must stay open."""
+    from builder.ledger import model_entry
+    from builder.ledger.coverage import ignored_line_status
+    from builder.search import recovery
+
+    read = {
+        "Recover 4% of your maximum Life when an Enemy dies in your Presence": (recovery.PRESENCE_DEATH, "search"),
+        "Recover 3% of Maximum Mana when you collect a Remnant": (recovery.REMNANT_PICKUP, "search"),
+        "Recover 150 Life when Used": (recovery.CHARM_OWN, "match"),
+        "Recover 20 Mana when Used": (recovery.CHARM_OWN, "match"),
+        "Recover 5% of maximum Mana when a Charm is used": (recovery.CHARM_ANY, "search"),
+        "Recover 2% of maximum Life and Mana when you use a Warcry": (recovery.WARCRY_BOTH, "search"),
+        "Recover 4% of maximum Life when you use a Warcry": (recovery.WARCRY_LIFE, "search"),
+        "Recover 50% of maximum Life when you Heavy Stun a Rare or Unique Enemy": (recovery.HEAVY_STUN_UNIQUE, "search"),
+        "Recover 1% of maximum Life when you Ignite an Enemy": (recovery.IGNITE_PCT, "search"),
+        "Recover 50 Life when you Ignite an Enemy": (recovery.IGNITE_FLAT, "search"),
+        "Recover 3% of maximum Mana when you Shock an Enemy": (recovery.SHOCK_PCT, "search"),
+    }
+    for line, (pattern, how) in read.items():
+        assert getattr(pattern, how)(line), line
+        entry = model_entry(line)
+        assert entry is not None and entry.raw["model"] == "recovery", line
+        assert ignored_line_status(line, False)[0] == "model", line
+    # the item's ranged form reaches the audit; the bridge gives the model the rolled one
+    assert ignored_line_status("Recover (3-5)% of your maximum Mana when an Enemy dies in your Presence", False)[0] == "model"
+    for line in ("Recover 5% of maximum Life for each Endurance Charge consumed", "Recover all Mana when Used",
+                 "Recover 2% of maximum Mana when you consume a Power Charge",
+                 "Mana Recovery other than Regeneration cannot Recover Mana"):
+        assert model_entry(line) is None, line
+    # Recoup stays recorded as no effect (recovery, not a checked defence)
+    assert ignored_line_status("12% of Physical Damage prevented Recouped as Life", False)[:2] == \
+        ("ledger", "no-effect-enemy-death-and-recoup")
+
+
+def test_share_lines_have_an_item_form_and_other_conditional_lines_dont():
+    """COV17: `share:` lines go on items as "LedgerShare:" stand-ins; flag:, if: and mult: lines stay passives only, and
+    the audit says so. Seed of Cataclysm's crit-bonus loss now counts (an OVERCOUNT while PoB dropped it)."""
+    from builder.ledger import item_lines
+    from builder.ledger.coverage import ignored_line_status
+
+    assert item_lines(["share:X 5% more Damage", "+5 to Strength"]) == ["LedgerShare:X 5% more Damage", "+5 to Strength"]
+    seed = "5% reduced Critical Spell Damage Bonus per Critical Hit you've dealt with Spells Recently"
+    entry, lines = translate(seed)
+    assert entry.on_items and lines == ["share:SpellCritsRecently 5% reduced Critical Spell Damage Bonus"]
+    assert ignored_line_status(seed, False)[0] == "ledger"
+    flagged = [e for e in entries() if e.kind == "pob_gap" and any(re.match(r"^(flag|if|mult):", r) for r in e.replace)]
+    assert flagged and not any(e.on_items for e in flagged)
+
+
+def test_item_lines_a_model_already_reads_are_counted_by_the_audit():
+    """COV17: item lines a model reads that the audit called uncounted: the Remnant double-pickup affix (the item wording
+    of DUPLICATE_PICKUP's stat), Dodge Roll distance / speed (models.dodge_roll), Runic Ward per charm used / on kill
+    (models.ward_income), and Onslaught sources conditions._onslaught_source rates from the build's events. A Vaal
+    skill's Onslaught (rated 0) and a conditional Dodge Roll wording stay open."""
+    from builder.ledger.coverage import ignored_line_status
+    from builder.search import assumptions, conditions, models
+
+    read = {"(10-12)% chance for Remnants you pick up to count as picking up an additional Remnant": assumptions.DUPLICATE_PICKUP,
+            "+(0.3-0.4) metres to Dodge Roll distance": models.DODGE_DISTANCE, "(20-30)% faster Dodge Roll": models.DODGE_SPEED,
+            "Recover (32-45) Runic Ward when a Charm is used": models.WARD_ON_CHARM,
+            "Recover 1% of maximum Runic Ward on Kill": models.WARD_ON_KILL,
+            "Gain Onslaught for 3 seconds when Hit": conditions.ONSLAUGHT_SOURCE}
+    for line, pattern in read.items():
+        rolled = re.sub(r"\((-?[\d.]+)-(-?[\d.]+)\)", r"\1", line)
+        assert pattern.search(rolled), line
+        assert ignored_line_status(line, False)[0] == "model", line
+    for line in ("You gain Onslaught for 20 seconds on using a Vaal Skill",
+                 "+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently"):
+        assert ignored_line_status(line, False)[0] == "none", line
+    # a socketed-jewel condition the Onslaught model doesn't check stays open
+    assert ignored_line_status("With a Searching Eye Jewel Socketed, Attacks have 25% chance to grant Onslaught On Kill",
+                               False)[0] == "none"
