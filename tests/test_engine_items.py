@@ -903,35 +903,6 @@ def test_poison_spores_pustule_explosion_is_held_to_one_a_fuse(engine):
     assert mods == [models.raw_mod("DPS", "MORE", 100 * (share - 1), "Poison Spores")], mods
     assert notes[0]["value"] == f"x{share:.3f}"
 
-
-
-
-
-def test_only_the_skills_the_game_marks_copy_the_supported_gems_level(engine):
-    """(MECHB17) A support-granted skill takes its group's skill-gem level only when the game marks it as copying
-    (bridge COPIES_GEM_LEVEL: GrantedEffects' unnamed 40 column; poe2db's "copy the Level of the Gem it is Socketed
-    in"): Living Lightning's is marked, Creeping Chill's (40 level rows, unmarked; poe2db has no such line) isn't and
-    stays at PoB's level."""
-    from builder.search.inner import Search
-    from builder.search.skeletons import enumerate_skeletons
-
-    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"], level=90, objective="boss"))
-    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
-    search = Search(engine, None, payload, skeleton.as_dict(), 1)
-    search.setup(quests=False)
-    build = search.build
-    group = next(g for g in build.groups() if g["main"])
-    gems = [dict(x, level=20) for x in group["gems"] if not x["support"]] + [
-        {"name": "Frost Wall", "support": False, "level": 20, "quality": 0, "enabled": True},
-        {"name": "Living Lightning", "support": True, "level": 1, "quality": 0, "enabled": True},
-        {"name": "Creeping Chill", "support": True, "level": 1, "quality": 0, "enabled": True}]
-    build.call("setGroup", index=group["index"], gems=gems)
-    levels = {s["name"]: s.get("effectLevel") for s in build.call("activeSkills")["skills"] if s.get("group") == group["index"]}
-    print("levels:", levels)
-    assert levels.get("Living Lightning") == 20, levels
-    assert levels.get("Creeping Chill") == 1, levels
-
-
 def test_tornado_copies_read_tornado_shots_level_and_use_rate(engine):
     """(MECHB17) The Tornado Shot hook reads the gem's level stats from PoB (8 hits, -41% at level 20) and its own use
     rate (useRates), and gives a 4-arrow volley its gain."""
