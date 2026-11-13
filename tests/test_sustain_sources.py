@@ -11,7 +11,7 @@ BOSS = {"enemySkillTime": 1.0, "PhysicalTakenHit": 1000.0, "FireTakenHit": 500.0
 
 
 def _taken(stats):
-    taken, _, _ = boss_taken(stats, benefit_every(stats))
+    taken, _, _ = boss_taken(stats)  # (Recoup reads the defence pace, the hits whose damage it takes back: A25-60)
     return sum(taken.values()), taken
 
 
@@ -83,3 +83,11 @@ def test_a_what_if_never_inherits_the_committed_builds_cost_warnings():
                            objective=SimpleNamespace(prepare=lambda st: st, score=lambda st: seen.append(dict(st)) or 0.0))
     Build._scored(stub, [{"WardCost": 16.0, "Ward": 300.0}], fill_from_base=True)
     assert "WardCostWarningList" not in seen[0] and seen[0]["Life"] == 100.0
+
+
+def test_recoup_reads_the_same_hits_as_the_damage_it_takes_back():
+    """AUDIT25 A25-60: Recoup at the slower benefit pace recovered less than its line promises against the damage
+    counted at the defence pace. 10% Life Recoup now returns 10% of what boss_recovery counts as taken."""
+    stats = {**BOSS, "LifeRecoup": 10.0, "LifePerSecondCost": 1.0}
+    assert benefit_every(stats) > stats["enemySkillTime"]  # (the two paces differ for this boss)
+    assert hit_recovery_rates(stats)["Life"] == pytest.approx(boss_recovery({**stats, "LifePerSecondCost": 0})["incoming"] * 0.10)

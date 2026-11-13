@@ -110,8 +110,8 @@ SUSTAIN_POOLS = {
     "Life": ("LifePerSecondCost", ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", RECOVERY_FIELDS["Life"])),
 }
 # Recoup counts too (the user, 12 Nov ~18:20: "regen is not the only source of recovery, not by a longshot ... that
-# applies for health and mana too"; SEARCH9): each pool's Recoup of the boss's hits that land, at the "when hit" benefit
-# cadence, and PoB's Life / Mana gained on Block at the boss's blocked hits (hit_recovery_rates). Sources still left out
+# applies for health and mana too"; SEARCH9): each pool's Recoup of the boss's hits that land, at the defence pace the
+# damage it recoups is read at, and PoB's Life / Mana gained on Block at the boss's blocked hits (hit_recovery_rates). Sources still left out
 # of the sustain share, named in its result (never a silent rejection) (checked: the share's fields; PoB's Life / Mana
 # outputs named On* (OnHit, OnKill, OnBlock, OnSuppress: OnSuppress has no PoE2 ModCache line) in CalcOffence /
 # CalcDefence and the ModCache names LifeOnKill / ManaOnKill / LifeOnBlock / ManaOnBlock; origin/main's models,
@@ -193,10 +193,12 @@ def on_block(stats: dict, pool: str, every: float | None = None) -> float:
 
 
 def hit_recovery_rates(stats: dict) -> dict[str, float]:
-    """Life and Mana recovered per second from the boss's hits (Recoup of the landed ones, gains on Block), at the
-    "when hit" benefit cadence: what the sustain share counts beside regeneration, leech, on-hit recovery and flasks."""
+    """Life and Mana recovered per second from the boss's hits: what the sustain share counts beside regeneration, leech,
+    on-hit recovery and flasks. Recoup takes back a share of the damage taken, so it reads the same hits as that damage
+    (enemySkillTime, the defence pace; AUDIT25 A25-60: at the slower benefit pace it recovered less than its line
+    promises, an UNDERCOUNT); gains on Block are a "when hit" benefit, at the benefit pace."""
+    taken, _, _ = boss_taken(stats)
     every = benefit_every(stats)
-    taken, _, _ = boss_taken(stats, every)
     return {pool: recoup(stats, taken, pool) + on_block(stats, pool, every) for pool in SUSTAIN_POOLS}
 
 
