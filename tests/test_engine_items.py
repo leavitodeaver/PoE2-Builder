@@ -901,6 +901,34 @@ def test_poison_spores_pustule_explosion_is_held_to_one_a_fuse(engine):
     assert notes[0]["value"] == f"x{share:.3f}"
 
 
+def test_toxic_growth_explosion_is_held_to_its_pustule_limit(engine):
+    """Toxic Growth's Explosion set (MECHB14): PoB rates it at the attack rate; the bridge gives its Pustule Limit
+    (number_of_poisonbloom_arrow_bloom_allowed with quality, + AdditionalCooldownUses) and Detonation Time, and the cap
+    holds it to Limit / fuse."""
+    from builder.search import models
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    group = next(g for g in build.groups() if g["main"])
+    build.call("setGroup", index=group["index"], gems=[{"name": "Toxic Growth", "support": False, "level": 20,
+                                                        "quality": 20, "enabled": True}])
+    build.call("setGroup", index=group["index"], mainActiveSkill=1, statSet=2)  # (the Explosion)
+    found = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
+    assert models.pustule_groups(found, "Toxic Growth") == [group["index"]], [(s.name, s.stat_set) for s in found]
+    rate = build.call("useRates", indices=[group["index"]])["rates"][0]
+    print("Toxic Growth rate:", rate)
+    assert rate["pustuleLimit"] == 6 and abs(rate["detonationTime"] - 15) < 1e-6 and rate["speed"] > 0.4  # (5 + 20q x 0.05)
+    mods, notes = search.assumptions.pustule_cap(found)
+    share = 6 / 15 / rate["speed"]
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (share - 1), "Toxic Growth")], mods
+    assert notes[0]["value"] == f"x{share:.3f}"
+
+
 def test_lucky_spell_crits_are_pobs_own_lucky_on_spell_crits(engine):
     """"N% chance for Spell Damage with Critical Hits to be Lucky" (PoB parses it only in part, so never applies it):
     the bridge makes it PoB's LuckyHitsChance on Spell hits in the crit pass (COV8's patch, POE2T2401; MECHB10). Spark

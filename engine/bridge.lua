@@ -2303,11 +2303,24 @@ function bridge.useRates(args)
 			if env.minion and type(env.minion.output.Life) == "number" then
 				entry.minionLife = jsonNumber(env.minion.output.Life)
 			end
+			-- (MECHB14: Toxic Growth's Pustule Limit, models.pustule_cap) the scored set's
+			-- number_of_poisonbloom_arrow_bloom_allowed with quality, plus "+N to Limit" lines, which PoB maps to
+			-- AdditionalCooldownUses (SkillStatMap base_limit_+; ModCache "Skills have +1 to Limit")
+			local set = skill.activeEffect.statSet
+			set = set and (set.statSet or set)
+			if set and set.constantStats then
+				local okStats, stats = pcall(calcLib.buildSkillInstanceStats, skill.activeEffect, skill.activeEffect.grantedEffect, set)
+				local base = okStats and stats and stats["number_of_poisonbloom_arrow_bloom_allowed"]
+				if base and base > 0 then
+					entry.pustuleLimit = jsonNumber(base + skill.skillModList:Sum("BASE", skill.skillCfg, "AdditionalCooldownUses"))
+				end
+			end
 			-- (MECHB13: Runic Ward pays for Ward-cost skills, models.ward_plan) one use's Runic Ward cost, PoB's WardCost
 			if type(output.WardCost) == "number" and output.WardCost > 0 then
 				entry.wardCost = jsonNumber(output.WardCost)
 			end
-			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance" }) do
+			-- (MECHB14: IgniteDuration, how long an Ignite of the group lasts: Frostflame Nova's ice per cast, models.frostflame_plan)
+			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance", "IgniteDuration" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end

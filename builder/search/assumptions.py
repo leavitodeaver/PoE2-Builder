@@ -678,7 +678,7 @@ class Assumptions:
         """Poison Spores' Pustule Explosion at one a fuse on the boss (models.pustule_cap): PoB's rate for each group's
         Spores skill (useRates with that active skill), and its Detonation Time."""
         mods, notes, by_index = [], [], None
-        for name in models.PUSTULE_SKILLS:  # (Poison Spores, Toxic Domain: AUDIT23 A23-1)
+        for name in models.PUSTULE_SKILLS:  # (Poison Spores, Toxic Domain: AUDIT23 A23-1; Toxic Growth: MECHB14)
             indices = models.pustule_groups(found, name)
             if not indices:
                 continue
@@ -877,7 +877,7 @@ class Assumptions:
                  for name, percent in sorted(self.ledger_shares.items())]
         mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
         notes += ward_notes
-        frost_mods, frost_notes = self.frostflame(main)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
+        frost_mods, frost_notes = self.frostflame(main, skills)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
         mods, notes = mods + frost_mods, notes + frost_notes
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
         from builder.search import bosses
@@ -955,10 +955,12 @@ class Assumptions:
         melee = bool(next((s for s in skills if s["name"] == main), {}).get("melee"))
         stuns, stuns_how = models.stun_rate(pools, melee) if kalguur is not None else (0.0, "")
         regen, pool = number(pools.get("WardRegenRecovery")), number(pools.get("Ward"))
+        feeds = self.ward_feeds(texts, main, uses, mods, skills)  # (MECHB14: charms, Life flasks, Life sacrificed on Attack)
         income, parts, unread = models.ward_income(
             regen, pool, texts, kalguur=kalguur, stuns=stuns, stuns_how=stuns_how,
             kills=(number(kills[0]), number(kills[1])), on_block=number(pools.get("WardOnBlock")),
-            block=number(pools.get("EffectiveBlockChance")), every=bosses.benefit_skill_time(pools))  # (a "when hit" benefit, MECHD4)
+            block=number(pools.get("EffectiveBlockChance")), every=bosses.benefit_skill_time(pools),  # (a "when hit" benefit, MECHD4)
+            **feeds)
         share, notes = models.ward_plan(uses, income, pool, parts, unread)
         build.ward_sustain = {u.name: (u.rate, u.rate * share, u.cost) for u in uses}
         # (the total, every source: the one field SEARCH reads; its breakdown is in the note)
@@ -980,20 +982,89 @@ class Assumptions:
                     scales[key] *= share
         return out, notes
 
-    def frostflame(self, main: str | None) -> tuple[list[dict], list[dict]]:
-        """Frostflame Nova as the main skill (models.frostflame_model): its Volatile Ice at 2 hits a second while the boss
-        carries an Ignite from any of the build's Full DPS groups (models.ignite_share), not one hit per cast."""
-        if main != models.FROSTFLAME:
+    def ward_feeds(self, texts: list[str], main: str | None, uses: list, mods: list[dict], skills: list[dict]) -> dict:
+        """The rates three Runic Ward sources read (models.ward_income's keywords; MECHB14), only for a build with the
+        line: Charm uses a second (flasks.uses_per_second over the charm slots), the Life flask's average recovery
+        (flasks.recovery_per_second, build.extra_stats' FlaskLifeRecoveryRate) and PoB's always-running flask part
+        inside WardRegenRecovery, and the main skill's attacks a second with the Life recovery that pays for a sacrifice."""
+        from builder.search import flasks
+
+        build, out = self.build, {}
+        lowered = [t.lower() for t in texts]
+        has = lambda pattern: any(pattern.search(t) for t in lowered)  # noqa: E731
+        if not (has(models.WARD_ON_CHARM) or has(models.WARD_FROM_FLASK) or has(models.WARD_SACRIFICE)):
+            return out
+        gain = flasks.Charges.of(build)
+        equipped = getattr(build, "equipped", {}) or {}
+        if has(models.WARD_ON_CHARM):
+            total, how = 0.0, []
+            for slot in flasks.CHARM_SLOTS:
+                option = equipped.get(slot)
+                if option is None:
+                    continue
+                info = build.call("flaskData", raws=[option.raw])["results"][0]
+                rate, why = flasks.uses_per_second(info or {}, gain, option.raw, None)
+                total += rate
+                how.append(f"{option.name} {rate:.3f}/s: {why}")
+            out.update(charm_uses=total, charm_how="; ".join(how))
+        if has(models.WARD_FROM_FLASK):
+            pct = models.ward_flask_percent(texts)
+            slot = next(k for k, v in flasks.FLASK_SLOTS.items() if v == "Life")
+            option = equipped.get(slot)
+            info = build.call("flaskData", raws=[option.raw])["results"][0] if option is not None else None
+            out["flask_life"] = flasks.recovery_per_second(info, gain, "Life") if info else 0.0
+            active = (build.call("chargeGain").get("active") or {}).get(slot) if info else False
+            length = number((info or {}).get("duration"))
+            if active and length > 0:  # (PoB's CalcPerform 1642: the flask's whole recovery over its duration, always)
+                out["pob_flask_ward"] = (number(info.get("lifeTotal")) * (1 + gain.life_recovery_inc / 100) / length
+                                         * pct / 100)
+        if has(models.WARD_SACRIFICE):
+            skill = next((u for u in uses if u.kind == "main"), None)
+            stats = build.call("stats", fields=["Life", "LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate"])
+            attacks = 0.0
+            group = build.main_group()
+            info = next((s for s in skills if s["name"] == main and not s["disabled"]), {}) if main else {}
+            if group is not None and info.get("attack"):
+                if skill is not None:
+                    attacks = skill.rate  # (already after the press hook)
+                else:
+                    attacks = number(next(iter(build.call("useRates", indices=[group["index"]])["rates"]), {})
+                                     .get("speed"))
+                    for mod in mods:
+                        if mod.get("kind") == "Raw" and mod.get("name") == "DPS" and mod.get("type") == "MORE" \
+                                and mod.get("skill") == main:
+                            attacks *= 1 + number(mod.get("value")) / 100
+            extra = getattr(build, "extra_stats", None) or {}
+            recovery = sum(number(stats.get(k)) for k in ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate")) \
+                + number(extra.get(flasks.RECOVERY_FIELDS["Life"]))
+            out.update(attacks=attacks, life=number(stats.get("Life")), life_recovery=recovery)
+        return out
+
+    def frostflame(self, main: str | None, skills: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+        """Frostflame Nova's Volatile Ice (models.frostflame_plan), as the main skill or in any Full DPS group (MECHB14):
+        2 hits a second while the boss carries an Ignite from any of the build's Full DPS groups (models.ignite_share),
+        at most 2 x the Ignite's duration a cast, not one hit per cast. `skills`: activeSkills, to skip a build without it."""
+        if skills is not None and not any(s["name"] == models.FROSTFLAME and not s.get("disabled") for s in skills):
             return [], []
         build = self.build
         main_group = build.main_group()
-        if main_group is None:
+        groups = [g for g in build.groups() if g["enabled"] and (g.get("fullDPS") or (main_group is not None
+                                                                                     and g["index"] == main_group["index"]))]
+        frost = [g["index"] for g in groups if any(s["name"] == models.FROSTFLAME for s in g["skills"])]
+        if not frost:
             return [], []
-        indices = sorted({g["index"] for g in build.groups() if g["enabled"] and g.get("fullDPS")} | {main_group["index"]})
+        indices = sorted({g["index"] for g in groups})
         rates = build.call("useRates", indices=indices)["rates"]
-        speed = number(next((r for r in rates if r["index"] == main_group["index"]), {}).get("speed"))
-        share, how = models.ignite_share(rates, getattr(build.objective, "press_scales", None))
-        return models.frostflame_model(speed, share, how)
+        scales = getattr(build.objective, "press_scales", None) or {}
+        main_index = main_group["index"] if main_group is not None else None
+        uses = [(number(r.get("speed")), 1.0 if r["index"] == main_index else scales.get(r.get("name"), 1.0))
+                for r in rates if r["index"] in frost and str(r.get("name", "")).startswith(models.FROSTFLAME)]
+        if not uses:
+            return [], []
+        share, how = models.ignite_share(rates, scales)
+        duration = max([number(r.get("IgniteDuration")) for r in rates if number((r.get("stackPotential") or {})
+                                                                                 .get("Ignite")) > 0] or [0.0])
+        return models.frostflame_plan(uses, share, how, duration)
 
     def unbuilt_grants(self, skills: list[dict]) -> list[dict]:
         """A note for each skill the build's passives or items grant ("Grants Skill: ...") that PoB built no skill for

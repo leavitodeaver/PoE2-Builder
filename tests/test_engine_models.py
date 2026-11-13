@@ -1844,3 +1844,30 @@ def test_runic_ward_regeneration_holds_the_transmutation_explosions(engine):
     assert rate == pytest.approx(paid, abs=1e-3)
     note = next(n for n in search.assumptions.active if "Runic Ward" in n["label"])
     print("ward", sustain, note)
+
+
+def test_frostflame_nova_in_full_dps_is_held_to_the_ignite(engine):
+    """MECHB14: a Full DPS Frostflame Nova beside a Boneshatter main skill: PoB adds one ice hit per cast; the model
+    holds it to 2 hits/s x the boss's Ignited share (here from a Full DPS Fireball) and 2 x the Ignite's duration a
+    cast. The bridge gives each group's IgniteDuration."""
+    from builder.search import models
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.set_group(gems=[{"name": "Frostflame Nova", "level": 20, "quality": 0}], label="frost", fullDPS=True)
+    build.set_group(gems=[{"name": "Fireball", "level": 20, "quality": 0}], label="fire", fullDPS=True)
+    frost = next(g for g in build.groups() if any(s["name"] == "Frostflame Nova" for s in g["skills"]))
+    fire = next(g for g in build.groups() if any(s["name"] == "Fireball" for s in g["skills"]))
+    rates = {r["index"]: r for r in build.call("useRates", indices=[frost["index"], fire["index"]])["rates"]}
+    print("rates", rates)
+    assert rates[frost["index"]]["speed"] > 0
+    mods, notes = search.assumptions.frostflame("Boneshatter", build.call("activeSkills")["skills"])
+    assert notes and notes[0]["label"].startswith("Frostflame Nova: Volatile Ice"), notes
+    assert mods[0]["skill"] == models.FROSTFLAME
+    if (rates[fire["index"]].get("stackPotential") or {}).get("Ignite"):
+        assert rates[fire["index"]]["IgniteDuration"] > 0 and "Fireball" in notes[0]["basis"]
+    else:
+        assert mods[0]["value"] == pytest.approx(-100)  # (no Ignite: the ice never latches)

@@ -2980,6 +2980,21 @@ def test_toxic_domain_pustules_are_held_to_one_a_fuse_too():
     assert notes[0]["label"].startswith("Toxic Domain")
 
 
+def test_toxic_growth_bursts_at_most_its_pustule_limit_a_fuse():
+    """Toxic Growth (MECHB14): 5 Pustules a cast under a Limit of 5 (a new one makes the oldest disappear), 15 s fuse:
+    at most Limit / fuse bursts a second, the Limit from the bridge (quality and "+N to Limit") or the base 5."""
+    from builder.search import models
+
+    found = [models.Skill("Toxic Growth", 3, stat_set="Explosion"), models.Skill("Toxic Growth", 5, stat_set="Pustules")]
+    assert models.pustule_groups(found, "Toxic Growth") == [3]
+    mods, notes = models.pustule_cap([{"speed": 1.5, "detonationTime": 15}], "Toxic Growth")
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (5 / 15 / 1.5 - 1), "Toxic Growth")]
+    assert notes[0]["value"] == "x0.222" and "Limit, base" in notes[0]["basis"] and "once every 15 s" in notes[0]["play"]
+    mods, notes = models.pustule_cap([{"speed": 1.5, "detonationTime": 15, "pustuleLimit": 7}], "Toxic Growth")
+    assert abs(mods[0]["value"] - 100 * (7 / 15 / 1.5 - 1)) < 0.01 and "keeps 7 Pustules" in notes[0]["basis"]
+    assert models.pustule_cap([{"speed": 0.3, "detonationTime": 15}], "Toxic Growth") == ([], [])  # (under 5 / 15: as PoB)
+
+
 def test_a_one_totem_support_keeps_one_totem_up():
     """Splinter Totem I / II, Greatwood II, Cirel's Cultivation: "Supported Skills can only have one active Totem"
     (number_of_totems_allowed_is_1, AUDIT23 A23-3): no extra totems counted, whatever the Totem Limit."""
@@ -3428,16 +3443,33 @@ def test_ward_income_counts_every_runic_ward_source_not_regeneration_alone():
     kalguur = {"ward_remnants_gain_per_globe": 205, "ward_remnants_chance_to_spawn_remnant_on_stun_%": 50,
                "ward_remnants_spawn_remnant_on_stun_cooldown_ms": 3000,
                "ward_remnants_chance_to_spawn_orb_on_killing_enemy_%": 25}
-    texts = ["Recover 1% of maximum Runic Ward on Kill", "Recover (32-45) Runic Ward when a Charm is used"]
+    texts = ["Recover 1% of maximum Runic Ward on Kill", "Recover 4% of maximum Runic Ward on reaching Maximum Rage"]
     income, parts, unread = models.ward_income(10.0, 1000.0, texts, kalguur=kalguur, stuns=1.0, kills=(0.5, 0.5),
                                                on_block=20, block=50, every=1.0)
     remnants = 1 / (3 + 1 / 0.5) + 0.25 * 0.5
     assert income == pytest.approx(10 + remnants * 205 + 20 * 0.5 + 0.01 * 1000 * 0.5)
-    assert len(parts) == 4 and unread == ["Runic Ward when a Charm is used"]
+    assert len(parts) == 4 and unread == ["Runic Ward on reaching Maximum Rage"]
     assert models.ward_income(0.0, 0.0, [])[0] == 0.0
     share, notes = models.ward_plan([models.WardUse("Skyfall", "main", 1.0, 135.0)], 13.5, 270.0, parts, unread)
     assert share == pytest.approx(0.1) and "Remnants of Kalguur" in notes[0]["basis"]
-    assert "a Charm is used" in notes[0]["basis"]
+    assert "Maximum Rage" in notes[0]["basis"]
+
+
+def test_ward_income_rates_charm_uses_life_flask_recovery_and_life_sacrificed_on_attack():
+    """MECHB14 (the user's rule: every recovery source at the rate the build feeds it): Ward a Charm use x the charms'
+    uses a second; N% of the Life flask's average recovery (in place of PoB's always-running part); half the Life
+    sacrificed on Attack, held to the Life the build recovers."""
+    texts = ["Recover 40 Runic Ward when a Charm is used", "20% Life Recovery from Flasks also applies to Runic Ward",
+             "Sacrifice 20% of maximum Life to gain half that much Runic Ward when you Attack"]
+    income, parts, unread = models.ward_income(
+        50.0, 1000.0, texts, charm_uses=0.1, charm_how="Thawing Charm", flask_life=100.0, pob_flask_ward=30.0,
+        attacks=2.0, life=2000.0, life_recovery=300.0)
+    assert income == pytest.approx((50 - 30) + 0.2 * 100 + 40 * 0.1 + 300 / 2)
+    assert unread == [] and len(parts) == 4 and "held to the 300 Life/s" in parts[3]
+    assert "less its always-running flask part" in parts[0]
+    income, _, _ = models.ward_income(50.0, 1000.0, texts[2:], attacks=0.1, life=2000.0, life_recovery=300.0)
+    assert income == pytest.approx(50 + 0.2 * 2000 * 0.1 / 2)  # (40 Life/s sacrificed: recovered in full)
+    assert models.ward_income(50.0, 1000.0, texts[:1])[0] == 50.0  # (no charm used: nothing)
 
 
 def test_living_bomb_reads_a_showaverage_main_skills_damage_per_second():
@@ -3449,6 +3481,20 @@ def test_living_bomb_reads_a_showaverage_main_skills_damage_per_second():
              "TotalDPS": 50000, "CullMultiplier": 1, "ReservationDpsMultiplier": 1}
     rate, how = living_bomb_rate(stats, 1.0)
     assert rate == pytest.approx(1 / 5) and "50,000 DPS" in how  # (per use, 10,000, would read one per 16 s)
+
+
+def test_frostflame_nova_beside_the_main_skill_is_held_to_the_ignite_and_its_casts():
+    """MECHB14: a Full DPS / pressed Frostflame Nova: one ice over all its groups, 2 hits/s x the Ignite share, at most
+    2 x the Ignite's duration a cast."""
+    from builder.search import models
+
+    mods, notes = models.frostflame_plan([(1.2, 0.5)], 0.6, "Fireball 60%")
+    assert mods[0]["value"] == pytest.approx(100 * (1.2 / 0.6 - 1)) and notes[0]["value"] == "1.20 hits/s"
+    mods, notes = models.frostflame_plan([(1.2, 0.05)], 0.9, "Fireball 90%", ignite_duration=4.0)
+    assert mods[0]["value"] == pytest.approx(100 * (2 * 4.0 - 1)) and "held by its casts" in notes[0]["basis"]
+    mods, notes = models.frostflame_plan([(1.0, 1.0), (0.5, 1.0)], 0.5, "x")  # (two groups share the one ice)
+    assert mods[0]["value"] == pytest.approx(100 * (1.0 / 1.5 - 1), abs=0.01) and "2 groups" in notes[0]["basis"]
+    assert models.frostflame_plan([(0.0, 1.0)], 0.5, "x") == ([], [])
 
 
 def test_frostflame_novas_ice_hits_twice_a_second_while_the_boss_is_ignited():

@@ -5137,31 +5137,68 @@ def minion_pact_model(skills: list[Skill], main: Skill | None, stats: dict) -> t
 # Toxic Domain (AUDIT23 A23-1): the same rule, "Each enemy can have up to 1 Pustule attached" (toxic_domain/statset_0.csd,
 # its mode 1) and base_skill_detonation_time 15000 on its Pustule Explosion set (PoB's act_dex.lua ToxicDomainPlayer).
 # Each skill is held to its own one Pustule: whether Spores' and Domain's Pustules share the one slot is UNVERIFIED (a
-# build with both would count up to two). Not this rule: Toxic Growth's Pustules lie on the ground under a Pustule Limit
-# (5; its statset_0.csd "Pustule Limit"), not one per enemy (open: its detonation rate against that limit).
+# build with both would count up to two).
+# Toxic Growth (MECHB14, an OVERCOUNT): its Pustules lie on the ground under a Limit, not one per enemy. Game files:
+# "Fires 5 Pustules" (base_number_of_projectiles 5), "[Limit] 5 pustules" (number_of_poisonbloom_arrow_bloom_allowed 5,
+# +0.05 a quality), base_skill_detonation_time 15000 on both sets (toxic_growth statset_0 / statset_1 .csd; PoB's
+# act_dex.lua ToxicGrowthPlayer the same); KeywordPopups Limit: "If a new effect is created while at the maximum number
+# of effects, the oldest effect will dissapear" (it disappears; the text says nothing of a burst). So at most Limit
+# Pustules burst per fuse: Limit / fuse a second (5 / 15 s = 0.33/s), reached only by firing no sooner than the fuse
+# allows (one cast fills the Limit; firing again sooner replaces the waiting Pustules, so spamming it bursts none: the
+# play row says so). PoB scores the Explosion set at the attack rate, one explosion a cast; it's held to
+# min(1, (Limit / fuse) / PoB's rate). The Limit: the set's own stat with quality (calcLib.buildSkillInstanceStats) plus
+# "+N to Limit" lines, which PoB maps to AdditionalCooldownUses (Overabundance I / II, the amulet line "Skills have +1 to
+# Limit": SkillStatMap base_limit_+, ModCache) (checked: every Stats id holding "limit" with "+" / "additional" looked
+# up in Mods, PassiveSkills, GrantedEffectStatSets(PerLevel), GrantedEffectQualityStats: base_limit_+ on
+# SupportIncreaseLimitPlayer(Two) and UniqueBaseLimit1; plant_skill_limit_+ (Toxic Growth is a Plant skill) and
+# virtual_total_limit_+ on none of them; the elemental / orb / storm / fissure / temporary-minion limits don't match the
+# skill's types; second source PoB's ModItem / ModItemExclusive / sup_dex.lua). Each burst is taken as hitting the boss
+# (Pustules land in a 4.5 m spread with a 0.8 m burst: how many reach a pinnacle boss is UNVERIFIED, so this is the
+# upper bound, labelled). Not counted, as for the Spores: stored Poison's sooner / harder burst (an undercount), and the
+# Pustules set's own impacts (5 a cast; PoB counts one: an undercount, not touched here).
 PUSTULE_SKILL, PUSTULE_SET, PUSTULE_FUSE = "Poison Spores", "Pustule Explosion", 15.0
-PUSTULE_SKILLS = (PUSTULE_SKILL, "Toxic Domain")
+PUSTULE_SKILLS = (PUSTULE_SKILL, "Toxic Domain", "Toxic Growth")
+PUSTULE_SETS = {"Toxic Growth": "Explosion"}  # (the others: PUSTULE_SET)
+PUSTULE_LIMIT = {"Toxic Growth": 5}  # (base, when the bridge gives no pustuleLimit; the others: one per enemy)
 
 
 def pustule_groups(skills: list[Skill], name: str = PUSTULE_SKILL) -> list[int]:
     """Groups whose `name` (a PUSTULE_SKILLS skill) PoB calculates at its Pustule Explosion set (Full DPS or main)."""
-    return sorted({s.group for s in skills if s.name == name and s.stat_set == PUSTULE_SET and s.group is not None})
+    label = PUSTULE_SETS.get(name, PUSTULE_SET)
+    return sorted({s.group for s in skills if s.name == name and s.stat_set == label and s.group is not None})
 
 
 def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL) -> tuple[list[dict], list[dict]]:
-    """The Pustule Explosion held to one a fuse (see above). `rates`: bridge useRates for each group's `name` skill."""
+    """The Pustule Explosion held to one a fuse (Poison Spores, Toxic Domain: one per enemy) or to its Limit a fuse
+    (Toxic Growth) (see above). `rates`: bridge useRates for each group's `name` skill."""
     speed = sum(number(r.get("speed")) * (number(r.get("repeats")) or 1.0) for r in rates)
     if speed <= 0:
         return [], []
     fuses = [number(r.get("detonationTime")) for r in rates if number(r.get("detonationTime")) > 0]
     fuse = min(fuses) if fuses else PUSTULE_FUSE
-    share = min(1.0, 1.0 / fuse / speed)
+    ground = name in PUSTULE_LIMIT
+    limits = [number(r.get("pustuleLimit")) for r in rates if number(r.get("pustuleLimit")) > 0]
+    limit = (max(limits) if limits else float(PUSTULE_LIMIT[name])) if ground else 1.0
+    share = min(1.0, limit / fuse / speed)
     if share >= 1.0:
         return [], []
+    fuse_text = f"{fuse:.1f} s fuse{'' if fuses else ' (base; PoB gave no Detonation Time)'}"
+    if ground:
+        return [raw_mod("DPS", "MORE", 100 * (share - 1), name)], [{
+            "label": f"{name}: at most its Pustule Limit bursts a fuse*", "value": f"x{share:.3f}",
+            "basis": f"PoB counts {speed:.2f} explosions/s; the game keeps {limit:g} Pustules at a time "
+                     f"(Limit{'' if limits else ', base'}: a new one makes the oldest disappear), each bursting after "
+                     f"its {fuse_text}: at most {limit / fuse:.3f}/s, each taken as hitting the boss (UNVERIFIED how "
+                     "many of a cast's spread land on it: an upper bound). Not counted (undercount side): stored "
+                     "Poison making them burst sooner and up to 300% harder, and the Pustules' impacts beyond one",
+            "play": f"Fire {name} about once every {fuse:.0f} s and let its Pustules burst: firing again sooner "
+                    "replaces the waiting ones (spammed, without the pacing: no bursts at all)",
+            "confidence": "LOW-MEDIUM (game files give the Limit, the fuse and what the Limit does; the hits on the "
+                          "boss are UNVERIFIED)"}]
     return [raw_mod("DPS", "MORE", 100 * (share - 1), name)], [{
         "label": f"{name}: one Pustule on the boss at a time*", "value": f"x{share:.3f}",
         "basis": f"PoB counts {speed:.2f} Pustule Explosions/s; the game allows one Pustule per enemy, bursting after its "
-                 f"{fuse:.1f} s fuse{'' if fuses else ' (base; PoB gave no Detonation Time)'}: {1 / fuse:.3f}/s. Not "
+                 f"{fuse_text}: {1 / fuse:.3f}/s. Not "
                  "counted (undercount side): stored Poison making it burst sooner and up to 300% harder (UNVERIFIED "
                  "whether Poisons on the boss feed it), and Pustules on adds",
         "confidence": "MEDIUM (game files and poe2db agree on one Pustule and the 15 s fuse)"}]
@@ -5201,25 +5238,60 @@ WARD_ON_MINION_KILLED = re.compile(r"recover (\d+(?:\.\d+)?)% of maximum runic w
 # leech / restore / remnant / on_kill / when, each looked up in Mods, PassiveSkills, GrantedEffectStatSets(PerLevel) and
 # GrantedEffectQualityStats; PoB's unique and mod text holding "Runic Ward"; second source PoB's ModParser): named in
 # the note, never silently dropped (the user, 12 Nov: "regen is not the only source of recovery, not by a longshot")
+# (MECHB14) Three of them now have a rate: Ward when a Charm is used (the charms' uses a second, flasks.uses_per_second),
+# Life Recovery from Flasks applied to Ward (the Life flask's average recovery, flasks.recovery_per_second, in place of
+# PoB's, which counts the flask as always running: CalcPerform 1642 adds flaskTotal / duration x the % as WardRecovery
+# while its slot is active), and the Life sacrificed on Attack (half of it, at the build's attacks a second, no more than
+# its Life recovery pays back). Still unread: "on reaching Maximum Rage" (how often the build refills its Rage is MECH-C's
+# Rage model, conditions.rage_held, which gives no such rate yet: named, routed).
 WARD_UNREAD = {
-    "Runic Ward when a Charm is used": re.compile(r"runic ward when a charm is used", re.I),
     "Runic Ward on reaching Maximum Rage": re.compile(r"runic ward on reaching maximum rage", re.I),
-    "Life Recovery from Flasks also applies to Runic Ward": re.compile(r"life recovery from flasks also applies to "
-                                                                      r"runic ward", re.I),
-    "Ward gained as half the Life sacrificed on Attack": re.compile(r"sacrifice.*life.*runic ward", re.I),
 }
+WARD_ON_CHARM = re.compile(r"recover (\d+(?:\.\d+)?) runic ward when a charm is used", re.I)
+WARD_FROM_FLASK = re.compile(r"(\d+(?:\.\d+)?)% life recovery from flasks also applies to runic ward", re.I)
+WARD_SACRIFICE = re.compile(r"sacrifice (\d+(?:\.\d+)?)% of maximum life to gain half that much runic ward when you "
+                            r"attack", re.I)
+
+
+def ward_flask_percent(texts: list[str]) -> float:
+    """The build's "N% Life Recovery from Flasks also applies to Runic Ward", summed (PoB's LifeFlaskRecoveryAppliesToWard)."""
+    return sum(float(m.group(1)) for t in texts if (m := WARD_FROM_FLASK.search(t)))
 
 
 def ward_income(regen: float, pool: float, texts: list[str], *, kalguur: dict | None = None, stuns: float = 0.0,
                 stuns_how: str = "", kills: tuple[float, float] = (0.0, 0.0), on_block: float = 0.0, block: float = 0.0,
-                every: float = 0.0) -> tuple[float, list[str], list[str]]:
+                every: float = 0.0, charm_uses: float = 0.0, charm_how: str = "", flask_life: float = 0.0,
+                pob_flask_ward: float = 0.0, attacks: float = 0.0, life: float = 0.0,
+                life_recovery: float = 0.0) -> tuple[float, list[str], list[str]]:
     """Runic Ward a second from every source the build has (the user's rule, 12 Nov: not regeneration alone): PoB's
     WardRegenRecovery (regeneration, its recovery lines, Mana regeneration applied to Ward); Remnants of Kalguur
     (`kalguur`: its level stats, plus "multiplier", the build's extra Remnants / pickups) from `stuns` Stuns a second
     (chance each, at most one per its cooldown) and kills; Ward on Block (`on_block` x `block`% of the boss's hits, one
     every `every` s); "% of maximum Runic Ward on Kill" (`kills`: enemies killed / all kills a second, models.kill_rate)
-    and on a Reviving Minion Killed (all kills less enemies). (income, the parts, the build's lines no rate reads)."""
-    income, parts = max(regen, 0.0), [f"regeneration {max(regen, 0.0):.1f}/s (PoB's WardRegenRecovery)"]
+    and on a Reviving Minion Killed (all kills less enemies); (MECHB14) Ward when a Charm is used (`charm_uses` a second,
+    `charm_how`), Life flask recovery applied to Ward (`flask_life`, the Life flasks' average recovery a second, in place
+    of PoB's always-running part `pob_flask_ward` inside `regen`), and Life sacrificed on Attack (`attacks` a second,
+    of `life` maximum Life, no more than `life_recovery` a second pays back). (income, the parts, the lines no rate reads)."""
+    flask_pct = ward_flask_percent(texts)
+    regen = regen - (pob_flask_ward if flask_pct > 0 else 0.0)
+    income, parts = max(regen, 0.0), [f"regeneration {max(regen, 0.0):.1f}/s (PoB's WardRegenRecovery"
+                                      + (f", less its always-running flask part {pob_flask_ward:.1f}/s)"
+                                         if flask_pct > 0 and pob_flask_ward > 0 else ")")]
+    if flask_pct > 0 and flask_life > 0:
+        income += flask_pct / 100 * flask_life
+        parts.append(f"{flask_pct:g}% of Life flask recovery {flask_life:.1f}/s (as often as its charges allow)")
+    charm = sum(float(m.group(1)) for t in texts if (m := WARD_ON_CHARM.search(t)))
+    if charm > 0 and charm_uses > 0:
+        income += charm * charm_uses
+        parts.append(f"{charm:g} Ward a Charm use at {charm_uses:.3f} uses/s" + (f" ({charm_how})" if charm_how else ""))
+    sacrifice = sum(float(m.group(1)) for t in texts if (m := WARD_SACRIFICE.search(t)))
+    if sacrifice > 0 and attacks > 0 and life > 0:
+        spent = sacrifice / 100 * life * attacks
+        paid = min(spent, max(life_recovery, 0.0))
+        income += paid / 2
+        parts.append(f"half the Life sacrificed on Attack ({sacrifice:g}% of {life:,.0f} Life x {attacks:.2f} attacks/s = "
+                     f"{spent:,.0f}/s" + (f", held to the {life_recovery:,.0f} Life/s the build recovers" if paid < spent
+                                          else "") + f": {paid / 2:,.0f} Ward/s; MEDIUM-LOW)")
     if kalguur:
         gain = number(kalguur.get("ward_remnants_gain_per_globe"))
         chance = number(kalguur.get("ward_remnants_chance_to_spawn_remnant_on_stun_%")) / 100
@@ -5327,6 +5399,42 @@ def frostflame_model(speed: float, share: float, how: str) -> tuple[list[dict], 
                 "source it deals nothing).",
         "confidence": "MEDIUM-LOW"}]
 
+
+
+# Frostflame Nova beside the main skill (MECHB14): the same ice, for every group that uses it. PoB adds a Full DPS
+# Frostflame group's Volatile Ice at one hit per cast too (its Wave set deals no damage: base_deal_no_damage), so a
+# pressed or Full DPS Frostflame was counted whether or not the boss was Ignited (an OVERCOUNT). One ice at a time over
+# all of them (UNVERIFIED, as above). A cast's ice lasts until the Ignite it refreshed expires, so each cast gives at
+# most 2 hits/s x the Ignite's duration (the longest of the igniting groups' PoB IgniteDuration, refreshed in full: an
+# upper bound): a rarely pressed Frostflame is held by its casts as well as by the Ignite share. The skill-tagged "more"
+# reaches every Frostflame group, so it is the total over what PoB counts for all of them (each group's rate x its press
+# scale; the main skill's at its own rate).
+
+
+def frostflame_plan(uses: list[tuple[float, float]], share: float, how: str,
+                    ignite_duration: float = 0.0) -> tuple[list[dict], list[dict]]:
+    """Frostflame Nova's ice over all its groups: `uses` (PoB's casts a second, the press scale) for each group,
+    `share` / `how` from ignite_share, `ignite_duration` the longest Ignite (s; 0: not known, no per-cast cap)."""
+    counted = sum(speed * scale for speed, scale in uses)
+    if counted <= 0:
+        return [], []
+    hits = FROSTFLAME_HITS * share
+    cap = ""
+    if ignite_duration > 0 and counted * FROSTFLAME_HITS * ignite_duration < hits:
+        hits = counted * FROSTFLAME_HITS * ignite_duration
+        cap = (f"; held by its casts ({counted:.2f}/s, each ice lasting at most the {ignite_duration:.1f} s Ignite it "
+               "refreshes)")
+    more = hits / counted
+    return [raw_mod("DPS", "MORE", 100 * (more - 1), FROSTFLAME)], [{
+        "label": "Frostflame Nova: Volatile Ice hits while the boss is Ignited*", "value": f"{hits:.2f} hits/s",
+        "basis": f"the ice 'Hits enemies every 0.5 seconds until affected Ignite expires' (game files) and latches only "
+                 f"onto Ignited enemies: 2 hits/s x the boss Ignited {share:.0%} of the fight ({how}){cap}; PoB counts "
+                 f"one hit per cast ({counted:.2f}/s over {len(uses)} group{'s' if len(uses) > 1 else ''}), so "
+                 f"x{more:.3f}. One ice at a time (UNVERIFIED); the refreshed Ignite's longer uptime and the Ignites it "
+                 "blocks aren't counted",
+        "play": "Keep the boss Ignited with another skill and cast Frostflame Nova while it burns; the ice hits only "
+                "while that Ignite lasts (without an Ignite source it deals nothing).",
+        "confidence": "MEDIUM-LOW"}]
 
 # Light Stuns of the boss (MECHB13; the manager's 18:20 relay of the user's Kalguuran Remnants note) -------------------
 # KeywordPopups LightStun: "Any Hit has a chance to Light Stun the target ... The chance is based on the damage dealt, up
