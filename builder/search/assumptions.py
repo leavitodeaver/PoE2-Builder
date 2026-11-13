@@ -1259,7 +1259,9 @@ class Assumptions:
         main_skill = models.Skill.of(present[main]) if main in present else None
         if has(recovery.GLORY_SPENT):
             names = [n for n in present if n in models.GLORY_SKILLS or n in models.GLORY_FROM_LIFE]
-            out["glory"] = models.glory_spent(names, stats, main_skill) if names else (0.0, "no Glory skill")
+            out["glory"] = (models.glory_spent(names, stats, main_skill, [models.Skill.of(s) for s in present.values()],
+                                               [line["text"] for line in build.call("sourceLines")["lines"]])
+                            if names else (0.0, "no Glory skill"))
         groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
         speed = number(stats.get("Speed"))
         main_index = (build.main_group() or {}).get("index")
@@ -1474,16 +1476,21 @@ class Assumptions:
                 break
         skill = models.Skill.of(info)
         cap = 1 / skill.cast_time if skill.cast_time else math.inf
+        if skill.cooldown:  # (MECHC13: at most once per its own cooldown; before, never read)
+            cap = min(cap, (skill.cooldown_recovery or 1.0) / skill.cooldown)
         if builder is not None:
             group, position, name = builder
             stats = self.stats_as_main(group, position, main_index, models.MODEL_FIELDS)
             source = next((models.Skill.of(s) for s in skills if s["name"] == name), None)
-            uses, how = models.glory_uses([main], stats, source)
+            texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]  # (Glory lines, MECHC13)
+            uses, how = models.glory_uses([main], stats, source, [skill], texts)
             rate, basis = min(uses, cap), f"Glory from {name}'s hits: {how}"
         else:
             stats = self.build.call("stats", fields=models.MODEL_FIELDS)
             # (at one use per second, so the rate this model set before doesn't decide it)
-            per_use, how = models.glory_uses([main], dict(stats, Speed=1.0), skill)
+            texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]  # (Glory lines, MECHC13)
+            # (no cooldown here: this asks what one use builds against its cost; `cap` holds the cooldown)
+            per_use, how = models.glory_uses([main], dict(stats, Speed=1.0), skill, None, texts)
             rate = cap if per_use >= 1.0 else 0.0
             basis = (f"no other skill builds its Glory; its own hits (assumed to count for it), per use at one use/s: "
                      f"{how}: " + ("a use builds its own cost: at will" if rate else "less than a use's cost: never"))
@@ -1772,7 +1779,9 @@ class Assumptions:
                 if glory is None:
                     stats = self.build.call("stats", fields=models.MODEL_FIELDS)
                     main_skill = next((models.Skill.of(s) for s in skills if not s["disabled"] and s["name"] == main), None)
-                    glory = self.glory_uses_capped(names, stats, main_skill)
+                    glory_skills = [models.Skill.of(s) for s in skills if not s["disabled"]]
+                    glory_texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]  # (MECHC13)
+                    glory = self.glory_uses_capped(names, stats, main_skill, glory_skills, glory_texts)
                 uses, how = glory
                 window = float(condition["glory_window"])
                 share = window * uses if condition.get("glory_count") else min(1.0, window * uses)
@@ -1793,7 +1802,8 @@ class Assumptions:
                 found.append(condition["id"])
         return sorted(found), notes
 
-    def glory_uses_capped(self, names: list[str], stats: dict, main_skill) -> tuple[float, str]:
+    def glory_uses_capped(self, names: list[str], stats: dict, main_skill, skills: list | None = None,
+                          texts: list[str] | None = None) -> tuple[float, str]:
         """(Glory skill uses per second, how) for the ledger's Glory shares: models.glory_uses for each Glory skill, never
         faster than the skill's own use speed (the bridge's useRates "speed" for its group, as conditions.skill_use_rate
         caps every non-main skill). COV16: glory_uses counts a use whenever the Glory is there, so a skill that costs
@@ -1811,9 +1821,9 @@ class Assumptions:
                     name, speed = found.get(rate.get("index")), number(rate.get("speed"))
                     if name and speed > 0:
                         speeds[name] = max(speed, speeds.get(name, 0.0))
-        total, how = models.glory_uses(names, stats, main_skill)
+        total, how = models.glory_uses(names, stats, main_skill, skills, texts)  # (cooldowns, Glory lines: MECHC13)
         for name, cap in speeds.items():  # (each capped skill's excess over its own speed comes back out)
-            own = models.glory_uses([name], stats, main_skill)[0]
+            own = models.glory_uses([name], stats, main_skill, skills, texts)[0]
             if own > cap:
                 total -= own - cap
                 how += f"; {name} capped at its own {cap:.2f} uses/s (not {own:.2f})"

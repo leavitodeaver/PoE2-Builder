@@ -2702,8 +2702,9 @@ class Conditions:
         rates = {r.get("index"): r for r in self.build.call("useRates", indices=sorted(set(where.values())))["rates"]} \
             if where else {}
         shares = []
+        texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]  # (the Glory lines, MECHC13)
         for name in banners:
-            uses, how = models.glory_uses([name], stats, main)
+            uses, how = models.glory_uses([name], stats, main, found, texts)
             duration = number((rates.get(where.get(name)) or {}).get("duration")) or BANNER_SECONDS
             shares.append((min(1.0, uses * duration), f"{how}; it stands {duration:.1f} s"))
         up, how = min(shares)

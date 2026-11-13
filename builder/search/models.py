@@ -4129,24 +4129,90 @@ def mana_flare(spell: dict, cooldown: float, recovery: float) -> tuple[float, fl
     return rate, share, basis
 
 
-def glory_uses(names: list[str], stats: dict, main: Skill | None) -> tuple[float, str]:
+# The build's Glory lines (MECHC13; game files' stat descriptions, build 26476662, without the markup; PoB's ModCache
+# parses "increased Glory generation" to no mod, and none of the others, so glory_plan reads their text):
+# - "N% increased / reduced Glory generation" (and "Body Armour grants ..." from a socketable): the Glory each Monster
+#   Power event gives; "... for Banner Skills" on Banners only; "... if you have at least 100 Tribute": Tribute isn't
+#   modelled, so not counted (said). Not applied to the flat gains below or to Zerphi's Infamy's Life-spent Glory (whether
+#   "generation" covers them is UNVERIFIED: the lower reading);
+# - "Skills which require Glory generate N Glory every 2 seconds": N / 2 a second for each Glory skill;
+# - "Skills gain 1 Glory every N seconds for each Rare or Unique monster in your Presence": the boss is Unique, taken as in
+#   your Presence (a play note, LOW): 1 / N a second;
+# - "N% chance to not consume Glory": a use consumes (1 - N%); "N% chance (for Skills) to retain 40% of Glory on use": a
+#   use consumes (1 - 0.4 x N%); "When a Banner expires, recover N% of the Glory required for that Banner": a Banner's
+#   next use needs N% less (each placed Banner taken to expire, LOW);
+# - "A random Skill that requires Glory generates N% of its maximum Glory when your Marks Activate": not counted (the
+#   random pick and the Mark rate aren't modelled; said).
+# A Glory skill with a cooldown is used at most once per cooldown (Skill.cooldown / cooldown_recovery; before, never read).
+GLORY_INC = re.compile(r"^(?:body armour grants )?(\d+(?:\.\d+)?)% (increased|reduced) glory generation"
+                       r"( for banner skills| if you have at least 100 tribute)?$", re.I)
+GLORY_FLAT = re.compile(r"^skills which require glory generate (\d+(?:\.\d+)?) glory every 2 seconds$", re.I)
+GLORY_PRESENCE = re.compile(r"^skills gain 1 glory every (\d+(?:\.\d+)?) seconds? for each rare or unique monster in your "
+                            r"presence$", re.I)
+GLORY_NOT_CONSUME = re.compile(r"^(\d+(?:\.\d+)?)% chance to not consume glory$", re.I)
+GLORY_RETAIN = re.compile(r"^(\d+(?:\.\d+)?)% chance (?:for skills )?to retain 40% of glory on use$", re.I)
+GLORY_BANNER_REFUND = re.compile(r"^when a banner expires, recover (\d+(?:\.\d+)?)% of the glory required for that banner$",
+                                 re.I)
+GLORY_MARK = re.compile(r"generates \d+(?:\.\d+)?% of its maximum glory when your marks activate", re.I)
+
+
+def glory_lines(texts: list[str]) -> dict:
+    """The build's Glory lines (above), summed: inc / banner_inc (%), flat (Glory a second a skill), presence (Glory a
+    second from the boss in your Presence), not_consume / retain / refund (chances and shares, 0-1), and unread texts."""
+    out = {"inc": 0.0, "banner_inc": 0.0, "flat": 0.0, "presence": 0.0, "not_consume": 0.0, "retain": 0.0, "refund": 0.0,
+           "unread": []}
+    for raw in texts:
+        t = raw.strip()
+        if m := GLORY_INC.match(t):
+            value = float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+            where = (m.group(3) or "").lower()
+            if "tribute" in where:
+                out["unread"].append(f"'{t}' (Tribute isn't modelled)")
+            elif "banner" in where:
+                out["banner_inc"] += value
+            else:
+                out["inc"] += value
+        elif m := GLORY_FLAT.match(t):
+            out["flat"] += float(m.group(1)) / 2
+        elif m := GLORY_PRESENCE.match(t):
+            out["presence"] += 1 / float(m.group(1))
+        elif m := GLORY_NOT_CONSUME.match(t):
+            out["not_consume"] = 1 - (1 - out["not_consume"]) * (1 - min(float(m.group(1)), 100) / 100)
+        elif m := GLORY_RETAIN.match(t):
+            out["retain"] = min(1.0, out["retain"] + float(m.group(1)) / 100)
+        elif m := GLORY_BANNER_REFUND.match(t):
+            out["refund"] = min(1.0, out["refund"] + float(m.group(1)) / 100)
+        elif GLORY_MARK.search(t):
+            out["unread"].append(f"'{t}' (a random Glory skill on Mark activations: not modelled)")
+    return out
+
+
+def glory_uses(names: list[str], stats: dict, main: Skill | None, skills: list[Skill] | None = None,
+               texts: list[str] | None = None) -> tuple[float, str]:
     """Uses per second of the build's Glory skills on a boss, all together, and how."""
-    plan, how = glory_plan(names, stats, main)
+    plan, how = glory_plan(names, stats, main, skills, texts)
     return sum(uses for uses, _ in plan.values()), how
 
 
-def glory_spent(names: list[str], stats: dict, main: Skill | None) -> tuple[float, str]:
-    """Glory the build's Glory skills spend a second on a boss (their uses x their Glory cost; MECHC13, for "Recover N% of
-    maximum Life per Glory consumed"), and how."""
-    plan, how = glory_plan(names, stats, main)
-    return sum(uses * cost for uses, cost in plan.values()), how
+def glory_spent(names: list[str], stats: dict, main: Skill | None, skills: list[Skill] | None = None,
+                texts: list[str] | None = None) -> tuple[float, str]:
+    """Glory the build's Glory skills consume a second on a boss (their uses x the Glory a use consumes; MECHC13, for
+    "Recover N% of maximum Life per Glory consumed"), and how."""
+    plan, how = glory_plan(names, stats, main, skills, texts)
+    return sum(uses * spent for uses, spent in plan.values()), how
 
 
-def glory_plan(names: list[str], stats: dict, main: Skill | None) -> tuple[dict[str, tuple[float, float]], str]:
-    """({Glory skill: (uses per second, Glory a use)}, how) on a boss."""
+def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[Skill] | None = None,
+               texts: list[str] | None = None) -> tuple[dict[str, tuple[float, float]], str]:
+    """({Glory skill: (uses per second, Glory a use consumes)}, how) on a boss. `skills`: the build's skills, for each
+    Glory skill's cooldown; `texts`: the build's lines (glory_lines; stats["_texts"] when not given)."""
     events = glory_events(stats, main)
+    lines = glory_lines(list(texts if texts is not None else stats.get("_texts") or []))
+    cooldowns = {s.name: s.cooldown / (s.cooldown_recovery or 1.0) for s in skills or [] if s.cooldown}
     plan, parts = {}, []
-    for name in names:
+    for name in dict.fromkeys(names):
+        banner = name.endswith("Banner")
+        extra = []
         if name in GLORY_SKILLS:
             cost, gains = GLORY_SKILLS[name]
             rate = sum(events[e] for e in gains)
@@ -4156,20 +4222,42 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None) -> tuple[dict[
                 kept = glory_gains(rate, number(stats.get("Speed"))) / rate
                 glory *= kept
                 how += f", at most one gain per {GLORY_GAIN_EVERY:g} s on the boss ({kept:.0%} of them count)"
+            inc = lines["inc"] + (lines["banner_inc"] if banner else 0.0)
+            if inc and glory > 0:
+                glory *= max(0.0, 1 + inc / 100)
+                extra.append(f"{inc:+g}% Glory generation")
         elif name in GLORY_FROM_LIFE:
             cost, share = GLORY_FROM_LIFE[name]
             glory = share * number(stats.get("LifePerSecondCost"))
             how = f"{share:.0%} of {number(stats.get('LifePerSecondCost')):.0f} Life spent/s"
         else:
             continue
+        if lines["flat"]:
+            glory += lines["flat"]
+            extra.append(f"+{lines['flat']:g}/s ('generate N Glory every 2 seconds')")
+        if lines["presence"]:
+            glory += lines["presence"]
+            extra.append(f"+{lines['presence']:g}/s from the boss in your Presence (kept in it: a play note, LOW)")
         if glory <= 0:
             parts.append(f"{name}: {how}, never")
             continue
+        consumed = cost * (1 - lines["not_consume"]) * (1 - 0.4 * lines["retain"])
+        needed = consumed * (1 - lines["refund"] if banner else 1.0)
+        if needed != cost:
+            extra.append(f"{needed:.0f} Glory needed a use (chance not to consume / retain"
+                         + (", the Banner's refund on expiry, LOW" if banner and lines["refund"] else "") + ")")
         held = GLORY_INSTANCE.get(name, 0.0)
-        every = held + cost / glory
-        plan[name] = (1 / every, float(cost))
-        parts.append(f"{name}: {how} Glory against {cost} per use = one per {every:.1f} s"
+        every = held + needed / glory
+        cooldown = cooldowns.get(name, 0.0)
+        if cooldown > every:
+            extra.append(f"held to its {cooldown:.1f} s cooldown")
+            every = cooldown
+        plan[name] = (1 / every, consumed)
+        parts.append(f"{name}: {how}" + (f" ({'; '.join(extra)})" if extra else "")
+                     + f" Glory against {cost} per use = one per {every:.1f} s"
                      + (f" (no Glory while its {held:g} s instance is up)" if held else ""))
+    if lines["unread"]:
+        parts.append("not counted: " + ", ".join(lines["unread"]))
     return plan, "; ".join(parts) or "no Glory skill"
 
 

@@ -219,3 +219,34 @@ def test_spent_and_consumed_lines_reach_the_recovery_field(engine):
     assert "Endurance Charge consumed x 0.500/s" in basis
     for said in ("no Glory skill", "no Combo skill", "corpse skills none", "no Offering skill"):
         assert said in basis, said
+
+
+def test_glory_reads_its_cooldown_and_the_builds_glory_lines():
+    """MECHC13 (the flat-rate rule): a Glory skill is used at most once per its own cooldown; "% increased Glory
+    generation" (Banner-only for "for Banner Skills"; Tribute's not counted), "generate N Glory every 2 seconds", the
+    Presence line, and the chances not to consume / to retain 40% change what a use needs."""
+    from builder.search import models
+
+    stats = {"Speed": 3.0, "HitChance": 100, "IgniteChanceOnHit": 100}
+    base, _ = models.glory_plan(["Ancestral Cry"], stats, None, texts=[])
+    uses = base["Ancestral Cry"][0]
+    slow = models.Skill("Ancestral Cry", cooldown=1 / uses * 4)
+    capped, how = models.glory_plan(["Ancestral Cry"], stats, None, [slow], [])
+    assert capped["Ancestral Cry"][0] == pytest.approx(uses / 4) and "cooldown" in how
+    more, how = models.glory_plan(["Ancestral Cry"], stats, None, texts=["50% increased Glory generation"])
+    held = models.GLORY_INSTANCE["Ancestral Cry"]
+    glory = 100 / (1 / uses - held)  # (Glory a second before the line)
+    assert more["Ancestral Cry"][0] == pytest.approx(1 / (held + 100 / (glory * 1.5))) and "+50% Glory" in how
+    banner_only, _ = models.glory_plan(["Ancestral Cry"], stats, None, texts=["50% increased Glory generation for Banner Skills"])
+    assert banner_only["Ancestral Cry"][0] == pytest.approx(uses)
+    _, how = models.glory_plan(["Ancestral Cry"], stats, None,
+                               texts=["50% increased Glory generation if you have at least 100 Tribute"])
+    assert "Tribute isn't modelled" in how
+    flat, _ = models.glory_plan(["Ancestral Cry"], stats, None,
+                                texts=["Skills which require Glory generate 4 Glory every 2 seconds"])
+    assert flat["Ancestral Cry"][0] == pytest.approx(1 / (held + 100 / (glory + 2)))
+    cheap, _ = models.glory_plan(["Ancestral Cry"], stats, None, texts=["50% chance to not consume Glory"])
+    assert cheap["Ancestral Cry"] == pytest.approx((1 / (held + 50 / glory), 50.0))
+    lines = models.glory_lines(["Skills gain 1 Glory every 2 seconds for each Rare or Unique monster in your Presence",
+                                "25% chance to retain 40% of Glory on use"])
+    assert lines["presence"] == pytest.approx(0.5) and lines["retain"] == pytest.approx(0.25)
