@@ -250,3 +250,9 @@ def test_glory_reads_its_cooldown_and_the_builds_glory_lines():
     lines = models.glory_lines(["Skills gain 1 Glory every 2 seconds for each Rare or Unique monster in your Presence",
                                 "25% chance to retain 40% of Glory on use"])
     assert lines["presence"] == pytest.approx(0.5) and lines["retain"] == pytest.approx(0.25)
+    # (PoB's ModCache wordings: "Skills have a N% chance ...", "Banners gain N Glory per second" on Banners only)
+    lines = models.glory_lines(["Skills have a 15% chance to not consume Glory", "Banners gain 5 Glory per second",
+                                "Allies in your Presence have 30% increased Glory generation"])
+    assert lines["not_consume"] == pytest.approx(0.15) and lines["banner_flat"] == 5.0 and lines["inc"] == 0.0
+    plain, _ = models.glory_plan(["Ancestral Cry"], stats, None, texts=["Banners gain 5 Glory per second"])
+    assert plain["Ancestral Cry"][0] == pytest.approx(uses)

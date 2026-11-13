@@ -4135,10 +4135,11 @@ def mana_flare(spell: dict, cooldown: float, recovery: float) -> tuple[float, fl
 #   Power event gives; "... for Banner Skills" on Banners only; "... if you have at least 100 Tribute": Tribute isn't
 #   modelled, so not counted (said). Not applied to the flat gains below or to Zerphi's Infamy's Life-spent Glory (whether
 #   "generation" covers them is UNVERIFIED: the lower reading);
-# - "Skills which require Glory generate N Glory every 2 seconds": N / 2 a second for each Glory skill;
+# - "Skills which require Glory generate N Glory every 2 seconds": N / 2 a second for each Glory skill; "Banners gain N
+#   Glory per second" (PoB's ModCache holds it): N a second for each Banner;
 # - "Skills gain 1 Glory every N seconds for each Rare or Unique monster in your Presence": the boss is Unique, taken as in
 #   your Presence (a play note, LOW): 1 / N a second;
-# - "N% chance to not consume Glory": a use consumes (1 - N%); "N% chance (for Skills) to retain 40% of Glory on use": a
+# - "(Skills have a) N% chance to not consume Glory": a use consumes (1 - N%); "N% chance (for Skills) to retain 40% of Glory on use": a
 #   use consumes (1 - 0.4 x N%); "When a Banner expires, recover N% of the Glory required for that Banner": a Banner's
 #   next use needs N% less (each placed Banner taken to expire, LOW);
 # - "A random Skill that requires Glory generates N% of its maximum Glory when your Marks Activate": not counted (the
@@ -4149,7 +4150,8 @@ GLORY_INC = re.compile(r"^(?:body armour grants )?(\d+(?:\.\d+)?)% (increased|re
 GLORY_FLAT = re.compile(r"^skills which require glory generate (\d+(?:\.\d+)?) glory every 2 seconds$", re.I)
 GLORY_PRESENCE = re.compile(r"^skills gain 1 glory every (\d+(?:\.\d+)?) seconds? for each rare or unique monster in your "
                             r"presence$", re.I)
-GLORY_NOT_CONSUME = re.compile(r"^(\d+(?:\.\d+)?)% chance to not consume glory$", re.I)
+GLORY_BANNER_FLAT = re.compile(r"^banners gain (\d+(?:\.\d+)?) glory per second\b", re.I)
+GLORY_NOT_CONSUME = re.compile(r"^(?:skills have an? )?(\d+(?:\.\d+)?)% chance to not consume glory$", re.I)
 GLORY_RETAIN = re.compile(r"^(\d+(?:\.\d+)?)% chance (?:for skills )?to retain 40% of glory on use$", re.I)
 GLORY_BANNER_REFUND = re.compile(r"^when a banner expires, recover (\d+(?:\.\d+)?)% of the glory required for that banner$",
                                  re.I)
@@ -4159,7 +4161,7 @@ GLORY_MARK = re.compile(r"generates \d+(?:\.\d+)?% of its maximum glory when you
 def glory_lines(texts: list[str]) -> dict:
     """The build's Glory lines (above), summed: inc / banner_inc (%), flat (Glory a second a skill), presence (Glory a
     second from the boss in your Presence), not_consume / retain / refund (chances and shares, 0-1), and unread texts."""
-    out = {"inc": 0.0, "banner_inc": 0.0, "flat": 0.0, "presence": 0.0, "not_consume": 0.0, "retain": 0.0, "refund": 0.0,
+    out = {"inc": 0.0, "banner_inc": 0.0, "flat": 0.0, "banner_flat": 0.0, "presence": 0.0, "not_consume": 0.0, "retain": 0.0, "refund": 0.0,
            "unread": []}
     for raw in texts:
         t = raw.strip()
@@ -4174,6 +4176,8 @@ def glory_lines(texts: list[str]) -> dict:
                 out["inc"] += value
         elif m := GLORY_FLAT.match(t):
             out["flat"] += float(m.group(1)) / 2
+        elif m := GLORY_BANNER_FLAT.match(t):
+            out["banner_flat"] += float(m.group(1))
         elif m := GLORY_PRESENCE.match(t):
             out["presence"] += 1 / float(m.group(1))
         elif m := GLORY_NOT_CONSUME.match(t):
@@ -4235,6 +4239,9 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
         if lines["flat"]:
             glory += lines["flat"]
             extra.append(f"+{lines['flat']:g}/s ('generate N Glory every 2 seconds')")
+        if banner and lines["banner_flat"]:
+            glory += lines["banner_flat"]
+            extra.append(f"+{lines['banner_flat']:g}/s ('Banners gain N Glory per second')")
         if lines["presence"]:
             glory += lines["presence"]
             extra.append(f"+{lines['presence']:g}/s from the boss in your Presence (kept in it: a play note, LOW)")
