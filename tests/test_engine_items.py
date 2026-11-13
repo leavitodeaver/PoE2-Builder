@@ -112,6 +112,7 @@ def test_a_required_skill_set_one_cant_use_goes_on_weapon_set_two(engine):
     assert check.ok and "Ice Shot" in check.delivered
 
 
+@pytest.mark.own_pob_engine  # its PoB calls differ run to run (PERF6, POE2T2622 against POE2T2623)
 def test_a_seed_keeps_what_the_request_allows_and_never_ends_below_its_start(engine):
     from builder import ROOT
     from builder.search.inner import optimize_task, seed_task
@@ -220,6 +221,7 @@ def test_gem_requirements_per_level_match_pob(engine):
     assert herald[20]["dex"] == herald[20]["int"] == 86
 
 
+@pytest.mark.own_pob_engine  # its PoB calls differ run to run (PERF6, POE2T2622 against POE2T2623)
 def test_a_search_never_ends_below_where_it_started(engine):
     """A pass the deadline cuts short can stop inside a block; before any pass finished without
     improving, nothing restored the start (finalize's short polish ended worse than the build the
@@ -263,6 +265,7 @@ def test_a_search_that_raises_requirements_keeps_its_progress_and_ends_cleanly(e
     assert search.escalations >= 1
 
 
+@pytest.mark.own_pob_engine  # its PoB calls differ run to run (PERF6, POE2T2622 against POE2T2623)
 def test_finalize_never_trades_a_requirement_for_damage(engine):
     """The score lets a build trade a small shortfall for enough damage; no search ends on such a build when it saw
     one that met every requirement (keep_feasible; before 7 Nov only finalize's feasible_first held that)."""
@@ -293,6 +296,7 @@ def test_finalize_never_trades_a_requirement_for_damage(engine):
         assert end_dps == pytest.approx(start_dps)
 
 
+@pytest.mark.own_pob_engine  # its PoB calls differ run to run (PERF6, POE2T2622 against POE2T2623)
 def test_finalize_sweeps_supports_on_full_dps_despite_the_search_shortlist(engine, monkeypatch):
     """The search's shortlist was ranked on the main skill's DPS, blind to a skill a support grants (Deadly Resolve's
     slash): finalize sweeps every support on Full DPS first instead of moving within it (2b75d, POE2T207 vs 231-232)."""
@@ -314,6 +318,7 @@ def test_finalize_sweeps_supports_on_full_dps_despite_the_search_shortlist(engin
     assert out["support_census"]["sweeps"] >= 1 and out["support_census"]["swept_cases"] > 50
 
 
+@pytest.mark.own_pob_engine  # its PoB calls differ run to run (PERF6, POE2T2622 against POE2T2623)
 def test_a_step_that_ignores_the_deadline_is_stopped_on_time(engine, monkeypatch):
     """Steps used to finish their own trials past the task's deadline, so a 600 s gate run took about 966 s
     (8 Nov). A step that never looks at the clock is now stopped at its next evaluation a little past the
@@ -342,6 +347,7 @@ def test_a_step_that_ignores_the_deadline_is_stopped_on_time(engine, monkeypatch
     assert result["score"] > float("-inf") and result["state"]["equipped"]
 
 
+@pytest.mark.own_pob_engine  # its PoB calls differ run to run (PERF6, POE2T2622 against POE2T2623)
 def test_a_tree_step_the_hard_stop_cuts_keeps_the_passives_it_took(engine, monkeypatch):
     """The stop goes back to the tree's last kept passive (Search.checkpoint), not to the step's start: a probe's tree
     step cut by the stop lost all it had allocated, and the five lines of a gate run started round 1 at 7.8K

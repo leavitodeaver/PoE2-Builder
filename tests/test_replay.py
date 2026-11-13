@@ -218,6 +218,24 @@ def test_a_forked_engine_starts_new_and_leaves_the_shared_history_alone(pob):
     assert again._engine is None and not again._parked
 
 
+def test_a_live_fork_boots_the_real_pob_at_once_and_never_replays(pob):
+    first, store = engine(pob)
+    first.fork(live=True)
+    first.call("stats", fields=["Life"])
+    first.join()
+    store.save()
+
+    shared, store = engine(pob)  # a second run, in replay: the same call is recorded, and still goes to the real PoB
+    shared.fork(live=True)
+    assert FakePob.boots == 2 and shared._engine is not None  # booted by fork(), before any call
+    assert shared.call("stats", fields=["Life"])["seen"] == 1 and store.hits == 0 and FakePob.boots == 2
+    shared.join()
+    assert not shared._live_only  # back to replaying where the recording holds the history
+    shared.fork()
+    assert shared.call("stats", fields=["Life"])["seen"] == 1 and store.hits == 1 and FakePob.boots == 2
+    shared.join()
+
+
 def test_a_reordered_source_lines_answer_is_the_same_answer_and_nothing_else_is():
     """PoB walks its item slots in an order LuaJIT picks per process, so sourceLines' lines come back shuffled (PERF2):
     that alone is no mismatch; a changed line, a missing line or any other call's reordered list still is."""

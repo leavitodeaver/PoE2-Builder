@@ -4,7 +4,8 @@ A test that asks for `builder.pob.engine.PobEngine()` gets builder.pob.replay's 
 recorded answers where the recording holds the engine's exact history (every call since boot, with its arguments,
 under the same bridge.lua / PoB files), and boots the real PoB for anything else, checking the recorded answers
 against it as it catches up. A test marked `own_pob_engine` gets a freshly booted engine in place of its module's
-shared one (in both modes, so both see the same histories). See builder/pob/replay.py for what keys an answer and why a stale one can't pass.
+shared one (in both modes, so both see the same histories), and that engine is the real PoB in both modes, booted
+before the test starts. See builder/pob/replay.py for what keys an answer and why a stale one can't pass.
 
     (default)           every answer from the real PoB; the recording is refreshed as a by-product
     POE2_REPLAY_POB=1   replay (opt-in until the sourceLines mismatch the first replayed suite found is explained)
@@ -55,14 +56,16 @@ def _engine(*args, **kwargs):
         name = item.path.stem if item is not None else "outside-tests"
         if name not in _stores:
             _stores[name] = replay.Store(name)
-        made = replay.ReplayEngine(_stores[name], boot=_boot, live_only=replay.real_pob())
+        # an own_pob_engine test's own engine is the real PoB from the start (its calls can't replay; PERF8)
+        own = _current["forked"] is not None and not _fixtures_in_setup
+        made = replay.ReplayEngine(_stores[name], boot=_boot, live_only=replay.real_pob() or own)
     if _fixtures_in_setup:
         _fixtures_in_setup[-1].addfinalizer(made.close)
         if isinstance(made, replay.ReplayEngine):
             _shared_engines.append(made)
             _fixtures_in_setup[-1].addfinalizer(lambda: _shared_engines.remove(made))
             if _current["forked"] is not None:  # made inside an own_pob_engine test: the others get it as new
-                made.fork()
+                made.fork(live=True)
                 _current["forked"].append(made)
     else:
         _test_engines.append(made)
@@ -129,7 +132,9 @@ def pytest_runtest_protocol(item, nextitem):
     if item.get_closest_marker("own_pob_engine"):
         _current["forked"] = list(_shared_engines)
         for shared in _current["forked"]:
-            shared.fork()
+            # the real PoB, booted before the test starts: in replay it used to boot at the test's first unrecorded
+            # call, inside its timed step (PERF7's POE2T2643: the two deadline tests failed in replay only)
+            shared.fork(live=True)
     before = sum(store.recorded for store in [*_stores.values(), *_finished])
     try:
         return (yield)

@@ -614,6 +614,7 @@ def test_a_variant_base_keeps_its_affix_limits_and_its_non_meta_variants_are_ran
     assert build.score >= before - 1e-9
 
 
+@pytest.mark.own_pob_engine  # its PoB calls differ run to run (PERF6, POE2T2622 against POE2T2623)
 def test_the_reverse_meta_trial_takes_a_meta_granting_item_off_when_the_build_does_better(engine):
     """MECH15: 2b75b kept a rare Absent Amulet's Cast on Dodge and its main group was left 2-3 supports. The reverse trial
     puts the best plain rare in its place, refills the main group and keeps that if better: on Boneshatter, Cast on Dodge's

@@ -285,12 +285,16 @@ class ReplayEngine:
                 self._engine.close()
             self._engine = self._parked.pop()[2] if self._parked else None
 
-    def fork(self) -> None:
+    def fork(self, live: bool = False) -> None:
         """Until join(): behave as a newly booted engine (its own history, its own real PoB if it needs one). For a
         test whose calls differ run to run (a search cut off by the clock) on an engine other tests share: without
-        this, no test after it on that engine could ever replay, their history never being the same twice."""
-        self._parked.append((self._chain, self._log, self._engine, self._synced))
+        this, no test after it on that engine could ever replay, their history never being the same twice.
+        `live`: every answer until join() comes from the real PoB, booted here and now, as under POE2_REAL_POB=1
+        (PERF8: such a test's calls can't replay anyway, and booting the real PoB at its first unrecorded call put
+        the ~5 s boot and the catch-up inside the test's own timed step, PERF7's POE2T2643)."""
+        self._parked.append((self._chain, self._log, self._engine, self._synced, self._live_only))
         self._chain, self._log, self._engine, self._synced = hashlib.sha256(b"PobEngine()").hexdigest(), [], None, 0
+        self._live_only = self._live_only or live
         if self._live_only:
             self._real()
 
@@ -298,7 +302,7 @@ class ReplayEngine:
         """End fork(): close its real engine and go back to the history before it."""
         if self._engine:
             self._engine.close()
-        self._chain, self._log, self._engine, self._synced = self._parked.pop()
+        self._chain, self._log, self._engine, self._synced, self._live_only = self._parked.pop()
 
     # -- record / replay --------------------------------------------------------------------
     def _do(self, kind: str, arguments: str) -> Any:
