@@ -3699,6 +3699,117 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
         "confidence": "theory", "entry": "guided-hand-boost"}]
 
 
+
+# Ancestral Boost's sources PoB leaves unparsed (MECHB18; RESEARCH25 ancestral-boost-sources.md, INDEX #150) -------------
+# KeywordPopups (build 26476662): AncestralBoost "An Ancestrally Boosted [Slam] has 30% more damage and 25% increased area
+# of effect, and an Ancestrally Boosted [Strike] will target 2 additional Enemies. [Trigger|Triggered Skills] cannot be
+# Ancestrally Boosted. Ancestrally Boosted [Attack|Attacks] count as being [Empowered]."; AncestralBoostSpell "An
+# Ancestrally Boosted [Spell] has 30% more damage and 25% increased area of effect. [Trigger|Triggered Skills] cannot be
+# Ancestrally Boosted." Two sources PoB leaves as unparsed text, so it never applies them (ModCache 7429, 7430, 7432, 9621):
+# - UniqueAncestralBoostEveryXAttacksWhileShapeshifted1, "Every second Slam Skill you use while Shapeshifted is Ancestrally
+#   Boosted" (and the same for Strikes: 2 extra targets, so nothing against one boss; RESEARCH25, HIGH): half of a
+#   Shapeshift Slam main skill's uses;
+# - Kaom's Blessing, "The next Fire Spell you cast yourself after using a Warcry is Ancestrally Boosted": one Fire Spell
+#   cast per Warcry use (the build's Warcries at their own use rates: cooldown, duration or the search's press choice;
+#   none: 0), so min(1, warcries/s / casts/s) of a Fire Spell main skill's casts, not cast by a totem or a trigger.
+# A Slam's sources combine as one boost per use (RESEARCH25: "two sources on one slam give one 30%"): an every-second
+# source (Ancestral Empowerment, which PoB parses, or this unique) boosts half the slams; Fist of War boosts one slam per
+# its interval T. Whether Fist of War's charge is spent on a slam the every-second source already boosts is UNVERIFIED
+# (RESEARCH #153); the lower reading is taken, as RESEARCH25 says: share = 0.5 + 0.5 x min(1, 1 / (T x slams/s)) (LOW).
+# PoB adds the two (CalcOffence calcCombinedAncestralBoost: min(50% + Fist of War's, 100%)), the upper reading: where both
+# are on, this model's factor is below x1 (a possible OVERCOUNT in PoB, labelled, with both readings in the note). The
+# 30% more (x2 with Fist of War III: PoB's AncestralBoostMoreDamage multiplier) is applied as
+# (1 + M x share) / (1 + M x PoB's share) on the main skill's Damage; "Ancestrally Boosted Attacks deal N% increased
+# Damage" lines get the same share difference as increased Attack Damage. Not counted (labelled): the 25% increased
+# area, and the Empowered-only lines on the extra share (MECH-C's kw-empowered); Guided Hand's share (guided_hand_model)
+# is added on top, not merged (a small OVERCOUNT where both are taken, at most Guided Hand's own share).
+ANCESTRAL_FIELDS = ["Speed", "FistOfWarCooldown", "FistOfWarDamageMultiplier", "AncestralEmpowermentDamageMultiplier",
+                    "AncestralEmpowermentUptimeRatio", "AncestralEmpowermentCombinedUptimeRatio", "FistOfWarUptimeRatio"]
+SHAPESHIFT_EVERY_SECOND_SLAM = re.compile(r"Every second Slam Skill you use while Shapeshifted is Ancestrally Boosted",
+                                          re.I)
+EMPOWERMENT_EVERY_SECOND_SLAM = re.compile(r"^Every second Slam Skill you use yourself is Ancestrally Boosted$", re.I)
+KAOMS_BLESSING = re.compile(r"^The next Fire Spell you cast yourself after using a Warcry is Ancestrally Boosted$", re.I)
+ANCESTRAL_SPELL_MORE = 30  # AncestralBoostSpell: "30% more damage" (KeywordPopups)
+
+
+def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], main: Skill | None, main_types: set[str],
+                          warcries: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
+    """The two unparsed Ancestral Boost sources: the Shapeshifted unique's every second Slam and Kaom's Blessing's Fire
+    Spell after a Warcry (`warcries`: the build's Warcry uses per second, and how). Mods on the main skill, and notes."""
+    if main is None or not texts:
+        return [], []
+    label = "Ancestral Boost (sources PoB doesn't parse)"
+    unique = any(SHAPESHIFT_EVERY_SECOND_SLAM.search(t) for t in texts)
+    kaom = any(KAOMS_BLESSING.match(t.strip()) for t in texts)
+    if not unique and not kaom:
+        return [], []
+    if main.triggered:
+        return [], [{"label": label, "value": "0 (triggered)", "confidence": "theory", "entry": "ancestral-boost",
+                     "basis": f"{main.name} is triggered: \"Triggered Skills cannot be Ancestrally Boosted\" (KeywordPopups)"}]
+    speed = number(stats.get("Speed"))
+    if speed <= 0:
+        return [], []
+    if "Slam" in main_types and main.attack:
+        if cast_by_totem(skills, main):
+            return [], []
+        empowerment = any(EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts)
+        shapeshifted = "Shapeshift" in main_types
+        if not (unique and shapeshifted):
+            return [], ([{"label": label, "value": "0", "confidence": "theory", "entry": "ancestral-boost",
+                          "basis": f"{main.name} isn't a Shapeshift skill, so it isn't used while Shapeshifted"}]
+                        if unique else [])
+        cooldown = number(stats.get("FistOfWarCooldown"))
+        fist = min(1.0, 1 / (cooldown * speed)) if cooldown > 0 else 0.0
+        share = 0.5 + 0.5 * fist
+        pob = max(number(stats.get(k)) for k in ("AncestralEmpowermentUptimeRatio",
+                                                  "AncestralEmpowermentCombinedUptimeRatio", "FistOfWarUptimeRatio")) / 100
+        if empowerment and cooldown > 0:  # (PoB hides Fist of War's own ratio once it's combined)
+            pob = max(pob, min(1.0, 0.5 + fist))
+        elif cooldown > 0:
+            pob = max(pob, fist)
+        elif empowerment:
+            pob = max(pob, 0.5)
+        more = (number(stats.get("AncestralEmpowermentDamageMultiplier")) or number(stats.get("FistOfWarDamageMultiplier"))
+                or ANCESTRAL_SLAM_MORE / 100)
+        if abs(share - pob) < 1e-9:
+            return [], []
+        factor = (1 + more * share) / (1 + more * pob)
+        boost = sum(int(m.group(1)) for t in texts if (m := BOOSTED_LINE.match(t.strip())))
+        mods = [raw_mod("Damage", "MORE", 100 * (factor - 1), main.name)]
+        if boost:
+            mods.append(line("1% increased Attack Damage", boost * (share - pob), skill=main.name))
+        sources = ["the Shapeshifted unique's every second Slam"] + (
+            ["Ancestral Empowerment's every second Slam (the same half, taken as overlapping: UNVERIFIED)"]
+            if empowerment else []) + ([f"Fist of War once per {cooldown:g} s"] if cooldown > 0 else [])
+        return mods, [{
+            "label": label,
+            "value": f"{share:.0%} of {main.name}'s uses boosted ({more:.0%} more), against PoB's {pob:.0%}: x{factor:.3f}",
+            "basis": f"{'; '.join(sources)}; one boost per use; {speed:.2f} uses/s"
+                     + ("; Fist of War's charge taken as spent on an already boosted slam (the lower reading, UNVERIFIED; "
+                        f"the upper reading, PoB's, is {min(1.0, 0.5 + fist):.0%})" if cooldown > 0 else "")
+                     + "; the 25% increased area and the Empowered-only lines on the extra share aren't counted",
+            "play": f"Without the unique: x1.000. With it: every second Slam you use in your Shapeshifted form is boosted, "
+                    f"x{factor:.3f}",
+            "confidence": "LOW" if cooldown > 0 else "theory", "entry": "ancestral-boost"}]
+    if kaom and main.spell and "Fire" in main_types:
+        if cast_by_totem(skills, main):
+            return [], [{"label": label, "value": "0 (totem)", "confidence": "theory", "entry": "ancestral-boost",
+                         "basis": f"Kaom's Blessing boosts a Fire Spell \"you cast yourself\"; {main.name} is cast by a totem"}]
+        rate, how = warcries
+        share = min(1.0, rate / speed)
+        if share <= 0:
+            return [], [{"label": label, "value": "0", "confidence": "theory", "entry": "ancestral-boost",
+                         "basis": f"Kaom's Blessing: no Warcry use to follow ({how or 'no Warcry in the build'}: no source, 0)"}]
+        factor = 1 + ANCESTRAL_SPELL_MORE / 100 * share
+        return [raw_mod("Damage", "MORE", 100 * (factor - 1), main.name)], [{
+            "label": label, "value": f"{share:.1%} of {main.name}'s casts boosted ({ANCESTRAL_SPELL_MORE}% more): x{factor:.3f}",
+            "basis": f"Kaom's Blessing: one Fire Spell cast per Warcry use, {rate:.3f} Warcries/s ({how}) against "
+                     f"{speed:.2f} casts/s; the 25% increased area isn't counted",
+            "play": f"Without a Warcry: x1.000. With one: cast {main.name} right after each Warcry ({rate:.3f}/s), "
+                    f"x{factor:.3f}",
+            "confidence": "theory", "entry": "ancestral-boost"}]
+    return [], []
+
 # Glory on a boss (glory_uses) --------------------------------------------------------------------------------------------
 # Each Glory skill's cost and what builds its Glory, from the game files (build 26476662, GrantedEffectStatSets, level 20;
 # 9 Nov, MECH20): active_skill_requires_X_glory and active_skill_generates_mp_%_glory_per_<event> (that % of the target's

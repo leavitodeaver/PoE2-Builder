@@ -3957,3 +3957,61 @@ def test_spell_crits_recently_counts_the_main_spells_crits_over_four_seconds():
     count, how = a.spell_crits_recently(4.0, {"Spell", "Projectile"})
     assert count == pytest.approx(4.0) and "1.00 Critical Hits a second" in how
     assert a.spell_crits_recently(4.0, {"Attack"})[0] == 0.0
+
+
+UNIQUE_SLAM = "Every second Slam Skill you use while Shapeshifted is Ancestrally Boosted"
+EMPOWERMENT = "Every second Slam Skill you use yourself is Ancestrally Boosted"
+KAOM = "The next Fire Spell you cast yourself after using a Warcry is Ancestrally Boosted"
+
+
+def test_shapeshifted_unique_boosts_every_second_shapeshift_slam():
+    """(MECHB18) PoB leaves the unique's line unparsed: half a Shapeshift Slam's uses get 30% more (KeywordPopups
+    AncestralBoost); a Slam used outside a form gets nothing; a triggered Slam can't be boosted."""
+    slam = models.Skill.of({"name": "Bear Slam", "attack": True, "group": 1})
+    mods, notes = models.ancestral_boost_model([UNIQUE_SLAM], {"Speed": 1.5}, [slam], slam, {"Attack", "Slam", "Shapeshift"})
+    assert mods == [models.raw_mod("Damage", "MORE", 15.0, "Bear Slam")], mods
+    assert "50%" in notes[0]["value"] and "Without the unique" in notes[0]["play"]
+    mods, notes = models.ancestral_boost_model([UNIQUE_SLAM, "Ancestrally Boosted Attacks deal 30% increased Damage"],
+                                               {"Speed": 1.5}, [slam], slam, {"Attack", "Slam", "Shapeshift"})
+    assert mods[1] == models.line("1% increased Attack Damage", 15.0, skill="Bear Slam"), mods
+    mods, notes = models.ancestral_boost_model([UNIQUE_SLAM], {"Speed": 1.5}, [slam], slam, {"Attack", "Slam"})
+    assert mods == [] and notes[0]["value"] == "0"
+    triggered = models.Skill.of({"name": "Bear Slam", "attack": True, "triggered": True, "group": 1})
+    mods, notes = models.ancestral_boost_model([UNIQUE_SLAM], {"Speed": 1.5}, [triggered], triggered,
+                                               {"Attack", "Slam", "Shapeshift"})
+    assert mods == [] and notes[0]["value"] == "0 (triggered)"
+
+
+def test_ancestral_boost_sources_combine_as_one_boost_per_slam_at_the_lower_reading():
+    """(MECHB18) With Ancestral Empowerment and Fist of War, PoB counts min(50% + 1/(T x r), 100%); one boost per slam
+    with Fist of War's charge spent on an already boosted slam (RESEARCH25's lower reading, UNVERIFIED) is
+    0.5 + 0.5 / (T x r): the factor goes below x1, and the unique adds nothing over Ancestral Empowerment's half."""
+    slam = models.Skill.of({"name": "Bear Slam", "attack": True, "group": 1})
+    stats = {"Speed": 1.0, "FistOfWarCooldown": 6, "AncestralEmpowermentCombinedUptimeRatio": 100 * (0.5 + 1 / 6),
+             "AncestralEmpowermentDamageMultiplier": 0.3}
+    mods, notes = models.ancestral_boost_model([UNIQUE_SLAM, EMPOWERMENT], stats, [slam], slam,
+                                               {"Attack", "Slam", "Shapeshift"})
+    share, pob = 0.5 + 0.5 / 6, 0.5 + 1 / 6
+    assert mods == [models.raw_mod("Damage", "MORE", 100 * ((1 + 0.3 * share) / (1 + 0.3 * pob) - 1), "Bear Slam")]
+    assert notes[0]["confidence"] == "LOW" and "UNVERIFIED" in notes[0]["basis"]
+    # (Ancestral Empowerment alone: PoB's 50% already, the unique adds nothing)
+    assert models.ancestral_boost_model([UNIQUE_SLAM, EMPOWERMENT], {"Speed": 1.0, "AncestralEmpowermentUptimeRatio": 50},
+                                        [slam], slam, {"Attack", "Slam", "Shapeshift"}) == ([], [])
+
+
+def test_kaoms_blessing_boosts_one_fire_spell_per_warcry():
+    """(MECHB18) Kaom's Blessing: one Fire Spell cast per Warcry use is boosted (30% more, AncestralBoostSpell): the
+    share is warcries/s over casts/s; no Warcry, a totem's or a triggered cast, or a non-Fire spell: nothing."""
+    fireball = models.Skill.of({"name": "Fireball", "spell": True, "group": 1})
+    mods, notes = models.ancestral_boost_model([KAOM], {"Speed": 2.0}, [fireball], fireball, {"Spell", "Fire"},
+                                               (0.1, "Infernal Cry on its cooldown"))
+    assert mods == [models.raw_mod("Damage", "MORE", 1.5, "Fireball")], mods
+    assert "Without a Warcry" in notes[0]["play"]
+    mods, notes = models.ancestral_boost_model([KAOM], {"Speed": 2.0}, [fireball], fireball, {"Spell", "Fire"})
+    assert mods == [] and notes[0]["value"] == "0"
+    assert models.ancestral_boost_model([KAOM], {"Speed": 2.0}, [fireball], fireball, {"Spell", "Cold"},
+                                        (0.1, "")) == ([], [])
+    totem = models.Skill.of({"name": "Spell Totem", "spell": True, "group": 1})
+    mods, notes = models.ancestral_boost_model([KAOM], {"Speed": 2.0}, [fireball, totem], fireball, {"Spell", "Fire"},
+                                               (0.1, ""))
+    assert mods == [] and notes[0]["value"] == "0 (totem)"

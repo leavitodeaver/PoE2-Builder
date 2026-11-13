@@ -430,6 +430,13 @@ class Assumptions:
         ring_mods, ring_notes = models.resist_rings_model(source_lines) if models.RESIST_ENTRY not in forbidden else ([], [])
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()
         hand_mods, hand_notes = models.guided_hand_model(inputs, source_lines, stats, main, slam="Slam" in main_types)
+        texts = [e["text"] for e in source_lines]
+        if any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t) for t in texts):
+            # (MECH-B, MECHB18: Ancestral Boost's sources PoB leaves unparsed; PoB's own boost uptimes beside the stats)
+            boost_mods, boost_notes = models.ancestral_boost_model(
+                texts, {**stats, **build.call("stats", fields=models.ANCESTRAL_FIELDS)}, found, main, main_types,
+                self.warcry_uses() if any(models.KAOMS_BLESSING.match(t.strip()) for t in texts) else (0.0, ""))
+            hand_mods, hand_notes = hand_mods + boost_mods, hand_notes + boost_notes
         sanguine_mods, sanguine_notes = models.sanguine_model(inputs, stats, self.life_flask_charges())             if inputs.has(models.SANGUINE) else ([], [])
         hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
         resolve_mods, resolve_notes = models.deadly_resolve_model(found, stats, main)             if "deadly-resolve-rate" not in forbidden else ([], [])
@@ -1759,6 +1766,26 @@ class Assumptions:
         return rate * window, (f"{rate:.2f} Critical Hits a second (the main skill: {number(stats.get('Speed')):.2f} uses/s x "
                                f"{number(stats.get('HitChance')):.0f}% hit x {number(stats.get('CritChance')):.1f}% "
                                f"Critical Hit chance) x {window:g} s")
+
+    def warcry_uses(self) -> tuple[float, str]:
+        """(Warcry uses per second, how): every Warcry in the build's enabled groups at its own use rate
+        (conditions.skill_use_rate: its cooldown, else its duration, else the search's press choice, else 0) (MECHB18:
+        Kaom's Blessing boosts one Fire Spell per Warcry use)."""
+        gems = getattr(self.build.ctx, "all_gems", {}) or {}
+        found = {g["index"]: n["name"] for g in self.build.groups() if g.get("enabled") is not False
+                 for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")
+                 and "Warcry" in ((gems.get(n["name"]) or {}).get("skillTypes") or [])}
+        if not found:
+            return 0.0, "no Warcry in the build's enabled groups"
+        total, parts = 0.0, []
+        for rate in self.build.call("useRates", indices=sorted(found))["rates"]:
+            name = found.get(rate.get("index"))
+            if name is None:
+                continue
+            each, why, low = conditions_mod.skill_use_rate(rate, models.press_choices(self.build))
+            total += each
+            parts.append(f"{name} {each:.3f}/s on {why}" + (" (LOW)" if low else ""))
+        return total, "; ".join(parts) or "no use rate: 0"
 
     def has_line(self, pattern: str) -> bool:
         """Whether any of the build's source lines (passives and items, bridge sourceLines) matches `pattern`."""
