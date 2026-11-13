@@ -48,13 +48,26 @@
   test_in_game: "Not needed: the skill only composes the Requiem."
   status: proposed
 
-# skill_specific_stat_description_mode (COVC12): PoB marks it "-- Display Only" (SkillStatMap), but on 12 player skills
-# its value picks game text for a real mechanic (13 blocks in specific_skill_stat_descriptions/*.csd; checked:
-# scratch/covc12/csdblock.py over every .csd file, and each skill's statDescriptionScope in PoB's skill data). The two
-# below are read by the tool's own models; the other 10 are in COVC12's report (open, routed, or PoB's own statMap:
-# Voltaic Fulmination's corpseExplosionLifeMultiplier, sup_dex.lua 2096). summon_water_djinn.csd has a 14th block, but no stat set carries the stat there (checked: scratch/covc12/where.py over GrantedEffectStatSets). On the other 14 skills that carry it, no .csd
-# block in their scope or in the included skill_stat_descriptions.csd names it (checked: same script); what it does
-# there is UNVERIFIED, and they stay open.
+# skill_specific_stat_description_mode (COVC12; header corrected by COV18 for AUDIT23 A23-1 / AUDIT26): PoB marks it
+# "-- Display Only" (SkillStatMap), but on player skills its value picks game text for a real mechanic. The two entries
+# below are read by the tool's own models; COVC12's report has 10 more (open, routed, or PoB's own statMap: Voltaic
+# Fulmination's corpseExplosionLifeMultiplier, sup_dex.lua 2096). summon_water_djinn.csd has a block, but no stat set
+# carries the stat there (checked: scratch/covc12/where.py over GrantedEffectStatSets).
+# COVC12 also wrote that on 14 other skills carrying it no .csd block names it. That was WRONG (AUDIT23 A23-1): a plain
+# `grep -rl skill_specific_stat_description_mode` over data/game-26476662/files/data/statdescriptions finds 27 files,
+# and 12 of the 14 have a block with text (game 26476662, COV18):
+#   Convalescence "Cooldown is {0} seconds"; Corpse Beetles "Summons {0} Beetle per [Corpse] consumed"; Emergency Reload
+#   "Number of each clip's Empowered bolts is equal to the maximum Ammunition of the clip"; Frostflame Nova "Hits enemies
+#   every 0.5 seconds until affected Ignite expires"; Fulmination "Hits up to 8 enemies"; Rain of Arrows "Modifiers to
+#   Projectile speed apply to arrow landing frequency"; Righteous Descent "Will Consume a Fragment of Divinity within 3
+#   metres of you or targeted location when you leap to become Empowered"; Ruzhan (summon_fire_djinn.csd) "Attacks with
+#   Ruzhan's Zealotry when you use a damaging Skill with a 4 second cooldown, inflicting enemies Struck with Exposure";
+#   Tempest Bell "Can be Ancestrally Boosted as though a Strike"; Toxic Domain "Each enemy can have up to 1 Pustule
+#   attached" (MECH-B's pustule cap); Toxic Growth "Pustules store expected damage of Poisons inflicted on them";
+#   Whirlwind Lance "Collapse deals Melee damage".
+# For Ancestral Cry and The Stars Answer no .csd file in the export holds the stat (checked: the same grep; poe2db not
+# checked), so what it does there is UNVERIFIED. None of the 14 is zeroed or dropped here: each stays open as a
+# mechanic for its lane (COV18's report).
 
 - id: model-stats-rapid-shot-heat-lockout
   title: "Rapid Shot: can't fire or reload for 10 s on reaching maximum Heat (Heat model)"

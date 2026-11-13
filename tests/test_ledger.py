@@ -92,8 +92,9 @@ def test_the_audit_counts_debuff_lines_the_uptime_models_rate():
 def test_the_runic_ward_unlucky_rune_line_is_recorded_and_counts_nothing():
     """COV14 (RESEARCH6's missing Unlucky lines): the Warding Rune of Bodyguards' Bonded "Damage of Enemies Hitting you is
     Unlucky if / your Runic Ward has been damaged Recently" (two lines in PoB's rune data) had no entry. Runic Ward takes
-    damage only from damage that would have killed you (KeywordPopups Ward), and no model gives how often: 0, labelled,
-    never the always-on 6.67% of unlucky-enemy-damage."""
+    damage from damage that would have killed you (KeywordPopups Ward) and, while Runic Reprieve is channelled, from hits
+    (ActiveSkills runic_reprieve; COV18 corrected this after AUDIT26 A26-1). The share is MECH-C's Ward model (routed);
+    until it lands: 0, labelled, never the always-on 6.67% of unlucky-enemy-damage."""
     from builder.ledger import translate
 
     for line in ("Damage of Enemies Hitting you is Unlucky if", "your Runic Ward has been damaged Recently",

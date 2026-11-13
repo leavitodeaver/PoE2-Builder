@@ -293,23 +293,34 @@
   # alone; the joined text is matched too
   match: '^(Damage of Enemies Hitting you is Unlucky if|your Runic Ward has been damaged Recently|Damage of Enemies Hitting you is Unlucky if your Runic Ward has been damaged Recently)$'
   replace: []
-  absorbed_by: "nothing: counted 0 (an undercount, labelled), as no model gives how often Runic Ward is damaged"
+  absorbed_by: "nothing yet: counted 0 (an UNDERCOUNT for a build channelling Runic Reprieve, labelled); the share is routed to MECH-C's Ward model (COV18, AUDIT26 A26-1)"
   confidence: theory
   notes: >-
     The Warding Rune of Bodyguards' Bonded line (FIX_QUEUE RESEARCH6: "when Runic Ward was damaged recently", one of the
     four missing Unlucky lines; the other three: Full Life has unlucky-enemy-damage-full-life, and "while Cursed with
     Vulnerability" / "with a Magic Ring Equipped" have no player source in the exported tables (COV10), so no entry).
-    PoB applies neither half (the audit's export: "PoB ignores the line" for both; neither is in ModCache.lua), so it adds nothing today. Counted 0, not 6.67%: Runic Ward "absorbs fatal
-    damage instead of your Life. If you take damage that would cause your Life to reach 0 while you have Runic Ward, you
-    will drop to 1 Life and your Runic Ward will take the remaining damage" (KeywordPopups Ward, game 26476662; poe2db not
-    checked), so it is damaged only by damage that would have killed you. How often that happens in a fight the build
-    survives is something no model here gives (UNVERIFIED that no build feeds it on purpose; a model of lethal hits
-    absorbed per second would be MECH-C's, the Ward lane), so per the user's rule: no source, 0, with this note. If a
-    source is ever modelled: 6.67% less Damage taken from Hits (unlucky-enemy-damage) x the share of the fight within
-    4 s of Ward taking damage. It also counts only while the rune's Bonded lines apply (Wisdom of the Maji, or a Fox
-    Idol in the item: COV13).
+    PoB applies neither half (the audit's export: "PoB ignores the line" for both; neither is in ModCache.lua), so it
+    adds nothing today. How Runic Ward is damaged (corrected by COV18 after AUDIT26 A26-1; COV14 wrote it is damaged
+    only by fatal damage, which was WRONG): (1) fatal damage: "If you take damage that would cause your Life to reach 0
+    while you have Runic Ward, you will drop to 1 Life and your Runic Ward will take the remaining damage" (KeywordPopups
+    Ward, game 26476662); (2) while channelling Runic Reprieve, hit damage: "While Channelling this Skill ... damage you
+    take from Hits is also removed from Runic Ward" (ActiveSkills runic_reprieve; its stat set carries
+    non_ward_damage_taken_from_blocked_hits_is_taken_to_ward_as_well; poe2db Runic_Reprieve: "Lose Runic Ward on Block
+    equal to the damage you took from that Hit"). (checked: every Stats id holding "ward" with damage / taken / absorb /
+    before / lose and their carriers in all tables (COV18, AUDIT26): Runic Reprieve's stats are the ones that move hit
+    damage onto Ward; all_damage_from_hits_is_taken_from_ward_before_life has no carrier; a Soul Core's
+    damage_cannot_be_taken_from_ward stops Ward taking damage; poe2db Runic_Reprieve.) Open (UNVERIFIED): whether
+    spending Ward as a cost (Runic Infusion and Olroth's Hubris supports, a Soul Core's
+    attack_spend_x%_maximum_ward_for_added_physical_damage, Olrovasara's per-50-Ward-cost line) counts as Ward "damaged";
+    nothing is excluded on it. The count: 6.67% less Damage taken from Hits (unlucky-enemy-damage) x the share of the
+    fight within 4 s of Ward taking damage, which for a Runic Reprieve build is about the share of the fight within 4 s
+    of a hit taken while channelling it (the boss preset's hits and the build's channel time); fatal damage absorbed adds
+    a little in a fight the build survives. That share is MECH-C's (the Ward lane): routed, not modelled here, so the
+    line counts 0 until it lands (no source, 0, per the user's rule; never the always-on 6.67%). It also counts only
+    while the rune's Bonded lines apply (Wisdom of the Maji, or a Fox Idol in the item: COV13).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Warding Rune of Bodyguards, bonded)",
-            "data/game-26476662/tables/KeywordPopups.json (Ward)", "https://poe2db.tw/Unlucky"]
+            "data/game-26476662/tables/KeywordPopups.json (Ward)", "data/game-26476662/tables/ActiveSkills.json (runic_reprieve)",
+            "https://poe2db.tw/us/Runic_Reprieve", "https://poe2db.tw/Unlucky"]
   status: proposed
 
 - id: unlucky-enemy-physical
