@@ -23,7 +23,7 @@ from builder.ledger.parse_audit import GATED_FIELDS
 from builder.pob import codes
 from builder.request.constraints import FACT_FIELDS, meta_socketed
 from builder.request.schema import WeaponSwap
-from builder.search.assumptions import Assumptions
+from builder.search.assumptions import Assumptions, pressed_group
 from builder.search.conditions import (
     LOW_LIFE_LINE, LOW_LIFE_SHARE, MELEE_DISTANCE, STATIONARY_LINE, UPTIME, Conditions, distance_candidates,
 )
@@ -32,7 +32,7 @@ from builder.search.gear import Gear, SlotSpec, extra_ring_passive
 from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
 from builder.search import flasks, play_guide
-from builder.search.models import GLORY_SKILLS, MARK_CARRIERS, MODEL_FIELDS
+from builder.search.models import GLORY_SKILLS, MARK_CARRIERS, MODEL_FIELDS, PRESS_CHOICES, press_choices, press_use_rate
 from builder.search.objective import (
     CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, number, shortfall,
     with_boss_recovery,
@@ -64,6 +64,12 @@ PERSIST_LINES = os.environ.get("POE2_SEARCH_M1", "1") != "0"
 TREE_REBUILD = os.environ.get("POE2_SEARCH_M2", "1") != "0"
 TREE_REBUILD_MIN = 60.0  # seconds a task must have left to try it (a rebuild cut short only loses; finalize never has it)
 TREE_REBUILD_SHARE = 0.4  # of the task's time left that the regrow may take
+# The press rates the search offers a side skill with no cooldown, no duration and nothing else setting its use (MECH55;
+# THE USER, 12 Nov, card: "Search picks the rate"): uses per second, 0 first (ties keep the lower rate). A choice adds no
+# button (the skill is already one, within the cap) and its time is charged against the main skill (press_model's busy
+# share in Full DPS, Objective.press_busy otherwise). Search.press_round; POE2_SEARCH_PRESS=0 turns the round off.
+PRESS_RATES = (0.0, 0.25, 0.5, 1.0, 2.0)
+PRESS_ROUND = os.environ.get("POE2_SEARCH_PRESS", "1") != "0"
 FINALIZE_SWEEP_MIN = 20.0  # finalize's polish sweeps supports on Full DPS first when it has this long (finalize_task)
 # How far past its deadline a search may run before its build stops it at the next evaluation (Build.stop_at): a share
 # of the task's time, at least STOP_GRACE_MIN seconds, so a step that watches the deadline itself finishes normally
@@ -150,6 +156,7 @@ class Search:
         self.line_passes = 0
         self.resume_step: str | None = None
         self.resume_sweep = False
+        self.press_rows: dict[str, dict] = {}  # (Search.press_round: each candidate's useRates row, its trial DPS)
         self.tree_rebuilt = False  # M2: the line's tree rebuild was tried (carried in the line's state)
         self.current_step: str | None = None
         self.kick_kinds: dict[str, int] = {}
@@ -368,6 +375,7 @@ class Search:
             "extra_stats": dict(self.build.extra_stats),
             "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
+            "press_choices": press_choices(self.build), "press_rows": copy.deepcopy(self.press_rows),
             "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
                      "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt,
                      "tree_rebuilt": self.tree_rebuilt} if PERSIST_LINES else None,
@@ -375,7 +383,8 @@ class Search:
 
     # The objective's per-build factors (not its requirement weights: an escalation raises those for the rest of the
     # search, and a restore must not undo it)
-    SCORING_FIELDS = ("extra", "added_dps", "entry_scales", "press_scales", "life_factor", "uptime_factor", "floor_deltas")
+    SCORING_FIELDS = ("extra", "added_dps", "entry_scales", "press_scales", "press_choices", "press_busy", "life_factor",
+                      "uptime_factor", "floor_deltas")
     ASSUMPTION_FIELDS = ("mods", "active", "extra_groups", "stat_sets", "infused", "infused_skipped", "cooldown_fallback")
 
     def _scoring_state(self) -> dict:
@@ -386,7 +395,7 @@ class Search:
             "assumptions": {k: getattr(assumptions, k) for k in self.ASSUMPTION_FIELDS},
             "uptimes": conditions.uptimes, "found_uptimes": getattr(conditions, "found_uptimes", None),
             "uptime_cache": self.uptime_cache, "uptime_floor": self.uptime_floor, "uptime_rows": self.uptime_rows,
-            "play_notes": self.play_notes})
+            "play_notes": self.play_notes, "press_rows": self.press_rows})
 
     def _put_scoring_state(self, saved: dict) -> None:
         saved = copy.deepcopy(saved)
@@ -399,6 +408,7 @@ class Search:
             self.conditions.found_uptimes = saved["found_uptimes"]
         self.uptime_cache, self.uptime_floor = saved["uptime_cache"], saved["uptime_floor"]
         self.uptime_rows, self.play_notes = saved["uptime_rows"], saved["play_notes"]
+        self.press_rows = saved.get("press_rows", {})
 
     def load(self, state: dict) -> None:
         self.build.call("loadXml", xml=state["xml"])
@@ -425,6 +435,10 @@ class Search:
         self.gear.shortlist = dict(state.get("gear_shortlist") or {})
         self.gear.resume = state.get("gear_resume")
         self.problems = list(state["problems"])
+        setattr(self.build.objective, PRESS_CHOICES, dict(state.get("press_choices") or {}))
+        self.press_rows = copy.deepcopy(state.get("press_rows") or {})
+        if self.press_sync():
+            self.build.score = self.build.objective.score(self.build.stats)
         line = state.get("line") if PERSIST_LINES else None
         if line:
             self.line_passes, self.resume_step, self.resume_sweep = line["passes"], line["step"], line["sweep"]
@@ -435,10 +449,145 @@ class Search:
 
     def settle(self) -> bool:
         """Conditions and assumptions follow the build, and the part-time effects' weights follow them (follow_uptimes)."""
+        pressed = self.press_sync()  # (before the models read the choices: a skill that left the build loses its own)
         changed = self.conditions.resolve()
         changed = self.assumptions.apply() or changed
         self.follow_uptimes()
+        if pressed:
+            self.build.score = self.build.objective.score(self.build.stats)
         return changed
+
+    # Press rates (MECH55 / MECH56; THE USER, 12 Nov: "Search picks the rate") -----------------------------------------
+    # A side skill with no cooldown and no duration (and Marks, "you use" events, side consumers, Rage spenders that read
+    # the same choice) is pressed 0 times until the search chooses how often the player presses it: the search plays the
+    # build to feed it, as CLAUDE.md's flat-rate rule asks, and pays for the time each press takes from the main skill.
+
+    def press_candidates(self) -> dict[str, dict]:
+        """{skill name: its bridge useRates row} for each button beside the main skill (Gems.buttons: within the cap
+        already) whose use no cooldown or duration sets (models.press_use_rate reads 0 for it without a choice)."""
+        build = self.build
+        result = build.call("groups")
+        main = result["mainSocketGroup"]
+        buttons = set(self.gems.buttons())
+        where = {g["index"]: [n["name"] for n in g.get("gems") or []
+                              if n.get("enabled", True) and not n.get("support") and n["name"] in buttons]
+                 for g in result["groups"] if g["index"] != main and g.get("enabled") is not False}
+        where = {i: names for i, names in where.items() if names}
+        if not where:
+            return {}
+        main_names = {n["name"] for g in result["groups"] if g["index"] == main for n in g.get("gems") or []
+                      if n.get("enabled", True) and not n.get("support")}
+        out: dict[str, dict] = {}
+        for row in build.call("useRates", indices=sorted(where))["rates"]:
+            if (number(row.get("cooldown")) > 0 or number(row.get("duration")) > 0 or number(row.get("speed")) <= 0
+                    or row.get("index") not in where):
+                continue
+            label = str(row.get("name") or "")
+            name = next((n for n in where[row["index"]]
+                         if label == n or label.startswith(f"{n} ") or label.startswith(f"{n}:")), None)
+            if name is not None and name not in main_names and name not in out:
+                out[name] = dict(row)
+        return out
+
+    def press_sync(self) -> bool:
+        """Keep the chosen press rates to skills still pressed in the build, and set the main skill's time they take that
+        press_scales doesn't charge (Objective.press_busy: every choice outside Full DPS; in Full DPS, a chosen skill that
+        isn't a pressed Full DPS group, e.g. one pressed for a side effect). Each press takes 1 / its speed, as press_model
+        counts it (Cadence's pace and the build's feed caps aren't applied here: the time is overcounted a little for a
+        skill they hold). True if either changed."""
+        objective = self.build.objective
+        choices = press_choices(self.build)
+        if not choices and not getattr(objective, "press_busy", 0.0):
+            return False
+        groups = self.build.groups() if choices else []
+        present = {n["name"]: g for g in groups if not g["main"] and g.get("enabled") is not False
+                   for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")}
+        kept = {name: rate for name, rate in choices.items() if name in present and name in self.press_rows}
+        busy = 0.0
+        for name, rate in kept.items():
+            row = self.press_rows[name]["row"]
+            if objective.full and pressed_group(present[name], self.build.ctx.gems):
+                continue  # (press_model charges it: Assumptions.rate_presses)
+            uses, _, _ = press_use_rate(row, rate)
+            busy += uses / number(row.get("speed"))
+        busy = round(busy, 9)
+        changed = kept != choices or busy != getattr(objective, "press_busy", 0.0)
+        setattr(objective, PRESS_CHOICES, kept)
+        objective.press_busy = busy
+        return changed
+
+    def _press(self, name: str, rate: float) -> tuple[float, float]:
+        """Set one skill's chosen press rate, settle, and return (score, DPS)."""
+        build = self.build
+        choices = press_choices(build)
+        if rate > 0:
+            choices[name] = rate
+        else:
+            choices.pop(name, None)
+        setattr(build.objective, PRESS_CHOICES, choices)
+        self.settle()
+        build.score = build.objective.score(build.stats)
+        return build.score, build.objective.dps(build.stats)
+
+    def press_round(self, deadline: float) -> bool:
+        """Choose how often the player presses each side skill with no cooldown or duration (PRESS_RATES), one skill at a
+        time: each rate scored for real (settle: the models, conditions and Full DPS read the choice; the main skill
+        loses the presses' time), the best kept, ties to the lower rate. The DPS with and without it go to the play guide
+        (press_guide_rows). True if the score rose."""
+        if not PRESS_ROUND:
+            return False
+        build = self.build
+        before = build.score
+        found = self.press_candidates()
+        self.press_rows = {name: {**self.press_rows.get(name, {}), "row": row} for name, row in found.items()}
+        if self.press_sync():
+            self.settle()
+            build.score = build.objective.score(build.stats)
+        for name in sorted(found):
+            if clock.now() > deadline:
+                break
+            start = press_choices(build).get(name, 0.0)
+            # (scored on Full DPS, a pressed group out of it joins it for the trials that press it: it was left out while
+            # it was pressed 0 times, and include_in_full_dps only adds a group that already pays)
+            group = next((g for g in build.groups() if g["index"] == found[name].get("index")), None)
+            join = (group is not None and build.objective.full and not group["fullDPS"]
+                    and pressed_group({**group, "fullDPS": True}, build.ctx.gems))
+            trials = {PRESS_RATES[0]: self._press(name, PRESS_RATES[0])}
+            if join:
+                build.set_group(index=group["index"], fullDPS=True)
+            for rate in PRESS_RATES[1:]:
+                trials[rate] = self._press(name, rate)
+            best = PRESS_RATES[0]
+            for rate in PRESS_RATES[1:]:
+                if trials[rate][0] > trials[best][0] + EPSILON:
+                    best = rate
+            if start in trials and trials[start][0] >= trials[best][0] - EPSILON:
+                best = start  # (no change for a gain under EPSILON)
+            if join and best == PRESS_RATES[0]:
+                build.set_group(index=group["index"], fullDPS=False)
+            if best != PRESS_RATES[-1] or (join and best == PRESS_RATES[0]):
+                self._press(name, best)
+            self.press_rows[name].update({"without": trials[PRESS_RATES[0]][1], "with": trials[best][1]})
+        return build.score > before + EPSILON
+
+    def press_guide_rows(self) -> list[dict]:
+        """The play guide's "without it / with it" row for each chosen press rate (CLAUDE.md's flat-rate rule: say how
+        the build feeds it), from the last press round's trials (finalize runs one on the finished build)."""
+        rows = []
+        for name, info in sorted(self.press_rows.items()):
+            rate = press_choices(self.build).get(name, 0.0)
+            if rate <= 0 or "with" not in info:
+                continue
+            without, with_it = number(info.get("without")), number(info.get("with"))
+            rows.append({
+                "var": f"press:{name}", "label": f"{name}: pressed {rate:g} times a second*", "kind": play_guide.PLAYER,
+                "counted": True,
+                "play": (f"press {name} about {rate:g} times a second beside the main skill (no cooldown or duration sets "
+                         f"its use, so the search chose this rate as a way to play the build; its presses' time is taken "
+                         f"from the main skill): {with_it:,.0f} DPS with it, {without:,.0f} without it"),
+                "dps_with": with_it, "dps_without": without,
+                "change": (with_it - without) / without if without > 0 else 0.0, "confidence": "modelled"})
+        return rows
 
     def follow_uptimes(self) -> None:
         """Between conditions rounds, a commit or trial can switch on an effect kept up for part of the fight, or move an
@@ -460,7 +609,8 @@ class Search:
                 cache[var] = _without(self, var, effects[var][1], on_stats, on)[:2]
         factor = 1.0
         for var in sorted(live):
-            factor *= live[var] + (1.0 - live[var]) * cache[var][0]
+            if not effects[var][1].get("in_stats"):  # (a share already in PoB's stats: LEDGER_VAR)
+                factor *= live[var] + (1.0 - live[var]) * cache[var][0]
         floor_deltas = self.floor_without(live, on_stats=None)
         if factor != objective.uptime_factor or floor_deltas != objective.floor_deltas:
             objective.uptime_factor, objective.floor_deltas = factor, floor_deltas
@@ -599,7 +749,7 @@ class Search:
                     continue
                 ratio, deltas, off_stats = _without(self, var, info, on_stats, on)
                 self.uptime_cache[var] = (ratio, deltas)
-                share = up + (1.0 - up) * ratio
+                share = 1.0 if info.get("in_stats") else up + (1.0 - up) * ratio  # (LEDGER_VAR: in PoB's stats)
                 factor *= share
                 floors = [(p.label, number(on_stats.get(p.stat)), number(on_stats.get(p.stat)) + deltas[p.stat])
                           for p in objective.penalties if p.stat in deltas]
@@ -726,6 +876,7 @@ class Search:
             ("attributes", self.tree.attributes_round, ()),
             ("jewels", self.jewels.jewel_round, (deadline, sweep or "gear" in self.kicked)),
             ("conditions", self.conditions_round, ()),
+            ("press rates", self.press_round, (deadline,)),
             ("condition sources", self.sources.round, (deadline,)),
             ("persistent", self.gems.optimize_persistent, (deadline,)),
             ("granted metas", self.gems.granted_meta_round, (deadline,)),
@@ -980,9 +1131,11 @@ class Search:
             # a pressed skill counts at its real use, and takes its time from the main skill (MECH37: PoB counts it
             # used nonstop beside a nonstop main skill)
             self.assumptions.rate_presses()
+            self.press_sync()  # (a chosen press rate is charged by press_model now, not Objective.press_busy)
             if build.objective.value(build.stats) <= before * (1 + 1e-9):
                 build.set_group(index=group["index"], fullDPS=False)
                 self.assumptions.rate_presses()
+                self.press_sync()
 
     def note_feasible(self) -> None:
         """Remember the build if it meets every requirement and beats the best such build on the goal."""
@@ -1100,6 +1253,13 @@ def _weigh_shared_flags(search: Any, effects: dict[str, tuple[float, dict]], on_
     return factor
 
 
+# A ledger condition the fight holds for part of it (Assumptions.ledger_part_time: Adaptive Skin's elements the boss hit
+# you with Recently, AUDIT25 A25-48): counted at its share inside PoB's stats (Multiplier:LedgerShare<id>, its `share:`
+# lines), so its weighing factor is 1 ("in_stats": the share isn't counted twice); _switch turns it off through
+# Assumptions.ledger_switch, and floor_without reads the floors with it off (they count an effect only at full uptime).
+LEDGER_VAR = "ledger:"
+
+
 def _part_time(search: Any) -> dict[str, tuple[float, dict]]:
     """The effects on for only part of the fight: var -> (share, info). The conditions' (conditions.uptimes, the active
     ones) and the flask and charm slots up between gear.FLASK_ON (7%) and gear.FLASK_WHOLE (99.5%) of the fight
@@ -1109,6 +1269,10 @@ def _part_time(search: Any) -> dict[str, tuple[float, dict]]:
     gear = getattr(search, "gear", None)
     for slot, (up, name) in (gear.part_time() if gear is not None else {}).items():
         out[f"{FLASK_VAR}{slot}:{name}"] = (up, {"label": f"{name} ({slot})", "value": True, "off": False})
+    for name, up in sorted((getattr(getattr(search, "assumptions", None), "ledger_part_time", None) or {}).items()):
+        if up > 0:
+            out[f"{LEDGER_VAR}{name}"] = (up, {"label": f"{name} (a ledger condition, counted at its share)",
+                                               "value": True, "off": False, "in_stats": True})
     return out
 
 
@@ -1117,7 +1281,12 @@ def _switch(search: Any, values: dict[str, Any]) -> None:
     flag (the item stays equipped; its recovery, Gear.recovery_stats, doesn't depend on the flag)."""
     config = {}
     for var, value in values.items():
-        if var.startswith(FLASK_VAR):
+        if var.startswith(LEDGER_VAR):
+            switch = getattr(search.assumptions, "ledger_switch", None)
+            if switch is None:
+                switch = search.assumptions.ledger_switch = {}
+            switch[var[len(LEDGER_VAR):]] = bool(value)
+        elif var.startswith(FLASK_VAR):
             slot = var[len(FLASK_VAR):].split(":", 1)[0]
             option = search.build.equipped.get(slot)
             if option is not None:
@@ -1276,6 +1445,10 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     # number (Full DPS, exact uptimes)
     trace: list[list] = [["loaded", round(build.score, 4)]]
     search.include_in_full_dps()
+    # The press rates on Full DPS (a pressed group's own damage counts now), then the groups again: one with no chosen
+    # rate added nothing and stayed out
+    if search.step("press rates", search.press_round, deadline):
+        search.include_in_full_dps()
     trace.append(["full dps", round(build.score, 4)])
     # A loaded state has no uptime weighting yet (objective.uptime_factor 1.0): 2b75e (POE2T653) loaded at 14.43 against
     # its searched 14.27, so the Full DPS supports sweep below ranked supports with every partial-uptime effect at full
@@ -1308,12 +1481,15 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     trace.append(["play", round(build.score, 4)])
     search.resolve()
     trace.append(["resolve", round(build.score, 4)])
+    search.press_round(float("inf"))  # (the finished build's rates and their play guide rows)
+    trace.append(["press rates", round(build.score, 4)])
     search.weigh_uptimes()  # exact for the finished build
     trace.append(["uptimes", round(build.score, 4)])
 
     search.gear.sync_flasks()
     search.gems.meta_candidates()  # the Meta gems the search can't propose yet, with why, for the result
     play = play_guide.guide(search)  # "How to play it": the DPS without each condition the player or fight decides
+    play += search.press_guide_rows()  # (and each chosen press rate, without it / with it)
     facts = build.call("facts", fields=RESULT_FIELDS)
     xml = build.call("exportXml")["xml"]
     code = codes.encode(xml)

@@ -902,6 +902,12 @@ class Assumptions:
             self.press_busy = press_notes[0]["value"] if press_notes else 0.0
         self.ledger_shares = {}  # (COV11; set again by ledger_conditions)
         found, condition_notes = self.ledger_conditions(skills)
+        # (SEARCH10, the manager's ruling: a part-time ledger condition counts at its share, in PoB's stats; the search's
+        # part-time weighing switches it off through ledger_switch, so the defence floors read it at 0: Search._part_time)
+        for name, share in sorted(getattr(self, "ledger_part_time", {}).items()):
+            if getattr(self, "ledger_switch", {}).get(name, True) and share > 0:
+                found.append(name)
+                self.ledger_shares[name] = round(100 * share)
         mods += [{"kind": "Condition", "name": name} for name in found]
         mods += [models.raw_mod(f"Multiplier:LedgerShare{name}", "BASE", percent)
                  for name, percent in sorted(self.ledger_shares.items())]

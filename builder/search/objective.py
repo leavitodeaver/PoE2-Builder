@@ -353,6 +353,13 @@ class Objective:
         # and pressed non-main skills at their real use, the main skill at the time they leave it (models.press_model,
         # set by Assumptions.rate_presses; MECH37)
         self.press_scales: dict[str, float] = {}
+        # The press rates the search chose for side skills with no cooldown or duration (models.PRESS_CHOICES; MECH55, the
+        # user's "search picks the rate", 12 Nov; Search.press_round) and the main skill's time those presses take that
+        # press_scales doesn't already charge (Search.press_sync: every choice outside Full DPS, where press_scales isn't
+        # read; in Full DPS, a chosen skill that isn't a pressed Full DPS group, e.g. a Mark or a consumer pressed for its
+        # side effect)
+        self.press_choices: dict[str, float] = {}
+        self.press_busy = 0.0
         # The boss's Low Life share of the fight (Search.weigh_life): 1 / (0.65 + 0.35 / (DPS on Low Life / DPS above it)),
         # set at each conditions round from one extra recalculation; 1 for a build with no Low Life lines
         self.life_factor = 1.0
@@ -398,9 +405,13 @@ class Objective:
         if self.full:
             full = number(stats.get("FullDPS"))
             if full > 0:
-                full = max(full + self.rescaled(stats) - self.excluded(stats)[0], 0.0)
+                full = max(full + self.rescaled(stats) - self.excluded(stats)[0] - main_dps(stats) * self.busy(), 0.0)
                 return (full + added) * self.life_factor * self.uptime_factor
-        return (main_dps(stats) + added) * self.life_factor * self.uptime_factor
+        return (main_dps(stats) * (1.0 - self.busy()) + added) * self.life_factor * self.uptime_factor
+
+    def busy(self) -> float:
+        """The main skill's share of the fight lost to chosen presses not charged in press_scales (press_busy, 0-1)."""
+        return min(max(number(getattr(self, "press_busy", 0.0)), 0.0), 1.0)
 
     def rescaled(self, stats: dict) -> float:
         """What entry_scales and press_scales add to Full DPS: each named entry's damage x (its scale - 1)."""
