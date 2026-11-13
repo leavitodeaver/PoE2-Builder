@@ -1157,6 +1157,8 @@ class Assumptions:
         found, notes = [], []
         if not hasattr(self, "ledger_shares"):  # (set by wanted(); a unit test may call this alone)
             self.ledger_shares = {}
+        # ledger conditions up for part of the fight (condition -> share): counted 0 in PoB, for the search to weigh
+        self.ledger_part_time: dict[str, float] = {}
         from builder.search import boss_hits, bosses  # (COV12: the damage types the scored boss deals)
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         dealt = {t for t, count in boss_hits.hit_table(boss)[1].items() if count}
@@ -1164,14 +1166,23 @@ class Assumptions:
             if condition.get("boss_hits"):
                 # the share of the fight the scored boss has hit you with this damage type Recently (4 s): e.g. Adaptive
                 # Skin's max resistance of each element "you have been Hit with Recently" (its `share:` lines)
+                # (AUDIT25 A25-48) PoB counts the line whole only when it is up at least conditions.FULL_UPTIME (99.5%)
+                # of the fight, as the defence floors read PoB's resistances and count only full uptime (the user's
+                # rule); below that it counts 0 in PoB (an UNDERCOUNT outside the floors: damage taken, the play guide),
+                # and its share waits in ledger_part_time for the search's part-time weighing (routed to SEARCH)
                 kind = condition["boss_hits"]
                 share, how = self.boss_hit_recently_share(boss, kind) if kind in dealt else (0.0, f"{boss} deals no {kind} hits")
-                percent = round(100 * min(max(share, 0.0), 1.0))
-                if percent > 0:
-                    self.ledger_shares[condition["id"]] = percent
+                share = min(max(share, 0.0), 1.0)
+                if share >= conditions_mod.FULL_UPTIME:
+                    self.ledger_shares[condition["id"]] = 100
                     found.append(condition["id"])
+                elif share > 0:
+                    self.ledger_part_time[condition["id"]] = share
                 if kind in dealt and self.has_line(r"Damage Type you have been Hit with Recently"):
-                    notes.append({"label": f"{condition['title']}", "value": f"{percent}%", "basis": how,
+                    counted = ("counted whole" if share >= conditions_mod.FULL_UPTIME else
+                               "counted 0: under 99.5% of the fight, so not in the defence floors (an undercount in "
+                               "damage taken, where its share would count; not weighed yet)")
+                    notes.append({"label": f"{condition['title']}", "value": f"{share:.0%} up", "basis": f"{how}; {counted}",
                                   "confidence": "LOW (the boss's per-type hit rate: HIT_EVERY and its skills' type counts)"})
                 continue
             if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
@@ -1229,10 +1240,10 @@ class Assumptions:
     def boss_hit_recently_share(boss: str, kind: str) -> tuple[float, str]:
         """(share of the fight you have been Hit with `kind` damage by the boss Recently, how) (COV12; AUDIT25 A25-42).
         The boss uses a damaging skill every bosses.HIT_EVERY s (LOW); a share counts[kind] / damaging skills of them deal
-        the type (boss_hits.HIT_TABLE over RED_FLASH's damaging-skill count, capped at 1). Hits of the type at least every
-        4 s ("Recently", KeywordPopups) count as always up, as the defence floors count only full uptime (the user's
-        rule); slower, the uptime of a Poisson stream, 1 - e^(-4 s x rate). Before the player's evasion and block, and
-        before Slows on the boss (a small overcount for an evasive build or one that Slows the boss)."""
+        the type (boss_hits.HIT_TABLE over RED_FLASH's damaging-skill count, capped at 1). The share of the fight hit
+        Recently (4 s, KeywordPopups) is a Poisson stream's, 1 - e^(-4 s x rate) (AUDIT25 A25-48: a hit every 4 s is 63%,
+        not always; 99.5% needs one about every 0.75 s). No rate in the tables: 0, labelled. Before the player's evasion
+        and block, and before Slows on the boss (a small overcount for an evasive build or one that Slows the boss)."""
         import math
 
         from builder.search import boss_hits, bosses
@@ -1243,11 +1254,9 @@ class Assumptions:
         if not counts.get(kind):
             return 0.0, f"{boss} deals no {kind} hits"
         if not every or not damaging:
-            return 1.0, f"{boss}: no per-type hit rate in the tables, taken as always hit with {kind} Recently (UNVERIFIED)"
+            return 0.0, (f"{boss}: no per-type hit rate in the tables (bosses.HIT_EVERY / boss_hits.RED_FLASH), so 0 (no "
+                         f"flat guess; an undercount if it hits with {kind} often)")
         interval = every / min(1.0, counts[kind] / damaging)
-        if interval <= 4.0:
-            return 1.0, (f"{boss} hits with {kind} about every {interval:.1f} s ({counts[kind]} of its {damaging} damaging "
-                         f"skills, one use every {every:g} s): within 4 s, always up")
         share = 1.0 - math.exp(-4.0 / interval)
         return share, (f"{boss} hits with {kind} about every {interval:.1f} s ({counts[kind]} of its {damaging} damaging "
                        f"skills, one use every {every:g} s): up {share:.0%} of the fight (1 - e^(-4 s / {interval:.1f} s))")

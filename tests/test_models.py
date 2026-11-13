@@ -3286,11 +3286,15 @@ def test_a_curses_own_duration_sets_its_uptime_recast_time_and_doom_blasts():
 
 
 
-def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_with():
+def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_with(monkeypatch):
     """COV12 (an OVERCOUNT before): Adaptive Skin's "+N% to Maximum Resistances of each Elemental Damage Type you have
-    been Hit with Recently" was '+N% to all Maximum Elemental Resistances'. Now one line per element under
-    BossHits<Type>, which ledger_conditions switches on for the types the scored boss deals (boss_hits.HIT_TABLE)."""
-    from builder.ledger import translate
+    been Hit with Recently" was '+N% to all Maximum Elemental Resistances'. Now one `share:BossHits<Type>` line per
+    element. AUDIT25 A25-42 / A25-48: the share of the fight hit with the type Recently (4 s) is 1 - e^(-4 s x rate);
+    PoB counts the line whole only at conditions.FULL_UPTIME (99.5%: the floors count only full uptime), else 0 with
+    the share kept in ledger_part_time; a boss with no per-type rate in the tables is 0, not always up."""
+    import math
+
+    from builder.search import bosses, conditions
     from builder.search.assumptions import Assumptions
 
     entry, lines = translate("+5% to Maximum Resistances of each Elemental Damage Type you have been Hit with Recently")
@@ -3298,7 +3302,7 @@ def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_wi
         "share:BossHitsFire +5% to Maximum Fire Resistance", "share:BossHitsCold +5% to Maximum Cold Resistance",
         "share:BossHitsLightning +5% to Maximum Lightning Resistance"]
 
-    def found(boss):
+    def run(boss):
         class Request:
             pass
 
@@ -3327,17 +3331,24 @@ def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_wi
         a.ledger_shares = {}
         found = {c for c in a.ledger_conditions([{"name": "Spark", "disabled": False, "group": 1}])[0]
                  if c.startswith("BossHits")}
-        shares[boss] = {c: a.ledger_shares[c] for c in found}
-        return found
+        return found, {c: v for c, v in a.ledger_shares.items() if c.startswith("BossHits")}, a.ledger_part_time
 
-    shares = {}
-
+    # Arbiter of Ash: Fire on 17 of 20 damaging skills, one use every 2.25 s: about every 2.6 s, 78% up: under 99.5%
+    found, shares, part = run("Arbiter of Ash")
+    assert found == set() and shares == {} and set(part) == {"BossHitsFire"}  # Cold, Lightning: it deals none
+    assert part["BossHitsFire"] == pytest.approx(1 - math.exp(-4 / (2.25 * 20 / 17)))
+    assert run(None)[2] == part  # no boss in the request: the default boss
+    # Xesht: Fire on 2 of 11, one use every 1.25 s
+    assert run("Xesht, We That Are One")[2]["BossHitsFire"] == pytest.approx(1 - math.exp(-4 / (1.25 * 11 / 2)))
     for boss, (_, counts) in boss_hits.HIT_TABLE.items():
-        assert found(boss) == {f"BossHits{t}" for t in ("Fire", "Cold", "Lightning") if counts.get(t)}, boss
-    assert found("Arbiter of Ash") == {"BossHitsFire"}  # Fire and Physical: Cold and Lightning stay at their maximums
-    assert found(None) == found("Arbiter of Ash")  # no boss in the request: the default boss
-    # AUDIT25 A25-42: "Recently" is 4 s. Hits of the type at least every 4 s: always up; slower, 1 - e^(-4 s x rate)
-    assert shares["Arbiter of Ash"] == {"BossHitsFire": 100}  # Fire about every 2.6 s
-    found("Xesht, We That Are One")  # one use every 1.25 s; Fire on 2 of 11 damaging skills: every 6.9 s
-    assert shares["Xesht, We That Are One"]["BossHitsFire"] == round(100 * (1 - math.exp(-4 / (1.25 * 11 / 2))))
-    assert all(v <= 100 for share in shares.values() for v in share.values())
+        found, shares, part = run(boss)
+        assert set(part) | found <= {f"BossHits{t}" for t in ("Fire", "Cold", "Lightning") if counts.get(t)}, boss
+    # a boss with no per-type rate (not in HIT_EVERY / RED_FLASH): 0, not always up
+    assert Assumptions.boss_hit_recently_share("The Trialmaster", "Fire")[0] == 0.0
+    # at 99.5% or more (a Fire hit about every 0.75 s or faster) it counts whole in PoB
+    monkeypatch.setitem(bosses.HIT_EVERY, "Arbiter of Ash", 0.6)
+    found, shares, part = run("Arbiter of Ash")
+    assert 1 - math.exp(-4 / (0.6 * 20 / 17)) >= conditions.FULL_UPTIME
+    assert found == {"BossHitsFire"} and shares == {"BossHitsFire": 100} and part == {}
+
+

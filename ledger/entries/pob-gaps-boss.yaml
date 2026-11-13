@@ -334,12 +334,15 @@
     Per element, only for the elemental types the scored boss deals (COV12; an OVERCOUNT before: '+N% to all Maximum
     Elemental Resistances' raised all three, so against Arbiter of Ash, which deals Fire and Physical, the Cold and
     Lightning maximums rose too and the defence floors that read them overstated). Each element's line counts at the
-    share of the fight the boss has hit you with it Recently (4 s; AUDIT25 A25-42), Assumptions.boss_hit_recently_share:
-    the boss's hits of that type come every bosses.HIT_EVERY / (its skills of the type / its damaging skills) s (LOW);
-    at least every 4 s counts as always up (the floors count only full uptime), slower as 1 - e^(-4 s x rate). Below
-    4 s (COV12's table): Xesht (Fire 44%, Cold 25%, Lightning 25%), the Raven (35% / 42% / 28%), the Aberration (Cold
-    and Lightning 41%), Kulemak (Cold 55%), Atziri the Fell Serpent (Fire 37%, Lightning 21%). Evasion, block and
-    Slows on the boss aren't taken out (a small overcount there). A type the boss never hits with counts 0, though a
+    share of the fight the boss has hit you with it Recently (4 s; AUDIT25 A25-42 / A25-48),
+    Assumptions.boss_hit_recently_share: the boss's hits of that type come every bosses.HIT_EVERY / (its skills of the
+    type / its damaging skills) s (LOW), up 1 - e^(-4 s x rate) of the fight. PoB counts the line whole only at 99.5% or
+    more (conditions.FULL_UPTIME; a hit of the type about every 0.75 s), as the defence floors count only full uptime
+    (the user's rule); below that 0 in PoB, an UNDERCOUNT outside the floors (damage taken), its share kept in
+    Assumptions.ledger_part_time for the search's part-time weighing (routed to SEARCH). No preset reaches 99.5% today
+    (COV12: the fastest, Arbiter of Divinity's Lightning about every 1.8 s, is 90%; Arbiter of Ash's Fire 78%), so the
+    line counts 0 against every preset for now. A boss with no per-type rate in the tables: 0, labelled (no flat guess).
+    Evasion, block and Slows on the boss aren't taken out (a small overcount in the share). A type the boss never hits with counts 0, though a
     hit from something else (an add, your own skill) could raise it (an undercount there; adds' damage types not
     modelled). Source of the stat (maximum_elemental_resistance_+%_of_each_elemental_damage_type_youve_been_hit_with_recently):
     passive shaman12 (checked, COV12: Stats ids with hit + recently + max/resist, and every Mods / PassiveSkills row
