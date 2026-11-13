@@ -308,7 +308,9 @@ def test_hit_block_and_cast_lines_recover_at_the_builds_rates():
     stats = {"Life": 2000, "Armour": 10000}
     income = Income()
     recovery.hit_income(income, stats, texts, landed=0.5, life_per_hit=800, blocked=0.25, casts=2.0, cast_how="test")
-    assert income.rates["LifeOnEventRecovery"] == pytest.approx(0.2 * 800 * 0.5 + 0.02 * 10000 * 0.25 + (7 + 20) * 2.0)
+    # (MECHC16, A28-1: the Block and cast lines' 50 + 54 Life/s refill 208 Life in the 2 s between landed hits)
+    others = 0.02 * 10000 * 0.25 + (7 + 20) * 2.0
+    assert income.rates["LifeOnEventRecovery"] == pytest.approx(0.2 * (800 - others / 0.5) * 0.5 + others)
     assert recovery.unread(texts) == []  # ("when Stunned" counts since MECHC15: no Stun given here, so 0 and said)
     assert "when Stunned: 0" in " ".join(income.parts)
     capped = Income()
@@ -317,6 +319,24 @@ def test_hit_block_and_cast_lines_recover_at_the_builds_rates():
     none = Income()
     recovery.hit_income(none, stats, texts[:4], cast_how="the main skill isn't a Spell")
     assert none.pool("Life") == 0 and len(none.parts) == 3 and "isn't a Spell" in none.parts[2]
+
+
+def test_missing_life_before_a_hit_is_the_hit_less_what_refills_life_between_hits():
+    """MECHC16 (AUDIT28 A28-1, an OVERCOUNT): "Recover N% of Missing Life before being Hit" counted the last hit's Life as
+    missing whatever refilled it. Now the Life missing before a hit is the hit less what the build refills in the time
+    between landed hits (regeneration, leech, flasks, recoup, other sources, net of Life costs), at least 0."""
+    line = ["Recover 20% of Missing Life before being Hit by an Enemy"]
+    stats = {"Life": 2000}
+    bare = Income()  # nothing refills: the whole hit is missing
+    recovery.hit_income(bare, stats, line, landed=0.5, life_per_hit=800)
+    assert bare.rates["LifeOnEventRecovery"] == pytest.approx(0.2 * 800 * 0.5)
+    part = Income()  # 100 Life/s over the 2 s between hits: 600 of the 800 still missing
+    recovery.hit_income(part, stats, line, landed=0.5, life_per_hit=800, refill=100, refill_how="regeneration 100")
+    assert part.rates["LifeOnEventRecovery"] == pytest.approx(0.2 * 600 * 0.5)
+    assert "regeneration 100" in " ".join(part.parts)
+    full = Income()  # 500 Life/s: Life is full again before each hit, so the line gives nothing
+    recovery.hit_income(full, stats, line, landed=0.5, life_per_hit=800, refill=500)
+    assert full.pool("Life") == 0 and "full again before each hit" in full.parts[0]
 
 
 def test_hit_and_cast_lines_reach_the_recovery_field(engine):
@@ -345,7 +365,8 @@ def test_hit_and_cast_lines_reach_the_recovery_field(engine):
     assert rates["casts"] == pytest.approx(stats["Speed"]) and rates["casts"] > 0
     assert rates["landed"] > 0 and 0 < rates["life_per_hit"]
     notes = hook.life_mana_income(skills, "Spark")
-    expected = 7 * rates["casts"] + 0.2 * min(rates["life_per_hit"], stats["Life"]) * rates["landed"]
+    refill = rates["refill"] + 7 * rates["casts"]  # (MECHC16, A28-1: Life refilled between the boss's landed hits)
+    expected = 7 * rates["casts"] + 0.2 * max(min(rates["life_per_hit"], stats["Life"]) - refill / rates["landed"], 0.0)         * rates["landed"]
     assert build.recovery_sources["LifeOnEventRecovery"] == pytest.approx(expected, rel=1e-3)
     assert "Spell cast" in notes[0]["basis"] and "Missing Life before a hit" in notes[0]["basis"]
 
@@ -506,3 +527,41 @@ def test_sacrifice_corpses_reach_the_corpse_recovery_line(engine):
     # sacrifice_corpses itself gives 0, "no undead Reviving minions" (POE2T1656): routed to MECH-B)
     assert "Sacrifice" in how and f"Sacrifice {own:.3f} corpses/s" in how, how
     assert corpses <= own + 1e-9
+
+
+def test_charms_used_when_stunned_fire_at_the_bosss_light_stuns():
+    """MECHC16 (CLAUDE.md's no-flat-rates rule): charms "Used when you become Stunned" assumed one Stun every 10 s. Now
+    they fire at the boss's hits that Light Stun you (recovery.boss_stuns: its landed hits against your Stun Threshold,
+    from chargeGain's stunThreshold / stunAvoid / deflect), the same rate the "when Stunned" recovery line reads; a build
+    the boss can't Stun gets 0, said."""
+    from builder.search.flasks import Charges, trigger_rate
+
+    data = {"enemySkillTime": 1.0, "takenByType": {"Physical": 3000, "Fire": 0, "Cold": 0, "Lightning": 0, "Chaos": 0},
+            "stunThreshold": 4000, "bossDamage": {"Physical": 1}}
+    gain = Charges.from_bridge(data)
+    hit = {"enemySkillTime": 1.0, "EvadeChance": 0.0, "EffectiveBlockChance": 0.0, "PhysicalTakenHit": 3000,
+           "StunThreshold": 4000}
+    expected, _ = recovery.boss_stuns(hit)
+    assert gain.stuns == pytest.approx(expected) and 0 < expected < 1
+    rate, how = trigger_rate("Used when you become Stunned", gain)
+    assert rate == pytest.approx(expected) and "Light Stun" in how
+    immune = Charges.from_bridge({**data, "stunAvoid": 100})
+    rate, how = trigger_rate("Used when you become Stunned", immune)
+    assert rate == 0.0 and "can't be Stunned" in how
+    # the other ailments keep their labelled rate (no boss-inflicts-ailment model yet)
+    assert trigger_rate("Used when you become Frozen", Charges(boss_hits=1.0, boss_types=("Cold",)))[0] == 0.1
+
+
+def test_indigon_keeps_the_corpse_lines_mana_regeneration():
+    """MECHC16 (AUDIT28 A28-4, a small UNDERCOUNT): Indigon's "Mana Recovery other than Regeneration cannot Recover Mana"
+    zeroed "Regenerate N% of maximum Mana over 2 seconds when you Consume a corpse", which is Regeneration: it stays
+    (labelled UNVERIFIED in game); the other Mana sources still go."""
+    texts = ["Regenerate 4% of maximum Mana over 2 seconds when you Consume a corpse",
+             "Recover 3% of maximum Mana when you consume a Power Charge"]
+    stats = {"Life": 2000, "Mana": 1000}
+    income = Income()
+    recovery.spent_income(income, stats, texts, corpses=(0.5, "test"), power=(1.0, "test"))
+    assert income.rates["ManaOnConsumeRecovery"] == pytest.approx(0.04 * 1000 * 0.5 + 0.03 * 1000 * 1.0)
+    recovery.restrict(income, ["Mana Recovery other than Regeneration cannot Recover Mana"])
+    assert income.pool("Mana") == pytest.approx(0.04 * 1000 * 0.5)
+    assert "Regeneration, which the line allows" in income.parts[-1]

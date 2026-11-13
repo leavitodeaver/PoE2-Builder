@@ -1320,26 +1320,30 @@ class Assumptions:
         if any(has(p) for p in recovery.SPENT_LINES):
             recovery.spent_income(income, stats, texts, **self.spent_rates(skills, main, stats, lowered))
         if any(has(p) for p in recovery.HIT_LINES):
-            recovery.hit_income(income, stats, texts, **self.hit_rates(main, stats))
+            # (MECHC16, AUDIT28 A28-1: the Life the sources above give a second refills Life between the boss's hits)
+            recovery.hit_income(income, stats, texts, **self.hit_rates(main, stats, before=income.pool("Life")))
         recovery.restrict(income, texts)
         income.unread = recovery.unread(texts)
         build.recovery_sources = dict(income.rates)
         return recovery.note(income)
 
-    def hit_rates(self, main: str | None, stats: dict) -> dict:
+    def hit_rates(self, main: str | None, stats: dict, before: float = 0.0) -> dict:
         """The rates recovery.hit_income reads (MECHC14, A27-32), from the build and the request's boss: the boss's hits
         that land a second (at the "when hit" benefit pace, bosses.benefit_skill_time) and the Life each takes
         (objective.boss_taken, at the defence pace: after mitigation and the per-type weights; Life's
         share after Mind over Matter, and of Life + Energy Shield in proportion, LOW), the boss's hits Blocked a second (at
         the "when hit" benefit pace, as objective.on_block) and the main skill's casts a second when it is a Spell (other
-        Spells' casts aren't counted: LOW, a lower bound)."""
-        from builder.search import boss_hits, objective, recovery
+        Spells' casts aren't counted: LOW, a lower bound). `before`: Life a second from recovery.py's sources counted
+        before the hit lines (kills, Remnants, charms, events, spending); with PoB's regeneration, leech, on-hit recovery,
+        recoup and Life on Block and the flasks' Life, less the skills' Life costs and the build's own damage over time
+        on Life, it is the net Life refilled between the boss's hits ("refill"; MECHC16, AUDIT28 A28-1)."""
+        from builder.search import boss_hits, flasks, objective, recovery
 
         build = self.build
         hit = {**stats, **build.call("stats", fields=list(dict.fromkeys(
             [*objective.RECOVERY_INPUTS, "Armour", "EnergyShield", "Life", "Speed", "StunThreshold",
-             "StunAvoidChance"])))}
-        taken, landed, deflect = objective.boss_taken(hit)
+             "StunAvoidChance", "LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", "LifePerSecondCost"])))}
+        taken, landed, _ = objective.boss_taken(hit)
         life, es = number(hit.get("Life")), number(hit.get("EnergyShield"))
         mom = min(max(number(hit.get("sharedMindOverMatter")), 0.0), 100) / 100
         share = (1 - mom) * (life / (life + es) if life + es > 0 else 0.0)
@@ -1353,10 +1357,21 @@ class Assumptions:
                else "the main skill isn't a Spell (other Spells' casts not counted: LOW)")
         # (MECHC15) the boss's hits that Light Stun you, each type at its full hit size (PoB's {Type}TakenHit, after
         # mitigation and Deflection's expected share) and its share of the boss's hits (boss_hits.type_shares)
-        sizes = {t: max(number(hit.get(f"{t}TakenHit")), 0.0) * deflect for t in objective.RECOVERY_DAMAGE_TYPES}
-        stunned, stunned_how = recovery.stuns_taken(hit, sizes, boss_hits.type_shares(boss_hits.boss_name(hit)), landed)
+        stunned, stunned_how = recovery.boss_stuns(hit)
+        # (MECHC16, A28-1) the net Life refilled a second between the boss's hits: the build's other Life recovery less
+        # its Life costs and its own damage over time on Life (TotalBuildDegen at the Life share, LOW)
+        extra = getattr(build, "extra_stats", None) or {}
+        gains = {"regeneration, leech and on-hit (PoB)": sum(number(hit.get(k)) for k in
+                                                             ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate")),
+                 "Life flasks": number(extra.get(flasks.RECOVERY_FIELDS["Life"])),
+                 "recoup and Life on Block": objective.recoup(hit, taken, "Life") + objective.on_block(hit, "Life", every),
+                 "kills, Remnants, charms, events and spending": max(before, 0.0)}
+        costs = number(hit.get("LifePerSecondCost")) + max(number(hit.get(objective.BUILD_DEGEN)), 0.0) * share
+        refill = max(sum(gains.values()) - costs, 0.0)
+        refill_how = (", ".join(f"{k} {v:,.1f}" for k, v in gains.items() if v > 0) or "no other Life recovery") + (
+            f", less {costs:,.1f} Life costs and own damage over time" if costs > 0 else "")
         return {"landed": landed, "life_per_hit": per_hit, "blocked": blocked, "casts": casts, "cast_how": how,
-                "stunned": stunned, "stunned_how": stunned_how}
+                "stunned": stunned, "stunned_how": stunned_how, "refill": refill, "refill_how": refill_how}
 
     def spent_rates(self, skills: list[dict], main: str | None, stats: dict, lowered: list[str]) -> dict:
         """(events a second, how) for recovery.spent_income, each from the build's own sources (MECHC13; CLAUDE.md: no

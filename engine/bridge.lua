@@ -4308,6 +4308,9 @@ function bridge.chargeGain()
 		lifeDegen = output.TotalBuildDegen and math.max(0, (output.LifeRegenRecovery or 0) - (output.NetLifeRegen or 0)) or 0,
 		bossDamage = boss, enemySkillTime = output.enemySkillTime or 0, evade = output.EvadeChance or 0,
 		block = output.EffectiveBlockChance or 0, perfectSkills = perfect, perfectGroups = perfectGroups,
+		-- (MECHC16) the boss's Light Stuns on you, for charms "Used when you become Stunned" (recovery.boss_stuns)
+		stunThreshold = output.StunThreshold or 0, stunAvoid = output.StunAvoidChance or 0,
+		deflect = output.DeflectChance or 0, deflectEffect = output.DeflectEffect or 0,
 		blooms = blooms,
 		perfectMainRate = perfectMain and (output.Speed or 0) or 0,
 		-- the main skill's name (MECHC3: a Concoction main skill spends the Mana Flask's charges, flasks.THROW_CHARGES)

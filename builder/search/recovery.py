@@ -43,8 +43,9 @@ turned into a rate here from the build's own events (CLAUDE.md: no flat rates wh
 
 Amounts are taken as written: recovery-rate modifiers aren't applied to them (MEDIUM). "Cannot Recover Life other than from
 Leech" (Vaal Pact) zeroes the Life parts and "Mana Recovery other than Regeneration cannot Recover Mana" (Indigon) the Mana
-parts; for Indigon the bridge also zeroes PoB's own Mana leech, on-hit, on-kill, on-block and recoup outputs and the Mana
-flask's recovery (MECHC14: PoB parses the line to no mod, so they had still counted: an OVERCOUNT).
+parts, all but the corpse line's Mana, which is Regeneration (MECHC16, AUDIT28 A28-4; UNVERIFIED in game, LOW); for Indigon
+the bridge also zeroes PoB's own Mana leech, on-hit, on-kill, on-block and recoup outputs and the Mana flask's recovery
+(MECHC14: PoB parses the line to no mod, so they had still counted: an OVERCOUNT).
 """
 
 from __future__ import annotations
@@ -132,6 +133,22 @@ def stuns_taken(stats: dict, sizes: dict[str, float], weights: dict[str, float],
     return rate, (f"{landed:.3f} boss hits landing/s x {chance:.1%} Light Stun chance ({'; '.join(parts)}: hit size "
                   f"after mitigation / Stun Threshold {threshold:,.0f}, Physical 50% more, under 15% none)"
                   + (f" x {1 - avoid:.0%} not avoided" if avoid > 0 else "") + "; each hit at its type's full size (LOW)")
+
+
+def boss_stuns(hit: dict) -> tuple[float, str]:
+    """(Light Stuns a second, how) from a stats-like dict (PoB's {Type}TakenHit, enemySkillTime, EvadeChance,
+    EffectiveBlockChance, DeflectChance, DeflectEffect, StunThreshold, StunAvoidChance; "_boss" the request's boss): the
+    boss's hits that land at the "when hit" benefit pace (objective.benefit_every), each type at its full hit size after
+    mitigation and Deflection's expected share and its share of the boss's hits (MECHC15's stuns_taken; MECHC16: shared by
+    the "when Stunned" recovery line and charms "Used when you become Stunned")."""
+    from builder.search import boss_hits, objective  # (objective imports this module)
+
+    _, _, deflect = objective.boss_taken(hit)
+    landed = boss_hits.land_share(hit) / objective.benefit_every(hit)
+    sizes = {t: max(_num(hit.get(f"{t}TakenHit")), 0.0) * deflect for t in objective.RECOVERY_DAMAGE_TYPES}
+    return stuns_taken(hit, sizes, boss_hits.type_shares(boss_hits.boss_name(hit)), landed)
+
+
 NO_LIFE = re.compile(r"cannot recover life other than from leech", re.I)
 NO_MANA = re.compile(r"mana recovery other than regeneration cannot recover mana", re.I)
 # Recovery on events no rate here reads yet (MECHC11's inventory section 7): named in the note, never counted (undercount)
@@ -165,6 +182,9 @@ class Income:
     rates: dict[str, float] = field(default_factory=lambda: {f: 0.0 for f in ALL_FIELDS})
     parts: list[str] = field(default_factory=list)
     unread: list[str] = field(default_factory=list)
+    # (MECHC16, AUDIT28 A28-4) Mana a second that is Regeneration ("Regenerate N% of maximum Mana over 2 seconds when you
+    # Consume a corpse"): Indigon's "Mana Recovery other than Regeneration cannot Recover Mana" leaves it (restrict)
+    mana_regen: float = 0.0
 
     def add(self, name: str, amount: float, how: str) -> None:
         if amount > 0:
@@ -298,26 +318,25 @@ def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tu
         if rate <= 0:
             income.parts.append(f"{pct:g}% of maximum {pool} per {event}: 0, {how or 'the build makes none'}")
             continue
-        income.add(f"{pool}OnConsumeRecovery", pct / 100 * (life if pool == "Life" else mana) * rate,
-                   f"{pct:g}% of maximum {pool} per {event} x {rate:.3f}/s ({how})")
+        amount = pct / 100 * (life if pool == "Life" else mana) * rate
+        income.add(f"{pool}OnConsumeRecovery", amount, f"{pct:g}% of maximum {pool} per {event} x {rate:.3f}/s ({how})")
+        if pattern is CORPSE_MANA:
+            income.mana_regen += amount
 
 
 def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float = 0.0, life_per_hit: float = 0.0,
                blocked: float = 0.0, casts: float = 0.0, cast_how: str = "", stunned: float = 0.0,
-               stunned_how: str = "") -> None:
+               stunned_how: str = "", refill: float = 0.0, refill_how: str = "") -> None:
     """Life on the boss's hits, your Blocks and your casts (MECHC14, A27-32), each at the build's own rate: `landed` boss
     hits a second and the Life each takes (`life_per_hit`), `blocked` boss hits a second, `casts` Spells cast a second.
-    "Recover N% of Missing Life before being Hit": the Life missing before a hit is taken as the last hit's alone (LOW, a
-    lower bound: with nothing else recovering, the missing Life grows until the line returns every hit's damage)."""
+    "Recover N% of Missing Life before being Hit" (MECHC16, AUDIT28 A28-1: before, the last hit's Life alone, an OVERCOUNT
+    whenever something refills Life between hits): the Life missing before a hit is the last hit's less what the build
+    refills in the time between landed hits (`refill` Life a second, net of its Life costs: regeneration, leech, flasks,
+    recoup and recovery.py's other sources), at least 0 (Life full before each hit: nothing). LOW, a lower bound: Life
+    still missing from earlier hits isn't carried over (in a fight the build loses, missing Life grows until the line
+    returns the deficit each hit)."""
     life = _num(stats.get("Life"))
-    pct = _sum(MISSING_BEFORE_HIT, texts)
-    if pct > 0:
-        if landed > 0 and life_per_hit > 0:
-            income.add("LifeOnEventRecovery", pct / 100 * min(life_per_hit, life) * landed,
-                       f"{pct:g}% of Missing Life before a hit x {min(life_per_hit, life):,.0f} Life missing (the last "
-                       f"hit's, LOW: a lower bound) x {landed:.3f} boss hits landing/s")
-        else:
-            income.parts.append(f"{pct:g}% of Missing Life before being Hit: 0, no boss hit reaches Life")
+    before = income.rates["LifeOnEventRecovery"]
     pct = _sum(ARMOUR_ON_BLOCK, texts)
     if pct > 0:
         armour = _num(stats.get("Armour"))
@@ -341,6 +360,25 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
                        f"{pct:g}% of maximum Life when Stunned x {stunned:.3f} Stuns/s ({stunned_how})")
         else:
             income.parts.append(f"{pct:g}% of maximum Life when Stunned: 0, {stunned_how or 'the boss never Stuns you'}")
+    pct = _sum(MISSING_BEFORE_HIT, texts)
+    if pct > 0:
+        if landed > 0 and life_per_hit > 0:
+            hit = min(life_per_hit, life)
+            # (the cast, Block and Stun lines above refill Life between hits too)
+            own = income.rates["LifeOnEventRecovery"] - before
+            refill = max(refill, 0.0) + own
+            between = refill / landed
+            missing = max(hit - between, 0.0)
+            what = ", ".join(x for x in (refill_how, f"the cast / Block / Stun lines {own:,.1f}" if own > 0 else "") if x)
+            how = (f"{pct:g}% of Missing Life before a hit x {missing:,.0f} Life missing (the last hit's {hit:,.0f} less "
+                   f"{between:,.0f} refilled in the {1 / landed:.2f} s between landed hits at {refill:,.1f} Life/s: "
+                   f"{what or 'nothing'}; LOW: a lower bound) x {landed:.3f} boss hits landing/s")
+            if missing > 0:
+                income.add("LifeOnEventRecovery", pct / 100 * missing * landed, how)
+            else:
+                income.parts.append(f"{how}: 0, Life is full again before each hit")
+        else:
+            income.parts.append(f"{pct:g}% of Missing Life before being Hit: 0, no boss hit reaches Life")
 
 
 def restrict(income: Income, texts: list[str]) -> None:
@@ -349,7 +387,12 @@ def restrict(income: Income, texts: list[str]) -> None:
         if any(pattern.search(t) for t in texts) and income.pool(pool) > 0:
             for name in FIELDS[pool]:
                 income.rates[name] = 0.0
-            income.parts.append(f"none of the {pool} above counts: the build has '{pattern.pattern}'")
+            kept = income.mana_regen if pool == "Mana" else 0.0
+            if kept > 0:  # (MECHC16, AUDIT28 A28-4: the corpse line regenerates, and Indigon allows Regeneration)
+                income.rates["ManaOnConsumeRecovery"] = kept
+            income.parts.append(f"none of the {pool} above counts: the build has '{pattern.pattern}'"
+                                + (f", except the {kept:,.1f} Mana/s regenerated when you Consume a corpse (it is "
+                                   "Regeneration, which the line allows; UNVERIFIED in game, LOW)" if kept > 0 else ""))
 
 
 def unread(texts: list[str]) -> list[str]:

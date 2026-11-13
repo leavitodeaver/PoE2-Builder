@@ -113,6 +113,10 @@ class Charges:
     # (MECHC14, COV17: an OVERCOUNT) Indigon's "Mana Recovery other than Regeneration cannot Recover Mana": a Mana Flask
     # recovers nothing (PoB parses the line to no mod; the bridge also zeroes PoB's Mana leech / on-hit / recoup outputs)
     mana_regen_only: bool = False
+    # (MECHC16; CLAUDE.md's no-flat-rates rule: before, one Stun per BOSS_AILMENT_EVERY s) the boss's Light Stuns on you a
+    # second and how (recovery.boss_stuns: its landed hits against your Stun Threshold, from the bridge's chargeGain)
+    stuns: float = 0.0
+    stuns_how: str = ""
 
     @classmethod
     def of(cls, build) -> Charges:
@@ -147,6 +151,13 @@ class Charges:
             seen["_boss"] = boss
         land = land_share(seen) / every if every > 0 else 0.0
         types = tuple(k for k, v in (data.get("bossDamage") or {}).items() if float(v or 0) > 0)
+        from builder.search.recovery import boss_stuns  # (recovery imports nothing of this module; kept local all the same)
+
+        hit = {**seen, **{f"{t}TakenHit": float(v or 0.0) for t, v in (data.get("takenByType") or {}).items()},
+               "enemySkillTime": every, "StunThreshold": float(data.get("stunThreshold") or 0.0),
+               "StunAvoidChance": float(data.get("stunAvoid") or 0.0), "DeflectChance": float(data.get("deflect") or 0.0),
+               "DeflectEffect": float(data.get("deflectEffect") or 0.0)}
+        stuns, stuns_how = boss_stuns(hit) if every > 0 else (0.0, "no boss hit lands")
         return cls(data.get("flask", 0), data.get("lifeFlask", 0), data.get("manaFlask", 0), data.get("flaskGainInc", 0),
                    data.get("charm", 0), data.get("charmGainInc", 0), data.get("flaskDurationInc", 0),
                    data.get("charmDurationInc", 0), data.get("lifeRecoveryInc", 0), data.get("manaRecoveryInc", 0),
@@ -165,7 +176,7 @@ class Charges:
                    mana_used_more=float(data.get("manaChargesUsedMore") or 1.0),
                    life_loss_per_use=float(data.get("lifeLossPerUse") or 0.0), main_rate=float(data.get("mainRate") or 0.0),
                    flask_not_consume=float(data.get("flaskNotConsume") or 0.0),
-                   mana_regen_only=bool(data.get("manaRegenOnly", False)),
+                   mana_regen_only=bool(data.get("manaRegenOnly", False)), stuns=stuns, stuns_how=stuns_how,
                    add_kills=max(float(add_kills or 0.0), 0.0), **bloom_fields(data.get("blooms") or {}))
 
 
@@ -181,8 +192,10 @@ class Charges:
 #   else once per its duration, else at the rate the search chose for it (models.press_use_rate), else 0;
 # - the boss's ailments, Stun and Slow on you ("become Ignited / Frozen / Shocked / Poisoned / Stunned", "start Bleeding",
 #   "affected by a Slow"): only when the boss deals the damage type behind it (Fire, Cold, Lightning, Chaos, Physical; any
-#   for Stun and Slow); how often the game's boss inflicts them no data gives: one per BOSS_AILMENT_EVERY s, at most one
-#   per landing hit (a flat rate where the game decides it: LOW, named in the report for the manager).
+#   for Stun and Slow). Stun (MECHC16): the boss's hits that Light Stun you, from your Stun Threshold (Charges.stuns,
+#   recovery.boss_stuns; Heavy Stuns from Stun buildup not added: a lower bound), no flat rate. The others: how often the
+#   game's boss inflicts them no data gives: one per BOSS_AILMENT_EVERY s, at most one per landing hit (a flat rate where
+#   the game decides it: LOW, named in the report for the manager).
 BOSS_AILMENT_EVERY = 10.0
 TRIGGER_DAMAGE = {"ignited": "Fire", "frozen": "Cold", "shocked": "Lightning", "poisoned": "Chaos", "bleeding": "Physical",
                   "stunned": None, "slow": None}
@@ -225,6 +238,10 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
     kind = TRIGGER_DAMAGE[event]
     if kind is not None and kind not in gain.boss_types:
         return 0.0, f"the boss deals no {kind} damage to make you {event}"
+    if event == "stunned":  # (MECHC16: the build's own Light Stuns from the boss's hits, no flat rate; none, 0)
+        if gain.stuns > 0:
+            return gain.stuns, f"the boss's hits that Light Stun you: {gain.stuns_how}"
+        return 0.0, f"the boss never Stuns you ({gain.stuns_how or 'no Stun data'}): no source, 0"
     rate = min(1 / BOSS_AILMENT_EVERY, gain.boss_hits)
     return rate, (f"you {'are ' if event != 'slow' else ''}{event} by the boss once per {BOSS_AILMENT_EVERY:g} s assumed "
                   "(LOW: how often a boss does it no data gives)")
