@@ -1358,7 +1358,9 @@ function bridge.allocatedNodes()
 end
 
 -- The lines of the nodes a socketed Timeless jewel conquered (PassiveSpec replaces a conquered keystone by its
--- legion keystone, e.g. Dance with Death's "Can't use Helmets"; the search's tree reads the raw tree's lines, SEARCH6)
+-- legion keystone; the search's tree reads the raw tree's lines, SEARCH6). (MECHB20: the old example here, Dance with
+-- Death's "Can't use Helmets", is PoE1 Maraketh data left in PoB's files, not a PoE2 keystone: the user's note
+-- poe1-leftovers and SEARCH13's relabel of its own files)
 function bridge.conqueredNodes()
 	local nodes = { }
 	for id, node in pairs(build.spec.nodes) do
@@ -2723,6 +2725,11 @@ function bridge.minionSkillHit(args)
 			if type(output[field]) == "number" then
 				result[field] = jsonNumber(output[field])
 			end
+		end
+		-- (an attack's AverageHit is per hand: CalcOffence 4721-4728 combines only AverageDamage into the output)
+		local hand = output.MainHand or output.OffHand
+		if result.AverageHit == nil and hand and type(hand.AverageHit) == "number" then
+			result.AverageHit = jsonNumber(hand.AverageHit)
 		end
 		result.name = env.minion.mainSkill and env.minion.mainSkill.activeEffect.grantedEffect.name or nil
 	end

@@ -1196,7 +1196,7 @@ def test_eternal_hunt_is_scored_as_the_wolfs_hunt_and_added_to_the_boss_dps(engi
     wolf = next(i for i, s in enumerate(group["skills"], start=1) if s["name"] == models.AZMERIAN_WOLF)
     before = build.call("stats", fields=["CombinedDPS"])
     hunt = build.call("minionSkillHit", index=group["index"], active=wolf, skill=models.ETERNAL_HUNT)
-    assert hunt.get("name") == "Eternal Hunt" and hunt["AverageHit"] > 0 and hunt["baseDPS"] > 0, hunt
+    assert hunt.get("name") == "Eternal Hunt" and hunt.get("AverageHit", 0) > 0 and hunt.get("baseDPS", 0) > 0, hunt
     assert hunt["Cooldown"] == pytest.approx(models.ETERNAL_HUNT_COOLDOWN, rel=0.05), hunt
     assert build.call("stats", fields=["CombinedDPS"]) == before  # (the build is put back)
     assert build.call("minionSkillHit", index=group["index"], active=wolf, skill="NoSuchSkill") == {
