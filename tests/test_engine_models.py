@@ -1897,3 +1897,25 @@ def test_hollow_masks_wildwoods_gifts_reaches_the_bloom_charges(engine):
     gain = Charges.from_bridge(data)
     for kind in ("Life", "Mana", "Charm"):
         assert bloom_charges(gain, kind) == pytest.approx(blooms["rate"] / 3 * 5)
+
+
+def test_indigon_zeroes_pobs_mana_recovery_other_than_regeneration(engine):
+    """MECHC14 (COV17, an OVERCOUNT): PoB parses "Mana Recovery other than Regeneration cannot Recover Mana" to no mod, so
+    its Mana Recoup (and leech, on-hit, on-block) still reached the sustain and recovery floors. The bridge zeroes them
+    after the calculation and flags chargeGain's manaRegenOnly (Mana flasks); regeneration stays."""
+    from builder.search.flasks import Charges
+
+    build = spark_with(engine, []).build
+    fields = ["ManaRecoup", "ManaRegenRecovery", "ManaRegenOnly"]
+    recoup = "\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                        "30% of Damage taken Recouped as Mana"])
+    build.call("equip", slot="Amulet", raw=recoup, fields=[])
+    before = build.call("stats", fields=fields)
+    assert before["ManaRecoup"] > 0 and before.get("ManaRegenOnly") == 0
+    assert Charges.from_bridge(build.call("chargeGain")).mana_regen_only is False
+    build.call("equip", slot="Amulet", raw=recoup + "\nMana Recovery other than Regeneration cannot Recover Mana",
+               fields=[])
+    after = build.call("stats", fields=fields)
+    assert after["ManaRecoup"] == 0 and after["ManaRegenOnly"] == 1
+    assert after["ManaRegenRecovery"] == pytest.approx(before["ManaRegenRecovery"])
+    assert Charges.from_bridge(build.call("chargeGain")).mana_regen_only is True

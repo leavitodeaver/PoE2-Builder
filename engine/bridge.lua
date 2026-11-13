@@ -811,6 +811,48 @@ local function setLowLifeCap(env, output)
 	output.LowLifeRecoveryCap = found
 end
 
+-- Indigon's "Mana Recovery other than Regeneration cannot Recover Mana" (MECHC14; COV17, an OVERCOUNT): PoB parses it to no
+-- mod (ModCache: {nil, "<the whole line>"}), so its Mana leech, Mana on Hit / Kill / Block and Mana Recoup outputs stayed
+-- in the sustain and recovery floors. Zeroed here after PoB's calculation; regeneration stays. Mana flasks: chargeGain's
+-- manaRegenOnly (flasks.recovery_per_second). (checked: Mods.json has one mod with the stat,
+-- UniqueCannotRecoverManaExceptRegen1, on Indigon; PassiveSkills.json none; so items are scanned)
+local MANA_REGEN_ONLY_TEXT = "mana recovery other than regeneration cannot recover mana"
+local MANA_RECOVERY_OUTPUTS = { "ManaLeechRate", "ManaLeechGainRate", "ManaLeechInstantRate", "ManaLeechPerHit",
+	"ManaLeechInstanceRate", "ManaOnHit", "ManaOnHitRate", "ManaOnKill", "ManaOnBlock", "ManaRecoup",
+	"PhysicalManaRecoup", "FireManaRecoup", "ColdManaRecoup", "LightningManaRecoup", "ChaosManaRecoup",
+	"ElementalManaRecoup", "PhysicalDamageMitigatedManaPseudoRecoup", "ManaRecoupRecoveryAvg" }
+local function itemHasLine(env, text)
+	for _, item in pairs(env.player.itemList or { }) do
+		if type(item) == "table" then
+			for _, list in ipairs({ item.implicitModLines, item.explicitModLines, item.enchantModLines,
+				item.runeModLines, item.crucibleModLines }) do
+				for _, line in ipairs(list or { }) do
+					if type(line) == "table" and type(line.line) == "string" and line.line:lower():find(text, 1, true) then
+						return true
+					end
+				end
+			end
+		end
+	end
+	return false
+end
+local function setManaRegenOnly(env)
+	local output = env and env.player and env.player.output
+	if not output then
+		return
+	end
+	if not itemHasLine(env, MANA_REGEN_ONLY_TEXT) then
+		output.ManaRegenOnly = 0
+		return
+	end
+	output.ManaRegenOnly = 1
+	for _, name in ipairs(MANA_RECOVERY_OUTPUTS) do
+		if output[name] ~= nil then
+			output[name] = 0
+		end
+	end
+end
+
 -- ShowAverage (SEARCH7, the manager's ruling 12 Nov): 1 when PoB shows the main skill's damage per use (skillData.showAverage:
 -- Sunder, Earthquake and other slams), so its CombinedDPS is AverageDamage, blind to attack speed and DPS multipliers
 -- (CalcOffence.lua 6265); objective.main_dps then reads the per-second damage. The minion's under Minion.ShowAverage.
@@ -1089,6 +1131,7 @@ local function installDerived()
 		setNoCritReroll(env)
 		local function finish(...)
 			setLowLifeCap(env, env and env.player and env.player.output)
+			setManaRegenOnly(env)
 			markShowAverage(env)
 			setChillDamage(env)
 			setPointsOver(env)
@@ -4125,10 +4168,14 @@ function bridge.chargeGain()
 	-- Life Flask Recovery"; PoB leaves all three unparsed (ModCache: leftover text, so never applied)
 	local lifeFlaskUnusable, lifeFlaskConstant, lifeFlaskLess, lifeEffectKept = false, false, 0, false
 	local lifeLossPerUse = 0
+	local manaRegenOnly = false
 	for _, line in ipairs(bridge.sourceLines().lines) do
 		local text = line.text:lower()
 		if text:match("^%s*flasks do not recover life%s*$") then
 			lifeFlaskBlocked = true
+		end
+		if text:match("^%s*mana recovery other than regeneration cannot recover mana%s*$") then
+			manaRegenOnly = true
 		end
 		if text:match("^%s*cannot use life flasks%s*$") then
 			lifeFlaskUnusable = true
@@ -4239,6 +4286,7 @@ function bridge.chargeGain()
 		critRate = (output.Speed or 0) * (output.HitChance or 100) / 100 * (output.CritChance or 0) / 100,
 		manaChargesUsedInc = inc("FlaskChargesUsed") + inc("ManaFlaskChargesUsed"),
 		manaChargesUsedMore = modDB:More(nil, "FlaskChargesUsed", "ManaFlaskChargesUsed"),
+		manaRegenOnly = manaRegenOnly,
 		lifeLossPerUse = lifeLossPerUse, mainRate = output.Speed or 0,
 		flaskNotConsume = base("FlaskChanceNotConsumeCharges"),
 	}

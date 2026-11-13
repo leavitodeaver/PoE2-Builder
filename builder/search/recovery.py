@@ -40,7 +40,9 @@ turned into a rate here from the build's own events (CLAUDE.md: no flat rates wh
   Offering" at the build's Offering skills' uses (on cooldown, duration, or the search's chosen rate).
 
 Amounts are taken as written: recovery-rate modifiers aren't applied to them (MEDIUM). "Cannot Recover Life other than from
-Leech" (Vaal Pact) zeroes the Life parts and "Mana Recovery other than Regeneration cannot Recover Mana" the Mana parts.
+Leech" (Vaal Pact) zeroes the Life parts and "Mana Recovery other than Regeneration cannot Recover Mana" (Indigon) the Mana
+parts; for Indigon the bridge also zeroes PoB's own Mana leech, on-hit, on-kill, on-block and recoup outputs and the Mana
+flask's recovery (MECHC14: PoB parses the line to no mod, so they had still counted: an OVERCOUNT).
 """
 
 from __future__ import annotations

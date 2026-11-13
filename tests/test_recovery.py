@@ -256,3 +256,21 @@ def test_glory_reads_its_cooldown_and_the_builds_glory_lines():
     assert lines["not_consume"] == pytest.approx(0.15) and lines["banner_flat"] == 5.0 and lines["inc"] == 0.0
     plain, _ = models.glory_plan(["Ancestral Cry"], stats, None, texts=["Banners gain 5 Glory per second"])
     assert plain["Ancestral Cry"][0] == pytest.approx(uses)
+
+
+def test_indigon_stops_mana_flask_recovery():
+    """MECHC14 (COV17, an OVERCOUNT): "Mana Recovery other than Regeneration cannot Recover Mana" (Indigon) leaves a Mana
+    Flask nothing; a Life Flask still recovers."""
+    from dataclasses import replace
+
+    from builder.search.flasks import Charges, recovery_per_second
+
+    gain = Charges(mana_flask=2.0, life_flask=2.0)
+    mana = {"kind": "Flask", "manaTotal": 300, "chargesUsed": 10, "duration": 3}
+    life = {"kind": "Flask", "lifeTotal": 300, "chargesUsed": 10, "duration": 3}
+    assert recovery_per_second(mana, gain, "Mana") > 0
+    blocked = replace(gain, mana_regen_only=True)
+    assert recovery_per_second(mana, blocked, "Mana") == 0.0
+    assert recovery_per_second(life, blocked, "Life") == recovery_per_second(life, gain, "Life") > 0
+    assert Charges.from_bridge({"manaRegenOnly": True}).mana_regen_only is True
+    assert Charges.from_bridge({}).mana_regen_only is False

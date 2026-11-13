@@ -110,6 +110,9 @@ class Charges:
     # models.press_use_rate over their groups, their cooldown, duration or the search's chosen rate; 0 with none)
     perfect_press_rate: float = 0.0
     perfect_press_how: str = ""
+    # (MECHC14, COV17: an OVERCOUNT) Indigon's "Mana Recovery other than Regeneration cannot Recover Mana": a Mana Flask
+    # recovers nothing (PoB parses the line to no mod; the bridge also zeroes PoB's Mana leech / on-hit / recoup outputs)
+    mana_regen_only: bool = False
 
     @classmethod
     def of(cls, build) -> Charges:
@@ -162,6 +165,7 @@ class Charges:
                    mana_used_more=float(data.get("manaChargesUsedMore") or 1.0),
                    life_loss_per_use=float(data.get("lifeLossPerUse") or 0.0), main_rate=float(data.get("mainRate") or 0.0),
                    flask_not_consume=float(data.get("flaskNotConsume") or 0.0),
+                   mana_regen_only=bool(data.get("manaRegenOnly", False)),
                    add_kills=max(float(add_kills or 0.0), 0.0), **bloom_fields(data.get("blooms") or {}))
 
 
@@ -428,6 +432,8 @@ def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
     at a time: never faster than one per duration)."""
     if pool == "Life" and gain.life_flask_blocked:
         return 0.0  # "Flasks do not recover Life" (game stats base_/life_flasks_do_not_recover_life; PoB ignores it)
+    if pool == "Mana" and gain.mana_regen_only:
+        return 0.0  # "Mana Recovery other than Regeneration cannot Recover Mana" (Indigon; PoB parses it to no mod)
     total = info.get("lifeTotal" if pool == "Life" else "manaTotal") or 0
     used = charges_per_use(info, gain)
     inc = gain.life_recovery_inc if pool == "Life" else gain.mana_recovery_inc
