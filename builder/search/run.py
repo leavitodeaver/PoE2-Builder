@@ -697,7 +697,10 @@ def annotate_blind_spots(lines: list[dict]) -> list[dict]:
             model = model_name(entry.raw["model"])
             line = {**line, "modeled_by": entry.raw["model"], "corrected_by": entry.id,
                     "as": [f"part of the {model} model (see the assumptions)"], "confidence": entry.confidence}
-        elif translated and not (translated[0].conditional and not line["source"].startswith("passive:")):
+        # (a line off the passive tree shows its translation only where the ledger applies it on items: unconditional
+        # lines and, since COV17, share: lines; flag:, if: and mult: lines apply on passives only. Before, share: lines
+        # on items were shown as not applied: SEARCH13)
+        elif translated and (translated[0].on_items or line["source"].startswith("passive:")):
             entry, replacement = translated
             line = {**line, "corrected_by": entry.id, "as": [readable(r) for r in replacement],
                     "confidence": entry.confidence}
