@@ -65,9 +65,72 @@ def test_events_at_the_builds_rates_and_vaal_pact():
 def test_note_names_unread_lines_and_stays_quiet_without_sources():
     assert recovery.note(Income()) == []
     income = Income()
-    income.unread = recovery.unread(["Recover 3% of maximum Life for each Endurance Charge consumed"])
+    income.unread = recovery.unread(["Recover 3% of maximum Life when you lose a Spirit Charge"])
     (row,) = recovery.note(income)
-    assert "Endurance Charge consumed" in row["basis"] and "undercount" in row["basis"]
+    assert "Spirit Charge" in row["basis"] and "undercount" in row["basis"]
+    # (MECHC13: the spent / consumed lines have rates now, so they're no longer named unread)
+    assert recovery.unread(["Recover 3% of maximum Life for each Endurance Charge consumed",
+                            "Recover 2% of maximum Life per Glory consumed"]) == []
+
+
+def test_spent_and_consumed_recover_at_the_builds_own_rates():
+    """MECHC13: charges consumed, Glory spent, Combo expended, corpses consumed and Offerings created, each at the rate
+    the build gives (no source: 0, said)."""
+    stats = {"Life": 4000, "Mana": 1000}
+    texts = ["Recover 3% of maximum Life for each Endurance Charge consumed",
+             "Recover 5% of maximum Mana when you consume a Power Charge",
+             "Recover 1% of maximum Life per Glory consumed",
+             "Recover 4% of Maximum Life when you expend at least 10 Combo",
+             "Recover 6% of Maximum Mana when you expend at least 10 Combo",
+             "Recover 2% of maximum Life when you Consume a corpse",
+             "Regenerate 3% of maximum Mana over 2 seconds when you Consume a corpse",
+             "Recover 10% of maximum Life when you create an Offering"]
+    income = Income()
+    recovery.spent_income(income, stats, texts, endurance=(0.5, "Boneshatter"), power=(0.0, "no consumer"),
+                          glory=(10.0, "a Banner"), combo=(0.2, "Tempest Bell"), corpses=(0.1, "adds"),
+                          offerings=(0.25, "Pain Offering on its cooldown"))
+    life = 0.03 * 4000 * 0.5 + 0.01 * 4000 * 10.0 + 0.04 * 4000 * 0.2 + 0.02 * 4000 * 0.1 + 0.10 * 4000 * 0.25
+    assert income.rates["LifeOnConsumeRecovery"] == pytest.approx(life)
+    assert income.rates["ManaOnConsumeRecovery"] == pytest.approx(0.06 * 1000 * 0.2 + 0.03 * 1000 * 0.1)
+    assert any("Power Charge consumed: 0, no consumer" in p for p in income.parts)
+    assert "LifeOnConsumeRecovery" in recovery.FIELDS["Life"] and "ManaOnConsumeRecovery" in recovery.FIELDS["Mana"]
+    # nothing in the build's lines: nothing added, nothing said
+    quiet = Income()
+    recovery.spent_income(quiet, stats, [], endurance=(1.0, "x"))
+    assert quiet.pool("Life") == 0.0 and quiet.parts == []
+
+
+def test_charge_model_records_the_charges_its_consumers_spend():
+    """MECHC13: _charges_held puts the charges consumed a second in stats["_charge_flow"] (the lower of those made and
+    the consumers' uses), for build.charge_flow; no consumer, none recorded."""
+    from builder.search.conditions import _charges_held
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "EnduranceChargesMax": 3, "EnduranceChargesDuration": 15,
+             "_consumers": {"Endurance": {"Boneshatter": 0.4}}}
+    _charges_held("Endurance")(["Gain an Endurance Charge on Critical Hit"], stats)  # 1 crit/s made
+    rate, how = stats["_charge_flow"]["Endurance"]
+    assert rate == pytest.approx(0.4) and "Boneshatter" in how
+    base = {k: v for k, v in stats.items() if k not in ("_consumers", "_charge_flow")}
+    few = dict(base, CritChance=10, _consumers={"Endurance": {"Boneshatter": 2.0}})
+    _charges_held("Endurance")(["Gain an Endurance Charge on Critical Hit"], few)  # 0.2/s made, 2/s wanted
+    assert few["_charge_flow"]["Endurance"][0] == pytest.approx(0.2)
+    alone = dict(base)
+    _charges_held("Endurance")(["Gain an Endurance Charge on Critical Hit"], alone)
+    assert "_charge_flow" not in alone
+
+
+def test_glory_spent_is_uses_times_cost():
+    from builder.search import models
+
+    stats = {"Speed": 3.0, "HitChance": 100, "IgniteChanceOnHit": 100}  # (3 Ignites a second build Ancestral Cry's)
+    names = ["War Banner", "Ancestral Cry"]
+    plan, _ = models.glory_plan(names, stats, None)
+    uses, _ = models.glory_uses(names, stats, None)
+    spent, _ = models.glory_spent(names, stats, None)
+    assert uses == pytest.approx(sum(u for u, _ in plan.values()))
+    assert spent == pytest.approx(sum(u * c for u, c in plan.values()))
+    assert set(plan) == {"Ancestral Cry"} and plan["Ancestral Cry"][1] == 100  # (no Attack hits: no Banner Glory)
+    assert spent == pytest.approx(plan["Ancestral Cry"][0] * 100) and spent > 0
 
 
 # Engine: an item's "Grants Skill: Level 20 Life Remnants" reaches the bridge's per-Remnant amount and the hook's field ---
@@ -121,3 +184,38 @@ def test_life_remnants_from_an_item_reach_the_recovery_field(engine):
     rate = 1 / (3 + 1 / (hits["Speed"] * hits["HitChance"] / 100))
     assert build.recovery_sources["LifeRemnantRecovery"] == pytest.approx(rate * remnants["remnantGain"]["Life"], rel=1e-3)
     assert notes and "Life Remnants" in notes[0]["basis"]
+
+
+def test_spent_and_consumed_lines_reach_the_recovery_field(engine):
+    """MECHC13: Assumptions.spent_rates on a real build: the Endurance Charges its consumers spend (build.charge_flow,
+    set here as Conditions would) give LifeOnConsumeRecovery; a Spark build has no Glory, Combo, corpse or Offering skill,
+    so those lines give 0 and say why."""
+    from builder.request.schema import BuildRequest, Choices
+    from builder.search.assumptions import Assumptions
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"],
+                                        require=Choices(skills=["Mana Tempest"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    hook = Assumptions(build)
+    ring = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                         "Recover 3% of maximum Life for each Endurance Charge consumed",
+                         "Recover 1% of maximum Life per Glory consumed",
+                         "Recover 4% of Maximum Life when you expend at least 10 Combo",
+                         "Recover 2% of maximum Life when you Consume a corpse",
+                         "Recover 10% of maximum Life when you create an Offering"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    build.charge_flow = {"Endurance": (0.5, "a test consumer")}
+    skills = build.call("activeSkills")["skills"]
+    notes = hook.life_mana_income(skills, "Spark")
+    life = build.call("stats", fields=["Life"])["Life"]
+    assert build.recovery_sources["LifeOnConsumeRecovery"] == pytest.approx(0.03 * life * 0.5, rel=1e-3)
+    basis = notes[0]["basis"]
+    assert "Endurance Charge consumed x 0.500/s" in basis
+    for said in ("no Glory skill", "no Combo skill", "corpse skills none", "no Offering skill"):
+        assert said in basis, said

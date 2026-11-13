@@ -735,6 +735,10 @@ def _charges_held(kind: str):
             net = max(rate - spent, 0.0)
             count = min(most, net * duration)
             share = min(1.0, rate / spent)
+            # (MECHC13: the charges consumed a second, for recovery on consuming one: Conditions.evidence puts them on
+            # build.charge_flow)
+            stats.setdefault("_charge_flow", {})[kind] = (
+                min(rate, spent), f"{rate:.2f}/s made, {spent:.2f}/s wanted by " + ", ".join(stats["_consumers"][kind]))
             basis = (f"{gains:.2f} gains/s{extra_text} = {rate:.2f}/s made, {spent:.2f}/s spent by " +
                      ", ".join(stats["_consumers"][kind]) +
                      f" (one per use; {share:.0%} of their uses find a charge), {net:.2f}/s left x {duration:g} s")
@@ -3077,6 +3081,8 @@ class Conditions:
             found["conditionEnemyArmourBroken"] = broken[:2]
             uptimes["conditionEnemyArmourBroken"] = broken[2]
         self.found_uptimes = uptimes
+        # (MECHC13) charges consumed a second by kind ({kind: (rate, how)}; _charges_held), for recovery.spent_income
+        self.build.charge_flow = dict(stats.get("_charge_flow") or {})
         # Charges held: PoB reads an override of 0 as "not set" (the maximum), so none held switches the "use" box off
         for kind in ("Power", "Frenzy", "Endurance"):
             held = found.get(f"override{kind}Charges")

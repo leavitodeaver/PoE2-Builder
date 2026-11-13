@@ -4131,8 +4131,21 @@ def mana_flare(spell: dict, cooldown: float, recovery: float) -> tuple[float, fl
 
 def glory_uses(names: list[str], stats: dict, main: Skill | None) -> tuple[float, str]:
     """Uses per second of the build's Glory skills on a boss, all together, and how."""
+    plan, how = glory_plan(names, stats, main)
+    return sum(uses for uses, _ in plan.values()), how
+
+
+def glory_spent(names: list[str], stats: dict, main: Skill | None) -> tuple[float, str]:
+    """Glory the build's Glory skills spend a second on a boss (their uses x their Glory cost; MECHC13, for "Recover N% of
+    maximum Life per Glory consumed"), and how."""
+    plan, how = glory_plan(names, stats, main)
+    return sum(uses * cost for uses, cost in plan.values()), how
+
+
+def glory_plan(names: list[str], stats: dict, main: Skill | None) -> tuple[dict[str, tuple[float, float]], str]:
+    """({Glory skill: (uses per second, Glory a use)}, how) on a boss."""
     events = glory_events(stats, main)
-    total, parts = 0.0, []
+    plan, parts = {}, []
     for name in names:
         if name in GLORY_SKILLS:
             cost, gains = GLORY_SKILLS[name]
@@ -4154,10 +4167,10 @@ def glory_uses(names: list[str], stats: dict, main: Skill | None) -> tuple[float
             continue
         held = GLORY_INSTANCE.get(name, 0.0)
         every = held + cost / glory
-        total += 1 / every
+        plan[name] = (1 / every, float(cost))
         parts.append(f"{name}: {how} Glory against {cost} per use = one per {every:.1f} s"
                      + (f" (no Glory while its {held:g} s instance is up)" if held else ""))
-    return total, "; ".join(parts) or "no Glory skill"
+    return plan, "; ".join(parts) or "no Glory skill"
 
 
 # Deadly Resolve (model: deadly_resolve) -----------------------------------------------------------------------------------

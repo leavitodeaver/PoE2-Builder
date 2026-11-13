@@ -1231,10 +1231,85 @@ class Assumptions:
         heavy, heavy_how = models.heavy_stun_rate(stats) if has(recovery.HEAVY_STUN_UNIQUE) else (0.0, "")
         recovery.event_income(income, stats, texts, warcries=warcries, warcry_how=warcry_how, heavy_stuns=heavy,
                               heavy_how=heavy_how, hits=hits)
+        if any(has(p) for p in recovery.SPENT_LINES):
+            recovery.spent_income(income, stats, texts, **self.spent_rates(skills, main, stats, lowered))
         recovery.restrict(income, texts)
         income.unread = recovery.unread(texts)
         build.recovery_sources = dict(income.rates)
         return recovery.note(income)
+
+    def spent_rates(self, skills: list[dict], main: str | None, stats: dict, lowered: list[str]) -> dict:
+        """(events a second, how) for recovery.spent_income, each from the build's own sources (MECHC13; CLAUDE.md: no
+        flat rates; none, 0 and said): Endurance / Power Charges its consumers spend (build.charge_flow, Conditions'
+        charge model), Glory its Glory skills spend (models.glory_spent), uses of its Combo skills that build 10+ Combo
+        (usage.combo_rate's rotation), corpses its corpse skills consume (at most models.corpse_supply: the boss
+        preset's adds) and its Offering skills' uses (conditions.skill_use_rate)."""
+        from builder.search import recovery
+        from builder.search.usage import Usage, requirements
+
+        build = self.build
+        has = lambda pattern: any(pattern.search(t) for t in lowered)  # noqa: E731
+        out = {}
+        flow = getattr(build, "charge_flow", None) or {}
+        for key, kind, pattern in (("endurance", "Endurance", recovery.ENDURANCE_SPENT),
+                                   ("power", "Power", recovery.POWER_SPENT)):
+            if has(pattern):
+                out[key] = flow.get(kind) or (0.0, f"no skill of the build consumes {kind} Charges (or none are made)")
+        present = {s["name"]: s for s in skills if not s.get("disabled")}
+        main_skill = models.Skill.of(present[main]) if main in present else None
+        if has(recovery.GLORY_SPENT):
+            names = [n for n in present if n in models.GLORY_SKILLS or n in models.GLORY_FROM_LIFE]
+            out["glory"] = models.glory_spent(names, stats, main_skill) if names else (0.0, "no Glory skill")
+        groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
+        speed = number(stats.get("Speed"))
+        main_index = (build.main_group() or {}).get("index")
+        choices = models.press_choices(build)
+
+        def typed_uses(types: set[str]) -> tuple[float, list[str]]:
+            found = {g["index"]: n["name"] for g in groups for n in g.get("gems") or []
+                     if n.get("enabled", True) and not n.get("support")
+                     and types & set((build.ctx.gems.get(n["name"]) or {}).get("skillTypes") or [])}
+            total, parts = 0.0, []
+            if main in found.values():
+                total, parts = speed, [f"the main skill {main}, {speed:.2f}/s"]
+                found = {i: n for i, n in found.items() if n != main}
+            if found:
+                for rate in build.call("useRates", indices=sorted(found))["rates"]:
+                    name = found.get(rate.get("index"))
+                    if name is None or rate.get("index") == main_index:
+                        continue
+                    each, why, low = conditions_mod.skill_use_rate(rate, choices)
+                    total += each
+                    parts.append(f"{name} on {why}, {each:.2f}/s" + (" (LOW)" if low else ""))
+            return total, parts
+
+        if has(recovery.CORPSE_LIFE) or has(recovery.CORPSE_MANA):
+            uses, parts = typed_uses(set(models.CORPSE_TYPES))
+            supply = models.corpse_supply(set(present), stats)
+            out["corpses"] = (min(uses, supply), (f"corpse skills {'; '.join(parts) or 'none'}, one corpse a use, at "
+                                                  f"most the corpses there are: {models.add_corpses_note(stats)}"))
+        if has(recovery.OFFERING_LIFE):
+            uses, parts = typed_uses({"Offering"})
+            out["offerings"] = (uses, "; ".join(parts) or "no Offering skill in the build")
+        if has(recovery.COMBO_SPENT):
+            rules, usage, total, parts = usage_rules(build), None, 0.0, []
+            for name in present:
+                for need in requirements(name, rules[name]) if rules.get(name) else []:
+                    if need.kind != "combo":
+                        continue
+                    if need.amount < recovery.COMBO_AT_LEAST:
+                        parts.append(f"{name} needs {need.amount:g} Combo: the rotation builds that much a use, under 10 "
+                                     "(LOW: a use after more Strikes would count)")
+                        continue
+                    usage = usage or Usage(build, None)
+                    found = usage.combo_rate(name, need.amount)
+                    if found:
+                        total += found[0]
+                        parts.append(f"{name} {found[0]:.3f}/s ({need.amount:g} Combo from {found[2]} a use)")
+                    else:
+                        parts.append(f"{name}: no skill of the build Strikes to build its Combo")
+            out["combo"] = (total, "; ".join(parts) or "no Combo skill in the build")
+        return out
 
     def frostflame(self, main: str | None, skills: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
         """Frostflame Nova's Volatile Ice (models.frostflame_plan), as the main skill or in any Full DPS group (MECHB14):

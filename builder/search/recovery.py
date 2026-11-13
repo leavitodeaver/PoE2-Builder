@@ -28,6 +28,16 @@ turned into a rate here from the build's own events (CLAUDE.md: no flat rates wh
   boss's Heavy Stuns, models.heavy_stun_rate), "Recover N% of maximum Life / N Life when you Ignite an Enemy" and "Recover
   N% of maximum Mana when you Shock an Enemy" (the main skill's hits x its chance to inflict it). PoB parses none of them.
   Lines no rate reads yet are named in the note (EVENT_UNREAD): an undercount until they are.
+- Spent and consumed (LifeOnConsumeRecovery / ManaOnConsumeRecovery; MECHC13): "Recover N% of maximum Life for each
+  Endurance Charge consumed" and "Recover N% of maximum Mana when you consume a Power Charge" at the charges the build's
+  consumers spend a second (Conditions' charge model: the lower of the charges made and the consumers' uses, one a use;
+  build.charge_flow); "Recover N% of maximum Life per Glory consumed" at the Glory the build's Glory skills spend a second
+  (models.glory_spent: their uses x their Glory cost); "Recover N% of Maximum Life / Mana when you expend at least 10
+  Combo" at the uses of the build's Combo skills that build 10 or more (usage.combo_rate's rotation: the Combo built a use
+  is the skill's requirement); "Recover N% of maximum Life when you Consume a corpse" and "Regenerate N% of maximum Mana
+  over 2 seconds when you Consume a corpse" at the corpses the build's corpse skills use a second (their uses, at most the
+  boss preset's corpses: models.corpse_supply; none on a lone boss); "Recover N% of maximum Life when you create an
+  Offering" at the build's Offering skills' uses (on cooldown, duration, or the search's chosen rate).
 
 Amounts are taken as written: recovery-rate modifiers aren't applied to them (MEDIUM). "Cannot Recover Life other than from
 Leech" (Vaal Pact) zeroes the Life parts and "Mana Recovery other than Regeneration cannot Recover Mana" the Mana parts.
@@ -40,8 +50,10 @@ from dataclasses import dataclass, field
 
 # The fields, per second (for SEARCH: objective.SUSTAIN_POOLS / RECOVERY_POOLS read them from the build's stats)
 FIELDS = {
-    "Life": ("LifeOnKillRecovery", "LifeRemnantRecovery", "CharmLifeRecoveryRate", "LifeOnEventRecovery"),
-    "Mana": ("ManaOnKillRecovery", "ManaRemnantRecovery", "CharmManaRecoveryRate", "ManaOnEventRecovery"),
+    "Life": ("LifeOnKillRecovery", "LifeRemnantRecovery", "CharmLifeRecoveryRate", "LifeOnEventRecovery",
+             "LifeOnConsumeRecovery"),
+    "Mana": ("ManaOnKillRecovery", "ManaRemnantRecovery", "CharmManaRecoveryRate", "ManaOnEventRecovery",
+             "ManaOnConsumeRecovery"),
 }
 ALL_FIELDS = tuple(f for fields in FIELDS.values() for f in fields)
 
@@ -65,18 +77,23 @@ HEAVY_STUN_UNIQUE = re.compile(rf"recover {NUM}% of maximum life when you heavy 
 IGNITE_PCT = re.compile(rf"recover {NUM}% of maximum life when you ignite an enemy", re.I)
 IGNITE_FLAT = re.compile(rf"recover {NUM} life when you ignite an enemy", re.I)
 SHOCK_PCT = re.compile(rf"recover {NUM}% of maximum mana when you shock an enemy", re.I)
+# Spent and consumed (MECHC13; game files' stat descriptions, build 26476662, exact wording without the markup)
+ENDURANCE_SPENT = re.compile(rf"recover {NUM}% of maximum life for each endurance charge consumed", re.I)
+POWER_SPENT = re.compile(rf"recover {NUM}% of maximum mana when you consume a power charge", re.I)
+GLORY_SPENT = re.compile(rf"recover {NUM}% of maximum life per glory consumed", re.I)
+COMBO_SPENT = re.compile(rf"recover {NUM}% of maximum (life|mana) when you expend at least 10 combo", re.I)
+COMBO_AT_LEAST = 10.0
+CORPSE_LIFE = re.compile(rf"recover {NUM}% of maximum life when you consume a corpse", re.I)
+CORPSE_MANA = re.compile(rf"regenerate {NUM}% of maximum mana over 2 seconds when you consume a corpse", re.I)
+OFFERING_LIFE = re.compile(rf"recover {NUM}% of maximum life when you create an offering", re.I)
+SPENT_LINES = (ENDURANCE_SPENT, POWER_SPENT, GLORY_SPENT, COMBO_SPENT, CORPSE_LIFE, CORPSE_MANA, OFFERING_LIFE)
 NO_LIFE = re.compile(r"cannot recover life other than from leech", re.I)
 NO_MANA = re.compile(r"mana recovery other than regeneration cannot recover mana", re.I)
 # Recovery on events no rate here reads yet (MECHC11's inventory section 7): named in the note, never counted (undercount)
 EVENT_UNREAD = {
-    "Life per Endurance Charge consumed": re.compile(r"recover \S+ of maximum life for each endurance charge consumed", re.I),
-    "Mana when you consume a Power Charge": re.compile(r"recover \S+ of maximum mana when you consume a power charge", re.I),
+    # (Spirit Charges: no model of their gain or loss yet; MECHC13 left it here, an undercount)
     "Life when you lose a Spirit Charge": re.compile(r"recover \S+ of maximum life when you lose a spirit charge", re.I),
-    "Life per Glory consumed": re.compile(r"recover \S+ of maximum life per glory consumed", re.I),
-    "Life / Mana when you expend Combo": re.compile(r"when (?:you )?(?:expend|spend)\w* at least \d+ combo", re.I),
     "Life on Rage consumed when Shapeshifting": re.compile(r"recover \S+ of maximum life per rage consumed", re.I),
-    "Life when you consume a corpse": re.compile(r"recover \S+ of maximum life when you consume a corpse", re.I),
-    "Life when you create an Offering": re.compile(r"recover \S+ of maximum life when you create an offering", re.I),
     "Life when a Minion is Revived": re.compile(r"life when one of your minions is revived", re.I),
     "Life when your Trap is triggered": re.compile(r"life when your trap is triggered", re.I),
     "Life / Mana per Remnant's Rage (Sanguine Revelry)": re.compile(r"each remnant causes you to recover", re.I),
@@ -199,6 +216,33 @@ def event_income(income: Income, stats: dict, texts: list[str], *, warcries: flo
         pct = _sum(SHOCK_PCT, texts)
         income.add("ManaOnEventRecovery", pct / 100 * mana * shocks,
                    f"{pct:g}% of maximum Mana a Shock x {shocks:.2f} Shocks/s (the main skill's hits x its Shock chance)")
+
+
+def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tuple[float, str] = (0.0, ""),
+                 power: tuple[float, str] = (0.0, ""), glory: tuple[float, str] = (0.0, ""),
+                 combo: tuple[float, str] = (0.0, ""), corpses: tuple[float, str] = (0.0, ""),
+                 offerings: tuple[float, str] = (0.0, "")) -> None:
+    """Recovery on spending and consuming (MECHC13): each (events a second, how) from the build's own rates; Endurance /
+    Power: charges consumed a second; Glory: Glory spent a second; Combo: uses of a Combo skill that expend 10 or more a
+    second; corpses: corpses consumed a second; Offerings: Offerings created a second. No rate, nothing: said in `parts`."""
+    life, mana = _num(stats.get("Life")), _num(stats.get("Mana"))
+    rows = (("Life", ENDURANCE_SPENT, endurance, "an Endurance Charge consumed", None),
+            ("Mana", POWER_SPENT, power, "a Power Charge consumed", None),
+            ("Life", GLORY_SPENT, glory, "a Glory spent", None),
+            ("Life", COMBO_SPENT, combo, "a use expending 10+ Combo", "Life"),
+            ("Mana", COMBO_SPENT, combo, "a use expending 10+ Combo", "Mana"),
+            ("Life", CORPSE_LIFE, corpses, "a corpse consumed", None),
+            ("Mana", CORPSE_MANA, corpses, "a corpse consumed (over 2 s)", None),
+            ("Life", OFFERING_LIFE, offerings, "an Offering created", None))
+    for pool, pattern, (rate, how), event, which in rows:
+        pct = _sum(pattern, texts, which) if which else sum(float(m.group(1)) for t in texts for m in pattern.finditer(t))
+        if pct <= 0:
+            continue
+        if rate <= 0:
+            income.parts.append(f"{pct:g}% of maximum {pool} per {event}: 0, {how or 'the build makes none'}")
+            continue
+        income.add(f"{pool}OnConsumeRecovery", pct / 100 * (life if pool == "Life" else mana) * rate,
+                   f"{pct:g}% of maximum {pool} per {event} x {rate:.3f}/s ({how})")
 
 
 def restrict(income: Income, texts: list[str]) -> None:
