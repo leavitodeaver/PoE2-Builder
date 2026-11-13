@@ -134,6 +134,11 @@ def test_a_switched_off_charm_gives_the_models_no_lines(engine):
     assert texts() == []
     gain = Charges.from_bridge(build.call("chargeGain"))
     assert gain.taken_hit > 0 and gain.mana_cost > 0 and gain.life_effect_kept is False
+    # (MECHC17) and the Ailment Threshold and avoidance the boss's ailment rates read (charms "Used when you become ...")
+    data = build.call("chargeGain")
+    assert data["ailmentThreshold"] > 0 and set(data["ailmentAvoid"]) == {"Ignite", "Shock", "Freeze", "Bleed", "Poison"}
+    rates = {a: r for a, r, _ in gain.ailments}
+    assert set(rates) == {"Ignite", "Shock", "Freeze", "Bleed", "Poison"} and rates["Poison"] == 0.0 and rates["Ignite"] > 0
 
 
 def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):

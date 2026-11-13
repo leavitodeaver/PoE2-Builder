@@ -426,3 +426,114 @@ def recharge_text(stats: dict, delay: float, land: float) -> str:
     how = ignite_chance(stats, land)[1] if any(what == "Ignite" for _, _, what in dots) else ""
     return (f"damage over time on your Energy Shield delays it: {parts}" + (f" (Ignite: {how}; if none did: {bare:.1f} s)"
             if how else "") + "; " + GROUNDS_NOTE)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The boss's ailments on you, per second, for charms "Used when you become Ignited / Shocked / Frozen / Poisoned" and
+# "Used when you start Bleeding" (MECHC17; CLAUDE.md's no-flat-rates rule: before, one per 10 s on any boss dealing the
+# type). Which boss inflicts which: RESEARCH13 #60 (pinnacle-ailments-on-player.md: every GrantedEffect stat set of the
+# 14 boss varieties; second source poe2db), RESEARCH15 (Xesht's corpses: Lightning, Cold) and RESEARCH14 #67
+# (pinnacle-debuffs-from-buffs.md: buffs and grounds). Each from the boss's own landed hits of the type x the game's
+# chance for that hit against your Ailment Threshold x (1 - your avoidance), PoB's <Ailment>AvoidChance (100 when immune):
+# - Ignite: ignite_chance above (Flammability).
+# - Shock: KeywordPopups Shock: "By default a Hit has 1% chance to Shock for every 4% of the target's Ailment Threshold
+#   dealt" (HIGH; PoB's Misc.lua ShockChanceMultiplier 25 agrees), x the boss skills' own Shock chance stats averaged over
+#   its Lightning skills (SHOCK_FACTORS, RESEARCH13's stat reads; LOW: each skill's share of the hits).
+# - Freeze: KeywordPopups Freeze ("Cold damage from Hits Contributes to Freeze Buildup ... until they become Frozen") and
+#   AilmentThreshold (a higher threshold lowers "the amount of Freeze ... buildup received"): each Cold hit builds
+#   FreezeDamageScalePlayer (2, PoB's Misc.lua game constants) x the Cold dealt / your Ailment Threshold; 100% Freezes.
+#   Buildup is taken to carry over between hits with no decay (the decay rule on a player: UNVERIFIED): Freezes per
+#   second = Cold hits x min(1, buildup per hit), an upper reading; the note gives the lower one (a single hit fills it).
+#   Olroth's SwordGrabExplosion +200% Freeze buildup (one of its Cold skills; FREEZE_FACTORS).
+# - Bleeding: KeywordPopups Bleeding: "Damage does not Contribute to Bleeding chance, so it cannot be inflicted without
+#   an explicit source of Bleeding chance"; Olroth's attacks_inflict_bleeding_on_hit is the one pinnacle source found
+#   (checked: RESEARCH13's scan of every boss skill stat set, RESEARCH14's of their variety mods, BuffDefinitions and
+#   grounds; second source poe2db's boss pages via #60; the .ao scripts unseen: MEDIUM-HIGH). Of its ThrowBack and
+#   IntroSwing, IntroSwing is taken as the fight's opening swing only (LOW, from its name): one skill's share of its hits
+#   (LOW, as Corrupted Blood's). Corrupted Blood "is not Bleeding" (KeywordPopups CorruptedBlood): Atziri's starts none.
+# - Poison: no pinnacle Poison chance found (checked: RESEARCH13 #60 over every boss skill stat set; RESEARCH14 #67 over
+#   their variety mods, all 3,218 BuffDefinitions and every ground they make; second source poe2db's boss pages;
+#   MEDIUM-HIGH, the research's own grade): 0, said.
+# The worst-case pinnacle takes the real preset with the highest factor or share (as IGNITE_INCREASE's row does).
+SHOCK_PER_THRESHOLD = 0.25  # 1% chance per 4% of the Ailment Threshold dealt (KeywordPopups Shock): HIGH
+FREEZE_SCALE_PLAYER = 2.0  # FreezeDamageScalePlayer (PoB Misc.lua, the game's constants): MEDIUM-HIGH
+# per boss: the factor each of its Lightning skills with a Shock chance stat gives its Shock chance (RESEARCH13 #60)
+SHOCK_FACTORS = {
+    "Arbiter of Divinity": (6.0, 3.0),  # ExtendoSpearComboZapBeams +500% final; StormBlinkBolt as though +200% damage
+    "The Aberration": (1.5,),  # SpiderBeam +50% final
+    "Vessel of Kulemak": (1.33, 1.33, 1.33),  # its beams Shock as though +33-100% damage: the low end (LOW)
+    "Atziri, the Red Queen": (1.8,),  # her lightning melee +80% Shock chance
+    "Atziri, the Fell Serpent": (1.8,),  # (taken for both phases, as IGNITE_INCREASE: LOW)
+}
+FREEZE_FACTORS = {"Olroth, Origin of the Fall": (3.0,)}  # SwordGrabExplosion +200% Freeze buildup
+BLEED_SKILLS = {"Olroth, Origin of the Fall": 1}  # ThrowBack (IntroSwing: the opening only, LOW)
+AILMENT_TYPE = {"Ignite": "Fire", "Shock": "Lightning", "Freeze": "Cold"}
+
+
+def _factor(name: str, table: dict, kind: str) -> float:
+    """The mean factor the boss's skills give an ailment's chance over its hits of `kind` (1 with none)."""
+    if name == _worst():
+        from builder.search import bosses
+        return max([_factor(n, table, kind) for n in bosses.REAL] or [1.0])
+    count = hit_table(name)[1].get(kind, 0)
+    extra = table.get(name, ())
+    return (count - len(extra) + sum(extra)) / count if count else 1.0
+
+
+def _bleed_share(name: str) -> float:
+    if name == _worst():
+        from builder.search import bosses
+        return max([_bleed_share(n) for n in bosses.REAL] or [0.0])
+    skills = BLEED_SKILLS.get(name, 0)
+    return skills / sum(hit_table(name)[1].values()) if skills else 0.0
+
+
+def ailment_rate(stats: dict, ailment: str, land: float) -> tuple[float, str]:
+    """Times per second the boss inflicts `ailment` (Ignite, Shock, Freeze, Bleed, Poison) on you, and how. `land`: the
+    boss's landed hits per second; stats: PoB's <Type>TakenHit, AilmentThreshold, <Ailment>AvoidChance, Life, "_boss"."""
+    name = boss_name(stats)
+    if land <= 0:
+        return 0.0, "no boss hit lands: no source, 0"
+    avoid = min(max(number(stats.get(f"{ailment}AvoidChance")), 0.0), 100.0) / 100
+    if ailment == "Poison":
+        return 0.0, ("no pinnacle boss has a Poison chance (checked: research #60 / #67 over every boss skill, variety "
+                     "mod, buff and ground; poe2db): no source, 0")
+    if ailment == "Bleed":
+        share = _bleed_share(name)
+        if share <= 0:
+            return 0.0, (f"{name} has no Bleeding chance (checked: research #60 / #67; Olroth's attacks are the one "
+                         "pinnacle source): no source, 0")
+        rate = land * share * (1 - avoid)
+        return rate, (f"{land:.2f} landed hits/s x {share:.1%} that Bleed (Olroth's ThrowBack, one of its skills: LOW) x "
+                      f"{1 - avoid:.0%} not avoided: {rate * 60:.1f} a minute")
+    kind = AILMENT_TYPE[ailment]
+    share = type_shares(name)[kind]
+    if share <= 0:
+        return 0.0, f"{name} deals no {kind} hits: no source, 0"
+    if avoid >= 1:
+        return 0.0, {"Ignite": "you can't be Ignited", "Shock": "you can't be Shocked",
+                     "Freeze": "you can't be Frozen"}[ailment] + " (PoB's avoidance 100%): 0"
+    if ailment == "Ignite":
+        chance, how = ignite_chance(stats, land)
+    else:
+        key = f"{kind}TakenHit"
+        taken = max(number(stats.get(key)) if key in stats else hit_sizes(name)[kind], 0.0)
+        threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
+        if threshold <= 0:
+            chance, how = 1.0, f"no Ailment Threshold read: every landed {kind} hit taken to {ailment} (LOW)"
+        elif ailment == "Shock":
+            factor = _factor(name, SHOCK_FACTORS, kind)
+            chance = min(1.0, taken / threshold * SHOCK_PER_THRESHOLD * factor)
+            how = (f"a {taken:,.0f} Lightning hit against your {threshold:,.0f} Ailment Threshold: 1% per 4% dealt x "
+                   f"{factor:.2f} from the boss's Shock chance stats = {chance:.0%} to Shock (MEDIUM-LOW)")
+        else:
+            factor = _factor(name, FREEZE_FACTORS, kind)
+            build = taken / threshold * FREEZE_SCALE_PLAYER * factor
+            chance = min(1.0, build)
+            how = (f"a {taken:,.0f} Cold hit builds {build:.0%} Freeze against your {threshold:,.0f} Ailment Threshold "
+                   f"(x{FREEZE_SCALE_PLAYER:g}, x{factor:.2f} from the boss's buildup stats); buildup taken to carry over "
+                   f"between hits (decay UNVERIFIED: an upper reading; if a single hit must fill it, "
+                   f"{'every' if build >= 1 else 'no'} Cold hit Freezes)")
+    rate = land * share * chance * (1 - avoid)
+    return rate, (f"the boss's {land * share:.2f} landed {kind} hits/s ({share:.0%} of its hits) x {chance:.0%} ({how}) "
+                  f"x {1 - avoid:.0%} not avoided: {ailment} {rate * 60:.1f} times a minute")

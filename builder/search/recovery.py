@@ -59,6 +59,9 @@ FIELDS = {
              "LifeOnConsumeRecovery"),
     "Mana": ("ManaOnKillRecovery", "ManaRemnantRecovery", "CharmManaRecoveryRate", "ManaOnEventRecovery",
              "ManaOnConsumeRecovery"),
+    # (MECHC17) Energy Shield on events: "Regenerate N% of maximum Energy Shield over 1 second when Stunned" (hit_income).
+    # For SEARCH: objective.RECOVERY_POOLS["EnergyShield"] doesn't read it yet
+    "EnergyShield": ("EnergyShieldOnEventRecovery",),
 }
 ALL_FIELDS = tuple(f for fields in FIELDS.values() for f in fields)
 
@@ -104,7 +107,13 @@ CAST_LEECH = re.compile(rf"leeches {NUM}% of maximum life when you cast a spell"
 # "Regenerate N% of maximum Life over 1 second when Stunned" (regenerate_%_life_over_1_second_when_stunned; two
 # passives; PoB's ModCache {nil, ...}: parsed to no mod): at the boss's hits that Light Stun you (MECHC15, stuns_taken)
 STUNNED_LIFE = re.compile(rf"regenerate {NUM}% of maximum life over 1 second when stunned", re.I)
-HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNED_LIFE)
+# (MECHC17) its Energy Shield form (regenerate_%_energy_shield_over_1_second_when_stunned): no carrier found (checked:
+# every stat column of every game table, build 26476662: no Mod, passive, Timeless conquest, support or skill stat set
+# carries it; PoB's data only in ModScalability's stat descriptions, no unique; poe2db's page for Energy Barrier, the
+# ES-when-Stunned support, doesn't show it; no further second source: UNVERIFIED that none exists). Read all the same,
+# at the boss's Stuns, so a source counts the day one appears
+STUNNED_ES = re.compile(rf"regenerate {NUM}% of maximum energy shield over 1 second when stunned", re.I)
+HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNED_LIFE, STUNNED_ES)
 # The game's Light Stun rule (KeywordPopups LightStun, build 26476662): "up to 100% base chance for Hits that deal 100%
 # of the target's maximum Life" (StunThreshold: "A Hit that deals damage equal to or greater than your Stun Threshold
 # is guaranteed to Stun you, and the chance scales down linearly"), "Chances lower than 15% are treated as 0%" (the
@@ -161,9 +170,6 @@ EVENT_UNREAD = {
     "Life / Mana per Remnant's Rage (Sanguine Revelry)": re.compile(r"each remnant causes you to recover", re.I),
     "all Mana when a flask is Used": re.compile(r"^recover all mana when used$", re.I),
     "Life when you use a Mana Flask": re.compile(r"recover \S+ of maximum life when you use a mana flask", re.I),
-    # (MECHC14, A27-32: Quick Recovery, Chakra of Stability; nothing models how often the boss Stuns you)
-    # (the Life one counts since MECHC15, hit_income; Energy Shield has no recovery field here yet)
-    "Energy Shield when Stunned": re.compile(r"regenerate \S+ of maximum energy shield over 1 second when stunned", re.I),
 }
 
 
@@ -360,6 +366,16 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
                        f"{pct:g}% of maximum Life when Stunned x {stunned:.3f} Stuns/s ({stunned_how})")
         else:
             income.parts.append(f"{pct:g}% of maximum Life when Stunned: 0, {stunned_how or 'the boss never Stuns you'}")
+    pct = _sum(STUNNED_ES, texts)
+    if pct > 0:  # (MECHC17: the Energy Shield form, at the same Stuns)
+        shield = _num(stats.get("EnergyShield"))
+        if stunned > 0 and shield > 0:
+            income.add("EnergyShieldOnEventRecovery", pct / 100 * shield * stunned,
+                       f"{pct:g}% of maximum Energy Shield {shield:,.0f} when Stunned x {stunned:.3f} Stuns/s ({stunned_how})")
+        else:
+            income.parts.append(f"{pct:g}% of maximum Energy Shield when Stunned: 0, "
+                                + ("the build has no Energy Shield" if shield <= 0 else
+                                   stunned_how or "the boss never Stuns you"))
     pct = _sum(MISSING_BEFORE_HIT, texts)
     if pct > 0:
         if landed > 0 and life_per_hit > 0:

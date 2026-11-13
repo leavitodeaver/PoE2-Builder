@@ -4394,6 +4394,12 @@ function bridge.chargeGain()
 		-- (MECHC16) the boss's Light Stuns on you, for charms "Used when you become Stunned" (recovery.boss_stuns)
 		stunThreshold = output.StunThreshold or 0, stunAvoid = output.StunAvoidChance or 0,
 		deflect = output.DeflectChance or 0, deflectEffect = output.DeflectEffect or 0,
+		-- (MECHC17) the boss's ailments on you, for charms "Used when you become Ignited / Shocked / Frozen / Poisoned",
+		-- "start Bleeding" (boss_hits.ailment_rate): your Ailment Threshold and avoidance (100 when immune)
+		ailmentThreshold = output.AilmentThreshold or 0, life = output.Life or 0,
+		ailmentAvoid = { Ignite = output.IgniteAvoidChance or 0, Shock = output.ShockAvoidChance or 0,
+			Freeze = output.FreezeAvoidChance or 0, Bleed = output.BleedAvoidChance or 0,
+			Poison = output.PoisonAvoidChance or 0 },
 		blooms = blooms,
 		perfectMainRate = perfectMain and (output.Speed or 0) or 0,
 		-- the main skill's name (MECHC3: a Concoction main skill spends the Mana Flask's charges, flasks.THROW_CHARGES)

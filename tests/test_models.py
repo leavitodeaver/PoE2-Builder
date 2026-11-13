@@ -1276,16 +1276,17 @@ def test_cast_on_charm_use_gains_energy_from_the_charm_charges_spent():
     used as its generated charges allow, never again while its effect lasts, and never when it waits for a kill."""
     from builder.search.flasks import Charges, charm_charges_used
 
-    gain = Charges(charm=1.0, boss_hits=1.0, boss_types=("Cold",))  # (a Frozen trigger needs the boss's Cold: MECHC2)
+    freeze = (("Freeze", 0.1, "Frozen by the boss 0.1/s"),)  # (MECHC17: the boss's own Freeze rate on the build)
+    gain = Charges(charm=1.0, boss_hits=1.0, boss_types=("Cold",), ailments=freeze)  # (needs the boss's Cold: MECHC2)
     charm = {"kind": "Charm", "chargesUsed": 20, "duration": 4.0, "gainBase": 0}
     # 1 charge/s pays for a use every 20 s (shorter than its 4 s effect): 1 charge spent per second
     spent, basis = charm_charges_used([(charm, "Rarity: Magic\nThawing Charm\nUsed when you become Frozen")], gain)
     assert spent == pytest.approx(1.0) and "Thawing Charm" in basis
     # 10 charges/s would pay for a use every 2 s, but the effect lasts 4 s: one use per 4 s, 5 charges/s
     assert charm_charges_used([(charm, "Rarity: Magic\nCharm")], Charges(charm=10.0))[0] == pytest.approx(5.0)
-    # ... and never more often than its trigger: Frozen by the boss once per 10 s (LOW), so 20 charges per 10 s (MECHC2)
+    # ... and never more often than its trigger: Frozen by the boss 0.1/s, so 20 charges per 10 s (MECHC2, MECHC17)
     assert charm_charges_used([(charm, "Rarity: Magic\nThawing Charm\nUsed when you become Frozen")],
-                              Charges(charm=10.0, boss_hits=1.0, boss_types=("Cold",)))[0] == pytest.approx(2.0)
+                              Charges(charm=10.0, boss_hits=1.0, boss_types=("Cold",), ailments=freeze))[0] == pytest.approx(2.0)
     assert charm_charges_used([(charm, "Rarity: Magic\nGolden Charm\nUsed when you Kill a Rare or Unique Enemy")], gain)[0] == 0
     energy, basis = models.energy_gain("Cast on Charm Use", {"_charm_charges": 1.5, "_charm_basis": "x"}, "Spark")
     assert energy == pytest.approx(3.0) and "2 Energy per charge" in basis

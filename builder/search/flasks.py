@@ -117,6 +117,10 @@ class Charges:
     # second and how (recovery.boss_stuns: its landed hits against your Stun Threshold, from the bridge's chargeGain)
     stuns: float = 0.0
     stuns_how: str = ""
+    # (MECHC17; the no-flat-rates rule: before, one per BOSS_AILMENT_EVERY s on any boss dealing the type) the boss's
+    # Ignites, Shocks, Freezes, Bleeds and Poisons on you a second and how: ((ailment, rate, how), ...) from
+    # boss_hits.ailment_rate at the "when hit" benefit cadence (bosses.benefit_skill_time, as bosses.self_ignite_uptime)
+    ailments: tuple = ()
 
     @classmethod
     def of(cls, build) -> Charges:
@@ -158,6 +162,7 @@ class Charges:
                "StunAvoidChance": float(data.get("stunAvoid") or 0.0), "DeflectChance": float(data.get("deflect") or 0.0),
                "DeflectEffect": float(data.get("deflectEffect") or 0.0)}
         stuns, stuns_how = boss_stuns(hit) if every > 0 else (0.0, "no boss hit lands")
+        ailments = boss_ailments(hit, data) if every > 0 else ()
         return cls(data.get("flask", 0), data.get("lifeFlask", 0), data.get("manaFlask", 0), data.get("flaskGainInc", 0),
                    data.get("charm", 0), data.get("charmGainInc", 0), data.get("flaskDurationInc", 0),
                    data.get("charmDurationInc", 0), data.get("lifeRecoveryInc", 0), data.get("manaRecoveryInc", 0),
@@ -177,7 +182,19 @@ class Charges:
                    life_loss_per_use=float(data.get("lifeLossPerUse") or 0.0), main_rate=float(data.get("mainRate") or 0.0),
                    flask_not_consume=float(data.get("flaskNotConsume") or 0.0),
                    mana_regen_only=bool(data.get("manaRegenOnly", False)), stuns=stuns, stuns_how=stuns_how,
-                   add_kills=max(float(add_kills or 0.0), 0.0), **bloom_fields(data.get("blooms") or {}))
+                   add_kills=max(float(add_kills or 0.0), 0.0), ailments=ailments,
+                   **bloom_fields(data.get("blooms") or {}))
+
+
+def boss_ailments(hit: dict, data: dict) -> tuple:
+    """((ailment, per second, how), ...) the boss inflicts on you, from the bridge's chargeGain (MECHC17)."""
+    from builder.search import bosses, boss_hits
+
+    stats = {**hit, "AilmentThreshold": float(data.get("ailmentThreshold") or 0.0), "Life": float(data.get("life") or 0.0),
+             **{f"{a}AvoidChance": float(v or 0.0) for a, v in (data.get("ailmentAvoid") or {}).items()}}
+    stats["enemySkillTime"] = bosses.benefit_skill_time(stats)
+    land = boss_hits.landing_hits(stats)
+    return tuple((a, *boss_hits.ailment_rate(stats, a, land)) for a in ("Ignite", "Shock", "Freeze", "Bleed", "Poison"))
 
 
 # Charm triggers other than a kill (MECHC2, FIX_QUEUE: each counted as firing whenever its charges allowed, whether or not
@@ -193,10 +210,13 @@ class Charges:
 # - the boss's ailments, Stun and Slow on you ("become Ignited / Frozen / Shocked / Poisoned / Stunned", "start Bleeding",
 #   "affected by a Slow"): only when the boss deals the damage type behind it (Fire, Cold, Lightning, Chaos, Physical; any
 #   for Stun and Slow). Stun (MECHC16): the boss's hits that Light Stun you, from your Stun Threshold (Charges.stuns,
-#   recovery.boss_stuns; Heavy Stuns from Stun buildup not added: a lower bound), no flat rate. The others: how often the
-#   game's boss inflicts them no data gives: one per BOSS_AILMENT_EVERY s, at most one per landing hit (a flat rate where
-#   the game decides it: LOW, named in the report for the manager).
+#   recovery.boss_stuns; Heavy Stuns from Stun buildup not added: a lower bound), no flat rate. Ignited, Shocked,
+#   Frozen, Poisoned, Bleeding (MECHC17; before, one per BOSS_AILMENT_EVERY s): the boss's own rate of inflicting it on
+#   the build after its Ailment Threshold and avoidance (Charges.ailments, boss_hits.ailment_rate), 0 with a note where no
+#   boss skill inflicts it. Slow: how often the boss Slows you no data gives yet: one per BOSS_AILMENT_EVERY s, at most
+#   one per landing hit (a flat rate where the game decides it: LOW, named in the report for the manager).
 BOSS_AILMENT_EVERY = 10.0
+AILMENT_EVENT = {"ignited": "Ignite", "shocked": "Shock", "frozen": "Freeze", "poisoned": "Poison", "bleeding": "Bleed"}
 TRIGGER_DAMAGE = {"ignited": "Fire", "frozen": "Cold", "shocked": "Lightning", "poisoned": "Chaos", "bleeding": "Physical",
                   "stunned": None, "slow": None}
 
@@ -242,6 +262,10 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
         if gain.stuns > 0:
             return gain.stuns, f"the boss's hits that Light Stun you: {gain.stuns_how}"
         return 0.0, f"the boss never Stuns you ({gain.stuns_how or 'no Stun data'}): no source, 0"
+    if event in AILMENT_EVENT:  # (MECHC17) the boss's own rate of inflicting it on the build
+        found = {a: (r, h) for a, r, h in gain.ailments}
+        rate, how = found.get(AILMENT_EVENT[event], (0.0, "no boss ailment data read: no source, 0"))
+        return rate, f"the boss {'makes you ' + event.capitalize() if event != 'bleeding' else 'starts you Bleeding'}: {how}"
     rate = min(1 / BOSS_AILMENT_EVERY, gain.boss_hits)
     return rate, (f"you {'are ' if event != 'slow' else ''}{event} by the boss once per {BOSS_AILMENT_EVERY:g} s assumed "
                   "(LOW: how often a boss does it no data gives)")

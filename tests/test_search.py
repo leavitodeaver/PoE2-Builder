@@ -688,7 +688,9 @@ def test_flask_effects_count_only_while_generated_charges_keep_them_up():
     fire = Charges(charm=5, boss_hits=1.0, boss_types=("Fire",))
     assert uptime(golden, fire, trigger="Used when you take Fire damage from a Hit") == 1.0  # 0.25 uses/s x 4 s
     assert uptime(golden, fire, trigger="Used when you take Cold damage from a Hit") == 0.0  # the boss deals no Cold
-    assert uptime(golden, fire, trigger="Used when you become Ignited") == pytest.approx(0.4)  # one per 10 s (LOW) x 4 s
+    assert uptime(golden, fire, trigger="Used when you become Ignited") == 0.0  # no boss Ignite rate read (MECHC17)
+    ignites = Charges(charm=5, boss_hits=1.0, boss_types=("Fire",), ailments=(("Ignite", 0.1, "the boss's Ignites"),))
+    assert uptime(golden, ignites, trigger="Used when you become Ignited") == pytest.approx(0.4)  # 0.1 a second x 4 s
     assert uptime(golden, fire, trigger="Used when you become Frozen") == 0.0
     assert uptime(golden, fire, trigger="Used when you become Cursed") == 0.0  # pinnacle bosses don't curse
     assert uptime(golden, fire, trigger="Used when you release a skill with Perfect Timing") == 0.0  # no such skill

@@ -491,6 +491,15 @@ def test_life_when_stunned_counts_the_bosss_hits_that_light_stun_you():
     recovery.hit_income(none, stats, ["Regenerate 3% of maximum Life over 1 second when Stunned"])
     assert none.rates["LifeOnEventRecovery"] == 0.0 and "when Stunned: 0" in " ".join(none.parts)
     assert not recovery.unread(["Regenerate 3% of maximum Life over 1 second when Stunned"])
+    # (MECHC17) the Energy Shield form, at the same Stuns, in its own field (no carrier found yet: read all the same)
+    es_line = ["Regenerate 4% of maximum Energy Shield over 1 second when Stunned"]
+    shield = Income()
+    recovery.hit_income(shield, {**stats, "EnergyShield": 2000}, es_line, stunned=rate, stunned_how=how)
+    assert shield.rates["EnergyShieldOnEventRecovery"] == pytest.approx(0.04 * 2000 * rate)
+    assert shield.rates["LifeOnEventRecovery"] == 0.0 and not recovery.unread(es_line)
+    bare = Income()
+    recovery.hit_income(bare, stats, es_line, stunned=rate, stunned_how=how)
+    assert bare.rates["EnergyShieldOnEventRecovery"] == 0.0 and "no Energy Shield" in " ".join(bare.parts)
 
 
 def test_sacrifice_corpses_reach_the_corpse_recovery_line(engine):
@@ -549,8 +558,45 @@ def test_charms_used_when_stunned_fire_at_the_bosss_light_stuns():
     immune = Charges.from_bridge({**data, "stunAvoid": 100})
     rate, how = trigger_rate("Used when you become Stunned", immune)
     assert rate == 0.0 and "can't be Stunned" in how
-    # the other ailments keep their labelled rate (no boss-inflicts-ailment model yet)
-    assert trigger_rate("Used when you become Frozen", Charges(boss_hits=1.0, boss_types=("Cold",)))[0] == 0.1
+    # (MECHC17) the other ailments read the boss's own rate (Charges.ailments); Slow keeps its labelled rate
+    assert trigger_rate("Used when you become Frozen", Charges(boss_hits=1.0, boss_types=("Cold",)))[0] == 0.0
+    assert trigger_rate("Used when you are affected by a Slow", Charges(boss_hits=1.0))[0] == 0.1
+
+
+def test_ailment_charms_fire_at_the_bosss_own_ailment_rate():
+    """MECHC17 (CLAUDE.md's no-flat-rates rule): charms "Used when you become Ignited / Shocked / Frozen / Poisoned" and
+    "start Bleeding" assumed one per 10 s on any boss dealing the type. Now the boss's own rate (boss_hits.ailment_rate):
+    its landed hits of the type x the game's chance against your Ailment Threshold x your avoidance; 0 where no boss skill
+    inflicts it (Poison on every pinnacle, Bleeding but on Olroth)."""
+    from builder.search import boss_hits
+    from builder.search.flasks import Charges, trigger_rate
+
+    data = {"enemySkillTime": 0.7, "takenByType": {"Physical": 3000, "Fire": 2000, "Cold": 1500, "Lightning": 2500,
+                                                   "Chaos": 500},
+            "bossDamage": {t: 1 for t in ("Physical", "Fire", "Cold", "Lightning", "Chaos")}, "ailmentThreshold": 3000,
+            "ailmentAvoid": {"Ignite": 0, "Shock": 0, "Freeze": 0, "Bleed": 0, "Poison": 0}}
+
+    def rate(boss, trigger, **avoid):
+        return trigger_rate(trigger, Charges.from_bridge({**data, "ailmentAvoid": {**data["ailmentAvoid"], **avoid}},
+                                                         0, boss))
+
+    ash, divinity, olroth = "Arbiter of Ash", "Arbiter of Divinity", "Olroth, Origin of the Fall"
+    assert rate(ash, "Used when you become Ignited")[0] > 0
+    for trigger in ("Used when you become Shocked", "Used when you become Frozen", "Used when you start Bleeding"):
+        assert rate(ash, trigger)[0] == 0.0 and "no source, 0" in rate(ash, trigger)[1]
+    # Shock: 1% per 4% of the threshold dealt, x the Arbiter of Divinity's own Shock chance stats; avoidance halves it
+    shock, how = rate(divinity, "Used when you become Shocked")
+    assert shock > 0 and "Ailment Threshold" in how and boss_hits._factor(divinity, boss_hits.SHOCK_FACTORS, "Lightning") > 1
+    assert rate(divinity, "Used when you become Shocked", Shock=50)[0] == pytest.approx(shock / 2)
+    assert rate(divinity, "Used when you become Shocked", Shock=100)[0] == 0.0
+    # Freeze: a 1,500 Cold hit builds 2 x 1,500 / 3,000 = 100%: every Olroth Cold hit that lands Freezes (upper reading)
+    frozen, how = rate(olroth, "Used when you become Frozen")
+    assert frozen > 0 and "UNVERIFIED" in how
+    assert rate(olroth, "Used when you start Bleeding")[0] > 0
+    for boss in (ash, divinity, olroth, None):
+        assert rate(boss, "Used when you become Poisoned")[0] == 0.0
+    # the worst-case pinnacle takes the highest real preset's factors and Olroth's Bleeding
+    assert rate(None, "Used when you start Bleeding")[0] > 0 and rate(None, "Used when you become Shocked")[0] > 0
 
 
 def test_indigon_keeps_the_corpse_lines_mana_regeneration():

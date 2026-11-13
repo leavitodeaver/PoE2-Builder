@@ -1284,7 +1284,7 @@ class Assumptions:
         remnant_names = [n for n in recovery.REMNANT_SKILLS if n in present]
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**build.call("stats", fields=list(dict.fromkeys([
-            "Life", "Mana", "LifeOnKill", "ManaOnKill", "IgniteChancePerHit", "ShockChancePerHit", *models.MODEL_FIELDS,
+            "Life", "Mana", "EnergyShield", "LifeOnKill", "ManaOnKill", "IgniteChancePerHit", "ShockChancePerHit", *models.MODEL_FIELDS,
             *conditions_mod.EVIDENCE_FIELDS, *CHILL_FIELDS]))), **bosses.kill_stats(boss)}
         kills = getattr(build, "kills", None) or (0.0, 0.0, "")  # (models.kill_rate: the boss preset's adds)
         enemies = number(kills[0])
