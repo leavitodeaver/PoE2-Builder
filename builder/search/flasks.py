@@ -188,6 +188,11 @@ TRIGGER_DAMAGE = {"ignited": "Fire", "frozen": "Cold", "shocked": "Lightning", "
                   "stunned": None, "slow": None}
 
 
+# (MECHC15, AUDIT26: every release was counted as perfectly timed without saying so) the play-guide wording for it
+PERFECT_EVERY = ("; every release counted as perfectly timed: play to release each one in the Perfect Timing window "
+                 "(a play strategy, LOW: a missed window gives no charm use)")
+
+
 def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
     """Events per second that can fire a charm's "Used when ..." trigger on a lone boss, and how; None when the text has no
     trigger this reads (its charges alone decide, as before)."""
@@ -203,10 +208,11 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
         return 0.0, "pinnacle bosses don't curse you (research: no pinnacle boss skill carries a curse stat)"
     if "perfect timing" in text and "used when" in text:
         if gain.perfect_main_rate > 0:
-            return gain.perfect_main_rate, f"the main skill's Perfect Timing releases, {gain.perfect_main_rate:.2f}/s"
+            return gain.perfect_main_rate, (f"the main skill's Perfect Timing releases, {gain.perfect_main_rate:.2f}/s"
+                                            + PERFECT_EVERY)
         if gain.perfect_press_rate > 0:
             return gain.perfect_press_rate, (f"the build's Perfect Timing skills pressed {gain.perfect_press_rate:.2f}/s "
-                                             f"({gain.perfect_press_how})")
+                                             f"({gain.perfect_press_how})" + PERFECT_EVERY)
         if gain.perfect_skills > 0:
             return 0.0, ("a Perfect Timing skill with no cooldown or duration and no press rate chosen by the search: no "
                          "source, 0" + (f" ({gain.perfect_press_how})" if gain.perfect_press_how else ""))
