@@ -86,6 +86,9 @@ def fingerprint(pob_dir: Path = POB_DIR) -> str:
                 rows.append(f"{os.path.relpath(os.path.join(folder, name), base)}|{stat.st_size}|{stat.st_mtime_ns}")
         digest.update("\n".join(sorted(rows)).encode("utf-8", "surrogateescape") + b"\0")
     digest.update(b"CI=" + os.environ.get("CI", "").encode() + b"\0")  # bootstrap.lua hands it to PoB
+    pause = os.environ.get("POE2_LUA_GC_PAUSE", "").strip()  # engine.gc_pause: answers recorded under one collector
+    if pause:  # pause are never replayed under another (unset keeps the fingerprint it had before the switch)
+        digest.update(b"GC_PAUSE=" + pause.encode() + b"\0")
     value = digest.hexdigest()[:20]
     if pob_dir == POB_DIR:
         _fingerprint = value
