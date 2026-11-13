@@ -158,8 +158,7 @@ def test_cov16_item_lines_translate():
 def test_recovery_lines_the_audit_counts_are_the_lines_the_recovery_model_reads():
     """COV17: models-recovery.yaml tells the audit that MECHC12's recovery model (builder/search/recovery.py) counts these
     lines; each must be a line the model's own pattern reads (rolled, as bridge.sourceLines gives it), and the lines no
-    rate reads yet (recovery.EVENT_UNREAD) and Indigon's restriction (it zeroes only the model's own Mana parts, not
-    PoB's leech, on-hit Mana or flasks) must stay open."""
+    rate reads yet (recovery.EVENT_UNREAD) must stay open (Indigon's restriction counts since MECHC14: COV21)."""
     from builder.ledger import model_entry
     from builder.ledger.coverage import ignored_line_status
     from builder.search import recovery
@@ -185,9 +184,11 @@ def test_recovery_lines_the_audit_counts_are_the_lines_the_recovery_model_reads(
     # the item's ranged form reaches the audit; the bridge gives the model the rolled one
     assert ignored_line_status("Recover (3-5)% of your maximum Mana when an Enemy dies in your Presence", False)[0] == "model"
     for line in ("Recover 5% of maximum Life for each Endurance Charge consumed", "Recover all Mana when Used",
-                 "Recover 2% of maximum Mana when you consume a Power Charge",
-                 "Mana Recovery other than Regeneration cannot Recover Mana"):
+                 "Recover 2% of maximum Mana when you consume a Power Charge"):
         assert model_entry(line) is None, line
+    # (COV21) Indigon's restriction counts since MECHC14: the bridge zeroes PoB's Mana leech / on-hit / recoup outputs
+    # and flasks.mana_regen_only its Mana flasks (models-read-cov21.yaml)
+    assert model_entry("Mana Recovery other than Regeneration cannot Recover Mana").raw["model"] == "mana_regen_only"
     # Recoup stays recorded as no effect (recovery, not a checked defence)
     assert ignored_line_status("12% of Physical Damage prevented Recouped as Life", False)[:2] == \
         ("ledger", "no-effect-enemy-death-and-recoup")
@@ -268,7 +269,9 @@ def test_cov18_item_lines_a_model_already_reads_are_counted_by_the_audit():
         rolled = re.sub(r"\((-?[\d.]+)-(-?[\d.]+)\)", r"\1", line)
         assert pattern.search(rolled), line
         assert ignored_line_status(line, False)[0] == "model", line
-    assert ignored_line_status("Lose all Power Charges on reaching maximum Power Charges", False)[0] == "none"
+    # (COV21) read since MECHC14 (conditions.CHARGE_RESET_AT_MAX / charges_with_reset; models-read-cov21.yaml)
+    assert conditions.CHARGE_RESET_AT_MAX.search("Lose all Power Charges on reaching maximum Power Charges")
+    assert ignored_line_status("Lose all Power Charges on reaching maximum Power Charges", False)[0] == "model"
 
 
 def test_cov20_cull_on_block_and_ironbound_are_counted_and_cadiros_arrows_stay_open():
