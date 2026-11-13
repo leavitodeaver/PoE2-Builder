@@ -2797,9 +2797,14 @@ class Conditions:
     def charged_mark(self, stats: dict) -> tuple[float, str, float]:
         """(MECH61) (Activations per second of the Mark Charged Mark supports, how, its ground's radius in metres).
         Charged Mark triggers on every Activation (chance_to_trigger_shocked_ground_on_mark_activated_% 100,
-        research/shocked-ground-sources.md, HIGH); the rate is models.mark_activations'. The radius is taken at the Charged
-        Mark gem's own level: the game may level the triggered skill with the supported Mark instead (UNVERIFIED; at most
-        2.3 m at 20 against 1.4 m at 1), so this is the smaller, safe side for lines that need you on the ground."""
+        research/shocked-ground-sources.md, HIGH); the rate is models.mark_activations', at the Mark's own duration and
+        with Eternal Mark's second Activation when the group holds it (MECH62, AUDIT27 A27-1 / A27-2).
+        MECH62 (A27-3): the radius is read at the supported Mark gem's level. TriggeredChargedMarkPlayer has 40 levels and
+        the 40 in the GrantedEffects column MECHB17 found on the 27 support-granted effects that copy their parent's level
+        (game 26476662: GrantedEffects row 1150, _unnamed36 40; not one of MECHB17's 7 odd ones), and
+        bridge.installGrantedLevel gives it the group's active gem's level in PoB (HIGH: the user's in-game check that
+        support-triggered skills keep their parent gem's level, 13 Nov). The gem's own level, without +level lines from
+        items, so a build with those reads a slightly smaller radius (the safe side)."""
         for group in self.build.groups():
             if group.get("enabled") is False:
                 continue
@@ -2808,15 +2813,18 @@ class Conditions:
             mark = next((g for g in gems if g["name"] in models.MARKS), None)
             if support is None or mark is None:
                 continue
+            eternal = any(g["name"] == models.ETERNAL_MARK for g in gems)
             raw = self.build.call("activeSkills")["skills"]
             skills = [models.Skill.of(s) for s in raw if not s.get("disabled")]
             disabled = [models.Skill.of(s) for s in raw if s.get("disabled")]
             skill = next((s for s in skills if s.name == mark["name"] and s.group == group.get("index")), None)
-            radius = charged_mark_radius(support.get("level") or 1)
+            level = int(mark.get("level") or 1)
+            radius = charged_mark_radius(level)
             if skill is None:
                 return 0.0, f"its {mark['name']} isn't an active skill PoB lists", radius
-            rate, how = models.mark_activations(skill, skills, stats, disabled, getattr(self.build, "trigger_rates", None))
-            return rate, how + f"; radius at the gem's level {support.get('level') or 1} (UNVERIFIED which level)", radius
+            rate, how = models.mark_activations(skill, skills, stats, disabled, getattr(self.build, "trigger_rates", None),
+                                                eternal)
+            return rate, how + f"; radius {radius:g} m at the {mark['name']} gem's level {level} (the triggered skill "                 "copies its parent's level, HIGH)", radius
         return 0.0, "it supports no Mark", charged_mark_radius(1)
 
     def ground_feed(self, texts: list[str], stats: dict, names: set[str]) -> dict:

@@ -236,6 +236,7 @@ class Skill:
     totem_limit: float = 0.0  # a totem-summoning skill's Totem Limit (bridge activeSkills totemLimit; totem_count_model)
     # a totem skill's count PoB multiplies its ailment stacks by: {override, limit} (bridge ailmentTotems; totem_count_model)
     ailment_totems: dict | None = None
+    mark_duration: float = 0.0  # a Mark's duration with the build's modifiers (bridge activeSkills markDuration; MECH62)
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -246,7 +247,7 @@ class Skill:
                    bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"),
                    dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")),
                    number(raw.get("totalTimeAdded")), raw.get("statSet"), number(raw.get("totemLimit")),
-                   raw.get("ailmentTotems"))
+                   raw.get("ailmentTotems"), number(raw.get("markDuration")))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -1083,6 +1084,15 @@ def hollow_model(skills: list[Skill], stats: dict, texts: list[str], main: Skill
 #   electrocuted or frozen about once per 30 s (the catalog's buildup rule, conditions._charge_rate), assumed.
 # - Bloodhound's Mark: consumed on Heavy Stun to trigger Blood Explosion; PoB adds nothing to the main skill's damage.
 MARK_DURATION = 8.0
+# Eternal Mark (SupportEternalMarkPlayer, marks_avoid_consumption_when_first_activated): "Marks are not Consumed the first
+# time they Activate", so an application can Activate twice (MECH62, AUDIT27 A27-1)
+ETERNAL_MARK = "Eternal Mark"
+
+
+def mark_duration(mark: "Skill") -> float:
+    """(MECH62, AUDIT27 A27-2) The Mark's duration on the boss: PoB's base_skill_effect_duration (8 s on every Mark gem)
+    with the build's Mark / skill effect duration modifiers (bridge activeSkills markDuration), else MARK_DURATION."""
+    return number(getattr(mark, "mark_duration", 0.0)) or MARK_DURATION
 MARK_BUFF_DURATION = 10.0
 # Predator's Mark (MECH34): Pounce triggers it on the highest-Rarity enemy hit when no Mark gem is socketed in Pounce
 # (ActiveSkills wolf_pounce). Game files (build 26476662, GrantedEffectStatSets WolfPounceMarkPlayer): 8 s, "Marked
@@ -1599,6 +1609,7 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
     marks += [s for s in skills if s.name == PREDATORS_MARK and s.group not in marked_groups]
     for mark in marks[:1]:  # one Mark on an enemy at a time (number_of_marks_allowed_per_type 1, EnemyMarkLimit 1)
         play = ""
+        dur = mark_duration(mark)  # (MECH62: its duration with the build's modifiers; was a flat 8 s)
         scales: dict[str, float] = {}  # Full DPS entries counted x this (Pounce's slam, its wolves; MECH36)
         if mark.name == PREDATORS_MARK:
             pounce = next((s for s in skills if s.group == mark.group and s.name == "Pounce"), None)
@@ -1606,18 +1617,18 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
             every = 0.0
             if pounce is not None:
                 every = (pounce.cooldown or 0.0) / (pounce.cooldown_recovery or 1.0)
-                use = MarkUse(max(every, MARK_DURATION), "triggered by Pounce, used as the Mark runs out (assumed)", pounce)
+                use = MarkUse(max(every, dur), "triggered by Pounce, used as the Mark runs out (assumed)", pounce)
         else:
             use = mark_use(mark, skills, disabled, rates)
         period, how = use.period, use.how
         # the time a Mark stays on the boss after each application: until consumed, at most its duration
-        held, consumed_by = MARK_DURATION, "Bloodhound's Mark's consumption on a Heavy Stun isn't rated (held its full duration)"
+        held, consumed_by = dur, "Bloodhound's Mark's consumption on a Heavy Stun isn't rated (held its full duration)"
         if mark.name == PREDATORS_MARK:
-            held, consumed_by = MARK_DURATION, "not consumed on a boss (only its death or Cross Slash consume it)"
+            held, consumed_by = dur, "not consumed on a boss (only its death or Cross Slash consume it)"
             if main is not None and main.name == "Cross Slash" and hits_per_second(stats):
-                held = min(1 / hits_per_second(stats), MARK_DURATION)
+                held = min(1 / hits_per_second(stats), dur)
                 # (Pounce recast once consumed, cooldown allowing: MECH36, it went under the cooldown before)
-                period = max(period - MARK_DURATION + held, held, every)
+                period = max(period - dur + held, held, every)
                 consumed_by = "each Cross Slash that lands both gouges consumes it (assumed: every hit)"
             marked = min(1.0, held / period) if period and period != math.inf else 0.0
             minions = sum(number((s.minion or {}).get("limit")) for s in skills)
@@ -1661,22 +1672,22 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
         elif mark.name == "Sniper's Mark":
             crits = crits_per_second(stats)
             if use.on_demand:
-                period = max(period, min(1 / crits, MARK_DURATION) if crits else 0.0)  # (recast once consumed)
+                period = max(period, min(1 / crits, dur) if crits else 0.0)  # (recast once consumed)
             share = min(1.0, 1 / (period * crits)) if crits and period else 1.0
-            held, consumed_by = min(1 / crits, MARK_DURATION) if crits else MARK_DURATION, "the next crit consumes it"
+            held, consumed_by = min(1 / crits, dur) if crits else dur, "the next crit consumes it"
             label, basis = "Sniper's Mark: share of crits it adds damage to", (
                 f"one Mark every {period:.1f} s ({how}) against {crits:.2f} crits/s; the next crit consumes it (PoB "
                 "counts its extra crit damage on every crit)")
         elif mark.name in MARK_BUFFS:
             ailment = MARK_BUFFS[mark.name]
             inflicts = number(stats.get(f"{ailment}BuildupAvg")) > 0  # (PoB: a hit's average buildup, % of the threshold)
-            marked = 1.0 if use.on_demand or not period else min(1.0, MARK_DURATION / period)
+            marked = 1.0 if use.on_demand or not period else min(1.0, dur / period)
             if use.on_demand:
-                period = max(period, MARK_DURATION)  # reapplied as it runs out (its duration's modifiers aren't read)
+                period = max(period, dur)  # reapplied as it runs out (at its duration with the build's modifiers)
             rate = buildup_rate(stats, ailment)
             share = min(1.0, MARK_BUFF_DURATION * rate) * marked if inflicts else 0.0
             if inflicts and rate:
-                held, consumed_by = min(1 / rate, MARK_DURATION), f"the boss's next {ailment} consumes it"
+                held, consumed_by = min(1 / rate, dur), f"the boss's next {ailment} consumes it"
             else:
                 consumed_by = f"never consumed (no {ailment})"
             label, basis = f"{mark.name}: buff uptime", (
@@ -1731,12 +1742,17 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
 
 
 def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: list[Skill] | None = None,
-                     rates: dict[str, float] | None = None) -> tuple[float, str]:
+                     rates: dict[str, float] | None = None, eternal: bool = False) -> tuple[float, str]:
     """(MECH61) Activations of `mark` per second on the boss, and how. A Mark that Activates is Consumed (KeywordPopups
     MarkActivate: "When a Mark Activates, it will cause an extra effect and then be Consumed"), so each application
-    Activates at most once: on its event (Sniper's: a crit; Voltaic: Electrocute; Freezing: Freeze; Bloodhound's: a Heavy
-    Stun), if the event comes within the Mark's duration. Applications come at mark_model's period (mark_use, with the
-    same recast rules), and an event rate r gives each one the chance 1 - e^(-r x 8 s) to Activate."""
+    Activates once: on its event (Sniper's: a crit; Voltaic: Electrocute; Freezing: Freeze; Bloodhound's: a Heavy Stun),
+    if the event comes within the Mark's duration D. Applications come at mark_model's period (mark_use, with the same
+    recast rules), and an event rate r gives each one 1 - e^(-rD) Activations on average.
+    MECH62 (AUDIT27): D is the Mark's own duration with the build's modifiers (mark_duration; was a flat 8 s), and with
+    Eternal Mark (`eternal`: "Marks are not Consumed the first time they Activate") an application Activates up to twice:
+    E[min(N, 2)] = (1 - e^(-x)) + (1 - e^(-x) - x e^(-x)), x = rD; Sniper's is recast after its second crit."""
+    dur = mark_duration(mark)
+    uses = 2 if eternal else 1
     use = mark_use(mark, skills, disabled, rates)
     period, how = use.period, use.how
     if not period or period == math.inf:
@@ -1744,24 +1760,26 @@ def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: li
     if mark.name == "Sniper's Mark":
         rate, event = crits_per_second(stats), "the next Critical Hit"
         if use.on_demand and rate:
-            period = max(period, min(1 / rate, MARK_DURATION))  # (recast once consumed, as mark_model)
+            period = max(period, min(uses / rate, dur))  # (recast once consumed, as mark_model)
     elif mark.name in MARK_BUFFS:
         ailment = MARK_BUFFS[mark.name]
         rate = buildup_rate(stats, ailment) if number(stats.get(f"{ailment}BuildupAvg")) > 0 else 0.0
         event = f"the boss's next {ailment}"
         if use.on_demand:
-            period = max(period, MARK_DURATION)  # (reapplied as it runs out, as mark_model)
+            period = max(period, dur)  # (reapplied as it runs out, as mark_model)
     elif mark.name == "Bloodhound's Mark":
         rate, event = heavy_stun_rate(stats)[0], "the boss's next Heavy Stun (or a kill: none on a lone boss)"
     else:
         return 0.0, f"{mark.name}'s Activation isn't modelled (not counted, an undercount)"
     if rate <= 0:
         return 0.0, f"{mark.name} Activates on {event}, which the main skill never brings: never Activated"
-    chance = 1 - math.exp(-rate * MARK_DURATION)
-    per_second = chance / period
+    x = rate * dur
+    each = (1 - math.exp(-x)) + ((1 - math.exp(-x) - x * math.exp(-x)) if eternal else 0.0)
+    per_second = each / period
     return per_second, (f"{mark.name} applied every {period:.1f} s ({how}); it Activates on {event}, {rate:.2f}/s, so "
-                        f"{chance:.0%} of applications Activate within its {MARK_DURATION:g} s: {per_second:.3f} "
-                        "Activations/s")
+                        f"{each:.2f} Activations per application within its {dur:g} s"
+                        + (" (Eternal Mark: not Consumed the first time, so up to 2)" if eternal else "")
+                        + f": {per_second:.3f} Activations/s")
 
 
 # Curses (MECH33) ---------------------------------------------------------------------------------

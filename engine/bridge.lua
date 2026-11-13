@@ -2809,6 +2809,12 @@ function bridge.activeSkills(args)
 			curseDuration = types[SkillType.AppliesCurse] and activeSkill.skillData.duration and jsonNumber(
 				((activeSkill.skillData.duration or 0) + activeSkill.skillModList:Sum("BASE", activeSkill.skillCfg, "Duration", "PrimaryDuration"))
 				* calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "Duration", "PrimaryDuration")) or nil,
+			-- (MECH62, AUDIT27 A27-2) a Mark's own duration with the build's modifiers ("Mark Skills have N% increased
+			-- Skill Effect Duration": Duration on SkillType Mark, ModCache; mark_skill_duration_+% on jewels, passives and
+			-- Marksman influence), built as curseDuration; models.mark_duration
+			markDuration = types[SkillType.Mark] and activeSkill.skillData.duration and jsonNumber(
+				((activeSkill.skillData.duration or 0) + activeSkill.skillModList:Sum("BASE", activeSkill.skillCfg, "Duration", "PrimaryDuration"))
+				* calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "Duration", "PrimaryDuration")) or nil,
 			-- the ailments it consumes by its skill types alone (Snap, Elemental Sundering, Snipe, Shockchain Arrow,
 			-- Icestorm carry no consume stat; conditions.main_consumes / side_consumes, MECH55)
 			consumes = (types[SkillType.SkillConsumesFreeze] or types[SkillType.SkillConsumesShock]

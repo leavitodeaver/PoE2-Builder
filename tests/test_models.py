@@ -4122,6 +4122,53 @@ def test_a_marks_activations_come_from_its_event_within_its_duration():
     assert models.mark_activations(blood, [bow, blood], {"Speed": 2.0, "HitChance": 100})[0] == 0
 
 
+def test_eternal_mark_and_mark_duration_raise_a_marks_activations():
+    """MECH62 (AUDIT27 A27-1 / A27-2, UNDERCOUNTS): Eternal Mark ("Marks are not Consumed the first time they Activate")
+    lets an application Activate twice, E[min(N, 2)]; a longer Mark (the build's Mark duration lines, bridge markDuration)
+    gives its event longer to come."""
+    bow = models.Skill("Lightning Arrow", group=1, attack=True)
+    stats = {"Speed": 1.0, "HitChance": 100, "CritChance": 10, "ElectrocuteBuildupAvg": 50}
+    volt = models.Skill("Voltaic Mark", group=2, cast_time=0.5, cooldown=1.0)
+    rate = models.buildup_rate(stats, "Electrocute")
+    assert rate > 0
+    x = rate * 8
+    plain = models.mark_activations(volt, [bow, volt], stats)[0]
+    eternal, how = models.mark_activations(volt, [bow, volt], stats, eternal=True)
+    assert plain == pytest.approx((1 - math.exp(-x)) / 8)
+    assert eternal == pytest.approx((2 - 2 * math.exp(-x) - x * math.exp(-x)) / 8) and "Eternal Mark" in how
+    longer = models.Skill("Voltaic Mark", group=2, cast_time=0.5, cooldown=1.0, mark_duration=12.0)
+    assert models.mark_duration(longer) == 12.0 and models.mark_duration(volt) == models.MARK_DURATION
+    assert models.mark_activations(longer, [bow, longer], stats)[0] == pytest.approx((1 - math.exp(-rate * 12)) / 12)
+    # Sniper's: recast once consumed, after its second crit with Eternal Mark
+    sniper = models.Skill("Sniper's Mark", group=2, cast_time=0.5, cooldown=1.0)
+    crits = models.crits_per_second(stats)
+    period = max(models.mark_use(sniper, [bow, sniper]).period, min(2 / crits, 8))
+    assert models.mark_activations(sniper, [bow, sniper], stats, eternal=True)[0] == pytest.approx(
+        (2 - 2 * math.exp(-crits * 8) - crits * 8 * math.exp(-crits * 8)) / period)
+
+
+def test_charged_marks_radius_and_eternal_mark_come_from_its_group():
+    """MECH62 (AUDIT27 A27-1 / A27-3): Conditions.charged_mark reads the radius at the supported Mark gem's level (the
+    triggered skill copies its parent's level: 2.3 m at 20, was 1.4 m at the support's 1) and counts Eternal Mark in the
+    group."""
+    from types import SimpleNamespace
+    from builder.search.conditions import Conditions
+
+    def run(gems):
+        build = SimpleNamespace(
+            groups=lambda: [{"index": 2, "gems": gems}],
+            call=lambda what, **_: {"skills": [{"name": "Voltaic Mark", "group": 2, "castTime": 0.5, "cooldown": 1.0}]})
+        c = Conditions.__new__(Conditions)
+        c.build = build
+        return c.charged_mark({"Speed": 1.0, "HitChance": 100, "ElectrocuteBuildupAvg": 50})
+    mark = {"name": "Voltaic Mark", "level": 20}
+    support = {"name": "Charged Mark", "level": 1}
+    rate, how, radius = run([mark, support])
+    assert radius == 2.3 and "level 20" in how
+    rate2, how2, _ = run([mark, support, {"name": "Eternal Mark", "level": 1}])
+    assert rate2 > rate > 0 and "Eternal Mark" in how2
+
+
 def test_charged_marks_ground_radius_follows_its_level_table():
     """MECH61: research/ground-radii.md's per-level table (game files)."""
     from builder.search.conditions import charged_mark_radius

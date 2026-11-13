@@ -367,6 +367,13 @@ def test_a_snipers_marks_extra_crit_damage_is_scaled_to_the_crits_it_lands_on(en
         return build.call("stats", fields=["FullDPS"])["FullDPS"]
     assert dps(50) > dps(1) > raw
     assert dps(50, -50) == pytest.approx(raw, rel=1e-6)
+    # MECH62 (AUDIT27 A27-2): the bridge gives the Mark its own duration with the build's Mark duration lines
+    def mark_duration(*mods):
+        build.call("setAssumptions", mods=list(mods), fields=build.objective.fields)
+        found = [s for s in build.call("activeSkills")["skills"] if s["name"] == "Sniper's Mark"]
+        return models.Skill.of(found[0]).mark_duration
+    assert mark_duration() == pytest.approx(8.0)
+    assert mark_duration(models.line("Mark Skills have 1% increased Skill Effect Duration", 25)) == pytest.approx(10.0)
 
 
 def test_the_mark_round_adds_a_mark_only_when_it_pays_and_fits_the_button_cap(engine):
