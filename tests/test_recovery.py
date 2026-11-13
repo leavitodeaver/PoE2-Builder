@@ -469,3 +469,38 @@ def test_life_when_stunned_counts_the_bosss_hits_that_light_stun_you():
     recovery.hit_income(none, stats, ["Regenerate 3% of maximum Life over 1 second when Stunned"])
     assert none.rates["LifeOnEventRecovery"] == 0.0 and "when Stunned: 0" in " ".join(none.parts)
     assert not recovery.unread(["Regenerate 3% of maximum Life over 1 second when Stunned"])
+
+
+def test_sacrifice_corpses_reach_the_corpse_recovery_line(engine):
+    """MECHC15 (MECHB19's Sacrifice corpses, AUDIT27 A27-4): "Recover N% of maximum Life when you Consume a corpse" reads
+    Sacrifice's corpses (the build's own undead Reviving minion deaths) through models.corpse_supply; before, the
+    recovery path's stats lacked models.SACRIFICE_CORPSES_STAT (set only in Assumptions.models), so a lone boss gave 0."""
+    from builder.request.schema import BuildRequest, Choices
+    from builder.search import models
+    from builder.search.assumptions import Assumptions
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Detonate Dead",
+                                        require=Choices(skills=["Sacrifice", "Summon Skeletal Warriors"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Detonate Dead"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    hook = Assumptions(build)
+    ring = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                         "Recover 2% of maximum Life when you Consume a corpse"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    skills = build.call("activeSkills")["skills"]
+    present = {s["name"] for s in skills if not s.get("disabled")}
+    assert {"Sacrifice", "Summon Skeletal Warriors", "Detonate Dead"} <= present, present
+    stats = build.call("stats", fields=["Life"])
+    rates = hook.spent_rates(skills, "Detonate Dead", stats, ["recover 2% of maximum life when you consume a corpse"])
+    corpses, how = rates["corpses"]
+    found = [models.Skill.of(s) for s in skills if not s.get("disabled")]
+    main = next(s for s in found if s.name == "Detonate Dead")
+    own, _ = models.sacrifice_corpses(found, main, {**build.call("stats", fields=models.MODEL_FIELDS),
+                                                    "_minion_lives": getattr(build, "minion_lives", {})})
+    assert own > 0 and corpses > 0 and "Sacrifice" in how, how
+    assert corpses <= own + 1e-9

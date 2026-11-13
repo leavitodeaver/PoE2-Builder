@@ -1353,9 +1353,25 @@ class Assumptions:
 
         if has(recovery.CORPSE_LIFE) or has(recovery.CORPSE_MANA):
             uses, parts = typed_uses(set(models.CORPSE_TYPES))
+            sacrifice = ""
+            if models.SACRIFICE in present and models.SACRIFICE_CORPSES_STAT not in stats:
+                # (MECHC15: MECHB19's Sacrifice corpses, the build's own undead Reviving minion deaths: the stats here
+                # come from life_mana_income, not Assumptions.models, so they lack it until worked out here)
+                found = [models.Skill.of(s) for s in present.values()]
+                group = build.main_group()
+                main_skill = next((s for s in found if group and s.group == group["index"] and s.name == main), None)
+                corpses = models.sacrifice_corpses(found, main_skill, {
+                    **build.call("stats", fields=models.MODEL_FIELDS), **stats,
+                    "_minion_lives": getattr(build, "minion_lives", {})})
+                stats = {**stats, models.SACRIFICE_CORPSES_STAT: corpses}
+            if models.SACRIFICE in present:
+                value = stats.get(models.SACRIFICE_CORPSES_STAT)
+                sacrifice = (f"; Sacrifice {models.sacrifice_rate(stats):.3f} corpses/s"
+                             + (f" ({value[1]})" if isinstance(value, (tuple, list)) and len(value) > 1 else ""))
             supply = models.corpse_supply(set(present), stats)
             out["corpses"] = (min(uses, supply), (f"corpse skills {'; '.join(parts) or 'none'}, one corpse a use, at "
-                                                  f"most the corpses there are: {models.add_corpses_note(stats)}"))
+                                                  f"most the corpses there are: {models.add_corpses_note(stats)}"
+                                                  + sacrifice))
         if has(recovery.OFFERING_LIFE):
             uses, parts = typed_uses({"Offering"})
             out["offerings"] = (uses, "; ".join(parts) or "no Offering skill in the build")
