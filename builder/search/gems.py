@@ -1208,13 +1208,16 @@ class Gems:
 
     def meta_spells(self, present: set[str], left: float, usage: dict | None) -> list[str]:
         """Spells a meta skill can trigger that the build doesn't use yet (one that needs corpses only with a corpse
-        supply: models.corpse_model)."""
+        supply: models.corpse_model). A skill that still works without corpses (models.CORPSE_OPTIONAL: Unearth's bone
+        spikes hit with none, "Raise spikes of bone from the earth in front of you, damaging enemies", ActiveSkills
+        unearth) is always offered (SEARCH16: it was filtered as a corpse skill, so a build with no corpse supply never
+        got Unearth; its Bone Constructs from corpses and dead Reviving minions are the models' to count, AUDIT28 A28-5)."""
         from builder.search import models
 
         corpses = self.corpse_offered(present)
         return [n for n, gem in self.ctx.gems.items() if not gem["support"] and n not in present
                 and {"Spell", "Triggerable"} <= set(gem["skillTypes"]) and not {"Meta", "Persistent"} & set(gem["skillTypes"])
-                and not (models.CORPSE_TYPES & set(gem["skillTypes"]) and not corpses)
+                and not (models.CORPSE_TYPES & set(gem["skillTypes"]) and n not in models.CORPSE_OPTIONAL and not corpses)
                 and self._offered(n, left, usage)]
 
     def corpse_offered(self, present: set[str]) -> bool:
