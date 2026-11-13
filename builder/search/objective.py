@@ -128,6 +128,8 @@ SUSTAIN_POOLS = {
 _SPENT = "LifeOnConsumeRecovery" in recovery.ALL_FIELDS  # (MECHC13's spent / consumed sources)
 SUSTAIN_LEFT_OUT = ("recovery on " + ", ".join(
     [*recovery.EVENT_UNREAD, *([] if _SPENT else ["charges, Glory, Combo or corpses consumed, Offerings created"])])
+    + "; Life Recharge (Tetzlapokal's Desire's \"Life Recharges\": Life recharging like Energy Shield, 12.5% a "
+    "second after a 4 s delay, between the boss's landed hits; AUDIT28 A28-3, an UNDERCOUNT)"
     + "; recovery-rate modifiers on those per-event amounts; and Energy Shield paying a cost (Runic Ward: "
     "Assumptions.ward_paid holds Ward-cost skills to what Ward recovery, Remnants of Kalguur's included, pays for)")
 # Recovery against a boss (the request's optional recovery floor; always reported): the boss's damage per second after

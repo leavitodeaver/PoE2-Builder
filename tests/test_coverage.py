@@ -368,3 +368,36 @@ def test_ggg_marked_dnt_unique_mods_are_unreachable_and_named_so():
     assert len(marked) >= 7 and all(r["status"] == "unreachable" and r["source"].startswith("Exclusive ")
                                     for r in marked)
     assert not any(r["line"].startswith("DNT") and r["status"] == "none" for r in records)
+
+
+def test_fishing_lines_have_no_combat_effect_and_leave_the_open_list():
+    """COV21 (the manager's ruling, 13 Nov): the fishing lines roll on PoE2's Fishing Rod (the affix mods spawn on the
+    fishing_rod tag), so they're not "unreachable"; they touch no combat number, so the ledger's no-effect-fishing entry
+    takes them out of the open list. A line naming fishing and something else stays open."""
+    for line in ("(20-40)% increased Fishing Line Strength", "(15-30)% reduced Fishing Pool Consumption",
+                 "20% increased Fishing Range", "(40-50)% reduced Quantity of Fish Caught",
+                 "(50-60)% increased Rarity of Fish Caught", "Glows while in an Area containing a Unique Fish"):
+        assert coverage.ignored_line_status(line, False) == ("ledger", "no-effect-fishing",
+                                                             "no effect on what's calculated"), line
+    assert coverage.ignored_line_status("20% increased Fishing Range and Damage", False)[1] != "no-effect-fishing"
+
+
+def test_cov21_mechc14_readers_are_credited_and_life_recharge_is_a_named_undercount():
+    """COV21: Indigon's line (bridge setManaRegenOnly, flasks, recovery.NO_MANA) and "Lose all <kind> Charges on reaching
+    maximum" (conditions.CHARGE_RESET_AT_MAX) count as model-read; Tetzlapokal's Desire's "Life Recharges" (AUDIT28
+    A28-3) is named in the sustain note and routed as an UNDERCOUNT, never left as a plain open line."""
+    from builder.data import data_dir
+    from builder.search.objective import SUSTAIN_LEFT_OUT
+
+    assert coverage.ignored_line_status("Mana Recovery other than Regeneration cannot Recover Mana", False)[:2] == (
+        "model", "model-indigon-mana-regeneration-only")
+    assert coverage.ignored_line_status("Lose all Power Charges on reaching maximum Power Charges", False)[:2] == (
+        "model", "model-lose-all-charges-on-maximum")
+    assert coverage.ignored_line_status("Lose all Power Charges on reaching maximum Frenzy Charges", False)[0] != "model"
+    assert "Life Recharge" in SUSTAIN_LEFT_OUT and "A28-3" in SUSTAIN_LEFT_OUT
+    assert coverage.LIFE_RECHARGE.match("Life Recharges")
+    assert not coverage.LIFE_RECHARGE.match("Life Recharges instead of Energy Shield")
+    if not (data_dir() / "coverage.json").exists():
+        pytest.skip("no coverage.json")
+    recharge = [r for r in coverage.audit()["records"] if r["line"] == "Life Recharges"]
+    assert recharge and all(r["status"] == "none" and r.get("undercount") and "A28-3" in r["reason"] for r in recharge)

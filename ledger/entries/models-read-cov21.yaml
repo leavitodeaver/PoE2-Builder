@@ -1,0 +1,37 @@
+# Lines PoB ignores that our own models read (COV21, 13 Nov 2026; MECHC14's "For other lanes"). Each reader was read
+# on main f671607 before crediting.
+
+- id: model-indigon-mana-regeneration-only
+  title: Indigon, Mana Recovery other than Regeneration cannot Recover Mana (bridge and flask model zero the other Mana recovery)
+  kind: pob_gap
+  model: mana_regen_only
+  match: '^Mana Recovery other than Regeneration cannot Recover Mana$'
+  replace: []
+  confidence: reported
+  notes: >-
+    MECHC14 (COV17, an OVERCOUNT before): PoB parses the line to no mod (ModCache {nil, ...}), so its Mana leech, Mana on
+    Hit / Kill / Block and Mana Recoup stayed in the sustain and recovery floors. Now engine/bridge.lua setManaRegenOnly
+    zeroes those outputs (MANA_RECOVERY_OUTPUTS) after PoB's calculation when an item holds the line, sets
+    ManaRegenOnly, which flasks.recovery_per_second reads to give Mana flasks 0, and recovery.NO_MANA / restrict zero
+    recovery.py's own Mana parts; regeneration stays. Carrier: UniqueCannotRecoverManaExceptRegen1 on Indigon (the
+    bridge's comment: Mods.json has one mod with the stat; PassiveSkills.json none; the bridge scans items only).
+  sources: ["engine/bridge.lua (setManaRegenOnly)", "builder/search/flasks.py (mana_regen_only)", "builder/search/recovery.py (NO_MANA)"]
+  test_in_game: "Not needed: the bridge and recovery tests cover it."
+  status: proposed
+
+- id: model-lose-all-charges-on-maximum
+  title: Lose all Power / Frenzy / Endurance Charges on reaching the maximum (charges held climb and drop to 0)
+  kind: pob_gap
+  model: charges
+  match: '^Lose all (Power|Frenzy|Endurance) Charges on reaching maximum \1 Charges$'
+  replace: []
+  confidence: reported
+  notes: >-
+    MECHC14 (COV18, an OVERCOUNT before: Redflare Conduit's Power Charges were counted as if held at the maximum). PoB
+    parses the line to no mod (ModCache {nil, ...}). conditions.CHARGE_RESET_AT_MAX finds it per charge kind and
+    conditions.charges_with_reset gives the average held while the count climbs to the maximum and drops to 0 (beside a
+    consumer, at the gains it leaves), taken when lower than the plain count; _reaching_maximum reads it for how often
+    the maximum is reached. Carriers today: Redflare Conduit (and the unique-only mods the audit lists with it).
+  sources: ["builder/search/conditions.py (CHARGE_RESET_AT_MAX, charges_with_reset)"]
+  test_in_game: "Not needed for the count's shape; how charges are gained between resets follows the build's sources."
+  status: proposed

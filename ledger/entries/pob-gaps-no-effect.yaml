@@ -268,3 +268,27 @@
   sources: ["https://poe2db.tw/us/Bulwark"]
   test_in_game: "Not needed for the checked numbers; roll through a boss slam with Bulwark and take the hit."
   status: proposed
+
+- id: no-effect-fishing
+  title: Fishing lines (line strength, pool consumption, range, quantity / rarity of fish, glowing near a Unique Fish)
+  kind: pob_gap
+  match: '^[+(\d.-]+\)?% (increased|reduced) (Fishing (Line Strength|Pool Consumption|Range)|(Quantity|Rarity) of Fish Caught)$|^Glows while in an Area containing a Unique Fish$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    No combat effect, not "unreachable" (COV21, the manager's ruling 13 Nov): the five affix mods (FishingLineStrength,
+    FishingPoolConsumption, FishingCastDistance, FishingQuantity, FishingRarity) spawn on the fishing_rod tag only
+    (Mods.json SpawnWeight fishing_rod 1, default 0), and BaseItemTypes keeps a Fishing Rod
+    (Metadata/Items/Weapons/TwoHandWeapon/FishingRods/FishingRod1; PoB-PoE2 Data/Bases/fishing.lua too), so they can
+    be on an item; whether a 0.5 Fishing Rod drops is not checked and doesn't matter here. Their stats
+    (fishing_line_strength_+%, fishing_pool_consumption_+%, fishing_range_+%, fish_quantity_+%, fish_rarity_+%,
+    glows_in_area_with_unique_fish) name fishing only. (checked 13 Nov, COV21: every Mods.json row whose Id holds
+    "fish" (the two stance mods and the Torment / map mods are monster or map mods, not these lines); every Stats.json
+    id holding "fish" (40, all fishing, map or cosmetic); PoB-PoE2's ModParser and Modules/Calc*.lua hold no "fish";
+    builder/ and engine/ read none of these stats (only the Fishing Rod item type name in rares.py / shopping.py); the
+    audit's every line holding "fish" is one of the 15 lines this matches (5 affix, 10 unique-only); second source:
+    poe2db's Fishing_Rod page lists the base (10-18 Physical, 1.2 attacks a second) and no combat affix.) The rod's own
+    base damage is PoB's to count, not these lines'.
+  sources: ["data/game-26476662/tables/Mods.json (Fishing* rows)", "data/game-26476662/tables/BaseItemTypes.json FishingRod1", "https://poe2db.tw/us/Fishing_Rod"]
+  test_in_game: "Not needed for the calculated numbers."
+  status: proposed
