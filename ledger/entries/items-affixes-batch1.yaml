@@ -1,0 +1,112 @@
+# Item lines (affixes, desecrated and Genesis-tree mods, runes, base implicits) the coverage audit ranked open, closed
+# by COV15 (13 Nov 2026; PoB bb52d6b, game files build 26476662). Each translation is to a line PoB parses itself for
+# the same game wording (ModParser.lua cited), checked by a parse probe (scratch/cov15/t2431.log). Recheck at the 1.0
+# refresh (11 Dec 2026) and at each PoB update.
+
+- id: items-minion-damaging-ailment-magnitude
+  title: Minions' increased Magnitude of Damaging Ailments, as PoB's "you inflict" form given to minions
+  kind: pob_gap
+  match: '^Minions have (\d+)% increased Magnitude of Damaging Ailments$'
+  replace: ['Minions have {1}% increased Magnitude of Damaging Ailments you inflict']
+  confidence: datamined
+  notes: >-
+    PoB parses the player's "increased Magnitude of Damaging Ailments you inflict" (ModParser.lua: AilmentMagnitude,
+    keywordFlags Poison / Bleed / Ignite, the game's three damaging ailments: KeywordPopups DamagingAilments) but not
+    the minion line without "you inflict". "Minions have" gives the same modifier to the minions (ModParser "^minions
+    have": addToMinion). Sources: Genesis-tree ring (35-45)%, Alloy minion mod (40-49)% (coverage-report.json).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (magnitude of damaging ailments you inflict; ^minions )",
+            "game files KeywordPopups DamagingAilments"]
+  test_in_game: "A minion's Poison / Ignite tooltip magnitude rises by the line's percent."
+  status: proposed
+
+- id: items-lightning-contributes-to-ignite
+  title: Lightning damage from Hits also contributes to Flammability and Ignite Magnitudes
+  kind: pob_gap
+  match: '^Lightning Damage from Hits also Contributes to Flammability and Ignite Magnitudes$'
+  replace: ['Your Lightning Damage can Ignite']
+  confidence: datamined
+  notes: >-
+    PoB writes the game's "contributes to flammability and ignite magnitudes" as the damage type's CanIgnite flag
+    (ModParser.lua: "(%a+) damage from (%a+) spells contributes to flammability and ignite magnitudes" ->
+    flag(<Type>CanIgnite); "cold damage from hits contributes to ... instead of chill" -> ColdCanIgnite), so the same
+    flag through PoB's own "your lightning / cold damage can ignite" lines. "also": the type keeps its own ailment
+    (Shock / Chill), which PoB's CanIgnite flag doesn't take away. Sources: the Alloy mod (Lightning) and a unique's
+    Exclusive ColdDamageIgnitesUnique__1 (Cold).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (contributes to flammability and ignite magnitudes; your lightning damage can ignite)"]
+  test_in_game: "A Lightning-only hit with the line shows an Ignite chance and magnitude on the boss."
+  status: proposed
+
+- id: items-cold-contributes-to-ignite
+  title: Cold damage from Hits also contributes to Flammability and Ignite Magnitudes
+  kind: pob_gap
+  match: '^Cold Damage from Hits also Contributes to Flammability and Ignite Magnitudes$'
+  replace: ['Your Cold Damage can Ignite']
+  confidence: datamined
+  notes: "As items-lightning-contributes-to-ignite, for Cold (PoB's ColdCanIgnite; a unique's Exclusive ColdDamageIgnitesUnique__1)."
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (your cold damage can ignite)"]
+  status: proposed
+
+- id: items-spell-mana-cost-efficiency
+  title: Increased Mana Cost Efficiency of Spells
+  kind: pob_gap
+  match: '^(\d+)% increased Mana Cost Efficiency of Spells$'
+  replace: ['Spells have {1}% increased Mana Cost Efficiency']
+  confidence: datamined
+  notes: >-
+    PoB parses "mana cost efficiency" (ManaCostEfficiency) but not "... of Spells"; "Spells have" adds the Spell
+    skill flag (ModParser "^spells have": flags = Spell), as PoB's own "cost efficiency of attacks" restricts to Attack.
+    Moves the mana cost of spells only (sustain, the mana floor). Six tiers, Item SpellCostEfficiency1-6, (7-9)% to (23-26)%.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (mana cost efficiency; cost efficiency of attacks; ^spells have)"]
+  test_in_game: "A spell's mana cost on its tooltip falls as with the same Mana Cost Efficiency on the character sheet."
+  status: proposed
+
+- id: items-spell-elemental-ailment-magnitude
+  title: Increased Magnitude of Elemental Ailments you inflict with Spells (Ignite, Shock, Chill; Freeze buildup as PoB maps it)
+  kind: pob_gap
+  match: '^(\d+)% increased Magnitude of Elemental Ailments you inflict with Spells$'
+  replace: ['Spells have {1}% increased Magnitude of Ignite', 'Spells have {1}% increased Magnitude of Non-Damaging Ailments you inflict']
+  confidence: theory
+  notes: >-
+    Elemental Ailments are Ignite, Chill, Freeze, Shock and Electrocute (KeywordPopups ElementalAilments). PoB has no
+    "elemental ailments" magnitude name; its Ignite magnitude (AilmentMagnitude, keyword Ignite) and its "magnitude of
+    non-damaging ailments you inflict" (EnemyShockMagnitude, EnemyChillMagnitude, EnemyFreezeBuildup: PoB's own
+    mapping, kept) cover four of the five. Electrocute is left out (no magnitude name in PoB: an undercount for
+    Electrocute builds, UNVERIFIED whether its buildup should rise). "Spells have" (ModFlag Spell, all-match) is used,
+    not "with spells" (a KeywordFlag that PoB matches with ANY of the line's keyword flags: it would have reached
+    attack Ignites and spells' Poison / Bleed, an overcount). Whether PoB's ailment calculation carries a spell's
+    Spell flag into the ailment's configuration is UNVERIFIED (if not, the line adds nothing: the undercount stays).
+  sources: ["game files KeywordPopups ElementalAilments", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (magnitude of ignite; magnitude of non-damaging ailments you inflict; with spells; ^spells have)"]
+  test_in_game: "A spell's Ignite and Shock magnitudes rise by the line's percent; an attack's do not."
+  status: proposed
+
+- id: items-no-effect-minion-melee-splash
+  title: "Minions' Strikes have Melee Splash (other enemies only: no effect on the boss)"
+  kind: pob_gap
+  match: "^Minions' Strikes have Melee Splash$"
+  replace: []
+  confidence: datamined
+  notes: >-
+    Melee Splash causes "an additional Hit to other enemies around the one hit by the Strike" (KeywordPopups
+    MeleeSplash, game 26476662): the struck boss isn't hit again, so the boss's damage taken doesn't move; adds near it
+    would be hit (kills and on-kill effects aren't scored). (checked: KeywordPopups MeleeSplash; poe2db's glossary
+    page has no Splash entry in its first half, so the second source is UNVERIFIED.) Source: Genesis-tree belt mod.
+  sources: ["game files KeywordPopups MeleeSplash"]
+  status: proposed
+
+- id: items-affix-count-implicits
+  title: "+/-N Prefix / Suffix Modifier(s) allowed: a crafting limit, read by the rare generator, no stat of its own"
+  kind: pob_gap
+  model: rare_affix_limits
+  match: '^[+-]\d+ (Prefix|Suffix) Modifiers? allowed$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    The line limits how many affixes the item can hold; it is no stat. On an imported item its affixes are counted as
+    they are. On a generated rare, builder/search/gear.py affix_limits reads the base's implicit (Absent, Dusk, Gloam,
+    Penumbra, Distorted Amulets, Dusk Ring ...: a rare Absent Amulet holds 2 and 2) and builder/search/rares.py
+    JEWEL_CRAFTS the jewel crafts (CraftedJewelAdditionalPrefix/SuffixAllowed). NOT read: a Serle's Triumph rune's
+    "+1 Suffix Modifier allowed" (the generator never builds a fourth suffix: an undercount for an item with that
+    rune), and ring / amulet corruption implicits of the same text on generated items (Exclusive
+    *ImplicitPrefixSuffixAllowed: not offered by the generator).
+  sources: ["builder/search/gear.py (affix_limits, AFFIX_ALLOWED)", "builder/search/rares.py (JEWEL_CRAFTS)"]
+  status: proposed

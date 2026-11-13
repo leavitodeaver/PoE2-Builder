@@ -101,3 +101,27 @@ def test_the_runic_ward_unlucky_rune_line_is_recorded_and_counts_nothing():
         entry, lines = translate(line)
         assert entry.id == "unlucky-enemy-damage-runic-ward" and lines == [], line
     assert translate("Damage of Enemies Hitting you is Unlucky")[0].id == "unlucky-enemy-damage"
+
+
+def test_cov15_item_lines_translate_to_lines_pob_parses():
+    """COV15 (the coverage report's open item templates): each translation is a line PoB parses for the same game
+    wording (scratch/cov15 parse probe); the affix-count implicits are recorded as read by the rare generator."""
+    from builder.ledger import model_entry
+
+    cases = {
+        "Minions have 40% increased Magnitude of Damaging Ailments":
+            ["Minions have 40% increased Magnitude of Damaging Ailments you inflict"],
+        "Lightning Damage from Hits also Contributes to Flammability and Ignite Magnitudes": ["Your Lightning Damage can Ignite"],
+        "Cold Damage from Hits also Contributes to Flammability and Ignite Magnitudes": ["Your Cold Damage can Ignite"],
+        "15% increased Mana Cost Efficiency of Spells": ["Spells have 15% increased Mana Cost Efficiency"],
+        "35% increased Magnitude of Elemental Ailments you inflict with Spells":
+            ["Spells have 35% increased Magnitude of Ignite",
+             "Spells have 35% increased Magnitude of Non-Damaging Ailments you inflict"],
+        "Minions' Strikes have Melee Splash": [],
+    }
+    for line, want in cases.items():
+        assert translate(line)[1] == want, line
+    for line in ("-1 Prefix Modifier allowed", "+2 Suffix Modifiers allowed"):
+        assert model_entry(line).id == "items-affix-count-implicits", line
+    # the "you inflict" form PoB already parses is left to PoB
+    assert translate("20% increased Magnitude of Damaging Ailments you inflict") is None
