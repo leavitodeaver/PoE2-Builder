@@ -22,6 +22,14 @@ from builder.search.tree import rooted_subsets
 FIXTURES = Path(__file__).parent / "fixtures" / "requests"
 
 
+@pytest.fixture
+def pob_cadence(monkeypatch):
+    """"When hit" benefits at the test's own enemySkillTime (0.7 s if none): these tests check their model at a given
+    cadence; since MECHC11 the models read bosses.benefit_skill_time (one hit per boss skill use), tested on its own."""
+    from builder.search import bosses
+    monkeypatch.setattr(bosses, "benefit_skill_time", lambda stats: float((stats or {}).get("enemySkillTime") or 0.7))
+
+
 @pytest.fixture(scope="module", autouse=True)
 def data() -> GameData:
     try:
@@ -695,7 +703,7 @@ def test_a_feasible_result_always_outranks_one_that_misses_a_floor():
     assert sorted([veil, feasible], key=rank_key)[0] is feasible
 
 
-@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
+@pytest.mark.usefixtures("arbiter_default", "pob_cadence")  # (its numbers are the Arbiter of Ash's: MECHD5; cadence pinned: MECHC11)
 def test_boss_fight_conditions_from_the_builds_own_numbers():
     from builder.search import conditions as c
 
@@ -837,7 +845,7 @@ def test_rage_on_melee_axe_hit_needs_an_axe():
     assert rage_held(line, {**melee, "_weapon_types": ["Two Handed Axe"]})[0] > 0
     assert rage_held(["Gain 2 Rage on Melee Hit"], {**melee, "_weapon_types": ["One Handed Mace"]})[0] > 0
 
-@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
+@pytest.mark.usefixtures("arbiter_default", "pob_cadence")  # (its numbers are the Arbiter of Ash's: MECHD5; cadence pinned: MECHC11)
 def test_rage_held_from_gains_spends_and_its_decay():
     """KeywordPopups Rage: 1 lost per 0.2 s, the loss paused 4 s on a gain or a hit taken, one Hit per 0.5 s gains."""
     from builder.search.conditions import rage_held
@@ -1285,6 +1293,7 @@ def test_exposure_on_only_when_its_events_keep_it_up():
     assert fire([front], {**stats, "_main_types": {"Spell"}})[2] < 0.9
 
 
+@pytest.mark.usefixtures("pob_cadence")
 def test_parried_at_the_share_of_hits_the_build_parries():
     """Parry (the user, 11 Nov: attack all the time, parry only telegraphed hits, one every 5 s assumed): each parry loses
     its 0.75 s retaliation (15%), Parried 2 s from half-way through it, so (2 - 0.375) / 4.25 of the hits gain:
@@ -1389,7 +1398,7 @@ def test_arcane_surge_on_only_when_its_sources_keep_it_up():
     assert len(arcane_surge_uptime(["You have Arcane Surge"], spell)) == 3
 
 
-@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
+@pytest.mark.usefixtures("arbiter_default", "pob_cadence")  # (its numbers are the Arbiter of Ash's: MECHD5; cadence pinned: MECHC11)
 def test_debuffs_on_only_when_their_sources_keep_them_up():
     """KeywordPopups Blind / Maim / Hinder: 4 s; Intimidate, Ash, Frost 4 s assumed; on at 90% uptime (MECH29; any
     inflicting line turned them on)."""

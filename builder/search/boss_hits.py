@@ -256,10 +256,11 @@ def hits_note(name: str | None = None) -> dict:
 # lengthens it, and every model above reads that slowed figure. PoB alone sums Slows in full; MECH-D's bridge patch
 # (bosses.Boss.slow_taken) applies the unique boss's 50% less Slow taken, multiplicative Slows and the 25% floor, so the
 # figure these models read is the corrected one once that lands (no change needed here: they read only enemySkillTime).
-CADENCE_NOTE = ("the boss's hits come one every enemySkillTime (PoB's enemySpeed: the preset's own cadence where MECH-D's "
-                "boss model sets it, 1.1-2.3 s, else PoB's 0.7 s placeholder; LOW either way: the game's per-skill "
-                "cadence is read from table defaults), slower by the build's Slows on the boss (at a unique boss's 50% "
-                "less Slow taken), for every model that reads them (MECHC11: was \"0.7 s\")")
+CADENCE_NOTE = ("the boss's hits: for defences and recovery one every PoB's enemySkillTime, the faster of 0.7 s and the "
+                "boss's per-part hits (0.55 s the Red Queen, 0.6 s the Bodach, 0.7 s the rest; MECH-D's MECHD4); for what "
+                "you gain when hit (Rage, charges, parries, Iron Ward, buffs) one per boss skill use, 1.1-2.3 s by boss "
+                "(bosses.benefit_skill_time; LOW: the game's per-skill cadence is read from table defaults); both slower "
+                "by the build's Slows on the boss (at a unique boss's 50% less Slow taken)")
 
 
 # ---------------------------------------------------------------------------------------------------------------------

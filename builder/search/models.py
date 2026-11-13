@@ -2325,7 +2325,8 @@ class IronWardStore:
 
 
 def iron_ward_store(skill: Skill, stats: dict) -> IronWardStore:
-    skill_time = number(stats.get("enemySkillTime"))
+    # (a "when hit" benefit: one hit per boss skill use, MECHC11; no boss timing in the stats: no hits, as before)
+    skill_time = bosses.benefit_skill_time(stats) if number(stats.get("enemySkillTime")) > 0 else 0.0
     hits = (1 / skill_time if skill_time > 0 else 0.0) * boss_hits.land_share(stats)  # (MECHB6: red-flash hits land)
     return IronWardStore(number(skill.level_stats.get(STORE_CAP)), number(skill.level_stats.get(STORE_GAIN)) / 100,
                          number(stats.get("PhysicalEnemyDamage")), number(stats.get("PhysicalDamageReduction")), hits,
@@ -2386,7 +2387,8 @@ def iron_ward_model(skills: list[Skill], stats: dict, enabled: bool = True) -> t
         "basis": f"stores {store.gain:.0%} of the Physical damage your Armour and damage reduction prevent "
                  f"({reduction:.0f}% of the boss's {store.hit:,.0f} per hit = {store.hit * reduction / 100:,.0f}), up to "
                  f"{store.cap:,.0f}; the boss hits you {store.hits:.2f} times per second (every "
-                 f"{number(stats.get('enemySkillTime')):g}s in PoB's boss config, less evaded and blocked hits), "
+                 f"{bosses.benefit_skill_time(stats):.2f}s, one per boss skill use (MECH-D's per-boss figure, LOW), "
+                 "less evaded and blocked hits), "
                  f"{store.physical:.0%} of them Physical (its Physical skills' share, LOW), so it refills in {refill:.1f}s"
                  + (f", faster than one use every {store.use_time:g}s" if store.use_capped else "")
                  + (f"; {area:.0f}% more area released full" if area else "")
@@ -3522,7 +3524,8 @@ def run_and_gun_model(texts: list[str], stats: dict, main: Skill | None, main_ty
 # buff (display_this_skill_cooldown_does_not_recover_during_buff). PoB applies the 50% more Attack damage taken only with
 # its "Enemy has Parry Debuff" box (parryActive), which nothing set. Raise Shield carries the same stat in the game files
 # but only parries with Bastion of Light, which the ledger counts (bastion-of-light-parried), so it isn't a source here.
-# The boss's hits come every enemySkillTime (PoB's boss preset, 0.7 s); a parry waits half that on average.
+# The boss's hits come one per skill use, bosses.benefit_skill_time (MECH-D's per-boss HIT_EVERY, 1.1-2.3 s, LOW; a
+# benefit, so not PoB's faster defence cadence; MECHC11, was 0.7 s); a parry waits half that on average.
 PARRY_SKILLS = ("Parry", "Refutation")
 # Consume Parried on hit (game files: the stats consume_parried_on_hit (Fangs of Frost) and
 # consume_parry_debuff_on_hit_to_gain_X_frenzy_charges (the Frenzied Riposte support), and Disengage's description, are
@@ -3535,7 +3538,7 @@ REFUTATION_BUFF = 4.0  # base_skill_effect_duration; duration modifiers aren't r
 # How often the player parries with Parry (the user, 11 Nov 2026: "any player is going to be hitting as often as possible
 # even when trying to actively parry, so assuming they're only able to parry telegraphed hits is probably safe, or maybe
 # even a little generous"). We have no source for which boss hits are telegraphed or how often (PoB's boss preset gives
-# only one hit every enemySkillTime, 0.7 s), so the cadence is assumed: one telegraphed hit every 5 s, which the user
+# only one hit every enemySkillTime, 0.55-0.7 s by boss since MECHD4), so the cadence is assumed: one telegraphed hit every 5 s, which the user
 # called fair (11 Nov 2026, ~17:45): MEDIUM.
 PARRY_EVERY = 5.0
 
@@ -3560,7 +3563,7 @@ def parry_plan(skills: list[Skill], stats: dict, attack: bool, consumes: bool = 
     if not attack:
         return ParryPlan(0.0, 0.0, f"{', '.join(names)}: Parried raises only Attack damage taken, and the main skill isn't an "
                                    "Attack: not used")
-    every = number(stats.get("enemySkillTime")) or 0.7
+    every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     wait = every / 2
     hps = hits_per_second(stats)
     eaten = " (the main skill consumes Parried: one hit per Parried gains)" if consumes else ""
@@ -3829,7 +3832,7 @@ def glory_uses(names: list[str], stats: dict, main: Skill | None) -> tuple[float
 # maximum stages", "Stage duration is 10 seconds"; "Expend a stage of Deadly Resolve when an enemy Hits you to Trigger a
 # deadly slash", "Can Trigger Deadly Resolve once every 0.3 seconds". PoB counts the slash at its own use rate (1 s at the
 # build's attack speed: 1.34 per second on 2b75d's reference). On a boss it comes at most once per stage, one per second
-# of channelling, and only when the boss hits you: hits that land (PoB's boss preset, one every 0.7 s, less those evaded
+# of channelling, and only when the boss hits you: hits that land (one per boss skill use, bosses.benefit_skill_time, MECHC11; was 0.7 s; less those evaded
 # and blocked; poe2db doesn't say whether blocked or evaded hits count, so they're assumed not to). Channelled for the
 # whole fight while the supported skill is the main skill; otherwise not counted.
 
@@ -3848,7 +3851,7 @@ def deadly_resolve_model(skills: list[Skill], stats: dict, main: Skill | None) -
             "label": "Deadly Resolve slashes per second", "value": 0,
             "basis": "its channelled skill isn't the main skill, so it isn't channelled through the fight: not counted",
             "confidence": "theory", "entry": "deadly-resolve-rate"}]
-    every = number(stats.get("enemySkillTime")) or 0.7
+    every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     land = boss_hits.land_share(stats)  # (MECHB6: red-flash hits always land; MECHC5's shares)
     hits = land / every
     rate = min(1 / DEADLY_RESOLVE_STAGE_EVERY, hits, 1 / DEADLY_RESOLVE_COOLDOWN)

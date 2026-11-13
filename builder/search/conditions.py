@@ -420,7 +420,7 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     when = m.group(3).lower()
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     crits = hits * number(stats.get("CritChance")) / 100
-    boss = 1 / (number(stats.get("enemySkillTime")) or 0.7)
+    boss = 1 / bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHC11)
     if "kill" in when:
         rate, how = kill_events(when, stats)
         return chance * rate, f"{chance:.0%} x {how}"
@@ -821,7 +821,7 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
         return events * amount, events, (f"{chance:.0%} x {amount:g} Rage per {spend.group(1)} Mana spent, the main skill "
                                          f"spending {rate:.1f}/s (other skills' Mana not counted): {events:.2f} gains/s")
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
-    every = number(stats.get("enemySkillTime")) or 0.7
+    every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
     if "kill" in when:
         rate, how = kill_events(when, stats)
@@ -887,7 +887,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         events, spent = events + 1.0, spent - back  # (regenerated every second: the loss paused; the net spend falls)
     elif refund and not gain:
         return 0.0, ""  # (a refund with nothing gained: no Rage to spend in the first place)
-    every = number(stats.get("enemySkillTime")) or 0.7
+    every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
     pause, decay, loss_how = models.rage_loss(lines)  # (the build's later / faster / slower lines, MECHC5)
     basis = f"{gain:.2f} Rage/s gained"
@@ -971,7 +971,7 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
     duration = float(d.group(1)) if d else ONSLAUGHT_DURATION
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
-    every = number(stats.get("enemySkillTime")) or 0.7
+    every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
     if re.search(r"\bkill|culling strike", when):
         rate, how = kill_events(when, stats)
@@ -1179,7 +1179,7 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
     when = (m.group(2) if m.group(2) is not None else f"{m.group(3)} {m.group(4)}").lower()
     d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
     duration = (float(d.group(1)) if d else DEBUFF_DURATION) * models.duration_scale(lines, DEBUFFS[var][0])
-    every = number(stats.get("enemySkillTime")) or 0.7
+    every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     if "presence" in when:
         metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set()), ""))[0]
         radius = number(stats.get("PresenceRadius")) / 10
@@ -1528,7 +1528,7 @@ def _exposure_uptime(element: str) -> Callable[[list[str], dict], tuple[object, 
 
 
 def _blocked_recently(stats: dict) -> bool:
-    every = number(stats.get("enemySkillTime")) or 0.7
+    every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # Red-flash hits can't be Blocked, and an Evaded hit doesn't hit you at all, so it can't be Blocked either
     # (KeywordPopups "Block" / "Evasion", game 26476662; MECHC5's LOW red-flash shares)
     block = boss_hits.block_share(stats)
@@ -2716,7 +2716,8 @@ class Conditions:
         item_uses = self._item_uses(lines, events) if any(
             ON_USE.search(line["text"]) and line["source"].startswith(USED_SLOTS) for line in lines) or any(
             FLASK_EVENT.search(t) for t in texts) else {}
-        stats = {**stats, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend,
+        boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        stats = {**stats, "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend,
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],

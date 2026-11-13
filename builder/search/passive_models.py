@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 import re
 
+from builder.search import bosses
 from builder.search.models import UNIT, Inputs, Skill, derived, line, number
 
 # No Mercy -------------------------------------------------------------------------------------------------------------
@@ -165,7 +166,7 @@ def seal_rate(main: Skill | None, main_types: set[str], main_supports: set[str],
         return 0.0
     if number(stats.get("Cooldown")) > 0:
         return 0.0
-    every = number(stats.get("enemySkillTime")) or 0.7
+    every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     land = 1 - min(number(stats.get("EvadeChance")), 100) / 100
     block = min(number(stats.get("EffectiveBlockChance")), 100) / 100
     return land * block / every / TULS_BLOCKS_PER_SEAL
@@ -256,6 +257,8 @@ def build_models(build, inputs: Inputs, texts: list[str], skills: list[Skill], m
     from builder.search.models import cast_by_totem
 
     stats = build.call("stats", fields=FIELDS)
+    # (the request's boss: "when hit" benefits read its own cadence, bosses.benefit_skill_time; MECHC11)
+    stats = {**stats, "_boss": getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT}
     mods, notes = no_mercy_model(inputs, stats, texts)
     if inputs.has(RHYTHM):
         main_types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or []) if main else set()

@@ -12,6 +12,14 @@ from builder.search import boss_hits, models
 from builder.search.models import Inputs, Skill
 
 
+@pytest.fixture
+def pob_cadence(monkeypatch):
+    """"When hit" benefits at the test's own enemySkillTime (0.7 s if none): these tests check their model at a given
+    cadence; since MECHC11 the models read bosses.benefit_skill_time (one hit per boss skill use), tested on its own."""
+    from builder.search import bosses
+    monkeypatch.setattr(bosses, "benefit_skill_time", lambda stats: float((stats or {}).get("enemySkillTime") or 0.7))
+
+
 def scaled(mods: list[dict], inputs: dict[str, float], when_on: set[str] = frozenset()) -> dict[str, float]:
     """What PoB would make of model lines: per line text, the product of "more" factors (as a
     percentage) or the sum of "increased" values, for passive model inputs `inputs` and the ledger
@@ -387,6 +395,7 @@ PINNACLE = {"enemySkillTime": 0.7, "PhysicalEnemyDamage": 979.475, "PhysicalDama
             "PhysicalDamageReductionMax": 90, "Armour": 9795, "BasePhysicalDamageReductionWhenHit": 0}
 
 
+@pytest.mark.usefixtures("pob_cadence")
 def test_iron_ward_store_fills_at_the_boss_hit_rate_after_mitigation():
     store = models.iron_ward_store(WARD, PINNACLE)
     fill = 4.8 * 979.475 * 0.5 / 0.7 * 7 / 24  # 480% of half of each 979 hit, a hit every 0.7 s, 7 of the Arbiter's 24 Physical
@@ -909,6 +918,7 @@ def test_sanguine_tides_gain_follows_the_life_spent():
     assert effective(mods)[0][1] == 0 and "no Life Flask" in notes[0]["basis"]
 
 
+@pytest.mark.usefixtures("pob_cadence")
 def test_deadly_resolve_slashes_once_per_stage_when_the_boss_hits():
     shield = Skill("Resonating Shield", group=5, attack=True)
     slash = Skill("Deadly Resolve", group=5, attack=True, triggered=True)
@@ -2457,6 +2467,7 @@ def test_rage_loss_reads_the_builds_later_faster_and_slower_lines():
     assert models.rage_average(10, 30, 8.0, 4 / 3, 5.0) < models.rage_average(10, 30, 8.0)
 
 
+@pytest.mark.usefixtures("pob_cadence")
 def test_rage_held_loss_is_paused_by_landing_hits_at_random():
     """MECHC5: a landing boss hit restarts the pause too, so after a gain's own pause Rage is lost only while no hit landed
     in the last pause: e^(-hits x pause) of the rate. One hit per 4 s no longer holds the maximum."""
@@ -2812,6 +2823,7 @@ def test_einhars_beastrite_strike_deals_nothing_to_a_boss_above_low_life():
     assert "Low Life" in notes[0]["basis"] and "play" in notes[0]
 
 
+@pytest.mark.usefixtures("pob_cadence")
 def test_tuls_avalanche_echoes_once_per_seal_from_the_builds_blocks():
     tul = {"skill_echoes_per_seal_broken": 1, "base_maximum_seals_for_skill": 4}
     spell = models.Skill("Frost Bomb", group=1, spell=True, support_stats=tul)
@@ -3689,3 +3701,20 @@ def test_rage_lost_on_crit_or_at_the_maximum_lowers_the_rage_held():
     slow = {**stats, "Speed": 0.2, "enemySkillTime": 100.0}  # 3 Rage every 5 s, lost before the next: never at 30
     below = conditions.rage_held(lines, slow)[0]
     assert 0 < below < 30 and conditions.rage_held([*lines, "Lose all Rage on reaching Maximum Rage"], slow)[0] == below
+
+
+def test_when_hit_benefits_read_one_hit_per_boss_skill_use():
+    """MECHC11 (the manager, MECHD4): PoB's enemySkillTime stays at the faster defence cadence (0.7 s for the Arbiter of
+    Ash), so "when hit" benefits read bosses.benefit_skill_time instead: one hit per damaging skill use, 2.25 s for the
+    Arbiter (x3.2 fewer Rage gains when hit); defences keep enemySkillTime (conditions._hit_recently)."""
+    from builder.search import bosses, conditions
+
+    stats = {"enemySkillTime": 0.7, "_boss": "Arbiter of Ash", "EvadeChance": 0, "EffectiveBlockChance": 0,
+             "_main_types": {"Attack"}}
+    assert bosses.benefit_skill_time(stats) == pytest.approx(2.25)
+    rage, events, how = conditions._rage_gain("Gain 5 Rage when Hit by an Enemy", stats, True)
+    assert events == pytest.approx(1 / 2.25) and rage == pytest.approx(5 / 2.25)
+    other = {**stats, "_boss": "Vessel of Kulemak"}
+    assert conditions._rage_gain("Gain 5 Rage when Hit by an Enemy", other, True)[1] == pytest.approx(
+        1 / bosses.benefit_skill_time(other))
+    assert bosses.benefit_skill_time(other) > 0.7

@@ -15,6 +15,14 @@ WITCHBANE = ["Enemies have Maximum Concentration equal to 30% of their Maximum L
 RHYTHM = "6% increased Cast Speed per Spell Echoed Recently, up to 30%"
 
 
+@pytest.fixture
+def pob_cadence(monkeypatch):
+    """"When hit" benefits at the test's own enemySkillTime (0.7 s if none): these tests check their model at a given
+    cadence; since MECHC11 the models read bosses.benefit_skill_time (one hit per boss skill use), tested on its own."""
+    from builder.search import bosses
+    monkeypatch.setattr(bosses, "benefit_skill_time", lambda stats: float((stats or {}).get("enemySkillTime") or 0.7))
+
+
 def test_no_mercy_average_follows_the_hit_share():
     """RESEARCH8's numbers: Hits only x1.329 (82% of 40%, not the old flat 90%); half Hits x1.265; a fifth x1.128."""
     assert pm.no_mercy_more(40, 1.0) == pytest.approx(32.9, abs=0.1)
@@ -148,6 +156,7 @@ def test_emboldening_casts_and_enhancing_attacks_read_the_counts():
     assert pm.different_skills_model(Inputs(), [emboldening]) == ([], [])
 
 
+@pytest.mark.usefixtures("pob_cadence")
 def test_rhythm_of_ice_counts_comet_and_skyfall_quality_and_tuls_avalanche():
     """A9-3 (COVB5): Comet's and Skyfall's own quality gives 0.5% chance to Echo per quality (GrantedEffectQualityStats),
     summed with Now and Again; Tul's Avalanche makes one Echo per Seal, a Seal every 2 Blocks of the boss's hits."""
