@@ -2645,8 +2645,9 @@ def test_perfect_timing_charm_reads_the_skills_own_presses():
 
 def test_enemies_are_culled_on_block_saves_the_window_less_the_wait_for_a_block():
     """MECH60 (an UNDERCOUNT: PoB ignores Doomgate's "Enemies are Culled on Block"): Blocks of the boss's hits come at
-    random, so with W = t x T seconds left under the threshold the Cull saves W - (1 - e^(-rW)) / r. Counted in Full
-    DPS through press_scales: every entry x (1 + gain), or the Full Culling DPS entry raised to it when that saves less."""
+    random, so with W = t x T seconds left under the threshold the Cull saves W - (1 - e^(-rW)) / r. MECH62: counted
+    through Objective.whole_scales as (1 + gain) / (1 + the hit Cull's counted gain), the hit Cull through cull_scale, so
+    Full DPS comes to base x (1 + gain) as before and the main-skill screening score now gives the same ratio (SEARCH12)."""
     from types import SimpleNamespace
     from builder.search import bosses, boss_hits
     from builder.search import conditions as c
@@ -2669,7 +2670,7 @@ def test_enemies_are_culled_on_block_saves_the_window_less_the_wait_for_a_block(
         class FakeBuild:
             def __init__(self):
                 self.stats = stats
-                self.objective = SimpleNamespace(press_scales={})
+                self.objective = SimpleNamespace(press_scales={}, whole_scales={}, cull_scale=1.0)
                 self.ctx = SimpleNamespace(request=SimpleNamespace(boss=boss))
                 self.equipped = {"Weapon 2": SimpleNamespace(raw="Doomgate\nEnemies are Culled on Block\n")}
 
@@ -2681,19 +2682,39 @@ def test_enemies_are_culled_on_block_saves_the_window_less_the_wait_for_a_block(
 
         a = Assumptions.__new__(Assumptions)
         a.build = FakeBuild()
-        return a.cull_window(), a.build.objective.press_scales
+        return a.cull_window(), a.build.objective
+
+    def scores(found, entries, main):
+        """(delivered Full DPS, main-skill screening score) with the scales cull_window set."""
+        out = []
+        for full in (True, False):
+            objective = Objective(context(main_skill="Spark"), full=full)
+            objective.whole_scales, objective.cull_scale = dict(found.whole_scales), found.cull_scale
+            out.append(objective.dps({"FullDPS": sum(e["dps"] for e in entries), "SkillDPS": entries} if full else main))
+        return out
 
     stats = {**block, "_boss": boss}
     blocks = boss_hits.block_share(stats) / bosses.benefit_skill_time(stats)
     expect = c.block_cull_saving(bosses.cull_threshold(boss) / 100, c.boss_pool(boss), dps, blocks)[0]
-    notes, scales = run([{"name": "Spark", "dps": dps}, {"name": "Best Ignite DPS", "source": "Spark", "dps": 1.0}])
-    assert expect > 0 and scales["Spark"] == pytest.approx(1 + expect / (1 - expect))
-    assert scales["Best Ignite DPS from Spark"] == scales["Spark"] and "Doomgate" in notes[-1]["label"]
-    # a hit Cull that saves none (one hit a second takes more than t): the Block Cull counts on the other entries
-    notes, scales = run([{"name": "Spark", "dps": dps}, {"name": "Full Culling DPS", "dps": dps * 0.05 / 0.95}],
-                        {"CullMultiplier": 1 / 0.95})
-    assert scales["Full Culling DPS"] == 0.0 and scales["Spark"] == pytest.approx(1 + expect / (1 - expect))
-    # a hit Cull at 50 hits a second saves more than the Block one: the Block adds nothing
-    notes, scales = run([{"name": "Spark", "dps": dps}, {"name": "Full Culling DPS", "dps": dps * 0.05 / 0.95}],
-                        {"CullMultiplier": 1 / 0.95, "Speed": 50.0})
-    assert "Spark" not in scales and notes[-1]["value"] == "+0%"
+    gain = expect / (1 - expect)
+    entries = [{"name": "Spark", "dps": dps}, {"name": "Best Ignite DPS", "source": "Spark", "dps": 1.0}]
+    notes, found = run(entries)
+    assert expect > 0 and found.whole_scales["Enemies are Culled on Block"] == pytest.approx(1 + gain)
+    assert found.press_scales == {} and found.cull_scale == 1.0 and "Doomgate" in notes[-1]["label"]
+    delivered, screening = scores(found, entries, {"CombinedDPS": dps, "CullMultiplier": 1.0})
+    assert delivered == pytest.approx((dps + 1.0) * (1 + gain)) and screening == pytest.approx(dps * (1 + gain))
+    # a hit Cull that saves none (one hit a second takes more than t): the Block Cull counts on all of the damage, and
+    # main-skill screening drops PoB's whole Culling multiplier (MECH62: it kept it before, an OVERCOUNT in the ranking)
+    m = 1 / 0.95
+    entries = [{"name": "Spark", "dps": dps}, {"name": "Full Culling DPS", "dps": dps * (m - 1)}]
+    notes, found = run(entries, {"CullMultiplier": m})
+    assert found.cull_scale == 0.0 and found.whole_scales["Enemies are Culled on Block"] == pytest.approx(1 + gain)
+    delivered, screening = scores(found, entries, {"CombinedDPS": dps * m, "CullMultiplier": m})
+    assert delivered == pytest.approx(dps * (1 + gain)) and screening == pytest.approx(delivered)
+    # a hit Cull at 50 hits a second saves more than the Block one: the Block adds nothing; the hit Cull's own scale
+    # counts in both modes alike
+    notes, found = run(entries, {"CullMultiplier": m, "Speed": 50.0})
+    assert "Enemies are Culled on Block" not in found.whole_scales and notes[-1]["value"] == "+0%"
+    assert 0 < found.cull_scale < 1
+    delivered, screening = scores(found, entries, {"CombinedDPS": dps * m, "CullMultiplier": m})
+    assert delivered == pytest.approx(dps * (1 + (m - 1) * found.cull_scale)) and screening == pytest.approx(delivered)
