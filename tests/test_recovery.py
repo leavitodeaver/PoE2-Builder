@@ -318,7 +318,8 @@ def test_hit_block_and_cast_lines_recover_at_the_builds_rates():
     assert capped.rates["LifeOnEventRecovery"] == pytest.approx(0.2 * 2000)
     none = Income()
     recovery.hit_income(none, stats, texts[:4], cast_how="the main skill isn't a Spell")
-    assert none.pool("Life") == 0 and len(none.parts) == 3 and "isn't a Spell" in none.parts[2]
+    assert none.pool("Life") == 0 and len(none.parts) == 3 and "isn't a Spell" in none.parts[1]  # (the missing-Life
+    # line is read last since MECHC16: the cast / Block / Stun lines refill Life before it)
 
 
 def test_missing_life_before_a_hit_is_the_hit_less_what_refills_life_between_hits():
