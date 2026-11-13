@@ -913,6 +913,7 @@ class Assumptions:
                  for name, percent in sorted(self.ledger_shares.items())]
         mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
         notes += ward_notes
+        notes += self.life_mana_income(skills, main)  # (MECH-C: Life / Mana from kills, Remnants, charms, events; MECHC12)
         frost_mods, frost_notes = self.frostflame(main, skills)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
         mods, notes = mods + frost_mods, notes + frost_notes
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
@@ -1075,6 +1076,77 @@ class Assumptions:
                 + number(extra.get(flasks.RECOVERY_FIELDS["Life"]))
             out.update(attacks=attacks, life=number(stats.get("Life")), life_recovery=recovery)
         return out
+
+    def life_mana_income(self, skills: list[dict], main: str | None) -> list[dict]:
+        """Life and Mana a second from the sources PoB gives per event or not at all (recovery.py; MECHC12, the user's rule
+        of 12 Nov: every recovery source counts): kills, Remnants, charms, Warcries, Heavy Stuns, Ignites and Shocks, at
+        the build's own rates. build.recovery_sources ({recovery.ALL_FIELDS: per second}) is for the search's sustain and
+        recovery floors; the note says where each comes from."""
+        from builder.search import bosses, flasks, recovery
+
+        build = self.build
+        income = recovery.Income()
+        build.recovery_sources = dict(income.rates)
+        texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+        present = {s["name"]: s for s in skills if not s.get("disabled")}
+        remnant_names = [n for n in recovery.REMNANT_SKILLS if n in present]
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        stats = {**build.call("stats", fields=list(dict.fromkeys([
+            "Life", "Mana", "LifeOnKill", "ManaOnKill", "IgniteChancePerHit", "ShockChancePerHit", *models.MODEL_FIELDS,
+            *conditions_mod.EVIDENCE_FIELDS, *CHILL_FIELDS]))), **bosses.kill_stats(boss)}
+        kills = getattr(build, "kills", None) or (0.0, 0.0, "")  # (models.kill_rate: the boss preset's adds)
+        enemies = number(kills[0])
+        hits = models.hits_per_second(stats)
+        lowered = [t.lower() for t in texts]
+        has = lambda pattern: any(pattern.search(t) for t in lowered)  # noqa: E731
+        recovery.on_kill(income, stats, texts, enemies)
+        if remnant_names:
+            raw = build.call("activeSkills", levelStats=remnant_names)["skills"]
+            infos = {}
+            for name in remnant_names:
+                found = next((s for s in raw if s["name"] == name and not s.get("disabled")), present[name])
+                pool = "Life" if name == recovery.LIFE_REMNANTS else "Mana"
+                infos[name] = {"gain": number((found.get("remnantGain") or {}).get(pool)),
+                               "levelStats": found.get("levelStats") or {}}
+            share, how = 0.0, "no Elemental Ailment on the boss"
+            if recovery.MANA_REMNANTS in infos:
+                # (the share of the fight the boss carries at least one: the largest one alone, a lower bound: LOW)
+                for word in ("chilled", "shocked", "ignited", "frozen", "electrocuted"):
+                    try:
+                        each = conditions_mod.target_ailment_share(stats, word)
+                    except (KeyError, TypeError, ZeroDivisionError):
+                        continue
+                    if each > share:
+                        share, how = each, f"{word}, the largest alone (LOW: a lower bound on any Elemental Ailment)"
+            recovery.remnant_income(income, infos, stats, texts, hits=hits, crits=models.crits_per_second(stats),
+                                    ailment_share=share, ailment_how=how, enemies=enemies)
+        if has(recovery.CHARM_ANY) or any(recovery.CHARM_OWN.match(line.strip()) for option in
+                                          [(getattr(build, "equipped", {}) or {}).get(slot) for slot in flasks.CHARM_SLOTS]
+                                          if option is not None for line in option.raw.splitlines()):
+            gain = flasks.Charges.of(build)
+            charms = []
+            for slot in flasks.CHARM_SLOTS:
+                option = (getattr(build, "equipped", {}) or {}).get(slot)
+                if option is None:
+                    continue
+                info = build.call("flaskData", raws=[option.raw])["results"][0]
+                rate, why = flasks.uses_per_second(info or {}, gain, option.raw, None)
+                charms.append((option.name, option.raw, rate, why))
+            recovery.charm_income(income, charms, stats, texts)
+        warcries, warcry_how = 0.0, ""
+        if has(recovery.WARCRY_BOTH) or has(recovery.WARCRY_LIFE):
+            main_types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()
+            events = conditions_mod.event_rates(
+                build.call("groups")["groups"], build.ctx.gems, main or "", main_types, number(stats.get("Speed")),
+                lambda idx: build.call("useRates", indices=idx)["rates"], texts, models.press_choices(build))
+            warcries, warcry_how = events.get("Warcry", (0.0, ""))
+        heavy, heavy_how = models.heavy_stun_rate(stats) if has(recovery.HEAVY_STUN_UNIQUE) else (0.0, "")
+        recovery.event_income(income, stats, texts, warcries=warcries, warcry_how=warcry_how, heavy_stuns=heavy,
+                              heavy_how=heavy_how, hits=hits)
+        recovery.restrict(income, texts)
+        income.unread = recovery.unread(texts)
+        build.recovery_sources = dict(income.rates)
+        return recovery.note(income)
 
     def frostflame(self, main: str | None, skills: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
         """Frostflame Nova's Volatile Ice (models.frostflame_plan), as the main skill or in any Full DPS group (MECHB14):

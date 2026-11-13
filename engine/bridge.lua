@@ -2751,6 +2751,22 @@ function bridge.activeSkills(args)
 			end)
 			skills[#skills].wardCost = ok and ward or nil
 		end
+		-- (MECHC12, recovery.remnant_income) a Remnant skill's Life / Mana per Remnant collected, as PoB's CalcOffence
+		-- 1660-1685 builds LifeGainPerRemnant / ManaGainPerRemnant (only for the main skill there): base x RemnantEffect
+		if types[SkillType.GeneratesRemnants] then
+			local ok, gain = pcall(function()
+				local list, cfg = activeSkill.skillModList, activeSkill.skillCfg
+				local effectMod = calcLib.mod(list, cfg, "RemnantEffect")
+				local life = list:Sum("BASE", cfg, "LifeGainPerRemnant")
+				local mana = list:Sum("BASE", cfg, "ManaGainPerRemnant")
+				if life <= 0 and mana <= 0 then
+					return nil
+				end
+				return { Life = life > 0 and jsonNumber(math.floor(life * effectMod)) or nil,
+					Mana = mana > 0 and jsonNumber(math.floor(mana * effectMod)) or nil }
+			end)
+			skills[#skills].remnantGain = ok and gain or nil
+		end
 		do
 			local ok, early = pcall(earlyHazard, activeSkill)
 			skills[#skills].earlyHazard = ok and early or nil
