@@ -137,7 +137,8 @@ def main() -> None:
         rows.append({"name": name, "skeleton": result.get("label"), "reference_dps": reference_dps, "dps": dps,
                      "ratio": dps / reference_dps, "feasible": result.get("feasible"), "failing": failing,
                      "passed": passed, "request": request.model_dump(mode="json"), "code": result.get("code"),
-                     "play_guide": result.get("play_guide")})
+                     "play_guide": result.get("play_guide"),
+                     "checks": result.get("checks")})  # (each floor's row: the sustain and recovery rows' delivered values)
         print(f"[{'PASS' if passed else 'FAIL'}] {name} {result.get('label')}: {dps:,.0f} vs reference "
               f"{reference_dps:,.0f} (x{dps / reference_dps:.2f}); "
               + ("all floors met" if result.get("feasible") else "short: " + ", ".join(failing)), flush=True)
