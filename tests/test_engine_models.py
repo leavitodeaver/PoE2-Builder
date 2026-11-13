@@ -1919,3 +1919,53 @@ def test_indigon_zeroes_pobs_mana_recovery_other_than_regeneration(engine):
     assert after["ManaRecoup"] == 0 and after["ManaRegenOnly"] == 1
     assert after["ManaRegenRecovery"] == pytest.approx(before["ManaRegenRecovery"])
     assert Charges.from_bridge(build.call("chargeGain")).mana_regen_only is True
+
+
+def test_probe_heartbound_degen_goes_through_pobs_damage_taken_multipliers(engine):
+    """MECHC14, AUDIT27 A25-19's with / without probe: the model's "N Physical Damage taken per second" line (Heartbound
+    Loop's damage at the build's minion deaths) reaches TotalBuildDegen times PoB's PhysicalTakenDotMult (CalcDefence
+    3876-3884: BASE x conversion x {Type}TakenDotMult), so a "reduced Physical Damage taken over time" line lowers it."""
+    from builder.search import models
+
+    search = spark_with(engine, [])
+    build = search.build
+    fields = ["TotalBuildDegen", "PhysicalTakenDotMult"]
+    amulet = ["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0", "+10 to Strength"]
+    build.call("equip", slot="Amulet", raw=chr(10).join(amulet), fields=[])
+    base = build.call("stats", fields=fields)
+    line = models.line("1 Physical Damage taken per second", 300.0)
+    build.call("setAssumptions", mods=search.assumptions.mods + [line], fields=[])
+    plain = build.call("stats", fields=fields)
+    build.call("equip", slot="Amulet", raw=chr(10).join(amulet + ["25% reduced Physical Damage taken over time"]), fields=[])
+    less = build.call("stats", fields=fields)
+    build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
+    print(f"PROBE A25-19: TotalBuildDegen without the line {base.get('TotalBuildDegen') or 0}, with it "
+          f"{plain['TotalBuildDegen']} (PhysicalTakenDotMult {plain['PhysicalTakenDotMult']}), with it and 25% reduced "
+          f"Physical Damage taken over time {less['TotalBuildDegen']} (mult {less['PhysicalTakenDotMult']})")
+    added = plain["TotalBuildDegen"] - (base.get("TotalBuildDegen") or 0)
+    assert added == pytest.approx(300.0 * plain["PhysicalTakenDotMult"], rel=0.01)
+    assert less["PhysicalTakenDotMult"] < plain["PhysicalTakenDotMult"]
+    assert less["TotalBuildDegen"] - (base.get("TotalBuildDegen") or 0) == pytest.approx(
+        300.0 * less["PhysicalTakenDotMult"], rel=0.01)
+
+
+def test_probe_presence_radius_follows_presence_area_not_skill_area(engine):
+    """MECHC14, AUDIT27 A20-26's probe: PoB's PresenceRadius is the game constant (base_presence_radius 40, 4 m) scaled by
+    Presence Area of Effect (CalcPerform calcBuffRadius: the area, then back to a radius, floored), and "increased Area of
+    Effect" (skills') leaves it alone, as KeywordPopups Presence says."""
+    build = spark_with(engine, []).build
+    amulet = ["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0", "+10 to Strength"]
+
+    def radius(extra):
+        build.call("equip", slot="Amulet", raw=chr(10).join(amulet + extra), fields=[])
+        return build.call("stats", fields=["PresenceRadius"])["PresenceRadius"]
+
+    plain = radius([])
+    area = radius(["44% increased Presence Area of Effect"])
+    skill_area = radius(["50% increased Area of Effect"])
+    print(f"PROBE A20-26: PresenceRadius plain {plain}, with 44% increased Presence Area of Effect {area}, with 50% "
+          f"increased Area of Effect {skill_area}")
+    assert area > plain
+    if plain == 40:  # (no Presence lines in the build: the base)
+        assert area == 48  # floor(40 x sqrt(1.44))
+    assert skill_area == plain
