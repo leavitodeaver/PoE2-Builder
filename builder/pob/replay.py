@@ -92,6 +92,82 @@ def fingerprint(pob_dir: Path = POB_DIR) -> str:
     return value
 
 
+def difference(stored: Any, real: Any, path: str = "answer") -> str:
+    """Where two answers first differ, in words (for ReplayMismatch: PERF1's first mismatch gave no way to tell a
+    reordered list from a changed number)."""
+    if isinstance(stored, dict) and isinstance(real, dict):
+        if stored.keys() != real.keys():
+            return f"{path}: keys differ (only recorded: {sorted(stored.keys() - real.keys())[:5]}, only real: {sorted(real.keys() - stored.keys())[:5]})"
+        if list(stored) != list(real) and all(stored[key] == real[key] for key in stored):
+            return f"{path}: the same keys and values, the keys in another order"
+        for key in stored:
+            if stored[key] != real[key]:
+                return difference(stored[key], real[key], f"{path}.{key}")
+    if isinstance(stored, list) and isinstance(real, list):
+        if len(stored) != len(real):
+            return f"{path}: {len(stored)} items recorded, {len(real)} real"
+        texts = [sorted(json.dumps(item, sort_keys=True) for item in side) for side in (stored, real)]
+        if texts[0] == texts[1]:
+            first = next(index for index, (a, b) in enumerate(zip(stored, real)) if a != b)
+            return f"{path}: the same {len(stored)} items in another order (first at [{first}]: {json.dumps(stored[first])[:160]} recorded, {json.dumps(real[first])[:160]} real)"
+        for index, (a, b) in enumerate(zip(stored, real)):
+            if a != b:
+                return difference(a, b, f"{path}[{index}]")
+    return f"{path}: {json.dumps(stored)[:200]} recorded, {json.dumps(real)[:200]} real"
+
+
+def unordered(value: Any) -> str:
+    """The value as text with every list's items sorted: equal for two answers that differ in order alone."""
+    if isinstance(value, dict):
+        return "{" + ",".join(f"{json.dumps(key)}:{unordered(value[key])}" for key in sorted(value)) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(sorted(unordered(item) for item in value)) + "]"
+    return json.dumps(value)
+
+
+# Answers PoB builds by walking a text-keyed table, whose order LuaJIT picks anew in every process (PERF2, 12 Nov
+# 2026: PoB's LuaJIT 2.1 seeds its string hash per state; scratch/perf2/order.py, three processes, three orders of the
+# same 17 slot names). Only what is proven both ways is listed: bridge.sourceLines fills `lines` inside
+# `pairs(build.itemsTab.slots)` (engine/bridge.lua 3107-3112), and two real-PoB runs of test_engine_items.py with
+# the same calls gave 38 sourceLines answers that differed, every one the same lines in another order (POE2T2607).
+# Any other difference, in this answer or another, is still a ReplayMismatch.
+ORDER_FREE = {"call:sourceLines": ("ok", "lines")}
+
+
+def same_answer(kind: str, stored: Any, real: Any) -> bool:
+    """Is the recorded answer one the real PoB could give now: equal, or (ORDER_FREE) equal but for one list's order."""
+    if stored == real:
+        return True
+    path = ORDER_FREE.get(kind)
+    if path is None:
+        return False
+    a, b = stored, real
+    for key in path[:-1]:
+        if not (isinstance(a, dict) and isinstance(b, dict) and key in a and key in b):
+            return False
+        if {k: v for k, v in a.items() if k != key} != {k: v for k, v in b.items() if k != key}:
+            return False
+        a, b = a[key], b[key]
+    last = path[-1]
+    if not (isinstance(a, dict) and isinstance(b, dict) and isinstance(a.get(last), list) and isinstance(b.get(last), list)):
+        return False
+    if {k: v for k, v in a.items() if k != last} != {k: v for k, v in b.items() if k != last}:
+        return False
+    return sorted(json.dumps(item, sort_keys=True) for item in a[last]) == sorted(json.dumps(item, sort_keys=True) for item in b[last])
+
+
+def _key_order_free(arguments: str) -> str:
+    """A call's arguments with every object's keys sorted, for the chain only (the real PoB still gets the caller's
+    own bytes). Our Python sends the same setConfig vars in another key order from run to run (POE2T2607: call 533
+    of test_engine_items.py, {"parryActive", "conditionEnemyIgnited"} one run and reversed the next), which made
+    every later answer on that engine unreplayable. Key order can't change what the bridge reads from an object;
+    it can change the order PoB walks the table made from it, which is the per-process variation above."""
+    return json.dumps(json.loads(arguments), sort_keys=True)
+
+
+trace: Callable[[str, str, str], None] | None = None  # tests/conftest.py's POE2_REPLAY_TRACE: every call, its arguments, its answer
+
+
 def _strip_timings(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _strip_timings(item) for key, item in value.items() if key not in TIMING_KEYS}
@@ -215,13 +291,15 @@ class ReplayEngine:
     def _do(self, kind: str, arguments: str) -> Any:
         if self._closed:
             raise PobError(f"{kind}: this engine was closed when its test or fixture ended")
-        self._chain = hashlib.sha256(f"{self._chain}\0{kind}\0{arguments}".encode("utf-8")).hexdigest()
+        self._chain = hashlib.sha256(f"{self._chain}\0{kind}\0{_key_order_free(arguments)}".encode("utf-8")).hexdigest()
         self._log.append((kind, arguments, self._chain))
         answer = None if self._live_only else self._store.get(self._chain)
         if answer is None:
             answer = self._catch_up()
         else:
             self._store.hits += 1
+        if trace is not None:
+            trace(kind, arguments, answer)
         return self._decode(answer)
 
     def _real(self) -> PobEngine:
@@ -244,11 +322,12 @@ class ReplayEngine:
             self._store.put(chain, answer)
             if stored is None:
                 self._store.recorded += 1
-            elif _strip_timings(json.loads(stored)) != _strip_timings(json.loads(answer)):
+            elif not same_answer(kind, _strip_timings(json.loads(stored)), _strip_timings(json.loads(answer))):
                 raise ReplayMismatch(
                     f"PoB's recorded answer to {kind} (call {self._synced} on this engine) differs from the real PoB's now, "
                     "with the same history and the same engine files: the recording was stale or PoB isn't deterministic "
-                    "here. Tests that ran before this may have passed on old answers: rerun with POE2_REAL_POB=1.")
+                    "here. Tests that ran before this may have passed on old answers: rerun with POE2_REAL_POB=1. "
+                    + difference(_strip_timings(json.loads(stored)), _strip_timings(json.loads(answer))))
         return answer
 
     @staticmethod

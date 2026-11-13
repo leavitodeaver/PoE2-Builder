@@ -68,15 +68,48 @@ def _engine(*args, **kwargs):
     return made
 
 
+def _start_trace(folder: str) -> None:
+    """POE2_REPLAY_TRACE=<folder>: one line per engine call (test, call, hashes of its arguments, its answer and its answer with
+    every list sorted, the
+    arguments' first characters) in <folder>/<module>.trace. Two runs' files side by side show the first call whose
+    arguments differ (our code isn't the same run to run there) or whose answer does (PoB isn't)."""
+    import hashlib
+    import json
+    import os
+
+    folder = os.path.abspath(folder)  # an engine changes the working directory to PoB's src
+    os.makedirs(folder, exist_ok=True)
+    files: dict = {}
+
+    def short(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+    def write(kind: str, arguments: str, answer: str) -> None:
+        item = _current["item"]
+        name = item.path.stem if item is not None else "outside-tests"
+        if name not in files:
+            files[name] = open(os.path.join(folder, name + ".trace"), "w", encoding="utf-8")
+        timeless = replay._strip_timings(json.loads(answer))
+        row = (item.name if item is not None else "-", kind, short(replay._key_order_free(arguments)), short(json.dumps(timeless, sort_keys=True)),
+               short(replay.unordered(timeless)), arguments[:240])
+        print(*row, sep=chr(9), file=files[name], flush=True)
+
+    replay.trace = write
+
+
 def pytest_configure(config):
     config.addinivalue_line("markers", "own_pob_engine: this test's PoB calls differ from run to run (a search the clock cuts "
                             "off), so it gets a freshly booted engine in place of the one its module shares: the tests after "
                             "it keep an engine history that is the same every run, which is what lets their answers replay")
     engine_module.PobEngine = _engine
+    import os
+    if os.environ.get("POE2_REPLAY_TRACE"):
+        _start_trace(os.environ["POE2_REPLAY_TRACE"])
 
 
 def pytest_unconfigure(config):
     engine_module.PobEngine = _RealEngine
+    replay.trace = None
 
 
 @pytest.hookimpl(wrapper=True)

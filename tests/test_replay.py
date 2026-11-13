@@ -215,3 +215,26 @@ def test_a_forked_engine_starts_new_and_leaves_the_shared_history_alone(pob):
     again.fork()
     again.close()  # closing inside a fork closes every real engine
     assert again._engine is None and not again._parked
+
+
+def test_a_reordered_source_lines_answer_is_the_same_answer_and_nothing_else_is():
+    """PoB walks its item slots in an order LuaJIT picks per process, so sourceLines' lines come back shuffled (PERF2):
+    that alone is no mismatch; a changed line, a missing line or any other call's reordered list still is."""
+    from builder.pob.replay import same_answer
+
+    one = {"ok": {"lines": [{"source": "item:Helmet", "text": "a"}, {"source": "item:Boots", "text": "b"}]}}
+    shuffled = {"ok": {"lines": list(reversed(one["ok"]["lines"]))}}
+    assert same_answer("call:sourceLines", one, shuffled)
+    assert not same_answer("call:groups", one, shuffled)
+    changed = {"ok": {"lines": [{"source": "item:Helmet", "text": "a"}, {"source": "item:Boots", "text": "c"}]}}
+    assert not same_answer("call:sourceLines", one, changed)
+    assert not same_answer("call:sourceLines", one, {"ok": {"lines": one["ok"]["lines"][:1]}})
+    assert not same_answer("call:sourceLines", one, {"ok": {"lines": shuffled["ok"]["lines"], "more": 1}})
+    assert not same_answer("call:sourceLines", one, {"PobError": "x"})
+
+
+def test_the_key_order_of_a_calls_arguments_is_not_part_of_its_history():
+    from builder.pob.replay import _key_order_free
+
+    assert _key_order_free('{"vars": {"b": 1, "a": [2, 1]}, "x": 0}') == _key_order_free('{"x": 0, "vars": {"a": [2, 1], "b": 1}}')
+    assert _key_order_free('{"a": [1, 2]}') != _key_order_free('{"a": [2, 1]}')
