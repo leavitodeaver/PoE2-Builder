@@ -2718,3 +2718,74 @@ def test_enemies_are_culled_on_block_saves_the_window_less_the_wait_for_a_block(
     assert 0 < found.cull_scale < 1
     delivered, screening = scores(found, entries, {"CombinedDPS": dps * m, "CullMultiplier": m})
     assert delivered == pytest.approx(dps * (1 + (m - 1) * found.cull_scale)) and screening == pytest.approx(delivered)
+
+
+def test_murderous_intents_cull_lands_on_the_next_empowered_use():
+    """MECH63 (an OVERCOUNT once the gem is offered): PoB copies Murderous Intent's CanCull onto the Empowered buff of
+    the skill it supports (CalcActiveSkill applyExtraEmpowerMods), so every hit Culls; the game's Cull is on Empowered
+    uses only. Priced as Heavy Contact's: the first Empowered use under the threshold, evenly spaced."""
+    from builder.search import conditions as c
+
+    mult = 1 / 0.95
+    split = {"critical": 0.0, "regular": 5.0, "inc": 1.0, "critChance": 0.0, "empowerOnly": True}
+    pob = 0.05 / 0.95
+    # a 10 s fight, a 0.5 s window; one Empowered use every 4 s (Unleash on its cooldown): 0.5^2 / 8 s saved
+    scale, how, conf = c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, split, 0.0, (0.25, "Unleash"))
+    saved = 0.25 / 8 / 10
+    assert abs(scale - (saved / (1 - saved)) / pob) < 1e-9 and "Empowered use" in how and "Unleash" in how
+    # Empowered on every use (5 a second): the window less half a gap
+    saved = (0.5 - 0.1) / 10
+    assert abs(c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, split, 0.0, (5.0, "storm"))[0]
+               - (saved / (1 - saved)) / pob) < 1e-9
+    # nothing Empowered: no Cull
+    assert c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, split, 0.0, (0.0, "none"))[0] == 0.0
+    assert c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, split)[0] == 0.0
+
+
+def test_blind_when_you_poison_them_comes_at_the_main_skills_poisons():
+    """MECH63 (COV19, an UNDERCOUNT: 0 before): Murkshaft's "Blind Targets when you Poison them" Blinds at the main
+    skill's Poison applications, hits/s x PoB's PoisonChancePerHit."""
+    from builder.search import conditions as c
+
+    line = "Blind Targets when you Poison them"
+    stats = {"Speed": 0.5, "HitChance": 100, "PoisonChancePerHit": 20}  # 0.1 Poisons a second
+    up, how = c._debuff_source(line, "conditionEnemyBlinded", [line], stats)
+    assert abs(up - min(1.0, 0.1 * c.DEBUFF_DURATION)) < 1e-9 and "Poison applications" in how
+    assert c._debuff_source(line, "conditionEnemyBlinded", [line], {**stats, "PoisonChancePerHit": 0})[0] == 0.0
+
+
+def test_empowered_uses_come_from_the_skills_murderous_intent_supports():
+    """MECH63: the main skill's Empowered uses per second, each source at the build's own use of it: Mana Tempest only
+    for a Spell (an attack gets none), Unleash one Spell per use (not one with a Cooldown), a Warcry PoB's
+    Num<Warcry>Empowers per use, capped at the main skill's uses."""
+    from builder.search.assumptions import Assumptions
+
+    def run(empowerer, main, rate, stats=None):
+        class FakeBuild:
+            def groups(self):
+                return [{"index": 1, "gems": [{"name": main["name"]}]},
+                        {"index": 2, "gems": [{"name": empowerer}, {"name": "Murderous Intent"}]}]
+
+            def main_group(self):
+                return {"index": 1}
+
+            def call(self, what, **_):
+                if what == "activeSkills":
+                    return {"skills": [{**main, "group": 1}, {"name": empowerer, "group": 2}]}
+                if what == "useRates":
+                    return {"rates": [{"index": 2, **rate}]}
+                return {"Mana": 1000, "ManaRegenRecovery": 1000, "ManaPerSecondCost": 50, "LifePerSecondCost": 0}
+
+        a = Assumptions.__new__(Assumptions)
+        a.build = FakeBuild()
+        return a.empowered_uses({"Speed": 2.0, **(stats or {})})
+
+    spear = {"name": "Explosive Spear", "attack": True}
+    spark = {"name": "Spark", "spell": True}
+    assert run("Mana Tempest", spear, {"speed": 1.0})[0] == 0.0
+    assert run("Mana Tempest", spark, {"speed": 1.0})[0] == pytest.approx(2.0)  # (regen covers the storm: always up)
+    assert run("Unleash", spark, {"speed": 0.25})[0] == pytest.approx(0.25)
+    assert run("Unleash", {**spark, "cooldown": 3.0}, {"speed": 0.25})[0] == 0.0
+    assert run("Infernal Cry", spear, {"speed": 0.125, "warcryEmpowers": 4})[0] == pytest.approx(0.5)
+    rate, how = run("Temper Weapon", spear, {"speed": 10.0})
+    assert rate == 2.0 and "LOW" in how  # (capped at the main skill's uses)

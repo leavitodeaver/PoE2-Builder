@@ -374,6 +374,15 @@ def test_a_snipers_marks_extra_crit_damage_is_scaled_to_the_crits_it_lands_on(en
         return models.Skill.of(found[0]).mark_duration
     assert mark_duration() == pytest.approx(8.0)
     assert mark_duration(models.line("Mark Skills have 1% increased Skill Effect Duration", 25)) == pytest.approx(10.0)
+    # MECH63 (AUDIT27 A27-1): Eternal Mark in the Mark's group reaches its supportStats, read by mark_model
+    build.call("setAssumptions", mods=[], fields=build.objective.fields)
+    plain = models.Skill.of(next(s for s in build.call("activeSkills")["skills"] if s["name"] == "Sniper's Mark"))
+    assert not plain.support_stats.get(models.ETERNAL_MARK_STAT)
+    build.set_group(index=plain.group, gems=[{"name": "Sniper's Mark", "level": 20, "quality": 0},
+                                             {"name": "Eternal Mark", "level": 1, "quality": 0}])
+    found = [s for s in build.call("activeSkills")["skills"] if s["name"] == "Sniper's Mark"]
+    assert models.Skill.of(found[0]).support_stats.get(models.ETERNAL_MARK_STAT) == 1
+    assert found[0]["markLevel"] == 20  # (MECH63: its level for Charged Mark's radius, with +level lines)
 
 
 def test_the_mark_round_adds_a_mark_only_when_it_pays_and_fits_the_button_cap(engine):
@@ -1977,3 +1986,22 @@ def test_probe_presence_radius_follows_presence_area_not_skill_area(engine):
     if plain == 40:  # (no Presence lines in the build: the base)
         assert area == 48  # floor(40 x sqrt(1.44))
     assert skill_area == plain
+
+
+def test_murderous_intents_cull_is_flagged_empower_only(engine):
+    """MECH63 (POE2T588's probe): with Murderous Intent supporting Mana Tempest, PoB gives 2b75c's Explosive Spear (an
+    attack) Culling Strike on every hit, from the Empowering skill's buff; bridge.cullSplit flags it empowerOnly so it is
+    priced at the main skill's Empowered uses (none for an attack: Mana Tempest Empowers Spells)."""
+    from builder import ROOT
+    from builder.pob import codes
+    from builder.search import bosses
+
+    code = (ROOT / "benchmarks" / "reference" / "2b75c.txt").read_text(encoding="utf-8").strip()
+    engine.call("loadXml", xml=codes.decode(code))
+    engine.call("setConfig", vars=bosses.config_vars())
+    split = engine.call("cullSplit")
+    assert not split.get("empowerOnly") and not split["regular"]
+    engine.call("addSkillGroup", text="Mana Tempest 20/0 1\nMurderous Intent 1/0 1")
+    split = engine.call("cullSplit")
+    assert split["regular"] > 0 and split["empowerOnly"]
+    assert all(r["source"] == "Skill:SupportEmpoweredCullPlayer" for r in split["rows"])

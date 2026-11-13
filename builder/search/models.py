@@ -1087,6 +1087,10 @@ MARK_DURATION = 8.0
 # Eternal Mark (SupportEternalMarkPlayer, marks_avoid_consumption_when_first_activated): "Marks are not Consumed the first
 # time they Activate", so an application can Activate twice (MECH62, AUDIT27 A27-1)
 ETERNAL_MARK = "Eternal Mark"
+ETERNAL_MARK_STAT = "marks_avoid_consumption_when_first_activated"  # (bridge activeSkills supportStats; MECH63)
+# Murderous Intent (SupportEmpoweredCullPlayer): "Skills Empowered by Supported Skills have Culling Strike" (MECH63;
+# Assumptions.empowered_uses, conditions.cull_window_scale's empowered)
+MURDEROUS_INTENT = "Murderous Intent"
 
 
 def mark_duration(mark: "Skill") -> float:
@@ -1609,6 +1613,10 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
     marks += [s for s in skills if s.name == PREDATORS_MARK and s.group not in marked_groups]
     for mark in marks[:1]:  # one Mark on an enemy at a time (number_of_marks_allowed_per_type 1, EnemyMarkLimit 1)
         play = ""
+        # (MECH63, AUDIT27 A27-1: an UNDERCOUNT before) Eternal Mark in the Mark's group: "Marks are not Consumed the
+        # first time they Activate", so the event that consumes it (a crit, an Electrocute / Freeze) must come twice
+        uses = 2 if number(mark.support_stats.get(ETERNAL_MARK_STAT)) > 0 else 1
+        eternal = " (Eternal Mark: not Consumed the first time, so the second)" if uses == 2 else ""
         dur = mark_duration(mark)  # (MECH62: its duration with the build's modifiers; was a flat 8 s)
         scales: dict[str, float] = {}  # Full DPS entries counted x this (Pounce's slam, its wolves; MECH36)
         if mark.name == PREDATORS_MARK:
@@ -1672,12 +1680,12 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
         elif mark.name == "Sniper's Mark":
             crits = crits_per_second(stats)
             if use.on_demand:
-                period = max(period, min(1 / crits, dur) if crits else 0.0)  # (recast once consumed)
-            share = min(1.0, 1 / (period * crits)) if crits and period else 1.0
-            held, consumed_by = min(1 / crits, dur) if crits else dur, "the next crit consumes it"
+                period = max(period, min(uses / crits, dur) if crits else 0.0)  # (recast once consumed)
+            share = min(1.0, uses / (period * crits)) if crits and period else 1.0
+            held, consumed_by = min(uses / crits, dur) if crits else dur, f"the next crit consumes it{eternal}"
             label, basis = "Sniper's Mark: share of crits it adds damage to", (
-                f"one Mark every {period:.1f} s ({how}) against {crits:.2f} crits/s; the next crit consumes it (PoB "
-                "counts its extra crit damage on every crit)")
+                f"one Mark every {period:.1f} s ({how}) against {crits:.2f} crits/s; the next crit consumes it{eternal} "
+                "(PoB counts its extra crit damage on every crit)")
         elif mark.name in MARK_BUFFS:
             ailment = MARK_BUFFS[mark.name]
             inflicts = number(stats.get(f"{ailment}BuildupAvg")) > 0  # (PoB: a hit's average buildup, % of the threshold)
@@ -1687,7 +1695,7 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
             rate = buildup_rate(stats, ailment)
             share = min(1.0, MARK_BUFF_DURATION * rate) * marked if inflicts else 0.0
             if inflicts and rate:
-                held, consumed_by = min(1 / rate, dur), f"the boss's next {ailment} consumes it"
+                held, consumed_by = min(uses / rate, dur), f"the boss's next {ailment} consumes it{eternal}"
             else:
                 consumed_by = f"never consumed (no {ailment})"
             label, basis = f"{mark.name}: buff uptime", (

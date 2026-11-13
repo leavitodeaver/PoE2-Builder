@@ -4154,10 +4154,11 @@ def test_charged_marks_radius_and_eternal_mark_come_from_its_group():
     from types import SimpleNamespace
     from builder.search.conditions import Conditions
 
-    def run(gems):
+    def run(gems, **extra):
         build = SimpleNamespace(
             groups=lambda: [{"index": 2, "gems": gems}],
-            call=lambda what, **_: {"skills": [{"name": "Voltaic Mark", "group": 2, "castTime": 0.5, "cooldown": 1.0}]})
+            call=lambda what, **_: {"skills": [{"name": "Voltaic Mark", "group": 2, "castTime": 0.5, "cooldown": 1.0,
+                                                **extra}]})
         c = Conditions.__new__(Conditions)
         c.build = build
         return c.charged_mark({"Speed": 1.0, "HitChance": 100, "ElectrocuteBuildupAvg": 50})
@@ -4167,6 +4168,9 @@ def test_charged_marks_radius_and_eternal_mark_come_from_its_group():
     assert radius == 2.3 and "level 20" in how
     rate2, how2, _ = run([mark, support, {"name": "Eternal Mark", "level": 1}])
     assert rate2 > rate > 0 and "Eternal Mark" in how2
+    # MECH63: the Mark's level with the build's +level lines (bridge markLevel, e.g. +3 from an amulet): 2.4 m at 23
+    _, how3, radius3 = run([mark, support], markLevel=23)
+    assert radius3 == 2.4 and "level 23" in how3
 
 
 def test_charged_marks_ground_radius_follows_its_level_table():
@@ -4212,3 +4216,29 @@ def test_charm_charges_from_boss_hits_read_the_requests_boss():
         {"EvadeChance": 50, "EffectiveBlockChance": 50, "_boss": "Zarokh, the Temporal"}))
     assert raven.boss_hits > zarokh.boss_hits
     assert raven.taken_hit == pytest.approx(taken_per_hit(taken, "Xesht, We That Are One"))
+
+
+def test_eternal_mark_doubles_what_a_mark_gives_before_it_is_consumed():
+    """MECH63 (AUDIT27 A27-1, an UNDERCOUNT in the Mark's own effects): with Eternal Mark in the Mark's group (bridge
+    activeSkills supportStats marks_avoid_consumption_when_first_activated), Sniper's Mark adds its damage to two crits per
+    Mark and the boss stays Marked until the second crit."""
+    bow = models.Skill("Lightning Arrow", group=1, attack=True)
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50}  # 1 crit/s
+    lines = [{"source": "tree:Marked for Sickness", "text": "Enemies you Mark take 20% increased Damage"}]
+    eternal = models.Skill("Sniper's Mark", group=2, cast_time=0.5, cooldown=6.0,
+                           support_stats={models.ETERNAL_MARK_STAT: 1})
+    mods, notes = models.mark_model([bow, eternal], stats, bow, lines)
+    by_line = {m["line"]: m["scale"] for m in mods}
+    assert by_line["1% more Effect of your Curses"] == pytest.approx(100 * (2 / 6 - 1), rel=1e-3)
+    assert by_line["Enemies you Mark take 1% increased Damage"] == pytest.approx(-20 * 4 / 6, rel=1e-3)
+    assert "Eternal Mark" in notes[0]["basis"]
+    # Voltaic Mark (40 s with the build's Mark duration): held until the boss's second Electrocute, about 31.5 s, not
+    # the first, about 15.8 s (an Electrocute's x6 buildup repeat window sets the gap)
+    spell = models.Skill("Spark", group=1, spell=True)
+    estats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "ElectrocuteBuildupAvg": 50}
+    rate = models.buildup_rate(estats, "Electrocute")
+    for support, held in (({}, 1 / rate), ({models.ETERNAL_MARK_STAT: 1}, 2 / rate)):
+        volt = models.Skill("Voltaic Mark", group=2, cast_time=0.5, cooldown=0.5, support_stats=support,
+                            mark_duration=40.0)
+        _, notes = models.mark_model([spell, volt], estats, spell, lines)
+        assert f"held {held:.1f} s" in notes[-1]["basis"]

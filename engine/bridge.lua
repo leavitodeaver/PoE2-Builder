@@ -2539,7 +2539,29 @@ function bridge.cullSplit()
 			end
 		end
 	end
-	return { critical = jsonNumber(critical), regular = jsonNumber(regular), heavyOnly = heavyOnly,
+	-- (MECH63) where each CanCull that holds comes from, and its tags' kinds, for the Empowered Cull's check
+	local rows = { }
+	for _, row in ipairs(mods:Tabulate("FLAG", cfg, "CanCull")) do
+		local tags = { }
+		for _, tag in ipairs(row.mod) do
+			if type(tag) == "table" and tag.type then
+				tags[#tags + 1] = tag.type .. (tag.var and (":" .. tostring(tag.var)) or "")
+					.. (tag.effectType and (":" .. tostring(tag.effectType)) or "")
+			end
+		end
+		rows[#rows + 1] = { source = tostring(row.mod.source or ""), tags = table.concat(tags, ",") }
+	end
+	-- (MECH63) empowerOnly: every CanCull that holds is Murderous Intent's, which PoB copies onto the Empowering skill's
+	-- buff (CalcActiveSkill applyExtraEmpowerMods, without the Empowered mod's Spell flag), so every hit Culls (POE2T588:
+	-- Mana Tempest + Murderous Intent gave 2b75c's Explosive Spear, an attack, a 5% Cull); the game's Cull is on the
+	-- Empowered uses only (Assumptions.empowered_uses)
+	local empowerOnly = regular > 0 and not mods:Override(cfg, "CullPercent") and #rows > 0
+	for _, row in ipairs(rows) do
+		if row.source ~= "Skill:SupportEmpoweredCullPlayer" then
+			empowerOnly = false
+		end
+	end
+	return { critical = jsonNumber(critical), regular = jsonNumber(regular), heavyOnly = heavyOnly, empowerOnly = empowerOnly, rows = rows,
 		inc = jsonNumber(1 + mods:Sum("INC", cfg, "CullPercent") / 100), critChance = jsonNumber(output.CritChance or 0) }
 end
 
@@ -2586,6 +2608,13 @@ function bridge.useRates(args)
 			-- (MECHB7, for COVE8: a side skill's own Heavy Stun buildup, hit / crit chance and per-type averages under
 			-- PoB's own output names, models.HEAVY_STUN_GROUP_FIELDS: Practical Magic on a stunning side skill)
 			local entry = rates[#rates]
+			-- (MECH63, Assumptions.empowered_uses) a Warcry's Empowered attacks per use, PoB's Num<Warcry>Empowers
+			-- (CalcPerform 2196-2215: its Power over the boss's, its extra Empowers), named as CalcPerform names it
+			if skill.skillTypes and skill.skillTypes[SkillType.Warcry] then
+				local warcryName = entry.name:gsub(" Cry", ""):gsub("'s", ""):gsub(" ", "")
+				local count = env.player.modDB:Sum("BASE", nil, "Num" .. warcryName .. "Empowers")
+				entry.warcryEmpowers = count > 0 and jsonNumber(count) or nil
+			end
 			-- (MECHB12, AUDIT25 A25-2: Minion Pact) the group's minion's maximum Life, which PoB calculates only for the
 			-- main skill's minion (env.minion)
 			if env.minion and type(env.minion.output.Life) == "number" then
@@ -2761,6 +2790,8 @@ local modelSupportStats = {
 	["support_splinter_totem_X_times"] = true,
 	["support_minion_pact_user_life_%_removed_from_nearby_minion"] = true,
 	["support_minion_pact_damage_+%_final"] = true,
+	-- (MECH63) Eternal Mark's "Marks are not Consumed the first time they Activate" (models.mark_model)
+	["marks_avoid_consumption_when_first_activated"] = true,
 }
 
 -- (MECH57) the ailments a summoning skill's counted minion skill consumes by its skill types, and its name
@@ -2841,6 +2872,9 @@ function bridge.activeSkills(args)
 			energy = types[SkillType.GeneratesEnergy] and true or false,
 			-- an Energy meta's gem level: its own increased Energy comes from it (models.gem_energy)
 			level = types[SkillType.GeneratesEnergy] and activeSkill.activeEffect.level or nil,
+			-- (MECH63) a Mark's level with the build's +level lines (CalcSetup applyGemMods adds GemProperty "level" to
+			-- the effect): Charged Mark's triggered skill copies it (conditions.charged_mark's radius)
+			markLevel = types[SkillType.Mark] and activeSkill.activeEffect.level or nil,
 			group = activeSkill.socketGroup and groupIndex[activeSkill.socketGroup] or nil,
 			-- a weapon type it needs in neither hand (PoB disables only Attacks for that; Ferocious Roar needs a Talisman)
 			wrongWeapon = effect.weaponTypes and not (weapon1 and effect.weaponTypes[weapon1] or weapon2

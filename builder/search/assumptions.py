@@ -650,10 +650,12 @@ class Assumptions:
             mult = 1.0 + culled / max(base, 1e-9)
             # (MECH59: a Cull only Heavy Contact gives lands on the main skill's Heavy Stuns of the boss)
             heavy = models.heavy_stun_rate(build.call("stats", fields=models.MODEL_FIELDS))[0] if split.get("heavyOnly") else 0.0
+            # (MECH63: a Cull only Murderous Intent gives lands on the main skill's Empowered uses)
+            empowered = self.empowered_uses(stats) if split.get("empowerOnly") else None
             scale, how, confidence = conditions_mod.cull_window_scale(
                 mult, number(stats.get("CullMultiplier")), conditions_mod.boss_pool(boss), base,
                 number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0,
-                number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), split, heavy)
+                number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), split, heavy, empowered)
             hit_gain = (mult - 1.0) * scale
             if scale < 1.0 or how:
                 build.objective.cull_scale = scale
@@ -662,6 +664,58 @@ class Assumptions:
         if on_block:
             notes += self.cull_on_block(boss, {**stats, "_boss": boss}, base, hit_gain, split, entry is not None)
         return notes
+
+    def empowered_uses(self, stats: dict) -> tuple[float, str]:
+        """MECH63: (the main skill's Empowered uses per second, how) from the skills Murderous Intent supports ("Skills
+        Empowered by Supported Skills have Culling Strike"), each at the build's own use of it (rule 2: no flat rate):
+        Mana Tempest Empowers every Mana-costing Spell cast in its storm (the main skill's uses x the storm's uptime,
+        models.mana_tempest_uptime); Unleash "the next Repeatable Spell you cast", not one with a Cooldown (one per
+        Unleash, at its use rate: bridge useRates, cooldown-capped); a Warcry Empowers PoB's Num<Warcry>Empowers attacks
+        per use (its Power over the boss's, CalcPerform 2196-2215: bridge useRates warcryEmpowers); any other
+        Empowering skill one use per use of it (LOW, UNVERIFIED: its own count isn't read). Capped at the main skill's
+        uses. Mana Tempest's storm comes in long blocks, not evenly spaced uses (MEDIUM)."""
+        build = self.build
+        uses = number(stats.get("Speed"))
+        groups = [g for g in build.groups() if g.get("enabled") is not False
+                  and any(x["name"] == models.MURDEROUS_INTENT and x.get("enabled", True) for x in g["gems"])]
+        if not groups or uses <= 0:
+            return 0.0, "no skill Murderous Intent supports Empowers the main skill"
+        raw = build.call("activeSkills")["skills"]
+        main = build.main_group() or {}
+        mains = [s for s in raw if s.get("group") == main.get("index") and not s.get("disabled")]
+        spell, cooled = any(s.get("spell") for s in mains), any(s.get("cooldown") for s in mains)
+        rates = {r["index"]: r for r in build.call("useRates", indices=[g["index"] for g in groups])["rates"]}
+        total, parts = 0.0, []
+        for group in groups:
+            skill = next((s for s in raw if s.get("group") == group["index"] and not s.get("disabled")), None)
+            if skill is None:
+                parts.append(f"Murderous Intent's group {group['index']} has no active skill PoB lists")
+                continue
+            name, rate = skill["name"], rates.get(group["index"]) or {}
+            per = number(rate.get("speed"))
+            if name == "Mana Tempest":
+                if not spell:
+                    parts.append("Mana Tempest Empowers Spells only, and the main skill isn't one")
+                    continue
+                share, why, _ = models.mana_tempest_uptime(models.Skill.of(skill), {**stats, **build.call(
+                    "stats", fields=["Mana", "ManaRegenRecovery", "ManaPerSecondCost", "LifePerSecondCost"])})
+                total += uses * share
+                parts.append(f"Mana Tempest: the main skill's {uses:.2f} uses/s x the storm's {share:.0%} uptime ({why})")
+            elif name == "Unleash":
+                ok = spell and not cooled
+                total += per if ok else 0.0
+                parts.append(f"Unleash Empowers the next Repeatable Spell, one per use: {per:.3f}/s" if ok else
+                             "Unleash Empowers only a Spell without a Cooldown, and the main skill isn't one")
+            elif number(rate.get("warcryEmpowers")) > 0:
+                n = number(rate["warcryEmpowers"])
+                total += per * n
+                parts.append(f"{name}: {n:g} Empowered attacks per use (PoB's count from its Power) x {per:.3f} uses/s")
+            else:
+                total += per
+                parts.append(f"{name}: one Empowered use per use of it, {per:.3f}/s (LOW, UNVERIFIED: its own count "
+                             "isn't read)")
+        total = min(max(total, 0.0), uses)
+        return total, "; ".join(parts) + f"; {total:.3f} Empowered uses/s of the main skill's {uses:.2f}"
 
     def cull_on_block(self, boss: str, stats: dict, base: float, hit_gain: float, split: dict, has_entry: bool) -> list[dict]:
         """MECH60: Doomgate's "Enemies are Culled on Block", which PoB ignores: the saving at the Blocks of the boss's hits

@@ -1211,6 +1211,9 @@ def _debuff_pattern(var: str) -> re.Pattern:
                       rf"\benemies\b(.*?)\b(?:are|become) {participle}\b(.*)$", re.I)
 
 
+WHEN_YOU_AILMENT = re.compile(r"\bwhen you (poison|ignite|shock)\b", re.I)
+
+
 def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
     """(uptime, how) of one line for this debuff, or None if it isn't a source of it."""
     m = _debuff_pattern(var).search(text)
@@ -1266,6 +1269,13 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         events, how = models.crits_per_second(stats), "crits"
     elif "on hit" in when:
         events, how = models.hits_per_second(stats), "hits"
+    elif a := WHEN_YOU_AILMENT.search(when):
+        # (MECH63, COV19: Murkshaft's "Blind Targets when you Poison them"; 0 before, an UNDERCOUNT) the main skill's
+        # hits that inflict the ailment: hits/s x PoB's {Ailment}ChancePerHit (crits' chance blended in, as PoB's
+        # per-hit chance is); other skills' applications aren't counted (an undercount)
+        ailment = {"poison": "Poison", "ignite": "Ignite", "shock": "Shock"}[a.group(1).lower()]
+        per = min(number(stats.get(f"{ailment}ChancePerHit")), 100.0) / 100.0
+        events, how = models.hits_per_second(stats) * per, f"{ailment} applications ({per:.0%} of the main skill's hits)"
     else:
         return 0.0, f"'{when.strip()[:40]}': its rate isn't modelled (0, labelled)"
     if q := TARGET_AILMENT.search(when):  # ("Blind Chilled enemies on Hit": only the hits on a Chilled boss; MECH53)
@@ -1858,12 +1868,15 @@ def boss_pool(name: str) -> float:
 
 
 def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: float, hits: float, hit_dps: float,
-                      dot_dps: float, split: dict | None = None, heavy: float = 0.0) -> tuple[float, str, str]:
+                      dot_dps: float, split: dict | None = None, heavy: float = 0.0,
+                      empowered: tuple[float, str] | None = None) -> tuple[float, str, str]:
     """(the scale on PoB's Full Culling DPS, how, confidence): full_mult, PoB's Full DPS cull multiplier; main_mult, the
     main skill's CullMultiplier; pool, the boss's Life + ES; dps, Full DPS before the Cull; hits, the main skill's hits
     per second; hit_dps / dot_dps, its hit and damage-over-time DPS (for the wait after the boss falls under t); split,
     bridge.cullSplit's raw thresholds (critical, regular, inc, critChance %), for a crit-only Cull; heavy, the main
-    skill's Heavy Stuns of the boss per second, for a Cull only Heavy Contact gives (split's heavyOnly; MECH59)."""
+    skill's Heavy Stuns of the boss per second, for a Cull only Heavy Contact gives (split's heavyOnly; MECH59);
+    empowered, (the main skill's Empowered uses per second, how), for a Cull only Murderous Intent gives (split's
+    empowerOnly; MECH63): it lands on the first Empowered use under the threshold, as Heavy Contact's on a Heavy Stun."""
     t = 1.0 - 1.0 / full_mult if full_mult > 1.0 else 0.0
     if t <= 0:
         return 1.0, "", ""
@@ -1881,7 +1894,18 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
     critical, regular = float(split.get("critical") or 0.0), float(split.get("regular") or 0.0)
     inc = float(split.get("inc") or 1.0)
     heavy_only = bool(split.get("heavyOnly")) and regular > 0
-    if heavy_only:
+    # (MECH63) a Cull only Murderous Intent gives: on Empowered uses, evenly spaced as Heavy Contact's stuns (MEDIUM)
+    empower_only = bool(split.get("empowerOnly")) and regular > 0 and not heavy_only
+    if empower_only:
+        rate, empowered_how = empowered or (0.0, "no Empowered use rated")
+
+        def regular_saving(rt: float) -> float:
+            window, gap = rt * fight, 1.0 / rate if rate > 0 else float("inf")
+            return (window - gap / 2 if window > gap else window * window / (2 * gap)) / fight
+        regular_lands = (f"the first Empowered use under it (Murderous Intent), one every {1.0 / rate:.1f} s: "
+                         f"{empowered_how}" if rate > 0 else
+                         f"an Empowered use (Murderous Intent), and the main skill is Empowered none: {empowered_how}")
+    elif heavy_only:
         # (MECH59) Heavy Contact's Cull lands only on a Heavy Stun: stuns every 1 / heavy s, the boss crossing t at a
         # uniform point between two, so the window t x T saves t x T - gap / 2, or (t x T)^2 / (2 x gap) when the
         # window is shorter than the gap (exact for evenly spaced stuns; heavy_stun_rate's own spacing, MEDIUM)
@@ -1894,7 +1918,8 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
         def regular_saving(rt: float) -> float:
             return max(0.0, rt - wait / fight)
         regular_lands = f"the first hit under the regular threshold, {wait:.2f} s later ({hits:.2f} hits/s)"
-    if critical > regular or (heavy_only and critical > 0):
+    gated = heavy_only or empower_only  # (a regular Cull that lands only on some uses)
+    if critical > regular or (gated and critical > 0):
         c = float(split.get("critChance") or 0.0) / 100.0
         crit_t, regular_t = critical * inc / 100.0, regular * inc / 100.0
         crit_wait = (1.0 / c - dot_share / 2.0) / hits if c > 0 else float("inf")
@@ -1908,7 +1933,7 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
             saved, t_shown = regular_saved, regular_t
             lands = (f"{regular_lands}, threshold {regular_t:.1%} (the crit-only {crit_t:.1%} saves less at {c:.0%} "
                      "crit chance)")
-    elif heavy_only:
+    elif gated:
         t_shown = regular * inc / 100.0
         saved, lands = regular_saving(t_shown), regular_lands
     else:
@@ -2818,13 +2843,16 @@ class Conditions:
             skills = [models.Skill.of(s) for s in raw if not s.get("disabled")]
             disabled = [models.Skill.of(s) for s in raw if s.get("disabled")]
             skill = next((s for s in skills if s.name == mark["name"] and s.group == group.get("index")), None)
-            level = int(mark.get("level") or 1)
+            # (MECH63) the Mark's level with the build's +level lines (bridge activeSkills markLevel), else the gem's
+            level = int(next((s.get("markLevel") for s in raw if s["name"] == mark["name"]
+                              and s.get("group") == group.get("index") and s.get("markLevel")), None)
+                        or mark.get("level") or 1)
             radius = charged_mark_radius(level)
             if skill is None:
                 return 0.0, f"its {mark['name']} isn't an active skill PoB lists", radius
             rate, how = models.mark_activations(skill, skills, stats, disabled, getattr(self.build, "trigger_rates", None),
                                                 eternal)
-            return rate, how + f"; radius {radius:g} m at the {mark['name']} gem's level {level} (the triggered skill "                 "copies its parent's level, HIGH)", radius
+            return rate, how + f"; radius {radius:g} m at the {mark['name']}'s level {level}, with +level lines (the triggered skill "                 "copies its parent's level, HIGH)", radius
         return 0.0, "it supports no Mark", charged_mark_radius(1)
 
     def ground_feed(self, texts: list[str], stats: dict, names: set[str]) -> dict:
