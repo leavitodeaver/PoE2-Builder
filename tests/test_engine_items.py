@@ -1073,3 +1073,29 @@ def test_freezing_salvo_seals_read_its_level_stats_and_pobs_one_arrow_a_use(engi
     mods, notes = models.freezing_salvo_model(main, stats, [], level)
     print(notes)
     assert len(mods) == 1 and mods[0]["value"] > 0, mods
+
+
+def test_doom_blast_takes_the_supported_skills_level_in_pobs_damage(engine):
+    """(MECHB18, probe POE2T1056) The bridge's installGrantedLevel is what gives Impending Doom's Doom Blast the
+    supported skill's level in PoB's own calculation: without it PoB scored it at level 1 (11 damage a hit, against
+    349 at level 20). Level 20's base Chaos damage is 304-565 (level 1's: 10-18)."""
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    group = next(g for g in build.groups() if g["main"])
+    gems = [dict(x, level=20) for x in group["gems"] if not x["support"]] + [
+        {"name": "Impending Doom", "support": True, "level": 1, "quality": 0, "enabled": True}]
+    build.call("setGroup", index=group["index"], gems=gems)
+    group = next(g for g in build.groups() if g["index"] == group["index"])
+    blast = next(i for i, s in enumerate(group["skills"], start=1) if s["name"] == "Doom Blast")
+    build.call("setGroup", index=group["index"], mainActiveSkill=blast)
+    level = next(s["levelStats"] for s in build.call("activeSkills", levelStats=["Doom Blast"])["skills"]
+                 if s["name"] == "Doom Blast" and s.get("levelStats"))
+    assert level["spell_minimum_base_chaos_damage"] == 304 and level["spell_maximum_base_chaos_damage"] == 565, level
+    stats = build.call("stats", fields=["AverageHit"])
+    assert stats["AverageHit"] > 100, stats  # (level 1's base would give ~11 here)

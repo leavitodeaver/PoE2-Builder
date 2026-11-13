@@ -1013,8 +1013,12 @@ end
 -- active gem of its group, as PoB calculated it (with its +level mods); one with a single level (28 of the 61 support-
 -- granted effects, which scale otherwise) is left as it is. HIGH: the user's in-game check (13 Nov: "the support gems
 -- that trigger skills like doom blast do retain their parent skill gem levels"), poe2db's text (on Toxic Pustule, Doom
--- Blast and Living Lightning) and the 40-level game data. PoB's own CalcActiveSkill (439-460) also inherits the level
--- for the damage it calculates; this wrapper makes the level right from the start, for the bridge's levelStats reads.
+-- Blast and Living Lightning) and the 40-level game data. NEEDED for PoB's own damage, not only the bridge's reads
+-- (MECHB18's probe POE2T1056, scratch/mechb18/probe_*.json: the same build with and without this wrapper): without it
+-- Doom Blast hits for 11 (level 1) against 349, the Pustule Explosion's TotalDPS is 16 against 51 and its stored-Poison
+-- stat reads 2 against 969. PoB's CalcActiveSkill 439-460 inheritance doesn't reach those calculations (MECHB17 read
+-- that it did; the probe says otherwise). Living Lightning (a minion skill) and Creeping Chill (no level-scaled stat)
+-- read the same either way.
 -- OPEN (MECHB17), a possible OVERCOUNT: 7 of these 34 forty-level effects look structurally different. GrantedEffects'
 -- unnamed column after the two effectiveness floats is 40 on the other 27 and on no ordinary gem, and 0 on Soulbreaker,
 -- Burning Inscription, Hoarfrost, Savage Snare, Creeping Chill, Empowered Sparks' TriggeredSparkEmpowerPlayer and
