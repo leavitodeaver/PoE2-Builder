@@ -3740,9 +3740,10 @@ def test_when_hit_benefits_read_one_hit_per_boss_skill_use():
 
     stats = {"enemySkillTime": 0.7, "_boss": "Arbiter of Ash", "EvadeChance": 0, "EffectiveBlockChance": 0,
              "_main_types": {"Attack"}}
-    assert bosses.benefit_skill_time(stats) == pytest.approx(2.25)
+    arbiter = bosses.HIT_EVERY["Arbiter of Ash"]  # 1.78 s since MECHD5 counted melee strikes (was 2.25 s)
+    assert arbiter == pytest.approx(1.78, abs=0.01) and bosses.benefit_skill_time(stats) == pytest.approx(arbiter)
     rage, events, how = conditions._rage_gain("Gain 5 Rage when Hit by an Enemy", stats, True)
-    assert events == pytest.approx(1 / 2.25) and rage == pytest.approx(5 / 2.25)
+    assert events == pytest.approx(1 / arbiter) and rage == pytest.approx(5 / arbiter)
     other = {**stats, "_boss": "Vessel of Kulemak"}
     assert conditions._rage_gain("Gain 5 Rage when Hit by an Enemy", other, True)[1] == pytest.approx(
         1 / bosses.benefit_skill_time(other))
