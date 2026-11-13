@@ -588,7 +588,7 @@ def test_only_a_skill_that_spends_glory_switches_on_the_glory_condition(engine, 
     glory = {"GloryUsesPast6s", "GloryBuff6s"}
     # this bare build makes no Glory (models.glory_uses): nothing counted
     assert not glory & set(assumptions.ledger_conditions([{"name": spenders[0], "disabled": False}])[0])
-    monkeypatch.setattr(models, "glory_uses", lambda names, stats, main: (1 / 7, "one per 7 s"))
+    monkeypatch.setattr(models, "glory_uses", lambda names, stats, main, *more: (1 / 7, "one per 7 s"))
     assert glory <= set(assumptions.ledger_conditions([{"name": spenders[0], "disabled": False}])[0])
     assert assumptions.ledger_shares["GloryUsesPast6s"] == round(600 / 7)  # (was off: slower than one per 6 s)
     for name in others:

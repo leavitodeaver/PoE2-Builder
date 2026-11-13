@@ -3870,7 +3870,7 @@ def test_call_upon_the_deep_and_thrill_of_the_fight_count_from_the_builds_own_gl
                 return {"lines": [{"text": "Damage Penetrates 20% Elemental Resistances for each time you've used a "
                                            "Skill that Requires Glory in the past 6 seconds"}]}
 
-        monkeypatch.setattr(models, "glory_uses", lambda names, stats, main: (uses, "stand-in rate"))
+        monkeypatch.setattr(models, "glory_uses", lambda names, stats, main, *more: (uses, "stand-in rate"))
         a = Assumptions.__new__(Assumptions)
         a.build = Build()
         a.ledger_shares = {}
