@@ -13,8 +13,8 @@
   notes: >-
     The item wording of the stat passives-model-remnant-effects-twice covers (one stat, two wordings: assumptions.py
     DUPLICATE_PICKUP reads both): that share of pickups counts twice in the Infusion supply and the Remnant-trigger
-    rate. MECHC12's recovery.remnant_income doesn't read it (Life / Mana per Remnant not doubled: an undercount,
-    routed to MECH-C in COV17's report).
+    rate, and since MECHC15 (assumptions.remnant_multiplier) in recovery.remnant_income's Life / Mana per Remnant
+    collected too (before, not doubled there: an undercount COV17 routed to MECH-C).
   sources: ["builder/search/assumptions.py (DUPLICATE_PICKUP, duplicate_pickups)"]
   test_in_game: "Collect 20 Infusion Remnants: about 3 grant two Infusions at 15%."
   status: proposed

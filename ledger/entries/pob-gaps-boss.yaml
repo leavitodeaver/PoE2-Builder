@@ -287,15 +287,21 @@
   status: proposed
 
 - id: unlucky-enemy-damage-runic-ward
-  title: Warding Rune of Bodyguards (Bonded), damage of enemies hitting you is Unlucky if your Runic Ward was damaged Recently (counted 0)
+  title: Warding Rune of Bodyguards (Bonded), damage of enemies hitting you is Unlucky if your Runic Ward was damaged Recently
   kind: pob_gap
   # PoB's rune data (ModRunes.lua 6301-6305, the bonded block) and our audit export hold it as two lines, each parsed
-  # alone; the joined text is matched too
-  match: '^(Damage of Enemies Hitting you is Unlucky if|your Runic Ward has been damaged Recently|Damage of Enemies Hitting you is Unlucky if your Runic Ward has been damaged Recently)$'
-  replace: []
-  absorbed_by: "nothing yet: counted 0 (an UNDERCOUNT for a build channelling Runic Reprieve, labelled); the share is routed to MECH-C's Ward model (COV18, AUDIT26 A26-1)"
+  # alone; the first half and the joined text carry the 4% / 3%, the second half is unlucky-enemy-damage-runic-ward-tail
+  # (no effect of its own), so the bonus is applied once whichever way the item holds it (COV22)
+  match: '^Damage of Enemies Hitting you is Unlucky if( your Runic Ward has been damaged Recently)?$'
+  replace: ['share:RunicWardDamaged 4% less Damage taken from Hits', 'share:RunicWardDamaged 3% less Damage taken from Hits']
   confidence: theory
   notes: >-
+    COV22 (MECHC15's switch): counted at the share of the fight the Ward was damaged Recently, the condition
+    RunicWardDamaged (Assumptions.ward_damaged_share: Runic Reprieve channelled into the boss's hits as far as the
+    build's Ward regeneration pays for them, 1 - exp(-4 s x blocked hits a second), LOW; without Runic Reprieve 0). As
+    the other part-time conditions: whole from 99.5% of the fight, else 0 in PoB and the share left for the search's
+    part-time weighing (ledger_part_time). The 4% / 3% as unlucky-enemy-damage-full-life (6.67% for the bosses' +-20%
+    Damage Spread; PoB reads whole percents only). Before: counted 0, an UNDERCOUNT for a Runic Reprieve build.
     The Warding Rune of Bodyguards' Bonded line (FIX_QUEUE RESEARCH6: "when Runic Ward was damaged recently", one of the
     four missing Unlucky lines; the other three: Full Life has unlucky-enemy-damage-full-life, and "while Cursed with
     Vulnerability" / "with a Magic Ring Equipped" have no player source in the exported tables (COV10), so no entry).
@@ -315,12 +321,36 @@
     nothing is excluded on it. The count: 6.67% less Damage taken from Hits (unlucky-enemy-damage) x the share of the
     fight within 4 s of Ward taking damage, which for a Runic Reprieve build is about the share of the fight within 4 s
     of a hit taken while channelling it (the boss preset's hits and the build's channel time); fatal damage absorbed adds
-    a little in a fight the build survives. That share is MECH-C's (the Ward lane): routed, not modelled here, so the
-    line counts 0 until it lands (no source, 0, per the user's rule; never the always-on 6.67%). It also counts only
+    a little in a fight the build survives. That share is MECH-C's (the Ward lane), landed with MECHC15 (no source, 0, per the user's rule; never the always-on
+    6.67%). It also counts only
     while the rune's Bonded lines apply (Wisdom of the Maji, or a Fox Idol in the item: COV13).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Warding Rune of Bodyguards, bonded)",
+            "builder/search/assumptions.py (ward_damaged_share, MECHC15)",
             "data/game-26476662/tables/KeywordPopups.json (Ward)", "data/game-26476662/tables/ActiveSkills.json (runic_reprieve)",
             "https://poe2db.tw/us/Runic_Reprieve", "https://poe2db.tw/Unlucky"]
+  status: proposed
+
+- id: unlucky-enemy-damage-runic-ward-tail
+  title: Warding Rune of Bodyguards (Bonded), the second half-line "your Runic Ward has been damaged Recently"
+  kind: pob_gap
+  match: '^your Runic Ward has been damaged Recently$'
+  replace: []
+  confidence: theory
+  notes: >-
+    No effect of its own (COV22): the second line of unlucky-enemy-damage-runic-ward's two-line text in PoB's rune data;
+    the 4% / 3% sit on the first half (or the joined line), so this half adds nothing and the bonus isn't applied twice.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Warding Rune of Bodyguards, bonded)"]
+  status: proposed
+
+- id: RunicWardDamaged
+  title: Your Runic Ward has been damaged Recently (the Warding Rune of Bodyguards' Bonded line)
+  kind: condition
+  ward_damaged_recently: true
+  confidence: theory
+  notes: >-
+    MECHC15's Assumptions.ward_damaged_share (Runic Reprieve's blocked hits; LOW): whole from 99.5% of the fight, else
+    its share waits in ledger_part_time (0 in PoB, so the defence floors read 0: the user's full-uptime rule).
+  sources: ["builder/search/assumptions.py (ward_damaged_share)"]
   status: proposed
 
 - id: unlucky-enemy-physical

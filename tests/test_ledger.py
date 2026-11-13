@@ -89,19 +89,23 @@ def test_the_audit_counts_debuff_lines_the_uptime_models_rate():
         assert resolver_condition(line) is None, line
 
 
-def test_the_runic_ward_unlucky_rune_line_is_recorded_and_counts_nothing():
+def test_the_runic_ward_unlucky_rune_line_counts_at_the_ward_damaged_share_once():
     """COV14 (RESEARCH6's missing Unlucky lines): the Warding Rune of Bodyguards' Bonded "Damage of Enemies Hitting you is
-    Unlucky if / your Runic Ward has been damaged Recently" (two lines in PoB's rune data) had no entry. Runic Ward takes
-    damage from damage that would have killed you (KeywordPopups Ward) and, while Runic Reprieve is channelled, from hits
-    (ActiveSkills runic_reprieve; COV18 corrected this after AUDIT26 A26-1). The share is MECH-C's Ward model (routed);
-    until it lands: 0, labelled, never the always-on 6.67% of unlucky-enemy-damage."""
-    from builder.ledger import translate
+    Unlucky if / your Runic Ward has been damaged Recently" (two lines in PoB's rune data). COV22 (MECHC15's switch): it
+    counts at the share of the fight the Ward was damaged Recently (condition RunicWardDamaged, ward_damaged_recently:
+    Runic Reprieve's blocked hits), never the always-on 6.67% of unlucky-enemy-damage; the 4% / 3% sit on the first
+    half or the joined line, and the second half adds nothing, so the bonus counts once either way."""
+    from builder.ledger import conditions, translate
 
-    for line in ("Damage of Enemies Hitting you is Unlucky if", "your Runic Ward has been damaged Recently",
+    share = ["share:RunicWardDamaged 4% less Damage taken from Hits", "share:RunicWardDamaged 3% less Damage taken from Hits"]
+    for line in ("Damage of Enemies Hitting you is Unlucky if",
                  "Damage of Enemies Hitting you is Unlucky if your Runic Ward has been damaged Recently"):
         entry, lines = translate(line)
-        assert entry.id == "unlucky-enemy-damage-runic-ward" and lines == [], line
+        assert entry.id == "unlucky-enemy-damage-runic-ward" and lines == share, line
+    entry, lines = translate("your Runic Ward has been damaged Recently")
+    assert entry.id == "unlucky-enemy-damage-runic-ward-tail" and lines == []
     assert translate("Damage of Enemies Hitting you is Unlucky")[0].id == "unlucky-enemy-damage"
+    assert any(c["id"] == "RunicWardDamaged" and c.get("ward_damaged_recently") for c in conditions())
 
 
 def test_cov15_item_lines_translate_to_lines_pob_parses():

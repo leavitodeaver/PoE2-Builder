@@ -34,10 +34,15 @@
   replace: []
   confidence: reported
   notes: >-
-    recovery.remnant_income: on the Remnants the build's Life / Mana Remnants skills make (their own hit / crit spawn
-    timers and on-kill chances), every Remnant taken as collected (MEDIUM-LOW; the play guide says to walk onto each).
-    Remnants from other skills aren't counted here (an undercount).
-  sources: ["builder/search/recovery.py (REMNANT_PICKUP, remnant_income)", "https://poe2db.tw/us/Vigorous_Remnants"]
+    recovery.remnant_income: on every Remnant the build collects (MECHC15, AUDIT26 A26-3; KeywordPopups Remnant:
+    "Walking over a Remnant collects it", so the line is generic): its Life / Mana Remnants skills' own hit / crit spawn
+    timers and on-kill chances, and assumptions.remnant_supply's other Remnants (Infusion Remnants of Orb of Storms,
+    Frost Bomb, Snap, Living Bomb and Siphon Elements, Remnants of Kalguur's Ward Remnants, Breach flames, Power Charge
+    Remnants, Grim Feast's), times remnant_multiplier (the additional-Remnant, reappear-once and double-pickup lines).
+    Every Remnant is taken as collected (MEDIUM-LOW; the play guide says to walk onto each). Before MECHC15 only Life /
+    Mana Remnants counted (an undercount).
+  sources: ["builder/search/recovery.py (REMNANT_PICKUP, remnant_income)", "builder/search/assumptions.py (remnant_supply, remnant_multiplier)",
+            "https://poe2db.tw/us/Vigorous_Remnants"]
   test_in_game: "Collect a Life Remnant with Life missing: Life rises by the Remnant's amount plus the %."
   status: proposed
 
