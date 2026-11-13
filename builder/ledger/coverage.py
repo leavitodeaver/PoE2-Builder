@@ -82,8 +82,12 @@ def no_jewel_faction(line: dict) -> bool:
 #   socket into skill gems);
 # - second source: poe2db's Unique_item page (all ~496 current uniques) holds none of these lines; its Jewels page lists
 #   no Abyss jewel and no threshold jewel.
-# Left OPEN (not marked; UNVERIFIED): fishing (poe2db keeps a Fishing Rod base, obtainability unchecked), Grand
-# Spectrum (a PoE2 unique), golems / Primordial, Reflect (PoE2-era Vaal-mutated lines use it), and the ~500 other
+# Settled by COV21: fishing lines are "no effect" (ledger no-effect-fishing: they roll on the Fishing Rod), golems
+# are a group below, and Grand Spectrum's lines are PoB's (Item.lua sets Multiplier:GrandSpectrum; the audit saw no
+# setter before, parse_audit.calc_setters). Left OPEN (not marked; UNVERIFIED): Reflect (live PoE2 carriers:
+# Bramblejack's "reflected to Attacker", Shackles of the Wretched's curse reflection, Vaal-mutated Hand Wraps' "Poison
+# you inflict is Reflected to you"; PoB's ModItem keeps "Reflects N Physical Damage to Melee Attackers" Essence mods,
+# whose PoE2 reach is unchecked), and the ~500 other
 # unique-only mods no PoB-PoE2 unique carries: many are PoE2 content PoB lacks (Vaal-mutated uniques, Hand Wraps,
 # Runic Ward lines), so "no PoB carrier" alone proves nothing: their reason says so. Recheck the groups when a patch
 # adds uniques.
@@ -100,6 +104,15 @@ POE1_ONLY_GROUPS = {
     "Searing Exarch / Eater of Worlds": r"Searing Exarch|Eater of Worlds",
     "attribute-threshold jewels": r"^With (?:at least )?\d+ (?:total )?(?:Strength|Dexterity|Intelligence)",
     "cosmetic effects": r"Footprints$|Hoofprints$|^Extra gore$|^Golden Radiance$|golden glow",
+    # (COV21) PoE2 has no player Golem: no SkillGems / BaseItemTypes gem summons one (BaseItemTypes' only "Golem" is a
+    # DNT quest item), PoB-PoE2's Data/Skills has no golem skill, no PoE2 tree node (PoB tree.json) or ascendancy names
+    # one (PassiveSkills' "Golems" nodes golems1_-golems10 are in no PoB tree; no PassiveSkills row uses a golem stat),
+    # KeywordPopups defines none, PoB-PoE2's affix / rune / jewel pools hold no golem line (ModScalability's templates
+    # aren't a pool); the 24 Mods rows using a golem / Primordial stat are all GenerationType 3, no spawn weight, no
+    # other table points at them (scratch/cov19/reach.json). The monster Skitter Golem (a spectre in PoB's spectre.lua)
+    # carries none of these mods. Second source: poe2db's Unique_item page (both halves, 13 Nov) holds no "Golem" or
+    # "Primordial"; poe2db's search for "golem" returns only that DNT quest item and Skitter Golem.
+    "golems": r"\bGolems?\b",
 }
 _POE1_ONLY = [(name, re.compile(rx)) for name, rx in POE1_ONLY_GROUPS.items()]
 # Unique-only mods GGG marks unused (COV20): their own game text starts "DNT-UNUSED" (or, for Obliterated, "DNT" and a

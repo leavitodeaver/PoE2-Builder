@@ -69,6 +69,9 @@ def calc_setters(src: Path = POB_SRC) -> dict[str, set[str]]:
                 exact.update(f"Condition:{n}" for n in re.findall(r'"([A-Z]\w+)"', line))
         exact.update(re.findall(r'NewMod\("((?:Condition|Multiplier):[\w\']+)"', text))
         exact.update(re.findall(r'(?:mod|flag)\("((?:Condition|Multiplier):[\w\']+)"', text))
+        # modLib.createMod("Multiplier:GrandSpectrum", "BASE", 1, ...) then AddMod (Item.lua: each Grand Spectrum jewel
+        # sets it; COV21: missed before, so PoE2's Grand Spectrum lines read "never-on", wrongly)
+        exact.update(re.findall(r'createMod\("((?:Condition|Multiplier):[\w\']+)"', text))
         prefixes.update(re.findall(r'NewMod\("((?:Condition|Multiplier):\w*)"\s*\.\.', text))
     # ("Condition:" .. anything says nothing about which: only prefixes with a word of their own count)
     return {"exact": exact, "prefixes": {p for p in prefixes if len(p.split(":", 1)[1]) >= 3}}

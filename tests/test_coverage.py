@@ -401,3 +401,16 @@ def test_cov21_mechc14_readers_are_credited_and_life_recharge_is_a_named_underco
         pytest.skip("no coverage.json")
     recharge = [r for r in coverage.audit()["records"] if r["line"] == "Life Recharges"]
     assert recharge and all(r["status"] == "none" and r.get("undercount") and "A28-3" in r["reason"] for r in recharge)
+
+
+def test_grand_spectrum_multiplier_has_a_setter_and_golem_mods_are_poe1_leftovers():
+    """COV21: PoB's Item.lua sets Multiplier:GrandSpectrum with modLib.createMod(...) for each Grand Spectrum jewel, so
+    the audit's setter scan finds it and PoE2's Grand Spectrum lines aren't "never-on"; unique-only mods naming Golems
+    (no PoE2 player Golem: POE1_ONLY_GROUPS' evidence) are PoE1 leftovers."""
+    from builder.ledger import parse_audit
+
+    assert "Multiplier:GrandSpectrum" in parse_audit.calc_setters()["exact"]
+    affixes = [{"pool": "Exclusive", "id": "MaximumGolemsUnique__1", "line": "+1 to maximum number of Summoned Golems"},
+               {"pool": "Exclusive", "id": "Other", "line": "Gain 30 Mana per Grand Spectrum"}]
+    found = coverage.poe1_leftover_mods(affixes, carried=frozenset())
+    assert found == {"MaximumGolemsUnique__1": "golems", "Other": ""}
