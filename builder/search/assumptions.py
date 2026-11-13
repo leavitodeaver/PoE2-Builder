@@ -1155,6 +1155,8 @@ class Assumptions:
         main_info = next((s for s in skills if s["name"] == main and main_group and s.get("group") == main_group["index"]),
                          next((s for s in skills if s["name"] == main), {}))
         found, notes = [], []
+        if not hasattr(self, "ledger_shares"):  # (set by wanted(); a unit test may call this alone)
+            self.ledger_shares = {}
         from builder.search import boss_hits, bosses  # (COV12: the damage types the scored boss deals)
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         dealt = {t for t, count in boss_hits.hit_table(boss)[1].items() if count}
@@ -1220,7 +1222,8 @@ class Assumptions:
 
     def has_line(self, pattern: str) -> bool:
         """Whether any of the build's source lines (passives and items, bridge sourceLines) matches `pattern`."""
-        return any(re.search(pattern, line["text"]) for line in self.build.call("sourceLines")["lines"])
+        call = getattr(self.build, "call", None)  # (a stand-in build in a unit test may have none)
+        return bool(call) and any(re.search(pattern, line["text"]) for line in call("sourceLines")["lines"])
 
     @staticmethod
     def boss_hit_recently_share(boss: str, kind: str) -> tuple[float, str]:
