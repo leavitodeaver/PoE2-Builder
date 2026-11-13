@@ -23,6 +23,15 @@ FIXTURES = Path(__file__).parent / "fixtures" / "requests"
 
 
 @pytest.fixture
+def arbiter_default(monkeypatch):
+    """The default boss as the Arbiter of Ash, as these tests' numbers were worked out (MECHC12: since bosses.WORST
+    became the default, boss_hits reads the worst case's own rows: five damage types, its red flash, Atziri's Ignite and
+    Corrupted Blood; tests/test_boss_hits_worst.py checks those)."""
+    from builder.search import bosses
+    monkeypatch.setattr(bosses, "DEFAULT", "Arbiter of Ash")
+
+
+@pytest.fixture
 def pob_cadence(monkeypatch):
     """"When hit" benefits at the test's own enemySkillTime (0.7 s if none): these tests check their model at a given
     cadence; since MECHC11 the models read bosses.benefit_skill_time (one hit per boss skill use), tested on its own."""
@@ -2009,7 +2018,7 @@ def test_a_placed_banner_stands_its_glory_share_of_the_fight():
     assert planted.value_fn([], {})[0] == 0.0
 
 
-def test_rage_loss_stays_paused_while_the_bosss_damage_over_time_burns_you():
+def test_rage_loss_stays_paused_while_the_bosss_damage_over_time_burns_you(arbiter_default):
     """MECHC7 (AUDIT17): "Rage loss is paused ... after taking damage": an Ignite a landed Fire hit leaves on you (and
     Atziri's Corrupted Blood) keeps it paused d s longer: the loss runs e^(-land x (pause + sum p d)) of the time."""
     import math

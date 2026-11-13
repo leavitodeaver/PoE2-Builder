@@ -13,6 +13,15 @@ from builder.search.models import Inputs, Skill
 
 
 @pytest.fixture
+def arbiter_default(monkeypatch):
+    """The default boss as the Arbiter of Ash, as these tests' numbers were worked out (MECHC12: since bosses.WORST
+    became the default, boss_hits reads the worst case's own rows: five damage types, its red flash, Atziri's Ignite and
+    Corrupted Blood; tests/test_boss_hits_worst.py checks those)."""
+    from builder.search import bosses
+    monkeypatch.setattr(bosses, "DEFAULT", "Arbiter of Ash")
+
+
+@pytest.fixture
 def pob_cadence(monkeypatch):
     """"When hit" benefits at the test's own enemySkillTime (0.7 s if none): these tests check their model at a given
     cadence; since MECHC11 the models read bosses.benefit_skill_time (one hit per boss skill use), tested on its own."""
@@ -396,7 +405,7 @@ PINNACLE = {"enemySkillTime": 0.7, "PhysicalEnemyDamage": 979.475, "PhysicalDama
 
 
 @pytest.mark.usefixtures("pob_cadence")
-def test_iron_ward_store_fills_at_the_boss_hit_rate_after_mitigation():
+def test_iron_ward_store_fills_at_the_boss_hit_rate_after_mitigation(arbiter_default):
     store = models.iron_ward_store(WARD, PINNACLE)
     fill = 4.8 * 979.475 * 0.5 / 0.7 * 7 / 24  # 480% of half of each 979 hit, a hit every 0.7 s, 7 of the Arbiter's 24 Physical
     assert store.fill == pytest.approx(fill)
@@ -945,7 +954,7 @@ def test_cast_on_critical_reads_an_attacks_crits_from_its_main_hand():
     assert gain == pytest.approx(1 * 20 * 0.5) and "50,000 critical hit" in basis
 
 
-def test_barrier_invocation_gains_energy_from_the_energy_shield_the_boss_takes(pob_cadence):
+def test_barrier_invocation_gains_energy_from_the_energy_shield_the_boss_takes(pob_cadence, arbiter_default):
     stats = {"EnergyShield": 3000, "enemySkillTime": 0.5, "EvadeChance": 0, "EffectiveBlockChance": 50,
              "PhysicalTakenHit": 600, "FireTakenHit": 400, "EnergyShieldRegenRecovery": 1500}
     gain, basis = models.energy_gain("Barrier Invocation", stats, "Spark", Skill("Spark", spell=True))
@@ -1796,7 +1805,7 @@ def test_archon_of_the_blizzard_waits_for_a_gap_in_the_boss_s_landing_hits():
     assert blizzard(dict(base, EvadeChance=100)).wait > 4.0  # the Arbiter's red-flash hits still land
 
 
-def test_the_bosss_ignites_delay_energy_shield_recharge():
+def test_the_bosss_ignites_delay_energy_shield_recharge(arbiter_default):
     """MECHC6 (RESEARCH21 #126): an Ignite from a landed Fire hit keeps removing Energy Shield for 4 s x your Ignite
     duration, so Recharge needs delay + 4 s after it; headline every landed Fire hit Ignites (LOW), less your Ignite
     avoidance, with the "none" figure in the text."""
@@ -2816,7 +2825,7 @@ def test_apocalypse_disasters_fire_a_third_each_while_its_buff_is_up():
     assert all(m["value"] == 0 for m in mods if m["key"] == "triggerRate")
 
 
-def test_boss_hits_per_damage_type_from_the_games_tables():
+def test_boss_hits_per_damage_type_from_the_games_tables(arbiter_default):
     """MECHC6 (the manager's ruling ~11:02; RESEARCH13 / RESEARCH14): one Arbiter of Ash hit = level 82 base 353.67 x 4.50
     x 0.65 x the level's more (Elemental x4, Chaos x2); without the 0.65 the harsher reading; the converted-only low bound
     has no level more. PoB gets each type the boss deals at its full size (the bridge's default equals config_vars), and
@@ -2850,7 +2859,7 @@ def test_boss_hits_per_damage_type_from_the_games_tables():
     assert "4,138" in boss_hits.hits_note()["value"]
 
 
-def test_flasks_weight_the_damage_taken_per_type_by_the_bosss_hits():
+def test_flasks_weight_the_damage_taken_per_type_by_the_bosss_hits(arbiter_default):
     """MECHC6: the bridge sends each type's damage taken per hit; a flask's Life lost counts the average landed hit."""
     from builder.search.flasks import taken_per_hit
 
