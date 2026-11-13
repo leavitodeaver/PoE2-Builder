@@ -125,8 +125,30 @@ def pytest_fixture_setup(fixturedef, request):
         _fixtures_in_setup.pop()
 
 
+def _forget_pob_answers_kept_for_the_process() -> None:
+    """Called when a test file starts. Our code asks PoB some things once per process and keeps the answer
+    (builder.search.usage.usage_rules: the bridge's `usageRules`, static gem data). Whichever file's test came first
+    made that call, so a file's engine history depended on the files run before it: recorded file by file, the 32nd
+    call of test_engine_models.py was usageRules; in a whole-suite run test_engine_items.py had already asked, the
+    call was never made, and none of the file's 144,000 answers could replay (PERF9, POE2T2660). Forgetting the kept
+    answer here makes each file ask once, in both modes: PoB is asked the same static question again, so no number
+    changes. (checked 13 Nov 2026: `global`, functools caches and module-level `_NAME = {} / None` in builder/search,
+    builder/report, builder/data and builder/pob/engine.py; usage._RULES is the only one of those filled from an
+    engine call. Answers kept on a class or on a shared Context were not searched for: UNVERIFIED. One would show
+    as "real PoB answered N call(s)" lines for a file's ordinary tests in a replayed whole suite.)
+    PERF10, real PoB, traced: with this in, test_engine_models.py's first test makes the same 997 calls and gets the
+    same 997 answers alone (POE2T2672) and after test_usage.py and test_engine_items.py's usage-rule tests
+    (POE2T2673); the whole real suite as one process passes with it (POE2T2675, 769 passed)."""
+    from builder.search import usage
+
+    usage._RULES = None
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_protocol(item, nextitem):
+    if _current.get("file") != item.path:
+        _current["file"] = item.path
+        _forget_pob_answers_kept_for_the_process()
     _current["item"] = item
     _current["forked"] = None
     if item.get_closest_marker("own_pob_engine"):
