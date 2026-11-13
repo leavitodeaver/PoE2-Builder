@@ -1496,15 +1496,16 @@ def test_full_dps_never_counts_pounce_s_own_hit_as_used_nonstop():
 
 def test_a_charge_or_rage_spender_outside_the_main_group_is_used_at_its_own_press_rate():
     """MECHC1 (FLAT_RATES A4), kept on MECH48's implementation (skill_use_rate, Conditions._group_uses): on cooldown,
-    else once per duration, else once per PRESS_EVERY s (LOW); a support takes its group's rate; a disabled group none."""
+    else once per duration, else the search's chosen press rate, else 0 (LOW; MECH56: before, once per PRESS_EVERY s); a
+    support takes its group's rate; a disabled group none."""
     from types import SimpleNamespace
 
     from builder.search.conditions import Conditions, skill_use_rate
-    from builder.search.models import PRESS_EVERY
 
     assert skill_use_rate({"cooldown": 8.0, "speed": 2.0})[:2] == (0.125, "its 8.00 s cooldown")
     assert skill_use_rate({"duration": 5.0})[0] == 0.2
-    assert skill_use_rate({"speed": 1.0}) == (1 / PRESS_EVERY, f"once every {PRESS_EVERY:g} s (LOW: no cooldown or duration)", True)
+    each, why, low = skill_use_rate({"speed": 1.0})
+    assert each == 0.0 and low and "no source, 0" in why
 
     groups = [{"index": 1, "gems": [{"name": "Spark"}]},
               {"index": 2, "gems": [{"name": "Furious Slam"}, {"name": "Rageforged I"}]},
