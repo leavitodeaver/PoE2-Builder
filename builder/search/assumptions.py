@@ -195,6 +195,18 @@ def siphon_freezes(stats: dict) -> tuple[float, str]:
 def duplicate_pickups(texts: list[str]) -> float:
     """The share of Remnant pickups that count twice (DUPLICATE_PICKUP), capped at 1."""
     return min(1.0, sum(float(m.group(1)) for t in texts if (m := DUPLICATE_PICKUP.search(t))) / 100.0)
+def remnant_multiplier(texts: list[str]) -> tuple[float, str]:
+    """Each Remnant made counts this many times when collected (MECHC15; COV17): "N% chance to create an additional
+    Remnant", "Remnants you create reappear once" (collected twice) and "N% chance for Remnants you pick up to count as
+    picking up an additional Remnant" / "...create to grant their effects twice" (duplicate_pickups). PoB applies none
+    (ModCache: each parses with leftover text, or to a LocalEffect nothing reads). Returns (multiplier, how)."""
+    extra = sum(float(m.group(1)) for t in texts if (m := ADDITIONAL_REMNANT.search(t))) / 100.0
+    twice = any(REAPPEAR.search(t) for t in texts)
+    duplicate = duplicate_pickups(texts)
+    parts = ([f"+{extra:.0%} additional Remnants"] if extra else []) + (["each reappearing once"] if twice else [])         + ([f"{duplicate:.0%} of pickups counting twice"] if duplicate else [])
+    return (1.0 + extra) * (2.0 if twice else 1.0) * (1.0 + duplicate), ", ".join(parts)
+
+
 NEEDS_MINIONS = {"Grim Feast"}  # its Remnants come from your minions' deaths
 REAPPEAR = re.compile(r"Remnants you create reappear once", re.I)  # Storm's Recollection: each is collected twice
 COOLDOWN_SOURCES = {"Snap", "Frost Bomb"}  # their rate scales with their own cooldown recovery
@@ -834,6 +846,58 @@ class Assumptions:
                      "(the time between uses included)",
             "confidence": cap.confidence}]
 
+    def remnant_supply(self, skills: list[dict], skip: tuple[str, ...] = ()) -> tuple[float, list[str]]:
+        """Remnants per second the build makes on the request's boss, before the build's "additional Remnant" /
+        "reappear" / double-pickup lines (remnant_multiplier), and what makes them: every REMNANT_SOURCES skill it has
+        (MECHC15: lifted out of the Transmutation Explosion hook so the "when you collect a Remnant" recovery lines read
+        the same supply). `skills`: activeSkills with KALGUUR's levelStats; `skip`: sources the caller counts itself."""
+        present = {s["name"]: s for s in skills if not s.get("disabled")}
+        supply, used = 0.0, []
+        for name, (rate, condition) in REMNANT_SOURCES.items():
+            skill = present.get(name)
+            if skill is None or name in skip:
+                continue
+            if name in NEEDS_MINIONS:  # (Grim Feast: your minions' deaths, from the build's own sources)
+                found = [models.Skill.of(s) for s in present.values()]
+                group = self.build.main_group()
+                main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill()),
+                            None)
+                rate, condition = models.minion_deaths(found, main, {**self.build.call("stats", fields=models.MODEL_FIELDS),
+                                                                     "_minion_lives": getattr(self.build, "minion_lives", {})})
+                if rate <= 0:
+                    used.append(f"{name} 0/s ({condition})")
+                    continue
+            if name in COOLDOWN_SOURCES:
+                rate *= skill.get("cooldownRecovery") or 1.0
+            if name == KALGUUR:
+                from builder.search import bosses  # (the request's boss: its Life for Light Stuns)
+
+                melee = bool(next((s for s in skills if s["name"] == self.main_skill()), {}).get("melee"))
+                boss_stats = bosses.kill_stats(getattr(getattr(getattr(self.build, "ctx", None), "request", None),
+                                                       "boss", None) or bosses.DEFAULT)
+                stuns, how = models.stun_rate({**self.build.call("stats", fields=models.MODEL_FIELDS), **boss_stats},
+                                              melee)
+                rate, condition = kalguur_rate(stuns), f"50% per Stun, at most one per 3 s, {how}"
+                # (MECHB16) and its on-kill chance (ward_remnants_chance_to_spawn_orb_on_killing_enemy_%, 25 at
+                # level 20; no cooldown stat on it) at the enemies the build kills: the request's boss preset's adds
+                # (build.kills[0], models.kill_rate; 0 on the default lone boss). Own minions aren't enemies.
+                rate, condition = kalguur_kill_rate(rate, condition, skill.get("levelStats") or {},
+                                                    getattr(self.build, "kills", None))
+            elif name == SIPHON:
+                rate, condition = siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS))
+            elif name == LIVING_BOMB:
+                rate, condition = living_bomb_rate(self.build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
+                                                   skill.get("castTime") or 0.0)
+            elif name in HIT_REMNANTS:
+                rate, condition = hit_remnant_rate(name, self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
+            elif name == "Snap":  # (MECH46: it needs an ailment on the boss to Consume)
+                found, how = snap_found(self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
+                rate *= found
+                condition = f"on its cooldown, when it finds an ailment to Consume ({found:.0%}: {how})"
+            supply += rate
+            used.append(f"{name} {rate:.2f}/s ({condition})")
+        return supply, used
+
     def heat_spenders(self, found: list) -> list[tuple[str, float, str]]:
         """The build's Heat spenders (models.HEAT_SPENDERS) other than the main skill, at their pressed use rate
         (models.press_use_rate: cooldown, duration, else the search's chosen rate, else 0)."""
@@ -858,51 +922,7 @@ class Assumptions:
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:
-            present = {s["name"]: s for s in skills if not s["disabled"]}
-            supply, used = 0.0, []
-            for name, (rate, condition) in REMNANT_SOURCES.items():
-                skill = present.get(name)
-                if skill is None:
-                    continue
-                if name in NEEDS_MINIONS:  # (Grim Feast: your minions' deaths, from the build's own sources)
-                    found = [models.Skill.of(s) for s in present.values()]
-                    group = self.build.main_group()
-                    main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill()),
-                                None)
-                    rate, condition = models.minion_deaths(found, main, {**self.build.call("stats", fields=models.MODEL_FIELDS),
-                                                                         "_minion_lives": getattr(self.build, "minion_lives", {})})
-                    if rate <= 0:
-                        used.append(f"{name} 0/s ({condition})")
-                        continue
-                if name in COOLDOWN_SOURCES:
-                    rate *= skill.get("cooldownRecovery") or 1.0
-                if name == KALGUUR:
-                    from builder.search import bosses  # (the request's boss: its Life for Light Stuns)
-
-                    melee = bool(next((s for s in skills if s["name"] == self.main_skill()), {}).get("melee"))
-                    boss_stats = bosses.kill_stats(getattr(getattr(getattr(self.build, "ctx", None), "request", None),
-                                                           "boss", None) or bosses.DEFAULT)
-                    stuns, how = models.stun_rate({**self.build.call("stats", fields=models.MODEL_FIELDS), **boss_stats},
-                                                  melee)
-                    rate, condition = kalguur_rate(stuns), f"50% per Stun, at most one per 3 s, {how}"
-                    # (MECHB16) and its on-kill chance (ward_remnants_chance_to_spawn_orb_on_killing_enemy_%, 25 at
-                    # level 20; no cooldown stat on it) at the enemies the build kills: the request's boss preset's adds
-                    # (build.kills[0], models.kill_rate; 0 on the default lone boss). Own minions aren't enemies.
-                    rate, condition = kalguur_kill_rate(rate, condition, skill.get("levelStats") or {},
-                                                        getattr(self.build, "kills", None))
-                elif name == SIPHON:
-                    rate, condition = siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS))
-                elif name == LIVING_BOMB:
-                    rate, condition = living_bomb_rate(self.build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
-                                                       skill.get("castTime") or 0.0)
-                elif name in HIT_REMNANTS:
-                    rate, condition = hit_remnant_rate(name, self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
-                elif name == "Snap":  # (MECH46: it needs an ailment on the boss to Consume)
-                    found, how = snap_found(self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
-                    rate *= found
-                    condition = f"on its cooldown, when it finds an ailment to Consume ({found:.0%}: {how})"
-                supply += rate
-                used.append(f"{name} {rate:.2f}/s ({condition})")
+            supply, used = self.remnant_supply(skills)
             lines = self.build.call("sourceLines")["lines"]
             extra = sum(float(m.group(1)) for line in lines if (m := ADDITIONAL_REMNANT.search(line["text"]))) / 100.0
             supply *= 1.0 + extra
@@ -1185,8 +1205,9 @@ class Assumptions:
         lowered = [t.lower() for t in texts]
         has = lambda pattern: any(pattern.search(t) for t in lowered)  # noqa: E731
         recovery.on_kill(income, stats, texts, enemies)
-        if remnant_names:
-            raw = build.call("activeSkills", levelStats=remnant_names)["skills"]
+        pickup = has(recovery.REMNANT_PICKUP)
+        if remnant_names or pickup:
+            raw = build.call("activeSkills", levelStats=remnant_names)["skills"] if remnant_names else []
             infos = {}
             for name in remnant_names:
                 found = next((s for s in raw if s["name"] == name and not s.get("disabled")), present[name])
@@ -1203,8 +1224,16 @@ class Assumptions:
                         continue
                     if each > share:
                         share, how = each, f"{word}, the largest alone (LOW: a lower bound on any Elemental Ailment)"
+            # (MECHC15, AUDIT26 A26-3: the pickup lines fire on every Remnant collected, so the build's other Remnant
+            # sources count too: Infusion Remnants, Remnants of Kalguur's Ward Remnants, Breach flames, Power Charge
+            # Remnants... (KeywordPopups Remnant: "Walking over a Remnant collects it"); COV17: the build's
+            # additional-Remnant / reappear / double-pickup lines on every Remnant, the Life / Mana ones included)
+            others = self.remnant_supply(skills, skip=recovery.REMNANT_SKILLS) if pickup else (0.0, [])
+            multiplier, multiplier_how = remnant_multiplier(texts)
             recovery.remnant_income(income, infos, stats, texts, hits=hits, crits=models.crits_per_second(stats),
-                                    ailment_share=share, ailment_how=how, enemies=enemies)
+                                    ailment_share=share, ailment_how=how, enemies=enemies,
+                                    others=(others[0], "; ".join(others[1])), multiplier=multiplier,
+                                    multiplier_how=multiplier_how)
         if has(recovery.CHARM_ANY) or any(recovery.CHARM_OWN.match(line.strip()) for option in
                                           [(getattr(build, "equipped", {}) or {}).get(slot) for slot in flasks.CHARM_SLOTS]
                                           if option is not None for line in option.raw.splitlines()):

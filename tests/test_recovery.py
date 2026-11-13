@@ -347,3 +347,65 @@ def test_hit_and_cast_lines_reach_the_recovery_field(engine):
     expected = 7 * rates["casts"] + 0.2 * min(rates["life_per_hit"], stats["Life"]) * rates["landed"]
     assert build.recovery_sources["LifeOnEventRecovery"] == pytest.approx(expected, rel=1e-3)
     assert "Spell cast" in notes[0]["basis"] and "Missing Life before a hit" in notes[0]["basis"]
+
+
+def test_remnant_pickup_lines_count_every_remnant_and_the_double_pickup_lines():
+    """MECHC15 (AUDIT26 A26-3; COV17): "Recover N% of maximum Life when you collect a Remnant" fires on the build's
+    other Remnants too (Infusion, Ward, Breach ones: `others`), and the additional-Remnant / reappear / double-pickup
+    lines multiply every Remnant collected, the Life Remnants' own gain included."""
+    from builder.search.assumptions import remnant_multiplier
+
+    line = ["Recover 3% of Maximum Life when you collect a Remnant"]
+    alone = Income()  # no Life / Mana Remnants: the pickup line still reads the other Remnants
+    recovery.remnant_income(alone, {}, {"Life": 4000}, line, hits=4.0, crits=1.0, ailment_share=0.0, ailment_how="",
+                            enemies=0.0, others=(0.25, "Orb of Storms 0.08/s; Remnants of Kalguur 0.17/s"))
+    assert alone.rates["LifeRemnantRecovery"] == pytest.approx(0.03 * 4000 * 0.25)
+    assert "Remnants of Kalguur" in " ".join(alone.parts)
+    none = Income()  # no Remnant at all: nothing
+    recovery.remnant_income(none, {}, {"Life": 4000}, line, hits=4.0, crits=1.0, ailment_share=0.0, ailment_how="",
+                            enemies=0.0)
+    assert none.rates["LifeRemnantRecovery"] == 0.0
+    texts = ["10% chance to create an additional Remnant", "Remnants you create reappear once, 3 seconds after being collected",
+             "15% chance for Remnants you create to grant their effects twice"]
+    times, how = remnant_multiplier(texts)
+    assert times == pytest.approx(1.10 * 2 * 1.15) and "reappearing" in how
+    assert remnant_multiplier([]) == (1.0, "")
+    skills = {recovery.LIFE_REMNANTS: {"gain": 1000, "levelStats": {}}}
+    both = Income()
+    recovery.remnant_income(both, skills, {"Life": 4000}, line, hits=4.0, crits=1.0, ailment_share=0.0,
+                            ailment_how="", enemies=0.0, others=(0.25, "Orb of Storms"), multiplier=times,
+                            multiplier_how=how)
+    own = 1 / (3 + 1 / 4.0) * times
+    assert both.rates["LifeRemnantRecovery"] == pytest.approx(own * 1000 + 0.03 * 4000 * (own + 0.25 * times))
+
+
+def test_remnant_pickup_line_reads_an_orb_of_storms_builds_infusion_remnants(engine):
+    """MECHC15 (A26-3) on a real build: a Spark build with Orb of Storms (a Lightning Infusion Remnant as each Orb
+    expires) and a pickup line on a ring gets LifeRemnantRecovery from those Remnants; nothing without the line."""
+    from builder.request.schema import BuildRequest, Choices
+    from builder.search.assumptions import Assumptions
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"],
+                                        require=Choices(skills=["Orb of Storms"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    hook = Assumptions(build)
+    skills = build.call("activeSkills")["skills"]
+    assert any(s["name"] == "Orb of Storms" and not s.get("disabled") for s in skills)
+    hook.life_mana_income(skills, "Spark")
+    assert build.recovery_sources["LifeRemnantRecovery"] == 0.0
+    ring = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                         "Recover 3% of Maximum Life when you collect a Remnant"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    skills = build.call("activeSkills")["skills"]
+    notes = hook.life_mana_income(skills, "Spark")
+    life = build.call("stats", fields=["Life"])["Life"]
+    supply, used = hook.remnant_supply(skills, skip=recovery.REMNANT_SKILLS)
+    assert supply > 0 and any("Orb of Storms" in u for u in used)
+    assert build.recovery_sources["LifeRemnantRecovery"] == pytest.approx(0.03 * life * supply, rel=1e-3)
+    assert "Orb of Storms" in notes[0]["basis"]

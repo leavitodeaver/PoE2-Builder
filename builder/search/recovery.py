@@ -18,7 +18,9 @@ turned into a rate here from the build's own events (CLAUDE.md: no flat rates wh
   once every 3000 ms"; N% chance on kill) and Mana Remnants (on Critically Hitting a target with an Elemental Ailment, once
   every 2000 ms; N% chance on killing an enemy with an Elemental Ailment), each Remnant at PoB's per-Remnant amount
   (base x RemnantEffect, the bridge's activeSkills remnantGain); "Recover N% of Maximum Life / Mana when you collect a
-  Remnant" (passives; PoB parses nothing) on those Remnants. Every Remnant taken as collected (the play guide says to walk
+  Remnant" (passives; PoB parses nothing) on every Remnant the build collects (MECHC15, AUDIT26 A26-3: its Infusion,
+  Ward and other Remnants too, assumptions.remnant_supply), and the build's additional-Remnant / reappear / double-pickup
+  lines on all of them (COV17, assumptions.remnant_multiplier). Every Remnant taken as collected (the play guide says to walk
   onto each; MEDIUM-LOW: where they appear is UNVERIFIED, research/no-effect-remnant-range.md).
 - Charms (CharmLifeRecoveryRate / CharmManaRecoveryRate): a charm's own "Recover N Life / Mana when Used" (PoB parses
   nothing) at that charm's uses a second (flasks.uses_per_second: its trigger and the charges the build generates), and
@@ -158,10 +160,15 @@ def on_kill(income: Income, stats: dict, texts: list[str], enemies: float) -> No
 
 
 def remnant_income(income: Income, skills: dict[str, dict], stats: dict, texts: list[str], *, hits: float,
-                   crits: float, ailment_share: float, ailment_how: str, enemies: float) -> None:
+                   crits: float, ailment_share: float, ailment_how: str, enemies: float,
+                   others: tuple[float, str] = (0.0, ""), multiplier: float = 1.0, multiplier_how: str = "") -> None:
     """Life / Mana Remnants (`skills`: {name: {"gain": per Remnant, "levelStats": {...}}}) at the build's hits, crits on
-    a target with an Elemental Ailment (`ailment_share` of the fight) and kills; pickup lines on those Remnants."""
+    a target with an Elemental Ailment (`ailment_share` of the fight) and kills; pickup lines on every Remnant the build
+    collects: these plus `others` (the build's other Remnant sources a second and what they are; MECHC15, A26-3).
+    `multiplier`: times each Remnant made counts when collected (additional Remnants, reappearing, double pickups;
+    assumptions.remnant_multiplier; COV17), on the Life / Mana Remnants' own gain and on the pickup lines."""
     count = 0.0
+    times = f" x{multiplier:.3g} ({multiplier_how})" if multiplier != 1.0 else ""
     for name, info in skills.items():
         level = {**REMNANT_DEFAULTS, **{k: _num(v) for k, v in (info.get("levelStats") or {}).items()}}
         pool = "Life" if name == LIFE_REMNANTS else "Mana"
@@ -176,17 +183,21 @@ def remnant_income(income: Income, skills: dict[str, dict], stats: dict, texts: 
             trigger_how = f"{crits:.2f} crits/s x the boss carrying an Elemental Ailment {ailment_share:.0%} ({ailment_how})"
         # (the next Remnant waits `every` s, then for the next qualifying hit: 1 / (every + 1 / rate))
         timed = 1.0 / (every + 1.0 / triggers) if triggers > 0 and every > 0 else 0.0
-        rate = timed + kills
+        rate = (timed + kills) * multiplier
         count += rate
         income.add(f"{pool}RemnantRecovery", rate * gain,
                    f"{name} {rate:.3f} Remnants/s x {gain:,.0f} {pool} (one at most every {every:g} s on {trigger_how}"
-                   + (f", plus {kills:.3f}/s from kills" if kills > 0 else "") + "; each taken as collected)")
+                   + (f", plus {kills:.3f}/s from kills" if kills > 0 else "") + times + "; each taken as collected)")
+    other = max(0.0, others[0]) * multiplier
     for pool in ("Life", "Mana"):
         pct = _sum(REMNANT_PICKUP, texts, pool)
-        if pct > 0 and count > 0:
-            income.add(f"{pool}RemnantRecovery", pct / 100 * _num(stats.get(pool)) * count,
-                       f"{pct:g}% of maximum {pool} per Remnant collected x {count:.3f}/s (this build's Life / Mana "
-                       "Remnants only: other Remnants it makes aren't counted here)")
+        if pct > 0 and count + other > 0:
+            income.add(f"{pool}RemnantRecovery", pct / 100 * _num(stats.get(pool)) * (count + other),
+                       f"{pct:g}% of maximum {pool} per Remnant collected x {count + other:.3f}/s ("
+                       + (f"Life / Mana Remnants {count:.3f}/s" if count else "")
+                       + ("; " if count and other else "")
+                       + (f"other Remnants {other:.3f}/s{times}: {others[1]}" if other else "")
+                       + "; each taken as collected)")
 
 
 def charm_income(income: Income, charms: list[tuple[str, str, float, str]], stats: dict, texts: list[str]) -> None:
