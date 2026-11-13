@@ -34,14 +34,18 @@ KILL_TRIGGER = "used when you kill"  # charm triggers that need enemies to die (
 
 
 
-def taken_per_hit(data: dict) -> float:
+def taken_per_hit(data: dict, boss: str | None = None) -> float:
     """Damage one average landed boss hit deals after mitigation (MECHC6): each type PoB takes at the type's full hit size
-    (boss_hits.config_vars), weighted by its share of the boss's hits; PoB's totalTakenHit (all types in one hit) when
-    the bridge sends no split."""
+    (boss_hits.config_vars), weighted by its share of `boss`'s hits (the request's; MECHC13: before, always the default
+    boss's mix, as the bridge data carries no boss); PoB's totalTakenHit (all types in one hit) when the bridge sends no
+    split."""
     by_type = data.get("takenByType")
     if not by_type:
         return float(data.get("takenHit") or 0.0)
-    return type_taken({f"{t}TakenHit": float(v or 0.0) for t, v in by_type.items()})
+    stats = {f"{t}TakenHit": float(v or 0.0) for t, v in by_type.items()}
+    if boss:
+        stats["_boss"] = boss
+    return type_taken(stats)
 
 @dataclass(frozen=True)
 class Charges:
@@ -114,7 +118,7 @@ class Charges:
 
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         data = build.call("chargeGain")
-        gain = cls.from_bridge(data, bosses.kill_stats(boss).get(bosses.KILLS_STAT) or 0.0)
+        gain = cls.from_bridge(data, bosses.kill_stats(boss).get(bosses.KILLS_STAT) or 0.0, boss)
         groups = [int(i) for i in data.get("perfectGroups") or [] if i]
         if groups and gain.perfect_main_rate <= 0:
             from dataclasses import replace
@@ -130,11 +134,15 @@ class Charges:
         return gain
 
     @classmethod
-    def from_bridge(cls, data: dict, add_kills: float = 0.0) -> Charges:
+    def from_bridge(cls, data: dict, add_kills: float = 0.0, boss: str | None = None) -> Charges:
         every = float(data.get("enemySkillTime") or 0.0)
-        # (red-flash hits land whatever the evade and block: builder/search/boss_hits.py, MECHC5)
-        land = land_share({"EvadeChance": float(data.get("evade") or 0.0),
-                                     "EffectiveBlockChance": float(data.get("block") or 0.0)}) / every if every > 0 else 0.0
+        # (red-flash hits land whatever the evade and block: builder/search/boss_hits.py, MECHC5). `boss`: the request's
+        # (MECHC13, an over- or undercount for a named boss: before, the shares and the per-type weights in taken_per_hit
+        # were the default boss's; boss_hits reads a stats dict's "_boss"); None, the default
+        seen = {"EvadeChance": float(data.get("evade") or 0.0), "EffectiveBlockChance": float(data.get("block") or 0.0)}
+        if boss:
+            seen["_boss"] = boss
+        land = land_share(seen) / every if every > 0 else 0.0
         types = tuple(k for k, v in (data.get("bossDamage") or {}).items() if float(v or 0) > 0)
         return cls(data.get("flask", 0), data.get("lifeFlask", 0), data.get("manaFlask", 0), data.get("flaskGainInc", 0),
                    data.get("charm", 0), data.get("charmGainInc", 0), data.get("flaskDurationInc", 0),
@@ -143,7 +151,7 @@ class Charges:
                    int(data.get("perfectSkills") or 0), float(data.get("perfectMainRate") or 0.0),
                    str(data.get("mainSkill") or ""), bool(data.get("lifeFlaskUnusable", False)),
                    bool(data.get("lifeFlaskConstant", False)), float(data.get("lifeFlaskLess") or 0.0),
-                   taken_hit=taken_per_hit(data), mom=float(data.get("mom") or 0.0),
+                   taken_hit=taken_per_hit(data, boss), mom=float(data.get("mom") or 0.0),
                    energy_shield=float(data.get("energyShield") or 0.0), es_regen=float(data.get("esRegen") or 0.0),
                    life_regen=float(data.get("lifeRegen") or 0.0), mana_regen=float(data.get("manaRegen") or 0.0),
                    life_cost=float(data.get("lifeCost") or 0.0), mana_cost=float(data.get("manaCost") or 0.0),

@@ -4147,3 +4147,27 @@ def test_boss_melee_share_reads_the_lower_bound_for_thorns_and_0_where_unread():
     assert share == 0.0 and "isn't read" in how
     assert models.boss_melee_share(models.THORNS_WORST)[0] == 0.0
     assert models.boss_melee_share(models.THORNS_WORST, gain=False)[0] == pytest.approx(4 / 6)
+
+
+def test_charm_charges_from_boss_hits_read_the_requests_boss():
+    """MECHC13 (MECHC12's find): taken_per_hit and from_bridge's landing share weighted the boss's hits by the default
+    boss, whatever boss the request named. Two named bosses give their own type weights and red-flash shares; no boss is
+    the default's, as before."""
+    from builder.search import boss_hits, bosses
+    from builder.search.flasks import Charges, taken_per_hit
+
+    taken = {"takenHit": 900, "takenByType": {"Physical": 700, "Fire": 1700, "Cold": 2000}}
+    ash = taken_per_hit(taken, "Arbiter of Ash")  # Physical 2 of 7, Fire 5 of 7 (no Cold)
+    olroth = taken_per_hit(taken, "Olroth, Origin of the Fall")  # Physical and Cold, no Fire
+    w = boss_hits.type_shares("Arbiter of Ash")
+    assert ash == pytest.approx(700 * w["Physical"] + 1700 * w["Fire"])
+    w = boss_hits.type_shares("Olroth, Origin of the Fall")
+    assert olroth == pytest.approx(700 * w["Physical"] + 2000 * w["Cold"])
+    assert taken_per_hit(taken) == pytest.approx(taken_per_hit(taken, bosses.DEFAULT))
+    data = dict(taken, enemySkillTime=1.0, evade=50, block=50)
+    zarokh = Charges.from_bridge(data, boss="Zarokh, the Temporal")  # 1 of 22 hits unavoidable
+    raven = Charges.from_bridge(data, boss="Xesht, We That Are One")  # 4 of 11
+    assert zarokh.boss_hits == pytest.approx(boss_hits.land_share(
+        {"EvadeChance": 50, "EffectiveBlockChance": 50, "_boss": "Zarokh, the Temporal"}))
+    assert raven.boss_hits > zarokh.boss_hits
+    assert raven.taken_hit == pytest.approx(taken_per_hit(taken, "Xesht, We That Are One"))
