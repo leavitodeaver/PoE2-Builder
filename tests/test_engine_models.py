@@ -1816,3 +1816,31 @@ def test_active_skills_reports_a_curses_duration(engine):
     skills = {s["name"]: s for s in build.call("activeSkills")["skills"]}
     assert skills["Despair"].get("curseDuration") == pytest.approx(7.4, abs=0.05)
     assert skills["Spark"].get("curseDuration") is None
+
+
+def test_runic_ward_regeneration_holds_the_transmutation_explosions(engine):
+    """MECHB13: PoB charges the explosion Runic Ward but never checks how often the build can pay it; the Ward pass
+    holds the explosions' trigger rate to the build's Runic Ward regeneration / the Ward one costs (models.ward_plan).
+    MECHC8's delivered 2b75b build has no Runic Ward, so the explosions count 0 (they couldn't be cast)."""
+    import json
+    from pathlib import Path
+    from builder.pob import codes
+
+    row = json.loads((Path(__file__).parents[1] / "benchmarks/results/gate4-20261112-152004.json")
+                     .read_text(encoding="utf-8"))["rows"][0]
+    request = BuildRequest.model_validate(row["request"])
+    payload = make_payload(request)
+    skeleton = enumerate_skeletons(Context(payload), [request.main_skill])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("loadXml", xml=codes.decode(row["code"]))
+    search.assumptions.apply()
+    sustain = build.ward_sustain
+    planned, paid, cost = sustain["Transmutation Explosion"]
+    assert cost > 0 and paid * cost <= sustain["_regen"] + 1e-6
+    rate = next(m["value"] for m in search.assumptions.mods
+                if m.get("skill") == "Transmutation Explosion" and m.get("key") == "triggerRate")
+    assert rate == pytest.approx(paid, abs=1e-3)
+    note = next(n for n in search.assumptions.active if "Runic Ward" in n["label"])
+    print("ward", sustain, note)

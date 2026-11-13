@@ -2303,6 +2303,10 @@ function bridge.useRates(args)
 			if env.minion and type(env.minion.output.Life) == "number" then
 				entry.minionLife = jsonNumber(env.minion.output.Life)
 			end
+			-- (MECHB13: Runic Ward pays for Ward-cost skills, models.ward_plan) one use's Runic Ward cost, PoB's WardCost
+			if type(output.WardCost) == "number" and output.WardCost > 0 then
+				entry.wardCost = jsonNumber(output.WardCost)
+			end
 			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
@@ -2486,6 +2490,21 @@ function bridge.activeSkills(args)
 			wrongWeapon = effect.weaponTypes and not (weapon1 and effect.weaponTypes[weapon1] or weapon2
 				and effect.weaponTypes[weapon2]) or nil,
 		}
+		-- (MECHB13, models.ward_plan) it costs Runic Ward: a Ward cost at its level, or a modifier that adds one (PoB's
+		-- WardCostBase / WardCost / WardCostNoMult / WardCostAsPercentOf{Life,Mana}Cost, CalcOffence's costs); the cost
+		-- itself, after multipliers, comes from useRates
+		do
+			local ok, ward = pcall(function()
+				local level = activeSkill.activeEffect.grantedEffectLevel
+				if level and level.cost and (level.cost.Ward or 0) > 0 then
+					return true
+				end
+				local list, cfg = activeSkill.skillModList, activeSkill.skillCfg
+				return list:Sum("BASE", cfg, "WardCostBase", "WardCost", "WardCostNoMult", "WardCostAsPercentOfLifeCost",
+					"WardCostAsPercentOfManaCost") > 0
+			end)
+			skills[#skills].wardCost = ok and ward or nil
+		end
 		do
 			local ok, early = pcall(earlyHazard, activeSkill)
 			skills[#skills].earlyHazard = ok and early or nil

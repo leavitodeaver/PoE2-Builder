@@ -3406,3 +3406,59 @@ def test_a_side_icestorm_ends_the_main_skills_chill():
     # (the main skill consuming Chill itself: the side model leaves it alone)
     assert conditions.chill_share({**stats, "_consumes": {"Chill": "x"},
                                    "_side_consumes": {"Chill": (0.5, "Icestorm", "MEDIUM")}}) == pytest.approx(whole)
+
+
+def test_ward_plan_holds_ward_cost_skills_to_what_runic_ward_regeneration_pays_for():
+    """MECHB13 (SEARCH7's Explosive Transmutation finding, an OVERCOUNT): every Ward-cost skill shares the build's Runic
+    Ward regeneration; each is held to its planned rate x min(1, regeneration / the Ward all of them would spend)."""
+    uses = [models.WardUse("Transmutation Explosion", "triggered", 2.0, 30.0),
+            models.WardUse("Frostflame Nova", "main", 1.0, 60.0)]
+    share, notes = models.ward_plan(uses, 60.0, 1200.0)  # (they'd spend 120 Ward/s; 60/s regenerates)
+    assert share == pytest.approx(0.5)
+    assert notes[0]["value"] == "x0.500" and "without this cap" in notes[0]["basis"]
+    assert models.ward_plan(uses, 0.0, 0.0)[0] == 0.0  # (no Runic Ward: none of them is used)
+    assert models.ward_plan(uses, 500.0, 10000.0)[0] == 1.0
+    assert models.ward_plan([], 0.0, 0.0) == (1.0, [])
+
+
+def test_ward_income_counts_every_runic_ward_source_not_regeneration_alone():
+    """MECHB13, the user's rule (12 Nov: "regen is not the only source of recovery, not by a longshot"): Remnants of
+    Kalguur from Stuns (50% a Stun, at most one per 3 s) and kills, Ward on Block at the boss's hits, % on Kill; lines no
+    rate reads yet are named."""
+    kalguur = {"ward_remnants_gain_per_globe": 205, "ward_remnants_chance_to_spawn_remnant_on_stun_%": 50,
+               "ward_remnants_spawn_remnant_on_stun_cooldown_ms": 3000,
+               "ward_remnants_chance_to_spawn_orb_on_killing_enemy_%": 25}
+    texts = ["Recover 1% of maximum Runic Ward on Kill", "Recover (32-45) Runic Ward when a Charm is used"]
+    income, parts, unread = models.ward_income(10.0, 1000.0, texts, kalguur=kalguur, stuns=1.0, kills=(0.5, 0.5),
+                                               on_block=20, block=50, every=1.0)
+    remnants = 1 / (3 + 1 / 0.5) + 0.25 * 0.5
+    assert income == pytest.approx(10 + remnants * 205 + 20 * 0.5 + 0.01 * 1000 * 0.5)
+    assert len(parts) == 4 and unread == ["Runic Ward when a Charm is used"]
+    assert models.ward_income(0.0, 0.0, [])[0] == 0.0
+    share, notes = models.ward_plan([models.WardUse("Skyfall", "main", 1.0, 135.0)], 13.5, 270.0, parts, unread)
+    assert share == pytest.approx(0.1) and "Remnants of Kalguur" in notes[0]["basis"]
+    assert "a Charm is used" in notes[0]["basis"]
+
+
+def test_living_bomb_reads_a_showaverage_main_skills_damage_per_second():
+    """MECHB13 (SEARCH7's routing, train 21's ShowAverage): a ShowAverage main skill's CombinedDPS is one use's damage;
+    the seed fills at its damage per second (objective.per_second: TotalDPS in place of the average)."""
+    from builder.search.assumptions import living_bomb_rate
+
+    stats = {"EnemyAilmentThreshold": 100000, "ShowAverage": 1, "CombinedDPS": 10000, "AverageDamage": 10000,
+             "TotalDPS": 50000, "CullMultiplier": 1, "ReservationDpsMultiplier": 1}
+    rate, how = living_bomb_rate(stats, 1.0)
+    assert rate == pytest.approx(1 / 5) and "50,000 DPS" in how  # (per use, 10,000, would read one per 16 s)
+
+
+def test_frostflame_novas_ice_hits_twice_a_second_while_the_boss_is_ignited():
+    """MECHB13 (AUDIT23 A23-1; game files: "Hits enemies every 0.5 seconds until affected Ignite expires", latching only
+    onto Ignited enemies): 2 hits/s x the boss's Ignited share from every Full DPS group; 0 with no Ignite source."""
+    rates = [{"index": 1, "name": "Frostflame Nova", "speed": 1.4, "stackPotential": {}},
+             {"index": 2, "name": "Flame Wall", "speed": 1.0, "stackPotential": {"Ignite": 2.0}}]
+    share, how = models.ignite_share(rates, {"Flame Wall": 0.5})
+    assert share == pytest.approx(1 - math.exp(-1.0)) and "Flame Wall" in how
+    mods, notes = models.frostflame_model(1.4, share, how)
+    assert mods[0]["value"] == pytest.approx(100 * (2 * share / 1.4 - 1), abs=1e-3)
+    none = models.ignite_share(rates[:1])
+    assert none[0] == 0.0 and models.frostflame_model(1.4, *none)[0][0]["value"] == pytest.approx(-100)

@@ -28,7 +28,7 @@ from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
 from builder.search import conditions as conditions_mod, models, passive_models
 from builder.search.conditions import (CHILL_FIELDS, INFUSED_SET, ailment_uptime, chill_share, curse_uses, natural_distance,
                                        shock_share)
-from builder.search.objective import number
+from builder.search.objective import number, per_second
 from builder.search.usage import BASE_RUN, usage_rules
 from builder.search.state import Build
 
@@ -75,13 +75,16 @@ SIPHON, SIPHON_FREEZE_PER_POWER = "Siphon Elements", 0.05
 # seed explodes when its 15 s run out first is UNVERIFIED (the game text names damage or a kill only); counted as
 # exploding then, labelled, rather than zeroed.
 LIVING_BOMB, LIVING_BOMB_SHARE, LIVING_BOMB_DURATION = "Living Bomb", 2.0, 15.0
-LIVING_BOMB_FIELDS = ("EnemyAilmentThreshold", "CombinedDPS")
+# (MECHB13; SEARCH7's routing: CombinedDPS is per use for a ShowAverage main skill (Sunder, Earthquake), so the main
+# skill's damage per second comes from objective.per_second and the fields it reads)
+LIVING_BOMB_FIELDS = ("EnemyAilmentThreshold", "CombinedDPS", "ShowAverage", "CullMultiplier", "ReservationDpsMultiplier",
+                      "TotalDPS", "AverageDamage", "TotalDotDPS")
 
 
 def living_bomb_rate(stats: dict, cast_time: float) -> tuple[float, str]:
     """Living Bomb explosions (Fire Infusion Remnants) per second: one seed at a time, replanted after each."""
     need = LIVING_BOMB_SHARE * number(stats.get("EnemyAilmentThreshold"))
-    dps = number(stats.get("CombinedDPS"))
+    dps = per_second(stats)  # (the main skill's damage per second, also for a ShowAverage skill)
     if need <= 0 or dps <= 0:
         return 0.0, "no damage or no Ailment Threshold read: no seed explodes"
     wait = need / dps
@@ -739,7 +742,7 @@ class Assumptions:
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
-            *models.gem_stat_skills()],
+            KALGUUR, *models.gem_stat_skills()],
             supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT])["skills"]  # (MECH-B: A23-3)
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
@@ -865,12 +868,118 @@ class Assumptions:
         mods += [{"kind": "Condition", "name": name} for name in found]
         mods += [models.raw_mod(f"Multiplier:LedgerShare{name}", "BASE", percent)
                  for name, percent in sorted(self.ledger_shares.items())]
+        mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
+        notes += ward_notes
+        frost_mods, frost_notes = self.frostflame(main)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
+        mods, notes = mods + frost_mods, notes + frost_notes
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
         from builder.search import bosses
 
         from builder.search import boss_hits  # (MECHC6: how hard it hits, per damage type)
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         return mods, [bosses.note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + self.unbuilt_grants(skills)  # (the boss first)
+
+    def ward_paid(self, skills: list[dict], mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
+        """Runic Ward pays for the Ward-cost skills (MECHB13, models.ward_plan): every Ward-cost skill the build uses
+        (a model's triggerRate, the main skill, a pressed or other Full DPS group) shares the build's Runic Ward
+        regeneration; each is held to its planned rate x the share it pays for. build.ward_sustain (for the search:
+        {skill: (planned uses/s, paid uses/s, Ward a use)}, plus "_regen" and "_share") says what it found."""
+        build = self.build
+        build.ward_sustain = {}
+        costly = [s for s in skills if s.get("wardCost") and not s["disabled"] and s.get("group")]
+        if not costly:
+            return mods, []
+        by_index = {g["index"]: g for g in build.groups()}
+        main_group = build.main_group()
+        main_index = main_group["index"] if main_group else None
+        pairs = []
+        for s in costly:
+            group = by_index.get(s["group"])
+            if group is None:
+                continue
+            position = next((i for i, x in enumerate(group["skills"], start=1) if x["name"] == s["name"]), 0)
+            pairs.append((s, group, position))
+        if not pairs:
+            return mods, []
+        rates = build.call("useRates", indices=[g["index"] for _, g, _ in pairs],
+                           actives=[p for _, _, p in pairs])["rates"]
+        by_pair = {(r["index"], r.get("active") or 0): r for r in rates}
+        triggered = {}
+        for mod in mods:
+            if mod.get("kind") == "SkillData" and mod.get("key") == "triggerRate":
+                triggered[mod["skill"]] = number(mod.get("value"))
+        scales = getattr(build.objective, "press_scales", None) or {}
+        uses, skipped = [], []
+        for s, group, position in pairs:
+            rate = by_pair.get((group["index"], position)) or {}
+            cost = number(rate.get("wardCost"))
+            if cost <= 0:
+                continue
+            speed = number(rate.get("speed"))
+            name = s["name"]
+            if name in triggered:
+                uses.append(models.WardUse(name, "triggered", triggered[name], cost, group["index"]))
+            elif group["index"] == main_index and name == main:
+                held = 1.0  # (the press hook's DPS "more" on the main skill, main_cap: its rate after Combo / walking)
+                for mod in mods:
+                    if mod.get("kind") == "Raw" and mod.get("name") == "DPS" and mod.get("type") == "MORE"                             and mod.get("skill") == name:
+                        held *= 1 + number(mod.get("value")) / 100
+                uses.append(models.WardUse(name, "main", speed * held, cost, group["index"]))
+            elif rate.get("name") in scales and group.get("fullDPS"):
+                uses.append(models.WardUse(rate["name"], "pressed", speed * scales[rate["name"]], cost, group["index"]))
+            elif group.get("fullDPS") and group.get("enabled", True):
+                uses.append(models.WardUse(name, "full", speed, cost, group["index"]))
+            else:
+                skipped.append(name)
+        pools = build.call("stats", fields=list(dict.fromkeys(
+            ["WardRegenRecovery", "Ward", "WardOnBlock", "EffectiveBlockChance", "enemySkillTime", *models.MODEL_FIELDS])))
+        texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+        kalguur = next((dict(s.get("levelStats") or {}) for s in skills if s["name"] == KALGUUR and not s["disabled"]),
+                       None)
+        if kalguur is not None:  # (the build's extra Remnants and pickups, as the explosions count them)
+            extra = sum(float(m.group(1)) for t in texts if (m := ADDITIONAL_REMNANT.search(t))) / 100.0
+            kalguur["multiplier"] = ((1.0 + extra) * (2.0 if any(REAPPEAR.search(t) for t in texts) else 1.0)
+                                     * (1.0 + duplicate_pickups(texts)))
+        kills = getattr(build, "kills", None) or (0.0, 0.0, "")
+        regen, pool = number(pools.get("WardRegenRecovery")), number(pools.get("Ward"))
+        income, parts, unread = models.ward_income(
+            regen, pool, texts, kalguur=kalguur, stuns=models.heavy_stun_rate(pools)[0] if kalguur is not None else 0.0,
+            kills=(number(kills[0]), number(kills[1])), on_block=number(pools.get("WardOnBlock")),
+            block=number(pools.get("EffectiveBlockChance")), every=number(pools.get("enemySkillTime")) or 0.7)
+        share, notes = models.ward_plan(uses, income, pool, parts, unread)
+        build.ward_sustain = {u.name: (u.rate, u.rate * share, u.cost) for u in uses}
+        build.ward_sustain.update({"_regen": income, "_share": share})
+        if skipped and notes:
+            notes[0]["basis"] += f". Not counted against it: {', '.join(sorted(set(skipped)))} (not used for damage here)"
+        if share >= 1.0:
+            return mods, notes
+        out = []
+        for mod in mods:
+            if mod.get("kind") == "SkillData" and mod.get("key") == "triggerRate"                     and any(u.kind == "triggered" and u.name == mod.get("skill") for u in uses):
+                mod = {**mod, "value": models._round(number(mod.get("value")) * share)}
+            out.append(mod)
+        for u in uses:
+            if u.kind in ("main", "full"):
+                out.append(models.raw_mod("DPS", "MORE", 100 * (share - 1), u.name))
+            elif u.kind == "pressed":  # (its Full DPS entry and its ailments' entries, a lower bound for the stacks)
+                for key in [k for k in scales if k == u.name or k.endswith(f" from {u.name}")]:
+                    scales[key] *= share
+        return out, notes
+
+    def frostflame(self, main: str | None) -> tuple[list[dict], list[dict]]:
+        """Frostflame Nova as the main skill (models.frostflame_model): its Volatile Ice at 2 hits a second while the boss
+        carries an Ignite from any of the build's Full DPS groups (models.ignite_share), not one hit per cast."""
+        if main != models.FROSTFLAME:
+            return [], []
+        build = self.build
+        main_group = build.main_group()
+        if main_group is None:
+            return [], []
+        indices = sorted({g["index"] for g in build.groups() if g["enabled"] and g.get("fullDPS")} | {main_group["index"]})
+        rates = build.call("useRates", indices=indices)["rates"]
+        speed = number(next((r for r in rates if r["index"] == main_group["index"]), {}).get("speed"))
+        share, how = models.ignite_share(rates, getattr(build.objective, "press_scales", None))
+        return models.frostflame_model(speed, share, how)
 
     def unbuilt_grants(self, skills: list[dict]) -> list[dict]:
         """A note for each skill the build's passives or items grant ("Grants Skill: ...") that PoB built no skill for

@@ -5165,3 +5165,161 @@ def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL) -> tuple[list[dict
                  "counted (undercount side): stored Poison making it burst sooner and up to 300% harder (UNVERIFIED "
                  "whether Poisons on the boss feed it), and Pustules on adds",
         "confidence": "MEDIUM (game files and poe2db agree on one Pustule and the 15 s fuse)"}]
+
+
+# Runic Ward pays for Ward-cost skills (MECHB13; SEARCH7's Explosive Transmutation finding, an OVERCOUNT) ------------
+# KeywordPopups Ward: "Runic Ward constantly regenerates at a default rate of 5% per second" (PoB: the game constant
+# BaseWardRegenerationPercentPerMinute 300, as WardRegenPercent; WardRegenRecovery adds the build's regeneration and
+# recovery modifiers). PoB charges each use its Runic Ward cost (CalcOffence's costs; WardCost) but checks only that the
+# pool covers one use (WardCostWarningList), never how often the build can pay it, so a Ward-cost skill counts at its
+# trigger / cast rate however little Ward the build regenerates. The skills with a Ward cost in PoB's data (Data/Skills/
+# other.lua, `cost = { Ward = ... }`, 24 skills: the Transmutation Explosion, Frostflame Nova, Skyfall, Grim Pillars,
+# Wardbound Minions, Refutation, Voltaic Barrier ...) plus any modifier that adds one; the bridge flags them
+# (activeSkills wardCost) and prices one use (useRates wardCost, PoB's WardCost after multipliers).
+# The rule (MEDIUM): over a long boss fight the sustained uses are what the regeneration pays for: every Ward-cost skill
+# the build uses shares it, each held to its planned rate x min(1, regeneration / the Ward all of them would spend).
+# Left out: the full pool at the start of the fight (pool / cost more uses once: an undercount, small over a long
+# fight); Wardbound Minions' and Refutation's "spend all your Runic Ward" (their own models) beyond their listed cost.
+
+
+@dataclass
+class WardUse:
+    """A Ward-cost skill's planned use: `kind` "triggered" (a model's triggerRate), "main" (the main skill at its PoB
+    rate after the press hook), "pressed" (a pressed Full DPS group at its press rate) or "full" (another Full DPS group,
+    at PoB's rate); `rate` uses a second; `cost` Runic Ward a use."""
+    name: str
+    kind: str
+    rate: float
+    cost: float
+    group: int | None = None
+
+
+WARD_ON_KILL = re.compile(r"recover (\d+(?:\.\d+)?)% of maximum runic ward on kill", re.I)
+WARD_ON_MINION_KILLED = re.compile(r"recover (\d+(?:\.\d+)?)% of maximum runic ward when one of your reviving minions "
+                                   r"is killed", re.I)
+# Runic Ward recovery lines no rate reads yet (checked: every Stats.json id holding "ward" with recover / gain / regen /
+# leech / restore / remnant / on_kill / when, each looked up in Mods, PassiveSkills, GrantedEffectStatSets(PerLevel) and
+# GrantedEffectQualityStats; PoB's unique and mod text holding "Runic Ward"; second source PoB's ModParser): named in
+# the note, never silently dropped (the user, 12 Nov: "regen is not the only source of recovery, not by a longshot")
+WARD_UNREAD = {
+    "Runic Ward when a Charm is used": re.compile(r"runic ward when a charm is used", re.I),
+    "Runic Ward on reaching Maximum Rage": re.compile(r"runic ward on reaching maximum rage", re.I),
+    "Life Recovery from Flasks also applies to Runic Ward": re.compile(r"life recovery from flasks also applies to "
+                                                                      r"runic ward", re.I),
+    "Ward gained as half the Life sacrificed on Attack": re.compile(r"sacrifice.*life.*runic ward", re.I),
+}
+
+
+def ward_income(regen: float, pool: float, texts: list[str], *, kalguur: dict | None = None, stuns: float = 0.0,
+                kills: tuple[float, float] = (0.0, 0.0), on_block: float = 0.0, block: float = 0.0,
+                every: float = 0.0) -> tuple[float, list[str], list[str]]:
+    """Runic Ward a second from every source the build has (the user's rule, 12 Nov: not regeneration alone): PoB's
+    WardRegenRecovery (regeneration, its recovery lines, Mana regeneration applied to Ward); Remnants of Kalguur
+    (`kalguur`: its level stats, plus "multiplier", the build's extra Remnants / pickups) from `stuns` Stuns a second
+    (chance each, at most one per its cooldown) and kills; Ward on Block (`on_block` x `block`% of the boss's hits, one
+    every `every` s); "% of maximum Runic Ward on Kill" (`kills`: enemies killed / all kills a second, models.kill_rate)
+    and on a Reviving Minion Killed (all kills less enemies). (income, the parts, the build's lines no rate reads)."""
+    income, parts = max(regen, 0.0), [f"regeneration {max(regen, 0.0):.1f}/s (PoB's WardRegenRecovery)"]
+    if kalguur:
+        gain = number(kalguur.get("ward_remnants_gain_per_globe"))
+        chance = number(kalguur.get("ward_remnants_chance_to_spawn_remnant_on_stun_%")) / 100
+        cooldown = number(kalguur.get("ward_remnants_spawn_remnant_on_stun_cooldown_ms")) / 1000
+        on_kill = number(kalguur.get("ward_remnants_chance_to_spawn_orb_on_killing_enemy_%")) / 100
+        more = number(kalguur.get("multiplier")) or 1.0
+        from_stuns = 1.0 / (cooldown + 1.0 / (chance * stuns)) if stuns > 0 and chance > 0 else 0.0
+        remnants = (from_stuns + on_kill * kills[0]) * more
+        income += remnants * gain
+        parts.append(f"Remnants of Kalguur {remnants:.3f}/s x {gain:g} Ward ({chance:.0%} a Stun at {stuns:.2f} Stuns/s, "
+                     f"at most one per {cooldown:g} s; {on_kill:.0%} a kill at {kills[0]:.3f} kills/s"
+                     + (f"; x{more:.2f} the build's extra Remnants and pickups" if more != 1.0 else "") + ")")
+    if on_block > 0 and block > 0 and every > 0:
+        income += on_block * block / 100 / every
+        parts.append(f"Ward on Block {on_block:g} x {block:.0f}% of the boss's hits (one every {every:.2f} s)")
+    pct_kill = sum(float(m.group(1)) for t in texts if (m := WARD_ON_KILL.search(t)))
+    if pct_kill and kills[0] > 0:
+        income += pct_kill / 100 * pool * kills[0]
+        parts.append(f"{pct_kill:g}% of maximum Ward on Kill at {kills[0]:.3f} kills/s")
+    pct_minion = sum(float(m.group(1)) for t in texts if (m := WARD_ON_MINION_KILLED.search(t)))
+    killed = max(kills[1] - kills[0], 0.0)
+    if pct_minion and killed > 0:
+        income += pct_minion / 100 * pool * killed
+        parts.append(f"{pct_minion:g}% of maximum Ward per Reviving Minion Killed at {killed:.3f}/s (LOW: every Killed "
+                     "minion taken as Reviving)")
+    unread = [name for name, pattern in WARD_UNREAD.items() if any(pattern.search(t) for t in texts)]
+    return income, parts, unread
+
+
+def ward_plan(uses: list[WardUse], regen: float, pool: float, parts: list[str] | None = None,
+              unread: list[str] | None = None) -> tuple[float, list[dict]]:
+    """The share of their planned rates the build's Runic Ward recovery (`regen` per second, every source: ward_income,
+    whose `parts` and `unread` lines the note names) pays for the Ward-cost skills `uses` (one share for all: they spend
+    the same Runic Ward), and the notes. 1.0 when it pays for all, or when nothing is spent."""
+    spend = sum(u.rate * u.cost for u in uses if u.rate > 0 and u.cost > 0)
+    if spend <= 0:
+        return 1.0, []
+    share = min(1.0, max(regen, 0.0) / spend)
+    names = ", ".join(f"{u.name} {u.rate:.2f}/s x {u.cost:g} Ward" for u in uses if u.rate > 0 and u.cost > 0)
+    sources = "; ".join(parts or [f"regeneration {regen:.1f}/s (PoB's WardRegenRecovery)"])
+    missing = (f". Not counted (no rate reads them yet, so this may be an undercount): {', '.join(unread)}"
+               if unread else "")
+    if share >= 1.0:
+        return 1.0, [{
+            "label": "Runic Ward pays for the Ward-cost skills", "value": f"{spend:.1f} of {regen:.1f} Ward/s",
+            "basis": f"{names}: the build's Runic Ward recovery pays for every use ({sources}){missing}",
+            "confidence": "MEDIUM"}]
+    return share, [{
+        "label": "Ward-cost skills held to what Runic Ward recovery pays for*", "value": f"x{share:.3f}",
+        "basis": f"{names} would spend {spend:.1f} Runic Ward a second; the build recovers {regen:.1f}/s ({sources}; base "
+                 f"regeneration 5% of its {pool:.0f} maximum a second, KeywordPopups Ward), so each is used "
+                 f"{share:.1%} as often (without this cap: the rates above"
+                 + ("; with no Runic Ward recovery none of them is used" if regen <= 0 else "")
+                 + f"). The full pool at the start of the fight isn't counted (a few more uses once){missing}",
+        "play": "Keep Runic Ward coming in: every Ward-cost use spends it, and the build regains it only as fast as the "
+                "sources listed recover it.",
+        "confidence": "MEDIUM"}]
+
+
+# Frostflame Nova's Volatile Ice (MECHB13; MECHB11's notes, AUDIT23 A23-1, a likely OVERCOUNT) ------------------------
+# Game files: the gem's description "the ice latches onto Ignited enemies, refreshing the duration of their active Ignite
+# and rapidly Freezing them but preventing them from being Ignited further until the Ignite expires"; its Volatile Ice set
+# (skill_specific_stat_description_mode 1, frostflame_nova.csd): "Hits enemies every 0.5 seconds until affected Ignite
+# expires". PoB scores the set as one hit per cast (ShowAverage, at the cast rate) whether or not the boss is Ignited. The
+# model (MEDIUM-LOW): 2 hits a second while the boss carries an Ignite, at the share of the fight it does from every Full
+# DPS group's Ignites (each group's PoB Ignite stack potential at its use rate, 1 - e^-potential, combined as
+# independent); 0 with no Ignite source. One ice at a time (whether a second cast's ice latches too: UNVERIFIED). Left
+# out: the refreshed Ignite's longer uptime and the Ignites it blocks (MECH-A's Ignite model), its Freeze buildup bonus.
+FROSTFLAME = "Frostflame Nova"
+FROSTFLAME_HITS = 2.0  # "every 0.5 seconds"
+
+
+def ignite_share(rates: list[dict], scales: dict[str, float] | None = None) -> tuple[float, str]:
+    """The share of the fight the boss carries an Ignite from the groups `rates` (bridge useRates rows), each at PoB's
+    use rate x its press scale (`scales`, objective.press_scales) when it's pressed beside the main skill."""
+    free, parts = 1.0, []
+    for rate in rates:
+        potential = number((rate.get("stackPotential") or {}).get("Ignite"))
+        potential *= (scales or {}).get(rate.get("name"), 1.0)
+        if potential <= 0:
+            continue
+        up = 1.0 - math.exp(-potential)
+        free *= 1.0 - up
+        parts.append(f"{rate.get('name')} {up:.0%}")
+    return 1.0 - free, ("; ".join(parts) or "no skill of the build Ignites the boss")
+
+
+def frostflame_model(speed: float, share: float, how: str) -> tuple[list[dict], list[dict]]:
+    """Frostflame Nova as the main skill at FROSTFLAME_HITS hits a second while the boss is Ignited (`share`, `how`:
+    ignite_share), in place of PoB's one hit per cast at `speed` casts a second: a DPS "more" on the skill."""
+    if speed <= 0:
+        return [], []
+    hits = FROSTFLAME_HITS * share
+    more = hits / speed
+    return [raw_mod("DPS", "MORE", 100 * (more - 1), FROSTFLAME)], [{
+        "label": "Frostflame Nova: Volatile Ice hits while the boss is Ignited*", "value": f"{hits:.2f} hits/s",
+        "basis": f"the ice 'Hits enemies every 0.5 seconds until affected Ignite expires' (game files) and latches only "
+                 f"onto Ignited enemies: 2 hits/s x the boss Ignited {share:.0%} of the fight ({how}); PoB counts one "
+                 f"hit per cast ({speed:.2f}/s), so x{more:.3f}. One ice at a time (UNVERIFIED); the refreshed Ignite's "
+                 "longer uptime and the Ignites it blocks aren't counted",
+        "play": "Keep the boss Ignited with another skill; the ice hits only while that Ignite lasts (without an Ignite "
+                "source it deals nothing).",
+        "confidence": "MEDIUM-LOW"}]
