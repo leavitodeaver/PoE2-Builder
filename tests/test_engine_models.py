@@ -1344,10 +1344,15 @@ def test_the_boss_is_scored_with_its_own_resistances_not_pob_s_50(engine):
     build.call("resetConfig", boss=pob)
     at_50 = build.call("stats", fields=FIELDS)["CombinedDPS"]
     pob_time = build.call("stats", fields=["enemySkillTime"])["enemySkillTime"]
+    # MECHD5: the default is the invented worst-case pinnacle (Cold 45%: x1.1 over PoB's 50%), its hits included
     config = build.call("resetConfig")["input"]
-    assert {k: config[k] for k in bosses.config_vars()} == bosses.config_vars()
+    assert {k: config[k] for k in bosses.config_vars()} == pytest.approx(bosses.config_vars())
+    assert config["enemyColdDamage"] > 0 and config["enemyColdResist"] == 45
+    at_worst = build.call("stats", fields=FIELDS)["CombinedDPS"]
+    assert at_50 > 0 and 1.0 < at_worst / at_50 < 1.15
+    build.call("resetConfig", boss=bosses.config_vars("Arbiter of Ash"))
     at_ash = build.call("stats", fields=FIELDS)["CombinedDPS"]
-    assert at_50 > 0 and 1.5 < at_ash / at_50 <= 2.31
+    assert 1.5 < at_ash / at_50 <= 2.31
     # MECHD4: the preset's defence cadence reaches PoB's enemySkillTime (the Arbiter: PoB's 0.7 s, faster than its upper
     # bound on hits; the Bodach 0.6 s; the same boss Slow on all)
     ash_time = build.call("stats", fields=["enemySkillTime"])["enemySkillTime"]
@@ -1355,7 +1360,7 @@ def test_the_boss_is_scored_with_its_own_resistances_not_pob_s_50(engine):
     build.call("resetConfig", boss=bosses.config_vars("The Bodach"))
     bodach_time = build.call("stats", fields=["enemySkillTime"])["enemySkillTime"]
     assert bodach_time / pob_time == pytest.approx(600 / 700, rel=1e-3)
-    build.call("resetConfig")
+    build.call("resetConfig", boss=bosses.config_vars("Arbiter of Ash"))
     # MECHD4: the boss's Culling threshold reaches PoB's game constant (5% x Life / (Life + ES)); every reset puts the
     # preset's back (the Arbiter has no ES: PoB's 5)
     def cull():
@@ -1366,6 +1371,7 @@ def test_the_boss_is_scored_with_its_own_resistances_not_pob_s_50(engine):
     build.call("resetConfig", boss=pob)
     assert cull() == 5
     build.call("resetConfig")
+    assert cull() == pytest.approx(bosses.cull_threshold(bosses.DEFAULT))  # the worst case: Atziri's 33% ES share
 
 
 def test_a_unique_granting_a_remnant_source_is_tried_for_real_in_the_gear_round(engine):

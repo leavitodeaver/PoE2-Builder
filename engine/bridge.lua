@@ -2145,11 +2145,12 @@ function bridge.getConfig()
 	return { input = input }
 end
 
--- The boss's own resistances (MECH50; builder/search/bosses.py PRESETS, the Arbiter of Ash by default:
--- poe2db 12 Nov 2026, game 0.5.5), not PoB's Pinnacle placeholder 50/50/50/0. Must equal
--- bosses.config_vars(bosses.DEFAULT) (tests/test_models.py checks it).
-local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = -15, enemyLightningResist = 0, enemyChaosResist = 0,
-	enemySpeed = 700, cullingStrikeUniqueThreshold = 5 }
+-- The boss's own resistances (MECH50; builder/search/bosses.py PRESETS), not PoB's Pinnacle placeholder 50/50/50/0;
+-- by default the invented worst-case pinnacle (MECHD5, the user's decision 12 Nov 2026: each stat the worst of the 12
+-- real presets), its hits per type included. Must equal bosses.config_vars(bosses.DEFAULT) (tests/test_models.py).
+local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = 45, enemyLightningResist = 45, enemyChaosResist = 0,
+	enemySpeed = 510, cullingStrikeUniqueThreshold = 4.6086, enemyPhysicalDamage = 1223, enemyFireDamage = 4138,
+	enemyColdDamage = 4892, enemyLightningDamage = 4892, enemyChaosDamage = 2069 }
 -- PoB's own Unique Culling Strike threshold (Data/Misc.lua: 5%). The boss's `cullingStrikeUniqueThreshold` (MECHD4,
 -- bosses.cull_threshold: 5% x Life / (Life + Energy Shield), so CullMultiplier is the gain over the whole pool) replaces
 -- it in data.gameConstants, which CalcOffence reads (4071 / 4075); every resetConfig puts PoB's back first.
@@ -2174,17 +2175,17 @@ function bridge.resetConfig(args)
 	end
 	POB_CULL_UNIQUE = POB_CULL_UNIQUE or data.gameConstants["CullingStrikeUniqueThreshold"]
 	data.gameConstants["CullingStrikeUniqueThreshold"] = POB_CULL_UNIQUE
+	-- The boss's hits per damage type (MECHC6, builder/search/boss_hits.py config_vars: the game's monster tables, not
+	-- PoB's Pinnacle 965 per type): each type the boss deals at its full size, the others 0 (args.bossHits, else the
+	-- Arbiter's). Written first: the boss's own config (bosses.config_vars, MECHD5: it carries the boss's hits) wins.
+	for var, value in pairs((args and args.bossHits) or BOSS_HITS_DEFAULT) do
+		fresh.input[var] = value
+	end
 	for var, value in pairs((args and args.boss) or BOSS_DEFAULT) do
 		fresh.input[var] = value
 		if var == "cullingStrikeUniqueThreshold" then
 			data.gameConstants["CullingStrikeUniqueThreshold"] = value
 		end
-	end
-	-- The boss's hits per damage type (MECHC6, builder/search/boss_hits.py config_vars: the game's monster tables, not
-	-- PoB's Pinnacle 965 per type): each type the boss deals at its full size, the others 0 (args.bossHits, else the
-	-- Arbiter's)
-	for var, value in pairs((args and args.bossHits) or BOSS_HITS_DEFAULT) do
-		fresh.input[var] = value
 	end
 	configTab:SetActiveConfigSet(id, false, true)
 	recalc()

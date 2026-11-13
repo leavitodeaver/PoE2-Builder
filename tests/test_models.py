@@ -264,6 +264,7 @@ def test_unmodeled_metas_count_nothing_rather_than_a_self_cast():
     assert groups == set() and "not counted" in notes[0]["label"]
 
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_the_other_metas_gain_energy_from_their_own_events(pob_cadence):
     comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
     stats = {"Speed": 2, "HitChance": 100, "enemySkillTime": 0.5, "EvadeChance": 20, "EffectiveBlockChance": 50,
@@ -826,6 +827,7 @@ def test_melting_maelstrom_pulses_are_the_mana_you_spend():
                                                        "args": {"share": 1.0, "chaosResist": 0.0}}]
 
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_heavy_stuns_come_from_the_hits_buildup_less_cold_at_the_game_files_threshold():
     """The boss's Heavy Stuns per second from PoB's per-hit buildup (POE2 9 Nov, MECH20): x9.38/12.35 for the game
     files' Arbiter of Ash threshold (the user's boss, 9 Nov), Cold's share taken out (the game's Cold text), +500% threshold for 16.5 s after each stun."""
@@ -843,6 +845,7 @@ def test_heavy_stuns_come_from_the_hits_buildup_less_cold_at_the_game_files_thre
     assert models.heavy_stun_rate({"Speed": 2.0, "HitChance": 100})[0] == 0
 
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_guided_hand_boosts_the_attacks_after_a_heavy_stun():
     passive = models.Inputs(flags={"GuidedHand"})
     lines = [{"source": "passive:Guided Hand", "text": "Ancestrally Boosted Attacks deal 30% increased Damage"}]
@@ -1494,6 +1497,7 @@ def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
     assert models.glory_uses(["Spark"], stats, spell) == (0.0, "no Glory skill")
 
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_freezes_electrocutes_and_stuns_of_the_boss_are_rated_from_the_build_not_one_per_30_s():
     """Charges on freeze / electrocute / pin / stun and Voltaic / Freezing Mark's buff took one such event per 30 s
     (assumed). Now Freeze and Electrocute come from PoB's buildup per hit x hits/s at the Arbiter of Ash's threshold,
@@ -1713,6 +1717,7 @@ def test_a_chill_lasts_8_s_on_the_boss_or_pob_s_chill_duration():
     assert rate == pytest.approx(1 / (2 + 1 / (1 - 0.9 ** 12))) and "12 s" in how
 
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_archon_of_the_blizzard_waits_for_a_gap_in_the_boss_s_landing_hits():
     """Energy Shield Recharge needs `delay` s with no damage: every landing boss hit restarts it (MECH46, FLAT_RATES A8:
     was a flat 2 x delay)."""
@@ -1760,6 +1765,7 @@ def test_a_flask_or_charm_counts_whole_only_at_full_uptime():
     assert flasks.ACTIVE_UPTIME == conditions.FULL_UPTIME
 
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_the_bosss_fire_hits_ignite_you_by_flammability_against_your_ailment_threshold():
     """MECHC7 (AUDIT21 A21-1): KeywordPopups Flammability: 1% Ignite chance per 5% of your Ailment Threshold dealt as Fire,
     stacking over 8 s, raised by the boss skill's increased Ignite chance; a CI build with no other Ailment Threshold
@@ -2493,8 +2499,9 @@ def test_crown_of_thorns_life_loss_keeps_life_flask_effects_going():
 
 
 def test_the_bridge_s_default_boss_is_the_presets_default():
-    """MECH50: bridge.lua's BOSS_DEFAULT (resetConfig with no boss) equals bosses.config_vars(bosses.DEFAULT), and the
-    presets hold RESEARCH9's resistances for the Arbiter of Ash (Fire 45, Cold -15, Lightning 0, Chaos 0)."""
+    """MECH50: bridge.lua's BOSS_DEFAULT (resetConfig with no boss) equals bosses.config_vars(bosses.DEFAULT); since
+    MECHD5 the default is the invented worst-case pinnacle (the user, 12 Nov 2026), its hits per type included; the
+    presets still hold RESEARCH9's resistances for the Arbiter of Ash (Fire 45, Cold -15, Lightning 0, Chaos 0)."""
     import re
     from pathlib import Path
 
@@ -2502,13 +2509,15 @@ def test_the_bridge_s_default_boss_is_the_presets_default():
 
     lua = (Path(__file__).resolve().parents[1] / "engine" / "bridge.lua").read_text(encoding="utf-8")
     table = re.search(r"local BOSS_DEFAULT = \{([^}]*)\}", lua).group(1)
-    found = {k: int(v) for k, v in re.findall(r"(\w+) = (-?\d+)", table)}
-    assert found == bosses.config_vars() == {"enemyFireResist": 45, "enemyColdResist": -15, "enemyLightningResist": 0,
-                                             "enemyChaosResist": 0, "enemySpeed": 700,
-                                             "cullingStrikeUniqueThreshold": 5}
-    note = bosses.note()
-    assert note["label"] == "Boss: Arbiter of Ash" and "Cold -15%" in note["value"]
-    assert all(b.chaos == 0 for b in bosses.PRESETS.values()) and len(bosses.PRESETS) == 12
+    found = {k: float(v) for k, v in re.findall(r"(\w+) = (-?[\d.]+)", table)}
+    assert found == bosses.config_vars(bosses.DEFAULT)
+    assert {k: found[k] for k in ("enemyFireResist", "enemyColdResist", "enemyLightningResist", "enemyChaosResist",
+                                  "enemySpeed")} == {"enemyFireResist": 45, "enemyColdResist": 45,
+                                                     "enemyLightningResist": 45, "enemyChaosResist": 0, "enemySpeed": 510}
+    assert bosses.DEFAULT == bosses.WORST and bosses.note()["label"] == "Boss: Pinnacle (worst case)"
+    ash = bosses.config_vars("Arbiter of Ash")
+    assert (ash["enemyFireResist"], ash["enemyColdResist"], ash["enemyLightningResist"]) == (45, -15, 0)
+    assert all(b.chaos == 0 for b in bosses.PRESETS.values()) and len(bosses.REAL) == 12 == len(bosses.PRESETS) - 1
 
 
 def test_repeatable_spell_is_off_for_triggered_instant_or_channelled_main_spells():
@@ -2877,6 +2886,7 @@ def test_wildwoods_gifts_blooms_give_flasks_and_charms_charges():
     assert rate == pytest.approx(each / 5) and "Ancient Blooms" in how and "UNVERIFIED" in how
     assert bloom_charges(Charges.from_bridge({}), "Life") == 0.0
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_boss_model_fields_mechd1():
     """MECHD1 (the boss model): one Monster Category per boss (RESEARCH23 #138; the King by form, #147), the King's 1.75
     bars, add kills per preset (AUDIT16 A16-2), the boss's own stun threshold (RESEARCH18 #91) and Heavy Stun duration
@@ -3243,9 +3253,12 @@ def test_defences_read_the_faster_boss_cadence_and_only_when_hit_benefits_the_sl
         assert bosses.config_vars(name)["enemySpeed"] == round(min(0.7, bosses.HITS_EVERY[name]) * 1000) <= 700
     assert bosses.config_vars("The Bodach")["enemySpeed"] == 600
     # the Arbiter, Slowed so PoB reads 0.9 s: benefits read 0.9 x 1.78 / 0.7 (MECHD5: its melee strikes counted)
-    assert bosses.benefit_skill_time({"enemySkillTime": 0.9}) == pytest.approx(0.9 * 1.78 / 0.7)
+    ash = {"_boss": "Arbiter of Ash"}
+    assert bosses.benefit_skill_time({**ash, "enemySkillTime": 0.9}) == pytest.approx(0.9 * 1.78 / 0.7)
     assert bosses.benefit_skill_time({"enemySkillTime": 0.6, "_boss": "The Bodach"}) == pytest.approx(0.6 * 1.27 / 0.6)
-    assert bosses.benefit_skill_time({}) == pytest.approx(1.78)
+    assert bosses.benefit_skill_time(ash) == pytest.approx(1.78)
+    # the worst case (the default since MECHD5): defences at 0.51 s, benefits at the slowest per-use rate, 2.10 s
+    assert bosses.benefit_skill_time({}) == pytest.approx(2.10)
 
 
 def test_melee_uses_count_their_animation_strikes_in_both_cadence_bounds():
@@ -3263,6 +3276,37 @@ def test_melee_uses_count_their_animation_strikes_in_both_cadence_bounds():
     for name, (lo, hi) in {"Xesht, We That Are One": (1.25, 0.91), "The Bodach": (1.27, 0.60),
                            "The King in the Mists": (1.53, 1.43), "Vessel of Kulemak": (1.12, 0.91)}.items():
         assert (bosses.HIT_EVERY[name], bosses.HITS_EVERY[name]) == (lo, hi)
+
+
+def test_the_default_boss_is_an_invented_worst_case_pinnacle():
+    """MECHD5 (the user's decision, 12 Nov 2026): the default boss takes, per stat, the value worst for the player among
+    the 12 real presets, within reason (no immunities; the Arbiter of Ash's Life), each value's source named."""
+    from builder.search import boss_hits, bosses
+
+    w = bosses.PRESETS[bosses.DEFAULT]
+    real = [bosses.PRESETS[n] for n in bosses.REAL]
+    assert (w.fire, w.cold, w.lightning, w.chaos) == (45, 45, 45, 0)
+    assert (w.fire, w.cold, w.lightning) == (max(b.fire for b in real), max(b.cold for b in real),
+                                             max(b.lightning for b in real))
+    assert w.poise == max(b.poise for b in real) == 2275 and w.heavy_stun_s == 4.0
+    assert w.es_from_life == 33 and bosses.cull_threshold(w.name) == min(bosses.cull_threshold(n) for n in bosses.REAL)
+    assert w.immune == frozenset() and w.kills == () and bosses.kills_per_second(w.name)[0] == 0
+    assert w.category is None and w.life == bosses.PRESETS["Arbiter of Ash"].life
+    assert bosses.HITS_EVERY[w.name] == min(bosses.HITS_EVERY[n] for n in bosses.REAL) == 0.51
+    assert bosses.HIT_EVERY[w.name] == max(bosses.HIT_EVERY[n] for n in bosses.REAL)
+    # hits: each type at the biggest any real preset deals; PoB gets them through config_vars
+    sizes = bosses.worst_hit_sizes()
+    for t in boss_hits.TYPES:
+        assert sizes[t] == max(boss_hits.hit_sizes(n)[t] for n in bosses.REAL) > 0
+    cv = bosses.config_vars()
+    assert cv["enemyColdDamage"] == round(sizes["Cold"]) and cv["enemyPhysicalDamage"] == round(sizes["Physical"])
+    assert sum(bosses.worst_type_shares().values()) == pytest.approx(1.0)
+    # the unavoidable shares boss_hits reads: the highest of each (Xesht 4 / 11, Kulemak 2 / 9)
+    assert boss_hits.shares({}) == pytest.approx((4 / 11, 2 / 9))
+    # a named boss's own hits now reach PoB (the bridge gave every boss the Arbiter's before)
+    assert bosses.config_vars("Vessel of Kulemak")["enemyLightningDamage"] == boss_hits.config_vars("Vessel of Kulemak")[
+        "enemyLightningDamage"] > 0
+    assert "Bodach" in w.note and "Kulemak" in w.note and "worst case" in bosses.note()["basis"]
 
 
 def test_culling_takes_5_percent_of_the_boss_s_life_not_of_its_energy_shield():
@@ -3283,7 +3327,7 @@ def test_the_boss_ignites_you_for_a_share_of_the_fight():
     gives the smaller uptime."""
     from builder.search import bosses
 
-    s = {"enemySkillTime": 0.7, "Life": 5000, "AilmentThreshold": 2500, "FireTakenHit": 3000}
+    s = {"enemySkillTime": 0.7, "Life": 5000, "AilmentThreshold": 2500, "FireTakenHit": 3000, "_boss": "Arbiter of Ash"}
     share, how = bosses.self_ignite_uptime(s)  # (read at benefit_skill_time: 1.78 s for the Arbiter)
     assert 0 < share < 1 and "Ignited" in how and "0.56 landed hits/s" in how
     assert bosses.self_ignite_uptime({**s, "enemySkillTime": 0.35})[0] > share

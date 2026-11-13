@@ -695,6 +695,7 @@ def test_a_feasible_result_always_outranks_one_that_misses_a_floor():
     assert sorted([veil, feasible], key=rank_key)[0] is feasible
 
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_boss_fight_conditions_from_the_builds_own_numbers():
     from builder.search import conditions as c
 
@@ -836,6 +837,7 @@ def test_rage_on_melee_axe_hit_needs_an_axe():
     assert rage_held(line, {**melee, "_weapon_types": ["Two Handed Axe"]})[0] > 0
     assert rage_held(["Gain 2 Rage on Melee Hit"], {**melee, "_weapon_types": ["One Handed Mace"]})[0] > 0
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_rage_held_from_gains_spends_and_its_decay():
     """KeywordPopups Rage: 1 lost per 0.2 s, the loss paused 4 s on a gain or a hit taken, one Hit per 0.5 s gains."""
     from builder.search.conditions import rage_held
@@ -1100,6 +1102,7 @@ def test_a_search_that_ends_short_goes_back_to_the_best_feasible_build_it_saw():
     assert search.build.stats["dps"] == 500_000
 
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_recovery_against_a_boss():
     """The optional recovery floor (the user's choice, 7 Nov): sustained recovery, less skill costs, as a share of the
     boss's damage per second after mitigation; Mana only for the damage Mind over Matter sends to it."""
@@ -1299,6 +1302,7 @@ def test_parried_at_the_share_of_hits_the_build_parries():
     assert "parryActive" in {c.var for c in CONDITIONS} and KINDS["parryActive"][0] == PLAYER
 
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_frozen_and_electrocuted_at_the_share_the_boss_carries_them():
     """KeywordPopups: Freeze 4 s, Electrocution 5 s by default; one per bar refill, x6 threshold for 14 / 15 s after each
     (MECH38: before, nothing set either box, so their damage-taken lines counted 0)."""
@@ -1368,6 +1372,7 @@ def test_arcane_surge_on_only_when_its_sources_keep_it_up():
     assert len(arcane_surge_uptime(["You have Arcane Surge"], spell)) == 3
 
 
+@pytest.mark.usefixtures("arbiter_default")  # (its numbers are the Arbiter of Ash's: MECHD5)
 def test_debuffs_on_only_when_their_sources_keep_them_up():
     """KeywordPopups Blind / Maim / Hinder: 4 s; Intimidate, Ash, Frost 4 s assumed; on at 90% uptime (MECH29; any
     inflicting line turned them on)."""

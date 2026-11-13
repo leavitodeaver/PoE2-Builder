@@ -165,8 +165,8 @@ def test_a_seeds_own_configuration_is_not_evidence(engine):
         assert var not in config or (active is not None and config[var] == active["value"]), (var, config.get(var))
     changed = {var for var in set(config) | set(fresh) if config.get(var) != fresh.get(var) and not var.startswith("quest")}
     from builder.search import boss_hits
-    for var, value in boss_hits.config_vars().items():  # (MECHC6: the boss's hits per damage type)
-        assert config.get(var) == value, (var, config.get(var))
+    for var in boss_hits.config_vars():  # (MECHC6: the boss's hits per damage type; MECHD5: the default boss's own,
+        assert config.get(var) == bosses.config_vars()[var], (var, config.get(var))  # carried by bosses.config_vars)
     assert changed - set(bosses.config_vars()) - set(boss_hits.config_vars()) <= set(search.conditions.active)
 
 

@@ -14,8 +14,8 @@ CalcBreakdown.lua; KeywordPopups.json Penetration, game 26476662.)
 
 Every value: poe2db's current monster rows (read 12 Nov 2026, game 0.5.5), via RESEARCH9; resistances MEDIUM-HIGH, Life
 x29 rarity at level 82 (formula HIGH, level MEDIUM). A game update (26476662 -> 26579160) was waiting on 12 Nov:
-recheck after it. Which boss(es) the objective targets is the user's open question; the default stays the Arbiter of
-Ash (the user's reference boss for Heavy Stun, 9 Nov).
+recheck after it. The default (MECHD5, the user's decision 12 Nov 2026) is an invented worst-case pinnacle, WORST: each
+stat the worst for the player among the 12 real presets; a request can still name a real one.
 
 Models read the boss a calculation is scored against with `of(stats)`: stats["_boss"] (kill_stats() puts it there beside
 the models), else the default.
@@ -70,6 +70,10 @@ class Boss(NamedTuple):
     # the enemy in full (CalcPerform.lua calcs.actionSpeedMod, no SlowPotency for bosses: research-checked), which only
     # lengthens the boss's skill time (CalcDefence.lua 3428, survival): models reading a Slow's magnitude multiply by this.
     slow_taken: float = 0.5
+    # Shares of the boss's hits with no evade / block roll, and with evasion but no block (boss_hits.shares reads these
+    # when set, else its own RED_FLASH table): set only on the worst case (MECHD5).
+    unavoidable: float | None = None
+    unblockable: float | None = None
 
 
 POB_POISE = 938  # PoB's Pinnacle preset's threshold multiplier (+838%; RESEARCH18 #91)
@@ -281,7 +285,92 @@ def moving_ceiling(stats: dict | None = None) -> tuple[float, str]:
                    "(an upper bound: each used off cooldown, 0.5 s of travel each, UNVERIFIED; walking is the "
                    "player's choice and teleports don't count; MECHD3, RESEARCH22 #122)")
 
-DEFAULT = "Arbiter of Ash"
+# The default boss: ONE INVENTED WORST-CASE PINNACLE (the user's decision, 12 Nov 2026, via the manager: "invent a
+# pinnacle boss that ... takes the highest stats of each and combines them (within reason), so builds return
+# conservative numbers"; worst case only, no per-boss table). Per stat, the value worst for the player among the 12 real
+# presets above (REAL), each named with the boss it comes from in WORST_SOURCES; a request can still name a real boss.
+# Within reason: no immunities (else Freeze / Electrocute builds read 0); where a stat cuts both ways (Life: fight
+# length against ramp-up) the Arbiter of Ash's, the old default. Where a MECH-C table is keyed by boss name (boss_hits'
+# HIT_TABLE, IGNITE_INCREASE, CORRUPTED_BLOOD) it reads the Arbiter of Ash's row for this name until its owner reads
+# worst_hit_sizes / worst_type_shares (asked in MECHD5's report); PoB itself gets the worst hits through config_vars.
+WORST = "Pinnacle (worst case)"
+REAL = tuple(PRESETS)
+
+
+def _worst_hits() -> tuple[dict[str, str], dict[str, int]]:
+    """({damage type: the real preset with its biggest hit}, pooled skill counts per type over the 12 presets)."""
+    from builder.search import boss_hits
+    source, pooled = {}, {t: 0 for t in boss_hits.TYPES}
+    for t in boss_hits.TYPES:
+        dealt = [n for n in REAL if boss_hits.HIT_TABLE[n][1].get(t)]
+        source[t] = max(dealt, key=lambda n: boss_hits.HIT_TABLE[n][0])
+        for n in REAL:
+            pooled[t] += boss_hits.HIT_TABLE[n][1].get(t, 0)
+    return source, pooled
+
+
+WORST_HIT_FROM, WORST_HIT_COUNTS = _worst_hits()
+
+
+def worst_hit_sizes(reading: str = "headline") -> dict[str, float]:
+    """One hit of each damage type at the biggest any real preset deals (boss_hits.hit_sizes of that preset)."""
+    from builder.search import boss_hits
+    return {t: boss_hits.hit_sizes(n, reading)[t] for t, n in WORST_HIT_FROM.items()}
+
+
+def worst_type_shares() -> dict[str, float]:
+    """Each type's share of the worst case's hits: the 12 presets' damaging skills pooled (LOW, as each boss's own mix;
+    which type is worst depends on the build, so no single type is weighted up: the survival check meets every type's
+    biggest hit instead)."""
+    total = sum(WORST_HIT_COUNTS.values())
+    return {t: c / total for t, c in WORST_HIT_COUNTS.items()}
+
+
+def _worst_red_flash() -> tuple[tuple[float, str], tuple[float, str]]:
+    from builder.search import boss_hits
+    share = {n: boss_hits.RED_FLASH[n] for n in REAL}
+    una = max(REAL, key=lambda n: share[n][0] / share[n][2])
+    eva = max(REAL, key=lambda n: share[n][1] / share[n][2])
+    return (share[una][0] / share[una][2], una), (share[eva][1] / share[eva][2], eva)
+
+
+(_UNAVOIDABLE, _UNA_FROM), (_UNBLOCKABLE, _EVA_FROM) = _worst_red_flash()
+_POISE_FROM = max(REAL, key=lambda n: PRESETS[n].poise)
+_ES_FROM = max(REAL, key=lambda n: PRESETS[n].es_from_life)
+WORST_SOURCES = {
+    "resistances": "Fire / Cold / Lightning 45 / 45 / 45, Chaos 0: the highest of each (Fire: the Arbiter of Ash and "
+                   "the Aberration; Cold: Olroth; Lightning: the Arbiter of Divinity; Chaos: 0 on every preset)",
+    "Life": "the Arbiter of Ash's 9,461,668 (it cuts both ways: fight length against ramp-up; the old default's)",
+    "Monster Category": "none: no 'against <category>' line applies (Demon, Humanoid, Beast, Construct and Undead "
+                        "lines all read 0)",
+    "stun threshold": f"{PRESETS[_POISE_FROM].poise}% ({_POISE_FROM}), the highest",
+    "Heavy Stun duration": "4 s (BossBase's, every preset but Olroth's 6.07 s): the shortest, worst for the player",
+    "Energy Shield from Life": f"{PRESETS[_ES_FROM].es_from_life}% ({_ES_FROM}): the highest, so Culling Strike's "
+                               "share of the pool is the smallest",
+    "immunities": "none (within reason: Zarokh's Freeze / Electrocute immunity would zero those builds)",
+    "adds": "none: on-kill lines read 0 (the King's totems and Atziri's acolytes left out)",
+    "hits": "each damage type at the biggest any preset deals (" + ", ".join(
+        f"{t}: {n}" for t, n in WORST_HIT_FROM.items()) + "); the type mix pooled over the 12 presets' damaging skills",
+    "unavoidable hits": f"{_UNAVOIDABLE:.0%} with no evade / block roll ({_UNA_FROM}), {_UNBLOCKABLE:.0%} evadable "
+                        f"but not blockable ({_EVA_FROM}): the highest of each",
+    "cadence": "defences at the fastest upper bound on hits (the smallest HITS_EVERY), 'when hit' benefits at the "
+               "slowest one-hit-per-use rate (the largest HIT_EVERY)",
+    "ailments on you": "every ailment any preset inflicts (for defence readings; not a rate for a 'while you are "
+                       "<ailment>' benefit)",
+    "Slow taken": "50% less, as every Unique",
+}
+PRESETS[WORST] = Boss(
+    WORST, 45, 45, 45, 0, PRESETS["Arbiter of Ash"].life, None,
+    "an invented worst case (the user, 12 Nov 2026): " + "; ".join(f"{k}: {v}" for k, v in WORST_SOURCES.items()),
+    poise=PRESETS[_POISE_FROM].poise, heavy_stun_s=min(PRESETS[n].heavy_stun_s for n in REAL),
+    es_from_life=PRESETS[_ES_FROM].es_from_life,
+    inflicts=tuple(dict.fromkeys(a for n in REAL for a in PRESETS[n].inflicts)),
+    unavoidable=_UNAVOIDABLE, unblockable=_UNBLOCKABLE)
+HIT_EVERY[WORST] = max(HIT_EVERY[n] for n in REAL)
+HITS_EVERY[WORST] = min(HITS_EVERY[n] for n in REAL)
+MOVING_CEILING[WORST] = max(MOVING_CEILING[n] for n in REAL)  # (the play guide's optional row: the most a boss moves)
+
+DEFAULT = WORST
 SOURCE ="poe2db's monster rows, read 12 Nov 2026 (game 0.5.5), RESEARCH9; MEDIUM-HIGH"
 
 
@@ -357,10 +446,16 @@ def config_vars(name: str = DEFAULT) -> dict[str, float]:
     `boss` argument): enemySpeed is defence_hit_every in ms (700, PoB's, unless the upper bound on hits is faster: the
     Bodach 600, Atziri the Red Queen 550; MECHD4);
     cullingStrikeUniqueThreshold isn't a PoB config input: the bridge writes it into PoB's game constant (MECHD4)."""
+    from builder.search import boss_hits
     b = PRESETS[name]
+    # The boss's hits per type (MECHD5): the bridge wrote the Arbiter of Ash's for every boss (nothing passed bossHits),
+    # so a named boss's PoB hits were the Arbiter's while boss_hits weighed them by its own mix; now its own sizes
+    # (boss_hits.config_vars), the worst case's from worst_hit_sizes.
+    hits = ({f"enemy{t}Damage": round(v) for t, v in worst_hit_sizes().items()} if name == WORST
+            else boss_hits.config_vars(name))
     return {"enemyFireResist": b.fire, "enemyColdResist": b.cold, "enemyLightningResist": b.lightning,
             "enemyChaosResist": b.chaos, "enemySpeed": round(defence_hit_every(name) * 1000),
-            "cullingStrikeUniqueThreshold": cull_threshold(name)}
+            "cullingStrikeUniqueThreshold": round(cull_threshold(name), 4), **hits}
 
 
 def note(name: str = DEFAULT) -> dict:
@@ -368,10 +463,13 @@ def note(name: str = DEFAULT) -> dict:
     b = PRESETS[name]
     kills, how = kills_per_second(name)
     category = (b.category if isinstance(b.category, str) else
-                ", ".join(f"{c} {s:.0%}" for c, s in b.category.items()) if b.category else "unknown (UNVERIFIED)")
+                ", ".join(f"{c} {s:.0%}" for c, s in b.category.items()) if b.category else
+                "none (chosen: no 'against <category>' line applies)" if name == WORST else "unknown (UNVERIFIED)")
+    source = ("the highest of each among the 12 real presets (" + SOURCE + ")" if name == WORST else
+              f"the boss's own resistances ({SOURCE})")
     return {"label": f"Boss: {b.name}", "value": f"Fire {b.fire}% / Cold {b.cold}% / Lightning {b.lightning}% / "
                                                   f"Chaos {b.chaos}%",
-            "basis": f"the boss's own resistances ({SOURCE}), not PoB's default Pinnacle 50/50/50; Penetration stops at "
+            "basis": f"{source}, not PoB's default Pinnacle 50/50/50; Penetration stops at "
                      "0% (PoB and the game agree). Other pinnacles differ: elemental damage moves up to x2.3 between "
                      f"them. Life {b.life:,} at level 82; Monster Category {category}; stun threshold {b.poise}% "
                      f"(PoB's buildup x{threshold_scale({'_boss': name}):.2f}); Heavy Stun {b.heavy_stun_s:g} s; "

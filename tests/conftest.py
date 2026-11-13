@@ -145,3 +145,13 @@ def pytest_terminal_summary(terminalreporter):
         terminalreporter.write_line(replay.summary(list(_stores.values())))
         for nodeid, asked in _asked_real.items():
             terminalreporter.write_line(f"  real PoB answered {asked} call(s) for {nodeid}")
+
+
+@pytest.fixture
+def arbiter_default(monkeypatch):
+    """Score against the Arbiter of Ash where no boss is named, as before MECHD5 made the invented worst-case pinnacle
+    the default (the user's decision, 12 Nov 2026): for tests whose expected numbers were worked out from the Arbiter's
+    figures (its red-flash share, stun threshold, cadence, hit mix)."""
+    from builder.search import bosses
+
+    monkeypatch.setattr(bosses, "DEFAULT", "Arbiter of Ash")
