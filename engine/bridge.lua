@@ -957,12 +957,66 @@ local function setCostShort(env)
 	end
 end
 
+-- Skills a support gem grants, at the supported skill's level (MECHB16, an UNDERCOUNT). PoB makes a support's granted
+-- active skill (gemData.additionalGrantedEffects) at the support gem instance's own level (CalcSetup 2288, level =
+-- gemInstance.level), and a PoE2 support has one level, so Poison Spores' Pustule, Impending Doom's Doom Blast and the
+-- rest are scored at level 1. The game: such a skill has its own 40 levels (GrantedEffectsPerLevel and
+-- GrantedEffectStatSetsPerLevel, game 26476662: e.g. TriggeredPoisonSporesPustule 40 rows against SupportPoisonSpores'
+-- 1), and poe2db's Toxic Pustule reads "This Skill will copy the Level of the Gem it is Socketed in" (supports are
+-- socketed in the skill gem they support). So a granted skill with more than one level takes the level of the first
+-- active gem of its group, as PoB calculated it (with its +level mods); one with a single level (28 of the 61 support-
+-- granted effects, which scale otherwise) is left as it is. MEDIUM: poe2db's line is for the Pustule; the other 32
+-- with 40 levels are read the same way (no other reading would give them 40 levels).
+local grantedLevelInstalled, groupActiveLevel = false, setmetatable({ }, { __mode = "k" })
+local function installGrantedLevel()
+	if grantedLevelInstalled then
+		return
+	end
+	local calcs = require("Modules.CalcBase")
+	local original = calcs.createActiveSkill
+	if not original then
+		return
+	end
+	grantedLevelInstalled = true
+	calcs.createActiveSkill = function(activeEffect, supportList, env, actor, socketGroup, ...)
+		local src = activeEffect and activeEffect.srcInstance
+		local gemData = src and src.gemData
+		if socketGroup and gemData and gemData.grantedEffect and env then
+			local levels = groupActiveLevel[env] or { }
+			groupActiveLevel[env] = levels
+			if not gemData.grantedEffect.support then
+				if activeEffect.grantedEffect == gemData.grantedEffect and not levels[socketGroup] then
+					levels[socketGroup] = activeEffect.level
+				end
+			elseif activeEffect.grantedEffect and not activeEffect.grantedEffect.support
+					and #activeEffect.grantedEffect.levels > 1 then
+				local level = levels[socketGroup]
+				if not level then
+					for _, gem in ipairs(socketGroup.gemList or { }) do
+						if gem.enabled and gem.gemData and gem.gemData.grantedEffect and not gem.gemData.grantedEffect.support then
+							level = gem.level
+							break
+						end
+					end
+				end
+				if level and activeEffect.grantedEffect.levels[level] then
+					activeEffect.level = level
+				elseif level then
+					activeEffect.level = math.max(1, math.min(level, #activeEffect.grantedEffect.levels))
+				end
+			end
+		end
+		return original(activeEffect, supportList, env, actor, socketGroup, ...)
+	end
+end
+
 local function installDerived()
 	installLedgerBonded()
 	installSpiritVessel()
 	installCannotChill()
 	installBossSlow()
 	installNoCritReroll()
+	installGrantedLevel()
 	local calcs = require("Modules.CalcBase")
 	if calcs.perform == wrappedPerform or not calcs.perform then
 		return
@@ -2513,7 +2567,9 @@ function bridge.setRates(args)
 	end
 	instance.statSet[id], instance.statSetCalcs[id], group.mainActiveSkill = oldSet, oldCalcs, oldActive
 	build.mainSocketGroup = saved
-	return { sets = sets }
+	-- (MECHB16) the label of the set the group scores (a Full DPS group's own choice), for models.multi_set_model
+	local chosen = (granted.statSets or { })[oldSet or 1]
+	return { sets = sets, chosen = chosen and chosen.label or "" }
 end
 
 -- MECH-B (models.hazard_early_model): "N% less damage if destroyed within 0.5 seconds by something other than you", a

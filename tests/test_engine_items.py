@@ -882,8 +882,8 @@ def test_poison_spores_pustule_explosion_is_held_to_one_a_fuse(engine):
     search.setup(quests=False)
     build = search.build
     group = next(g for g in build.groups() if g["main"])
-    gems = [x for x in group["gems"] if not x["support"]] + [{"name": "Poison Spores", "support": True, "level": 20,
-                                                              "quality": 0, "enabled": True}]
+    gems = [dict(x, level=20) for x in group["gems"] if not x["support"]] + [
+        {"name": "Poison Spores", "support": True, "level": 1, "quality": 0, "enabled": True}]
     build.call("setGroup", index=group["index"], gems=gems)
     group = next(g for g in build.groups() if g["index"] == group["index"])
     spores = next(i for i, s in enumerate(group["skills"], start=1) if s["name"] == "Poison Spores")
@@ -894,9 +894,9 @@ def test_poison_spores_pustule_explosion_is_held_to_one_a_fuse(engine):
     rate = build.call("useRates", indices=[group["index"]], actives=[spores])["rates"][0]
     print("Spores rate:", rate)
     assert rate["name"].startswith("Poison Spores") and rate["speed"] > 0 and abs(rate["detonationTime"] - 15) < 1e-6
-    # (MECHB15) read at the level PoB calculates the triggered Explosion at: the support's own level 1 (PoE2 supports have
-    # one level), so 2, not level 20's 969 (whether the game uses the supported skill's level: UNVERIFIED, routed)
-    assert rate["storedPoisonPerPercent"] == 2 and rate["storedPoisonMaxMore"] == 300, rate
+    # (MECHB16) the granted Explosion takes the supported skill's level (bridge installGrantedLevel; poe2db: "copy the
+    # Level of the Gem it is Socketed in"): Lightning Arrow at 20, so level 20's 969, not the support's own level 1's 2
+    assert rate["storedPoisonPerPercent"] == 969 and rate["storedPoisonMaxMore"] == 300, rate
     assert build.call("useRates", indices=[group["index"]])["rates"][0]["name"].startswith("Lightning Arrow")  # (put back)
     mods, notes = search.assumptions.pustule_cap(found)
     share = 1 / 15 / rate["speed"]

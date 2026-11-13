@@ -1483,6 +1483,49 @@ def test_remnant_rates_from_freezes_stuns_and_doubled_pickups(monkeypatch):
     assert "15% of pickups counting twice" in notes[-1]["basis"]
 
 
+def test_remnants_of_kalguur_on_kill_read_the_request_boss_adds():
+    """MECHB16: Remnants of Kalguur's on-kill chance (ward_remnants_chance_to_spawn_orb_on_killing_enemy_%, 25 at level
+    20) adds to the Explosive Transmutation supply at the enemies the build kills (build.kills[0], the boss preset's adds);
+    none on the default lone boss; own minions Killed aren't enemies."""
+    from builder.search.assumptions import kalguur_kill_rate
+
+    stats = {"ward_remnants_chance_to_spawn_orb_on_killing_enemy_%": 25}
+    rate, how = kalguur_kill_rate(0.1, "stuns", stats, (0.4, 1.4, "0.400 adds killed/s"))
+    assert rate == pytest.approx(0.1 + 0.25 * 0.4) and "25% a kill at 0.400 kills/s" in how
+    assert kalguur_kill_rate(0.1, "stuns", stats, (0.0, 0.0, ""))[0] == pytest.approx(0.1)  # a lone boss
+    assert kalguur_kill_rate(0.1, "stuns", stats, None)[0] == pytest.approx(0.1)
+    assert kalguur_kill_rate(0.1, "stuns", {}, (0.4, 0.4, "x")) == (0.1, "stuns")  # no stat: unchanged
+
+
+def test_rolling_slam_in_a_full_dps_group_counts_both_slams():
+    """MECHB16: a Rolling Slam in an enabled Full DPS group (not the main one) gets the same both-slams "more" from its
+    group's own chosen set (bridge setRates' `chosen`); not when the main skill is Rolling Slam (its tag covers both)."""
+    from builder.search import assumptions
+
+    sets = [{"label": "Rolling Slam", "TotalDPS": 0}, {"label": "First Slam", "TotalDPS": 100.0},
+            {"label": "Second Slam", "TotalDPS": 200.0}]
+    calls = []
+
+    class Build:
+        def main_group(self):
+            return {"index": 1}
+
+        def groups(self):
+            return [{"index": 1, "enabled": True, "fullDPS": True, "skills": [{"name": "Spark"}]},
+                    {"index": 2, "enabled": True, "fullDPS": True, "skills": [{"name": "Rolling Slam"}]},
+                    {"index": 3, "enabled": True, "fullDPS": False, "skills": [{"name": "Rolling Slam"}]}]
+
+        def call(self, method, **kw):
+            calls.append((method, kw))
+            return {"sets": sets, "chosen": "Second Slam"}
+
+    a = assumptions.Assumptions(Build())
+    mods, notes = a.multi_set_side(models.Skill("Spark", spell=True))
+    assert mods == [models.raw_mod("DPS", "MORE", 50.0, "Rolling Slam")] and "Full DPS group" in notes[0]["label"]
+    assert calls == [("setRates", {"index": 2, "active": 1})]  # (group 3 isn't in Full DPS)
+    assert a.multi_set_side(models.Skill("Rolling Slam", attack=True)) == ([], [])
+
+
 def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
     """Game files (GrantedEffectStatSets, 9 Nov): Hammer of the Gods costs 20 Glory and gains 100% of the boss's Power
     (20) per Heavy Stun; a Banner costs 200 and gains 20 per attack hit; Zerphi's Infamy turns 5% of Life spent into

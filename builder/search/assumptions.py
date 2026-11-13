@@ -54,8 +54,8 @@ REMNANT_SOURCES = {
                         "the rate the build kills them (models.minion_deaths; no flat rate, the user 11 Nov)"),
     "Orb of Storms": (0.0833, "one Orb kept up: a Remnant when each 12 s Orb expires"),
     "Remnants of Kalguur": (0.0, "50% per Stun, at most one per 3 s: the boss's Heavy and Light Stuns (models.stun_rate, "
-                                 "from the build's own buildup and hit size; MECHB13), and 25% per kill (none counted "
-                                 "here yet: ward_income counts them)"),
+                                 "from the build's own buildup and hit size; MECHB13), and 25% per kill at the enemies "
+                                 "the build kills (the request's boss preset's adds; 0 on a lone boss; MECHB16)"),
     "Siphon Elements": (0.0, "a Cold Remnant on each Freeze (5% per Power, a boss's 20 Power: 100%), the boss's Freezes "
                              "from the main skill's buildup (models.buildup_rate); Ignite and Shock make one only on a "
                              "target without that ailment, which a boss you keep ailing rarely is: not counted, an "
@@ -168,6 +168,20 @@ def kalguur_rate(stuns: float) -> float:
     """Remnants of Kalguur per second from `stuns` Stuns per second: one per KALGUUR_COOLDOWN + the expected wait for
     the next Stun that makes one (KALGUUR_CHANCE each)."""
     return 1.0 / (KALGUUR_COOLDOWN + 1.0 / (KALGUUR_CHANCE * stuns)) if stuns > 0 else 0.0
+
+
+KALGUUR_KILL_STAT = "ward_remnants_chance_to_spawn_orb_on_killing_enemy_%"
+
+
+def kalguur_kill_rate(rate: float, condition: str, level_stats: dict, kills) -> tuple[float, str]:
+    """Remnants of Kalguur's Stun rate plus its on-kill Remnants (MECHB16): the gem's chance per enemy killed at the
+    enemies the build kills a second (`kills`: models.kill_rate's (enemies/s, all/s, how); the boss preset's adds)."""
+    chance = models.number(level_stats.get(KALGUUR_KILL_STAT)) / 100
+    enemies = models.number(kills[0]) if kills else 0.0
+    how = kills[2] if kills and len(kills) > 2 and kills[2] else "no enemy dies before the boss"
+    if chance <= 0:
+        return rate, condition
+    return rate + chance * enemies, condition + f"; {chance:.0%} a kill at {enemies:.3f} kills/s ({how})"
 
 
 def siphon_freezes(stats: dict) -> tuple[float, str]:
@@ -501,6 +515,8 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             slam_mods, slam_notes = models.multi_set_model(main.name, main.stat_set, sets)
             hand_mods, hand_notes = hand_mods + slam_mods, hand_notes + slam_notes
+        side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
+        hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
         hand_mods, hand_notes = hand_mods + cap_mods, hand_notes + cap_notes
         spore_mods, spore_notes = self.pustule_cap(found)  # (MECH-B: Poison Spores' one Pustule a fuse, MECHB10)
@@ -784,6 +800,11 @@ class Assumptions:
                     stuns, how = models.stun_rate({**self.build.call("stats", fields=models.MODEL_FIELDS), **boss_stats},
                                                   melee)
                     rate, condition = kalguur_rate(stuns), f"50% per Stun, at most one per 3 s, {how}"
+                    # (MECHB16) and its on-kill chance (ward_remnants_chance_to_spawn_orb_on_killing_enemy_%, 25 at
+                    # level 20; no cooldown stat on it) at the enemies the build kills: the request's boss preset's adds
+                    # (build.kills[0], models.kill_rate; 0 on the default lone boss). Own minions aren't enemies.
+                    rate, condition = kalguur_kill_rate(rate, condition, skill.get("levelStats") or {},
+                                                        getattr(self.build, "kills", None))
                 elif name == SIPHON:
                     rate, condition = siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS))
                 elif name == LIVING_BOMB:
@@ -1074,6 +1095,32 @@ class Assumptions:
         duration = max([number(r.get("IgniteDuration")) for r in rates if number((r.get("stackPotential") or {})
                                                                                  .get("Ignite")) > 0] or [0.0])
         return models.frostflame_plan(uses, share, how, duration)
+
+    def multi_set_side(self, main: "models.Skill | None") -> tuple[list[dict], list[dict]]:
+        """MECHB16: a MULTI_SET_SKILLS skill (Rolling Slam) in an enabled Full DPS group other than the main one: PoB
+        scores its group's one chosen set there too, so the same "more" (models.multi_set_model, tagged to the skill).
+        Left out when the main skill is the same skill (its own "more" already carries the tag)."""
+        build = self.build
+        main_group = build.main_group()
+        main_index = main_group["index"] if main_group is not None else None
+        mods: list[dict] = []
+        notes: list[dict] = []
+        done = {main.name} if main is not None else set()
+        for group in build.groups():
+            if not group["enabled"] or not group.get("fullDPS") or group["index"] == main_index:
+                continue
+            for position, skill in enumerate(group["skills"], start=1):
+                name = skill["name"]
+                if name not in models.MULTI_SET_SKILLS or name in done:
+                    continue
+                answer = build.call("setRates", index=group["index"], active=position)
+                got_mods, got_notes = models.multi_set_model(name, answer.get("chosen"), answer.get("sets") or [])
+                if got_mods:
+                    done.add(name)
+                    for note in got_notes:
+                        note["label"] += " (a Full DPS group)"
+                mods, notes = mods + got_mods, notes + got_notes
+        return mods, notes
 
     def unbuilt_grants(self, skills: list[dict]) -> list[dict]:
         """A note for each skill the build's passives or items grant ("Grants Skill: ...") that PoB built no skill for
