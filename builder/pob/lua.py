@@ -77,6 +77,8 @@ class LuaState:
             self.L = None
 
     def _push_handler(self) -> int:
+        if not self.L:
+            raise LuaError("this Lua state is closed")
         base = self._lua.lua_gettop(self.L)
         self._lua.lua_getfield(self.L, LUA_GLOBALSINDEX, b"__traceback")
         return base

@@ -44,6 +44,11 @@ class PobEngine:
             raise PobError(f"{method}: {payload.decode('utf-8', 'replace')}")
         return json.loads(payload)
 
+    def close(self) -> None:
+        """Give the Lua state's memory back (hundreds of MB). A process that boots engines one after another (the
+        tests) must close each: nothing else frees one. Calls after this raise PobError."""
+        self.lua.close()
+
     def log_tail(self, lines: int = 30) -> str:
         try:
             (text,) = self.lua.run(
