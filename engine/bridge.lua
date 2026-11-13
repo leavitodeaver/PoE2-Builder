@@ -1039,7 +1039,10 @@ local function installGrantedLevel()
 		local src = activeEffect and activeEffect.srcInstance
 		local gemData = src and src.gemData
 		if socketGroup and gemData and gemData.grantedEffect and env then
-			local levels = groupActiveLevel[env] or { }
+			-- Weak keys on the inner table too (PERF8): a plain one holds its socket groups, a socket group reaches its
+			-- env, and LuaJIT keeps a weak-keyed entry whose own value reaches its key, so every env (and its build)
+			-- ever calculated stayed alive: about 6.5 MB per build load for the engine's life (PERF7's measure).
+			local levels = groupActiveLevel[env] or setmetatable({ }, { __mode = "k" })
 			groupActiveLevel[env] = levels
 			if not gemData.grantedEffect.support then
 				if activeEffect.grantedEffect == gemData.grantedEffect and not levels[socketGroup] then
