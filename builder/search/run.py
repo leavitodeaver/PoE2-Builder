@@ -23,9 +23,11 @@ from builder.pob import codes
 from builder.pob.pool import EnginePool, WorkerError, default_workers
 from builder.report.checklist import checklist
 from builder.report.shopping import shopping_list
+from builder.request.constraints import fmt
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
-from builder.search.objective import PACK_SIZE, SUSTAIN_FLOOR, SUSTAIN_LEFT_OUT, boss_recovery, goal_value, rank_key, shortfall, sustain
+from builder.search.objective import (PACK_SIZE, SUSTAIN_FLOOR, SUSTAIN_LEFT_OUT, boss_recovery, goal_value, number, rank_key,
+                                      shortfall, sustain)
 from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skeletons, weapon_archetypes
 
 FINALIZE_SHARE = 0.12
@@ -89,6 +91,29 @@ def replica_goals(goal: str, count: int) -> list[str | None]:
 
 def _score(entry: Any) -> float:
     return entry["score"] if isinstance(entry, dict) and "score" in entry else -math.inf
+
+
+
+def floors_at_full_uptime(checks: list[dict], penalties: list, stats: dict, floor_deltas: list[dict]) -> None:
+    """The request's floors count an effect only at full uptime (the user's rule): finalize's facts are read with every
+    part-time effect on (conditions, flasks, ledger shares), so each floor is checked on the worst of those stats and the
+    stats with the part-time effects off (floor_deltas, Search.floor_without: the deltas the search's own deficits read).
+    A floor met only with a part-time effect on fails here, as it scores short in the search."""
+    if not floor_deltas:
+        return
+    for penalty in penalties:
+        on = number(stats.get(penalty.stat))
+        worst = min([on, *(on + number(d.get(penalty.stat)) for d in floor_deltas if penalty.stat in d)])
+        if worst >= on:
+            continue
+        requested = f"≥ {fmt(penalty.floor)}"
+        for check in checks:
+            if check["label"] == penalty.label and check["requested"] == requested:
+                check.update(delivered=f"{fmt(worst)} with part-time effects off ({check['delivered']} with them on)",
+                             ok=worst >= penalty.floor,
+                             note="floors count an effect only at full uptime: checked with the effects the build keeps "
+                                  "up for part of the fight off")
+                break
 
 
 class Run:
@@ -530,6 +555,7 @@ class Run:
             for check in checks:
                 if check["label"] == "Recovery vs boss damage %":
                     check.update(delivered=recovery_text(boss_recovery(facts["stats"])), note=RECOVERY_NOTE)
+        floors_at_full_uptime(checks, self.ctx.compiled.penalties, facts["stats"], final.get("floor_deltas") or [])
         failing = [c for c in checks if c["ok"] is False]
         reasons = [f"{c['label']}: requested {c['requested']}, delivered {c['delivered']}" for c in failing]
         if note := sustain_only_note([c["label"] for c in failing]):
