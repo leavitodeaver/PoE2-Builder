@@ -965,8 +965,15 @@ end
 -- 1), and poe2db's Toxic Pustule reads "This Skill will copy the Level of the Gem it is Socketed in" (supports are
 -- socketed in the skill gem they support). So a granted skill with more than one level takes the level of the first
 -- active gem of its group, as PoB calculated it (with its +level mods); one with a single level (28 of the 61 support-
--- granted effects, which scale otherwise) is left as it is. MEDIUM: poe2db's line is for the Pustule; the other 32
--- with 40 levels are read the same way (no other reading would give them 40 levels).
+-- granted effects, which scale otherwise) is left as it is. HIGH: the user's in-game check (13 Nov: "the support gems
+-- that trigger skills like doom blast do retain their parent skill gem levels"), poe2db's text (on Toxic Pustule, Doom
+-- Blast and Living Lightning) and the 40-level game data. PoB's own CalcActiveSkill (439-460) also inherits the level
+-- for the damage it calculates; this wrapper makes the level right from the start, for the bridge's levelStats reads.
+-- OPEN (MECHB17), a possible OVERCOUNT: 7 of these 34 forty-level effects look structurally different. GrantedEffects'
+-- unnamed column after the two effectiveness floats is 40 on the other 27 and on no ordinary gem, and 0 on Soulbreaker,
+-- Burning Inscription, Hoarfrost, Savage Snare, Creeping Chill, Empowered Sparks' TriggeredSparkEmpowerPlayer and
+-- Fragment Self. poe2db has no "copy the Level" line on Creeping Chill, Soulbreaker or Fragment Self. They keep the
+-- copied level here (and in PoB) until an in-game check says otherwise (UNVERIFIED either way).
 local grantedLevelInstalled, groupActiveLevel = false, setmetatable({ }, { __mode = "k" })
 local function installGrantedLevel()
 	if grantedLevelInstalled then
