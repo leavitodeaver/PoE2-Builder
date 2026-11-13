@@ -442,8 +442,9 @@ def recharge_text(stats: dict, delay: float, land: float) -> str:
 # - Freeze: KeywordPopups Freeze ("Cold damage from Hits Contributes to Freeze Buildup ... until they become Frozen") and
 #   AilmentThreshold (a higher threshold lowers "the amount of Freeze ... buildup received"): each Cold hit builds
 #   FreezeDamageScalePlayer (2, PoB's Misc.lua game constants) x the Cold dealt / your Ailment Threshold; 100% Freezes.
-#   Buildup is taken to carry over between hits with no decay (the decay rule on a player: UNVERIFIED): Freezes per
-#   second = Cold hits x min(1, buildup per hit), an upper reading; the note gives the lower one (a single hit fills it).
+#   Whether buildup on a player carries over between hits or decays is UNVERIFIED, so the counted reading is the LOWER
+#   one (MECHC18; the user: builds return conservative numbers): a Cold hit Freezes only when its own buildup reaches
+#   100% (every one or none); the note gives "with buildup kept" (Cold hits x min(1, buildup per hit)) as the upper row.
 #   Olroth's SwordGrabExplosion +200% Freeze buildup (one of its Cold skills; FREEZE_FACTORS).
 # - Bleeding: KeywordPopups Bleeding: "Damage does not Contribute to Bleeding chance, so it cannot be inflicted without
 #   an explicit source of Bleeding chance"; Olroth's attacks_inflict_bleeding_on_hit is the one pinnacle source found
@@ -529,11 +530,95 @@ def ailment_rate(stats: dict, ailment: str, land: float) -> tuple[float, str]:
         else:
             factor = _factor(name, FREEZE_FACTORS, kind)
             build = taken / threshold * FREEZE_SCALE_PLAYER * factor
-            chance = min(1.0, build)
+            chance = 1.0 if build >= 1 else 0.0  # (MECHC18) the lower reading: one hit must fill the buildup
+            kept = land * share * min(1.0, build) * (1 - avoid)
             how = (f"a {taken:,.0f} Cold hit builds {build:.0%} Freeze against your {threshold:,.0f} Ailment Threshold "
-                   f"(x{FREEZE_SCALE_PLAYER:g}, x{factor:.2f} from the boss's buildup stats); buildup taken to carry over "
-                   f"between hits (decay UNVERIFIED: an upper reading; if a single hit must fill it, "
-                   f"{'every' if build >= 1 else 'no'} Cold hit Freezes)")
+                   f"(x{FREEZE_SCALE_PLAYER:g}, x{factor:.2f} from the boss's buildup stats); counted: a single hit must "
+                   f"fill it, so {'every' if build >= 1 else 'no'} Cold hit Freezes (whether buildup carries over "
+                   f"between hits on a player is UNVERIFIED; with buildup kept: {kept * 60:.1f} Freezes a minute)")
     rate = land * share * chance * (1 - avoid)
     return rate, (f"the boss's {land * share:.2f} landed {kind} hits/s ({share:.0%} of its hits) x {chance:.0%} ({how}) "
                   f"x {1 - avoid:.0%} not avoided: {ailment} {rate * 60:.1f} times a minute")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The boss's Slows on you, per second, for charms "Used when you are affected by a Slow" (MECHC18; CLAUDE.md's no-flat-
+# rates rule: before, one per 10 s on every boss). Two sources the data gives:
+# - Chill: "Chill is an Ailment that Slows" (KeywordPopups Chill: HIGH that it is a Slow). "Cold damage from Hits can
+#   Chill by default ... Chills smaller than 30% will be ignored"; magnitude "depends on the Chilling damage dealt
+#   relative to the target's Elemental Ailment Threshold" (the formula isn't published: PoB's 100% x dealt / threshold,
+#   MEDIUM; research chill-floor-in-pob.md). So a landed Cold hit Chills you when it deals at least 30% of your Ailment
+#   Threshold (less PoB's ChillAvoidChance). A Chill lasts 2 s on players (KeywordPopups; PoB Misc.lua
+#   BaseChillDurationPlayer 2): a hit while you're still Chilled refreshes it, not a new "become affected" event, so the
+#   new Slows are c x e^(-2c) for c Chilling hits a second (Poisson hits). The Arbiter of Ash's Chilled Ground isn't
+#   counted (the player steps out of grounds: GROUNDS_NOTE).
+# - The boss skills that Slow (RESEARCH14 #67, pinnacle-debuffs-from-buffs.md; RESEARCH13 #60 for the Maim stats), at
+#   one use per the skill's cooldown (GrantedEffectsPerLevel Cooldown, game 26476662; the cooldown is the fastest the
+#   boss can use it, as MECHD3's cadence model: LOW for the AI's real use). Maim is a Slow (KeywordPopups Maim: "30%
+#   Slower Movement Speed"); a Maim needs its hit to land (x land_share). Zarokh's Temporal Ball Slows through a buff
+#   ("Zarokh's Influence: You Are Being Slowed by Zarokh's Temporal Ball", SilentSpiresApparition_slow, HIGH) round its
+#   ball, not a hit: each ball taken to Slow you once (LOW). Not counted (each leaves a lower reading, said): Olroth's
+#   "Exterminating Cold" and "Enervation" buffs (their skills live in .ao scripts, unseen), Atziri's clone's Blood Spear
+#   (EASAtziriBloodSpearClone, 9 s; whether it Maims is unread), the ground Slows (the Bodach's, the King's tar swamp,
+#   the Trialmaster's anomaly), the Trialmaster's TetherSpike vines (no cooldown read), your Maim avoidance (not read).
+# A boss with neither a Cold hit nor a Slow skill (the Arbiter of Ash, the Arbiter of Divinity, the King in the Mists, the
+# Bodach: 4 of the 12 real presets) has no rate the data gives: slow_rate returns None and the charm keeps its labelled LOW
+# flat rate (a flat number where the game decides it; for the manager).
+CHILL_FLOOR = 0.30  # KeywordPopups Chill: "Chills smaller than 30% will be ignored": HIGH (the 30%), MEDIUM (magnitude)
+CHILL_SECONDS_PLAYER = 2.0  # KeywordPopups Chill: "lasts 2 seconds on players"; PoB BaseChillDurationPlayer 2: HIGH
+# per boss: (cooldown in s, needs its hit to land, what): game 26476662 GrantedEffectsPerLevel; RESEARCH13 #60 / RESEARCH14 #67
+SLOW_SKILLS = {
+    "Zarokh, the Temporal": ((16.0, False, "Temporal Ball (MPSSilentSpiresApparitionTemporalChainsLightning, 16 s "
+                                           "cooldown; its buff Slows you round the ball, each ball taken once: LOW)"),),
+    "Olroth, Origin of the Fall": (
+        (18.0, True, "ThrowOut's Maim (MPWOlrothThrowOut, 18 s)"),
+        (12.0, True, "Dash's Maim (EAAOlrothDash1-3, 12 s each, taken as one combo every 12 s: LOW; 3 if each part is "
+                     "its own use)")),
+    "Atziri, the Red Queen": ((22.0, True, "Blood Spear's Maim (EASAtziriBloodSpear, 22 s)"),),
+    "Atziri, the Fell Serpent": ((35.0, True, "Blood Spear's Maim (EASAtziri2BloodSpear, 35 s; the '2' read as this "
+                                              "phase: LOW)"),),
+}
+
+
+def _slow_skills(name: str, land: float) -> tuple[float, list[str]]:
+    """Slows a second from the boss's Slow skills and their descriptions (`land`: the share of its hits that land)."""
+    if name == _worst():
+        from builder.search import bosses
+        rows = [_slow_skills(n, land) for n in bosses.REAL if n in SLOW_SKILLS]
+        return max(rows, default=(0.0, []), key=lambda r: r[0])
+    rate, parts = 0.0, []
+    for cooldown, hit, what in SLOW_SKILLS.get(name, ()):
+        r = (land if hit else 1.0) / cooldown
+        rate += r
+        parts.append(f"{what}{f' x {land:.0%} landing' if hit else ''}: {r * 60:.1f} a minute")
+    return rate, parts
+
+
+def slow_rate(stats: dict, land: float) -> tuple[float | None, str]:
+    """New Slows a second the boss puts on you (a Chill from its Cold hits, its Slow skills), and how; None where the
+    boss has neither (the caller keeps its labelled flat rate). `land`: the boss's landed hits a second; stats as
+    ailment_rate's, with ChillAvoidChance."""
+    name = boss_name(stats)
+    share = type_shares(name)["Cold"]
+    skills, parts = _slow_skills(name, land_share(stats))
+    if share <= 0 and not parts:
+        return None, f"{name} has no Cold hit and no Slow skill found (RESEARCH14 #67; its ground Slows aren't counted)"
+    avoid = min(max(number(stats.get("ChillAvoidChance")), 0.0), 100.0) / 100
+    chill_how = f"{name} deals no Cold hits: no Chill"
+    onsets = 0.0
+    if share > 0:
+        taken = max(number(stats.get("ColdTakenHit")) if "ColdTakenHit" in stats else hit_sizes(name)["Cold"], 0.0)
+        threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
+        dealt = taken / threshold if threshold > 0 else 1.0
+        chills = land * share * (1 - avoid) if dealt >= CHILL_FLOOR else 0.0
+        onsets = chills * math.exp(-CHILL_SECONDS_PLAYER * chills)
+        if chills > 0:
+            tail = (f"at least 30%: {land * share:.2f} landed Cold hits/s x {1 - avoid:.0%} not avoided, a new Chill only "
+                    f"once the last 2 s one has worn off: {onsets * 60:.1f} a minute")
+        elif dealt >= CHILL_FLOOR:
+            tail = "you can't be Chilled"
+        else:
+            tail = "under the 30% a Chill needs: none"
+        chill_how = f"Chill: a {taken:,.0f} Cold hit is {dealt:.0%} of your Ailment Threshold ({tail})"
+    rate = onsets + skills
+    return rate, "; ".join([chill_how, *parts]) + f": {rate * 60:.1f} Slows a minute"

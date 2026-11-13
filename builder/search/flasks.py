@@ -191,10 +191,12 @@ def boss_ailments(hit: dict, data: dict) -> tuple:
     from builder.search import bosses, boss_hits
 
     stats = {**hit, "AilmentThreshold": float(data.get("ailmentThreshold") or 0.0), "Life": float(data.get("life") or 0.0),
-             **{f"{a}AvoidChance": float(v or 0.0) for a, v in (data.get("ailmentAvoid") or {}).items()}}
+             **{f"{a}AvoidChance": float(v or 0.0) for a, v in (data.get("ailmentAvoid") or {}).items()}}  # (+ Chill)
     stats["enemySkillTime"] = bosses.benefit_skill_time(stats)
     land = boss_hits.landing_hits(stats)
-    return tuple((a, *boss_hits.ailment_rate(stats, a, land)) for a in ("Ignite", "Shock", "Freeze", "Bleed", "Poison"))
+    rows = tuple((a, *boss_hits.ailment_rate(stats, a, land)) for a in ("Ignite", "Shock", "Freeze", "Bleed", "Poison"))
+    slow, how = boss_hits.slow_rate(stats, land)  # (MECHC18) None: the boss has no Slow the data gives
+    return rows + ((("Slow", slow, how),) if slow is not None else ())
 
 
 # Charm triggers other than a kill (MECHC2, FIX_QUEUE: each counted as firing whenever its charges allowed, whether or not
@@ -213,8 +215,10 @@ def boss_ailments(hit: dict, data: dict) -> tuple:
 #   recovery.boss_stuns; Heavy Stuns from Stun buildup not added: a lower bound), no flat rate. Ignited, Shocked,
 #   Frozen, Poisoned, Bleeding (MECHC17; before, one per BOSS_AILMENT_EVERY s): the boss's own rate of inflicting it on
 #   the build after its Ailment Threshold and avoidance (Charges.ailments, boss_hits.ailment_rate), 0 with a note where no
-#   boss skill inflicts it. Slow: how often the boss Slows you no data gives yet: one per BOSS_AILMENT_EVERY s, at most
-#   one per landing hit (a flat rate where the game decides it: LOW, named in the report for the manager).
+#   boss skill inflicts it. Slow (MECHC18): the boss's new Chills on you (its Cold hits of at least 30% of your Ailment
+#   Threshold) plus its Slow skills at their cooldowns (boss_hits.slow_rate, Charges.ailments' "Slow" row); only a boss
+#   with neither (4 of the 12 real presets) keeps one per BOSS_AILMENT_EVERY s, at most one per landing hit (a flat rate where
+#   the game decides it: LOW, named in the report for the manager).
 BOSS_AILMENT_EVERY = 10.0
 AILMENT_EVENT = {"ignited": "Ignite", "shocked": "Shock", "frozen": "Freeze", "poisoned": "Poison", "bleeding": "Bleed"}
 TRIGGER_DAMAGE = {"ignited": "Fire", "frozen": "Cold", "shocked": "Lightning", "poisoned": "Chaos", "bleeding": "Physical",
@@ -266,9 +270,14 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
         found = {a: (r, h) for a, r, h in gain.ailments}
         rate, how = found.get(AILMENT_EVENT[event], (0.0, "no boss ailment data read: no source, 0"))
         return rate, f"the boss {'makes you ' + event.capitalize() if event != 'bleeding' else 'starts you Bleeding'}: {how}"
+    if event == "slow":  # (MECHC18) the boss's Chills and Slow skills on the build, where the data gives them
+        found = {a: (r, h) for a, r, h in gain.ailments}
+        if "Slow" in found:
+            rate, how = found["Slow"]
+            return rate, f"the boss Slows you: {how}" + ("" if rate > 0 else ": no source, 0")
     rate = min(1 / BOSS_AILMENT_EVERY, gain.boss_hits)
     return rate, (f"you {'are ' if event != 'slow' else ''}{event} by the boss once per {BOSS_AILMENT_EVERY:g} s assumed "
-                  "(LOW: how often a boss does it no data gives)")
+                  "(LOW: how often a boss does it no data gives: it has no Cold hit or Slow skill found)")
 
 
 # Wildwood's Gifts' Ancient Blooms (MECHC7; RESEARCH19 #105, wildwood-gifts-flask-charges.md). KeywordPopups AncientBlooms:

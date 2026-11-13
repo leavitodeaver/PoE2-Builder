@@ -4451,7 +4451,8 @@ function bridge.chargeGain()
 		ailmentThreshold = output.AilmentThreshold or 0, life = output.Life or 0,
 		ailmentAvoid = { Ignite = output.IgniteAvoidChance or 0, Shock = output.ShockAvoidChance or 0,
 			Freeze = output.FreezeAvoidChance or 0, Bleed = output.BleedAvoidChance or 0,
-			Poison = output.PoisonAvoidChance or 0 },
+			Poison = output.PoisonAvoidChance or 0,
+			Chill = output.ChillAvoidChance or 0 },  -- (MECHC18) the Slow charms' Chill part (boss_hits.slow_rate)
 		blooms = blooms,
 		perfectMainRate = perfectMain and (output.Speed or 0) or 0,
 		-- the main skill's name (MECHC3: a Concoction main skill spends the Mana Flask's charges, flasks.THROW_CHARGES)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from builder.search import recovery
@@ -589,15 +591,59 @@ def test_ailment_charms_fire_at_the_bosss_own_ailment_rate():
     assert shock > 0 and "Ailment Threshold" in how and boss_hits._factor(divinity, boss_hits.SHOCK_FACTORS, "Lightning") > 1
     assert rate(divinity, "Used when you become Shocked", Shock=50)[0] == pytest.approx(shock / 2)
     assert rate(divinity, "Used when you become Shocked", Shock=100)[0] == 0.0
-    # Freeze: a 1,500 Cold hit builds 2 x 1,500 / 3,000 = 100%: every Olroth Cold hit that lands Freezes (upper reading)
+    # Freeze: a 1,500 Cold hit builds 2 x 1,500 / 3,000 = 100%: every Olroth Cold hit that lands Freezes
     frozen, how = rate(olroth, "Used when you become Frozen")
     assert frozen > 0 and "UNVERIFIED" in how
+    # (MECHC18) the counted reading is the lower one: a single hit must fill the buildup. A 1,000 Cold hit builds 2 x
+    # 1,000 / 3,000 x Olroth's mean buildup factor (1.14) = 76%: none counted; "with buildup kept" gives the upper row
+    low, how = trigger_rate("Used when you become Frozen", Charges.from_bridge(
+        {**data, "takenByType": {**data["takenByType"], "Cold": 1000}}, 0, olroth))
+    assert low == 0.0 and "with buildup kept: " in how and "with buildup kept: 0.0" not in how
     assert rate(olroth, "Used when you start Bleeding")[0] > 0
     for boss in (ash, divinity, olroth, None):
         assert rate(boss, "Used when you become Poisoned")[0] == 0.0
     # the worst-case pinnacle takes the highest real preset's factors and Olroth's Bleeding
     assert rate(None, "Used when you start Bleeding")[0] > 0 and rate(None, "Used when you become Shocked")[0] > 0
 
+
+
+def test_slow_charms_read_the_bosss_chills_and_slow_skills():
+    """MECHC18 (CLAUDE.md's no-flat-rates rule): "Used when you are affected by a Slow" fired once per 10 s on any boss.
+    Now Chill (KeywordPopups: an Ailment that Slows; Cold hits of at least 30% of your Ailment Threshold Chill, 2 s on
+    players) and the boss's Slow skills at their cooldowns (Zarokh's Temporal Ball, Olroth's / Atziri's Maims); only a boss
+    with neither keeps the labelled flat rate."""
+    from builder.search import boss_hits
+    from builder.search.flasks import Charges, trigger_rate
+
+    data = {"enemySkillTime": 0.7, "takenByType": {"Physical": 3000, "Cold": 1500},
+            "bossDamage": {"Physical": 1, "Cold": 1}, "ailmentThreshold": 3000, "ailmentAvoid": {"Chill": 0}}
+    slow = "Used when you are affected by a Slow"
+
+    def rate(boss, **over):
+        return trigger_rate(slow, Charges.from_bridge({**data, **over}, 0, boss))
+
+    # Olroth: Cold hits of 50% of the threshold Chill; its Maims add theirs
+    olroth, how = rate("Olroth, Origin of the Fall")
+    assert olroth > 0 and "Chill" in how and "Maim" in how
+    # under the 30% floor: only the Maims; immune to Chill: the same
+    small = rate("Olroth, Origin of the Fall", takenByType={"Physical": 3000, "Cold": 600})[0]
+    immune = rate("Olroth, Origin of the Fall", ailmentAvoid={"Chill": 100})[0]
+    assert 0 < small < olroth and immune == pytest.approx(small)
+    # a hit while still Chilled refreshes the 2 s Chill: new Chills = c x e^(-2c)
+    stats = {"_boss": "The Raven Trickster", "ColdTakenHit": 1500, "AilmentThreshold": 3000, "enemySkillTime": 1.0}
+    c = 2.0 * boss_hits.type_shares("The Raven Trickster")["Cold"]
+    assert boss_hits.slow_rate(stats, 2.0)[0] == pytest.approx(c * math.exp(-2 * c))
+    # Zarokh deals no Cold hits: its Temporal Ball, once per 16 s
+    assert rate("Zarokh, the Temporal")[0] == pytest.approx(1 / 16)
+    # a Cold boss whose hits are too small to Chill and that has no Slow skill: 0, no source
+    zero, how = rate("The Aberration", takenByType={"Physical": 3000, "Cold": 300})
+    assert zero == 0.0 and "no source, 0" in how
+    # neither a Cold hit nor a Slow skill (the Arbiter of Ash): the labelled flat rate stays
+    ash, how = rate("Arbiter of Ash")
+    assert ash == pytest.approx(0.1) and "LOW" in how
+    # the worst-case pinnacle reads its pooled Cold hits and the highest real preset's Slow skills
+    from builder.search import bosses
+    assert rate(bosses.WORST)[0] > 0
 
 def test_indigon_keeps_the_corpse_lines_mana_regeneration():
     """MECHC16 (AUDIT28 A28-4, a small UNDERCOUNT): Indigon's "Mana Recovery other than Regeneration cannot Recover Mana"
