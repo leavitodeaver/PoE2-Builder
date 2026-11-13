@@ -392,6 +392,9 @@ class Assumptions:
         # (MECHB12, A25-41: each curse's own duration, PoB's with the build's modifiers, for curse_uses)
         build.curse_durations = {s["name"]: s["curseDuration"] for s in skills if s.get("curseDuration")}
         stats = {**stats, "_minion_lives": build.minion_lives, "_curse_durations": build.curse_durations}
+        if any(s.name == models.SACRIFICE for s in found):  # (MECH-B, MECHB19, A27-4: Sacrifice's corpses, the build's own
+            # undead Reviving minion deaths, for models.corpse_supply's readers)
+            stats = {**stats, models.SACRIFICE_CORPSES_STAT: models.sacrifice_corpses(found, main, stats)}
         if any(s.name == "Cast on Charm Use" for s in found):  # (its Energy: charm charges spent, from the flask model)
             stats = {**stats, **charm_stats(build)}
         if any(s.name == "Cast on Minion Death" for s in found):  # (its Energy: the build's minions dying)
@@ -431,8 +434,10 @@ class Assumptions:
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()
         hand_mods, hand_notes = models.guided_hand_model(inputs, source_lines, stats, main, slam="Slam" in main_types)
         texts = [e["text"] for e in source_lines]
-        if any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t) for t in texts):
-            # (MECH-B, MECHB18: Ancestral Boost's sources PoB leaves unparsed; PoB's own boost uptimes beside the stats)
+        if any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t)
+               or models.EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts):
+            # (MECH-B, MECHB18: Ancestral Boost's sources PoB leaves unparsed; PoB's own boost uptimes beside the stats;
+            # MECHB19: Ancestral Empowerment + Fist of War at the lower reading)
             boost_mods, boost_notes = models.ancestral_boost_model(
                 texts, {**stats, **build.call("stats", fields=models.ANCESTRAL_FIELDS)}, found, main, main_types,
                 self.warcry_uses() if any(models.KAOMS_BLESSING.match(t.strip()) for t in texts) else (0.0, ""))
@@ -554,7 +559,7 @@ class Assumptions:
                                      or totem_notes) and RESCORE_MODELS
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
-        mods, corpse_notes = models.corpse_model(found, mods, stats)  # last: it overrides the trigger rates above (MECHB11: the adds' corpses)
+        mods, corpse_notes = models.corpse_model(found, mods, stats, main)  # last: it overrides the trigger rates above (MECHB11: the adds' corpses)
         notes += corpse_notes + models.spirit_vessel_notes(skills)
         notes += models.granted_level_notes([(o.name, o.raw, o.granted_basis) for o in build.equipped.values() if o is not None and o.unique])
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]

@@ -3341,6 +3341,44 @@ def test_the_boss_presets_killed_adds_supply_corpses():
     share, why, _ = models.corpse_consumed_share(spark, {**stats, "Speed": 2.0}, spark)
     assert share == pytest.approx(0.1) and "UNVERIFIED" in why
 
+
+def test_sacrifice_supplies_corpses_at_the_builds_own_undead_minion_deaths():
+    """MECHB19 (AUDIT27 A27-4): Sacrifice lets undead Reviving minions be used in place of corpses: the supply is the
+    build's own undead Reviving minion deaths (models.minion_deaths: here the corpse skill's own uses, capped by
+    revival), for corpse_supply's readers (MECH-C's recover-on-consume, corpse_model, Profanity). No death source, no
+    undead minions or no Sacrifice: 0 (no flat rate). The main corpse skill is never rated above its own Speed."""
+    skeletons = models.Skill("Summon Skeletal Warriors", group=3,
+                             summon={"limit": 6, "persistent": True, "undead": True, "reviveBase": 12, "reviveSpeed": 0.6})
+    sacrifice = models.Skill("Sacrifice", group=4)
+    detonate = models.Skill("Detonate Dead", group=1, spell=True, corpses=True)
+    stats = {"Speed": 1.0}
+    skills = [skeletons, sacrifice, detonate]
+    deaths, _ = models.minion_deaths(skills, detonate, stats)
+    rate, how = models.sacrifice_corpses(skills, detonate, stats)
+    revive = 12 / 0.6
+    assert rate == pytest.approx(deaths) == pytest.approx(6 * 1.0 / (6 + revive * 1.0))
+    assert "LOW" in how and "Without Sacrifice: 0" in how
+    full = {**stats, models.SACRIFICE_CORPSES_STAT: (rate, how)}
+    assert models.corpse_supply({"Sacrifice"}, full) == pytest.approx(rate)
+    assert models.corpse_supply(set(), full) == 0.0  # (Sacrifice not in the build: its key isn't read)
+    mods, notes = models.corpse_model(skills, [], full, detonate)
+    rates = {m["skill"]: m["value"] for m in mods if m["key"] == "triggerRate"}
+    assert rates == {"Detonate Dead": pytest.approx(rate, abs=1e-3)} and "Sacrifice" in notes[0]["basis"]
+    assert notes[0]["confidence"].startswith("LOW")
+    # (half the Reviving minions undead: half the deaths are corpses)
+    hounds = models.Skill("Summon Infernal Hound", group=5, summon={"limit": 6, "persistent": True})
+    both = skills + [hounds]
+    assert models.sacrifice_corpses(both, detonate, stats)[0] == pytest.approx(
+        models.minion_deaths(both, detonate, stats)[0] / 2)
+    # (nothing kills them: the main skill doesn't use corpses; no undead minions; no Sacrifice)
+    spark = models.Skill("Spark", group=1, spell=True)
+    assert models.sacrifice_corpses([skeletons, sacrifice, spark], spark, stats)[0] == 0.0
+    assert models.sacrifice_corpses([hounds, sacrifice, detonate], detonate, stats)[0] == 0.0
+    assert models.sacrifice_corpses([skeletons, detonate], detonate, stats) == (0.0, "no Sacrifice in the build")
+    # (a supply above the main skill's own Speed is held to it: the adds' 3 corpses/s against 1 use/s)
+    mods, _ = models.corpse_model([detonate], [], {**stats, models.ADD_KILLS_STAT: 3.0}, detonate)
+    assert {m["skill"]: m["value"] for m in mods if m["key"] == "triggerRate"} == {"Detonate Dead": 1.0}
+
 def test_defences_read_the_faster_boss_cadence_and_only_when_hit_benefits_the_slower():
     """MECHD4 (AUDIT25 A25-7, the manager 12 Nov 16:50): PoB's enemySpeed (every defence / recovery reading) is the faster
     of PoB's 0.7 s and HITS_EVERY (combo parts counted as hits, an upper bound); benefit_skill_time rescales the scored
@@ -3999,6 +4037,35 @@ def test_ancestral_boost_sources_combine_as_one_boost_per_slam_at_the_lower_read
                                         [slam], slam, {"Attack", "Slam", "Shapeshift"}) == ([], [])
 
 
+
+def test_ancestral_empowerment_with_fist_of_war_takes_the_lower_reading_without_the_unique():
+    """(MECHB19, the manager's ruling) Ancestral Empowerment + Fist of War on a Slam, no Shapeshifted unique: PoB's
+    combined share is the upper reading, min(50% + 1/(T x r), 100%); the model applies the lower one, 0.5 + 0.5/(T x r),
+    labelled LOW, with a "with the higher reading" play row at PoB's factor (x1.000). A Slam that isn't a Shapeshift
+    skill still gets it; without Fist of War, or a non-Slam, nothing."""
+    slam = models.Skill.of({"name": "Boneshatter", "attack": True, "group": 1})
+    stats = {"Speed": 1.0, "FistOfWarCooldown": 6, "AncestralEmpowermentCombinedUptimeRatio": 100 * (0.5 + 1 / 6),
+             "AncestralEmpowermentDamageMultiplier": 0.3}
+    mods, notes = models.ancestral_boost_model([EMPOWERMENT], stats, [slam], slam, {"Attack", "Slam", "Melee"})
+    share, pob = 0.5 + 0.5 / 6, 0.5 + 1 / 6
+    factor = (1 + 0.3 * share) / (1 + 0.3 * pob)
+    assert mods == [models.raw_mod("Damage", "MORE", 100 * (factor - 1), "Boneshatter")], mods
+    assert len(notes) == 1 and notes[0]["confidence"] == "LOW"
+    assert "with the higher reading" in notes[0]["play"] and "x1.000" in notes[0]["play"]
+    assert f"x{factor:.3f}" in notes[0]["play"] and "Shapeshifted" not in notes[0]["basis"]
+    # (PoB's combined ratio alone, without the passive's text, is enough to find it)
+    assert models.ancestral_boost_model([], stats, [slam], slam, {"Attack", "Slam"}) == ([], [])  # (no texts: nothing)
+    assert models.ancestral_boost_model(["x"], stats, [slam], slam, {"Attack", "Slam"})[0] == mods
+    # (Ancestral Empowerment alone, or Fist of War alone: PoB's share is already one boost per use)
+    assert models.ancestral_boost_model([EMPOWERMENT], {"Speed": 1.0, "AncestralEmpowermentUptimeRatio": 50}, [slam], slam,
+                                        {"Attack", "Slam"}) == ([], [])
+    # (the unique worn with a non-Shapeshift Slam: its 0 note, and the Empowerment + Fist of War correction)
+    mods2, notes2 = models.ancestral_boost_model([UNIQUE_SLAM, EMPOWERMENT], stats, [slam], slam, {"Attack", "Slam"})
+    assert mods2 == mods and notes2[0]["value"] == "0" and notes2[1]["confidence"] == "LOW"
+    # (a Spell isn't a Slam: nothing)
+    spell = models.Skill.of({"name": "Fireball", "spell": True, "group": 1})
+    assert models.ancestral_boost_model([EMPOWERMENT], stats, [spell], spell, {"Spell", "Fire"}) == ([], [])
+
 def test_kaoms_blessing_boosts_one_fire_spell_per_warcry():
     """(MECHB18) Kaom's Blessing: one Fire Spell cast per Warcry use is boosted (30% more, AncestralBoostSpell): the
     share is warcries/s over casts/s; no Warcry, a totem's or a triggered cast, or a non-Fire spell: nothing."""
@@ -4065,3 +4132,18 @@ def test_charged_marks_ground_radius_follows_its_level_table():
     """MECH61: research/ground-radii.md's per-level table (game files)."""
     from builder.search.conditions import charged_mark_radius
     assert [charged_mark_radius(n) for n in (1, 2, 3, 13, 19, 20, 21, 23, 24, 39, 40)] ==         [1.4, 1.4, 1.5, 2.0, 2.3, 2.3, 2.4, 2.4, 2.5, 3.0, 3.0]
+
+
+def test_boss_melee_share_reads_the_lower_bound_for_thorns_and_0_where_unread():
+    """MECHB19: the per-boss melee-attack share for Thorns (RESEARCH #42's skill mix): a gain reads the lower bound
+    (Melee-typed), a drawback the upper (with geometry attacks); an unread boss gives a gain 0; the worst case takes
+    Zarokh's 0% for a gain. Every name in the table is a real preset."""
+    from builder.search import bosses
+
+    assert set(models.THORNS_MELEE_SHARE) <= set(bosses.PRESETS) and models.THORNS_WORST in bosses.PRESETS
+    assert models.boss_melee_share("Arbiter of Ash")[0] == pytest.approx(4 / 34)
+    assert models.boss_melee_share("Arbiter of Ash", gain=False)[0] == pytest.approx(18 / 34)
+    share, how = models.boss_melee_share("The Bodach")
+    assert share == 0.0 and "isn't read" in how
+    assert models.boss_melee_share(models.THORNS_WORST)[0] == 0.0
+    assert models.boss_melee_share(models.THORNS_WORST, gain=False)[0] == pytest.approx(4 / 6)

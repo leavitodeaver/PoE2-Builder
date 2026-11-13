@@ -1243,10 +1243,12 @@ def roar_break(skill: Skill, enemy_armour: float, duration: float = FULL_BREAK_D
 # only the build's own source supplies them there; the boss presets with killable adds supply theirs (corpse_supply,
 # AUDIT24 A24-1, MECHB11). The 0.5 game data has no player skill that creates corpses (Desecrate is a
 # monster skill only; the Bone Corpses and Corpse Walk lines grant skills the files no longer have). The one source left
-# is Sacrifice (undead Reviving Minions used in place of corpses); its rate, the minions' revive time, isn't modelled
-# yet, so it supplies 0 for now, said in the guide.
+# is Sacrifice (undead Reviving Minions used in place of corpses; checked: AUDIT27 A27-15, Stats ids holding corpse with
+# creat / spawn / leave, their Mods carriers, ActiveSkills texts); since MECHB19 (AUDIT27 A27-4) it supplies the build's
+# own undead Reviving minion deaths (sacrifice_corpses, below; LOW).
 CORPSE_TYPES = {"TargetsDestructibleCorpses", "TargetsDestructibleRareCorpses", "CanTargetUnusableCorpse"}
-CORPSE_SOURCES = {"Sacrifice": "your undead Reviving Minions in place of corpses (their revive rate isn't modelled yet)"}
+CORPSE_SOURCES = {"Sacrifice": "your undead Reviving Minions in place of corpses, at the rate the build's own sources kill "
+                               "them, capped by their revival (models.sacrifice_corpses, LOW)"}
 # Skills of those types that still work without a corpse: never set to 0, the part that needs corpses said in the guide
 CORPSE_OPTIONAL = {
     "Raise Zombie": "consumes a Power Charge when there's no corpse; zombies from corpses not counted",
@@ -1273,9 +1275,49 @@ CORPSE_OPTIONAL = {
 # kill ends the fight). The "without it" figure, 0, is in the note. Corpse users share the supply (corpse_model splits it
 # evenly; Profanity's share isn't split: corpse_share's note).
 def corpse_supply(present: set[str], stats: dict | None = None) -> float:
-    """Corpses per second on a boss: the build's own sources (none priced yet: CORPSE_SOURCES) plus the boss preset's
-    killed adds (one corpse each, LOW; see above)."""
-    return max(number((stats or {}).get(ADD_KILLS_STAT)), 0.0)
+    """Corpses per second on a boss: the build's own sources (Sacrifice's undead Reviving minions, stats
+    SACRIFICE_CORPSES_STAT from sacrifice_corpses, when Sacrifice is present) plus the boss preset's killed adds (one
+    corpse each, LOW; see above)."""
+    own = number((sacrifice_rate(stats))) if SACRIFICE in present else 0.0
+    return max(number((stats or {}).get(ADD_KILLS_STAT)), 0.0) + max(own, 0.0)
+
+
+# Sacrifice's corpses (MECHB19; AUDIT27 A27-4, for MECH-C's "recover when you Consume a corpse" and every corpse user).
+# The game (ActiveSkills sacrifice; sacrifice.csd): "While active, your undead [Reviving] [Minion|Minions] can be used in
+# place of [Corpse|Corpses] by your skills, but your [Minion|Minions] [Reviving|Revive] more slowly." The text doesn't say
+# whether the minion used is alive or dead (Unearth's says "dead [Reviving] [Minion|Minions]"): both readings give one
+# corpse per undead Reviving minion death, so the supply is the build's own undead Reviving minion deaths
+# (minion_deaths, the user's no-flat-rates rule: the corpse skill's own uses with Sacrifice, Minion Pact, Explosive
+# Demise; each capped by revival, which Sacrifice slows 40% at level 20), times the undead share of the build's Reviving
+# minions (deaths spread evenly, assumed). LOW: that a Minion Pact or Explosive Demise death leaves a usable corpse
+# (reading "dead"), and one corpse per death. No source kills them: 0, with the note (no flat guess). Not counted
+# (labelled): the minions' damage lost while they're dead (an OVERCOUNT where a build relies on both their damage and
+# their corpses), the boss killing them (an undercount).
+SACRIFICE_CORPSES_STAT = "_sacrifice_corpses"  # stats key: (corpses per second, how), set by Assumptions.models
+
+
+def sacrifice_rate(stats: dict | None) -> float:
+    value = (stats or {}).get(SACRIFICE_CORPSES_STAT)
+    return number(value[0] if isinstance(value, (tuple, list)) else value)
+
+
+def sacrifice_corpses(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[float, str]:
+    """Corpses per second Sacrifice supplies: the build's undead Reviving minions Killed per second (see above), and how."""
+    if SACRIFICE not in {s.name for s in skills}:
+        return 0.0, "no Sacrifice in the build"
+    reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
+    total = sum(number(s.summon.get("limit")) for s in reviving)
+    undead = sum(number(s.summon.get("limit")) for s in reviving if s.summon.get("undead"))
+    if undead <= 0:
+        return 0.0, "Sacrifice: the build has no undead Reviving minions to use in place of corpses (0)"
+    deaths, how = minion_deaths(skills, main, stats)
+    if deaths <= 0:
+        return 0.0, f"Sacrifice: none of your undead Reviving minions die, so none is a corpse (0, no flat rate: {how})"
+    rate = deaths * undead / total
+    return rate, (f"Sacrifice: {rate:.3f} corpses/s, one per undead Reviving minion death ({undead:g} of your {total:g} "
+                  f"Reviving minions are undead; deaths spread evenly, assumed): {how}. LOW: one corpse per death, and "
+                  "that a minion killed another way (Minion Pact, Explosive Demise) can be used dead (Sacrifice's text "
+                  "doesn't say alive or dead); their damage while dead isn't taken off. Without Sacrifice: 0")
 
 
 def add_corpses_note(stats: dict | None) -> str:
@@ -1356,7 +1398,8 @@ def spirit_vessel_notes(skills: list[dict]) -> list[dict]:
     return notes
 
 
-def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = None) -> tuple[list[dict], list[dict]]:
+def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = None,
+                 main: Skill | None = None) -> tuple[list[dict], list[dict]]:
     """Corpses per second for each skill that needs them, from the build's own sources (CORPSE_SOURCES) and the boss
     preset's killed adds (corpse_supply): a skill with no supply uses 0 per second, wherever it is (main skill, meta
     group, totem), replacing any trigger rate the other models gave it; several users split the supply evenly. Returns
@@ -1374,17 +1417,27 @@ def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = Non
     mods = [m for m in mods if not (m.get("kind") == "SkillData" and m.get("skill") in dropped
                                     and m.get("key") in ("triggerRate", "triggered"))]
     each = supply / len(users)
-    for name in users:
-        mods += trigger_rate(name, each)
+    speed = number((stats or {}).get("Speed"))
+    for name in users:  # (a main skill is never used faster than PoB's own Speed for it: MECHB19)
+        main_user = main is not None and main.name == name and speed > 0
+        mods += trigger_rate(name, min(each, speed) if main_user else each)
     notes.append({
         "label": f"Corpses per second for {', '.join(users)}", "value": round(supply, 4),
         "basis": "they need a corpse each use; " + add_corpses_note(stats) + "; "
-                 + (f"source present but not priced: {'; '.join(sources)}" if sources
+                 + (f"the build's own: {'; '.join(sources)}"
+                    + (f" ({sacrifice_note(stats)})" if SACRIFICE in present else "") if sources
                     else "the build has no corpse source of its own")
                  + (f", so they're counted {each:.3g} uses per second each" if supply > 0
                     else ", so they're counted 0 uses per second"),
-        "confidence": "LOW (the adds' corpses assumed)" if supply > 0 else "datamined" if not sources else "theory"})
+        "confidence": "LOW (the adds' / Sacrifice's corpses assumed)" if supply > 0
+                      else "datamined" if not sources else "theory"})
     return mods, notes
+
+
+def sacrifice_note(stats: dict | None) -> str:
+    value = (stats or {}).get(SACRIFICE_CORPSES_STAT)
+    return value[1] if isinstance(value, (tuple, list)) else "Sacrifice's rate wasn't read"
+
 
 
 def roar_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
@@ -2983,13 +3036,14 @@ def corpse_share(skill: Skill, stats: dict, main: Skill | None, per_use: bool) -
     present = {s.name for s in stats.get("_skills") or [skill]}
     supply = corpse_supply(present, stats)
     play = ("Consume corpses with the supported skill: on a lone boss nothing leaves one, so it needs the build's own "
-            "corpse source (Sacrifice's Reviving minions, once priced) or the boss's adds (kill them near the boss); "
+            "corpse source (Sacrifice's undead Reviving minions, as fast as the build kills them) or the boss's adds "
+            "(kill them near the boss); "
             "without one the bonus is 0.")
     if supply <= 0:
         sources = [f"{name}: {why}" for name, why in CORPSE_SOURCES.items() if name in present]
         return 0.0, ("0: the bonus needs a corpse consumed on use, nothing dies on a single boss (no killable adds in "
                      "this preset), and "
-                     + (f"the build's corpse source isn't priced yet ({'; '.join(sources)})" if sources
+                     + (f"the build's own corpse source gives none ({sacrifice_note(stats)})" if sources
                         else "the build has no corpse source of its own")
                      + " (models.corpse_supply)"), play
     if main is None or main.name != skill.name or main.group != skill.group:
@@ -3751,7 +3805,11 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
 # its interval T. Whether Fist of War's charge is spent on a slam the every-second source already boosts is UNVERIFIED
 # (RESEARCH #153); the lower reading is taken, as RESEARCH25 says: share = 0.5 + 0.5 x min(1, 1 / (T x slams/s)) (LOW).
 # PoB adds the two (CalcOffence calcCombinedAncestralBoost: min(50% + Fist of War's, 100%)), the upper reading: where both
-# are on, this model's factor is below x1 (a possible OVERCOUNT in PoB, labelled, with both readings in the note). The
+# are on, this model's factor is below x1 (a possible OVERCOUNT in PoB, labelled, with both readings in the note and a
+# "with the higher reading" play row). Since MECHB19 (the manager's ruling, 13 Nov: overcounts first, the user's
+# conservative-numbers rule) the lower reading is also applied to Ancestral Empowerment + Fist of War without the unique
+# (PoB: CalcOffence 3696-3701, calcCombinedAncestralBoost with a 50% override plus Fist of War's share), until RESEARCH
+# #153's in-game check settles it. The
 # 30% more (x2 with Fist of War III: PoB's AncestralBoostMoreDamage multiplier) is applied as
 # (1 + M x share) / (1 + M x PoB's share) on the main skill's Damage; "Ancestrally Boosted Attacks deal N% increased
 # Damage" lines get the same share difference as increased Attack Damage. Not counted (labelled): the 25% increased
@@ -3775,9 +3833,17 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
     label = "Ancestral Boost (sources PoB doesn't parse)"
     unique = any(SHAPESHIFT_EVERY_SECOND_SLAM.search(t) for t in texts)
     kaom = any(KAOMS_BLESSING.match(t.strip()) for t in texts)
-    if not unique and not kaom:
+    # Ancestral Empowerment with Fist of War: PoB's combined share is the upper reading (MECHB19, the manager's ruling:
+    # the lower reading until RESEARCH #153's in-game check)
+    empowerment = (any(EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts)
+                   or number(stats.get("AncestralEmpowermentCombinedUptimeRatio")) > 0)
+    cooldown = number(stats.get("FistOfWarCooldown"))
+    both = empowerment and cooldown > 0
+    if not unique and not kaom and not both:
         return [], []
     if main.triggered:
+        if not unique and not kaom:
+            return [], []
         return [], [{"label": label, "value": "0 (triggered)", "confidence": "theory", "entry": "ancestral-boost",
                      "basis": f"{main.name} is triggered: \"Triggered Skills cannot be Ancestrally Boosted\" (KeywordPopups)"}]
     speed = number(stats.get("Speed"))
@@ -3786,13 +3852,13 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
     if "Slam" in main_types and main.attack:
         if cast_by_totem(skills, main):
             return [], []
-        empowerment = any(EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts)
         shapeshifted = "Shapeshift" in main_types
-        if not (unique and shapeshifted):
-            return [], ([{"label": label, "value": "0", "confidence": "theory", "entry": "ancestral-boost",
-                          "basis": f"{main.name} isn't a Shapeshift skill, so it isn't used while Shapeshifted"}]
-                        if unique else [])
-        cooldown = number(stats.get("FistOfWarCooldown"))
+        unique_note = ([{"label": label, "value": "0", "confidence": "theory", "entry": "ancestral-boost",
+                         "basis": f"{main.name} isn't a Shapeshift skill, so it isn't used while Shapeshifted"}]
+                       if unique and not shapeshifted else [])
+        unique = unique and shapeshifted
+        if not unique and not both:
+            return [], unique_note
         fist = min(1.0, 1 / (cooldown * speed)) if cooldown > 0 else 0.0
         share = 0.5 + 0.5 * fist
         pob = max(number(stats.get(k)) for k in ("AncestralEmpowermentUptimeRatio",
@@ -3806,24 +3872,35 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
         more = (number(stats.get("AncestralEmpowermentDamageMultiplier")) or number(stats.get("FistOfWarDamageMultiplier"))
                 or ANCESTRAL_SLAM_MORE / 100)
         if abs(share - pob) < 1e-9:
-            return [], []
+            return [], unique_note
         factor = (1 + more * share) / (1 + more * pob)
         boost = sum(int(m.group(1)) for t in texts if (m := BOOSTED_LINE.match(t.strip())))
         mods = [raw_mod("Damage", "MORE", 100 * (factor - 1), main.name)]
         if boost:
             mods.append(line("1% increased Attack Damage", boost * (share - pob), skill=main.name))
-        sources = ["the Shapeshifted unique's every second Slam"] + (
-            ["Ancestral Empowerment's every second Slam (the same half, taken as overlapping: UNVERIFIED)"]
+        sources = (["the Shapeshifted unique's every second Slam"] if unique else []) + (
+            ["Ancestral Empowerment's every second Slam" + (" (the same half, taken as overlapping: UNVERIFIED)"
+                                                            if unique else "")]
             if empowerment else []) + ([f"Fist of War once per {cooldown:g} s"] if cooldown > 0 else [])
-        return mods, [{
+        upper = max(pob, min(1.0, 0.5 + fist)) if cooldown > 0 else pob
+        upper_factor = (1 + more * upper) / (1 + more * pob)
+        if unique:
+            play = (f"Without the unique: x1.000. With it: every second Slam you use in your Shapeshifted form is boosted, "
+                    f"x{factor:.3f}")
+        else:
+            play = (f"Ancestral Empowerment with Fist of War: x{factor:.3f} at the lower reading (Fist of War's charge "
+                    f"spent on a Slam Ancestral Empowerment already boosts, {share:.0%} boosted)")
+        if cooldown > 0:
+            play += (f"; with the higher reading (each boost on a different Slam, {upper:.0%} boosted, PoB's): "
+                     f"x{upper_factor:.3f} (RESEARCH #153, an in-game check)")
+        return mods, unique_note + [{
             "label": label,
             "value": f"{share:.0%} of {main.name}'s uses boosted ({more:.0%} more), against PoB's {pob:.0%}: x{factor:.3f}",
             "basis": f"{'; '.join(sources)}; one boost per use; {speed:.2f} uses/s"
                      + ("; Fist of War's charge taken as spent on an already boosted slam (the lower reading, UNVERIFIED; "
                         f"the upper reading, PoB's, is {min(1.0, 0.5 + fist):.0%})" if cooldown > 0 else "")
                      + "; the 25% increased area and the Empowered-only lines on the extra share aren't counted",
-            "play": f"Without the unique: x1.000. With it: every second Slam you use in your Shapeshifted form is boosted, "
-                    f"x{factor:.3f}",
+            "play": play,
             "confidence": "LOW" if cooldown > 0 else "theory", "entry": "ancestral-boost"}]
     if kaom and main.spell and "Fire" in main_types:
         if cast_by_totem(skills, main):
@@ -3903,6 +3980,46 @@ def freezing_salvo_model(main: Skill | None, stats: dict, texts: list[str],
         "play": "Fire Freezing Salvo as often as it can be used: each use breaks the Seals gained since the last one. "
                 f"Without the Seals (PoB): x1.000; with them: x{factor:.3f}",
         "confidence": "theory", "entry": "freezing-salvo-seals"}]
+
+# Thorns Retaliation: the boss's melee share (MECHB19, for the Thorns model to come; MECH-D is paused, so the share is kept
+# here, read-only from RESEARCH #42, research/boss-life-and-hit-kinds.md). KeywordPopups Thorns: Thorns Retaliates only
+# against "[Melee] [Attack] [Hit|Hits]" (Crown of the Pale King: "Thorns can Retaliate against all Hits"; RESEARCH #149).
+# The game files hold no monster AI or use rates, so each value is the share of a boss's distinct hit-dealing SKILLS
+# (a skill mix, LOW as a hit rate), between two bounds: Melee-typed attacks (lower) and those plus the slam / slash
+# geometry attacks, which carry Attack but not Melee (upper; whether they count as Melee is RESEARCH #38, open).
+# Thorns gains read the lower bound (the user's conservative-numbers rule), drawbacks ("damage taken from Melee
+# Attacks") the upper. Bosses research #42 didn't read: None, so a gain is 0 there with a note (no flat guess); the
+# worst-case preset takes the lowest lower bound and the highest upper bound over the bosses read.
+# Counts (hit skills; Melee-typed; geometry attacks): Arbiter of Ash 34; 4; 14. Xesht 12; 1; 3. The King in the Mists
+# ph2 6; 1; 3 and ph3 8; 1; 1 (lower: ph3's 1/8, upper: ph2's 4/6). Zarokh 14; 0; 2. Arbiter of Divinity 52; 6; 26.
+THORNS_MELEE_SHARE: dict[str, tuple[float, float] | None] = {
+    "Arbiter of Ash": (4 / 34, 18 / 34),
+    "Xesht, We That Are One": (1 / 12, 4 / 12),
+    "The King in the Mists": (1 / 8, 4 / 6),
+    "Zarokh, the Temporal": (0.0, 2 / 14),
+    "Arbiter of Divinity": (6 / 52, 32 / 52),
+}
+THORNS_WORST = "Pinnacle (worst case)"
+
+
+def boss_melee_share(boss: str, gain: bool = True) -> tuple[float, str]:
+    """The share of a boss preset's hits that are melee attacks (THORNS_MELEE_SHARE above): the lower bound for a gain
+    (Thorns Retaliation), the upper for a drawback, and how. A boss not read: 0 for a gain, with the note."""
+    read = {k: v for k, v in THORNS_MELEE_SHARE.items() if v is not None}
+    if boss == THORNS_WORST:
+        value = min(v[0] for v in read.values()) if gain else max(v[1] for v in read.values())
+        which = min(read, key=lambda k: read[k][0]) if gain else max(read, key=lambda k: read[k][1])
+        return value, (f"{value:.0%} of the boss's hit skills are melee attacks: the worst case, {which}'s "
+                       f"{'lower' if gain else 'upper'} bound (RESEARCH #42, a skill mix, LOW as a hit rate)")
+    bounds = THORNS_MELEE_SHARE.get(boss)
+    if bounds is None:
+        return 0.0, (f"{boss}'s melee share isn't read yet (RESEARCH #42 covers 5 bosses): 0 for a gain, no flat guess"
+                     if gain else f"{boss}'s melee share isn't read yet: the worst case's upper bound is the safe one")
+    low, high = bounds
+    value = low if gain else high
+    return value, (f"{value:.0%} of {boss}'s hit skills are melee attacks ({'lower' if gain else 'upper'} bound: "
+                   f"Melee-typed {low:.0%}, with the slam / slash geometry attacks {high:.0%}; whether those count as "
+                   "Melee is RESEARCH #38, open; a skill mix from the game files, LOW as a hit rate)")
 
 # Glory on a boss (glory_uses) --------------------------------------------------------------------------------------------
 # Each Glory skill's cost and what builds its Glory, from the game files (build 26476662, GrantedEffectStatSets, level 20;
