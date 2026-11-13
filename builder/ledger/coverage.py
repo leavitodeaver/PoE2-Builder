@@ -66,6 +66,76 @@ def no_jewel_faction(line: dict) -> bool:
     return str(line.get("id", "")).split("_")[0] in NO_JEWEL_FACTIONS
 
 
+# PoE1 leftovers among PoB's unique-only mods (ModItemExclusive; COV19, the user 13 Nov 2026: "pretty sure that jewel is
+# from PoE1, not PoE2"). PoB's mod pool and the game's Mods table both keep PoE1 uniques' mods that no PoE2 item
+# carries. A unique-only mod is "unreachable" when one of its lines names a PoE1-only mechanic below AND none of its
+# lines has the template of any line of any unique in PoB-PoE2's Data/Uniques (every file, every variant; checked again
+# at each audit, so a PoB update that adds a carrier reopens it). Evidence for every group (COV19, 13 Nov 2026):
+# - no game table points at any of these mod rows (every Mods-referencing column the dat-schema names: Essences,
+#   EssenceMods, BaseItemTypes implicits, Characters, QuestRewards, GemEffects, Expedition2Runes, ModGrantedSkills,
+#   Mods.ArchnemesisMinionMod), none has a spawn weight, all are GenerationType 3 (unique);
+# - the group's keyword is on no PoE2 source: PoB-PoE2's unique lines, PoB's other item mod pools (affixes, runes,
+#   jewels, desecrated, corruption, essences), passive and ascendancy lines (parsed and ignored), Timeless passives, base
+#   implicits; game BaseItemTypes / ActiveSkills / PassiveSkills names hold only unrelated uses (Heist items, the
+#   bear skill "Rampage", Atlas passives); KeywordPopups defines none of them (items hold Augments; support gems
+#   socket into skill gems);
+# - second source: poe2db's Unique_item page (all ~496 current uniques) holds none of these lines; its Jewels page lists
+#   no Abyss jewel and no threshold jewel.
+# Left OPEN (not marked; UNVERIFIED): fishing (poe2db keeps a Fishing Rod base, obtainability unchecked), Grand
+# Spectrum (a PoE2 unique), golems / Primordial, Reflect (PoE2-era Vaal-mutated lines use it), and the ~500 other
+# unique-only mods no PoB-PoE2 unique carries: many are PoE2 content PoB lacks (Vaal-mutated uniques, Hand Wraps,
+# Runic Ward lines), so "no PoB carrier" alone proves nothing: their reason says so. Recheck the groups when a patch
+# adds uniques.
+POE1_ONLY_GROUPS = {
+    "Abyss jewels": r"Eye Jewel|\bAbyss Jewel",
+    "Shaper / Elder items": r"\b(?:Shaper|Elder) Items?\b",
+    "socket colours": r"\b(?:Red|Green|Blue|White) Sockets?\b|Socket Colour|socket of each colour",
+    "gem sockets on items": r"Socketed (?:[A-Z][a-z]+(?:-[A-Z][a-z]+)? )*(?:Gems?|Spells|Bow Skill|Skills)\b"
+                            r"|Gems can be Socketed|supported by Level \d+",
+    "Rampage": r"Rampage",
+    "Vaal Souls": r"Vaal Souls?\b|consumed Souls",
+    "Heist, Bestiary and Synthesis": r"Heist|Lockdown|Rogue Equipment|Beasts to hunt|Synthesiser"
+                                     r"|Bestial (?:Minion|Rhoa|Snake|Ursa)|Summoning Circle",
+    "Searing Exarch / Eater of Worlds": r"Searing Exarch|Eater of Worlds",
+    "attribute-threshold jewels": r"^With (?:at least )?\d+ (?:total )?(?:Strength|Dexterity|Intelligence)",
+    "cosmetic effects": r"Footprints$|Hoofprints$|^Extra gore$|^Golden Radiance$|golden glow",
+}
+_POE1_ONLY = [(name, re.compile(rx)) for name, rx in POE1_ONLY_GROUPS.items()]
+
+
+@lru_cache(maxsize=1)
+def pob_unique_templates(src: Path = POB_SRC) -> frozenset[str]:
+    """The template of every line of every unique in PoB-PoE2's Data/Uniques (tags like {variant:1} stripped)."""
+    tag = re.compile(r"\{[^}]*\}")
+    found = set()
+    for path in (src / "Data" / "Uniques").rglob("*.lua"):
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = tag.sub("", line).strip()
+            if line:
+                found.add(template(line))
+    return frozenset(found)
+
+
+def poe1_leftover_mods(affixes: list[dict], carried: frozenset[str] | None = None) -> dict[str, str]:
+    """Unique-only mods (pool "Exclusive") no PoB-PoE2 unique carries, by mod id -> the POE1_ONLY_GROUPS name that
+    marks it a PoE1 leftover, or "" when none does (then whether a PoE2 source carries it is UNVERIFIED)."""
+    carried = pob_unique_templates() if carried is None else carried
+    lines: dict[str, list[str]] = defaultdict(list)
+    for affix in affixes:
+        if affix["pool"] == "Exclusive" and affix.get("line"):
+            lines[affix["id"]].append(affix["line"])
+    out = {}
+    for mod, texts in lines.items():
+        if any(template(t) in carried for t in texts):
+            continue
+        out[mod] = ""  # carried by no PoB-PoE2 unique, no PoE1-only group: stays open, labelled UNVERIFIED
+        for name, rx in _POE1_ONLY:
+            if any(rx.search(t) for t in texts):
+                out[mod] = name
+                break
+    return out
+
+
 # What PoB's calculations read -------------------------------------------------------------------
 
 def _strip_comments(text: str) -> str:
@@ -667,6 +737,18 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     f"PoB counts it, but its parse looks wrong ({finding['kind']}: {finding['detail']})",
                     weight * (1.5 if finding["inflates"] else 1.0), of=source_type, finding=finding["kind"],
                     inflates=finding["inflates"])
+        # PoE1 leftovers among the unique-only mods: out of the open work (POE1_ONLY_GROUPS)
+        leftovers = poe1_leftover_mods(raw["affixes"])
+        for record in records:
+            if record["status"] == "none" and record["source"].startswith("Exclusive "):
+                group = leftovers.get(record["source"].split()[1])
+                if group:
+                    record["status"] = "unreachable"
+                    record["reason"] = (f"a PoE1 leftover ({group}): no PoE2 unique carries this mod "
+                                        "(POE1_ONLY_GROUPS' evidence, COV19); was: " + record["reason"])
+                elif group == "":
+                    record["reason"] += ("; no PoB-PoE2 unique carries this mod: a PoE1 leftover or PoE2 content PoB "
+                                         "lacks (UNVERIFIED)")
     # e. skills that calculate 0 alone on a plain character (data/pob-*/skill_zero.json, scratch/zero_skills.py)
     for skill in zero_skills(data_dir):
         add("skill-zero", skill["name"], "active gem", skill["name"], skill["status"], skill.get("entry"), skill["reason"],

@@ -294,3 +294,37 @@ def test_jiquanis_thesis_boots_line_reaches_pob_whole_and_movement_speed_alone_i
     rare = f"Rarity: Rare\nOptimizer Boots 1\n{boots}\nItem Level: 82\nImplicits: 0\n+10 to Strength"
     added = [l for l in with_runes(rare, ["Jiquani's Thesis"]).splitlines() if l.startswith(ADDED)]
     assert added == [ADDED + whole]
+
+
+def test_poe1_leftover_unique_mods_are_unreachable_and_uncarried_ones_stay_open_labelled():
+    """COV19 (the user, 13 Nov 2026: the Searching Eye jewel "is from PoE1, not PoE2"): a unique-only mod whose lines
+    name a PoE1-only mechanic (POE1_ONLY_GROUPS: Abyss jewels, gem sockets on items, Rampage ...) and match no line of
+    any PoB-PoE2 unique is "unreachable", out of the open counts and the ranking. A mod a PoB-PoE2 unique carries never
+    is, and an uncarried mod in no group stays open with an UNVERIFIED label (it may be PoE2 content PoB lacks)."""
+    from builder.data import data_dir
+
+    carried = frozenset({coverage.template("Socketed Gems are Supported by Level 5 Pierce")})
+    affixes = [{"pool": "Exclusive", "id": "EyeJewel", "line": "With a Searching Eye Jewel Socketed, Attacks Blind"},
+               {"pool": "Exclusive", "id": "Rampage", "line": "Recover 20% of maximum Life on Rampage"},
+               {"pool": "Exclusive", "id": "Rampage", "line": "Some other line"},
+               {"pool": "Exclusive", "id": "Carried", "line": "Socketed Gems are Supported by Level 15 Pierce"},
+               {"pool": "Exclusive", "id": "Ward", "line": "Recover 4% of maximum Runic Ward on reaching Maximum Rage"},
+               {"pool": "Item", "id": "Rolled", "line": "2% increased Area of Effect per 25 Rampage Kills"}]
+    assert coverage.poe1_leftover_mods(affixes, carried) == {"EyeJewel": "Abyss jewels", "Rampage": "Rampage",
+                                                              "Ward": ""}
+    if not (data_dir() / "coverage.json").exists():
+        pytest.skip("no coverage.json")
+    report = coverage.audit()
+    exclusive = [r for r in report["records"] if r["source"].startswith("Exclusive ")]
+    marked = [r for r in exclusive if r["status"] == "unreachable"]
+    assert len(marked) >= 150 and all(r["reason"].startswith("a PoE1 leftover (") for r in marked)
+    carried = coverage.pob_unique_templates()
+    by_mod: dict[str, list[str]] = {}
+    for r in exclusive:
+        by_mod.setdefault(r["source"].split()[1], []).append(r["line"])
+    assert not any(coverage.template(line) in carried for r in marked for line in by_mod[r["source"].split()[1]])
+    assert any(r["status"] == "none" and "Searching Eye" not in r["line"] and r["reason"].endswith("(UNVERIFIED)")
+               for r in exclusive)
+    assert not any("Eye Jewel Socketed" in r["line"] for r in exclusive if r["status"] == "none")
+    assert not any(g["template"] == coverage.template("Recover 20% of maximum Life on Rampage")
+                   for g in report["ranking"])
