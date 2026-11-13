@@ -340,7 +340,9 @@ def test_recovery_lines_no_rate_reads_are_named_undercounts_and_modelled_ones_co
     from builder.data import data_dir
     from builder.ledger.coverage import ignored_line_status
 
-    assert coverage.unread_recovery("Regenerate 5% of maximum Life over 1 second when Stunned")
+    assert coverage.unread_recovery("Recover 3% of maximum Life when you use a Mana Flask")
+    # (train 36: MECHC15's 1d9ba16 counts "Life when Stunned" at the boss's Light-Stunning hits: no longer unread)
+    assert not coverage.unread_recovery("Regenerate 5% of maximum Life over 1 second when Stunned")
     for line in ("Recover (20-30)% of Missing Life before being Hit by an Enemy",
                  "Regenerate 2% of your Armour as Life over 1 second when you Block",
                  "Regenerate (6-8) Life over 1 second when you Cast a Spell"):
@@ -349,7 +351,6 @@ def test_recovery_lines_no_rate_reads_are_named_undercounts_and_modelled_ones_co
     if not (data_dir() / "coverage.json").exists():
         pytest.skip("no coverage.json")
     routed = [r for r in coverage.audit()["records"] if r.get("routed") == "MECH-C"]
-    assert {"Quick Recovery", "Chakra of Stability"} <= {r["source"] for r in routed}
     assert all(r["status"] == "none" and r["undercount"] and "UNDERCOUNT" in r["reason"] for r in routed)
 
 
