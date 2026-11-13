@@ -39,7 +39,7 @@ def test_recovery_reads_pobs_untyped_recoup_an_undercount_before():
 
 def test_gains_on_block_count_at_the_bosss_blocked_hits():
     stats = {**BOSS, "LifePerSecondCost": 400.0, "LifeOnBlock": 100.0, "EffectiveBlockChance": 50.0}
-    every = benefit_every(stats) or stats["enemySkillTime"]
+    every = benefit_every(stats)
     per_second = 100.0 * boss_hits.block_share(stats) / every
     assert 0 < per_second < 100.0  # (red-flash hits can't be Blocked)
     assert hit_recovery_rates(stats)["Life"] == pytest.approx(per_second)

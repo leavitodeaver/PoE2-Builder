@@ -174,15 +174,11 @@ def recoup(stats: dict, taken: dict[str, float], pool: str) -> float:
     return (typed + sum(taken.values()) * number(stats.get(f"{pool}Recoup"))) / 100
 
 
-def benefit_every(stats: dict) -> float | None:
+def benefit_every(stats: dict) -> float:
     """Seconds between the boss's damaging uses as a "when hit" BENEFIT reads them (MECHD4's bosses.benefit_skill_time,
-    the manager's 16:50 ruling: defences read the faster rate). None (PoB's enemySkillTime) where it isn't on the tree."""
-    try:
-        from builder.search import bosses
-    except ImportError:
-        return None
-    read = getattr(bosses, "benefit_skill_time", None)
-    return read(stats) if read else None
+    the manager's 16:50 ruling: defences read the faster rate, PoB's enemySkillTime)."""
+    from builder.search import bosses
+    return bosses.benefit_skill_time(stats)
 
 
 def on_block(stats: dict, pool: str, every: float | None = None) -> float:
