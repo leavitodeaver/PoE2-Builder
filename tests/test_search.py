@@ -22,13 +22,7 @@ from builder.search.tree import rooted_subsets
 FIXTURES = Path(__file__).parent / "fixtures" / "requests"
 
 
-@pytest.fixture
-def arbiter_default(monkeypatch):
-    """The default boss as the Arbiter of Ash, as these tests' numbers were worked out (MECHC12: since bosses.WORST
-    became the default, boss_hits reads the worst case's own rows: five damage types, its red flash, Atziri's Ignite and
-    Corrupted Blood; tests/test_boss_hits_worst.py checks those)."""
-    from builder.search import bosses
-    monkeypatch.setattr(bosses, "DEFAULT", "Arbiter of Ash")
+# (arbiter_default: tests/conftest.py's, MECHD5's; MECHC13 dropped this file's identical copy)
 
 
 @pytest.fixture
