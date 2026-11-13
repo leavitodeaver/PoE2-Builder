@@ -1,0 +1,116 @@
+# Life and Mana recovery lines PoB doesn't parse that builder/search/recovery.py (MECHC12) turns into a rate at the
+# build's own events (Assumptions.life_mana_income: kills, Remnants, charm uses, Warcries, Heavy Stuns, Ignites,
+# Shocks). The model reads the lines itself, on items and passives, through bridge.sourceLines, so these entries
+# record the route for the coverage audit and add nothing (replace: []). The rates go to build.recovery_sources and
+# the result's note; the sustain and recovery floors read them once SEARCH merges build.recovery_sources
+# (FIX_QUEUE, MECHC12's findings): until then they move the note, not the score.
+# PoB parses none of these lines (MECHC12: checked, ModCache nil; this audit's records: status "none" for each, COV17).
+#
+# Not here, so still counted by nothing: recovery.EVENT_UNREAD (lines no rate reads yet: Power / Endurance Charge
+# consumed, Glory, Combo, corpses, Offerings, Revived minions, traps, Rage on Shapeshift, a Mana Flask's use, "Recover
+# all Mana when Used"), and Indigon's "Mana Recovery other than Regeneration cannot Recover Mana": recovery.restrict
+# zeroes the model's own Mana parts only, not PoB's Mana leech, Mana on hit or Mana flasks (COV17's report, for MECH-C).
+
+- id: recovery-enemy-dies-in-presence
+  title: Recover % of maximum Life / Mana when an Enemy dies in your Presence (recovery model, at the boss preset's kills)
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\d+(?:\.\d+)?)% of your maximum (Life|Mana) when an Enemy dies in your Presence$'
+  replace: []
+  confidence: reported
+  notes: >-
+    recovery.on_kill: the % x maximum Life / Mana x the enemies the build kills a second (models.kill_rate: the boss
+    preset's adds; 0 against a lone boss). Every add's death taken as in your Presence (LOW). Was
+    no-effect-enemy-death-and-recoup until COV17 (now Recoup only).
+  sources: ["builder/search/recovery.py (PRESENCE_DEATH, on_kill)", "https://poe2db.tw/us/Heart_of_the_Well"]
+  test_in_game: "Kill an add in your Presence with Life missing: Life rises by the % of maximum."
+  status: proposed
+
+- id: recovery-remnant-collected
+  title: Recover % of Maximum Life / Mana when you collect a Remnant (recovery model, at the build's Remnants)
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\d+(?:\.\d+)?)% of Maximum (Life|Mana) when you collect a Remnant$'
+  replace: []
+  confidence: reported
+  notes: >-
+    recovery.remnant_income: on the Remnants the build's Life / Mana Remnants skills make (their own hit / crit spawn
+    timers and on-kill chances), every Remnant taken as collected (MEDIUM-LOW; the play guide says to walk onto each).
+    Remnants from other skills aren't counted here (an undercount).
+  sources: ["builder/search/recovery.py (REMNANT_PICKUP, remnant_income)", "https://poe2db.tw/us/Vigorous_Remnants"]
+  test_in_game: "Collect a Life Remnant with Life missing: Life rises by the Remnant's amount plus the %."
+  status: proposed
+
+- id: recovery-charm-own
+  title: A charm's Recover N Life / Mana when Used (recovery model, at the charm's uses)
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\d+(?:\.\d+)?) (Life|Mana) when Used$'
+  replace: []
+  confidence: reported
+  notes: >-
+    recovery.charm_income: read from each equipped charm's own lines, x that charm's uses a second
+    (flasks.uses_per_second: its trigger and the charges the build gains). On a flask the line would not be read.
+  sources: ["builder/search/recovery.py (CHARM_OWN, charm_income)", "builder/search/flasks.py (uses_per_second)"]
+  test_in_game: "Trigger the charm with Life missing: Life rises by N."
+  status: proposed
+
+- id: recovery-mana-when-charm-used
+  title: Recover % of maximum Mana when a Charm is used (recovery model, at every charm's uses)
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\d+(?:\.\d+)?)% of maximum Mana when a Charm is used$'
+  replace: []
+  confidence: reported
+  notes: "recovery.charm_income: the % x maximum Mana x the summed uses a second of every equipped charm."
+  sources: ["builder/search/recovery.py (CHARM_ANY, charm_income)", "https://poe2db.tw/us/Heart_of_the_Well"]
+  test_in_game: "Trigger a charm with Mana missing: Mana rises by the %."
+  status: proposed
+
+- id: recovery-warcry
+  title: Recover % of maximum Life (and Mana) when you use a Warcry (recovery model, at the build's Warcries)
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\d+(?:\.\d+)?)% of maximum Life( and Mana)? when you use a Warcry$'
+  replace: []
+  confidence: reported
+  notes: "recovery.event_income: x the build's Warcries a second (conditions.event_rates: their cooldowns and press rates); 0 without a Warcry."
+  sources: ["builder/search/recovery.py (WARCRY_BOTH, WARCRY_LIFE, event_income)", "https://poe2db.tw/us/Urgent_Call"]
+  test_in_game: "Use a Warcry with Life missing: Life rises by the %."
+  status: proposed
+
+- id: recovery-heavy-stun
+  title: Recover % of maximum Life when you Heavy Stun a Rare or Unique Enemy (recovery model, at the boss's Heavy Stuns)
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\d+(?:\.\d+)?)% of maximum Life when you Heavy Stun a Rare or Unique Enemy$'
+  replace: []
+  confidence: reported
+  notes: "recovery.event_income: x models.heavy_stun_rate (the build's Heavy Stuns of the boss a second)."
+  sources: ["builder/search/recovery.py (HEAVY_STUN_UNIQUE, event_income)", "https://poe2db.tw/us/Flip_the_Script"]
+  test_in_game: "Heavy Stun a Unique with Life missing: Life rises by the %."
+  status: proposed
+
+- id: recovery-ignite
+  title: Recover % of maximum Life / N Life when you Ignite an Enemy (recovery model, at the main skill's Ignites)
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\d+(?:\.\d+)?)(% of maximum)? Life when you Ignite an Enemy$'
+  replace: []
+  confidence: reported
+  notes: "recovery.event_income: x the main skill's hits a second x its Ignite chance (PoB's IgniteChancePerHit, capped at 100%)."
+  sources: ["builder/search/recovery.py (IGNITE_PCT, IGNITE_FLAT, event_income)"]
+  test_in_game: "Ignite an enemy with Life missing: Life rises by the amount."
+  status: proposed
+
+- id: recovery-shock
+  title: Recover % of maximum Mana when you Shock an Enemy (recovery model, at the main skill's Shocks)
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\d+(?:\.\d+)?)% of maximum Mana when you Shock an Enemy$'
+  replace: []
+  confidence: reported
+  notes: "recovery.event_income: x the main skill's hits a second x its Shock chance (PoB's ShockChancePerHit, capped at 100%)."
+  sources: ["builder/search/recovery.py (SHOCK_PCT, event_income)"]
+  test_in_game: "Shock an enemy with Mana missing: Mana rises by the %."
+  status: proposed
