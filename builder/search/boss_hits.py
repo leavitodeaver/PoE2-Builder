@@ -60,9 +60,54 @@ def boss_name(stats: dict) -> str:
         return DEFAULT_BOSS
 
 
+# The default worst-case pinnacle (MECHC12; MECH-D's MECHD5, bosses.WORST: the user's decision, 12 Nov 2026, "invent a
+# pinnacle boss that ... takes the highest stats of each"). Its rows in this file's tables, made from bosses.py's own
+# sources the first time a reader asks (bosses.py reads this file's tables while it loads, so they can't be made at
+# import). Before, every table here read the Arbiter of Ash's row for it (two damage types, Fire and Physical), while PoB
+# got the worst case's five through config_vars:
+# - HIT_TABLE: the type counts pooled over the 12 real presets' damaging skills (bosses.WORST_HIT_COUNTS: every type
+#   dealt, LOW as each boss's own mix); hit_sizes gives each type at the biggest any real preset deals
+#   (bosses.WORST_HIT_FROM; the table's raw multiplier is that of the hardest-hitting source, for the note only).
+# - RED_FLASH: bosses.WORST's unavoidable / unblockable shares (the highest real preset's of each, MECHD5) over the pooled
+#   damaging skills, naming the presets they come from (shares() reads the preset's own floats).
+# - IGNITE_INCREASE: the real preset with the most increased Ignite chance per Fire hit (Atziri, the Fell Serpent: 80 over
+#   her 4 Fire skills, 20% a hit), as an increase over the pooled Fire skills that averages to that.
+# - Corrupted Blood (corrupted_blood): the real preset with the largest share of hits that leave it (the Fell Serpent:
+#   one of her 11 damaging skills, 3 s).
+_worst_done = False
+
+
+def _worst() -> str | None:
+    """bosses.WORST, its rows added to the tables here on the first call (None while bosses.py is still loading)."""
+    global _worst_done
+    try:
+        from builder.search import bosses
+        name, sources, counts = bosses.WORST, bosses.WORST_HIT_FROM, bosses.WORST_HIT_COUNTS
+        boss, real = bosses.PRESETS[bosses.WORST], bosses.REAL
+    except (ImportError, AttributeError, KeyError):
+        return None
+    if _worst_done:
+        return name
+    HIT_TABLE[name] = (max(HIT_TABLE[n][0] for n in set(sources.values())), dict(counts))
+    total = sum(RED_FLASH[n][2] for n in real)
+    una = max(real, key=lambda n: RED_FLASH[n][0] / RED_FLASH[n][2])
+    eva = max(real, key=lambda n: RED_FLASH[n][1] / RED_FLASH[n][2])
+    RED_FLASH[name] = (boss.unavoidable * total, (boss.unblockable or 0.0) * total, total,
+                       f"the highest share of any real preset: {boss.unavoidable:.0%} with no evade or block roll, as "
+                       f"{una}'s ({RED_FLASH[una][3]})" + (f"; {boss.unblockable:.0%} evadable but not blockable, as "
+                                                            f"{eva}'s ({RED_FLASH[eva][3]})" if boss.unblockable else ""))
+    per_hit = {n: sum(IGNITE_INCREASE[n]) / HIT_TABLE[n][1]["Fire"] for n in IGNITE_INCREASE
+               if n in real and HIT_TABLE[n][1].get("Fire")}
+    if per_hit:
+        IGNITE_INCREASE[name] = (max(per_hit.values()) * counts.get("Fire", 0),)
+    _worst_done = True
+    return name
+
+
 def shares(stats: dict) -> tuple[float, float]:
     """(share of the boss's hits with no evade / block, share with evade but no block)."""
     name = boss_name(stats)
+    _worst()
     try:
         from builder.search import bosses
         boss = bosses.PRESETS.get(name)
@@ -100,7 +145,7 @@ def landing_hits(stats: dict) -> float:
 
 def note(stats: dict) -> dict:
     name = boss_name(stats)
-    u, e = shares(stats)
+    u, e = shares(stats)  # (adds the worst case's row: _worst)
     which = RED_FLASH.get(name, RED_FLASH[DEFAULT_BOSS])[3]
     return {"label": "Boss hits you can't evade or block (red flash)",
             "value": f"{u:.0%} of {name}'s hits" + (f", and {e:.0%} that can be evaded but not blocked" if e else ""),
@@ -170,11 +215,16 @@ def type_factor(kind: str, reading: str = "headline") -> float:
 
 
 def hit_table(name: str | None) -> tuple[float, dict[str, int]]:
+    _worst()
     return HIT_TABLE.get(name or DEFAULT_BOSS, HIT_TABLE[DEFAULT_BOSS])
 
 
 def hit_sizes(name: str | None = None, reading: str = "headline") -> dict[str, float]:
-    """One hit of each damage type the boss deals, before your mitigation (0 for the types it doesn't deal)."""
+    """One hit of each damage type the boss deals, before your mitigation (0 for the types it doesn't deal). The
+    worst-case pinnacle: each type at the biggest any real preset deals (bosses.WORST_HIT_FROM)."""
+    if name is not None and name == _worst():
+        from builder.search import bosses
+        return {t: (hit_sizes(bosses.WORST_HIT_FROM[t], reading)[t] if t in bosses.WORST_HIT_FROM else 0.0) for t in TYPES}
     raw, counts = hit_table(name)
     unique = 1.0 if reading == "harsh" else UNIQUE_LESS
     return {t: (BASE_DAMAGE * SKILL_MULT * raw * unique * type_factor(t, reading) if counts.get(t) else 0.0)
@@ -226,10 +276,18 @@ def survival_text(stats: dict) -> tuple[str, str, bool | None, str]:
     else:
         verdict = "one hit kills: " + ", ".join(s["fails"]["headline"]) + (
             " (even at the low bound)" if s["fails"]["low"] else " (survives the converted-only low bound)")
-    note = (f"{s['boss']}: level {LEVEL} base {BASE_DAMAGE:g} x skill {SKILL_MULT:g} x raw {hit_table(s['boss'])[0]:g} "
+    raw = (f"raw per type from the real preset that hits hardest with it: {worst_sources()}"
+           if s["boss"] == _worst() else f"raw {hit_table(s['boss'])[0]:g}")
+    note = (f"{s['boss']}: level {LEVEL} base {BASE_DAMAGE:g} x skill {SKILL_MULT:g} x {raw} "
             f"x unique {UNIQUE_LESS:g} x the level's more (Elemental x{LEVEL_MORE['elemental']:g}, Chaos "
             f"x{LEVEL_MORE['chaos']:g}); " + "; ".join(f"{k} {v}" for k, v in CONFIDENCE_HITS.items()))
     return f"one hit of each type: {want}", f"max hit {got}: {verdict}", None, note
+
+
+def worst_sources() -> str:
+    """'Physical: <preset> (raw x), ...' for the worst-case pinnacle's hit sizes."""
+    from builder.search import bosses
+    return ", ".join(f"{t} {n} (x{HIT_TABLE[n][0]:g})" for t, n in bosses.WORST_HIT_FROM.items())
 
 
 def hits_note(name: str | None = None) -> dict:
@@ -239,10 +297,12 @@ def hits_note(name: str | None = None) -> dict:
     weights = type_shares(name)
     value = "; ".join(f"{t} {rows['headline'][t]:,.0f} ({weights[t]:.0%} of hits; without the 0.65 {rows['harsh'][t]:,.0f}, "
                       f"low bound {rows['low'][t]:,.0f})" for t in TYPES if rows["headline"][t] > 0)
+    worst = (f"; each type at the biggest any real preset deals ({worst_sources()}), the share of hits pooled over the "
+             "12 real presets' damaging skills (LOW)") if name == _worst() else ""
     return {"label": f"Boss hit sizes: {name}", "value": value,
             "basis": "the game's monster tables, not PoB's Pinnacle default (965 per type and 386 Chaos, all in one hit): "
                      "level base damage x skill x the boss's damage multiplier x unique 35% less x the level's more for "
-                     "Elemental (x4) and Chaos (x2)",
+                     "Elemental (x4) and Chaos (x2)" + worst,
             "confidence": "; ".join(f"{k} {v}" for k, v in CONFIDENCE_HITS.items()) + "; " + CADENCE_NOTE}
 
 
@@ -301,7 +361,7 @@ def ignite_chance(stats: dict, land: float = 0.0) -> tuple[float, str]:
     """Chance a landed Fire hit of the boss Ignites you (before your Ignite avoidance), and how it was worked out.
     `land` is the boss's landed hits per second (their Fire share stacks Flammability over 8 s)."""
     name = boss_name(stats)
-    fire = type_shares(name)["Fire"]
+    fire = type_shares(name)["Fire"]  # (adds the worst case's IGNITE_INCREASE row: _worst)
     taken = number(stats.get("FireTakenHit")) if "FireTakenHit" in stats else hit_sizes(name)["Fire"]
     threshold = number(stats.get("AilmentThreshold")) or 0.5 * number(stats.get("Life"))
     if threshold <= 0:
@@ -327,9 +387,21 @@ def es_dot(stats: dict, ignite: bool = True, land: float = 0.0) -> list[tuple[fl
         scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
         if chance > 0:
             out.append((fire * chance * (1 - avoid), IGNITE_SECONDS * scale, "Ignite"))
-    if name in CORRUPTED_BLOOD:
-        out.append((1 / sum(hit_table(name)[1].values()), CORRUPTED_BLOOD[name], "Corrupted Blood"))
+    if blood := corrupted_blood(name):
+        out.append((*blood, "Corrupted Blood"))
     return out
+
+
+def corrupted_blood(name: str) -> tuple[float, float] | None:
+    """(share of the boss's landed hits that leave Corrupted Blood on you, its seconds), or None: one of its damaging
+    skills (LOW). The worst-case pinnacle: the real preset's with the largest share (MECHC12)."""
+    if name == _worst():
+        from builder.search import bosses
+        rows = [corrupted_blood(n) for n in bosses.REAL if n in CORRUPTED_BLOOD]
+        return max(rows) if rows else None
+    if name in CORRUPTED_BLOOD:
+        return 1 / sum(hit_table(name)[1].values()), CORRUPTED_BLOOD[name]
+    return None
 
 
 def recharge_wait(stats: dict, delay: float, land: float, ignite: bool = True) -> float:

@@ -1657,8 +1657,9 @@ class Assumptions:
         if not counts.get(kind):
             return 0.0, f"{boss} deals no {kind} hits"
         if not every or not damaging:
-            return 0.0, (f"{boss}: no per-type hit rate in the tables (bosses.HIT_EVERY / boss_hits.RED_FLASH), so 0 (no "
-                         f"flat guess; an undercount if it hits with {kind} often)")
+            # (MECHC12: the worst-case default has both since boss_hits._worst; this is for a preset without them)
+            return 0.0, (f"{boss}: no use cadence or damaging-skill count in the tables (bosses.HIT_EVERY / "
+                         f"boss_hits.RED_FLASH), so 0 (no flat guess; an undercount if it hits with {kind} often)")
         interval = every / min(1.0, counts[kind] / damaging)
         share = 1.0 - math.exp(-4.0 / interval)
         return share, (f"{boss} hits with {kind} about every {interval:.1f} s ({counts[kind]} of its {damaging} damaging "
