@@ -2513,11 +2513,12 @@ def test_the_bridge_s_default_boss_is_the_presets_default():
     assert found == bosses.config_vars(bosses.DEFAULT)
     assert {k: found[k] for k in ("enemyFireResist", "enemyColdResist", "enemyLightningResist", "enemyChaosResist",
                                   "enemySpeed")} == {"enemyFireResist": 45, "enemyColdResist": 45,
-                                                     "enemyLightningResist": 45, "enemyChaosResist": 0, "enemySpeed": 510}
+                                                     "enemyLightningResist": 45, "enemyChaosResist": 25, "enemySpeed": 510}
     assert bosses.DEFAULT == bosses.WORST and bosses.note()["label"] == "Boss: Pinnacle (worst case)"
     ash = bosses.config_vars("Arbiter of Ash")
     assert (ash["enemyFireResist"], ash["enemyColdResist"], ash["enemyLightningResist"]) == (45, -15, 0)
-    assert all(b.chaos == 0 for b in bosses.PRESETS.values()) and len(bosses.REAL) == 12 == len(bosses.PRESETS) - 1
+    # no real pinnacle has Chaos resistance; the worst case's 25 is the user's choice (12 Nov 2026)
+    assert all(bosses.PRESETS[n].chaos == 0 for n in bosses.REAL) and len(bosses.REAL) == 12 == len(bosses.PRESETS) - 1
 
 
 def test_repeatable_spell_is_off_for_triggered_instant_or_channelled_main_spells():
@@ -3285,7 +3286,8 @@ def test_the_default_boss_is_an_invented_worst_case_pinnacle():
 
     w = bosses.PRESETS[bosses.DEFAULT]
     real = [bosses.PRESETS[n] for n in bosses.REAL]
-    assert (w.fire, w.cold, w.lightning, w.chaos) == (45, 45, 45, 0)
+    assert (w.fire, w.cold, w.lightning, w.chaos) == (45, 45, 45, 25)  # (Chaos 25: the user's choice)
+    assert bosses.config_vars()["enemyChaosResist"] == 25 and "the user's choice" in w.note
     assert (w.fire, w.cold, w.lightning) == (max(b.fire for b in real), max(b.cold for b in real),
                                              max(b.lightning for b in real))
     assert w.poise == max(b.poise for b in real) == 2275 and w.heavy_stun_s == 4.0

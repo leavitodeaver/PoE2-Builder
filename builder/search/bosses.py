@@ -12,6 +12,14 @@ calcPenResist, minimum ElementalPenetrationMinimum, 0 by default), as the game's
 ("can only be Penetrated down to a minimum of 0% by default"). (checked: CalcOffence.lua 466-474 and its two callers in
 CalcBreakdown.lua; KeywordPopups.json Penetration, game 26476662.)
 
+Resistances, the game files agree (MECHD5, research13's MonsterVarieties -> MonsterTypes.MonsterResistances, a LIST of
+MonsterResistances rows that add up: the Arbiter of Ash MinorFireResist + MinorColdVuln, the Arbiter of Divinity
+MinorLightningResist + MinorFireVuln, Olroth MinorColdResist, the Aberration MinorFireResist, Xesht / Zarokh / both
+Atziris MinorAllElementalResists, the King / Raven / Bodach / Kulemak None). Each row's fourth column per type is a
+by-level list, the fifth the area levels it starts at: the Minor resist rows [15, 15, 20, 45] from levels [0, 45, 64,
+76], so 45 at the pinnacles' level 82; the Vuln rows -15; MinorAllElementalResists 15 at every level. The first three
+columns (30) aren't the endgame value. Matches poe2db's 45 / -15 / 15 for every preset: HIGH.
+
 Every value: poe2db's current monster rows (read 12 Nov 2026, game 0.5.5), via RESEARCH9; resistances MEDIUM-HIGH, Life
 x29 rarity at level 82 (formula HIGH, level MEDIUM). A game update (26476662 -> 26579160) was waiting on 12 Nov:
 recheck after it. The default (MECHD5, the user's decision 12 Nov 2026) is an invented worst-case pinnacle, WORST: each
@@ -338,8 +346,11 @@ def _worst_red_flash() -> tuple[tuple[float, str], tuple[float, str]]:
 _POISE_FROM = max(REAL, key=lambda n: PRESETS[n].poise)
 _ES_FROM = max(REAL, key=lambda n: PRESETS[n].es_from_life)
 WORST_SOURCES = {
-    "resistances": "Fire / Cold / Lightning 45 / 45 / 45, Chaos 0: the highest of each (Fire: the Arbiter of Ash and "
-                   "the Aberration; Cold: Olroth; Lightning: the Arbiter of Divinity; Chaos: 0 on every preset)",
+    "resistances": "Fire / Cold / Lightning 45 / 45 / 45: the highest of each (Fire: the Arbiter of Ash and the "
+                   "Aberration; Cold: Olroth; Lightning: the Arbiter of Divinity); Chaos 25: the user's choice (12 Nov "
+                   "2026), no real pinnacle has any (checked: MonsterResistances, the boss .ot files, PinnacleAtlasBoss, "
+                   "poe2db), 25 matching the largest map / area 'additional chaos resistance' mods in the game data "
+                   "(+25), whether or not they reach a pinnacle arena (UNVERIFIED that they do)",
     "Life": "the Arbiter of Ash's 9,461,668 (it cuts both ways: fight length against ramp-up; the old default's)",
     "Monster Category": "none: no 'against <category>' line applies (Demon, Humanoid, Beast, Construct and Undead "
                         "lines all read 0)",
@@ -360,7 +371,7 @@ WORST_SOURCES = {
     "Slow taken": "50% less, as every Unique",
 }
 PRESETS[WORST] = Boss(
-    WORST, 45, 45, 45, 0, PRESETS["Arbiter of Ash"].life, None,
+    WORST, 45, 45, 45, 25, PRESETS["Arbiter of Ash"].life, None,
     "an invented worst case (the user, 12 Nov 2026): " + "; ".join(f"{k}: {v}" for k, v in WORST_SOURCES.items()),
     poise=PRESETS[_POISE_FROM].poise, heavy_stun_s=min(PRESETS[n].heavy_stun_s for n in REAL),
     es_from_life=PRESETS[_ES_FROM].es_from_life,

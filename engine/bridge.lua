@@ -2148,7 +2148,7 @@ end
 -- The boss's own resistances (MECH50; builder/search/bosses.py PRESETS), not PoB's Pinnacle placeholder 50/50/50/0;
 -- by default the invented worst-case pinnacle (MECHD5, the user's decision 12 Nov 2026: each stat the worst of the 12
 -- real presets), its hits per type included. Must equal bosses.config_vars(bosses.DEFAULT) (tests/test_models.py).
-local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = 45, enemyLightningResist = 45, enemyChaosResist = 0,
+local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = 45, enemyLightningResist = 45, enemyChaosResist = 25,
 	enemySpeed = 510, cullingStrikeUniqueThreshold = 4.6086, enemyPhysicalDamage = 1223, enemyFireDamage = 4138,
 	enemyColdDamage = 4892, enemyLightningDamage = 4892, enemyChaosDamage = 2069 }
 -- PoB's own Unique Culling Strike threshold (Data/Misc.lua: 5%). The boss's `cullingStrikeUniqueThreshold` (MECHD4,
