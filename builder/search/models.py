@@ -5198,20 +5198,64 @@ def pustule_groups(skills: list[Skill], name: str = PUSTULE_SKILL) -> list[int]:
     return sorted({s.group for s in skills if s.name == name and s.stat_set == label and s.group is not None})
 
 
-def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL) -> tuple[list[dict], list[dict]]:
+# Stored Poison (MECHB15; AUDIT25 A25-8, a possibly large UNDERCOUNT): "Pustules store expected damage of [Poison|Poisons]
+# inflicted on them" (poison_spore_support/statset_1.csd, toxic_domain/statset_1.csd), "Stored [Poison|Poison] grants up
+# to {1}% more explosion Damage" (statset_0.csd: toxic_pustule_max_burst_damage_+%_final_from_stored_poison 300, on
+# TriggeredPoisonSporesExplosion, ToxicGrowthPlayer, ToxicDomainPustuleExplosion), 1% more per X stored
+# (toxic_pustule_burst_1%_more_damage_per_x_stored_poison: 2 at gem level 1, 969 at 20; GrantedEffectStatSetsPerLevel).
+# ActiveSkills: Poison Spores "Attach a Toxic Pustule to the enemy ... They can also be [Poison|Poisoned], causing them
+# to Detonate faster and more violently"; Toxic Domain "Pustules will Detonate after a duration or when enough [Poison]
+# has been applied". poe2db (Poison_Spores, 12 Nov 2026) quotes the same lines and nothing more.
+# Whether the Poisons a build inflicts on the boss are "inflicted on" the Pustule attached to it is UNVERIFIED (checked:
+# the three skills' ActiveSkills descriptions, their statset .csd files, skill_stat_descriptions.csd, KeywordPopups (no
+# Pustule entry), poe2db's Poison Spores / Toxic Growth / Toxic Domain pages, mobalytics' and poe2wiki's pages; no
+# monster table for the Pustule is exported, so whether it is its own hittable object can't be read either). The text
+# says "them", the Pustules, and nothing says hits on the carrier reach them. So the bonus isn't scored (accuracy
+# first); it's sized as a "with it" row from the build's own Poison: stored over one fuse = PoB's PoisonDPS on the
+# boss x the fuse (at steady stacks the expected damage of the Poisons inflicted each second equals the Poison DPS),
+# more = min(max, stored / X). The sooner burst ("expires 1% faster per x stored poison damage multiplied by sixty":
+# no game text, poe2db shows only the stat id; whether "x sixty" scales the stored damage or X is UNVERIFIED) isn't
+# sized, so the row is a floor of the "with it" case on bursts, and an upper bound on what reaches the Pustule.
+def pustule_stored(rates: list[dict], poison_dps: float, fuse: float) -> tuple[float, str]:
+    """The stored-Poison "more" (percent) a Pustule would burst with if every Poison the build inflicts on the boss
+    were stored in it over its fuse, and how (see above); 0 with no Poison or no stat read."""
+    pers = [(number(r.get("storedPoisonPerPercent")), number(r.get("storedPoisonMaxMore"))) for r in rates
+            if number(r.get("storedPoisonPerPercent")) > 0]
+    if not pers or poison_dps <= 0 or fuse <= 0:
+        return 0.0, ""
+    per, top = min(pers)
+    top = top or 300.0
+    stored = poison_dps * fuse
+    more = min(top, stored / per)
+    return more, (f"{poison_dps:,.0f} Poison DPS x {fuse:.1f} s = {stored:,.0f} stored, 1% more per {per:,.0f}: "
+                  f"+{more:.0f}% more (max {top:.0f}%)")
+
+
+def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float = 0.0) -> tuple[list[dict], list[dict]]:
     """The Pustule Explosion held to one a fuse (Poison Spores, Toxic Domain: one per enemy) or to its Limit a fuse
-    (Toxic Growth) (see above). `rates`: bridge useRates for each group's `name` skill."""
+    (Toxic Growth) (see above). `rates`: bridge useRates for each group's `name` skill. `poison_dps`: PoB's PoisonDPS
+    on the boss, for the stored-Poison "with it" row (pustule_stored; never scored)."""
     speed = sum(number(r.get("speed")) * (number(r.get("repeats")) or 1.0) for r in rates)
     if speed <= 0:
         return [], []
     fuses = [number(r.get("detonationTime")) for r in rates if number(r.get("detonationTime")) > 0]
     fuse = min(fuses) if fuses else PUSTULE_FUSE
+    stored_more, stored_how = pustule_stored(rates, poison_dps, fuse)
+    stored = [] if stored_more <= 0 else [{
+        "label": f"{name}: stored Poison's harder burst, not counted*", "value": f"x1 (with it: x{1 + stored_more / 100:.2f})",
+        "basis": "The game: Pustules \"store expected damage of Poisons inflicted on them\" and burst up to 300% harder. "
+                 "UNVERIFIED whether the Poisons you inflict on the boss reach the Pustule attached to it (no game text or "
+                 f"second source says so), so it isn't scored. If they all did: {stored_how}. Its sooner burst isn't "
+                 "sized (the stat's units are UNVERIFIED), so with it the explosions would come at least that much harder",
+        "play": f"Without it: as scored. With it (if your Poisons on the boss feed its Pustule): the explosion x"
+                f"{1 + stored_more / 100:.2f}, sooner too",
+        "confidence": "LOW (in-game test: the explosion's damage with and without Poisoning the boss)"}]
     ground = name in PUSTULE_LIMIT
     limits = [number(r.get("pustuleLimit")) for r in rates if number(r.get("pustuleLimit")) > 0]
     limit = (max(limits) if limits else float(PUSTULE_LIMIT[name])) if ground else 1.0
     share = min(1.0, limit / fuse / speed)
     if share >= 1.0:
-        return [], []
+        return [], stored
     fuse_text = f"{fuse:.1f} s fuse{'' if fuses else ' (base; PoB gave no Detonation Time)'}"
     if ground:
         return [raw_mod("DPS", "MORE", 100 * (share - 1), name)], [{
@@ -5224,14 +5268,14 @@ def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL) -> tuple[list[dict
             "play": f"Fire {name} about once every {fuse:.0f} s and let its Pustules burst: firing again sooner "
                     "replaces the waiting ones (spammed, without the pacing: no bursts at all)",
             "confidence": "LOW-MEDIUM (game files give the Limit, the fuse and what the Limit does; the hits on the "
-                          "boss are UNVERIFIED)"}]
+                          "boss are UNVERIFIED)"}] + stored
     return [raw_mod("DPS", "MORE", 100 * (share - 1), name)], [{
         "label": f"{name}: one Pustule on the boss at a time*", "value": f"x{share:.3f}",
         "basis": f"PoB counts {speed:.2f} Pustule Explosions/s; the game allows one Pustule per enemy, bursting after its "
                  f"{fuse_text}: {1 / fuse:.3f}/s. Not "
                  "counted (undercount side): stored Poison making it burst sooner and up to 300% harder (UNVERIFIED "
                  "whether Poisons on the boss feed it), and Pustules on adds",
-        "confidence": "MEDIUM (game files and poe2db agree on one Pustule and the 15 s fuse)"}]
+        "confidence": "MEDIUM (game files and poe2db agree on one Pustule and the 15 s fuse)"}] + stored
 
 
 # Runic Ward pays for Ward-cost skills (MECHB13; SEARCH7's Explosive Transmutation finding, an OVERCOUNT) ------------
@@ -5500,3 +5544,36 @@ def stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:
     heavy, heavy_how = heavy_stun_rate(stats)
     light, light_how = light_stun_rate(stats, melee)
     return heavy + light, f"Heavy {heavy:.3f}/s ({heavy_how}); Light {light:.3f}/s ({light_how})"
+
+
+# One use, two damaging stat sets (MECHB15; FIX_QUEUE's undercount list, MECHB14's finding) --------------------------------
+# Rolling Slam: "[Slam|Slam] the ground to [Stun|Stun] enemies and [Knockback|knock them away], then continue forward and
+# perform a devastating second [Slam|Slam]" (ActiveSkills rolling_slam). PoB has three sets: "Rolling Slam"
+# (base_deal_no_damage), "First Slam" (272% at level 20) and "Second Slam" (543%), all at total_attack_time 1000 ms,
+# and scores one set per group; the search keeps the best (gems.py), the Second Slam. One use does both, so the use's
+# damage is the two sets' sum: a DPS "more" of (First + Second) / scored, from the bridge's setRates (each set in its
+# own calculation, PoB's TotalDPS). Both slams are taken as hitting the boss (the first's Knockback moves no pinnacle
+# boss that's immune to it, and the second lands 1.5 m further on (melee_conditional_step_distance 15): a large boss is
+# still under it; LOW-MEDIUM, labelled). Other skills whose sets are labelled First / Second / Third / Final in PoB's
+# skill files are Combo or sequence strikes, each its own use (a different model, not this one) (checked: grep of
+# label = "First|Second|Third|Final" over PoB's Data/Skills: Rolling Slam's two, Second Wind I-III (supports), Final
+# Strike / Burst / Pulse, Third Strike).
+MULTI_SET_SKILLS = {"Rolling Slam": ("First Slam", "Second Slam")}
+
+
+def multi_set_model(main: str | None, scored: str | None, sets: list[dict]) -> tuple[list[dict], list[dict]]:
+    """A main skill whose one use performs several damaging stat sets (MULTI_SET_SKILLS), PoB scoring one: a DPS "more"
+    of their summed TotalDPS over the scored set's. `sets`: the bridge's setRates for the main group's skill."""
+    want = MULTI_SET_SKILLS.get(main or "")
+    if not want or scored not in want:
+        return [], []
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    if dps.get(scored, 0) <= 0 or any(dps.get(label, 0) <= 0 for label in want):
+        return [], []
+    more = sum(dps[label] for label in want) / dps[scored]
+    parts = " + ".join(f"{label} {dps[label]:,.0f}" for label in want)
+    return [raw_mod("DPS", "MORE", 100 * (more - 1), main)], [{
+        "label": f"{main}: one use performs {' and '.join(want)}*", "value": f"x{more:.3f}",
+        "basis": f"PoB scores the {scored} alone ({dps[scored]:,.0f} DPS); each use does both ({parts} DPS, each set "
+                 "calculated by PoB). Both taken as hitting the boss (the second lands 1.5 m on)",
+        "confidence": "MEDIUM (game text: a slam, then a second slam; PoB's own per-set numbers; both on the boss LOW-MEDIUM)"}]

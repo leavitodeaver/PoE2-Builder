@@ -2427,6 +2427,13 @@ function bridge.useRates(args)
 				if base and base > 0 then
 					entry.pustuleLimit = jsonNumber(base + skill.skillModList:Sum("BASE", skill.skillCfg, "AdditionalCooldownUses"))
 				end
+				-- (MECHB15, AUDIT25 A25-8: the Pustules' stored Poison, models.pustule_stored) the set's own 1% more per X
+				-- stored Poison damage (by gem level) and its maximum (300); PoB reads neither
+				local per = okStats and stats and stats["toxic_pustule_burst_1%_more_damage_per_x_stored_poison"]
+				if per and per > 0 then
+					entry.storedPoisonPerPercent = jsonNumber(per)
+					entry.storedPoisonMaxMore = jsonNumber(stats["toxic_pustule_max_burst_damage_+%_final_from_stored_poison"] or 0)
+				end
 			end
 			-- (MECHB13: Runic Ward pays for Ward-cost skills, models.ward_plan) one use's Runic Ward cost, PoB's WardCost
 			if type(output.WardCost) == "number" and output.WardCost > 0 then
@@ -2450,6 +2457,46 @@ function bridge.useRates(args)
 	end
 	build.mainSocketGroup = saved
 	return { rates = rates }
+end
+
+-- (MECHB15, models.multi_set_model) Each stat set of a group's active skill calculated in its own environment, as
+-- useRates does: one use of Rolling Slam performs its First Slam and its Second Slam, and PoB scores one set. Gives each
+-- set's label, TotalDPS, AverageDamage and Speed; the group's chosen set, main group and outputs are put back.
+function bridge.setRates(args)
+	local calcs = require("Modules.CalcBase")
+	local saved = build.mainSocketGroup
+	local group = build.skillsTab.socketGroupList[args.index]
+	local position = tonumber(args.active) or (group and group.mainActiveSkill) or 1
+	local activeSkill = group and group.displaySkillList and group.displaySkillList[position]
+	local instance = activeSkill and activeSkill.activeEffect.srcInstance
+	local sets = { }
+	if not instance then
+		return { sets = sets }
+	end
+	local granted = activeSkill.activeEffect.grantedEffect
+	local id = granted.id
+	instance.statSet = instance.statSet or { }
+	instance.statSetCalcs = instance.statSetCalcs or { }
+	local oldSet, oldCalcs, oldActive = instance.statSet[id], instance.statSetCalcs[id], group.mainActiveSkill
+	build.mainSocketGroup = args.index
+	group.mainActiveSkill = position
+	for k, statSet in ipairs(granted.statSets or { }) do
+		instance.statSet[id], instance.statSetCalcs[id] = k, k
+		local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
+		local entry = { index = k, label = statSet.label or "" }
+		if ok and env and env.player.mainSkill and pcall(calcs.perform, env, true) then
+			local output = env.player.output
+			for _, field in ipairs({ "TotalDPS", "AverageDamage", "Speed" }) do
+				if type(output[field]) == "number" then
+					entry[field] = jsonNumber(output[field])
+				end
+			end
+		end
+		sets[#sets + 1] = entry
+	end
+	instance.statSet[id], instance.statSetCalcs[id], group.mainActiveSkill = oldSet, oldCalcs, oldActive
+	build.mainSocketGroup = saved
+	return { sets = sets }
 end
 
 -- MECH-B (models.hazard_early_model): "N% less damage if destroyed within 0.5 seconds by something other than you", a

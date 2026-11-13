@@ -3023,6 +3023,26 @@ def test_toxic_growth_bursts_at_most_its_pustule_limit_a_fuse():
     assert models.pustule_cap([{"speed": 0.3, "detonationTime": 15}], "Toxic Growth") == ([], [])  # (under 5 / 15: as PoB)
 
 
+def test_pustule_stored_poison_is_sized_as_a_with_it_row_never_scored():
+    """MECHB15 (AUDIT25 A25-8): stored Poison's up-to-300%-harder burst. Whether the boss's Poisons reach its Pustule is
+    UNVERIFIED, so it's never scored: a "with it" row from PoB's Poison DPS x the fuse, 1% more per X (969 at level 20),
+    capped at the set's maximum; nothing with no Poison or no stat read."""
+    from builder.search import models
+
+    rate = {"speed": 1.2, "detonationTime": 15, "storedPoisonPerPercent": 969, "storedPoisonMaxMore": 300}
+    more, how = models.pustule_stored([rate], 10_000, 15)
+    assert abs(more - 150_000 / 969) < 1e-6 and "150,000 stored" in how
+    assert models.pustule_stored([rate], 1_000_000, 15)[0] == 300
+    assert models.pustule_stored([rate], 0, 15) == (0.0, "")
+    assert models.pustule_stored([{"speed": 1.2}], 10_000, 15) == (0.0, "")
+    mods, notes = models.pustule_cap([rate], "Poison Spores", 10_000)
+    scored, _ = models.pustule_cap([rate], "Poison Spores")
+    assert mods == scored  # (the score doesn't move)
+    assert len(notes) == 2 and "with it: x2.55" in notes[1]["value"] and "UNVERIFIED" in notes[1]["basis"]
+    mods, notes = models.pustule_cap([{**rate, "speed": 0.05}], "Poison Spores", 10_000)  # (under 1 / 15 a second)
+    assert mods == [] and len(notes) == 1 and "x2.55" in notes[0]["value"]
+
+
 def test_a_one_totem_support_keeps_one_totem_up():
     """Splinter Totem I / II, Greatwood II, Cirel's Cultivation: "Supported Skills can only have one active Totem"
     (number_of_totems_allowed_is_1, AUDIT23 A23-3): no extra totems counted, whatever the Totem Limit."""
@@ -3788,3 +3808,18 @@ def test_call_upon_the_deep_and_thrill_of_the_fight_count_from_the_builds_own_gl
     assert run("Hammer of the Gods", 0.0)[:2] == ({}, set())
     # a skill that doesn't spend Glory: the conditions stay off whatever the rate
     assert run("Boneshatter", 0.5)[:2] == ({}, set())
+
+
+def test_rolling_slam_counts_both_slams_of_a_use():
+    """MECHB15: one Rolling Slam does its First Slam and its Second Slam; PoB scores one set. A DPS "more" of the two
+    sets' TotalDPS over the scored one's; nothing for another skill, a set not read, or the non-damage display set."""
+    from builder.search import models
+
+    sets = [{"label": "Rolling Slam", "TotalDPS": 0}, {"label": "First Slam", "TotalDPS": 1000},
+            {"label": "Second Slam", "TotalDPS": 2000}]
+    mods, notes = models.multi_set_model("Rolling Slam", "Second Slam", sets)
+    assert mods == [models.raw_mod("DPS", "MORE", 50.0, "Rolling Slam")] and notes[0]["value"] == "x1.500"
+    assert models.multi_set_model("Rolling Slam", "First Slam", sets)[0][0]["value"] == 200.0
+    assert models.multi_set_model("Rolling Slam", "Rolling Slam", sets) == ([], [])
+    assert models.multi_set_model("Boneshatter", "Second Slam", sets) == ([], [])
+    assert models.multi_set_model("Rolling Slam", "Second Slam", sets[:2]) == ([], [])

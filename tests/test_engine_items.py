@@ -894,6 +894,7 @@ def test_poison_spores_pustule_explosion_is_held_to_one_a_fuse(engine):
     rate = build.call("useRates", indices=[group["index"]], actives=[spores])["rates"][0]
     print("Spores rate:", rate)
     assert rate["name"].startswith("Poison Spores") and rate["speed"] > 0 and abs(rate["detonationTime"] - 15) < 1e-6
+    assert rate["storedPoisonPerPercent"] == 969 and rate["storedPoisonMaxMore"] == 300, rate  # (MECHB15, level 20)
     assert build.call("useRates", indices=[group["index"]])["rates"][0]["name"].startswith("Lightning Arrow")  # (put back)
     mods, notes = search.assumptions.pustule_cap(found)
     share = 1 / 15 / rate["speed"]
@@ -923,10 +924,42 @@ def test_toxic_growth_explosion_is_held_to_its_pustule_limit(engine):
     rate = build.call("useRates", indices=[group["index"]])["rates"][0]
     print("Toxic Growth rate:", rate)
     assert rate["pustuleLimit"] == 6 and abs(rate["detonationTime"] - 15) < 1e-6 and rate["speed"] > 0.4  # (5 + 20q x 0.05)
+    # (MECHB15) the set's stored-Poison stats at gem level 20 (GrantedEffectStatSetsPerLevel: 969; the maximum 300)
+    assert rate["storedPoisonPerPercent"] == 969 and rate["storedPoisonMaxMore"] == 300, rate
     mods, notes = search.assumptions.pustule_cap(found)
     share = 6 / 15 / rate["speed"]
     assert mods == [models.raw_mod("DPS", "MORE", 100 * (share - 1), "Toxic Growth")], mods
     assert notes[0]["value"] == f"x{share:.3f}"
+
+
+def test_rolling_slam_counts_its_first_and_second_slam(engine):
+    """Rolling Slam (MECHB15): one use does its First Slam (272% at level 20) and Second Slam (543%); PoB scores one set.
+    The bridge's setRates calculates each set on its own and puts the chosen set back; the model adds the other slam."""
+    from builder.search import models
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Rolling Slam", ascendancies=["Titan"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Rolling Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    group = next(g for g in build.groups() if g["main"])
+    position = next(i for i, s in enumerate(group["skills"], start=1) if s["name"] == "Rolling Slam")
+    build.call("setGroup", index=group["index"], mainActiveSkill=position, statSet=3)  # (the Second Slam)
+    before = build.call("stats", fields=["TotalDPS"])["TotalDPS"]
+    sets = build.call("setRates", index=group["index"], active=position)["sets"]
+    print("Rolling Slam sets:", sets)
+    assert [s["label"] for s in sets] == ["Rolling Slam", "First Slam", "Second Slam"]
+    first, second = sets[1]["TotalDPS"], sets[2]["TotalDPS"]
+    assert 0 < first < second and abs(second - before) <= 1e-6 * before  # (the Second Slam is what PoB scored)
+    assert 0.4 < first / second < 0.6  # (272 / 543 = 0.50, the rest shared)
+    assert build.call("stats", fields=["TotalDPS"])["TotalDPS"] == before  # (put back)
+    main = next(models.Skill.of(s) for s in build.call("activeSkills")["skills"]
+                if s["name"] == "Rolling Slam" and not s["disabled"])
+    assert main.stat_set == "Second Slam"
+    mods, notes = models.multi_set_model(main.name, main.stat_set, sets)
+    assert abs(mods[0]["value"] - 100 * first / second) < 1e-6, notes
 
 
 def test_lucky_spell_crits_are_pobs_own_lucky_on_spell_crits(engine):

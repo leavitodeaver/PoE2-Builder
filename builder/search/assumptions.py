@@ -497,6 +497,10 @@ class Assumptions:
                 texts, stats, main, set(gem.get("skillTypes") or []), group["gems"] if group else [],
                 set(gem.get("weaponTypes") or []), models.cast_by_totem(found, main), forbidden)
             hand_mods, hand_notes = hand_mods + shock_mods, hand_notes + shock_notes
+        if main is not None and group and main.name in models.MULTI_SET_SKILLS:  # (MECH-B: Rolling Slam's two slams)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            slam_mods, slam_notes = models.multi_set_model(main.name, main.stat_set, sets)
+            hand_mods, hand_notes = hand_mods + slam_mods, hand_notes + slam_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
         hand_mods, hand_notes = hand_mods + cap_mods, hand_notes + cap_notes
         spore_mods, spore_notes = self.pustule_cap(found)  # (MECH-B: Poison Spores' one Pustule a fuse, MECHB10)
@@ -677,7 +681,7 @@ class Assumptions:
     def pustule_cap(self, found: list["models.Skill"]) -> tuple[list[dict], list[dict]]:
         """Poison Spores' Pustule Explosion at one a fuse on the boss (models.pustule_cap): PoB's rate for each group's
         Spores skill (useRates with that active skill), and its Detonation Time."""
-        mods, notes, by_index = [], [], None
+        mods, notes, by_index, poison = [], [], None, None
         for name in models.PUSTULE_SKILLS:  # (Poison Spores, Toxic Domain: AUDIT23 A23-1; Toxic Growth: MECHB14)
             indices = models.pustule_groups(found, name)
             if not indices:
@@ -686,7 +690,9 @@ class Assumptions:
             actives = [next((i for i, s in enumerate(by_index[n]["skills"], start=1) if s["name"] == name), 0)
                        if n in by_index else 0 for n in indices]
             rates = self.build.call("useRates", indices=indices, actives=actives)["rates"]
-            more, why = models.pustule_cap(rates, name)
+            if poison is None:  # (MECHB15: the stored-Poison "with it" row; PoB's Poison DPS on the boss, main skill)
+                poison = number(self.build.call("stats", fields=["PoisonDPS"]).get("PoisonDPS"))
+            more, why = models.pustule_cap(rates, name, poison)
             mods, notes = mods + more, notes + why
         return mods, notes
 
