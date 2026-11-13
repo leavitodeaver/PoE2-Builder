@@ -121,3 +121,17 @@ def test_remnants_and_kill_recovery_lift_a_build_regeneration_alone_leaves_short
                            objective=SimpleNamespace(prepare=lambda st: st, score=lambda st: seen.append(dict(st)) or 0.0))
     Build._scored(stub, [dict(plain)], extras=[{"FlaskManaRecoveryRate": 3.0}])
     assert seen[0]["ManaRemnantRecovery"] == 8.0 and seen[0]["FlaskManaRecoveryRate"] == 3.0
+
+
+def test_recovery_on_spending_and_consuming_reaches_both_floors():
+    """MECHC13's LifeOnConsumeRecovery / ManaOnConsumeRecovery (charges, Glory, Combo, corpses consumed, Offerings created)
+    come through recovery.FIELDS into the sustain share and the recovery floor, and the sustain row no longer names them
+    as left out (SEARCH14, item 4)."""
+    from builder.search import recovery
+    from builder.search.objective import RECOVERY_POOLS, SUSTAIN_POOLS
+
+    for pool in ("Life", "Mana"):
+        field = f"{pool}OnConsumeRecovery"
+        assert field in recovery.FIELDS[pool]
+        assert field in SUSTAIN_POOLS[pool][1] and field in RECOVERY_POOLS[pool][0]
+    assert "Glory" not in SUSTAIN_LEFT_OUT and "Offerings created" not in SUSTAIN_LEFT_OUT
