@@ -195,8 +195,15 @@ class Store:
         self.hits = self.recorded = self.boots = 0
         if self.path.exists():
             try:
-                # (decompressobj: save() writes a stream, whose frame carries no size for decompress() to go by)
-                self.entries = json.loads(zstandard.ZstdDecompressor().decompressobj().decompress(self.path.read_bytes()))
+                # (a stream: save() writes one, whose frame carries no size for decompress() to go by. Read in pieces
+                # (PERF9): decompressobj().decompress() of the whole file took 108 s for test_engine_models' 6.6 MB
+                # -> 284 MB of answers, in real runs and replayed ones alike (POE2T2656's profile); in pieces, 0.2 s)
+                pieces = []
+                with open(self.path, "rb") as raw, zstandard.ZstdDecompressor().stream_reader(raw) as reader:
+                    while piece := reader.read(1 << 24):
+                        pieces.append(piece)
+                self.entries = json.loads(b"".join(pieces))
+                del pieces
             except (OSError, ValueError, zstandard.ZstdError):
                 self.entries = {}  # unreadable: as good as absent, the real PoB answers and it's written again
 
