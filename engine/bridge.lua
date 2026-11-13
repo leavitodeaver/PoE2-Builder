@@ -916,6 +916,47 @@ local function runeLineApplies(item, modLine)
 	return state == "all" or (state == "idol" and modLine.augmentType == "Idol")
 end
 
+-- Cost warnings in a what-if (SEARCH9; a stats flag the search needs): PoB lists the skills whose cost a pool can't pay
+-- only in its MAIN-mode output (Calcs.lua 533-560, buildOutput), so a what-if (CALCULATOR mode, getMiscCalculator) never
+-- had them, and the search couldn't see a Runic Ward cost it couldn't pay until it committed (2b75b's Transmutation
+-- Explosion, MECHB12). Here a CALCULATOR output gets the same lists by PoB's own test, each skill's cost read from the
+-- committed build's MAIN pass (GlobalCache.cachedData.MAIN, wiped at each rebuild) against this what-if's pools. A cost
+-- the what-if itself changes is read for the main skill only (objective.cost_short); for other skills the committed cost.
+local COST_POOLS = { LifeUnreserved = "LifeCost", ManaUnreserved = "ManaCost", Rage = "RageCost", Ward = "WardCost",
+	EnergyShield = "ESCost" }
+local function setCostShort(env)
+	local output = env and env.mode == "CALCULATOR" and env.player and env.player.output
+	local main = GlobalCache and GlobalCache.cachedData and GlobalCache.cachedData.MAIN
+	if not output or not main or not cacheSkillUUID then
+		return
+	end
+	local protects = env.modDB and env.modDB:Flag(nil, "EnergyShieldProtectsMana")
+	local found = { }
+	for _, skill in ipairs(env.player.activeSkillList or { }) do
+		local ok, uuid = pcall(cacheSkillUUID, skill, env)
+		local cached = ok and main[uuid]
+		if cached and cached.Env and (not skill.triggeredBy or skill.triggeredBy.grantedEffect.id ~= "SupportBlasphemyPlayer") then
+			for pool, costResource in pairs(COST_POOLS) do
+				local cost = cached.Env.player.output[costResource]
+				if cost then
+					local totalPool = (protects and costResource == "ManaCost" and output.EnergyShield or 0) + (output[pool] or 0)
+					if totalPool < cost then
+						local rawPool = pool:gsub("Unreserved$", "")
+						local reservation = cached.Env.player.mainSkill and cached.Env.player.mainSkill.skillData[rawPool .. "ReservedPercent"]
+						if not reservation or (totalPool + math.ceil((output[rawPool] or 0) * reservation / 100)) < cost then
+							found[costResource] = found[costResource] or { }
+							table.insert(found[costResource], skill.activeEffect.grantedEffect.name)
+						end
+					end
+				end
+			end
+		end
+	end
+	for costResource, list in pairs(found) do
+		output[costResource .. "WarningList"] = output[costResource .. "WarningList"] or list
+	end
+end
+
 local function installDerived()
 	installLedgerBonded()
 	installSpiritVessel()
@@ -936,6 +977,7 @@ local function installDerived()
 			markShowAverage(env)
 			setChillDamage(env)
 			setPointsOver(env)
+			setCostShort(env)
 			return ...
 		end
 		return finish(perform(env, ...))

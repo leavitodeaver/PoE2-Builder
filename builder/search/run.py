@@ -25,12 +25,21 @@ from builder.report.checklist import checklist
 from builder.report.shopping import shopping_list
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
-from builder.search.objective import PACK_SIZE, SUSTAIN_FLOOR, boss_recovery, goal_value, rank_key, shortfall, sustain
+from builder.search.objective import PACK_SIZE, SUSTAIN_FLOOR, SUSTAIN_LEFT_OUT, boss_recovery, goal_value, rank_key, shortfall, sustain
 from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skeletons, weapon_archetypes
 
 FINALIZE_SHARE = 0.12
+def sustain_only_note(failing: list[str]) -> str | None:
+    """A build short only on skill-cost sustain says what that share leaves out, never a silent rejection (the user, 12
+    Nov: "regen is not the only source of recovery, not by a longshot"; SEARCH9)."""
+    if failing != ["Skill costs sustained"]:
+        return None
+    return ("the build is short only on skill-cost sustain, and that share leaves out " + SUSTAIN_LEFT_OUT
+            + ": if the build has one of those, it may sustain its costs in play")
+
+
 RECOVERY_NOTE = ("Life, Energy Shield and Mana regeneration, leech, on-hit recovery, flasks (at the rate a boss fight refills "
-                 "them) and recoup, less skill costs, against the boss's damage per second after mitigation (PoB's boss "
+                 "them), recoup and gains on Block, less skill costs, against the boss's damage per second after mitigation (PoB's boss "
                  "preset: its hits that land, after evade and block, which red-flash hits ignore; less Deflection, LOW against "
                  "red-flash hits). Mana counts only for damage Mind over Matter sends to "
                  "it; Energy Shield recharge isn't counted (the boss's hits keep interrupting it)")
@@ -510,8 +519,9 @@ class Run:
         checks.append({"label": "Skill costs sustained", "requested": f"≥ {SUSTAIN_FLOOR:.0%} by recovery",
                        "delivered": "no costs to pay" if pool is None and share >= 1 else f"{min(share, 9.99):.0%}"
                        + (f" of {pool}" if pool else ""), "ok": share >= SUSTAIN_FLOOR,
-                       "note": "regeneration, leech, on-hit recovery and flasks (at the rate charge generation "
-                               "refills them in a boss fight) against the per-second cost"})
+                       "note": "regeneration, leech, on-hit recovery, flasks (at the rate charge generation "
+                               "refills them in a boss fight), Recoup of the boss's hits and gains on Block, against the per-second "
+                               "cost. Not counted yet (so the share may be low): " + SUSTAIN_LEFT_OUT})
         if self.request.floors.recovery is None:  # always reported; a requirement only when the request sets one
             recovery = boss_recovery(facts["stats"])
             checks.append({"label": "Recovery vs boss damage %", "requested": "not required",
@@ -522,6 +532,8 @@ class Run:
                     check.update(delivered=recovery_text(boss_recovery(facts["stats"])), note=RECOVERY_NOTE)
         failing = [c for c in checks if c["ok"] is False]
         reasons = [f"{c['label']}: requested {c['requested']}, delivered {c['delivered']}" for c in failing]
+        if note := sustain_only_note([c["label"] for c in failing]):
+            reasons.append(note)
         reasons += final.get("problems") or []
         if final["dps"] <= 0:
             # Nothing to maximize: PoB doesn't model this skill's damage (PLAN.md §10)

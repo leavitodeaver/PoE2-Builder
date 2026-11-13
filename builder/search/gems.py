@@ -974,7 +974,9 @@ class Gems:
         main = next((s for s in skills if main_group and s.group == main_group["index"] and not s.triggered), None)
         if main is None:
             return False
-        stats = build.call("stats", fields=models.MODEL_FIELDS)
+        # (MECHB12, A25-2: Minion Pact's Kills read the minions' Life, Assumptions.models' build.minion_lives; without
+        # it minion_deaths took none, an UNDERCOUNT in this round; SEARCH9)
+        stats = {**build.call("stats", fields=models.MODEL_FIELDS), "_minion_lives": getattr(build, "minion_lives", {})}
         stats["_minion_deaths"] = models.minion_deaths(skills, main, stats)  # (Cast on Minion Death)
         left, usage = self.budget_left(), self.usage_stats()
         metas = []

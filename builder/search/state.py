@@ -11,7 +11,7 @@ from typing import Any
 
 from builder import clock
 from builder.search.context import Context, ItemOption
-from builder.search.objective import CLEAR_FIELDS, EHP_FIELDS_PREFIXES, POINTS_OVER, Objective
+from builder.search.objective import CLEAR_FIELDS, COST_WARNINGS, EHP_FIELDS_PREFIXES, POINTS_OVER, Objective
 
 EPSILON = 1e-6  # smallest score gain worth committing
 PROGRESS_INTERVAL = 1.0
@@ -144,6 +144,8 @@ class Build:
             if fill_from_base:
                 # A clear field the what-if lacks is gone (a support that stops chaining), not skipped
                 for key, value in self.stats.items():
+                    if key in COST_WARNINGS:
+                        continue  # (a what-if has its own: the bridge's setCostShort, objective.cost_short; SEARCH9)
                     if (key not in stats and key not in CLEAR_FIELDS) or key.startswith(EHP_FIELDS_PREFIXES):
                         stats[key] = value
             self.objective.prepare(stats)

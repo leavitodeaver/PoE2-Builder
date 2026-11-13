@@ -55,6 +55,43 @@ COST_WARNINGS = {
     "WardCostWarningList": "Runic Ward", "RageCostWarningList": "Rage",
     "LifePercentCostPercentCostWarningList": "unreserved Life", "ManaPercentCostPercentCostWarningList": "unreserved Mana",
 }
+# PoB fills those lists only in its MAIN-mode output (Calcs.lua 533, buildOutput: the committed build), never in a
+# what-if: every search what-if runs in CALCULATOR mode (getMiscCalculator), so before SEARCH9 a what-if never saw a cost
+# it couldn't pay, and with fill_from_base it inherited the committed count, so a what-if that fixed it still showed it
+# (MECHB12's 2b75b: Transmutation Explosion's Runic Ward cost with no Ward was seen only once committed). The bridge's
+# setCostShort now fills the lists in a what-if too, from each skill's committed cost against the what-if's pools; the main skill's
+# own cost against its pool is in every output (CalcOffence); this is PoB's own test (Calcs.lua 545-556: the pool, plus
+# Energy Shield for Mana when Energy Shield protects it, under one use's cost) applied to it. Not applied while anything
+# reserves Life or Mana (output {pool}ReservedPercent): PoB lets a skill that reserves from the pool pay its raw cost from
+# the reserved share too, and the what-if can't read the main skill's own share, so there only PoB's list counts (on
+# commit; never a deficit PoB wouldn't give). Pool -> its cost field, for COST_WARNINGS' keys.
+MAIN_COST_POOLS = {
+    "LifeCostWarningList": ("LifeUnreserved", "LifeCost"), "ManaCostWarningList": ("ManaUnreserved", "ManaCost"),
+    "ESCostWarningList": ("EnergyShield", "ESCost"), "WardCostWarningList": ("Ward", "WardCost"),
+    "RageCostWarningList": ("Rage", "RageCost"),
+}
+MAIN_COST_FIELDS = sorted({f for pair in MAIN_COST_POOLS.values() for f in pair}
+                          | {"EnergyShieldProtectsMana", "LifeReservedPercent", "ManaReservedPercent"})
+
+
+def cost_short(stats: dict, field: str) -> float:
+    """How many skills can't pay `field`'s pool: PoB's own list (committed builds) or, at least, the main skill's own
+    cost against the pool, which a what-if also has."""
+    listed = number(stats.get(field))
+    if field not in MAIN_COST_POOLS:
+        return listed
+    pool, cost_field = MAIN_COST_POOLS[field]
+    cost = number(stats.get(cost_field))
+    if cost <= 0:
+        return listed
+    have = number(stats.get(pool))
+    if cost_field == "ManaCost" and number(stats.get("EnergyShieldProtectsMana")):
+        have += number(stats.get("EnergyShield"))
+    if pool in ("LifeUnreserved", "ManaUnreserved") and number(stats.get(pool.replace("Unreserved", "ReservedPercent"))):
+        return listed  # (a reserving pool: PoB's raw-cost pass, not modelled here)
+    return max(listed, 1.0 if have < cost else 0.0)
+
+
 # Passive (and ascendancy) points allocated beyond the level's budget (bridge setPointsOver, as PoB's "You have too many
 # passive points allocated" counts them): a hard limit (SEARCH8, Defect C: gate 2b75b delivered a tree 19 points over)
 POINTS_OVER = "PassivePointsOver"
@@ -72,12 +109,24 @@ SUSTAIN_POOLS = {
     "Mana": ("ManaPerSecondCost", ("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", RECOVERY_FIELDS["Mana"])),
     "Life": ("LifePerSecondCost", ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", RECOVERY_FIELDS["Life"])),
 }
+# Recoup counts too (the user, 12 Nov ~18:20: "regen is not the only source of recovery, not by a longshot ... that
+# applies for health and mana too"; SEARCH9): each pool's Recoup of the boss's hits that land, at the "when hit" benefit
+# cadence, and PoB's Life / Mana gained on Block at the boss's blocked hits (hit_recovery_rates). Sources still left out
+# of the sustain share, named in its result (never a silent rejection) (checked: the share's fields; PoB's Life / Mana
+# outputs named On* (OnHit, OnKill, OnBlock, OnSuppress: OnSuppress has no PoE2 ModCache line) in CalcOffence /
+# CalcDefence and the ModCache names LifeOnKill / ManaOnKill / LifeOnBlock / ManaOnBlock; origin/main's models,
+# assumptions, conditions, passive_models and flasks feed no on-kill / on-stun / on-block Life or Mana into these fields;
+# MECHC11 is modelling them, UNVERIFIED that the list is whole):
+SUSTAIN_LEFT_OUT = ("Life / Mana gained on kill (0 against a lone boss; the add presets' kills aren't read here), "
+                    "on Stun and on skill use, Remnants that restore Life or Mana, and Energy Shield "
+                    "or Runic Ward paying a cost (Runic Ward: Assumptions.ward_paid holds Ward-cost skills to what "
+                    "Ward recovery pays for)")
 # Recovery against a boss (the request's optional recovery floor; always reported): the boss's damage per second after
 # mitigation is its hits that land (one every enemySkillTime, PoB's boss preset, less evade and block, which the
 # red-flash share ignores: boss_hits.py), less Deflection's expected share (LOW against red-flash hits), times what each
 # takes after mitigation ({Type}TakenHit); recovery is each pool's regeneration, leech, on-hit recovery, flask recovery
 # (at the rate a boss fight refills them) and recoup (its % of the damage that pool's recoup takes back, per damage
-# type), less the skill costs paid from that pool. Mana counts only up to the share of damage Mind over Matter sends to
+# type) and gains on Block (SEARCH9), less the skill costs paid from that pool. Mana counts only up to the share of damage Mind over Matter sends to
 # it. Energy Shield recharge isn't counted (a boss's hits keep interrupting it).
 RECOVERY_POOLS = {
     "Life": (("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", RECOVERY_FIELDS["Life"]), "LifePerSecondCost"),
@@ -94,14 +143,16 @@ BUILD_DEGEN = "TotalBuildDegen"
 RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in (*fields, cost) if f}
                          - set(RECOVERY_FIELDS.values())
                          | {f"{t}TakenHit" for t in RECOVERY_DAMAGE_TYPES} | {BUILD_DEGEN}
-                         | {f"{t}{p}Recoup" for t in RECOVERY_DAMAGE_TYPES for p in RECOVERY_POOLS}
+                         | {f"{t}{p}Recoup" for t in ("", *RECOVERY_DAMAGE_TYPES) for p in RECOVERY_POOLS}
+                         | {f"{p}OnBlock" for p in RECOVERY_POOLS}
                          | {"enemySkillTime", "EvadeChance", "EffectiveBlockChance", "sharedMindOverMatter",
                             "DeflectChance", "DeflectEffect"})
 
 
-def boss_recovery(stats: dict) -> dict:
-    """Recovery per second against a boss, the boss's damage per second after mitigation, and the share recovered."""
-    every = number(stats.get("enemySkillTime")) or 0.7
+def boss_taken(stats: dict, every: float | None = None) -> tuple[dict[str, float], float, float]:
+    """The boss's damage per second after mitigation by type, its landed hits per second and the Deflection factor, with
+    one damaging use every `every` seconds (default: PoB's enemySkillTime, the defence cadence)."""
+    every = every or number(stats.get("enemySkillTime")) or 0.7
     hits = boss_hits.land_share(stats) / every  # (red-flash hits land whatever the evade and block, MECHC5)
     # Deflection (KeywordPopups "Deflect": prevents DeflectEffect%, 40% by default, of a Deflected Hit's damage): PoB puts
     # it in {Type}TakenHit only at a 100% chance, so below that it's the expected share here. Kept against the red-flash
@@ -111,12 +162,57 @@ def boss_recovery(stats: dict) -> dict:
     # each type at its full hit size in PoB, weighted by its share of the boss's hits (MECHC6, boss_hits.type_shares)
     weights = boss_hits.type_shares(boss_hits.boss_name(stats))
     taken = {t: max(number(stats.get(f"{t}TakenHit")), 0.0) * weights[t] * hits * deflect for t in RECOVERY_DAMAGE_TYPES}
+    return taken, hits, deflect
+
+
+def recoup(stats: dict, taken: dict[str, float], pool: str) -> float:
+    """What `pool` recoups per second of the damage `taken` (per type, per second): PoB's per-type {Type}{pool}Recoup and
+    its untyped {pool}Recoup ("N% of Damage taken Recouped as Life", CalcDefence.lua 1857: 19 Life, 12 Mana and 3 Energy
+    Shield lines in ModCache, before SEARCH9 left out of boss_recovery: an UNDERCOUNT), each already times the pool's
+    recovery rate. Recoup returns over 4 or 8 s; in a steady fight the per-second figure is the share of what's taken."""
+    typed = sum(taken[t] * number(stats.get(f"{t}{pool}Recoup")) for t in RECOVERY_DAMAGE_TYPES)
+    return (typed + sum(taken.values()) * number(stats.get(f"{pool}Recoup"))) / 100
+
+
+def benefit_every(stats: dict) -> float | None:
+    """Seconds between the boss's damaging uses as a "when hit" BENEFIT reads them (MECHD4's bosses.benefit_skill_time,
+    the manager's 16:50 ruling: defences read the faster rate). None (PoB's enemySkillTime) where it isn't on the tree."""
+    try:
+        from builder.search import bosses
+    except ImportError:
+        return None
+    read = getattr(bosses, "benefit_skill_time", None)
+    return read(stats) if read else None
+
+
+def on_block(stats: dict, pool: str, every: float | None = None) -> float:
+    """What `pool` gains per second from PoB's {pool}OnBlock (per Block: "Recover N Life when you Block", "N Mana gained
+    when you Block", CalcDefence.lua 1949-1956; PoB itself counts it as LifeWhenHit x BlockChance in its EHP, 3262) times
+    the boss's blocked hits per second (boss_hits.block_share: blockable hits, after evasion)."""
+    per = number(stats.get(f"{pool}OnBlock"))
+    if per <= 0:
+        return 0.0
+    every = every or number(stats.get("enemySkillTime")) or 0.7
+    return per * boss_hits.block_share(stats) / every
+
+
+def hit_recovery_rates(stats: dict) -> dict[str, float]:
+    """Life and Mana recovered per second from the boss's hits (Recoup of the landed ones, gains on Block), at the
+    "when hit" benefit cadence: what the sustain share counts beside regeneration, leech, on-hit recovery and flasks."""
+    every = benefit_every(stats)
+    taken, _, _ = boss_taken(stats, every)
+    return {pool: recoup(stats, taken, pool) + on_block(stats, pool, every) for pool in SUSTAIN_POOLS}
+
+
+def boss_recovery(stats: dict) -> dict:
+    """Recovery per second against a boss, the boss's damage per second after mitigation, and the share recovered."""
+    taken, hits, deflect = boss_taken(stats)
     own = max(number(stats.get(BUILD_DEGEN)), 0.0)
     incoming = sum(taken.values()) + own
     parts = {}
     for pool, (fields, cost) in RECOVERY_POOLS.items():
-        recoup = sum(taken[t] * number(stats.get(f"{t}{pool}Recoup")) / 100 for t in RECOVERY_DAMAGE_TYPES)
-        net = max(sum(number(stats.get(f)) for f in fields) + recoup - (number(stats.get(cost)) if cost else 0.0), 0.0)
+        back = recoup(stats, taken, pool) + on_block(stats, pool)
+        net = max(sum(number(stats.get(f)) for f in fields) + back - (number(stats.get(cost)) if cost else 0.0), 0.0)
         if pool == "Mana":
             net = min(net, incoming * min(number(stats.get("sharedMindOverMatter")), 100) / 100)
         parts[pool] = net
@@ -144,7 +240,7 @@ def with_boss_recovery(stats: dict) -> dict:
 
 # What PoB is asked for (the flask fields are the search's own, added by Build.extra_stats)
 SUSTAIN_FIELDS = sorted({f for cost, recovery in SUSTAIN_POOLS.values() for f in (cost, *recovery)}
-                        - set(RECOVERY_FIELDS.values()))
+                        - set(RECOVERY_FIELDS.values()) | set(RECOVERY_INPUTS))  # (recoup reads the boss's hits)
 # Clear speed (PLAN.md §5.5). PoB doesn't model it, so this is an estimate, labelled approximate in
 # the result: the monster life a build clears per second in a typical map pack. One use reaches
 # part of the pack (area, projectiles, chain, pierce, fork); killing what it reaches takes the hits
@@ -168,10 +264,11 @@ def sustain(stats: dict) -> tuple[float, str | None]:
     """The lowest share of a pool's per-second skill cost that recovery covers (1.0 = all), and
     the pool."""
     worst, pool_name = 1.0, None
+    back = hit_recovery_rates(stats)
     for pool, (cost_field, recovery_fields) in SUSTAIN_POOLS.items():
         cost = number(stats.get(cost_field))
         if cost > 0:
-            share = sum(number(stats.get(f)) for f in recovery_fields) / cost
+            share = (sum(number(stats.get(f)) for f in recovery_fields) + back[pool]) / cost
             if share < worst:
                 worst, pool_name = share, pool
     return worst, pool_name
@@ -273,7 +370,7 @@ class Objective:
         # The request's goal unless overridden: balanced runs some searches on boss DPS (run.py)
         self.goal = Goal(goal or ctx.request.objective)
         # Clear fields in every mode, so a boss result can still show its clear estimate
-        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS) | {POINTS_OVER}
+        fields = set(BASE_FIELDS) | set(DARKNESS_FIELDS) | set(COST_WARNINGS) | set(MAIN_COST_FIELDS) | set(SUSTAIN_FIELDS) | set(CLEAR_FIELDS) | {POINTS_OVER}
         if any(p.stat == "BossRecoveryPercent" for p in self.penalties):
             fields |= set(RECOVERY_INPUTS)
         fields |= {"Missing" + p.stat for p in self.penalties if p.stat in RESIST_FIELDS}  # (maximum_resist)
@@ -386,7 +483,7 @@ class Objective:
             if have < need:
                 found.append((f"{attribute} requirement", (need - have) / max(need, 1.0), True))
         for field, pool in COST_WARNINGS.items():
-            count = number(stats.get(field))
+            count = cost_short(stats, field)
             if count > 0:
                 found.append((f"Skill costs: not enough {pool}", count, True))
         over = number(stats.get(POINTS_OVER)) - self.points_slack
