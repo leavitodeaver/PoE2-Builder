@@ -546,14 +546,37 @@ class Assumptions:
         pressed = {g["index"] for g in groups["groups"] if g["index"] != main and pressed_group(g, build.ctx.gems)}
         if not pressed:
             build.objective.press_scales = {}
-            return self.consume_ignite(groups, [])
+            return self.consume_ignite(groups, []) + self.cull_window()
         rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
         paced = {g["index"]: models.CADENCE_PACE for g in groups["groups"] if g["index"] in pressed
                  and any(x["enabled"] and x["name"] in models.CADENCE_SUPPORTS for x in g["gems"])}
         caps = self.press_caps(groups["groups"], pressed)
         build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps,
                                                                  models.press_choices(build))
-        return notes + self.consume_ignite(groups, rates)
+        return notes + self.consume_ignite(groups, rates) + self.cull_window()
+
+    def cull_window(self) -> list[dict]:
+        """MECH57: PoB's Full Culling DPS rescaled to the time a Cull saves when hits come one at a time
+        (conditions_mod.cull_window_scale; objective.press_scales' "Full Culling DPS"). Returns the notes."""
+        from builder.search import bosses
+        build = self.build
+        entry = next((e for e in (build.stats or {}).get("SkillDPS") or [] if e.get("name") == "Full Culling DPS"), None)
+        if entry is None or number(entry.get("dps")) <= 0:
+            return []
+        stats = build.call("stats", fields=list(conditions_mod.CULL_WINDOW_FIELDS))
+        full = number((build.stats or {}).get("FullDPS")) or number(stats.get("FullDPS"))
+        mult = 1.0 + number(entry.get("dps")) / max(full - number(entry.get("dps")), 1e-9)
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        scale, how, confidence = conditions_mod.cull_window_scale(
+            mult, number(stats.get("CullMultiplier")), conditions_mod.boss_pool(boss), full - number(entry.get("dps")),
+            number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0,
+            number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")))
+        if scale >= 1.0 and not how:
+            return []
+        key = models.press_key("Full Culling DPS", None)
+        build.objective.press_scales[key] = build.objective.press_scales.get(key, 1.0) * scale
+        return [{"label": f"Culling Strike against {boss}: the time a Cull saves*", "value": f"x{scale:.3f} of PoB's",
+                 "basis": how, "confidence": confidence}]
 
     def consume_ignite(self, groups: dict, rates: list[dict]) -> list[dict]:
         """MECH52: a main skill that consumes Ignite keeps PoB's Best Ignite DPS to the share of the fight the boss carries

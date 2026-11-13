@@ -2283,6 +2283,9 @@ function bridge.useRates(args)
 				detonationTime = output.DetonationTime and jsonNumber(output.DetonationTime) or nil,
 				speed = jsonNumber(output.Speed or 0), cooldown = output.Cooldown and jsonNumber(output.Cooldown) or nil,
 				repeats = jsonNumber(output.Repeats or 1),
+				-- (MECH57) its minion's counted skill's uses per second, PoB's minion Speed (cooldown-capped, CalcOffence 3008)
+				minionSpeed = env.minion and env.minion.output and type(env.minion.output.Speed) == "number"
+					and jsonNumber(env.minion.output.Speed) or nil,
 				duration = output.Duration and jsonNumber(output.Duration) or nil,
 				castTime = jsonNumber(skill.activeEffect.grantedEffect.castTime or 0),
 				-- one use's time before the cooldown caps Speed (PoB's own ailment stacks read it the same way)
@@ -2406,6 +2409,22 @@ local modelSupportStats = {
 	["support_minion_pact_damage_+%_final"] = true,
 }
 
+-- (MECH57) the ailments a summoning skill's counted minion skill consumes by its skill types, and its name
+local function minionConsumes(activeSkill)
+	local minionSkill = activeSkill.minion and activeSkill.minion.mainSkill
+	local types = minionSkill and minionSkill.skillTypes
+	if not types or not (types[SkillType.SkillConsumesFreeze] or types[SkillType.SkillConsumesShock]
+		or types[SkillType.SkillConsumesIgnite]) then
+		return nil
+	end
+	return {
+		skill = minionSkill.activeEffect.grantedEffect.name,
+		Freeze = types[SkillType.SkillConsumesFreeze] and true or nil,
+		Shock = types[SkillType.SkillConsumesShock] and true or nil,
+		Ignite = types[SkillType.SkillConsumesIgnite] and true or nil,
+	}
+end
+
 function bridge.activeSkills(args)
 	local wantStats = { }
 	for _, name in ipairs(args and args.levelStats or { }) do
@@ -2444,6 +2463,10 @@ function bridge.activeSkills(args)
 					Shock = types[SkillType.SkillConsumesShock] and true or nil,
 					Ignite = types[SkillType.SkillConsumesIgnite] and true or nil,
 				} or nil,
+			-- the ailments its minion's counted skill (PoB's minion.mainSkill, the one Full DPS counts) consumes by its
+			-- skill types: the Skeletal Brute's Shattering Roar consumes Freeze (MECH57, AUDIT25's small overcount;
+			-- conditions.main_consumes / side_consumes read it at PoB's minion Speed, useRates' minionSpeed)
+			minionConsumes = minionConsumes(activeSkill),
 			-- it summons minions (assumptions.NEEDS_MINIONS: Grim Feast's Remnants come from their deaths)
 			minions = types[SkillType.CreatesMinion] and true or nil,
 			-- current PoB keeps the flags on the stat set (activeSkill.skillFlags is v0.23's)

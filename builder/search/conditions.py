@@ -1580,8 +1580,29 @@ CONSUME_TEXT = re.compile(r"\bconsum\w*\b[^.]*\b(?:freez|frozen|shock|ignit|chil
 # consumes only on a Perfect Timing release (taken as every release: an upper bound on what it ends, MEDIUM).
 
 
-def _type_consumes(skill: dict) -> set[str]:
-    return {a for a, on in (skill.get("consumes") or {}).items() if on}
+# Minion skills too (MECH57; AUDIT25's small OVERCOUNT): the Skeletal Brute's Shattering Roar, a Warcry on Command,
+# "Consuming Freeze on enemies and allies to deal damage" (ActiveSkills brute_warcry, SkillConsumesFreeze; cooldown 8 s),
+# a minion skill, so not a group's active skill. The bridge reports the summoning skill's counted minion skill
+# (PoB's minion.mainSkill, the one Full DPS counts) as "minionConsumes", and useRates its uses per second as
+# "minionSpeed" (PoB's minion Speed, capped by its cooldown: the rate its damage is counted at; one rate for both sides).
+# A Brute whose counted skill is its plain attack consumes nothing here: the search isn't counting the Roar, so the
+# build isn't taken to Command it (MEDIUM). (checked for other ailment consumers the types or CONSUME_STATS miss: every
+# ActiveSkills row of game 26476662 with SkillConsumesFreeze / Shock / Ignite (11: brute_warcry the only minion one) or
+# with a description consuming Freeze / Shock / Ignite (the rest consume Charges, Infusions, Corpses, Parried or flask
+# charges, or are triggered by a consuming support: Elemental Discharge, Flame Pillar, Grisly Pyre; Shard Scavenger
+# reacts to a consumption and consumes nothing itself); PoB's Data/Skills, every file incl. minion.lua, same result;
+# the supports that add the types (Frostfire, Biting Frost ...) reach the bridge through the active skill's types.
+# poe2db's Skeletal Brute page, current, 12 Nov: the same Warcry text, a Command Skill since 0.3.0, no other minion
+# skill there consuming Freeze / Shock / Ignite.)
+def _type_consumes(skill: dict, minion: bool = True) -> set[str]:
+    own = {a for a, on in (skill.get("consumes") or {}).items() if on}
+    if minion:
+        own |= _minion_consumes(skill)
+    return own
+
+
+def _minion_consumes(skill: dict) -> set[str]:
+    return {a for a, on in (skill.get("minionConsumes") or {}).items() if a != "skill" and on is True}
 
 
 def consumed_share(hits: float, chance: float, ground: float = 0.0) -> float:
@@ -1669,15 +1690,18 @@ def side_consumes(build, main_skill: str, groups: dict | None = None,
         return {}
     every = [stat for ids in CONSUME_STATS.values() for stat in ids]
     raw = build.call("activeSkills", levelStats=names, supportStats=every)
-    consumers: dict[str, list[tuple[str, int, bool]]] = {}
+    consumers: dict[str, list[tuple[str, int, bool | str]]] = {}
     for skill in raw["skills"]:
         if skill.get("disabled") or skill.get("group") not in candidates or skill["name"] == main_skill:
             continue
         own, sup = skill.get("levelStats") or {}, skill.get("supportStats") or {}
-        typed = _type_consumes(skill)
+        typed = _type_consumes(skill, minion=False)
         for ailment, ids in CONSUME_STATS.items():
             if ailment in typed or any(number(own.get(i)) or number(sup.get(i)) for i in ids):
                 consumers.setdefault(ailment, []).append((skill["name"], skill["group"], bool(skill.get("triggered"))))
+        for ailment in _minion_consumes(skill):  # (its minion's counted skill, at PoB's minion Speed; MECH57)
+            minion_name = (skill.get("minionConsumes") or {}).get("skill") or "its minion's skill"
+            consumers.setdefault(ailment, []).append((f"{skill['name']}: {minion_name}", skill["group"], "minion"))
     if not consumers:
         return {}
     indices = sorted({g for found in consumers.values() for _, g, _ in found})
@@ -1691,7 +1715,9 @@ def side_consumes(build, main_skill: str, groups: dict | None = None,
         total, parts, confidence = 0.0, [], "MEDIUM"
         for name, group, triggered in found:
             row = rates.get(group) or {}
-            if triggered:
+            if triggered == "minion":
+                uses, how, conf = number(row.get("minionSpeed")), "PoB's rate for the minion's skill", "MEDIUM"
+            elif triggered:
                 uses, how, conf = number(row.get("speed")), "PoB's trigger rate", "MEDIUM"
             else:
                 cadence = any(x.get("enabled", True) and x["name"] in models.CADENCE_SUPPORTS
@@ -1732,6 +1758,52 @@ def side_consumed(share: float, stats: dict, ailment: str, hits: float, chance: 
         return share
     wait = (1.0 - ground) / (hits * chance) if hits > 0 and chance > 0 else 0.0
     return share / (1.0 + share * side[0] * (models.CONSUME_IMMUNE + wait))
+
+
+# Culling Strike against the boss, hit by hit (MECH57; plans/kw-culling-strike.md item 1, an OVERCOUNT). KeywordPopups
+# CullingStrike: "Unique at 5%. These thresholds are checked before the damage of the Hit is applied". PoB prices a Cull
+# as the whole last t of the pool saved: Full Culling DPS = combined x (1 / (1 - t) - 1) (Calcs.lua 479-482, CalcOffence
+# 4069-4079), as if damage were a smooth flow. But the Cull lands only at the first hit after the boss falls under t: with
+# hits every 1 / h and the boss crossing t at a hit, the hits that would have finished it number E[ceil(left / hit)] =
+# t / d (left spread evenly over one hit's damage d; exact), and the Cull takes 1 of them, so it saves t x T - 1 / h of
+# the fight's T = pool / DPS (none when one hit takes more than t: a big-hit build gains nothing). Where damage over time
+# brings the boss under t between hits, the wait to the next hit is half a gap on average: wait = (1 - dot share / 2) / h.
+# Saved share s = max(0, t - wait / T); the gain s / (1 - s) replaces PoB's t / (1 - t) (a scale on its Full Culling
+# DPS entry). MEDIUM: T from the preset's Life (+ ES, bosses.life_share_of_pool) over Full DPS before the Cull; forms or
+# lives each Culled at their own t (bosses.py's reading, UNVERIFIED) would each pay the wait, a further cut not taken.
+# Crit-only Culls (CritCanCull) keep PoB's own scaling of t by the crit chance, then pay the wait to the next hit, not to
+# the next crit (MEDIUM: a smaller cut than the truth). Where another skill than the main one Culls (its hit rate isn't
+# read here), PoB's is kept, labelled LOW (a possible overcount).
+CULL_WINDOW_FIELDS = ("CullMultiplier", "Speed", "HitChance", "TotalDPS", "TotalDotDPS", "FullDPS")
+
+
+def boss_pool(name: str) -> float:
+    """The Life + Energy Shield the player takes off this boss preset in the fight."""
+    return bosses.PRESETS[name].life / bosses.life_share_of_pool(name)
+
+
+def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: float, hits: float, hit_dps: float,
+                      dot_dps: float) -> tuple[float, str, str]:
+    """(the scale on PoB's Full Culling DPS, how, confidence): full_mult, PoB's Full DPS cull multiplier; main_mult, the
+    main skill's CullMultiplier; pool, the boss's Life + ES; dps, Full DPS before the Cull; hits, the main skill's hits
+    per second; hit_dps / dot_dps, its hit and damage-over-time DPS (for the wait after the boss falls under t)."""
+    t = 1.0 - 1.0 / full_mult if full_mult > 1.0 else 0.0
+    if t <= 0:
+        return 1.0, "", ""
+    if main_mult < full_mult - 1e-6:
+        return 1.0, ("another skill than the main one Culls, and its hit rate isn't read here: PoB's whole-window price "
+                     "kept (a possible overcount)"), "LOW"
+    if hits <= 0 or dps <= 0 or pool <= 0:
+        return 1.0, "no hit rate or DPS read: PoB's whole-window price kept (a possible overcount)", "LOW"
+    fight = pool / dps
+    dot_share = dot_dps / (hit_dps + dot_dps) if hit_dps + dot_dps > 0 else 0.0
+    wait = (1.0 - dot_share / 2.0) / hits
+    saved = max(0.0, t - wait / fight)
+    scale = (saved / (1.0 - saved)) / (t / (1.0 - t))
+    how = (f"PoB counts the last {t:.1%} of the boss's {pool:,.0f} Life + ES saved (x{full_mult:.3f}); the Cull lands at "
+           f"the first hit under it, {wait:.2f} s later on average ({hits:.2f} hits/s), in a {fight:.1f} s fight: "
+           f"{saved:.2%} saved (x{1.0 / (1.0 - saved):.3f})")
+    return min(scale, 1.0), how, "MEDIUM"
 
 
 def _ailment_up(ailment: str):

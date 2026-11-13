@@ -2223,6 +2223,57 @@ def test_a_skill_that_consumes_by_its_skill_types_alone_counts():
     assert c.main_consumes(FakeBuild(), "Fireball", {"Fireball"}) == {}
 
 
+def test_a_minions_counted_skill_that_consumes_an_ailment_counts():
+    """MECH57 (AUDIT25's small OVERCOUNT): the Skeletal Brute's Shattering Roar consumes Freeze by its skill type, but it
+    is a minion skill: the bridge reports the summon's counted minion skill as "minionConsumes", useRates its rate as
+    "minionSpeed", and the side model reads it at that rate (not the summon's press rate); the main model counts it too.
+    A Brute whose counted skill doesn't consume reports nothing and consumes nothing."""
+    from builder.search import conditions as c
+    from types import SimpleNamespace
+
+    roar = {"skill": "Shattering Roar", "Freeze": True}
+
+    class FakeBuild:
+        ctx = SimpleNamespace(all_gems={"Skeletal Brute": {"description": "This Warcry Intimidates nearby enemies and "
+                                                                           "Consumes Freeze on enemies and allies"}})
+
+        def __init__(self, minion):
+            self.minion = minion
+
+        def call(self, name, **kw):
+            if name == "activeSkills":
+                return {"skills": [{"name": "Skeletal Brute", "group": 2, "levelStats": {},
+                                    "minionConsumes": self.minion}]}
+            if name == "useRates":
+                return {"rates": [{"index": 2, "speed": 1.0, "minionSpeed": 0.125}]}
+            return {}
+
+    groups = {"mainSocketGroup": 1, "groups": [{"index": 1, "gems": [{"name": "Frostbolt", "support": False}]},
+                                               {"index": 2, "gems": [{"name": "Skeletal Brute", "support": False}]}]}
+    found = c.side_consumes(FakeBuild(roar), "Frostbolt", groups, {})
+    assert set(found) == {"Freeze"} and "Shattering Roar" in found["Freeze"][1]
+    assert abs(found["Freeze"][0] - 0.125) < 1e-9  # (PoB's minion Speed: its 8 s cooldown, not the summon's 1/s)
+    assert c.main_consumes(FakeBuild(roar), "Skeletal Brute", {"Skeletal Brute"}) == {"Freeze": "Skeletal Brute"}
+    assert c.side_consumes(FakeBuild(None), "Frostbolt", groups, {}) == {}
+
+
+def test_a_cull_saves_the_last_threshold_less_the_wait_for_the_next_hit():
+    """MECH57 (plans/kw-culling-strike.md, an OVERCOUNT): PoB prices a Cull as the whole last t of the pool saved; the
+    Cull lands only at the next hit under t, so it saves t x T - wait (T = pool / DPS), nothing when a hit takes more
+    than t; damage over time halves the wait; another skill's Cull keeps PoB's, labelled."""
+    from builder.search import conditions as c
+
+    mult = 1 / 0.95  # (5%)
+    scale, how, conf = c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0)  # (T 10 s, 0.2 s wait: 3% saved)
+    assert abs(scale - (0.03 / 0.97) / (0.05 / 0.95)) < 1e-9 and conf == "MEDIUM" and "10.0 s" in how
+    assert c.cull_window_scale(mult, mult, 1e7, 1e6, 1.0, 1.0, 0.0)[0] == 0.0  # (1 hit/s: a hit takes 10%, over t)
+    dot = c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 0.0, 1.0)[0]  # (all damage over time: half the wait)
+    assert abs(dot - (0.04 / 0.96) / (0.05 / 0.95)) < 1e-9
+    assert c.cull_window_scale(mult, 1.0, 1e7, 1e6, 5.0, 1.0, 0.0)[:2][0] == 1.0  # (another skill Culls: PoB's, LOW)
+    assert c.cull_window_scale(1.0, 1.0, 1e7, 1e6, 5.0, 1.0, 0.0) == (1.0, "", "")
+    assert c.boss_pool("Arbiter of Ash") >= c.bosses.PRESETS["Arbiter of Ash"].life
+
+
 def test_the_boss_ignites_you_for_while_ignited_lines():
     """MECH55 (MECHD4's bosses.self_ignite_uptime, an UNDERCOUNT): with a line that reads the Ignited-yourself box
     ("while Ignited"), the box carries the boss's own Ignite on you; with Grinning Immolation too, both as independent;
