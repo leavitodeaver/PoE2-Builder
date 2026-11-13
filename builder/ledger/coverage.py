@@ -470,7 +470,7 @@ def resolver_condition(line: str):
             when = (m.group(2) if m.group(2) is not None else f"{m.group(3)} {m.group(4)}").lower()
             # (the events _debuff_source rates: your hits and crits, the boss's hits on you or your Blocks, your
             # Presence, your curses, Full Breaks; any other wording it rates 0, so the line stays open here)
-            if not re.search(r"kill|heavy stun|immobilis|shapeshift|burning|socketed|frozen by", when) and                     re.search(r"presence|you curse|fully (?:armour )?break|block|hit you|critical|on hit", when):
+            if not re.search(r"\bkill|heavy stun|immobilis|shapeshift|burning|socketed|\bfrozen by\b", when) and                     re.search(r"presence|you curse|fully (?:armour )?break|block|hit you|critical|on hit", when):
                 return condition
         elif var.endswith("Exposure") and (m := c.EXPOSURE_SOURCE.search(rolled)) and                 m.group(2).lower() in ("elemental", var[len("conditionEnemy"):-len("Exposure")].lower()):
             return condition

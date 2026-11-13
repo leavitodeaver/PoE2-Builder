@@ -125,3 +125,21 @@ def test_cov15_item_lines_translate_to_lines_pob_parses():
         assert model_entry(line).id == "items-affix-count-implicits", line
     # the "you inflict" form PoB already parses is left to PoB
     assert translate("20% increased Magnitude of Damaging Ailments you inflict") is None
+
+
+def test_the_audit_leaves_debuff_lines_on_kills_and_freezes_open_as_the_uptime_model_does():
+    """COV15 (the manager, 13 Nov): coverage.resolver_condition's event filter had backspace characters where its regex
+    word boundaries belong (a Bash heredoc's mangling), so its "kill" and "frozen by" alternatives never matched and a
+    debuff line on a kill or a Freeze, which conditions._debuff_source rates 0, would have counted as read. A word
+    boundary, so "Skills" isn't a kill."""
+    from pathlib import Path
+
+    from builder.ledger.coverage import resolver_condition
+
+    assert resolver_condition("Blind Enemies on Hit if you have Killed Recently") is None
+    assert resolver_condition("Blind Enemies Frozen by you on Hit") is None
+    assert resolver_condition("Blind Enemies on Hit with Skills").var == "conditionEnemyBlinded"
+    assert resolver_condition("Blind Enemies on Hit").var == "conditionEnemyBlinded"
+    root = Path(__file__).resolve().parents[1]
+    for path in list((root / "builder" / "ledger").glob("*.py")) + list((root / "tests").glob("*.py")):
+        assert chr(8) not in path.read_text(encoding="utf-8"), f"a backspace character in {path.name}"
