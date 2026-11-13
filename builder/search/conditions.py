@@ -1771,9 +1771,13 @@ def side_consumed(share: float, stats: dict, ailment: str, hits: float, chance: 
 # Saved share s = max(0, t - wait / T); the gain s / (1 - s) replaces PoB's t / (1 - t) (a scale on its Full Culling
 # DPS entry). MEDIUM: T from the preset's Life (+ ES, bosses.life_share_of_pool) over Full DPS before the Cull; forms or
 # lives each Culled at their own t (bosses.py's reading, UNVERIFIED) would each pay the wait, a further cut not taken.
-# Crit-only Culls (CritCanCull) keep PoB's own scaling of t by the crit chance, then pay the wait to the next hit, not to
-# the next crit (MEDIUM: a smaller cut than the truth). Where another skill than the main one Culls (its hit rate isn't
-# read here), PoB's is kept, labelled LOW (a possible overcount).
+# Crit-only Culls (CritCanCull, "Critical Hits have Culling Strike"; MECH58): PoB scales t by 1 - (1 - crit)^hitRate
+# (CalcOffence 4072), a guess that a crit lands within a second. Here the crit-only source keeps its whole raw t (x the
+# INC) and pays the wait to the next crit, (1 / c - dot share / 2) / hits (hits until a crit are geometric, mean 1 / c),
+# from bridge.cullSplit; a regular Cull beside it pays the next hit's wait at its own t, and the larger saving counts
+# (MEDIUM: a hit that both crits and is under the higher crit t is a little more than the max; a small undercount).
+# Where another skill than the main one Culls (its hit rate isn't read here), PoB's is kept, labelled LOW (a possible
+# overcount).
 CULL_WINDOW_FIELDS = ("CullMultiplier", "Speed", "HitChance", "TotalDPS", "TotalDotDPS", "FullDPS")
 
 
@@ -1783,10 +1787,11 @@ def boss_pool(name: str) -> float:
 
 
 def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: float, hits: float, hit_dps: float,
-                      dot_dps: float) -> tuple[float, str, str]:
+                      dot_dps: float, split: dict | None = None) -> tuple[float, str, str]:
     """(the scale on PoB's Full Culling DPS, how, confidence): full_mult, PoB's Full DPS cull multiplier; main_mult, the
     main skill's CullMultiplier; pool, the boss's Life + ES; dps, Full DPS before the Cull; hits, the main skill's hits
-    per second; hit_dps / dot_dps, its hit and damage-over-time DPS (for the wait after the boss falls under t)."""
+    per second; hit_dps / dot_dps, its hit and damage-over-time DPS (for the wait after the boss falls under t); split,
+    bridge.cullSplit's raw thresholds (critical, regular, inc, critChance %), for a crit-only Cull."""
     t = 1.0 - 1.0 / full_mult if full_mult > 1.0 else 0.0
     if t <= 0:
         return 1.0, "", ""
@@ -1799,9 +1804,28 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
     dot_share = dot_dps / (hit_dps + dot_dps) if hit_dps + dot_dps > 0 else 0.0
     wait = (1.0 - dot_share / 2.0) / hits
     saved = max(0.0, t - wait / fight)
+    lands = f"the first hit under it, {wait:.2f} s later on average ({hits:.2f} hits/s)"
+    split = split or {}
+    critical, regular = float(split.get("critical") or 0.0), float(split.get("regular") or 0.0)
+    if critical > regular:
+        inc, c = float(split.get("inc") or 1.0), float(split.get("critChance") or 0.0) / 100.0
+        crit_t, regular_t = critical * inc / 100.0, regular * inc / 100.0
+        crit_wait = (1.0 / c - dot_share / 2.0) / hits if c > 0 else float("inf")
+        crit_saved = max(0.0, crit_t - crit_wait / fight)
+        regular_saved = max(0.0, regular_t - wait / fight)
+        if crit_saved >= regular_saved:
+            saved, t_shown = crit_saved, crit_t
+            lands = (f"the first Critical Hit under it, {crit_wait:.2f} s later on average ({c:.0%} crit chance x "
+                     f"{hits:.2f} hits/s; PoB's own {t:.2%} scales its {crit_t:.1%} by a crit within a second)")
+        else:
+            saved, t_shown = regular_saved, regular_t
+            lands = (f"the first hit under the regular {regular_t:.1%}, {wait:.2f} s later ({hits:.2f} hits/s; the "
+                     f"crit-only {crit_t:.1%} saves less at {c:.0%} crit chance)")
+    else:
+        t_shown = t
     scale = (saved / (1.0 - saved)) / (t / (1.0 - t))
-    how = (f"PoB counts the last {t:.1%} of the boss's {pool:,.0f} Life + ES saved (x{full_mult:.3f}); the Cull lands at "
-           f"the first hit under it, {wait:.2f} s later on average ({hits:.2f} hits/s), in a {fight:.1f} s fight: "
+    how = (f"PoB counts the last {t:.1%} of the boss's {pool:,.0f} Life + ES saved (x{full_mult:.3f}); the Cull "
+           f"(threshold {t_shown:.1%}) lands at {lands}, in a {fight:.1f} s fight: "
            f"{saved:.2%} saved (x{1.0 / (1.0 - saved):.3f})")
     return min(scale, 1.0), how, "MEDIUM"
 
@@ -1847,6 +1871,21 @@ def _cursed(stats: dict) -> tuple[object, str]:
 # (TriggeredChargedMarkPlayer, a chance on Mark activation).
 SHOCKED_GROUND_DURATION = 6.0  # s, the definition's default
 SHOCKED_GROUND_RADIUS = 2.0  # m, for "you on it" (UNVERIFIED: the definition gives no radius; Ignited Ground's is 2 m)
+# Each source's own radius (MECH58; research/shocked-ground-sources.md, game files): Lightning Warp 3.0 m
+# (active_skill_base_area_of_effect_radius 30, "Explosion and Shocked Ground radius are {0} metres"), Gathering Storm
+# 3.2 m (GatheringStormExplodeBetterPlayer 32, "Shocked Ground radius is {0} metres"), Shocking Leap 2.0 m
+# (support_shocking_leap_shocked_ground_radius 20); Storm Lance 3.0 m (its empowered set's tertiary radius 30, no text:
+# LOW) and Vivid Stampede 2.0 m (its shockwave's: LOW). The rest (Invoker's, the trail) keep SHOCKED_GROUND_RADIUS,
+# UNVERIFIED. Area of Effect modifiers aren't read (a smaller reach than the truth for "you on it": an undercount).
+SHOCKED_GROUND_RADII = {"Lightning Warp": 3.0, "Gathering Storm": 3.2, "Shocking Leap": 2.0, "Storm Lance": 3.0,
+                        "Vivid Stampede": 2.0}
+# When each skill makes its ground (MECH58; research/shocked-ground-sources.md, FIX_QUEUE RESEARCH1, an OVERCOUNT: before,
+# every use made it): Lightning Warp only when it explodes, which needs the target under the Cull threshold (HIGH: "If
+# targeting an enemy, the explosion also creates Shocked Ground"); Storm Lance only from a lance that consumed a Frenzy
+# Charge (MEDIUM-HIGH: "Consumes a Frenzy Charge if possible to ... create Shocked Ground on Detonation", its duration
+# only in the Frenzy-empowered stat set); Gathering Storm only from a Perfectly Timed dash that explodes a Tempest Bell
+# (HIGH). Vivid Stampede: at the end of a Stag's full path, not necessarily under the boss (counted per use, LOW).
+SHOCKED_GROUND_GATED = {"Lightning Warp": "cull", "Storm Lance": "frenzy", "Gathering Storm": "bell"}
 SHOCKED_GROUND_SKILL_STATS = ("secondary_skill_shocked_ground_effect_duration_ms", "skill_shocked_ground_effect_duration_ms",
                               "lightning_warp_shocked_ground_base_duration_ms")
 SHOCKED_GROUND_SKILLS = ("Storm Lance", "Lightning Warp", "Vivid Stampede", "Gathering Storm")
@@ -1884,20 +1923,37 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
     parts: list[str] = []
     notes: list[str] = []
     off = 1.0
+    radii: list[tuple[float, float]] = []  # (share, radius m) per counted source, for "you on it" (_on_shocked_ground)
     if skill := stats.get("_sg_skill"):
         name, ms = skill
         if ms > 0:
-            up = _covered(uses, 1.0, ms / 1000)
-            parts.append(f"{name}'s own ground on each use ({ms / 1000:g} s, {uses:.2f} uses/s): {up:.0%}")
+            feed = stats.get("_sg_feed") or {}
+            how = feed.get("how") or "no rate read for the uses that make it: 0"
+            radius = SHOCKED_GROUND_RADII.get(name, SHOCKED_GROUND_RADIUS)
+            if SHOCKED_GROUND_GATED.get(name) == "cull":  # (made only in the last t of the boss's pool)
+                up = _covered(uses, 1.0, ms / 1000) * min(1.0, number(feed.get("share")))
+                parts.append(f"{name}'s ground only when it explodes ({how}; {ms / 1000:g} s, {radius:g} m): {up:.0%}")
+            elif name in SHOCKED_GROUND_GATED:
+                rate = min(uses, number(feed.get("rate")))
+                up = _covered(rate, 1.0, ms / 1000)
+                parts.append(f"{name}'s ground from {rate:.2f} of its {uses:.2f} uses/s ({how}; {ms / 1000:g} s, "
+                             f"{radius:g} m): {up:.0%}")
+            else:
+                up = _covered(uses, 1.0, ms / 1000)
+                where = "; at the end of a Stag's full path, taken to be at the boss, LOW" if name == "Vivid Stampede" else ""
+                parts.append(f"{name}'s own ground on each use ({ms / 1000:g} s, {uses:.2f} uses/s, {radius:g} m{where}): "
+                             f"{up:.0%}")
             off *= 1 - up
+            radii.append((up, radius))
         else:
             notes.append(f"{name}'s ground (no duration stat in its level stats: not counted, an undercount)")
     if ms := number(stats.get("_sg_support")):
         crit = min(number(stats.get("CritChance")), 100.0) / 100.0
         up = _covered(uses * hit, crit, ms / 1000)
-        parts.append(f"{SHOCKED_GROUND_SUPPORT}, on the first Critical Hit of a use ({crit:.0%} crit, {ms / 1000:g} s): "
-                     f"{up:.0%}")
+        parts.append(f"{SHOCKED_GROUND_SUPPORT}, on the first Critical Hit of a use ({crit:.0%} crit, {ms / 1000:g} s, "
+                     f"{SHOCKED_GROUND_RADII[SHOCKED_GROUND_SUPPORT]:g} m): {up:.0%}")
         off *= 1 - up
+        radii.append((up, SHOCKED_GROUND_RADII[SHOCKED_GROUND_SUPPORT]))
     for text in texts:
         if m := SHOCK_MAKES_GROUND.search(text):
             shock = min(number(stats.get("ShockChancePerHit")), 100.0) / 100.0
@@ -1905,6 +1961,7 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
             parts.append(f"{m.group(1)}% chance on Shocking ({shock:.0%} Shock chance per hit, {SHOCKED_GROUND_DURATION:g} s "
                          f"by default): {up:.0%}")
             off *= 1 - up
+            radii.append((up, SHOCKED_GROUND_RADIUS))
         elif m := GROUND_WHILE_MOVING.search(text):
             if stats.get("_stationary") and not number(stats.get("_rolling")):
                 notes.append("the trail while moving (the build stands still and doesn't roll: not counted)")
@@ -1916,8 +1973,10 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
             parts.append(f"the trail while moving ({m.group(1)} s): walk or roll through the boss's spot at least every "
                          f"{m.group(1)} s (a way to play the build; without it, the trail adds nothing): 100%")
             off = 0.0
+            radii.append((1.0, SHOCKED_GROUND_RADIUS))
     if stats.get("_sg_charged_mark"):
         notes.append("Charged Mark's ground (no Mark-activation rate modelled: not counted, an undercount)")
+    stats["_sg_radii"] = radii
     if not parts:
         return 0.0, "; ".join(notes)
     return 1.0 - off, "; ".join(parts + notes) + "; each ground taken to be at the boss for its full duration (LOW)"
@@ -2030,14 +2089,24 @@ def ground_shock_magnitude(mag: dict | None) -> tuple[float, str]:
 
 def _on_shocked_ground(lines: list[str], stats: dict) -> tuple[object, str]:
     """You on your own Shocked Ground (Stormwalker: "Gain 15% of Damage as Extra Lightning Damage while on Shocked Ground"):
-    the ground's share, when you stand within SHOCKED_GROUND_RADIUS of the boss. Your own ground counts for "on Shocked
+    the share of the grounds whose radius (SHOCKED_GROUND_RADII, else SHOCKED_GROUND_RADIUS) reaches where you stand. Your own ground counts for "on Shocked
     Ground" (the user, 11 Nov 2026: MEDIUM, not tested in game). Enemy-made ground isn't counted on a lone boss."""
     if not any(ON_SHOCKED_GROUND.search(t) for t in lines):
         return 0.0, ""
     share, how = stats.get("_shocked_ground") or (0.0, "")
     if share < MIN_UPTIME:
         return 0.0, how or "no Shocked Ground of your own (enemy-made ground not counted on a lone boss)"
-    if (metres := _boss_metres(stats)) > SHOCKED_GROUND_RADIUS:
+    metres = _boss_metres(stats)
+    if (radii := stats.get("_sg_radii")) is not None:  # (MECH58: each source's own radius)
+        off = 1.0
+        for up, radius in radii:
+            off *= 1.0 - up if radius >= metres else 1.0
+        if 1.0 - off < share:
+            share = 1.0 - off
+            how = f"{how}; only the grounds that reach {metres:g} m from the boss count for you"
+        if share < MIN_UPTIME:
+            return 0.0, f"you stand {metres:g} m from the boss, outside your Shocked Ground (each source's radius)"
+    elif metres > SHOCKED_GROUND_RADIUS:
         return 0.0, f"you stand {metres:g} m from the boss, outside your Shocked Ground ({SHOCKED_GROUND_RADIUS:g} m assumed)"
     return _box(share, f"in your own Shocked Ground at the boss {share:.0%} of the fight ({shared(share)}): {how}; your own "
                        f"ground counts (the user, 11 Nov 2026; MEDIUM, not tested in game)")
@@ -2511,6 +2580,41 @@ class Conditions:
         # the same text on two items: each copy takes the average, so the copies together count both items' uses
         return {text: (total / count, "; ".join(how)) for text, (total, count, how) in found.items()}
 
+    def ground_feed(self, texts: list[str], stats: dict, names: set[str]) -> dict:
+        """(MECH58) What lets the main skill make its Shocked Ground (SHOCKED_GROUND_GATED): {"share": the share of the
+        fight it can, "how"} for Lightning Warp (the last Cull threshold of the boss's pool), {"rate": uses per second
+        that make it, "how"} for Storm Lance (Frenzy Charges gained) and Gathering Storm (Tempest Bells to explode)."""
+        kind = SHOCKED_GROUND_GATED.get(self.main_skill)
+        if kind == "cull":
+            boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+            t = bosses.cull_threshold(boss) / 100
+            return {"share": t, "how": f"the boss under the Cull threshold, the last {t:.1%} of its pool (an upper "
+                                       "bound: a hit that Culls it there ends the fight), HIGH"}
+        if kind == "frenzy":
+            found = [(t, r) for t in texts if (r := _charge_rate(t, "Frenzy", stats)) is not None]
+            rate = sum(r[0] for _, r in found)
+            if not found:
+                return {"rate": 0.0, "how": "only a lance that consumed a Frenzy Charge makes it, and the build gains "
+                                            "none (MEDIUM-HIGH)"}
+            return {"rate": rate, "how": (f"only lances that consume a Frenzy Charge, at most {rate:.2f} gained/s ("
+                                          + "; ".join(f"{t[:50]}: {r[1]}" for t, r in found[:3]) + "; charges other "
+                                          "skills spend not taken off, extra-charge lines not added), MEDIUM-HIGH")}
+        if kind == "bell":
+            if "Tempest Bell" not in names:
+                return {"rate": 0.0, "how": "only a Perfectly Timed dash that explodes a Tempest Bell makes it, and the "
+                                            "build has no Tempest Bell (HIGH)"}
+            from builder.search.usage import Usage, requirements, usage_rules
+            rules = usage_rules(self.build).get("Tempest Bell")
+            need = next((n for n in requirements("Tempest Bell", rules) if n.kind == "combo"), None) if rules else None
+            found = Usage(self.build, None).combo_rate("Tempest Bell", need.amount) if need else None
+            if not found:
+                return {"rate": 0.0, "how": "only a Perfectly Timed dash that explodes a Tempest Bell makes it, and no "
+                                            "Combo rate for the Bell was read (0, MEDIUM)"}
+            return {"rate": found[0], "how": (f"one Perfectly Timed dash per Tempest Bell, {found[0]:.2f} Bells/s "
+                                              f"({need.amount:g} {found[2]} Strikes a Bell; every dash Perfectly Timed "
+                                              "as a way to play, MEDIUM)")}
+        return {}
+
     def evidence(self) -> dict[str, tuple[object, str]]:
         """What the build can sustain now: var -> (value, evidence)."""
         lines = self.build.call("sourceLines")["lines"]
@@ -2660,6 +2764,7 @@ class Conditions:
             got = main.get("levelStats") or {}
             if self.main_skill in SHOCKED_GROUND_SKILLS:
                 stats["_sg_skill"] = (self.main_skill, max(number(got.get(s)) for s in SHOCKED_GROUND_SKILL_STATS))
+                stats["_sg_feed"] = self.ground_feed(texts, stats, names)
             stats["_sg_support"] = number((main.get("supportStats") or {}).get(SHOCKED_GROUND_SUPPORT_STATS[0]))
         stats["_sg_charged_mark"] = "Charged Mark" in names
         stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)

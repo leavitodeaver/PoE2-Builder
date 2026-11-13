@@ -574,7 +574,7 @@ class Assumptions:
         scale, how, confidence = conditions_mod.cull_window_scale(
             mult, number(stats.get("CullMultiplier")), conditions_mod.boss_pool(boss), full - number(entry.get("dps")),
             number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0,
-            number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")))
+            number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), build.call("cullSplit"))
         if scale >= 1.0 and not how:
             return []
         key = models.press_key("Full Culling DPS", None)

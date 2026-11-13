@@ -2305,6 +2305,27 @@ end
 -- How fast each of these groups' active skill is used if it were the main skill (models.press_model: a pressed
 -- non-main skill counts in Full DPS at its real use, not nonstop). Each group is calculated in its own environment,
 -- as calcFullDPS does; the build's main group and outputs are left as they were.
+-- (MECH58) The main skill's raw Culling Strike thresholds as PoB's CalcOffence 4070-4077 reads them, before it scales the
+-- crit-only one by 1 - (1 - crit)^hitRate: critical (CriticalCullPercent override or CritCanCull's threshold for the
+-- enemy's rarity), regular (CullPercent override or CanCull's), inc (1 + INC CullPercent / 100), critChance (%)
+function bridge.cullSplit()
+	local env = build.calcsTab.mainEnv
+	local skill = env and env.player and env.player.mainSkill
+	if not skill or not skill.skillModList then
+		return { critical = 0, regular = 0, inc = 1, critChance = 0 }
+	end
+	local mods, cfg = skill.skillModList, skill.skillCfg
+	local enemyDB = env.player.enemy and env.player.enemy.modDB
+	local rarity = enemyDB and (enemyDB:Flag(nil, "Condition:Unique") and "Unique"
+		or (enemyDB:Flag(nil, "Condition:RareOrUnique") and "Rare")) or "Normal"
+	local threshold = data.gameConstants["CullingStrike" .. rarity .. "Threshold"] or 0
+	local critical = mods:Override(cfg, "CriticalCullPercent") or (mods:Flag(cfg, "CritCanCull") and threshold or 0)
+	local regular = mods:Override(cfg, "CullPercent") or (mods:Flag(cfg, "CanCull") and threshold or 0)
+	local output = env.player.output or { }
+	return { critical = jsonNumber(critical), regular = jsonNumber(regular),
+		inc = jsonNumber(1 + mods:Sum("INC", cfg, "CullPercent") / 100), critChance = jsonNumber(output.CritChance or 0) }
+end
+
 function bridge.useRates(args)
 	local calcs = require("Modules.CalcBase")
 	local saved = build.mainSocketGroup

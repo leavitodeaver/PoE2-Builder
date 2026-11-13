@@ -1037,8 +1037,25 @@ def test_shocked_ground_shocks_the_boss_and_counts_you_standing_in_it():
     assert "Overcharge left out" in ground_shock_magnitude({"inc": 0, "max": 100, "left": ["x"]})[1]
     assert ground_shock_magnitude(None)[0] == 20
     # the main skill's own ground on each use, and Shocking Leap on the first crit of a use
-    own, _ = shocked_ground({"Speed": 0.25, "_sg_skill": ("Storm Lance", 2000)}, [])
+    own, _ = shocked_ground({"Speed": 0.25, "_sg_skill": ("Vivid Stampede", 2000)}, [])
     assert own == pytest.approx(0.5)
+    # MECH58 (an OVERCOUNT): Storm Lance only from Frenzy-consuming lances, Gathering Storm only from exploded Tempest
+    # Bells, Lightning Warp only in the last Cull threshold of the pool; nothing feeding them makes no ground
+    assert shocked_ground({"Speed": 0.5, "_sg_skill": ("Storm Lance", 2000)}, [])[0] == 0.0
+    lance, how = shocked_ground({"Speed": 0.5, "_sg_skill": ("Storm Lance", 2000),
+                                 "_sg_feed": {"rate": 0.25, "how": "Frenzy"}}, [])
+    assert lance == pytest.approx(0.5) and "0.25 of its 0.50 uses/s" in how
+    warp, how = shocked_ground({"Speed": 1.0, "_sg_skill": ("Lightning Warp", 8000),
+                                "_sg_feed": {"share": 0.05, "how": "cull"}}, [])
+    assert warp == pytest.approx(0.05) and "only when it explodes" in how
+    # "you on it": each ground's own radius (Storm Lance 3 m reaches 2.5 m, Shocking Leap's 2 m doesn't)
+    on_stats = {"Speed": 0.5, "CritChance": 100, "_sg_support": 4000, "_sg_skill": ("Storm Lance", 2000),
+                "_sg_feed": {"rate": 0.25, "how": "Frenzy"}, "_distance_choice": (2.5, "close")}
+    on_stats["_shocked_ground"] = shocked_ground(on_stats, [])
+    assert on_stats["_shocked_ground"][0] == pytest.approx(1.0)
+    got = by["conditionOnShockedGround"].value_fn(["Gain 15% of Damage as Extra Lightning Damage while on Shocked "
+                                                   "Ground"], on_stats)
+    assert got[2] == pytest.approx(0.5) and "reach 2.5 m" in got[1]
     leap, how = shocked_ground({"Speed": 1, "CritChance": 50, "_sg_support": 4000}, [])
     assert leap == pytest.approx(1 - 0.5 ** 4) and "Shocking Leap" in how
     # a skill whose duration stat isn't found and Charged Mark: labelled, not counted
@@ -2277,6 +2294,24 @@ def test_a_cull_saves_the_last_threshold_less_the_wait_for_the_next_hit():
     assert c.cull_window_scale(mult, 1.0, 1e7, 1e6, 5.0, 1.0, 0.0)[:2][0] == 1.0  # (another skill Culls: PoB's, LOW)
     assert c.cull_window_scale(1.0, 1.0, 1e7, 1e6, 5.0, 1.0, 0.0) == (1.0, "", "")
     assert c.boss_pool("Arbiter of Ash") >= c.bosses.PRESETS["Arbiter of Ash"].life
+
+
+def test_a_crit_only_cull_waits_for_the_next_crit():
+    """MECH58 (plans/kw-culling-strike.md, an OVERCOUNT): a crit-only Cull (CritCanCull) keeps its raw threshold and
+    waits for the next crit, 1 / (c x hits), not the next hit; a regular Cull beside it counts if it saves more."""
+    from builder.search import conditions as c
+
+    pob_t = 0.05 * (1 - 0.5 ** 5)  # (PoB's: 5% x a crit within a second at 50% crit, 5 hits/s)
+    mult = 1 / (1 - pob_t)
+    split = {"critical": 5.0, "regular": 0.0, "inc": 1.0, "critChance": 50.0}
+    scale, how, conf = c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, split)  # (T 10 s, wait 0.4 s: 1%)
+    assert abs(scale - (0.01 / 0.99) / (pob_t / (1 - pob_t))) < 1e-9 and "Critical Hit" in how and conf == "MEDIUM"
+    assert c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, dict(split, critChance=10.0))[0] == 0.0  # (2 s)
+    both = dict(split, regular=3.0, critChance=10.0)  # (the regular 3% at the next hit: 1% saved)
+    scale, how, _ = c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, both)
+    assert abs(scale - (0.01 / 0.99) / (pob_t / (1 - pob_t))) < 1e-9 and "regular" in how
+    plain = 1 / 0.95  # (a regular Cull at least as high as the crit one: the hit wait, as before)
+    assert c.cull_window_scale(plain, plain, 1e7, 1e6, 5.0, 1.0, 0.0, dict(split, regular=5.0))[0] ==         c.cull_window_scale(plain, plain, 1e7, 1e6, 5.0, 1.0, 0.0)[0]
 
 
 def test_the_boss_ignites_you_for_while_ignited_lines():
