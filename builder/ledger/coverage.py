@@ -434,18 +434,19 @@ def not_applied(status: str, entry: str | None, reason: str, pool: str = "Item",
     """Whether the search applies a ledger translation of this item line (COV1's finding, 12 Nov 2026: until then
     only passive lines and unique items' text got them, and the audit counted 64 item lines covered that no build got).
     Since COV2 (builder/ledger/items.py) the search applies them to rare, magic and normal items' affix and implicit
-    lines and to socketed runes (`pool` "Item", "Jewel", "Flask", "Charm", "Runes", "implicit"). Still not applied:
-    a rune's Bonded line, desecrated, corruption and limb mods (the search never rolls them), a unique's own mod
+    lines and to socketed runes (`pool` "Item", "Jewel", "Flask", "Charm", "Runes", "implicit"); since COV13 a rune's
+    or Idol's Bonded line too, under PoB's own Bonded switch (items.py: it counts only with a Bonded source, Wisdom of
+    the Maji or an Idol in an item that lets Idols use their Bonded lines; `bonded` is kept for callers). Still not
+    applied: desecrated, corruption and limb mods (the search never rolls them), a unique's own mod
     ("Exclusive": applied through the unique's text when PoB lists the line among the unique's ignored ones, so it
     is counted there), and Timeless jewels' passives ("legion"). An entry recording "no effect" needs nothing applied."""
     if status != "ledger" or reason != "translated":
         return status, entry, reason
-    if pool in APPLIED_POOLS and not bonded:
+    if pool in APPLIED_POOLS:
         return status, entry, reason
     if pool == "Exclusive" and template(line) in unique_templates:
         return status, entry, "translated in the unique's own text (its unique record)"
-    why = {"Runes": "a rune's Bonded line, which counts only with a source that makes Bonded modifiers apply",
-           "Exclusive": "a unique's mod PoB doesn't list among the unique's ignored lines",
+    why = {"Exclusive": "a unique's mod PoB doesn't list among the unique's ignored lines",
            "legion": "a Timeless jewel's passive (the tree side)"}.get(pool, f"the search never rolls {pool} mods")
     return "none", entry, f"a ledger entry translates it, but the search doesn't apply it: {why}"
 

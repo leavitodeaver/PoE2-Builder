@@ -20,17 +20,22 @@ Which lines PoB can't parse comes from the data dump's coverage.json (`supported
 implicit line, through PoB's own parser); PoB's parse depends on the wording only, so a rolled line is matched by its
 template (numbers as #). With no coverage.json nothing is added (the old behaviour).
 
-Not applied (UNVERIFIED how often they matter; listed in COV2's report): the ledger's stand-ins for a rune's Bonded
-lines. PoB itself applies the Bonded lines it parses (COV12, checked in the pinned PoB: ModParser's "gain the benefits of
-bonded modifiers on runes and idols" sets CanUseBonded from the passive tree, Wisdom of the Maji's line; "idols socketed in
-this item gain the benefits of their bonded modifiers" sets SocketedIdolsUseBondedModifiers; Item.lua
-GetActiveModListForSlotNum then adds each socketed rune's / idol's Bonded mod list), so only the Bonded lines PoB can't
-parse and the ledger translates are lost with such a source (14 in runes.json: Archon buff effect / duration / recovery,
-Glory generation, Invocated energy, Slowing Potency, Unlucky enemy damage, Slam Aftershock, Fork projectile ...): an
-undercount for those builds. A fix needs the stand-in under PoB's CanUseBonded flag, which the item text can't carry
-(the bridge's equip would have to add it); soul cores' own slot entries; "increased effect of
-socketed items" on the stand-in lines (PoB scales the rune's own line, not the stand-in); Timeless jewels' passives
-(the tree, not item text); conditional entries (passives only, as for uniques).
+A socketed rune's, Soul Core's or Idol's Bonded line (COV13): PoB applies the Bonded lines it parses by itself, only
+under a Bonded source (checked in the pinned PoB, COV12: ModParser's "gain the benefits of bonded modifiers on runes and
+idols" sets CanUseBonded from the passive tree, Wisdom of the Maji's line, CalcSetup 1143; "idols socketed in this item
+gain the benefits of their bonded modifiers" sets the item's SocketedIdolsUseBondedModifiers, Idols only; Item.lua
+GetActiveModListForSlotNum then adds the Bonded mod lists). For a Bonded line PoB can't parse that a `pob_gap` entry
+translates without a condition, the stand-in is added as `{custom}LedgerBonded:<augment type> <line>` (BONDED): PoB
+can't parse that text, and the bridge (installLedgerBonded) turns it into a Bonded rune line of that augment type, so
+PoB's own Bonded switch decides whether it counts (and the item's socketed-rune effect scales it as it would the
+rune's own line). Bonded lines that feed a custom model (Archon buff effect / duration / recovery, Invocated half
+cost: `mult:` entries) reach the models through bridge.sourceLines, which lists a Bonded line, without its "Bonded: "
+prefix, only while PoB applies it.
+
+Not applied: soul cores' own slot entries; "increased effect of socketed items" on the non-Bonded stand-in lines (PoB
+scales the rune's own line, not the stand-in); Timeless jewels' passives (the tree, not item text); conditional
+entries (passives only, as for uniques); a Bonded line PoB parses wrongly (`pob_wrong`; none today: checked, COV13, every Bonded line of
+runes.json against wrong(): 0 of 559).
 """
 
 from __future__ import annotations
@@ -44,6 +49,7 @@ from builder.ledger import translate, wrong
 
 ADDED = "{custom}"
 SWITCHED_OFF = "{rune}{disabled}"
+BONDED = "LedgerBonded:"  # a Bonded line's stand-in, before its augment type; the bridge makes it a Bonded rune line
 DISABLED = "{disabled}"  # an affix or implicit a `pob_wrong` entry with no replacement switches off (a model reads it)
 NUMBER = re.compile(r"[+-]?\(?-?\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)?\)?")  # coverage.template's
 PLAIN_NUMBER = re.compile(r"\d+(?:\.\d+)?")
@@ -122,6 +128,21 @@ def rune_lines(rune_names: list[str], base: dict, directory: Path | None = None)
     return _summed(lines)
 
 
+def bonded_rune_lines(rune_names: list[str], base: dict, directory: Path | None = None) -> list[tuple[str, str]]:
+    """The Bonded lines these runes put on this base, as (augment type, line), summed per type as PoB sums them."""
+    from builder.search.rares import rune_categories
+
+    categories = rune_categories(base)
+    runes = _runes(directory)
+    by_type: dict[str, list[str]] = {}
+    for name in rune_names:
+        for category, entry in (runes.get(name) or {}).items():
+            if category in categories and isinstance(entry, dict) and isinstance(bonded := entry.get("bonded"), dict):
+                by_type.setdefault(entry.get("type") or "Rune", []).extend(
+                    bonded[k] for k in sorted((k for k in bonded if k.isdigit()), key=int))
+    return [(augment, line) for augment, lines in by_type.items() for line in _summed(lines)]
+
+
 def _base_of(lines: list[str], directory: Path | None) -> dict | None:
     bases = _bases(directory)
     for line in lines[:4]:
@@ -160,6 +181,9 @@ def corrected_item(raw: str, directory: Path | None = None) -> str:
                 off.append(line)
                 if fixed[1] is not None:
                     added.append(fixed[1])
+        for augment, line in bonded_rune_lines(runes, base, directory):
+            if template(line) in unparsed and (translated := translate(line)) and not translated[0].conditional:
+                added += [f"{BONDED}{augment} {standin}" for standin in translated[1]]
     if off:
         at = next((i for i, l in enumerate(lines) if l.startswith("Implicits:")), None)
         if at is None:  # after the header and socket lines, as anoints.with_anoints places implicits

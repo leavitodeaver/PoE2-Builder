@@ -3547,3 +3547,50 @@ def test_light_stuns_count_when_a_hit_is_15_percent_of_the_bosss_life():
     assert models.light_stun_rate(big)[0] == pytest.approx(0.3)  # (x1.5 Physical)
     total, how = models.stun_rate(big)
     assert total == pytest.approx(0.3) and "Light 0.300/s" in how
+
+
+
+
+def test_escalation_counts_each_different_warcry_at_its_share_of_the_fight_used_recently():
+    """COV13 (the user's rule on flat rates): Escalation's "N% increased Damage for each different Warcry you've used
+    Recently" was a flat N/2 whenever any Warcry was used Recently. Now `share:WarcriesRecently`: the sum over the build's
+    different Warcries of min(1, 4 s x uses per second) (Assumptions.warcries_recently, useRates); none: 0."""
+    from builder.search.assumptions import Assumptions
+
+    entry, lines = translate("10% increased Damage for each different Warcry you've used Recently")
+    assert entry.id == "escalation" and lines == ["share:WarcriesRecently 10% increased Damage"]
+
+    def run(gems, rates):
+        class Ctx:
+            all_gems = {"Spark": {"skillTypes": ["Spell"]}, "Cry A": {"skillTypes": ["Warcry"]},
+                        "Cry B": {"skillTypes": ["Warcry", "Duration"]}}
+
+        class Build:
+            ctx = Ctx()
+
+            def groups(self):
+                return [{"index": 1, "gems": [{"name": "Spark"}]}] + [
+                    {"index": i, "gems": [{"name": name}]} for i, name in enumerate(gems, start=2)]
+
+            def main_group(self):
+                return {"index": 1, "gems": [{"name": "Spark"}], "skills": [{"name": "Spark"}], "mainActiveSkill": 1}
+
+            def call(self, name, **args):
+                if name == "useRates":
+                    return {"rates": [{"index": i, **rates[i]} for i in args["indices"]]}
+                assert name == "sourceLines"
+                return {"lines": [{"text": "10% increased Damage for each different Warcry you've used Recently"}]}
+
+        a = Assumptions.__new__(Assumptions)
+        a.build = Build()
+        a.ledger_shares = {}
+        found, notes = a.ledger_conditions([{"name": "Spark", "disabled": False, "group": 1}])
+        return "WarcriesRecently" in found, a.ledger_shares.get("WarcriesRecently"), notes
+
+    assert run([], {}) == (False, None, run([], {})[2])  # no Warcry: 0, nothing switched on
+    # one on an 8 s cooldown: used in the past 4 s half of the fight
+    assert run(["Cry A"], {2: {"cooldown": 8.0}})[:2] == (True, 50)
+    # two different ones (8 s and 2 s cooldowns): 0.5 + 1 = 1.5 Warcries Recently on average
+    assert run(["Cry A", "Cry B"], {2: {"cooldown": 8.0}, 3: {"cooldown": 2.0}})[:2] == (True, 150)
+    # the same Warcry in two groups is one different Warcry (the higher share)
+    assert run(["Cry A", "Cry A"], {2: {"cooldown": 8.0}, 3: {"cooldown": 4.0}})[:2] == (True, 100)

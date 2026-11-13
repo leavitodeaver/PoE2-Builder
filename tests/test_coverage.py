@@ -107,10 +107,11 @@ def test_parse_checked_entries_and_item_lines_the_search_does_not_correct():
     assert checked_parse("(100-160)% increased Chaos Damage", "The Unborn Lich")
     assert checked_parse("(100-160)% increased Chaos Damage", "Some Other Staff") is None
     # the search applies ledger translations to rare, magic and normal items' lines and to runes (COV2,
-    # builder/ledger/items.py), not to Bonded rune lines, pools it never rolls or Timeless passives
+    # builder/ledger/items.py) and, under PoB's Bonded switch, to Bonded rune lines (COV13), not to pools it never rolls
+    # or Timeless passives
     assert coverage.not_applied("ledger", "x", "translated")[0] == "ledger"
     assert coverage.not_applied("ledger", "x", "translated", "Runes")[0] == "ledger"
-    assert coverage.not_applied("ledger", "x", "translated", "Runes", bonded=True)[0] == "none"
+    assert coverage.not_applied("ledger", "x", "translated", "Runes", bonded=True)[0] == "ledger"
     assert coverage.not_applied("ledger", "x", "translated", "Desecrated")[0] == "none"
     assert coverage.not_applied("ledger", "x", "translated", "legion")[0] == "none"
     assert coverage.not_applied("ledger", "x", "translated", "Exclusive", line="Take 4% less Damage")[0] == "none"
@@ -142,6 +143,24 @@ def test_ledger_translations_reach_rune_and_affix_lines():
     assert keeper[-2:] == [ADDED + "10% less Damage taken from Hits", ADDED + "10% less Damage over Time taken"]
     assert keeper.count(ADDED + "10% less Damage taken from Hits") == 1  # the unique's own line: corrected_raw's job
     assert with_runes("\n".join(keeper), []) == unique
+
+
+def test_a_bonded_rune_lines_stand_in_is_marked_for_the_bridge_not_added_plain():
+    """COV13: a Bonded line PoB can't parse that the ledger translates gets its stand-in as a LedgerBonded line of the
+    rune's augment type (the bridge makes it a Bonded rune line, so it counts only under PoB's Bonded switch); before,
+    it was dropped, and adding it plain would count it for every build (an overcount)."""
+    from builder.ledger.items import ADDED, BONDED, _bases, corrected_item, unparsed_templates
+    from builder.search.rares import with_runes
+
+    if not unparsed_templates():
+        pytest.skip("no coverage.json in the data dump")
+    mace = next(n for n, b in _bases().items() if b["type"] == "Two Hand Mace" and not b.get("hidden"))
+    rare = f"Rarity: Rare\nOptimizer Weapon 1\n{mace}\nItem Level: 82\nImplicits: 0\n+10 to Strength"
+    hymn = with_runes(rare, ["Legacy of Hrimnor's Hymn"])  # Bonded: 15% chance ... an additional Aftershock
+    # its own (non-Bonded) 25% chance gets the plain stand-in; the Bonded 15% only the marked one
+    assert [l for l in hymn.splitlines() if l.startswith(ADDED)] == [
+        ADDED + "Slam Skills have 25% more DPS", ADDED + BONDED + "Rune Slam Skills have 15% more DPS"]
+    assert corrected_item(hymn) == hymn and with_runes(hymn, []) == rare
 
 
 def test_a_pob_wrong_entry_with_no_replacement_switches_the_item_line_off():

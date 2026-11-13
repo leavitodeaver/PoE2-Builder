@@ -36,6 +36,18 @@
   sources: ["Support gem name"]
   status: retired  # COV8: no reader since rhythm-of-ice was retired (FIX_QUEUE, COVB4's findings)
 
+- id: WarcriesRecently
+  title: Different Warcries used Recently
+  kind: condition
+  warcries_recently: true
+  confidence: theory
+  notes: >-
+    A share, not on / off: Assumptions.warcries_recently sums each different Warcry's share of the fight it was used in
+    the past 4 s (its uses per second from the build: cooldown, else duration, else the press default, LOW), so a
+    `share:WarcriesRecently` line counts its value x that sum (COV13; Escalation).
+  sources: ["https://poe2db.tw/Escalation", "https://poe2db.tw/us/Recently"]
+  status: proposed
+
 - id: JaggedGround
   title: Creates Jagged Ground
   kind: condition
@@ -515,9 +527,13 @@
   title: Escalation, damage per different warcry used recently
   kind: pob_gap
   match: "^(\\d+)% increased Damage for each different Warcry you've used Recently$"
-  replace: ["{g1*0.5}% increased Damage if you've used a Warcry Recently"]
+  replace: ['share:WarcriesRecently {1}% increased Damage']
   confidence: theory
-  notes: "One warcry on an 8 s cooldown counts within 4 s half of the time."
+  notes: >-
+    Counts the line's value x the different Warcries used Recently (4 s), each of the build's own Warcries up
+    min(1, 4 s x its uses per second) of the fight, used on its cooldown (Assumptions.warcries_recently, the bridge's
+    useRates; else its duration, else the press default, LOW); no Warcry in the build: 0 (COV13; before, a flat half of
+    the value, "one warcry on an 8 s cooldown", whatever the build's Warcries, against the rule on flat rates).
   sources: ["https://poe2db.tw/Escalation", "https://poe2db.tw/us/Recently"]
   status: proposed
 

@@ -868,7 +868,56 @@ local function installCannotChill()
 		data.skillStatMap.cold_damage_cannot_chill = { { name = "ColdCannotChill", type = "FLAG", value = true, flags = 0, keywordFlags = 0 } }
 	end
 end
+
+-- The ledger's stand-ins for a socketed rune's / Idol's Bonded line PoB can't parse (COV13; builder/ledger/items.py):
+-- the item text carries each as "LedgerBonded:<augment type> <line>", which PoB can't parse; before PoB builds the
+-- item's modifiers, a copy of it goes in the item's rune lines as a Bonded line of that augment type, so PoB's own
+-- Bonded switch (CanUseBonded from the tree, an Idol's SocketedIdolsUseBondedModifiers; Item.lua
+-- GetActiveModListForSlotNum) decides whether it counts, and the socketed-rune effect scales it as the rune's own line.
+-- UpdateRunes rebuilds the rune lines from the rune names, so the copies are made again on every build of the list.
+local ledgerBondedInstalled = false
+local function installLedgerBonded()
+	local class = not ledgerBondedInstalled and common and common.classes and common.classes.Item
+	if not class or not class.BuildModList then
+		return
+	end
+	local buildModList = class.BuildModList
+	class.BuildModList = function(self, ...)
+		local runeLines, explicit = rawget(self, "runeModLines"), rawget(self, "explicitModLines")
+		if runeLines and explicit then
+			for i = #runeLines, 1, -1 do
+				if runeLines[i].ledgerBonded then
+					table.remove(runeLines, i)
+				end
+			end
+			for _, modLine in ipairs(explicit) do
+				local augment, rest = tostring(modLine.line or ""):match("^LedgerBonded:(%a+)%s+(.+)$")
+				if augment then
+					local list, extra = modLib.parseMod(rest)
+					if list and not extra then
+						runeLines[#runeLines + 1] = { line = "Bonded: " .. rest, order = math.huge, modList = list,
+							rune = true, enchant = true, bonded = true, augmentType = augment, ledgerBonded = true }
+					end
+				end
+			end
+		end
+		return buildModList(self, ...)
+	end
+	ledgerBondedInstalled = true
+end
+
+-- Whether PoB applies this rune line now: a Bonded line only under the item's current Bonded state, which
+-- GetActiveModListForSlotNum sets on each calculation ("all": CanUseBonded; "idol": an Idol's own lines only)
+local function runeLineApplies(item, modLine)
+	if not modLine.bonded then
+		return true
+	end
+	local state = rawget(item, "activeBondedState")
+	return state == "all" or (state == "idol" and modLine.augmentType == "Idol")
+end
+
 local function installDerived()
+	installLedgerBonded()
 	installSpiritVessel()
 	installCannotChill()
 	installBossSlow()
@@ -3191,7 +3240,8 @@ function bridge.unsupportedInBuild()
 		if item and not slot.inactive then
 			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
 				for _, modLine in ipairs(item[kind] or { }) do
-					if modLine.extra or #(modLine.modList or { }) == 0 then
+					local standin = modLine.ledgerBonded or tostring(modLine.line or ""):match("^LedgerBonded:")
+					if (modLine.extra or #(modLine.modList or { }) == 0) and not standin then
 						found[#found + 1] = { source = slotName .. ": " .. tostring(item.title or item.name), line = modLine.line }
 					end
 				end
@@ -3245,6 +3295,15 @@ function bridge.sourceLines()
 					-- read numbers, so give them the rolled line, as PoB's own getRangedModList does (Item.lua 2726-2735;
 					-- COVD1: nearly every custom model missed ranged unique lines)
 					local text = modLine.line
+					-- a Bonded rune line only while PoB applies it, without its "Bonded: " prefix, so the models and the
+					-- condition resolver read it as the line it is (COV13: before, an inactive one reached the resolver's
+					-- unanchored patterns, and an active one no anchored model input); a ledger stand-in's text never
+					if modLine.ledgerBonded or (type(text) == "string" and text:match("^LedgerBonded:"))
+							or (kind == "runeModLines" and not runeLineApplies(item, modLine)) then
+						text = nil
+					elseif modLine.bonded and type(text) == "string" then
+						text = text:gsub("^Bonded:%s*", "")
+					end
 					if type(text) == "string" and text:find("%((%-?%d+%.?%d*)%-(%-?%d+%.?%d*)%)") then
 						text = itemLib.applyRange(text, modLine.range or main.defaultItemAffixQuality or 0.5,
 							modLine.valueScalar, modLine.corruptedRange)

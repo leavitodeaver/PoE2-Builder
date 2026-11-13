@@ -1403,6 +1403,21 @@ class Assumptions:
                     notes.append({"label": f"{condition['title']}", "value": f"{share:.0%} up", "basis": f"{how}; {counted}",
                                   "confidence": "LOW (the boss's per-type hit rate: HIT_EVERY and its skills' type counts)"})
                 continue
+            if condition.get("warcries_recently"):
+                # different Warcries used Recently (4 s), summed over the build's own Warcries (Escalation; COV13: before,
+                # a flat half of the line's value whenever any Warcry was used Recently): its ledger lines are
+                # `share:WarcriesRecently`, each counting its value x this sum (in whole percent, over 100 with several)
+                count, how = self.warcries_recently()
+                percent = round(100 * max(count, 0.0))
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                if self.has_line(r"for each different Warcry you've used Recently"):
+                    notes.append({"label": condition["title"], "value": round(count, 2),
+                                  "basis": f"{how}; its lines count {percent}% of their value",
+                                  "play": "Use each Warcry on its cooldown: without them these lines add nothing",
+                                  "confidence": "MEDIUM (each Warcry used on its cooldown; LOW where marked)"})
+                continue
             if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
                 share, how = self.jagged_ground_share(main, main_types, main_group)
                 # its ledger lines are `share:JaggedGround` (COV11): each counts its full value x this share (bridge
@@ -1448,6 +1463,27 @@ class Assumptions:
             if by_name or by_text or by_type:
                 found.append(condition["id"])
         return sorted(found), notes
+
+    def warcries_recently(self) -> tuple[float, str]:
+        """(different Warcries used Recently on average, how): each different Warcry in the build's enabled groups is up
+        min(1, 4 s x its uses per second) of the fight, its uses from the bridge's useRates (conditions.skill_use_rate:
+        its cooldown, else its duration, else one per models.PRESS_EVERY s, LOW); none in the build: 0."""
+        gems = getattr(self.build.ctx, "all_gems", {}) or {}
+        found = {g["index"]: n["name"] for g in self.build.groups() if g.get("enabled") is not False
+                 for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")
+                 and "Warcry" in ((gems.get(n["name"]) or {}).get("skillTypes") or [])}
+        if not found:
+            return 0.0, "no Warcry in the build's enabled groups: 0"
+        shares: dict[str, tuple[float, str]] = {}
+        for rate in self.build.call("useRates", indices=sorted(found))["rates"]:
+            name = found.get(rate.get("index"))
+            if name is None:
+                continue
+            each, why, low = conditions_mod.skill_use_rate(rate)
+            share = min(1.0, conditions_mod.RECENTLY * each)
+            if share >= shares.get(name, (-1.0, ""))[0]:  # (the same Warcry twice is one "different" Warcry)
+                shares[name] = (share, f"{name} on {why}: used Recently {share:.0%} of the fight" + (" (LOW)" if low else ""))
+        return sum(s for s, _ in shares.values()), "; ".join(h for _, h in shares.values()) or "no use rate: 0"
 
     def has_line(self, pattern: str) -> bool:
         """Whether any of the build's source lines (passives and items, bridge sourceLines) matches `pattern`."""

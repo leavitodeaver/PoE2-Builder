@@ -205,3 +205,37 @@ def test_kurgals_gaze_socketed_in_a_helmet_counts_through_pobs_own_flag(engine):
     flat = mana_regen(head + ["Implicits: 0", "50% increased Life Regeneration rate", "50% increased Mana Regeneration Rate"])
     socketed = mana_regen(head + ["Sockets: S", "Rune: Kurgal's Gaze", "Implicits: 0", "50% increased Life Regeneration rate"])
     assert flat > plain and socketed == pytest.approx(flat, rel=1e-3)
+
+
+def test_a_bonded_stand_in_counts_only_under_pobs_own_bonded_switch(engine):
+    """COV13: the ledger's stand-in for a Bonded line PoB can't parse ("LedgerBonded:<type> <line>", ledger/items.py)
+    becomes a Bonded rune line in the bridge, so PoB's own switch decides: here an item line that lets socketed Idols use
+    their Bonded lines (the Fox Idol's) turns on an Idol's stand-in, not a Rune's; with no Bonded source neither counts.
+    bridge.sourceLines lists the stand-in's line only while it applies, without "Bonded: ", and never the marker."""
+    from builder.ledger.items import BONDED, _bases
+
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    coat = next(n for n, b in _bases().items() if b["type"] == "Body Armour" and not b.get("hidden"))
+    head = ["Rarity: Rare", "Test Coat", coat, "Implicits: 0", "+10 to Strength"]
+    idols = "Idols socketed in this item gain the benefits of their Bonded modifiers"
+
+    def life(*lines):
+        build.call("equip", slot="Body Armour", raw=chr(10).join(head + list(lines)), fields=[])
+        texts = [e["text"] for e in build.call("sourceLines")["lines"] if e["source"] == "item:Body Armour"]
+        return build.call("stats", fields=["Life"])["Life"], texts
+
+    plain, _ = life()
+    flagged, _ = life(idols)
+    idol_off, texts_off = life("{custom}" + BONDED + "Idol +50 to maximum Life")
+    idol_on, texts_on = life(idols, "{custom}" + BONDED + "Idol +50 to maximum Life")
+    rune_on, _ = life(idols, "{custom}" + BONDED + "Rune +50 to maximum Life")
+    assert idol_off == plain and rune_on == flagged and idol_on > flagged
+    assert not any(t.startswith(("LedgerBonded:", "Bonded:")) or t == "+50 to maximum Life" for t in texts_on + texts_off)
+    # a real socketed Idol's Bonded line: in sourceLines, without "Bonded: ", only while PoB applies it
+    head[3:3] = ["Sockets: S", "Rune: Idol of Eramir"]
+    charms = "15% chance for Charms you use to not consume Charges"
+    assert charms in life(idols)[1] and charms not in life()[1]
