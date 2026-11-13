@@ -13,16 +13,43 @@
   title: Uses a skill that requires Glory
   kind: condition
   skill_text: '\bGlory\b'
-  # Only a skill that spends Glory counts (its usage rule has this stat): the text alone also matched skills that build
-  # or mention Glory without using it, which switched on Call Upon the Deep and Thrill of the Fight (an overcount)
   usage_stat: active_skill_requires_X_glory
-  # and only while the build's own Glory pays for one use per 6 s on a boss, the rate Call Upon the Deep and Thrill of
-  # the Fight assume (models.glory_uses, from the game files' Glory sources; Thrill's one per 12 s is then undercounted
-  # between one per 12 s and one per 6 s)
-  glory_every: 6
   confidence: datamined
+  notes: >-
+    Retired (COV14): its two readers, Call Upon the Deep and Thrill of the Fight, assumed one Glory skill use per 6 s /
+    12 s (flat rates, against the user's rule); they now read GloryUsesPast6s / GloryBuff6s, shares from the build's
+    own Glory (models.glory_uses).
   sources: ["Glory skills' gem descriptions (Hammer of the Gods, Spear of Solaris, Banners, Ancestral Cry ...)"]
-  status: approved
+  status: retired
+
+- id: GloryUsesPast6s
+  title: Glory skill uses in the past 6 seconds
+  kind: condition
+  # Only a skill that spends Glory switches it on (its usage rule has this stat; the text alone also matched skills that
+  # build or mention Glory without using it: an overcount, fixed before COV14)
+  skill_text: '\bGlory\b'
+  usage_stat: active_skill_requires_X_glory
+  # A count, not on / off: the build's Glory skill uses per second on the boss (models.glory_uses: each Glory skill's
+  # cost against the Glory the build's main skill makes, at most one gain per 0.5 s, none while its instance is up) x
+  # the 6 s window, the average number used in the past 6 s, uncapped; no Glory the model counts: 0
+  glory_window: 6
+  glory_count: true
+  shown_for: "Requires Glory in the past"
+  confidence: theory
+  sources: ["https://poe2db.tw/Call_Upon_the_Deep", "https://poe2db.tw/Glory"]
+  status: proposed
+
+- id: GloryBuff6s
+  title: Up for 6 seconds after consuming Glory
+  kind: condition
+  skill_text: '\bGlory\b'
+  usage_stat: active_skill_requires_X_glory
+  # A share: min(1, 6 s x the build's Glory skill uses per second, models.glory_uses), each use renewing the 6 s
+  glory_window: 6
+  shown_for: "Consuming Glory grants you"
+  confidence: theory
+  sources: ["https://poe2db.tw/Thrill_of_the_Fight", "https://poe2db.tw/Glory"]
+  status: proposed
 
 - id: SpellEcho
   title: Uses Spell Echo (retired, no reader)
@@ -541,9 +568,14 @@
   title: Call Upon the Deep, penetration per Glory skill used
   kind: pob_gap
   match: "^Damage Penetrates (\\d+)% Elemental Resistances for each time you've used a Skill that Requires Glory in the past 6 seconds$"
-  replace: ['if:GlorySkill Damage Penetrates {1}% Elemental Resistances']
+  replace: ['share:GloryUsesPast6s Damage Penetrates {1}% Elemental Resistances']
   confidence: theory
-  notes: "One use of a Glory skill every 6 s assumed (a boss's Power of 20 refills Glory quickly)."
+  notes: >-
+    Counts the line's value x the average number of Glory skill uses in the past 6 s: 6 s x the build's own Glory skill
+    uses per second on the boss (models.glory_uses, from the Glory the main skill makes), uncapped (the line has no cap;
+    game files: PassiveSkills, "for each time ... in the past 6 seconds"); no Glory the model counts: 0 (COV14; before,
+    a flat one use per 6 s whenever the build's Glory paid for it, against the user's rule on flat rates). Averaged over
+    the fight (the uses come one by one, so the penetration steps between counts; LOW for the averaging).
   sources: ["https://poe2db.tw/Call_Upon_the_Deep", "https://poe2db.tw/Glory", "https://poe2db.tw/us/Monster_Power"]
   status: proposed
 
@@ -551,9 +583,15 @@
   title: Thrill of the Fight, attack damage when consuming Glory
   kind: pob_gap
   match: '^Consuming Glory grants you \d+% increased Attack damage per Glory consumed for (\d+) seconds, up to (\d+)%$'
-  replace: ['if:GlorySkill {g2/2}% increased Attack Damage']
+  replace: ['share:GloryBuff6s {2}% increased Attack Damage']
   confidence: theory
-  notes: "One 20-Glory use reaches the cap; assumed one use per 12 s, so up half the time."
+  notes: >-
+    Counts the cap (60%) x the share of the fight within 6 s of a Glory skill use: min(1, 6 s x the build's Glory skill
+    uses per second, models.glory_uses); no Glory the model counts: 0 (COV14; before, a flat half of the cap, "one use per
+    12 s", against the user's rule on flat rates). One use reaches the cap: 3% per Glory and the cheapest Glory skill in
+    models.GLORY_SKILLS / GLORY_FROM_LIFE costs 20 (Spear of Solaris, Starborn Onslaught, Hammer of the Gods, Molten
+    Blast), 3 x 20 = 60 (checked: the 12 entries there; a Glory skill outside them gets no rate, so counts 0, an
+    undercount). Uses taken as evenly spaced (MEDIUM); the buff's duration is not scaled by duration modifiers (UNVERIFIED).
   sources: ["https://poe2db.tw/Thrill_of_the_Fight", "https://poe2db.tw/Glory"]
   status: proposed
 

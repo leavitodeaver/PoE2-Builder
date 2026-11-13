@@ -440,7 +440,7 @@
   kind: pob_gap
   match: '^(Regenerate \d+ Rage per second per \d+ Rage spent Recently|Banners gain \d+ Glory per second|Body Armour grants \d+% increased Glory generation|(Allies in your Presence have )?\d+% increased Glory generation)$'
   replace: []
-  absorbed_by: "the condition resolver counts Rage at its maximum once the build has a source, and the Glory entries count one use of a Glory skill per 6 s when the build's own Glory pays for it (models.glory_uses); increased Glory generation isn't counted there yet (an undercount: it could tip a build over that rate)"
+  absorbed_by: "the condition resolver counts Rage at its maximum once the build has a source, and the Glory entries (Call Upon the Deep, Thrill of the Fight) count as shares of the build's own Glory skill uses per second (models.glory_uses; COV14, before a flat one use per 6 s); increased Glory generation isn't counted there yet (an undercount: it would raise that rate)"
   confidence: theory
   sources: ["https://poe2db.tw/us/Primal_Hunger", "https://poe2db.tw/us/Tactician", "https://poe2db.tw/us/Smith_of_Kitava"]
   test_in_game: "Not needed for the calculated numbers."

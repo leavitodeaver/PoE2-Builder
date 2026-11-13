@@ -1486,7 +1486,7 @@ def test_remnant_rates_from_freezes_stuns_and_doubled_pickups(monkeypatch):
 def test_glory_skills_are_used_as_often_as_the_builds_own_glory_pays_for():
     """Game files (GrantedEffectStatSets, 9 Nov): Hammer of the Gods costs 20 Glory and gains 100% of the boss's Power
     (20) per Heavy Stun; a Banner costs 200 and gains 20 per attack hit; Zerphi's Infamy turns 5% of Life spent into
-    Glory against 50 per use. The ledger's GlorySkill lines (one use per 6 s) count only at that rate or faster."""
+    Glory against 50 per use. The ledger's Glory lines count from this rate (COV14: shares, not one use per 6 s)."""
     slam = models.Skill("Boneshatter", attack=True, melee=True)
     stats = {"Speed": 2.0, "HitChance": 100, "PhysicalHitAverage": 1000, "HeavyStunBuildupAvg": 10.0}
     stuns = models.heavy_stun_rate(stats)[0]
@@ -3727,3 +3727,64 @@ def test_when_hit_benefits_read_one_hit_per_boss_skill_use():
     assert conditions._rage_gain("Gain 5 Rage when Hit by an Enemy", other, True)[1] == pytest.approx(
         1 / bosses.benefit_skill_time(other))
     assert bosses.benefit_skill_time(other) > 0.7
+
+
+def test_call_upon_the_deep_and_thrill_of_the_fight_count_from_the_builds_own_glory_uses(monkeypatch):
+    """COV14 (the user's rule on flat rates): Call Upon the Deep's penetration per Glory skill used in the past 6 s took a
+    flat one use per 6 s, and Thrill of the Fight half its cap ("one use per 12 s"), whenever the build's Glory paid for one
+    per 6 s. Now `share:` lines from models.glory_uses: Call Upon the Deep counts 6 s x uses per second (uncapped),
+    Thrill of the Fight min(1, 6 s x uses per second) of its cap; no Glory: 0."""
+    from builder.search import assumptions as assumptions_mod
+    from builder.search.assumptions import Assumptions
+
+    entry, lines = translate("Damage Penetrates 20% Elemental Resistances for each time you've used a Skill that Requires "
+                             "Glory in the past 6 seconds")
+    assert entry.id == "call-upon-the-deep" and lines == ["share:GloryUsesPast6s Damage Penetrates 20% Elemental Resistances"]
+    entry, lines = translate("Consuming Glory grants you 3% increased Attack damage per Glory consumed for 6 seconds, up to 60%")
+    assert entry.id == "thrill-of-the-fight" and lines == ["share:GloryBuff6s 60% increased Attack Damage"]
+
+    monkeypatch.setattr(assumptions_mod, "usage_rules", lambda build: {
+        "Hammer of the Gods": {"stats": {"active_skill_requires_X_glory": 20}}})
+
+    def run(skill, uses):
+        class Ctx:
+            all_gems = {"Boneshatter": {"skillTypes": ["Attack"], "description": "Slam."},
+                        "Hammer of the Gods": {"skillTypes": ["Attack"], "description": "Requires Glory."}}
+
+        class Build:
+            ctx = Ctx()
+
+            def groups(self):
+                return [{"index": 1, "gems": [{"name": "Boneshatter"}]}, {"index": 2, "gems": [{"name": skill}]}]
+
+            def main_group(self):
+                return {"index": 1, "gems": [{"name": "Boneshatter"}], "skills": [{"name": "Boneshatter"}],
+                        "mainActiveSkill": 1}
+
+            def call(self, name, **args):
+                if name == "stats":
+                    return {}
+                assert name == "sourceLines"
+                return {"lines": [{"text": "Damage Penetrates 20% Elemental Resistances for each time you've used a "
+                                           "Skill that Requires Glory in the past 6 seconds"}]}
+
+        monkeypatch.setattr(models, "glory_uses", lambda names, stats, main: (uses, "stand-in rate"))
+        a = Assumptions.__new__(Assumptions)
+        a.build = Build()
+        a.ledger_shares = {}
+        found, notes = a.ledger_conditions([{"name": "Boneshatter", "disabled": False, "group": 1},
+                                            {"name": skill, "disabled": False, "group": 2}])
+        glory = [n for n in notes if "Glory skill uses" in n["label"]]
+        return ({k: v for k, v in a.ledger_shares.items() if k.startswith("Glory")},
+                {f for f in found if f.startswith("Glory")}, glory)
+
+    # one use per 10 s: 0.6 uses in the past 6 s on average (60% of the 20% penetration), Thrill up 60% of the fight
+    shares, found, notes = run("Hammer of the Gods", 0.1)
+    assert shares == {"GloryUsesPast6s": 60, "GloryBuff6s": 60} and found == {"GloryUsesPast6s", "GloryBuff6s"}
+    assert len(notes) == 1 and "one per 10.0 s" == notes[0]["value"]  # only Call Upon the Deep's line is in this build
+    # one per 2 s: Call Upon the Deep uncapped (3 uses: 60% penetration), Thrill capped at always up
+    assert run("Hammer of the Gods", 0.5)[0] == {"GloryUsesPast6s": 300, "GloryBuff6s": 100}
+    # no Glory made: 0, nothing switched on (before: neither, but at one use per 6 s a full 20% / 30%)
+    assert run("Hammer of the Gods", 0.0)[:2] == ({}, set())
+    # a skill that doesn't spend Glory: the conditions stay off whatever the rate
+    assert run("Boneshatter", 0.5)[:2] == ({}, set())

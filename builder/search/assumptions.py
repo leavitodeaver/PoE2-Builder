@@ -1359,7 +1359,7 @@ class Assumptions:
 
     def ledger_conditions(self, skills: list[dict]) -> tuple[list[str], list[dict]]:
         """Ledger conditions the build's skills switch on (e.g. it uses a skill that requires Glory), and notes on those
-        that need a rate (glory_every: one use of a Glory skill per that many seconds, models.glory_uses)."""
+        that need a rate (glory_window: a share from the build's Glory skill uses per second, models.glory_uses)."""
         wanted = conditions()
         if not wanted:
             return [], []
@@ -1373,6 +1373,7 @@ class Assumptions:
         main_info = next((s for s in skills if s["name"] == main and main_group and s.get("group") == main_group["index"]),
                          next((s for s in skills if s["name"] == main), {}))
         found, notes = [], []
+        glory = None  # (models.glory_uses' answer, once for every glory_window condition)
         if not hasattr(self, "ledger_shares"):  # (set by wanted(); a unit test may call this alone)
             self.ledger_shares = {}
         # ledger conditions up for part of the fight (condition -> share): counted 0 in PoB, for the search to weigh
@@ -1449,17 +1450,31 @@ class Assumptions:
             if by_type and (set(condition.get("not_skill_types") or []) & main_types
                             or condition.get("not_triggered") and main_info.get("triggered")):
                 by_type = False
-            if (by_name or by_text or by_type) and condition.get("glory_every"):
-                stats = self.build.call("stats", fields=models.MODEL_FIELDS)
-                main_skill = next((models.Skill.of(s) for s in skills if not s["disabled"] and s["name"] == main), None)
-                uses, how = models.glory_uses(names, stats, main_skill)
-                every = condition["glory_every"]
-                notes.append({"label": f"{condition['title']}: Glory skill uses on a boss",
-                              "value": f"one per {1 / uses:.1f} s" if uses > 0 else "none",
-                              "basis": f"{how}; its ledger lines assume one per {every:g} s, so they count only at that "
-                                       "rate or faster", "confidence": "theory"})
-                if uses * every < 1:
-                    continue
+            if (by_name or by_text or by_type) and condition.get("glory_window"):
+                # a share from the build's own Glory skill uses per second on the boss (models.glory_uses; COV14: before,
+                # a flat one use per 6 s / per 12 s, against the user's rule on flat rates). glory_count: the average
+                # number used in the past window (Call Upon the Deep, uncapped); else the share of the fight within the
+                # window after a use (Thrill of the Fight), uses taken as evenly spaced. Its lines are `share:` lines.
+                if glory is None:
+                    stats = self.build.call("stats", fields=models.MODEL_FIELDS)
+                    main_skill = next((models.Skill.of(s) for s in skills if not s["disabled"] and s["name"] == main), None)
+                    glory = models.glory_uses(names, stats, main_skill)
+                uses, how = glory
+                window = float(condition["glory_window"])
+                share = window * uses if condition.get("glory_count") else min(1.0, window * uses)
+                percent = round(100 * max(share, 0.0))
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                if condition.get("shown_for") and self.has_line(re.escape(condition["shown_for"])):
+                    counted = (f"{share:.2f} uses in the past {window:g} s on average" if condition.get("glory_count")
+                               else f"up {share:.0%} of the fight")
+                    notes.append({"label": f"{condition['title']}: Glory skill uses on a boss",
+                                  "value": f"one per {1 / uses:.1f} s" if uses > 0 else "none",
+                                  "basis": f"{how}; {counted}, so its lines count {percent}% of their value",
+                                  "play": "Use the Glory skill each time its Glory is full: without it these lines add nothing",
+                                  "confidence": "theory (the Glory sources glory_uses counts; uses evenly spaced)"})
+                continue
             if by_name or by_text or by_type:
                 found.append(condition["id"])
         return sorted(found), notes
