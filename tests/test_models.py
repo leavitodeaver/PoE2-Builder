@@ -3430,11 +3430,15 @@ def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_wi
                  if c.startswith("BossHits")}
         return found, {c: v for c, v in a.ledger_shares.items() if c.startswith("BossHits")}, a.ledger_part_time
 
-    # Arbiter of Ash: Fire on 17 of 20 damaging skills, one use every 2.25 s: about every 2.6 s, 78% up: under 99.5%
+    # Arbiter of Ash: Fire on 17 of 20 damaging skills, one use every 1.78 s (bosses.HIT_EVERY since MECHD5 counted each
+    # melee use's animation strikes; 2.25 s before): Fire about every 2.1 s, 85% up: under 99.5%
+    assert bosses.HIT_EVERY["Arbiter of Ash"] == 1.78
     found, shares, part = run("Arbiter of Ash")
     assert found == set() and shares == {} and set(part) == {"BossHitsFire"}  # Cold, Lightning: it deals none
-    assert part["BossHitsFire"] == pytest.approx(1 - math.exp(-4 / (2.25 * 20 / 17)))
-    assert run(None)[2] == part  # no boss in the request: the default boss
+    assert part["BossHitsFire"] == pytest.approx(1 - math.exp(-4 / (1.78 * 20 / 17)))
+    # no boss in the request: the default boss, the worst-case pinnacle (MECHD5). It has no RED_FLASH row yet (MECH-C's
+    # WORST hook in boss_hits, MECHC11), so its share is 0 with a "no per-type hit rate" note, not the Arbiter's
+    assert run(None) == run(bosses.WORST)
     # Xesht: Fire on 2 of 11, one use every 1.25 s
     assert run("Xesht, We That Are One")[2]["BossHitsFire"] == pytest.approx(1 - math.exp(-4 / (1.25 * 11 / 2)))
     for boss, (_, counts) in boss_hits.HIT_TABLE.items():

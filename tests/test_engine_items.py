@@ -977,5 +977,12 @@ def test_a_new_build_is_scored_against_the_boss_preset(engine):
     config = search.build.call("getConfig")["input"]
     from builder.search import boss_hits
 
-    for var, value in {**bosses.config_vars(), **boss_hits.config_vars()}.items():  # resistances and hits per type
+    # resetConfig writes args.bossHits first and args.boss over it (bridge.lua), so the boss's own config_vars wins: for
+    # the default, the worst-case pinnacle (MECHD5), its hits are each type at the biggest any real preset deals
+    # (bosses.worst_hit_sizes), not boss_hits' Arbiter of Ash fallback, which MECHC11's WORST hook replaces in Python.
+    name = ctx.request.boss or bosses.DEFAULT  # (None: the bridge's BOSS_HITS_DEFAULT, then BOSS_DEFAULT over it)
+    for var, value in {**boss_hits.config_vars(name), **bosses.config_vars(name)}.items():  # resistances, hits per type
         assert config.get(var) == value, var
+    if name == bosses.WORST:
+        for t, size in bosses.worst_hit_sizes().items():
+            assert config.get(f"enemy{t}Damage") == round(size), t
