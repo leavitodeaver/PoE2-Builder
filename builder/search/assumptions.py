@@ -387,6 +387,7 @@ def eternal_hunt(build: Build, main: models.Skill | None) -> tuple[float, list[d
             if skill["name"] != models.AZMERIAN_WOLF or skill.get("disabled"):
                 continue
             hunt = build.call("minionSkillHit", index=group["index"], active=n, skill=models.ETERNAL_HUNT)
+            hunt = hunt if isinstance(hunt, dict) else {}  # (an empty Lua table reaches Python as a list)
             wolf_main = main is not None and main.name == models.AZMERIAN_WOLF
             full = bool(getattr(getattr(build, "objective", None), "full", False))
             counted = wolf_main or (full and group.get("fullDPS"))

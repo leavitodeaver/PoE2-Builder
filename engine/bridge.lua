@@ -2691,9 +2691,12 @@ function bridge.minionSkillHit(args)
 	local position = tonumber(args.active) or (group and group.mainActiveSkill) or 1
 	local activeSkill = group and group.displaySkillList and group.displaySkillList[position]
 	local instance = activeSkill and activeSkill.activeEffect.srcInstance
+	local granted = activeSkill and activeSkill.activeEffect.grantedEffect
+	-- (the display list's skill may carry no minion: its own minion data, else the skill's first listed minion's)
 	local minionData = activeSkill and activeSkill.minion and activeSkill.minion.minionData
+		or (granted and granted.minionList and data.minions[granted.minionList[1]])
 	if not instance or not minionData then
-		return { }
+		return { reason = not instance and "no such skill in the group" or "the skill summons no minion" }
 	end
 	local found
 	local n = 0
@@ -2706,13 +2709,15 @@ function bridge.minionSkillHit(args)
 		end
 	end
 	if not found then
-		return { }
+		return { reason = "the minion has no such skill" }
 	end
 	local saved, oldSkill, oldActive = build.mainSocketGroup, instance.skillMinionSkill, group.mainActiveSkill
 	build.mainSocketGroup, group.mainActiveSkill, instance.skillMinionSkill = args.index, position, found
-	local result = { }
+	local result = { reason = "PoB calculated no minion" }  -- (never an empty table: it would reach Python as a list)
 	local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
-	if ok and env and env.minion and pcall(calcs.perform, env, true) then
+	-- (env.minion exists only once perform has run: useRates reads it the same way)
+	if ok and env and pcall(calcs.perform, env, true) and env.minion then
+		result.reason = nil
 		local output = env.minion.output or { }
 		for _, field in ipairs({ "AverageHit", "AverageDamage", "Speed", "Cooldown", "TotalDPS" }) do
 			if type(output[field]) == "number" then
@@ -2724,7 +2729,7 @@ function bridge.minionSkillHit(args)
 	-- the minion's own counted skill's TotalDPS (what it loses while it performs the other skill)
 	instance.skillMinionSkill = oldSkill
 	ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
-	if ok and env and env.minion and pcall(calcs.perform, env, true) then
+	if ok and env and pcall(calcs.perform, env, true) and env.minion then
 		local output = env.minion.output or { }
 		result.baseDPS = type(output.TotalDPS) == "number" and jsonNumber(output.TotalDPS) or nil
 	end

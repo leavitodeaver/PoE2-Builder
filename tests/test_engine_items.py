@@ -1199,7 +1199,8 @@ def test_eternal_hunt_is_scored_as_the_wolfs_hunt_and_added_to_the_boss_dps(engi
     assert hunt.get("name") == "Eternal Hunt" and hunt["AverageHit"] > 0 and hunt["baseDPS"] > 0, hunt
     assert hunt["Cooldown"] == pytest.approx(models.ETERNAL_HUNT_COOLDOWN, rel=0.05), hunt
     assert build.call("stats", fields=["CombinedDPS"]) == before  # (the build is put back)
-    assert build.call("minionSkillHit", index=group["index"], active=wolf, skill="NoSuchSkill") == {}
+    assert build.call("minionSkillHit", index=group["index"], active=wolf, skill="NoSuchSkill") == {
+        "reason": "the minion has no such skill"}
     dps, mods, notes = eternal_hunt(build, None)
     hit = hunt.get("AverageDamage") or hunt["AverageHit"]
     assert dps <= hit / hunt["Cooldown"] + 1e-6 and notes and notes[0]["confidence"] == "LOW"
