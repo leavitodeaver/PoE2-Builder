@@ -195,6 +195,12 @@ def siphon_freezes(stats: dict) -> tuple[float, str]:
 def duplicate_pickups(texts: list[str]) -> float:
     """The share of Remnant pickups that count twice (DUPLICATE_PICKUP), capped at 1."""
     return min(1.0, sum(float(m.group(1)) for t in texts if (m := DUPLICATE_PICKUP.search(t))) / 100.0)
+# Runic Reprieve (ActiveSkills runic_reprieve; RunicReprievePlayer channel_start_duration_as_%_of_cast_time 200, as
+# models.CHANNEL_WINDUP) for "your Runic Ward has been damaged Recently" (Assumptions.ward_damaged_share; MECHC15)
+RUNIC_REPRIEVE, CHANNEL_START_REPRIEVE = "Runic Reprieve", 2.0
+ROUGHLY_RECENTLY = 4.0  # "Recently": the last 4 seconds (KeywordPopups Recently)
+
+
 def remnant_multiplier(texts: list[str]) -> tuple[float, str]:
     """Each Remnant made counts this many times when collected (MECHC15; COV17): "N% chance to create an additional
     Remnant", "Remnants you create reappear once" (collected twice) and "N% chance for Remnants you pick up to count as
@@ -1273,12 +1279,13 @@ class Assumptions:
         share after Mind over Matter, and of Life + Energy Shield in proportion, LOW), the boss's hits Blocked a second (at
         the "when hit" benefit pace, as objective.on_block) and the main skill's casts a second when it is a Spell (other
         Spells' casts aren't counted: LOW, a lower bound)."""
-        from builder.search import boss_hits, objective
+        from builder.search import boss_hits, objective, recovery
 
         build = self.build
         hit = {**stats, **build.call("stats", fields=list(dict.fromkeys(
-            [*objective.RECOVERY_INPUTS, "Armour", "EnergyShield", "Life", "Speed"])))}
-        taken, landed, _ = objective.boss_taken(hit)
+            [*objective.RECOVERY_INPUTS, "Armour", "EnergyShield", "Life", "Speed", "StunThreshold",
+             "StunAvoidChance"])))}
+        taken, landed, deflect = objective.boss_taken(hit)
         life, es = number(hit.get("Life")), number(hit.get("EnergyShield"))
         mom = min(max(number(hit.get("sharedMindOverMatter")), 0.0), 100) / 100
         share = (1 - mom) * (life / (life + es) if life + es > 0 else 0.0)
@@ -1290,7 +1297,12 @@ class Assumptions:
         casts = number(hit.get("Speed")) if "Spell" in types else 0.0
         how = (f"{main}'s casts; other Spells' casts not counted (LOW)" if casts > 0
                else "the main skill isn't a Spell (other Spells' casts not counted: LOW)")
-        return {"landed": landed, "life_per_hit": per_hit, "blocked": blocked, "casts": casts, "cast_how": how}
+        # (MECHC15) the boss's hits that Light Stun you, each type at its full hit size (PoB's {Type}TakenHit, after
+        # mitigation and Deflection's expected share) and its share of the boss's hits (boss_hits.type_shares)
+        sizes = {t: max(number(hit.get(f"{t}TakenHit")), 0.0) * deflect for t in objective.RECOVERY_DAMAGE_TYPES}
+        stunned, stunned_how = recovery.stuns_taken(hit, sizes, boss_hits.type_shares(boss_hits.boss_name(hit)), landed)
+        return {"landed": landed, "life_per_hit": per_hit, "blocked": blocked, "casts": casts, "cast_how": how,
+                "stunned": stunned, "stunned_how": stunned_how}
 
     def spent_rates(self, skills: list[dict], main: str | None, stats: dict, lowered: list[str]) -> dict:
         """(events a second, how) for recovery.spent_income, each from the build's own sources (MECHC13; CLAUDE.md: no
@@ -1762,6 +1774,24 @@ class Assumptions:
                     notes.append({"label": f"{condition['title']}", "value": f"{share:.0%} up", "basis": f"{how}; {counted}",
                                   "confidence": "LOW (the boss's per-type hit rate: HIT_EVERY and its skills' type counts)"})
                 continue
+            if condition.get("ward_damaged_recently"):
+                # (MECHC15, AUDIT26 A26-1 / COV18) "...if your Runic Ward has been damaged Recently" (the Warding Rune of
+                # Bodyguards' Bonded line): the share of the fight within 4 s of a boss hit taken into Ward while Runic
+                # Reprieve is channelled (ward_damaged_share). Like boss_hits: whole from FULL_UPTIME, else its share
+                # waits in ledger_part_time (0 in PoB, so the defence floors read 0: the user's full-uptime rule)
+                share, how = self.ward_damaged_share(skills)
+                if share >= conditions_mod.FULL_UPTIME:
+                    self.ledger_shares[condition["id"]] = 100
+                    found.append(condition["id"])
+                elif share > 0:
+                    self.ledger_part_time[condition["id"]] = share
+                counted = ("counted whole" if share >= conditions_mod.FULL_UPTIME else
+                           "counted 0 in PoB: under 99.5% of the fight, so not in the defence floors (its share is "
+                           "for the search's part-time weighing)" if share > 0 else "counted 0")
+                notes.append({"label": f"{condition['title']}", "value": f"{share:.0%} up", "basis": f"{how}; {counted}",
+                              "confidence": "LOW (play strategy: Runic Reprieve channelled into the boss's hits; the "
+                                            "Ward each blocked hit takes is the hit's damage after mitigation, UNVERIFIED)"})
+                continue
             if condition.get("warcries_recently"):
                 # different Warcries used Recently (4 s), summed over the build's own Warcries (Escalation; COV13: before,
                 # a flat half of the line's value whenever any Warcry was used Recently): its ledger lines are
@@ -1942,6 +1972,42 @@ class Assumptions:
         """Whether any of the build's source lines (passives and items, bridge sourceLines) matches `pattern`."""
         call = getattr(self.build, "call", None)  # (a stand-in build in a unit test may have none)
         return bool(call) and any(re.search(pattern, line["text"]) for line in call("sourceLines")["lines"])
+
+    def ward_damaged_share(self, skills: list[dict]) -> tuple[float, str]:
+        """(share of the fight your Runic Ward has been damaged Recently (4 s), how) (MECHC15; AUDIT26 A26-1, COV18).
+        Runic Ward takes otherwise-fatal damage (KeywordPopups Ward; not modelled: a build that survives rarely takes
+        it) and, while Runic Reprieve is channelled, the damage of the hits it Blocks (ActiveSkills runic_reprieve:
+        "damage you take from Hits is also removed from Runic Ward"; RunicReprievePlayer's
+        non_ward_damage_taken_from_blocked_hits_is_taken_to_ward_as_well; poe2db Runic_Reprieve). A build carrying the
+        line plays to feed it (CLAUDE.md): it channels Reprieve into the boss's hits, one at each of the boss's damaging
+        uses (the "when hit" benefit pace, objective.benefit_every), as far as its Ward regeneration pays for the Ward each
+        blocked hit takes (that hit's damage after mitigation, objective.boss_taken). Blocked hits come as a Poisson stream
+        (LOW): the share is 1 - exp(-4 s x blocked hits a second). No Runic Reprieve: 0."""
+        from builder.search import boss_hits, objective
+
+        reprieve = next((sk for sk in skills if sk["name"] == RUNIC_REPRIEVE and not sk.get("disabled")), None)
+        if reprieve is None:
+            return 0.0, ("no Runic Reprieve: Runic Ward is damaged only by otherwise-fatal hits, which no model here "
+                         "gives (0)")
+        hit = self.build.call("stats", fields=list(dict.fromkeys([*objective.RECOVERY_INPUTS, "WardRegenRecovery",
+                                                                    "Ward", "Life", "EnergyShield"])))
+        every = objective.benefit_every(hit)
+        taken, landed, _ = objective.boss_taken(hit, every)
+        per_hit = sum(taken.values()) / landed if landed > 0 else 0.0
+        uses = 1.0 / every if every > 0 else 0.0
+        regen = number(hit.get("WardRegenRecovery"))
+        paid = min(uses, regen / per_hit) if per_hit > 0 else uses
+        if per_hit > 0 and regen <= 0:
+            paid = 0.0
+        share = 1.0 - math.exp(-ROUGHLY_RECENTLY * paid)
+        windup = number(reprieve.get("castTime")) * CHANNEL_START_REPRIEVE
+        return share, (f"Runic Reprieve channelled into {paid:.2f} of the boss's {uses:.2f} damaging uses a second, as "
+                       f"Runic Ward regeneration {regen:,.0f}/s pays for {per_hit:,.0f} Ward a blocked hit (PoB's "
+                       "WardRegenRecovery; other Ward sources and Ward-cost skills' spending not counted here; the "
+                       "20% of maximum Ward Reprieve needs to start not checked), within 4 s of one "
+                       f"{share:.0%} of the fight (Poisson, LOW). The time channelling (at least its {windup:.2f} s "
+                       "wind-up a block) isn't taken from the DPS: an overcount of DPS for a build playing it, "
+                       f"{paid * windup:.0%} of the fight at most from the wind-up alone")
 
     @staticmethod
     def boss_hit_recently_share(boss: str, kind: str) -> tuple[float, str]:

@@ -300,7 +300,7 @@ def test_hit_block_and_cast_lines_recover_at_the_builds_rates():
     """MECHC14 (AUDIT27 A27-32, silent UNDERCOUNTS): "Recover N% of Missing Life before being Hit by an Enemy" at the
     boss's landing hits (the last hit's Life alone missing: LOW, a lower bound), "Regenerate N% of your Armour as Life over
     1 second when you Block" at the boss's Blocked hits, "Regenerate N Life over 1 second when you Cast a Spell" and
-    "Leeches N% of maximum Life when you Cast a Spell" at the casts; "when Stunned" is named, not counted."""
+    "Leeches N% of maximum Life when you Cast a Spell" at the casts; "when Stunned" at the Stuns given (none here: 0, said; MECHC15)."""
     texts = ["Recover 20% of Missing Life before being Hit by an Enemy",
              "Regenerate 2% of your Armour as Life over 1 second when you Block",
              "Regenerate 7 Life over 1 second when you Cast a Spell", "Leeches 1% of maximum Life when you Cast a Spell",
@@ -309,7 +309,8 @@ def test_hit_block_and_cast_lines_recover_at_the_builds_rates():
     income = Income()
     recovery.hit_income(income, stats, texts, landed=0.5, life_per_hit=800, blocked=0.25, casts=2.0, cast_how="test")
     assert income.rates["LifeOnEventRecovery"] == pytest.approx(0.2 * 800 * 0.5 + 0.02 * 10000 * 0.25 + (7 + 20) * 2.0)
-    assert recovery.unread(texts) == ["Life / Energy Shield when Stunned"]
+    assert recovery.unread(texts) == []  # ("when Stunned" counts since MECHC15: no Stun given here, so 0 and said)
+    assert "when Stunned: 0" in " ".join(income.parts)
     capped = Income()
     recovery.hit_income(capped, stats, texts[:1], landed=1.0, life_per_hit=5000)  # (never more than all of Life missing)
     assert capped.rates["LifeOnEventRecovery"] == pytest.approx(0.2 * 2000)
@@ -409,3 +410,62 @@ def test_remnant_pickup_line_reads_an_orb_of_storms_builds_infusion_remnants(eng
     assert supply > 0 and any("Orb of Storms" in u for u in used)
     assert build.recovery_sources["LifeRemnantRecovery"] == pytest.approx(0.03 * life * supply, rel=1e-3)
     assert "Orb of Storms" in notes[0]["basis"]
+
+
+def test_ward_damaged_recently_share_needs_runic_reprieve_and_ward_to_pay():
+    """MECHC15 (AUDIT26 A26-1, COV18): "...if your Runic Ward has been damaged Recently" is up the share of the fight
+    within 4 s of a boss hit Runic Reprieve takes into Ward: 0 without Reprieve; with it, the hits its Ward
+    regeneration pays for, at 1 - exp(-4 x hits a second); more regeneration, more of the fight."""
+    import math
+
+    from builder.search import objective
+    from builder.search.assumptions import RUNIC_REPRIEVE, Assumptions
+
+    class Stand:
+        def __init__(self, regen):
+            self.regen = regen
+
+        def call(self, what, **kw):
+            assert what == "stats"
+            return {"enemySkillTime": 1.0, "PhysicalTakenHit": 1000.0, "WardRegenRecovery": self.regen, "Ward": 2000.0,
+                    "Life": 3000.0}
+
+    hook = Assumptions.__new__(Assumptions)
+    hook.build = Stand(5.0)
+    none, how = hook.ward_damaged_share([{"name": "Spark"}])
+    assert none == 0.0 and "no Runic Reprieve" in how
+    skills = [{"name": RUNIC_REPRIEVE, "castTime": 0.5}]
+    low, how = hook.ward_damaged_share(skills)
+    stats = hook.build.call("stats")
+    every = objective.benefit_every(stats)
+    taken, landed, _ = objective.boss_taken(stats, every)
+    per_hit = sum(taken.values()) / landed
+    paid = min(1 / every, 5.0 / per_hit)
+    assert low == pytest.approx(1 - math.exp(-4 * paid)) and 0 < low < 1
+    hook.build = Stand(1e6)
+    high, _ = hook.ward_damaged_share(skills)
+    assert high == pytest.approx(1 - math.exp(-4 / every)) and high > low
+    hook.build = Stand(0.0)
+    assert hook.ward_damaged_share(skills)[0] == 0.0  # no Ward regenerated: no blocked hit is paid for
+
+
+def test_life_when_stunned_counts_the_bosss_hits_that_light_stun_you():
+    """MECHC15 (AUDIT27 A27-32): "Regenerate N% of maximum Life over 1 second when Stunned" at the boss's landed hits x
+    the game's Light Stun chance per damage type (hit / Stun Threshold, Physical 50% more, under 15% none), less the
+    build's Stun avoidance; nothing for a build that can't be Stunned."""
+    stats = {"StunThreshold": 2000.0, "StunAvoidChance": 0.0, "Life": 4000.0}
+    weights = {"Physical": 0.5, "Fire": 0.5}
+    sizes = {"Physical": 1000.0, "Fire": 200.0}  # Physical 1000 x 1.5 / 2000 = 75%; Fire 10%: under 15%, none
+    rate, how = recovery.stuns_taken(stats, sizes, weights, 2.0)
+    assert rate == pytest.approx(2.0 * 0.5 * 0.75) and "Physical 50% more" in how
+    half, _ = recovery.stuns_taken({**stats, "StunAvoidChance": 50.0}, sizes, weights, 2.0)
+    assert half == pytest.approx(rate / 2)
+    assert recovery.stuns_taken({**stats, "StunAvoidChance": 100.0}, sizes, weights, 2.0)[0] == 0.0
+    income = Income()
+    recovery.hit_income(income, stats, ["Regenerate 3% of maximum Life over 1 second when Stunned"], stunned=rate,
+                        stunned_how=how)
+    assert income.rates["LifeOnEventRecovery"] == pytest.approx(0.03 * 4000 * rate)
+    none = Income()
+    recovery.hit_income(none, stats, ["Regenerate 3% of maximum Life over 1 second when Stunned"])
+    assert none.rates["LifeOnEventRecovery"] == 0.0 and "when Stunned: 0" in " ".join(none.parts)
+    assert not recovery.unread(["Regenerate 3% of maximum Life over 1 second when Stunned"])

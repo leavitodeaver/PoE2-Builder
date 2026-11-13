@@ -100,7 +100,38 @@ MISSING_BEFORE_HIT = re.compile(rf"recover {NUM}% of missing life before being h
 ARMOUR_ON_BLOCK = re.compile(rf"regenerate {NUM}% of your armour as life over 1 second when you block", re.I)
 CAST_REGEN = re.compile(rf"regenerate {NUM} life over 1 second when you cast a spell", re.I)
 CAST_LEECH = re.compile(rf"leeches {NUM}% of maximum life when you cast a spell", re.I)
-HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH)
+# "Regenerate N% of maximum Life over 1 second when Stunned" (regenerate_%_life_over_1_second_when_stunned; two
+# passives; PoB's ModCache {nil, ...}: parsed to no mod): at the boss's hits that Light Stun you (MECHC15, stuns_taken)
+STUNNED_LIFE = re.compile(rf"regenerate {NUM}% of maximum life over 1 second when stunned", re.I)
+HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNED_LIFE)
+# The game's Light Stun rule (KeywordPopups LightStun, build 26476662): "up to 100% base chance for Hits that deal 100%
+# of the target's maximum Life" (StunThreshold: "A Hit that deals damage equal to or greater than your Stun Threshold
+# is guaranteed to Stun you, and the chance scales down linearly"), "Chances lower than 15% are treated as 0%" (the
+# StunThreshold popup says 10%: the higher floor taken, a lower bound), "Physical damage, and player (but not monster)
+# Melee Damage, each have 50% more Light Stun chance" (a boss's Melee gets nothing). PoB's own SelfStunChance uses other
+# constants (Data.lua StunBaseMult 200, MinStunChanceNeeded 20) on its all-types-at-once enemy hit: not read
+LIGHT_STUN_FLOOR, PHYSICAL_STUN_MORE = 0.15, 1.5
+
+
+def stuns_taken(stats: dict, sizes: dict[str, float], weights: dict[str, float], landed: float) -> tuple[float, str]:
+    """(Light Stuns the boss's hits put on you a second, how): `landed` hits a second, a `weights[t]` share of them of
+    damage type t, each of `sizes[t]` damage after mitigation, against PoB's StunThreshold, less its StunAvoidChance."""
+    threshold = _num(stats.get("StunThreshold"))
+    avoid = min(max(_num(stats.get("StunAvoidChance")), 0.0), 100.0) / 100
+    if threshold <= 0 or landed <= 0 or avoid >= 1:
+        return 0.0, ("the build can't be Stunned" if avoid >= 1 else "no boss hit lands" if landed <= 0
+                     else "no Stun Threshold")
+    chance, parts = 0.0, []
+    for t, w in weights.items():
+        each = min(1.0, max(sizes.get(t, 0.0), 0.0) * (PHYSICAL_STUN_MORE if t == "Physical" else 1.0) / threshold)
+        each = each if each >= LIGHT_STUN_FLOOR else 0.0
+        chance += w * each
+        if w > 0:
+            parts.append(f"{t} {w:.0%} of hits, {each:.0%}")
+    rate = landed * chance * (1 - avoid)
+    return rate, (f"{landed:.3f} boss hits landing/s x {chance:.1%} Light Stun chance ({'; '.join(parts)}: hit size "
+                  f"after mitigation / Stun Threshold {threshold:,.0f}, Physical 50% more, under 15% none)"
+                  + (f" x {1 - avoid:.0%} not avoided" if avoid > 0 else "") + "; each hit at its type's full size (LOW)")
 NO_LIFE = re.compile(r"cannot recover life other than from leech", re.I)
 NO_MANA = re.compile(r"mana recovery other than regeneration cannot recover mana", re.I)
 # Recovery on events no rate here reads yet (MECHC11's inventory section 7): named in the note, never counted (undercount)
@@ -114,8 +145,8 @@ EVENT_UNREAD = {
     "all Mana when a flask is Used": re.compile(r"^recover all mana when used$", re.I),
     "Life when you use a Mana Flask": re.compile(r"recover \S+ of maximum life when you use a mana flask", re.I),
     # (MECHC14, A27-32: Quick Recovery, Chakra of Stability; nothing models how often the boss Stuns you)
-    "Life / Energy Shield when Stunned": re.compile(r"regenerate \S+ of maximum (?:life|energy shield) over 1 second "
-                                                    r"when stunned", re.I),
+    # (the Life one counts since MECHC15, hit_income; Energy Shield has no recovery field here yet)
+    "Energy Shield when Stunned": re.compile(r"regenerate \S+ of maximum energy shield over 1 second when stunned", re.I),
 }
 
 
@@ -272,7 +303,8 @@ def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tu
 
 
 def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float = 0.0, life_per_hit: float = 0.0,
-               blocked: float = 0.0, casts: float = 0.0, cast_how: str = "") -> None:
+               blocked: float = 0.0, casts: float = 0.0, cast_how: str = "", stunned: float = 0.0,
+               stunned_how: str = "") -> None:
     """Life on the boss's hits, your Blocks and your casts (MECHC14, A27-32), each at the build's own rate: `landed` boss
     hits a second and the Life each takes (`life_per_hit`), `blocked` boss hits a second, `casts` Spells cast a second.
     "Recover N% of Missing Life before being Hit": the Life missing before a hit is taken as the last hit's alone (LOW, a
@@ -302,6 +334,13 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
                        f"{casts:.2f} casts/s ({cast_how})")
         else:
             income.parts.append(f"Life when you Cast a Spell: 0, {cast_how or 'the build casts no Spell'}")
+    pct = _sum(STUNNED_LIFE, texts)
+    if pct > 0:
+        if stunned > 0:
+            income.add("LifeOnEventRecovery", pct / 100 * life * stunned,
+                       f"{pct:g}% of maximum Life when Stunned x {stunned:.3f} Stuns/s ({stunned_how})")
+        else:
+            income.parts.append(f"{pct:g}% of maximum Life when Stunned: 0, {stunned_how or 'the boss never Stuns you'}")
 
 
 def restrict(income: Income, texts: list[str]) -> None:
