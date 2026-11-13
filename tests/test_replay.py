@@ -241,15 +241,17 @@ def test_the_key_order_of_a_calls_arguments_is_not_part_of_its_history():
     assert _key_order_free('{"a": [1, 2]}') != _key_order_free('{"a": [2, 1]}')
 
 
-def test_the_collector_pause_switch_is_off_unless_set_and_refuses_a_bad_value(monkeypatch):
+def test_the_collector_pause_is_200_unless_set_and_refuses_a_bad_value(monkeypatch):
     from builder.pob import engine
 
     monkeypatch.delenv(engine.GC_PAUSE_VARIABLE, raising=False)
-    assert engine.gc_pause() is None  # unset: PoB's own 400 is left alone
+    assert engine.gc_pause() == 200  # unset: the default (the user's decision, 13 Nov 2026)
     monkeypatch.setenv(engine.GC_PAUSE_VARIABLE, " ")
-    assert engine.gc_pause() is None
-    monkeypatch.setenv(engine.GC_PAUSE_VARIABLE, "200")
     assert engine.gc_pause() == 200
+    monkeypatch.setenv(engine.GC_PAUSE_VARIABLE, "400")
+    assert engine.gc_pause() == 400  # the way back to PoB's own
+    monkeypatch.setenv(engine.GC_PAUSE_VARIABLE, "150")
+    assert engine.gc_pause() == 150
     for bad in ("fast", "99", "401", "1.5"):
         monkeypatch.setenv(engine.GC_PAUSE_VARIABLE, bad)
         with pytest.raises(PobError):
@@ -262,9 +264,11 @@ def test_recordings_under_one_collector_pause_are_not_replayed_under_another(tmp
     monkeypatch.delenv("POE2_LUA_GC_PAUSE", raising=False)
     unset = replay.fingerprint(tmp_path)
     monkeypatch.setenv("POE2_LUA_GC_PAUSE", "200")
-    at_200 = replay.fingerprint(tmp_path)
+    assert replay.fingerprint(tmp_path) == unset  # unset means 200: the same recordings
+    monkeypatch.setenv("POE2_LUA_GC_PAUSE", "400")
+    at_400 = replay.fingerprint(tmp_path)
     monkeypatch.setenv("POE2_LUA_GC_PAUSE", "150")
-    assert len({unset, at_200, replay.fingerprint(tmp_path)}) == 3
+    assert len({unset, at_400, replay.fingerprint(tmp_path)}) == 3
 
 
 
