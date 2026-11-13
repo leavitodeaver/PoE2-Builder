@@ -136,7 +136,8 @@ SUSTAIN_LEFT_OUT = ("recovery on " + ", ".join(
 # takes after mitigation ({Type}TakenHit); recovery is each pool's regeneration, leech, on-hit recovery, flask recovery
 # (at the rate a boss fight refills them) and recoup (its % of the damage that pool's recoup takes back, per damage
 # type) and gains on Block (SEARCH9), less the skill costs paid from that pool. Mana counts only up to the share of damage Mind over Matter sends to
-# it. Energy Shield recharge isn't counted (a boss's hits keep interrupting it).
+# it. Energy Shield recharge counts at the share of the fight it runs between the boss's landed hits (es_recharge,
+# SEARCH13; AUDIT3 #15, AUDIT26: before, none, an UNDERCOUNT for every high-avoidance Energy Shield build).
 RECOVERY_POOLS = {
     "Life": (("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", *ADDED_RECOVERY["Life"]), "LifePerSecondCost"),
     "EnergyShield": (("EnergyShieldRegenRecovery", "EnergyShieldLeechRate", "EnergyShieldOnHitRate"), None),
@@ -155,7 +156,9 @@ RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in
                          | {f"{t}{p}Recoup" for t in ("", *RECOVERY_DAMAGE_TYPES) for p in RECOVERY_POOLS}
                          | {f"{p}OnBlock" for p in RECOVERY_POOLS}
                          | {"enemySkillTime", "EvadeChance", "EffectiveBlockChance", "sharedMindOverMatter",
-                            "DeflectChance", "DeflectEffect"})
+                            "DeflectChance", "DeflectEffect"}
+                         | {"EnergyShieldRecharge", "EnergyShieldRechargeDelay", "IgniteAvoidChance", "SelfIgniteDuration",
+                            "AilmentThreshold", "Life"})  # (es_recharge, and the Ignites boss_hits.es_dot reads)
 
 
 def boss_taken(stats: dict, every: float | None = None) -> tuple[dict[str, float], float, float]:
@@ -211,6 +214,29 @@ def hit_recovery_rates(stats: dict) -> dict[str, float]:
     return {pool: recoup(stats, taken, pool) + on_block(stats, pool, every) for pool in SUSTAIN_POOLS}
 
 
+def es_recharge(stats: dict, hits: float) -> tuple[float, float]:
+    """(Energy Shield recharged per second against the boss, the share of the fight recharge runs). SEARCH13 (AUDIT3 #15,
+    AUDIT26: an UNDERCOUNT for every high-avoidance Energy Shield build): the boss's landed hits as a Poisson stream
+    (`hits` per second, boss_taken's: after evade and block, red-flash hits always land), the one boss_hits.recharge_wait
+    reads. After each landed hit recharge waits the delay (PoB's EnergyShieldRechargeDelay), plus the seconds of damage
+    over time the hit leaves on you on a share p of hits (boss_hits.es_dot: Ignite, Corrupted Blood), then runs until
+    the next landed hit: per gap E[max(0, gap - delay - D)] = e^(-hits (delay + D)) / hits, so the share of the fight it
+    runs is the sum over hits of p x e^(-hits x (delay + D)) (exact for Poisson hits; a new hit while an older damage
+    over time still burns isn't followed, as in recharge_wait). Times PoB's EnergyShieldRecharge (per second, after its
+    recovery-rate modifiers). MEDIUM: the boss's misses by timing aren't counted, and recharge refills only what was
+    lost (boss_recovery caps it at the incoming damage)."""
+    recharge = number(stats.get("EnergyShieldRecharge"))
+    if recharge <= 0:
+        return 0.0, 0.0
+    delay = max(number(stats.get("EnergyShieldRechargeDelay")) or 4.0, 0.0)
+    if hits <= 0:
+        return recharge, 1.0
+    dots = boss_hits.es_dot(stats, land=hits)
+    plain = max(1.0 - sum(p for p, _, _ in dots), 0.0)
+    share = plain * math.exp(-hits * delay) + sum(p * math.exp(-hits * (delay + d)) for p, d, _ in dots)
+    return recharge * share, share
+
+
 def boss_recovery(stats: dict) -> dict:
     """Recovery per second against a boss, the boss's damage per second after mitigation, and the share recovered."""
     taken, hits, deflect = boss_taken(stats)
@@ -223,10 +249,13 @@ def boss_recovery(stats: dict) -> dict:
         if pool == "Mana":
             net = min(net, incoming * min(number(stats.get("sharedMindOverMatter")), 100) / 100)
         parts[pool] = net
+    recharged, recharging = es_recharge(stats, hits)
+    if recharged > 0:  # (it refills only what was lost: at most the incoming damage)
+        parts["Energy Shield recharge"] = min(recharged, incoming)
     recovery = sum(parts.values())
     share = recovery / incoming if incoming > 0 else float("inf")
     result = {"recovery": recovery, "incoming": incoming, "share": share, "parts": parts, "hits": hits,
-              "deflect": 1 - deflect, "no_deflect_share": share, "own_degen": own}
+              "deflect": 1 - deflect, "no_deflect_share": share, "own_degen": own, "recharging": recharging}
     if deflect < 1:
         bare = boss_recovery({**stats, "DeflectChance": 0})
         result["no_deflect_share"] = bare["share"]

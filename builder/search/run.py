@@ -45,7 +45,8 @@ RECOVERY_NOTE = ("Life, Energy Shield and Mana regeneration, leech, on-hit recov
                  "rates), less skill costs, against the boss's damage per second after mitigation (PoB's boss "
                  "preset: its hits that land, after evade and block, which red-flash hits ignore; less Deflection, LOW against "
                  "red-flash hits). Mana counts only for damage Mind over Matter sends to "
-                 "it; Energy Shield recharge isn't counted (the boss's hits keep interrupting it)")
+                 "it; Energy Shield recharge at the share of the fight it runs between the boss's landed hits (each "
+                 "restarts its delay, as does the damage over time a hit leaves; MEDIUM)")
 
 
 def recovery_text(recovery: dict) -> str:
@@ -53,6 +54,8 @@ def recovery_text(recovery: dict) -> str:
         return "the boss's hits never land"
     parts = ", ".join(f"{pool} {value:,.0f}/s" for pool, value in recovery["parts"].items() if value > 0) or "none"
     text = f"{min(recovery['share'], 9.99):.0%} ({recovery['recovery']:,.0f}/s of {recovery['incoming']:,.0f}/s; {parts})"
+    if recovery.get("recharging"):
+        text += f"; Energy Shield recharge runs {recovery['recharging']:.0%} of the fight"
     if recovery.get("deflect"):  # (MECHC5: Deflection against red-flash hits is LOW, #78)
         text += f"; without Deflection {min(recovery['no_deflect_share'], 9.99):.0%}"
     return text
