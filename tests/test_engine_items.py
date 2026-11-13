@@ -395,7 +395,10 @@ def test_a_whole_run_fits_the_time_it_was_given(engine, monkeypatch):
     took = time.perf_counter() - started
     assert result["status"] != "invalid" and result.get("code")
     assert result["workers"] == 2  # planned on the pool it got
-    assert took < 45 * 1.1 + 5, took  # 5 s for the two engines' start
+    # 5 s for the two engines' start, and 20 s for a shared, busy PC (the user, 13 Nov: "can it not just add 20
+    # seconds"; under load it took 55-65 s against the old 54.5 s in five lanes' runs). Still far under the doubled
+    # time this test was written to catch (two waves: about 90 s here).
+    assert took < 45 * 1.1 + 25, took
 
 
 def test_a_lines_requirement_raises_go_on_with_its_state(engine):
