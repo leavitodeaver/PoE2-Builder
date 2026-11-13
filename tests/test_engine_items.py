@@ -1048,3 +1048,28 @@ def test_a_new_build_is_scored_against_the_boss_preset(engine):
     if name == bosses.WORST:
         for t, size in bosses.worst_hit_sizes().items():
             assert config.get(f"enemy{t}Damage") == round(size), t
+
+
+def test_freezing_salvo_seals_read_its_level_stats_and_pobs_one_arrow_a_use(engine):
+    """(MECHB18) The Freezing Salvo hook reads the gem's Seal stats from PoB (a Seal every 750 ms, at most 10, one Repeat
+    per Seal), and PoB's own DPS is one arrow a use (TotalDPS = AverageDamage x Speed): the premise of the factor."""
+    from builder.search import models
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Freezing Salvo", ascendancies=["Deadeye"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Freezing Salvo"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    raw = build.call("activeSkills", levelStats=[models.FREEZING_SALVO])["skills"]
+    level = next(s["levelStats"] for s in raw if s["name"] == models.FREEZING_SALVO and s.get("levelStats"))
+    assert level[models.SEAL_INTERVAL_STAT] == 750 and level[models.SEAL_MAX_STAT] == 10, level
+    assert level[models.SEAL_REPEATS_STAT] == 1, level
+    stats = build.call("stats", fields=["Speed", "ProjectileCount", "TotalDPS", "AverageDamage"])
+    print(stats)
+    assert abs(stats["TotalDPS"] - stats["AverageDamage"] * stats["Speed"]) <= 0.01 * stats["TotalDPS"], stats
+    main = next(models.Skill.of(s) for s in raw if s["name"] == models.FREEZING_SALVO)
+    mods, notes = models.freezing_salvo_model(main, stats, [], level)
+    print(notes)
+    assert len(mods) == 1 and mods[0]["value"] > 0, mods

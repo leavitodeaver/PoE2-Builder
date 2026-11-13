@@ -4015,3 +4015,31 @@ def test_kaoms_blessing_boosts_one_fire_spell_per_warcry():
     mods, notes = models.ancestral_boost_model([KAOM], {"Speed": 2.0}, [fireball, totem], fireball, {"Spell", "Fire"},
                                                (0.1, ""))
     assert mods == [] and notes[0]["value"] == "0 (totem)"
+
+
+SALVO_L20 = {"base_skill_seal_gain_interval_ms": 750, "base_maximum_seals_for_skill": 10,
+             "skill_rapid_fire_repeats_per_broken_seal": 1}
+
+
+def test_freezing_salvo_breaks_the_seals_gained_since_its_last_use():
+    """(MECHB18) PoB scores one arrow a use; each use also breaks the Seals gained since the last one (one every 0.75 s,
+    at most 10), Repeating once per Seal and per extra projectile, 5% longer a Repeat (KeywordPopups Repeat)."""
+    salvo = models.Skill.of({"name": "Freezing Salvo", "attack": True, "group": 1})
+    mods, notes = models.freezing_salvo_model(salvo, {"Speed": 1.0, "ProjectileCount": 1}, [], SALVO_L20)
+    seals = (1 / 0.75) / (1 - 0.05 / 0.75)  # (s = g t0 (1 + 0.05 s))
+    factor = (1 + seals) / (1 + 0.05 * seals)
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (factor - 1), "Freezing Salvo")], mods
+    # (a slow use fills all 10 Seals; the build's "+1 to maximum Seals" line makes it 11)
+    mods, notes = models.freezing_salvo_model(salvo, {"Speed": 0.1, "ProjectileCount": 1},
+                                              ["Sealed Skills have +1 to maximum Seals"], SALVO_L20)
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (12 / 1.55 - 1), "Freezing Salvo")], mods
+    # (extra projectiles become Repeats; increased Seal gain frequency shortens the interval)
+    mods, _ = models.freezing_salvo_model(salvo, {"Speed": 1.0, "ProjectileCount": 3},
+                                          ["Sealed Skills have 25% increased Seal gain frequency"], SALVO_L20)
+    gain = 1.25 / 0.75
+    seals = gain * (1 + 0.1) / (1 - 0.05 * gain)
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * ((3 + seals) / (1 + 0.05 * (2 + seals)) - 1), "Freezing Salvo")]
+    triggered = models.Skill.of({"name": "Freezing Salvo", "attack": True, "triggered": True, "group": 1})
+    mods, notes = models.freezing_salvo_model(triggered, {"Speed": 1.0}, [], SALVO_L20)
+    assert mods == [] and "triggered" in notes[0]["value"]
+    assert models.freezing_salvo_model(models.Skill.of({"name": "Spark", "spell": True}), {"Speed": 1}, [], SALVO_L20) == ([], [])

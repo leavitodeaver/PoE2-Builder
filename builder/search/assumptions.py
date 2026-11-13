@@ -530,6 +530,13 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + spore_mods, hand_notes + spore_notes
         tornado_mods, tornado_notes = self.tornado_copies(found, main, stats)  # (MECH-B, MECHB17: Tornado Shot's copies)
         hand_mods, hand_notes = hand_mods + tornado_mods, hand_notes + tornado_notes
+        if main is not None and main.name == models.FREEZING_SALVO:  # (MECH-B, MECHB18: its Seals and extra projectiles)
+            raw = build.call("activeSkills", levelStats=[models.FREEZING_SALVO])["skills"]
+            level = next((s.get("levelStats") or {} for s in raw if s["name"] == models.FREEZING_SALVO and s.get("levelStats")), {})
+            salvo_mods, salvo_notes = models.freezing_salvo_model(
+                main, {**stats, **build.call("stats", fields=["Speed", "ProjectileCount"])},
+                [e["text"] for e in source_lines], level)
+            hand_mods, hand_notes = hand_mods + salvo_mods, hand_notes + salvo_notes
         mirage_mods, mirage_notes, mirage_groups = models.mirage_model(
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))

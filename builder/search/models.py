@@ -3810,6 +3810,66 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
             "confidence": "theory", "entry": "ancestral-boost"}]
     return [], []
 
+# Freezing Salvo's Seals (MECHB18; FIX_QUEUE "Salvo seals") ---------------------------------------------------------------
+# The game (ActiveSkills freezing_salvo, build 26476662): "Passively gains Seals over time. Using the skill fires a
+# projectile, and breaks the Seals, Repeating for each of them, and for each additional projectile the skill is given."
+# Its stat set: base_skill_seal_gain_interval_ms 750 (every level), base_maximum_seals_for_skill 10,
+# skill_rapid_fire_repeats_per_broken_seal 1, base_modifiers_to_number_of_projectiles_instead_apply_to_repeats.
+# KeywordPopups Repeat: "Skills take 5% longer to perform for each time they Repeat"; Seal: "Only skills you use yourself
+# can be Sealed". PoB reads none of the three Seal stats for it (SkillStatMap maps only base_maximum_seals_for_skill, to
+# SealCount, which CalcOffence 1291-1323 uses only under Unleash's DamageSeal / Expand's AreaSeal flags; checked: PoB src
+# for the two other stat ids, 0 readers), and leaves "Sealed Skills have N% increased Seal gain frequency" and "+N to
+# maximum Seals" unparsed (ModCache), so it scores one arrow per use: an UNDERCOUNT. Here, used as often as it can be:
+# with Seals gained at g a second, e extra projectiles (each a Repeat) and a use time t0 (PoB's 1 / Speed), each use
+# breaks s = min(max Seals, g x t0 x (1 + 0.05 (s + e))) Seals, and deals 1 + s + e hits in t0 x (1 + 0.05 (s + e)):
+# x (1 + s + e) / (1 + 0.05 (s + e)) on PoB's one hit per t0. Seals are taken as gained during the use too (UNVERIFIED:
+# no game text says the gain pauses). Not counted (labelled): the extra Repeat per Ice Fragment in its area (needs
+# another skill's Ice Fragments under the boss), a triggered or Mirage copy's use (no Seals: "you use yourself").
+FREEZING_SALVO = "Freezing Salvo"
+SEAL_INTERVAL_STAT = "base_skill_seal_gain_interval_ms"
+SEAL_MAX_STAT = "base_maximum_seals_for_skill"
+SEAL_REPEATS_STAT = "skill_rapid_fire_repeats_per_broken_seal"
+SEAL_FREQUENCY_LINE = re.compile(r"^Sealed Skills have (\d+(?:\.\d+)?)% (increased|reduced) Seal gain frequency$", re.I)
+SEAL_MAX_LINE = re.compile(r"^Sealed Skills have \+(\d+) to maximum Seals$", re.I)
+REPEAT_TIME = 0.05  # KeywordPopups Repeat: "5% longer to perform for each time they Repeat"
+
+
+def freezing_salvo_model(main: Skill | None, stats: dict, texts: list[str],
+                         level: dict[str, float]) -> tuple[list[dict], list[dict]]:
+    """Freezing Salvo's Seals and extra projectiles as Repeats: a DPS factor on the main skill, and a note."""
+    if main is None or main.name != FREEZING_SALVO:
+        return [], []
+    label = "Freezing Salvo: Seals and extra projectiles as Repeats"
+    if main.triggered:
+        return [], [{"label": label, "value": "x1 (triggered)", "confidence": "theory", "entry": "freezing-salvo-seals",
+                     "basis": "\"Only skills you use yourself can be Sealed\" and triggered skills can't Repeat (KeywordPopups)"}]
+    speed = number(stats.get("Speed"))
+    interval = number(level.get(SEAL_INTERVAL_STAT)) / 1000
+    per_seal = number(level.get(SEAL_REPEATS_STAT)) or 1.0
+    if speed <= 0 or interval <= 0:
+        return [], []
+    increased = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                    for t in texts if (m := SEAL_FREQUENCY_LINE.match(t.strip())))
+    most = number(level.get(SEAL_MAX_STAT)) + sum(int(m.group(1)) for t in texts if (m := SEAL_MAX_LINE.match(t.strip())))
+    gain = max(0.0, 1 + increased / 100) / interval
+    extra = max(0.0, number(stats.get("ProjectileCount")) - 1)
+    t0 = 1 / speed
+    denominator = 1 - REPEAT_TIME * gain * t0 * per_seal
+    seals = most if denominator <= 0 else min(most, gain * t0 * (1 + REPEAT_TIME * extra) / denominator)
+    repeats = seals * per_seal + extra
+    factor = (1 + repeats) / (1 + REPEAT_TIME * repeats)
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [{
+        "label": label,
+        "value": f"{seals:.2f} Seals and {extra:g} extra projectiles a use: {1 + repeats:.2f} arrows in "
+                 f"{1 + REPEAT_TIME * repeats:.2f}x the use time, x{factor:.3f}",
+        "basis": f"a Seal every {interval / max(1e-9, 1 + increased / 100):.3f} s ({interval:g} s"
+                 + (f", {increased:+g}% Seal gain frequency" if increased else "") + f"), at most {most:g}; "
+                 f"{speed:.2f} uses/s before the Repeats' 5% longer use each; Seals gained during a use (UNVERIFIED); "
+                 "the extra Repeat per Ice Fragment isn't counted (needs another skill's Ice Fragments)",
+        "play": "Fire Freezing Salvo as often as it can be used: each use breaks the Seals gained since the last one. "
+                f"Without the Seals (PoB): x1.000; with them: x{factor:.3f}",
+        "confidence": "theory", "entry": "freezing-salvo-seals"}]
+
 # Glory on a boss (glory_uses) --------------------------------------------------------------------------------------------
 # Each Glory skill's cost and what builds its Glory, from the game files (build 26476662, GrantedEffectStatSets, level 20;
 # 9 Nov, MECH20): active_skill_requires_X_glory and active_skill_generates_mp_%_glory_per_<event> (that % of the target's
