@@ -645,6 +645,22 @@ def test_slow_charms_read_the_bosss_chills_and_slow_skills():
     from builder.search import bosses
     assert rate(bosses.WORST)[0] > 0
 
+
+def test_life_when_a_minion_is_revived_reads_the_builds_minion_deaths():
+    """MECHC18: "Recover 2% of maximum Life when one of your Minions is Revived" (minion_defence9, two Soul Core rows) was
+    in EVENT_UNREAD. It now reads the build's Reviving minions Killed a second (models.minion_deaths, from
+    Assumptions.spent_rates): each one Killed is Revived; none Killed, 0 and said."""
+    line = "Recover 2% of maximum Life when one of your Minions is Revived"
+    assert not any(p.search(line) for p in recovery.EVENT_UNREAD.values())
+    stats = {"Life": 3000, "Mana": 500}
+    income = Income()
+    recovery.spent_income(income, stats, [line], revived=(0.25, "Sacrifice"))
+    assert income.rates["LifeOnEventRecovery"] == pytest.approx(0.02 * 3000 * 0.25)
+    assert "a Minion Revived" in income.parts[-1]
+    none = Income()
+    recovery.spent_income(none, stats, [line], revived=(0.0, "nothing in this build kills its minions"))
+    assert not none.rates.get("LifeOnEventRecovery") and "nothing in this build kills" in none.parts[-1]
+
 def test_indigon_keeps_the_corpse_lines_mana_regeneration():
     """MECHC16 (AUDIT28 A28-4, a small UNDERCOUNT): Indigon's "Mana Recovery other than Regeneration cannot Recover Mana"
     zeroed "Regenerate N% of maximum Mana over 2 seconds when you Consume a corpse", which is Regeneration: it stays

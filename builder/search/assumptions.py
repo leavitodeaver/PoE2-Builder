@@ -1405,7 +1405,8 @@ class Assumptions:
         flat rates; none, 0 and said): Endurance / Power Charges its consumers spend (build.charge_flow, Conditions'
         charge model), Glory its Glory skills spend (models.glory_spent), uses of its Combo skills that build 10+ Combo
         (usage.combo_rate's rotation), corpses its corpse skills consume (at most models.corpse_supply: the boss
-        preset's adds) and its Offering skills' uses (conditions.skill_use_rate)."""
+        preset's adds), its Offering skills' uses (conditions.skill_use_rate) and its minions Revived (MECHC18:
+        models.minion_deaths, its Persistent, Reviving minions Killed a second)."""
         from builder.search import recovery
         from builder.search.usage import Usage, requirements
 
@@ -1468,6 +1469,14 @@ class Assumptions:
             out["corpses"] = (min(uses, supply), (f"corpse skills {'; '.join(parts) or 'none'}, one corpse a use, at "
                                                   f"most the corpses there are: {models.add_corpses_note(stats)}"
                                                   + sacrifice))
+        if has(recovery.MINION_REVIVED):  # (MECHC18) the build's Reviving minions Killed a second, from its own sources
+            found = [models.Skill.of(s) for s in present.values()]
+            group = build.main_group()
+            revive_main = next((s for s in found if group and s.group == group["index"] and s.name == main), None)
+            rate, how = models.minion_deaths(found, revive_main, {**build.call("stats", fields=models.MODEL_FIELDS),
+                                                                 "_minion_lives": getattr(build, "minion_lives", {})})
+            out["revived"] = (rate, f"each of your Reviving minions Killed is Revived once its revival ends: {how}"
+                              if rate > 0 else how)
         if has(recovery.OFFERING_LIFE):
             uses, parts = typed_uses({"Offering"})
             out["offerings"] = (uses, "; ".join(parts) or "no Offering skill in the build")

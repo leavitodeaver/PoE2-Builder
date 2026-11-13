@@ -39,7 +39,10 @@ turned into a rate here from the build's own events (CLAUDE.md: no flat rates wh
   is the skill's requirement); "Recover N% of maximum Life when you Consume a corpse" and "Regenerate N% of maximum Mana
   over 2 seconds when you Consume a corpse" at the corpses the build's corpse skills use a second (their uses, at most the
   boss preset's corpses: models.corpse_supply; none on a lone boss); "Recover N% of maximum Life when you create an
-  Offering" at the build's Offering skills' uses (on cooldown, duration, or the search's chosen rate).
+  Offering" at the build's Offering skills' uses (on cooldown, duration, or the search's chosen rate); "Recover N% of
+  maximum Life when one of your Minions is Revived" (MECHC18, LifeOnEventRecovery) at the build's Persistent, Reviving
+  minions Killed a second (models.minion_deaths: Sacrifice, Minion Pact, Explosive Demise; the boss killing them isn't
+  counted yet, a lower reading).
 
 Amounts are taken as written: recovery-rate modifiers aren't applied to them (MEDIUM). "Cannot Recover Life other than from
 Leech" (Vaal Pact) zeroes the Life parts and "Mana Recovery other than Regeneration cannot Recover Mana" (Indigon) the Mana
@@ -94,6 +97,10 @@ COMBO_AT_LEAST = 10.0
 CORPSE_LIFE = re.compile(rf"recover {NUM}% of maximum life when you consume a corpse", re.I)
 CORPSE_MANA = re.compile(rf"regenerate {NUM}% of maximum mana over 2 seconds when you consume a corpse", re.I)
 OFFERING_LIFE = re.compile(rf"recover {NUM}% of maximum life when you create an offering", re.I)
+# (MECHC18) you_gain_%_life_when_one_of_your_minions_is_revived (Stats 19093; the passive minion_defence9 and two Soul Core
+# rows, MECHC17's carrier check): at the build's Persistent, Reviving minions Killed a second (models.minion_deaths: every
+# one Killed is Revived once its revival ends, so in a steady fight the revives a second equal the deaths it caps)
+MINION_REVIVED = re.compile(rf"recover {NUM}% of maximum life when one of your minions is revived", re.I)
 SPENT_LINES = (ENDURANCE_SPENT, POWER_SPENT, GLORY_SPENT, COMBO_SPENT, CORPSE_LIFE, CORPSE_MANA, OFFERING_LIFE)
 # On the boss's hits, your Blocks and your casts (MECHC14, AUDIT27 A27-32: PoB parses each to no mod, ModCache {nil, ...};
 # game files' stat descriptions, build 26476662: missing_life_%_gained_as_life_before_hit (UniqueGainMissingLifeBeforeHit1),
@@ -165,7 +172,6 @@ EVENT_UNREAD = {
     # (Spirit Charges: no model of their gain or loss yet; MECHC13 left it here, an undercount)
     "Life when you lose a Spirit Charge": re.compile(r"recover \S+ of maximum life when you lose a spirit charge", re.I),
     "Life on Rage consumed when Shapeshifting": re.compile(r"recover \S+ of maximum life per rage consumed", re.I),
-    "Life when a Minion is Revived": re.compile(r"life when one of your minions is revived", re.I),
     "Life when your Trap is triggered": re.compile(r"life when your trap is triggered", re.I),
     "Life / Mana per Remnant's Rage (Sanguine Revelry)": re.compile(r"each remnant causes you to recover", re.I),
     "all Mana when a flask is Used": re.compile(r"^recover all mana when used$", re.I),
@@ -304,10 +310,11 @@ def event_income(income: Income, stats: dict, texts: list[str], *, warcries: flo
 def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tuple[float, str] = (0.0, ""),
                  power: tuple[float, str] = (0.0, ""), glory: tuple[float, str] = (0.0, ""),
                  combo: tuple[float, str] = (0.0, ""), corpses: tuple[float, str] = (0.0, ""),
-                 offerings: tuple[float, str] = (0.0, "")) -> None:
+                 offerings: tuple[float, str] = (0.0, ""), revived: tuple[float, str] = (0.0, "")) -> None:
     """Recovery on spending and consuming (MECHC13): each (events a second, how) from the build's own rates; Endurance /
     Power: charges consumed a second; Glory: Glory spent a second; Combo: uses of a Combo skill that expend 10 or more a
-    second; corpses: corpses consumed a second; Offerings: Offerings created a second. No rate, nothing: said in `parts`."""
+    second; corpses: corpses consumed a second; Offerings: Offerings created a second; revived: your minions Revived a
+    second (MECHC18, into LifeOnEventRecovery). No rate, nothing: said in `parts`."""
     life, mana = _num(stats.get("Life")), _num(stats.get("Mana"))
     rows = (("Life", ENDURANCE_SPENT, endurance, "an Endurance Charge consumed", None),
             ("Mana", POWER_SPENT, power, "a Power Charge consumed", None),
@@ -316,7 +323,8 @@ def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tu
             ("Mana", COMBO_SPENT, combo, "a use expending 10+ Combo", "Mana"),
             ("Life", CORPSE_LIFE, corpses, "a corpse consumed", None),
             ("Mana", CORPSE_MANA, corpses, "a corpse consumed (over 2 s)", None),
-            ("Life", OFFERING_LIFE, offerings, "an Offering created", None))
+            ("Life", OFFERING_LIFE, offerings, "an Offering created", None),
+            ("Life", MINION_REVIVED, revived, "a Minion Revived", None))
     for pool, pattern, (rate, how), event, which in rows:
         pct = _sum(pattern, texts, which) if which else sum(float(m.group(1)) for t in texts for m in pattern.finditer(t))
         if pct <= 0:
@@ -325,7 +333,8 @@ def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tu
             income.parts.append(f"{pct:g}% of maximum {pool} per {event}: 0, {how or 'the build makes none'}")
             continue
         amount = pct / 100 * (life if pool == "Life" else mana) * rate
-        income.add(f"{pool}OnConsumeRecovery", amount, f"{pct:g}% of maximum {pool} per {event} x {rate:.3f}/s ({how})")
+        income.add(f"{pool}On{'Event' if pattern is MINION_REVIVED else 'Consume'}Recovery", amount,
+                   f"{pct:g}% of maximum {pool} per {event} x {rate:.3f}/s ({how})")
         if pattern is CORPSE_MANA:
             income.mana_regen += amount
 
