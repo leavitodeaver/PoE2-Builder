@@ -294,3 +294,56 @@ def test_lose_all_charges_on_reaching_maximum_counts_the_average_held():
     assert count == pytest.approx(1.0) and "drops to 0" in basis
     # another kind's line leaves Power alone
     assert _charges_held("Power")([line, "Lose all Frenzy Charges on reaching maximum Frenzy Charges"], stats)[0] == 3
+
+
+def test_hit_block_and_cast_lines_recover_at_the_builds_rates():
+    """MECHC14 (AUDIT27 A27-32, silent UNDERCOUNTS): "Recover N% of Missing Life before being Hit by an Enemy" at the
+    boss's landing hits (the last hit's Life alone missing: LOW, a lower bound), "Regenerate N% of your Armour as Life over
+    1 second when you Block" at the boss's Blocked hits, "Regenerate N Life over 1 second when you Cast a Spell" and
+    "Leeches N% of maximum Life when you Cast a Spell" at the casts; "when Stunned" is named, not counted."""
+    texts = ["Recover 20% of Missing Life before being Hit by an Enemy",
+             "Regenerate 2% of your Armour as Life over 1 second when you Block",
+             "Regenerate 7 Life over 1 second when you Cast a Spell", "Leeches 1% of maximum Life when you Cast a Spell",
+             "Regenerate 3% of maximum Life over 1 second when Stunned"]
+    stats = {"Life": 2000, "Armour": 10000}
+    income = Income()
+    recovery.hit_income(income, stats, texts, landed=0.5, life_per_hit=800, blocked=0.25, casts=2.0, cast_how="test")
+    assert income.rates["LifeOnEventRecovery"] == pytest.approx(0.2 * 800 * 0.5 + 0.02 * 10000 * 0.25 + (7 + 20) * 2.0)
+    assert recovery.unread(texts) == ["Life / Energy Shield when Stunned"]
+    capped = Income()
+    recovery.hit_income(capped, stats, texts[:1], landed=1.0, life_per_hit=5000)  # (never more than all of Life missing)
+    assert capped.rates["LifeOnEventRecovery"] == pytest.approx(0.2 * 2000)
+    none = Income()
+    recovery.hit_income(none, stats, texts[:4], cast_how="the main skill isn't a Spell")
+    assert none.pool("Life") == 0 and len(none.parts) == 3 and "isn't a Spell" in none.parts[2]
+
+
+def test_hit_and_cast_lines_reach_the_recovery_field(engine):
+    """MECHC14: Assumptions.hit_rates on a real Spark build: its casts give the cast lines' Life; the boss's landing hits
+    give the missing-Life line's."""
+    from builder.request.schema import BuildRequest, Choices
+    from builder.search.assumptions import Assumptions
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"],
+                                        require=Choices(skills=["Mana Tempest"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    hook = Assumptions(build)
+    ring = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                         "Regenerate 7 Life over 1 second when you Cast a Spell",
+                         "Recover 20% of Missing Life before being Hit by an Enemy"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    skills = build.call("activeSkills")["skills"]
+    stats = build.call("stats", fields=["Speed", "Life"])
+    rates = hook.hit_rates("Spark", {})
+    assert rates["casts"] == pytest.approx(stats["Speed"]) and rates["casts"] > 0
+    assert rates["landed"] > 0 and 0 < rates["life_per_hit"]
+    notes = hook.life_mana_income(skills, "Spark")
+    expected = 7 * rates["casts"] + 0.2 * min(rates["life_per_hit"], stats["Life"]) * rates["landed"]
+    assert build.recovery_sources["LifeOnEventRecovery"] == pytest.approx(expected, rel=1e-3)
+    assert "Spell cast" in notes[0]["basis"] and "Missing Life before a hit" in notes[0]["basis"]

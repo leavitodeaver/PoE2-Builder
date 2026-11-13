@@ -1233,10 +1233,38 @@ class Assumptions:
                               heavy_how=heavy_how, hits=hits)
         if any(has(p) for p in recovery.SPENT_LINES):
             recovery.spent_income(income, stats, texts, **self.spent_rates(skills, main, stats, lowered))
+        if any(has(p) for p in recovery.HIT_LINES):
+            recovery.hit_income(income, stats, texts, **self.hit_rates(main, stats))
         recovery.restrict(income, texts)
         income.unread = recovery.unread(texts)
         build.recovery_sources = dict(income.rates)
         return recovery.note(income)
+
+    def hit_rates(self, main: str | None, stats: dict) -> dict:
+        """The rates recovery.hit_income reads (MECHC14, A27-32), from the build and the request's boss: the boss's hits
+        that land a second (at the "when hit" benefit pace, bosses.benefit_skill_time) and the Life each takes
+        (objective.boss_taken, at the defence pace: after mitigation and the per-type weights; Life's
+        share after Mind over Matter, and of Life + Energy Shield in proportion, LOW), the boss's hits Blocked a second (at
+        the "when hit" benefit pace, as objective.on_block) and the main skill's casts a second when it is a Spell (other
+        Spells' casts aren't counted: LOW, a lower bound)."""
+        from builder.search import boss_hits, objective
+
+        build = self.build
+        hit = {**stats, **build.call("stats", fields=list(dict.fromkeys(
+            [*objective.RECOVERY_INPUTS, "Armour", "EnergyShield", "Life", "Speed"])))}
+        taken, landed, _ = objective.boss_taken(hit)
+        life, es = number(hit.get("Life")), number(hit.get("EnergyShield"))
+        mom = min(max(number(hit.get("sharedMindOverMatter")), 0.0), 100) / 100
+        share = (1 - mom) * (life / (life + es) if life + es > 0 else 0.0)
+        per_hit = sum(taken.values()) / landed * share if landed > 0 else 0.0
+        every = objective.benefit_every(hit)
+        blocked = boss_hits.block_share(hit) / every
+        landed = boss_hits.land_share(hit) / every  # (a "when hit" benefit: the benefit pace, the hit's size as scored)
+        types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()
+        casts = number(hit.get("Speed")) if "Spell" in types else 0.0
+        how = (f"{main}'s casts; other Spells' casts not counted (LOW)" if casts > 0
+               else "the main skill isn't a Spell (other Spells' casts not counted: LOW)")
+        return {"landed": landed, "life_per_hit": per_hit, "blocked": blocked, "casts": casts, "cast_how": how}
 
     def spent_rates(self, skills: list[dict], main: str | None, stats: dict, lowered: list[str]) -> dict:
         """(events a second, how) for recovery.spent_income, each from the build's own sources (MECHC13; CLAUDE.md: no

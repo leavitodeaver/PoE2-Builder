@@ -89,6 +89,16 @@ CORPSE_LIFE = re.compile(rf"recover {NUM}% of maximum life when you consume a co
 CORPSE_MANA = re.compile(rf"regenerate {NUM}% of maximum mana over 2 seconds when you consume a corpse", re.I)
 OFFERING_LIFE = re.compile(rf"recover {NUM}% of maximum life when you create an offering", re.I)
 SPENT_LINES = (ENDURANCE_SPENT, POWER_SPENT, GLORY_SPENT, COMBO_SPENT, CORPSE_LIFE, CORPSE_MANA, OFFERING_LIFE)
+# On the boss's hits, your Blocks and your casts (MECHC14, AUDIT27 A27-32: PoB parses each to no mod, ModCache {nil, ...};
+# game files' stat descriptions, build 26476662: missing_life_%_gained_as_life_before_hit (UniqueGainMissingLifeBeforeHit1),
+# regenerate_%_armour_as_life_over_1_second_on_block (ArmourAsLifeRegnerationOnBlockUniqueShieldStrInt6),
+# regenerate_X_life_over_1_second_on_cast (RegenerateLifeOnCastUniqueWand4) and PoB's Lifesprig wording "Leeches 1% of
+# maximum Life when you Cast a Spell")
+MISSING_BEFORE_HIT = re.compile(rf"recover {NUM}% of missing life before being hit by an enemy", re.I)
+ARMOUR_ON_BLOCK = re.compile(rf"regenerate {NUM}% of your armour as life over 1 second when you block", re.I)
+CAST_REGEN = re.compile(rf"regenerate {NUM} life over 1 second when you cast a spell", re.I)
+CAST_LEECH = re.compile(rf"leeches {NUM}% of maximum life when you cast a spell", re.I)
+HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH)
 NO_LIFE = re.compile(r"cannot recover life other than from leech", re.I)
 NO_MANA = re.compile(r"mana recovery other than regeneration cannot recover mana", re.I)
 # Recovery on events no rate here reads yet (MECHC11's inventory section 7): named in the note, never counted (undercount)
@@ -101,6 +111,9 @@ EVENT_UNREAD = {
     "Life / Mana per Remnant's Rage (Sanguine Revelry)": re.compile(r"each remnant causes you to recover", re.I),
     "all Mana when a flask is Used": re.compile(r"^recover all mana when used$", re.I),
     "Life when you use a Mana Flask": re.compile(r"recover \S+ of maximum life when you use a mana flask", re.I),
+    # (MECHC14, A27-32: Quick Recovery, Chakra of Stability; nothing models how often the boss Stuns you)
+    "Life / Energy Shield when Stunned": re.compile(r"regenerate \S+ of maximum (?:life|energy shield) over 1 second "
+                                                    r"when stunned", re.I),
 }
 
 
@@ -245,6 +258,39 @@ def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tu
             continue
         income.add(f"{pool}OnConsumeRecovery", pct / 100 * (life if pool == "Life" else mana) * rate,
                    f"{pct:g}% of maximum {pool} per {event} x {rate:.3f}/s ({how})")
+
+
+def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float = 0.0, life_per_hit: float = 0.0,
+               blocked: float = 0.0, casts: float = 0.0, cast_how: str = "") -> None:
+    """Life on the boss's hits, your Blocks and your casts (MECHC14, A27-32), each at the build's own rate: `landed` boss
+    hits a second and the Life each takes (`life_per_hit`), `blocked` boss hits a second, `casts` Spells cast a second.
+    "Recover N% of Missing Life before being Hit": the Life missing before a hit is taken as the last hit's alone (LOW, a
+    lower bound: with nothing else recovering, the missing Life grows until the line returns every hit's damage)."""
+    life = _num(stats.get("Life"))
+    pct = _sum(MISSING_BEFORE_HIT, texts)
+    if pct > 0:
+        if landed > 0 and life_per_hit > 0:
+            income.add("LifeOnEventRecovery", pct / 100 * min(life_per_hit, life) * landed,
+                       f"{pct:g}% of Missing Life before a hit x {min(life_per_hit, life):,.0f} Life missing (the last "
+                       f"hit's, LOW: a lower bound) x {landed:.3f} boss hits landing/s")
+        else:
+            income.parts.append(f"{pct:g}% of Missing Life before being Hit: 0, no boss hit reaches Life")
+    pct = _sum(ARMOUR_ON_BLOCK, texts)
+    if pct > 0:
+        armour = _num(stats.get("Armour"))
+        if blocked > 0 and armour > 0:
+            income.add("LifeOnEventRecovery", pct / 100 * armour * blocked,
+                       f"{pct:g}% of Armour {armour:,.0f} as Life a Block x {blocked:.3f} boss hits Blocked/s")
+        else:
+            income.parts.append(f"{pct:g}% of Armour as Life when you Block: 0, the build Blocks none of the boss's hits")
+    flat, leech = _sum(CAST_REGEN, texts), _sum(CAST_LEECH, texts)
+    if flat > 0 or leech > 0:
+        if casts > 0:
+            income.add("LifeOnEventRecovery", (flat + leech / 100 * life) * casts,
+                       f"{flat:g} Life + {leech:g}% of maximum Life (leeched: its rate cap not applied) a Spell cast x "
+                       f"{casts:.2f} casts/s ({cast_how})")
+        else:
+            income.parts.append(f"Life when you Cast a Spell: 0, {cast_how or 'the build casts no Spell'}")
 
 
 def restrict(income: Income, texts: list[str]) -> None:
