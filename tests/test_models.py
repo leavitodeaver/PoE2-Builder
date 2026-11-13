@@ -3922,7 +3922,7 @@ def test_glory_shares_never_count_a_glory_skill_faster_than_it_can_be_used(monke
             return {"rates": [{"index": 1, "speed": 0.8}, {"index": 2, "speed": 0.0}]}
 
     uses = {"Molten Blast": (2.0, "Molten Blast: one per 0.5 s"), "War Banner": (0.1, "War Banner: one per 10.0 s")}
-    monkeypatch.setattr(models, "glory_uses", lambda names, stats, main: (
+    monkeypatch.setattr(models, "glory_uses", lambda names, stats, main, *more: (
         sum(uses.get(n, (0.0, ""))[0] for n in names), "; ".join(uses[n][1] for n in names if n in uses)))
     a = Assumptions.__new__(Assumptions)
     a.build = Build()
