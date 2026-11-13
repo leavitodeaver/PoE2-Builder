@@ -581,29 +581,80 @@ class Assumptions:
 
     def cull_window(self) -> list[dict]:
         """MECH57: PoB's Full Culling DPS rescaled to the time a Cull saves when hits come one at a time
-        (conditions_mod.cull_window_scale; objective.press_scales' "Full Culling DPS"). Returns the notes."""
+        (conditions_mod.cull_window_scale; objective.press_scales' "Full Culling DPS"). MECH60: a Cull on Block (Doomgate)
+        at the Blocks of the boss's hits (conditions_mod.block_cull_saving), where it saves more than the hit Cull. Both
+        through press_scales, which rate_presses rebuilds each call (so Full DPS only: the main-skill score misses the
+        Block Cull, an undercount). Returns the notes."""
         from builder.search import bosses
         build = self.build
         entry = next((e for e in (build.stats or {}).get("SkillDPS") or [] if e.get("name") == "Full Culling DPS"), None)
-        if entry is None or number(entry.get("dps")) <= 0:
+        if entry is not None and number(entry.get("dps")) <= 0:
+            entry = None
+        on_block = any(o is not None and conditions_mod.CULL_ON_BLOCK_LINE.search(o.raw or "")
+                       for o in (getattr(build, "equipped", None) or {}).values())
+        if entry is None and not on_block:
             return []
-        stats = build.call("stats", fields=list(conditions_mod.CULL_WINDOW_FIELDS))
-        full = number((build.stats or {}).get("FullDPS")) or number(stats.get("FullDPS"))
-        mult = 1.0 + number(entry.get("dps")) / max(full - number(entry.get("dps")), 1e-9)
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        stats = build.call("stats", fields=list(conditions_mod.CULL_WINDOW_FIELDS)
+                           + (list(conditions_mod.CULL_ON_BLOCK_FIELDS) if on_block else []))
+        full = number((build.stats or {}).get("FullDPS")) or number(stats.get("FullDPS"))
+        culled = number(entry.get("dps")) if entry is not None else 0.0
+        base = full - culled
         split = build.call("cullSplit") or {}
-        # (MECH59: a Cull only Heavy Contact gives lands on the main skill's Heavy Stuns of the boss)
-        heavy = models.heavy_stun_rate(build.call("stats", fields=models.MODEL_FIELDS))[0] if split.get("heavyOnly") else 0.0
-        scale, how, confidence = conditions_mod.cull_window_scale(
-            mult, number(stats.get("CullMultiplier")), conditions_mod.boss_pool(boss), full - number(entry.get("dps")),
-            number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0,
-            number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), split, heavy)
-        if scale >= 1.0 and not how:
-            return []
+        notes, key = [], models.press_key("Full Culling DPS", None)
+        hit_gain = 0.0  # (the hit Cull's gain over base, as counted)
+        if entry is not None:
+            mult = 1.0 + culled / max(base, 1e-9)
+            # (MECH59: a Cull only Heavy Contact gives lands on the main skill's Heavy Stuns of the boss)
+            heavy = models.heavy_stun_rate(build.call("stats", fields=models.MODEL_FIELDS))[0] if split.get("heavyOnly") else 0.0
+            scale, how, confidence = conditions_mod.cull_window_scale(
+                mult, number(stats.get("CullMultiplier")), conditions_mod.boss_pool(boss), base,
+                number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0,
+                number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), split, heavy)
+            hit_gain = (mult - 1.0) * scale
+            if scale < 1.0 or how:
+                build.objective.press_scales[key] = build.objective.press_scales.get(key, 1.0) * scale
+                notes.append({"label": f"Culling Strike against {boss}: the time a Cull saves*", "value": f"x{scale:.3f} of PoB's",
+                              "basis": how, "confidence": confidence})
+        if on_block:
+            notes += self.cull_on_block(boss, {**stats, "_boss": boss}, base, hit_gain, split, entry is not None)
+        return notes
+
+    def cull_on_block(self, boss: str, stats: dict, base: float, hit_gain: float, split: dict, has_entry: bool) -> list[dict]:
+        """MECH60: Doomgate's "Enemies are Culled on Block", which PoB ignores: the saving at the Blocks of the boss's hits
+        (conditions_mod.block_cull_saving), counted where it beats the hit Cull's (hit_gain over base). It goes in
+        press_scales: the Full Culling DPS entry raised to it, or with no entry every Full DPS entry x (1 + gain)."""
+        from builder.search import bosses, boss_hits
+        build = self.build
+        inc = number(split.get("inc")) or 1.0
+        threshold = bosses.cull_threshold(boss) / 100.0 * inc
+        every = bosses.benefit_skill_time(stats)
+        blocks = boss_hits.block_share(stats) / every if every > 0 else 0.0
+        share, how = conditions_mod.block_cull_saving(threshold, conditions_mod.boss_pool(boss), base, blocks)
+        gain = share / (1.0 - share) if share < 1.0 else 0.0
+        label = f"Enemies are Culled on Block (Doomgate) against {boss}*"
+        play = "Block the boss's hits once it is low: a Block under the threshold Culls it."
+        if gain <= hit_gain:
+            return [{"label": label, "value": "+0%",
+                     "basis": how + ("; the build's hit Cull saves as much or more, so this adds nothing"
+                                     if share > 0 else "") + " (PoB ignores the line)",
+                     "confidence": "MEDIUM" if share > 0 else "LOW", "play": play}]
+        scales = build.objective.press_scales
         key = models.press_key("Full Culling DPS", None)
-        build.objective.press_scales[key] = build.objective.press_scales.get(key, 1.0) * scale
-        return [{"label": f"Culling Strike against {boss}: the time a Cull saves*", "value": f"x{scale:.3f} of PoB's",
-                 "basis": how, "confidence": confidence}]
+        if has_entry:  # (the entry already scaled to hit_gain: raise it to gain)
+            scales[key] = scales.get(key, 1.0) * gain / max(hit_gain, 1e-12) if hit_gain > 0 else scales.get(key, 1.0)
+            if hit_gain <= 0:  # (the hit Cull saves none: scale the other entries instead)
+                has_entry = False
+        if not has_entry:
+            for k in {models.press_key(e.get("name"), e.get("source"))
+                      for e in (build.stats or {}).get("SkillDPS") or [] if e.get("name") != "Full Culling DPS"}:
+                scales[k] = scales.get(k, 1.0) * (1.0 + gain)
+        return [{"label": label, "value": f"+{gain:.2%} DPS",
+                 "basis": (f"{how}; blockable hits Blocked {boss_hits.block_share(stats):.0%}, one boss hit every "
+                           f"{every:.2f} s (the 'when hit' benefit pace, LOW); threshold {threshold:.2%} of Life + ES "
+                           f"(x{inc:.2f} increased Culling Strike Threshold, MEDIUM); counted in Full DPS only "
+                           "(PoB ignores the line)"),
+                 "confidence": "LOW", "play": play}]
 
     def consume_ignite(self, groups: dict, rates: list[dict]) -> list[dict]:
         """MECH52: a main skill that consumes Ignite keeps PoB's Best Ignite DPS to the share of the fight the boss carries

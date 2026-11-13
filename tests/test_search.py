@@ -2588,3 +2588,59 @@ def test_perfect_timing_charm_reads_the_skills_own_presses():
                                            perfect_press_how="Mace Strike on its 4.00 s cooldown"))
     assert rate == 0.25 and "4.00 s cooldown" in how
     assert trigger_rate(text, Charges(charm=5, perfect_skills=1, perfect_main_rate=2.0))[0] == 2.0
+
+
+def test_enemies_are_culled_on_block_saves_the_window_less_the_wait_for_a_block():
+    """MECH60 (an UNDERCOUNT: PoB ignores Doomgate's "Enemies are Culled on Block"): Blocks of the boss's hits come at
+    random, so with W = t x T seconds left under the threshold the Cull saves W - (1 - e^(-rW)) / r. Counted in Full
+    DPS through press_scales: every entry x (1 + gain), or the Full Culling DPS entry raised to it when that saves less."""
+    from types import SimpleNamespace
+    from builder.search import bosses, boss_hits
+    from builder.search import conditions as c
+    from builder.search.assumptions import Assumptions
+
+    share, how = c.block_cull_saving(0.05, 1e7, 1e6, 0.5)  # (10 s fight, 0.5 s window, a Block every 2 s on average)
+    assert abs(share - (0.5 - (1 - math.exp(-0.25)) / 0.5) / 10) < 1e-12 and "0.50 s" in how
+    assert c.block_cull_saving(0.05, 1e7, 1e6, 0.0)[0] == 0.0  # (no Block, no Cull)
+    assert c.block_cull_saving(0.05, 1e7, 1e6, 1e9)[0] == pytest.approx(0.05, rel=1e-6)  # (Blocks nonstop: the whole t)
+    assert c.CULL_ON_BLOCK_LINE.search("Rarity: Unique\r\nEnemies are Culled on Block\r\n")
+    assert not c.CULL_ON_BLOCK_LINE.search("Intimidate Enemies on Block for 8 seconds")
+
+    boss = bosses.DEFAULT
+    block = {"EvadeChance": 0, "EffectiveBlockChance": 50, "enemySkillTime": 0.7}
+    dps = c.boss_pool(boss) / 10  # (a 10 s fight against any preset)
+
+    def run(entries, extra=None):
+        stats = {"FullDPS": sum(e["dps"] for e in entries), "SkillDPS": entries}
+
+        class FakeBuild:
+            def __init__(self):
+                self.stats = stats
+                self.objective = SimpleNamespace(press_scales={})
+                self.ctx = SimpleNamespace(request=SimpleNamespace(boss=boss))
+                self.equipped = {"Weapon 2": SimpleNamespace(raw="Doomgate\nEnemies are Culled on Block\n")}
+
+            def call(self, what, **_):
+                if what == "cullSplit":
+                    return {"critical": 0.0, "regular": 0.0, "inc": 1.0, "critChance": 0.0}
+                return {**block, "CullMultiplier": 1.0, "Speed": 1.0, "HitChance": 100, "TotalDPS": dps,
+                        "TotalDotDPS": 0.0, "FullDPS": dps, **(extra or {})}
+
+        a = Assumptions.__new__(Assumptions)
+        a.build = FakeBuild()
+        return a.cull_window(), a.build.objective.press_scales
+
+    stats = {**block, "_boss": boss}
+    blocks = boss_hits.block_share(stats) / bosses.benefit_skill_time(stats)
+    expect = c.block_cull_saving(bosses.cull_threshold(boss) / 100, c.boss_pool(boss), dps, blocks)[0]
+    notes, scales = run([{"name": "Spark", "dps": dps}, {"name": "Best Ignite DPS", "source": "Spark", "dps": 1.0}])
+    assert expect > 0 and scales["Spark"] == pytest.approx(1 + expect / (1 - expect))
+    assert scales["Best Ignite DPS from Spark"] == scales["Spark"] and "Doomgate" in notes[-1]["label"]
+    # a hit Cull that saves none (one hit a second takes more than t): the Block Cull counts on the other entries
+    notes, scales = run([{"name": "Spark", "dps": dps}, {"name": "Full Culling DPS", "dps": dps * 0.05 / 0.95}],
+                        {"CullMultiplier": 1 / 0.95})
+    assert scales["Full Culling DPS"] == 0.0 and scales["Spark"] == pytest.approx(1 + expect / (1 - expect))
+    # a hit Cull at 50 hits a second saves more than the Block one: the Block adds nothing
+    notes, scales = run([{"name": "Spark", "dps": dps}, {"name": "Full Culling DPS", "dps": dps * 0.05 / 0.95}],
+                        {"CullMultiplier": 1 / 0.95, "Speed": 50.0})
+    assert "Spark" not in scales and notes[-1]["value"] == "+0%"

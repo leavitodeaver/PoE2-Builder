@@ -1882,6 +1882,36 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
     return min(scale, 1.0), how, "MEDIUM"
 
 
+# Culled on Block (MECH60; an UNDERCOUNT before: PoB ignores the line, coverage-report "PoB ignores the line"). Doomgate's
+# "Enemies are Culled on Block" (Mods UniqueCullingStrikeOnBlock1, stat culling_strike_enemies_on_block; checked: Mods
+# for every row holding stat 18444, one row; second source not checked, UNVERIFIED that no other item or passive grants
+# it, which moves nothing here: the model reads the line wherever it is equipped). Blocking the boss's hit Culls it when
+# it is under the Unique threshold (KeywordPopups CullingStrike: 5%, here bosses.cull_threshold's share of the pool, x
+# the main skill's increased Culling Strike Threshold, MEDIUM: the item's Cull may not read a skill's INC). Blocks come
+# at random, rate r = the boss's blockable hits you Block per second (boss_hits.block_share over
+# bosses.benefit_skill_time, the "when hit" benefit pace: the fewest hits the tables allow, LOW); with W = t x T seconds
+# left once the boss is under t, the first Block comes at an exponential wait, so the Cull saves W - (1 - e^(-rW)) / r
+# (exact for Poisson blocks). Where the build Culls by hits too, the larger of the two savings counts (a small undercount).
+CULL_ON_BLOCK_LINE = re.compile(r"^Enemies are Culled on Block\s*$", re.I | re.M)
+CULL_ON_BLOCK_FIELDS = ("EvadeChance", "EffectiveBlockChance", "enemySkillTime")
+
+
+def block_cull_saving(threshold: float, pool: float, dps: float, blocks: float) -> tuple[float, str]:
+    """(share of the fight a Cull on Block saves, how): threshold, the Cull threshold as a share of the boss's Life + ES;
+    pool, that Life + ES; dps, the build's DPS before any Cull; blocks, the boss's hits you Block per second."""
+    if threshold <= 0 or pool <= 0 or dps <= 0:
+        return 0.0, "no DPS or threshold read"
+    if blocks <= 0:
+        return 0.0, "the build Blocks none of the boss's hits, so the boss is never Culled on Block"
+    fight = pool / dps
+    window = threshold * fight
+    saved = window - (1.0 - math.exp(-blocks * window)) / blocks
+    share = max(0.0, saved / fight)
+    return share, (f"the boss is under the {threshold:.1%} threshold for the last {window:.2f} s of a {fight:.1f} s fight; "
+                   f"you Block {blocks:.2f} of its hits a second (at random), so the first Block in that window saves "
+                   f"{saved:.2f} s: {share:.2%} of the fight (x{1.0 / (1.0 - share):.3f})")
+
+
 # Seconds the boss has been in your Presence (MECH59; plans/kw-culling-strike.md item 5, term-hits-to-rare; an
 # UNDERCOUNT before). The lines that ramp with "each second they've ever been in your Presence" (Attrition's gem stat
 # skill_attrition_hit_damage_+%_final_vs_rare_or_unique_enemy_per_second_ever_in_presence_up_to_max, 1% more per 2 s up
