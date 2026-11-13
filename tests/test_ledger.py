@@ -87,3 +87,17 @@ def test_the_audit_counts_debuff_lines_the_uptime_models_rate():
     for line in ("Blind does not affect your Light Radius", "Blind Enemies when they Stun you",
                  "Socketed Gems are supported by Level 10 Blind"):
         assert resolver_condition(line) is None, line
+
+
+def test_the_runic_ward_unlucky_rune_line_is_recorded_and_counts_nothing():
+    """COV14 (RESEARCH6's missing Unlucky lines): the Warding Rune of Bodyguards' Bonded "Damage of Enemies Hitting you is
+    Unlucky if / your Runic Ward has been damaged Recently" (two lines in PoB's rune data) had no entry. Runic Ward takes
+    damage only from damage that would have killed you (KeywordPopups Ward), and no model gives how often: 0, labelled,
+    never the always-on 6.67% of unlucky-enemy-damage."""
+    from builder.ledger import translate
+
+    for line in ("Damage of Enemies Hitting you is Unlucky if", "your Runic Ward has been damaged Recently",
+                 "Damage of Enemies Hitting you is Unlucky if your Runic Ward has been damaged Recently"):
+        entry, lines = translate(line)
+        assert entry.id == "unlucky-enemy-damage-runic-ward" and lines == [], line
+    assert translate("Damage of Enemies Hitting you is Unlucky")[0].id == "unlucky-enemy-damage"

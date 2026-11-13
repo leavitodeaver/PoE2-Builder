@@ -286,6 +286,32 @@
   sources: ["https://poe2db.tw/Unlucky", "vendor/PathOfBuilding-PoE2/src/Data/ModItemExclusive.lua (EnemyExtraDamageRollsOnFullLifeUnique__1, __2)"]
   status: proposed
 
+- id: unlucky-enemy-damage-runic-ward
+  title: Warding Rune of Bodyguards (Bonded), damage of enemies hitting you is Unlucky if your Runic Ward was damaged Recently (counted 0)
+  kind: pob_gap
+  # PoB's rune data (ModRunes.lua 6301-6305, the bonded block) and our audit export hold it as two lines, each parsed
+  # alone; the joined text is matched too
+  match: '^(Damage of Enemies Hitting you is Unlucky if|your Runic Ward has been damaged Recently|Damage of Enemies Hitting you is Unlucky if your Runic Ward has been damaged Recently)$'
+  replace: []
+  absorbed_by: "nothing: counted 0 (an undercount, labelled), as no model gives how often Runic Ward is damaged"
+  confidence: theory
+  notes: >-
+    The Warding Rune of Bodyguards' Bonded line (FIX_QUEUE RESEARCH6: "when Runic Ward was damaged recently", one of the
+    four missing Unlucky lines; the other three: Full Life has unlucky-enemy-damage-full-life, and "while Cursed with
+    Vulnerability" / "with a Magic Ring Equipped" have no player source in the exported tables (COV10), so no entry).
+    PoB applies neither half (the audit's export: "PoB ignores the line" for both; neither is in ModCache.lua), so it adds nothing today. Counted 0, not 6.67%: Runic Ward "absorbs fatal
+    damage instead of your Life. If you take damage that would cause your Life to reach 0 while you have Runic Ward, you
+    will drop to 1 Life and your Runic Ward will take the remaining damage" (KeywordPopups Ward, game 26476662; poe2db not
+    checked), so it is damaged only by damage that would have killed you. How often that happens in a fight the build
+    survives is something no model here gives (UNVERIFIED that no build feeds it on purpose; a model of lethal hits
+    absorbed per second would be MECH-C's, the Ward lane), so per the user's rule: no source, 0, with this note. If a
+    source is ever modelled: 6.67% less Damage taken from Hits (unlucky-enemy-damage) x the share of the fight within
+    4 s of Ward taking damage. It also counts only while the rune's Bonded lines apply (Wisdom of the Maji, or a Fox
+    Idol in the item: COV13).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Warding Rune of Bodyguards, bonded)",
+            "data/game-26476662/tables/KeywordPopups.json (Ward)", "https://poe2db.tw/Unlucky"]
+  status: proposed
+
 - id: unlucky-enemy-physical
   title: Physical damage of enemies hitting you is Unlucky
   kind: pob_gap
