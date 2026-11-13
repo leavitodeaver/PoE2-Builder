@@ -284,9 +284,33 @@ def test_armour_pieces_respect_the_defence_style():
 
 
 def test_legacy_and_granted_gems_are_not_socketable():
+    from builder.search.context import LIVE_LEGACY
+
     ctx = context(main_skill="Ice Shot")
     assert "Ice Shot" in ctx.gems
-    assert all(not g.get("fromItem") and not g.get("fromTree") and not g.get("legacy") for g in ctx.gems.values())
+    assert all(not g.get("fromItem") and not g.get("fromTree") and (not g.get("legacy") or g["name"] in LIVE_LEGACY)
+               for g in ctx.gems.values())
+
+
+def test_the_search_offers_murderous_intent_with_its_cull_priced_at_empowered_uses():
+    """COV22 (MECH60: live by the game files and poe2db, though PoB marks it legacy; an UNDERCOUNT while the search
+    dropped it): Context.gems offers Murderous Intent, and only once its Cull is priced as the game gives it, on the main
+    skill's Empowered uses (MECH63's bridge.cullSplit empowerOnly, which test_murderous_intents_cull_is_flagged_empower_only
+    checks on the engine), not PoB's Culling Strike on every hit. Other PoB-legacy gems stay out until checked."""
+    from builder.search import conditions as c
+
+    ctx = context(main_skill="Ice Shot")
+    gem = ctx.gems["Murderous Intent"]
+    assert gem.get("legacy") and gem.get("support") and "Murderous Intent" in ctx.any_gems
+    assert "Overextend" not in ctx.gems  # (PoB-legacy, not checked live: UNVERIFIED, left out as before)
+    mult = 1 / 0.95
+    every_hit = {"critical": 0.0, "regular": 5.0, "inc": 1.0, "critChance": 0.0}
+    empowered = {**every_hit, "empowerOnly": True}
+    hit_scale = c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, every_hit)[0]
+    one_in_4s = c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, empowered, 0.0, (0.25, "Unleash"))[0]
+    assert 0.0 < one_in_4s < hit_scale
+    # an attack that Mana Tempest supports is Empowered by none: no Cull, where PoB Culls on every hit
+    assert c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, empowered, 0.0, (0.0, "none"))[0] == 0.0
 
 
 # Objective -------------------------------------------------------------------------------------

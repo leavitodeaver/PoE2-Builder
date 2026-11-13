@@ -31,6 +31,16 @@ SUPPORT_SLOTS = 5  # support sockets on a fully socketed skill gem
 MAX_GEM_GROUPS = 9  # non-item gem groups the game allows
 GEM_LEVEL = 20
 GEM_QUALITY = 20
+# PoB-legacy gems the current game still offers, each with its evidence (Context.gems offers them). The other gems PoB
+# marks legacy (Bloodlust, Commandment, Infernal Legion III, Lasting Ground, Overextend, Shock Conduction II, Undermine)
+# stay out until checked the same way: live.json calls them "live (inferred)" by the support weight alone (UNVERIFIED).
+LIVE_LEGACY = {
+    # MECH60 (checked: game files BaseItemTypes SupportGemMurderousIntent, SkillGems 479, GrantedEffects 751, live.json
+    # "live (inferred)", weight 50; poe2db's current page https://poe2db.tw/us/Murderous_Intent, no legacy mark).
+    # Offered once its Cull is priced at the main skill's Empowered uses (MECH63's bridge.cullSplit empowerOnly and
+    # conditions.cull_window_scale), not PoB's Culling Strike on every hit.
+    "Murderous Intent": "MECH60: live (game files; poe2db current page)",
+}
 
 ARMOUR_SLOTS = ["Helmet", "Body Armour", "Gloves", "Boots"]
 JEWELLERY_SLOTS = ["Amulet", "Ring 1", "Ring 2", "Belt"]
@@ -165,10 +175,11 @@ class Context:
 
     @cached_property
     def gems(self) -> dict[str, dict]:
-        """Gems a player can socket at the requested level, by name."""
+        """Gems a player can socket at the requested level, by name. PoB's legacy gems are left out, except those
+        LIVE_LEGACY names (checked live against the game files and a second source)."""
         gems = {}
         for gem in self.data.gems:
-            if gem.get("fromItem") or gem.get("fromTree") or gem.get("legacy"):
+            if gem.get("fromItem") or gem.get("fromTree") or (gem.get("legacy") and gem["name"] not in LIVE_LEGACY):
                 continue
             if (gem.get("levelRequirement") or 0) > self.level:
                 continue
@@ -180,7 +191,7 @@ class Context:
         """Every gem by name, also those a passive or item grants (Hollow Form): for reading a group's skill types."""
         gems = dict(self.gems)
         for gem in self.data.gems:
-            if not gem.get("legacy"):
+            if not gem.get("legacy") or gem["name"] in LIVE_LEGACY:
                 gems.setdefault(gem["name"], gem)
         return gems
 
