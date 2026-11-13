@@ -395,7 +395,8 @@
   notes: >-
     The crown alternates every 5 s between less damage from Hits and less damage over time, so
     Hits get the reduction half the time. Counted as the average; a single big hit may land in
-    the other phase.
+    the other phase. PoB ignores the line (ModCache leaves " from Hits " over, so PoB never applies it); COV20's probe
+    (AUDIT27 A13-23, POE2T2443): ChaosTakenHitMult 1.0 with PoB's text, 0.8 with this entry (40% halved).
   sources: ["https://poe2db.tw/Keeper_of_the_Arc"]
   status: proposed
 
@@ -635,11 +636,19 @@
 # Lines PoB calculates wrongly -------------------------------------------------------------------
 
 - id: keeper-of-the-arc-dot
-  title: Keeper of the Arc, alternating less damage over time (PoB counts it as always on)
+  title: Keeper of the Arc, alternating less damage over time (PoB's parse of it moves nothing)
   kind: pob_wrong
   match: '^Take (\d+)% less Damage over time$'
   replace: ['{g1/2}% less Damage over Time taken']
   confidence: datamined
-  notes: "The crown alternates every 5 s between this and less damage from Hits; counted as the average."
+  notes: >-
+    The crown alternates every 5 s between this and less damage from Hits; counted as the average. PoB parses the line
+    (ModCache: DamageTaken MORE -40 with flags=8, the Dot flag), but its damage-taken-over-time multipliers don't read
+    that mod: COV20's probe (AUDIT27 A13-23; POE2T2443, scratch/cov20/probe_keeper.py, the current variant on a fresh
+    build) gave {Chaos,Physical}TakenDotMult 1.0 with PoB's own text, the same as with no helmet, and 0.8 with this
+    entry; the hit line (keeper-of-the-arc) went 1.0 -> 0.8 too. So PoB counts the line 0 (an UNDERCOUNT before this
+    entry, not the always-on overcount this entry's title said until COV20), and both lines now count half. Whether any
+    other PoB calculation reads a Dot-flagged DamageTaken mod wasn't probed (UNVERIFIED); replacing the line removes it
+    either way.
   sources: ["https://poe2db.tw/Keeper_of_the_Arc"]
   status: approved

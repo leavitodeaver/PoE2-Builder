@@ -1,0 +1,67 @@
+# Item lines PoB doesn't parse that a custom model already reads, which the coverage audit still called uncounted
+# (COV20, after COV18's models-read-cov18.yaml: scratch/cov20/modelread.py matched every open item line against the
+# search's module-level patterns; each entry here was checked against the code that uses the pattern and gives a
+# non-zero result for a build that feeds it. Patterns that only sort or exclude a line (*_NOT_SOURCE, QUALIFIERS,
+# KILL_LINE, DISTANCE_LINE ...) weren't taken as readers). The models read the lines themselves (bridge sourceLines),
+# so these entries add nothing (replace: []); they tell the audit the line is counted.
+# Read in part and left open: Cadiro's Gambit's "Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond,
+# Covetous, or Blunt Arrow" (models.return_model reads only the Reversing arrow, 1 in 6, as a return; the other five
+# arrow kinds aren't modelled: an UNDERCOUNT for MECH-B); Murkshaft's "Blind Targets when you Poison them"
+# (conditions' Blind reader gives 0, no Poison rate: MECH-A, COV19).
+
+- id: model-cull-on-block
+  title: Enemies are Culled on Block (Doomgate), for the Cull model
+  kind: pob_gap
+  model: cull_on_block
+  match: '^Enemies are Culled on Block$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    PoB ignores the line (the audit's export: "PoB ignores the line"). assumptions.cull_window / cull_on_block (MECH60)
+    read it (conditions.CULL_ON_BLOCK_LINE) on any equipped item: the boss is Culled at the first Block once under the
+    Cull threshold, at the boss's hits Blocked per second (boss_hits.block_share over bosses.benefit_skill_time), saving
+    conditions.block_cull_saving's share of the fight where that beats the build's hit Cull; 0 with a note for a build
+    that Blocks nothing. It goes into Full DPS through press_scales; the main-skill score misses it (MECH60's own note:
+    a small UNDERCOUNT there, the model's lane).
+  sources: ["builder/search/assumptions.py (cull_window, cull_on_block)",
+            "builder/search/conditions.py (CULL_ON_BLOCK_LINE, block_cull_saving)"]
+  test_in_game: "Not needed: the Cull model's own tests cover the saving."
+  status: proposed
+
+- id: model-ironbound-return
+  title: Ironbound's arrows Return after piercing a Fully Broken target, for the Return model
+  kind: pob_gap
+  model: return
+  match: '^Arrows Return if they have Pierced a target which had Fully Broken Armour$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    PoB ignores the line. models.return_model (IRONBOUND_RETURN) reads it for a bow attack's projectiles: the share that
+    pierces the boss (PoB's PierceCount, capped at 1) returns for a second hit, counted as "1% more Damage against
+    Enemies with Fully Broken Armour" x that share, so only while the boss's Armour is Fully Broken (the search weighs
+    that uptime). The return rule itself is LOW (models.RETURN_RULE: a returned projectile re-hits the boss only if it
+    pierced it, UNVERIFIED).
+  sources: ["builder/search/models.py (IRONBOUND_RETURN, return_model)"]
+  test_in_game: "Whether a returning arrow can hit the boss it pierced again (RETURN_RULE)."
+  status: proposed
+
+- id: recovery-on-boss-hit-block-cast
+  title: Life before being Hit, from Armour on Block, and on casting a Spell (recovery model, at the build's own rates)
+  kind: pob_gap
+  model: recovery
+  match: '^(Recover (\d+(?:\.\d+)?)% of Missing Life before being Hit by an Enemy|Regenerate (\d+(?:\.\d+)?)% of your Armour as Life over 1 second when you Block|Regenerate (\d+(?:\.\d+)?) Life over 1 second when you Cast a Spell)$'
+  replace: []
+  confidence: reported
+  notes: >-
+    AUDIT27 A27-32. PoB parses none of the three (ModCache {nil, ...}). recovery.hit_income (MECHC14) reads each at the
+    build's own rate: Missing Life before a hit x the boss hits landing a second (the Life missing taken as the last
+    hit's, LOW, a lower bound); % of Armour per boss hit Blocked; flat Life per Spell cast. Each gives 0 with a note
+    where the build has no such event. Carriers: Defiance of Destiny (amulet) for the first; the Block and Cast lines'
+    mods (ArmourAsLifeRegnerationOnBlockUniqueShieldStrInt6, RegenerateLifeOnCastUniqueWand4) have no carrier found (no
+    PoB-PoE2 unique or old variant, no other game table, poe2db's unique Shields and Wands lists, 13 Nov, COV20), so
+    they move no build the search makes today (PoE1 leftover or content PoB lacks: UNVERIFIED). The fourth A27-32
+    line, "Regenerate N% of maximum Life over 1 second when Stunned" (Quick Recovery, Chakra of Stability), stays in
+    recovery.EVENT_UNREAD: the audit names it a routed UNDERCOUNT for MECH-C.
+  sources: ["builder/search/recovery.py (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, hit_income)"]
+  test_in_game: "Not needed: recovery's own tests cover the rates."
+  status: proposed

@@ -316,8 +316,11 @@ def test_poe1_leftover_unique_mods_are_unreachable_and_uncarried_ones_stay_open_
         pytest.skip("no coverage.json")
     report = coverage.audit()
     exclusive = [r for r in report["records"] if r["source"].startswith("Exclusive ")]
-    marked = [r for r in exclusive if r["status"] == "unreachable"]
-    assert len(marked) >= 150 and all(r["reason"].startswith("a PoE1 leftover (") for r in marked)
+    unreachable = [r for r in exclusive if r["status"] == "unreachable"]
+    marked = [r for r in unreachable if r["reason"].startswith("a PoE1 leftover (")]
+    # (the rest are GGG-marked unused, COV20: test_ggg_marked_dnt_unique_mods_are_unreachable_and_named_so)
+    assert len(marked) >= 150 and all(r in marked or r["reason"].startswith("GGG-marked unused (DNT)")
+                                      for r in unreachable)
     carried = coverage.pob_unique_templates()
     by_mod: dict[str, list[str]] = {}
     for r in exclusive:
@@ -328,3 +331,39 @@ def test_poe1_leftover_unique_mods_are_unreachable_and_uncarried_ones_stay_open_
     assert not any("Eye Jewel Socketed" in r["line"] for r in exclusive if r["status"] == "none")
     assert not any(g["template"] == coverage.template("Recover 20% of maximum Life on Rampage")
                    for g in report["ranking"])
+
+
+def test_recovery_lines_no_rate_reads_are_named_undercounts_and_modelled_ones_counted():
+    """AUDIT27 A27-32 (COV20; the user's "every recovery source counts" rule): an open line recovery.EVENT_UNREAD names
+    (the "when Stunned" passives) is a routed UNDERCOUNT for MECH-C; the three recovery.hit_income reads (MECHC14) are
+    counted as model-read."""
+    from builder.data import data_dir
+    from builder.ledger.coverage import ignored_line_status
+
+    assert coverage.unread_recovery("Regenerate 5% of maximum Life over 1 second when Stunned")
+    for line in ("Recover (20-30)% of Missing Life before being Hit by an Enemy",
+                 "Regenerate 2% of your Armour as Life over 1 second when you Block",
+                 "Regenerate (6-8) Life over 1 second when you Cast a Spell"):
+        assert not coverage.unread_recovery(line) and ignored_line_status(line, False)[:2] == (
+            "model", "recovery-on-boss-hit-block-cast"), line
+    if not (data_dir() / "coverage.json").exists():
+        pytest.skip("no coverage.json")
+    routed = [r for r in coverage.audit()["records"] if r.get("routed") == "MECH-C"]
+    assert {"Quick Recovery", "Chakra of Stability"} <= {r["source"] for r in routed}
+    assert all(r["status"] == "none" and r["undercount"] and "UNDERCOUNT" in r["reason"] for r in routed)
+
+
+def test_ggg_marked_dnt_unique_mods_are_unreachable_and_named_so():
+    """COV20: a unique-only mod whose own game text starts "DNT" (GGG's "do not use" mark; DNT_UNUSED's evidence) is
+    unreachable with its own reason, not a PoE1 leftover; the mechanics they name stay counted on other lines."""
+    from builder.data import data_dir
+
+    assert coverage.DNT_UNUSED.match("DNT-UNUSED Blasphemy has no Reservation")
+    assert not coverage.DNT_UNUSED.match("Bleeding you inflict is Aggravated")
+    if not (data_dir() / "coverage.json").exists():
+        pytest.skip("no coverage.json")
+    records = coverage.audit()["records"]
+    marked = [r for r in records if r["reason"].startswith("GGG-marked unused (DNT)")]
+    assert len(marked) >= 7 and all(r["status"] == "unreachable" and r["source"].startswith("Exclusive ")
+                                    for r in marked)
+    assert not any(r["line"].startswith("DNT") and r["status"] == "none" for r in records)

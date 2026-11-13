@@ -41,6 +41,7 @@ from pathlib import Path
 
 from builder import ROOT
 from builder.ledger import checked_parse, entries, model_entry, parse_audit, translate, wrong
+from builder.search.recovery import EVENT_UNREAD
 
 POB_SRC = ROOT / "vendor" / "PathOfBuilding-PoE2" / "src"
 BRIDGE = ROOT / "engine" / "bridge.lua"
@@ -101,6 +102,18 @@ POE1_ONLY_GROUPS = {
     "cosmetic effects": r"Footprints$|Hoofprints$|^Extra gore$|^Golden Radiance$|golden glow",
 }
 _POE1_ONLY = [(name, re.compile(rx)) for name, rx in POE1_ONLY_GROUPS.items()]
+# Unique-only mods GGG marks unused (COV20): their own game text starts "DNT-UNUSED" (or, for Obliterated, "DNT" and a
+# placeholder number). Seven in game 26476662: Blasphemy has no Reservation, Gain Edict Declaration when you disable a
+# rare monster mod, chance to disable a Rare's Modifier on hit, Break Armour from Physical Spell damage, Lightning
+# against Bleeding enemies adds Electrocute buildup, Bleeding on Shocked enemies is Aggravated, "DNT Obliterated #233763".
+# This marks these mods only, never the mechanics they name (other sources of Aggravated Bleeding or Electrocute
+# buildup stay counted on their own lines). (checked 13 Nov, COV20: every line of coverage.json and gaps.json holding
+# "DNT" is one of these seven Exclusive mods; each mod's GenerationType 3 (unique), no spawn weight; no PoB-PoE2 unique
+# (Data/Uniques, every file and variant) has a line holding "DNT"; scratch/cov19/reach.py: no game table other than
+# Mods points at six of them; the seventh, TheFlawedEdictUnique__1, is the only mod ModGrantedSkills grants
+# TriggeredShockingRiftPlayer from, and no "Flawed Edict" name is in Words or UniqueStashLayout; second source: poe2db's
+# unique lists (COV19, both halves) carry none of the seven lines, and poe2db has no The_Flawed_Edict page (404).)
+DNT_UNUSED = re.compile(r"^DNT\b")
 
 
 @lru_cache(maxsize=1)
@@ -137,6 +150,11 @@ def poe1_leftover_mods(affixes: list[dict], carried: frozenset[str] | None = Non
 
 
 # What PoB's calculations read -------------------------------------------------------------------
+
+def unread_recovery(line: str) -> str | None:
+    """The recovery.EVENT_UNREAD name this line is (a recovery line no rate reads yet), or None."""
+    return next((name for name, pattern in EVENT_UNREAD.items() if pattern.search(line)), None)
+
 
 def _strip_comments(text: str) -> str:
     text = re.sub(r"--\[(=*)\[.*?\]\1\]", "", text, flags=re.S)
@@ -737,9 +755,17 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                     f"PoB counts it, but its parse looks wrong ({finding['kind']}: {finding['detail']})",
                     weight * (1.5 if finding["inflates"] else 1.0), of=source_type, finding=finding["kind"],
                     inflates=finding["inflates"])
-        # PoE1 leftovers among the unique-only mods: out of the open work (POE1_ONLY_GROUPS)
+        # PoE1 leftovers among the unique-only mods: out of the open work (POE1_ONLY_GROUPS); GGG-marked unused ones
+        # (DNT_UNUSED) first
         leftovers = poe1_leftover_mods(raw["affixes"])
         for record in records:
+            if (record["status"] == "none" and record["source"].startswith("Exclusive ")
+                    and DNT_UNUSED.match(record["line"])):
+                record["status"] = "unreachable"
+                record["reason"] = ("GGG-marked unused (DNT): the game's own text for this unique-only mod starts "
+                                    "\"DNT\" and no PoE2 item carries it (DNT_UNUSED's evidence, COV20); was: "
+                                    + record["reason"])
+                continue
             if record["status"] == "none" and record["source"].startswith("Exclusive "):
                 group = leftovers.get(record["source"].split()[1])
                 if group:
@@ -749,6 +775,14 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 elif group == "":
                     record["reason"] += ("; no PoB-PoE2 unique carries this mod: a PoE1 leftover or PoE2 content PoB "
                                          "lacks (UNVERIFIED)")
+    # Recovery lines no rate reads yet (recovery.EVENT_UNREAD, MECH-C's list; AUDIT27 A27-32, COV20): named as routed
+    # undercounts, so no recovery line is dropped silently (the user's every-recovery-source rule)
+    for record in records:
+        if record["status"] == "none" and (name := unread_recovery(record["line"])):
+            record["routed"] = "MECH-C"
+            record["undercount"] = True
+            record["reason"] += (f"; a recovery source no rate reads yet ({name}, recovery.EVENT_UNREAD): an UNDERCOUNT "
+                                 "in the sustain share and the recovery floor, routed to MECH-C")
     # e. skills that calculate 0 alone on a plain character (data/pob-*/skill_zero.json, scratch/zero_skills.py)
     for skill in zero_skills(data_dir):
         add("skill-zero", skill["name"], "active gem", skill["name"], skill["status"], skill.get("entry"), skill["reason"],

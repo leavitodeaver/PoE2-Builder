@@ -269,3 +269,18 @@ def test_cov18_item_lines_a_model_already_reads_are_counted_by_the_audit():
         assert pattern.search(rolled), line
         assert ignored_line_status(line, False)[0] == "model", line
     assert ignored_line_status("Lose all Power Charges on reaching maximum Power Charges", False)[0] == "none"
+
+
+def test_cov20_cull_on_block_and_ironbound_are_counted_and_cadiros_arrows_stay_open():
+    """COV20: Doomgate's Cull on Block (assumptions.cull_on_block) and Ironbound's Return (models.return_model) are read
+    by their patterns and counted by the audit; Cadiro's Gambit, read only for its Reversing arrows, stays open."""
+    from builder.ledger.coverage import ignored_line_status
+    from builder.search import conditions, models
+
+    read = {"Enemies are Culled on Block": conditions.CULL_ON_BLOCK_LINE,
+            "Arrows Return if they have Pierced a target which had Fully Broken Armour": models.IRONBOUND_RETURN}
+    for line, pattern in read.items():
+        assert pattern.search(line), line
+        assert ignored_line_status(line, False)[0] == "model", line
+    cadiro = "Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow"
+    assert models.CADIRO_ARROWS.search(cadiro) and ignored_line_status(cadiro, False)[0] == "none"
