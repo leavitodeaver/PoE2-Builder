@@ -3666,12 +3666,7 @@ def test_frostflame_novas_ice_hits_twice_a_second_while_the_boss_is_ignited():
     assert none[0] == 0.0 and models.frostflame_model(1.4, *none)[0][0]["value"] == pytest.approx(-100)
 
 
-@pytest.fixture
-def pob_cadence(monkeypatch):
-    """The meta Energy "when hit" readers at PoB's scored enemySkillTime, as these tests were written (MECHB13 switched
-    them to bosses.benefit_skill_time, one hit per damaging use: test_when_hit_benefits_read_the_bosss_slower_cadence)."""
-    from builder.search import bosses
-    monkeypatch.setattr(bosses, "benefit_skill_time", lambda stats: float((stats or {}).get("enemySkillTime") or 0.7))
+# (MECHB13's pob_cadence fixture for the meta Energy readers is the same as the one at the top of this file)
 
 
 def test_when_hit_benefits_read_the_bosss_slower_cadence():
