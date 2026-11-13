@@ -20,3 +20,22 @@
   sources: ["builder/search/recovery.py (STUNNED_LIFE, stuns_taken)", "data/game-26476662/tables/KeywordPopups.json (LightStun, StunThreshold)"]
   test_in_game: "Not needed for the shape: tests/test_recovery.py covers the Stun rate; the Light Stun floor (15% vs 10%) is the open game question."
   status: proposed
+
+- id: model-cat-o-nine-tails-low-life-cap
+  title: Cat O' Nine Tails, Life Recovery other than Flasks cannot Recover Life to above Low Life (maximum hit taken from Low Life)
+  kind: pob_gap
+  model: low_life_cap
+  match: '^Life Recovery other than Flasks cannot Recover Life to above Low Life$'
+  replace: []
+  confidence: reported
+  notes: >-
+    A drawback PoB parses to no mod (an OVERCOUNT of the defences if nothing read it). MECHC8 reads it: engine/bridge.lua
+    setLowLifeCap matches its text on any equipped item and sets LowLifeRecoveryCap, and models.with_darkness takes the
+    Life above Low Life (65% of maximum Life, KeywordPopups LowLife) out of each type's maximum hit taken, which the
+    defence floors read; models.low_life_cap_note tells the play guide. The recovery rates themselves aren't capped
+    (Life still recovers up to Low Life, so they keep counting; how long a Life flask holds Life higher is LOW, not
+    counted). Carrier: Cat O' Nine Tails (mod UniqueCannotRecoverAboveLowLifeExceptFlasks1). COV22 credits the reader
+    (read on f671607: bridge.lua setLowLifeCap, models.py with_darkness / low_life_cap_note).
+  sources: ["engine/bridge.lua (setLowLifeCap)", "builder/search/models.py (with_darkness, low_life_cap_note)"]
+  test_in_game: "Not needed: the bridge sets the flag from the text; the floor tests cover with_darkness."
+  status: proposed
