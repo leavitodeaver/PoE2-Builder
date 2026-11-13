@@ -2022,6 +2022,7 @@ def test_a_placed_banner_stands_its_glory_share_of_the_fight():
         "groups": {"mainSocketGroup": 1, "groups": [{"index": 1, "gems": [{"name": "Mace Strike"}]},
                                                      {"index": 2, "gems": [{"name": "War Banner"}]}]},
         "useRates": {"rates": [{"index": 2, "duration": 9.8}]},
+        "sourceLines": {"lines": []},  # (MECHC13: the Banner's share reads the build's Glory lines)
     }
     build = SimpleNamespace(call=lambda what, **_: calls[what])
     build.main_group = lambda: calls["groups"]["groups"][0]
