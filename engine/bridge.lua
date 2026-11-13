@@ -846,6 +846,57 @@ local function itemHasLine(env, text)
 	end
 	return false
 end
+-- Life Recharge (SEARCH15; AUDIT28 A28-3, an UNDERCOUNT): Tetzlapokal's Desire's "Life Recharges" (Mods
+-- UniqueLifeRecharge1, stat base_life_recharges_like_energy_shield) parses to nothing in PoB (ModParser has only "life
+-- recharges instead of energy shield", Eternal Youth's flag, which also turns Energy Shield Recharge off). The game
+-- (KeywordPopups LifeRecharge): "Lost Life will start Recharging at a rate of 12.5% per second after a base delay of 4
+-- seconds. Further loss of Life resets this delay ... Modifiers to Energy Shield Recharge Rate or to how fast it starts
+-- will also apply to Life Recharge." So, beside Energy Shield Recharge, LifeRecharge here is PoB's own Eternal Youth sum
+-- (CalcDefence 1795-1800: Life x EnergyShieldRechargeBase x the Energy Shield Recharge increases and more, x the Life
+-- recovery rate), skipped where PoB set one (Eternal Youth). LifeRechargeDelay is the Energy Shield Recharge delay (PoB's
+-- own sum, CalcDefence 1837-1838) for either. (checked: the stat ids holding "life_recharge" in Stats.json are on two
+-- mods, UniqueLifeRecharge1 and HandWrapsUniqueVaalPact1 (keystone_eternal_youth), and one passive,
+-- passive_keystone_eternal_youth; matched by the line's exact text on any equipped item, so another item that gains it
+-- is caught too; second source: poe2db's Tetzlapokal's Desire page, "Life Recharges", stat base life recharges like
+-- energy shield, value 1, no rate given). Energy Shield Recharge is kept beside it: the stat says "like", Eternal Youth's
+-- says "instead of" (UNVERIFIED in game whether both run; poe2db doesn't say).)
+local LIFE_RECHARGES_TEXT = "life recharges"
+local function setLifeRecharge(env)
+	local output = env and env.player and env.player.output
+	local modDB = env and env.player and env.player.modDB
+	if not output or not modDB then
+		return
+	end
+	local found = output.LifeRecharge ~= nil
+	if not found then
+		for _, item in pairs(env.player.itemList or { }) do
+			if type(item) == "table" then
+				for _, list in ipairs({ item.implicitModLines, item.explicitModLines, item.enchantModLines,
+					item.runeModLines, item.crucibleModLines }) do
+					for _, line in ipairs(list or { }) do
+						if type(line) == "table" and type(line.line) == "string"
+							and line.line:lower():match("^%s*(.-)%.?%s*$") == LIFE_RECHARGES_TEXT then
+							found = true
+						end
+					end
+				end
+			end
+		end
+		if found and not modDB:Flag(nil, "CannotRecoverLifeOutsideLeech") then
+			local inc = modDB:Sum("INC", nil, "EnergyShieldRecharge")
+			local more = modDB:More(nil, "EnergyShieldRecharge")
+			output.LifeRecharge = round((output.Life or 0) * data.misc.EnergyShieldRechargeBase * (1 + inc / 100) * more
+				* (output.LifeRecoveryRateMod or 1), 1)
+		end
+	end
+	if output.LifeRecharge then
+		local base = modDB:Override(nil, "EnergyShieldRechargeBase")
+			or (data.misc.EnergyShieldRechargeDelay + modDB:Sum("BASE", nil, "EnergyShieldRechargeFaster"))
+		output.LifeRechargeDelay = output.EnergyShieldRechargeDelay
+			or base / (1 + modDB:Sum("INC", nil, "EnergyShieldRechargeFaster") / 100)
+	end
+end
+
 local function setManaRegenOnly(env)
 	local output = env and env.player and env.player.output
 	if not output then
@@ -1141,6 +1192,7 @@ local function installDerived()
 		setNoCritReroll(env)
 		local function finish(...)
 			setLowLifeCap(env, env and env.player and env.player.output)
+			setLifeRecharge(env)
 			setManaRegenOnly(env)
 			markShowAverage(env)
 			setChillDamage(env)

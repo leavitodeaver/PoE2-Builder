@@ -160,7 +160,9 @@ RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in
                          | {"enemySkillTime", "EvadeChance", "EffectiveBlockChance", "sharedMindOverMatter",
                             "DeflectChance", "DeflectEffect"}
                          | {"EnergyShieldRecharge", "EnergyShieldRechargeDelay", "IgniteAvoidChance", "SelfIgniteDuration",
-                            "AilmentThreshold", "Life"})  # (es_recharge, and the Ignites boss_hits.es_dot reads)
+                            "AilmentThreshold", "Life"}  # (es_recharge, and the Ignites boss_hits.es_dot reads)
+                         | {"LifeRecharge", "LifeRechargeDelay", "EnergyShield", "PhysicalTakenDotMult"}  # (own_loss)
+                         | {f"{t}{f}" for t in RECOVERY_DAMAGE_TYPES for f in ("BuildDegen", "EnergyShieldBypass")})
 
 
 def boss_taken(stats: dict, every: float | None = None) -> tuple[dict[str, float], float, float]:
@@ -216,26 +218,89 @@ def hit_recovery_rates(stats: dict) -> dict[str, float]:
     return {pool: recoup(stats, taken, pool) + on_block(stats, pool, every) for pool in SUSTAIN_POOLS}
 
 
+# The build's own damage on itself (SEARCH15; AUDIT28 A28-2, an OVERCOUNT): "Further loss of Energy Shield resets this
+# delay, interrupting Recharge" (KeywordPopups ESRecharge; LifeRecharge says the same of Life), so the build's own damage
+# stops recharge as the boss's hits do. Two kinds:
+#   - damage over time it deals itself (PoB's {Type}BuildDegen, after the damage-over-time taken modifiers; the part
+#     Energy Shield takes is 1 - {Type}EnergyShieldBypass, as PoB splits it, CalcDefence 3970-3984; the rest is Life's):
+#     a steady loss, so the pool it touches never starts recharging while it runs: recharge 0 (a build that keeps it
+#     on all fight; a degen the player can turn off isn't followed);
+#   - Heartbound Loop's "Physical Damage taken on Minion Death" (models.heartbound_damage, MECHC9): one loss per minion
+#     death, at the build's minion-death rate (Build.added_stats' SelfDamageEvents, per second). It reaches PoB as
+#     Physical degen (SelfDamagePerSecond x PhysicalTakenDotMult of PhysicalBuildDegen), which is taken out of the steady
+#     part here and counted as events, a second Poisson stream beside the boss's landed hits.
+SELF_EVENTS, SELF_PER_SECOND = "SelfDamageEvents", "SelfDamagePerSecond"
+
+
+def own_loss(stats: dict) -> dict[str, float]:
+    """The build's own steady loss per second on each pool ({"EnergyShield": ..., "Life": ...}), without the per-event
+    Heartbound damage (own_events)."""
+    out = {"EnergyShield": 0.0, "Life": 0.0}
+    es = number(stats.get("EnergyShield")) > 0
+    for t in RECOVERY_DAMAGE_TYPES:
+        degen = max(number(stats.get(f"{t}BuildDegen")), 0.0)
+        if t == "Physical":
+            dot = number(stats.get("PhysicalTakenDotMult")) if "PhysicalTakenDotMult" in stats else 1.0
+            degen = max(degen - max(number(stats.get(SELF_PER_SECOND)), 0.0) * dot, 0.0)
+        bypass = min(max(number(stats.get(f"{t}EnergyShieldBypass")), 0.0), 100) / 100 if es else 1.0
+        out["EnergyShield"] += degen * (1 - bypass)
+        out["Life"] += degen * bypass
+    return out
+
+
+def own_events(stats: dict) -> float:
+    """The build's own damage events per second (Heartbound Loop's minion deaths; 0 without its damage)."""
+    return max(number(stats.get(SELF_EVENTS)), 0.0) if number(stats.get(SELF_PER_SECOND)) > 0 else 0.0
+
+
+def recharge_share(stats: dict, hits: float, delay: float, steady: float = 0.0) -> float:
+    """The share of the fight a recharge with this `delay` runs: the boss's landed hits (`hits` per second, a Poisson
+    stream; a share p of them leave damage over time on you for D seconds, boss_hits.es_dot) and the build's own damage
+    events (own_events, r per second, another Poisson stream) each reset it. With L = hits + r, after each event it runs
+    for E[max(0, gap - T)] = e^(-L T) / L, T the delay (plus D after a hit with damage over time), so the share is
+    (hits / L) (plain e^(-L delay) + sum p e^(-L (delay + D))) + (r / L) e^(-L delay) (exact for Poisson streams; a new
+    hit while an older damage over time still burns isn't followed, as in boss_hits.recharge_wait). 0 under a `steady`
+    own loss on the pool (own_loss)."""
+    if steady > 0:
+        return 0.0
+    rate = own_events(stats)
+    total = hits + rate
+    if total <= 0:
+        return 1.0
+    dots = boss_hits.es_dot(stats, land=hits) if hits > 0 else []
+    plain = max(1.0 - sum(p for p, _, _ in dots), 0.0)
+    boss = plain * math.exp(-total * delay) + sum(p * math.exp(-total * (delay + d)) for p, d, _ in dots)
+    return (hits * boss + rate * math.exp(-total * delay)) / total
+
+
 def es_recharge(stats: dict, hits: float) -> tuple[float, float]:
     """(Energy Shield recharged per second against the boss, the share of the fight recharge runs). SEARCH13 (AUDIT3 #15,
-    AUDIT26: an UNDERCOUNT for every high-avoidance Energy Shield build): the boss's landed hits as a Poisson stream
-    (`hits` per second, boss_taken's: after evade and block, red-flash hits always land), the one boss_hits.recharge_wait
-    reads. After each landed hit recharge waits the delay (PoB's EnergyShieldRechargeDelay), plus the seconds of damage
-    over time the hit leaves on you on a share p of hits (boss_hits.es_dot: Ignite, Corrupted Blood), then runs until
-    the next landed hit: per gap E[max(0, gap - delay - D)] = e^(-hits (delay + D)) / hits, so the share of the fight it
-    runs is the sum over hits of p x e^(-hits x (delay + D)) (exact for Poisson hits; a new hit while an older damage
-    over time still burns isn't followed, as in recharge_wait). Times PoB's EnergyShieldRecharge (per second, after its
-    recovery-rate modifiers). MEDIUM: the boss's misses by timing aren't counted, and recharge refills only what was
-    lost (boss_recovery caps it at the incoming damage)."""
+    AUDIT26: an UNDERCOUNT for every high-avoidance Energy Shield build): recharge_share at PoB's
+    EnergyShieldRechargeDelay, reset by the boss's landed hits (`hits` per second, boss_taken's: after evade and block,
+    red-flash hits always land) and their damage over time, and by the build's own damage (SEARCH15, A28-2: own_loss /
+    own_events). Times PoB's EnergyShieldRecharge (per second, after its recovery-rate modifiers). MEDIUM: the boss's
+    misses by timing aren't counted, and recharge refills only what was lost (boss_recovery caps it at the incoming
+    damage)."""
     recharge = number(stats.get("EnergyShieldRecharge"))
     if recharge <= 0:
         return 0.0, 0.0
     delay = max(number(stats.get("EnergyShieldRechargeDelay")) or 4.0, 0.0)
-    if hits <= 0:
-        return recharge, 1.0
-    dots = boss_hits.es_dot(stats, land=hits)
-    plain = max(1.0 - sum(p for p, _, _ in dots), 0.0)
-    share = plain * math.exp(-hits * delay) + sum(p * math.exp(-hits * (delay + d)) for p, d, _ in dots)
+    share = recharge_share(stats, hits, delay, own_loss(stats)["EnergyShield"])
+    return recharge * share, share
+
+
+def life_recharge(stats: dict, hits: float) -> tuple[float, float]:
+    """(Life recharged per second against the boss, the share of the fight it runs). SEARCH15 (AUDIT28 A28-3, an
+    UNDERCOUNT): PoB's LifeRecharge (Eternal Youth; the bridge's setLifeRecharge adds Tetzlapokal's Desire's "Life
+    Recharges", which PoB parses to nothing) at the Energy Shield Recharge delay (LifeRechargeDelay), reset by the same
+    landed hits and own damage events as Energy Shield Recharge and stopped by a steady own loss of Life. MEDIUM: a hit
+    Energy Shield takes in full doesn't reset Life's delay in the game, but it also takes no Life to recharge, so the
+    shared share is kept (a lower bound)."""
+    recharge = number(stats.get("LifeRecharge"))
+    if recharge <= 0:
+        return 0.0, 0.0
+    delay = max(number(stats.get("LifeRechargeDelay")) or 4.0, 0.0)
+    share = recharge_share(stats, hits, delay, own_loss(stats)["Life"])
     return recharge * share, share
 
 
@@ -254,10 +319,17 @@ def boss_recovery(stats: dict) -> dict:
     recharged, recharging = es_recharge(stats, hits)
     if recharged > 0:  # (it refills only what was lost: at most the incoming damage)
         parts["Energy Shield recharge"] = min(recharged, incoming)
+    life_back, life_share = life_recharge(stats, hits)
+    if life_back > 0:  # (the two recharges together refill at most the incoming damage)
+        parts["Life recharge"] = min(life_back, max(incoming - parts.get("Energy Shield recharge", 0.0), 0.0))
     recovery = sum(parts.values())
     share = recovery / incoming if incoming > 0 else float("inf")
     result = {"recovery": recovery, "incoming": incoming, "share": share, "parts": parts, "hits": hits,
-              "deflect": 1 - deflect, "no_deflect_share": share, "own_degen": own, "recharging": recharging}
+              "deflect": 1 - deflect, "no_deflect_share": share, "own_degen": own, "recharging": recharging,
+              "life_recharging": life_share,
+              "recharge_stopped": [name for pool, name, field in (("EnergyShield", "Energy Shield", "EnergyShieldRecharge"),
+                                                                  ("Life", "Life", "LifeRecharge"))
+                                   if number(stats.get(field)) > 0 and own_loss(stats)[pool] > 0]}
     if deflect < 1:
         bare = boss_recovery({**stats, "DeflectChance": 0})
         result["no_deflect_share"] = bare["share"]
@@ -419,6 +491,8 @@ class Objective:
         # side effect)
         self.press_choices: dict[str, float] = {}
         self.press_busy = 0.0
+        # and the time pressing Glory skills takes for the Glory shares counted (Assumptions.glory_uses_capped, SEARCH15)
+        self.glory_busy = 0.0
         # The boss's Low Life share of the fight (Search.weigh_life): 1 / (0.65 + 0.35 / (DPS on Low Life / DPS above it)),
         # set at each conditions round from one extra recalculation; 1 for a build with no Low Life lines
         self.life_factor = 1.0
@@ -496,8 +570,9 @@ class Objective:
         return math.prod(max(number(v), 0.0) for v in (getattr(self, "whole_scales", None) or {}).values())
 
     def busy(self) -> float:
-        """The main skill's share of the fight lost to chosen presses not charged in press_scales (press_busy, 0-1)."""
-        return min(max(number(getattr(self, "press_busy", 0.0)), 0.0), 1.0)
+        """The main skill's share of the fight lost to chosen presses not charged in press_scales (press_busy) and to
+        pressing Glory skills for the shares counted from them (glory_busy), 0-1."""
+        return min(max(number(getattr(self, "press_busy", 0.0)) + number(getattr(self, "glory_busy", 0.0)), 0.0), 1.0)
 
     def rescaled(self, stats: dict) -> float:
         """What entry_scales and press_scales add to Full DPS: each named entry's damage x (its scale - 1)."""

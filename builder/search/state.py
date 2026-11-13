@@ -250,8 +250,13 @@ class Build:
     def added_stats(self) -> dict:
         """The stats the search adds to every PoB result before scoring: the recovery sources (MECHC12's fields), the
         search's own flask recovery (extra_stats, which a what-if's "extra" entry may override after this) and the
-        request's boss."""
-        return {**self.recovery_sources, **self.extra_stats, **self.boss_stats}
+        request's boss. With Heartbound Loop's damage on Minion Death (Assumptions.models: build.self_damage, per second,
+        at build.minion_died's rate), that rate and damage, for the recharge shares (objective.own_events, SEARCH15)."""
+        own = {}
+        if (damage := getattr(self, "self_damage", 0.0) or 0.0) > 0:
+            died = getattr(self, "minion_died", None)
+            own = {"SelfDamagePerSecond": damage, "SelfDamageEvents": float(died[0]) if died else 0.0}
+        return {**self.recovery_sources, **self.extra_stats, **self.boss_stats, **own}
 
     # Snapshots ---------------------------------------------------------------------------------
 

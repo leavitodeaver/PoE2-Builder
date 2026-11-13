@@ -46,7 +46,9 @@ RECOVERY_NOTE = ("Life, Energy Shield and Mana regeneration, leech, on-hit recov
                  "preset: its hits that land, after evade and block, which red-flash hits ignore; less Deflection, LOW against "
                  "red-flash hits). Mana counts only for damage Mind over Matter sends to "
                  "it; Energy Shield recharge at the share of the fight it runs between the boss's landed hits (each "
-                 "restarts its delay, as does the damage over time a hit leaves; MEDIUM)")
+                 "restarts its delay, as does the damage over time a hit leaves and the build's own damage: its steady damage "
+                 "over time stops it, Heartbound Loop's damage on each minion death restarts it; MEDIUM); Life recharge "
+                 "(Eternal Youth, Tetzlapokal's Desire) at the same share")
 
 
 def recovery_text(recovery: dict) -> str:
@@ -56,6 +58,10 @@ def recovery_text(recovery: dict) -> str:
     text = f"{min(recovery['share'], 9.99):.0%} ({recovery['recovery']:,.0f}/s of {recovery['incoming']:,.0f}/s; {parts})"
     if recovery.get("recharging"):
         text += f"; Energy Shield recharge runs {recovery['recharging']:.0%} of the fight"
+    if recovery.get("life_recharging"):
+        text += f"; Life recharge runs {recovery['life_recharging']:.0%} of the fight"
+    for pool in recovery.get("recharge_stopped") or []:  # (SEARCH15, A28-2: the build's own damage over time)
+        text += f"; {pool} recharge never starts: the build's own damage over time keeps resetting its delay"
     if recovery.get("deflect"):  # (MECHC5: Deflection against red-flash hits is LOW, #78)
         text += f"; without Deflection {min(recovery['no_deflect_share'], 9.99):.0%}"
     return text

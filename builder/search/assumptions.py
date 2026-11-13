@@ -1842,6 +1842,8 @@ class Assumptions:
     def ledger_conditions(self, skills: list[dict]) -> tuple[list[str], list[dict]]:
         """Ledger conditions the build's skills switch on (e.g. it uses a skill that requires Glory), and notes on those
         that need a rate (glory_window: a share from the build's Glory skill uses per second, models.glory_uses)."""
+        if getattr(self.build, "objective", None) is not None:
+            self.build.objective.glory_busy = 0.0  # (glory_uses_capped sets it again for a Glory share counted now)
         wanted = conditions()
         if not wanted:
             return [], []
@@ -2005,12 +2007,30 @@ class Assumptions:
         caps every non-main skill). COV16: glory_uses counts a use whenever the Glory is there, so a skill that costs
         what one gain gives and holds no instance (Molten Blast: 20 per Ignite gain, one gain per 0.5 s) read 2 uses a
         second, and Call Upon the Deep's 20% penetration per use in the past 6 s read 240%: an OVERCOUNT where the
-        skill can't be used that fast. Not charged here: the main skill's time spent pressing the Glory skill (routed)."""
+        skill can't be used that fast. SEARCH15 (the press time, before routed and charged nowhere): the main skill's time
+        spent pressing them, each use taking 1 / its own speed (as Search.press_sync charges a press), goes in
+        objective.glory_busy (Objective.busy), except the main skill itself, a pressed Full DPS group (press_model
+        charges it) and a skill the search chose a press rate for (Search.press_sync charges it): no double charge."""
         glory_names = {n for n in names if n in models.GLORY_SKILLS or n in models.GLORY_FROM_LIFE}
         speeds: dict[str, float] = {}
+        charged: set[str] = set()  # (press time charged elsewhere)
         groups = getattr(self.build, "groups", None)
+        objective = getattr(self.build, "objective", None)
         if glory_names and callable(groups):  # (a stand-in build in a unit test may have none: no cap)
-            found = {g["index"]: n["name"] for g in groups() if g.get("enabled") is not False
+            listed = [g for g in groups() if g.get("enabled") is not False]
+            gems = getattr(getattr(self.build, "ctx", None), "gems", None) or {}
+            for g in listed:
+                for n in g.get("gems") or []:
+                    if n.get("name") in glory_names and (
+                            g.get("main") or getattr(objective, "full", False) and gems and pressed_group(g, gems)
+                            # (not pressed by the player at all: a meta skill or a totem uses it, no press time)
+                            or gems and not pressed_group({**g, "enabled": True, "fullDPS": True, "fromItem": False},
+                                                          gems)):
+                        charged.add(n["name"])
+            charged |= set(getattr(objective, "press_choices", None) or {})
+            if main_skill is not None and getattr(main_skill, "name", None):
+                charged.add(main_skill.name)
+            found = {g["index"]: n["name"] for g in listed
                      for n in g.get("gems") or [] if n.get("enabled", True) and n.get("name") in glory_names}
             if found:
                 for rate in self.build.call("useRates", indices=sorted(found))["rates"]:
@@ -2018,11 +2038,17 @@ class Assumptions:
                     if name and speed > 0:
                         speeds[name] = max(speed, speeds.get(name, 0.0))
         total, how = models.glory_uses(names, stats, main_skill, skills, texts)  # (cooldowns, Glory lines: MECHC13)
+        busy = 0.0
         for name, cap in speeds.items():  # (each capped skill's excess over its own speed comes back out)
             own = models.glory_uses([name], stats, main_skill, skills, texts)[0]
             if own > cap:
                 total -= own - cap
                 how += f"; {name} capped at its own {cap:.2f} uses/s (not {own:.2f})"
+            if name not in charged:
+                busy += min(own, cap) / cap
+        if objective is not None and busy > 0:
+            objective.glory_busy = round(min(busy, 1.0), 9)
+            how += f"; pressing them takes {objective.glory_busy:.1%} of the fight from the main skill"
         return max(total, 0.0), how
 
     def warcries_recently(self) -> tuple[float, str]:

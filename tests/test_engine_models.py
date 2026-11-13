@@ -1939,6 +1939,27 @@ def test_indigon_zeroes_pobs_mana_recovery_other_than_regeneration(engine):
     assert Charges.from_bridge(build.call("chargeGain")).mana_regen_only is True
 
 
+def test_tetzlapokals_life_recharges_line_gives_a_life_recharge(engine):
+    """SEARCH15 (AUDIT28 A28-3, an UNDERCOUNT): PoB parses Tetzlapokal's Desire's "Life Recharges" to nothing; the bridge
+    (setLifeRecharge) gives LifeRecharge by PoB's Eternal Youth sum (Life x 12.5% x the Energy Shield Recharge modifiers x
+    the Life recovery rate) and LifeRechargeDelay (the Energy Shield Recharge delay), beside Energy Shield Recharge."""
+    build = spark_with(engine, []).build
+    fields = ["LifeRecharge", "LifeRechargeDelay", "Life", "EnergyShield", "EnergyShieldRecharge",
+              "EnergyShieldRechargeDelay"]
+    armour = ["Rarity: Rare", "Test Raiment", "Votive Raiment", "Item Level: 82", "Implicits: 0",
+              "50% increased Energy Shield Recharge Rate"]
+    build.call("equip", slot="Body Armour", raw="
+".join(armour), fields=[])
+    before = build.call("stats", fields=fields)
+    assert before.get("LifeRecharge") is None and before["EnergyShieldRecharge"] > 0
+    build.call("equip", slot="Body Armour", raw="
+".join([*armour, "Life Recharges"]), fields=[])
+    after = build.call("stats", fields=fields)
+    assert after["LifeRecharge"] == pytest.approx(after["Life"] * 0.125 * 1.5, rel=0.01)
+    assert after["EnergyShieldRecharge"] == pytest.approx(before["EnergyShieldRecharge"])  # (both recharge)
+    assert after["LifeRechargeDelay"] == pytest.approx(after["EnergyShieldRechargeDelay"])
+
+
 def test_probe_heartbound_degen_goes_through_pobs_damage_taken_multipliers(engine):
     """MECHC14, AUDIT27 A25-19's with / without probe: the model's "N Physical Damage taken per second" line (Heartbound
     Loop's damage at the build's minion deaths) reaches TotalBuildDegen times PoB's PhysicalTakenDotMult (CalcDefence
