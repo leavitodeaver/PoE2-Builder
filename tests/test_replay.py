@@ -132,6 +132,7 @@ def test_real_pob_mode_reads_no_recorded_answer(pob, monkeypatch):
     monkeypatch.setenv("POE2_REAL_POB", "1")
     assert replay.real_pob()
     monkeypatch.setenv("POE2_REAL_POB", "0")
+    monkeypatch.delenv("POE2_REPLAY_POB", raising=False)  # (set when the suite itself runs replayed: POE2T2623)
     assert replay.real_pob()  # replay is opt-in
     monkeypatch.setenv("POE2_REPLAY_POB", "1")
     assert not replay.real_pob()
@@ -265,3 +266,47 @@ def test_recordings_under_one_collector_pause_are_not_replayed_under_another(tmp
     monkeypatch.setenv("POE2_LUA_GC_PAUSE", "150")
     assert len({unset, at_200, replay.fingerprint(tmp_path)}) == 3
 
+
+
+def test_a_saved_recording_reads_back_the_same_answers_including_an_empty_one(pob):
+    """save() writes answer by answer (PERF6: no second copy of a module's answers in memory); the file is the same JSON."""
+    first, store = engine(pob, live_only=True)
+    answers = [first.call("loadXml", xml="<Build é/>" * 50), first.call("outputAll"), first.lua.run("return 1", "chunk")]
+    store.save()
+    again, loaded = engine(pob)
+    assert loaded.entries == store.entries and len(loaded.entries) == 3
+    assert [again.call("loadXml", xml="<Build é/>" * 50), again.call("outputAll"), again.lua.run("return 1", "chunk")] == answers
+    assert FakePob.boots == 1  # the second engine never booted PoB
+    empty = replay.Store("nothing", pob)
+    empty.dirty = True
+    empty.save()
+    assert replay.Store("nothing", pob).entries == {}
+
+
+def test_a_calls_arguments_are_let_go_once_the_real_pob_has_run_it(pob):
+    """A module's shared engine makes tens of thousands of calls, many carrying a whole build: only the calls the real
+    PoB hasn't run yet are kept (PERF6)."""
+    live, store = engine(pob, live_only=True)
+    for index in range(5):
+        live.call("loadXml", xml="x" * 1000 + str(index))
+    assert all(entry is None for entry in live._log)
+    store.save()
+    replayed, _ = engine(pob)
+    for index in range(5):
+        replayed.call("loadXml", xml="x" * 1000 + str(index))
+    assert FakePob.boots == 1 and all(entry is not None for entry in replayed._log)  # no real PoB yet: it may have to catch up
+    replayed.call("outputAll")  # new: the real PoB boots, runs all six, checks the five recorded answers
+    assert FakePob.boots == 2 and all(entry is None for entry in replayed._log)
+
+
+def test_a_reordered_unsupported_in_build_answer_is_the_same_answer():
+    """unsupportedInBuild walks the allocated passives and the item slots with pairs() too (PERF6 / PERF7: the same
+    lines in another order in another process, never another line): order alone is no mismatch, a changed line is."""
+    from builder.pob.replay import same_answer
+
+    one = {"ok": {"lines": [{"source": "item:Helmet", "text": "a"}, {"source": "node:5", "text": "b"}]}}
+    shuffled = {"ok": {"lines": list(reversed(one["ok"]["lines"]))}}
+    assert same_answer("call:unsupportedInBuild", one, shuffled)
+    assert not same_answer("call:unsupportedInBuild", one, {"ok": {"lines": one["ok"]["lines"][:1]}})
+    changed = {"ok": {"lines": [{"source": "item:Helmet", "text": "a"}, {"source": "node:5", "text": "c"}]}}
+    assert not same_answer("call:unsupportedInBuild", one, changed)

@@ -29,6 +29,7 @@ from builder.pob import replay
 _RealEngine = engine_module.PobEngine
 
 _stores: dict[str, replay.Store] = {}
+_finished: list[replay.Store] = []  # modules that are over: saved, their answers dropped from memory, their counts kept
 _fixtures_in_setup: list = []  # the fixtures being set up now, innermost last
 _test_engines: list = []  # engines a test body made: closed when the test ends
 _shared_engines: list = []  # stand-in engines a fixture made, still open
@@ -129,7 +130,7 @@ def pytest_runtest_protocol(item, nextitem):
         _current["forked"] = list(_shared_engines)
         for shared in _current["forked"]:
             shared.fork()
-    before = sum(store.recorded for store in _stores.values())
+    before = sum(store.recorded for store in [*_stores.values(), *_finished])
     try:
         return (yield)
     finally:
@@ -138,7 +139,7 @@ def pytest_runtest_protocol(item, nextitem):
             if shared in _shared_engines:  # still open: back to the history the module shares
                 shared.join()
         _current["forked"] = None
-        asked = sum(store.recorded for store in _stores.values()) - before
+        asked = sum(store.recorded for store in [*_stores.values(), *_finished]) - before
         if asked and not replay.real_pob():
             _asked_real[item.nodeid] = asked
         while _test_engines:
@@ -166,6 +167,12 @@ def _save(session, name: str) -> None:
              and name not in _failed and not session.shouldstop and not session.shouldfail
              and _ran.get(name, 0) == sum(1 for item in session.items if item.path.stem == name))
     store.save(only_used=whole)
+    # The module is over and no open engine still writes to this store: let its answers go (PERF6: every module's
+    # answers, ~300 MB of text in all, stayed in the pytest process to the end of a whole-suite run). A later
+    # engine under the same name reads the file again.
+    if not any(shared._store is store for shared in _shared_engines):
+        store.entries, store.used = {}, set()
+        _finished.append(_stores.pop(name))
 
 
 def pytest_sessionfinish(session):
@@ -174,8 +181,8 @@ def pytest_sessionfinish(session):
 
 
 def pytest_terminal_summary(terminalreporter):
-    if _stores:
-        terminalreporter.write_line(replay.summary(list(_stores.values())))
+    if _stores or _finished:
+        terminalreporter.write_line(replay.summary([*_finished, *_stores.values()]))
         for nodeid, asked in _asked_real.items():
             terminalreporter.write_line(f"  real PoB answered {asked} call(s) for {nodeid}")
 

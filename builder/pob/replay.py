@@ -134,7 +134,10 @@ def unordered(value: Any) -> str:
 # `pairs(build.itemsTab.slots)` (engine/bridge.lua 3107-3112), and two real-PoB runs of test_engine_items.py with
 # the same calls gave 38 sourceLines answers that differed, every one the same lines in another order (POE2T2607).
 # Any other difference, in this answer or another, is still a ReplayMismatch.
-ORDER_FREE = {"call:sourceLines": ("ok", "lines")}
+# bridge.unsupportedInBuild fills `lines` the same way (`pairs(build.spec.allocNodes)` then
+# `pairs(build.itemsTab.slots)`, engine/bridge.lua 3437-3458): two processes gave the same lines in another order for 99
+# of 120 builds (PERF6, POE2T2621) and for 11 of 13 (PERF7, POE2T2635 / 2636), and never another line or value.
+ORDER_FREE = {"call:sourceLines": ("ok", "lines"), "call:unsupportedInBuild": ("ok", "lines")}
 
 
 def same_answer(kind: str, stored: Any, real: Any) -> bool:
@@ -192,8 +195,8 @@ class Store:
         self.hits = self.recorded = self.boots = 0
         if self.path.exists():
             try:
-                raw = zstandard.ZstdDecompressor().decompress(self.path.read_bytes(), max_output_size=2**32)
-                self.entries = json.loads(raw)
+                # (decompressobj: save() writes a stream, whose frame carries no size for decompress() to go by)
+                self.entries = json.loads(zstandard.ZstdDecompressor().decompressobj().decompress(self.path.read_bytes()))
             except (OSError, ValueError, zstandard.ZstdError):
                 self.entries = {}  # unreadable: as good as absent, the real PoB answers and it's written again
 
@@ -227,7 +230,14 @@ class Store:
                 except OSError:
                     pass
         temporary = self.path.with_suffix(f".zst.{os.getpid()}.tmp")
-        temporary.write_bytes(zstandard.ZstdCompressor(level=6).compress(json.dumps(self.entries).encode("utf-8")))
+        # Written answer by answer (PERF6): one json.dumps of everything held a second and third copy of a module's
+        # answers in memory while it was compressed (test_engine_items: +450 MB at its end, POE2T2615). Same JSON.
+        with open(temporary, "wb") as raw, zstandard.ZstdCompressor(level=6).stream_writer(raw) as out:
+            separator = b"{"
+            for chain, answer in self.entries.items():
+                out.write(separator + json.dumps(chain).encode("ascii") + b": " + json.dumps(answer).encode("utf-8"))
+                separator = b", "
+            out.write(b"}" if self.entries else b"{}")
         os.replace(temporary, self.path)
         self.dirty = False
 
@@ -250,7 +260,7 @@ class ReplayEngine:
     def __init__(self, store: Store, boot: Callable[[], PobEngine] = PobEngine, live_only: bool = False) -> None:
         self._store, self._boot, self._live_only = store, boot, live_only
         self._chain = hashlib.sha256(b"PobEngine()").hexdigest()
-        self._log: list[tuple[str, str, str]] = []  # every call so far: (kind, argument JSON, its chain hash)
+        self._log: list[tuple[str, str, str] | None] = []  # every call so far: (kind, argument JSON, its chain hash); None once the real engine ran it
         self._engine: PobEngine | None = None
         self._synced = 0  # how many of _log the real engine has run
         self._closed = False
@@ -319,6 +329,9 @@ class ReplayEngine:
         answer = ""
         while self._synced < len(self._log):
             kind, arguments, chain = self._log[self._synced]
+            # The real engine has this call now and nothing reads it again: let its arguments go (whole builds' XML,
+            # tens of thousands of calls on a module's shared engine, were kept for the engine's life before; PERF6)
+            self._log[self._synced] = None
             self._synced += 1
             answer = self._ask(engine, kind, arguments)
             stored = None if self._live_only else self._store.entries.get(chain)
