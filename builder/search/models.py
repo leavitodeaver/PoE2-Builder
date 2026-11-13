@@ -2201,6 +2201,17 @@ def unbound_uptime(stats: dict, duration: float, on: bool) -> tuple[float, str, 
     ignite = min(number(stats.get("IgniteChancePerHit")) / chance_div, 100.0) / 100
     shock = min(number(stats.get("ShockChancePerHit")) / chance_div, 100.0) / 100
     chill = min(number(stats.get("ChillChanceOnHit")), 100.0) / 100
+    # (AUDIT25 A25-3, MECHC11: a Chill counts only when it meets the game's 30% floor (conditions.chill_effect, MECH54:
+    # every type that can Chill, after the boss's resistances; crits on their own); before, PoB's 1% check, so weak-Cold
+    # hits earned Fury. With the box on, the 40% more Elemental Damage comes back out of the magnitude (LOW: taken as
+    # scaling the whole Chilling hit))
+    from builder.search import conditions
+    normal, critical, _ = conditions.chill_effect(stats)
+    damage_div = 1 + UNBOUND_BUFF[0][1] / 100 if on else 1.0
+    crit = min(number(stats.get("CritChance")), 100.0) / 100
+    floor_met = ((1 - crit) * (normal / damage_div >= conditions.CHILL_FLOOR)
+                 + crit * (critical / damage_div >= conditions.CHILL_FLOOR))
+    chill *= floor_met
     off = {**stats, "FreezeBuildupAvg": number(stats.get("FreezeBuildupAvg")) / buildup_div,
            "ElectrocuteBuildupAvg": number(stats.get("ElectrocuteBuildupAvg")) / buildup_div}
     heavy = buildup_rate(off, "Freeze") + buildup_rate(off, "Electrocute")
@@ -2213,7 +2224,7 @@ def unbound_uptime(stats: dict, duration: float, on: bool) -> tuple[float, str, 
     alt = duration / max(UNBOUND_COOLDOWN, duration + fill)
     how = (f"Unbound {duration:g} s per cycle of {duration + max(UNBOUND_COOLDOWN, fill):.1f} s: 100 Unbound Fury in "
            f"{fill:.1f} s ({fury:.2f}/s: {hits:.2f} hits/s x (Ignite {ignite:.0%} + Shock {shock:.0%} + Chill "
-           f"{chill:.0%}) x 1, Freeze and Electrocute {heavy:.3f}/s x 6; the main skill's hits only), then the "
+           f"{chill:.0%}, hits over the 30% Chill floor only) x 1, Freeze and Electrocute {heavy:.3f}/s x 6; the main skill's hits only), then the "
            f"{UNBOUND_COOLDOWN:g} s cooldown counted from the buff's end (UNVERIFIED; {alt:.0%} if it ticks while "
            f"Unbound); pressed once a cycle")
     return up, how, alt

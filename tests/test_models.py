@@ -3173,9 +3173,18 @@ def test_unbound_uptime_from_the_builds_ailments():
     up, how, alt = models.unbound_uptime(stats, 9.9, False)
     # 2 Fury/s: 50 s to fill; cycle 9.9 + 50
     assert up == pytest.approx(9.9 / 59.9) and alt == pytest.approx(9.9 / 59.9) and "50.0 s" in how
-    fast = {**stats, "ShockChancePerHit": 100.0, "ChillChanceOnHit": 100.0, "Speed": 10.0}
+    fast = {**stats, "ShockChancePerHit": 100.0, "ChillChanceOnHit": 100.0, "Speed": 10.0,
+            "ChillHitDamage": 1000.0, "ChillCritDamage": 1500.0, "EnemyAilmentThreshold": 1000.0}  # a 100% Chill
     up, _, alt = models.unbound_uptime(fast, 9.9, False)  # 20 Fury/s: 5 s, under the cooldown
     assert up == pytest.approx(9.9 / 21.9) and alt == pytest.approx(9.9 / 14.9)
+    # AUDIT25 A25-3 (MECHC11): a Chill under the game's 30% floor earns no Fury (PoB Chills from 1%)
+    weak = {**fast, "ChillHitDamage": 200.0, "ChillCritDamage": 300.0}  # 20% / 30%: crits only, at 25% crit chance
+    _, how, alt = models.unbound_uptime({**weak, "CritChance": 25.0}, 9.9, False)  # 10 + 2.5 Fury/s: 8 s
+    assert alt == pytest.approx(9.9 / (9.9 + 100 / 12.5)) and "30% Chill floor" in how
+    assert models.unbound_uptime({**weak, "CritChance": 0.0}, 9.9, False)[2] == pytest.approx(9.9 / 19.9)  # Shock only
+    # with the box on, the 40% more Elemental Damage comes out of the magnitude: 1000 -> 714, still over 30%
+    on = models.unbound_uptime({**fast, "ShockChancePerHit": 180.0, "ChillChanceOnHit": 100.0}, 9.9, True)
+    assert on[2] == pytest.approx(9.9 / 14.9)
     # taken with the box on: the 80% more chance comes back out
     assert models.unbound_uptime({**stats, "ShockChancePerHit": 90.0}, 9.9, True)[0] == pytest.approx(up_ := 9.9 / 59.9)
     assert models.unbound_uptime({"Speed": 4.0, "HitChance": 100.0}, 9.9, False)[0] == 0

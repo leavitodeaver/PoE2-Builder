@@ -2397,7 +2397,7 @@ CONDITIONS: list[Condition] = [
     Condition("buffDivinity", "Divinity (on reaching maximum Divine Charges)", value_fn=_divinity, fields=("Speed", "HitChance")),
     Condition("Unbound", "Unbound (Unbound Avatar, from Unbound Fury)", value_fn=_unbound,
               fields=("Speed", "HitChance", "IgniteChancePerHit", "ShockChancePerHit", "ChillChanceOnHit",
-                      *models.IMMOBILISE_FIELDS)),
+                      *models.IMMOBILISE_FIELDS, *CHILL_FIELDS)),
     Condition("conditionEnemyArmourBroken", "Armour Broken"),  # (armour_broken_uptime, Conditions.evidence)
     Condition("conditionEnemyCursed", "Cursed", value_fn=lambda lines, stats: _cursed(stats),
               fields=("PresenceRadius",)),
