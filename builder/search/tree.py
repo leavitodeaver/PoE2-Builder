@@ -96,8 +96,8 @@ class Tree:
 
     def conquered_lines(self) -> dict[int, list[str]]:
         """The lines of the nodes a socketed Timeless jewel conquered (bridge conqueredNodes: PoB replaces a conquered
-        keystone by the jewel's keystone, e.g. Dance with Death's "Can't use Helmets"; ctx.nodes has the raw tree's
-        lines). Read once per commit."""
+        keystone by the jewel's keystone; ctx.nodes has the raw tree's lines; "Can't use Helmets" is PoE1 Maraketh data no
+        PoE2 jewel grants: gear.SLOT_RESTRICTIONS). Read once per commit."""
         commits = getattr(self.build, "commits", None)
         cached = self.__dict__.get("_conquered")
         if cached is None or cached[0] != commits:
@@ -264,8 +264,8 @@ class Tree:
                 continue
             before = self.build.score
             allocated = {n["id"] for n in self.build.call("allocatedNodes")["nodes"]}
-            # A node restricting an equipment slot (SLOT_RESTRICTIONS: a Timeless jewel's conquered Dance with Death,
-            # "Can't use Helmets") was ranked by a what-if with today's helmet on: its commit is judged with the slot
+            # A node restricting an equipment slot (SLOT_RESTRICTIONS: Smith of Kitava's Smith's Masterwork; the PoE1
+            # "Can't use Helmets" no PoE2 jewel grants) was ranked by a what-if with today's helmet on: its commit is judged with the slot
             # made legal (Gear.enforce_restrictions), and a loss puts the build back, gear included (SEARCH6)
             restricting = (set(self.restricting({c.id for c in candidates} | set(self.conquered_lines()))) - allocated
                            if self.enforce is not None else set())  # (the frontier and conquered nodes: grow takes no ascendancy)

@@ -67,7 +67,12 @@ AFFIX_LIMIT = {"Prefix": 3, "Suffix": 3}
 # Equipment restrictions on the build's own lines (COV-B, COVB3). PoB ignores both lines (ModCache: no modifier), so
 # without this a build taking the passive could wear what the game won't let it use:
 #   Smith's Masterwork (Smith of Kitava): "Can only use a Normal Body Armour"
-#   Dance with Death (the keystone a Timeless jewel conquers into; PoB replaces the keystone whole): "Can't use Helmets"
+#   "Can't use Helmets": PoE1 data kept for safety, which no PoE2 build can carry. PoB-PoE2's LegionPassives.lua keeps
+#   PoE1's Maraketh Timeless keystone Dance with Death (maraketh_keystone_2) with it, but PoE2 has no jewel that conquers
+#   for the Maraketh, and PoE2's own Dance with Death (passive_keystone_dance_with_death) is "25% more Skill Speed while
+#   Off Hand is empty and you have a One-Handed Martial Weapon equipped in your Main Hand", with no helmet line (checked:
+#   PassiveSkills / KeywordPopups DanceWithDeath; coverage.NO_JEWEL_FACTIONS; poe2db Timeless_Jewel lists keystones only
+#   for Heroic Tragedy and Undying Hate; AUDIT26 A26-4). Matched by line, so it moves no build.
 # Matched by line, from every allocated passive and equipped item (Build sourceLines), not by passive name.
 SLOT_RESTRICTIONS = {
     "Can only use a Normal Body Armour": ("Body Armour", "normal"),
