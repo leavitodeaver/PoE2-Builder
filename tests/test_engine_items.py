@@ -247,8 +247,6 @@ def test_a_search_never_ends_below_where_it_started(engine):
     """A pass the deadline cuts short can stop inside a block; before any pass finished without
     improving, nothing restored the start (finalize's short polish ended worse than the build the
     run had chosen)."""
-    import time
-
     from builder.search.inner import Search
     from builder.search.skeletons import enumerate_skeletons
 
@@ -265,15 +263,13 @@ def test_a_search_never_ends_below_where_it_started(engine):
 
     search.blocks = interrupted_pass
     search.build.objective.escalate = lambda stats: False  # keep the weights, so scores compare
-    search.run(time.perf_counter() + 0.3)
+    search.run(clock.now() + 0.3)
     assert search.build.score >= start - 1e-9
 
 
 def test_a_search_that_raises_requirements_keeps_its_progress_and_ends_cleanly(engine):
     """Raising requirement weights trades score for requirements on purpose, so the start no longer
     bounds the result; with no snapshot kept yet, the search used to crash (max() of nothing)."""
-    import time
-
     from builder.search.inner import Search
     from builder.search.skeletons import enumerate_skeletons
 
@@ -282,7 +278,7 @@ def test_a_search_that_raises_requirements_keeps_its_progress_and_ends_cleanly(e
     search = Search(engine, None, make_payload(ctx.request), skeleton.as_dict(), 0)
     search.setup(quests=False)
     search.blocks = lambda deadline: True  # passes that "improve" but never reach the far-off Life floor
-    search.run(time.perf_counter() + 0.5)
+    search.run(clock.now() + 0.5)
     assert search.escalations >= 1
 
 
@@ -290,8 +286,6 @@ def test_a_search_that_raises_requirements_keeps_its_progress_and_ends_cleanly(e
 def test_finalize_never_trades_a_requirement_for_damage(engine):
     """The score lets a build trade a small shortfall for enough damage; no search ends on such a build when it saw
     one that met every requirement (keep_feasible; before 7 Nov only finalize's feasible_first held that)."""
-    import time
-
     from builder.search.inner import Search
     from builder.search.skeletons import enumerate_skeletons
 
@@ -312,7 +306,7 @@ def test_finalize_never_trades_a_requirement_for_damage(engine):
         search.build.objective.escalate = lambda stats: False
         # Stand-in for a floor the stronger build misses: anything above the start's damage is short
         search.shortfall = lambda stats: 1.0 if search.build.objective.dps(stats) > start_dps * 1.0001 else 0.0
-        search.run(time.perf_counter() + 0.3, escalate=False, feasible_first=feasible_first)
+        search.run(clock.now() + 0.3, escalate=False, feasible_first=feasible_first)
         end_dps = search.build.objective.dps(search.build.stats)
         assert end_dps == pytest.approx(start_dps)
 

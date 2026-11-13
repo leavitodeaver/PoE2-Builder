@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import pytest
 
+from builder import clock
 from builder.data import GameData
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
@@ -139,8 +140,6 @@ def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):
     """A bare Boneshatter crits too rarely to feed Cast on Critical: every trial is turned down (no trigger once per 30 s),
     so nothing PoB counts of the spell besides its damage (a buff at full) can make the group pay. Cast on Dodge, which
     any build feeds (dodge rolls), is banned here to keep the test on Cast on Critical."""
-    import time
-
     payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"],
                                         forbid={"skills": ["Cast on Dodge"]}))
     skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
@@ -150,7 +149,7 @@ def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):
     tried = []
     trial = search.gems.trial_meta
     search.gems.trial_meta = lambda gems: tried.append(trial(gems)) or tried[-1]
-    assert search.gems.meta_round(time.perf_counter() + 60) is False
+    assert search.gems.meta_round(clock.now() + 60) is False
     assert tried and all(score is None for score in tried)  # Cast on Critical was screened in and tried for real
     assert [[g["name"] for g in group["gems"]] for group in search.build.groups()] == before
 
@@ -238,8 +237,6 @@ def test_supports_round_fills_the_meta_group(engine):
 def test_meta_spell_round_keeps_a_second_spell_only_if_it_pays(engine):
     """Slice 3: meta_spell_round tries a second spell for real (the Energy model halves the first's rate) and keeps it only
     if the build scores better; either way the group's first spell and levels stay, and the socket cap holds."""
-    import time
-
     from builder.search.context import SUPPORT_SLOTS
     from builder.search.gems import META_LABEL
 
@@ -256,7 +253,7 @@ def test_meta_spell_round_keeps_a_second_spell_only_if_it_pays(engine):
     tried = []
     trial = gems.trial_meta_spell
     gems.trial_meta_spell = lambda *a: tried.append(trial(*a)) or tried[-1]
-    kept = gems.meta_spell_round(time.perf_counter() + 120)
+    kept = gems.meta_spell_round(clock.now() + 120)
     assert tried  # spells were tried for real
     group = gems.supports_group(build.groups(), meta=True)
     actives = [(g["name"], g["level"]) for g in group["gems"] if not g["support"]]
@@ -797,7 +794,6 @@ def test_bijouborne_is_tried_and_its_cast_on_charm_use_gets_no_spell_without_cha
 def test_a_meta_kick_takes_the_meta_group_out_and_the_meta_steps_rechoose_it_in_the_same_pass(engine):
     """Slice 9: the meta round adds a group only when the build has none, so without this kick a meta chosen early (or
     a seed's) stayed for the whole search. A required meta, or one an item grants, is never kicked."""
-    import time
     from builder.search.gems import META_LABEL
 
     def boneshatter(**body) -> Search:
@@ -820,10 +816,10 @@ def test_a_meta_kick_takes_the_meta_group_out_and_the_meta_steps_rechoose_it_in_
     search.step = lambda phase, fn, *args: phases.append(phase) or False
     search.passes = search.line_passes = 1  # not a sweep pass (M1 counts the line's passes)
     search.kicked = {"meta"}
-    search.blocks(time.perf_counter() + 60)
+    search.blocks(clock.now() + 60)
     assert "meta gems" in phases and "meta spells" in phases and "totems" not in phases
     phases.clear()
-    search.blocks(time.perf_counter() + 60)  # the next pass between sweeps skips them again
+    search.blocks(clock.now() + 60)  # the next pass between sweeps skips them again
     assert "meta gems" not in phases
 
     assert not boneshatter(require={"skills": ["Cast on Dodge"]}).meta_kickable()

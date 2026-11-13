@@ -11,7 +11,7 @@ from functools import cache
 
 import pytest
 
-from builder import ROOT
+from builder import ROOT, clock
 from builder.data import GameData
 from builder.search.radius import compact, miscalculated, variants_of, with_variants
 
@@ -178,7 +178,7 @@ def grown(engine):
     skeleton = enumerate_skeletons(ctx, ["Ice Shot"])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)
     search.setup(quests=False)
-    search.tree.grow(time.perf_counter() + 60)
+    search.tree.grow(clock.now() + 60)
     return search
 
 
@@ -188,7 +188,7 @@ def test_the_search_takes_what_a_jewel_unlocks_when_it_pays(grown, monkeypatch):
     monkeypatch.setattr(jewels, "UNLOCK_SCREENS", 200)  # every socket and variant in one round
     build = grown.build
     before = build.score
-    assert grown.jewels.unlock_round(time.perf_counter() + 300)
+    assert grown.jewels.unlock_round(clock.now() + 300)
     assert build.score > before
     check = build.call("treeCheck")
     assert check["ok"] and check["unconnected"]
@@ -203,7 +203,7 @@ def test_megalomaniac_gets_the_notables_that_score_best(grown):
     socket = jewels.sync()[0]
     slot = jewels.slot(socket)
     option = next(o for o in jewels.uniques(slot) if o.name == "Megalomaniac")
-    chosen = jewels.version(slot, option, time.perf_counter() + 120)
+    chosen = jewels.version(slot, option, clock.now() + 120)
     assert len(chosen.variants) == 3 and len(set(chosen.variants)) == 3
     default, best = grown.build.item_deltas([{"slot": slot, "raw": option.raw}, {"slot": slot, "raw": chosen.raw}])
     assert best[0] > default[0]
@@ -212,7 +212,7 @@ def test_megalomaniac_gets_the_notables_that_score_best(grown):
     banned.add(chosen.variants[0])
     try:
         jewels.full_rounds += 1  # rescored on the next full round
-        assert chosen.variants[0] not in jewels.version(slot, option, time.perf_counter() + 120).variants
+        assert chosen.variants[0] not in jewels.version(slot, option, clock.now() + 120).variants
     finally:
         banned.discard(chosen.variants[0])
 
@@ -249,7 +249,7 @@ def disciple(engine):
     skeleton = enumerate_skeletons(ctx, ["Spark"])[0][0]
     search = Search(engine, None, make_payload(request), skeleton.as_dict(), 0)
     search.setup(quests=False)
-    search.tree.grow(time.perf_counter() + 60)
+    search.tree.grow(clock.now() + 60)
     if not search.jewels.sync():
         near = engine.call("frontier", maxDistance=6, sockets="only")["nodes"]
         search.build.allocate(add=[min(near, key=lambda n: n["distance"])["id"]])
@@ -302,7 +302,7 @@ def test_the_search_pairs_leylines_with_a_time_lost_jewel(disciple, monkeypatch)
     monkeypatch.setattr(jewels, "build_rare", lambda slot, deadline, required=None, bases=(): option)
     monkeypatch.setattr(jewels, "uniques", lambda slot: [])
     jewels.full_rounds = 2
-    assert jewels.radius_trial(time.perf_counter() + 120)
+    assert jewels.radius_trial(clock.now() + 120)
     assert 36891 in {p["id"] for p in build.call("facts", fields=[])["passives"]}
     assert option in build.equipped.values()
     # Leylines pulls its weight: taking it out would lose score
