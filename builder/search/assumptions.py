@@ -1625,17 +1625,19 @@ class Assumptions:
             if condition.get("spell_crits_recently"):
                 # a count, not a share (COV17; Seed of Cataclysm's "5% reduced Critical Spell Damage Bonus per Critical
                 # Hit you've dealt with Spells Recently", an OVERCOUNT while PoB dropped it): the main skill's Critical
-                # Hits a second over the window (Recently, 4 s), in whole percent; its lines are `share:` lines
+                # Hits a second over the window (Recently, 4 s), in whole percent; its lines are `share:` lines. Only
+                # for a build carrying such a line (no stats call otherwise)
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
                 count, how = self.spell_crits_recently(float(condition["spell_crits_recently"]), main_types)
                 percent = round(100 * max(count, 0.0))
                 if percent > 0:
                     self.ledger_shares[condition["id"]] = percent
                     found.append(condition["id"])
-                if self.has_line(condition.get("shown_for") or "$^"):
-                    notes.append({"label": condition["title"], "value": round(count, 1),
-                                  "basis": f"{how}; its lines count {percent}% of their value",
-                                  "confidence": "LOW (the main skill's hits only: other Spells' Critical Hits and a "
-                                                "cast's extra hits are not counted, so the loss may be larger)"})
+                notes.append({"label": condition["title"], "value": round(count, 1),
+                              "basis": f"{how}; its lines count {percent}% of their value",
+                              "confidence": "LOW (the main skill's hits only: other Spells' Critical Hits and a "
+                                            "cast's extra hits are not counted, so the loss may be larger)"})
                 continue
             if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
                 share, how = self.jagged_ground_share(main, main_types, main_group)
