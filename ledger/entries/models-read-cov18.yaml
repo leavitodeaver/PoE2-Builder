@@ -1,0 +1,78 @@
+# Item lines PoB doesn't parse that a custom model already reads, which the coverage audit still called uncounted
+# (COV18: scratch/cov18/modelread.py, COV17's script, matched every uncounted item line against the search's
+# module-level patterns; each one here was checked against the code that uses the pattern, and patterns that only
+# exclude a line (the *_NOT_SOURCE ones, QUALIFIERS) weren't taken as readers). The models read the lines themselves
+# (bridge sourceLines), so these entries add nothing (replace: []); they tell the audit the line is counted.
+# Read and left open: Redflare Conduit's "Lose all Power Charges on reaching maximum Power Charges" (conditions.
+# _reaching_maximum reads it for the reaching-maximum event rate, but _charges_held doesn't, so the Power Charges held
+# stay near the maximum: an OVERCOUNT routed to MECH-C); Hateforge's "Gain a random Charge on reaching Maximum Rage"
+# (rage_held says it isn't counted); Gloomform's Smoke Cloud (STATIONARY_LINE reads "while stationary" as a condition,
+# not the cloud's effect).
+
+- id: model-divine-charges-for-divinity
+  title: Divine Charges (maximum, gain on hit, lost on gaining Divinity) for the Divinity model
+  kind: pob_gap
+  model: divinity
+  match: '^(\+?(\d+) to maximum Divine Charges|((\d+(?:\.\d+)?)% chance to )?Gain an? Divine Charge on Hit|Lose all Divine Charges when you gain Divinity)$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    conditions._divinity (MECH49) reads all three (DIVINE_MAX, DIVINE_ON_HIT, DIVINE_LOSE) with "You gain Divinity for
+    10 seconds on reaching maximum Divine Charges" (PoB parses that one): the main skill's landed hits fill the maximum,
+    Divinity lasts its seconds and the charges are lost; without the "Lose all" line the maximum is held and Divinity
+    counts 0 after the first. Divine Charges do nothing else today: the one other stat on them,
+    elemental_damage_+%_per_divine_charge, has no carrier (checked: every Stats id holding divine_charge and every
+    table's stat columns, game 26476662: only ModType names it; the two mods DivineChargeOnHitUnique__1_ and
+    GainDivinityOnMaxDivineChargeUnique__1 carry the rest; poe2db not checked).
+  sources: ["builder/search/conditions.py (DIVINE_MAX, DIVINE_ON_HIT, DIVINE_LOSE, _divinity)",
+            "data/game-26476662/tables/Mods.json (DivineChargeOnHitUnique__1_, GainDivinityOnMaxDivineChargeUnique__1)"]
+  test_in_game: "Not needed: the Divinity model's own test covers the fill time."
+  status: proposed
+
+- id: model-rage-lost-at-maximum
+  title: Lose all Rage on reaching Maximum Rage (the Rage model)
+  kind: pob_gap
+  model: rage
+  match: '^Lose all Rage on reaching Maximum Rage$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    conditions.rage_held (MECHC11, RAGE_RESET_AT_MAX): a build that would reach the maximum climbs 0 -> M and drops back,
+    M / 2 on average (LOW: gains taken as steady). Hateforge's other line, "Gain a random Charge on reaching Maximum
+    Rage", isn't counted (rage_held's comment says so) and stays open.
+  sources: ["builder/search/conditions.py (RAGE_RESET_AT_MAX, rage_held)"]
+  test_in_game: "Not needed: the line's effect is as worded."
+  status: proposed
+
+- id: model-blood-of-the-warrior-rage
+  title: Blood of the Warrior's Rage lines during the flask's effect (the Rage model)
+  kind: pob_gap
+  model: rage
+  match: '^(No Inherent loss of Rage during effect|Gain (\d+) Rage when Hit by an Enemy during effect)$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    conditions.rage_held reads both while the flask's slot counts (the bridge's sourceLines carry a flask's lines only
+    then): "No Inherent loss of Rage" (RAGE_NO_LOSS, MECHC4) holds the maximum while any Rage comes in, and "Gain N
+    Rage when Hit by an Enemy" (RAGE_SOURCE, _rage_gain's "hit by" branch) at the boss's landing hits, at most one gain
+    per 0.5 s. The flask's "Damage taken during effect Recouped as Life" isn't read and stays open.
+  sources: ["builder/search/conditions.py (RAGE_NO_LOSS, RAGE_SOURCE, _rage_gain, rage_held)"]
+  test_in_game: "Not needed: the lines' effects are as worded."
+  status: proposed
+
+- id: model-steal-charges-from-the-boss
+  title: "Steal Power, Frenzy and Endurance Charges on Hit (the charge model: 0 against a boss, said)"
+  kind: pob_gap
+  model: charges
+  match: '^((\d+(?:\.\d+)?)% chance to )?Steal Power, Frenzy,? and Endurance Charges on Hit$'
+  replace: []
+  confidence: reported
+  notes: >-
+    conditions._charges_held (MECHC7, STEAL_CHARGES) reads it and counts 0 with its reason in the basis: the boss
+    presets hold no Charges to steal (research boss-charges-steal.md, RESEARCH19 #107, MEDIUM-HIGH: no mod, skill or
+    monster file gives a pinnacle boss any; the .ao / .ais files weren't read, so UNVERIFIED there). Whether an add
+    preset's monsters hold Charges isn't researched (UNVERIFIED; the model counts 0 there too, a possible undercount).
+  sources: ["builder/search/conditions.py (STEAL_CHARGES, STEAL_NOTE, _charges_held)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/boss-charges-steal.md"]
+  test_in_game: "Hit a pinnacle boss with the line: no charges are gained."
+  status: proposed

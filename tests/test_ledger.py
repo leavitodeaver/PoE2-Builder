@@ -247,3 +247,25 @@ def test_flask_lines_the_bridge_reads_are_counted_by_the_audit():
                       "Lose 5 Life when you use a Skill": "life when you use a skill"}.items():
         assert lua in bridge, lua
         assert ignored_line_status(line, False)[:1] == ("model",), line
+
+
+def test_cov18_item_lines_a_model_already_reads_are_counted_by_the_audit():
+    """COV18: Divine Charge lines (conditions._divinity), Hateforge's Rage reset and Blood of the Warrior's Rage lines
+    (conditions.rage_held) and Steal Charges (conditions._charges_held, 0 against a boss) are read by their patterns
+    and counted by the audit. Redflare Conduit's "Lose all Power Charges on reaching maximum" stays open: the charges
+    held don't read it (an OVERCOUNT routed to MECH-C)."""
+    from builder.ledger.coverage import ignored_line_status
+    from builder.search import conditions
+
+    read = {"+10 to maximum Divine Charges": conditions.DIVINE_MAX,
+            "Gain a Divine Charge on Hit": conditions.DIVINE_ON_HIT,
+            "Lose all Divine Charges when you gain Divinity": conditions.DIVINE_LOSE,
+            "Lose all Rage on reaching Maximum Rage": conditions.RAGE_RESET_AT_MAX,
+            "No Inherent loss of Rage during effect": conditions.RAGE_NO_LOSS,
+            "Gain (3-5) Rage when Hit by an Enemy during effect": conditions.RAGE_SOURCE,
+            "10% chance to Steal Power, Frenzy, and Endurance Charges on Hit": conditions.STEAL_CHARGES}
+    for line, pattern in read.items():
+        rolled = re.sub(r"\((-?[\d.]+)-(-?[\d.]+)\)", r"\1", line)
+        assert pattern.search(rolled), line
+        assert ignored_line_status(line, False)[0] == "model", line
+    assert ignored_line_status("Lose all Power Charges on reaching maximum Power Charges", False)[0] == "none"
