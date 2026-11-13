@@ -408,6 +408,9 @@ def _hit_restriction(when: str, stats: dict) -> str | None:
 # counts too
 NO_FRENZY_STAT = "skill_cannot_generate_frenzy_charges"
 NO_BLIND_STAT = "cannot_inflict_blind"  # Blindside (sup_dex.lua SupportBlindsidePlayer; Stats.json)
+# (the build's lines that name Blind: only then is the main skill asked for it; MECH59: a backspace had stood for \b
+# here since MECH55, so the check never ran)
+BLIND_LINE = re.compile(r"\bblind", re.I)
 
 
 def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
@@ -2858,7 +2861,7 @@ class Conditions:
             if number((main.get("supportStats") or {}).get(NO_FRENZY_STAT)) or number(
                     (main.get("levelStats") or {}).get(NO_FRENZY_STAT)):
                 stats["_main_no_frenzy"] = NO_FRENZY_STAT
-        if any(re.search(r"blind", t, re.I) for t in texts):
+        if any(BLIND_LINE.search(t) for t in texts):
             # a main skill that "cannot themselves inflict Blind" (Blindside's cannot_inflict_blind, on the skill or a
             # support of it; RESEARCH9 / COVE3's OVERCOUNT, MECH55): its hits and crits feed no Blind line (_debuff_source)
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[NO_BLIND_STAT])

@@ -2546,3 +2546,22 @@ def test_heavy_contact_culls_on_the_next_heavy_stun():
     off, why = c._heavy_contact([line], {})
     assert off == 0.0 and "doesn't Heavy Stun" in why
     assert any(x.var == "conditionHitsAlwaysHeavyStun" for x in c.CONDITIONS)
+
+
+def test_the_blindside_check_reads_blind_lines():
+    """MECH59 (MECHC11's find): MECH55's Blindside check had a backspace where \\b was meant, so no line ever matched
+    and Blindside's OVERCOUNT fix never ran. The pattern matches Blind lines, and no source file holds a backspace."""
+    from pathlib import Path
+
+    from builder.search import conditions as c
+
+    assert c.BLIND_LINE.search("Blind Enemies on Critical Hit")
+    assert c.BLIND_LINE.search("10% chance to Blind Enemies on Hit with Attacks")
+    assert c.BLIND_LINE.search("Hits against Blinded enemies deal 20% more damage")
+    assert not c.BLIND_LINE.search("Strikes have a 20% chance to Maim")
+    root = Path(c.__file__).resolve().parents[2]
+    for folder in ("builder", "engine", "tests"):
+        for path in (root / folder).rglob("*"):
+            # (builder/ledger/coverage.py 472 has two, COV-A's file: routed to COV-A; drop this skip once fixed)
+            if path.suffix in (".py", ".lua") and path != root / "builder" / "ledger" / "coverage.py":
+                assert b"\x08" not in path.read_bytes(), path
