@@ -654,6 +654,31 @@ def charges_with_refresh(gains: float, duration: float, most: float, extra: floa
     return min(held, most)
 
 
+# "Lose all <kind> Charges on reaching maximum <kind> Charges" (MECHC14; COV18, an OVERCOUNT: Redflare Conduit's Power
+# Charges; PoB parses the line to no mod, ModCache {nil, ...}; before, the line was read only for how often the maximum is
+# reached, _reaching_maximum, and the charges held were counted as if the build kept the maximum)
+CHARGE_RESET_AT_MAX = re.compile(r"\blose all (power|frenzy|endurance) charges on reaching maximum \1 charges\b", re.I)
+
+
+def charges_with_reset(gains: float, duration: float, most: float, extra: float = 0.0, fill: float = 0.0) -> float:
+    """Charges held on average when all are lost on reaching the maximum (MECHC14). Between losses the count climbs one
+    gain at a time: n gains since the last loss hold n x (1 + extra) charges, and the gain that would reach the maximum
+    (after N = ceil(maximum / (1 + extra)) gains, or any gain at chance `fill` that fills to it) drops them to 0, held for
+    an instant. Charges also all drop when no gain comes for `duration` s (charges_with_refresh's rule; gains taken as
+    random arrivals, assumed). With p = 1 - e^(-gains x duration) and a = 1 - fill, the time spent at n gains (n >= 1) is
+    in proportion to (a p)^n, at 0 to 1, so the average is sum n (1 + extra) (a p)^n / (1 + sum (a p)^n), n = 1 .. N - 1
+    (= (N - 1) / 2 x (1 + extra) when nothing expires and nothing fills)."""
+    top = int(round(most))
+    if top <= 0 or gains <= 0 or duration <= 0:
+        return 0.0
+    per = 1.0 + max(min(extra, 1.0), 0.0)
+    steps = max(1, math.ceil(top / per - 1e-9))
+    c = (1 - min(max(fill, 0.0), 1.0)) * (1 - math.exp(-gains * duration))
+    weights = [c ** n for n in range(1, steps)]
+    held = sum(n * per * w for n, w in zip(range(1, steps), weights)) / (1 + sum(weights))
+    return min(held, most)
+
+
 # Charges gained as another kind, or by allies instead (MECHC2, FIX_QUEUE: nothing read either keystone, so the player
 # kept charges of the original kind: an overcount). Resonance (passive_keystone_resonance, KeywordPopups ChargeCycle):
 # "Gain Power Charges instead of Frenzy Charges / Frenzy instead of Endurance / Endurance instead of Power": a source of
@@ -750,6 +775,15 @@ def _charges_held(kind: str):
             count = charges_with_refresh(gains, duration, most, extra, fill)
             basis = (f"{gains:.2f} gains/s{extra_text}, all dropping after {duration:g} s without a gain (gains taken as "
                      f"random arrivals)" + (f"; {fill:.0%} chance a gain fills to the maximum" if fill else ""))
+        reset = next((t for t in lines if (m := CHARGE_RESET_AT_MAX.search(t)) and m.group(1).capitalize() == kind), None)
+        if reset is not None:
+            # (MECHC14: climbs to the maximum and drops to 0; beside a consumer, at the gains left after its spends)
+            left = gains * (max(rate - spent, 0.0) / rate if spent and rate > 0 else 1.0)
+            cycling = charges_with_reset(left, duration, most, extra, fill)
+            if cycling < count:
+                count = cycling
+                basis += (f"; '{reset[:70]}': the count climbs to {most:g} and drops to 0, so {cycling:.1f} held on "
+                          f"average ({left:.2f} gains/s kept)")
         return round(count, 1), ((redirected + "; ") if redirected else "") + (
             f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3]))
     return held

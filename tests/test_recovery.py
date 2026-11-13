@@ -274,3 +274,23 @@ def test_indigon_stops_mana_flask_recovery():
     assert recovery_per_second(life, blocked, "Life") == recovery_per_second(life, gain, "Life") > 0
     assert Charges.from_bridge({"manaRegenOnly": True}).mana_regen_only is True
     assert Charges.from_bridge({}).mana_regen_only is False
+
+
+def test_lose_all_charges_on_reaching_maximum_counts_the_average_held():
+    """MECHC14 (COV18, an OVERCOUNT): Redflare Conduit's "Lose all Power Charges on reaching maximum Power Charges": the
+    count climbs 0 -> maximum and drops, so a build gaining 1 a second with a maximum of 3 holds about 1 (0, 1, 2 for a
+    gain each), not the 3 it kept before; a slow gainer whose charges expire holds less still."""
+    from builder.search.conditions import _charges_held, charges_with_reset
+
+    assert charges_with_reset(1.0, 1e9, 3) == pytest.approx(1.0)  # (N - 1) / 2, nothing expires
+    assert charges_with_reset(1.0, 1e9, 5) == pytest.approx(2.0)
+    assert charges_with_reset(1.0, 1e9, 4, extra=1.0) == pytest.approx(1.0)  # two gains a cycle: 0, then 2
+    assert charges_with_reset(0.05, 15, 3) < charges_with_reset(1.0, 15, 3)
+    assert charges_with_reset(1.0, 1e9, 3, fill=0.5) < 1.0
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "PowerChargesMax": 3, "PowerChargesDuration": 15}
+    line = "Gain a Power Charge on Critical Hit"
+    assert _charges_held("Power")([line], stats)[0] == 3
+    count, basis = _charges_held("Power")([line, "Lose all Power Charges on reaching maximum Power Charges"], stats)
+    assert count == pytest.approx(1.0) and "drops to 0" in basis
+    # another kind's line leaves Power alone
+    assert _charges_held("Power")([line, "Lose all Frenzy Charges on reaching maximum Frenzy Charges"], stats)[0] == 3
