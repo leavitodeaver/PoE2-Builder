@@ -1211,10 +1211,25 @@ class Gems:
         supply: models.corpse_model)."""
         from builder.search import models
 
+        corpses = self.corpse_offered(present)
         return [n for n, gem in self.ctx.gems.items() if not gem["support"] and n not in present
                 and {"Spell", "Triggerable"} <= set(gem["skillTypes"]) and not {"Meta", "Persistent"} & set(gem["skillTypes"])
-                and not (models.CORPSE_TYPES & set(gem["skillTypes"]) and not models.corpse_supply(present))
+                and not (models.CORPSE_TYPES & set(gem["skillTypes"]) and not corpses)
                 and self._offered(n, left, usage)]
+
+    def corpse_offered(self, present: set[str]) -> bool:
+        """Whether a corpse skill is offered: the build has a corpse supply. Before SEARCH14 this called
+        models.corpse_supply(present) with no stats, so it read none of the supply (an UNDERCOUNT, MECHB19's routing): not
+        the request's boss's killed adds (bosses.kill_stats, which corpse_supply reads from the stats), and not the build's
+        own sources (models.CORPSE_SOURCES: Sacrifice's undead Reviving minions), so a Sacrifice build was kept from corpse
+        skills. An own source's rate needs the models' minion deaths (Assumptions.models), which this filter doesn't have:
+        with one present the skill is offered and the trial rates it (models.corpse_model: no deaths, no uses, no gain)."""
+        from builder.search import bosses, models
+
+        if any(name in present for name in models.CORPSE_SOURCES):
+            return True
+        boss = getattr(getattr(self.ctx, "request", None), "boss", None) or bosses.DEFAULT
+        return models.corpse_supply(present, bosses.kill_stats(boss)) > 0
 
     def set_meta_gems(self, group: dict, names: list[str], at: int | None = None, spell: dict | None = None) -> None:
         """The meta group's gems as `names` (their levels kept), with `spell` inserted at position `at` (1-based)."""

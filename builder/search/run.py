@@ -630,7 +630,8 @@ class Run:
             "summary": {k: facts[k] for k in ("className", "ascendClassName", "level", "mainSkill", "allocated",
                                                "ascendancyAllocated")},
             "dps": {"full": final["dps"], "main": final["main_dps"], "pob_full": final.get("pob_full_dps"),
-                    "excluded": final.get("excluded_dps"), "excluded_from": final.get("excluded_from")},
+                    "excluded": final.get("excluded_dps"), "excluded_from": final.get("excluded_from"),
+                    "added": final.get("added_dps") or {}},  # (damage computed outside PoB, by source: SEARCH14)
             # What was maximized, and the clear estimate beside boss DPS (PLAN.md §5.5)
             "objective": {"goal": self.request.objective, "value": final.get("value", final["dps"])},
             "clear": {**(final.get("clear_estimate") or {}), "approximate": True,

@@ -388,6 +388,9 @@ class Objective:
         self.base_full = full  # finalists: Full DPS throughout
         self.extra = False  # the build has triggered damage outside the main skill (see module doc)
         self.added_dps = 0.0  # damage a custom model computes outside PoB (Melting Maelstrom's pulses), set at each resolve
+        # each such source by name (SEARCH14; MECHB20 sums several in the bridge's LedgerAddedDPS: Melting Maelstrom's pulses,
+        # Eternal Hunt): set_added keeps added_dps their sum, which every score reads; the parts are for the report
+        self.added_parts: dict[str, float] = {}
         # Full DPS entries (SkillDPS, by name) counted x this, set at each resolve: Pounce's slam at its real use, its
         # carried wolves (models.mark_model, MECH36)
         self.entry_scales: dict[str, float] = {}
@@ -451,6 +454,18 @@ class Objective:
     def prepare(stats: dict) -> dict:
         """Corrections to PoB's stats that every score and check sees (Darkness in max hit, recovery against a boss)."""
         return with_life_es(with_boss_recovery(with_darkness(stats)))
+
+    def set_added(self, parts: dict[str, float]) -> None:
+        """The build's damage computed outside PoB, by source (Assumptions.models at each resolve): added_dps is their sum
+        (what dps reads for the build; a what-if reads the bridge's own sum, LedgerAddedDPS), added_parts each one."""
+        self.added_parts = {name: float(value) for name, value in parts.items() if number(value) > 0}
+        self.added_dps = sum(self.added_parts.values())
+
+    def added_report(self) -> dict[str, float]:
+        """Each added source's DPS for the result; a sum set without its parts shows as one entry."""
+        if self.added_parts:
+            return dict(self.added_parts)
+        return {"computed outside PoB": self.added_dps} if number(self.added_dps) > 0 else {}
 
     def dps(self, stats: dict) -> float:
         """Single-target boss DPS."""

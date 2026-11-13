@@ -383,7 +383,7 @@ class Search:
 
     # The objective's per-build factors (not its requirement weights: an escalation raises those for the rest of the
     # search, and a restore must not undo it)
-    SCORING_FIELDS = ("extra", "added_dps", "entry_scales", "press_scales", "whole_scales", "cull_scale", "press_choices",
+    SCORING_FIELDS = ("extra", "added_dps", "added_parts", "entry_scales", "press_scales", "whole_scales", "cull_scale", "press_choices",
                       "press_busy", "life_factor", "uptime_factor", "floor_deltas")
     ASSUMPTION_FIELDS = ("mods", "active", "extra_groups", "stat_sets", "infused", "infused_skipped", "cooldown_fallback")
 
@@ -1533,6 +1533,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         **summary, "facts": facts, "code": code, "groups": groups, "conditions": conditions, "quests": quests,
         "play_guide": play, "finalize_trace": trace, "finalize_drift": restore_drift(build), "over_budget": build.over_budget,
         "floor_deltas": [dict(d) for d in build.objective.floor_deltas],  # the floors' part-time effects off (run.result)
+        "added_dps": build.objective.added_report(),  # (each source of damage computed outside PoB, SEARCH14)
         "pob_full_dps": facts["stats"].get("FullDPS"), "excluded_dps": excluded, "excluded_from": excluded_names,
         "clear_estimate": build.objective.clear(build.stats),
         "blind_spots": blind_spots,
