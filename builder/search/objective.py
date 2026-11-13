@@ -308,6 +308,9 @@ def per_second(stats: dict, prefix: str = "") -> float:
     return max(combined + scale * (hits + number(stats.get(prefix + "TotalDotDPS"))), 0.0)
 
 
+CULL_ENTRY = "Full Culling DPS"  # PoB's Full DPS entry for Culling Strike (Calcs.lua 479-482), x Objective.cull_scale
+
+
 def main_dps(stats: dict) -> float:
     return max(per_second(stats), per_second(stats, "Minion."))
 
@@ -367,6 +370,14 @@ class Objective:
         # here, not on each press_scales entry, so main-skill-only scoring counts it too. Product of the values, in both
         # modes (dps); a model sets its own key each refresh and the refresh that rebuilds press_scales clears it
         self.whole_scales: dict[str, float] = {}
+        # The scale on PoB's Culling Strike gain against the boss (SEARCH13; MECH57's conditions.cull_window_scale: the
+        # time a Cull really saves, hit by hit, over PoB's whole-window price; 1.0 = PoB's), set by Assumptions.cull_window
+        # at each resolve. Counted on each scored build's own Culling multiplier, in both modes: in Full DPS on its "Full
+        # Culling DPS" entry; outside it on the main skill, whose CombinedDPS PoB builds x CullMultiplier (per_second), as
+        # 1 + (CullMultiplier - 1) x scale over CullMultiplier. Before, the scale reached Full DPS only (press_scales), so
+        # main-skill screening ranked a hit Cull at PoB's whole price above what the delivered number counts (an OVERCOUNT
+        # in the ranking). A candidate without a Cull has CullMultiplier 1 and Full Culling DPS 0, so it loses nothing.
+        self.cull_scale = 1.0
         # The press rates the search chose for side skills with no cooldown or duration (models.PRESS_CHOICES; MECH55, the
         # user's "search picks the rate", 12 Nov; Search.press_round) and the main skill's time those presses take that
         # press_scales doesn't already charge (Search.press_sync: every choice outside Full DPS, where press_scales isn't
@@ -421,7 +432,18 @@ class Objective:
             if full > 0:
                 full = max(full + self.rescaled(stats) - self.excluded(stats)[0] - main_dps(stats) * self.busy(), 0.0)
                 return (full + added) * self.life_factor * self.uptime_factor * self.whole()
-        return (main_dps(stats) * (1.0 - self.busy()) + added) * self.life_factor * self.uptime_factor * self.whole()
+        main = main_dps(stats) * self.main_cull(stats)
+        return (main * (1.0 - self.busy()) + added) * self.life_factor * self.uptime_factor * self.whole()
+
+    def main_cull(self, stats: dict) -> float:
+        """The main skill's DPS x this counts its Culling gain at cull_scale: (1 + (m - 1) x scale) / m, m its own
+        CullMultiplier (the minion's where the minion's DPS is the main one; 1.0 with no Cull or a scale of 1)."""
+        scale = number(getattr(self, "cull_scale", 1.0))
+        if scale == 1.0:
+            return 1.0
+        prefix = "Minion." if per_second(stats, "Minion.") > per_second(stats) else ""
+        m = number(stats.get(prefix + "CullMultiplier"))
+        return (1.0 + (m - 1.0) * max(scale, 0.0)) / m if m > 1.0 else 1.0
 
     def whole(self) -> float:
         """The product of whole_scales (1.0 with none): the gains a model counts on all of the build's damage."""
@@ -433,14 +455,16 @@ class Objective:
 
     def rescaled(self, stats: dict) -> float:
         """What entry_scales and press_scales add to Full DPS: each named entry's damage x (its scale - 1)."""
-        if not self.entry_scales and not self.press_scales:
+        cull = number(getattr(self, "cull_scale", 1.0))
+        if not self.entry_scales and not self.press_scales and cull == 1.0:
             return 0.0
         total = 0.0
         for e in stats.get("SkillDPS") or []:
             name, press = e.get("name"), press_key(e.get("name"), e.get("source"))
-            if name in self.entry_scales or press in self.press_scales:
+            own = max(cull, 0.0) if name == CULL_ENTRY else 1.0
+            if name in self.entry_scales or press in self.press_scales or own != 1.0:
                 total += number(e.get("dps")) * (e.get("count") or 1) * (
-                    self.entry_scales.get(name, 1.0) * self.press_scales.get(press, 1.0) - 1)
+                    self.entry_scales.get(name, 1.0) * self.press_scales.get(press, 1.0) * own - 1)
         return total
 
     def clear_damage(self, stats: dict) -> float:

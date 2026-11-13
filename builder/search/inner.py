@@ -383,8 +383,8 @@ class Search:
 
     # The objective's per-build factors (not its requirement weights: an escalation raises those for the rest of the
     # search, and a restore must not undo it)
-    SCORING_FIELDS = ("extra", "added_dps", "entry_scales", "press_scales", "whole_scales", "press_choices", "press_busy",
-                      "life_factor", "uptime_factor", "floor_deltas")
+    SCORING_FIELDS = ("extra", "added_dps", "entry_scales", "press_scales", "whole_scales", "cull_scale", "press_choices",
+                      "press_busy", "life_factor", "uptime_factor", "floor_deltas")
     ASSUMPTION_FIELDS = ("mods", "active", "extra_groups", "stat_sets", "infused", "infused_skipped", "cooldown_fallback")
 
     def _scoring_state(self) -> dict:

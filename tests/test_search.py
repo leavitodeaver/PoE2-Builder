@@ -353,6 +353,40 @@ def test_a_whole_build_gain_counts_in_main_skill_scoring_too():
     assert "whole_scales" in Search.SCORING_FIELDS
 
 
+def test_a_hit_culls_screening_score_equals_its_delivered_ratio():
+    """SEARCH13 (an OVERCOUNT in the ranking): MECH57's scale on PoB's Culling gain (the time a Cull really saves) reached
+    Full DPS's "Full Culling DPS" entry only, so main-skill screening, on PoB's CombinedDPS x the whole CullMultiplier,
+    ranked a hit Cull above the delivered number. Objective.cull_scale counts it on each build's own multiplier in both
+    modes: the main-skill score's Cull gain equals Full DPS's; a candidate with no Cull loses nothing; a snapshot keeps it."""
+    from builder.search.inner import Search
+
+    ctx = context(main_skill="Spark")
+    base, m, scale = 100000.0, 100 / 95, 0.4
+    culled = base * (m - 1)
+    main_stats = {"FullDPS": base * m, "CombinedDPS": base * m, "CullMultiplier": m}
+    full_stats = {"FullDPS": base * m, "CombinedDPS": base * m, "CullMultiplier": m,
+                  "SkillDPS": [{"name": "Spark", "dps": base, "count": 1},
+                               {"name": "Full Culling DPS", "dps": culled, "count": 1}]}
+    screening, delivered = Objective(ctx), Objective(ctx, full=True)
+    for objective in (screening, delivered):
+        objective.cull_scale = scale
+    expected = base * (1 + (m - 1) * scale)
+    assert delivered.dps(full_stats) == pytest.approx(expected)
+    assert screening.dps(main_stats) == pytest.approx(expected)
+    assert screening.dps(main_stats) / base == pytest.approx(delivered.dps(full_stats) / base)
+    # (no Cull: nothing changes in either mode)
+    assert screening.dps({"FullDPS": base, "CombinedDPS": base, "CullMultiplier": 1}) == pytest.approx(base)
+    assert delivered.dps({"FullDPS": base, "CombinedDPS": base, "CullMultiplier": 1,
+                          "SkillDPS": [{"name": "Spark", "dps": base, "count": 1}]}) == pytest.approx(base)
+    # (a minion main skill: its own multiplier)
+    minion = {"FullDPS": base * m, "CombinedDPS": 10.0, "Minion.CombinedDPS": base * m, "Minion.CullMultiplier": m}
+    assert screening.dps(minion) == pytest.approx(expected)
+    # (scale 1, PoB's own: unchanged)
+    screening.cull_scale = 1.0
+    assert screening.dps(main_stats) == pytest.approx(base * m)
+    assert "cull_scale" in Search.SCORING_FIELDS
+
+
 def test_requirements_still_short_weigh_more_until_the_cap():
     from builder.search.objective import MAX_MULTIPLIER, rank_key
 
