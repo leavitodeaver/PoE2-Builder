@@ -362,6 +362,11 @@ class Objective:
         # and pressed non-main skills at their real use, the main skill at the time they leave it (models.press_model,
         # set by Assumptions.rate_presses; MECH37)
         self.press_scales: dict[str, float] = {}
+        # Gains on the whole build's damage, by source (SEARCH12; MECH60's routed undercount): a model whose gain scales
+        # every damage entry alike (Doomgate's Enemies are Culled on Block: the fight ends sooner for all of it) puts it
+        # here, not on each press_scales entry, so main-skill-only scoring counts it too. Product of the values, in both
+        # modes (dps); a model sets its own key each refresh and the refresh that rebuilds press_scales clears it
+        self.whole_scales: dict[str, float] = {}
         # The press rates the search chose for side skills with no cooldown or duration (models.PRESS_CHOICES; MECH55, the
         # user's "search picks the rate", 12 Nov; Search.press_round) and the main skill's time those presses take that
         # press_scales doesn't already charge (Search.press_sync: every choice outside Full DPS, where press_scales isn't
@@ -415,9 +420,12 @@ class Objective:
             full = number(stats.get("FullDPS"))
             if full > 0:
                 full = max(full + self.rescaled(stats) - self.excluded(stats)[0] - main_dps(stats) * self.busy(), 0.0)
-                return (full + added) * self.life_factor * self.uptime_factor
-        return (main_dps(stats) * (1.0 - self.busy()) + added) * self.life_factor * self.uptime_factor
+                return (full + added) * self.life_factor * self.uptime_factor * self.whole()
+        return (main_dps(stats) * (1.0 - self.busy()) + added) * self.life_factor * self.uptime_factor * self.whole()
 
+    def whole(self) -> float:
+        """The product of whole_scales (1.0 with none): the gains a model counts on all of the build's damage."""
+        return math.prod(max(number(v), 0.0) for v in (getattr(self, "whole_scales", None) or {}).values())
 
     def busy(self) -> float:
         """The main skill's share of the fight lost to chosen presses not charged in press_scales (press_busy, 0-1)."""

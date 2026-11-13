@@ -341,6 +341,24 @@ def test_full_dps_leaves_out_damage_that_needs_enemies_to_die():
     assert "Contagion" not in objective.on_death  # its damage hits the target; only the spread needs a death
 
 
+def test_a_whole_build_gain_counts_in_main_skill_scoring_too():
+    """SEARCH12 (MECH60's routed undercount): a gain on all of the build's damage (Doomgate's Enemies are Culled on
+    Block) counted only through press_scales reached Full DPS alone, so the main-skill score the search ranks most
+    candidates on never saw it. Objective.whole_scales scales both, and a scoring snapshot keeps it."""
+    from builder.search.inner import Search
+
+    ctx = context(main_skill="Spark")
+    stats = {"FullDPS": 120000, "CombinedDPS": 100000, "SkillDPS": [{"name": "Spark", "dps": 120000, "count": 1}]}
+    for full in (False, True):
+        objective = Objective(ctx, full=full)
+        plain = objective.dps(stats)
+        objective.whole_scales = {"Enemies are Culled on Block": 1.05, "other": 1.02}
+        assert objective.dps(stats) == pytest.approx(plain * 1.05 * 1.02)
+        objective.whole_scales = {}
+        assert objective.dps(stats) == pytest.approx(plain)
+    assert "whole_scales" in Search.SCORING_FIELDS
+
+
 def test_requirements_still_short_weigh_more_until_the_cap():
     from builder.search.objective import MAX_MULTIPLIER, rank_key
 
