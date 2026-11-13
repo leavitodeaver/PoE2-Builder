@@ -3832,6 +3832,8 @@ def test_call_upon_the_deep_and_thrill_of_the_fight_count_from_the_builds_own_gl
             def call(self, name, **args):
                 if name == "stats":
                     return {}
+                if name == "useRates":  # (COV16: the Glory skill's own speed; none reported here, so no cap)
+                    return {"rates": []}
                 assert name == "sourceLines"
                 return {"lines": [{"text": "Damage Penetrates 20% Elemental Resistances for each time you've used a "
                                            "Skill that Requires Glory in the past 6 seconds"}]}
@@ -3871,3 +3873,27 @@ def test_rolling_slam_counts_both_slams_of_a_use():
     assert models.multi_set_model("Rolling Slam", "Rolling Slam", sets) == ([], [])
     assert models.multi_set_model("Boneshatter", "Second Slam", sets) == ([], [])
     assert models.multi_set_model("Rolling Slam", "Second Slam", sets[:2]) == ([], [])
+
+
+def test_glory_shares_never_count_a_glory_skill_faster_than_it_can_be_used(monkeypatch):
+    """COV16 (COV14's Handover item 3): Call Upon the Deep's share (20% penetration per Glory skill use in the past 6 s)
+    read models.glory_uses uncapped, so a Glory skill whose cost one gain pays (Molten Blast: 2 uses a second) read 240%.
+    Each Glory skill is now capped at its own use speed (the bridge's useRates); a skill with no rate keeps its count."""
+    from builder.search.assumptions import Assumptions
+
+    class Build:
+        def groups(self):
+            return [{"index": 1, "gems": [{"name": "Molten Blast"}]}, {"index": 2, "gems": [{"name": "War Banner"}]}]
+
+        def call(self, name, **kw):
+            assert name == "useRates"
+            return {"rates": [{"index": 1, "speed": 0.8}, {"index": 2, "speed": 0.0}]}
+
+    uses = {"Molten Blast": (2.0, "Molten Blast: one per 0.5 s"), "War Banner": (0.1, "War Banner: one per 10.0 s")}
+    monkeypatch.setattr(models, "glory_uses", lambda names, stats, main: (
+        sum(uses.get(n, (0.0, ""))[0] for n in names), "; ".join(uses[n][1] for n in names if n in uses)))
+    a = Assumptions.__new__(Assumptions)
+    a.build = Build()
+    total, how = a.glory_uses_capped(["Molten Blast", "War Banner", "Fireball"], {}, None)
+    assert total == pytest.approx(0.8 + 0.1)
+    assert "Molten Blast capped at its own 0.80 uses/s (not 2.00)" in how and "War Banner capped" not in how

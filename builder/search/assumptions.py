@@ -1592,7 +1592,7 @@ class Assumptions:
                 if glory is None:
                     stats = self.build.call("stats", fields=models.MODEL_FIELDS)
                     main_skill = next((models.Skill.of(s) for s in skills if not s["disabled"] and s["name"] == main), None)
-                    glory = models.glory_uses(names, stats, main_skill)
+                    glory = self.glory_uses_capped(names, stats, main_skill)
                 uses, how = glory
                 window = float(condition["glory_window"])
                 share = window * uses if condition.get("glory_count") else min(1.0, window * uses)
@@ -1612,6 +1612,32 @@ class Assumptions:
             if by_name or by_text or by_type:
                 found.append(condition["id"])
         return sorted(found), notes
+
+    def glory_uses_capped(self, names: list[str], stats: dict, main_skill) -> tuple[float, str]:
+        """(Glory skill uses per second, how) for the ledger's Glory shares: models.glory_uses for each Glory skill, never
+        faster than the skill's own use speed (the bridge's useRates "speed" for its group, as conditions.skill_use_rate
+        caps every non-main skill). COV16: glory_uses counts a use whenever the Glory is there, so a skill that costs
+        what one gain gives and holds no instance (Molten Blast: 20 per Ignite gain, one gain per 0.5 s) read 2 uses a
+        second, and Call Upon the Deep's 20% penetration per use in the past 6 s read 240%: an OVERCOUNT where the
+        skill can't be used that fast. Not charged here: the main skill's time spent pressing the Glory skill (routed)."""
+        glory_names = {n for n in names if n in models.GLORY_SKILLS or n in models.GLORY_FROM_LIFE}
+        speeds: dict[str, float] = {}
+        groups = getattr(self.build, "groups", None)
+        if glory_names and callable(groups):  # (a stand-in build in a unit test may have none: no cap)
+            found = {g["index"]: n["name"] for g in groups() if g.get("enabled") is not False
+                     for n in g.get("gems") or [] if n.get("enabled", True) and n.get("name") in glory_names}
+            if found:
+                for rate in self.build.call("useRates", indices=sorted(found))["rates"]:
+                    name, speed = found.get(rate.get("index")), number(rate.get("speed"))
+                    if name and speed > 0:
+                        speeds[name] = max(speed, speeds.get(name, 0.0))
+        total, how = models.glory_uses(names, stats, main_skill)
+        for name, cap in speeds.items():  # (each capped skill's excess over its own speed comes back out)
+            own = models.glory_uses([name], stats, main_skill)[0]
+            if own > cap:
+                total -= own - cap
+                how += f"; {name} capped at its own {cap:.2f} uses/s (not {own:.2f})"
+        return max(total, 0.0), how
 
     def warcries_recently(self) -> tuple[float, str]:
         """(different Warcries used Recently on average, how): each different Warcry in the build's enabled groups is up
