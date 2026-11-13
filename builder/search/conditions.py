@@ -400,6 +400,7 @@ def _hit_restriction(when: str, stats: dict) -> str | None:
 # PoB's sup_dex.lua Ferocity); read from the main skill's own stats and its supports' in the build, so any other carrier
 # counts too
 NO_FRENZY_STAT = "skill_cannot_generate_frenzy_charges"
+NO_BLIND_STAT = "cannot_inflict_blind"  # Blindside (sup_dex.lua SupportBlindsidePlayer; Stats.json)
 
 
 def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
@@ -1095,11 +1096,11 @@ def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # assumed). PoB puts Intimidated (DamageTaken INC 10), Unnerved (Spell DamageTaken INC 10, CalcSetup 75-80) and Ash /
 # Frost (Fire / Cold DamageTaken INC 20, CalcPerform 819-826) in the enemy's taken pool. Each line's uptime as
 # Onslaught's (1 - (1 - chance)^(events x duration)), combined as independent, on at UPTIME: the main skill's hits and
-# crits; the boss's hits that land ("when they Hit you") or that you Block ("Permanently ... on Block": on with any
+# crits; the build's kills of the boss's adds ("on Kill": kill_events, the boss taken to be near; MECH55); the boss's hits that land ("when they Hit you") or that you Block ("Permanently ... on Block": on with any
 # Block); "Enemies in your Presence" while the boss stands inside it (the build's distance); "Enemies you Curse" with a
 # curse gem in the build (the Cursed box's own evidence); "while at maximum Endurance Charges" by the charges held;
 # "Enemies you Fully Armour Break" at armour_broken's Full Break rate. A
-# kill, Heavy Stun, Immobilise, Shapeshift, Burning, a socketed jewel or a gem's own effect: rate not modelled (0,
+# Heavy Stun, Immobilise, Shapeshift, Burning, a socketed jewel or a gem's own effect: rate not modelled (0,
 # labelled). "X% increased <Debuff> Duration" lines scale each line's duration (models.duration_scale: Hinder and Blind
 # have them in the game files, MECH44); Blind / Maim effect isn't read.
 DEBUFF_DURATION = 4.0
@@ -1153,6 +1154,16 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         events = number(stats.get("_full_break_rate"))
         up = 1 - (1 - min(chance, 1.0)) ** (events * duration) if chance < 1 else min(1.0, events * duration)
         return up, f"{events:.2f} Full Breaks of the boss's Armour/s, {duration:g} s: {up:.0%} up"
+    if re.search(r"\bkill", when) and not re.search(r"\bkilled\b|heavy stun|immobilis|shapeshift|burning|socketed", when):
+        # "on Kill" (Intimidate nearby enemies on Melee Kill; MECHC9's note, MECH55): the build's kills of the boss's adds
+        # (kill_events; none against a lone boss), the boss taken to be near the add killed (LOW); "on Melee Kill" only
+        # with a Melee main skill (the kills are taken as its own, as kill_events does)
+        if re.search(r"\bmelee\b", when) and "Melee" not in (stats.get("_main_types") or {"Melee"}):
+            return 0.0, "on Melee Kill, and the main skill isn't Melee: 0"
+        events, how = kill_events(when, stats)
+        n = events * duration
+        up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
+        return up, f"{chance:.0%} x {how}, {duration:g} s, the boss taken to be near the kill (LOW): {up:.0%} up"
     if re.search(r"\bkill|heavy stun|immobilis|shapeshift|burning|socketed|\bfrozen by\b", when):
         return 0.0, f"'{when.strip()[:30]}': its rate isn't modelled (0, labelled)"
     if "maximum endurance" in when:
@@ -1169,6 +1180,10 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
     elif "hit you" in when:
         land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
         events, how = land, "the boss's hits that land (red-flash hits always do)"
+    elif ("critical" in when or "on hit" in when) and var == "conditionEnemyBlinded" and stats.get("_main_no_blind"):
+        # Blindside: "Supported Skills ... cannot themselves inflict Blind" (cannot_inflict_blind; the line's hits are
+        # the main skill's, models.hits_per_second / crits_per_second)
+        return 0.0, f"the main skill can't inflict Blind ({stats['_main_no_blind']}, Blindside): its hits Blind nothing"
     elif "critical" in when:
         events, how = models.crits_per_second(stats), "crits"
     elif "on hit" in when:
@@ -1524,7 +1539,16 @@ CONSUME_STATS = {
     "Ignite": ("pillar_of_flame_consume_ignite_to_create_X_pillars", "unique_pillar_of_flame_consume_ignite_to_create_X_pillars",
                "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge", "consume_ignite_on_hit",),
 }
-CONSUME_TEXT = re.compile(r"\bconsum\w*\b[^.]*\b(?:freez|frozen|shock|ignit|elemental ailment)", re.I)
+CONSUME_TEXT = re.compile(r"\bconsum\w*\b[^.]*\b(?:freez|frozen|shock|ignit|elemental ailment)|"
+                          r"\b(?:freeze|shock|ignite)\b[^.]*\bconsumed\b", re.I)  # (Icestorm: "... Freeze ... are Consumed")
+# Skills that consume an ailment by their skill types alone, no CONSUME_STATS stat (Snap, Elemental Sundering, Snipe,
+# Shockchain Arrow, Icestorm: SkillConsumesFreeze / Shock / Ignite; the bridge's activeSkills "consumes"; MECH55, an
+# OVERCOUNT before: a Snap pressed beside the main skill left the boss's Freeze / Shock / Ignite uptime whole). Snipe
+# consumes only on a Perfect Timing release (taken as every release: an upper bound on what it ends, MEDIUM).
+
+
+def _type_consumes(skill: dict) -> set[str]:
+    return {a for a, on in (skill.get("consumes") or {}).items() if on}
 
 
 def consumed_share(hits: float, chance: float, ground: float = 0.0) -> float:
@@ -1548,8 +1572,10 @@ def main_consumes(build, main_skill: str, main_gems: set[str]) -> dict[str, str]
     raw = build.call("activeSkills", levelStats=[main_skill], supportStats=every)
     main = next((s for s in raw["skills"] if s["name"] == main_skill and not s.get("disabled")), {})
     own, sup = main.get("levelStats") or {}, main.get("supportStats") or {}
-    return {ailment: (main_skill if any(number(own.get(i)) for i in ids) else "a support of it")
-            for ailment, ids in CONSUME_STATS.items() if any(number(own.get(i)) or number(sup.get(i)) for i in ids)}
+    typed = _type_consumes(main)
+    return {ailment: (main_skill if ailment in typed or any(number(own.get(i)) for i in ids) else "a support of it")
+            for ailment, ids in CONSUME_STATS.items()
+            if ailment in typed or any(number(own.get(i)) or number(sup.get(i)) for i in ids)}
 
 
 # PoB's Best Ignite DPS when the main skill consumes Ignite (MECH52; MECH51's follow-up, an OVERCOUNT). PoB counts
@@ -1614,8 +1640,9 @@ def side_consumes(build, main_skill: str, groups: dict | None = None,
         if skill.get("disabled") or skill.get("group") not in candidates or skill["name"] == main_skill:
             continue
         own, sup = skill.get("levelStats") or {}, skill.get("supportStats") or {}
+        typed = _type_consumes(skill)
         for ailment, ids in CONSUME_STATS.items():
-            if any(number(own.get(i)) or number(sup.get(i)) for i in ids):
+            if ailment in typed or any(number(own.get(i)) or number(sup.get(i)) for i in ids):
                 consumers.setdefault(ailment, []).append((skill["name"], skill["group"], bool(skill.get("triggered"))))
     if not consumers:
         return {}
@@ -1908,6 +1935,9 @@ def _on_shocked_ground(lines: list[str], stats: dict) -> tuple[object, str]:
         return 0.0, f"you stand {metres:g} m from the boss, outside your Shocked Ground ({SHOCKED_GROUND_RADIUS:g} m assumed)"
     return _box(share, f"in your own Shocked Ground at the boss {share:.0%} of the fight ({shared(share)}): {how}; your own "
                        f"ground counts (the user, 11 Nov 2026; MEDIUM, not tested in game)")
+
+
+FREEZE_SHARE_INPUT = "mechFreezeShare"  # (the bridge's boss action speed: Freeze as a stop for this share; MECH55)
 
 
 def _immobilised(ailment: str, name: str) -> Callable[[list[str], dict], tuple[object, str]]:
@@ -2462,6 +2492,14 @@ class Conditions:
             if number((main.get("supportStats") or {}).get(NO_FRENZY_STAT)) or number(
                     (main.get("levelStats") or {}).get(NO_FRENZY_STAT)):
                 stats["_main_no_frenzy"] = NO_FRENZY_STAT
+        if any(re.search(r"blind", t, re.I) for t in texts):
+            # a main skill that "cannot themselves inflict Blind" (Blindside's cannot_inflict_blind, on the skill or a
+            # support of it; RESEARCH9 / COVE3's OVERCOUNT, MECH55): its hits and crits feed no Blind line (_debuff_source)
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[NO_BLIND_STAT])
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            if number((main.get("supportStats") or {}).get(NO_BLIND_STAT)) or number(
+                    (main.get("levelStats") or {}).get(NO_BLIND_STAT)):
+                stats["_main_no_blind"] = NO_BLIND_STAT
         if "Arcane Surge" in main_gems:  # (the support: its threshold and duration from the gem, arcane_surge_uptime)
             raw = self.build.call("activeSkills", supportStats=list(ARCANE_SURGE_SUPPORT_STATS))
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
@@ -2638,6 +2676,13 @@ class Conditions:
                     self.active[condition.var]["off"] = self.off_values[condition.var]
         # Effects on for part of the fight, weighed into the headline by Search.weigh_uptimes
         self.uptimes = {var: up for var, up in self.found_uptimes.items() if var in self.active and up < FULL_UPTIME}
+        # The Frozen box's share for the boss's action speed (the bridge's Freeze: a stop for that share, not PoB's steady
+        # -70%; MECH55, MECHD3's note): written when it moves by a point or more, cleared with the box
+        frozen = self.active.get("conditionEnemyFrozen")
+        share = round(min(self.found_uptimes.get("conditionEnemyFrozen", 1.0), 1.0), 2) if frozen else None
+        if share != getattr(self, "freeze_share", None):
+            changes[FREEZE_SHARE_INPUT] = share if share is not None else False
+            self.freeze_share = share
         if changes:
             self.build.set_config(changes)
         return bool(changes)

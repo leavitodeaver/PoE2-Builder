@@ -2191,6 +2191,37 @@ def test_an_ailment_consumed_by_a_skill_beside_the_main_one_is_carried_less():
     assert c.side_consumes(FakeBuild(), "Fireball", off) == {}
 
 
+def test_a_skill_that_consumes_by_its_skill_types_alone_counts():
+    """MECH55 (an OVERCOUNT): Snap, Elemental Sundering, Snipe, Shockchain Arrow and Icestorm consume Freeze / Shock /
+    Ignite through their skill types (SkillConsumes*), with no consume stat: the bridge reports them as "consumes", and
+    both the main-skill and the side consumer models read it."""
+    from builder.search import conditions as c
+    from types import SimpleNamespace
+
+    class FakeBuild:
+        ctx = SimpleNamespace(all_gems={"Snap": {"description": "Consume the elemental energy from a Frozen, Shocked or "
+                                                                 "Ignited enemy"},
+                                        "Icestorm": {"description": "Chill and Freeze on enemies in front of you are "
+                                                                     "Consumed to fuel the Icestorm"}})
+
+        def call(self, name, **kw):
+            if name == "activeSkills":
+                return {"skills": [{"name": "Snap", "group": 2, "levelStats": {},
+                                    "consumes": {"Freeze": True, "Shock": True, "Ignite": True}},
+                                   {"name": "Icestorm", "group": 3, "levelStats": {}, "consumes": {"Freeze": True}}]}
+            if name == "useRates":
+                return {"rates": [{"index": 2, "speed": 1.0, "cooldown": 4.0}, {"index": 3, "speed": 1.0}]}
+            return {}
+
+    groups = {"mainSocketGroup": 1, "groups": [{"index": 1, "gems": [{"name": "Fireball", "support": False}]},
+                                               {"index": 2, "gems": [{"name": "Snap", "support": False}]}]}
+    found = c.side_consumes(FakeBuild(), "Fireball", groups, {})
+    assert set(found) == {"Freeze", "Shock", "Ignite"} and "Snap" in found["Freeze"][1]
+    assert abs(found["Shock"][0] - 0.25) < 1e-9  # (its 4 s cooldown)
+    assert c.main_consumes(FakeBuild(), "Icestorm", {"Icestorm"}) == {"Freeze": "Icestorm"}
+    assert c.main_consumes(FakeBuild(), "Fireball", {"Fireball"}) == {}
+
+
 def test_self_ignite_and_debuffs_on_an_ailing_boss_count_at_their_share():
     """MECH53: Grinning Immolation's "Become Ignited when you deal a Critical Hit" is off when you can't be Ignited and at
     the share your crits keep you Ignited otherwise (RESEARCH12); Pandemonius' "Blind Chilled enemies on Hit" counts only
@@ -2215,6 +2246,31 @@ def test_self_ignite_and_debuffs_on_an_ailing_boss_count_at_their_share():
     assert c._debuff_source(blind, "conditionEnemyBlinded", [blind], hit)[0] == 0.0
     up, how = c._debuff_source(blind, "conditionEnemyBlinded", [blind], {**hit, "ChillChanceOnHit": 100})
     assert up == 1.0 and "chilled boss" in how
+
+
+def test_blindside_main_skill_blinds_nothing_with_its_own_hits():
+    """MECH55 (RESEARCH9 / COVE3's OVERCOUNT): Blindside's "cannot themselves inflict Blind" (cannot_inflict_blind on the
+    main skill): Blind lines fed by its hits or crits count 0; Blind from the boss's hits still counts."""
+    from builder.search import conditions as c
+    hit = {"Speed": 2.0, "HitChance": 100, "CritChance": 50}
+    for line in ("Blind Enemies on Hit", "25% chance to Blind Enemies on Critical Hit"):
+        assert c._debuff_source(line, "conditionEnemyBlinded", [line], hit)[0] > 0
+        up, how = c._debuff_source(line, "conditionEnemyBlinded", [line], {**hit, "_main_no_blind": c.NO_BLIND_STAT})
+        assert up == 0.0 and "Blindside" in how
+    maim = "Maim Enemies on Hit"  # (another debuff: untouched)
+    assert c._debuff_source(maim, "conditionEnemyMaimed", [maim], {**hit, "_main_no_blind": c.NO_BLIND_STAT})[0] > 0
+
+
+def test_an_on_kill_debuff_reads_the_builds_kills():
+    """MECH55 (MECHC9's note): "Intimidate nearby Enemies on Melee Kill" fires at kill_events' rate (the boss's adds),
+    0 against a lone boss, 0 when the main skill isn't Melee."""
+    from builder.search import conditions as c
+    line = "25% chance to Intimidate nearby Enemies for 4 seconds on Melee Kill"
+    melee = {"_main_types": {"Attack", "Melee"}, "_kills": (0.5, 0.5, "the King's totems")}
+    up, how = c._debuff_source(line, "conditionEnemyIntimidated", [line], melee)
+    assert abs(up - (1 - 0.75 ** 2.0)) < 1e-9 and "near the kill" in how
+    assert c._debuff_source(line, "conditionEnemyIntimidated", [line], {**melee, "_kills": (0.0, 0.0, "a lone boss")})[0] == 0
+    assert c._debuff_source(line, "conditionEnemyIntimidated", [line], {**melee, "_main_types": {"Spell"}})[0] == 0
 
 
 def test_a_chill_under_30_percent_is_ignored():

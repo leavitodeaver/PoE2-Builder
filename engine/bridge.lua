@@ -681,6 +681,13 @@ end
 -- Debuffs of the same type do not stack - only the copy with the strongest effect applies"; "Ailments" lists Chill).
 -- Whether Temporal Chains' slow takes both the curse halving (CurseEffectOnSelf) and this one is UNVERIFIED; both apply
 -- here, as the game's text gives each without an exception.
+-- Freeze (MECH55, MECHD3's note): PoB's Freeze row is a steady -70% action speed (CalcPerform 767-770) whenever the
+-- Frozen box is on, so the boss hit at 0.3x its rate all fight whatever its Frozen share. The game's Freeze is a stop
+-- (KeywordPopups "Freeze": a Frozen target can't act) for the share of the fight it lasts: with the share the conditions
+-- resolver writes (config input mechFreezeShare, conditions.FREEZE_SHARE_INPUT: the Frozen box's uptime) the speed is
+-- x (1 - share), the fight average (an UNDERCOUNT of the boss's hits below a 70% share, an overcount above it, before).
+-- Without it, PoB's row as before.
+local FREEZE_SHARE_INPUT = "mechFreezeShare"
 local bossSlowInstalled = false
 local function installBossSlow()
 	if bossSlowInstalled then
@@ -699,7 +706,8 @@ local function installBossSlow()
 			return original(actor)
 		end
 		local unaffected = modDB:Flag(nil, "UnaffectedBySlows")
-		local positive, mult, chill = 0, 1, 0
+		local positive, mult, chill, frozen = 0, 1, 0, 0
+		local freezeShare = tonumber(build and build.configTab and build.configTab.input[FREEZE_SHARE_INPUT])
 		for _, row in ipairs(modDB:Tabulate("INC", nil, "ActionSpeed")) do
 			local value = row.value or 0
 			local source = row.mod and row.mod.source or ""
@@ -708,7 +716,9 @@ local function installBossSlow()
 			elseif value >= 0 then
 				positive = positive + value
 			elseif row.mod and row.mod.source == "Freeze" then
-				if not unaffected then
+				if not unaffected and freezeShare then
+					frozen = math.min(1, math.max(0, freezeShare))  -- a stop for its share of the fight
+				elseif not unaffected then
 					positive = positive + value
 				end
 			elseif not unaffected then
@@ -724,7 +734,7 @@ local function installBossSlow()
 		elseif not unaffected then
 			mult = mult * math.max(0, 1 + math.max(-data.misc.TemporalChainsEffectCap, chains) * potency / 100)
 		end
-		local speed = (1 + positive / 100) * math.max(0.25, mult)
+		local speed = (1 + positive / 100) * math.max(0.25, mult) * (1 - frozen)
 		speed = math.max((modDB:Max(nil, "MinimumActionSpeed") or 0) / 100, speed)
 		local maxReduction = modDB:Max(nil, "MaximumActionSpeedReduction")
 		if maxReduction then
@@ -2426,6 +2436,14 @@ function bridge.activeSkills(args)
 			curseDuration = types[SkillType.AppliesCurse] and activeSkill.skillData.duration and jsonNumber(
 				((activeSkill.skillData.duration or 0) + activeSkill.skillModList:Sum("BASE", activeSkill.skillCfg, "Duration", "PrimaryDuration"))
 				* calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "Duration", "PrimaryDuration")) or nil,
+			-- the ailments it consumes by its skill types alone (Snap, Elemental Sundering, Snipe, Shockchain Arrow,
+			-- Icestorm carry no consume stat; conditions.main_consumes / side_consumes, MECH55)
+			consumes = (types[SkillType.SkillConsumesFreeze] or types[SkillType.SkillConsumesShock]
+				or types[SkillType.SkillConsumesIgnite]) and {
+					Freeze = types[SkillType.SkillConsumesFreeze] and true or nil,
+					Shock = types[SkillType.SkillConsumesShock] and true or nil,
+					Ignite = types[SkillType.SkillConsumesIgnite] and true or nil,
+				} or nil,
 			-- it summons minions (assumptions.NEEDS_MINIONS: Grim Feast's Remnants come from their deaths)
 			minions = types[SkillType.CreatesMinion] and true or nil,
 			-- current PoB keeps the flags on the stat set (activeSkill.skillFlags is v0.23's)

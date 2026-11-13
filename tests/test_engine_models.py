@@ -1502,6 +1502,20 @@ def test_a_boss_takes_half_the_slow(engine):
     assert chilled["enemySkillTime"] == pytest.approx(plain["enemySkillTime"] / (1 - slow), rel=1e-3)
     engine.call("setConfig", vars={"conditionEnemyChilled": False, "conditionEnemyChilledEffect": False})
 
+def test_freeze_stops_the_boss_for_its_share_not_a_steady_70_percent(engine):
+    """MECH55 (MECHD3's note): PoB's Freeze is a steady -70% action speed on the boss whenever the Frozen box is on. With
+    the resolver's share (mechFreezeShare) the bridge counts it as a stop for that share: speed x (1 - share)."""
+    from builder.search import conditions
+
+    engine.call("newBuild")
+    plain = engine.call("setConfig", vars={"conditionEnemyFrozen": False}, fields=["enemySkillTime"])["stats"]
+    pob = engine.call("setConfig", vars={"conditionEnemyFrozen": True}, fields=["enemySkillTime"])["stats"]
+    assert pob["enemySkillTime"] == pytest.approx(plain["enemySkillTime"] / 0.3, rel=1e-3)  # (PoB's row, no share)
+    shared = engine.call("setConfig", vars={conditions.FREEZE_SHARE_INPUT: 0.2}, fields=["enemySkillTime"])["stats"]
+    assert shared["enemySkillTime"] == pytest.approx(plain["enemySkillTime"] / 0.8, rel=1e-3)
+    engine.call("setConfig", vars={"conditionEnemyFrozen": False, conditions.FREEZE_SHARE_INPUT: False})
+
+
 def test_cat_o_nine_tails_takes_life_above_low_life_out_of_max_hit(engine):
     """MECHC8: PoB parses "Life Recovery other than Flasks cannot Recover Life to above Low Life" to nothing; the bridge
     flags it (LowLifeRecoveryCap) and objective.prepare counts only Low Life's 35% of Life in max hit taken."""
