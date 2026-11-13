@@ -521,6 +521,8 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + cap_mods, hand_notes + cap_notes
         spore_mods, spore_notes = self.pustule_cap(found)  # (MECH-B: Poison Spores' one Pustule a fuse, MECHB10)
         hand_mods, hand_notes = hand_mods + spore_mods, hand_notes + spore_notes
+        tornado_mods, tornado_notes = self.tornado_copies(found, main, stats)  # (MECH-B, MECHB17: Tornado Shot's copies)
+        hand_mods, hand_notes = hand_mods + tornado_mods, hand_notes + tornado_notes
         mirage_mods, mirage_notes, mirage_groups = models.mirage_model(
             found, main, {g["name"]: (g["level"], g.get("quality") or 0) for grp in build.groups() for g in grp["gems"]
                           if g.get("level")}, rolling=any(s.name == "Cast on Dodge" for s in found))
@@ -765,6 +767,22 @@ class Assumptions:
             more, why = models.pustule_cap(rates, name, poison)
             mods, notes = mods + more, notes + why
         return mods, notes
+
+    def tornado_copies(self, found: list["models.Skill"], main: "models.Skill | None",
+                       stats: dict) -> tuple[list[dict], list[dict]]:
+        """The main projectile attack fired through Tornado Shot's Tornado (models.tornado_copy_model): Tornado Shot's
+        level stats (with quality) and its own PoB use rate (useRates with that active skill)."""
+        tornado = next((s for s in found if s.name == models.TORNADO_SHOT and s.group is not None), None)
+        if tornado is None or main is None or main.name == models.TORNADO_SHOT:
+            return [], []
+        raw = self.build.call("activeSkills", levelStats=[models.TORNADO_SHOT])["skills"]
+        level = next((s.get("levelStats") or {} for s in raw if s["name"] == models.TORNADO_SHOT and s.get("levelStats")), {})
+        group = next((g for g in self.build.groups() if g["index"] == tornado.group), None)
+        active = next((i for i, s in enumerate(group["skills"], start=1) if s["name"] == models.TORNADO_SHOT), 0) if group else 0
+        rates = self.build.call("useRates", indices=[tornado.group], actives=[active])["rates"] if active else []
+        speed = number(rates[0].get("speed")) if rates else 0.0
+        types = set((self.build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+        return models.tornado_copy_model(main, types, stats, tornado, level, speed)
 
     def throw_rate(self, name: str) -> tuple[float, str]:
         """Throws a second of a Concoction (flasks.THROW_CHARGES) the Mana Flask's own charge generation pays for (the

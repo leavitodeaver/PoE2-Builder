@@ -3897,3 +3897,42 @@ def test_glory_shares_never_count_a_glory_skill_faster_than_it_can_be_used(monke
     total, how = a.glory_uses_capped(["Molten Blast", "War Banner", "Fireball"], {}, None)
     assert total == pytest.approx(0.8 + 0.1)
     assert "Molten Blast capped at its own 0.80 uses/s (not 2.00)" in how and "War Banner capped" not in how
+
+
+
+def _tornado_skill(name, **kw):
+    return models.Skill.of({"name": name, "attack": True, "group": kw.pop("group", 1), **kw})
+
+
+TORNADO_L20 = {"tornado_shot_number_of_hits_allowed": 8, "tornado_shot_projectile_damage_+%_final": -41,
+               "base_skill_effect_duration": 15000}
+
+
+def test_tornado_copies_pay_only_for_volleys_of_several_arrows():
+    """(MECHB17) Each arrow sucked into the Tornado gives one copied hit at -41% (KeywordPopups Projectile: one of a
+    group a target); a one-arrow skill loses by it (x0.59 < 1), so nothing changes; a 4-arrow volley gains, held to the
+    Tornado's 8 hits and the time its recast costs."""
+    main = _tornado_skill("Lightning Arrow")
+    tornado = _tornado_skill("Tornado Shot", group=2)
+    types = {"Attack", "Projectile"}
+    mods, notes = models.tornado_copy_model(main, types, {"ProjectileCount": 1, "Speed": 2.0}, tornado, TORNADO_L20, 1.5)
+    assert mods == [] and "directly" in notes[0]["value"]
+    mods, notes = models.tornado_copy_model(main, types, {"ProjectileCount": 4, "Speed": 2.0}, tornado, TORNADO_L20, 1.5)
+    per_use, uses = 4 * 0.59, min(8 / 4, 15 * 2.0)
+    factor = per_use * (uses / 2.0) / (uses / 2.0 + 1 / 1.5)
+    assert len(mods) == 1 and abs(mods[0]["scale"] - 100 * (factor - 1)) < 1e-6, (mods, factor)
+    assert notes[0]["confidence"] == "LOW" and "Without the Tornado" in notes[0]["basis"]
+
+
+def test_tornado_copies_never_pay_for_skills_whose_arrows_all_hit():
+    """(MECHB17) A shotgun / sequence skill already lands every projectile: through the Tornado each gives one copy at
+    -41%, a loss, so nothing changes; a spell or Tornado Shot itself is not copied."""
+    tornado = _tornado_skill("Tornado Shot", group=2)
+    stats = {"ProjectileCount": 6, "Speed": 2.0}
+    mods, _ = models.tornado_copy_model(_tornado_skill("Galvanic Shards"), {"Attack", "Projectile"}, stats, tornado,
+                                        TORNADO_L20, 1.5)
+    assert mods == []
+    mods, notes = models.tornado_copy_model(models.Skill.of({"name": "Spark", "spell": True, "group": 1}),
+                                            {"Spell", "Projectile"}, stats, tornado, TORNADO_L20, 1.5)
+    assert mods == [] and notes[0]["value"] == 0
+    assert models.tornado_copy_model(tornado, {"Attack", "Projectile"}, stats, tornado, TORNADO_L20, 1.5) == ([], [])

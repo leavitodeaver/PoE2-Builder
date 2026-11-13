@@ -5577,3 +5577,72 @@ def multi_set_model(main: str | None, scored: str | None, sets: list[dict]) -> t
         "basis": f"PoB scores the {scored} alone ({dps[scored]:,.0f} DPS); each use does both ({parts} DPS, each set "
                  "calculated by PoB). Both taken as hitting the boss (the second lands 1.5 m on)",
         "confidence": "MEDIUM (game text: a slam, then a second slam; PoB's own per-set numbers; both on the boss LOW-MEDIUM)"}]
+
+
+# Tornado Shot's copied projectiles (MECHB17; FIX_QUEUE "Tornado Shot's copies", plans/term-projectile-range.md item 2;
+# PoB counts none: its only Tornado Shot config, tornadoShotSecondaryHitChance, is read nowhere in CalcOffence). Game
+# files (build 26476662): ActiveSkills tornado_shot, "Arrows, thrown [Spear|Spears] and [Crossbow] bolts fired at the
+# Tornado are sucked into it, causing the Tornado to spit out a ring of copied [Projectile|Projectiles]. Copied
+# [Projectile|Projectiles] cannot be copied again"; tornado_shot/statset_1.csd: "Tornado spits out {0} copies of
+# [Projectile|Projectiles] fired into it" (base_number_of_projectiles 3), "Copied [Projectile|Projectiles] deal {0}% more
+# damage" (tornado_shot_projectile_damage_+%_final: -60 at gem level 1, -41 at 20, +0.75 a quality), "Tornado disappears
+# after being [Hit] {0} times" (tornado_shot_number_of_hits_allowed: 5 at 1, 8 at 20), "[Limit] {0} Tornado" (1), a
+# 15 s base_skill_effect_duration. KeywordPopups Projectile: "When a group of multiple Projectiles is fired from the same
+# source at the same time, only one Projectile in the group can hit each target unless otherwise specified".
+# So on one boss each arrow sucked in gives ONE copied hit at the penalty (its ring is a group), and the arrow itself is
+# gone ("sucked into it"; whether it also hits the boss: UNVERIFIED, taken as not, plans/term-projectile-range.md):
+# against a skill whose one arrow a use hits the boss, a use through the Tornado gives N x (1 - penalty) hits for 1, N
+# the arrows a use fires (PoB's ProjectileCount). A skill whose arrows all hit anyway (SHOTGUN_SKILLS, SEQUENCE_SKILLS,
+# PoB counts them) gives N x (1 - penalty) for N: never a gain. The rate comes from the build (CLAUDE.md rule 2): each
+# Tornado takes H arrows or lasts its duration, whichever ends first, so U = min(H / N, duration x uses/s) main uses
+# go through one Tornado, and each Tornado costs one Tornado Shot use (1 / its own PoB use rate): the main skill's
+# damage is x (N x (1 - penalty) / direct) x (U / r) / (U / r + Tornado Shot's use time). Below x1 the player shoots the
+# boss directly, which PoB already scores: nothing changes. LOW: (a) every arrow of a volley reaches the Tornado (it is
+# placed on the boss and shot at close range); (b) each sucked-in arrow's ring is its own group (the Tornado counts each
+# arrow as its own Hit toward H). The lower reading of (b), one ring group per volley, would make it never worth it.
+# Not counted: Tornado Shot's own damage over time (PoB's, when its group is in Full DPS); duration modifiers (the base
+# 15 s is used, which can only cut U); the copies' 6 m reach (the boss stands in the Tornado).
+TORNADO_SHOT = "Tornado Shot"
+TORNADO_HITS_STAT = "tornado_shot_number_of_hits_allowed"
+TORNADO_DAMAGE_STAT = "tornado_shot_projectile_damage_+%_final"
+TORNADO_DURATION_STAT = "base_skill_effect_duration"
+
+
+def tornado_copy_model(main: Skill | None, main_types: set[str], stats: dict, tornado: Skill | None,
+                       tornado_stats: dict, tornado_speed: float) -> tuple[list[dict], list[dict]]:
+    """The main projectile attack fired through Tornado Shot's Tornado, when that out-damages shooting the boss (above)."""
+    if main is None or tornado is None or main.name == TORNADO_SHOT:
+        return [], []
+    label = f"{TORNADO_SHOT}: {main.name}'s arrows fired through the Tornado*"
+    if not main.attack or "Projectile" not in main_types or main.triggered:
+        return [], [{"label": label, "value": 0, "confidence": "theory",
+                     "basis": f"{main.name} isn't a projectile attack the player fires (arrows, thrown spears, bolts), so "
+                              "the Tornado copies nothing of it"}]
+    count = max(number(stats.get("ProjectileCount")), 1.0)
+    speed = number(stats.get("Speed"))
+    hits = number(tornado_stats.get(TORNADO_HITS_STAT))
+    penalty = number(tornado_stats.get(TORNADO_DAMAGE_STAT))
+    duration = number(tornado_stats.get(TORNADO_DURATION_STAT)) / 1000
+    if speed <= 0 or tornado_speed <= 0 or hits <= 0 or duration <= 0:
+        return [], [{"label": label, "value": 0, "confidence": "theory",
+                     "basis": "no use rate or Tornado stats read from PoB: not counted"}]
+    direct = count if main.name in SHOTGUN_SKILLS | SEQUENCE_SKILLS else 1.0
+    per_use = count * (1 + penalty / 100) / direct
+    uses = min(hits / count, duration * speed)
+    firing = uses / speed
+    factor = per_use * firing / (firing + 1 / tornado_speed)
+    how = (f"{count:g} arrow(s) a use, each sucked in and copied into a ring of which one copy hits the boss at "
+           f"{penalty:+g}% more (one projectile of a group a target, KeywordPopups Projectile), against {direct:g} direct "
+           f"hit(s): x{per_use:.3f} a use; a Tornado takes {hits:g} arrows or lasts {duration:g} s, so {uses:.2f} uses "
+           f"({firing:.2f} s) a Tornado, and each Tornado costs a {TORNADO_SHOT} use ({1 / tornado_speed:.2f} s)")
+    if factor <= 1:
+        return [], [{"label": label, "value": "x1 (shoot the boss directly)", "confidence": "LOW",
+                     "basis": f"{how}: x{factor:.3f}, below shooting the boss, so not counted. Without the Tornado: x1; "
+                              f"through it: x{factor:.3f}"}]
+    return [line("1% more Damage", 100 * (factor - 1), skill=main.name)], [{
+        "label": label, "value": f"x{factor:.3f}", "confidence": "LOW",
+        "basis": f"{how}: x{factor:.3f}. Play: put the Tornado on the boss, fire {main.name} into it, recast when it's "
+                 f"gone. Without the Tornado: x1; through it: x{factor:.3f}. LOW: every arrow assumed to reach the "
+                 "Tornado, and each arrow's ring its own group (if a volley's rings are one group, x"
+                 f"{(1 + penalty / 100) / direct * firing / (firing + 1 / tornado_speed):.3f}, so not worth it); "
+                 "the sucked-in arrow taken as not hitting (UNVERIFIED)"}]
