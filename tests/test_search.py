@@ -1644,7 +1644,7 @@ def test_a_line_goes_on_with_its_pass_in_its_next_task(monkeypatch):
     search = SimpleNamespace(passes=0, passes_done=0, line_passes=0, resume_step=None, resume_sweep=False,
                              current_step=None, kicked=set(), build=SimpleNamespace(equipped={}),
                              gear=blocks, tree=blocks, gems=blocks, jewels=blocks, sources=blocks,
-                             conditions_round=fake, weapon_set_round=fake, tree_rebuild=fake,
+                             conditions_round=fake, weapon_set_round=fake, tree_rebuild=fake, press_round=fake,
                              skeleton=SimpleNamespace(swap=False), step=step)
     inner.Search.blocks(search, deadline=25.0)  # gear, ascendancy, supports, then the deadline
     assert [p for p, _ in ran] == ["gear", "ascendancy", "supports"]
