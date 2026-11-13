@@ -122,3 +122,37 @@
   sources: ["COV1.report.md (flavour hand-read)", "PoB Modules/Calc*.lua (grep), Data/ModCache.lua"]
   test_in_game: "Not needed."
   status: proposed
+
+# COV17: a unique line PoB drops whose loss is an OVERCOUNT --------------------------------------------------------
+
+- id: SpellCritsRecently
+  title: Critical Hits dealt with Spells Recently (a count)
+  kind: condition
+  spell_crits_recently: 4
+  shown_for: "per Critical Hit you've dealt with Spells Recently"
+  confidence: theory
+  notes: >-
+    A count, not on / off: Assumptions.spell_crits_recently gives the main skill's Critical Hits a second x 4 s
+    (Recently: 4 seconds, KeywordPopups / poe2db Recently) when the main skill is a Spell, so a
+    `share:SpellCritsRecently` line counts its value x that count (in whole percent, over 100 past one). Other Spells'
+    Critical Hits and a cast's extra hits aren't counted (LOW: the loss may be larger).
+  sources: ["https://poe2db.tw/us/Recently", "data/game-26476662/tables/Stats.json spell_crit_bonus_+%_per_spell_crit_recently"]
+  status: proposed
+
+- id: uniques-spell-crit-bonus-per-spell-crit-recently
+  title: Seed of Cataclysm, reduced Critical Spell Damage Bonus per Critical Hit dealt with Spells Recently (an OVERCOUNT while dropped)
+  kind: pob_gap
+  match: '^(\d+)% reduced Critical Spell Damage Bonus per Critical Hit you''ve dealt with Spells Recently$'
+  replace: ['share:SpellCritsRecently {1}% reduced Critical Spell Damage Bonus']
+  confidence: theory
+  notes: >-
+    Game: UniqueSpellCriticalStrikeMultiplierPerSpellCritRecently1, stat spell_crit_bonus_+%_per_spell_crit_recently at
+    -5 (Mods.json; stat_descriptions.csd: "{0}% reduced Critical Spell Damage Bonus per Critical Hit you've dealt with
+    Spells Recently", no cap in the text). PoB parses "5% reduced Critical Spell Damage Bonus" (CritMultiplier INC -5,
+    Spell flag) and leaves "per Critical Hit you've dealt Recently" over, so it applied nothing and a crit caster got
+    the ring's crit chance with no loss. Now the line's value x the SpellCritsRecently count (the main skill's
+    Critical Hits in 4 s). On an item through its LedgerShare stand-in (ledger.item_lines; bridge installLedgerShare).
+    PoB floors the bonus at 0 (CalcOffence 4028: 1 + max(0, extraDamage)); the game's floor is UNVERIFIED.
+  sources: ["https://poe2db.tw/us/Seed_of_Cataclysm", "data/game-26476662/files/data/statdescriptions/stat_descriptions.csd"]
+  test_in_game: "Cast crit Spells for 4 s and watch the Critical Damage Bonus on the character sheet fall by 5% per crit."
+  status: proposed

@@ -906,6 +906,52 @@ local function installLedgerBonded()
 	ledgerBondedInstalled = true
 end
 
+-- The ledger's `share:` lines on items (COV17; builder/ledger item_lines): the item text carries each as
+-- "LedgerShare:<Name> <line>", which PoB can't parse (its modLine keeps leftover text, so PoB applies nothing). Before PoB
+-- builds the item's modifiers, such an explicit line gets <line>'s modifiers (at the item's roll, as getRangedModList
+-- would give them), each at value / 100 x Multiplier:LedgerShare<Name>, the share (or count) in whole percent that the
+-- assumptions set (assumptions.ledger_conditions), as applyLedger does for a passive's `share:` line. A line PoB still
+-- can't parse stays as it was (applies nothing).
+local ledgerShareInstalled = false
+local function installLedgerShare()
+	local class = not ledgerShareInstalled and common and common.classes and common.classes.Item
+	if not class or not class.BuildModList then
+		return
+	end
+	local buildModList = class.BuildModList
+	class.BuildModList = function(self, ...)
+		for _, kind in ipairs({ "explicitModLines", "implicitModLines" }) do
+			for _, modLine in ipairs(rawget(self, kind) or { }) do
+				local share, rest = tostring(modLine.line or ""):match("^LedgerShare:(%w+)%s+(.+)$")
+				if share then
+					if rest:find("%((%-?%d+%.?%d*)%-(%-?%d+%.?%d*)%)") then
+						rest = itemLib.applyRange(rest, modLine.range or main.defaultItemAffixQuality or 0.5,
+							modLine.valueScalar, modLine.corruptedRange)
+					end
+					local list, extra = modLib.parseMod(rest)
+					if list and not extra then
+						local tagged = { }
+						for _, parsed in ipairs(list) do
+							local copy = copyTable(parsed)
+							if type(copy.value) == "number" then
+								copy.value = copy.value / 100
+							elseif type(copy.value) == "table" and type(copy.value.mod) == "table"
+									and type(copy.value.mod.value) == "number" then
+								copy.value.mod.value = copy.value.mod.value / 100  -- (a LIST of one nested mod)
+							end
+							copy[#copy + 1] = { type = "Multiplier", var = "LedgerShare" .. share }
+							tagged[#tagged + 1] = copy
+						end
+						modLine.modList, modLine.extra, modLine.ledgerShare = tagged, nil, share
+					end
+				end
+			end
+		end
+		return buildModList(self, ...)
+	end
+	ledgerShareInstalled = true
+end
+
 -- Whether PoB applies this rune line now: a Bonded line only under the item's current Bonded state, which
 -- GetActiveModListForSlotNum sets on each calculation ("all": CanUseBonded; "idol": an Idol's own lines only)
 local function runeLineApplies(item, modLine)
@@ -1019,6 +1065,7 @@ end
 
 local function installDerived()
 	installLedgerBonded()
+	installLedgerShare()
 	installSpiritVessel()
 	installCannotChill()
 	installBossSlow()
@@ -3447,7 +3494,8 @@ function bridge.unsupportedInBuild()
 		if item and not slot.inactive then
 			for _, kind in ipairs({ "enchantModLines", "runeModLines", "implicitModLines", "explicitModLines" }) do
 				for _, modLine in ipairs(item[kind] or { }) do
-					local standin = modLine.ledgerBonded or tostring(modLine.line or ""):match("^LedgerBonded:")
+					local text = tostring(modLine.line or "")
+					local standin = modLine.ledgerBonded or text:match("^LedgerBonded:") or text:match("^LedgerShare:")
 					if (modLine.extra or #(modLine.modList or { }) == 0) and not standin then
 						found[#found + 1] = { source = slotName .. ": " .. tostring(item.title or item.name), line = modLine.line }
 					end
@@ -3505,7 +3553,8 @@ function bridge.sourceLines()
 					-- a Bonded rune line only while PoB applies it, without its "Bonded: " prefix, so the models and the
 					-- condition resolver read it as the line it is (COV13: before, an inactive one reached the resolver's
 					-- unanchored patterns, and an active one no anchored model input); a ledger stand-in's text never
-					if modLine.ledgerBonded or (type(text) == "string" and text:match("^LedgerBonded:"))
+					-- (a `share:` line's stand-in, COV17's installLedgerShare, never either: the models read the line it stands for)
+					if modLine.ledgerBonded or (type(text) == "string" and (text:match("^LedgerBonded:") or text:match("^LedgerShare:")))
 							or (kind == "runeModLines" and not runeLineApplies(item, modLine)) then
 						text = nil
 					elseif modLine.bonded and type(text) == "string" then

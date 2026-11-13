@@ -33,8 +33,9 @@ cost: `mult:` entries) reach the models through bridge.sourceLines, which lists 
 prefix, only while PoB applies it.
 
 Not applied: soul cores' own slot entries; "increased effect of socketed items" on the non-Bonded stand-in lines (PoB
-scales the rune's own line, not the stand-in); Timeless jewels' passives (the tree, not item text); conditional
-entries (passives only, as for uniques); a Bonded line PoB parses wrongly (`pob_wrong`; none today: checked, COV13, every Bonded line of
+scales the rune's own line, not the stand-in); Timeless jewels' passives (the tree, not item text); `flag:`, `if:`
+and `mult:` entries (passives only, as for uniques; a `share:` entry is applied through its stand-in since COV17,
+ledger.item_lines, but not as a Bonded line); a Bonded line PoB parses wrongly (`pob_wrong`; none today: checked, COV13, every Bonded line of
 runes.json against wrong(): 0 of 559).
 """
 
@@ -45,7 +46,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from builder.ledger import translate, wrong
+from builder.ledger import item_lines, translate, wrong
 
 ADDED = "{custom}"
 SWITCHED_OFF = "{rune}{disabled}"
@@ -167,16 +168,16 @@ def corrected_item(raw: str, directory: Path | None = None) -> str:
     if lines and lines[0] in NOT_UNIQUE:
         for i, line in enumerate(lines):
             if template(line) in unparsed:
-                if (translated := translate(line)) and not translated[0].conditional:
-                    added += translated[1]
+                if (translated := translate(line)) and translated[0].on_items:
+                    added += item_lines(translated[1])
             elif fixed := wrong(line):
                 lines[i] = fixed[1] if fixed[1] is not None else DISABLED + line
     runes = [l.split(":", 1)[1].strip() for l in lines if l.startswith("Rune:")]
     if runes and (base := _base_of(lines, directory)):
         for line in rune_lines(runes, base, directory):
             if template(line) in unparsed:
-                if (translated := translate(line)) and not translated[0].conditional:
-                    added += translated[1]
+                if (translated := translate(line)) and translated[0].on_items:
+                    added += item_lines(translated[1])
             elif fixed := wrong(line):
                 off.append(line)
                 if fixed[1] is not None:

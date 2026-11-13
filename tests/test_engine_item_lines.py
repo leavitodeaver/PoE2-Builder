@@ -274,3 +274,39 @@ def test_cov16_reworded_lines_parse_to_the_stat_the_game_names(engine):
         results = engine.call("parseLines", lines=out)["results"]
         assert all(r["supported"] for r in results), (line, results)
         assert [p["name"] for r in results for p in r["parsed"]] == names, (line, results)
+
+
+def test_a_share_stand_in_on_an_item_counts_its_value_times_the_share(engine):
+    """COV17: a `share:` line on an item ("LedgerShare:<Name> <line>", ledger.item_lines) counts at value / 100 x
+    Multiplier:LedgerShare<Name> (bridge installLedgerShare), as a passive's does; without the multiplier it adds
+    nothing, and bridge.sourceLines never lists the stand-in. Seed of Cataclysm's line goes through it."""
+    from builder.ledger import item_lines, translate
+    from builder.ledger.items import _bases
+
+    seed = "5% reduced Critical Spell Damage Bonus per Critical Hit you've dealt with Spells Recently"
+    assert item_lines(translate(seed)[1]) == ["LedgerShare:SpellCritsRecently 5% reduced Critical Spell Damage Bonus"]
+    payload = make_payload(BuildRequest(main_skill="Spark"))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    coat = next(n for n, b in _bases().items() if b["type"] == "Body Armour" and not b.get("hidden"))
+    head = ["Rarity: Rare", "Test Coat", coat, "Implicits: 0", "+10 to Strength"]
+    base = list(search.assumptions.mods)
+
+    def life(percent, *lines):
+        build.call("equip", slot="Body Armour", raw=chr(10).join(head + list(lines)), fields=[])
+        share = [{"kind": "Raw", "name": "Multiplier:LedgerShareTestShare", "type": "BASE", "value": percent}]
+        stats = build.call("setAssumptions", mods=base + share, fields=["Life"])["stats"]
+        texts = [e["text"] for e in build.call("sourceLines")["lines"] if e["source"] == "item:Body Armour"]
+        return stats["Life"], texts
+
+    plain, _ = life(0)
+    line = "{custom}LedgerShare:TestShare +100 to maximum Life"
+    off, texts = life(0, line)
+    half, _ = life(50, line)
+    twice, _ = life(200, line)
+    assert off == plain and half > plain and twice - plain == pytest.approx(4 * (half - plain), rel=0.02)
+    assert not any("LedgerShare" in t or t == "+100 to maximum Life" for t in texts)
+    ranged, _ = life(100, "{custom}LedgerShare:TestShare +(100-100) to maximum Life")
+    assert ranged - plain == pytest.approx(2 * (half - plain), rel=0.02)

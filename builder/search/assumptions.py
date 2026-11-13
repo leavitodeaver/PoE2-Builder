@@ -1622,6 +1622,21 @@ class Assumptions:
                                   "play": "Use each Warcry on its cooldown: without them these lines add nothing",
                                   "confidence": "MEDIUM (each Warcry used on its cooldown; LOW where marked)"})
                 continue
+            if condition.get("spell_crits_recently"):
+                # a count, not a share (COV17; Seed of Cataclysm's "5% reduced Critical Spell Damage Bonus per Critical
+                # Hit you've dealt with Spells Recently", an OVERCOUNT while PoB dropped it): the main skill's Critical
+                # Hits a second over the window (Recently, 4 s), in whole percent; its lines are `share:` lines
+                count, how = self.spell_crits_recently(float(condition["spell_crits_recently"]), main_types)
+                percent = round(100 * max(count, 0.0))
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                if self.has_line(condition.get("shown_for") or "$^"):
+                    notes.append({"label": condition["title"], "value": round(count, 1),
+                                  "basis": f"{how}; its lines count {percent}% of their value",
+                                  "confidence": "LOW (the main skill's hits only: other Spells' Critical Hits and a "
+                                                "cast's extra hits are not counted, so the loss may be larger)"})
+                continue
             if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
                 share, how = self.jagged_ground_share(main, main_types, main_group)
                 # its ledger lines are `share:JaggedGround` (COV11): each counts its full value x this share (bridge
@@ -1728,6 +1743,20 @@ class Assumptions:
             if share >= shares.get(name, (-1.0, ""))[0]:  # (the same Warcry twice is one "different" Warcry)
                 shares[name] = (share, f"{name} on {why}: used Recently {share:.0%} of the fight" + (" (LOW)" if low else ""))
         return sum(s for s, _ in shares.values()), "; ".join(h for _, h in shares.values()) or "no use rate: 0"
+
+    def spell_crits_recently(self, window: float, main_types: set[str]) -> tuple[float, str]:
+        """(Critical Hits dealt with Spells in the past `window` seconds, how), on average over the fight (COV17): the main
+        skill's uses a second x its hit chance x its Critical Hit chance (models.crits_per_second) x the window, when the
+        main skill is a Spell; 0 otherwise (a Spell beside an Attack main skill isn't rated here). Each hit counts once,
+        so a cast's extra hits (projectiles, repeats) and other Spells' Critical Hits are not counted: likely fewer
+        counted than dealt (LOW; each cast taken to land, as PoB's own DPS takes it)."""
+        if "Spell" not in main_types:
+            return 0.0, "the main skill isn't a Spell"
+        stats = self.build.call("stats", fields=models.MODEL_FIELDS)
+        rate = models.crits_per_second(stats)
+        return rate * window, (f"{rate:.2f} Critical Hits a second (the main skill: {number(stats.get('Speed')):.2f} uses/s x "
+                               f"{number(stats.get('HitChance')):.0f}% hit x {number(stats.get('CritChance')):.1f}% "
+                               f"Critical Hit chance) x {window:g} s")
 
     def has_line(self, pattern: str) -> bool:
         """Whether any of the build's source lines (passives and items, bridge sourceLines) matches `pattern`."""

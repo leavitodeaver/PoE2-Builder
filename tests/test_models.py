@@ -3936,3 +3936,24 @@ def test_tornado_copies_never_pay_for_skills_whose_arrows_all_hit():
                                             {"Spell", "Projectile"}, stats, tornado, TORNADO_L20, 1.5)
     assert mods == [] and notes[0]["value"] == 0
     assert models.tornado_copy_model(tornado, {"Attack", "Projectile"}, stats, tornado, TORNADO_L20, 1.5) == ([], [])
+
+
+def test_spell_crits_recently_counts_the_main_spells_crits_over_four_seconds():
+    """COV17: Seed of Cataclysm's "5% reduced Critical Spell Damage Bonus per Critical Hit you've dealt with Spells
+    Recently" counts at the SpellCritsRecently count: the main skill's Critical Hits a second (uses x hit chance x crit
+    chance) x 4 s, in whole percent for the ledger's share multiplier; 0 when the main skill isn't a Spell."""
+    from builder.search.assumptions import Assumptions
+
+    class Build:
+        def call(self, name, **kw):
+            if name == "sourceLines":
+                return {"lines": [{"source": "item:Ring 1", "text": "5% reduced Critical Spell Damage Bonus per Critical "
+                                                                   "Hit you've dealt with Spells Recently"}]}
+            assert name == "stats"
+            return {"Speed": 2.0, "HitChance": 100.0, "CritChance": 50.0}
+
+    a = Assumptions.__new__(Assumptions)
+    a.build = Build()
+    count, how = a.spell_crits_recently(4.0, {"Spell", "Projectile"})
+    assert count == pytest.approx(4.0) and "1.00 Critical Hits a second" in how
+    assert a.spell_crits_recently(4.0, {"Attack"})[0] == 0.0

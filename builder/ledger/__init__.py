@@ -143,6 +143,22 @@ class Entry:
     def conditional(self) -> bool:
         return any(SYNTAX.match(line) for line in self.replace)
 
+    @property
+    def on_items(self) -> bool:
+        """Whether its lines can be applied on items: unconditional ones, and since COV17 `share:` ones (item_lines)."""
+        return all(not (m := SYNTAX.match(line)) or m.group(1) == "share" for line in self.replace)
+
+
+ITEM_SHARE = "LedgerShare:"  # a `share:` line's stand-in in an item's text; the bridge (installLedgerShare) applies it
+
+
+def item_lines(lines: list[str]) -> list[str]:
+    """A translation's lines as an item's text carries them (COV17): a `share:Name <line>` line as
+    "LedgerShare:Name <line>", which PoB can't parse; the bridge (installLedgerShare) parses <line> and counts it at
+    Multiplier:LedgerShareName / 100, as applyLedger does on passives. Other lines as they are. Only for entries that
+    are `on_items` (flag:, if: and mult: lines have no item form)."""
+    return [ITEM_SHARE + m.group(2) + " " + m.group(3) if (m := SYNTAX.match(line)) else line for line in lines]
+
 
 def _number(text: str) -> bool:
     try:

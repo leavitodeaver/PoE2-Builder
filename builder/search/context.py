@@ -20,7 +20,7 @@ from functools import cached_property
 
 from builder.data import GameData, liveness, rare_prices, unique_versions
 from builder.data.rules import rules as game_rules
-from builder.ledger import gap_list, translate, wrong
+from builder.ledger import gap_list, item_lines, translate, wrong
 from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
 from builder.search import anoints, granted_rolls
@@ -334,8 +334,9 @@ class Context:
         lines, added = [], []
         for line in raw.split("\n"):
             prefix, text = re.match(r"^((?:\{[^}]*\})*)(.*)$", line).groups()
-            if text in ignored and (translated := translate(text)) and not translated[0].conditional:
-                added += [prefix + extra for extra in translated[1]]
+            if text in ignored and (translated := translate(text)) and translated[0].on_items:
+                # (`share:` lines as their item stand-ins since COV17: ledger.item_lines)
+                added += [prefix + extra for extra in item_lines(translated[1])]
             elif fixed := wrong(text):
                 line = prefix + (fixed[1] if fixed[1] is not None else "{disabled}" + text)
             lines.append(line)
