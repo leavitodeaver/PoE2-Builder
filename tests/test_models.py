@@ -3485,3 +3485,19 @@ def test_when_hit_benefits_read_the_bosss_slower_cadence():
     assert f"one every {every:g} s" in basis
     income = models.ward_income(0.0, 0.0, [], on_block=20, block=50, every=every)[0]
     assert income == pytest.approx(20 * 0.5 / every)
+
+
+def test_light_stuns_count_when_a_hit_is_15_percent_of_the_bosss_life():
+    """MECHB13 (the user's Kalguuran Remnants note via the manager, 18:20): bosses take Light Stuns (no stun-immunity mod
+    on any pinnacle variety: research/boss-poise-stun-threshold.md); KeywordPopups LightStun: chance = hit / maximum Life,
+    Physical x1.5, player Melee x1.5, 0 under 15%. Remnants of Kalguur read Heavy + Light Stuns (models.stun_rate)."""
+    from builder.search import bosses
+
+    life = bosses.of({}).life
+    small = {"Speed": 2, "HitChance": 100, "FireHitAverage": life * 0.1}
+    assert models.light_stun_rate(small)[0] == 0.0  # (10%: under the floor)
+    assert models.light_stun_rate(small, melee=True)[0] == pytest.approx(2 * 0.15)  # (x1.5 Melee: 15%)
+    big = {"Speed": 1, "HitChance": 100, "PhysicalHitAverage": life * 0.2}
+    assert models.light_stun_rate(big)[0] == pytest.approx(0.3)  # (x1.5 Physical)
+    total, how = models.stun_rate(big)
+    assert total == pytest.approx(0.3) and "Light 0.300/s" in how

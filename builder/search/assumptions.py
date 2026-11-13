@@ -53,8 +53,9 @@ REMNANT_SOURCES = {
     "Grim Feast": (0.0, "a Grim Remnant when one of your Reviving minions dies in your Presence (100%, game files), at "
                         "the rate the build kills them (models.minion_deaths; no flat rate, the user 11 Nov)"),
     "Orb of Storms": (0.0833, "one Orb kept up: a Remnant when each 12 s Orb expires"),
-    "Remnants of Kalguur": (0.0, "50% per Stun, at most one per 3 s: the boss's Heavy Stuns (models.heavy_stun_rate, "
-                                 "from the build's own buildup; light stuns of a boss not counted)"),
+    "Remnants of Kalguur": (0.0, "50% per Stun, at most one per 3 s: the boss's Heavy and Light Stuns (models.stun_rate, "
+                                 "from the build's own buildup and hit size; MECHB13), and 25% per kill (none counted "
+                                 "here yet: ward_income counts them)"),
     "Siphon Elements": (0.0, "a Cold Remnant on each Freeze (5% per Power, a boss's 20 Power: 100%), the boss's Freezes "
                              "from the main skill's buildup (models.buildup_rate); Ignite and Shock make one only on a "
                              "target without that ailment, which a boss you keep ailing rarely is: not counted, an "
@@ -766,7 +767,13 @@ class Assumptions:
                 if name in COOLDOWN_SOURCES:
                     rate *= skill.get("cooldownRecovery") or 1.0
                 if name == KALGUUR:
-                    stuns, how = models.heavy_stun_rate(self.build.call("stats", fields=models.MODEL_FIELDS))
+                    from builder.search import bosses  # (the request's boss: its Life for Light Stuns)
+
+                    melee = bool(next((s for s in skills if s["name"] == self.main_skill()), {}).get("melee"))
+                    boss_stats = bosses.kill_stats(getattr(getattr(getattr(self.build, "ctx", None), "request", None),
+                                                           "boss", None) or bosses.DEFAULT)
+                    stuns, how = models.stun_rate({**self.build.call("stats", fields=models.MODEL_FIELDS), **boss_stats},
+                                                  melee)
                     rate, condition = kalguur_rate(stuns), f"50% per Stun, at most one per 3 s, {how}"
                 elif name == SIPHON:
                     rate, condition = siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS))
@@ -933,8 +940,10 @@ class Assumptions:
                 skipped.append(name)
         from builder.search import bosses
 
-        pools = build.call("stats", fields=list(dict.fromkeys(
-            ["WardRegenRecovery", "Ward", "WardOnBlock", "EffectiveBlockChance", "enemySkillTime", *models.MODEL_FIELDS])))
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        pools = {**build.call("stats", fields=list(dict.fromkeys(
+            ["WardRegenRecovery", "Ward", "WardOnBlock", "EffectiveBlockChance", "enemySkillTime", *models.MODEL_FIELDS]))),
+                 **bosses.kill_stats(boss)}  # (the request's boss: its Life for Light Stuns, its cadence, its adds)
         texts = [line["text"] for line in build.call("sourceLines")["lines"]]
         kalguur = next((dict(s.get("levelStats") or {}) for s in skills if s["name"] == KALGUUR and not s["disabled"]),
                        None)
@@ -942,15 +951,18 @@ class Assumptions:
             extra = sum(float(m.group(1)) for t in texts if (m := ADDITIONAL_REMNANT.search(t))) / 100.0
             kalguur["multiplier"] = ((1.0 + extra) * (2.0 if any(REAPPEAR.search(t) for t in texts) else 1.0)
                                      * (1.0 + duplicate_pickups(texts)))
-        kills = getattr(build, "kills", None) or (0.0, 0.0, "")
+        kills = getattr(build, "kills", None) or (0.0, 0.0, "")  # (models.kill_rate: the boss preset's adds, own minions)
+        melee = bool(next((s for s in skills if s["name"] == main), {}).get("melee"))
+        stuns, stuns_how = models.stun_rate(pools, melee) if kalguur is not None else (0.0, "")
         regen, pool = number(pools.get("WardRegenRecovery")), number(pools.get("Ward"))
         income, parts, unread = models.ward_income(
-            regen, pool, texts, kalguur=kalguur, stuns=models.heavy_stun_rate(pools)[0] if kalguur is not None else 0.0,
+            regen, pool, texts, kalguur=kalguur, stuns=stuns, stuns_how=stuns_how,
             kills=(number(kills[0]), number(kills[1])), on_block=number(pools.get("WardOnBlock")),
             block=number(pools.get("EffectiveBlockChance")), every=bosses.benefit_skill_time(pools))  # (a "when hit" benefit, MECHD4)
         share, notes = models.ward_plan(uses, income, pool, parts, unread)
         build.ward_sustain = {u.name: (u.rate, u.rate * share, u.cost) for u in uses}
-        build.ward_sustain.update({"_regen": income, "_share": share})
+        # (the total, every source: the one field SEARCH reads; its breakdown is in the note)
+        build.ward_sustain.update({"WardRecoveryPerSecond": income, "_share": share})
         if skipped and notes:
             notes[0]["basis"] += f". Not counted against it: {', '.join(sorted(set(skipped)))} (not used for damage here)"
         if share >= 1.0:

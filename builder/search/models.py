@@ -5211,7 +5211,7 @@ WARD_UNREAD = {
 
 
 def ward_income(regen: float, pool: float, texts: list[str], *, kalguur: dict | None = None, stuns: float = 0.0,
-                kills: tuple[float, float] = (0.0, 0.0), on_block: float = 0.0, block: float = 0.0,
+                stuns_how: str = "", kills: tuple[float, float] = (0.0, 0.0), on_block: float = 0.0, block: float = 0.0,
                 every: float = 0.0) -> tuple[float, list[str], list[str]]:
     """Runic Ward a second from every source the build has (the user's rule, 12 Nov: not regeneration alone): PoB's
     WardRegenRecovery (regeneration, its recovery lines, Mana regeneration applied to Ward); Remnants of Kalguur
@@ -5229,7 +5229,8 @@ def ward_income(regen: float, pool: float, texts: list[str], *, kalguur: dict | 
         from_stuns = 1.0 / (cooldown + 1.0 / (chance * stuns)) if stuns > 0 and chance > 0 else 0.0
         remnants = (from_stuns + on_kill * kills[0]) * more
         income += remnants * gain
-        parts.append(f"Remnants of Kalguur {remnants:.3f}/s x {gain:g} Ward ({chance:.0%} a Stun at {stuns:.2f} Stuns/s, "
+        parts.append(f"Remnants of Kalguur {remnants:.3f}/s x {gain:g} Ward ({chance:.0%} a Stun at {stuns:.2f} Stuns/s"
+                     + (f" [{stuns_how}]" if stuns_how else "") + ", "
                      f"at most one per {cooldown:g} s; {on_kill:.0%} a kill at {kills[0]:.3f} kills/s"
                      + (f"; x{more:.2f} the build's extra Remnants and pickups" if more != 1.0 else "") + ")")
     if on_block > 0 and block > 0 and every > 0:
@@ -5266,6 +5267,7 @@ def ward_plan(uses: list[WardUse], regen: float, pool: float, parts: list[str] |
         return 1.0, [{
             "label": "Runic Ward pays for the Ward-cost skills", "value": f"{spend:.1f} of {regen:.1f} Ward/s",
             "basis": f"{names}: the build's Runic Ward recovery pays for every use ({sources}){missing}",
+            "play": f"The build feeds its Runic Ward from: {sources}.",
             "confidence": "MEDIUM"}]
     return share, [{
         "label": "Ward-cost skills held to what Runic Ward recovery pays for*", "value": f"x{share:.3f}",
@@ -5274,8 +5276,9 @@ def ward_plan(uses: list[WardUse], regen: float, pool: float, parts: list[str] |
                  f"{share:.1%} as often (without this cap: the rates above"
                  + ("; with no Runic Ward recovery none of them is used" if regen <= 0 else "")
                  + f"). The full pool at the start of the fight isn't counted (a few more uses once){missing}",
-        "play": "Keep Runic Ward coming in: every Ward-cost use spends it, and the build regains it only as fast as the "
-                "sources listed recover it.",
+        "play": f"The build feeds its Runic Ward from: {sources}. Every Ward-cost use spends it, so they're used only as "
+                f"often as that pays for ({share:.0%} of the rates above); more Ward recovery (Remnants of Kalguur, Ward on "
+                "Block, regeneration) raises it.",
         "confidence": "MEDIUM"}]
 
 
@@ -5323,3 +5326,39 @@ def frostflame_model(speed: float, share: float, how: str) -> tuple[list[dict], 
         "play": "Keep the boss Ignited with another skill; the ice hits only while that Ignite lasts (without an Ignite "
                 "source it deals nothing).",
         "confidence": "MEDIUM-LOW"}]
+
+
+# Light Stuns of the boss (MECHB13; the manager's 18:20 relay of the user's Kalguuran Remnants note) -------------------
+# KeywordPopups LightStun: "Any Hit has a chance to Light Stun the target ... The chance is based on the damage dealt, up
+# to 100% base chance for Hits that deal 100% of the target's maximum Life. Chances lower than 15% are treated as 0%.
+# Physical damage, and player (but not monster) Melee Damage, each have 50% more Light Stun chance." Bosses take them
+# (checked: research/boss-poise-stun-threshold.md item 4: no stun-immunity mod on any of the 11 pinnacle varieties' mod
+# lists; Monster.ot gives every monster a 0.5 s Light Stun, research/boss-heavy-stun-duration.md; second source poe2db
+# The_Arbiter_of_Ash's mod list). The chance is linear in the hit (LightStunRatioScale 58's role UNVERIFIED, RESEARCH20
+# #116; LOW). Not read: light stun chance / threshold modifiers, the boss's Energy Shield in front of its Life.
+LIGHT_STUN_FLOOR = 0.15
+
+
+def light_stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:
+    """Light Stuns of the boss per second from the main skill's hits: each hit's chance is its damage (Physical x1.5, all
+    x1.5 for a player Melee skill) over the boss's maximum Life (bosses.of(stats).life), 0 under 15%."""
+    life = bosses.of(stats).life
+    hits = hits_per_second(stats)
+    if life <= 0 or hits <= 0:
+        return 0.0, "no hits"
+    crit = min(number(stats.get("CritChance")), 100) / 100
+    hit = sum((number(stats.get(f"{t}HitAverage")) * (1 - crit) + number(stats.get(f"{t}CritAverage")) * crit)
+              * (1.5 if t == "Physical" else 1.0) for t in DAMAGE_TYPES) * (1.5 if melee else 1.0)
+    chance = min(hit / life, 1.0)
+    if chance < LIGHT_STUN_FLOOR:
+        return 0.0, (f"a hit of {hit:,.0f} is {chance:.1%} of the boss's {life:,} Life, under the 15% floor: no Light "
+                     "Stuns (KeywordPopups LightStun)")
+    return hits * chance, (f"{hits:.2f} hits/s x {chance:.0%} Light Stun chance (a {hit:,.0f} hit of the boss's {life:,} "
+                           "Life; KeywordPopups LightStun, linear: LOW)")
+
+
+def stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:
+    """Stuns of the boss per second, Heavy (heavy_stun_rate) and Light (light_stun_rate), for "when you Stun" sources."""
+    heavy, heavy_how = heavy_stun_rate(stats)
+    light, light_how = light_stun_rate(stats, melee)
+    return heavy + light, f"Heavy {heavy:.3f}/s ({heavy_how}); Light {light:.3f}/s ({light_how})"

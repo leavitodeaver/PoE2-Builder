@@ -1838,7 +1838,7 @@ def test_runic_ward_regeneration_holds_the_transmutation_explosions(engine):
     search.assumptions.apply()
     sustain = build.ward_sustain
     planned, paid, cost = sustain["Transmutation Explosion"]
-    assert cost > 0 and paid * cost <= sustain["_regen"] + 1e-6
+    assert cost > 0 and paid * cost <= sustain["WardRecoveryPerSecond"] + 1e-6
     rate = next(m["value"] for m in search.assumptions.mods
                 if m.get("skill") == "Transmutation Explosion" and m.get("key") == "triggerRate")
     assert rate == pytest.approx(paid, abs=1e-3)
