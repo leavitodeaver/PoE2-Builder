@@ -3937,26 +3937,54 @@ def press_key(name: str, source: str | None) -> str:
     return f"{name} from {source}" if source and source != name else name
 
 
-def press_use_rate(rate: dict) -> tuple[float, str, str]:
+# A pressed skill with no cooldown, no duration and nothing else setting its use (MECH55; THE USER, 12 Nov, card: "Search
+# picks the rate"): the search chooses how often it's pressed as a play strategy, its time charged against the main
+# skill (press_model's busy share), with a "without it" row in the play guide. SEARCH sets the choice on
+# build.objective.press_choices ({skill name as useRates names it: uses per second}; PRESS_CHOICES). Until it does, such
+# a skill is pressed 0 times, labelled (the user's flat-rate rule: no source, 0). PRESS_EVERY stays for the other
+# callers that still guess (conditions.skill_use_rate, flasks' Perfect Timing): theirs to move.
+PRESS_CHOICES = "press_choices"
+
+
+def press_choices(build) -> dict[str, float]:
+    """The search's chosen press rates for the build ({} when it chose none)."""
+    return dict(getattr(getattr(build, "objective", None), PRESS_CHOICES, None) or {})
+
+
+def press_choice(rate: dict, choices: dict[str, float] | None) -> float | None:
+    """The chosen uses per second for a useRates row (its name, or its name before a stat set's label), or None."""
+    name = str(rate.get("name") or "")
+    for skill, uses in (choices or {}).items():
+        if name == skill or name.startswith(f"{skill} ") or name.startswith(f"{skill}:"):
+            return number(uses)
+    return None
+
+
+def press_use_rate(rate: dict, chosen: float | None = None) -> tuple[float, str, str]:
     """A pressed skill's uses per second from one bridge `useRates` row: on its cooldown, else once per its duration,
-    else every PRESS_EVERY s (LOW); never faster than PoB's speed. (uses/s, how, confidence)."""
+    else the rate the search chose (`chosen`, press_choice), else 0 (labelled); never faster than PoB's speed.
+    (uses/s, how, confidence)."""
     speed, repeats = number(rate.get("speed")), number(rate.get("repeats")) or 1.0
     cooldown, duration = number(rate.get("cooldown")), number(rate.get("duration"))
     if cooldown > 0:
         real, how, confidence = repeats / cooldown, f"on its {cooldown:.2f} s cooldown", "MEDIUM"
     elif duration > 0:
         real, how, confidence = repeats / duration, f"once per its {duration:.2f} s duration, to keep it up", "MEDIUM"
+    elif chosen is not None and chosen > 0:
+        real, how, confidence = repeats * chosen, (f"{chosen:.3g} times a second*, the rate the search chose (a way to "
+                                                   "play the build; without it, it adds nothing)"), "MEDIUM"
     else:
-        real, how, confidence = repeats / PRESS_EVERY, f"once every {PRESS_EVERY:g} s* (a guess: it has no cooldown "\
-            "or duration to set its use)", "LOW"
+        real, how, confidence = 0.0, ("0 times* (no cooldown or duration sets how often it's pressed, and the search "
+                                      "chose no rate: no source, 0)"), "LOW"
     return min(real, speed), how, confidence
 
 
-def press_group_rate(rate: dict, pace: float | None = None, cap: "PressCap | None" = None) -> tuple[float, str, str]:
+def press_group_rate(rate: dict, pace: float | None = None, cap: "PressCap | None" = None,
+                     chosen: float | None = None) -> tuple[float, str, str]:
     """A pressed group's uses per second as press_model counts its damage: press_use_rate, held to Cadence's pace
     (`pace`) and to the most uses the build can feed it (`cap`, Assumptions.press_caps). The one rate for its benefit
     and its side effects (conditions.side_consumes reads it too; MECH54, CLAUDE.md's flat-rate rule)."""
-    real, how, confidence = press_use_rate(rate)
+    real, how, confidence = press_use_rate(rate, chosen)
     if pace is not None and real > pace:
         real, how = pace, how + (f", held to Cadence's {pace:g} uses/s (at most 5 uses in any 4 s: a 6th locks the "
                                  "skill for 10 s; game files SupportCadencePlayer)")
@@ -3966,8 +3994,8 @@ def press_group_rate(rate: dict, pace: float | None = None, cap: "PressCap | Non
 
 
 def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
-                paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None
-                ) -> tuple[dict[str, float], list[dict]]:
+                paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None,
+                choices: dict[str, float] | None = None) -> tuple[dict[str, float], list[dict]]:
     """Full DPS entry scales ({SkillDPS name: x}) and notes for the pressed non-main groups `pressed`, from the bridge's
     `useRates` (each group's skill as if it were the main one: its speed, capped by its cooldown as PoB does, its
     cooldown after recovery, repeats, duration and base cast time). `paced` ({group: most uses per second}): a group
@@ -3985,7 +4013,7 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
             continue
         cooldown = number(rate.get("cooldown"))
         cap = (caps or {}).get(rate["index"])
-        real, how, confidence = press_group_rate(rate, (paced or {}).get(rate["index"]), cap)
+        real, how, confidence = press_group_rate(rate, (paced or {}).get(rate["index"]), cap, press_choice(rate, choices))
         if cap is not None and cap.moving > 0:
             busy += real * cap.moving  # (no skill is used while walking between its uses)
         capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)

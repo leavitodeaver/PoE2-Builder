@@ -17,7 +17,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from builder.search import boss_hits, models
+from builder.search import boss_hits, bosses, models
 from builder.search.objective import number
 from builder.search.state import EPSILON, Build
 
@@ -1277,24 +1277,40 @@ def target_ailment_share(stats: dict, participle: str) -> float:
 # the Ignited-yourself box was on whenever the line was there). Ignited at the share of the fight one of your crits in the
 # last Ignite's duration got through: crits per second x (1 - PoB's IgniteAvoidChance, 100 when immune: CalcDefence 2005,
 # IgniteImmune / ElementalAilmentImmune) over 4 s (KeywordPopups Ignite) x PoB's SelfIgniteDuration. Avoidance taken to
-# apply to this Ignite as to any (MEDIUM). The boss's own Ignite on you (boss_hits.ignite_chance) isn't added here.
+# apply to this Ignite as to any (MEDIUM).
+# The boss's own Ignite on you (MECH55, MECHD4's bosses.self_ignite_uptime: its landed Fire hits x boss_hits.ignite_chance
+# x (1 - avoidance), 4 s x SelfIgniteDuration each, at the "when hit" benefit cadence; an UNDERCOUNT before, when only
+# Grinning Immolation set the box): added, as independent, when a line reads the box (PoB's "while ignited" / "while you
+# are ignited" -> Condition:Ignited, ModParser 1899-1900; Condition:Burning follows it, CalcSetup 83).
 SELF_IGNITE_LINE = re.compile(r"become ignited when you deal a critical hit", re.I)
+SELF_IGNITED_USE = re.compile(r"\bwhile (?:you are )?(?:ignited|burning)\b", re.I)
 
 
 def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
-    if not any(SELF_IGNITE_LINE.search(t) for t in lines):
+    grinning = any(SELF_IGNITE_LINE.search(t) for t in lines)
+    boss, boss_how = bosses.self_ignite_uptime(stats) if any(SELF_IGNITED_USE.search(t) for t in lines) else (0.0, "")
+    if not grinning and boss <= 0:
         return 0.0, ""
-    avoid = min(max(number(stats.get("IgniteAvoidChance")), 0.0), 100.0) / 100.0
-    crits = models.crits_per_second(stats)
-    scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
-    seconds = AILMENT_DURATION["Ignite"] * scale
-    up = 1.0 - avoid ** (crits * seconds) if crits > 0 and avoid < 1.0 else 0.0  # (no crit Ignite got through)
-    if avoid >= 1.0:
-        how = "you can't be Ignited (PoB's Ignite avoidance 100%: immune)"
-    else:
-        how = (f"{crits:.2f} crits/s, {1 - avoid:.0%} not avoided, Ignited {seconds:.1f} s each: up {up:.0%} of the fight "
-               f"({shared(up)}; avoidance taken to apply, MEDIUM)")
-    return _box(up, "Grinning Immolation: become Ignited when you crit: " + how)
+    parts = []
+    up = 0.0
+    if grinning:
+        avoid = min(max(number(stats.get("IgniteAvoidChance")), 0.0), 100.0) / 100.0
+        crits = models.crits_per_second(stats)
+        scale = number(stats.get("SelfIgniteDuration")) / 100 if "SelfIgniteDuration" in stats else 1.0
+        seconds = AILMENT_DURATION["Ignite"] * scale
+        up = 1.0 - avoid ** (crits * seconds) if crits > 0 and avoid < 1.0 else 0.0  # (no crit Ignite got through)
+        if avoid >= 1.0:
+            how = "you can't be Ignited (PoB's Ignite avoidance 100%: immune)"
+        else:
+            how = (f"{crits:.2f} crits/s, {1 - avoid:.0%} not avoided, Ignited {seconds:.1f} s each: up {up:.0%} of the "
+                   f"fight ({shared(up)}; avoidance taken to apply, MEDIUM)")
+        parts.append("Grinning Immolation: become Ignited when you crit: " + how)
+    if boss > 0:
+        parts.append(boss_how)
+        up = 1.0 - (1.0 - up) * (1.0 - boss)
+    if grinning and boss > 0:
+        parts.append(f"together (independent): {up:.0%}")
+    return _box(up, "; ".join(parts))
 
 
 def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
@@ -1610,7 +1626,7 @@ def consumed_ignite_scale(potential: float, hits: float, chance: float, duration
 # Ailments consumed by a skill beside the main one (MECH53; MECH52's item 2, an OVERCOUNT): a skill in another enabled group
 # (its own stat sets or its supports holding a CONSUME_STATS stat) ends the boss's Freeze / Shock / Ignite each time it
 # consumes it, then the boss is immune 1 s (KeywordPopups Consume) and waits for the main skill to reapply it. Its uses
-# per second: the press model's (models.press_use_rate: its cooldown, else its duration, else one per PRESS_EVERY s, LOW);
+# per second: the press model's (models.press_use_rate: its cooldown, else its duration, else the search's chosen rate, else 0);
 # a triggered one at PoB's own rate for it (its useRates speed, MEDIUM). Each use is taken to find the ailment while the
 # boss has it (an upper bound on what it ends: a use that misses consumes nothing). Uses are taken as random in time.
 # With the share u the boss would carry it, consumed at r a second, reapplied after the 1 s immunity plus w:
@@ -1620,10 +1636,11 @@ def side_consumes(build, main_skill: str, groups: dict | None = None,
                   caps: dict | None = None) -> dict[str, tuple[float, str, str]]:
     """{ailment: (consumptions per second, how, confidence)} from skills beside the main one that consume it. `groups`:
     the bridge's groups (read when not given). A pressed consumer consumes at the rate its own damage is counted at
-    (models.press_group_rate: its cooldown, else its duration, else one per PRESS_EVERY s, LOW; held to Cadence's pace
+    (models.press_group_rate: its cooldown, else its duration, else the search's chosen rate, else 0; held to Cadence's pace
     and to `caps`, Assumptions.press_caps, computed here when not given; MECH54, CLAUDE.md's flat-rate rule: one rate
     for both sides); a triggered one at PoB's trigger rate, as Full DPS counts it."""
     groups = groups or build.call("groups")
+    choices = models.press_choices(build)  # (the search's chosen press rates, MECH55)
     main_index = groups.get("mainSocketGroup")
     gems = build.ctx.all_gems
     candidates = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")]
@@ -1663,7 +1680,7 @@ def side_consumes(build, main_skill: str, groups: dict | None = None,
                 cadence = any(x.get("enabled", True) and x["name"] in models.CADENCE_SUPPORTS
                               for x in (by_index.get(group) or {}).get("gems") or [])
                 uses, how, conf = models.press_group_rate(row, models.CADENCE_PACE if cadence else None,
-                                                          caps.get(group))
+                                                          caps.get(group), models.press_choice(row, choices))
             if uses <= 0:
                 continue
             total += uses
@@ -2215,8 +2232,10 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS)),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
               fields=WITHER_FIELDS),
-    Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits)", value_fn=_self_ignited,
-              fields=("CritChance", "Speed", "HitChance", "IgniteAvoidChance", "SelfIgniteDuration")),
+    Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits; the boss's Fire hits)",
+              value_fn=_self_ignited,
+              fields=("CritChance", "Speed", "HitChance", "IgniteAvoidChance", "SelfIgniteDuration", "AilmentThreshold",
+                      "Life", "FireTakenHit", "enemySkillTime", "EvadeChance", "EffectiveBlockChance")),
     Condition("enemyDistance", "Boss distance (play-style assumption; 10 units a metre)", value_fn=_boss_distance,
               fields=("PresenceRadius",)),
     Condition("conditionStationary", "Standing still (play-style choice)", value_fn=_standing_still, fields=()),

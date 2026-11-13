@@ -551,7 +551,8 @@ class Assumptions:
         paced = {g["index"]: models.CADENCE_PACE for g in groups["groups"] if g["index"] in pressed
                  and any(x["enabled"] and x["name"] in models.CADENCE_SUPPORTS for x in g["gems"])}
         caps = self.press_caps(groups["groups"], pressed)
-        build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps)
+        build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps,
+                                                                 models.press_choices(build))
         return notes + self.consume_ignite(groups, rates)
 
     def consume_ignite(self, groups: dict, rates: list[dict]) -> list[dict]:
@@ -698,7 +699,7 @@ class Assumptions:
 
     def heat_spenders(self, found: list) -> list[tuple[str, float, str]]:
         """The build's Heat spenders (models.HEAT_SPENDERS) other than the main skill, at their pressed use rate
-        (models.press_use_rate: cooldown, duration, else every PRESS_EVERY s, LOW)."""
+        (models.press_use_rate: cooldown, duration, else the search's chosen rate, else 0)."""
         groups = {s.group for s in found if s.name in models.HEAT_SPENDERS and s.group is not None}
         if not groups:
             return []
@@ -707,7 +708,7 @@ class Assumptions:
         for rate in rates:  # (the display name may carry its stat set's label after the skill's name)
             spender = next((n for n in models.HEAT_SPENDERS if str(rate.get("name") or "").startswith(n)), None)
             if spender is not None:
-                uses, how, _ = models.press_use_rate(rate)
+                uses, how, _ = models.press_use_rate(rate, models.press_choice(rate, models.press_choices(self.build)))
                 if uses > 0:
                     out.append((spender, uses, how))
         return out
@@ -1130,7 +1131,7 @@ class Assumptions:
         if not users:
             return 0.0, ""
         rates = build.call("useRates", indices=sorted(users | {main}))["rates"]
-        scales, _ = models.press_model(rates, main, users)
+        scales, _ = models.press_model(rates, main, users, choices=models.press_choices(build))
         total, how = 0.0, []
         for rate in rates:
             if rate["index"] in users and rate["name"] in scales:

@@ -2222,6 +2222,27 @@ def test_a_skill_that_consumes_by_its_skill_types_alone_counts():
     assert c.main_consumes(FakeBuild(), "Fireball", {"Fireball"}) == {}
 
 
+def test_the_boss_ignites_you_for_while_ignited_lines():
+    """MECH55 (MECHD4's bosses.self_ignite_uptime, an UNDERCOUNT): with a line that reads the Ignited-yourself box
+    ("while Ignited"), the box carries the boss's own Ignite on you; with Grinning Immolation too, both as independent;
+    immune: off."""
+    from builder.search import bosses
+    from builder.search import conditions as c
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 5, "IgniteAvoidChance": 90, "SelfIgniteDuration": 100,
+             "Life": 3000, "AilmentThreshold": 3000, "FireTakenHit": 1500.0, "enemySkillTime": 0.7}
+    boss = bosses.self_ignite_uptime(stats)[0]
+    assert 0 < boss < 1  # (the default preset deals Fire)
+    use = "20% increased Damage while Ignited"
+    on, basis, up = c._self_ignited([use], stats)
+    assert abs(up - boss) < 1e-9 and on == (boss >= c.MIN_UPTIME)
+    grin = "Become Ignited when you deal a Critical Hit"
+    alone = c._self_ignited([grin], stats)[2]
+    up = c._self_ignited([grin, use], stats)[2]
+    assert abs(up - (1 - (1 - alone) * (1 - boss))) < 1e-9
+    assert c._self_ignited([use], {**stats, "IgniteAvoidChance": 100}) == (0.0, "")
+
+
 def test_self_ignite_and_debuffs_on_an_ailing_boss_count_at_their_share():
     """MECH53: Grinning Immolation's "Become Ignited when you deal a Critical Hit" is off when you can't be Ignited and at
     the share your crits keep you Ignited otherwise (RESEARCH12); Pandemonius' "Blind Chilled enemies on Hit" counts only
@@ -2344,8 +2365,11 @@ def test_a_side_consumer_consumes_at_the_rate_its_damage_is_counted():
     cap = {2: models.PressCap(0.25, "Combo: 3 Strikes a use", 0.0, "MEDIUM")}
     held = c.side_consumes(fake({"speed": 3.0, "cooldown": 0.5}), "Fireball", groups(), cap)["Shock"]
     assert abs(held[0] - 0.25) < 1e-9 and "Combo" in held[1]
-    # nothing sets it: one use per PRESS_EVERY s, LOW
-    low = c.side_consumes(fake({"speed": 3.0}), "Fireball", groups())["Shock"]
-    assert abs(low[0] - 1 / models.PRESS_EVERY) < 1e-9 and low[2] == "LOW"
+    # nothing sets it and the search chose no rate: 0 uses, LOW (MECH55, the user's "Search picks the rate")
+    assert "Shock" not in c.side_consumes(fake({"speed": 3.0}), "Fireball", groups())  # (nothing consumed)
+    chosen = fake({"speed": 3.0, "name": "Elemental Discharge"})
+    chosen.objective = SimpleNamespace(press_choices={"Elemental Discharge": 0.5})
+    found = c.side_consumes(chosen, "Fireball", groups())["Shock"]
+    assert abs(found[0] - 0.5) < 1e-9 and "the search chose" in found[1]
     # the press model's own rate for its damage is the same function
     assert models.press_group_rate({"speed": 3.0, "cooldown": 0.5}, None, cap[2])[0] == held[0]

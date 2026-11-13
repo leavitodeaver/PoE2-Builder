@@ -1587,9 +1587,9 @@ def test_press_model_falls_back_to_a_labelled_guess_and_leaves_unpressed_groups(
     rates = [{"index": 1, "name": "Main", "speed": 2.0}, {"index": 2, "name": "Slash", "speed": 1.0},
              {"index": 4, "name": "Triggered", "speed": 3.0}]
     scales, notes = models.press_model(rates, 1, {2})
-    assert scales["Slash"] == pytest.approx(1 / models.PRESS_EVERY)
+    assert scales["Slash"] == 0.0  # (nothing sets its use and the search chose no rate: 0, labelled; MECH55)
     assert "Triggered" not in scales
-    assert notes[0]["confidence"] == "LOW" and "guess" in notes[0]["basis"]
+    assert notes[0]["confidence"] == "LOW" and "no source" in notes[0]["basis"]
     assert models.press_model(rates, 1, set()) == ({}, [])
 
 
@@ -3352,3 +3352,21 @@ def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_wi
     assert found == {"BossHitsFire"} and shares == {"BossHitsFire": 100} and part == {}
 
 
+def test_a_skill_with_nothing_setting_its_use_is_pressed_at_the_searchs_rate_or_not_at_all():
+    """MECH55 (THE USER, 12 Nov: "Search picks the rate"): a pressed skill with no cooldown and no duration counts 0
+    presses until the search chooses a rate (build.objective.press_choices); with one, it's pressed at that rate and
+    its time comes out of the main skill's share."""
+    from types import SimpleNamespace
+
+    rows = [{"index": 1, "name": "Fireball", "speed": 2.0, "castTime": 0.5},
+            {"index": 2, "name": "Flame Wall", "speed": 2.0, "castTime": 0.5}]
+    uses, how, confidence = models.press_use_rate(rows[1])
+    assert uses == 0.0 and confidence == "LOW" and "no source" in how
+    scales, _ = models.press_model(rows, 1, {2})
+    assert scales["Flame Wall"] == 0.0 and scales.get("Fireball", 1.0) == 1.0
+    build = SimpleNamespace(objective=SimpleNamespace(press_choices={"Flame Wall": 0.25}))
+    scales, notes = models.press_model(rows, 1, {2}, choices=models.press_choices(build))
+    assert scales["Flame Wall"] == pytest.approx(0.25 / 2.0)
+    assert scales["Fireball"] == pytest.approx(1 - 0.25 * 0.5)  # (each press takes its 0.5 s from the main skill)
+    assert "the search chose" in notes[0]["basis"]
+    assert models.press_choices(SimpleNamespace()) == {}
