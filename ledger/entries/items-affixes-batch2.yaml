@@ -56,21 +56,21 @@
   status: proposed
 
 - id: items-full-life-enemies-cannot-evade
-  title: Carved Cunning, enemies on Full Life can't Evade your Hits, under PoB's "Is the enemy on Full Life?" box
+  title: Carved Cunning, enemies on Full Life can't Evade your Hits (counted 0, an UNDERCOUNT)
   kind: pob_gap
   match: '^Enemies which are on Full Life cannot Evade your Hits$'
-  replace: ["Your Hits can't be Evaded against Enemies on Full Life"]
-  confidence: datamined
+  replace: []
+  confidence: theory
   notes: >-
-    PoB's flag CannotBeEvaded under its enemy FullLife condition (ModParser "your hits can't be evaded" with the tag
-    "against enemies on full life"), the same switch the play guide's "Boss on Full Life" row reads
-    (conditionEnemyFullLife). Our boss box stays off, so the line counts 0 until something sets it: an UNDERCOUNT,
-    LOW. A boss without Energy Shield leaves Full Life at the first hit that reaches Life; a boss preset with Energy
-    Shield (bosses.life_share_of_pool) stays on Full Life while its ES is taken off, about ES / (Life + ES) of the
-    fight, which the box doesn't read yet (routed: a share for the box, as Culling Strike's pool share). Moves only
-    attacks, the hits a boss can Evade. Source: the rune Carved Cunning (helmet).
+    PoB has the flag (CannotBeEvaded, "your hits can't be evaded") and the enemy FullLife tag ("against enemies on full
+    life", the play guide's conditionEnemyFullLife box), but doesn't parse the two together (parse probe POE2T2435:
+    "Your Hits can't be Evaded against Enemies on Full Life" and "... that are on Full Life" are left over whole), so the
+    line is recorded and counts 0: an UNDERCOUNT, LOW. A boss without Energy Shield leaves Full Life at the first hit
+    that reaches Life; a boss preset with Energy Shield (bosses.life_share_of_pool) stays on Full Life while its ES is
+    taken off, about ES / (Life + ES) of the fight (routed: a model for it). Moves only attacks, the hits a boss can
+    Evade. Source: the rune Carved Cunning (helmet).
   sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (your hits can't be evaded; against enemies on full life)",
-            "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua (conditionEnemyFullLife)"]
+            "scratch/cov16/suite2435.log (parse probe)"]
   test_in_game: "Against a full-life target, attack hits show no evasion misses until the first hit lands."
   status: proposed
 

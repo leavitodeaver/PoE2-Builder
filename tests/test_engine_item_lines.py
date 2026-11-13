@@ -244,7 +244,7 @@ def test_a_bonded_stand_in_counts_only_under_pobs_own_bonded_switch(engine):
 def test_cov16_chance_lines_parse_to_the_ailment_chance_pob_reads(engine):
     """COV16: "N% increased chance to Poison / to inflict Bleeding" left the word "chance" over in PoB's parse, so PoB
     applied nothing; the ledger's lines are PoB's INC PoisonChance / BleedChance (CalcOffence's base * (1 + inc)).
-    Carved Cunning's Full Life line is PoB's CannotBeEvaded under the enemy's FullLife condition (its box off)."""
+    Carved Cunning's Full Life line is recorded at 0 (PoB can't parse the flag with the Full Life tag)."""
     from builder.ledger import translate
 
     lines = {"15% increased chance to Poison": ("PoisonChance", "INC", 15),
@@ -253,10 +253,8 @@ def test_cov16_chance_lines_parse_to_the_ailment_chance_pob_reads(engine):
         out = translate(line)[1]
         parsed = engine.call("parseLines", lines=out)["results"][0]
         assert parsed["supported"] and [(p["name"], p["type"], p["value"]) for p in parsed["parsed"]] == [want], line
-    out = translate("Enemies which are on Full Life cannot Evade your Hits")[1]
-    parsed = engine.call("parseLines", lines=out)["results"][0]
-    assert parsed["supported"] and parsed["parsed"][0]["name"] == "CannotBeEvaded"
-    assert "FullLife" in str(parsed["parsed"][0]["tags"])
+    # PoB doesn't parse its flag and the Full Life tag together: recorded, counted 0
+    assert translate("Enemies which are on Full Life cannot Evade your Hits")[1] == []
 
 
 def test_cov16_reworded_lines_parse_to_the_stat_the_game_names(engine):
