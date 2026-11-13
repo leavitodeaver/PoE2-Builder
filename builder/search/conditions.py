@@ -250,7 +250,8 @@ CHARGE_DEFAULT_EVERY = 4.0
 # Before, each fell to one per CHARGE_DEFAULT_EVERY s whether or not the build had such a skill (an overcount with
 # none). Now the rate comes from the build's own skills (event_rates, in Conditions.evidence as stats["_events"]): the
 # main skill's uses if it is one; else each such skill's group at its use rate (bridge useRates: its cooldown, else its
-# duration, else models.PRESS_EVERY, LOW); none of that kind in the build's enabled groups: 0, labelled. A Mark is taken
+# duration, else the press rate the search chose (models.press_choices), else 0, labelled: MECH56, the user's "search
+# picks the rate"); none of that kind in the build's enabled groups: 0, labelled. A Mark is taken
 # to activate as often as it is applied (an upper bound). Other wordings keep the 4 s default, labelled LOW.
 EVENT_WORDS = {
     "Warcry": re.compile(r"\b(?:use|using|uses) (?:a )?warcr(?:y|ies)|\bon warcry|warcr(?:y|ies) (?:is|are) used|"
@@ -285,9 +286,10 @@ def _named_event(when: str, stats: dict) -> tuple[float, str] | None:
     return None
 
 
-def skill_use_rate(rate: dict) -> tuple[float, str, bool]:
+def skill_use_rate(rate: dict, choices: dict[str, float] | None = None) -> tuple[float, str, bool]:
     """(uses per second, why, LOW?) of a non-main skill from the bridge's useRates entry for its group: on its cooldown,
-    else once per its duration, else once every models.PRESS_EVERY s (LOW), never faster than its own speed."""
+    else once per its duration, else the rate the search chose for it (`choices`, models.press_choices; MECH56, the
+    user's "search picks the rate"), else 0 (LOW, labelled: no source, 0), never faster than its own speed."""
     cooldown, duration = number(rate.get("cooldown")), number(rate.get("duration"))
     repeats = number(rate.get("repeats")) or 1.0
     low = False
@@ -295,15 +297,20 @@ def skill_use_rate(rate: dict) -> tuple[float, str, bool]:
         each, why = repeats / cooldown, f"its {cooldown:.2f} s cooldown"
     elif duration > 0:
         each, why = repeats / duration, f"once per its {duration:.2f} s duration"
+    elif (chosen := models.press_choice(rate, choices)) is not None and chosen > 0:
+        each, why = repeats * chosen, (f"{chosen:.3g} presses a second*, the rate the search chose (a way to play the "
+                                       "build; without it, it adds nothing)")
     else:
-        each, why, low = repeats / models.PRESS_EVERY, f"once every {models.PRESS_EVERY:g} s (LOW: no cooldown or duration)", True
+        each, why, low = 0.0, ("0 presses* (LOW: no cooldown or duration sets how often it's used, and the search chose "
+                               "no rate: no source, 0)"), True
     if (speed_g := number(rate.get("speed"))) > 0:
         each = min(each, speed_g)
     return each, why, low
 
 
 def event_rates(groups: list[dict], gems: dict[str, dict], main_skill: str, main_types: set[str], speed: float,
-                use_rates: Callable[[list[int]], list[dict]], texts: list[str]) -> dict[str, tuple[float, str]]:
+                use_rates: Callable[[list[int]], list[dict]], texts: list[str],
+                choices: dict[str, float] | None = None) -> dict[str, tuple[float, str]]:
     """{kind: (events per second, how)} for each EVENT_WORDS kind a line names. `use_rates` is the bridge's useRates
     on group indices (called only when a non-main group holds such a skill)."""
     out: dict[str, tuple[float, str]] = {}
@@ -324,7 +331,7 @@ def event_rates(groups: list[dict], gems: dict[str, dict], main_skill: str, main
             name = found.get(rate.get("index"))
             if name is None:
                 continue
-            each, why, guess = skill_use_rate(rate)
+            each, why, guess = skill_use_rate(rate, choices)
             low = low or guess
             total += each
             parts.append(f"{name} on {why}, {each:.2f}/s")
@@ -1259,7 +1266,9 @@ def chill_share(stats: dict) -> float:
         chill = min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
     if chill <= 0 or hits <= 0:
         return 0.0
-    return 1.0 - (1.0 - chill) ** (hits * (number(stats.get("ChillDuration")) or CHILL_SECONDS))
+    share = 1.0 - (1.0 - chill) ** (hits * (number(stats.get("ChillDuration")) or CHILL_SECONDS))
+    # (a skill beside the main one that consumes Chill, Icestorm, ends it at its use rate: side_consumed; MECH56)
+    return side_consumed(share, stats, "Chill", hits, chill)
 
 
 def target_ailment_share(stats: dict, participle: str) -> float:
@@ -1554,9 +1563,17 @@ CONSUME_STATS = {
               "damage_+%_final_from_consuming_shock"),
     "Ignite": ("pillar_of_flame_consume_ignite_to_create_X_pillars", "unique_pillar_of_flame_consume_ignite_to_create_X_pillars",
                "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge", "consume_ignite_on_hit",),
+    # Icestorm: "[Chill] and [Freeze] on enemies in front of you are [Consume|Consumed]" (ActiveSkills icestorm; poe2db's
+    # Icestorm page, current, says the same). MECH56, a small OVERCOUNT before: a side Icestorm left the main skill's
+    # Chill share whole. (checked for other Chill consumers: Stats.json ids holding "chill" and "consum" (3: this one,
+    # support_active_skill_consume_enemy_freeze_to_apply_chill, which consumes Freeze to Chill, and Creeping Chill's,
+    # which consumes Power Charges); ActiveSkills / GrantedEffects / KeywordPopups / Mods text with Chill near
+    # "consum" (Icestorm only; Ice Nova, Fangs of Frost and Glacial Lance consume other things); poe2db beyond
+    # Icestorm's page not searched, so other Chill consumers stay (UNVERIFIED) and are not modelled.)
+    "Chill": ("firestorm_improved_bolts_per_chill_consumed",),
 }
-CONSUME_TEXT = re.compile(r"\bconsum\w*\b[^.]*\b(?:freez|frozen|shock|ignit|elemental ailment)|"
-                          r"\b(?:freeze|shock|ignite)\b[^.]*\bconsumed\b", re.I)  # (Icestorm: "... Freeze ... are Consumed")
+CONSUME_TEXT = re.compile(r"\bconsum\w*\b[^.]*\b(?:freez|frozen|shock|ignit|chill|elemental ailment)|"
+                          r"\b(?:chill|freeze|shock|ignite)\b[^.]*\bconsumed\b", re.I)  # (Icestorm: "... Freeze ... are Consumed")
 # Skills that consume an ailment by their skill types alone, no CONSUME_STATS stat (Snap, Elemental Sundering, Snipe,
 # Shockchain Arrow, Icestorm: SkillConsumesFreeze / Shock / Ignite; the bridge's activeSkills "consumes"; MECH55, an
 # OVERCOUNT before: a Snap pressed beside the main skill left the boss's Freeze / Shock / Ignite uptime whole). Snipe
@@ -1624,7 +1641,7 @@ def consumed_ignite_scale(potential: float, hits: float, chance: float, duration
 
 
 # Ailments consumed by a skill beside the main one (MECH53; MECH52's item 2, an OVERCOUNT): a skill in another enabled group
-# (its own stat sets or its supports holding a CONSUME_STATS stat) ends the boss's Freeze / Shock / Ignite each time it
+# (its own stat sets or its supports holding a CONSUME_STATS stat) ends the boss's Freeze / Shock / Ignite / Chill each time it
 # consumes it, then the boss is immune 1 s (KeywordPopups Consume) and waits for the main skill to reapply it. Its uses
 # per second: the press model's (models.press_use_rate: its cooldown, else its duration, else the search's chosen rate, else 0);
 # a triggered one at PoB's own rate for it (its useRates speed, MEDIUM). Each use is taken to find the ailment while the
@@ -2321,14 +2338,21 @@ class Conditions:
 
     def _group_uses(self, groups: list[dict], names: set[str]) -> dict[str, float]:
         """{gem name: uses per second} for skills beside the main one, each at its enabled group's rate
-        (skill_use_rate); a name in no enabled group is left out (the caller's PRESS_EVERY guess)."""
+        (skill_use_rate, at the search's chosen rate where nothing else sets it); a name in no enabled group is left
+        out (the caller then reads _chosen_use: the chosen rate, else 0)."""
         where = {n["name"]: g["index"] for g in groups if g.get("enabled") is not False
                  for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in names}
         if not where:
             return {}
-        by_index = {r.get("index"): skill_use_rate(r)[0]
+        choices = models.press_choices(self.build)
+        by_index = {r.get("index"): skill_use_rate(r, choices)[0]
                     for r in self.build.call("useRates", indices=sorted(set(where.values())))["rates"]}
         return {n: by_index[i] for n, i in where.items() if i in by_index}
+
+    def _chosen_use(self, name: str) -> float:
+        """Uses per second of a skill beside the main one that no group rate covers: the search's chosen press rate for
+        it (models.press_choices), else 0 (no source, 0; MECH56: before, one use every models.PRESS_EVERY s)."""
+        return models.press_choice({"name": name}, models.press_choices(self.build)) or 0.0
 
     def _minion_deaths(self) -> tuple[float, str]:
         """Your minions Killed per second against a boss and how (models.minion_deaths, from the build's skills; MECHC7)."""
@@ -2376,7 +2400,7 @@ class Conditions:
         if not consumers:
             return 0.0, "no skill of the build consumes Infusions: 0"
         others = self._group_uses(groups, set(consumers) - {self.main_skill})
-        uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, 1 / models.PRESS_EVERY)
+        uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
                 for n in consumers}
         raw = self.build.call("activeSkills")["skills"]
         present = {s["name"]: s for s in raw if not s["disabled"]}
@@ -2461,14 +2485,14 @@ class Conditions:
             p.search(t) for p in EVENT_WORDS.values() for t in texts) else []
         if unrated:
             # FLAT_RATES A4 (MECH48): a consumer / Rage spender beside the main skill is used at its own group's rate
-            # (skill_use_rate: its cooldown, else its duration, else PRESS_EVERY, LOW), not one use per 4 s
+            # (skill_use_rate: its cooldown, else its duration, else the search's chosen rate, else 0), not one use per 4 s
             uses = self._group_uses(groups_now, unrated)
             for each in consumers.values():
                 for n in [n for n, u in each.items() if u is None]:
                     # (a support in the main skill's group consumes on the main skill's uses)
-                    each[n] = number(stats.get("Speed")) if n in main_gems else uses.get(n, 1 / models.PRESS_EVERY)
+                    each[n] = number(stats.get("Speed")) if n in main_gems else uses.get(n, self._chosen_use(n))
             for n in [n for n, u in rage_spend.items() if u is None]:
-                each = uses.get(n, 1 / models.PRESS_EVERY)
+                each = uses.get(n, self._chosen_use(n))
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
             stats["_minion_deaths"] = self._minion_deaths()
@@ -2481,7 +2505,8 @@ class Conditions:
         if any(INFUSION_CONSUMED.search(t) for t in texts):
             stats["_infusion_consumed"] = self._infusion_consumed(lines, stats)
         events = event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),
-                             lambda idx: self.build.call("useRates", indices=idx)["rates"], texts) if groups_now else {}
+                             lambda idx: self.build.call("useRates", indices=idx)["rates"], texts,
+                             models.press_choices(self.build)) if groups_now else {}
         item_uses = self._item_uses(lines, events) if any(
             ON_USE.search(line["text"]) and line["source"].startswith(USED_SLOTS) for line in lines) or any(
             FLASK_EVENT.search(t) for t in texts) else {}

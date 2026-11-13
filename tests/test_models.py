@@ -1936,22 +1936,41 @@ def test_rage_on_melee_hit_needs_a_melee_main_skill():
 
 def test_a_charge_consumer_beside_the_main_skill_uses_its_groups_rate():
     """FLAT_RATES A4 (MECH48): a charge consumer or Rage spender beside the main skill is used at its own group's rate
-    (cooldown, else duration, else PRESS_EVERY, LOW), not one use per 4 s."""
-    from builder.search import conditions, models
+    (cooldown, else duration, else the search's chosen press rate, else 0: MECH56, the user's "search picks the rate"),
+    not one use per 4 s or per 5 s."""
+    from types import SimpleNamespace
+    from builder.search import conditions
     assert conditions.skill_use_rate({"cooldown": 8.0, "speed": 1.0})[0] == pytest.approx(1 / 8)
     assert conditions.skill_use_rate({"duration": 2.0, "speed": 0.25})[0] == pytest.approx(0.25)  # (capped by its speed)
-    each, _, low = conditions.skill_use_rate({"speed": 2.0})
-    assert each == pytest.approx(1 / models.PRESS_EVERY) and low
+    each, why, low = conditions.skill_use_rate({"name": "Shout", "speed": 2.0})
+    assert each == 0.0 and low and "0 presses" in why
+    each, why, low = conditions.skill_use_rate({"name": "Shout", "speed": 2.0}, {"Shout": 0.5})
+    assert each == pytest.approx(0.5) and not low and "the search chose" in why
+    assert conditions.skill_use_rate({"name": "Shout", "speed": 0.2}, {"Shout": 0.5})[0] == pytest.approx(0.2)
 
     class Fake:
+        objective = SimpleNamespace(press_choices={"Loner": 0.25})
+
         def call(self, name, indices=()):
-            return {"rates": [{"index": 3, "cooldown": 10.0, "speed": 1.0}]}
+            return {"rates": [{"index": 3, "cooldown": 10.0, "speed": 1.0}, {"index": 5, "name": "Pressed", "speed": 1.0}]}
 
     resolver = conditions.Conditions.__new__(conditions.Conditions)
     resolver.build = Fake()
     groups = [{"index": 3, "enabled": True, "gems": [{"name": "Charged Staff"}]},
-              {"index": 4, "enabled": False, "gems": [{"name": "Other"}]}]
-    assert resolver._group_uses(groups, {"Charged Staff", "Other"}) == {"Charged Staff": pytest.approx(0.1)}
+              {"index": 4, "enabled": False, "gems": [{"name": "Other"}]},
+              {"index": 5, "enabled": True, "gems": [{"name": "Pressed"}]}]
+    assert resolver._group_uses(groups, {"Charged Staff", "Other", "Pressed"}) == {
+        "Charged Staff": pytest.approx(0.1), "Pressed": 0.0}
+    # (a skill no group rate covers: the chosen rate, else 0; before, one use per 5 s)
+    assert resolver._chosen_use("Loner") == pytest.approx(0.25) and resolver._chosen_use("Other") == 0.0
+    # Marks and other "you use" events read the chosen rate too, else 0
+    gems = {"Mark X": {"skillTypes": ["Mark"]}}
+    mark_groups = [{"index": 7, "enabled": True, "gems": [{"name": "Mark X"}]}]
+    mark_rates = lambda idx: [{"index": 7, "name": "Mark X", "speed": 2.0}]
+    text = ["Gain a Power Charge when a Mark activates"]
+    assert conditions.event_rates(mark_groups, gems, "Spark", {"Spell"}, 2.0, mark_rates, text)["Mark"][0] == 0.0
+    assert conditions.event_rates(mark_groups, gems, "Spark", {"Spell"}, 2.0, mark_rates, text,
+                                  {"Mark X": 1.0})["Mark"][0] == pytest.approx(1.0)
 
 
 def test_a_bucklers_granted_parry_is_recognised():
@@ -3370,3 +3389,20 @@ def test_a_skill_with_nothing_setting_its_use_is_pressed_at_the_searchs_rate_or_
     assert scales["Fireball"] == pytest.approx(1 - 0.25 * 0.5)  # (each press takes its 0.5 s from the main skill)
     assert "the search chose" in notes[0]["basis"]
     assert models.press_choices(SimpleNamespace()) == {}
+
+
+def test_a_side_icestorm_ends_the_main_skills_chill():
+    """MECH56 (a small OVERCOUNT before): Icestorm consumes Chill as well as Freeze ("[Chill] and [Freeze] on enemies in
+    front of you are [Consume|Consumed]"; its firestorm_improved_bolts_per_chill_consumed stat), so a side Icestorm cuts
+    the main skill's Chilled share like any side consumer: share / (1 + share x r x (1 s + the wait to reapply it))."""
+    from builder.search import conditions, models
+    assert conditions.CONSUME_STATS["Chill"] == ("firestorm_improved_bolts_per_chill_consumed",)
+    assert conditions.CONSUME_TEXT.search("Chill and Freeze on enemies in front of you are Consumed to fuel the Icestorm")
+    stats = {"ChillChanceOnHit": 100.0, "Speed": 2.0, "HitChance": 100.0, "ChillDuration": 2.0}
+    whole = conditions.chill_share(stats)
+    assert whole == pytest.approx(1.0)
+    cut = conditions.chill_share({**stats, "_side_consumes": {"Chill": (0.5, "Icestorm", "MEDIUM")}})
+    assert cut == pytest.approx(1.0 / (1.0 + 0.5 * (models.CONSUME_IMMUNE + 1.0 / 2.0)))
+    # (the main skill consuming Chill itself: the side model leaves it alone)
+    assert conditions.chill_share({**stats, "_consumes": {"Chill": "x"},
+                                   "_side_consumes": {"Chill": (0.5, "Icestorm", "MEDIUM")}}) == pytest.approx(whole)

@@ -3941,8 +3941,9 @@ def press_key(name: str, source: str | None) -> str:
 # picks the rate"): the search chooses how often it's pressed as a play strategy, its time charged against the main
 # skill (press_model's busy share), with a "without it" row in the play guide. SEARCH sets the choice on
 # build.objective.press_choices ({skill name as useRates names it: uses per second}; PRESS_CHOICES). Until it does, such
-# a skill is pressed 0 times, labelled (the user's flat-rate rule: no source, 0). PRESS_EVERY stays for the other
-# callers that still guess (conditions.skill_use_rate, flasks' Perfect Timing): theirs to move.
+# a skill is pressed 0 times, labelled (the user's flat-rate rule: no source, 0). conditions.skill_use_rate
+# (Marks and other "you use" events, consumers beside the main skill) reads the same choice since MECH56. PRESS_EVERY
+# stays only for flasks' Perfect Timing skill (MECH-C's file): theirs to move.
 PRESS_CHOICES = "press_choices"
 
 

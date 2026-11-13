@@ -1118,8 +1118,8 @@ class Assumptions:
     def other_infusion_users(self, element: str) -> tuple[float, str]:
         """Uses per second of the build's other pressed skills that consume an Infusion of `element` (MECHC4; COVC4: a
         skill with an `element`-Infused stat set, e.g. Fireball, Arc, Firestorm, Flame Wall, Incinerate, Frost Darts, Ember
-        Fusillade), each at its press rate (models.press_model: its cooldown, its duration, else one press per
-        PRESS_EVERY s, LOW). Skills a meta gem triggers aren't counted (their rate comes from the meta models: a small
+        Fusillade), each at its press rate (models.press_model: its cooldown, its duration, else the rate the
+        search chose, else 0). Skills a meta gem triggers aren't counted (their rate comes from the meta models: a small
         overcount of the main skill's share left, labelled); nor is the share they'd keep (KEEP_INFUSION)."""
         build = self.build
         groups = build.call("groups")
