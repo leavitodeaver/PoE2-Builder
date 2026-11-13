@@ -1052,7 +1052,8 @@ def test_a_new_build_is_scored_against_the_boss_preset(engine):
 
 def test_freezing_salvo_seals_read_its_level_stats_and_pobs_one_arrow_a_use(engine):
     """(MECHB18) The Freezing Salvo hook reads the gem's Seal stats from PoB (a Seal every 750 ms, at most 10, one Repeat
-    per Seal), and PoB's own DPS is one arrow a use (TotalDPS = AverageDamage x Speed): the premise of the factor."""
+    per Seal), and PoB's own DPS is one arrow a use: TotalDPS / (AverageDamage x Speed) is exactly the model's own factor,
+    which the setup has already applied (POE2T1058: x2.055 at 1.2 uses/s), so PoB adds no Seal hit of its own."""
     from builder.search import models
     from builder.search.inner import Search
     from builder.search.skeletons import enumerate_skeletons
@@ -1068,11 +1069,12 @@ def test_freezing_salvo_seals_read_its_level_stats_and_pobs_one_arrow_a_use(engi
     assert level[models.SEAL_REPEATS_STAT] == 1, level
     stats = build.call("stats", fields=["Speed", "ProjectileCount", "TotalDPS", "AverageDamage"])
     print(stats)
-    assert abs(stats["TotalDPS"] - stats["AverageDamage"] * stats["Speed"]) <= 0.01 * stats["TotalDPS"], stats
     main = next(models.Skill.of(s) for s in raw if s["name"] == models.FREEZING_SALVO)
     mods, notes = models.freezing_salvo_model(main, stats, [], level)
     print(notes)
     assert len(mods) == 1 and mods[0]["value"] > 0, mods
+    ratio = stats["TotalDPS"] / (stats["AverageDamage"] * stats["Speed"])
+    assert abs(ratio - (1 + mods[0]["value"] / 100)) <= 0.005, (ratio, mods, stats)
 
 
 def test_doom_blast_takes_the_supported_skills_level_in_pobs_damage(engine):
