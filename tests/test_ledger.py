@@ -143,3 +143,12 @@ def test_the_audit_leaves_debuff_lines_on_kills_and_freezes_open_as_the_uptime_m
     root = Path(__file__).resolve().parents[1]
     for path in list((root / "builder" / "ledger").glob("*.py")) + list((root / "tests").glob("*.py")):
         assert chr(8) not in path.read_text(encoding="utf-8"), f"a backspace character in {path.name}"
+
+
+def test_cov16_item_lines_translate():
+    """COV16: the ailment-chance lines drop only the word PoB leaves over; Rune of Culmination's min / max rolls keep
+    the average (counted as PoB already counts it)."""
+    assert translate("(20-30)% increased chance to Poison")[1] == ["(20-30)% increased to Poison"]
+    assert translate("15% increased chance to inflict Bleeding")[1] == ["15% increased to inflict Bleeding"]
+    entry, lines = translate("Rolls only the minimum or maximum Damage value for Physical Damage")
+    assert entry.id == "items-physical-rolls-minimum-or-maximum" and lines == []

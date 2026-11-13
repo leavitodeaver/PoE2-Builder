@@ -1,0 +1,164 @@
+# Item lines (affixes, Desecrated mods, runes) the coverage audit ranked open, closed by COV16 (13 Nov 2026; PoB
+# bb52d6b, game files build 26476662). Each translation is to a line PoB parses itself for the same game wording
+# (ModParser.lua cited); tests/test_engine_ledger.py parses every replacement and checks the modifiers. Recheck at the
+# 1.0 refresh (11 Dec 2026) and at each PoB update.
+
+- id: items-increased-poison-chance
+  title: Increased chance to Poison, as PoB's INC PoisonChance
+  kind: pob_gap
+  match: '^(\d+)% increased chance to Poison$'
+  replace: ['{1}% increased to Poison']
+  confidence: datamined
+  notes: >-
+    The game's stat poison_chance_+% ("increased", so it scales the base chance; Stats.json). PoB reads the line's
+    numbers and stat (INC PoisonChance, the modNameList key "to poison") but leaves the word "chance" over, and PoB
+    never applies a line with leftover text (Classes/Item.lua `not modLine.extra`), so the line counted nothing. The
+    replacement drops the word only: the same INC PoisonChance, which CalcOffence multiplies into the base chance
+    (base * (1 + inc / 100), capped at 100%). It moves nothing without a base Poison chance, as in the game. Sources:
+    the Desecrated jewel prefix AbyssModJewelPrefixPoisonChanceAndMagnitude (15%) and gloves suffix
+    AbyssModGlovesUlamanSuffixPoisonChance ((20-30)%).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (modNameList: to poison)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (flat ailment chance: Bleed, Poison)",
+            "game files Stats.json poison_chance_+%"]
+  test_in_game: "With a 20% base Poison chance, 50% increased chance to Poison shows 30% on the skill's tooltip."
+  status: proposed
+
+- id: items-increased-bleed-chance
+  title: Increased chance to inflict Bleeding, as PoB's INC BleedChance
+  kind: pob_gap
+  match: '^(\d+)% increased chance to inflict Bleeding$'
+  replace: ['{1}% increased to inflict Bleeding']
+  confidence: datamined
+  notes: >-
+    As items-increased-poison-chance, for the stat bleed_chance_+% (PoB's modNameList key "to inflict bleeding" ->
+    BleedChance). Sources: the Vaal-mutated unique line UniqueMutatedVaalChanceToBleed ((30-50)%), the Desecrated
+    jewel prefix AbyssModJewelPrefixBleedChanceAndMagnitude (15%) and gloves suffix AbyssModGlovesUlamanSuffixBleedChance
+    ((20-30)%).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (modNameList: to inflict bleeding)",
+            "game files Stats.json bleed_chance_+%"]
+  test_in_game: "With a 20% base Bleed chance, 50% increased chance to inflict Bleeding shows 30% on the tooltip."
+  status: proposed
+
+- id: items-physical-rolls-minimum-or-maximum
+  title: Rune of Culmination, Physical damage rolls only its minimum or maximum (same average)
+  kind: pob_gap
+  match: '^Rolls only the minimum or maximum Damage value for Physical Damage$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    As skysliver-min-max (coverage-batch1.yaml) for the Physical part only: 50% minimum, 50% maximum (poe2db
+    glossary), so the average hit and the average Bleed / stun built from it are unchanged, which is what PoB already
+    counts. Not counted: anything that reads a hit's spread rather than its average (Lucky / Unlucky damage would gain
+    from it; LOW, an undercount where a build has Lucky physical damage). Source: Rune of Culmination (quarterstaff,
+    one-hand mace).
+  sources: ["https://poe2db.tw/us/Keywords (Skysliver)", "game files Mods.json (Rune of Culmination)"]
+  test_in_game: "Hit a dummy: each hit's Physical part shows one of exactly two numbers."
+  status: proposed
+
+- id: items-full-life-enemies-cannot-evade
+  title: Carved Cunning, enemies on Full Life can't Evade your Hits, under PoB's "Is the enemy on Full Life?" box
+  kind: pob_gap
+  match: '^Enemies which are on Full Life cannot Evade your Hits$'
+  replace: ["Your Hits can't be Evaded against Enemies on Full Life"]
+  confidence: datamined
+  notes: >-
+    PoB's flag CannotBeEvaded under its enemy FullLife condition (ModParser "your hits can't be evaded" with the tag
+    "against enemies on full life"), the same switch the play guide's "Boss on Full Life" row reads
+    (conditionEnemyFullLife). Our boss box stays off, so the line counts 0 until something sets it: an UNDERCOUNT,
+    LOW. A boss without Energy Shield leaves Full Life at the first hit that reaches Life; a boss preset with Energy
+    Shield (bosses.life_share_of_pool) stays on Full Life while its ES is taken off, about ES / (Life + ES) of the
+    fight, which the box doesn't read yet (routed: a share for the box, as Culling Strike's pool share). Moves only
+    attacks, the hits a boss can Evade. Source: the rune Carved Cunning (helmet).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (your hits can't be evaded; against enemies on full life)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua (conditionEnemyFullLife)"]
+  test_in_game: "Against a full-life target, attack hits show no evasion misses until the first hit lands."
+  status: proposed
+
+- id: items-non-curse-aura-magnitudes
+  title: Increased Magnitudes of Non-Curse Auras from your Skills, as PoB's aura effect
+  kind: pob_gap
+  match: '^(\d+)% increased Magnitudes of Non-Curse Auras from your Skills$'
+  replace: ['{1}% increased Effect of Non-Curse Auras from your Skills']
+  confidence: datamined
+  notes: >-
+    The game's stat non_curse_aura_effect_+% (Stats.json; the game now words aura effect as "Magnitudes"), which PoB
+    reads from its older wording "effect of non-curse auras from your skills" (AuraEffect on Aura skills that don't
+    apply a Curse). Sources: five unique lines (AuraEffectUnique__1 / __2, AuraEffectUniqueShieldInt2,
+    IncreasedAuraEffectUniqueBodyDexInt4, IncreasedAuraEffectUniqueJewel45).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (effect of non-curse auras from your skills)",
+            "game files Stats.json non_curse_aura_effect_+%"]
+  test_in_game: "An aura's buff values on the character sheet rise by the line's percent."
+  status: proposed
+
+- id: items-mace-attack-speed
+  title: Jewel line "increased Attack Speed with Maces or Sceptres", as PoB's "with Maces"
+  kind: pob_gap
+  match: '^(\d+)% increased Attack Speed with Maces or Sceptres$'
+  replace: ['{1}% increased Attack Speed with Maces']
+  confidence: datamined
+  notes: >-
+    The game's stat behind the line is mace_attack_speed_+% (MaceAttackSpeedJewel; Stats.json): a mace stat, with no
+    Sceptre condition of its own; the text's "or Sceptres" is wording. PoB parses "with maces" (ModFlag Mace, Hit) but
+    not the longer wording. The crit lines below are the same jewel family.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (with maces)", "game files Mods.json / Stats.json (MaceAttackSpeedJewel: mace_attack_speed_+%)"]
+  status: proposed
+
+- id: items-mace-crit-chance
+  title: Jewel line "increased Critical Hit Chance with Maces or Sceptres", as PoB's "with Maces"
+  kind: pob_gap
+  match: '^(\d+)% increased Critical Hit Chance with Maces or Sceptres$'
+  replace: ['{1}% increased Critical Hit Chance with Maces']
+  confidence: datamined
+  notes: "As items-mace-attack-speed (CritChanceWithMaceJewel)."
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (with maces)"]
+  status: proposed
+
+- id: items-mace-crit-damage-bonus
+  title: Jewel line "to Critical Damage Bonus with Maces or Sceptres", as PoB's "with Maces"
+  kind: pob_gap
+  match: '^\+(\d+)% to Critical Damage Bonus with Maces or Sceptres$'
+  replace: ['+{1}% to Critical Damage Bonus with Maces']
+  confidence: datamined
+  notes: "As items-mace-attack-speed (CritMultiplierWithMaceJewel)."
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (with maces)"]
+  status: proposed
+
+- id: items-unarmed-melee-attack-speed
+  title: Increased Unarmed Attack Speed with Melee Skills, as PoB's unarmed melee attack speed
+  kind: pob_gap
+  match: '^(\d+)% increased Unarmed Attack Speed with Melee Skills$'
+  replace: ['{1}% increased Attack Speed with Unarmed Melee Attacks']
+  confidence: datamined
+  notes: "The game's stat unarmed_melee_attack_speed_+% (UnarmedAttackSpeedJewel); PoB's \"with unarmed melee attacks\" (ModFlag Unarmed, Melee) with Speed."
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (with unarmed melee attacks)", "game files Stats.json unarmed_melee_attack_speed_+%"]
+  status: proposed
+
+- id: items-claw-life-and-mana-per-hit
+  title: Claw implicit "Grants N Life and Mana per Enemy Hit", as PoB's claw implicit form for each
+  kind: pob_gap
+  match: '^Grants (\d+) Life and Mana per Enemy Hit$'
+  replace: ['Grants {1} Life per Enemy Hit', 'Grants {1} Mana per Enemy Hit']
+  confidence: datamined
+  notes: >-
+    The game's stat local_life_and_mana_gain_per_target (one value for both). PoB's own claw bases carry "Grants N Life
+    per Enemy Hit" (Data/Bases/claw.lua), so the same form for Life and for Mana. Sources: the Maraketh claw implicits
+    LifeAndManaOnHitImplicitMarakethClaw1-3 (6 / 10 / 14).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Bases/claw.lua", "game files Stats.json local_life_and_mana_gain_per_target"]
+  test_in_game: "Each enemy hit with the claw gives the Life and the Mana."
+  status: proposed
+
+- id: items-attack-added-chaos-from-life
+  title: Attacks have added Chaos damage equal to N% of maximum Life, as PoB's added damage with its "% of maximum life" tag
+  kind: pob_gap
+  match: '^Attacks have added Chaos damage equal to (\d+)% of maximum Life$'
+  replace: ['Adds 1 to 1 Chaos Damage to Attacks equal to {1}% of maximum Life']
+  confidence: datamined
+  notes: >-
+    The game's stat attack_added_chaos_damage_%_of_maximum_life (HandWrapsUniqueMutatedVaalGlobalChaosGemLevel, a
+    suffix, 1-3%). PoB parses the Physical form ("attacks have added physical damage equal to N% of maximum life":
+    PhysicalMin / Max BASE 1 under PercentStat Life) but not the Chaos one; the replacement is the same construction
+    for Chaos (added Chaos to Attacks, 1 to 1, scaled by PoB's PercentStat tag "equal to N% of maximum life").
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (attacks have added physical damage equal to; equal to N% of maximum life)",
+            "game files Stats.json attack_added_chaos_damage_%_of_maximum_life"]
+  test_in_game: "With 2,000 Life and 2%, an attack's tooltip shows 40 to 40 added Chaos damage."
+  status: proposed

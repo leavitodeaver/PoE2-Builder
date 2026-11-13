@@ -239,3 +239,40 @@ def test_a_bonded_stand_in_counts_only_under_pobs_own_bonded_switch(engine):
     head[3:3] = ["Sockets: S", "Rune: Idol of Eramir"]
     charms = "15% chance for Charms you use to not consume Charges"
     assert charms in life(idols)[1] and charms not in life()[1]
+
+
+def test_cov16_chance_lines_parse_to_the_ailment_chance_pob_reads(engine):
+    """COV16: "N% increased chance to Poison / to inflict Bleeding" left the word "chance" over in PoB's parse, so PoB
+    applied nothing; the ledger's lines are PoB's INC PoisonChance / BleedChance (CalcOffence's base * (1 + inc)).
+    Carved Cunning's Full Life line is PoB's CannotBeEvaded under the enemy's FullLife condition (its box off)."""
+    from builder.ledger import translate
+
+    lines = {"15% increased chance to Poison": ("PoisonChance", "INC", 15),
+             "25% increased chance to inflict Bleeding": ("BleedChance", "INC", 25)}
+    for line, want in lines.items():
+        out = translate(line)[1]
+        parsed = engine.call("parseLines", lines=out)["results"][0]
+        assert parsed["supported"] and [(p["name"], p["type"], p["value"]) for p in parsed["parsed"]] == [want], line
+    out = translate("Enemies which are on Full Life cannot Evade your Hits")[1]
+    parsed = engine.call("parseLines", lines=out)["results"][0]
+    assert parsed["supported"] and parsed["parsed"][0]["name"] == "CannotBeEvaded"
+    assert "FullLife" in str(parsed["parsed"][0]["tags"])
+
+
+def test_cov16_reworded_lines_parse_to_the_stat_the_game_names(engine):
+    """COV16: the game's newer wordings PoB doesn't know, each as PoB's older wording of the same stat
+    (non_curse_aura_effect_+%, mace / unarmed melee attack speed, local_life_and_mana_gain_per_target)."""
+    from builder.ledger import translate
+
+    want = {"12% increased Magnitudes of Non-Curse Auras from your Skills": ["AuraEffect"],
+            "7% increased Attack Speed with Maces or Sceptres": ["Speed"],
+            "14% increased Critical Hit Chance with Maces or Sceptres": ["CritChance"],
+            "+9% to Critical Damage Bonus with Maces or Sceptres": ["CritMultiplier"],
+            "7% increased Unarmed Attack Speed with Melee Skills": ["Speed"],
+            "Grants 10 Life and Mana per Enemy Hit": ["LifeOnHit", "ManaOnHit"],
+            "Attacks have added Chaos damage equal to 2% of maximum Life": ["ChaosMin", "ChaosMax"]}
+    for line, names in want.items():
+        out = translate(line)[1]
+        results = engine.call("parseLines", lines=out)["results"]
+        assert all(r["supported"] for r in results), (line, results)
+        assert [p["name"] for r in results for p in r["parsed"]] == names, (line, results)
