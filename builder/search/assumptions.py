@@ -372,6 +372,28 @@ def minion_lives(build: Build, found: list[models.Skill]) -> dict[str, float]:
     return {name: life for name, life in lives.items() if life > 0}
 
 
+
+HUNT_FIELDS = ["CombinedDPS", "ShowAverage", "CullMultiplier", "ReservationDpsMultiplier", "TotalDPS", "AverageDamage",
+               "TotalDotDPS"]
+
+
+def eternal_hunt(build: Build, main: models.Skill | None) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for an Azmerian Wolf's Eternal Hunt (models.eternal_hunt_model, MECHB20): the bridge's
+    minionSkillHit scores the wolf with the hunt chosen. The Command's press costs the main skill's time (the player's
+    own DPS, 0 when the wolf is the main skill); the wolf's howl costs its own DPS where the score counts it (it's the
+    main skill, or its group is in Full DPS while the objective scores Full DPS)."""
+    for group in build.groups():
+        for n, skill in enumerate(group["skills"], 1):
+            if skill["name"] != models.AZMERIAN_WOLF or skill.get("disabled"):
+                continue
+            hunt = build.call("minionSkillHit", index=group["index"], active=n, skill=models.ETERNAL_HUNT)
+            wolf_main = main is not None and main.name == models.AZMERIAN_WOLF
+            full = bool(getattr(getattr(build, "objective", None), "full", False))
+            counted = wolf_main or (full and group.get("fullDPS"))
+            player = 0.0 if wolf_main else per_second(build.call("stats", fields=HUNT_FIELDS))
+            return models.eternal_hunt_model(hunt, player, number(hunt.get("baseDPS")) if counted else 0.0)
+    return 0.0, [], []
+
 class Assumptions:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -567,8 +589,12 @@ class Assumptions:
         hollow_mods, hollow_notes = models.hollow_model(found, stats, [e["text"] for e in source_lines], main)
         hand_mods, hand_notes = hand_mods + hollow_mods, hand_notes + hollow_notes
         pulse, pulse_notes = models.maelstrom_model(source_lines, stats) if models.MAELSTROM_ENTRY not in forbidden else (0.0, [])
-        build.objective.added_dps = pulse  # separately computed damage (Melting Maelstrom's pulses); what-ifs get their own
         hand_mods += models.maelstrom_inputs(source_lines, pulse) if pulse_notes else []
+        hunt, hunt_mods, hunt_notes = eternal_hunt(build, main)  # (MECHB20: the Azmerian Wolf's Command, an added source)
+        hand_mods, hand_notes = hand_mods + hunt_mods, hand_notes + hunt_notes
+        # separately computed damage (Melting Maelstrom's pulses, Eternal Hunt: models.added_input); what-ifs get their own
+        # sum from the bridge's LedgerAddedDPS
+        build.objective.added_dps = pulse + hunt
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.

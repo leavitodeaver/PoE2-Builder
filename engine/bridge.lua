@@ -416,6 +416,16 @@ function DERIVED.maelstrom(out, a)
 	return math.floor(num(out.ManaPerSecondCost) * (a.share or 1) * (1 - (a.chaosResist or 0) / 100) * 100 + 0.5)
 end
 
+-- Damage computed outside PoB's main skill (models.added_input, MECHB20: Thorns, Eternal Hunt), in hundredths of DPS:
+-- a.field x a.factor from the what-if's own output, else the resolve's fixed a.fixed. Every function in ADDED_DPS is
+-- summed into LedgerAddedDPS, which the objective adds to the boss DPS. No modifier reads them (their Ledger<name>
+-- multipliers are set but unused), so a moved value never calculates the what-if a second time.
+local ADDED_DPS = { maelstrom = true, added = true }
+function DERIVED.added(out, a)
+	local base = a.field and num(out[a.field]) * (a.factor or 1) or (a.fixed or 0)
+	return math.floor(base * 100 + 0.5)
+end
+
 -- No Mercy (builder/search/passive_models.py no_mercy_more, COV-B): its average more Damage % x DERIVED_UNIT over a
 -- fight from full Life, from the main skill's Hit share (only Hits break Concentration)
 function DERIVED.noMercy(out, a)
@@ -1158,16 +1168,20 @@ end
 
 -- A what-if's calculation with its own model inputs: `run` calculates with the build's values;
 -- if the output moves an output-derived input (beyond rounding), once more with its own. Adds
--- LedgerAddedDPS (Melting Maelstrom's pulses) to the picked stats when a model reports one.
+-- LedgerAddedDPS (the sum of the ADDED_DPS sources: Melting Maelstrom's pulses, models.added_input's) to the picked
+-- stats when a model reports one.
 local function derivedCalc(run, fields)
 	local output = run()
 	local found = deriveFrom(output)
 	if found then
 		local moved = false
-		for name, value in pairs(found) do
-			local was = derivedValues[name] or 0
-			if math.abs(value - was) > math.max(0.5, 0.005 * math.abs(was)) then
-				moved = true
+		for _, input in ipairs(derivedInputs) do
+			local value = found[input.name]
+			if value ~= nil and not ADDED_DPS[input.fn] then
+				local was = derivedValues[input.name] or 0
+				if math.abs(value - was) > math.max(0.5, 0.005 * math.abs(was)) then
+					moved = true
+				end
 			end
 		end
 		if moved then
@@ -1183,8 +1197,9 @@ local function derivedCalc(run, fields)
 	end
 	local picked = pickStats(output, fields)
 	for _, input in ipairs(derivedInputs) do
-		if input.fn == "maelstrom" then
-			picked.LedgerAddedDPS = (found and found[input.name] or derivedValues[input.name] or 0) / 100
+		if ADDED_DPS[input.fn] then  -- (MECHB20: every added source summed, not only Melting Maelstrom's pulses)
+			picked.LedgerAddedDPS = (picked.LedgerAddedDPS or 0)
+				+ (found and found[input.name] or derivedValues[input.name] or 0) / 100
 		end
 	end
 	return picked
@@ -2663,6 +2678,60 @@ function bridge.useRates(args)
 	return { rates = rates }
 end
 
+-- (MECHB20) One of a minion's other skills as PoB would score it if the minion used it: its hit and speed. PoB counts
+-- only the minion's chosen skill (CalcActiveSkill 1195-1203: srcInstance.skillMinionSkill, an index into the minion's
+-- skill list, which the tool never sets, so its first skill), so a Command's damage (the Azmerian Wolf's Eternal Hunt,
+-- models.eternal_hunt_model) is never scored. args.index: the group; args.active: the summon skill's position in it;
+-- args.skill: the minion skill's id (GreatHuntPackleaderMinion). Gives the minion's AverageHit, AverageDamage (with its
+-- hit chance), Speed and Cooldown with that skill chosen, and baseDPS, the minion's TotalDPS on its own counted skill;
+-- the main group, chosen skill and outputs are put back.
+function bridge.minionSkillHit(args)
+	local calcs = require("Modules.CalcBase")
+	local group = build.skillsTab.socketGroupList[args.index]
+	local position = tonumber(args.active) or (group and group.mainActiveSkill) or 1
+	local activeSkill = group and group.displaySkillList and group.displaySkillList[position]
+	local instance = activeSkill and activeSkill.activeEffect.srcInstance
+	local minionData = activeSkill and activeSkill.minion and activeSkill.minion.minionData
+	if not instance or not minionData then
+		return { }
+	end
+	local found
+	local n = 0
+	for _, id in ipairs(minionData.skillList or { }) do
+		if data.skills[id] then  -- (as CalcActiveSkill 1143-1146 lists them)
+			n = n + 1
+			if id == args.skill then
+				found = n
+			end
+		end
+	end
+	if not found then
+		return { }
+	end
+	local saved, oldSkill, oldActive = build.mainSocketGroup, instance.skillMinionSkill, group.mainActiveSkill
+	build.mainSocketGroup, group.mainActiveSkill, instance.skillMinionSkill = args.index, position, found
+	local result = { }
+	local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
+	if ok and env and env.minion and pcall(calcs.perform, env, true) then
+		local output = env.minion.output or { }
+		for _, field in ipairs({ "AverageHit", "AverageDamage", "Speed", "Cooldown", "TotalDPS" }) do
+			if type(output[field]) == "number" then
+				result[field] = jsonNumber(output[field])
+			end
+		end
+		result.name = env.minion.mainSkill and env.minion.mainSkill.activeEffect.grantedEffect.name or nil
+	end
+	-- the minion's own counted skill's TotalDPS (what it loses while it performs the other skill)
+	instance.skillMinionSkill = oldSkill
+	ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
+	if ok and env and env.minion and pcall(calcs.perform, env, true) then
+		local output = env.minion.output or { }
+		result.baseDPS = type(output.TotalDPS) == "number" and jsonNumber(output.TotalDPS) or nil
+	end
+	build.mainSocketGroup, group.mainActiveSkill, instance.skillMinionSkill = saved, oldActive, oldSkill
+	return result
+end
+
 -- (MECHB15, models.multi_set_model) Each stat set of a group's active skill calculated in its own environment, as
 -- useRates does: one use of Rolling Slam performs its First Slam and its Second Slam, and PoB scores one set. Gives each
 -- set's label, TotalDPS, AverageDamage and Speed; the group's chosen set, main group and outputs are put back.
@@ -2986,6 +3055,8 @@ function bridge.activeSkills(args)
 					duration = base * calcLib.mod(list, cfg, "Duration", "PrimaryDuration"),
 					persistent = types[SkillType.Persistent] and true or false,
 					undead = types[SkillType.CreatesUndeadMinion] and true or false,
+					-- (models.fallen_skeletons, MECH-B, MECHB20: Death Storm strikes fallen Skeletons)
+					skeleton = types[SkillType.CreatesSkeletonMinion] and true or false,
 					-- (models.minion_deaths, MECH-B) revival: PoB's MinionRevivalSpeed modifier (Sacrifice's 40% slower,
 					-- "Minions Revive N% faster") and the skill's own base resummon time (minion_base_resummon_time_ms)
 					reviveSpeed = list:Flag(cfg, "RevivingMinion") and calcLib.mod(list, cfg, "MinionRevivalSpeed") or nil,

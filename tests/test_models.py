@@ -4242,3 +4242,54 @@ def test_eternal_mark_doubles_what_a_mark_gives_before_it_is_consumed():
                             mark_duration=40.0)
         _, notes = models.mark_model([spell, volt], estats, spell, lines)
         assert f"held {held:.1f} s" in notes[-1]["basis"]
+
+
+def test_death_storm_strikes_the_builds_own_fallen_skeletons():
+    """MECHB20 (MECH-A's MECH62, AUDIT26 A26-2): Death Storm strikes fallen Skeletons, so its Shocked Ground follows the
+    build's own Reviving Skeleton deaths (models.minion_deaths: Sacrifice here), each lying fallen for the revival time;
+    no source of deaths: 0 (no flat rate); no Storm Mages: 0."""
+    mages = models.Skill("Skeletal Storm Mage Minion", group=3, cooldown_recovery=1.25,
+                         summon={"limit": 2, "persistent": True, "undead": True, "skeleton": True, "reviveBase": 12})
+    warriors = models.Skill("Skeletal Warrior Minion", group=4,
+                            summon={"limit": 4, "persistent": True, "undead": True, "skeleton": True, "reviveBase": 12})
+    hounds = models.Skill("Summon Infernal Hound", group=5, summon={"limit": 6, "persistent": True})
+    sacrifice = models.Skill("Sacrifice", group=6)
+    detonate = models.Skill("Detonate Dead", group=1, spell=True, corpses=True)
+    stats = {"Speed": 1.0}
+    skills = [mages, warriors, hounds, sacrifice, detonate]
+    killed, _ = models.minion_deaths(skills, detonate, stats)
+    revive, _ = models.revive_seconds([mages, warriors, hounds])
+    fallen, rate, how = models.fallen_skeletons(skills, detonate, stats)
+    assert rate == pytest.approx(killed * 6 / 12) and fallen == pytest.approx(rate * revive) and "LOW" in how
+    uses, struck, some, how = models.death_storm(skills, detonate, stats)
+    down = (fallen / 6) ** 2
+    assert uses == pytest.approx((1 - down) / (5 / 1.25)) and struck == pytest.approx(fallen)
+    assert some == pytest.approx(1 - math.exp(-fallen)) and "button cap" in how
+    # (the name decides without the bridge's flag; a hound isn't a Skeleton)
+    assert models.is_skeleton(models.Skill("Summon Skeletons", summon={"limit": 1})) and not models.is_skeleton(hounds)
+    # (nothing kills them: 0 with a note; no Storm Mages: 0)
+    spark = models.Skill("Spark", group=1, spell=True)
+    nothing = models.death_storm([mages, warriors, spark], spark, stats)
+    assert nothing[:3] == (0.0, 0.0, 0.0) and "none fall" in nothing[3]
+    assert models.death_storm([warriors, sacrifice, detonate], detonate, stats)[0] == 0.0
+
+
+def test_added_sources_sum_and_eternal_hunt_counts_one_wolf_net_of_its_presses():
+    """MECHB20: the added-damage slot sums several sources (Melting Maelstrom's pulses and models.added_input's) for the
+    bridge's LedgerAddedDPS; Eternal Hunt adds one wolf's hit per cooldown (LOW, with an all-7 row), less the main
+    skill's time for the Command's 1 s cast and the wolf's own DPS for its 4 s howl; a net loss is not pressed (0)."""
+    fixed = models.added_input("EternalHunt", 12.345)
+    scaled = models.added_input("Thorns", 40.0, field="ThornsDPS", factor=0.5)
+    assert fixed["fn"] == models.ADDED_FN and fixed["value"] == 1234 and fixed["args"] == {"fixed": 12.345}
+    assert scaled["args"] == {"field": "ThornsDPS", "factor": 0.5} and scaled["name"] == "AddedThorns"
+    pulse = models.derived("Maelstrom", "maelstrom", 500.0, share=1.0)
+    assert models.added_total([fixed, scaled, pulse, models.derived("Harmony", "harmony", 1)]) == pytest.approx(
+        12.34 + 40.0 + 5.0)
+    dps, mods, notes = models.eternal_hunt_model({"AverageDamage": 3000.0, "Cooldown": 15.0}, 300.0, 60.0)
+    assert dps == pytest.approx(3000 / 15 - 300 * 1 / 15 - 60 * 4 / 15)
+    assert models.added_total(mods) == pytest.approx(dps, abs=0.01) and notes[0]["confidence"] == "LOW"
+    assert "all 7" in notes[0]["basis"] and "without it +0" in notes[0]["play"]
+    # (a net loss: not pressed; no hit read: 0 with a note)
+    assert models.eternal_hunt_model({"AverageDamage": 100.0, "Cooldown": 15.0}, 3000.0, 0.0)[:2] == (0.0, [])
+    none = models.eternal_hunt_model({}, 0.0, 0.0)
+    assert none[:2] == (0.0, []) and "no hit" in none[2][0]["basis"]

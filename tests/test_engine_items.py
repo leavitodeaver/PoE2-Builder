@@ -1175,3 +1175,32 @@ def test_doom_blast_takes_the_supported_skills_level_in_pobs_damage(engine):
     assert level["spell_minimum_base_chaos_damage"] == 304 and level["spell_maximum_base_chaos_damage"] == 565, level
     stats = build.call("stats", fields=["AverageHit"])
     assert stats["AverageHit"] > 100, stats  # (level 1's base would give ~11 here)
+
+
+def test_eternal_hunt_is_scored_as_the_wolfs_hunt_and_added_to_the_boss_dps(engine):
+    """(MECHB20) PoB scores a minion on its first skill only, so the Azmerian Wolf's Eternal Hunt (1000% of base, 15 s
+    cooldown; game files and poe2db) never counted. The bridge's minionSkillHit scores the wolf with the hunt chosen and
+    puts the build back; assumptions.eternal_hunt adds one wolf's hit per cooldown (LOW, a "with all 7" row)."""
+    from builder.search import models
+    from builder.search.assumptions import eternal_hunt
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Lightning Arrow", ascendancies=["Deadeye"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Arrow"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    build.call("setGroup", gems=[{"name": "Azmerian Wolf", "support": False, "level": 20, "quality": 0, "enabled": True}])
+    group = next(g for g in build.groups() if any(s["name"] == models.AZMERIAN_WOLF for s in g["skills"]))
+    wolf = next(i for i, s in enumerate(group["skills"], start=1) if s["name"] == models.AZMERIAN_WOLF)
+    before = build.call("stats", fields=["CombinedDPS"])
+    hunt = build.call("minionSkillHit", index=group["index"], active=wolf, skill=models.ETERNAL_HUNT)
+    assert hunt.get("name") == "Eternal Hunt" and hunt["AverageHit"] > 0 and hunt["baseDPS"] > 0, hunt
+    assert hunt["Cooldown"] == pytest.approx(models.ETERNAL_HUNT_COOLDOWN, rel=0.05), hunt
+    assert build.call("stats", fields=["CombinedDPS"]) == before  # (the build is put back)
+    assert build.call("minionSkillHit", index=group["index"], active=wolf, skill="NoSuchSkill") == {}
+    dps, mods, notes = eternal_hunt(build, None)
+    hit = hunt.get("AverageDamage") or hunt["AverageHit"]
+    assert dps <= hit / hunt["Cooldown"] + 1e-6 and notes and notes[0]["confidence"] == "LOW"
+    assert "all 7" in notes[0]["basis"] and (not mods or models.added_total(mods) == pytest.approx(dps, abs=0.01))

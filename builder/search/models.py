@@ -810,6 +810,86 @@ def revive_seconds(reviving: list[Skill]) -> tuple[float, str]:
                      f"20, Revive-faster lines), {seconds:.3g} s")
 
 
+# Fallen Skeletons and Death Storm (MECHB20, for MECH-A's Shocked Ground: MECH61 / MECH62, AUDIT26 A26-2). Death Storm
+# is the Skeletal Storm Mages' Command (ActiveSkills death_storm: "Lightning bolts strike all fallen Skeletons in the area,
+# creating [ShockedGround|Shocked Ground] around them"; GrantedEffects DeathStormSkeletonStormMageMinion: cast time 2 s,
+# GrantedEffectsPerLevel Cooldown 5000 ms; its stat set: is_commandable_skill, area radius 20 and secondary radius 20
+# (2 m), base_skill_effect_duration 6000; checked: game files; second source research/shocked-ground-sources.md, AUDIT26
+# A26-2 confirmed these numbers). A "fallen" Skeleton is taken to be a Reviving Skeleton lying dead while it waits to
+# revive (the text doesn't define it: UNVERIFIED, LOW; a Temporary Skeleton expiring isn't counted).
+# Which minions are Skeletons: the skill type CreatesSkeletonMinion (ActiveSkillType 125; PoB SkillType 126, the bridge's
+# summon.skeleton), else "Skelet" in the skill's name (the game's ten: Summon Skeletons, Revive Skeleton and the eight
+# Skeletal X Minion skills; checked: ActiveSkills DisplayedName, ActiveSkillType).
+# The rate: models.minion_deaths' Reviving minions Killed per second, from the build's own sources (Sacrifice, Minion Pact,
+# Explosive Demise; no source: 0 with a note, CLAUDE.md), shared over the Reviving minions by count (the Skeletons' share:
+# deaths taken as spread evenly, LOW; Sacrifice uses only undead minions, so it's a little more for Skeletons). Each lies
+# fallen for the revival time (revive_seconds), so the mean number fallen at a moment is rate x revive (Little's law;
+# with deaths at random times the number is Poisson, so a press finds at least one with 1 - e^-mean; capped by the
+# Skeletons there are). Not counted (labelled): the boss killing your Skeletons (an undercount), where the Skeletons fall
+# (melee ones at the boss, ranged ones and Minion Pact's "nearby" minions further off: MECH-A's ground reads the area),
+# and a player timing the press just after a kill (more fallen than the mean).
+SKELETON_NAME = "Skelet"
+STORM_MAGE = "Skeletal Storm Mage Minion"
+DEATH_STORM = "Death Storm"
+DEATH_STORM_COOLDOWN = 5.0  # s (GrantedEffectsPerLevel DeathStormSkeletonStormMageMinion Cooldown 5000)
+DEATH_STORM_SECONDS = 6.0  # its Shocked Ground's duration (base_skill_effect_duration 6000)
+DEATH_STORM_RADIUS = 2.0  # m (active_skill_base_secondary_area_of_effect_radius 20)
+DEATH_STORM_CAST = 2.0  # s (GrantedEffects CastTime 2000: the Storm Mage's own cast, a floor under the cooldown)
+
+
+def is_skeleton(skill: Skill) -> bool:
+    """Whether a minion skill's minions are Skeletons (the bridge's summon.skeleton, else the name)."""
+    summon = skill.summon or {}
+    if "skeleton" in summon:
+        return bool(summon["skeleton"])
+    return SKELETON_NAME in skill.name
+
+
+def fallen_skeletons(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[float, float, str]:
+    """(mean Reviving Skeletons lying fallen at a moment, Skeletons Killed per second, how), from minion_deaths' rate."""
+    reviving = [s for s in skills if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
+    skeletons = [s for s in reviving if is_skeleton(s)]
+    count = sum(number(s.summon.get("limit")) for s in reviving)
+    bones = sum(number(s.summon.get("limit")) for s in skeletons)
+    if bones <= 0:
+        return 0.0, 0.0, "the build has no Reviving Skeletons to fall (0)"
+    killed, how = minion_deaths(skills, main, stats)
+    if killed <= 0:
+        return 0.0, 0.0, f"no Skeleton falls: {how}"
+    revive, _ = revive_seconds(reviving)
+    rate = killed * bones / count
+    fallen = min(rate * revive, bones)
+    return fallen, rate, (f"{rate:.3f} of your {bones:g} Reviving Skeletons Killed per second ({bones:g} of {count:g} "
+                          f"Reviving minions: deaths spread evenly, LOW), each fallen {revive:.3g} s until it revives, "
+                          f"so {fallen:.2f} fallen at a moment on average (deaths: {how})")
+
+
+def death_storm(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[float, float, float, str]:
+    """Death Storm, the Skeletal Storm Mages' Command: (uses per second, mean fallen Skeletons struck a use, the share of
+    uses that find at least one, how). Each struck Skeleton makes DEATH_STORM_RADIUS m of Shocked Ground for
+    DEATH_STORM_SECONDS s (MECH-A's shocked_ground places it). 0 with a note without Storm Mages or fallen Skeletons."""
+    mage = next((s for s in skills if s.name == STORM_MAGE), None)
+    if mage is None:
+        return 0.0, 0.0, 0.0, "no Skeletal Storm Mages, so no Death Storm"
+    every = max(DEATH_STORM_COOLDOWN / (mage.cooldown_recovery or 1.0), DEATH_STORM_CAST)
+    fallen, rate, how = fallen_skeletons(skills, main, stats)
+    if fallen <= 0:
+        return 0.0, 0.0, 0.0, f"Death Storm strikes fallen Skeletons, and none fall: {how} (0, not a flat guess)"
+    mages = number(mage.summon.get("limit")) if mage.summon else 0.0
+    bones = sum(number(s.summon.get("limit")) for s in skills if s.summon and s.summon.get("persistent")
+                and not number(s.summon.get("duration")) and is_skeleton(s))
+    # a Command needs a living Storm Mage: all of them fallen at once, taken as independent, is (fallen / Skeletons)^mages
+    down = (fallen / bones) ** mages if bones > 0 and mages > 0 else 0.0
+    uses = (1.0 - down) / every if every > 0 else 0.0
+    some = 1.0 - math.exp(-fallen)
+    return uses, fallen, some, (
+        f"Death Storm (a Command: one press every {every:.3g} s, its {DEATH_STORM_COOLDOWN:g} s cooldown over your "
+        f"Cooldown Recovery; a press under the button cap) strikes each fallen Skeleton in its 2 m area: {fallen:.2f} on "
+        f"average, at least one on {some:.0%} of presses (deaths at random times: Poisson; a press timed just after a "
+        f"kill finds more); {down:.1%} of presses lost to every Storm Mage being fallen; {how}. Not counted: the boss "
+        "killing your Skeletons (an undercount), where they fall (MECH-A's ground reads the area, LOW)")
+
+
 MINION_TYPES = {"Minion", "CreatesMinion"}
 
 
@@ -3379,6 +3459,79 @@ def maelstrom_inputs(lines: list[dict], dps: float, enemy_chaos_resist: float = 
             return [derived("Maelstrom", "maelstrom", dps * 100, share=int(m.group(1)) / 100, chaosResist=enemy_chaos_resist)]
     return []
 
+
+
+# Damage sources computed outside PoB's main skill (MECHB20: the added-damage slot Thorns and Eternal Hunt need). Each is
+# a derived input the bridge sums with Melting Maelstrom's pulses into LedgerAddedDPS for every what-if (engine/bridge.lua
+# DERIVED.added / ADDED_DPS), so the objective adds them all (Objective.dps reads LedgerAddedDPS, else added_dps, which
+# Assumptions.models sets to the same sum for the build itself). A source follows the what-if's own output when given a
+# PoB output `field` (dps = output[field] x factor); else it's the resolve's fixed number, which the item what-ifs see
+# unchanged until the next resolve (a real trial only with BUILDER_RESCORE_MODELS=1: Assumptions.models_on_stats), so an
+# item that moves the source is valued without that move until then (labelled where a source is fixed).
+ADDED_FN = "added"
+ADDED_FNS = {ADDED_FN, "maelstrom"}
+
+
+def added_input(name: str, dps: float, field: str | None = None, factor: float = 1.0) -> dict:
+    """A separately computed damage source for the bridge's LedgerAddedDPS (in hundredths): `dps` the build's own;
+    `field`/`factor` how a what-if's own output gives it (none: fixed at `dps`)."""
+    args = {"field": field, "factor": factor} if field else {"fixed": dps}
+    return derived(f"Added{name}", ADDED_FN, dps * 100, **args)
+
+
+def added_total(mods: list[dict]) -> float:
+    """The build's own added DPS: the sum of its added sources' values (the bridge's hundredths / 100)."""
+    return sum(m["value"] for m in mods if m.get("kind") == "Derived" and m.get("fn") in ADDED_FNS) / 100
+
+
+# Eternal Hunt (MECHB20; MECHB19's research): the Azmerian Wolf's Command. The game: packleader_great_hunt.csd mode 7,
+# "Summons {0} Spirit Wolves / Wolves dash at enemies over 8 seconds" (7 wolves); GreatHuntPackleaderMinion: Cooldown
+# 15000 ms, CastTime 4000 ms (the wolf's howl), 1000% of base; each wolf's hit, GAPackleaderGreatHuntDash, has the same
+# 1000% (GrantedEffectStatSetsPerLevel); the player's Command, CommandPackleaderPlayer, CastTime 1000 ms (checked: game
+# files; second source poe2db Eternal_Hunt: "Summons 7 Spirit Wolves", cooldown 15.00 s, 1000% of base). PoB never
+# scores it: a minion is scored on its first skill (CalcActiveSkill 1195-1203, skillMinionSkill unset), so the bridge's
+# minionSkillHit scores the wolf with the hunt chosen. Counted as an added damage source (added_input, fixed at the
+# resolve: an item's what-if doesn't move it until the next resolve, an undercount for minion-damage items):
+#   - one wolf's hit per use (whether all 7 reach a lone boss is on the user's in-game list: LOW, a "with all 7" row);
+#     a spirit wolf's hit taken as the Azmerian Wolf's own hit with the hunt chosen (its stats: UNVERIFIED);
+#   - one use per cooldown (a press under the button cap; the search's press rules don't see it yet: SEARCH's);
+#   - charged: the main skill's time for the Command's 1 s cast (whether a Command stops your skill is UNVERIFIED: the
+#     safe side), and the wolf's own attacks for its 4 s howl where the score counts the wolf (the howl's speed scaling,
+#     "uses animation length", UNVERIFIED). A net loss: not pressed, 0.
+ETERNAL_HUNT = "GreatHuntPackleaderMinion"
+AZMERIAN_WOLF = "Azmerian Wolf"
+ETERNAL_HUNT_WOLVES = 7
+ETERNAL_HUNT_COOLDOWN = 15.0  # s (GrantedEffectsPerLevel Cooldown 15000)
+ETERNAL_HUNT_HOWL = 4.0  # s (GrantedEffects CastTime 4000)
+COMMAND_CAST = 1.0  # s (CommandPackleaderPlayer CastTime 1000)
+
+
+def eternal_hunt_model(hunt: dict, player_dps: float, wolf_dps: float) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for the Azmerian Wolf's Eternal Hunt. `hunt`: the bridge's minionSkillHit for it;
+    `player_dps`: the main skill's DPS a Command press costs time from (0 when a minion is the main skill); `wolf_dps`:
+    the wolf's own counted DPS (0 when the score doesn't count it)."""
+    hit = number(hunt.get("AverageDamage")) or number(hunt.get("AverageHit"))
+    if hit <= 0:
+        return 0.0, [], [{"label": "Eternal Hunt (the Azmerian Wolf's Command)", "value": 0,
+                          "basis": "PoB gave no hit for the wolf with Eternal Hunt chosen: not counted (0)",
+                          "confidence": "LOW"}]
+    every = max(number(hunt.get("Cooldown")) or ETERNAL_HUNT_COOLDOWN, COMMAND_CAST)
+    lost = player_dps * COMMAND_CAST / every + wolf_dps * min(ETERNAL_HUNT_HOWL / every, 1.0)
+    one, seven = hit / every - lost, ETERNAL_HUNT_WOLVES * hit / every - lost
+    dps = max(one, 0.0)
+    basis = (f"one Spirit Wolf's hit ({hit:,.0f}, PoB's Azmerian Wolf with Eternal Hunt chosen: 1000% of base) per use, "
+             f"one use every {every:.3g} s (its cooldown: a press under the button cap), less {lost:,.1f} DPS for the "
+             f"Command's {COMMAND_CAST:g} s cast ({player_dps:,.0f} main-skill DPS; whether a Command stops your skill is "
+             f"UNVERIFIED) and the wolf's {ETERNAL_HUNT_HOWL:g} s howl ({wolf_dps:,.0f} wolf DPS where the score counts it): "
+             f"{one:,.1f} DPS. With all {ETERNAL_HUNT_WOLVES} wolves reaching a lone boss: {seven:,.1f} DPS (on the "
+             "user's in-game list). A spirit wolf's hit taken as the Azmerian Wolf's own (UNVERIFIED)")
+    if one <= 0:
+        basis += "; a net loss with one wolf, so not pressed (0)"
+    note = {"label": "Eternal Hunt (the Azmerian Wolf's Command, added to the boss DPS)", "value": round(dps, 1),
+            "basis": basis, "confidence": "LOW",
+            "play": (f"Command Eternal Hunt each time its cooldown is up (every {every:.3g} s): with it +{dps:,.1f} DPS "
+                     f"(one wolf) or +{max(seven, 0.0):,.1f} DPS (all {ETERNAL_HUNT_WOLVES}); without it +0.")}
+    return dps, ([added_input("EternalHunt", dps)] if dps > 0 else []), [note]
 
 # Heavy Stuns of the boss (heavy_stun_rate) ------------------------------------------------------------------------------
 # The game's keyword text (KeywordPopups HeavyStun, Stun, Cold; build 26476662): hits build up the target's Stun bar by
