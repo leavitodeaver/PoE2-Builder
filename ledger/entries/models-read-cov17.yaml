@@ -69,3 +69,56 @@
   sources: ["builder/search/models.py (WARD_ON_KILL, ward_income)"]
   test_in_game: "Kill an add with Runic Ward missing: it rises by the %."
   status: proposed
+
+# Read by the flask model through the bridge's flask data (engine/bridge.lua, its sourceLines loop; flasks.py) --------
+
+- id: model-reverie-cannot-use-life-flasks
+  title: Reverie, Cannot use Life Flasks (the flask model)
+  kind: pob_gap
+  model: flasks
+  match: '^Cannot use Life Flasks$'
+  replace: []
+  confidence: reported
+  notes: "flasks.uses_per_second: a Life Flask gets 0 uses (bridge lifeFlaskUnusable, MECHC3); PoB parses nothing (ModCache leftover)."
+  sources: ["engine/bridge.lua (lifeFlaskUnusable)", "builder/search/flasks.py", "https://poe2db.tw/us/Reverie"]
+  test_in_game: "Press the Life Flask with Reverie on: nothing happens."
+  status: proposed
+
+- id: model-reverie-life-flasks-constant
+  title: Reverie, Non-Unique Life Flasks apply their Effects constantly (the flask model)
+  kind: pob_gap
+  model: flasks
+  match: '^Non-Unique Life Flasks apply their Effects constantly$'
+  replace: []
+  confidence: reported
+  notes: "flasks.reverie_constant: a non-unique Life Flask's effect counts all fight (bridge lifeFlaskConstant, MECHC3)."
+  sources: ["engine/bridge.lua (lifeFlaskConstant)", "builder/search/flasks.py (reverie_constant)", "https://poe2db.tw/us/Reverie"]
+  test_in_game: "Equip Reverie: the Life Flask's recovery runs without pressing it."
+  status: proposed
+
+- id: model-less-life-flask-recovery
+  title: N% less Life Flask Recovery (the flask model)
+  kind: pob_gap
+  model: flasks
+  match: '^(\d+)% less Life Flask Recovery$'
+  replace: []
+  confidence: reported
+  notes: "Summed by the bridge (lifeFlaskLess, MECHC3) and taken off the Life Flask's recovery in flasks.py."
+  sources: ["engine/bridge.lua (lifeFlaskLess)", "builder/search/flasks.py"]
+  test_in_game: "Compare a Life Flask's recovery with and without Reverie."
+  status: proposed
+
+- id: model-lose-life-per-skill-use
+  title: Crown of Thorns, Lose N Life when you use a Skill (the flask model's Life loss)
+  kind: pob_gap
+  model: flasks
+  match: '^Lose (\d+) Life when you use a Skill$'
+  replace: []
+  confidence: reported
+  notes: >-
+    A Life loss per use, not a cost (bridge lifeLossPerUse, MECHC5 / COVD7): x the main skill's uses a second in the
+    flask model's Life budget (full_pool_cap); other skills' uses not counted (an undercount of the loss). PoB parses
+    "Life BASE -5" and leaves "when you use a Skill" over, so applies nothing.
+  sources: ["engine/bridge.lua (lifeLossPerUse)", "builder/search/flasks.py", "https://poe2db.tw/us/Crown_of_Thorns"]
+  test_in_game: "Use a skill with full Life: Life drops by N."
+  status: proposed

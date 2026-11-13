@@ -230,3 +230,19 @@ def test_item_lines_a_model_already_reads_are_counted_by_the_audit():
     # a socketed-jewel condition the Onslaught model doesn't check stays open
     assert ignored_line_status("With a Searching Eye Jewel Socketed, Attacks have 25% chance to grant Onslaught On Kill",
                                False)[0] == "none"
+
+
+def test_flask_lines_the_bridge_reads_are_counted_by_the_audit():
+    """COV17: Reverie's and Crown of Thorns' lines the bridge's flask data reads (engine/bridge.lua: lifeFlaskUnusable,
+    lifeFlaskConstant, lifeFlaskLess, lifeLossPerUse), and that the bridge still reads them with its own patterns."""
+    from pathlib import Path
+
+    from builder.ledger.coverage import ignored_line_status
+
+    bridge = (Path(__file__).resolve().parents[1] / "engine" / "bridge.lua").read_text(encoding="utf-8")
+    for line, lua in {"Cannot use Life Flasks": "cannot use life flasks",
+                      "Non-Unique Life Flasks apply their Effects constantly": "life flasks apply their effects constantly",
+                      "(40-60)% less Life Flask Recovery": "less life flask recovery",
+                      "Lose 5 Life when you use a Skill": "life when you use a skill"}.items():
+        assert lua in bridge, lua
+        assert ignored_line_status(line, False)[:1] == ("model",), line
