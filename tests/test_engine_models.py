@@ -1948,12 +1948,10 @@ def test_tetzlapokals_life_recharges_line_gives_a_life_recharge(engine):
               "EnergyShieldRechargeDelay"]
     armour = ["Rarity: Rare", "Test Raiment", "Votive Raiment", "Item Level: 82", "Implicits: 0",
               "50% increased Energy Shield Recharge Rate"]
-    build.call("equip", slot="Body Armour", raw="
-".join(armour), fields=[])
+    build.call("equip", slot="Body Armour", raw=chr(10).join(armour), fields=[])
     before = build.call("stats", fields=fields)
     assert before.get("LifeRecharge") is None and before["EnergyShieldRecharge"] > 0
-    build.call("equip", slot="Body Armour", raw="
-".join([*armour, "Life Recharges"]), fields=[])
+    build.call("equip", slot="Body Armour", raw=chr(10).join([*armour, "Life Recharges"]), fields=[])
     after = build.call("stats", fields=fields)
     assert after["LifeRecharge"] == pytest.approx(after["Life"] * 0.125 * 1.5, rel=0.01)
     assert after["EnergyShieldRecharge"] == pytest.approx(before["EnergyShieldRecharge"])  # (both recharge)
