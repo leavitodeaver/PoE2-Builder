@@ -4101,10 +4101,20 @@ function bridge.chargeGain()
 	end
 	local perfect, perfectMain = 0, false
 	local main = build.calcsTab.mainEnv.player.mainSkill
+	-- (MECHC12) the socket groups of the Perfect Timing skills other than the main one, for flasks.Charges.of to rate
+	-- their presses (their cooldown, duration or the search's chosen rate; before, one press per 5 s, a flat guess)
+	local perfectGroups, groupIndex = { }, { }
+	for index, group in ipairs(build.skillsTab.socketGroupList) do
+		groupIndex[group] = index
+	end
 	for _, skill in ipairs(build.calcsTab.mainEnv.player.activeSkillList) do
 		if skill.skillTypes and skill.skillTypes[SkillType.PerfectTiming] then
 			perfect = perfect + 1
 			perfectMain = perfectMain or skill == main
+			local index = skill ~= main and skill.socketGroup and groupIndex[skill.socketGroup]
+			if index then
+				perfectGroups[#perfectGroups + 1] = index
+			end
 		end
 	end
 	-- Wildwood's Gifts (MECHC7; RESEARCH19 #105, KeywordPopups AncientBlooms: "Vivid Blooms grant 5 Charges to all of your
@@ -4147,7 +4157,7 @@ function bridge.chargeGain()
 		-- Shield; Heartbound Loop's damage on Minion Death through the model's degen line), flasks.full_pool_cap
 		lifeDegen = output.TotalBuildDegen and math.max(0, (output.LifeRegenRecovery or 0) - (output.NetLifeRegen or 0)) or 0,
 		bossDamage = boss, enemySkillTime = output.enemySkillTime or 0, evade = output.EvadeChance or 0,
-		block = output.EffectiveBlockChance or 0, perfectSkills = perfect,
+		block = output.EffectiveBlockChance or 0, perfectSkills = perfect, perfectGroups = perfectGroups,
 		blooms = blooms,
 		perfectMainRate = perfectMain and (output.Speed or 0) or 0,
 		-- the main skill's name (MECHC3: a Concoction main skill spends the Mana Flask's charges, flasks.THROW_CHARGES)

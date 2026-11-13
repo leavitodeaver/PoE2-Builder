@@ -102,6 +102,10 @@ class Charges:
     bloom_effect: float = 0.0
     # (MECHC9, A23-4) the boss preset's adds killed per second (models.kill_rate's enemies; Charges.of reads them)
     add_kills: float = 0.0
+    # (MECHC12) the build's Perfect Timing skills other than the main one, pressed per second, and how (Charges.of:
+    # models.press_use_rate over their groups, their cooldown, duration or the search's chosen rate; 0 with none)
+    perfect_press_rate: float = 0.0
+    perfect_press_how: str = ""
 
     @classmethod
     def of(cls, build) -> Charges:
@@ -109,7 +113,21 @@ class Charges:
         from builder.search import bosses
 
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
-        return cls.from_bridge(build.call("chargeGain"), bosses.kill_stats(boss).get(bosses.KILLS_STAT) or 0.0)
+        data = build.call("chargeGain")
+        gain = cls.from_bridge(data, bosses.kill_stats(boss).get(bosses.KILLS_STAT) or 0.0)
+        groups = [int(i) for i in data.get("perfectGroups") or [] if i]
+        if groups and gain.perfect_main_rate <= 0:
+            from dataclasses import replace
+
+            from builder.search.models import press_choice, press_choices, press_use_rate
+
+            choices, total, parts = press_choices(build), 0.0, []
+            for rate in build.call("useRates", indices=sorted(set(groups)))["rates"]:
+                uses, how, _ = press_use_rate(rate, press_choice(rate, choices))
+                total += uses
+                parts.append(f"{rate.get('name')} {how}")
+            gain = replace(gain, perfect_press_rate=total, perfect_press_how="; ".join(parts))
+        return gain
 
     @classmethod
     def from_bridge(cls, data: dict, add_kills: float = 0.0) -> Charges:
@@ -146,8 +164,9 @@ class Charges:
 # - "take <Type> damage from a Hit": the boss's hits that land, if its preset deals that type (PoB's <Type>EnemyDamage);
 # - "become Cursed": none against a pinnacle boss (RESEARCH #33, boss-curses-player.md, MEDIUM-HIGH: no pinnacle boss
 #   skill carries a curse stat; checked by the research there against every GrantedEffect and poe2db);
-# - "release a skill with Perfect Timing": the main skill's uses when it is a Perfect Timing skill, else one press per
-#   models.PRESS_EVERY s of the build's Perfect Timing skill (LOW, as other pressed skills), none without one;
+# - "release a skill with Perfect Timing": the main skill's uses when it is a Perfect Timing skill, else the build's other
+#   Perfect Timing skills' presses (MECHC12; before, one per models.PRESS_EVERY s, a flat guess): each on its cooldown,
+#   else once per its duration, else at the rate the search chose for it (models.press_use_rate), else 0;
 # - the boss's ailments, Stun and Slow on you ("become Ignited / Frozen / Shocked / Poisoned / Stunned", "start Bleeding",
 #   "affected by a Slow"): only when the boss deals the damage type behind it (Fire, Cold, Lightning, Chaos, Physical; any
 #   for Stun and Slow); how often the game's boss inflicts them no data gives: one per BOSS_AILMENT_EVERY s, at most one
@@ -162,8 +181,6 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
     trigger this reads (its charges alone decide, as before)."""
     import re
 
-    from builder.search.models import PRESS_EVERY
-
     text = trigger.lower()
     if m := re.search(r"used when you take (fire|cold|lightning|chaos|physical) damage from a hit", text):
         kind = m.group(1).capitalize()
@@ -175,8 +192,12 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
     if "perfect timing" in text and "used when" in text:
         if gain.perfect_main_rate > 0:
             return gain.perfect_main_rate, f"the main skill's Perfect Timing releases, {gain.perfect_main_rate:.2f}/s"
+        if gain.perfect_press_rate > 0:
+            return gain.perfect_press_rate, (f"the build's Perfect Timing skills pressed {gain.perfect_press_rate:.2f}/s "
+                                             f"({gain.perfect_press_how})")
         if gain.perfect_skills > 0:
-            return 1 / PRESS_EVERY, f"a Perfect Timing skill pressed once per {PRESS_EVERY:g} s (LOW)"
+            return 0.0, ("a Perfect Timing skill with no cooldown or duration and no press rate chosen by the search: no "
+                         "source, 0" + (f" ({gain.perfect_press_how})" if gain.perfect_press_how else ""))
         return 0.0, "no Perfect Timing skill in the build"
     m = re.search(r"used when you (?:become (ignited|frozen|shocked|poisoned|stunned)|start (bleeding)|are affected by a (slow))",
                   text)

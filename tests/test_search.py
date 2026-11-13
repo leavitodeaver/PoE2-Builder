@@ -2565,3 +2565,17 @@ def test_the_blindside_check_reads_blind_lines():
             # (builder/ledger/coverage.py 472 has two, COV-A's file: routed to COV-A; drop this skip once fixed)
             if path.suffix in (".py", ".lua") and path != root / "builder" / "ledger" / "coverage.py":
                 assert b"\x08" not in path.read_bytes(), path
+
+
+def test_perfect_timing_charm_reads_the_skills_own_presses():
+    """MECHC12 (the flat-rate rule): a Perfect Timing skill beside the main one fires "Used when you release a skill
+    with Perfect Timing" at its own presses (Charges.of: its cooldown, duration or the search's chosen rate), not one per
+    5 s; no such source, 0."""
+    from builder.search.flasks import Charges, trigger_rate
+
+    text = "Used when you release a skill with Perfect Timing"
+    assert trigger_rate(text, Charges(charm=5, perfect_skills=1))[0] == 0.0
+    rate, how = trigger_rate(text, Charges(charm=5, perfect_skills=1, perfect_press_rate=0.25,
+                                           perfect_press_how="Mace Strike on its 4.00 s cooldown"))
+    assert rate == 0.25 and "4.00 s cooldown" in how
+    assert trigger_rate(text, Charges(charm=5, perfect_skills=1, perfect_main_rate=2.0))[0] == 2.0
