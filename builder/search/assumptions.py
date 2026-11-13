@@ -575,10 +575,13 @@ class Assumptions:
         full = number((build.stats or {}).get("FullDPS")) or number(stats.get("FullDPS"))
         mult = 1.0 + number(entry.get("dps")) / max(full - number(entry.get("dps")), 1e-9)
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        split = build.call("cullSplit") or {}
+        # (MECH59: a Cull only Heavy Contact gives lands on the main skill's Heavy Stuns of the boss)
+        heavy = models.heavy_stun_rate(build.call("stats", fields=models.MODEL_FIELDS))[0] if split.get("heavyOnly") else 0.0
         scale, how, confidence = conditions_mod.cull_window_scale(
             mult, number(stats.get("CullMultiplier")), conditions_mod.boss_pool(boss), full - number(entry.get("dps")),
             number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0,
-            number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), build.call("cullSplit"))
+            number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), split, heavy)
         if scale >= 1.0 and not how:
             return []
         key = models.press_key("Full Culling DPS", None)

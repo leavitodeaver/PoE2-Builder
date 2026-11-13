@@ -1817,11 +1817,12 @@ def boss_pool(name: str) -> float:
 
 
 def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: float, hits: float, hit_dps: float,
-                      dot_dps: float, split: dict | None = None) -> tuple[float, str, str]:
+                      dot_dps: float, split: dict | None = None, heavy: float = 0.0) -> tuple[float, str, str]:
     """(the scale on PoB's Full Culling DPS, how, confidence): full_mult, PoB's Full DPS cull multiplier; main_mult, the
     main skill's CullMultiplier; pool, the boss's Life + ES; dps, Full DPS before the Cull; hits, the main skill's hits
     per second; hit_dps / dot_dps, its hit and damage-over-time DPS (for the wait after the boss falls under t); split,
-    bridge.cullSplit's raw thresholds (critical, regular, inc, critChance %), for a crit-only Cull."""
+    bridge.cullSplit's raw thresholds (critical, regular, inc, critChance %), for a crit-only Cull; heavy, the main
+    skill's Heavy Stuns of the boss per second, for a Cull only Heavy Contact gives (split's heavyOnly; MECH59)."""
     t = 1.0 - 1.0 / full_mult if full_mult > 1.0 else 0.0
     if t <= 0:
         return 1.0, "", ""
@@ -1837,20 +1838,38 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
     lands = f"the first hit under it, {wait:.2f} s later on average ({hits:.2f} hits/s)"
     split = split or {}
     critical, regular = float(split.get("critical") or 0.0), float(split.get("regular") or 0.0)
-    if critical > regular:
-        inc, c = float(split.get("inc") or 1.0), float(split.get("critChance") or 0.0) / 100.0
+    inc = float(split.get("inc") or 1.0)
+    heavy_only = bool(split.get("heavyOnly")) and regular > 0
+    if heavy_only:
+        # (MECH59) Heavy Contact's Cull lands only on a Heavy Stun: stuns every 1 / heavy s, the boss crossing t at a
+        # uniform point between two, so the window t x T saves t x T - gap / 2, or (t x T)^2 / (2 x gap) when the
+        # window is shorter than the gap (exact for evenly spaced stuns; heavy_stun_rate's own spacing, MEDIUM)
+        def regular_saving(rt: float) -> float:
+            window, gap = rt * fight, 1.0 / heavy if heavy > 0 else float("inf")
+            return (window - gap / 2 if window > gap else window * window / (2 * gap)) / fight
+        regular_lands = (f"the first Heavy Stun under it (Heavy Contact), one every {1.0 / heavy:.1f} s" if heavy > 0
+                         else "a Heavy Stun (Heavy Contact), and the main skill Heavy Stuns the boss none")
+    else:
+        def regular_saving(rt: float) -> float:
+            return max(0.0, rt - wait / fight)
+        regular_lands = f"the first hit under the regular threshold, {wait:.2f} s later ({hits:.2f} hits/s)"
+    if critical > regular or (heavy_only and critical > 0):
+        c = float(split.get("critChance") or 0.0) / 100.0
         crit_t, regular_t = critical * inc / 100.0, regular * inc / 100.0
         crit_wait = (1.0 / c - dot_share / 2.0) / hits if c > 0 else float("inf")
         crit_saved = max(0.0, crit_t - crit_wait / fight)
-        regular_saved = max(0.0, regular_t - wait / fight)
+        regular_saved = regular_saving(regular_t) if regular_t > 0 else 0.0
         if crit_saved >= regular_saved:
             saved, t_shown = crit_saved, crit_t
             lands = (f"the first Critical Hit under it, {crit_wait:.2f} s later on average ({c:.0%} crit chance x "
                      f"{hits:.2f} hits/s; PoB's own {t:.2%} scales its {crit_t:.1%} by a crit within a second)")
         else:
             saved, t_shown = regular_saved, regular_t
-            lands = (f"the first hit under the regular {regular_t:.1%}, {wait:.2f} s later ({hits:.2f} hits/s; the "
-                     f"crit-only {crit_t:.1%} saves less at {c:.0%} crit chance)")
+            lands = (f"{regular_lands}, threshold {regular_t:.1%} (the crit-only {crit_t:.1%} saves less at {c:.0%} "
+                     "crit chance)")
+    elif heavy_only:
+        t_shown = regular * inc / 100.0
+        saved, lands = regular_saving(t_shown), regular_lands
     else:
         t_shown = t
     scale = (saved / (1.0 - saved)) / (t / (1.0 - t))
@@ -1858,6 +1877,49 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
            f"(threshold {t_shown:.1%}) lands at {lands}, in a {fight:.1f} s fight: "
            f"{saved:.2%} saved (x{1.0 / (1.0 - saved):.3f})")
     return min(scale, 1.0), how, "MEDIUM"
+
+
+# Seconds the boss has been in your Presence (MECH59; plans/kw-culling-strike.md item 5, term-hits-to-rare; an
+# UNDERCOUNT before). The lines that ramp with "each second they've ever been in your Presence" (Attrition's gem stat
+# skill_attrition_hit_damage_+%_final_vs_rare_or_unique_enemy_per_second_ever_in_presence_up_to_max, 1% more per 2 s up
+# to 40-59% by level; its Culling Strike from 40-31 s, act_str.lua 1254-1262; "Deal 4% increased Damage with Hits to Rare
+# or Unique Enemies for each second ...", ModParser 6204; the "more damage with hits and ailments ... for each second /
+# every N seconds" lines, ModParser 3109-3112) all read PoB's enemy multiplier EnemyPresenceSeconds, set only by the
+# config box enemyMultiplierEnemyPresenceSeconds (ConfigOptions 1666), which nothing set: so none of them counted.
+# Now: the boss in your Presence from the fight's start (the build's distance vs PresenceRadius; 0 outside it), PoB's
+# Full DPS sampled at PRESENCE_SAMPLES seconds (linear between, flat past the last), the fight's length T solved from
+# the integral of that DPS over the boss's Life + ES (kill time: the ramp shortens the fight that feeds it), and the box
+# set to the seconds whose DPS equals the fight's average (pool / T; floored, as PoB floors a Multiplier). MEDIUM: the
+# boss taken to stay in your Presence the whole fight; phases not read. Attrition's Culling Strike then counts only
+# when that average reaches its threshold, though the real Cull comes at the end of a fight longer than it (an
+# undercount between the two, said in the basis).
+PRESENCE_SECONDS_VAR = "enemyMultiplierEnemyPresenceSeconds"
+PRESENCE_SECONDS_LINE = re.compile(r"ever been in your presence", re.I)
+PRESENCE_SECONDS_GEMS = ("Attrition",)
+PRESENCE_SAMPLES = (0, 20, 40, 60, 90, 120, 180)
+
+
+def presence_fight(samples: list[tuple[float, float]], pool: float) -> tuple[float, float]:
+    """(fight length T, the seconds whose DPS is the fight's average): samples, (seconds in Presence, DPS there) by
+    seconds, DPS linear between them and flat past the last; T solves the integral of DPS from 0 to T = pool."""
+    if not samples or pool <= 0 or samples[0][1] <= 0:
+        return 0.0, 0.0
+    done, fight = 0.0, None
+    for (s0, d0), (s1, d1) in zip(samples, samples[1:]):
+        area = (d0 + d1) / 2 * (s1 - s0)
+        if done + area >= pool:
+            need, slope = pool - done, (d1 - d0) / (s1 - s0)
+            x = need / d0 if abs(slope) < 1e-12 else (-d0 + math.sqrt(d0 * d0 + 2 * slope * need)) / slope
+            fight = s0 + x
+            break
+        done += area
+    if fight is None:
+        fight = samples[-1][0] + (pool - done) / samples[-1][1]
+    average = pool / fight
+    for (s0, d0), (s1, d1) in zip(samples, samples[1:]):
+        if d1 >= average:
+            return fight, s0 + ((average - d0) / (d1 - d0) * (s1 - s0) if d1 > d0 else 0.0)
+    return fight, samples[-1][0]
 
 
 def _ailment_up(ailment: str):
@@ -2167,6 +2229,26 @@ def _heavy_stunned(lines: list[str], stats: dict) -> tuple[object, str]:
     return _box(up, f"Heavy Stunned {up:.0%} of the fight ({shared(up)}): {how}")
 
 
+# Heavy Contact, "Hits that Heavy Stun Enemies have Culling Strike" (MECH59; plans/kw-culling-strike.md item E, an
+# UNDERCOUNT before): PoB parses it as CanCull under Condition:AlwaysHeavyStunning (ModParser 5470), set only by the
+# config box conditionHitsAlwaysHeavyStun ("Do your hits always Heavy Stun?", ConfigOptions 1622), which nothing set;
+# no other PoB mod reads that condition (checked: grep AlwaysHeavyStunning over PoB's src: ConfigOptions, ModParser
+# 5470 and its one ModCache line). The box goes on when the build has the line and Heavy Stuns the boss
+# (models.heavy_stun_rate > 0); the Cull is then priced at the next Heavy Stun, not the next hit (cull_window_scale's
+# `heavy`, bridge.cullSplit's heavyOnly), so switching the box on can't count every hit as culling.
+HEAVY_CONTACT_LINE = re.compile(r"hits that heavy stun enemies have culling strike", re.I)
+
+
+def _heavy_contact(lines: list[str], stats: dict) -> tuple[object, str]:
+    if not any(HEAVY_CONTACT_LINE.search(t) for t in lines):
+        return 0.0, ""
+    rate, how = models.heavy_stun_rate(stats)
+    if rate <= 0:
+        return 0.0, f"Hits that Heavy Stun have Culling Strike, but the main skill doesn't Heavy Stun the boss: {how}"
+    return True, (f"Culling Strike on the boss's Heavy Stuns, {rate:.3f}/s ({how}); priced at the wait for the next "
+                  "Heavy Stun under the threshold (the Culling Strike note)")
+
+
 # "if you have consumed an Elemental Infusion Recently" (PoB Condition:InfusionConsumedRecently; Empowering Infusions 35%,
 # Infused Spell Damage 15%; MECH49: before, nothing set it, so both counted 0). The skills that consume Infusions, by the
 # elements they take (game files 26476662, GrantedEffectStatSets holding active_skill_consumes_(a_)<element>_infusion,
@@ -2424,6 +2506,10 @@ CONDITIONS: list[Condition] = [
               value_fn=_self_ignited,
               fields=("CritChance", "Speed", "HitChance", "IgniteAvoidChance", "SelfIgniteDuration", "AilmentThreshold",
                       "Life", "FireTakenHit", "enemySkillTime", "EvadeChance", "EffectiveBlockChance")),
+    Condition("conditionHitsAlwaysHeavyStun", "Heavy Contact: Culling Strike on Heavy Stuns (MECH59)",
+              value_fn=_heavy_contact, fields=models.IMMOBILISE_FIELDS),
+    Condition(PRESENCE_SECONDS_VAR, "Seconds the boss has been in your Presence (the fight's average, MECH59)",
+              value_fn=lambda lines, stats: stats.get("_presence_seconds") or (0.0, ""), fields=()),
     Condition("enemyDistance", "Boss distance (play-style assumption; 10 units a metre)", value_fn=_boss_distance,
               fields=("PresenceRadius",)),
     Condition("conditionStationary", "Standing still (play-style choice)", value_fn=_standing_still, fields=()),
@@ -2645,6 +2731,35 @@ class Conditions:
                                               "as a way to play, MEDIUM)")}
         return {}
 
+    def presence_seconds(self, texts: list[str], stats: dict) -> tuple[float, str]:
+        """(MECH59) The seconds-in-your-Presence box (PRESENCE_SECONDS_VAR) at the fight's average, and its basis:
+        PoB's Full DPS probed at PRESENCE_SAMPLES (the box restored after), presence_fight on the boss's pool."""
+        metres = _boss_distance(texts, stats)[0] / 10
+        radius = number(stats.get("PresenceRadius")) / 10
+        if radius < metres:
+            return 0.0, (f"the boss {metres:g} m away, outside your {radius:.1f} m Presence: never in it (0)")
+        boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        pool = boss_pool(boss)
+        before = self.build.call("getConfig")["input"].get(PRESENCE_SECONDS_VAR)
+        samples = []
+        try:
+            for s in PRESENCE_SAMPLES:
+                got = self.build.call("setConfig", vars={PRESENCE_SECONDS_VAR: s}, fields=["FullDPS"])["stats"]
+                samples.append((float(s), number(got.get("FullDPS"))))
+        finally:
+            self.build.call("setConfig", vars={PRESENCE_SECONDS_VAR: before if before is not None else False},
+                            fields=["FullDPS"])
+        fight, average = presence_fight(samples, pool)
+        if fight <= 0:
+            return 0.0, "no DPS read: 0"
+        seconds = math.floor(average)
+        return float(seconds), (
+            f"the boss in your {radius:.1f} m Presence from the start ({metres:g} m away), a {fight:.1f} s fight on its "
+            f"{pool:,.0f} Life + ES with the ramp (Full DPS {samples[0][1]:,.0f} at 0 s, {samples[-1][1]:,.0f} at "
+            f"{samples[-1][0]:g} s): its average DPS is the ramp's at {seconds} s (MEDIUM; a Culling Strike from N s "
+            f"counts only if N <= {seconds}, though the real one lands at the end of the {fight:.0f} s fight: an "
+            "undercount between the two)")
+
     def evidence(self) -> dict[str, tuple[object, str]]:
         """What the build can sustain now: var -> (value, evidence)."""
         lines = self.build.call("sourceLines")["lines"]
@@ -2776,6 +2891,8 @@ class Conditions:
             stats["_incision_per_hit"] = number((main.get("supportStats") or {}).get(INCISION_SUPPORT_STATS[0]))
         names = set(gem_types) | {g["name"] for grp in self.build.groups() if grp.get("enabled") is not False
                                   for g in grp["gems"] if g.get("enabled", True)}
+        if set(PRESENCE_SECONDS_GEMS) & names or any(PRESENCE_SECONDS_LINE.search(t) for t in texts):
+            stats["_presence_seconds"] = self.presence_seconds(texts, stats)  # (MECH59: Attrition, the ramps)
         if self.main_skill in WITHER_ON_HIT_SKILLS or "Withering Touch" in main_gems or WITHERING_PRESENCE in names:
             # (Withered from gems, _withered_stacks: the main skill's own, Withering Touch on it, Withering Presence)
             raw = self.build.call("activeSkills", levelStats=[self.main_skill, WITHERING_PRESENCE],

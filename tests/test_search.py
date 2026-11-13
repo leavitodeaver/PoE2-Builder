@@ -2474,3 +2474,75 @@ def test_a_side_consumer_consumes_at_the_rate_its_damage_is_counted():
     assert abs(found[0] - 0.5) < 1e-9 and "the search chose" in found[1]
     # the press model's own rate for its damage is the same function
     assert models.press_group_rate({"speed": 3.0, "cooldown": 0.5}, None, cap[2])[0] == held[0]
+
+
+def test_seconds_in_presence_read_the_fight_average():
+    """MECH59 (plans/kw-culling-strike.md item 5, an UNDERCOUNT): Attrition and the "each second they've ever been in
+    your Presence" ramps read EnemyPresenceSeconds, which nothing set. The box takes the seconds whose DPS is the fight's
+    average, the fight's length solved from the ramp's own DPS over the boss's pool; 0 with the boss outside Presence."""
+    from builder.search import bosses, conditions as c
+    from types import SimpleNamespace
+
+    # a flat DPS: the fight is pool / DPS, the average is the start's
+    fight, at = c.presence_fight([(0.0, 100.0), (20.0, 100.0)], 5000.0)
+    assert abs(fight - 50.0) < 1e-9 and at == 0.0
+    # 1000 DPS rising 1% per 2 s to 59% (Attrition at level 20, capped at 118 s): exact against the closed form
+    ramp = [(float(s), 1000.0 * (1 + min(s / 2, 59) / 100)) for s in c.PRESENCE_SAMPLES]
+    fight, at = c.presence_fight(ramp, 60000.0)
+    k = 1000.0 * 0.005  # (DPS gained per second)
+    expect = (-1000.0 + (1000.0 ** 2 + 2 * k * 60000.0) ** 0.5) / k  # (1000 T + k T^2 / 2 = pool, T under 118 s)
+    assert abs(fight - expect) < 1e-6 and abs(at - fight / 2) < 1e-6  # (a linear ramp's average is its midpoint)
+
+    class FakeBuild:
+        ctx = SimpleNamespace(gems={}, request=SimpleNamespace(boss=bosses.DEFAULT))
+
+        def __init__(self):
+            self.input = {}
+
+        def call(self, name, **kw):
+            if name == "getConfig":
+                return {"input": dict(self.input)}
+            if name == "setConfig":
+                self.input.update(kw["vars"])
+                s = self.input[c.PRESENCE_SECONDS_VAR] or 0
+                return {"stats": {"FullDPS": 1e6 * (1 + min(s / 2, 59) / 100)}}
+            return {}
+
+    build = FakeBuild()
+    cond = c.Conditions(build, "Fireball")
+    near = {"PresenceRadius": 40, "_distance_choice": (2.0, "chosen")}
+    seconds, how = cond.presence_seconds([], near)
+    pool = c.boss_pool(bosses.DEFAULT)
+    fight, at = c.presence_fight([(float(s), 1e6 * (1 + min(s / 2, 59) / 100)) for s in c.PRESENCE_SAMPLES], pool)
+    assert seconds == int(at) and "fight" in how
+    assert build.input[c.PRESENCE_SECONDS_VAR] is False  # (the box given back as it was: unset)
+    far = {"PresenceRadius": 40, "_distance_choice": (6.0, "chosen")}
+    assert cond.presence_seconds([], far)[0] == 0.0
+    assert any(x.var == c.PRESENCE_SECONDS_VAR for x in c.CONDITIONS)
+
+
+def test_heavy_contact_culls_on_the_next_heavy_stun():
+    """MECH59 (plans/kw-culling-strike.md item E, an UNDERCOUNT): Heavy Contact's CanCull needs PoB's
+    conditionHitsAlwaysHeavyStun, which nothing set. The box goes on with the line and Heavy Stuns of the boss, and the
+    Cull is priced at the next Heavy Stun (evenly spaced: the window less half a gap, or window^2 / (2 gap))."""
+    from builder.search import conditions as c
+
+    mult = 1 / 0.95  # (PoB's 5%: the whole window)
+    split = {"critical": 0.0, "regular": 5.0, "inc": 1.0, "critChance": 0.0, "heavyOnly": True}
+    pob = 0.05 / 0.95
+    # 1e7 pool at 1e6 DPS: a 10 s fight, a 0.5 s window; a Heavy Stun every 20 s: 0.5^2 / 40 s saved
+    scale, how, conf = c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, split, 1 / 20)
+    saved = 0.25 / 40 / 10
+    assert abs(scale - (saved / (1 - saved)) / pob) < 1e-9 and "Heavy Stun" in how and conf == "MEDIUM"
+    # four a second: 0.5 - 0.125 s saved
+    saved = 0.375 / 10
+    assert abs(c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, split, 4.0)[0] - (saved / (1 - saved)) / pob) < 1e-9
+    assert c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, split, 0.0)[0] == 0.0  # (no Heavy Stun, no Cull)
+    # an unconditional Cull beside it (heavyOnly false): the next hit's wait, as before
+    assert c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, dict(split, heavyOnly=False))[0] == \
+        c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0)[0]
+    line = "Hits that Heavy Stun Enemies have Culling Strike"
+    assert c._heavy_contact(["Some other line"], {}) == (0.0, "")
+    off, why = c._heavy_contact([line], {})
+    assert off == 0.0 and "doesn't Heavy Stun" in why
+    assert any(x.var == "conditionHitsAlwaysHeavyStun" for x in c.CONDITIONS)

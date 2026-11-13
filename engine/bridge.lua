@@ -2364,7 +2364,24 @@ function bridge.cullSplit()
 	local critical = mods:Override(cfg, "CriticalCullPercent") or (mods:Flag(cfg, "CritCanCull") and threshold or 0)
 	local regular = mods:Override(cfg, "CullPercent") or (mods:Flag(cfg, "CanCull") and threshold or 0)
 	local output = env.player.output or { }
-	return { critical = jsonNumber(critical), regular = jsonNumber(regular),
+	-- (MECH59) heavyOnly: every CanCull that holds is Heavy Contact's (ModParser 5470: CanCull under the condition
+	-- AlwaysHeavyStunning), so the regular Cull lands only on a Heavy Stun
+	local heavyOnly = false
+	if regular > 0 and not mods:Override(cfg, "CullPercent") then
+		heavyOnly = true
+		for _, row in ipairs(mods:Tabulate("FLAG", cfg, "CanCull")) do
+			local tagged = false
+			for _, tag in ipairs(row.mod) do
+				if type(tag) == "table" and tag.type == "Condition" and tag.var == "AlwaysHeavyStunning" then
+					tagged = true
+				end
+			end
+			if not tagged then
+				heavyOnly = false
+			end
+		end
+	end
+	return { critical = jsonNumber(critical), regular = jsonNumber(regular), heavyOnly = heavyOnly,
 		inc = jsonNumber(1 + mods:Sum("INC", cfg, "CullPercent") / 100), critChance = jsonNumber(output.CritChance or 0) }
 end
 
