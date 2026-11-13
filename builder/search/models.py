@@ -4125,8 +4125,9 @@ class PressCap:
 # A pressed non-main skill in Full DPS (MECH37) -------------------------------------------------------------------
 # PoB's Full DPS counts every group in it as used nonstop, though only the main skill is: a skill the player presses
 # beside it is used on its cooldown, once per its buff/debuff duration if it's pressed to keep one up, or else at a
-# labelled guess, and the main skill loses the time those presses take.
-PRESS_EVERY = 5.0  # seconds between presses of a skill with neither a cooldown nor a duration (LOW: a guess)
+# rate the search chooses (PRESS_CHOICES below; none chosen: 0), and the main skill loses the time those presses take.
+# (MECHB18: PRESS_EVERY, the old flat 5 s guess, is gone: its last reader, flasks.py's Perfect Timing charm, reads the
+# build's own presses since MECHC12, cd32ab1.)
 # Full DPS's ailment entries (source: the skill that's their best source) and the ailment whose stacks set each
 # (PoB: Burning Ground is a share of the Ignite's damage)
 PRESS_AILMENTS = {"Best Ignite DPS": "Ignite", "Best Burning Ground DPS": "Ignite", "Best Bleed DPS": "Bleed",
@@ -4143,8 +4144,7 @@ def press_key(name: str, source: str | None) -> str:
 # skill (press_model's busy share), with a "without it" row in the play guide. SEARCH sets the choice on
 # build.objective.press_choices ({skill name as useRates names it: uses per second}; PRESS_CHOICES). Until it does, such
 # a skill is pressed 0 times, labelled (the user's flat-rate rule: no source, 0). conditions.skill_use_rate
-# (Marks and other "you use" events, consumers beside the main skill) reads the same choice since MECH56. PRESS_EVERY
-# stays only for flasks' Perfect Timing skill (MECH-C's file): theirs to move.
+# (Marks and other "you use" events, consumers beside the main skill) reads the same choice since MECH56.
 PRESS_CHOICES = "press_choices"
 
 

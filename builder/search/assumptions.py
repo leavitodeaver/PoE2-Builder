@@ -1742,7 +1742,7 @@ class Assumptions:
     def warcries_recently(self) -> tuple[float, str]:
         """(different Warcries used Recently on average, how): each different Warcry in the build's enabled groups is up
         min(1, 4 s x its uses per second) of the fight, its uses from the bridge's useRates (conditions.skill_use_rate:
-        its cooldown, else its duration, else one per models.PRESS_EVERY s, LOW); none in the build: 0."""
+        its cooldown, else its duration, else the search's press choice, else 0); none in the build: 0."""
         gems = getattr(self.build.ctx, "all_gems", {}) or {}
         found = {g["index"]: n["name"] for g in self.build.groups() if g.get("enabled") is not False
                  for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")
