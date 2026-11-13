@@ -39,3 +39,20 @@
   sources: ["engine/bridge.lua (setLowLifeCap)", "builder/search/models.py (with_darkness, low_life_cap_note)"]
   test_in_game: "Not needed: the bridge sets the flag from the text; the floor tests cover with_darkness."
   status: proposed
+
+- id: model-crit-chance-cannot-be-rerolled
+  title: Your Critical Hit Chance cannot be Rerolled (Maligaro's Virtuosity; the bridge drops the player's Lucky, Bifurcated and Inevitable crit flags)
+  kind: pob_gap
+  model: no_crit_reroll
+  match: '^Your Critical Hit Chance cannot be Rerolled$'
+  replace: []
+  confidence: reported
+  notes: >-
+    A drawback PoB leaves unparsed (ModCache nil: an OVERCOUNT beside a Lucky / Bifurcated / Inevitable crit source if
+    nothing read it). MECH53 reads it: engine/bridge.lua REROLL_CRIT_FLAGS makes the player's mod stores answer false
+    for CritChanceLucky, BifurcateCrit and InevitableCriticalHits while an equipped item (in its variant) holds the line
+    (KeywordPopups RerollCrit: Lucky, Unlucky, Bifurcated and Inevitable all count as Rerolling); minions keep theirs.
+    COV22 credits the reader (read on f671607: bridge.lua 595-668).
+  sources: ["engine/bridge.lua (REROLL_CRIT_FLAGS, noCritRerollDB)", "data/game-26476662/tables/KeywordPopups.json (RerollCrit)"]
+  test_in_game: "Not needed: the flags are switched off by text."
+  status: proposed
