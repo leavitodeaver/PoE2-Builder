@@ -23,6 +23,9 @@
 # scratch/manager/workers/user_messages.log for the manager to file. Keep a new worker's brief opening with
 # "You are a worker on ... (job <JOB>)": that is how the page finds it.
 #
+# SIGN-IN ERRORS (13 Nov 2026): a turn that ends on one waits and resumes by itself, four times (run_turn below;
+# the shared check C:/PROJECTS/PCQueue/auth_retry.py; every retry is logged in workers/auth_retries.log).
+#
 # The whole script is one function, read in full before it runs, so changing this file never upsets a copy already
 # running.
 
@@ -39,9 +42,10 @@ ROOT1="$LOCALAPPDATA/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/cla
 ROOT2="$APPDATA/Claude/claude-code"
 ROOT3="$LOCALAPPDATA/Claude-Data/claude_pzs8sxrjxfjjc/claude-code"   # (where the app keeps it since ~10 Nov 2026)
 EXE=$(ls -t "$ROOT1"/*/*/claude.exe "$ROOT2"/*/*/claude.exe "$ROOT3"/*/*/claude.exe 2>/dev/null | head -1)
+[ -n "$WORKER_TEST_EXE" ] && EXE="$WORKER_TEST_EXE"   # (tests only: a stand-in for Claude; the test also sets WORKER_TEST_DIR)
 pin_self   # the user's two threads: this script, the worker and everything it starts stay on 2 and up, at Below Normal
 [ -n "$EXE" ] || { echo "Claude Code not found"; return 3; }
-W="C:/PROJECTS/PoE2 Builder/scratch/manager/workers"
+W="${WORKER_TEST_DIR:-C:/PROJECTS/PoE2 Builder/scratch/manager/workers}"
 LOCK="$W/$JOB.lock"; INBOX="$W/$JOB.inbox"
 mkdir -p "$W" "$INBOX"
 CLEAR=""
@@ -110,7 +114,7 @@ lock_alive() { local p; p=$(cat "$LOCK/pid" 2>/dev/null); [ -n "$p" ] && kill -0
 waiting() { compgen -G "$INBOX/*.txt" > /dev/null; }
 count() { cat "$W/$JOB.$1" 2>/dev/null || echo 0; }
 
-run_turn() {   # $1: new or more, $2: the text
+run_turn_once() {   # one turn. $1: new or more, $2: the text
 	local args=(-p "$2" --permission-mode auto --output-format json --strict-mcp-config)
 	[ -n "$POE2_WORKER_MODEL" ] && args+=(--model "$POE2_WORKER_MODEL")
 	if [ "$1" = "more" ]; then
@@ -141,6 +145,30 @@ except Exception:
 	print("%s on account %s: exit %s, not a result:" % (job, acct, code))
 	print(text[:800])
 PY
+}
+
+run_turn() {   # $1: new or more, $2: the text. A turn that ends on a SIGN-IN error (the Claude service refusing the account
+	# for a while: on 13 Nov 2026 the user's app signed them out twice and a worker stopped on "Failed to authenticate. API
+	# Error: 403"; the user: "add auto-retry", "do auto-retry for all workers") waits and resumes the same session by itself:
+	# after 3, 6, 12 and 24 minutes. The lock is kept while it waits, so no other turn starts and messages wait in the inbox.
+	# Nothing else is retried here (a usage limit, a crash: the manager sees those). The check: C:/PROJECTS/PCQueue/auth_retry.py.
+	local kind="$1" text="$2" waits w try=0
+	waits=$(python C:/PROJECTS/PCQueue/auth_retry.py waits 2>/dev/null || echo "180 360 720 1440")
+	run_turn_once "$kind" "$text"
+	for w in $waits; do
+		python C:/PROJECTS/PCQueue/auth_retry.py check "$W/$JOB.last.json" 2>/dev/null || return 0
+		[ -s "$W/$JOB.id" ] || return 0   # (a brand-new worker that never got a session: the manager starts it again)
+		try=$((try + 1))
+		echo "$JOB: the turn ended on a sign-in error; trying again in $((w / 60)) min (try $try)"
+		printf '%s  %s (account %s): sign-in error, retry %d in %d s\n' "$(date '+%Y-%m-%d %H:%M')" "$JOB" "$ACCOUNT" $try $w >> "$W/auth_retries.log"
+		sleep "$w"
+		kind=more
+		text="Your last turn ended on a SIGN-IN error (the Claude service refused this account for a while; nothing was wrong with your work). Carry on exactly where you stopped: read the Handover at the end of your report if you need to, check that nothing you had queued or half-written was left broken (pc_queue status for your bookings; git status for a half-made commit or rebase), bring your report and status file up to date, and go on with the same job."
+		run_turn_once "$kind" "$text"
+	done
+	python C:/PROJECTS/PCQueue/auth_retry.py check "$W/$JOB.last.json" 2>/dev/null && \
+		printf '%s  %s (account %s): still a sign-in error after %d retries: left for the manager\n' "$(date '+%Y-%m-%d %H:%M')" "$JOB" "$ACCOUNT" $try >> "$W/auth_retries.log"
+	return 0
 }
 
 deliver() {   # runs the inbox's messages as turns, one after another, until it is empty; then lets the lock go
