@@ -962,7 +962,7 @@ def test_rolling_slam_counts_its_first_and_second_slam(engine):
                 if s["name"] == "Rolling Slam" and not s["disabled"])
     assert main.stat_set == "Second Slam"
     mods, notes = models.multi_set_model(main.name, main.stat_set, sets)
-    assert abs(mods[0]["value"] - 100 * first / second) < 1e-6, notes
+    assert abs(mods[0]["value"] - 100 * first / second) < 1e-2, notes  # (raw_mod keeps 3 decimals)
 
 
 def test_lucky_spell_crits_are_pobs_own_lucky_on_spell_crits(engine):
