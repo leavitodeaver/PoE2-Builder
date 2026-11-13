@@ -1677,6 +1677,40 @@ def mark_model(skills: list[Skill], stats: dict, main: Skill | None,
     return mods, notes
 
 
+def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: list[Skill] | None = None,
+                     rates: dict[str, float] | None = None) -> tuple[float, str]:
+    """(MECH61) Activations of `mark` per second on the boss, and how. A Mark that Activates is Consumed (KeywordPopups
+    MarkActivate: "When a Mark Activates, it will cause an extra effect and then be Consumed"), so each application
+    Activates at most once: on its event (Sniper's: a crit; Voltaic: Electrocute; Freezing: Freeze; Bloodhound's: a Heavy
+    Stun), if the event comes within the Mark's duration. Applications come at mark_model's period (mark_use, with the
+    same recast rules), and an event rate r gives each one the chance 1 - e^(-r x 8 s) to Activate."""
+    use = mark_use(mark, skills, disabled, rates)
+    period, how = use.period, use.how
+    if not period or period == math.inf:
+        return 0.0, f"{mark.name} is never applied ({how})"
+    if mark.name == "Sniper's Mark":
+        rate, event = crits_per_second(stats), "the next Critical Hit"
+        if use.on_demand and rate:
+            period = max(period, min(1 / rate, MARK_DURATION))  # (recast once consumed, as mark_model)
+    elif mark.name in MARK_BUFFS:
+        ailment = MARK_BUFFS[mark.name]
+        rate = buildup_rate(stats, ailment) if number(stats.get(f"{ailment}BuildupAvg")) > 0 else 0.0
+        event = f"the boss's next {ailment}"
+        if use.on_demand:
+            period = max(period, MARK_DURATION)  # (reapplied as it runs out, as mark_model)
+    elif mark.name == "Bloodhound's Mark":
+        rate, event = heavy_stun_rate(stats)[0], "the boss's next Heavy Stun (or a kill: none on a lone boss)"
+    else:
+        return 0.0, f"{mark.name}'s Activation isn't modelled (not counted, an undercount)"
+    if rate <= 0:
+        return 0.0, f"{mark.name} Activates on {event}, which the main skill never brings: never Activated"
+    chance = 1 - math.exp(-rate * MARK_DURATION)
+    per_second = chance / period
+    return per_second, (f"{mark.name} applied every {period:.1f} s ({how}); it Activates on {event}, {rate:.2f}/s, so "
+                        f"{chance:.0%} of applications Activate within its {MARK_DURATION:g} s: {per_second:.3f} "
+                        "Activations/s")
+
+
 # Curses (MECH33) ---------------------------------------------------------------------------------
 # PoB applies every enabled curse as always up and sets the enemy Cursed whenever a curse slot holds a curse or a Mark
 # (CalcPerform 3166-3168), so "Enemies you Curse ..." lines count with a Mark alone. In the game files (build 26476662):

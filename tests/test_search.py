@@ -1093,9 +1093,15 @@ def test_shocked_ground_shocks_the_boss_and_counts_you_standing_in_it():
     assert got[2] == pytest.approx(0.5) and "reach 2.5 m" in got[1]
     leap, how = shocked_ground({"Speed": 1, "CritChance": 50, "_sg_support": 4000}, [])
     assert leap == pytest.approx(1 - 0.5 ** 4) and "Shocking Leap" in how
-    # a skill whose duration stat isn't found and Charged Mark: labelled, not counted
-    assert shocked_ground({"Speed": 1, "_sg_skill": ("Gathering Storm", 0), "_sg_charged_mark": True}, [])[0] == 0
-    assert "undercount" in shocked_ground({"Speed": 1, "_sg_charged_mark": True}, [])[1]
+    # a skill whose duration stat isn't found: labelled, not counted
+    assert shocked_ground({"Speed": 1, "_sg_skill": ("Gathering Storm", 0)}, [])[0] == 0
+    # MECH61: Charged Mark's ground at the supported Mark's Activations (6 s each), with its own radius; none without them
+    up, how = shocked_ground({"Speed": 1, "_sg_charged_mark": (0.1, "one per 10 s", 1.4)}, [])
+    assert up == pytest.approx(0.6) and "Charged Mark" in how and "1.4 m" in how
+    zero = {"Speed": 1, "_sg_charged_mark": (0.0, "never Activated", 1.4)}
+    assert shocked_ground(zero, [])[0] == 0 and "never Activated" in shocked_ground(zero, [])[1]
+    storm = shocked_ground({"Speed": 1, "_sg_death_storm": True}, [])
+    assert storm[0] == 0 and "Death Storm" in storm[1] and "undercount" in storm[1]
     # Wake of Destruction: counted as a way to play it, not while the build stands still without rolling
     wake = ["Drop Shocked Ground while moving, lasting 8 seconds"]
     melee = {"Speed": 1, "_distance_choice": (1.0, "melee")}

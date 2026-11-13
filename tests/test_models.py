@@ -4043,3 +4043,25 @@ def test_freezing_salvo_breaks_the_seals_gained_since_its_last_use():
     mods, notes = models.freezing_salvo_model(triggered, {"Speed": 1.0}, [], SALVO_L20)
     assert mods == [] and "triggered" in notes[0]["value"]
     assert models.freezing_salvo_model(models.Skill.of({"name": "Spark", "spell": True}), {"Speed": 1}, [], SALVO_L20) == ([], [])
+
+
+def test_a_marks_activations_come_from_its_event_within_its_duration():
+    """MECH61: a Mark Activates (and is Consumed) on its event, at most once per application (KeywordPopups MarkActivate):
+    Sniper's on the next crit, recast once consumed; Voltaic only if the main skill Electrocutes; Bloodhound's on a Heavy
+    Stun. Charged Mark's Shocked Ground comes at this rate."""
+    mark = models.Skill("Sniper's Mark", group=2, cast_time=0.5, cooldown=6.0)
+    bow = models.Skill("Lightning Arrow", group=1, attack=True)
+    rate, how = models.mark_activations(mark, [bow, mark], {"Speed": 2.0, "HitChance": 100, "CritChance": 50})
+    assert rate == pytest.approx((1 - math.exp(-8)) / 6, rel=1e-3) and "Activates" in how
+    assert models.mark_activations(mark, [bow, mark], {"Speed": 2.0, "HitChance": 100, "CritChance": 0})[0] == 0
+    volt = models.Skill("Voltaic Mark", group=2, cast_time=0.5, cooldown=1.0)
+    rate, how = models.mark_activations(volt, [bow, volt], {"Speed": 2.0, "HitChance": 100})
+    assert rate == 0 and "never" in how
+    blood = models.Skill("Bloodhound's Mark", group=2, cast_time=0.5, cooldown=1.0)
+    assert models.mark_activations(blood, [bow, blood], {"Speed": 2.0, "HitChance": 100})[0] == 0
+
+
+def test_charged_marks_ground_radius_follows_its_level_table():
+    """MECH61: research/ground-radii.md's per-level table (game files)."""
+    from builder.search.conditions import charged_mark_radius
+    assert [charged_mark_radius(n) for n in (1, 2, 3, 13, 19, 20, 21, 23, 24, 39, 40)] ==         [1.4, 1.4, 1.5, 2.0, 2.3, 2.3, 2.4, 2.4, 2.5, 3.0, 3.0]

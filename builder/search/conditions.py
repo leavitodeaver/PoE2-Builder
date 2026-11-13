@@ -2019,6 +2019,20 @@ SHOCKED_GROUND_SUPPORT_STATS = ("support_shocking_leap_shocked_ground_duration_m
 SHOCK_MAKES_GROUND = re.compile(r"(\d+)% chance on shocking enemies to creat\w* shocked ground", re.I)
 GROUND_WHILE_MOVING = re.compile(r"drops? shocked ground while moving, lasting (\d+) seconds", re.I)
 ON_SHOCKED_GROUND = re.compile(r"\bon shocked ground\b", re.I)
+CHARGED_MARK = "Charged Mark"
+DEATH_STORM_SUMMON = "Skeletal Storm Mage"  # its minions' Death Storm (DeathStormSkeletonStormMageMinion) makes ground
+CHARGED_MARK_SECONDS = 6.0  # TriggeredChargedMarkPlayer base_skill_effect_duration 6000 (research/ground-radii.md, HIGH)
+
+
+def charged_mark_radius(level: int) -> float:
+    """(MECH61) Charged Mark's Shocked Ground radius in metres at the triggered skill's level (TriggeredChargedMarkPlayer
+    active_skill_base_area_of_effect_radius per level, research/ground-radii.md, HIGH): 1.4 m at L1-2, +0.1 every 2 levels
+    to 2.3 m at L19-20, then +0.1 every 3 levels to 3.0 m at L39-40."""
+    level = max(1, min(int(level or 1), 40))
+    tenths = 14 + (level - 1) // 2 if level <= 20 else 24 + (level - 21) // 3
+    return tenths / 10
+
+
 SHOCKED_GROUND_MAGNITUDE = 20  # the base Shock (PoB's BaseShockMagnitude); the strongest Shock applies (PoB: the max)
 
 
@@ -2041,8 +2055,8 @@ def _boss_metres(stats: dict) -> float:
 def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
     """(share of the fight the boss stands in your Shocked Ground, how). Each ground is taken to be made at the boss and
     the boss to stay in it for its duration (LOW: bosses move, and the ground's radius isn't read). Sources combine as
-    independent. Labelled, not counted: Charged Mark's ground (no Mark-activation rate yet), ground from a skill other than
-    the main one, and ground duration modifiers."""
+    independent. Charged Mark's ground counts at the supported Mark's Activations (MECH61). Labelled, not counted: ground
+    from a skill other than the main one, and ground duration modifiers."""
     uses = number(stats.get("Speed"))
     hit = min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
     parts: list[str] = []
@@ -2099,8 +2113,20 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
                          f"{m.group(1)} s (a way to play the build; without it, the trail adds nothing): 100%")
             off = 0.0
             radii.append((1.0, SHOCKED_GROUND_RADIUS))
-    if stats.get("_sg_charged_mark"):
-        notes.append("Charged Mark's ground (no Mark-activation rate modelled: not counted, an undercount)")
+    if mark := stats.get("_sg_charged_mark"):  # (MECH61: was a note, not counted)
+        rate, how, radius = mark
+        up = _covered(rate, 1.0, CHARGED_MARK_SECONDS)
+        if up > 0:
+            parts.append(f"{CHARGED_MARK}'s ground on each Activation of the Mark it supports ({how}; "
+                         f"{CHARGED_MARK_SECONDS:g} s, {radius:g} m): {up:.0%}")
+            off *= 1 - up
+            radii.append((up, radius))
+        else:
+            notes.append(f"{CHARGED_MARK}'s ground ({how}: 0)")
+    if stats.get("_sg_death_storm"):  # (MECH61: a missed source, research/shocked-ground-sources.md)
+        notes.append("Death Storm's ground (the Skeletal Storm Mages' command: Shocked Ground, 6 s, 2 m, around each "
+                     "fallen Skeleton it strikes; its rate needs your Skeletons falling at the boss and the command's "
+                     "use, not modelled: not counted, an undercount)")
     stats["_sg_radii"] = radii
     if not parts:
         return 0.0, "; ".join(notes)
@@ -2729,6 +2755,31 @@ class Conditions:
         # the same text on two items: each copy takes the average, so the copies together count both items' uses
         return {text: (total / count, "; ".join(how)) for text, (total, count, how) in found.items()}
 
+    def charged_mark(self, stats: dict) -> tuple[float, str, float]:
+        """(MECH61) (Activations per second of the Mark Charged Mark supports, how, its ground's radius in metres).
+        Charged Mark triggers on every Activation (chance_to_trigger_shocked_ground_on_mark_activated_% 100,
+        research/shocked-ground-sources.md, HIGH); the rate is models.mark_activations'. The radius is taken at the Charged
+        Mark gem's own level: the game may level the triggered skill with the supported Mark instead (UNVERIFIED; at most
+        2.3 m at 20 against 1.4 m at 1), so this is the smaller, safe side for lines that need you on the ground."""
+        for group in self.build.groups():
+            if group.get("enabled") is False:
+                continue
+            gems = [g for g in group["gems"] if g.get("enabled", True)]
+            support = next((g for g in gems if g["name"] == CHARGED_MARK), None)
+            mark = next((g for g in gems if g["name"] in models.MARKS), None)
+            if support is None or mark is None:
+                continue
+            raw = self.build.call("activeSkills")["skills"]
+            skills = [models.Skill.of(s) for s in raw if not s.get("disabled")]
+            disabled = [models.Skill.of(s) for s in raw if s.get("disabled")]
+            skill = next((s for s in skills if s.name == mark["name"] and s.group == group.get("index")), None)
+            radius = charged_mark_radius(support.get("level") or 1)
+            if skill is None:
+                return 0.0, f"its {mark['name']} isn't an active skill PoB lists", radius
+            rate, how = models.mark_activations(skill, skills, stats, disabled, getattr(self.build, "trigger_rates", None))
+            return rate, how + f"; radius at the gem's level {support.get('level') or 1} (UNVERIFIED which level)", radius
+        return 0.0, "it supports no Mark", charged_mark_radius(1)
+
     def ground_feed(self, texts: list[str], stats: dict, names: set[str]) -> dict:
         """(MECH58) What lets the main skill make its Shocked Ground (SHOCKED_GROUND_GATED): {"share": the share of the
         fight it can, "how"} for Lightning Warp (the last Cull threshold of the boss's pool), {"rate": uses per second
@@ -2955,7 +3006,8 @@ class Conditions:
                 stats["_sg_skill"] = (self.main_skill, max(number(got.get(s)) for s in SHOCKED_GROUND_SKILL_STATS))
                 stats["_sg_feed"] = self.ground_feed(texts, stats, names)
             stats["_sg_support"] = number((main.get("supportStats") or {}).get(SHOCKED_GROUND_SUPPORT_STATS[0]))
-        stats["_sg_charged_mark"] = "Charged Mark" in names
+        stats["_sg_charged_mark"] = self.charged_mark(stats) if CHARGED_MARK in names else None
+        stats["_sg_death_storm"] = DEATH_STORM_SUMMON in names
         stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)
         stats["_shocked_ground"] = shocked_ground(stats, texts)
         if stats["_shocked_ground"][0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)
