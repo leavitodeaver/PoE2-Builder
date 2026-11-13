@@ -931,6 +931,8 @@ class Assumptions:
                 uses.append(models.WardUse(name, "full", speed, cost, group["index"]))
             else:
                 skipped.append(name)
+        from builder.search import bosses
+
         pools = build.call("stats", fields=list(dict.fromkeys(
             ["WardRegenRecovery", "Ward", "WardOnBlock", "EffectiveBlockChance", "enemySkillTime", *models.MODEL_FIELDS])))
         texts = [line["text"] for line in build.call("sourceLines")["lines"]]
@@ -945,7 +947,7 @@ class Assumptions:
         income, parts, unread = models.ward_income(
             regen, pool, texts, kalguur=kalguur, stuns=models.heavy_stun_rate(pools)[0] if kalguur is not None else 0.0,
             kills=(number(kills[0]), number(kills[1])), on_block=number(pools.get("WardOnBlock")),
-            block=number(pools.get("EffectiveBlockChance")), every=number(pools.get("enemySkillTime")) or 0.7)
+            block=number(pools.get("EffectiveBlockChance")), every=bosses.benefit_skill_time(pools))  # (a "when hit" benefit, MECHD4)
         share, notes = models.ward_plan(uses, income, pool, parts, unread)
         build.ward_sustain = {u.name: (u.rate, u.rate * share, u.cost) for u in uses}
         build.ward_sustain.update({"_regen": income, "_share": share})

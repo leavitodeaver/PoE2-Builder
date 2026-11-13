@@ -264,7 +264,7 @@ def test_unmodeled_metas_count_nothing_rather_than_a_self_cast():
     assert groups == set() and "not counted" in notes[0]["label"]
 
 
-def test_the_other_metas_gain_energy_from_their_own_events():
+def test_the_other_metas_gain_energy_from_their_own_events(pob_cadence):
     comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
     stats = {"Speed": 2, "HitChance": 100, "enemySkillTime": 0.5, "EvadeChance": 20, "EffectiveBlockChance": 50,
              "PhysicalHitAverage": 1000}
@@ -932,7 +932,7 @@ def test_cast_on_critical_reads_an_attacks_crits_from_its_main_hand():
     assert gain == pytest.approx(1 * 20 * 0.5) and "50,000 critical hit" in basis
 
 
-def test_barrier_invocation_gains_energy_from_the_energy_shield_the_boss_takes():
+def test_barrier_invocation_gains_energy_from_the_energy_shield_the_boss_takes(pob_cadence):
     stats = {"EnergyShield": 3000, "enemySkillTime": 0.5, "EvadeChance": 0, "EffectiveBlockChance": 50,
              "PhysicalTakenHit": 600, "FireTakenHit": 400, "EnergyShieldRegenRecovery": 1500}
     gain, basis = models.energy_gain("Barrier Invocation", stats, "Spark", Skill("Spark", spell=True))
@@ -3462,3 +3462,26 @@ def test_frostflame_novas_ice_hits_twice_a_second_while_the_boss_is_ignited():
     assert mods[0]["value"] == pytest.approx(100 * (2 * share / 1.4 - 1), abs=1e-3)
     none = models.ignite_share(rates[:1])
     assert none[0] == 0.0 and models.frostflame_model(1.4, *none)[0][0]["value"] == pytest.approx(-100)
+
+
+@pytest.fixture
+def pob_cadence(monkeypatch):
+    """The meta Energy "when hit" readers at PoB's scored enemySkillTime, as these tests were written (MECHB13 switched
+    them to bosses.benefit_skill_time, one hit per damaging use: test_when_hit_benefits_read_the_bosss_slower_cadence)."""
+    from builder.search import bosses
+    monkeypatch.setattr(bosses, "benefit_skill_time", lambda stats: float((stats or {}).get("enemySkillTime") or 0.7))
+
+
+def test_when_hit_benefits_read_the_bosss_slower_cadence():
+    """MECHB13 (MECHD4's ruling, AUDIT25 A25-7): meta Energy from Blocks and Ward on Block count the boss's hits at
+    bosses.benefit_skill_time (one hit per damaging use: 2.25 s for the default boss against PoB's 0.7 s), never faster
+    than the defence cadence. (Iron Ward, Deadly Resolve and Tul's Avalanche are MECH-C's: MECHC11.)"""
+    from builder.search import bosses
+
+    every = bosses.benefit_skill_time({"enemySkillTime": 0.7})
+    assert every > 0.7
+    stats = {"enemySkillTime": 0.7, "EvadeChance": 0, "EffectiveBlockChance": 50}
+    gain, basis = models.energy_gain("Cast on Block", stats, "Spark")
+    assert f"one every {every:g} s" in basis
+    income = models.ward_income(0.0, 0.0, [], on_block=20, block=50, every=every)[0]
+    assert income == pytest.approx(20 * 0.5 / every)

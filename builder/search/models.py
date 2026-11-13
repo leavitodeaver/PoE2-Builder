@@ -1837,7 +1837,7 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
     """Energy per second the main skill (or the boss's hits) earns a meta skill against a boss, before Energy modifiers."""
     kind, per = META_GEMS[meta]["gain"], META_GEMS[meta].get("per", 0.0)
     if kind == "block":
-        every = number(stats.get("enemySkillTime")) or 0.7
+        every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per damaging use, MECHD4; MECHB13)
         share = boss_hits.block_share(stats)  # (MECHB6: only the boss's blockable hits, after evasion; MECHC5's shares)
         blocks = share / every
         return blocks * per, (f"you block {blocks:.2f} of the boss's hits per second (one every {every:g} s, {share:.0%} of them "
@@ -1853,7 +1853,7 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         pool = number(stats.get("EnergyShield"))
         if pool <= 0:
             return 0.0, "the build has no Energy Shield: no Energy"
-        every = number(stats.get("enemySkillTime")) or 0.7
+        every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per damaging use, MECHD4; MECHB13)
         land = boss_hits.land_share(stats)  # (MECHB6: red-flash hits always land; MECHC5's shares)
         # (MECHB9, MECHC6: each {Type}TakenHit is that type at its full hit size, boss_hits.config_vars, so summing them
         # was one hit of every type at once; type_taken weights each by its share of the boss's hits)
