@@ -41,7 +41,8 @@ def sustain_only_note(failing: list[str]) -> str | None:
 
 
 RECOVERY_NOTE = ("Life, Energy Shield and Mana regeneration, leech, on-hit recovery, flasks (at the rate a boss fight refills "
-                 "them), recoup and gains on Block, less skill costs, against the boss's damage per second after mitigation (PoB's boss "
+                 "them), recoup and gains on Block, Life / Mana from kills, Remnants, charms and events (at the build's own "
+                 "rates), less skill costs, against the boss's damage per second after mitigation (PoB's boss "
                  "preset: its hits that land, after evade and block, which red-flash hits ignore; less Deflection, LOW against "
                  "red-flash hits). Mana counts only for damage Mind over Matter sends to "
                  "it; Energy Shield recharge isn't counted (the boss's hits keep interrupting it)")
@@ -545,7 +546,8 @@ class Run:
                        "delivered": "no costs to pay" if pool is None and share >= 1 else f"{min(share, 9.99):.0%}"
                        + (f" of {pool}" if pool else ""), "ok": share >= SUSTAIN_FLOOR,
                        "note": "regeneration, leech, on-hit recovery, flasks (at the rate charge generation "
-                               "refills them in a boss fight), Recoup of the boss's hits and gains on Block, against the per-second "
+                               "refills them in a boss fight), Recoup of the boss's hits and gains on Block, Life / Mana from "
+                               "kills, Remnants, charms and events at the build's own rates, against the per-second "
                                "cost. Not counted yet (so the share may be low): " + SUSTAIN_LEFT_OUT})
         if self.request.floors.recovery is None:  # always reported; a requirement only when the request sets one
             recovery = boss_recovery(facts["stats"])

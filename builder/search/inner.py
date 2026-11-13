@@ -372,7 +372,7 @@ class Search:
             "escalations": self.escalations,
             "extra_groups": [[k, v] for k, v in sorted(self.assumptions.extra_groups.items())],
             "required_names": sorted(self.tree.required_names), "sources": sorted(self.tree.sources),
-            "extra_stats": dict(self.build.extra_stats),
+            "extra_stats": dict(self.build.extra_stats), "recovery_sources": dict(self.build.recovery_sources),
             "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
             "press_choices": press_choices(self.build), "press_rows": copy.deepcopy(self.press_rows),
@@ -421,6 +421,7 @@ class Search:
         self.assumptions.extra_groups = {k: v for k, v in state.get("extra_groups") or []}
         self.build.objective.extra = bool(self.assumptions.extra_groups)
         self.build.extra_stats = dict(state.get("extra_stats") or {})
+        self.build.recovery_sources = dict(state.get("recovery_sources") or {})
         self.assumptions.infused = state.get("infused")  # (the Infused set the XML calculates, at its share)
         self.assumptions.infused_skipped = dict(state.get("infused_skipped") or {})
         self.assumptions.reinstall()
@@ -1511,8 +1512,9 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     reloaded = build.call("facts", fields=RESULT_FIELDS)
     mismatched = [k for k in RESULT_FIELDS if facts["stats"].get(k) != reloaded["stats"].get(k)]
     facts["warnings"] = list(dict.fromkeys([*facts["warnings"], *reloaded["warnings"], *plain]))
-    facts["stats"].update(build.extra_stats)  # flask recovery, for the sustain check
-    facts["stats"].update(build.boss_stats)  # the request's boss (boss_hits.boss_name)
+    # Life / Mana recovery from kills, Remnants, charms and events (MECHC12), flask recovery, for the sustain and
+    # recovery checks, and the request's boss (boss_hits.boss_name)
+    facts["stats"].update(build.added_stats())
     with_life_es(with_boss_recovery(facts["stats"]))  # recovery against the boss, for the (optional) recovery floor and the report
     build.objective.prepare(facts["stats"])  # what the checks see: Darkness in maximum hit taken
     excluded, excluded_names = build.objective.excluded(build.stats)

@@ -20,7 +20,7 @@ import math
 import re
 
 from builder.request.schema import DefenceStyle, Objective as Goal
-from builder.search import boss_hits
+from builder.search import boss_hits, recovery
 from builder.search.context import DEFENCE_LAYERS, Context
 from builder.search.flasks import RECOVERY_FIELDS
 from builder.search.models import DAMAGE_TYPES, press_key, with_darkness
@@ -105,22 +105,31 @@ ON_DEATH = re.compile(r"\b(?:explode|combust|burst)\w*\b[^.]*\bon death\b|\bwhen
 # a requirement-style floor. The bar sits under the user's own endgame builds (19%, 47% and 71% of
 # their costs, without flasks) and above degenerate ones (0-4%).
 SUSTAIN_FLOOR = 0.10
+# The search's own per-second recovery fields, added to every result (Build.added_stats), never asked of PoB: flask
+# recovery (flasks.RECOVERY_FIELDS) and Life / Mana from kills, Remnants, charms, events and what the build spends
+# (recovery.FIELDS, MECHC12 / MECHC13; SEARCH12: before, nothing scored them, so a build paying its costs through
+# Remnants or on-kill recovery read short of the sustain floor; the user's rule, 12 Nov)
+ADDED_RECOVERY = {pool: (RECOVERY_FIELDS[pool], *recovery.FIELDS[pool]) for pool in ("Life", "Mana")}
+ADDED_RECOVERY_FIELDS = {f for fields in ADDED_RECOVERY.values() for f in fields}
 SUSTAIN_POOLS = {
-    "Mana": ("ManaPerSecondCost", ("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", RECOVERY_FIELDS["Mana"])),
-    "Life": ("LifePerSecondCost", ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", RECOVERY_FIELDS["Life"])),
+    "Mana": ("ManaPerSecondCost", ("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", *ADDED_RECOVERY["Mana"])),
+    "Life": ("LifePerSecondCost", ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", *ADDED_RECOVERY["Life"])),
 }
 # Recoup counts too (the user, 12 Nov ~18:20: "regen is not the only source of recovery, not by a longshot ... that
 # applies for health and mana too"; SEARCH9): each pool's Recoup of the boss's hits that land, at the defence pace the
-# damage it recoups is read at, and PoB's Life / Mana gained on Block at the boss's blocked hits (hit_recovery_rates). Sources still left out
-# of the sustain share, named in its result (never a silent rejection) (checked: the share's fields; PoB's Life / Mana
-# outputs named On* (OnHit, OnKill, OnBlock, OnSuppress: OnSuppress has no PoE2 ModCache line) in CalcOffence /
-# CalcDefence and the ModCache names LifeOnKill / ManaOnKill / LifeOnBlock / ManaOnBlock; origin/main's models,
-# assumptions, conditions, passive_models and flasks feed no on-kill / on-stun / on-block Life or Mana into these fields;
-# MECHC11 is modelling them, UNVERIFIED that the list is whole):
-SUSTAIN_LEFT_OUT = ("Life / Mana gained on kill (0 against a lone boss; the add presets' kills aren't read here), "
-                    "on Stun and on skill use, Remnants that restore Life or Mana, and Energy Shield "
-                    "or Runic Ward paying a cost (Runic Ward: Assumptions.ward_paid holds Ward-cost skills to what "
-                    "Ward recovery pays for)")
+# damage it recoups is read at, and PoB's Life / Mana gained on Block at the boss's blocked hits (hit_recovery_rates). Kills,
+# Remnants, charms, Warcry / Heavy Stun / Ignite / Shock events (and, with MECHC13, charges, Glory, Combo, corpses and
+# Offerings spent) count through recovery.FIELDS (ADDED_RECOVERY, SEARCH12). Sources still left out of the sustain share,
+# named in its result (never a silent rejection): the event lines recovery.EVENT_UNREAD names, recovery-rate modifiers
+# on recovery.py's amounts (it takes them as written, MEDIUM), and Energy Shield paying a cost; Runic Ward-cost skills
+# are held to what Ward recovery pays for by Assumptions.ward_paid instead (MECHB13). (checked: recovery.py's FIELDS and
+# EVENT_UNREAD on the commit this runs on; the list follows them; UNVERIFIED that recovery.py's inventory is whole:
+# MECHC11's scratch/mechc11/recovery_inventory.md is its source.)
+_SPENT = "LifeOnConsumeRecovery" in recovery.ALL_FIELDS  # (MECHC13's spent / consumed sources)
+SUSTAIN_LEFT_OUT = ("recovery on " + ", ".join(
+    [*recovery.EVENT_UNREAD, *([] if _SPENT else ["charges, Glory, Combo or corpses consumed, Offerings created"])])
+    + "; recovery-rate modifiers on those per-event amounts; and Energy Shield paying a cost (Runic Ward: "
+    "Assumptions.ward_paid holds Ward-cost skills to what Ward recovery, Remnants of Kalguur's included, pays for)")
 # Recovery against a boss (the request's optional recovery floor; always reported): the boss's damage per second after
 # mitigation is its hits that land (one every enemySkillTime, PoB's boss preset, less evade and block, which the
 # red-flash share ignores: boss_hits.py), less Deflection's expected share (LOW against red-flash hits), times what each
@@ -129,9 +138,9 @@ SUSTAIN_LEFT_OUT = ("Life / Mana gained on kill (0 against a lone boss; the add 
 # type) and gains on Block (SEARCH9), less the skill costs paid from that pool. Mana counts only up to the share of damage Mind over Matter sends to
 # it. Energy Shield recharge isn't counted (a boss's hits keep interrupting it).
 RECOVERY_POOLS = {
-    "Life": (("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", RECOVERY_FIELDS["Life"]), "LifePerSecondCost"),
+    "Life": (("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", *ADDED_RECOVERY["Life"]), "LifePerSecondCost"),
     "EnergyShield": (("EnergyShieldRegenRecovery", "EnergyShieldLeechRate", "EnergyShieldOnHitRate"), None),
-    "Mana": (("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", RECOVERY_FIELDS["Mana"]), "ManaPerSecondCost"),
+    "Mana": (("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", *ADDED_RECOVERY["Mana"]), "ManaPerSecondCost"),
 }
 RECOVERY_DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
 # The build's own damage over time (MECHC9): PoB's TotalBuildDegen, its "Lose / take N per second" lines after the
@@ -141,7 +150,7 @@ RECOVERY_DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
 # that hurts itself. Counted as incoming beside the boss's hits.
 BUILD_DEGEN = "TotalBuildDegen"
 RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in (*fields, cost) if f}
-                         - set(RECOVERY_FIELDS.values())
+                         - ADDED_RECOVERY_FIELDS
                          | {f"{t}TakenHit" for t in RECOVERY_DAMAGE_TYPES} | {BUILD_DEGEN}
                          | {f"{t}{p}Recoup" for t in ("", *RECOVERY_DAMAGE_TYPES) for p in RECOVERY_POOLS}
                          | {f"{p}OnBlock" for p in RECOVERY_POOLS}
@@ -238,7 +247,7 @@ def with_boss_recovery(stats: dict) -> dict:
 
 # What PoB is asked for (the flask fields are the search's own, added by Build.extra_stats)
 SUSTAIN_FIELDS = sorted({f for cost, recovery in SUSTAIN_POOLS.values() for f in (cost, *recovery)}
-                        - set(RECOVERY_FIELDS.values()) | set(RECOVERY_INPUTS))  # (recoup reads the boss's hits)
+                        - ADDED_RECOVERY_FIELDS | set(RECOVERY_INPUTS))  # (recoup reads the boss's hits)
 # Clear speed (PLAN.md §5.5). PoB doesn't model it, so this is an estimate, labelled approximate in
 # the result: the monster life a build clears per second in a typical map pack. One use reaches
 # part of the pack (area, projectiles, chain, pierce, fork); killing what it reaches takes the hits
@@ -408,6 +417,7 @@ class Objective:
                 full = max(full + self.rescaled(stats) - self.excluded(stats)[0] - main_dps(stats) * self.busy(), 0.0)
                 return (full + added) * self.life_factor * self.uptime_factor
         return (main_dps(stats) * (1.0 - self.busy()) + added) * self.life_factor * self.uptime_factor
+
 
     def busy(self) -> float:
         """The main skill's share of the fight lost to chosen presses not charged in press_scales (press_busy, 0-1)."""

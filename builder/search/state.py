@@ -64,6 +64,11 @@ class Build:
         self.extra_stats: dict = {}
         # The request's boss for models reading it from the stats ({"_boss": name}; inner.boss_stats), on every result
         self.boss_stats: dict = {}
+        # Life / Mana recovery a second from the sources PoB gives per event or not at all (kills, Remnants, charms,
+        # Warcry / Heavy Stun / Ignite / Shock events, charges and Glory spent: recovery.FIELDS), set by
+        # Assumptions.life_mana_income on every refresh (MECHC12); merged into every result like extra_stats so the
+        # sustain and recovery checks count them (SEARCH12; the user's rule, 12 Nov: every recovery source counts)
+        self.recovery_sources: dict = {}
         # The what-if limit: re-scoring item moves a model reads (set by the search; see item_deltas)
         self.reassume: Callable[[], Any] | None = None  # re-applies the custom models to the current build
         self.rescored = 0  # item candidates re-scored with a real trial
@@ -94,7 +99,7 @@ class Build:
             frames = traceback.extract_stack(limit=8)[:-1]
             self.over_budget.append(f"{self.phase}: +{result['stats'][POINTS_OVER]:g} via "
                                     + " < ".join(f"{f.name}:{f.lineno}" for f in reversed(frames)))
-        self.stats = self.objective.prepare({**result["stats"], **self.extra_stats, **self.boss_stats})
+        self.stats = self.objective.prepare({**result["stats"], **self.added_stats()})
         self.score = self.objective.score(self.stats)
         self.tick()
         return self.score
@@ -137,8 +142,7 @@ class Build:
         self.evals += len(results)
         scored = []
         for index, stats in enumerate(results):
-            stats.update(self.extra_stats)
-            stats.update(self.boss_stats)
+            stats.update(self.added_stats())
             if extras and extras[index]:
                 stats.update(extras[index])
             if fill_from_base:
@@ -204,8 +208,7 @@ class Build:
             old = current.get(case["slot"])
             self.call("equip", slot=case["slot"], raw=case.get("raw"), fields=[])
             self.reassume()
-            stats = self.objective.prepare({**self.call("stats", fields=self.objective.fields), **self.extra_stats,
-                                             **self.boss_stats})
+            stats = self.objective.prepare({**self.call("stats", fields=self.objective.fields), **self.added_stats()})
             scored[i] = (self.objective.score(stats), stats)
             self.call("equip", slot=case["slot"], raw=old, fields=[])
             self.rescored += 1
@@ -244,11 +247,18 @@ class Build:
     def set_config(self, values: dict[str, Any]) -> float:
         return self._committed(self.call("setConfig", vars=values, fields=self.objective.fields))
 
+    def added_stats(self) -> dict:
+        """The stats the search adds to every PoB result before scoring: the recovery sources (MECHC12's fields), the
+        search's own flask recovery (extra_stats, which a what-if's "extra" entry may override after this) and the
+        request's boss."""
+        return {**self.recovery_sources, **self.extra_stats, **self.boss_stats}
+
     # Snapshots ---------------------------------------------------------------------------------
 
     def snapshot(self) -> dict:
         snap = {"xml": self.call("exportXml")["xml"], "equipped": dict(self.equipped), "score": self.score,
-                "stats": dict(self.stats), "extra_stats": dict(self.extra_stats)}
+                "stats": dict(self.stats), "extra_stats": dict(self.extra_stats),
+                "recovery_sources": dict(self.recovery_sources)}
         if self.snapshot_state is not None:
             snap["search"] = self.snapshot_state[0]()
         return snap
@@ -257,6 +267,7 @@ class Build:
         self.call("loadXml", xml=snap["xml"])
         self.equipped = dict(snap["equipped"])
         self.extra_stats = dict(snap.get("extra_stats") or {})
+        self.recovery_sources = dict(snap.get("recovery_sources") or {})
         if self.snapshot_state is not None and "search" in snap:
             self.snapshot_state[1](snap["search"])
         for hook in self.after_load:

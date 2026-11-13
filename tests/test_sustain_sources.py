@@ -51,7 +51,7 @@ def test_gains_on_block_count_at_the_bosss_blocked_hits():
 
 def test_a_build_short_only_on_sustain_says_what_the_share_leaves_out():
     note = sustain_only_note(["Skill costs sustained"])
-    assert note and SUSTAIN_LEFT_OUT in note and "on kill" in note
+    assert note and SUSTAIN_LEFT_OUT in note and "Energy Shield paying a cost" in note
     assert sustain_only_note(["Skill costs sustained", "Life + Energy shield"]) is None
     assert sustain_only_note([]) is None
 
@@ -78,7 +78,7 @@ def test_a_what_if_never_inherits_the_committed_builds_cost_warnings():
     from builder.search.state import Build
 
     seen = []
-    stub = SimpleNamespace(evals=0, extra_stats={}, boss_stats={}, tick=lambda: None,
+    stub = SimpleNamespace(evals=0, added_stats=lambda: {}, tick=lambda: None,
                            stats={"WardCostWarningList": 1, "Life": 100.0},
                            objective=SimpleNamespace(prepare=lambda st: st, score=lambda st: seen.append(dict(st)) or 0.0))
     Build._scored(stub, [{"WardCost": 16.0, "Ward": 300.0}], fill_from_base=True)
@@ -91,3 +91,33 @@ def test_recoup_reads_the_same_hits_as_the_damage_it_takes_back():
     stats = {**BOSS, "LifeRecoup": 10.0, "LifePerSecondCost": 1.0}
     assert benefit_every(stats) > stats["enemySkillTime"]  # (the two paces differ for this boss)
     assert hit_recovery_rates(stats)["Life"] == pytest.approx(boss_recovery({**stats, "LifePerSecondCost": 0})["incoming"] * 0.10)
+
+
+def test_remnants_and_kill_recovery_lift_a_build_regeneration_alone_leaves_short():
+    """SEARCH12 (the user's rule, 12 Nov: every recovery source counts; MECHC12's recovery.FIELDS): a build whose
+    regeneration covers 5% of its Mana cost fails the sustain floor; the same build with Mana Remnants and Mana on kill
+    (Build.recovery_sources) passes it, and the recovery floor counts them too. The fields are the search's own, never
+    asked of PoB."""
+    from builder.search import recovery
+    from builder.search.objective import SUSTAIN_FLOOR, SUSTAIN_POOLS
+    from builder.search.state import Build
+
+    plain = {**BOSS, "ManaPerSecondCost": 100.0, "ManaRegenRecovery": 5.0}
+    assert sustain(plain)[0] == pytest.approx(0.05) and sustain(plain)[0] < SUSTAIN_FLOOR
+    sources = {f: 0.0 for f in recovery.ALL_FIELDS}
+    sources.update(ManaRemnantRecovery=8.0, ManaOnKillRecovery=2.0)
+    build = Build.__new__(Build)
+    build.recovery_sources, build.extra_stats, build.boss_stats = sources, {"FlaskManaRecoveryRate": 0.0}, {}
+    stats = {**plain, **build.added_stats()}
+    assert sustain(stats) == (pytest.approx(0.15), "Mana") and sustain(stats)[0] >= SUSTAIN_FLOOR
+    assert boss_recovery({**stats, "ManaPerSecondCost": 0, "sharedMindOverMatter": 100})["parts"]["Mana"] == pytest.approx(15.0)
+    for pool in ("Life", "Mana"):
+        assert set(recovery.FIELDS[pool]) <= set(SUSTAIN_POOLS[pool][1])
+    assert not set(recovery.ALL_FIELDS) & (set(SUSTAIN_FIELDS) | set(RECOVERY_INPUTS))
+    # a what-if's own "extra" entry still overrides the flask field after the merge (Build._scored)
+    seen = []
+    from types import SimpleNamespace
+    stub = SimpleNamespace(evals=0, added_stats=build.added_stats, tick=lambda: None, stats={},
+                           objective=SimpleNamespace(prepare=lambda st: st, score=lambda st: seen.append(dict(st)) or 0.0))
+    Build._scored(stub, [dict(plain)], extras=[{"FlaskManaRecoveryRate": 3.0}])
+    assert seen[0]["ManaRemnantRecovery"] == 8.0 and seen[0]["FlaskManaRecoveryRate"] == 3.0
