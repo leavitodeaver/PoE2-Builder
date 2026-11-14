@@ -1,8 +1,8 @@
 """GEM5: Elemental Discharge's payout (models.elemental_discharge_model; an UNDERCOUNT, PoB scores it 0: its damage sits
 under three config boxes the optimizer never ticks and the triggered skill has no rate).
 
-The model reads the boss's ailment uptimes after the consume cut from build.ailment_up (MECH-A's resolver; MECH69's
-change, not on main yet): these tests use a stub of that interface. The PoB test checks the bridge's useRates `config`
+The model reads the boss's ailment uptimes after the consume cut from build.ailment_uptimes (MECH-A's resolver, MECH69's
+3ac824a: {"Ignited", "Shocked", "Frozen"}): these tests use a stand-in build with that attribute. The PoB test checks the bridge's useRates `config`
 option gives the triggered skill's per-element hits, and puts the config back."""
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def test_no_ailment_on_the_boss_means_no_discharge():
     assert dps == 0.0 and notes[0]["value"] == "0" and "never inflicts" in notes[0]["basis"]
     # (nothing published yet: the same 0, with the reason)
     up, why = models.ailment_up_of(SimpleNamespace())
-    assert up == {} and "not published" in why
+    assert up == {} and "not set" in why
     assert models.elemental_discharge_model(HITS, 3.0, up)[0] == 0.0
 
 
@@ -47,7 +47,7 @@ def test_each_element_counts_at_its_share_of_the_discharges():
 
 
 def test_published_uptimes_are_read_as_shares_or_share_and_basis():
-    build = SimpleNamespace(ailment_up={"Ignite": (0.4, "how"), "Shock": 1.3, "Chill": 0.9})
+    build = SimpleNamespace(ailment_uptimes={"Ignited": (0.4, "how"), "Shocked": 1.3, "Chilled": 0.9})
     up, why = models.ailment_up_of(build)
     assert up == {"Ignite": 0.4, "Shock": 1.0, "Freeze": 0.0} and "consume cut" in why
 

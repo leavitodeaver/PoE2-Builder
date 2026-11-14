@@ -3616,9 +3616,10 @@ def riven_armour_model(hvr_hit: float, riven_up: float, main: Skill | None, stat
 # no later entry; no hit is not proof of no silent change).
 # The model: the supported spell's hits find the boss carrying an ailment with chance P(any) = 1 - prod(1 - up_e) (the
 # three treated as independent: MEDIUM), where up_e is the share of the fight the boss carries it AFTER the consume cut
-# (the resolver's found_uptimes for conditionEnemyIgnited / Shocked / Frozen, published by MECH-A as
-# build.ailment_up = {"Ignite": share, "Shock": share, "Freeze": share}; MECH69's change: read through
-# ailment_up_of(build); not snap_found's bare reading, which skips the consume cut and would overcount discharges).
+# (published by MECH-A in Conditions.evidence() beside charge_flow, MECH69's 3ac824a: build.ailment_uptimes =
+# {"Ignited": ailment_uptime(stats, "Ignite"), "Shocked": shock_share(stats), "Frozen": the resolver's Frozen share}, the
+# main skill's and other skills' consumes taken off; read through ailment_up_of(build); not snap_found's bare reading,
+# which skips the consume cut and would overcount discharges).
 # Discharges a second = 1 / (cooldown + 1 / (hits/s x P(any))) (the first finding hit after the cooldown ends). Each
 # discharge deals each element's hit with the share of discharges that consumed it, up_e / P(any): PoB's per-type hit
 # averages of the triggered skill with all three boxes ticked (bridge useRates' `config`), crit-weighted, after the
@@ -3629,17 +3630,19 @@ DISCHARGE_SKILL = "Elemental Discharge"
 DISCHARGE_COOLDOWN = 1.0  # (s; GrantedEffectsPerLevel Cooldown 1000, StoredUses 1)
 DISCHARGE_BOXES = {"Ignite": ("conditionIgniteConsumed", "Fire"), "Shock": ("conditionShockConsumed", "Lightning"),
                    "Freeze": ("conditionFreezeConsumed", "Cold")}
+DISCHARGE_UPTIMES = {"Ignite": "Ignited", "Shock": "Shocked", "Freeze": "Frozen"}  # (build.ailment_uptimes' keys)
 
 
 def ailment_up_of(build) -> tuple[dict[str, float], str]:
-    """(the boss's ailment uptimes after the consume cut, basis): MECH-A's build.ailment_up ({ailment: share} or
-    {ailment: (share, how)}), or ({}, why) while nothing publishes it."""
-    raw = getattr(build, "ailment_up", None)
+    """(the boss's ailment uptimes after the consume cut keyed Ignite / Shock / Freeze, basis): MECH-A's
+    build.ailment_uptimes ({"Ignited": share, "Shocked": share, "Frozen": share}; a (share, how) value also read), or
+    ({}, why) before the resolver has run."""
+    raw = getattr(build, "ailment_uptimes", None) or {}
     if not raw:
-        return {}, "the resolver's ailment uptimes are not published on the build yet (MECH-A's build.ailment_up)"
+        return {}, "the resolver's ailment uptimes are not set on the build (build.ailment_uptimes, before evidence())"
     up = {}
-    for ailment in DISCHARGE_BOXES:
-        value = raw.get(ailment, 0.0)
+    for ailment, key in DISCHARGE_UPTIMES.items():
+        value = raw.get(key, 0.0)
         up[ailment] = min(1.0, max(0.0, number(value[0] if isinstance(value, (tuple, list)) else value)))
     return up, "the resolver's uptimes after the consume cut"
 
