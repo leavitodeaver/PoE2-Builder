@@ -2956,3 +2956,31 @@ def test_armour_break_amount_lines_and_supports_scale_each_break():
     more = _armour_broken(["Break 100 Armour on Hit", "Break 100% increased Armour"], {**stats, "_break_more": 50})
     assert more[0] == pytest.approx(12 / (12 + 4)) and "x3.00" in more[1]  # (300 a hit: 4 s to break, 12 s Broken)
     assert _armour_broken(["Break 100% increased Armour"], stats) == (0.0, "")  # (scales breaks; isn't one)
+
+
+def test_murderous_intent_in_a_ferocious_roar_group_reads_the_warcry_it_triggers():
+    """MECH66: Ferocious Roar (a Meta gem, no EmpowersOtherSkill) triggers a human-form Warcry socketed in it; Murderous
+    Intent in that group supports the Warcry (it excludes no type), not the Roar: before, the group's first listed skill
+    (the Roar) gave 0, an undercount."""
+    from builder.search.assumptions import Assumptions
+
+    class FakeBuild:
+        def groups(self):
+            return [{"index": 1, "gems": [{"name": "Spear Stab"}]},
+                    {"index": 2, "gems": [{"name": "Ferocious Roar"}, {"name": "Infernal Cry"},
+                                          {"name": "Murderous Intent"}]}]
+
+        def main_group(self):
+            return {"index": 1}
+
+        def call(self, what, **_):
+            if what == "activeSkills":
+                return {"skills": [{"name": "Spear Stab", "attack": True, "melee": True, "group": 1},
+                                   {"name": "Ferocious Roar", "group": 2, "empowers": None},
+                                   {"name": "Infernal Cry", "group": 2, "empowers": True}]}
+            return {"rates": [{"index": 2, "speed": 0.125, "warcryEmpowers": 4}]}
+
+    a = Assumptions.__new__(Assumptions)
+    a.build = FakeBuild()
+    rate, how = a.empowered_uses({"Speed": 2.0})
+    assert rate == pytest.approx(0.5) and "triggered by Ferocious Roar" in how

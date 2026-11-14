@@ -3757,6 +3757,9 @@ AGGRAVATE_CRIT = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to )?Aggravate Bleedin
                             r"Attacks$", re.I)
 AGGRAVATE_OLDER = re.compile(r"^Attack Hits Aggravate any Bleeding on targets which is older than (\d+(?:\.\d+)?) "
                              r"seconds?$", re.I)
+AGGRAVATE_EMPOWERED = re.compile(r"^(\d+(?:\.\d+)?)% chance to Aggravate Bleeding on targets you Hit with Empowered "
+                                 r"Attacks$", re.I)  # (aggravate_bleeding_on_exerted_attack_hit_chance_%; MECH66: at the
+# build's own Empowered uses, Assumptions.empowered_uses over every Empowering skill, not pob-gaps-boss.yaml's flat 10%)
 AGGRAVATE_ALWAYS = re.compile(r"^Bleeding you inflict is Aggravated$", re.I)
 AGGRAVATE_MODEL = "aggravate"  # (custom-models.yaml entries feeding these lines to aggravate_model)
 
@@ -3775,8 +3778,8 @@ def aggravated_share(duration: float, rate: float, older: float | None, hits: fl
     return total / steps
 
 
-def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving: bool = False
-                    ) -> tuple[list[dict], list[dict]]:
+def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving: bool = False,
+                    empowered: tuple[float, str] | None = None) -> tuple[list[dict], list[dict]]:
     """The main skill's Bleeding damage x (1 + its Aggravated share) from the build's Aggravate lines, at its own hits/s,
     crit chance and Bleed duration (PoB's BleedDuration). Lines another ledger entry already translates are left to it."""
     from builder import ledger
@@ -3785,9 +3788,11 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
         found = ledger.translate(text)
         return found is None or found[0].raw.get("model") == AGGRAVATE_MODEL
 
-    on_hit, on_crit, older, used = [], [], [], []
+    on_hit, on_crit, older, on_emp, used = [], [], [], [], []
     for text in (t.strip() for t in texts):
-        if (m := AGGRAVATE_HIT.match(text)) and ours(text):
+        if (m := AGGRAVATE_EMPOWERED.match(text)) and ours(text):
+            on_emp.append(float(m.group(1)) / 100)
+        elif (m := AGGRAVATE_HIT.match(text)) and ours(text):
             on_hit.append(float(m.group(1)) / 100)
         elif (m := AGGRAVATE_CRIT.match(text)) and ours(text):
             on_crit.append(float(m.group(1) or 100) / 100)
@@ -3810,11 +3815,16 @@ def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving:
     hits, crit = hits_per_second(stats), min(max(number(stats.get("CritChance")) / 100, 0.0), 1.0)
     duration = number(stats.get("BleedDuration"))
     miss = math.prod(1 - p for p in on_hit) * ((1 - crit) + crit * math.prod(1 - q for q in on_crit))
-    rate = hits * (1 - miss)
+    # Empowered hits (MECH66): the main skill's Empowered uses x its hit chance roll the Empowered lines too
+    emp_rate, emp_how = empowered or (0.0, "")
+    emp_hits = min(emp_rate * number(stats.get("HitChance")) / 100, hits) if on_emp else 0.0
+    emp_miss = miss * math.prod(1 - p for p in on_emp)
+    rate = (hits - emp_hits) * (1 - miss) + emp_hits * (1 - emp_miss)
     gap = min(older) if older else None
     share = aggravated_share(duration, rate, gap, hits)
     how = (f"{'; '.join(used)}: the main skill's {hits:.2f} Attack hits/s, {crit:.0%} critical, Aggravate a hit's Bleeds "
            f"with {1 - miss:.0%} chance ({rate:.2f}/s)" + (f", and any hit once a Bleed is {gap:g} s old" if older else "")
+           + (f"; {emp_hits:.3f} Empowered hits/s ({emp_how or 'no skill of the build Empowers it'})" if on_emp else "")
            + f"; a {duration:.2f} s Bleed is Aggravated {share:.0%} of its time (from the first such hit after it is "
            "inflicted, hits random in time; the hit that inflicts it taken not to Aggravate it: UNVERIFIED, the lower "
            "reading): 100% extra Bleeding damage for that share (KeywordPopups Aggravate)")

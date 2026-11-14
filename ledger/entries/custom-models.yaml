@@ -412,3 +412,18 @@
     (0 when the Bleed lasts N s or less). PoB doesn't parse it (0 before MECH66: an undercount).
   sources: ["stat_descriptions.csd aggravate_bleeding_older_than_ms_on_hit (game 26476662)", "KeywordPopups Aggravate"]
   status: proposed
+
+- id: aggravate-bleed-empowered-model
+  title: Chance to Aggravate Bleeding with Empowered Attacks (Aggravate model)
+  kind: pob_gap
+  model: aggravate
+  match: '^(\(\d+-\d+\)|\d+)% chance to Aggravate Bleeding on targets you Hit with Empowered Attacks$'
+  replace: []
+  confidence: theory
+  notes: >-
+    aggravate_bleeding_on_exerted_attack_hit_chance_% (stat_descriptions.csd, 26476662). Rolled on the main skill's
+    Empowered hits: its Empowered uses per second from every Empowering skill of the build (Assumptions.empowered_uses
+    with no support filter: Warcries at PoB's Empower count and their own text, Unleash / Mana Tempest for Spells,
+    others one per use, LOW) x its hit chance, instead of pob-gaps-boss.yaml's flat 10% Empowered share (MECH66).
+  sources: ["stat_descriptions.csd aggravate_bleeding_on_exerted_attack_hit_chance_% (game 26476662)", "KeywordPopups Aggravate"]
+  status: proposed

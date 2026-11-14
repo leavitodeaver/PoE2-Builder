@@ -562,12 +562,14 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + rod_mods, hand_notes + rod_notes
         texts = [e["text"] for e in source_lines]
         if any(p.match(t.strip()) for t in texts for p in (models.AGGRAVATE_HIT, models.AGGRAVATE_CRIT,
-                                                            models.AGGRAVATE_OLDER)):
+                                                            models.AGGRAVATE_OLDER, models.AGGRAVATE_EMPOWERED)):
             # (MECH66: Aggravated Bleeding at the main skill's own hits, crits and Bleed duration)
             agg_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
             moving = bool(build.call("getConfig")["input"].get("conditionEnemyMoving"))
+            empowered = self.empowered_uses(stats, None) if any(
+                models.AGGRAVATE_EMPOWERED.match(t.strip()) for t in texts) else None
             agg_mods, agg_notes = models.aggravate_model(
-                texts, {**stats, **build.call("stats", fields=["BleedDuration"])}, agg_types, moving)
+                texts, {**stats, **build.call("stats", fields=["BleedDuration"])}, agg_types, moving, empowered)
             hand_mods, hand_notes = hand_mods + agg_mods, hand_notes + agg_notes
         passive_mods, passive_notes = passive_models.build_models(build, inputs, texts, found, main, supports)  # (COV-B)
         hand_mods, hand_notes = hand_mods + passive_mods, hand_notes + passive_notes
@@ -785,7 +787,8 @@ class Assumptions:
                 "hits": number(best.get("speed")) * (number(best.get("hitChance")) or 100.0) / 100.0,
                 "hitDps": number(best.get("hitDPS")) * count, "split": best.get("cullSplit") or {}}
 
-    def empowered_uses(self, stats: dict) -> tuple[float, str]:
+    def empowered_uses(self, stats: dict, support: str | None = "Murderous Intent") -> tuple[float, str]:
+        # (support: models.MURDEROUS_INTENT by default; spelled out: in this class body `models` is the method)
         """MECH63: (the main skill's Empowered uses per second, how) from the skills Murderous Intent supports ("Skills
         Empowered by Supported Skills have Culling Strike"), each at the build's own use of it (rule 2: no flat rate):
         Mana Tempest Empowers every Mana-costing Spell cast in its storm (the main skill's uses x the storm's uptime,
@@ -794,25 +797,38 @@ class Assumptions:
         Num<Warcry>Empowers attacks per use (its Power over the boss's, CalcPerform 2196-2215: bridge useRates
         warcryEmpowers) where the main skill is what its own text Empowers (WARCRY_EMPOWERS, MECH65); any other
         Empowering skill one use per use of it (LOW, UNVERIFIED: its own count isn't read). Capped at the main skill's
-        uses. Mana Tempest's storm comes in long blocks, not evenly spaced uses (MEDIUM)."""
+        uses. Mana Tempest's storm comes in long blocks, not evenly spaced uses (MEDIUM).
+        `support` None (MECH66): every group but the main one, for lines on any Empowered use ("... with Empowered
+        Attacks"); a group with no skill that can Empower others is then passed over."""
         build = self.build
         uses = number(stats.get("Speed"))
-        groups = [g for g in build.groups() if g.get("enabled") is not False
-                  and any(x["name"] == models.MURDEROUS_INTENT and x.get("enabled", True) for x in g["gems"])]
-        if not groups or uses <= 0:
-            return 0.0, "no skill Murderous Intent supports Empowers the main skill"
-        raw = build.call("activeSkills")["skills"]
         main = build.main_group() or {}
+        groups = [g for g in build.groups() if g.get("enabled") is not False and (
+            any(x["name"] == support and x.get("enabled", True) for x in g["gems"]) if support
+            else g.get("index") != main.get("index"))]
+        if not groups or uses <= 0:
+            return 0.0, f"no skill {support or 'of the build'} supports Empowers the main skill"
+        raw = build.call("activeSkills")["skills"]
         mains = [s for s in raw if s.get("group") == main.get("index") and not s.get("disabled")]
         spell, cooled = any(s.get("spell") for s in mains), any(s.get("cooldown") for s in mains)
         repeatable = spell and any(s.get("repeatable") for s in mains)
         rates = {r["index"]: r for r in build.call("useRates", indices=[g["index"] for g in groups])["rates"]}
         total, parts = 0.0, []
         for group in groups:
-            skill = next((s for s in raw if s.get("group") == group["index"] and not s.get("disabled")), None)
+            # (MECH66: the skill in the group that can Empower others, not the first one PoB lists. Ferocious Roar is a
+            # Meta gem without EmpowersOtherSkill that triggers a human-form Warcry socketed in it (ActiveSkills
+            # ferocious_roar; its hidden SupportFerociousRoarPlayer allows Warcries, adds Triggered); Murderous Intent
+            # excludes no type, so in that group it supports the triggered Warcry (Meta gems' supports reach their
+            # socketed skills: MEDIUM), which Empowers once per Roar, at the group's use rate)
+            listed = [s for s in raw if s.get("group") == group["index"] and not s.get("disabled")]
+            skill = next((s for s in listed if s.get("empowers")), listed[0] if listed else None)
+            if support is None and (skill is None or not skill.get("empowers")):
+                continue
             if skill is None:
                 parts.append(f"Murderous Intent's group {group['index']} has no active skill PoB lists")
                 continue
+            if skill is not listed[0]:
+                parts.append(f"{skill['name']} is triggered by {listed[0]['name']} (Meta), at its use rate (MEDIUM)")
             name, rate = skill["name"], rates.get(group["index"]) or {}
             per = number(rate.get("speed"))
             if name == "Mana Tempest":

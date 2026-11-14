@@ -4353,3 +4353,17 @@ def test_aggravated_bleeding_is_counted_at_the_builds_own_hits_crits_and_bleed_d
     assert mods[0]["scale"] == pytest.approx(100 * models.aggravated_share(5.0, 0.0, 4.0, 2.0), rel=1e-3)
     assert models.aggravate_model([deep], stats, {"Spell"})[0] == []  # (only Attack hits)
     assert models.aggravate_model([deep, "Bleeding you inflict is Aggravated"], stats, {"Attack"})[0] == []
+
+
+def test_aggravate_on_empowered_attacks_reads_the_builds_empowered_hits():
+    """MECH66: "X% chance to Aggravate Bleeding on targets you Hit with Empowered Attacks" at the build's own Empowered
+    uses (Assumptions.empowered_uses over every Empowering skill) x hit chance, not a flat 10% of attacks; none: 0."""
+    from builder import ledger
+
+    line = "20% chance to Aggravate Bleeding on targets you Hit with Empowered Attacks"
+    assert ledger.translate(line)[0].raw.get("model") == models.AGGRAVATE_MODEL
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 0, "BleedDuration": 5.0}
+    mods, notes = models.aggravate_model([line], stats, {"Attack"}, empowered=(0.5, "Infernal Cry"))
+    assert mods[0]["scale"] == pytest.approx(100 * models.aggravated_share(5.0, 0.5 * 0.2, None, 2.0), rel=1e-3)
+    assert "Infernal Cry" in notes[0]["basis"]
+    assert models.aggravate_model([line], stats, {"Attack"}, empowered=(0.0, ""))[0] == []
