@@ -1,0 +1,31 @@
+# Gem stats that change no number (GEM7, 14 Nov 2026; item 3, the flavour / behaviour rows): art, visual hit effects
+# and UI flags only. Anything that can move a boss number (animation timing, combo stat-set indices, spread, distance)
+# stays open.
+
+- id: no-effect-gem7-art-visual-ui
+  title: "Art variants, visual hit effects, muzzle flashes and UI flags on skills: no number"
+  kind: gem_stat
+  match: '^(base_pinned_art_variation|broken_armour_consume_art_variation|broken_armour_debuff_art_variation|ground_oil_art_variation|ground_fire_art_variation|ice_fragment_art_variation|support_pin_spell_pinned_art_variation|support_scouring_flame_ignite_art_variation|visual_hit_effect_physical_is_wind|visual_hit_effect_physical_is_green|visual_hit_effect_physical_is_plant|disable_visual_hit_effect|companion_tangmazu_thurible_visual_effect|muzzle_flash_animation_index|ignore_muzzle_flash_animation_name_override|hide_minion_frame|quality_hide_display_character_panel|display_statset_hide_usage_stats)$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    18 stats that pick an art variant (*_art_variation: the ground, pin, Broken Armour, Ice Fragment and Scouring Flame
+    Ignite art), a hit's visual effect (visual_hit_effect_physical_is_wind / green / plant, disable_visual_hit_effect),
+    a companion's visual effect (Tangmazu's Thurible), the Mortar Cannon support's muzzle flash, or a UI element (the
+    minion frame, the character panel's quality line, a stat set's usage stats in the tooltip). They change no number
+    (checked: none has a text in any stat description file, PoB's copies of the game's, except
+    display_statset_hide_usage_stats, which is only a condition that hides lines of Vine Arrow's tooltip,
+    poison_vine_arrow_statset_1; PoB maps none in SkillStatMap.lua; second source: poe2db shows ground_oil_art_variation
+    on Oil Grenade as a raw id with no text, 14 Nov 2026. The other 17 weren't looked up on poe2db one by one.
+    Their meaning comes from their names, since the files say nothing more). Left open on purpose, because they can
+    change timing or damage: the animation stats (skill_animation_duration_multiplier_override,
+    start_animation_duration_as_%_of_attack_time, action_attack_or_cast_time_uses_animation_length,
+    animation_cancelling_lockout_time_+%, the statset_index_for_*_animation_combo_index stats, which pick a combo hit's
+    stat set, leap / Vaulting Impact animation ranges, comet_fall_time_uses_animation_length,
+    siege_cascade_visual_fall_time_delay_%), the additive-animation flags, poison_vine_arrow_visual_max_poison (its "max
+    poison" is unclear) and skill_specific_stat_description_mode (a tooltip selector, but its texts describe real effects
+    such as Rend's "150% more Area of Effect" and Tempest Bell's "Can be Ancestrally Boosted as though a Strike").
+  sources: ["PoB Data/StatDescriptions/** (no text)", "PoB Data/SkillStatMap.lua", "poe2db Oil Grenade (14 Nov 2026)",
+            "GrantedEffectStatSets (build 26476662)"]
+  test_in_game: "None needed for numbers: compare a skill's damage with and without the art (e.g. two Oil Grenade arts), equal."
+  status: proposed
