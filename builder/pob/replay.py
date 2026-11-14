@@ -116,6 +116,17 @@ def difference(stored: Any, real: Any, path: str = "answer") -> str:
         for index, (a, b) in enumerate(zip(stored, real)):
             if a != b:
                 return difference(a, b, f"{path}[{index}]")
+    if isinstance(stored, str) and isinstance(real, str) and "\n" in stored and "\n" in real:
+        # a long text (exportXml's XML): its first 200 characters are the same in both and say nothing
+        ours, theirs = stored.split("\n"), real.split("\n")
+        if sorted(ours) == sorted(theirs):
+            first = next(index for index, (a, b) in enumerate(zip(ours, theirs)) if a != b)
+            return (f"{path}: the same {len(ours)} lines in another order (first at line {first + 1}: "
+                    f"{ours[first].strip()[:160]!r} recorded, {theirs[first].strip()[:160]!r} real)")
+        for index, (a, b) in enumerate(zip(ours, theirs)):
+            if a != b:
+                return f"{path}: line {index + 1} of {len(ours)} / {len(theirs)}: {a.strip()[:200]!r} recorded, {b.strip()[:200]!r} real"
+        return f"{path}: {len(ours)} lines recorded, {len(theirs)} real"
     return f"{path}: {json.dumps(stored)[:200]} recorded, {json.dumps(real)[:200]} real"
 
 
@@ -140,10 +151,61 @@ def unordered(value: Any) -> str:
 ORDER_FREE = {"call:sourceLines": ("ok", "lines"), "call:unsupportedInBuild": ("ok", "lines")}
 
 
+# exportXml's answer is one text, the build's XML, and PoB writes some of its lines by walking a text-keyed table, so
+# those lines come out in another order in another process, as above. Listed here: what was SEEN to move between two
+# real processes and whose writer and reader were read in PoB's source; any other line that differs or moves is still
+# a ReplayMismatch (the message names the line, so the next kind can be judged the same way).
+# - "{base:" lines, an item's alternative bases: written in `pairs(self.baseLines)`, a table keyed by base name
+#   (Classes/Item.lua 2034 and 2064; the prefix at 1993-1995). Seen: PERF6's order probe (POE2T2621: 120 builds'
+#   exportXml from two processes, 38 differ, every differing line a "{base:" line; scratch/perf16/xmlrule.py) and
+#   PERF16's POE2T2765 / 2766 (10 of 12 exports).
+# - "<StatSetIndex " lines, the stat set chosen per granted effect of a gem: written in `pairs(gemInstance.statSet)`,
+#   keyed by the effect's id (Classes/SkillsTab.lua 527-531), read back into the same keyed table (370-371). Seen:
+#   POE2T2765 / 2766 (an Explosive Transmutation build: "TriggeredExplosiveTransmutationExplosionPlayer" and
+#   "ExplosiveTransmutationPlayer" swapped), which is what MECHB23's suite hit (POE2T1096: 11 ReplayMismatches on
+#   call:exportXml, two of them the Explosive Transmutation tests).
+# - "<StatSetCalcsIndex " lines: the same loop over the twin table `gemInstance.statSetCalcs` (SkillsTab.lua 532-536,
+#   read back at 372-373). Not yet seen to move on its own (UNVERIFIED): listed because it is the same code on the
+#   same keys, two lines below.
+# A base line that carries only a variant / version / group tag, and the "<MinionSkillIndexLookup" elements
+# (SkillsTab.lua 537 on), are written by loops of the same kind; none has been seen to move, so none is let through.
+TABLE_ORDER_LINES = ("{base:", "<StatSetIndex ", "<StatSetCalcsIndex ")
+
+
+def table_order_free(xml: str) -> str:
+    """The build's XML with each run of consecutive lines of one TABLE_ORDER_LINES kind sorted: equal for two exports
+    that differ only in the order PoB walked those tables."""
+    out: list[str] = []
+    run: list[str] = []
+    kind = None
+    for line in xml.split("\n"):
+        start = line.lstrip()
+        now = next((prefix for prefix in TABLE_ORDER_LINES if start.startswith(prefix)), None)
+        if now != kind:
+            out.extend(sorted(run))
+            run = []
+            kind = now
+        (out if now is None else run).append(line)
+    out.extend(sorted(run))
+    return "\n".join(out)
+
+
+def _same_export(stored: Any, real: Any) -> bool:
+    a, b = (side.get("ok") if isinstance(side, dict) else None for side in (stored, real))
+    if not (isinstance(stored, dict) and isinstance(real, dict) and stored.keys() == real.keys() == {"ok"}
+            and isinstance(a, dict) and isinstance(b, dict) and isinstance(a.get("xml"), str) and isinstance(b.get("xml"), str)):
+        return False
+    if {k: v for k, v in a.items() if k != "xml"} != {k: v for k, v in b.items() if k != "xml"}:
+        return False
+    return table_order_free(a["xml"]) == table_order_free(b["xml"])
+
+
 def same_answer(kind: str, stored: Any, real: Any) -> bool:
     """Is the recorded answer one the real PoB could give now: equal, or (ORDER_FREE) equal but for one list's order."""
     if stored == real:
         return True
+    if kind == "call:exportXml":
+        return _same_export(stored, real)
     path = ORDER_FREE.get(kind)
     if path is None:
         return False

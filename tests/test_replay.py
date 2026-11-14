@@ -252,6 +252,42 @@ def test_a_reordered_source_lines_answer_is_the_same_answer_and_nothing_else_is(
     assert not same_answer("call:sourceLines", one, {"PobError": "x"})
 
 
+def test_an_export_with_an_items_bases_in_another_order_is_the_same_answer_and_nothing_else_is():
+    """PoB writes an item's alternative bases in a per-process order (Item.lua 2034 / 2064); only that may differ."""
+    from builder.pob.replay import difference, same_answer
+
+    def export(*lines):
+        return {"ok": {"xml": "<PathOfBuilding2>\n\t<Item id='1'>\n" + "\n".join(lines) + "\n\t</Item>\n</PathOfBuilding2>"}}
+    one = export("Rarity: UNIQUE", "{base:2}Runeforged Hunting Shoes", "{base:3}Runemastered Hunting Shoes", "{base:1}Hunting Shoes",
+                 "{variant:1}+10 to Dexterity", "{variant:2}+20 to Dexterity")
+    moved = export("Rarity: UNIQUE", "{base:1}Hunting Shoes", "{base:3}Runemastered Hunting Shoes", "{base:2}Runeforged Hunting Shoes",
+                   "{variant:1}+10 to Dexterity", "{variant:2}+20 to Dexterity")
+    assert same_answer("call:exportXml", one, moved)
+    assert "in another order" in difference(one, moved) and "Hunting Shoes" in difference(one, moved)
+    assert not same_answer("call:loadXml", one, moved)  # another call's text is compared as it is
+    mods_moved = export("Rarity: UNIQUE", "{base:2}Runeforged Hunting Shoes", "{base:3}Runemastered Hunting Shoes", "{base:1}Hunting Shoes",
+                        "{variant:2}+20 to Dexterity", "{variant:1}+10 to Dexterity")
+    assert not same_answer("call:exportXml", one, mods_moved)  # a modifier line moved: not PoB's base order
+    changed = export("Rarity: UNIQUE", "{base:2}Runeforged Hunting Shoes", "{base:3}Runemastered Hunting Shoes", "{base:1}Jade Tiara",
+                     "{variant:1}+10 to Dexterity", "{variant:2}+20 to Dexterity")
+    assert not same_answer("call:exportXml", one, changed)
+    assert "Jade Tiara" in difference(one, changed)
+    apart = export("{base:2}Runeforged Hunting Shoes", "Rarity: UNIQUE", "{base:3}Runemastered Hunting Shoes", "{base:1}Hunting Shoes",
+                   "{variant:1}+10 to Dexterity", "{variant:2}+20 to Dexterity")
+    assert not same_answer("call:exportXml", one, apart)  # a base line moved out of its run
+    assert not same_answer("call:exportXml", one, {"ok": {"xml": moved["ok"]["xml"], "more": 1}})
+    sets = export("<StatSetIndex grantedEffect='B' index='5'/>", "<StatSetIndex grantedEffect='A' index='1'/>",
+                  "<StatSetCalcsIndex grantedEffect='B' index='5'/>", "<StatSetCalcsIndex grantedEffect='A' index='1'/>")
+    sets_moved = export("<StatSetIndex grantedEffect='A' index='1'/>", "<StatSetIndex grantedEffect='B' index='5'/>",
+                        "<StatSetCalcsIndex grantedEffect='A' index='1'/>", "<StatSetCalcsIndex grantedEffect='B' index='5'/>")
+    assert same_answer("call:exportXml", sets, sets_moved)  # SkillsTab.lua 527-536: a gem's stat sets, walked by effect id
+    mixed = export("<StatSetIndex grantedEffect='A' index='1'/>", "<StatSetCalcsIndex grantedEffect='A' index='1'/>",
+                   "<StatSetIndex grantedEffect='B' index='5'/>", "<StatSetCalcsIndex grantedEffect='B' index='5'/>")
+    assert not same_answer("call:exportXml", sets, mixed)  # the two kinds are two loops: one never lands inside the other
+    assert not same_answer("call:exportXml", sets, export(*[line.replace("'5'", "'4'") for line in sets["ok"]["xml"].split("\n")[2:6]]))
+    assert not same_answer("call:exportXml", one, {"PobError": "x"})
+
+
 def test_the_key_order_of_a_calls_arguments_is_not_part_of_its_history():
     from builder.pob.replay import _key_order_free
 
