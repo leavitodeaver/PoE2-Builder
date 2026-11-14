@@ -254,10 +254,15 @@ class Build:
         search's own flask recovery (extra_stats, which a what-if's "extra" entry may override after this) and the
         request's boss. With Heartbound Loop's damage on Minion Death (Assumptions.models: build.self_damage, per second,
         at build.minion_died's rate), that rate and damage, for the recharge shares (objective.own_events, SEARCH15)."""
+        # With Fireflower's Fire damage per Ignite (build.ignite_self_damage = (per second, Ignites per second), MECHB25),
+        # that too: each Ignite is one more event and its damage leaves the steady Fire loss (SEARCH21)
         own = {}
-        if (damage := getattr(self, "self_damage", 0.0) or 0.0) > 0:
+        damage = getattr(self, "self_damage", 0.0) or 0.0
+        burn, ignites = getattr(self, "ignite_self_damage", None) or (0.0, 0.0)
+        if damage > 0 or burn > 0:
             died = getattr(self, "minion_died", None)
-            own = {"SelfDamagePerSecond": damage, "SelfDamageEvents": float(died[0]) if died else 0.0}
+            events = (float(died[0]) if damage > 0 and died else 0.0) + (max(float(ignites), 0.0) if burn > 0 else 0.0)
+            own = {"SelfDamagePerSecond": damage, "SelfFireDamagePerSecond": burn, "SelfDamageEvents": events}
         return {**self.recovery_sources, **self.extra_stats, **self.boss_stats, **own}
 
     # Snapshots ---------------------------------------------------------------------------------

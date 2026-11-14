@@ -75,6 +75,38 @@ def test_the_builds_own_damage_stops_or_restarts_recharge():
     assert boss_recovery({**heart, "PhysicalBuildDegen": 200})["recharging"] == 0.0
 
 
+def test_fireflowers_damage_per_ignite_restarts_recharge_as_events_not_a_steady_loss():
+    """SEARCH21 (MECHB25's Fireflower, "Take 100 Fire Damage when you Ignite an Enemy"): it reaches PoB as Fire degen
+    (FireBuildDegen), which own_loss read as a steady loss, so a Fireflower build's Energy Shield never recharged. Like
+    Heartbound Loop's, it is one loss per Ignite: out of the steady Fire loss (x FireTakenDotMult), its Ignites events."""
+    from types import SimpleNamespace
+
+    from builder.search.objective import own_events, own_loss
+    from builder.search.state import Build
+
+    clean = king(90, EnergyShieldRecharge=2000, EnergyShield=5000)
+    hits = boss_hits.land_share(clean) / 0.7
+    # 100 per Ignite at 0.8 Ignites a second, Fire damage over time taken at 75% (resistance): 60 Fire degen in PoB
+    burn = {**clean, "FireBuildDegen": 60, "FireTakenDotMult": 0.75, "FireEnergyShieldBypass": 0,
+            "SelfFireDamagePerSecond": 80, "SelfDamageEvents": 0.8}
+    assert own_loss(burn)["EnergyShield"] == pytest.approx(0.0) and own_events(burn) == pytest.approx(0.8)
+    total = hits + 0.8
+    assert boss_recovery(burn)["recharging"] == pytest.approx(total * math.exp(-total * 4.0) / total)
+    # other Fire degen beside it still stops it; without Fireflower's damage the events don't count
+    assert boss_recovery({**burn, "FireBuildDegen": 90})["recharging"] == 0.0
+    assert own_events({**burn, "SelfFireDamagePerSecond": 0}) == 0.0
+    # Build.added_stats hands both sources' damage and the sum of their events
+    fake = SimpleNamespace(self_damage=150.0, minion_died=(0.5, "x"), ignite_self_damage=(80.0, 0.8),
+                           recovery_sources={}, extra_stats={}, boss_stats={})
+    own = Build.added_stats(fake)
+    assert own["SelfDamagePerSecond"] == 150.0 and own["SelfFireDamagePerSecond"] == 80.0
+    assert own["SelfDamageEvents"] == pytest.approx(1.3)
+    fake.self_damage = 0.0
+    assert Build.added_stats(fake)["SelfDamageEvents"] == pytest.approx(0.8)
+    fake.ignite_self_damage = (0.0, 0.8)
+    assert "SelfDamageEvents" not in Build.added_stats(fake)
+
+
 def test_life_recharge_counts_like_energy_shield_recharge():
     """SEARCH15 (AUDIT28 A28-3, an UNDERCOUNT): PoB's LifeRecharge (Eternal Youth; Tetzlapokal's Desire's "Life
     Recharges" through the bridge's setLifeRecharge) counts in the recovery floor at the same between-hits share, and the

@@ -170,7 +170,8 @@ RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in
                             "DeflectChance", "DeflectEffect"}
                          | {"EnergyShieldRecharge", "EnergyShieldRechargeDelay", "IgniteAvoidChance", "SelfIgniteDuration",
                             "AilmentThreshold", "Life"}  # (es_recharge, and the Ignites boss_hits.es_dot reads)
-                         | {"LifeRecharge", "LifeRechargeDelay", "EnergyShield", "PhysicalTakenDotMult"}  # (own_loss)
+                         | {"LifeRecharge", "LifeRechargeDelay", "EnergyShield", "PhysicalTakenDotMult",
+                            "FireTakenDotMult"}  # (own_loss)
                          | {f"{t}{f}" for t in RECOVERY_DAMAGE_TYPES for f in ("BuildDegen", "EnergyShieldBypass")})
 
 
@@ -238,7 +239,12 @@ def hit_recovery_rates(stats: dict) -> dict[str, float]:
 #     death, at the build's minion-death rate (Build.added_stats' SelfDamageEvents, per second). It reaches PoB as
 #     Physical degen (SelfDamagePerSecond x PhysicalTakenDotMult of PhysicalBuildDegen), which is taken out of the steady
 #     part here and counted as events, a second Poisson stream beside the boss's landed hits.
-SELF_EVENTS, SELF_PER_SECOND = "SelfDamageEvents", "SelfDamagePerSecond"
+#   - Fireflower's "Take N Fire Damage when you Ignite an Enemy" (models.ignite_self_damage, MECHB25): one loss per
+#     Ignite, at the main skill's Ignite rate. It reaches PoB as Fire degen (SelfFireDamagePerSecond x FireTakenDotMult of
+#     FireBuildDegen), taken out of the steady part the same way, its Ignites added to SelfDamageEvents (SEARCH21: read
+#     as steady Fire degen, it held a Fireflower build's recharge at 0).
+SELF_EVENTS, SELF_PER_SECOND, SELF_FIRE_PER_SECOND = "SelfDamageEvents", "SelfDamagePerSecond", "SelfFireDamagePerSecond"
+SELF_DAMAGE = {"Physical": SELF_PER_SECOND, "Fire": SELF_FIRE_PER_SECOND}  # the per-event damage in each type's degen
 
 
 def own_loss(stats: dict) -> dict[str, float]:
@@ -248,9 +254,9 @@ def own_loss(stats: dict) -> dict[str, float]:
     es = number(stats.get("EnergyShield")) > 0
     for t in RECOVERY_DAMAGE_TYPES:
         degen = max(number(stats.get(f"{t}BuildDegen")), 0.0)
-        if t == "Physical":
-            dot = number(stats.get("PhysicalTakenDotMult")) if "PhysicalTakenDotMult" in stats else 1.0
-            degen = max(degen - max(number(stats.get(SELF_PER_SECOND)), 0.0) * dot, 0.0)
+        if t in SELF_DAMAGE:
+            dot = number(stats.get(f"{t}TakenDotMult")) if f"{t}TakenDotMult" in stats else 1.0
+            degen = max(degen - max(number(stats.get(SELF_DAMAGE[t])), 0.0) * dot, 0.0)
         bypass = min(max(number(stats.get(f"{t}EnergyShieldBypass")), 0.0), 100) / 100 if es else 1.0
         out["EnergyShield"] += degen * (1 - bypass)
         out["Life"] += degen * bypass
@@ -258,8 +264,10 @@ def own_loss(stats: dict) -> dict[str, float]:
 
 
 def own_events(stats: dict) -> float:
-    """The build's own damage events per second (Heartbound Loop's minion deaths; 0 without its damage)."""
-    return max(number(stats.get(SELF_EVENTS)), 0.0) if number(stats.get(SELF_PER_SECOND)) > 0 else 0.0
+    """The build's own damage events per second (Heartbound Loop's minion deaths, Fireflower's Ignites; 0 without
+    their damage)."""
+    own = any(number(stats.get(key)) > 0 for key in SELF_DAMAGE.values())
+    return max(number(stats.get(SELF_EVENTS)), 0.0) if own else 0.0
 
 
 def life_cost_events(stats: dict) -> float:
