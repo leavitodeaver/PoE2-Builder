@@ -1433,13 +1433,14 @@ def test_barbs_on_a_side_melee_group_reads_that_skills_own_hits(engine, monkeypa
     monkeypatch.setattr(models, "thorns_model", lambda rate, texts, stats, main, barbs=None: seen.update(barbs=barbs) or (0.0, []))
     skill = next(sk for sk in map(models.Skill.of, build.call("activeSkills")["skills"])
                  if sk.name == "Boneshatter" and sk.group != idx)  # (the main group's, not the side copy)
-    thorns(build, skill, {"_boss": models.THORNS_WORST}, [])
+    thorns(build, skill, {"_boss": models.THORNS_WORST, "HitChance": 87.0}, [])  # (87: the main skill's hit chance)
     side = next(b for b in seen["barbs"] if b[0] == "Barbs I" and b[3] and b[3]["skill"] == "Boneshatter")
     used = next(r for r in build.call("useRates", indices=[idx], actives=[1])["rates"])
     assert side[2] is False and side[3]["melee_attack"] is True
-    chance = used.get("HitChance") or 100.0  # (POE2T1106: real PoB gave this row no HitChance; 100% taken, labelled)
+    # (POE2T1106: real PoB gave this row no HitChance; AUDIT34 A34-9: then the main skill's own, Boneshatter's)
+    chance = used.get("HitChance") or 87.0
     assert side[3]["hits"] == pytest.approx(used["speed"] * chance / 100 * 0.5) and side[3]["hits"] > 0, used
-    assert ("100% taken" in side[3]["basis"]) == ("HitChance" not in used)
+    assert ("the main skill's 87%" in side[3]["basis"]) == ("HitChance" not in used)
 
 
 def test_energy_capacitor_on_a_real_invocation_group_raises_its_store(engine):
@@ -1459,3 +1460,26 @@ def test_energy_capacitor_on_a_real_invocation_group_raises_its_store(engine):
     search.assumptions.apply()
     note = next(n for n in search.assumptions.active if n["label"].startswith("Elemental Invocation triggers per second"))
     assert "900 Energy store (500 base, Energy Capacitor +80% increased Maximum Energy)" in note["basis"], note
+
+
+def test_fireflower_self_damage_reaches_pob_as_fire_damage_taken(engine):
+    """(MECHB25, COV28) Fireflower's line is read by no PoB calculation; the model's "N Fire Damage taken per second"
+    line reaches PoB as Fire damage over time taken, at the main skill's Ignite rate (non-zero only if it Ignites)."""
+    from builder.search import models
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Fireball", ascendancies=["Infernalist"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    amulet = chr(10).join(["Rarity: UNIQUE", "Fireflower", "Solar Amulet", "Take 100 Fire Damage when you Ignite an Enemy"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=["FullDPS"])
+    search.assumptions.apply()
+    burn, ignites = build.ignite_self_damage
+    assert ignites > 0 and burn == pytest.approx(100 * ignites)
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Fireflower"))
+    assert note["confidence"] == "MEDIUM"
+    degen = models.number(build.call("stats", fields=["TotalBuildDegen"]).get("TotalBuildDegen"))
+    assert degen > 0, degen  # (CalcDefence 3876-3884: the build's own damage-type Degen, after resistances)

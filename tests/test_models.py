@@ -4648,3 +4648,16 @@ def test_brambles_are_scaled_to_three_a_slam_capped_by_their_cooldown():
     fast = models.brambles_model("Earthquake", 4.0, "x", {"speed": 1.4, "cooldown": 0.15})[0]
     assert fast["value"] == pytest.approx(1 / 0.15, abs=1e-3) and "cooldown" in fast["basis"]
     assert models.brambles_model("Earthquake", 1.0, "x", {"speed": 0.0})[0]["full_dps"] == {"Brambles": 0.0}
+
+
+def test_fireflower_burns_you_per_ignite_at_the_main_skills_ignite_rate():
+    """(MECHB25, COV28) "Take 100 Fire Damage when you Ignite an Enemy": 100 x the main skill's Ignites per second (hits
+    x Ignite chance, crits weighted); none without the line or without Ignites."""
+    text = ["Take 100 Fire Damage when you Ignite an Enemy"]
+    stats = {"Speed": 4.0, "HitChance": 90.0, "CritChance": 25.0, "IgniteChanceOnHit": 20.0, "IgniteChanceOnCrit": 60.0}
+    taken, ignites, notes = models.ignite_self_damage(text, stats)
+    assert ignites == pytest.approx(3.6 * (0.2 * 0.75 + 0.6 * 0.25)) and taken == pytest.approx(100 * ignites)
+    assert notes and "Fire damage per second" in notes[0]["value"]
+    assert models.ignite_self_damage([], stats) == (0.0, 0.0, [])
+    none, rate, notes = models.ignite_self_damage(text, {**stats, "IgniteChanceOnHit": 0, "IgniteChanceOnCrit": 0})
+    assert none == 0 and rate == 0 and "doesn't Ignite" in notes[0]["play"]

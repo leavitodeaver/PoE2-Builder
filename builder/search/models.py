@@ -6567,6 +6567,41 @@ def heartbound_damage(texts: list[str], died: tuple[float, str]) -> tuple[float,
                              "Nothing in this build makes its minions die, so the ring costs no Life here")}]
 
 
+# Fireflower (MECHB25; COV28's parsed_unused row, an OVERCOUNT of sustain): "Take 100 Fire Damage when you Ignite an
+# Enemy" (Uniques amulet.lua, the Current variant; poe2db Fireflower, current). PoB parses it (EyeOfInnocenceSelfDamage,
+# ModParser 3583) and no calculation reads it. The rate is the build's own: the main skill's Ignites per second (hits x
+# its Ignite chance, crits weighted, as Arbiter's Ignition reads them above). Each new Ignite counts, including one that
+# replaces an Ignite already on the boss (MEDIUM: the line says "when you Ignite an Enemy", no exception; the higher
+# reading, the safe side for sustain). Ignites from other skills (side groups, triggered skills) aren't counted: an
+# undercount of the damage taken, labelled. It goes to PoB as "N Fire Damage taken per second" (ModParser 116: FireDegen),
+# as Heartbound Loop's does, so recovery and the Life flask see it; PoB treats that as damage over time, though the game
+# deals it as one Hit per Ignite (KeywordPopups Hit), so how resistances and "damage taken over time" lines apply to it
+# is UNVERIFIED (as for Heartbound Loop, MECHB20).
+FIREFLOWER = re.compile(r"^Take (\d+(?:\.\d+)?) Fire Damage when you Ignite an Enemy$", re.I)
+
+
+def ignite_self_damage(texts: list[str], stats: dict) -> tuple[float, float, list[dict]]:
+    """(Fire damage taken per second, Ignites per second, notes) for "Take N Fire Damage when you Ignite an Enemy"
+    lines at the main skill's own Ignite rate; (0, 0, []) without such a line."""
+    per = sum(float(m.group(1)) for t in texts if (m := FIREFLOWER.match(t.strip())))
+    if per <= 0:
+        return 0.0, 0.0, []
+    crit = min(number(stats.get("CritChance")), 100.0) / 100
+    chance = (number(stats.get("IgniteChanceOnHit")) * (1 - crit) + number(stats.get("IgniteChanceOnCrit")) * crit) / 100
+    ignites = hits_per_second(stats) * min(max(chance, 0.0), 1.0)
+    taken = per * ignites
+    return taken, ignites, [{
+        "label": "Fireflower: Fire damage taken when you Ignite",
+        "value": f"{taken:,.0f} Fire damage per second",
+        "basis": (f"{per:g} per Ignite x {ignites:.3f} Ignites per second (the main skill's hits x its {chance:.1%} "
+                  "Ignite chance, crits weighted; each new Ignite counted, MEDIUM; other skills' Ignites not counted, "
+                  "an undercount); in PoB as Fire damage taken per second, so recovery sees it (how resistances apply to "
+                  "this one Hit per Ignite is UNVERIFIED)"),
+        "confidence": "MEDIUM",
+        "play": (f"Fireflower burns you for {per:g} Fire damage each time you Ignite: {taken:,.0f} per second at this "
+                 "build's Ignite rate" if taken > 0 else "This build doesn't Ignite, so Fireflower's self-damage costs nothing here")}]
+
+
 # Totems other than Spell Totem (MECHB8; MECHB7's Handover item 2). PoB prices one totem: the damaging part beside a
 # totem-summoning skill (Shockwave Totem's Shockwave Slam, Artillery Ballista's Ballista Bolt, Siege Ballista's
 # Artillery, Dark Effigy's Vile Effusion, a Mortar Cannon's grenade) carries no ActiveTotemLimit (engine probe POE2T1018:

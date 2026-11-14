@@ -523,11 +523,18 @@ def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str
                     used = next(iter(build.call("useRates", indices=[each["index"]], actives=[spot])["rates"]), None) if spot else None
                     if own is not None and used:
                         share = number(press.get(own.name, 1.0))
-                        chance = number(used.get("HitChance"))  # (PoB may give none for a side attack: 100% taken, labelled)
+                        chance = number(used.get("HitChance"))
+                        # (PoB may give a side attack's row no HitChance, POE2T1106; AUDIT34 A34-9: then the main
+                        # skill's own hit chance, an attack's, from the same build's accuracy against the same boss
+                        # (MEDIUM: a different weapon or accuracy lines for one skill would differ); 100% only when the
+                        # main skill gives none, labelled UNVERIFIED)
+                        fallback = number(stats.get("HitChance")) if main is not None and main.attack else 0.0
+                        how = ("" if chance else f" (PoB gave none: the main skill's {fallback:.0f}%, MEDIUM)" if fallback
+                               else " (PoB gave none, and no main attack's hit chance to stand in: 100% taken, UNVERIFIED)")
+                        chance = chance or fallback or 100.0
                         side = {"skill": own.name, "melee_attack": own.attack and own.melee and not own.triggered,
-                                "hits": number(used.get("speed")) * min(chance or 100.0, 100.0) / 100 * share,
-                                "basis": "its group's use rate x hit chance"
-                                         + ("" if chance else " (PoB gave none: 100% taken, UNVERIFIED)")
+                                "hits": number(used.get("speed")) * min(chance, 100.0) / 100 * share,
+                                "basis": "its group's use rate x hit chance" + how
                                          + (f" x {share:.3g}, the press model's share" if share != 1.0 else "")}
                 barbs.append((skill["name"], row or {}, on_main, side))
     return models.thorns_model(rates[0], texts, {**stats, **build.call("stats", fields=models.THORNS_FIELDS)}, main,
@@ -695,6 +702,13 @@ class Assumptions:
         if build.self_damage > 0:  # (MECHC9: in PoB as Physical damage over time, so recovery and the Life flask see it)
             hand_mods = hand_mods + [models.line("1 Physical Damage taken per second", build.self_damage)]
         hand_notes = hand_notes + models.kills_note(build.kills) + heart_notes
+        # (MECHB25, COV28) Fireflower's Fire damage taken per Ignite, at the main skill's Ignite rate: in PoB as Fire
+        # damage taken per second (recovery sees it); build.ignite_self_damage = (per second, Ignites per second)
+        burn, ignites, burn_notes = models.ignite_self_damage([e["text"] for e in source_lines], stats)
+        build.ignite_self_damage = (burn, ignites)
+        if burn > 0:
+            hand_mods = hand_mods + [models.line("1 Fire Damage taken per second", burn)]
+        hand_notes = hand_notes + burn_notes
         jiquani_mods, jiquani_notes = models.jiquani_model([e["text"] for e in source_lines])  # (MECHC9, A12-2)
         hand_mods, hand_notes = hand_mods + jiquani_mods, hand_notes + jiquani_notes
         unbound_mods, unbound_notes = models.unbound_model([e["text"] for e in source_lines])  # (MECHC10)
