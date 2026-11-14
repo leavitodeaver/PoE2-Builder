@@ -2402,11 +2402,55 @@ end
 
 -- Skill gems -----------------------------------------------------------------------------------
 
+-- (PERF24) A NAME SEVERAL PoB GEMS SHARE means the same gem in every PoB process. PoB ships different skills
+-- under one display name, and pairs(build.data.gems) lists them in an order that changes from one process to
+-- the next, so "the first gem of that name" was another skill in another process: PERF23's two coverage dumps
+-- gave "Lightning Bolt" the types Cooldown, InbuiltTrigger and Triggered in one and not in the other. PoB's own
+-- calculation finds a skill by its id, so only our by-name reads moved.
+-- (checked, PoB bb52d6b: every key of Data/Gems.lua grouped by name, tests/test_shared_gem_names.py redoes it
+-- at each run. Five names are shared: the three below; "Unleash", the support gem and the skill an item
+-- grants, which gemByName's socketable-first rule already settled; "Skeletal Sniper", one key written twice.
+-- Second source, the game's ActiveSkills: rows 659 lightning_bolt and 660 unique_breach_lightning_bolt are both
+-- displayed "Lightning Bolt", and only 660 holds Cooldown, InbuiltTrigger and Triggered, as PoB's two skills do.)
+-- The bare name can't say which the build has (that depends on the item or weapon), so each entry is the one
+-- every lane's data dump already put first (data/pob-bb52d6b368/gems.json, the same in all 11 folders on
+-- 14 Nov 2026), which Context.all_gems reads: no number moves. "Lightning Bolt" is also the skill PoB's parser
+-- grants for "Grants Skill: Level N Lightning Bolt" (ModParser's gemIdLookup, ModCache). ASSUMPTION, LOW: a
+-- build with a one-handed or two maces, or a Spear Stab from the off hand, reads the listed skill's types
+-- and text by name; the fix that removes the guess is to carry the skill id with a group's gem.
+local SHARED_GEM_NAMES = {
+	["Lightning Bolt"] = "UniqueBreachLightningBoltPlayer",
+	["Mace Strike"] = "Melee2HMacePlayer",
+	["Spear Stab"] = "MeleeSpearPlayer",
+}
+
+-- PoB's gems in one order for every process: by name, a shared name's listed skill first, then by gem id
+local orderedGems
+local function gemsInOrder()
+	if not orderedGems then
+		orderedGems = { }
+		for id, gemData in pairs(build.data.gems) do
+			orderedGems[#orderedGems + 1] = { id = id, gem = gemData,
+				rank = SHARED_GEM_NAMES[gemData.name] == gemData.grantedEffectId and 0 or 1 }
+		end
+		table.sort(orderedGems, function(a, b)
+			if a.gem.name ~= b.gem.name then
+				return a.gem.name < b.gem.name
+			elseif a.rank ~= b.rank then
+				return a.rank < b.rank
+			end
+			return a.id < b.id
+		end)
+	end
+	return orderedGems
+end
+
 local gemsByName
 local function gemByName(name)
 	if not gemsByName then
 		gemsByName = { }
-		for _, gemData in pairs(build.data.gems) do
+		for _, entry in ipairs(gemsInOrder()) do
+			local gemData = entry.gem
 			local effect = gemData.grantedEffect
 			local known = gemsByName[gemData.name]
 			-- Prefer the socketable gem when an item- or tree-granted skill shares the name
@@ -4448,7 +4492,8 @@ local dumpers = { }
 
 function dumpers.gems()
 	local gems = { }
-	for id, gem in pairs(build.data.gems) do
+	for _, entry in ipairs(gemsInOrder()) do  -- (PERF24) the same order from every PoB process
+		local id, gem = entry.id, entry.gem
 		local effect = gem.grantedEffect or { }
 		gems[#gems + 1] = {
 			id = id, name = gem.name, baseTypeName = gem.baseTypeName, tier = gem.Tier,
@@ -4465,7 +4510,6 @@ function dumpers.gems()
 			levelRequirement = effect.levels and effect.levels[1] and effect.levels[1].levelRequirement or nil,
 		}
 	end
-	table.sort(gems, function(a, b) return a.name < b.name end)
 	return { gems = gems }
 end
 
@@ -4684,7 +4728,8 @@ end
 local USAGE_STAT_WORDS = { "require", "cannot_be_used_unless", "unusable_until", "flask_charges_on_skill_use", "as_glory", "flask_throw", "rapidshot_requiem" }
 function bridge.usageRules()
 	local rules = setmetatable({ }, { __jsontype = "object" })
-	for _, gem in pairs(build.data.gems) do
+	for _, entry in ipairs(gemsInOrder()) do  -- (PERF24) a shared name's rule is the same gem's in every process
+		local gem = entry.gem
 		if gem.grantedEffect and gem.name and not rules[gem.name] then
 			local stats = setmetatable({ }, { __jsontype = "object" })
 			local rule = { stats = stats }
