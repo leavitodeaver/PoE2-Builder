@@ -4782,14 +4782,14 @@ def deadly_resolve_model(skills: list[Skill], stats: dict, main: Skill | None) -
             "confidence": "theory", "entry": "deadly-resolve-rate"}]
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # (MECHB6: red-flash hits always land; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
-    hits = boss_hits.gain_hits(stats)[0]
+    hits, landed_how = boss_hits.gain_hits(stats)
     rate = min(1 / DEADLY_RESOLVE_STAGE_EVERY, hits, 1 / DEADLY_RESOLVE_COOLDOWN)
     limit = "a stage per second of channelling" if rate < hits else "the boss's hits that land"
     return trigger_rate(DEADLY_RESOLVE, rate), [{
         "label": "Deadly Resolve slashes per second", "value": round(rate, 3),
         "basis": f"one per stage (a stage per {DEADLY_RESOLVE_STAGE_EVERY:g} s of channelling {main.name}) when the boss hits you: "
-                 f"{hits:.2f} hits/s land (one every {every:g} s, {land:.0%} neither evaded nor blocked, red-flash hits always landing; blocked and evaded hits "
-                 f"assumed not to count); limited by {limit}. PoB alone counts it at its own use rate.",
+                 f"{hits:.2f} hits/s land (one every {every:g} s, less evaded and blocked hits, red-flash hits always landing: {landed_how}; blocked and "
+                 f"evaded hits assumed not to count); limited by {limit}. PoB alone counts it at its own use rate.",
         "play": "Channel the supported skill through the fight and let the boss hit you; stepping out of its hits stops the slashes.",
         "confidence": "theory", "entry": "deadly-resolve-rate"}]
 

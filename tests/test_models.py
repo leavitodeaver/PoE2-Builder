@@ -922,7 +922,10 @@ def test_sanguine_tides_gain_follows_the_life_spent():
 
 
 @pytest.mark.usefixtures("pob_cadence")
-def test_deadly_resolve_slashes_once_per_stage_when_the_boss_hits():
+@pytest.mark.usefixtures("pob_cadence")
+def test_deadly_resolve_slashes_once_per_stage_when_the_boss_hits(arbiter_default):
+    # (MECHC20: the numbers below are the Arbiter of Ash's at a 0.7 s cadence; it named neither, so it read whatever
+    # boss and cadence earlier tests left; the worst case's lowest real boss: tests/test_gain_hits_worst_case.py)
     shield = Skill("Resonating Shield", group=5, attack=True)
     slash = Skill("Deadly Resolve", group=5, attack=True, triggered=True)
     stats = {"enemySkillTime": 0.7, "EvadeChance": 4, "EffectiveBlockChance": 25}
