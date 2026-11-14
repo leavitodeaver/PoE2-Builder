@@ -4491,7 +4491,8 @@ def test_barbs_counts_n_supported_hits_per_retaliation_and_takes_pobs_flat_entry
     for name, count, times in (("Barbs I", 4, 1), ("Barbs II", 6, 1), ("Barbs III", 1, 2)):
         dps, notes = models.thorns_model(hit, [], stats, melee, [(name, barb, True)])
         assert dps == pytest.approx(base + min(retaliations * count, 1.8) * times * 120)
-        assert notes[0]["full_dps"] == {name: 0.0} and "UNVERIFIED" in notes[0]["basis"]
+        assert notes[0]["full_dps"] == {name: 0.0} and "A32-11" in notes[0]["basis"]  # (the hit count: AUDIT32 A32-11)
+        assert "once per Retaliation" not in notes[0]["basis"]
     # capped by the main skill's own hits
     slow = {**stats, "Speed": 0.1}
     dps = models.thorns_model(hit, [], slow, melee, [("Barbs II", barb, True)])[0]

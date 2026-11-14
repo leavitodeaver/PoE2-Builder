@@ -4109,6 +4109,10 @@ def rod_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[lis
 #   time each costs, CalcOffence), so the chance goes to PoB as that modifier.
 # "While moving": a skill usable while moving (skill type UsableWhileMoving) fired while walking, a way to play the build,
 # said in the guide, unless the build stands still (its stationary lines, the Standing still box); other skills: none.
+# Ice Fragments is a shotgun skill by its own stat set (IceFragmentsPlayer: projectiles_can_shotgun), so it stays for
+# tornado_copy_model; Run and Gun never applies to it (run_and_gun_model needs UsableWhileMoving, which it lacks). The
+# one other player stat set with projectiles_can_shotgun, ComboKnifeThrowPlayer, is "[DNT-UNUSED] Combo Knife Throw"
+# (checked: GrantedEffectStatSets / ActiveSkills, build 26476662; second source UNVERIFIED), so it isn't listed.
 SHOTGUN_SKILLS = frozenset({"Galvanic Shards", "Fragmentation Rounds", "Incendiary Shot", "Permafrost Bolts", "Ice Fragments"})
 SEQUENCE_SKILLS = frozenset({"Crossbow Shot", "Explosive Shot", "High Velocity Rounds", "Glacial Bolt", "Rapid Shot",
                              "Armour Piercing Rounds", "Ice Shards", "Shockburst Rounds", "Oil Barrage", "Requiem"})
@@ -4578,8 +4582,9 @@ def boss_melee_share(boss: str, gain: bool = True) -> tuple[float, str]:
 #     worst-case preset where nothing Retaliates. So PoB's entry is scaled to 0 (Objective.entry_scales) and Barbs is
 #     counted here: min(Retaliations/s x N, the supported main skill's hits/s) x (2 for III) x PoB's Barbs hit (the same
 #     whether each Retaliation refreshes the N or adds to it, at a steady rhythm). N counts hits on the one boss: the
-#     stat id is deal_thorns_damage_on_hit_for_X_hits_after_thorns_trigger ("for X hits"), the text says "enemies"
-#     (UNVERIFIED which the game counts on one boss: the note gives the once-per-Retaliation row). Only when Barbs
+#     stat id is deal_thorns_damage_on_hit_for_X_hits_after_thorns_trigger ("for X hits"), though the text says
+#     "enemies" (checked: AUDIT32 A32-11; poe2wiki: N stacks per Retaliation, reset on the next one, one used per
+#     supported hit, damage to the same target). Only when Barbs
 #     supports the main skill, a non-triggered Melee Attack (Barbs on another group: an undercount, named). Barbs' own
 #     Thorns hits aren't Retaliation (KeywordPopups ThornsRetaliation), so they feed no more Barbs.
 # Not counted yet (undercounts, labelled in the note): legacy Prized Pain's "Deal your Thorns Damage to Enemies you Stun
@@ -4687,14 +4692,12 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
             barbs_parts.append(f"{name} 0 ({what} isn't a non-triggered Melee Attack)")
             continue
         barb_hits = min(retaliations * count, main_hits) * times
-        once = min(retaliations, main_hits) * times
         barb_hit = thorns_hit(barb_rate) or hit
         barbs_dps += barb_hits * barb_hit
         barbs_parts.append(f"{name} {barb_hits:.3g}/s (min(Retaliations {retaliations:.3g}/s x {count}, "
                            f"{whose} {main_hits:.3g}/s)" + (f" x {times}" if times > 1 else "")
-                           + f", each PoB's Barbs hit {barb_hit:.4g}; if the game counts the boss once per Retaliation: "
-                           f"{once:.3g}/s, {once * barb_hit:.0f} DPS (UNVERIFIED: the stat counts hits, the text "
-                           "enemies); PoB's own Barbs entry, scored at 1 use a second, taken out of Full DPS)")
+                           + f", each PoB's Barbs hit {barb_hit:.4g}; {count} hits on the same boss a Retaliation: "
+                           "AUDIT32 A32-11; PoB's own Barbs entry, scored at 1 use a second, taken out of Full DPS)")
     parts = [f"Retaliation {retaliations:.3g}/s ({boss}'s landed hits {landed:.3g}/s, one every {every:.2f} s at "
              f"{land:.0%} landing (evaded and Blocked hits not counted; whether a Blocked hit Retaliates is "
              f"UNVERIFIED), x {share:.0%}: {share_how}{non_how})"]
@@ -7105,8 +7108,9 @@ def multi_set_model(main: str | None, scored: str | None, sets: list[dict]) -> t
 # So on one boss each arrow sucked in gives ONE copied hit at the penalty (its ring is a group), and the arrow itself is
 # gone ("sucked into it"; whether it also hits the boss: UNVERIFIED, taken as not, plans/term-projectile-range.md):
 # against a skill whose one arrow a use hits the boss, a use through the Tornado gives N x (1 - penalty) hits for 1, N
-# the arrows a use fires (PoB's ProjectileCount). A skill whose arrows all hit anyway (SHOTGUN_SKILLS, SEQUENCE_SKILLS,
-# PoB counts them) gives N x (1 - penalty) for N: never a gain. The rate comes from the build (CLAUDE.md rule 2): each
+# the arrows a use fires (PoB's ProjectileCount). A skill whose arrows all hit anyway (SHOTGUN_SKILLS, SEQUENCE_SKILLS)
+# gives N x (1 - penalty) for N: never a gain. (PoB counts each shotgun arrow only since GEM2's c2d9315 / 8674bd0, train
+# 46; before them it counted one, so "direct = count" here was ahead of PoB's own number for the shotgun skills.) The rate comes from the build (CLAUDE.md rule 2): each
 # Tornado takes H arrows or lasts its duration, whichever ends first, so U = min(H / N, duration x uses/s) main uses
 # go through one Tornado, and each Tornado costs one Tornado Shot use (1 / its own PoB use rate): the main skill's
 # damage is x (N x (1 - penalty) / direct) x (U / r) / (U / r + Tornado Shot's use time). Below x1 the player shoots the
