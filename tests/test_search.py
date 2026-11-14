@@ -331,6 +331,21 @@ def test_gems_the_game_removed_are_left_out_and_unpriced_legacy_supports_wait():
         assert name not in LIVE_LEGACY and name not in ctx.gems and not ctx.allowed_gem(name)
 
 
+
+def test_uniques_and_gems_a_new_league_character_cant_get_are_not_offered():
+    """COV25, the user's league-obtainable rule: the seven uniques the 0.3.0 notes stopped dropping and The Road Warrior
+    (0.5.0) are never offered, even in SSF where every unique is; Blessed Bonds and Merit of Service (UNVERIFIED) still
+    are. Solar Orb isn't a gem since 0.3.0, but the Pyrophyte Staff still grants it."""
+    from builder.search.context import GONE_GEMS, GONE_UNIQUES
+
+    ctx = context(main_skill="Ice Shot", budget={"ssf": True})
+    offered = {o.name for options in ctx.item_options.values() for o in options if o.unique}
+    assert len(GONE_UNIQUES) == 8 and not offered & set(GONE_UNIQUES)
+    assert {"Blessed Bonds", "Merit of Service", "Atziri's Disdain"} <= offered
+    assert "Solar Orb" in GONE_GEMS and "Solar Orb" not in ctx.gems
+    assert ctx.granting_bases("Solar Orb", "Staff") == ("Pyrophyte Staff",)
+
+
 # Objective -------------------------------------------------------------------------------------
 
 

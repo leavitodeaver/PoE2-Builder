@@ -31,6 +31,9 @@ class Variants:
         return tuple(self.names[i - 1] for i in choice if 0 < i <= len(self.names))
 
 
+OLD_VERSION = re.compile(r"Pre \d+\.\d+")  # a variant named for the patch that changed the item ("Pre 0.4.0")
+
+
 def variants_of(raw: str) -> Variants | None:
     """The variants and selections in a unique's text, or None when it has fewer than two variants."""
     lines = raw.split("\n")
@@ -56,7 +59,10 @@ def variants_of(raw: str) -> Variants | None:
     counts = [len(x) for x in own]
     typical = sorted(counts[1:])[len(names) // 2]
     usable = tuple(i for i in range(1, len(names) + 1)
-                   if counts[i] <= max(2, 2 * typical) and "test variant" not in names[i - 1].lower())
+                   if counts[i] <= max(2, 2 * typical) and "test variant" not in names[i - 1].lower()
+                   # (COV25, the user's league-obtainable rule: PoB's "Pre 0.4.0" versions are the item before a patch
+                   # changed it, which no new drop has: Grand Spectrum's and The Adorned's)
+                   and not OLD_VERSION.match(names[i - 1]))
     return Variants(names, tuple(slots), tuple(selected), usable, tuple(tuple(x) for x in own[1:]))
 
 

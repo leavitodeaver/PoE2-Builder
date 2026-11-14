@@ -335,3 +335,12 @@ def test_priced_versions_cost_their_trade_price_and_unlisted_ones_are_not_offere
     # Self-found: prices don't apply, and any version can drop
     jewels.ctx = SimpleNamespace(ssf=True, unique_versions=table)
     assert len(jewels.unlock_versions(option)) == len(variants_of(raw).usable)
+
+
+def test_pre_patch_variants_are_not_offered():
+    """COV25 (the user's league-obtainable rule): PoB's "Pre 0.4.0" version of Grand Spectrum and The Adorned is the item
+    before 0.4.0 changed it, which no new drop has, so the search's variant choice (Variants.usable) never takes it."""
+    for name in ("Grand Spectrum", "The Adorned"):
+        variants = variants_of(uniques()[name]["raw"])
+        old = [i for i, n in enumerate(variants.names, start=1) if n.startswith("Pre ")]
+        assert old and not set(old) & set(variants.usable) and variants.usable, (name, variants.names)

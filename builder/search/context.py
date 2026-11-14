@@ -70,6 +70,35 @@ GONE_GEMS = {
     # page, through search excerpts, gives the same 0.2.0 row; no later version brings it back). Existing copies still work,
     # so a PoB code holding one still reads it; a new character can't get one.
     "Shock Siphon": "can't be engraved since 0.2.0 (poe2db's version history and the 0.2.0 notes agree)",
+    # COV25 (checked: the official 0.3.0 notes, pathofexile.com forum 3826682: "Living Bomb and Solar Orb have swapped
+    # places." / "Living Bomb is now a tier 3 Elemental Skill Gem, while Solar Orb is an inherent skill to Pyrophyte
+    # Staves"; poe2db's current page https://poe2db.tw/us/Solar_Orb: "From: Pyrophyte Staff", the same 0.3.0 row, later rows
+    # bug fixes only). PoB still exports it as an ordinary gem (and Living Bomb as item-granted: the swap the other way, an
+    # UNDERCOUNT left for later). The skill stays reachable from its sources: the Pyrophyte Staff base and The Searing Touch
+    # (Context.granted_by); only the free gem copy goes.
+    "Solar Orb": "a Pyrophyte Staff's own skill since 0.3.0, not a gem (the 0.3.0 notes and poe2db agree)",
+}
+
+# Uniques PoB carries that a new character in the current league can't obtain (the user, 13 Nov 2026: "No, league-obtainable
+# only"), each with two sources that agree: item_options and skill_source leave them out, so the search never offers one;
+# a PoB code or a request that names one still prices it (unique_option). COV25, from PoB's "Source: No longer obtainable"
+# tags (vendor PoB Data/Uniques) and the research in its report.
+GONE_UNIQUES: dict[str, str] = {
+    # The official 0.3.0 notes (pathofexile.com forum 3826682): "The following Uniques can no longer drop, and will be
+    # reintroduced at a later date: Infernoclasp, Forbidden Gaze, Thunderstep, The Wailing Wall, The Fallen Formation,
+    # Wylund's Stake, The Deepest Tower, and The Remembered Tales." poe2db's pages carry the same 0.3.0 row and "Limit: Drop
+    # disabled" (Infernoclasp, Thunderstep, Wylund's Stake opened; none has a 0.4 or 0.5 row); PoB tags each "Source: No
+    # longer obtainable". Not brought back (checked: the official 0.4.0 and 0.5.0 notes, forum 3883495 / 3932540, and
+    # Fextralife's copy of 0.5.0-0.5.5, read for the eight names).
+    **{name: "can no longer drop since 0.3.0 (the 0.3.0 notes and poe2db agree; not reintroduced through 0.5.5)" for name in (
+        "Infernoclasp", "Forbidden Gaze", "Thunderstep", "The Wailing Wall", "The Fallen Formation", "Wylund's Stake",
+        "The Deepest Tower")},
+    # The official 0.5.0 notes (forum 3932540): "The Road Warrior Unique Body Armour can no longer be obtained."; poe2db marks
+    # it drop disabled (search excerpt); PoB tags it "No longer obtainable"; the game's unique collection layout lacks it.
+    "The Road Warrior": "can no longer be obtained since 0.5.0 (the 0.5.0 notes and poe2db agree)",
+    # Not here, UNVERIFIED (PoB's "No longer obtainable" tag and poe2db's "Drop disabled", which may be one game flag, and no
+    # patch note; a poe2wiki excerpt says Merit of Service "can drop anywhere", and 0.3.0 rebalanced it): Blessed Bonds,
+    # Merit of Service. They stay offered.
 }
 
 ARMOUR_SLOTS = ["Helmet", "Body Armour", "Gloves", "Boots"]
@@ -302,7 +331,7 @@ class Context:
         for kind, source, ascendancy in self.granted_by.get(skill, []):
             if kind == "passive" and source not in self.compiled.filters.forbidden_passives:
                 return kind, source, ascendancy
-            if kind == "unique" and source not in self.compiled.filters.forbidden_uniques:
+            if kind == "unique" and source not in self.compiled.filters.forbidden_uniques and source not in GONE_UNIQUES:
                 return kind, source, ascendancy
         return None
 
@@ -434,7 +463,7 @@ class Context:
         floors = self.requested_floors
         for unique in self.data.uniques:
             base = self.bases_by_name.get(unique["base"])
-            if unique["name"] in forbidden or base is None or not self._base_ok(base, unique=True) or not self._style_ok(base):
+            if unique["name"] in forbidden or unique["name"] in GONE_UNIQUES or base is None or not self._base_ok(base, unique=True) or not self._style_ok(base):
                 continue
             if rules.blocked_floors(unique["raw"]) & floors:
                 continue  # e.g. Veil of the Night under a resistance floor (game_rules.yaml floor_blockers)
