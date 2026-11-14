@@ -1234,3 +1234,30 @@ def test_sacrifice_supplies_corpses_on_a_real_skeleton_build(engine):
     rate, how = models.sacrifice_corpses(found, main, {"Speed": speed})
     # (PoB's Speed for Detonate Dead is corpse_model's own corpse rate, 0 here: the deaths come from its base cast)
     assert rate > 0 and main.cast_time > 0 and "base" in how, (speed, how[:300], main.cast_time)
+
+
+def test_skeletons_without_a_count_stat_count_one_each_on_a_real_build(engine):
+    """(MECHB20, AUDIT29 A29-2) Only Skeletal Warrior carries a count stat (skill_desired_initial_amount 2): Storm Mages,
+    Reavers and the other Skeleton gems carry none in the game files or PoB, so PoB gave them 0 minions and Death Storm,
+    Sacrifice's corpses and the minion-death lines read 0. The bridge counts one each (labelled UNVERIFIED)."""
+    from builder.search import models
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Detonate Dead", ascendancies=["Infernalist"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Detonate Dead"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    for gem in ("Sacrifice", "Skeletal Storm Mage", "Skeletal Reaver"):
+        build.call("setGroup", gems=[{"name": gem, "support": False, "level": 20, "quality": 0, "enabled": True}])
+    raw = build.call("activeSkills")["skills"]
+    for name in ("Skeletal Storm Mage Minion", "Skeletal Reaver Minion"):
+        summon = next(s for s in raw if s["name"] == name).get("summon") or {}
+        assert summon.get("limit") == 1 and summon.get("limitFrom") == "default" and summon.get("skeleton"), (name, summon)
+    found = [models.Skill.of(s) for s in raw if not s["disabled"]]
+    main = next(s for s in found if s.name == "Detonate Dead")
+    rate, how = models.sacrifice_corpses(found, main, {"Speed": 0.0})
+    uses, struck, some, storm = models.death_storm(found, main, {"Speed": 0.0})
+    assert rate > 0 and "one minion each" in how, how
+    assert uses > 0 and struck > 0, storm

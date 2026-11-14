@@ -779,6 +779,10 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple
         return 0.0, f"nothing in this build kills its minions ({'; '.join(parts + [not_counted])})"
     revive, how = revive_seconds(reviving)
     rate = count * kills / (count + revive * kills)
+    defaults = [s.name for s in reviving if s.summon.get("limitFrom") == "default"]
+    if defaults:  # (AUDIT29 A29-2: no count stat in the game files or PoB)
+        how += (f"; {', '.join(defaults)}: one minion each (no count stat in the game files or PoB; UNVERIFIED, an "
+                "undercount if a gem summons more)")
     return rate, (f"{rate:.3f} of your {count:g} Reviving minions Killed per second: " + "; ".join(parts)
                   + f"; each revives {revive:.3g} s after the last death (KeywordPopups Reviving: the delay "
                     f"resets on each death; {how}), so {count:g} x {kills:.2f} / ({count:g} + {revive:.3g} x {kills:.2f}); "
@@ -5625,10 +5629,13 @@ def kills_note(kills: tuple[float, float, str]) -> list[dict]:
 # version; ModCache also holds 250 / 350 / 501 rolls). PoB parses it (HeartboundLoopSelfDamage) but applies it only per
 # cast of Summon Skeletons, as damage per summoned minion (CalcOffence selfHitHandlers), never at the rate minions die.
 # The game: on Minion Death, which KeywordPopups MinionDeath counts for minions that died in any way (Killed, expired,
-# despawned): minion_died_rate's rate. So the damage taken per second is the lines' sum x that rate. It's taken as not a
-# Hit, so neither Armour nor evasion meets it, and nothing else mitigates it (UNVERIFIED, LOW: possibly too high for a
-# build with Physical damage reduction other than Armour). The recovery reader is MECH-C's (objective.boss_recovery):
-# it's on build.self_damage and in the notes until then.
+# despawned): minion_died_rate's rate. So the damage taken per second is the lines' sum x that rate. (MECHB20, AUDIT29
+# A29-5) It is Hit damage: "Any damage that isn't damage over time is Hit damage" (KeywordPopups Hit), and this is a
+# one-off amount per death, so "damage taken over time" lines don't reduce it (PoB treats it as damage over time: 300 ->
+# 225 in MECHC14's probe, an undercount of the damage taken). Armour may reduce it as a Physical Hit (whether a
+# self-inflicted Hit meets Armour, and whether it can be evaded, is UNVERIFIED); it's not reduced here, so the damage
+# taken is at most too high (the safe side for recovery). The recovery reader is MECH-C's (objective.boss_recovery): it's
+# on build.self_damage and in the notes until then.
 HEARTBOUND = re.compile(r"^(\d+(?:\.\d+)?) Physical Damage taken on Minion Death$", re.I)
 
 
@@ -5642,8 +5649,10 @@ def heartbound_damage(texts: list[str], died: tuple[float, str]) -> tuple[float,
     taken = per * max(rate, 0.0)
     return taken, [{"label": "Heartbound Loop: damage taken on Minion Death",
                     "value": f"{taken:,.0f} Physical damage per second",
-                    "basis": (f"{per:g} per minion death x {rate:.3f} deaths per second ({how}); not a Hit, so no Armour "
-                              "or evasion (UNVERIFIED); PoB counts it only per Summon Skeletons cast"),
+                    "basis": (f"{per:g} per minion death x {rate:.3f} deaths per second ({how}); Hit damage (KeywordPopups Hit: "
+                              "not damage over time), so damage-over-time lines don't reduce it; Armour isn't applied "
+                              "(whether it meets a self-inflicted Hit is UNVERIFIED: at most too high); PoB counts it "
+                              "only per Summon Skeletons cast, as damage over time"),
                     "confidence": "LOW",
                     "play": (f"Each of your minions dying costs you {per:g} Life: {taken:,.0f} per second at this "
                              "build's minion deaths" if taken > 0 else

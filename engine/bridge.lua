@@ -3151,7 +3151,8 @@ function bridge.activeSkills(args)
 						local sets = effect.statSets
 						local ok2, built = pcall(calcLib.buildSkillInstanceStats, activeSkill.activeEffect, effect,
 							sets and sets[1])
-						return ok2 and built and built["skill_desired_initial_amount"] or nil
+						return ok2 and built and (built["skill_desired_initial_amount"] or built["skill_desired_amount_override"])
+							or nil
 					end)(),
 					duration = base * calcLib.mod(list, cfg, "Duration", "PrimaryDuration"),
 					persistent = types[SkillType.Persistent] and true or false,
@@ -3167,6 +3168,11 @@ function bridge.activeSkills(args)
 			if ok then
 				if (summon.limit or 0) <= 0 and (summon.desired or 0) > 0 then
 					summon.limit, summon.limitFrom = summon.desired, "desired"
+				elseif (summon.limit or 0) <= 0 and summon.persistent then
+					-- (AUDIT29 A29-2) the Reavers, Brutes, Snipers, Clerics, Arsonists, Frost and Storm Mages carry no
+					-- count stat in the game files or PoB: one each, the least a summon can mean (UNVERIFIED: poe2db
+					-- gives no count either; an undercount if a gem summons more)
+					summon.limit, summon.limitFrom = 1, "default"
 				end
 				skills[#skills].summon = summon
 			end
