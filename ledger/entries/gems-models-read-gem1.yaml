@@ -51,7 +51,7 @@
   status: proposed
 
 - id: no-effect-gem1-removed-meta-gems
-  title: "Curse on Block, Cast on Melee Kill, Cast on Melee Stun: removed from the game (models.DEPRECATED); their stats change nothing"
+  title: "Curse on Block, Cast on Melee Kill, Cast on Melee Stun: never released (A32-3; models.DEPRECATED); their stats change nothing"
   kind: gem_stat
   match: '.*'
   replace: []
@@ -59,7 +59,8 @@
           SupportMetaCastOnMeleeKillPlayer, SupportMetaCastOnMeleeStunPlayer]
   confidence: datamined
   notes: >-
-    The three are in models.DEPRECATED: never picked, and a PoB code that has one gets no triggers from it, said in the
+    Never released, not removed (AUDIT32 A32-3, confirmed: in the game files nothing grants them; no wiki item, no
+    poe2db history or 'From' card, no patch note). The three are in models.DEPRECATED: never picked, and a PoB code that has one gets no triggers from it, said in the
     guide. (checked, by the lane that set DEPRECATED: data/game-*/live.json reaches them by no uncut tier, base item,
     passive or collection unique; poe2db shows them with no tier or source; the user found no Curse on Block in game on 7
     Nov.) The Support* names are each meta gem's own hidden support (the triggered spells' side). Scoped to these six
