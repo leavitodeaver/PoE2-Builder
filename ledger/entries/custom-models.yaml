@@ -365,3 +365,50 @@
   sources: ["https://poe2db.tw/us/Deadly_Resolve",
             "PoB skill data: SupportDeadlyResolvePlayer (gain_dangerous_resolve_stack_per_X_ms_channeling 1000, maximum_dangerous_resolve_stacks 3, dangerous_resolve_explosion_cooldown_ms 300)"]
   status: proposed
+
+# Aggravated Bleeding (model: aggravate; MECH66) ------------------------------------------------
+# models.aggravate_model reads these lines itself (items and passives) and counts them at the main skill's own Attack
+# hits/s, crit chance and Bleed duration. These entries come before pob-gaps-boss.yaml's aggravate-bleed-on-hit /
+# -on-crit / -always-on-crit (files load in name order), which took a flat 2 hits/s, 5 s Bleeds and half of hits critical.
+
+- id: aggravate-bleed-on-attack-hit-model
+  title: Chance to Aggravate Bleeding on Attack hit (Aggravate model)
+  kind: pob_gap
+  model: aggravate
+  match: '^(\(\d+-\d+\)|\d+)% chance to Aggravate Bleeding on (?:targets you Hit with Attacks|Hit)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    base_aggravate_bleeding_on_attack_hit_chance_% / local_aggravate_bleeding_on_hit_chance_% (stat_descriptions.csd,
+    26476662). A Bleed is Aggravated (100% extra damage, KeywordPopups Aggravate) from the first aggravating hit after
+    it is inflicted to its end: share E[(D - A)+] / D at the main skill's Attack hits/s and PoB's BleedDuration
+    (models.aggravated_share; MEDIUM). PoB doesn't parse it (0 before the ledger).
+  sources: ["KeywordPopups Aggravate (game 26476662)", "https://poe2db.tw/us/Aggravated_Bleeding"]
+  status: proposed
+
+- id: aggravate-bleed-on-attack-crit-model
+  title: (Chance to) Aggravate Bleeding on Attack critical hit (Aggravate model)
+  kind: pob_gap
+  model: aggravate
+  match: '^(?:(\(\d+-\d+\)|\d+)% chance to )?Aggravate Bleeding on targets you Critically Hit with Attacks$'
+  replace: []
+  confidence: theory
+  notes: >-
+    aggravate_bleeding_on_attack_crit_chance_% (100: no "chance to"). As the on-hit line, at the main skill's own crit
+    chance (PoB's CritChance) instead of the flat 50% pob-gaps-boss.yaml took (an overcount below 50% crit).
+  sources: ["KeywordPopups Aggravate (game 26476662)", "https://poe2db.tw/us/Aggravated_Bleeding"]
+  status: proposed
+
+- id: aggravate-bleed-older-than-model
+  title: Attack hits Aggravate Bleeding older than N seconds (Deep Wounds; Aggravate model)
+  kind: pob_gap
+  model: aggravate
+  match: '^Attack Hits Aggravate any Bleeding on targets which is older than (\d+(?:\.\d+)?) seconds?$'
+  replace: []
+  confidence: theory
+  notes: >-
+    aggravate_bleeding_older_than_ms_on_hit (RESEARCH23 #144: Deep Wounds, an Ulaman glove suffix). A Bleed is
+    Aggravated from the first Attack hit after it is N s old: (D - N - wait) / D on average at the main skill's hits/s
+    (0 when the Bleed lasts N s or less). PoB doesn't parse it (0 before MECH66: an undercount).
+  sources: ["stat_descriptions.csd aggravate_bleeding_older_than_ms_on_hit (game 26476662)", "KeywordPopups Aggravate"]
+  status: proposed

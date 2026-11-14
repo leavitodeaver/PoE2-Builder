@@ -407,6 +407,8 @@ def _hit_restriction(when: str, stats: dict) -> str | None:
 # PoB's sup_dex.lua Ferocity); read from the main skill's own stats and its supports' in the build, so any other carrier
 # counts too
 NO_FRENZY_STAT = "skill_cannot_generate_frenzy_charges"
+PIN_MORE_SUPPORT, PIN_MORE_STAT = "Pin III", "support_pin_pin_duration_+%_final"  # (MECH66: "Pin caused by Supported
+# Skills has 30% more duration", gem_stat_descriptions.csd; read by models.pin_duration_scale)
 NO_BLIND_STAT = "cannot_inflict_blind"  # Blindside (sup_dex.lua SupportBlindsidePlayer; Stats.json)
 # (the build's lines that name Blind: only then is the main skill asked for it; MECH59: a backspace had stood for \b
 # here since MECH55, so the check never ran)
@@ -1485,6 +1487,28 @@ def _armour_break_source(text: str, stats: dict) -> tuple[float, float, float, s
     return per * events, 0.0, 0.0, f"{per:,.0f} per {'crit' if crit_only else 'hit'} {what} x {events:.2f}/s"
 
 
+# How much Armour each Break takes (MECH66; FIX_QUEUE COVE11 leftovers, an UNDERCOUNT before): game files
+# (stat_descriptions.csd, 26476662) armour_break_amount_+% "Break {0}% increased Armour" (PoB parses it as
+# ArmourBreakPerHit INC, which scales only PoB's own per-skill Armour Break output, not the lines this model reads) and
+# gem_stat_descriptions.csd support_increased_armour_break_armour_break_amount_+%_final "Supported Skills Break {0}% more
+# Armour" (Armour Demolisher I 50 / II 70, Uruk's Smelting 70: GrantedEffectStatSets; PoB maps it to ArmourBreakEffect,
+# which no PoB calculation reads: checked grep of PoB's src). Read on the main skill (stats["_break_more"]). Applied to
+# the Armour each hit / Freeze breaks, not to Full Breaks ("Fully Break" is all of it). Not read (0, labelled): "Hits
+# Break X% increased Armour on targets with Ailments", Overgrown Plant skills' when-Wet line.
+BREAK_INCREASED = re.compile(r"^Break (\d+(?:\.\d+)?)% (increased|reduced) Armour$", re.I)
+BREAK_MORE_SUPPORTS = ("Armour Demolisher I", "Armour Demolisher II", "Uruk's Smelting")
+BREAK_MORE_STAT = "support_increased_armour_break_armour_break_amount_+%_final"
+
+
+def break_amount_scale(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(x on the Armour each Break takes, how): the build's "Break X% increased Armour" lines x the main skill's support."""
+    inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+              for t in lines if (m := BREAK_INCREASED.match(t.strip())))
+    more = number(stats.get("_break_more"))
+    parts = ([f"{inc:+g}% increased"] if inc else []) + ([f"{more:+g}% more from its support"] if more else [])
+    return max(0.0, 1 + inc / 100) * (1 + more / 100), ", ".join(parts)
+
+
 def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
     """(share of the fight Fully Broken, basis), or (0.0, "") if no line Breaks Armour for you."""
     main_types = stats.get("_main_types") or set()
@@ -1497,6 +1521,10 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
         how.append(f"{text[:60]} ({r[3]})")
     if not how:
         return 0.0, ""
+    scale, scaled = break_amount_scale(lines, stats)
+    if scaled:
+        rate, share = rate * scale, share * scale
+        how.insert(0, f"each Break takes x{scale:.2f} Armour ({scaled})")
     rate += share * armour
     to_break = 0.0 if armour <= 0 else (armour / rate if rate > 0 else float("inf"))
     held = models.full_break_duration(lines)  # (12 s x the Armour Break Duration lines)
@@ -3150,6 +3178,14 @@ class Conditions:
             stats["_consumes"] = consumes
         if side := side_consumes(self.build, self.main_skill):  # (MECH53: skills beside the main one)
             stats["_side_consumes"] = side
+        if set(BREAK_MORE_SUPPORTS) & main_gems:  # (MECH66: Armour Demolisher / Uruk's Smelting, break_amount_scale)
+            raw = self.build.call("activeSkills", supportStats=[BREAK_MORE_STAT])
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            stats["_break_more"] = number((main.get("supportStats") or {}).get(BREAK_MORE_STAT))
+        if PIN_MORE_SUPPORT in main_gems:  # (MECH66, A12-1: Pin III's more Pin duration, models.pin_duration_scale)
+            raw = self.build.call("activeSkills", supportStats=[PIN_MORE_STAT])
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            stats["_pin_more"] = number((main.get("supportStats") or {}).get(PIN_MORE_STAT))
         # Shocked Ground (shocked_ground): the main skill's own, the Shocking Leap support on it, and the lines
         if self.main_skill in SHOCKED_GROUND_SKILLS or SHOCKED_GROUND_SUPPORT in main_gems:
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(SHOCKED_GROUND_SUPPORT_STATS))

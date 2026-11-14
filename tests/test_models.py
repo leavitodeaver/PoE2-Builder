@@ -4316,3 +4316,40 @@ def test_charm_charges_used_modifiers_change_a_charms_cost_per_use():
     assert spent == pytest.approx(15 / 4)
     assert Charges.from_bridge({"charmChargesUsedInc": -20}).charm_used_inc == -20
 
+
+def test_the_pinned_uptime_reads_the_builds_pin_duration():
+    """MECH66 (AUDIT12 A12-1, an UNDERCOUNT): the Pin's 3 s (KeywordPopups Pinned) x the build's "X% increased Pin
+    duration" lines (summed) x Pin III's "30% more duration" (stats["_pin_more"]); before, always 3 s."""
+    stats = {"Speed": 2.0, "HitChance": 100, "PinBuildupAvg": 10.0, "PhysicalHitAverage": 100.0}
+    base, _ = models.immobilised_share(stats, "Pin")
+    assert models.immobilise_duration(stats, "Pin") == pytest.approx(3.0)
+    longer = dict(stats, _texts=["20% increased Pin duration", "15% increased Pin duration", "10% reduced Hinder duration"],
+                  _pin_more=30)
+    assert models.immobilise_duration(longer, "Pin") == pytest.approx(3.0 * 1.35 * 1.3)
+    share, how = models.immobilised_share(longer, "Pin")
+    assert share > base and "+35% from Pin duration lines" in how and "+30% more from Pin III" in how
+    assert models.immobilise_duration(longer, "Freeze") == pytest.approx(4.0)  # (Pin lines don't touch Freeze)
+
+
+def test_aggravated_bleeding_is_counted_at_the_builds_own_hits_crits_and_bleed_duration():
+    """MECH66 (RESEARCH23 #144; the ledger's flat 2 hits/s, 5 s Bleeds and 50% crits before): a Bleed is Aggravated from
+    the first aggravating hit after it is inflicted, E[(D - A)+] / D of its time; Deep Wounds' "older than N s" from the
+    first Attack hit after N s."""
+    import math
+    from builder import ledger
+
+    assert models.aggravated_share(5.0, 0.2, None, 2.0) == pytest.approx(1 - (1 - math.exp(-1)) / 1, rel=1e-3)
+    assert models.aggravated_share(5.0, 0.0, 4.0, 2.0) == pytest.approx((1 - (1 - math.exp(-2)) / 2) / 5, rel=1e-3)
+    assert models.aggravated_share(3.0, 0.0, 4.0, 2.0) == 0.0  # (a 3 s Bleed is never 4 s old)
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "BleedDuration": 5.0}
+    crit = "20% chance to Aggravate Bleeding on targets you Critically Hit with Attacks"
+    assert ledger.translate(crit)[0].raw.get("model") == models.AGGRAVATE_MODEL  # (not the flat-50% entry)
+    mods, notes = models.aggravate_model([crit], stats, {"Attack"})
+    share = models.aggravated_share(5.0, 2.0 * 0.1 * 0.2, None, 2.0)  # (2 hits/s x 10% crit x 20%)
+    assert mods == [models.line("1% more Damage with Bleeding", 100 * share)] and notes[0]["value"] == round(share, 3)
+    assert share < 0.1  # (the old entry: 3 x 20 / (100 + 3 x 20) = 37.5% more, at half of hits critical)
+    deep = "Attack Hits Aggravate any Bleeding on targets which is older than 4 seconds"
+    mods, _ = models.aggravate_model([deep], stats, {"Attack"})
+    assert mods[0]["scale"] == pytest.approx(100 * models.aggravated_share(5.0, 0.0, 4.0, 2.0), rel=1e-3)
+    assert models.aggravate_model([deep], stats, {"Spell"})[0] == []  # (only Attack hits)
+    assert models.aggravate_model([deep, "Bleeding you inflict is Aggravated"], stats, {"Attack"})[0] == []

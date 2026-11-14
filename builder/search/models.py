@@ -1242,8 +1242,8 @@ FULL_BREAK_DURATION = 12.0
 # "{0}% increased Armour Break Duration" (passives area_attacks31, armour_break2/5/36; jewel mods), pin_duration_+%
 # "{0}% increased Pin duration" (passives pin3/5/6/8, a soul core; Pin III's support_pin_pin_duration_+%_final).
 # The Armour Break one is read as lengthening the 12 s Fully Broken (KeywordPopups ArmourBreak; assumed: the game
-# files give a partial Break no duration). Pin: nothing here rates the boss Pinned (conditionEnemyPinned is never set),
-# so its duration lines are labelled in the ledger and move nothing until a Pinned uptime exists.
+# files give a partial Break no duration). Pin: read by the boss's Pinned uptime (MECH66, A12-1: immobilise_duration's
+# pin_duration_scale; conditionEnemyPinned is set from the main skill's Pin buildup since MECH46).
 DURATION_LINE = r"^(\d+(?:\.\d+)?)% (increased|reduced) {name} duration$"
 
 
@@ -2825,7 +2825,7 @@ PARTS = {"cascade": "Spell Cascade's Cascades", "offering": "spells cast around 
          "tectonic_aftershock": "Tectonic Slams' extra Aftershock",
          "branch_fissure": "the branched Fissures (Branching Fissures)",
          "glory_cost": "the Glory the skill requires (read by the Glory models: glory_uses, usage.py)",
-         "pin_duration": "the Pins it inflicts (no Pinned uptime is modelled yet)",
+         "pin_duration": "the Pins it inflicts (read by the Pinned uptime: models.pin_duration_scale, MECH66)",
          "curse_duration": "the Curse's duration when the cast consumes a Power Charge (curse model)",
          "ground_duration": "the Ground Surfaces it creates (read by the ground models: conditions.shocked_ground)",
          "haemocrystals": "the Haemocrystals it creates from Consumed Bleeding (no crystal damage is counted yet)",
@@ -3659,8 +3659,27 @@ def immobilise_period(stats: dict, ailment: str) -> float:
 
 
 def immobilise_duration(stats: dict, ailment: str) -> float:
+    if ailment == "Pin":
+        return IMMOBILISE_DURATION["Pin"] * pin_duration_scale(stats)[0]
     mod = (number(stats.get("FreezeDurationMod")) or 1.0) if ailment == "Freeze" else 1.0
     return IMMOBILISE_DURATION[ailment] * mod
+
+
+# Pin duration (MECH66, AUDIT12 A12-1: an UNDERCOUNT before, the Pin's 3 s never lengthened). Game files
+# (stat_descriptions.csd, 26476662): pin_duration_+% "{0}% increased [Pinned|Pin] duration" (passives, a soul core;
+# PoB's ModCache holds "10% / 15% / 20% increased Pin duration" and parses none of them into a mod PoB reads: PoB has no
+# Pin duration, supports-parts.yaml's support-pin-three-duration, checked ModParser / Calc*.lua by COV-E 12 Nov);
+# gem_stat_descriptions.csd support_pin_pin_duration_+%_final "[Pinned|Pin] caused by Supported Skills has {0}% more
+# duration" (Pin III; read on the main skill by conditions as stats["_pin_more"]). Increased lines add, the support
+# multiplies (the game's usual increased / more rule). A boss's own Pin duration reduction, if any, isn't in the game
+# files we read (as Freeze's: MEDIUM).
+def pin_duration_scale(stats: dict) -> tuple[float, str]:
+    """(x on the Pin's 3 s, how): the build's "X% increased / reduced Pin duration" lines x Pin III's more."""
+    inc = duration_scale(stats.get("_texts") or [], "Pin")
+    more = 1 + number(stats.get("_pin_more")) / 100
+    parts = ([f"{inc - 1:+.0%} from Pin duration lines"] if inc != 1 else []) + (
+        [f"{more - 1:+.0%} more from Pin III"] if more != 1 else [])
+    return max(0.0, inc * more), "; ".join(parts)
 
 
 # How long the boss stays Frozen / Electrocuted (MECH38, 11 Nov 2026): the game files' KeywordPopups, "Freeze ... lasts 4
@@ -3670,8 +3689,8 @@ def immobilise_duration(stats: dict, ailment: str) -> float:
 # Consuming a Debuff (an Ailment is one: KeywordPopups Ailments) makes the enemy immune to it for 1 s (KeywordPopups Consume,
 # game 26476662; poe2db's Keywords page mirrors it; RESEARCH18 #92, HIGH on the text; MECH51)
 CONSUME_IMMUNE = 1.0
-IMMOBILISE_DURATION = {"Freeze": 4.0, "Electrocute": 5.0, "Pin": 3.0}  # (Pin: KeywordPopups Pinned; pin_duration_+%
-# modifiers aren't read: PoB gives no Pin duration, LOW)
+IMMOBILISE_DURATION = {"Freeze": 4.0, "Electrocute": 5.0, "Pin": 3.0}  # (Pin: KeywordPopups Pinned; x the build's
+# Pin duration lines and Pin III, pin_duration_scale: PoB gives no Pin duration)
 
 
 def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
@@ -3709,9 +3728,101 @@ def immobilised_share(stats: dict, ailment: str) -> tuple[float, str]:
                        f"{last:.2f} s of its {d:g} s on average, then the bar refills (at least the 1 s immunity, "
                        f"KeywordPopups Consume): one every {period:.2f} s: {share:.0%}")
     share = min(1.0, d / period)
+    longer = f" ({pin_duration_scale(stats)[1]})" if ailment == "Pin" and pin_duration_scale(stats)[1] else ""
     return share, (f"{fill * 100:.1f}% of the bar per s (PoB's buildup per hit x {hits_per_second(stats):.2f} hits/s, "
-                   f"{bosses.of(stats).name}'s threshold); {d:g} s each, one every {period:.1f} s (x6 threshold for "
+                   f"{bosses.of(stats).name}'s threshold); {d:g} s each{longer}, one every {period:.1f} s (x6 threshold for "
                    f"{window:g} s after each, buildup paused while it lasts, the user's word, MEDIUM): {share:.0%}")
+
+
+# Aggravated Bleeding from the main skill's Attack hits (MECH66; RESEARCH23 #144, FIX_QUEUE "the Aggravate share model";
+# before, the ledger's aggravate-bleed-on-hit / -on-crit / -always-on-crit took a flat 2 hits/s, 5 s Bleeds and half of
+# hits critical: an OVERCOUNT for builds that rarely crit, and "Attack Hits Aggravate any Bleeding ... older than N
+# seconds" counted 0, an UNDERCOUNT). Game files (KeywordPopups Aggravate, 26476662): "[Bleeding] that has been
+# Aggravated always treats the target as moving, which causes it to deal 100% extra damage. Once a [Bleeding] [Debuff]
+# has been Aggravated, it will remain Aggravated until its duration expires ... Aggravating some or all of them will
+# have no effect on new [Bleeding] [Debuff|Debuffs] applied afterwards". Stat texts (stat_descriptions.csd):
+# base_aggravate_bleeding_on_attack_hit_chance_% "{0}% chance to Aggravate Bleeding on targets you Hit with Attacks",
+# local_aggravate_bleeding_on_hit_chance_% "{0}% chance to Aggravate Bleeding on Hit" (a weapon's: its Attacks),
+# aggravate_bleeding_on_attack_crit_chance_% "{0}% chance to Aggravate Bleeding on targets you Critically Hit with
+# Attacks" (100: "Aggravate Bleeding on targets you Critically Hit with Attacks"), aggravate_bleeding_older_than_ms_on_hit
+# "Attack Hits Aggravate any Bleeding on targets which is older than {0} second(s)" (Deep Wounds; an Ulaman glove suffix).
+# A Bleed of duration D is Aggravated from the first aggravating hit after it is inflicted to its end, so its extra
+# damage is E[(D - A)+] / D, A the wait (hits random in time: Poisson at the main skill's hits/s, MEDIUM); the hit that
+# inflicts a Bleed is taken not to Aggravate that same Bleed (the lower reading, UNVERIFIED). Only the main skill's Attack
+# hits count (other skills' hits: an undercount, LOW). Counted as "X% more Damage with Bleeding" (the ledger's form; PoB's
+# own Aggravated / Moving bonus is AilmentMagnitude MORE 100 for Bleed, CalcSetup 1000). Other Aggravate sources (on Pin,
+# Knockback, Empowered Attacks, Heavy Stunned enemies, Jagged Ground, Cursed / Pinned targets, Presence) aren't read here.
+AGGRAVATE_HIT = re.compile(r"^(\d+(?:\.\d+)?)% chance to Aggravate Bleeding on (?:targets you Hit with Attacks|Hit)$", re.I)
+AGGRAVATE_CRIT = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to )?Aggravate Bleeding on targets you Critically Hit with "
+                            r"Attacks$", re.I)
+AGGRAVATE_OLDER = re.compile(r"^Attack Hits Aggravate any Bleeding on targets which is older than (\d+(?:\.\d+)?) "
+                             r"seconds?$", re.I)
+AGGRAVATE_ALWAYS = re.compile(r"^Bleeding you inflict is Aggravated$", re.I)
+AGGRAVATE_MODEL = "aggravate"  # (custom-models.yaml entries feeding these lines to aggravate_model)
+
+
+def aggravated_share(duration: float, rate: float, older: float | None, hits: float) -> float:
+    """Share of a Bleed's duration it is Aggravated: aggravating hits at `rate`/s from the start, and (Deep Wounds) any
+    Attack hit (`hits`/s) once the Bleed is older than `older` s. E[(D - A)+] / D = (1 / D) x the integral over
+    0..D of P(A <= t)."""
+    if duration <= 0:
+        return 0.0
+    steps, total = 400, 0.0
+    for i in range(steps):
+        t = (i + 0.5) * duration / steps
+        late = math.exp(-hits * (t - older)) if older is not None and t >= older else 1.0
+        total += 1 - math.exp(-rate * t) * late
+    return total / steps
+
+
+def aggravate_model(texts: list[str], stats: dict, main_types: set[str], moving: bool = False
+                    ) -> tuple[list[dict], list[dict]]:
+    """The main skill's Bleeding damage x (1 + its Aggravated share) from the build's Aggravate lines, at its own hits/s,
+    crit chance and Bleed duration (PoB's BleedDuration). Lines another ledger entry already translates are left to it."""
+    from builder import ledger
+
+    def ours(text: str) -> bool:
+        found = ledger.translate(text)
+        return found is None or found[0].raw.get("model") == AGGRAVATE_MODEL
+
+    on_hit, on_crit, older, used = [], [], [], []
+    for text in (t.strip() for t in texts):
+        if (m := AGGRAVATE_HIT.match(text)) and ours(text):
+            on_hit.append(float(m.group(1)) / 100)
+        elif (m := AGGRAVATE_CRIT.match(text)) and ours(text):
+            on_crit.append(float(m.group(1) or 100) / 100)
+        elif (m := AGGRAVATE_OLDER.match(text)) and ours(text):
+            older.append(float(m.group(1)))
+        else:
+            continue
+        used.append(text)
+    if not used:
+        return [], []
+    label = "Aggravated Bleeding from Attack hits"
+    if "Attack" not in main_types:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
+                     "basis": f"{'; '.join(used)}: the main skill isn't an Attack, so its hits Aggravate nothing (other "
+                              "skills' hits aren't counted: an undercount if they Attack and Bleed the boss)"}]
+    if moving or any(AGGRAVATE_ALWAYS.match(t.strip()) for t in texts):
+        return [], [{"label": label, "value": 0, "confidence": "HIGH",
+                     "basis": f"{'; '.join(used)}: the build's Bleeding is already Aggravated (or the boss set as moving) "
+                              "in PoB, which gives it the 100% extra; nothing more to add"}]
+    hits, crit = hits_per_second(stats), min(max(number(stats.get("CritChance")) / 100, 0.0), 1.0)
+    duration = number(stats.get("BleedDuration"))
+    miss = math.prod(1 - p for p in on_hit) * ((1 - crit) + crit * math.prod(1 - q for q in on_crit))
+    rate = hits * (1 - miss)
+    gap = min(older) if older else None
+    share = aggravated_share(duration, rate, gap, hits)
+    how = (f"{'; '.join(used)}: the main skill's {hits:.2f} Attack hits/s, {crit:.0%} critical, Aggravate a hit's Bleeds "
+           f"with {1 - miss:.0%} chance ({rate:.2f}/s)" + (f", and any hit once a Bleed is {gap:g} s old" if older else "")
+           + f"; a {duration:.2f} s Bleed is Aggravated {share:.0%} of its time (from the first such hit after it is "
+           "inflicted, hits random in time; the hit that inflicts it taken not to Aggravate it: UNVERIFIED, the lower "
+           "reading): 100% extra Bleeding damage for that share (KeywordPopups Aggravate)")
+    note = {"label": label, "value": round(share, 3), "confidence": "MEDIUM", "basis": how,
+            "play": "Keep attacking: each Bleed is Aggravated only by a hit after it was inflicted"}
+    if share <= 0:
+        return [], [note]
+    return [line("1% more Damage with Bleeding", 100 * share)], [note]
 
 
 # Electrocuting Arrow's Rods (MECH40, 11 Nov 2026; RULE_AUDIT 13). Game files / PoB act_dex.lua: "Hitting an enemy will

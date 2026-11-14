@@ -561,6 +561,14 @@ class Assumptions:
         rod_mods, rod_notes = models.rod_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + rod_mods, hand_notes + rod_notes
         texts = [e["text"] for e in source_lines]
+        if any(p.match(t.strip()) for t in texts for p in (models.AGGRAVATE_HIT, models.AGGRAVATE_CRIT,
+                                                            models.AGGRAVATE_OLDER)):
+            # (MECH66: Aggravated Bleeding at the main skill's own hits, crits and Bleed duration)
+            agg_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
+            moving = bool(build.call("getConfig")["input"].get("conditionEnemyMoving"))
+            agg_mods, agg_notes = models.aggravate_model(
+                texts, {**stats, **build.call("stats", fields=["BleedDuration"])}, agg_types, moving)
+            hand_mods, hand_notes = hand_mods + agg_mods, hand_notes + agg_notes
         passive_mods, passive_notes = passive_models.build_models(build, inputs, texts, found, main, supports)  # (COV-B)
         hand_mods, hand_notes = hand_mods + passive_mods, hand_notes + passive_notes
         if any(models.RUN_AND_GUN.search(t.strip()) for t in texts):  # (Run and Gun: shotgun and sequence-fired skills)

@@ -2942,3 +2942,17 @@ def test_death_storms_ground_counts_only_skeletons_fallen_at_the_boss(monkeypatc
     assert uses == 0.2 and chance == pytest.approx(1 - math.exp(-1.2 * 6 / 12)) and "6 of your 12" in how
     monkeypatch.setattr(models, "death_storm", lambda skills, main, stats: (0.0, 0.0, 0.0, "none fall"))
     assert cond.death_storm() == (0.0, 0.0, "none fall")
+
+
+def test_armour_break_amount_lines_and_supports_scale_each_break():
+    """MECH66: "Break X% increased Armour" (PoB's ArmourBreakPerHit INC, which this model never read) and Armour
+    Demolisher's "Supported Skills Break X% more Armour" (stats["_break_more"]; PoB's ArmourBreakEffect, read by nothing)
+    scale the Armour each hit breaks; a Full Break stays a Full Break."""
+    from builder.search.conditions import _armour_broken, break_amount_scale
+
+    stats = {"Speed": 1.0, "HitChance": 100, "CritChance": 0, "_main_types": {"Attack"}, "_enemy_armour": 1200}
+    assert break_amount_scale(["Break 20% increased Armour", "Break 10% increased Armour"], {"_break_more": 50}
+                              )[0] == pytest.approx(1.3 * 1.5)
+    more = _armour_broken(["Break 100 Armour on Hit", "Break 100% increased Armour"], {**stats, "_break_more": 50})
+    assert more[0] == pytest.approx(12 / (12 + 4)) and "x3.00" in more[1]  # (300 a hit: 4 s to break, 12 s Broken)
+    assert _armour_broken(["Break 100% increased Armour"], stats) == (0.0, "")  # (scales breaks; isn't one)
