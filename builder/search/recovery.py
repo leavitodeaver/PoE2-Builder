@@ -141,11 +141,14 @@ STUNNED_ES = re.compile(rf"regenerate {NUM}% of maximum energy shield over 1 sec
 # whether Block counts as prevented for these lines is UNVERIFIED). Recoup returns over 4 s: in a steady fight the second's
 # share of what's prevented. "per enemy Power" at the boss's Power (models.boss_power, with the build's Power lines).
 # Scarred Faith's "You cannot Recover Energy Shield to above Armour" caps the pool, not the rate: not applied (LOW).
-# The "if you have at least 100 Tribute" form (Twice Bled) isn't read (Tribute isn't read: its own ledger entry).
+# The "if you have at least N Tribute" form (Twice Bled, PREVENTED_LIFE_TRIBUTE; MECHC25, COV27 (c): before, unread, an
+# UNDERCOUNT) counts when PoB's Tribute output (CalcPerform 493, the summed "+N to Tribute") reaches N, else 0, noted.
 PREVENTED_ES = re.compile(rf"^{NUM}% of physical damage prevented recouped as energy shield per enemy power$", re.I)
 PREVENTED_LIFE = re.compile(rf"^{NUM}% of physical damage prevented recouped as life$", re.I)
+PREVENTED_LIFE_TRIBUTE = re.compile(rf"^{NUM}% of physical damage prevented recouped as life if you have at least {NUM} "
+                                    r"tribute$", re.I)
 HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNED_LIFE, STUNNED_ES, PREVENTED_ES,
-             PREVENTED_LIFE)
+             PREVENTED_LIFE, PREVENTED_LIFE_TRIBUTE)
 # The game's Light Stun rule (KeywordPopups LightStun, build 26476662): "up to 100% base chance for Hits that deal 100%
 # of the target's maximum Life" (StunThreshold: "A Hit that deals damage equal to or greater than your Stun Threshold
 # is guaranteed to Stun you, and the chance scales down linearly"), "Chances lower than 15% are treated as 0%" (the
@@ -419,6 +422,16 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
     for pool, pattern, field_name in (("Life", PREVENTED_LIFE, "LifePreventedRecoup"),
                                       ("Energy Shield", PREVENTED_ES, "EnergyShieldPreventedRecoup")):
         pct = sum(float(m.group(1)) for t in texts if (m := pattern.search(t.strip())))
+        if pattern is PREVENTED_LIFE:  # (MECHC25) Twice Bled's Tribute form, when the build has the Tribute
+            tribute = _num(stats.get("Tribute"))
+            for t in texts:
+                if (m := PREVENTED_LIFE_TRIBUTE.search(t.strip())) is None:
+                    continue
+                if tribute >= float(m.group(2)):
+                    pct += float(m.group(1))
+                else:
+                    income.parts.append(f"{m.group(1)}% of Physical damage prevented Recouped as Life: 0, the build has "
+                                        f"{tribute:g} Tribute, under the line's {m.group(2)}")
         if pct <= 0:
             continue
         per = f" per enemy Power x {power:g} ({power_how or 'the boss'})" if pattern is PREVENTED_ES else ""

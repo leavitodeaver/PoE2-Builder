@@ -106,6 +106,7 @@ class Charges:
     # it with leftover text (ModCache: FlaskCharges BASE + " for Charms you use to not consume "), so never applies it;
     # Charges.of reads the build's lines (CHARM_NOT_CONSUME)
     charm_not_consume: float = 0.0
+    charms_free: bool = False  # (MECHC25) "Charms use no Charges" (Pragmatism): see CHARMS_FREE
     # (MECHC21, AUDIT31 A31-21) "N% chance when a Charm is used to use another Charm without consuming Charges" (charms13,
     # charms15, Heart of the Well's unveiled mod; PoB parses it with leftover text and never applies it): the summed chance,
     # and each equipped charm's free uses a second from the others' uses ((item text, uses/s, how), charm_free_uses)
@@ -157,7 +158,8 @@ class Charges:
 
             cached = getattr(build, "_build_texts", None)  # (state.Build's per-commit cache of the same lines)
             texts = cached() if callable(cached) else [line["text"] for line in build.call("sourceLines")["lines"]]
-            gain = replace(gain, charm_not_consume=charm_not_consume(texts))
+            gain = replace(gain, charm_not_consume=charm_not_consume(texts),
+                           charms_free=any(CHARMS_FREE.search(t) for t in texts))
             another = sum(float(m.group(1)) for t in texts for m in CHARM_ANOTHER.finditer(t))
             equipped = getattr(build, "equipped", None) or {}
             raws = [o.raw for slot in CHARM_SLOTS[:gain.charm_limit] if (o := equipped.get(slot)) is not None]
@@ -464,6 +466,30 @@ def charm_extra_uses(gain: Charges, raw: str) -> tuple[float, str]:
     return next(((u, h) for r, u, h in gain.charm_extra if r == raw), (0.0, ""))
 
 
+# "Charms use no Charges" (MECHC25; COV27 / AUDIT33 A33-2: PoB parses it, ModParser 5590 flag CharmsUseNoCharges, and
+# nothing reads it; before, its charms were paced by charges they don't spend, an UNDERCOUNT of their uptime). Its
+# carrier: Pragmatism (Explorer Armour), Mods UniqueCharmsNoCharges1, stat charms_use_no_charges (checked: every
+# Stats.json id holding charm with no_charge / not_consume / charges_used / free, and their Mods carriers: this one
+# alone holds it; PoB's Uniques: Pragmatism, body.lua 571; patch notes: no hit for "Pragmatism" or "use no Charges",
+# which isn't proof of no change). Each charm is then used each time its trigger fires (trigger_rate) while its effect
+# is down, at most once per its effect (as its other uses); a trigger this doesn't read: once per its effect (the
+# charm's own pace, UNVERIFIED). A charm that waits for a kill still never fires on a lone boss.
+CHARMS_FREE = re.compile(r"^\s*charms use no charges\s*$", re.I | re.M)
+
+
+def free_charm_uses(info: dict, gain: Charges, raw: str) -> tuple[float, str] | None:
+    """(uses a second, how) of a charm under "Charms use no Charges"; None when the line isn't on the build."""
+    if not gain.charms_free or info.get("kind") != "Charm":
+        return None
+    length = duration(info, gain)
+    event = trigger_rate(raw, gain)
+    cap = 1 / length if length > 0 else math.inf
+    if event is None:
+        return (cap if length > 0 else 0.0), "Charms use no Charges: once per its effect (its trigger not read, UNVERIFIED)"
+    return min(event[0], cap), f"Charms use no Charges: at its trigger, {event[0]:.3f}/s ({event[1]})" + (
+        f", at most once per its {length:.1f} s effect" if event[0] > cap else "")
+
+
 def charm_not_consume(texts: list[str]) -> float:
     """The build's summed "N% chance for Charms you use to not consume Charges" (MECHC21)."""
     return sum(float(m.group(1)) for t in texts for m in CHARM_NOT_CONSUME.finditer(t))
@@ -500,6 +526,11 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
         return 1.0
     if thrown(gain, pool) or (pool == "Life" and gain.life_flask_unusable):
         return 0.0
+    if (free := free_charm_uses(info, gain, trigger)) is not None:
+        share = min(1.0, free[0] * duration(info, gain))
+        if (extra := charm_extra_uses(gain, trigger)[0]) > 0:
+            share = 1 - (1 - share) * math.exp(-extra * duration(info, gain))
+        return share
     used = charges_per_use(info, gain)
     rate = charges_per_second(info, gain, pool)
     if used <= 0:
@@ -575,6 +606,9 @@ def charm_charges_used(charms: list[tuple[dict, str]], gain: Charges) -> tuple[f
         used = charges_per_use(info, gain)  # (MECHC19, COV22: after "increased / reduced Charm Charges used")
         if info.get("kind") != "Charm" or used <= 0 or info.get("constant") or KILL_TRIGGER in raw.lower():
             continue
+        if gain.charms_free:  # (MECHC25) "Charms use no Charges": its uses spend none
+            how.append("Charms use no Charges: none spent")
+            continue
         uses = charges_per_second(info, gain, None) / used
         length = duration(info, gain)
         if length > 0:
@@ -595,6 +629,8 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
     used = charges_per_use(info, gain)
     if not info.get("kind") or info.get("constant") or KILL_TRIGGER in raw.lower():
         return 0.0, "can't be used against a lone boss (waits for a kill, or can't be used)"
+    if (free := free_charm_uses(info, gain, raw)) is not None:
+        return free
     if used <= 0:
         return 0.0, "no charges per use read"
     # (MECHC3, merged in MECHC4: Reverie's "Cannot use Life Flasks"; a Mana Flask whose charges a Concoction main skill
@@ -608,6 +644,11 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
     uses, how = made / used, f"{made:.2f} charges/s / {used:g} per use"
     if pool not in ("Life", "Mana") and (length := duration(info, gain)) > 0 and uses > 1 / length:
         uses, how = 1 / length, how + f", at most once per its {length:.1f} s effect"
+    if info.get("kind") == "Charm" and (event := trigger_rate(raw, gain)) is not None and event[0] < uses:
+        # (MECHC25, AUDIT34 A34-8: a charm is used by its trigger only, as uptime and charm_charges_used have it; before,
+        # Nascent Hope's "Energy Shield Recharge starts on use" and every other "on use" reader counted a Thawing Charm at
+        # its charge rate against a boss that never Freezes you: an overcount)
+        uses, how = event[0], how + f", at most its trigger's {event[0]:.3f}/s ({event[1]})"
     if info.get("kind") == "Charm" and (free := charm_extra_uses(gain, raw))[0] > 0:
         length = duration(info, gain)
         down = max(1 - uses * length, 0.0) if length > 0 else 1.0
@@ -615,9 +656,12 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
     return uses, how
 
 
-def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
+def recovery_per_second(info: dict, gain: Charges, pool: str, raw: str = "", own: bool = False) -> float:
     """A Life or Mana flask's recovery per second at the rate its generated charges allow (one use
-    at a time: never faster than one per duration)."""
+    at a time: never faster than one per duration). 0 where PoB already counts it whole (pob_counts_whole), unless
+    `own` asks for the flask's own figure (the Ward and Energy Shield readers, which take PoB's share apart themselves)."""
+    if not own and pob_counts_whole(info, gain, pool, raw):
+        return 0.0
     if pool == "Life" and gain.life_flask_blocked:
         return 0.0  # "Flasks do not recover Life" (game stats base_/life_flasks_do_not_recover_life; PoB ignores it)
     if pool == "Life" and gain.life_flask_es_instead:
@@ -667,6 +711,39 @@ def pob_counts_flask_recovery(gain: Charges, raw: str = "") -> bool:
     return gain.life_effect_kept or KEPT_AT_FULL["Life"] in (raw or "").lower()
 
 
+# The Life and Mana side of the same (MECHC25; MECHC24's lead, an OVERCOUNT): calcFlaskRecovery also adds the flask's
+# whole recovery over its duration to LifeRecovery / ManaRecovery, so to LifeRegenRecovery / ManaRegenRecovery, which
+# objective.RECOVERY_POOLS sums with our FlaskLifeRecoveryRate / FlaskManaRecoveryRate (gear.recovery_stats). Probe
+# POE2T1700 (an Ultimate Life Flask, 920 Life over 3 s, 1 charge a second; an Ultimate Mana Flask, 310 over 3 s):
+# - "Life Flask Effects are not removed when Unreserved Life is Filled" (Enduring Elixirs; the LifeFlaskEffectNotRemoved
+#   flag, Charges.life_effect_kept): LifeRegenRecovery 0 -> 306.7 with the slot on, 0 with it off; ours 92 on top;
+# - the flask's own "Effect is not removed when Unreserved Mana is Filled" (Melting Maelstrom, Mods
+#   UniqueFlaskEffectNotRemovedOnFullMana1; PoB ModParser 5571, local ManaFlaskEffectNotRemoved): ManaRegenRecovery
+#   18.5 -> 121.8; ours 31 on top;
+# - the flask's own "Effect is not removed when Unreserved Life is Filled" (Blood of the Warrior, Opportunity: Mods
+#   UniqueFlaskEffectNotRemovedOnFullLife__1 / __2): LifeRegenRecovery stays 0 (PoB's ModCache 7237 parses it to no
+#   mod), so ours alone counts it.
+# PoB's figure has no charge limit. The search counts a slot whole only from FULL_UPTIME (99.5%) of the fight; below it
+# the floors are checked with the slot off (inner.weigh_uptimes' floor_without), where PoB adds nothing and ours is the
+# only count. So ours gives 0 only for a flask up the whole fight that PoB counts: never twice. (Between 7% and 99.5%
+# the time-weighted rows outside the floors still see both: named, LOW, not corrected here.)
+def pob_counts_whole(info: dict, gain: Charges, pool: str, raw: str = "") -> bool:
+    """Does PoB add this flask's whole recovery to its own Life / Mana regeneration (kept at full, see above), with the
+    flask up the whole fight (so its slot is on in the floors' stats)?"""
+    from builder.search.conditions import FULL_UPTIME
+
+    if info.get("kind") != "Flask" or info.get("constant") or reverie_constant(info, gain, pool):
+        return False
+    text = (raw or "").lower()
+    if pool == "Life":
+        counted = gain.life_effect_kept  # (the flask's own Life line: PoB parses it to nothing, so not counted)
+    elif pool == "Mana":
+        counted = KEPT_AT_FULL["Mana"] in text
+    else:
+        return False
+    return counted and uptime(info, gain, pool, raw) >= FULL_UPTIME
+
+
 def es_recovery_per_second(info: dict | None, gain: Charges, raw: str = "") -> float:
     """Energy Shield a second from the Life flask (`info`, its flaskData; `raw`, its text) under the lines above: its
     recovery at the rate its charges allow (recovery_per_second's Life), times PoB's EnergyShieldRecoveryRateMod; 0
@@ -675,7 +752,8 @@ def es_recovery_per_second(info: dict | None, gain: Charges, raw: str = "") -> f
         return 0.0
     from dataclasses import replace
 
-    life = recovery_per_second(info, replace(gain, life_flask_blocked=False, life_flask_es_instead=False), "Life")
+    life = recovery_per_second(info, replace(gain, life_flask_blocked=False, life_flask_es_instead=False), "Life", raw,
+                               own=True)
     return life * max(gain.es_recovery_mod, 0.0)
 
 
@@ -700,6 +778,13 @@ ES_STARTS_UNREAD = {
         r"energy shield recharge starts when you are stunned", re.I),
     "a chance for Energy Shield Recharge to start": re.compile(
         r"chance (?:for energy shield recharge to start|to start energy shield recharge)", re.I),
+    # (MECHC25, AUDIT34 A34-2) the Energy Barrier support (SupportEnergyBarrierPlayer,
+    # support_no_energy_shield_recharge_delay_for_duration_ms_on_stunned; poe2db: "Energy Shield Recharge begins
+    # immediately and is not interrupted by Damage for 2 seconds when Stunned while using Supported Skills"). PoB has no
+    # such gem (no Data/Skills entry), so the search can't socket it yet; to be modelled at recovery's boss Stun rate
+    # once GEM says the gem is offered (league-obtainable: UNVERIFIED)
+    "Energy Barrier (recharge begins at once when Stunned)": re.compile(
+        r"energy barrier|energy shield recharge begins immediately and is not interrupted by damage", re.I),
 }
 
 

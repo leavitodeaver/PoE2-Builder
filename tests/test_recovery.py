@@ -816,3 +816,90 @@ def test_energy_shield_recharge_starts_on_a_use_held_for_a_reset():
     income.add("EnergyShieldFlaskRecovery", 40.0, "Life flask recovery applied to Energy Shield")
     note = recovery.note(income)
     assert note and "40.0 Energy Shield/s" in note[0]["value"]
+
+
+def test_nascent_hope_starts_recharge_only_as_often_as_the_boss_freezes_you():
+    """MECHC25 (AUDIT34 A34-8, an OVERCOUNT): Nascent Hope is a Thawing Charm ("Used when you become Frozen"); its
+    "Energy Shield Recharge starts on use" was counted at the uses its charges allow (uses_per_second), even against a
+    boss that never Freezes you. uses_per_second now caps a charm by its trigger's rate, as uptime does."""
+    from dataclasses import replace
+
+    from builder.search.flasks import Charges, es_recharge_starts, trigger_rate, uses_per_second
+
+    raw = "Nascent Hope\nThawing Charm\nUsed when you become Frozen\nEnergy Shield Recharge starts on use"
+    info = {"kind": "Charm", "chargesUsed": 20, "duration": 1.0}
+    data = {"enemySkillTime": 0.7, "takenByType": {"Physical": 3000, "Fire": 2000, "Cold": 1500, "Lightning": 2500,
+                                                   "Chaos": 500},
+            "bossDamage": {t: 1 for t in ("Physical", "Fire", "Cold", "Lightning", "Chaos")}, "ailmentThreshold": 3000,
+            "ailmentAvoid": {"Ignite": 0, "Shock": 0, "Freeze": 0, "Bleed": 0, "Poison": 0}}
+    rich = 100.0  # charges a second: alone they'd pay for 5 uses/s, capped at one per 1 s effect
+    olroth = replace(Charges.from_bridge(data, 0, "Olroth, Origin of the Fall"), charm=rich)
+    ash = replace(Charges.from_bridge(data, 0, "Arbiter of Ash"), charm=rich)
+    freezes = trigger_rate(raw, olroth)[0]
+    assert 0 < freezes < 1.0
+    uses, how = uses_per_second(info, olroth, raw, None)
+    assert uses == pytest.approx(freezes) and "its trigger" in how
+    assert es_recharge_starts([], [("Nascent Hope", raw, uses)], 0.0)[0] == pytest.approx(freezes)
+    # the Arbiter of Ash never Freezes you: no uses, no starts
+    assert uses_per_second(info, ash, raw, None)[0] == 0.0
+    # a charm with no trigger this reads keeps its charge-paced rate (one per 1 s effect here)
+    plain = "Some Charm\nUsed when you use a Life Flask"
+    assert uses_per_second(info, ash, plain, None)[0] == pytest.approx(1.0)
+
+
+def test_energy_barrier_is_named_among_the_unread_recharge_starts():
+    """MECHC25 (AUDIT34 A34-2): the Energy Barrier support's recharge start on Stun is named as unread, not silent."""
+    from builder.search import flasks
+
+    text = ("energy shield recharge begins immediately and is not interrupted by damage for 2 seconds when stunned "
+            "while using supported skills")
+    assert [n for n, p in flasks.ES_STARTS_UNREAD.items() if p.search(text)] == [
+        "Energy Barrier (recharge begins at once when Stunned)"]
+
+
+def test_a_kept_at_full_flask_pob_counts_whole_adds_no_flask_recovery_of_ours():
+    """MECHC25 (MECHC24's lead, an OVERCOUNT; probe POE2T1700): PoB adds a kept-at-full flask's whole recovery to its
+    LifeRegenRecovery / ManaRegenRecovery (calcFlaskRecovery) under Enduring Elixirs' flag or a Mana flask's own line,
+    which objective summed with our FlaskLifeRecoveryRate / FlaskManaRecoveryRate. With the flask up the whole fight
+    (its slot on in the floors' stats) ours is 0; part-time (the floors see the slot off, PoB adds nothing) ours stays."""
+    from builder.search.flasks import Charges, pob_counts_whole, recovery_per_second
+
+    life = {"kind": "Flask", "chargesUsed": 10, "duration": 3, "lifeTotal": 920}
+    mana = {"kind": "Flask", "chargesUsed": 10, "duration": 3, "manaTotal": 310}
+    kept_mana = "Melting Maelstrom\nUltimate Mana Flask\nEffect is not removed when Unreserved Mana is Filled"
+    whole, part = Charges(flask=4.0), Charges(flask=1.0)  # 0.4 uses/s x 3 s: up whole; 0.1 x 3 s: 30%
+    elixirs, elixirs_part = Charges(flask=4.0, life_effect_kept=True), Charges(flask=1.0, life_effect_kept=True)
+    assert recovery_per_second(life, whole, "Life") == pytest.approx(920 / 3)  # no kept line: ours alone
+    assert pob_counts_whole(life, elixirs, "Life") and recovery_per_second(life, elixirs, "Life") == 0.0
+    assert recovery_per_second(life, elixirs, "Life", own=True) == pytest.approx(920 / 3)
+    assert recovery_per_second(life, elixirs_part, "Life") == pytest.approx(92.0)  # part-time: PoB's slot off
+    # the Life flask's own kept line: PoB parses it to nothing, so ours counts it
+    own_life = "Blood of the Warrior\nGargantuan Life Flask\nEffect is not removed when Unreserved Life is Filled"
+    assert recovery_per_second(life, whole, "Life", own_life) == pytest.approx(920 / 3)
+    assert recovery_per_second(mana, whole, "Mana", kept_mana) == 0.0
+    assert recovery_per_second(mana, part, "Mana", kept_mana) == pytest.approx(31.0)
+    assert recovery_per_second(mana, whole, "Mana", "Ultimate Mana Flask") == pytest.approx(310 / 3)
+
+
+def test_charms_use_no_charges_fire_at_their_trigger():
+    """MECHC25 (COV27, AUDIT33 A33-2: PoB parses Pragmatism's "Charms use no Charges" and reads it nowhere): each charm
+    is used at its trigger's rate, at most once per its effect, whatever charges the build makes; none are spent."""
+    from dataclasses import replace
+
+    from builder.search.flasks import CHARMS_FREE, Charges, charm_charges_used, uptime, uses_per_second
+
+    assert CHARMS_FREE.search("Pragmatism\nExplorer Armour\nCharms use no Charges")
+    info = {"kind": "Charm", "chargesUsed": 40, "duration": 2.0}
+    hit = "Some Charm\nUsed when you take Fire damage from a Hit"
+    gain = Charges(boss_hits=0.25, boss_types=("Fire",), charm=0.5)  # 0.5 charges/s: one use per 80 s
+    free = replace(gain, charms_free=True)
+    assert uses_per_second(info, gain, hit, None)[0] == pytest.approx(0.5 / 40)
+    assert uses_per_second(info, free, hit, None)[0] == pytest.approx(0.25)  # the boss's hits, under 1 per 2 s
+    assert uptime(info, free, None, hit) == pytest.approx(0.5)
+    fast = replace(free, boss_hits=2.0)
+    assert uses_per_second(info, fast, hit, None)[0] == pytest.approx(0.5)  # once per its 2 s effect
+    assert uptime(info, fast, None, hit) == 1.0
+    no_fire = replace(free, boss_types=("Cold",))
+    assert uses_per_second(info, no_fire, hit, None)[0] == 0.0 and uptime(info, no_fire, None, hit) == 0.0
+    assert uptime(info, free, None, "Gold Charm\nUsed when you kill a Rare or Unique enemy") == 0.0
+    assert charm_charges_used([(info, hit)], free)[0] == 0.0 and charm_charges_used([(info, hit)], gain)[0] > 0

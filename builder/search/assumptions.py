@@ -722,7 +722,9 @@ class Assumptions:
         if any(models.RAISED_BLIND.search(e["text"]) for e in source_lines):  # (Bastion of Light's shield taps, MECHC21)
             metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(main_types, name or "")
             raised_texts, taps = [e["text"] for e in source_lines], models.raised_taps_on(build)
-            raised_mods, raised_notes = models.raised_model(found, raised_texts, metres, main, taps)
+            raised_mods, raised_notes = models.raised_model(
+                found, raised_texts, metres, main, taps, models.hits_per_second(stats),
+                bool(({name} | main_gems) & models.PARRY_CONSUMERS))
             hand_mods, hand_notes = hand_mods + raised_mods, hand_notes + raised_notes
             plan = models.raised_plan(found, raised_texts, metres, taps)  # (its taps are presses: the button cap's)
             if plan.taps > 0:
@@ -1603,7 +1605,7 @@ class Assumptions:
             slot = next(k for k, v in flasks.FLASK_SLOTS.items() if v == "Life")
             option = equipped.get(slot)
             info = build.call("flaskData", raws=[option.raw])["results"][0] if option is not None else None
-            out["flask_life"] = flasks.recovery_per_second(info, gain, "Life") if info else 0.0
+            out["flask_life"] = flasks.recovery_per_second(info, gain, "Life", option.raw, own=True) if info else 0.0
             active = (build.call("chargeGain").get("active") or {}).get(slot) if info else False
             length = number((info or {}).get("duration"))
             if active and length > 0:  # (PoB's CalcPerform 1642: the flask's whole recovery over its duration, always)
@@ -1646,7 +1648,8 @@ class Assumptions:
         remnant_names = [n for n in recovery.REMNANT_SKILLS if n in present]
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**build.call("stats", fields=list(dict.fromkeys([
-            "Life", "Mana", "EnergyShield", "LifeOnKill", "ManaOnKill", "IgniteChancePerHit", "ShockChancePerHit", *models.MODEL_FIELDS,
+            "Life", "Mana", "EnergyShield", "LifeOnKill", "ManaOnKill", "IgniteChancePerHit", "ShockChancePerHit", "Tribute",
+            *models.MODEL_FIELDS,
             *conditions_mod.EVIDENCE_FIELDS, *CHILL_FIELDS]))), **bosses.kill_stats(boss)}
         kills = getattr(build, "kills", None) or (0.0, 0.0, "")  # (models.kill_rate: the boss preset's adds)
         enemies = number(kills[0])
@@ -1819,7 +1822,8 @@ class Assumptions:
         out = {"landed": landed, "life_per_hit": per_hit, "blocked": blocked, "casts": casts, "cast_how": how,
                "stunned": stunned, "stunned_how": stunned_how, "refill": refill, "refill_how": refill_how}
         texts = [line["text"].strip() for line in build.call("sourceLines")["lines"]]
-        if any(recovery.PREVENTED_ES.search(t) or recovery.PREVENTED_LIFE.search(t) for t in texts):
+        if any(p.search(t) for p in (recovery.PREVENTED_ES, recovery.PREVENTED_LIFE, recovery.PREVENTED_LIFE_TRIBUTE)
+               for t in texts):
             # (MECHC21) Physical damage the build's Armour and flat reduction prevent a second: the boss's Physical hit
             # (PoB's PhysicalEnemyDamage, after Deflection's expected share) x PhysicalDamageReduction, at its Physical
             # share of hits (boss_hits.type_shares) and its landed hits (the gain pace, as above)

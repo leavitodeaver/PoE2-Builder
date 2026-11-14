@@ -5550,9 +5550,42 @@ def raised_plan(skills: list[Skill], texts: list[str], metres: float, taps: bool
         f"Without the taps: no Blind and no time lost"), 1 / duration)
 
 
+# Bastion of Light's other line, "Raise Shield inflicts Parried for N seconds on Hit" (MECHC25; COV27's item (d)): each
+# tap of raised_plan leaves the boss Parried N s (PARRIED_MORE, 50% more Attack damage taken), so the main skill's
+# Attack hits land on a Parried boss min(1, N / the tap period) of the time; a main skill that consumes Parried
+# (PARRY_CONSUMERS) gains on one hit per tap. With the boss out of reach or the taps off: none (before, the ledger's
+# bastion-of-light-parried gave "25% more Attack Damage while holding a Shield" always: an OVERCOUNT then). Counted only
+# while that pob_gap entry no longer translates the line (ledger.translate is None: COV-A turns it into a model entry),
+# so it is never counted twice. With Parry / Refutation in the build too: not counted here (one Parried debuff; the
+# parry model's box is kept), an undercount, LOW. The tap period is the Blind's (raised_plan): MEDIUM-LOW, as there.
+RAISED_PARRIED = re.compile(r"^raise shield inflicts parried for (\d+(?:\.\d+)?) seconds on hit$", re.I)
+
+
+def raised_parried(plan: RaisedPlan, texts: list[str], main: Skill, hps: float = 0.0,
+                   consumes: bool = False) -> tuple[float, str]:
+    """(share of the main skill's hits on a Parried boss, how) from "Raise Shield inflicts Parried ..." at the plan's taps."""
+    from builder.ledger import translate
+
+    found = [(t, float(m.group(1))) for t in texts if (m := RAISED_PARRIED.search(t.strip()))]
+    if not found or plan.taps <= 0:
+        return 0.0, ""
+    if translate(found[0][0]) is not None:
+        return 0.0, "Raise Shield inflicts Parried: counted by the ledger's entry (bastion-of-light-parried), not here"
+    if not main.attack:
+        return 0.0, "Raise Shield inflicts Parried: Parried raises only Attack damage taken, and the main skill isn't an Attack"
+    seconds = max(n for _, n in found)
+    share = min(1.0, seconds * plan.taps)
+    box = min(share, plan.taps / hps) if consumes and hps > 0 else share
+    return box, (f"each Raise Shield tap ({plan.taps:.2f} a second) leaves the boss Parried {seconds:g} s: "
+                 f"{box:.0%} of the main skill's hits land on a Parried boss (50% more Attack damage taken)"
+                 + (" (the main skill consumes Parried: one hit per tap gains)" if consumes else "")
+                 + "; without the taps: none")
+
+
 def raised_model(skills: list[Skill], texts: list[str], metres: float, main: Skill | None,
-                 taps: bool = True) -> tuple[list[dict], list[dict]]:
-    """The main skill's time spent tapping the shield (raised_plan; the Blinded box itself is conditions')."""
+                 taps: bool = True, hps: float = 0.0, consumes: bool = False) -> tuple[list[dict], list[dict]]:
+    """The main skill's time spent tapping the shield (raised_plan; the Blinded box itself is conditions'), and the
+    Parried its taps inflict (raised_parried)."""
     if main is None or main.name == RAISE_SHIELD:
         return [], []
     plan = raised_plan(skills, texts, metres, taps)
@@ -5560,9 +5593,21 @@ def raised_model(skills: list[Skill], texts: list[str], metres: float, main: Ski
         return [], []
     notes = [{"label": "Blind while your Shield is raised (how the build raises it)", "value": f"{plan.blind:.0%} of the fight",
               "basis": plan.how, "confidence": "LOW" if plan.lost > 0 else "theory"}]
-    if plan.lost <= 0:
-        return [], notes
-    return [line("1% more Attack and Cast Speed", -100 * plan.lost, skill=main.name)], notes
+    mods = []
+    if any(s.name in PARRY_SKILLS for s in skills):
+        box, how = 0.0, ("Raise Shield inflicts Parried: the build's Parry / Refutation already Parries the boss (one "
+                         "debuff), so its taps add none here (an undercount, LOW)") if any(
+            RAISED_PARRIED.search(t.strip()) for t in texts) else ""
+    else:
+        box, how = raised_parried(plan, texts, main, hps, consumes)
+    if box > 0:
+        mods.append(line("1% more Attack Damage", 100 * PARRIED_MORE * box, skill=main.name))
+    if how:
+        notes.append({"label": "Parried from Raise Shield (Bastion of Light)", "value": f"{box:.0%} of the main skill's hits",
+                      "basis": how, "confidence": "LOW" if box > 0 else "theory"})
+    if plan.lost > 0:
+        mods.append(line("1% more Attack and Cast Speed", -100 * plan.lost, skill=main.name))
+    return mods, notes
 
 
 # ===================================================================================================================

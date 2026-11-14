@@ -21,10 +21,14 @@ def test_prevented_damage_recoups_per_power():
     none = recovery.Income()
     recovery.hit_income(none, {"Life": 1000}, [FAITH], prevented=0.0, power=20.0)
     assert none.pool("EnergyShield") == 0 and "0, no Physical damage prevented" in none.parts[0]
-    # the Tribute form isn't read (Tribute isn't: its own ledger entry)
+    # (MECHC25, COV27 (c)) Twice Bled's Tribute form counts at PoB's Tribute output, from the line's threshold
+    twice = LIFE + " if you have at least 100 Tribute"
     tribute = recovery.Income()
-    recovery.hit_income(tribute, {"Life": 1000}, [LIFE + " if you have at least 100 Tribute"], prevented=200.0)
-    assert tribute.pool("Life") == 0
+    recovery.hit_income(tribute, {"Life": 1000, "Tribute": 60}, [twice], prevented=200.0)
+    assert tribute.pool("Life") == 0 and "60 Tribute, under the line's 100" in tribute.parts[0]
+    enough = recovery.Income()
+    recovery.hit_income(enough, {"Life": 1000, "Tribute": 100}, [twice, LIFE], prevented=200.0)
+    assert enough.rates["LifePreventedRecoup"] == pytest.approx(40.0)  # (10% + 10%) of 200
 
 
 @pytest.fixture(scope="module")
