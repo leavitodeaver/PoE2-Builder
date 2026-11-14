@@ -1,0 +1,29 @@
+# Gem stats PoB never reads (GEM4, 14 Nov 2026).
+
+- id: gem4-electromagnetism-rift-no-boss-trigger
+  title: "Electromagnetism's Shocking Rift: 0 against every boss preset (it needs 3 Shocked enemies within 4 m)"
+  kind: gem_stat
+  match: '^(shocking_rift_.*|number_of_shocking_rifts_allowed|triggered_by_shocking_rift_support_%)$'
+  replace: []
+  skill: [Electromagnetism]  # (the support and its rift share the name; the match takes the rift's stats only)
+  confidence: datamined
+  notes: >-
+    The rift (TriggeredShockingRiftPlayer: 5 pulses 0.85 s apart, 20% more per pulse, 25% faster per Shock consumed,
+    limit 3, Hinder 0.9 s) is triggered only "On Shocking an enemy where there are at least 3 Shocked enemies within 4
+    metres that are not already in a Shocking Rift" (the support's stats try_consuming_shock_to_trigger_shocking_rift_in_radius_on_shocking_enemy
+    40 and consume_shock_of_X_enemies_to_trigger_shocking_rift 3, gem_stat_descriptions; GemEffects: "When Supported
+    Skills Shock an enemy that is nearby other Shocked enemies, trigger Electromagnetism"). The search scores a boss fight:
+    the presets have no adds except the King's totems (one every 25 s, first form) and Atziri's acolytes (one every 45 s),
+    killed as they come (bosses.py Kills), so at most the boss and one add: under 3 Shocked enemies, and the rift is not
+    triggered. Its own stats therefore move no boss number. (checked: the support's two stat descriptions and GemEffects
+    text, game 26476662 and PoB's gem_stat_descriptions.lua; bosses.py's Kills rows, the only adds the presets model;
+    poe2db Electromagnetism, current, 14 Nov: the same "at least 3 Shocked enemies within 4 metres"; the patch-notes archive
+    has no entry for Electromagnetism or Shocking Rift (no hit is not proof of no change).) Scoped to the triggered rift's
+    own stats: the support's two consume stats stay open (conditions.CONSUME_STATS counts them as consuming the boss's
+    Shock on the main skill's hits, which by the same text doesn't happen against a lone boss: routed to MECH-A). A fight
+    with packs (mapping) would trigger it: not what the search scores.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/gem_stat_descriptions.lua (consume_shock_of_X_enemies_to_trigger_shocking_rift)",
+            "data/game-26476662/tables/GemEffects.json (Electromagnetism)", "builder/search/bosses.py (Kills)",
+            "https://poe2db.tw/us/Electromagnetism"]
+  test_in_game: "Not needed against a lone boss: the trigger needs 3 Shocked enemies within 4 m."
+  status: proposed
