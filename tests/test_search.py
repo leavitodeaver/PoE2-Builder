@@ -335,14 +335,15 @@ def test_gems_the_game_removed_are_left_out_and_unpriced_legacy_supports_wait():
 
 def test_uniques_and_gems_a_new_league_character_cant_get_are_not_offered():
     """COV25, the user's league-obtainable rule: the seven uniques the 0.3.0 notes stopped dropping and The Road Warrior
-    (0.5.0) are never offered, even in SSF where every unique is; Blessed Bonds and Merit of Service (UNVERIFIED) still
-    are. Solar Orb isn't a gem since 0.3.0, but the Pyrophyte Staff still grants it."""
+    (0.5.0) are never offered, even in SSF where every unique is; nor (COV26, AUDIT30 / AUDIT31 and the user) Merit of
+    Service and Blessed Bonds. Solar Orb isn't a gem since 0.3.0, but the Pyrophyte Staff still grants it."""
     from builder.search.context import GONE_GEMS, GONE_UNIQUES
 
     ctx = context(main_skill="Ice Shot", budget={"ssf": True})
     offered = {o.name for options in ctx.item_options.values() for o in options if o.unique}
-    assert len(GONE_UNIQUES) == 8 and not offered & set(GONE_UNIQUES)
-    assert {"Blessed Bonds", "Merit of Service", "Atziri's Disdain"} <= offered
+    assert len(GONE_UNIQUES) == 10 and not offered & set(GONE_UNIQUES)
+    assert {"Merit of Service", "Blessed Bonds"} <= set(GONE_UNIQUES)
+    assert {"Atziri's Disdain", "Guiding Palm"} <= offered
     assert "Solar Orb" in GONE_GEMS and "Solar Orb" not in ctx.gems
     assert ctx.granting_bases("Solar Orb", "Staff") == ("Pyrophyte Staff",)
 
@@ -3074,3 +3075,23 @@ def test_living_bomb_is_a_gem_but_not_yet_a_main_skill():
     assert "OVERCOUNT" in skill_problems(ctx, "Living Bomb")[0]
     assert "Living Bomb" not in candidate_skills(ctx) and "Fireball" in candidate_skills(ctx)
     assert "Bone Blast" not in ctx.gems  # (the other item-granted skills stay with their sources)
+
+
+def test_gems_no_new_league_character_can_get_are_not_offered_and_league_gems_are():
+    """COV26 (AUDIT30 A30-28 / A30-31, AUDIT31 A31-1 / A31-19 / A31-20): 23 supports removed, drop-disabled or never
+    released are not offered (no support step can pick one: Context.allowed_gem), Bounty I / II and Rend stay; three skills
+    lose only their free gem copy and keep their source; the 30 runeforged gems (the 0.5 league mechanic) stay offered."""
+    from builder.search.context import GONE_GEMS, LEAGUE_GEMS
+
+    supports = ["Daze", "Ruthless", "Reverberate", "Charm Bounty", "Ancestral Aid", "Arms Length", "Unerring Power",
+                "Wind Wave", "Lockdown", "Ferocity", "Freezefork", "Flamepierce", "Magnetic Remnants", "Stormchain",
+                "Life Bounty", "Mana Bounty", "Auto Reload", "Dauntless", "Malady", "Rusted Spikes", "Spar",
+                "Flame Pillar", "Relentless Rage"]
+    ctx = context(main_skill="Ice Shot")
+    assert set(supports) <= set(GONE_GEMS) and len(GONE_GEMS) == 29
+    assert not any(ctx.allowed_gem(n) for n in supports) and all(n in ctx.any_gems for n in supports)
+    assert {"Bounty I", "Bounty II", "Rend"} <= set(ctx.gems)
+    assert not {"Coiling Bolts", "Cackling Companions", "Detonate Minion"} & set(ctx.gems)
+    assert ctx.skill_source("Coiling Bolts")[1] == "Liminal Coil"
+    assert ctx.skill_source("Cackling Companions")[1] == "Hysseg's Claw"
+    assert len(LEAGUE_GEMS) == 30 and set(LEAGUE_GEMS) <= set(ctx.gems) and not set(LEAGUE_GEMS) & set(GONE_GEMS)

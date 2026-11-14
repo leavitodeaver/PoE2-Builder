@@ -32,10 +32,12 @@ MAX_GEM_GROUPS = 9  # non-item gem groups the game allows
 GEM_LEVEL = 20
 GEM_QUALITY = 20
 # PoB-legacy gems the current game still offers, each with its evidence (none since COV24; Context.gems offers them; bridge.supportCandidates
-# returns legacy gems too and the search keeps those Context.allowed_gem allows). The game files can't tell a live support
-# from a removed one: live.json reaches every one of them by the support weight alone ("live (inferred)"), and so it does
-# Overextend, Font of Rage and Ricochet III, which the patch notes removed. So the evidence is poe2db's current page and the
-# patch notes. Why PoB marks a gem legacy: its own flag (Export/Skills/sup_*.txt "legacy = true"), set by hand for gems
+# returns legacy gems too and the search keeps those Context.allowed_gem allows). live.json's support weight can't tell a
+# live support from a removed one ("live (inferred)" for every one of them, also Overextend, Font of Rage and Ricochet III,
+# which the patch notes removed), but other game-file fields can (AUDIT30 A30-2, 14 Nov: a gem with no Gemcutting row,
+# CraftingTypes [] and Tier 0, and no item, passive or quest source, can't be obtained; the gone gems below all match it). The
+# second source is poe2db's current page (a "From" card only on an obtainable gem, AUDIT31), the wiki's item data
+# (drop_enabled / removal_version, AUDIT31) and the patch notes. Why PoB marks a gem legacy: its own flag (Export/Skills/sup_*.txt "legacy = true"), set by hand for gems
 # "no longer obtainable" (PoB PR #1935, from poe2wiki's Historical content and the 0.5.0 notes' "Can no longer be obtained")
 # or "drop-disabled" (PR #2281, issue #2253; COV24). The gems PoB marks legacy (COV23 and COV24, checked: poe2db's current
 # page of each; the 0.5.0 patch notes (kami-labs' full copy), the official 0.3.0 notes (pathofexile.com forum 3826682) and
@@ -77,7 +79,45 @@ GONE_GEMS = {
     # UNDERCOUNT COV26 fixes through ITEM_SKILL_GEMS). The skill stays reachable from its sources: the Pyrophyte Staff base and The Searing Touch
     # (Context.granted_by); only the free gem copy goes.
     "Solar Orb": "a Pyrophyte Staff's own skill since 0.3.0, not a gem (the 0.3.0 notes and poe2db agree)",
+    # COV26, from AUDIT30 (A30-28) and AUDIT31 (A31-1, A31-20), RULE_AUDIT.md (checked by them: each has no Gemcutting row
+    # (CraftingTypes [], Tier 0), is no lineage gem, and nothing in the game files grants it; the wiki's item data marks
+    # each removed or drop-disabled, agreeing with the game files on all 23 offered gems it marks; plus the sources named).
+    # Supports removed in 0.3.0 (the wiki's removal_version; Daze is PoB's name for Discombobulate, which the official
+    # 0.3.0 notes delete; Ruthless: poe2wiki "removed in 0.3.0"; Reverberate: poe2wiki "Not in game"):
+    **{name: "removed in 0.3.0 (the game files have no Gemcutting row or source; the wiki's item data agrees)" for name in (
+        "Daze", "Ruthless", "Reverberate", "Charm Bounty", "Ancestral Aid", "Arms Length", "Unerring Power", "Wind Wave")},
+    # Supports drop-disabled (the wiki's item data; poe2wiki "drop disabled ... Can only be acquired in Early Access standard
+    # league from other players" for Lockdown, Ferocity, Freezefork, Flamepierce, Magnetic Remnants; forum thread 3830188,
+    # Aug 2025: Freezefork, Flamepierce and Stormchain can't be engraved). Bounty I / II replaced the old Bounty gems in
+    # 0.3.0 and drop: they stay.
+    **{name: "drop-disabled (the game files have no Gemcutting row or source; the wiki's item data agrees)" for name in (
+        "Lockdown", "Ferocity", "Freezefork", "Flamepierce", "Magnetic Remnants", "Stormchain", "Life Bounty",
+        "Mana Bounty", "Auto Reload", "Dauntless", "Malady", "Rusted Spikes", "Spar")},
+    # AUDIT31 A31-20: likely never released (no Gemcutting row or source in the game files; poe2db's page has no "From"
+    # card, as on all 21 removed or drop-disabled gems above and on none of 15 sampled live supports; no wiki item; no
+    # patch note 0.1.0-0.5.5f names either).
+    **{name: "never obtainable (no Gemcutting row or source in the game files; poe2db shows no acquisition)" for name in (
+        "Flame Pillar", "Relentless Rage")},
+    # Skills whose FREE gem copy goes (as Solar Orb's); each stays reachable from what grants it (Context.granted_by):
+    # Coiling Bolts (the wiki: "Granted as an inherent weapon skill from Liminal Coil"; game ItemInherentSkills on
+    # FourWandUnique1), Cackling Companions (the wiki and poe2db: "From: Hysseg's Claw"), Detonate Minion (the Skeletal
+    # Arsonist's own command, PoB's "Explosive Demise", DestructiveLinkSkeletonBombadierMinion in Skills/minion.lua; the
+    # wiki has no gem for it): a free copy beside the minion double-counts it.
+    "Coiling Bolts": "Liminal Coil's own skill, not a gem (the wiki and the game's ItemInherentSkills agree)",
+    "Cackling Companions": "Hysseg's Claw's skill, not a gem (the wiki and poe2db agree)",
+    "Detonate Minion": "the Skeletal Arsonist's own command, not a gem (PoB's minion skills and the wiki agree)",
 }
+
+# Gems the current league's mechanic gives (AUDIT30 A30-31, AUDIT31 A31-19: the 0.5 Runes of Aldur "runeforged" gems; the
+# game's BaseItemTypes tag "runeforged", none cuttable; the 0.5.0 notes' Kalguuran Supports "crafted from remnants"; all
+# drop-enabled in the wiki's item data). Offered, as a new character in this league can get them; labelled so they are
+# rechecked when the league ends (if they aren't made core then, offering them becomes an OVERCOUNT).
+LEAGUE_GEMS = {name: "Runes of Aldur (0.5) league mechanic: runeforged" for name in (
+    "Animus Exchange", "Animus Splinters", "Bitter Dead", "Concussive Runes", "Conductive Runes", "Detonate Living",
+    "Eternal March", "Explosive Transmutation", "Fist Of Kalguur", "Fragments Of The Past", "Frostflame Nova",
+    "Grim Pillars", "Healing Runes", "Hollow Shell", "Leylines", "Powered by Verisium", "Rain of Blades", "Refutation",
+    "Remnants of Kalguur", "Repulsion", "Runeforged Blades", "Runic Extraction", "Runic Infusion", "Runic Reprieve",
+    "Scouring Flame", "Skyfall", "Triskelion Cascade", "Verisium Manifestations", "Voltaic Barrier", "Wardbound Minions")}
 
 # Skills PoB marks item-granted (fromItem) that the game now gives as ordinary skill gems, each with two sources that agree:
 # Context.gems offers them. (checked, COV26: of PoB's 89 fromItem active skills only Living Bomb carries a gem tier above 0
@@ -99,16 +139,26 @@ GONE_UNIQUES: dict[str, str] = {
     # Wylund's Stake, The Deepest Tower, and The Remembered Tales." poe2db's pages carry the same 0.3.0 row and "Limit: Drop
     # disabled" (Infernoclasp, Thunderstep, Wylund's Stake opened; none has a 0.4 or 0.5 row); PoB tags each "Source: No
     # longer obtainable". Not brought back (checked: the official 0.4.0 and 0.5.0 notes, forum 3883495 / 3932540, and
-    # Fextralife's copy of 0.5.0-0.5.5, read for the eight names).
+    # Fextralife's copy of 0.5.0-0.5.5, read for the eight names). A third source (AUDIT30 A30-1): the game's
+    # UniqueStashLayout hides each in league stashes (ShowIfEmptyChallengeLeague and ...Standard False on 10 of 449 rows:
+    # these seven, Merit of Service and two old Guiding Palm rows; the current Guiding Palm is obtainable, the user 14 Nov,
+    # and its old rows are variants the variant rules leave out).
     **{name: "can no longer drop since 0.3.0 (the 0.3.0 notes and poe2db agree; not reintroduced through 0.5.5)" for name in (
         "Infernoclasp", "Forbidden Gaze", "Thunderstep", "The Wailing Wall", "The Fallen Formation", "Wylund's Stake",
         "The Deepest Tower")},
     # The official 0.5.0 notes (forum 3932540): "The Road Warrior Unique Body Armour can no longer be obtained."; poe2db marks
-    # it drop disabled (search excerpt); PoB tags it "No longer obtainable"; the game's unique collection layout lacks it.
+    # it drop disabled (search excerpt); PoB tags it "No longer obtainable". The game's UniqueStashLayout still shows it in
+    # league stashes (row 3, ShowIfEmptyChallengeLeague True: the one source that disagrees; AUDIT30 A30-4).
     "The Road Warrior": "can no longer be obtained since 0.5.0 (the 0.5.0 notes and poe2db agree)",
-    # Not here, UNVERIFIED (PoB's "No longer obtainable" tag and poe2db's "Drop disabled", which may be one game flag, and no
-    # patch note; a poe2wiki excerpt says Merit of Service "can drop anywhere", and 0.3.0 rebalanced it): Blessed Bonds,
-    # Merit of Service. They stay offered.
+    # COV26, AUDIT30 A30-1 / AUDIT31 A31-2: four sources agree: UniqueStashLayout hides it in league stashes; poe2db "Limit:
+    # Drop disabled"; PoB "Source: No longer obtainable"; the wiki's item data drop_enabled false, removal_version 0.3.0 (a
+    # poe2wiki excerpt saying it "can drop anywhere" is older text).
+    "Merit of Service": "drop-disabled since 0.3.0 (the game's stash layout, poe2db, PoB and the wiki's item data agree)",
+    # COV26, the user settled it (14 Nov, a poe2db screenshot, "Limit: [Drop disabled]": "poe2db is almost always
+    # trustworthy and says drop disabled ... I'd bet on these being disabled"): poe2db Drop disabled, the wiki's item data,
+    # PoB's "No longer obtainable" and the user. The game's UniqueStashLayout still shows it in league stashes (True / True:
+    # the one source that disagrees).
+    "Blessed Bonds": "drop-disabled (poe2db, the wiki's item data and PoB agree; the user, 14 Nov)",
 }
 
 ARMOUR_SLOTS = ["Helmet", "Body Armour", "Gloves", "Boots"]
