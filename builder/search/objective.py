@@ -20,7 +20,7 @@ import math
 import re
 
 from builder.request.schema import DefenceStyle, Objective as Goal
-from builder.search import boss_hits, recovery
+from builder.search import boss_hits, flasks, recovery
 from builder.search.context import DEFENCE_LAYERS, Context
 from builder.search.flasks import RECOVERY_FIELDS
 from builder.search.models import DAMAGE_TYPES, press_key, with_darkness
@@ -109,9 +109,12 @@ SUSTAIN_FLOOR = 0.10
 # recovery (flasks.RECOVERY_FIELDS) and Life / Mana from kills, Remnants, charms, events and what the build spends
 # (recovery.FIELDS, MECHC12 / MECHC13; SEARCH12: before, nothing scored them, so a build paying its costs through
 # Remnants or on-kill recovery read short of the sustain floor; the user's rule, 12 Nov)
-# Energy Shield too (SEARCH19; the manager's 03:05 item, an UNDERCOUNT): its events (MECHC17: "Regenerate N% of maximum
-# Energy Shield over 1 second when Stunned") and recoup of damage prevented (MECHC21: Scarred Faith) count in the recovery
-# floor (RECOVERY_POOLS) as Life's do; it has no flask field (flasks.RECOVERY_FIELDS: Life and Mana only)
+# Energy Shield too (SEARCH19; the manager's 03:05 and 07:30 items, an UNDERCOUNT): every field recovery.FIELDS["EnergyShield"]
+# lists counts in the recovery floor (RECOVERY_POOLS) as Life's do: its events (MECHC17: "Regenerate N% of maximum Energy
+# Shield over 1 second when Stunned"), recoup of damage prevented (MECHC21: Scarred Faith) and, with MECHC23 (train 46),
+# EnergyShieldFlaskRecovery: "Life Recovery from Flasks also applies to Energy Shield" (Shavronne's Satchel; AUDIT33 A33-1).
+# Energy Shield's flask recovery reaches the floor through that field, not through flasks.RECOVERY_FIELDS (the search's own
+# Life / Mana flask pseudo-stats)
 ADDED_RECOVERY = {pool: (*((RECOVERY_FIELDS[pool],) if pool in RECOVERY_FIELDS else ()), *recovery.FIELDS.get(pool, ()))
                   for pool in ("Life", "Mana", "EnergyShield")}
 ADDED_RECOVERY_FIELDS = {f for fields in ADDED_RECOVERY.values() for f in fields}
@@ -273,7 +276,8 @@ def life_cost_events(stats: dict) -> float:
     return speed if speed > 0 else float("inf")
 
 
-def recharge_share(stats: dict, hits: float, delay: float, steady: float = 0.0, events: float = 0.0) -> float:
+def recharge_share(stats: dict, hits: float, delay: float, steady: float = 0.0, events: float = 0.0,
+                   starts: float = 0.0) -> float:
     """The share of the fight a recharge with this `delay` runs: the boss's landed hits (`hits` per second, a Poisson
     stream; a share p of them leave damage over time on you for D seconds, boss_hits.es_dot) and the build's own damage
     events (own_events, r per second, another Poisson stream) each reset it. With L = hits + r, after each event it runs
@@ -281,7 +285,9 @@ def recharge_share(stats: dict, hits: float, delay: float, steady: float = 0.0, 
     (hits / L) (plain e^(-L delay) + sum p e^(-L (delay + D))) + (r / L) e^(-L delay) (exact for Poisson streams; a new
     hit while an older damage over time still burns isn't followed, as in boss_hits.recharge_wait). 0 under a `steady`
     own loss on the pool (own_loss). `events`: more of the build's own resets per second, counted with r (Life costs,
-    life_cost_events; inf: steady)."""
+    life_cost_events; inf: steady). `starts`: uses a second that start the recharge at once after a reset (Energy Shield
+    only: flasks.ES_STARTS_FIELD, MECHC23's Bitterbloom / Nascent Hope), so each e^(-L x) wait term is
+    flasks.recharge_start_wait(L, x, starts) (plain e^(-L x) with none, or before that function exists on this branch)."""
     if steady > 0 or events == float("inf"):
         return 0.0
     rate = own_events(stats) + max(events, 0.0)
@@ -290,8 +296,13 @@ def recharge_share(stats: dict, hits: float, delay: float, steady: float = 0.0, 
         return 1.0
     dots = boss_hits.es_dot(stats, land=hits) if hits > 0 else []
     plain = max(1.0 - sum(p for p, _, _ in dots), 0.0)
-    boss = plain * math.exp(-total * delay) + sum(p * math.exp(-total * (delay + d)) for p, d, _ in dots)
-    return (hits * boss + rate * math.exp(-total * delay)) / total
+    started = getattr(flasks, "recharge_start_wait", None)
+
+    def wait(x: float) -> float:
+        return started(total, x, starts) if started is not None and starts > 0 else math.exp(-total * x)
+
+    boss = plain * wait(delay) + sum(p * wait(delay + d) for p, d, _ in dots)
+    return (hits * boss + rate * wait(delay)) / total
 
 
 def es_recharge(stats: dict, hits: float) -> tuple[float, float]:
@@ -306,7 +317,8 @@ def es_recharge(stats: dict, hits: float) -> tuple[float, float]:
     if recharge <= 0:
         return 0.0, 0.0
     delay = max(number(stats.get("EnergyShieldRechargeDelay")) or 4.0, 0.0)
-    share = recharge_share(stats, hits, delay, own_loss(stats)["EnergyShield"])
+    starts = number(stats.get(getattr(flasks, "ES_STARTS_FIELD", "EnergyShieldRechargeStarts")))
+    share = recharge_share(stats, hits, delay, own_loss(stats)["EnergyShield"], starts=starts)
     return recharge * share, share
 
 
