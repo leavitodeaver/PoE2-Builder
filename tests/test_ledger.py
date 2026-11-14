@@ -280,7 +280,9 @@ def test_cov18_item_lines_a_model_already_reads_are_counted_by_the_audit():
 
 def test_cov20_cull_on_block_and_ironbound_are_counted_and_cadiros_arrows_stay_open():
     """COV20: Doomgate's Cull on Block (assumptions.cull_on_block) and Ironbound's Return (models.return_model) are read
-    by their patterns and counted by the audit; Cadiro's Gambit, read only for its Reversing arrows, stays open."""
+    by their patterns and counted by the audit; Cadiro's Gambit, read for all six arrow kinds since MECHB22's
+    cadiro_model, is a model line too (COV26, models-read-cov26.yaml; it stayed open while only its Reversing arrows were
+    read)."""
     from builder.ledger.coverage import ignored_line_status
     from builder.search import conditions, models
 
@@ -290,7 +292,7 @@ def test_cov20_cull_on_block_and_ironbound_are_counted_and_cadiros_arrows_stay_o
         assert pattern.search(line), line
         assert ignored_line_status(line, False)[0] == "model", line
     cadiro = "Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow"
-    assert models.CADIRO_ARROWS.search(cadiro) and ignored_line_status(cadiro, False)[0] == "none"
+    assert models.CADIRO_ARROWS.search(cadiro) and ignored_line_status(cadiro, False)[0] == "model"
 
 
 def test_raw_mod_lines_have_an_item_form_and_apply_on_items():
@@ -323,3 +325,21 @@ def test_model_entry_is_memoised_and_answers_as_the_plain_lookup_does():
         assert first is plain(line), line
     assert model_entry("+10 to Strength") is None
     assert all(e is f for e, f in zip(entries(), entries()))  # the ledger is loaded once: nothing to invalidate
+
+
+def test_thorns_and_cadiro_lines_feed_their_models():
+    """COV26 (MECHB23 / MECHC21's hand-backs): the Thorns lines models.thorns_model reads and Cadiro's Gambit's arrow line
+    models.cadiro_model reads are model lines to the audit (and to item_read_by_models), adding nothing to PoB."""
+    from builder.ledger import model_entry
+    from builder.search import models
+
+    cases = {"(15-25)% chance to deal your Thorns Damage to Enemies you Hit with Melee Attacks": "thorns",
+             "Deal your Thorns damage to enemies you Critically Hit with Melee Attacks": "thorns",
+             "Thorns can Retaliate against all Hits": "thorns",
+             "Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow": "cadiro"}
+    for line, model in cases.items():
+        entry = model_entry(line)
+        assert entry.raw["model"] == model and entry.translate(line) == [], line
+    assert models.THORNS_ON_HIT.search("20% chance to deal your Thorns Damage to Enemies you Hit with Melee Attacks")
+    assert models.CADIRO_ARROWS.search("Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow")
+    assert model_entry("Deal your Thorns Damage to Enemies you Stun with Melee Attacks") is None  # (not counted yet)

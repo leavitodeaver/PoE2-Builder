@@ -1,0 +1,66 @@
+# Item lines PoB doesn't count that MECHB22's models read (COV26, from MECHB23 / MECHC21's hand-backs): the Thorns lines
+# (models.thorns_model; plans/term-thorns-damage-to-enemies.md) and Cadiro's Gambit's arrow line (models.cadiro_model).
+# The models read the lines themselves (bridge sourceLines), so these entries add nothing (replace: []); they tell the
+# audit and the catalog the line is counted, and models.item_read_by_models now sees an item carrying one, so the search
+# re-scores it with its model on (before, trying Loreweave or Cadiro's Gambit saw PoB's number only, without the model).
+# Not here: legacy Prized Pain's "Deal your Thorns Damage to Enemies you Stun with Melee Attacks" (THORNS_NOT_COUNTED,
+# not counted: models.py's own note).
+
+- id: model-thorns-on-melee-hit-chance
+  title: N% chance to deal your Thorns Damage to Enemies you Hit with Melee Attacks (Prized Pain, Loreweave), Thorns model
+  kind: pob_gap
+  model: thorns
+  match: '^(\d+(?:\.\d+)?)% chance to deal your Thorns Damage to Enemies you Hit with Melee Attacks$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    PoB has no Thorns damage output. models.thorns_model (MECHB22, THORNS_ON_HIT) counts PoB's Thorns hit at N% of the
+    main skill's hits a second when it is a Melee Attack, as an added damage source (melee_attack_deal_thorns_damage_
+    chance_%_on_hit; Mods UniqueLoreweavePrizedPain1 / UniqueChanceToDealThornsDamageOnHit1).
+  sources: ["builder/search/models.py (THORNS_ON_HIT, thorns_model)", "https://poe2db.tw/us/Thorns"]
+  test_in_game: "Not needed here: the Thorns model's own tests cover it."
+  status: proposed
+
+- id: model-thorns-on-melee-crit
+  title: Deal your Thorns damage to enemies you Critically Hit with Melee Attacks (hand wraps), Thorns model
+  kind: pob_gap
+  model: thorns
+  match: '^Deal your Thorns damage to enemies you Critically Hit with Melee Attacks$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    models.thorns_model (THORNS_ON_CRIT, deal_thorns_damage_on_melee_crit; Mods HandWrapsUniqueImpaleOnCriticalHit1):
+    PoB's Thorns hit at the main skill's crits a second when it is a Melee Attack. The manager's note names Toll of
+    Agony; PoB's unique list has no item by that name (checked: grep of vendor PoB Data/Uniques), so which unique carries
+    the hand wraps' line is not settled here (UNVERIFIED); the entry matches the line wherever it is.
+  sources: ["builder/search/models.py (THORNS_ON_CRIT, thorns_model)"]
+  test_in_game: "Not needed here: the Thorns model's own tests cover it."
+  status: proposed
+
+- id: model-thorns-retaliate-all-hits
+  title: Thorns can Retaliate against all Hits (Crown of the Pale King), Thorns model
+  kind: pob_gap
+  model: thorns
+  match: '^Thorns can Retaliate against all Hits$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    models.thorns_model (THORNS_ANY_HIT, thorns_proc_off_any_hit; Mods UniqueThornsOnAnyHit1): Retaliation on every
+    boss hit that lands, not only its Melee share.
+  sources: ["builder/search/models.py (THORNS_ANY_HIT, thorns_model)"]
+  test_in_game: "Not needed here: the Thorns model's own tests cover it."
+  status: proposed
+
+- id: model-cadiro-arrows
+  title: Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow (Cadiro's Gambit), Cadiro model
+  kind: pob_gap
+  model: cadiro
+  match: '^Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    PoB doesn't read the line. models.cadiro_model (MECHB22, CADIRO_ARROWS) counts the six arrow kinds at 1 in 6 each
+    (assumed equally likely, UNVERIFIED), and the return model the Reversing arrow (COV20's open note, now closed).
+  sources: ["builder/search/models.py (CADIRO_ARROWS, cadiro_model, return_model)", "Mods UniquePerandusArrows1"]
+  test_in_game: "Not needed here: the Cadiro model's own tests cover it."
+  status: proposed

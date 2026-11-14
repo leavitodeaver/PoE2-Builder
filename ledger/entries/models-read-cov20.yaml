@@ -5,8 +5,8 @@
 # KILL_LINE, DISTANCE_LINE ...) weren't taken as readers). The models read the lines themselves (bridge sourceLines),
 # so these entries add nothing (replace: []); they tell the audit the line is counted.
 # Read in part and left open: Cadiro's Gambit's "Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond,
-# Covetous, or Blunt Arrow" (models.return_model reads only the Reversing arrow, 1 in 6, as a return; the other five
-# arrow kinds aren't modelled: an UNDERCOUNT for MECH-B); Murkshaft's "Blind Targets when you Poison them"
+# Covetous, or Blunt Arrow" (since MECHB22 models.cadiro_model counts all six: entry model-cadiro-arrows in
+# models-read-cov26.yaml, COV26); Murkshaft's "Blind Targets when you Poison them"
 # (conditions' Blind reader gives 0, no Poison rate: MECH-A, COV19).
 
 - id: model-cull-on-block
