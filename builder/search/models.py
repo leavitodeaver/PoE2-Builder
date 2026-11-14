@@ -4278,6 +4278,33 @@ def grisly_pyre_model(uses: float, ignited: float, ignite_dps: float, duration: 
                  f"every {every:.2f} s: {pyre:,.0f} each); Aggravated Ignite's 3 more pillars not counted")
 
 
+# Battershout's explosions (MECH72; conditions._battershout_cycle's note gives the game files and patch notes): each
+# deals Physical Area damage of 40% of the target's Broken Armour, which at a Full Break is the boss's whole Armour
+# (KeywordPopups ArmourBreak: "If this brings the target's Armour value to 0, their Armour is Fully Broken"; Armour
+# Broken below 0 isn't counted: a lower reading, UNVERIFIED that the explosion reads it). PoB holds no damage for it
+# (bridge.battershoutHit sets its base and reads PoB's AverageDamage: the build's modifiers, the Warcry keyword, its
+# +5% crit, the boss's mitigation). The explosion lands after it Consumes the Full Break, so the boss's Armour applies
+# and the Fully Broken bonus doesn't (the lower reading, UNVERIFIED: MEDIUM). PoB maps neither its 50% more against
+# Unique Enemies nor is_warcry (checked: SkillStatMap.lua and Modules/*.lua hold neither stat id): the 50% is applied
+# here, the boss presets being Unique. battershout_damage_+%_final_per_50_str (Stats.json) is in no stat set or mod of
+# the game files (checked: every table field naming its row) nor in PoB beyond its description: not counted (UNVERIFIED
+# on poe2db).
+BATTERSHOUT_ARMOUR_SHARE = 0.40  # support_battershout_physical_damage_equal_to_%_of_broken_armour
+BATTERSHOUT_VS_UNIQUE = 1.5  # active_skill_damage_+%_final_vs_unique_enemies 50
+
+
+def battershout_model(rate: float, hit: float, armour: float, how: str) -> tuple[float, str]:
+    """(added DPS, how) of Battershout's explosions on the boss: `rate` explosions per second (conditions'
+    Armour Break cycle), `hit` PoB's AverageDamage of one with a base of 40% of the boss's `armour`."""
+    if rate <= 0:
+        return 0.0, "no Full Break for Battershout's Warcry to Consume: no explosions"
+    if hit <= 0:
+        return 0.0, "PoB gave the explosion no damage (0, labelled)"
+    each = hit * BATTERSHOUT_VS_UNIQUE
+    return rate * each, (f"{rate:.3f} explosions/s x {each:,.0f} (PoB's hit from 40% of the boss's {armour:,.0f} Armour, "
+                         f"x1.5 against a Unique; the boss's Armour back after the Consume, MEDIUM); {how}")
+
+
 def repeat_every(t: float, times: float, window: float) -> float:
     """Seconds between one Heavy Stun / Freeze / Electrocute and the next when the bar fills in `t` s at the plain
     threshold and the threshold is x`times` for `window` s after each one: 6t if that ends inside the window, else the

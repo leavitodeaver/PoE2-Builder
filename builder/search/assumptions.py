@@ -608,6 +608,18 @@ def grisly_pyre(build: Build, main: models.Skill | None) -> tuple[float, list[di
                   "confidence": "MEDIUM"}]
 
 
+def battershout(build: Build) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Battershout's explosions (MECH72; models.battershout_model): the rate from conditions'
+    Armour Break cycle (build.battershout), each explosion's hit from PoB (bridge.battershoutHit, the highest group's)."""
+    rate, armour, how = getattr(build, "battershout", None) or (0.0, 0.0, "")
+    if rate <= 0 or armour <= 0:
+        return 0.0, []
+    rows = build.call("battershoutHit", base=models.BATTERSHOUT_ARMOUR_SHARE * armour, unbroken=True).get("groups") or []
+    hit = max((models.number(row.get("AverageDamage")) for row in rows), default=0.0)
+    dps, basis = models.battershout_model(rate, hit, armour, how)
+    return dps, [{"label": "Battershout explosions*", "value": f"{dps:,.0f}", "basis": basis, "confidence": "MEDIUM"}]
+
+
 def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str]) -> tuple[float, list[dict]]:
     """(added DPS, notes) for the build's Thorns hits on the boss (models.thorns_model, MECHB22): PoB's own Thorns
     group's hit (useRates), which no PoB DPS counts."""
@@ -781,6 +793,7 @@ class Assumptions:
         # (MECH69) PoB's CanApply flags for Exposure lines it doesn't parse ("N% chance to inflict Exposure on Hit"): the
         # -20% comes from the condition box at the line's uptime (conditions._exposure_uptime)
         exposure_flags = conditions_mod.exposure_source_flags(texts, main_types)
+        exposure_flags += conditions_mod.wither_source_flags(texts, main_types)  # (MECH72: partly parsed Withered lines)
         if any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t)
                or models.EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts):
             # (MECH-B, MECHB18: Ancestral Boost's sources PoB leaves unparsed; PoB's own boost uptimes beside the stats;
@@ -955,8 +968,12 @@ class Assumptions:
         pyre, pyre_notes = grisly_pyre(build, main)  # (MECH71: His Winnowing Flame's Grisly Pyres, PoB holds no damage)
         hand_mods += [models.added_input("GrislyPyre", pyre)] if pyre > 0 else []
         hand_notes += pyre_notes
+        shout, shout_notes = battershout(build)  # (MECH72: Battershout's explosions, PoB holds no damage)
+        hand_mods += [models.added_input("Battershout", shout)] if shout > 0 else []
+        hand_notes += shout_notes
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
-                                   "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre})
+                                   "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
+                                   "Battershout": shout})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.

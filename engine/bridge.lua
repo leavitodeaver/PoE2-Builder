@@ -3277,6 +3277,67 @@ function bridge.minionSkillHit(args)
 	return result
 end
 
+-- (MECH72, models.battershout_model) Battershout's explosion (TriggeredBattershoutExplosionPlayer, the support gem's
+-- additional granted effect) has no base damage in PoB: "Physical Area Damage based off of the Broken Armour of the
+-- target" (support_battershout_physical_damage_equal_to_%_of_broken_armour 40, which PoB maps to nothing). Each
+-- enabled group holding it is calculated with the explosion as its main skill, its base Physical damage args.base
+-- (both min and max, as CalcOffence's monster explosions set skillData), and the Warcry keyword (patch 0.2.0g: "now
+-- counts as a Warcry skill"; game files' is_warcry, which PoB maps to nothing), so the Warcry damage lines apply.
+-- args.unbroken: with the Armour Broken box off (the explosion lands after it Consumes the Full Break). Gives, per
+-- group: index, warcry (the group's other active skill), AverageDamage, AverageHit, CritChance. Nothing is kept.
+function bridge.battershoutHit(args)
+	local calcs = require("Modules.CalcBase")
+	local configTab = build.configTab
+	local savedBroken = configTab.input.conditionEnemyArmourBroken
+	if args.unbroken and savedBroken ~= nil then
+		configTab.input.conditionEnemyArmourBroken = nil
+		configTab:BuildModList()
+	end
+	local results = { }
+	local saved = build.mainSocketGroup
+	for index, group in ipairs(build.skillsTab.socketGroupList) do
+		local position, warcry
+		for at, activeSkill in ipairs(group.enabled and group.displaySkillList or { }) do
+			local effect = activeSkill.activeEffect.grantedEffect
+			if effect.id == "TriggeredBattershoutExplosionPlayer" then
+				position = at
+			elseif not warcry then
+				warcry = effect.name
+			end
+		end
+		if position then
+			local oldActive = group.mainActiveSkill
+			build.mainSocketGroup, group.mainActiveSkill = index, position
+			local row = { index = index, warcry = warcry }
+			local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
+			local skill = ok and env and env.player.mainSkill
+			if skill and skill.activeEffect.grantedEffect.id == "TriggeredBattershoutExplosionPlayer" then
+				skill.skillData.PhysicalMin, skill.skillData.PhysicalMax = args.base or 0, args.base or 0
+				skill.skillTypes[SkillType.Warcry] = true
+				skill.skillCfg.keywordFlags = require("bit").bor(skill.skillCfg.keywordFlags or 0, KeywordFlag.Warcry)
+				if pcall(calcs.perform, env, true) then
+					local output = env.player.output or { }
+					for _, field in ipairs({ "AverageDamage", "AverageHit", "CritChance" }) do
+						if type(output[field]) == "number" then
+							row[field] = jsonNumber(output[field])
+						end
+					end
+				end
+			else
+				row.reason = "PoB calculated no explosion"
+			end
+			group.mainActiveSkill = oldActive
+			results[#results + 1] = row
+		end
+	end
+	build.mainSocketGroup = saved
+	if args.unbroken and savedBroken ~= nil then
+		configTab.input.conditionEnemyArmourBroken = savedBroken
+		configTab:BuildModList()
+	end
+	return { groups = results, found = #results }
+end
+
 -- (MECHB15, models.multi_set_model) Each stat set of a group's active skill calculated in its own environment, as
 -- useRates does: one use of Rolling Slam performs its First Slam and its Second Slam, and PoB scores one set. Gives each
 -- set's label, TotalDPS, AverageDamage and Speed; the group's chosen set, main group and outputs are put back.

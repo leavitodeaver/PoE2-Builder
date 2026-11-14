@@ -1817,6 +1817,10 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
     if (uses := number(stats.get("_riven_uses"))) > 0 and armour > 0:
         up, stats["_riven_share"], riven = _riven_cycle(to_break, full, held, uses)
         how.insert(0, riven)
+    elif (shouts := number(stats.get("_battershout_uses"))) > 0 and armour > 0:
+        up, stats["_battershout_rate"], stats["_battershout_breaks"], shout = _battershout_cycle(to_break, full, held,
+                                                                                                 shouts)
+        how.insert(0, shout)
     return up, (f"Armour Fully Broken {up:.0%} of the fight ({shared(up)}): {rate:,.0f} Armour broken/s against "
                 f"the boss's {armour:,.0f} (PoB), {held:g} s each Full Break: " + "; ".join(how[:3]))
 
@@ -1858,6 +1862,39 @@ def _riven_cycle(to_break: float, full: float, held: float, uses: float) -> tupl
                           f"boss (up {riven_up:.0%}); it outlasts each {held:g} s Full Break by {tail:.2f} s, when the "
                           f"Armour can't be Broken; a Full Break every {1 / breaks:.2f} s of Breaking (MEDIUM; not "
                           "renewed while up, UNVERIFIED)")
+
+
+# Battershout (MECH72; MECH70's design; an UNDERCOUNT before, PoB maps neither of its stats): game files 26476662,
+# GrantedEffects SupportBattershoutPlayer: cannot_break_armour, consume_armour_break_to_trigger_battershout_explosion
+# ("Supported Skills Consume Fully Broken Armour to trigger Physical Damage explosions on Enemies within their range
+# but cannot themselves Break Armour"); its explosion TriggeredBattershoutExplosionPlayer: 40% of the Broken Armour,
+# radius 20, +5% base crit, 50% more against Unique Enemies (the same in PoB's sup_str.lua; patch notes, the newest
+# last: 0.2.0g "now counts as a Warcry skill", 0.3.0 "50% more Damage against Unique Enemies", 0.4.0 fixed it with
+# Fortifying / Ancestral Cry). So each use of the supported Warcry while the boss is Fully Broken ends the Full Break
+# (an OVERCOUNT guard on the Armour Broken box: it no longer lasts its whole 12 s) and explodes once. The Warcry's uses
+# are periodic at the build's rate (its group's, else the search's chosen press rate, else 0) and fall at a random
+# point of the Full Break (MEDIUM): it lasts E[min(U, held)] with U uniform over one gap between uses, and explodes
+# with chance min(1, held x uses). With High Velocity Rounds' Riven Armour as well, only the Riven cycle is read
+# (labelled), and so is the Ferocious Roar path (its Break isn't through the box's lines; not changed, labelled). The
+# explosion's damage: models.battershout_model.
+BATTERSHOUT = "Battershout"
+
+
+def _battershout_cycle(to_break: float, full: float, held: float, uses: float) -> tuple[float, float, float, str]:
+    """(share of the fight Fully Broken, explosions per second, Full Breaks per second, how) with the Battershout
+    Warcry used `uses` times a second: `to_break` s of Breaking per Full Break (inf if none), `full` Full Breaks per
+    second from other events, `held` s each Full Break lasts unconsumed."""
+    breaks = (1 / to_break if 0 < to_break < float("inf") else 0.0) + full
+    if breaks <= 0:
+        return 0.0, 0.0, 0.0, f"{BATTERSHOUT}: no Full Break happens, so nothing to Consume"
+    gap = 1 / uses
+    broken = gap / 2 if held >= gap else held - held * held / (2 * gap)
+    chance = min(1.0, held / gap)
+    cycle = 1 / breaks + broken
+    return broken / cycle, chance / cycle, 1 / cycle, (
+        f"{BATTERSHOUT}'s Warcry at {uses:.2f}/s Consumes each Full Break {broken:.2f} s in on average ({chance:.0%} of "
+        f"them before the {held:g} s run out): {chance / cycle:.3f} explosions/s, a Full Break every {cycle:.2f} s "
+        "(MEDIUM: uses periodic, at a random point of the Full Break)")
 
 
 def armour_broken_share(lines: list[str], stats: dict) -> float:
@@ -1999,6 +2036,22 @@ def exposure_source_flags(texts: list[str], main_types: set[str]) -> list[dict]:
         named = (m.group(2) or "elemental").capitalize()
         elements |= set(EXPOSURE_ELEMENTS) if named == "Elemental" else {named}
     return [models.raw_mod(f"Condition:CanApply{e}Exposure", "FLAG", 1) for e in EXPOSURE_ELEMENTS if e in elements]
+
+
+# CanWither for Withered lines PoB parses only in part (MECH72; RESEARCH withered-sources.md #1, HIGH): PoB applies the
+# Withered count (multiplierWitheredStackCount) only through WitherEffectStack, which it sets only for an active skill
+# with Condition:CanWither (CalcPerform 2588-2590, 714-717). The Wicked Quill's "Spells have a 25% chance to inflict
+# Withered for 4 seconds on Hit" is a partial parse (ModCache: leftover " to inflict Withered   "), so with it alone our
+# stacks did nothing in PoB (an UNDERCOUNT to 0). Each "N% chance to inflict Withered for N seconds on Hit" line
+# _withered_stacks counts sets the flag (a no-op where PoB parsed it: it sets the same flag). Minions' and the Wasting
+# lines are left to PoB's own handling.
+def wither_source_flags(texts: list[str], main_types: set[str]) -> list[dict]:
+    """PoB's Condition:CanWither for the main skill's counted Withered chance lines (see the note above)."""
+    spell = "Spell" in main_types
+    if any(WITHER_CHANCE.search(t) and (spell or not WITHER_SPELLS.search(t))
+           for t in texts):
+        return [models.raw_mod("Condition:CanWither", "FLAG", 1)]
+    return []
 
 
 def _exposure_uptime(element: str) -> Callable[[list[str], dict], tuple[object, str]]:
@@ -3286,6 +3339,22 @@ class Conditions:
                     for r in self.build.call("useRates", indices=sorted(set(where.values())))["rates"]}
         return {n: by_index[i] for n, i in where.items() if i in by_index}
 
+    def battershout_uses(self, gems: dict) -> float:
+        """Uses per second of the Warcries Battershout supports (MECH72): the main skill's Speed if it is one, else each
+        enabled group's rate (_group_uses; else the search's chosen press rate, else 0), summed."""
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        shouts = {n["name"] for g in groups
+                  if any(n.get("enabled", True) and n["name"] == BATTERSHOUT and (gems.get(n["name"]) or {}).get("support")
+                         for n in g.get("gems") or [])
+                  for n in g.get("gems") or []
+                  if n.get("enabled", True) and "Warcry" in ((gems.get(n["name"]) or {}).get("skillTypes") or ())
+                  and not (gems.get(n["name"]) or {}).get("support")}
+        if not shouts:
+            return 0.0
+        rates = self._group_uses(groups, shouts - {self.main_skill})
+        return sum(number(self.build.call("stats", fields=["Speed"]).get("Speed")) if name == self.main_skill
+                   else rates.get(name, self._chosen_use(name)) for name in shouts)
+
     def _chosen_use(self, name: str) -> float:
         """Uses per second of a skill beside the main one that no group rate covers: the search's chosen press rate for
         it (models.press_choices), else 0 (no source, 0; MECH56: before, one use every models.PRESS_EVERY s)."""
@@ -3762,6 +3831,7 @@ class Conditions:
         stats["_dazed_box"] = "conditionEnemyDazed" in self.active  # (PoB's box as it is now: heavy_stun_rate)
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         self.riven_share = 0.0  # (share of the fight Riven Armour is up: _riven_cycle)
+        self.battershout = (0.0, 0.0, "")  # (MECH72: explosions/s, the boss's Armour, basis: _battershout_cycle)
         self.riven_how = ""
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             broken, stats["_full_break_rate"] = roar, roar[2] / models.full_break_duration([line["text"] for line in lines])
@@ -3776,12 +3846,17 @@ class Conditions:
                 armour_stats["_riven_uses"] = (number(stats.get("Speed")) if self.main_skill == RIVEN_SKILL else
                                                self._group_uses(self.build.call("groups")["groups"], {RIVEN_SKILL}).get(
                                                    RIVEN_SKILL) or self._chosen_use(RIVEN_SKILL))
+            if RIVEN_SKILL not in gem_types and (shout := self.battershout_uses(gems)):
+                armour_stats["_battershout_uses"] = shout  # (MECH72: its Warcry Consumes the Full Break; _battershout_cycle)
             up, basis = _armour_broken(texts, armour_stats)
             self.riven_share = number(armour_stats.get("_riven_share"))  # (GEM3's riven_armour_model reads it)
             self.riven_how = basis if self.riven_share > 0 else ""
+            if number(armour_stats.get("_battershout_rate")) > 0:  # (models.battershout_model reads it)
+                self.battershout = (number(armour_stats["_battershout_rate"]), number(raw.get("enemyArmour")), basis)
             if basis:
                 broken = _box(up, basis)
-                stats["_full_break_rate"] = up / models.full_break_duration(texts)
+                stats["_full_break_rate"] = (number(armour_stats.get("_battershout_breaks"))
+                                             or up / models.full_break_duration(texts))
         # (MECH69) the Exposure supports on the main skill, by their stats (_exposure_support_sources)
         if any(line["source"].startswith("gem:") and EXPOSURE_WORD.search(line["text"]) for line in lines):
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(EXPOSURE_SUPPORT_STATS))
@@ -3838,6 +3913,7 @@ class Conditions:
         self.build.charge_flow = dict(stats.get("_charge_flow") or {})
         # (MECH69, for GEM3's models.riven_armour_model: the share of the fight Riven Armour is up, and its basis)
         self.build.riven_up = (self.riven_share, self.riven_how)
+        self.build.battershout = getattr(self, "battershout", (0.0, 0.0, ""))  # (MECH72, models.battershout_model)
         # (MECH69, for GEM5's Elemental Discharge model: the share of the fight the boss is Ignited / Shocked / Frozen,
         # with the main skill's own and other skills' consumes taken off: the same functions the boxes use, read whether
         # or not a box is on; Frozen from its resolver share, 0 without a Freeze source)
