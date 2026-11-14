@@ -4312,8 +4312,7 @@ def test_charm_charges_used_modifiers_change_a_charms_cost_per_use():
     assert uptime(charm, Charges(charm=1.0, charm_used_inc=-25)) == pytest.approx(4 / 15)
     assert uptime(charm, Charges(charm=1.0, charm_used_inc=30)) == pytest.approx(4 / 26)
     # Cast on Charm Use: the charges actually spent (one use per 4 s at most, each costing 15)
-    spent = charm_charges_used([(charm, "Rarity: Magic
-Charm")], Charges(charm=10.0, charm_used_inc=-25))[0]
+    spent = charm_charges_used([(charm, "Rarity: Magic" + chr(10) + "Charm")], Charges(charm=10.0, charm_used_inc=-25))[0]
     assert spent == pytest.approx(15 / 4)
     assert Charges.from_bridge({"charmChargesUsedInc": -20}).charm_used_inc == -20
 
