@@ -3059,3 +3059,17 @@ def test_a_line_raises_a_short_floors_weight_when_its_pass_spans_tasks(monkeypat
     now[0] = 400.0  # the second raise past the deadline doesn't clear the tree (M2's tree rebuild regrows it)
     inner.Search._ascend(search, 500.0, None, None, True)
     assert search.escalations == 2 and not resets and not kicks
+def test_living_bomb_is_a_gem_but_not_yet_a_main_skill():
+    """COV26: Living Bomb is a tier 3 gem since 0.3.0 (PoB marks it item-granted, and nothing grants it, so it was never
+    offered: an UNDERCOUNT). It is a gem now, and can be required beside the main skill as a Fire Remnant source; it isn't
+    a main skill yet, since PoB counts an explosion every cast (an OVERCOUNT until a model caps it)."""
+    from builder.search.context import ITEM_SKILL_GEMS
+    from builder.search.skeletons import candidate_skills, skill_problems
+
+    assert set(ITEM_SKILL_GEMS) == {"Living Bomb"}
+    ctx = context(main_skill="Fireball", require={"skills": ["Living Bomb"]})
+    assert "Living Bomb" in ctx.gems and ctx.allowed_gem("Living Bomb")
+    assert skill_problems(ctx, "Fireball") == []
+    assert "OVERCOUNT" in skill_problems(ctx, "Living Bomb")[0]
+    assert "Living Bomb" not in candidate_skills(ctx) and "Fireball" in candidate_skills(ctx)
+    assert "Bone Blast" not in ctx.gems  # (the other item-granted skills stay with their sources)

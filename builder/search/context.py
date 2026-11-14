@@ -74,9 +74,19 @@ GONE_GEMS = {
     # places." / "Living Bomb is now a tier 3 Elemental Skill Gem, while Solar Orb is an inherent skill to Pyrophyte
     # Staves"; poe2db's current page https://poe2db.tw/us/Solar_Orb: "From: Pyrophyte Staff", the same 0.3.0 row, later rows
     # bug fixes only). PoB still exports it as an ordinary gem (and Living Bomb as item-granted: the swap the other way, an
-    # UNDERCOUNT left for later). The skill stays reachable from its sources: the Pyrophyte Staff base and The Searing Touch
+    # UNDERCOUNT COV26 fixes through ITEM_SKILL_GEMS). The skill stays reachable from its sources: the Pyrophyte Staff base and The Searing Touch
     # (Context.granted_by); only the free gem copy goes.
     "Solar Orb": "a Pyrophyte Staff's own skill since 0.3.0, not a gem (the 0.3.0 notes and poe2db agree)",
+}
+
+# Skills PoB marks item-granted (fromItem) that the game now gives as ordinary skill gems, each with two sources that agree:
+# Context.gems offers them. (checked, COV26: of PoB's 89 fromItem active skills only Living Bomb carries a gem tier above 0
+# (PoB Data/Gems.lua Tier = 3), and it has a game SkillGems row on BaseItemType Metadata/Items/Gem/SkillGemLivingBombPlayer;
+# Context.granted_by finds no base, unique or passive granting it, so before this nothing offered it: an UNDERCOUNT. The
+# official 0.3.0 notes, pathofexile.com forum 3826682: "Living Bomb and Solar Orb have swapped places." / "Living Bomb is
+# now a tier 3 Elemental Skill Gem"; poe2db's current page https://poe2db.tw/us/Living_Bomb; COV25's research.md.)
+ITEM_SKILL_GEMS = {
+    "Living Bomb": "a tier 3 skill gem since 0.3.0 (the 0.3.0 notes, PoB's Tier = 3 and the game's SkillGems row agree)",
 }
 
 # Uniques PoB carries that a new character in the current league can't obtain (the user, 13 Nov 2026: "No, league-obtainable
@@ -235,11 +245,12 @@ class Context:
     @cached_property
     def gems(self) -> dict[str, dict]:
         """Gems a player can socket at the requested level, by name. PoB's legacy gems are left out, except those
-        LIVE_LEGACY names (checked live against the game files and a second source); GONE_GEMS are left out too."""
+        LIVE_LEGACY names (checked live against the game files and a second source); GONE_GEMS are left out too. PoB's
+        item-granted skills are left out, except the ITEM_SKILL_GEMS the game now gives as gems (Living Bomb)."""
         gems = {}
         for gem in self.data.gems:
-            if gem.get("fromItem") or gem.get("fromTree") or (gem.get("legacy") and gem["name"] not in LIVE_LEGACY) \
-                    or gem["name"] in GONE_GEMS:
+            if (gem.get("fromItem") and gem["name"] not in ITEM_SKILL_GEMS) or gem.get("fromTree") \
+                    or (gem.get("legacy") and gem["name"] not in LIVE_LEGACY) or gem["name"] in GONE_GEMS:
                 continue
             if (gem.get("levelRequirement") or 0) > self.level:
                 continue

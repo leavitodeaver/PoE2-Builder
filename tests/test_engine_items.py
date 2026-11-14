@@ -1318,3 +1318,22 @@ def test_pobs_thorns_group_counts_in_no_dps_and_thorns_adds_its_hits(engine):
     full = {**stats, **build.call("stats", fields=models.THORNS_FIELDS)}
     assert dps == pytest.approx(hit * boss_hits.land_share(full) / bosses.benefit_skill_time(full))
     assert notes and notes[0]["confidence"] == "LOW"
+def test_living_bomb_is_a_gem_pob_scores_socketed_at_one_explosion_a_cast(engine):
+    """COV26: Living Bomb is a tier 3 gem since 0.3.0 (Context.ITEM_SKILL_GEMS); PoB marks it item-granted but scores it
+    socketed as an ordinary gem. PoB has no rule for its seed (no living_bomb stat read in its Modules): it counts an
+    explosion every cast (TotalDPS = AverageDamage x Speed), where the game explodes the one seed only after the boss
+    takes 200% of its Ailment Threshold from the build's damage, so skeletons.skill_problems keeps it off the main skill
+    until a model caps it (MECH-C)."""
+    ctx = context(main_skill="Fireball")
+    assert "Living Bomb" in ctx.gems
+    engine.call("newBuild")
+    engine.call("setClass", className="Sorceress", ascendancy="Stormweaver")
+    engine.call("setLevel", level=90)
+    fields = ["CombinedDPS", "TotalDPS", "AverageDamage", "Speed"]
+    group = engine.call("setGroup", gems=[{"name": "Living Bomb", "level": 20, "quality": 0}], main=True,
+                        fields=fields)["group"]
+    assert group["skills"][0]["name"] == "Living Bomb"
+    stats = engine.call("stats", fields=fields)
+    print("COV26 probe, Living Bomb socketed:", stats)
+    assert stats["CombinedDPS"] > 0 and stats["AverageDamage"] > 0
+    assert stats["TotalDPS"] == pytest.approx(stats["AverageDamage"] * stats["Speed"], rel=1e-3)

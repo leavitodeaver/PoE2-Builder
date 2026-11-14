@@ -317,11 +317,28 @@ def usable_ascendancies(ctx: Context) -> list[str]:
     return names
 
 
+# Gems the search offers (Context.gems) but not as the main skill, because PoB scores them at a rate the game doesn't give and
+# no model caps it yet; each stays usable beside the main skill, where its model prices it. COV26, Living Bomb: the game's
+# text "Dealing enough damage to the enemy, or killing it outright, causes the seed to explode" (ActiveSkills
+# LivingBombPlayer) and living_bomb_base_number_of_bombs_allowed 1, living_bomb_damage_threshold_%_of_ailment_threshold
+# 200 (GrantedEffectStatSets); PoB reads no living_bomb stat in its Modules (checked: grep of src/Modules and
+# SkillStatMap.lua) and counts an explosion every cast (the probe in test_engine_items.py: TotalDPS = AverageDamage x
+# Speed). As a Remnant source beside the main skill, assumptions.living_bomb_rate prices its seeds (MECHC1). For MECH-C:
+# its own explosions as the main skill at living_bomb_rate, then this entry goes.
+UNCAPPED_MAIN = {
+    "Living Bomb": "isn't offered as the main skill yet: PoB counts an explosion every cast, but the one seed explodes "
+                   "only once the boss takes 200% of its Ailment Threshold (an OVERCOUNT until a model caps it); it "
+                   "can still be required beside the main skill as a Fire Remnant source",
+}
+
+
 def skill_problems(ctx: Context, skill: str) -> list[str]:
     if skill not in ctx.gems and not ctx.granted_by.get(skill):
         return [f"{skill} isn't a gem a level {ctx.level} character can socket, and no passive or unique grants it"]
     if skill in ctx.compiled.filters.forbidden_gems:
         return [f"{skill} is banned by the request"]
+    if skill in UNCAPPED_MAIN:
+        return [f"{skill} {UNCAPPED_MAIN[skill]}"]
     buttons = {skill} if skill in ctx.gems and is_button(ctx.gems[skill]) else set()
     # Required spells the setup sockets into a required meta skill are triggered by it, not pressed
     socketed = meta_socketed([n for n in ctx.request.require.skills if n != skill], ctx.gems)
