@@ -50,6 +50,7 @@ class LuaState:
             fn.argtypes = argtypes
             fn.restype = restype
         self._lua = lua
+        self.calls = 0  # protected calls into this state so far (PobEngine's read cache: has anything else run Lua?)
         self.L = lua.luaL_newstate()
         if not self.L:
             raise LuaError("luaL_newstate failed")
@@ -97,6 +98,7 @@ class LuaState:
 
     def _call_with_handler(self, base: int, args: tuple[str | bytes, ...]) -> list[bytes]:
         lua, L = self._lua, self.L
+        self.calls += 1
         for arg in args:
             data = arg.encode("utf-8") if isinstance(arg, str) else arg
             lua.lua_pushlstring(L, data, len(data))
