@@ -1,0 +1,20 @@
+{
+ "_about": "Vaal Cultivation Orb odds for the craft price (builder/search/cultivated.py success_chance). No game file or datamine gives them: the client's 204 outcome mods have empty spawn weights (CULT1). Swap 'model' when a counted source appears; each 'compare' model is shown beside the price as a sensitivity row.",
+ "model": {
+  "name": "1 or 2 lines replaced, the same number off as on; about 80% one, 20% two",
+  "kind": "paired",
+  "lines": {"1": 0.8, "2": 0.2},
+  "confidence": "LOW",
+  "source": "AUDIT33 A33-14 (14 Nov 2026): the game's orb text 'Replaces up to 2 modifiers'; poe2wiki 'replaced by an equal number of cultivation modifiers', '~20% chance to replace 2' (marked unconfirmed), the removed line random (developer statement, 0.4.0 reveal), the same outcome never twice; poe2db 'one or two'. Outcomes equally likely (UNVERIFIED: no weights exist)."
+ },
+ "compare": [
+  {
+   "name": "the user's reading: even odds of 0, 1 or 2 added and, separately, 0, 1 or 2 removed",
+   "kind": "separate",
+   "add": {"0": 0.3333333333, "1": 0.3333333333, "2": 0.3333333333},
+   "remove": {"0": 0.3333333333, "1": 0.3333333333, "2": 0.3333333333},
+   "confidence": "UNVERIFIED",
+   "source": "the user, 14 Nov 2026; against every source AUDIT33 found (A33-14)"
+  }
+ ]
+}

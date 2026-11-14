@@ -23,20 +23,22 @@ from pathlib import Path
 from builder import clock
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "cultivated.json"
+ODDS = Path(__file__).resolve().parents[1] / "data" / "cultivated_odds.json"
 ORB = "Vaal Cultivation Orb"
-VAAL_ORB = "Vaal Orb"
 LABEL = "Cultivated"
-# UNVERIFIED odds (no game file or poe2db gives them; the manager's cautious default, 14 Nov ~05:00): every outcome of a
-# unique equally likely, every replaceable line equally likely to go, and one line replaced half the time, two the other
-# half. A try counts as a success only when it replaced exactly the lines wanted with exactly the outcomes wanted, so a
-# two-line result with one unwanted outcome is a failure (no overcount of the odds). LOW, in every price label.
-ONE_LINE_SHARE = 0.5
 TOP_OUTCOMES = 3  # best single outcomes (by what-if gain) tried as whole variants
 
 
 @lru_cache(maxsize=1)
 def load() -> dict:
     return json.loads(DATA.read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=1)
+def odds() -> dict:
+    """The orb's odds as data (builder/data/cultivated_odds.json): the model the price uses and the comparison models
+    the price note shows beside it. No game file gives them (LOW / UNVERIFIED, sources in the file)."""
+    return json.loads(ODDS.read_text(encoding="utf-8"))
 
 
 def uniques() -> dict[str, dict]:
@@ -47,14 +49,37 @@ def cultivatable(name: str) -> bool:
     return name in uniques()
 
 
+def outcome_lines(o: dict) -> list[str] | None:
+    """An outcome's lines as an item carries them, through the same ledger corrections context.corrected_raw gives a
+    plain unique's lines: a line PoB doesn't read whole gets the ledger's stand-in (ledger.translate, item entries:
+    COV27's lines for the 30 outcomes land here) after it; a line PoB reads wrongly is replaced or switched off
+    (ledger.wrong). None while a line PoB doesn't read has no stand-in: such an outcome can't be scored yet."""
+    from builder.ledger import item_lines, translate, wrong
+
+    unread = set(o.get("pob_unread_lines") or ([] if o["pob_reads"] else o["lines"]))
+    lines: list[str] = []
+    for line in o["lines"]:
+        if line in unread:
+            translated = translate(line)
+            if not (translated and translated[0].on_items):
+                return None
+            lines += [line] + item_lines(translated[1])
+        elif fixed := wrong(line):
+            lines.append(fixed[1] if fixed[1] is not None else "{disabled}" + line)
+        else:
+            lines.append(line)
+    return lines
+
+
 def outcomes(name: str, offered: bool = True) -> list[dict]:
-    """A unique's outcomes. offered=True keeps those the search can score as a fixed line: PoB reads them whole and
-    nothing marks them 'not_offered'. The rest stay in the data (an outcome PoB doesn't read is a coverage gap for
-    the ledger, not a dropped mechanic; Flesh Crucible's random keystone needs one variant per keystone)."""
+    """A unique's outcomes. offered=True keeps those the search can score as a fixed line: PoB reads them whole, or the
+    ledger stands in for what it doesn't (outcome_lines), and nothing marks them 'not_offered'. The rest stay in the
+    data (an outcome PoB doesn't read is a coverage gap for the ledger, not a dropped mechanic; Flesh Crucible's random
+    keystone needs one variant per keystone)."""
     found = uniques().get(name, {}).get("outcomes", [])
     if not offered:
         return list(found)
-    return [o for o in found if o["pob_reads"] and "not_offered" not in o]
+    return [o for o in found if "not_offered" not in o and outcome_lines(o) is not None]
 
 
 def replaceable_lines(name: str) -> list[str]:
@@ -71,52 +96,66 @@ def unread_outcomes() -> list[tuple[str, str, list[str]]]:
 # Prices ------------------------------------------------------------------------------------------------------------
 
 def payload_prices(prices) -> dict:
-    """What a craft costs, for the search's payload (context.make_payload): the orb, a Vaal Orb, and the cultivatable
-    uniques' corrupted copies where poe.ninja lists one (its unique feed marks corrupted copies). Empty without the orb's
-    price: then nothing is crafted (an unpriced orb is never free)."""
+    """The orb's poe.ninja price, for the search's payload (context.make_payload). Empty without it: then nothing is
+    crafted (an unpriced orb is never free)."""
     if prices is None or prices.item(ORB) is None:
         return {}
-    corrupted = {}
-    for name in uniques():
-        copies = [p for p in prices.uniques.get(name) or [] if p.corrupted]
-        if copies:
-            corrupted[name] = min(p.divine for p in copies)
-    vaal = prices.item(VAAL_ORB)
-    return {"orb": prices.item(ORB).divine, "vaal": vaal.divine if vaal else None, "corrupted": corrupted}
+    return {"orb": prices.item(ORB).divine}
 
 
-def success_chance(n_outcomes: int, k_lines: int, wanted: int, acceptable: int) -> float:
-    """One try's chance of the wanted result under the UNVERIFIED equal odds (see ONE_LINE_SHARE): `wanted` (1 or 2)
-    specific outcomes of the unique's n, each replacing one of the `acceptable` lines of its k replaceable lines."""
-    if wanted == 1:
-        if n_outcomes < 1 or k_lines < 1:
-            return 0.0
-        return ONE_LINE_SHARE * (min(acceptable, k_lines) / k_lines) / n_outcomes
-    if n_outcomes < 2 or k_lines < 2 or acceptable < 2:
+def _share(table: dict, count: int) -> float:
+    return float(table.get(str(count), 0.0))
+
+
+def success_chance(n_outcomes: int, k_lines: int, wanted: int, acceptable: int, model: dict | None = None) -> float:
+    """One orb use's chance of exactly the item scored: `wanted` (1 or 2) specific outcomes of the unique's n (each
+    equally likely, never the same twice: UNVERIFIED), replacing `wanted` lines all among the `acceptable` of its k
+    replaceable lines (the line that goes is random). `model` is an odds model (cultivated_odds.json; its "model" when
+    None): "paired" = one count for lines off and outcomes on; "separate" = independent counts added and removed. A
+    result with an extra unwanted outcome, or a line lost that the build needs, is a miss (no overcount)."""
+    model = model or odds()["model"]
+    if wanted < 1 or n_outcomes < wanted or k_lines < wanted or acceptable < wanted:
         return 0.0
-    pair_of_outcomes = 1.0 / math.comb(n_outcomes, 2)
-    pair_of_lines = math.comb(min(acceptable, k_lines), 2) / math.comb(k_lines, 2)
-    return (1.0 - ONE_LINE_SHARE) * pair_of_outcomes * pair_of_lines
+    outcomes_hit = 1.0 / math.comb(n_outcomes, wanted)
+    lines_hit = math.comb(min(acceptable, k_lines), wanted) / math.comb(k_lines, wanted)
+    if model["kind"] == "paired":
+        return _share(model["lines"], wanted) * outcomes_hit * lines_hit
+    if model["kind"] == "separate":
+        return _share(model["add"], wanted) * outcomes_hit * _share(model["remove"], wanted) * lines_hit
+    raise ValueError(f"unknown odds model kind {model['kind']!r}")
 
 
-def craft_price(ctx, name: str, plain_price: float | None, chance: float) -> tuple[float, str] | None:
-    """(divines, label) for crafting one cultivated copy: expected tries x (a corrupted copy, or a plain copy and a Vaal
-    Orb, plus a Vaal Cultivation Orb). None when anything is unpriced or the chance is 0."""
-    costs = ctx.payload.get("cultivation_prices") or {}
-    orb = costs.get("orb")
-    corrupted = (costs.get("corrupted") or {}).get(name)
-    if corrupted is not None:
-        base, how = corrupted, "a corrupted copy"
-    elif plain_price is not None and costs.get("vaal") is not None:
-        base, how = plain_price + costs["vaal"], "a plain copy + a Vaal Orb"
-    else:
+def craft_price(ctx, name: str, plain_price: float | None, chances: dict[str, float]) -> tuple[float, str] | None:
+    """(divines, note) for one cultivated copy, as the manager set it (14 Nov ~05:10, the user's question "how do you
+    price everything else that's not on poe ninja?"): the plain unique's price + the orb's poe.ninja price x the
+    expected uses under the odds model. No plain price (a unique poe.ninja doesn't list is never offered), no orb price
+    or a zero chance: None. `chances` is {model name: one use's chance}; the first is the model priced, the rest are
+    shown as comparison rows. The price assumes one copy takes every use (UNVERIFIED: if each use needs a fresh corrupted
+    copy, multiply the copy's price by the uses too)."""
+    orb = (ctx.payload.get("cultivation_prices") or {}).get("orb")
+    names = list(chances)
+    if plain_price is None or orb is None or not names or chances[names[0]] <= 0.0:
         return None
-    if orb is None or chance <= 0.0:
-        return None
-    tries = 1.0 / chance
-    price = tries * (base + orb)
-    return price, (f"craft estimate, LOW: ~{tries:.0f} tries x ({how} + a {ORB}, {orb:.2f} div); outcome odds unknown, "
-                   "assumed equal (UNVERIFIED)")
+    uses = 1.0 / chances[names[0]]
+    price = plain_price + orb * uses
+    rows = []
+    for other in names[1:]:
+        if chances[other] > 0.0:
+            rows.append(f"{other}: ~{1.0 / chances[other]:.0f} uses, {plain_price + orb / chances[other]:.0f} div")
+        else:
+            rows.append(f"{other}: never")
+    note = (f"craft estimate, LOW: the plain unique ({plain_price:.2f} div) + ~{uses:.0f} {ORB}s x {orb:.2f} div "
+            f"({names[0]}; outcomes equally likely, UNVERIFIED)")
+    if rows:
+        note += "; compare " + "; ".join(rows)
+    return price, note
+
+
+def chances(n_outcomes: int, k_lines: int, wanted: int, acceptable: int) -> dict[str, float]:
+    """One use's chance under the odds model and each comparison model, by name (the model first)."""
+    table = odds()
+    return {m["name"]: success_chance(n_outcomes, k_lines, wanted, acceptable, m)
+            for m in [table["model"], *table.get("compare", [])]}
 
 
 # Item text ---------------------------------------------------------------------------------------------------------
@@ -191,7 +230,7 @@ def edited(raw: str, drop: list[int], add: list[dict]) -> str:
     """The text with lines `drop` removed, each outcome's lines added as {mutated} at the middle roll, and Corrupted."""
     gone = set(drop)
     lines = [line for i, line in enumerate(raw.rstrip("\n").split("\n")) if i not in gone]
-    lines += ["{mutated}{range:0.5}" + line for o in add for line in o["lines"]]
+    lines += ["{mutated}{range:0.5}" + line for o in add for line in (outcome_lines(o) or [])]
     if "Corrupted" not in lines:
         lines.append("Corrupted")
     return "\n".join(lines)
@@ -240,14 +279,16 @@ def trial(gear, slot: str, target, deadline: float):
                    key=lambda x: -x[0])
     costs = sorted(((base - s, at, text) for s, (at, text) in zip(scored[1 + len(offered):], lines)), key=lambda x: x[0])
     n_all = len(outcomes(target.name, offered=False))  # every outcome can roll, offered or not
-    k = len(lines)
+    # Every explicit line of the selected variant counts as one the orb might take (more lines than it can take lowers
+    # the chance: the cautious side, never an underpriced craft); a two-line mod counts twice for the same reason
+    k = max(len(lines), len(_explicit(original if original is not None else target.raw)))
     variants = []
     for _, o in gains[:TOP_OUTCOMES]:
         acceptable = sum(1 for c in costs if c[0] <= costs[0][0] + EPSILON)
-        variants.append((costs[:1], [o], success_chance(n_all, k, 1, acceptable)))
+        variants.append((costs[:1], [o], chances(n_all, k, 1, acceptable)))
     if len(gains) >= 2 and k >= 2:
         acceptable = sum(1 for c in costs if c[0] <= costs[1][0] + EPSILON)
-        variants.append((costs[:2], [gains[0][1], gains[1][1]], success_chance(n_all, k, 2, acceptable)))
+        variants.append((costs[:2], [gains[0][1], gains[1][1]], chances(n_all, k, 2, acceptable)))
     left = gear.left_for(slot)
     options = []
     for dropped, add, chance in variants:

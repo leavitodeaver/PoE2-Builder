@@ -49,13 +49,14 @@ def test_the_search_is_offered_only_outcomes_pob_scores_and_the_rest_stay_listed
     spear = cultivated.outcomes("Saitha's Spear", offered=False)
     exposure = next(o for o in spear if o["mod"] == "UniqueMutatedVaalFireExposureOnHit")
     assert not exposure["pob_reads"]
-    assert exposure not in cultivated.outcomes("Saitha's Spear")
+    # offered only once the ledger stands in for it (COV27's lines; tested with a stand-in below)
+    assert (exposure in cultivated.outcomes("Saitha's Spear")) == (cultivated.outcome_lines(exposure) is not None)
     assert ("Saitha's Spear", "UniqueMutatedVaalFireExposureOnHit",
             ["(30-50)% chance to inflict Exposure on Hit"]) in cultivated.unread_outcomes()
     keystone = next(o for o in cultivated.outcomes("Flesh Crucible", offered=False)
                     if o["mod"] == "UniqueMutatedVaalRandomKeystoneFromTable")
     assert "not_offered" in keystone and keystone not in cultivated.outcomes("Flesh Crucible")
-    assert all(o["pob_reads"] for name in cultivated.uniques() for o in cultivated.outcomes(name))
+    assert all(cultivated.outcome_lines(o) is not None for name in cultivated.uniques() for o in cultivated.outcomes(name))
 
 
 def test_replaceable_lines_and_unknown_uniques():
@@ -70,13 +71,21 @@ def pob_raw(name: str) -> str:
     return next(u["raw"] for u in json.loads(POB_UNIQUES.read_text(encoding="utf-8"))["uniques"] if u["name"] == name)
 
 
-def test_the_craft_odds_count_only_the_exact_result_wanted():
-    # one wanted outcome of 4, on the one acceptable line of 5, in the one-line half of the tries
-    assert cultivated.success_chance(4, 5, 1, 1) == pytest.approx(0.5 * (1 / 5) * (1 / 4))
-    assert cultivated.success_chance(4, 5, 1, 2) == pytest.approx(0.5 * (2 / 5) * (1 / 4))
-    # two wanted outcomes together, on two acceptable lines, in the two-line half
-    assert cultivated.success_chance(4, 5, 2, 2) == pytest.approx(0.5 * (1 / 6) * (1 / 10))
+def test_the_craft_odds_are_data_and_count_only_the_exact_result_wanted():
+    model = cultivated.odds()["model"]
+    assert model["kind"] == "paired" and model["lines"] == {"1": 0.8, "2": 0.2} and model["confidence"] == "LOW"
+    # one wanted outcome of 4, on the one acceptable line of 5, in the one-line 80% of uses
+    assert cultivated.success_chance(4, 5, 1, 1) == pytest.approx(0.8 * (1 / 4) * (1 / 5))
+    assert cultivated.success_chance(4, 5, 1, 2) == pytest.approx(0.8 * (1 / 4) * (2 / 5))
+    # two wanted outcomes together (never the same twice), on two acceptable lines, in the two-line 20%
+    assert cultivated.success_chance(4, 5, 2, 2) == pytest.approx(0.2 * (1 / 6) * (1 / 10))
     assert cultivated.success_chance(1, 5, 2, 5) == 0.0 and cultivated.success_chance(0, 5, 1, 1) == 0.0
+    # the user's reading, shown beside the price: separate even odds of 0/1/2 added and 0/1/2 removed
+    users = cultivated.odds()["compare"][0]
+    assert users["kind"] == "separate" and users["confidence"] == "UNVERIFIED"
+    assert cultivated.success_chance(4, 5, 1, 1, users) == pytest.approx((1 / 3) * (1 / 4) * (1 / 3) * (1 / 5))
+    both = cultivated.chances(4, 5, 1, 1)
+    assert list(both) == [model["name"], users["name"]]
 
 
 class _Ctx:
@@ -88,15 +97,31 @@ class _Ctx:
         self.data = type("D", (), {"uniques": [{"name": "Atziri's Acuity", "raw": pob_raw("Atziri's Acuity")}]})()
 
 
-def test_a_craft_is_priced_as_tries_times_a_copy_and_the_orbs_and_labelled_low():
-    ctx = _Ctx({"orb": 6.0, "vaal": 0.02, "corrupted": {}})
-    price, note = cultivated.craft_price(ctx, "Atziri's Acuity", 1.0, 0.05)
-    assert price == pytest.approx(20 * (1.0 + 0.02 + 6.0))
-    assert "LOW" in note and "UNVERIFIED" in note and "20 tries" in note
-    ctx = _Ctx({"orb": 6.0, "vaal": 0.02, "corrupted": {"Atziri's Acuity": 0.5}})  # a corrupted copy listed: no Vaal Orb
-    assert cultivated.craft_price(ctx, "Atziri's Acuity", 1.0, 0.05)[0] == pytest.approx(20 * 6.5)
-    assert cultivated.craft_price(_Ctx({}), "Atziri's Acuity", 1.0, 0.05) is None  # no orb price: never free
-    assert cultivated.craft_price(ctx, "Atziri's Acuity", 1.0, 0.0) is None
+def test_a_craft_is_the_plain_price_plus_the_orbs_for_the_expected_uses_labelled_low_with_the_users_reading():
+    ctx = _Ctx({"orb": 6.0})
+    price, note = cultivated.craft_price(ctx, "Atziri's Acuity", 1.0, {"model A": 0.05, "the user's reading": 0.01})
+    assert price == pytest.approx(1.0 + 20 * 6.0)
+    assert "LOW" in note and "UNVERIFIED" in note and "~20 Vaal Cultivation Orbs" in note
+    assert "compare the user's reading: ~100 uses, 601 div" in note
+    assert cultivated.craft_price(ctx, "Atziri's Acuity", None, {"m": 0.05}) is None  # no poe.ninja price: not offered
+    assert cultivated.craft_price(_Ctx({}), "Atziri's Acuity", 1.0, {"m": 0.05}) is None  # no orb price: never free
+    assert cultivated.craft_price(ctx, "Atziri's Acuity", 1.0, {"m": 0.0}) is None
+
+
+def test_outcomes_pob_doesnt_read_go_through_the_ledger_and_are_offered_once_it_stands_in(monkeypatch):
+    import builder.ledger as ledger
+
+    exposure = next(o for o in cultivated.outcomes("Saitha's Spear", offered=False)
+                    if o["mod"] == "UniqueMutatedVaalFireExposureOnHit")
+    monkeypatch.setattr(ledger, "translate", lambda line: None)
+    assert cultivated.outcome_lines(exposure) is None and exposure not in cultivated.outcomes("Saitha's Spear")
+    entry = type("E", (), {"on_items": True})()
+    monkeypatch.setattr(ledger, "translate", lambda line: (entry, ["stand-in for " + line]) if "Exposure" in line else None)
+    assert cultivated.outcome_lines(exposure) == ["(30-50)% chance to inflict Exposure on Hit",
+                                                  "stand-in for (30-50)% chance to inflict Exposure on Hit"]
+    assert exposure in cultivated.outcomes("Saitha's Spear")
+    text = cultivated.edited(pob_raw("Saitha's Spear"), [], [exposure])
+    assert "{mutated}{range:0.5}stand-in for (30-50)% chance to inflict Exposure on Hit" in text
 
 
 def test_the_lines_lost_are_the_uniques_own_in_its_selected_variant_and_two_line_mods_go_whole():
@@ -154,7 +179,7 @@ def _acuity_option():
 
 
 def test_the_trial_crafts_the_outcome_that_helps_in_place_of_the_line_the_build_loses_least_by():
-    ctx = _Ctx({"orb": 6.0, "vaal": 0.02, "corrupted": {}})
+    ctx = _Ctx({"orb": 6.0})
     gear = _Gear(ctx, worth={"(5-10)% increased maximum Life": 0.10},
                  cost={"(150-200)% increased Armour": 0.01, "+(100-150) to maximum Life": 0.05,
                        "10% of Physical damage dealt by your Hits causes Blood Loss": 0.03})
@@ -165,7 +190,9 @@ def test_the_trial_crafts_the_outcome_that_helps_in_place_of_the_line_the_build_
     assert grown.variants[-1].startswith("Cultivated: MaximumLifeIncreasePercent")
     assert "craft estimate, LOW" in grown.confidence
     n = len(cultivated.outcomes("Atziri's Acuity", offered=False))
-    assert grown.price == pytest.approx((1.0 + 0.02 + 6.0) / cultivated.success_chance(n, 3, 1, 1))
+    k = max(3, len(cultivated._explicit(pob_raw("Atziri's Acuity"))))  # every explicit line might go: the cautious side
+    assert grown.price == pytest.approx(1.0 + 6.0 / cultivated.success_chance(n, k, 1, 1))
+    assert "compare the user's reading" in grown.confidence
     # an outcome that adds nothing is never crafted, and the trial isn't repeated at the same score
     gear = _Gear(ctx, worth={}, cost={})
     assert cultivated.trial(gear, "Gloves", plain, deadline=float("inf")) is plain
@@ -174,13 +201,16 @@ def test_the_trial_crafts_the_outcome_that_helps_in_place_of_the_line_the_build_
 
 
 def test_the_trial_keeps_the_plain_unique_when_the_craft_costs_more_than_it_gives_or_cant_be_bought():
-    ctx = _Ctx({"orb": 6.0, "vaal": 0.02, "corrupted": {}})
+    ctx = _Ctx({"orb": 6.0})
     worth = {"(5-10)% increased maximum Life": 0.10}
     cost = {"(150-200)% increased Armour": 0.01}
     assert cultivated.trial(_Gear(ctx, worth, cost, lam=0.01), "Gloves", _acuity_option(), float("inf")).variants == ()
     assert cultivated.trial(_Gear(ctx, worth, cost, left=50.0), "Gloves", _acuity_option(), float("inf")).variants == ()
     assert cultivated.trial(_Gear(_Ctx({}), worth, cost), "Gloves", _acuity_option(), float("inf")).variants == ()
-    ssf = _Ctx({"orb": 6.0, "vaal": 0.02, "corrupted": {}}, ssf=True)
+    from dataclasses import replace
+    unpriced = replace(_acuity_option(), price=None)  # no poe.ninja price for the plain unique: no craft either
+    assert cultivated.trial(_Gear(ctx, worth, cost), "Gloves", unpriced, float("inf")).variants == ()
+    ssf = _Ctx({"orb": 6.0}, ssf=True)
     assert cultivated.trial(_Gear(ssf, worth, cost), "Gloves", _acuity_option(), float("inf")).variants == ()
 
 
@@ -217,3 +247,13 @@ def test_pob_scores_a_cultivated_item_with_its_outcome_and_without_the_line_it_l
     (_, before), (_, after) = search.build.item_deltas([{"slot": "Gloves", "raw": plain}, {"slot": "Gloves", "raw": grown}])
     assert after["EnergyShield"] >= before["EnergyShield"] + 100 * 0.9  # +125 at the middle roll, before any increase
     assert after["Armour"] < before["Armour"]
+
+
+def test_the_lines_the_wiki_and_the_game_say_the_orb_cant_replace_are_never_the_line_lost():
+    never = {"Atziri's Contempt": "Bloodstone Lance", "Atziri's Splendour": "Only Soul Cores can be Socketed",
+             "Mask of the Stitched Demon": "Cannot have Energy Shield", "Quecholli": "no Critical Damage Bonus"}
+    for name, words in never.items():
+        assert words in pob_raw(name), name
+        assert not any(words in text for _, text in cultivated.explicit_lines(name, pob_raw(name))), name
+    wiki = cultivated.load()["_about"]["unreplaceable_per_wiki"]["lines"]
+    assert [u for u, row in wiki.items() if row["in_game_OriginalMods"]] == ["The Vertex"]

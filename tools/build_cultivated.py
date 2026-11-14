@@ -48,6 +48,14 @@ LINE_BY_HAND = {
     ("Flesh Crucible", "Random 1 Keystone"): "UniqueRandomKeystoneFromTable1",
     ("The Flesh Poppet", "Copy a random Modifier"): "UniqueGainAModifierFromEachEnemyInPresenceOnShapeshift1",
 }
+# poe2wiki's 5 lines the orb can't replace (AUDIT33 A33-14), checked against the game's OriginalMods in the data
+WIKI_UNREPLACEABLE = {
+    "Atziri's Contempt": "UniqueSpearsInflictBloodstoneLanceOnHit1",
+    "Atziri's Splendour": "UniqueOnlySocketSoulCores1",
+    "Mask of the Stitched Demon": "UniqueCannotGainEnergyShield1",
+    "The Vertex": "UniqueLocalNoAttributeRequirements1",
+    "Quecholli": "UniqueLocalNoCriticalStrikeMultiplier1",
+}
 # Outcomes the search must not offer as a fixed line, with why (never dropped silently: they stay in the data).
 NOT_OFFERED = {
     "UniqueMutatedVaalRandomKeystoneFromTable": "grants one of 33 random keystones (stat local_additional_vivisection_"
@@ -61,7 +69,10 @@ CONFLICTS = [
              "build 26476662; poe2db agrees)",
      "patch_notes": "0.5.0: 'can now roll +16-30 maximum Rage if you've used a Skill that Requires Glory in the past "
                     "20 seconds'",
-     "used": "the game files' 8-10 (the lower number: no overcount if the notes are right about a later server value)"},
+     "used": "the game files' 8-10 (the lower number: no overcount if the notes are right about a later server value)",
+     "audit": "AUDIT33 A33-15 (14 Nov 2026): +8-10 is what the game rolls (game files, poe2db, poe2wiki, and a 3 Jun 2026 "
+              "forum bug report showing a real item at +(8-10)); the 0.5.0 note's +16-30 was never applied. Recheck at the "
+              "next patch or game-files export: if GGG applies 16-30, this becomes an UNDERCOUNT"},
 ]
 
 
@@ -173,6 +184,13 @@ def main(vco_html: str, export_dir: str) -> None:
             "replaceable": "a line's 'replaceable' is true when its text matches one of the game's 242 OriginalMods; "
                            "false means only that the text did not match (UNVERIFIED, not 'cannot be replaced')",
             "conflicts": CONFLICTS,
+            "unreplaceable_per_wiki": {
+                "source": "poe2wiki's Cultivated unique page (AUDIT33 A33-14): 5 lines the orb can't replace",
+                "lines": {u: {"mod": m, "in_game_OriginalMods": m in replaceable} for u, m in WIKI_UNREPLACEABLE.items()},
+                "note": "4 of 5 are not in the game's OriginalMods and not on poe2db's list: the search never drops them. "
+                        "The Vertex's UniqueLocalNoAttributeRequirements1 IS in OriginalMods (game files vs wiki disagree; "
+                        "0.4.0b fixed 'the attribute requirement modifiers on The Vertex could not be modified'); poe2db's "
+                        "Vertex lines don't show it, so the search doesn't offer dropping it either (UNVERIFIED)"},
             "outcome_mods_in_game_files": len(outcome_rows),
             "outcome_mods_on_listed_uniques": len(used),
             "outcome_mods_on_no_listed_unique": sorted(r["Id"] for r in outcome_rows if r["Id"] not in used),
