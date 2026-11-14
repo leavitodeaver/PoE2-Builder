@@ -126,7 +126,7 @@ def test_energy_shield_counts_its_event_and_prevented_recoup_recovery():
         assert field in ADDED_RECOVERY_FIELDS and field not in RECOVERY_INPUTS  # (the search's own, never asked of PoB)
 
 
-def test_uses_that_start_energy_shield_recharge_shorten_its_wait(monkeypatch):
+def test_uses_that_start_energy_shield_recharge_shorten_its_wait():
     """SEARCH19 (the manager's 07:30 item; MECHC23's 01b07c2, train 46): uses that start Energy Shield Recharge at once
     after a reset (Bitterbloom / Nascent Hope: recovery_sources' EnergyShieldRechargeStarts, per second) make each
     e^(-L delay) wait term flasks.recharge_start_wait(L, delay, starts) in the Energy Shield recharge share; Life
@@ -134,16 +134,6 @@ def test_uses_that_start_energy_shield_recharge_shorten_its_wait(monkeypatch):
     from builder.search import flasks
     from builder.search.objective import life_recharge
 
-    if not hasattr(flasks, "recharge_start_wait"):  # (before train 46: MECHC23's 01b07c2 formula, word for word)
-        def recharge_start_wait(total, delay, starts):
-            plain = math.exp(-total * delay)
-            if starts <= 0 or total <= 0:
-                return plain
-            share = min(starts / total, 1.0)
-            return share + (1 - share) * plain
-
-        monkeypatch.setattr(flasks, "recharge_start_wait", recharge_start_wait, raising=False)
-        monkeypatch.setattr(flasks, "ES_STARTS_FIELD", "EnergyShieldRechargeStarts", raising=False)
     stats = king(90, EnergyShieldRecharge=2000, LifeRecharge=500, LifeRechargeDelay=4.0, Life=4000)
     hits = boss_hits.land_share(stats) / 0.7
     plain = boss_recovery(stats)

@@ -287,7 +287,7 @@ def recharge_share(stats: dict, hits: float, delay: float, steady: float = 0.0, 
     own loss on the pool (own_loss). `events`: more of the build's own resets per second, counted with r (Life costs,
     life_cost_events; inf: steady). `starts`: uses a second that start the recharge at once after a reset (Energy Shield
     only: flasks.ES_STARTS_FIELD, MECHC23's Bitterbloom / Nascent Hope), so each e^(-L x) wait term is
-    flasks.recharge_start_wait(L, x, starts) (plain e^(-L x) with none, or before that function exists on this branch)."""
+    flasks.recharge_start_wait(L, x, starts) (plain e^(-L x) with none)."""
     if steady > 0 or events == float("inf"):
         return 0.0
     rate = own_events(stats) + max(events, 0.0)
@@ -296,10 +296,8 @@ def recharge_share(stats: dict, hits: float, delay: float, steady: float = 0.0, 
         return 1.0
     dots = boss_hits.es_dot(stats, land=hits) if hits > 0 else []
     plain = max(1.0 - sum(p for p, _, _ in dots), 0.0)
-    started = getattr(flasks, "recharge_start_wait", None)
-
     def wait(x: float) -> float:
-        return started(total, x, starts) if started is not None and starts > 0 else math.exp(-total * x)
+        return flasks.recharge_start_wait(total, x, starts) if starts > 0 else math.exp(-total * x)
 
     boss = plain * wait(delay) + sum(p * wait(delay + d) for p, d, _ in dots)
     return (hits * boss + rate * wait(delay)) / total
@@ -317,7 +315,7 @@ def es_recharge(stats: dict, hits: float) -> tuple[float, float]:
     if recharge <= 0:
         return 0.0, 0.0
     delay = max(number(stats.get("EnergyShieldRechargeDelay")) or 4.0, 0.0)
-    starts = number(stats.get(getattr(flasks, "ES_STARTS_FIELD", "EnergyShieldRechargeStarts")))
+    starts = number(stats.get(flasks.ES_STARTS_FIELD))
     share = recharge_share(stats, hits, delay, own_loss(stats)["EnergyShield"], starts=starts)
     return recharge * share, share
 
