@@ -2027,3 +2027,23 @@ def test_murderous_intents_cull_is_flagged_empower_only(engine):
     split = engine.call("cullSplit")
     assert split["regular"] > 0 and split["empowerOnly"]
     assert all(r["source"] == "Skill:SupportEmpoweredCullPlayer" for r in split["rows"])
+
+
+def test_use_rates_give_a_culling_side_skill_its_own_cull(engine):
+    """MECH64: bridge.useRates gives a Full DPS skill that Culls its own CullMultiplier, hit chance, hit DPS and
+    cullSplit (calculated as the main one), so conditions.cull_window_scale prices a Cull on another skill than the main
+    one at that skill's own hits instead of keeping PoB's whole-window price (2b75d: Boneshatter with Culling Strike I
+    beside the main Living Bomb)."""
+    from builder import ROOT
+    from builder.pob import codes
+    from builder.search import bosses
+
+    code = (ROOT / "benchmarks" / "reference" / "2b75d.txt").read_text(encoding="utf-8").strip()
+    engine.call("loadXml", xml=codes.decode(code))
+    engine.call("setConfig", vars=bosses.config_vars())
+    engine.call("addSkillGroup", text="Boneshatter 20/0 1\nCulling Strike I 1/0 1", fullDPS=True)
+    index = len(engine.call("groups")["groups"])
+    rate = engine.call("useRates", indices=[index])["rates"][0]
+    assert rate["cullMultiplier"] > 1.0 and rate["speed"] > 0 and rate["hitChance"] > 0 and rate["hitDPS"] > 0
+    assert rate["cullSplit"]["regular"] > 0 and not rate["cullSplit"]["empowerOnly"]
+    assert not engine.call("cullSplit")["regular"]  # (the main skill's own split is unchanged: it doesn't Cull)

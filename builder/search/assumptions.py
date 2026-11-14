@@ -662,7 +662,9 @@ class Assumptions:
             entry = None
         on_block = any(o is not None and conditions_mod.CULL_ON_BLOCK_LINE.search(o.raw or "")
                        for o in (getattr(build, "equipped", None) or {}).values())
-        if entry is None and not on_block:
+        murderous = any(x["name"] == models.MURDEROUS_INTENT and x.get("enabled", True)
+                        for g in build.groups() if g.get("enabled") is not False for x in g["gems"])
+        if entry is None and not on_block and not murderous:
             return []
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = build.call("stats", fields=list(conditions_mod.CULL_WINDOW_FIELDS)
@@ -679,18 +681,68 @@ class Assumptions:
             heavy = models.heavy_stun_rate(build.call("stats", fields=models.MODEL_FIELDS))[0] if split.get("heavyOnly") else 0.0
             # (MECH63: a Cull only Murderous Intent gives lands on the main skill's Empowered uses)
             empowered = self.empowered_uses(stats) if split.get("empowerOnly") else None
+            main_mult = number(stats.get("CullMultiplier"))
+            other = self.other_culler(mult) if main_mult < mult - 1e-6 else None
             scale, how, confidence = conditions_mod.cull_window_scale(
-                mult, number(stats.get("CullMultiplier")), conditions_mod.boss_pool(boss), base,
+                mult, main_mult, conditions_mod.boss_pool(boss), base,
                 number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0,
-                number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), split, heavy, empowered)
+                number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), split, heavy, empowered, other)
             hit_gain = (mult - 1.0) * scale
             if scale < 1.0 or how:
                 build.objective.cull_scale = scale
                 notes.append({"label": f"Culling Strike against {boss}: the time a Cull saves*", "value": f"x{scale:.3f} of PoB's",
                               "basis": how, "confidence": confidence})
+        if murderous and not any(r.get("source") == "Skill:SupportEmpoweredCullPlayer" for r in split.get("rows") or []):
+            notes += self.empowered_cull(boss, stats, base, hit_gain, split)
+            hit_gain = max(hit_gain, build.objective.whole_scales.get(models.MURDEROUS_INTENT, 1.0) * (1.0 + hit_gain) - 1.0)
         if on_block:
             notes += self.cull_on_block(boss, {**stats, "_boss": boss}, base, hit_gain, split, entry is not None)
         return notes
+
+    def empowered_cull(self, boss: str, stats: dict, base: float, hit_gain: float, split: dict) -> list[dict]:
+        """MECH64: Murderous Intent's Cull where PoB gives none (with Unleash or a Warcry; MECH63's probe POE2T588, an
+        UNDERCOUNT): the saving at the main skill's Empowered uses (empowered_uses; conditions_mod.empowered_cull_saving),
+        counted where it beats the hit Cull's (hit_gain over base), in objective.whole_scales as Doomgate's is."""
+        from builder.search import bosses
+        build = self.build
+        inc = number(split.get("inc")) or 1.0
+        threshold = bosses.cull_threshold(boss) / 100.0 * inc
+        rate, rate_how = self.empowered_uses(stats)
+        share, how = conditions_mod.empowered_cull_saving(threshold, conditions_mod.boss_pool(boss), base, rate)
+        gain = share / (1.0 - share) if share < 1.0 else 0.0
+        label = f"Murderous Intent's Cull on Empowered uses against {boss}*"
+        play = "Use the skill Murderous Intent supports as the boss gets low: the Empowered hit under the threshold Culls it."
+        basis = (f"{how}; {rate_how}; threshold {threshold:.2%} of Life + ES (x{inc:.2f} increased Culling Strike "
+                 "Threshold, MEDIUM); PoB gives this skill no Cull")
+        if gain <= hit_gain:
+            return [{"label": label, "value": "+0%", "basis": basis + ("; the build's hit Cull saves as much or more, so "
+                     "this adds nothing" if share > 0 else ""), "confidence": "MEDIUM" if share > 0 else "LOW",
+                     "play": play}]
+        build.objective.whole_scales[models.MURDEROUS_INTENT] = (1.0 + gain) / (1.0 + max(hit_gain, 0.0))
+        return [{"label": label, "value": f"+{gain:.2%} DPS", "basis": basis + "; counted on all of the build's damage, "
+                 "main-skill scoring too", "confidence": "MEDIUM", "play": play}]
+
+    def other_culler(self, mult: float) -> dict | None:
+        """MECH64: the Full DPS skill other than the main one whose Culling multiplier PoB's Full DPS takes (the largest,
+        Calcs.lua mergeFullDPSPass's "cull" mode), with its hits per second (useRates' cooldown-capped speed x hit
+        chance), its hit DPS x its Full DPS count, and its own cullSplit, for conditions.cull_window_scale's other.
+        None where no rated skill has that multiplier."""
+        build = self.build
+        main = (build.main_group() or {}).get("index")
+        indices = [g["index"] for g in build.groups() if g.get("fullDPS") and g.get("enabled") is not False
+                   and g["index"] != main]
+        if not indices:
+            return None
+        rates = build.call("useRates", indices=indices)["rates"]
+        best = max((r for r in rates if number(r.get("cullMultiplier")) > 1.0), default=None,
+                   key=lambda r: number(r.get("cullMultiplier")))
+        if best is None or abs(number(best["cullMultiplier"]) - mult) > 1e-3 * mult:
+            return None
+        count = next((number(e.get("count")) or 1.0 for e in (build.stats or {}).get("SkillDPS") or []
+                      if e.get("name") == best.get("name")), 1.0)
+        return {"name": best.get("name"), "mult": number(best["cullMultiplier"]),
+                "hits": number(best.get("speed")) * (number(best.get("hitChance")) or 100.0) / 100.0,
+                "hitDps": number(best.get("hitDPS")) * count, "split": best.get("cullSplit") or {}}
 
     def empowered_uses(self, stats: dict) -> tuple[float, str]:
         """MECH63: (the main skill's Empowered uses per second, how) from the skills Murderous Intent supports ("Skills
@@ -733,10 +785,16 @@ class Assumptions:
                 total += per if ok else 0.0
                 parts.append(f"Unleash Empowers the next Repeatable Spell, one per use: {per:.3f}/s" if ok else
                              "Unleash Empowers only a Spell without a Cooldown, and the main skill isn't one")
+            elif number(rate.get("warcryEmpowers")) > 0 and not any(s.get("melee") and s.get("attack") for s in mains):
+                # (MECH64: KeywordPopups Warcry: "Empower your subsequent Melee Attacks"; MECH63 counted any main skill)
+                parts.append(f"{name} Empowers Melee Attacks, and the main skill isn't one")
             elif number(rate.get("warcryEmpowers")) > 0:
                 n = number(rate["warcryEmpowers"])
                 total += per * n
                 parts.append(f"{name}: {n:g} Empowered attacks per use (PoB's count from its Power) x {per:.3f} uses/s")
+            elif not skill.get("empowers"):  # (MECH64: Murderous Intent "Supports skills that can Empower skills other
+                # than themselves", requireSkillTypes EmpowersOtherSkill: on any other skill it does nothing)
+                parts.append(f"{name} can't Empower other skills: Murderous Intent does nothing there")
             else:
                 total += per
                 parts.append(f"{name}: one Empowered use per use of it, {per:.3f}/s (LOW, UNVERIFIED: its own count "

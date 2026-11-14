@@ -2577,9 +2577,9 @@ end
 -- (MECH58) The main skill's raw Culling Strike thresholds as PoB's CalcOffence 4070-4077 reads them, before it scales the
 -- crit-only one by 1 - (1 - crit)^hitRate: critical (CriticalCullPercent override or CritCanCull's threshold for the
 -- enemy's rarity), regular (CullPercent override or CanCull's), inc (1 + INC CullPercent / 100), critChance (%)
-function bridge.cullSplit()
-	local env = build.calcsTab.mainEnv
-	local skill = env and env.player and env.player.mainSkill
+-- (MECH64) cullSplitOf(env, skill) gives the same for any skill calculated as the main one (bridge.useRates' cullSplit,
+-- for a Cull on another skill than the main one)
+local function cullSplitOf(env, skill)
 	if not skill or not skill.skillModList then
 		return { critical = 0, regular = 0, inc = 1, critChance = 0 }
 	end
@@ -2634,6 +2634,11 @@ function bridge.cullSplit()
 		inc = jsonNumber(1 + mods:Sum("INC", cfg, "CullPercent") / 100), critChance = jsonNumber(output.CritChance or 0) }
 end
 
+function bridge.cullSplit()
+	local env = build.calcsTab.mainEnv
+	return cullSplitOf(env, env and env.player and env.player.mainSkill)
+end
+
 function bridge.useRates(args)
 	local calcs = require("Modules.CalcBase")
 	local saved = build.mainSocketGroup
@@ -2677,6 +2682,14 @@ function bridge.useRates(args)
 			-- (MECHB7, for COVE8: a side skill's own Heavy Stun buildup, hit / crit chance and per-type averages under
 			-- PoB's own output names, models.HEAVY_STUN_GROUP_FIELDS: Practical Magic on a stunning side skill)
 			local entry = rates[#rates]
+			-- (MECH64, conditions.cull_window_scale's other skill) where this skill Culls, its Culling multiplier, hit
+			-- chance, hit DPS and raw thresholds, so a Cull on another skill than the main one is priced at its own hits
+			if type(output.CullMultiplier) == "number" and output.CullMultiplier > 1 then
+				entry.cullMultiplier = jsonNumber(output.CullMultiplier)
+				entry.hitChance = jsonNumber(output.HitChance or 100)
+				entry.hitDPS = jsonNumber(output.TotalDPS or 0)
+				entry.cullSplit = cullSplitOf(env, skill)
+			end
 			-- (MECH63, Assumptions.empowered_uses) a Warcry's Empowered attacks per use, PoB's Num<Warcry>Empowers
 			-- (CalcPerform 2196-2215: its Power over the boss's, its extra Empowers), named as CalcPerform names it
 			if skill.skillTypes and skill.skillTypes[SkillType.Warcry] then
@@ -3000,6 +3013,8 @@ function bridge.activeSkills(args)
 			spell = types[SkillType.Spell] and true or false,
 			attack = types[SkillType.Attack] and true or false,
 			melee = types[SkillType.Melee] and true or false,
+			-- (MECH64) it can Empower other skills (Murderous Intent's requireSkillTypes; Assumptions.empowered_uses)
+			empowers = types[SkillType.EmpowersOtherSkill] and true or nil,
 			instant = (effect.castTime or 0) == 0 or nil,
 			castTime = effect.castTime,
 			energy = types[SkillType.GeneratesEnergy] and true or false,

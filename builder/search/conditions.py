@@ -1857,8 +1857,14 @@ def side_consumed(share: float, stats: dict, ailment: str, hits: float, chance: 
 # INC) and pays the wait to the next crit, (1 / c - dot share / 2) / hits (hits until a crit are geometric, mean 1 / c),
 # from bridge.cullSplit; a regular Cull beside it pays the next hit's wait at its own t, and the larger saving counts
 # (MEDIUM: a hit that both crits and is under the higher crit t is a little more than the max; a small undercount).
-# Where another skill than the main one Culls (its hit rate isn't read here), PoB's is kept, labelled LOW (a possible
-# overcount).
+# Where another skill than the main one Culls (PoB's Full DPS takes the largest CullMultiplier of its skills, Calcs.lua
+# mergeFullDPSPass "cull" mode), MECH64 prices that skill's Cull at its own hits (bridge.useRates' cullMultiplier,
+# hitChance, hitDPS, cullSplit, the skill calculated as the main one, as calcFullDPS does): its hits come every 1 / h,
+# and the boss crosses t under the whole build's damage, at one of its hits only for its share f of the damage, so the
+# wait is (1 - (1 - f) / 2) / h (the dot_share formula with the rest of the build as "over time"). A main skill's own
+# smaller Cull is priced as above; the larger saving counts. A Cull on another skill that only Heavy Contact or
+# Murderous Intent gives keeps PoB's price (LOW: that skill's Heavy Stuns / Empowered uses aren't read), as does a
+# culling skill no rate was read for.
 CULL_WINDOW_FIELDS = ("CullMultiplier", "Speed", "HitChance", "TotalDPS", "TotalDotDPS", "FullDPS")
 
 
@@ -1869,20 +1875,39 @@ def boss_pool(name: str) -> float:
 
 def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: float, hits: float, hit_dps: float,
                       dot_dps: float, split: dict | None = None, heavy: float = 0.0,
-                      empowered: tuple[float, str] | None = None) -> tuple[float, str, str]:
+                      empowered: tuple[float, str] | None = None,
+                      other: dict | None = None) -> tuple[float, str, str]:
     """(the scale on PoB's Full Culling DPS, how, confidence): full_mult, PoB's Full DPS cull multiplier; main_mult, the
     main skill's CullMultiplier; pool, the boss's Life + ES; dps, Full DPS before the Cull; hits, the main skill's hits
     per second; hit_dps / dot_dps, its hit and damage-over-time DPS (for the wait after the boss falls under t); split,
     bridge.cullSplit's raw thresholds (critical, regular, inc, critChance %), for a crit-only Cull; heavy, the main
     skill's Heavy Stuns of the boss per second, for a Cull only Heavy Contact gives (split's heavyOnly; MECH59);
     empowered, (the main skill's Empowered uses per second, how), for a Cull only Murderous Intent gives (split's
-    empowerOnly; MECH63): it lands on the first Empowered use under the threshold, as Heavy Contact's on a Heavy Stun."""
+    empowerOnly; MECH63): it lands on the first Empowered use under the threshold, as Heavy Contact's on a Heavy Stun;
+    other (MECH64), where another skill than the main one has PoB's Cull: {name, mult (its CullMultiplier), hits (its
+    hits per second), hitDps (its hit DPS x its count), split (its own cullSplit)}."""
     t = 1.0 - 1.0 / full_mult if full_mult > 1.0 else 0.0
     if t <= 0:
         return 1.0, "", ""
     if main_mult < full_mult - 1e-6:
-        return 1.0, ("another skill than the main one Culls, and its hit rate isn't read here: PoB's whole-window price "
-                     "kept (a possible overcount)"), "LOW"
+        osplit = (other or {}).get("split") or {}
+        ohits = float((other or {}).get("hits") or 0.0)
+        if (other is None or abs(float(other.get("mult") or 0.0) - full_mult) > 1e-3 * full_mult or ohits <= 0
+                or dps <= 0 or pool <= 0 or osplit.get("heavyOnly") or osplit.get("empowerOnly")):
+            why = ("its Cull lands only on Heavy Stuns or Empowered uses, which aren't read for it"
+                   if osplit.get("heavyOnly") or osplit.get("empowerOnly") else "its hit rate isn't read")
+            return 1.0, (f"another skill than the main one ({(other or {}).get('name') or 'unread'}) Culls, and {why}: "
+                         "PoB's whole-window price kept (a possible overcount)"), "LOW"
+        ohit = min(max(float(other.get("hitDps") or 0.0), 0.0), dps)
+        oscale, ohow, _ = cull_window_scale(full_mult, full_mult, pool, dps, ohits, ohit, dps - ohit, osplit)
+        gain, how = oscale * (full_mult - 1.0), f"{other.get('name')}'s Cull (not the main skill's): {ohow}"
+        if main_mult > 1.0:  # (the main skill's own, smaller Cull, at its own hits; the larger saving counts)
+            mscale, mhow, _ = cull_window_scale(main_mult, main_mult, pool, dps, hits, hit_dps, dot_dps, split, heavy,
+                                                empowered)
+            if mscale * (main_mult - 1.0) > gain:
+                gain, how = mscale * (main_mult - 1.0), (f"the main skill's own Cull saves more than "
+                                                          f"{other.get('name')}'s: {mhow}")
+        return min(gain / (full_mult - 1.0), 1.0), how, "MEDIUM"
     if hits <= 0 or dps <= 0 or pool <= 0:
         return 1.0, "no hit rate or DPS read: PoB's whole-window price kept (a possible overcount)", "LOW"
     fight = pool / dps
@@ -1957,6 +1982,25 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
 # (exact for Poisson blocks). Where the build Culls by hits too, the larger of the two savings counts (a small undercount).
 CULL_ON_BLOCK_LINE = re.compile(r"^Enemies are Culled on Block\s*$", re.I | re.M)
 CULL_ON_BLOCK_FIELDS = ("EvadeChance", "EffectiveBlockChance", "enemySkillTime")
+
+
+# Murderous Intent's Cull where PoB gives none (MECH64; MECH63's probe POE2T588: with Unleash or a Warcry, PoB makes no
+# CanCull, an UNDERCOUNT). The gem: "Skills Empowered by Supported Skills have Culling Strike" (KeywordPopups
+# CullingStrike: Unique at 5%). It lands at the first Empowered use of the main skill after the boss falls under t:
+# uses every 1 / rate s (Assumptions.empowered_uses: Unleash's uses, a Warcry's Empowered attacks), the boss crossing t
+# at a uniform point between two, so the window W = t x T saves W - gap / 2, or W^2 / (2 x gap) when W is shorter than
+# the gap (the same reading as Heavy Contact's and PoB-given Murderous Intent's, MEDIUM: Empowered uses come in bursts
+# after each Warcry or Unleash, not evenly; bursts make the wait longer, so this leans high, the confidence says so).
+def empowered_cull_saving(threshold: float, pool: float, dps: float, rate: float) -> tuple[float, str]:
+    """(share of the fight Murderous Intent's Cull saves, how): threshold, the Cull threshold as a share of the boss's
+    Life + ES; pool, that Life + ES; dps, the build's DPS before the Cull; rate, the main skill's Empowered uses/s."""
+    if threshold <= 0 or pool <= 0 or dps <= 0 or rate <= 0:
+        return 0.0, "no Empowered use of the main skill, or no DPS read: no Cull"
+    fight, gap = pool / dps, 1.0 / rate
+    window = threshold * fight
+    saved = (window - gap / 2 if window > gap else window * window / (2 * gap)) / fight
+    return saved, (f"the Cull (threshold {threshold:.2%}) lands at the first Empowered use under it, one every {gap:.1f} s,"
+                   f" in a {fight:.1f} s fight: {saved:.2%} saved (x{1.0 / (1.0 - saved):.3f})")
 
 
 def block_cull_saving(threshold: float, pool: float, dps: float, blocks: float) -> tuple[float, str]:

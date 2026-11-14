@@ -2393,6 +2393,69 @@ def test_a_cull_saves_the_last_threshold_less_the_wait_for_the_next_hit():
     assert c.boss_pool("Arbiter of Ash") >= c.bosses.PRESETS["Arbiter of Ash"].life
 
 
+def test_another_skills_cull_is_priced_at_its_own_hits():
+    """MECH64 (the open possible OVERCOUNT): where another skill than the main one has PoB's Cull, it lands at that
+    skill's next hit under t; the boss crosses t at one of its hits only for its share of the damage, so the wait is
+    (1 - (1 - f) / 2) / h. The main skill's own smaller Cull counts where it saves more; a Heavy Contact / Murderous
+    Intent Cull on the other skill keeps PoB's price, labelled LOW."""
+    from builder.search import conditions as c
+
+    mult = 1 / 0.95  # (5%; T = 1e7 / 1e6 = 10 s)
+    other = {"name": "Mace Strike", "mult": mult, "hits": 2.0, "hitDps": 0.0, "split": {}}
+    scale, how, conf = c.cull_window_scale(mult, 1.0, 1e7, 1e6, 5.0, 1e6, 0.0, None, 0.0, None, other)
+    # (none of the damage is its hits: half a gap, 0.25 s, so 5% - 2.5% saved)
+    assert abs(scale - (0.025 / 0.975) / (0.05 / 0.95)) < 1e-9 and conf == "MEDIUM" and "Mace Strike" in how
+    whole = c.cull_window_scale(mult, 1.0, 1e7, 1e6, 5.0, 1e6, 0.0, None, 0.0, None, dict(other, hitDps=1e6))[0]
+    assert abs(whole) < 1e-9  # (all the damage is its hits: a whole 0.5 s gap, 5% of the fight: nothing saved)
+    # (the main skill's own 4% Cull at 10 hits/s saves 4% - 1% = 3%, more than the other's 2.5%)
+    main = 1 / 0.96
+    scale, how, _ = c.cull_window_scale(mult, main, 1e7, 1e6, 10.0, 1e6, 0.0, None, 0.0, None, other)
+    assert abs(scale - (0.03 / 0.97) / (0.05 / 0.95)) < 1e-9 and "main skill's own" in how
+    for gated in ({"heavyOnly": True}, {"empowerOnly": True}):
+        assert c.cull_window_scale(mult, 1.0, 1e7, 1e6, 5.0, 1e6, 0.0, None, 0.0, None,
+                                   dict(other, split=gated))[::2] == (1.0, "LOW")
+    assert c.cull_window_scale(mult, 1.0, 1e7, 1e6, 5.0, 1e6, 0.0, None, 0.0, None, dict(other, mult=1.2))[2] == "LOW"
+
+
+def test_murderous_intent_culls_on_unleashs_empowered_uses_where_pob_gives_none():
+    """MECH64 (MECH63's probe POE2T588, an UNDERCOUNT): with Unleash or a Warcry, PoB makes no Cull from Murderous
+    Intent; the Cull lands at the first Empowered use under the threshold (evenly spaced: W - gap / 2, or W^2 / (2 gap)
+    when the window is shorter), counted on all the build's damage through objective.whole_scales; a Doomgate-style
+    Block Cull after it counts only what it saves beyond."""
+    import types
+    from builder.search import bosses, conditions as c
+    from builder.search.assumptions import Assumptions
+
+    assert c.empowered_cull_saving(0.05, 1e7, 1e6, 4.0)[0] == pytest.approx(0.0375)  # (10 s fight, 0.5 s window)
+    assert c.empowered_cull_saving(0.05, 1e7, 1e6, 0.5)[0] == pytest.approx(0.00625)  # (2 s gap: 0.25 / 4 / 10)
+    assert c.empowered_cull_saving(0.05, 1e7, 1e6, 0.0)[0] == 0.0
+
+    class FakeBuild:
+        stats, equipped, ctx = {"FullDPS": 1e6}, {}, None
+        objective = types.SimpleNamespace(whole_scales={}, cull_scale=1.0)
+
+        def groups(self):
+            return [{"index": 1, "gems": [{"name": "Spark"}]},
+                    {"index": 2, "gems": [{"name": "Unleash"}, {"name": "Murderous Intent"}]}]
+
+        def main_group(self):
+            return {"index": 1}
+
+        def call(self, what, **_):
+            return {"activeSkills": {"skills": [{"name": "Spark", "spell": True, "group": 1},
+                                                {"name": "Unleash", "group": 2, "empowers": True}]},
+                    "useRates": {"rates": [{"index": 2, "speed": 4.0}]},
+                    "cullSplit": {"regular": 0, "critical": 0, "inc": 1.0, "rows": []}}.get(
+                what, {"Speed": 5.0, "FullDPS": 1e6})
+
+    a = Assumptions.__new__(Assumptions)
+    a.build = FakeBuild()
+    notes = a.cull_window()
+    share = c.empowered_cull_saving(bosses.cull_threshold(bosses.DEFAULT) / 100.0, c.boss_pool(bosses.DEFAULT), 1e6, 4.0)[0]
+    assert share > 0 and a.build.objective.whole_scales["Murderous Intent"] == pytest.approx(1 / (1 - share))
+    assert "Murderous Intent" in notes[0]["label"] and notes[0]["confidence"] == "MEDIUM"
+
+
 def test_a_crit_only_cull_waits_for_the_next_crit():
     """MECH58 (plans/kw-culling-strike.md, an OVERCOUNT): a crit-only Cull (CritCanCull) keeps its raw threshold and
     waits for the next crit, 1 / (c x hits), not the next hit; a regular Cull beside it counts if it saves more."""
@@ -2700,6 +2763,9 @@ def test_enemies_are_culled_on_block_saves_the_window_less_the_wait_for_a_block(
                 self.ctx = SimpleNamespace(request=SimpleNamespace(boss=boss))
                 self.equipped = {"Weapon 2": SimpleNamespace(raw="Doomgate\nEnemies are Culled on Block\n")}
 
+            def groups(self):  # (MECH64: cull_window looks for a Murderous Intent group)
+                return []
+
             def call(self, what, **_):
                 if what == "cullSplit":
                     return {"critical": 0.0, "regular": 0.0, "inc": 1.0, "critChance": 0.0}
@@ -2786,7 +2852,7 @@ def test_empowered_uses_come_from_the_skills_murderous_intent_supports():
     Num<Warcry>Empowers per use, capped at the main skill's uses."""
     from builder.search.assumptions import Assumptions
 
-    def run(empowerer, main, rate, stats=None):
+    def run(empowerer, main, rate, stats=None, empowers=True):
         class FakeBuild:
             def groups(self):
                 return [{"index": 1, "gems": [{"name": main["name"]}]},
@@ -2797,7 +2863,7 @@ def test_empowered_uses_come_from_the_skills_murderous_intent_supports():
 
             def call(self, what, **_):
                 if what == "activeSkills":
-                    return {"skills": [{**main, "group": 1}, {"name": empowerer, "group": 2}]}
+                    return {"skills": [{**main, "group": 1}, {"name": empowerer, "group": 2, "empowers": empowers}]}
                 if what == "useRates":
                     return {"rates": [{"index": 2, **rate}]}
                 return {"Mana": 1000, "ManaRegenRecovery": 1000, "ManaPerSecondCost": 50, "LifePerSecondCost": 0}
@@ -2812,6 +2878,11 @@ def test_empowered_uses_come_from_the_skills_murderous_intent_supports():
     assert run("Mana Tempest", spark, {"speed": 1.0})[0] == pytest.approx(2.0)  # (regen covers the storm: always up)
     assert run("Unleash", spark, {"speed": 0.25})[0] == pytest.approx(0.25)
     assert run("Unleash", {**spark, "cooldown": 3.0}, {"speed": 0.25})[0] == 0.0
-    assert run("Infernal Cry", spear, {"speed": 0.125, "warcryEmpowers": 4})[0] == pytest.approx(0.5)
+    stab = {"name": "Spear Stab", "attack": True, "melee": True}
+    assert run("Infernal Cry", stab, {"speed": 0.125, "warcryEmpowers": 4})[0] == pytest.approx(0.5)
+    # (MECH64: KeywordPopups Warcry Empowers "subsequent Melee Attacks"; Explosive Spear is thrown)
+    assert run("Infernal Cry", spear, {"speed": 0.125, "warcryEmpowers": 4})[0] == 0.0
     rate, how = run("Temper Weapon", spear, {"speed": 10.0})
     assert rate == 2.0 and "LOW" in how  # (capped at the main skill's uses)
+    # (MECH64: Murderous Intent needs a skill that can Empower others, requireSkillTypes EmpowersOtherSkill)
+    assert run("Living Bomb", spark, {"speed": 1.0}, empowers=None)[0] == 0.0
