@@ -602,6 +602,26 @@ def energy_time_note(skills: list[Skill]) -> str:
 
 
 INVOCATION_MAX_ENERGY = 500  # generic_ongoing_trigger_maximum_energy of every Invocation (game files, build 26476662)
+# Energy Capacitor: "Supports Invocation Skills ... Supported Skills have significantly higher Maximum Energy"
+# (SupportEnergyCapacitorPlayer: skill_maximum_energy_+% 80, constant; requireSkillTypes Invocation). The game files hold
+# skill_maximum_energy_+% on no other stat set (checked: GrantedEffectStatSets, GrantedEffectStatSetsPerLevel, Mods,
+# PassiveSkills, SoulCoreStats, build 26476662; PoB 0.23 sup_int.lua agrees). Player-wide "Invocated skills have N%
+# increased Maximum Energy" (invocation_skill_maximum_energy_+%: the Invocated Limit notable 30, the Genesis tree ring mod
+# 25-35, a soul core's Bonded 25) reaches the model as the InvocationMaxEnergy input (ledger meta-invocation-maximum);
+# PoB parses that line only in part (ModCache: leftover " Maximum Energy "), so applies none of it.
+ENERGY_CAPACITY_SUPPORTS = {"Energy Capacitor": 80.0}
+
+
+def invocation_max_energy(inputs: "Inputs | None", supports: list[str]) -> tuple[float, str]:
+    """An Invocation's maximum Energy: 500 x (1 + (its group's Energy Capacitor + the build's Invocated-skills increased
+    Maximum Energy) / 100), and a few words on where the increase came from ("" with none). The increases are taken as
+    adding together (both are "increased"; no game text says otherwise: UNVERIFIED)."""
+    own = sum(ENERGY_CAPACITY_SUPPORTS.get(n, 0.0) for n in supports)
+    wide = inputs.total("InvocationMaxEnergy") if inputs is not None else 0.0
+    pct = own + wide
+    cap = max(0.0, INVOCATION_MAX_ENERGY * (1 + pct / 100))
+    parts = ([f"Energy Capacitor {own:+g}%"] if own else []) + ([f"Invocated skills {wide:+g}% (passives, items)"] if wide else [])
+    return cap, (f" ({INVOCATION_MAX_ENERGY} base, {', '.join(parts)} increased Maximum Energy)" if parts else "")
 DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files, build 26476662); distance mods not counted
 DODGE_EVERY = 2.0  # seconds between dodge rolls against a boss: the user's default (7 Nov 2026), said in the guide
 DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); movement speed doesn't shorten it (RESEARCH 18w)
@@ -2281,14 +2301,15 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                           else "the main skill is one it triggers, so nothing else feeds its Energy",
                           "confidence": "theory"})
             continue
+        cap, cap_basis = invocation_max_energy(inputs, (supports or {}).get(meta.group, []))
         too_big = [s for s in spells if META_GEMS.get(meta.name, {}).get("invocation")
-                   and energy_cost(s) > INVOCATION_MAX_ENERGY]
+                   and energy_cost(s) > cap]
         for spell in too_big:  # (MECHB4, COVC6: the Invocation's store can never hold its cost)
             mods += trigger_rate(spell.name, 0.0)
             notes.append({"label": f"{meta.name} triggers per second ({spell.name}; not counted)", "value": 0,
                           "basis": f"{spell.name} costs {energy_cost(spell):.0f} Energy (10 per 0.1 s of base cast time"
                                    f"{', its Total Cast Time addition counted double' if spell.total_time_added else ''}), "
-                                   f"more than the {INVOCATION_MAX_ENERGY} Energy an Invocation can store "
+                                   f"more than the {cap:.0f} Energy this Invocation can store{cap_basis} "
                                    "(generic_ongoing_trigger_maximum_energy, game files): it never triggers",
                           "confidence": "theory"})
         spells = [s for s in spells if s not in too_big]
@@ -2347,7 +2368,7 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                      + energy_time_note(spells)
                      + (f", {x['EnergyRefund']:.0f}% chance to refund half" if x["EnergyRefund"] else "")
                      + ("; an Invocation: you press it to release its Energy (instant in the game files), assumed often "
-                        f"enough that its {INVOCATION_MAX_ENERGY} Energy store never fills" if info.get("invocation") else "")
+                        f"enough that its {cap:.0f} Energy store{cap_basis} never fills" if info.get("invocation") else "")
                      + (f"; its spells deal {info['less']:.0f}% less damage" if info.get("less") else ""),
             "confidence": "theory"})
         if META_GEMS[meta.name]["gain"] == "dodge" and rate > 0:

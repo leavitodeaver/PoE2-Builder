@@ -243,13 +243,24 @@
   status: approved
 
 - id: meta-invocation-maximum
-  title: Invocated skills' maximum Energy (storage only; no effect on sustained triggers)
+  title: Invocated skills' maximum Energy (Energy model input, which spells an Invocation can afford)
   kind: pob_gap
   model: energy
   match: '^Invocated skills have (\d+)% increased Maximum Energy$'
-  replace: []
-  confidence: reported
-  notes: "An Invocation's maximum Energy is how much it can store; triggers per second follow the Energy gained."
+  replace: ['mult:InvocationMaxEnergy {1}']
+  confidence: datamined
+  notes: "An Invocation's maximum Energy (500, generic_ongoing_trigger_maximum_energy) is how much it can store: a spell costing more never triggers, so a higher maximum lets a costlier spell trigger. Triggers per second still follow the Energy gained. PoB parses the line only in part (leftover ' Maximum Energy '), so applies none of it (MECHB25)."
+  sources: ["https://poe2db.tw/us/Elemental_Invocation"]
+  status: approved
+
+- id: meta-invocation-maximum-reduced
+  title: Invocated skills' reduced maximum Energy (Energy model input)
+  kind: pob_gap
+  model: energy
+  match: '^Invocated skills have (\d+)% reduced Maximum Energy$'
+  replace: ['mult:InvocationMaxEnergy -{1}']
+  confidence: datamined
+  notes: "The negative form of invocation_skill_maximum_energy_+% (stat_descriptions: 'Invocated skills have {0}% reduced Maximum Energy'); see meta-invocation-maximum."
   sources: ["https://poe2db.tw/us/Elemental_Invocation"]
   status: approved
 

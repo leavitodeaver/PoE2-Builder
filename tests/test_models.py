@@ -267,6 +267,31 @@ def test_an_invocation_never_triggers_a_spell_costing_more_than_its_store():
     assert any("never triggers" in n["basis"] for n in notes)
 
 
+def test_energy_capacitor_and_invocated_maximum_energy_raise_an_invocations_store():
+    """Energy Capacitor (skill_maximum_energy_+% 80, game files) on the Invocation's own group raises its store to 900, so a
+    6 s spell (600 Energy) triggers; on another group it does nothing. "Invocated skills have N% increased Maximum Energy"
+    (the InvocationMaxEnergy input) raises every Invocation's store and adds to the support's 80% (MECHB25, GEM4)."""
+    elemental = Skill("Elemental Invocation", group=2, energy=True)
+    slow = Skill("Slow Spell", group=2, spell=True, triggered=True, cast_time=6.0)
+    stats = {"Speed": 2, "HitChance": 100, "ShockChanceOnHit": 50}
+
+    def rate(inputs, supports):
+        mods, notes, _ = models.energy_model(inputs, stats, [SPARK, elemental, slow], SPARK, supports)
+        return {m["skill"]: m["value"] for m in mods if m.get("key") == "triggerRate"}["Slow Spell"], notes
+
+    assert rate(Inputs(), {})[0] == 0
+    on, notes = rate(Inputs(), {2: ["Energy Capacitor"]})
+    assert on > 0 and any("900 Energy store (500 base, Energy Capacitor +80%" in n["basis"] for n in notes)
+    assert rate(Inputs(), {1: ["Energy Capacitor"]})[0] == 0
+    assert models.invocation_max_energy(Inputs(items={"InvocationMaxEnergy": 30.0}), ["Energy Capacitor"])[0] == pytest.approx(1050)
+    assert rate(Inputs(items={"InvocationMaxEnergy": 30.0}), {})[0] > 0  # 650 >= 600
+    assert rate(Inputs(items={"InvocationMaxEnergy": 15.0}), {})[0] == 0  # 575 < 600
+    entry = models.model_entry("Invocated skills have 30% increased Maximum Energy")
+    assert entry is not None and entry.translate("Invocated skills have 30% increased Maximum Energy") == ["mult:InvocationMaxEnergy 30"]
+    reduced = models.model_entry("Invocated skills have 25% reduced Maximum Energy")
+    assert reduced.translate("Invocated skills have 25% reduced Maximum Energy") == ["mult:InvocationMaxEnergy -25"]
+
+
 def test_unmodeled_metas_count_nothing_rather_than_a_self_cast():
     dodge = Skill("Feral Invocation", group=2, energy=True)
     comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)
