@@ -1,0 +1,4151 @@
+{
+ "_about": {
+  "what": "Vaal Cultivation Orb outcomes ('Cultivated' uniques; the game files say 'Mutated'): the orb 'Replaces up to 2 modifiers on a [Corrupted] [UniqueCulture|Vaal Unique]' (Incursion2Crafting, Mutate Unique). Added in 0.4.0 (Fate of the Vaal), core since 0.5.0 (patch notes 0.5.0 line 173).",
+  "sources": "game files build 26476662 (Mods.json GenerationType 3 'UniqueMutatedVaal*'; Incursion2MutatedUniqueModsClient 'OriginalMods'); poe2db Vaal Cultivation Orb page (48 uniques, saved 14 Nov 2026); PoB ModItemExclusive.lua text; data/pob-bb52d6b368/coverage.json",
+  "weights": "UNVERIFIED: the client files carry no outcome weights (the 204 rows' SpawnWeight lists are empty) and poe2db shows none; how many lines are replaced (1 or 2) and which line goes is random (poe2db's wiki text: 'The modifier that gets replaced on the unique are random'), odds unknown.",
+  "replaceable": "a line's 'replaceable' is true when its text matches one of the game's 242 OriginalMods; false means only that the text did not match (UNVERIFIED, not 'cannot be replaced')",
+  "conflicts": [
+   {
+    "unique": "Hateforge",
+    "mod": "UniqueMutatedVaalMaximumRagePerGlorySkillUsed",
+    "game": "+(8-10) maximum Rage if you've used a Skill that Requires Glory in the past 20 seconds (Mods.json, build 26476662; poe2db agrees)",
+    "patch_notes": "0.5.0: 'can now roll +16-30 maximum Rage if you've used a Skill that Requires Glory in the past 20 seconds'",
+    "used": "the game files' 8-10 (the lower number: no overcount if the notes are right about a later server value)"
+   }
+  ],
+  "outcome_mods_in_game_files": 204,
+  "outcome_mods_on_listed_uniques": 176,
+  "outcome_mods_on_no_listed_unique": [
+   "UniqueMutatedVaalBaseSpirit",
+   "UniqueMutatedVaalCriticalStrikeChanceIfNoCriticalStrikeDealtRecently",
+   "UniqueMutatedVaalDamageLifeRecoup",
+   "UniqueMutatedVaalDamageRemovedFromManaBeforeLifeWhileNotLowMana",
+   "UniqueMutatedVaalDeflectDamageTaken",
+   "UniqueMutatedVaalElementalExposureEffectOnHitWithMagnitude",
+   "UniqueMutatedVaalGlobalFireGemLevel1",
+   "UniqueMutatedVaalGlobalSkillGemLevel",
+   "UniqueMutatedVaalGlobalSkillGemQuality",
+   "UniqueMutatedVaalGoldFoundIncrease",
+   "UniqueMutatedVaalHiddenNonStat",
+   "UniqueMutatedVaalHiddenNonStat1",
+   "UniqueMutatedVaalIgniteEffect",
+   "UniqueMutatedVaalIncreasedAttackSpeed1",
+   "UniqueMutatedVaalIncreasedLifePercent",
+   "UniqueMutatedVaalLifeLeechAmount",
+   "UniqueMutatedVaalLifeLeechAmount1",
+   "UniqueMutatedVaalLocalCriticalStrikeChance",
+   "UniqueMutatedVaalLocalEvasionRating1",
+   "UniqueMutatedVaalLocalEvasionRating2",
+   "UniqueMutatedVaalManaCostEfficiency1",
+   "UniqueMutatedVaalMaximumLifeConvertedToEnergyShield1",
+   "UniqueMutatedVaalMaximumLifeConvertedToEnergyShield2",
+   "UniqueMutatedVaalMaximumLifeIncreasePercent1",
+   "UniqueMutatedVaalMaximumLifeIncreasePercent2",
+   "UniqueMutatedVaalPercentOfLeechIsInstant",
+   "UniqueMutatedVaalPowerFrenzyOrEnduranceChargeOnKill",
+   "UniqueMutatedVaalReflectElementalAilmentsToSelf"
+  ]
+ },
+ "uniques": {
+  "Greed's Embrace": {
+   "lines": [
+    {
+     "text": "(100-150)% increased Armour",
+     "replaceable": true
+    },
+    {
+     "text": "50% increased Strength Requirement",
+     "replaceable": true
+    },
+    {
+     "text": "(30-50)% increased Rarity of Items found",
+     "replaceable": true
+    },
+    {
+     "text": "20% reduced Movement Speed",
+     "replaceable": true
+    },
+    {
+     "text": "+(20-30)% to Fire Resistance",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalPresenceRadius",
+     "lines": [
+      "100% reduced Presence Area of Effect"
+     ],
+     "stats": [
+      [
+       "presence_area_+%",
+       -100,
+       -100
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalAttackDamageWhileSurrounded",
+     "lines": [
+      "(-40-40)% reduced Attack Damage while Surrounded"
+     ],
+     "stats": [
+      [
+       "attack_damage_+%_while_surrounded",
+       -40,
+       40
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Soul Tether": {
+   "lines": [
+    {
+     "text": "+(20-30) to Intelligence",
+     "replaceable": true
+    },
+    {
+     "text": "You lose 5% of maximum Energy Shield per second",
+     "replaceable": true
+    },
+    {
+     "text": "+(40-60) to maximum Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "Excess Life Recovery from Leech is applied to Energy Shield",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalEnergyShieldRecoveryRate",
+     "lines": [
+      "(10-15)% increased Energy Shield Recovery rate"
+     ],
+     "stats": [
+      [
+       "energy_shield_recovery_rate_+%",
+       10,
+       15
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLifeDegenerationPercentGracePeriod",
+     "lines": [
+      "Lose (2.5-5)% of maximum Life per second"
+     ],
+     "stats": [
+      [
+       "life_degeneration_%_per_minute_not_in_grace",
+       150,
+       300
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIncreasedLifeLeechRate",
+     "lines": [
+      "Leech Life (-25-25)% slower"
+     ],
+     "stats": [
+      [
+       "base_life_leech_rate_+%",
+       -25,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalZealotsOath",
+     "lines": [
+      "Life Regeneration is applied to Energy Shield instead"
+     ],
+     "stats": [
+      [
+       "regenerate_energy_shield_instead_of_life",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Idle Hands": {
+   "lines": [
+    {
+     "text": "(40-60)% increased Evasion Rating",
+     "replaceable": true
+    },
+    {
+     "text": "You count as on Full Mana while at 90% of maximum Mana or above",
+     "replaceable": true
+    },
+    {
+     "text": "25% increased Attack Speed while on Full Mana",
+     "replaceable": true
+    },
+    {
+     "text": "+(5-10) to Intelligence",
+     "replaceable": true
+    },
+    {
+     "text": "+(60-100) to Accuracy Rating",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalManaLeechPermyriad",
+     "lines": [
+      "Leech (4-6)% of Physical Attack Damage as Mana"
+     ],
+     "stats": [
+      [
+       "base_mana_leech_from_physical_attack_damage_permyriad",
+       400,
+       600
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMaximumManaIncreasePercent",
+     "lines": [
+      "(10-20)% increased maximum Mana"
+     ],
+     "stats": [
+      [
+       "maximum_mana_+%",
+       10,
+       20
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalManaCostEfficiency",
+     "lines": [
+      "25% increased Mana Cost Efficiency"
+     ],
+     "stats": [
+      [
+       "base_mana_cost_efficiency_+%",
+       25,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalEnergyOnFullMana",
+     "lines": [
+      "Meta Skills gain 25% increased Energy while on Full Mana"
+     ],
+     "stats": [
+      [
+       "energy_generated_+%_on_full_mana",
+       25,
+       25
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Meta Skills gain 25% increased Energy while on Full Mana"
+     ]
+    }
+   ]
+  },
+  "Demon Stitcher": {
+   "lines": [
+    {
+     "text": "+(40-60) to maximum Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "(6-12)% increased Cast Speed",
+     "replaceable": true
+    },
+    {
+     "text": "+(80-120) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "Sacrifice (5-15)% of maximum Life to gain that much Energy Shield when you Cast a Spell",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalSkillCostEfficiency",
+     "lines": [
+      "(20-30)% increased Cost Efficiency"
+     ],
+     "stats": [
+      [
+       "base_skill_cost_efficiency_+%",
+       20,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMaximumLifeConvertedToEnergyShield",
+     "lines": [
+      "(10-15)% of Maximum Life Converted to Energy Shield"
+     ],
+     "stats": [
+      [
+       "maximum_life_%_to_convert_to_maximum_energy_shield",
+       10,
+       15
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalSpellLifeCostPercent",
+     "lines": [
+      "(25-50)% of Spell Mana Cost Converted to Life Cost"
+     ],
+     "stats": [
+      [
+       "spells_cost_life_instead_of_mana_%",
+       25,
+       50
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalArcaneSurgeEffect",
+     "lines": [
+      "(20-40)% increased effect of Arcane Surge on you"
+     ],
+     "stats": [
+      [
+       "arcane_surge_effect_on_self_+%",
+       20,
+       40
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Rearguard": {
+   "lines": [
+    {
+     "text": "Adds (7-11) to (14-20) Physical Damage to Attacks",
+     "replaceable": true
+    },
+    {
+     "text": "+(15-25)% to Block chance",
+     "replaceable": true
+    },
+    {
+     "text": "(20-30)% increased Projectile Speed",
+     "replaceable": true
+    },
+    {
+     "text": "+(150-200) to Armour",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLocalEvasionRating",
+     "lines": [
+      "+(50-150) to Evasion Rating"
+     ],
+     "stats": [
+      [
+       "local_base_evasion_rating",
+       50,
+       150
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalSurroundedAreaOfEffect",
+     "lines": [
+      "(20-30)% increased Surrounded Area of Effect"
+     ],
+     "stats": [
+      [
+       "surrounded_area_of_effect_+%",
+       20,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIncreasedAttackSpeed",
+     "lines": [
+      "25% increased Attack Speed"
+     ],
+     "stats": [
+      [
+       "attack_speed_+%",
+       25,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalGlobalDeflectionRating",
+     "lines": [
+      "(15-25)% increased Deflection Rating"
+     ],
+     "stats": [
+      [
+       "deflection_rating_+%",
+       15,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Soul Mantle": {
+   "lines": [
+    {
+     "text": "(80-120)% increased Armour and Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "(20-30)% reduced Totem Life",
+     "replaceable": true
+    },
+    {
+     "text": "+1 to maximum number of Summoned Totems",
+     "replaceable": true
+    },
+    {
+     "text": "Inflicts a random Curse on you when your Totems die, ignoring Curse limit",
+     "replaceable": true
+    },
+    {
+     "text": "+10 to Strength",
+     "replaceable": true
+    },
+    {
+     "text": "+15 to Intelligence",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalAttackAndCastSpeedOnPlacingTotem",
+     "lines": [
+      "25% increased Attack and Cast Speed if you've summoned a Totem Recently"
+     ],
+     "stats": [
+      [
+       "attack_and_cast_speed_+%_on_placing_totem",
+       25,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalTotemDamagePerCurseOnSelf",
+     "lines": [
+      "(10-20)% increased Totem Damage per Curse on you"
+     ],
+     "stats": [
+      [
+       "totem_damage_+%_per_active_curse_on_self",
+       10,
+       20
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalTotemDuration",
+     "lines": [
+      "(-30-30)% reduced Totem Duration"
+     ],
+     "stats": [
+      [
+       "totem_duration_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalBaseSpirit1",
+     "lines": [
+      "+(40-50) to Spirit"
+     ],
+     "stats": [
+      [
+       "base_spirit_from_equipment",
+       40,
+       50
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalEnergyShield3",
+     "lines": [
+      "+(50-80) to maximum Energy Shield"
+     ],
+     "stats": [
+      [
+       "local_energy_shield",
+       50,
+       80
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Corona of the Red Sun": {
+   "lines": [
+    {
+     "text": "+(60-80) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "+(100-150) to Accuracy Rating",
+     "replaceable": true
+    },
+    {
+     "text": "25% increased Light Radius",
+     "replaceable": true
+    },
+    {
+     "text": "Leeching Life from your Hits causes Allies in your Presence to also Leech the same amount of Life",
+     "replaceable": true
+    },
+    {
+     "text": "+(20-25)% to Fire Resistance",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalGlobalIncreaseMinionSpellSkillGemLevel",
+     "lines": [
+      "+(1-2) to Level of all Minion Skills"
+     ],
+     "stats": [
+      [
+       "minion_skill_gem_level_+",
+       1,
+       2
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalPresenceRadius2",
+     "lines": [
+      "(25-50)% increased Presence Area of Effect"
+     ],
+     "stats": [
+      [
+       "presence_area_+%",
+       25,
+       50
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalPhysicalDamageReductionRating",
+     "lines": [
+      "+(100-150) to Armour"
+     ],
+     "stats": [
+      [
+       "local_base_physical_damage_reduction_rating",
+       100,
+       150
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Rise of the Phoenix": {
+   "lines": [
+    {
+     "text": "+(20-25)% to Fire Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "+5% to Maximum Fire Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "Regenerate 3% of maximum Life per second",
+     "replaceable": true
+    },
+    {
+     "text": "Regenerate 3% of maximum Life per second while on Low Life",
+     "replaceable": true
+    },
+    {
+     "text": "+25% to Fire Resistance while on Low Life",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalBurningEnemiesExplodeChance",
+     "lines": [
+      "Burning Enemies you kill have a (5-10)% chance to Explode, dealing a",
+      "tenth of their maximum Life as Fire Damage"
+     ],
+     "stats": [
+      [
+       "explode_burning_enemies_for_10%_life_as_fire_on_kill_chance_%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Burning Enemies you kill have a (5-10)% chance to Explode, dealing a",
+      "tenth of their maximum Life as Fire Damage"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalIgniteChanceIncrease",
+     "lines": [
+      "25% increased Flammability Magnitude"
+     ],
+     "stats": [
+      [
+       "ignite_chance_+%",
+       25,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalGlobalFireGemLevel",
+     "lines": [
+      "+1 to Level of all Fire Skills"
+     ],
+     "stats": [
+      [
+       "fire_skill_gem_level_+",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLifeRegenerationRatePercentageWhileIgnited",
+     "lines": [
+      "Regenerate 3% of maximum Life per second while Ignited"
+     ],
+     "stats": [
+      [
+       "life_regeneration_per_minute_%_while_ignited",
+       180,
+       180
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Atziri's Disdain": {
+   "lines": [
+    {
+     "text": "+(60-100) to maximum Mana",
+     "replaceable": true
+    },
+    {
+     "text": "(10-20)% increased Rarity of Items found",
+     "replaceable": true
+    },
+    {
+     "text": "Gain (10-15)% of maximum Life as Extra maximum Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "10% of Damage taken bypasses Energy Shield",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalDamageRemovedFromManaBeforeLife",
+     "lines": [
+      "10% of Damage is taken from Mana before Life"
+     ],
+     "stats": [
+      [
+       "base_damage_removed_from_mana_before_life_%",
+       10,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMaximumLifeIncreasePercent",
+     "lines": [
+      "(5-10)% increased maximum Life"
+     ],
+     "stats": [
+      [
+       "maximum_life_+%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalPercentDamageGoesToMana",
+     "lines": [
+      "(6-10)% of Damage taken Recouped as Mana"
+     ],
+     "stats": [
+      [
+       "damage_taken_goes_to_mana_%",
+       6,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Coward's Legacy": {
+   "lines": [
+    {
+     "text": "(30-40)% increased Life and Mana Recovery from Flasks",
+     "replaceable": true
+    },
+    {
+     "text": "(-20--10) to Strength",
+     "replaceable": true
+    },
+    {
+     "text": "+(20-30) to Dexterity",
+     "replaceable": true
+    },
+    {
+     "text": "You are considered on Low Life while at 75% of maximum Life or below instead",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLifeRegenerationOnLowLife",
+     "lines": [
+      "Regenerate (2-3)% of maximum Life per second while on Low Life"
+     ],
+     "stats": [
+      [
+       "life_regeneration_rate_per_minute_%_when_on_low_life",
+       120,
+       180
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalBeltIncreasedFlaskChargesGained",
+     "lines": [
+      "(20-30)% increased Flask Charges gained"
+     ],
+     "stats": [
+      [
+       "flask_charges_gained_+%",
+       20,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalEvasionOnLowLife",
+     "lines": [
+      "+(100-150) to Evasion Rating while on Low Life"
+     ],
+     "stats": [
+      [
+       "evasion_rating_+_when_on_low_life",
+       100,
+       150
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Glimpse of Chaos": {
+   "lines": [
+    {
+     "text": "+(50-150) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "+(50-150) to maximum Mana",
+     "replaceable": true
+    },
+    {
+     "text": "(-30-30)% to Fire Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "(-30-30)% to Cold Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "(-30-30)% to Lightning Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "Chaos Resistance is zero",
+     "replaceable": true
+    },
+    {
+     "text": "Can be modified while Corrupted",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLocalEnegyShield",
+     "lines": [
+      "+(50-150) to maximum Energy Shield"
+     ],
+     "stats": [
+      [
+       "local_energy_shield",
+       50,
+       150
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalChaosDamagePercentage",
+     "lines": [
+      "(1-60)% increased Chaos Damage"
+     ],
+     "stats": [
+      [
+       "chaos_damage_+%",
+       1,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalColdDamagePercentage",
+     "lines": [
+      "(1-60)% increased Cold Damage"
+     ],
+     "stats": [
+      [
+       "cold_damage_+%",
+       1,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLightningDamagePercentage",
+     "lines": [
+      "(1-60)% increased Lightning Damage"
+     ],
+     "stats": [
+      [
+       "lightning_damage_+%",
+       1,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalFireDamagePercentage",
+     "lines": [
+      "(1-60)% increased Fire Damage"
+     ],
+     "stats": [
+      [
+       "fire_damage_+%",
+       1,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalChaosResistance",
+     "lines": [
+      "+(1-60)% to Chaos Resistance"
+     ],
+     "stats": [
+      [
+       "base_chaos_damage_resistance_%",
+       1,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Seed of Cataclysm": {
+   "lines": [
+    {
+     "text": "(30-50)% increased Critical Hit Chance for Spells",
+     "replaceable": true
+    },
+    {
+     "text": "(30-50)% increased Critical Spell Damage Bonus",
+     "replaceable": true
+    },
+    {
+     "text": "10% increased Mana Cost of Skills",
+     "replaceable": true
+    },
+    {
+     "text": "+(13-17)% to Chaos Resistance",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalCastSpeedIfCriticalStrikeDealtRecently",
+     "lines": [
+      "(-15-15)% reduced Cast Speed if you've dealt a Critical Hit Recently"
+     ],
+     "stats": [
+      [
+       "cast_speed_+%_if_have_crit_recently",
+       -15,
+       15
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalVolatilityOnCritChance",
+     "lines": [
+      "(30-50)% chance to grant Volatility on Critical Hit"
+     ],
+     "stats": [
+      [
+       "instability_on_critical_%_chance",
+       30,
+       50
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(30-50)% chance to grant Volatility on Critical Hit"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalSpellsFire8AdditionalProjectileChance",
+     "lines": [
+      "(5-10)% chance for Spell Skills to fire 8 additional Projectiles in a circle"
+     ],
+     "stats": [
+      [
+       "spell_skill_%_chance_to_fire_8_additional_projectiles_in_nova",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(5-10)% chance for Spell Skills to fire 8 additional Projectiles in a circle"
+     ]
+    }
+   ]
+  },
+  "Plaguefinger": {
+   "lines": [
+    {
+     "text": "(30-50)% increased Evasion and Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "(4-6)% increased Attack Speed",
+     "replaceable": true
+    },
+    {
+     "text": "All Damage from Hits Contributes to Poison Magnitude",
+     "replaceable": true
+    },
+    {
+     "text": "(20-30)% chance to Poison on Hit",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalGlobalChaosGemLevel",
+     "lines": [
+      "+1 to Level of all Chaos Skills"
+     ],
+     "stats": [
+      [
+       "chaos_skill_gem_level_+",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalGlobalChanceToBlindOnHit",
+     "lines": [
+      "(5-10)% Global chance to Blind Enemies on Hit"
+     ],
+     "stats": [
+      [
+       "global_chance_to_blind_on_hit_%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(5-10)% Global chance to Blind Enemies on Hit"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalPoisonEffect",
+     "lines": [
+      "(10-16)% increased Magnitude of Poison you inflict"
+     ],
+     "stats": [
+      [
+       "base_poison_effect_+%",
+       10,
+       16
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalPoisonEffectOnNonPoisoned",
+     "lines": [
+      "(30-60)% increased Magnitude of Poison you inflict on targets that are not Poisoned"
+     ],
+     "stats": [
+      [
+       "poison_effect_+%_vs_non_poisoned_enemies",
+       30,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Bloodbarrier": {
+   "lines": [
+    {
+     "text": "(10-15)% increased Block chance",
+     "replaceable": true
+    },
+    {
+     "text": "(5-10) Life Regeneration per second",
+     "replaceable": true
+    },
+    {
+     "text": "+(13-17)% to Chaos Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "Inflict Corrupted Blood for 5 seconds on Block, dealing 50% ofyour maximum Life as Physical damage per second",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalIncreasedStunThreshold",
+     "lines": [
+      "(20-30)% increased Stun Threshold"
+     ],
+     "stats": [
+      [
+       "stun_threshold_+%",
+       20,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalDamageTakenGainedAsLife",
+     "lines": [
+      "(5-10)% of Damage taken Recouped as Life"
+     ],
+     "stats": [
+      [
+       "damage_taken_goes_to_life_over_4_seconds_%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMaximumLifeIncreasePercent",
+     "lines": [
+      "(5-10)% increased maximum Life"
+     ],
+     "stats": [
+      [
+       "maximum_life_+%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Serpent's Lesson": {
+   "lines": [
+    {
+     "text": "+(60-100) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "+(60-100) to maximum Mana",
+     "replaceable": true
+    },
+    {
+     "text": "You count as on Low Life while at 35% of maximum Mana or below",
+     "replaceable": true
+    },
+    {
+     "text": "You count as on Low Mana while at 35% of maximum Life or below",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLocalEnergyShield1",
+     "lines": [
+      "+(60-100) to maximum Energy Shield"
+     ],
+     "stats": [
+      [
+       "local_energy_shield",
+       60,
+       100
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalDamageTakenGoesToLifeManaESPercent",
+     "lines": [
+      "(5-10)% of Damage Taken Recouped as Life, Mana and Energy Shield"
+     ],
+     "stats": [
+      [
+       "damage_taken_goes_to_life_mana_es_over_4_seconds_%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Zerphi's Genesis": {
+   "lines": [
+    {
+     "text": "(10-30)% increased Charm Charges used",
+     "replaceable": true
+    },
+    {
+     "text": "+(10-30) to Strength",
+     "replaceable": true
+    },
+    {
+     "text": "50% of Charges consumed by used Charms are granted to your Life Flasks",
+     "replaceable": true
+    },
+    {
+     "text": "Corrupted Blood cannot be inflicted on you",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalBeltIncreasedCharmChargesGained",
+     "lines": [
+      "(10-30)% increased Charm Charges gained"
+     ],
+     "stats": [
+      [
+       "charm_charges_gained_+%",
+       10,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalBeltFlaskLifeRecovery",
+     "lines": [
+      "(10-30)% increased Life Recovery from Flasks"
+     ],
+     "stats": [
+      [
+       "flask_life_to_recover_+%",
+       10,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalCharmChargeGeneration",
+     "lines": [
+      "Charms gain 0.5 charges per Second"
+     ],
+     "stats": [
+      [
+       "generate_x_charges_for_charms_per_minute",
+       30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalRemoveBleedOnLifeFlaskUse",
+     "lines": [
+      "Remove Bleeding when you use a Life Flask"
+     ],
+     "stats": [
+      [
+       "remove_bleed_on_life_flask_use",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Remove Bleeding when you use a Life Flask"
+     ]
+    }
+   ]
+  },
+  "Dream Fragments": {
+   "lines": [
+    {
+     "text": "(10-15)% increased maximum Mana",
+     "replaceable": true
+    },
+    {
+     "text": "(30-50)% increased Mana Regeneration Rate",
+     "replaceable": true
+    },
+    {
+     "text": "You cannot be Chilled or Frozen",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalDamageRemovedFromManaBeforeLife",
+     "lines": [
+      "10% of Damage is taken from Mana before Life"
+     ],
+     "stats": [
+      [
+       "base_damage_removed_from_mana_before_life_%",
+       10,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIceCrystalMaximumLife",
+     "lines": [
+      "(40-60)% increased Ice Crystal Life"
+     ],
+     "stats": [
+      [
+       "ice_crystal_maximum_life_+%",
+       40,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMaximumManaOnKillPercent",
+     "lines": [
+      "Recover (1-2)% of maximum Mana on Kill"
+     ],
+     "stats": [
+      [
+       "recover_%_maximum_mana_on_kill",
+       1,
+       2
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalVolatilityDamageTakenAsColdPercent",
+     "lines": [
+      "(50-100)% of Volatility Physical Damage Taken as Cold Damage"
+     ],
+     "stats": [
+      [
+       "volatility_physical_damage_taken_%_as_cold",
+       50,
+       100
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(50-100)% of Volatility Physical Damage Taken as Cold Damage"
+     ]
+    }
+   ]
+  },
+  "Tetzlapokal's Desire": {
+   "lines": [
+    {
+     "text": "(100-150)% increased Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "+(20-30) to Strength",
+     "replaceable": true
+    },
+    {
+     "text": "+(17-23)% to Chaos Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "Life Recharges",
+     "replaceable": true
+    },
+    {
+     "text": "+(20-30) to Intelligence",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalEnergyShieldRechargeRatePer4Strength",
+     "lines": [
+      "1% increased Energy Shield Recharge Rate per 4 Strength"
+     ],
+     "stats": [
+      [
+       "energy_shield_recharge_rate_+%_per_4_strength",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMaximumLifeConvertedToEnergyShield",
+     "lines": [
+      "(10-15)% of Maximum Life Converted to Energy Shield"
+     ],
+     "stats": [
+      [
+       "maximum_life_%_to_convert_to_maximum_energy_shield",
+       10,
+       15
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIncreasedLife",
+     "lines": [
+      "+(70-100) to maximum Life"
+     ],
+     "stats": [
+      [
+       "base_maximum_life",
+       70,
+       100
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Mask of the Stitched Demon": {
+   "lines": [
+    {
+     "text": "(120-160)% increased Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "Regenerate 0.05 Life per second per Maximum Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "+(17-23)% to Chaos Resistance",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLocalEnergyShield2",
+     "lines": [
+      "+(70-100) to maximum Energy Shield"
+     ],
+     "stats": [
+      [
+       "local_energy_shield",
+       70,
+       100
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIncreasedLife1",
+     "lines": [
+      "+(60-80) to maximum Life"
+     ],
+     "stats": [
+      [
+       "base_maximum_life",
+       60,
+       80
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalAllAttributes",
+     "lines": [
+      "+(17-23) to all Attributes"
+     ],
+     "stats": [
+      [
+       "additional_all_attributes",
+       17,
+       23
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Atziri's Acuity": {
+   "lines": [
+    {
+     "text": "(150-200)% increased Armour",
+     "replaceable": true
+    },
+    {
+     "text": "+(100-150) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "10% of Physical damage dealt by your Hits causes Blood Loss",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalAddedMaximumEnergyShield",
+     "lines": [
+      "+(100-150) to maximum Energy Shield"
+     ],
+     "stats": [
+      [
+       "local_energy_shield",
+       100,
+       150
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMaximumLifeIncreasePercent",
+     "lines": [
+      "(5-10)% increased maximum Life"
+     ],
+     "stats": [
+      [
+       "maximum_life_+%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalChanceToBleed",
+     "lines": [
+      "(30-50)% increased chance to inflict Bleeding"
+     ],
+     "stats": [
+      [
+       "bleed_chance_+%",
+       30,
+       50
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(30-50)% increased chance to inflict Bleeding"
+     ]
+    }
+   ]
+  },
+  "Snakebite": {
+   "lines": [
+    {
+     "text": "(40-60)% increased Evasion Rating",
+     "replaceable": true
+    },
+    {
+     "text": "+(7-17)% to Chaos Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "(20-30)% chance to Poison on Hit",
+     "replaceable": true
+    },
+    {
+     "text": "Targets can be affected by +1 of your Poisons at the same time",
+     "replaceable": true
+    },
+    {
+     "text": "(6-10) Life Regeneration per second",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalPoisonDurationIfConsumedFrenzyChargeRecently",
+     "lines": [
+      "(30-40)% increased Duration of Poisons you inflict when you've consumed a Frenzy Charge Recently"
+     ],
+     "stats": [
+      [
+       "poison_duration_+%_if_consumed_frenzy_charge_recently",
+       30,
+       40
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(30-40)% increased Duration of Poisons you inflict when you've consumed a Frenzy Charge Recently"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalReducedPoisonDuration",
+     "lines": [
+      "(40-60)% reduced Poison Duration on you"
+     ],
+     "stats": [
+      [
+       "self_poison_duration_+%",
+       -60,
+       -40
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalRecoverLifeOnKillingPoisonedEnemyPerPoison",
+     "lines": [
+      "Recover (0.5-1)% of maximum Life per Poison affecting Enemies you Kill"
+     ],
+     "stats": [
+      [
+       "recover_permyriad_maximum_life_per_poison_on_enemy_on_kill",
+       50,
+       100
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Recover (0.5-1)% of maximum Life per Poison affecting Enemies you Kill"
+     ]
+    }
+   ]
+  },
+  "Powertread": {
+   "lines": [
+    {
+     "text": "+(10-20) to Intelligence",
+     "replaceable": true
+    },
+    {
+     "text": "(60-80)% increased Evasion and Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "(15-20)% increased Movement Speed",
+     "replaceable": true
+    },
+    {
+     "text": "+1 to Maximum Power Charges",
+     "replaceable": true
+    },
+    {
+     "text": "12% increased Critical Damage Bonus per Power Charge",
+     "replaceable": true
+    },
+    {
+     "text": "(60-80)% increased Evasion and Energy Shield",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalCriticalStrikeMultiplierIfConsumedPowerChargeRecently",
+     "lines": [
+      "(-60-60)% reduced Critical Damage Bonus if you've consumed a Power Charge Recently"
+     ],
+     "stats": [
+      [
+       "critical_hit_damage_bonus_+%_if_consumed_power_charge_recently",
+       -60,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIncreasedPowerChargeDuration",
+     "lines": [
+      "(-60-60)% reduced Power Charge Duration"
+     ],
+     "stats": [
+      [
+       "power_charge_duration_+%",
+       -60,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalChanceToGainAdditionalPowerCharge",
+     "lines": [
+      "10% chance when you gain a Power Charge to gain an additional Power Charge"
+     ],
+     "stats": [
+      [
+       "chance_to_gain_1_more_power_charge_%",
+       10,
+       10
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "10% chance when you gain a Power Charge to gain an additional Power Charge"
+     ]
+    }
+   ]
+  },
+  "Apep's Supremacy": {
+   "lines": [
+    {
+     "text": "(100-200)% increased Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "20% of Elemental damage from Hits taken as Chaos damage",
+     "replaceable": true
+    },
+    {
+     "text": "+25% chance to be Poisoned",
+     "replaceable": true
+    },
+    {
+     "text": "(30-50)% faster start of Energy Shield Recharge",
+     "replaceable": true
+    },
+    {
+     "text": "(30-50)% increased Energy Shield Recharge Rate",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalChaosResistance1",
+     "lines": [
+      "+(16-26)% to Chaos Resistance"
+     ],
+     "stats": [
+      [
+       "base_chaos_damage_resistance_%",
+       16,
+       26
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLifeRegenerationRatePercentage",
+     "lines": [
+      "Regenerate (1.5-3)% of maximum Life per second"
+     ],
+     "stats": [
+      [
+       "life_regeneration_rate_per_minute_%",
+       90,
+       180
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalPoisonEffectWhilePoisoned",
+     "lines": [
+      "(30-40)% increased Magnitude of Poison you inflict while Poisoned"
+     ],
+     "stats": [
+      [
+       "base_poison_effect_+%_while_poisoned",
+       30,
+       40
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Saitha's Spear": {
+   "lines": [
+    {
+     "text": "Adds (14-26) to (27-32) Physical Damage",
+     "replaceable": true
+    },
+    {
+     "text": "Adds (33-41) to (47-53) Fire Damage",
+     "replaceable": true
+    },
+    {
+     "text": "(15-25)% chance to cause Bleeding on Hit",
+     "replaceable": true
+    },
+    {
+     "text": "Aggravating any Bleeding with this Weapon also Aggravates all Ignites on the target",
+     "replaceable": true
+    },
+    {
+     "text": "(25-40)% chance to Aggravate Bleeding on Hit",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalFireExposureOnHit",
+     "lines": [
+      "(30-50)% chance to inflict Exposure on Hit"
+     ],
+     "stats": [
+      [
+       "base_inflict_fire_exposure_on_hit_%_chance",
+       30,
+       50
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(30-50)% chance to inflict Exposure on Hit"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalIgniteChanceIncrease1",
+     "lines": [
+      "(15-25)% increased Flammability Magnitude"
+     ],
+     "stats": [
+      [
+       "ignite_chance_+%",
+       15,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalPhysicalDamagePercent",
+     "lines": [
+      "(300-400)% increased Physical Damage"
+     ],
+     "stats": [
+      [
+       "local_physical_damage_+%",
+       300,
+       400
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalGlobalFireGemLevel",
+     "lines": [
+      "+1 to Level of all Fire Skills"
+     ],
+     "stats": [
+      [
+       "fire_skill_gem_level_+",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalCullingStrikeLocalVsBleeding",
+     "lines": [
+      "Hits with this Weapon have Culling Strike against Bleeding Enemies"
+     ],
+     "stats": [
+      [
+       "local_culling_strike_vs_bleeding_enemies",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Serpent's Egg": {
+   "lines": [
+    {
+     "text": "Gain an additional Charge when you gain a Charge",
+     "replaceable": true
+    },
+    {
+     "text": "+(17-23)% to Chaos Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "+(10-20) to all Attributes",
+     "replaceable": true
+    },
+    {
+     "text": "(20-30)% increased Mana Regeneration Rate",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalChanceToGainAdditionalRandomCharge",
+     "lines": [
+      "50% chance to gain an additional random Charge when you gain a Charge"
+     ],
+     "stats": [
+      [
+       "chance_to_gain_1_more_random_charge_%",
+       50,
+       50
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "50% chance to gain an additional random Charge when you gain a Charge"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalChargeDuration",
+     "lines": [
+      "(-60-60)% reduced Endurance, Frenzy and Power Charge Duration"
+     ],
+     "stats": [
+      [
+       "charge_duration_+%",
+       -60,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalChargeChanceToNotConsume",
+     "lines": [
+      "Skills have (10-15)% chance to not remove Charges but still count as consuming them"
+     ],
+     "stats": [
+      [
+       "charge_skip_consume_chance_%",
+       10,
+       15
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Skills have (10-15)% chance to not remove Charges but still count as consuming them"
+     ]
+    }
+   ]
+  },
+  "Quatl's Molt": {
+   "lines": [
+    {
+     "text": "(60-80)% increased Evasion Rating",
+     "replaceable": true
+    },
+    {
+     "text": "+(60-80) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "+(17-23)% to Chaos Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "(10-20) Life Regeneration per second",
+     "replaceable": true
+    },
+    {
+     "text": "Cannot be Poisoned",
+     "replaceable": true
+    },
+    {
+     "text": "Gain Deflection Rating equal to (40-60)% of Evasion Rating",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalIncreasedChaosDamage",
+     "lines": [
+      "(60-80)% increased Chaos Damage"
+     ],
+     "stats": [
+      [
+       "chaos_damage_+%",
+       60,
+       80
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalDeflectDamageTakenRecoupedAsLife",
+     "lines": [
+      "(10-20)% of Damage taken from Deflected Hits Recouped as Life"
+     ],
+     "stats": [
+      [
+       "deflected_hit_damage_taken_%_recouped_as_life",
+       10,
+       20
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(10-20)% of Damage taken from Deflected Hits Recouped as Life"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalPoisonStackCount",
+     "lines": [
+      "Targets can be affected by +1 of your Poisons at the same time"
+     ],
+     "stats": [
+      [
+       "number_of_additional_poison_stacks",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Doryani's Prototype": {
+   "lines": [
+    {
+     "text": "(50-100)% increased Armour and Evasion",
+     "replaceable": true
+    },
+    {
+     "text": "+(60-80) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "+100% of Armour also applies to Lightning Damage",
+     "replaceable": true
+    },
+    {
+     "text": "Lightning Resistance does not affect Lightning damage taken",
+     "replaceable": true
+    },
+    {
+     "text": "Enemies in your Presence have Lightning Resistance equal to yours",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLightningResistancePenetration",
+     "lines": [
+      "Damage Penetrates (10-20)% Lightning Resistance"
+     ],
+     "stats": [
+      [
+       "base_reduce_enemy_lightning_resistance_%",
+       10,
+       20
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLightningResistance",
+     "lines": [
+      "+(-60-60)% to Lightning Resistance"
+     ],
+     "stats": [
+      [
+       "base_lightning_damage_resistance_%",
+       -60,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalElementalPenetrationBelowZero",
+     "lines": [
+      "Your Hits can Penetrate Elemental Resistances down to a minimum of -50%"
+     ],
+     "stats": [
+      [
+       "elemental_penetration_can_go_down_to_override",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalPhysicalDamageReductionRating3",
+     "lines": [
+      "+(260-400) to Armour"
+     ],
+     "stats": [
+      [
+       "local_base_physical_damage_reduction_rating",
+       260,
+       400
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Constricting Command": {
+   "lines": [
+    {
+     "text": "+(80-120) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "+(10-15) to all Attributes",
+     "replaceable": true
+    },
+    {
+     "text": "(8-12) Life Regeneration per second",
+     "replaceable": true
+    },
+    {
+     "text": "Require (2-4) fewer enemies to be Surrounded",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalAttackDamageWhileSurrounded",
+     "lines": [
+      "(-40-40)% reduced Attack Damage while Surrounded"
+     ],
+     "stats": [
+      [
+       "attack_damage_+%_while_surrounded",
+       -40,
+       40
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLifeRegenerationWhileSurrounded",
+     "lines": [
+      "Regenerate (0.5-1.5)% of maximum Life per second while Surrounded"
+     ],
+     "stats": [
+      [
+       "life_regeneration_rate_per_minute_%_while_surrounded",
+       30,
+       90
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalPhysicalDamageReductionRating1",
+     "lines": [
+      "+(60-75) to Armour"
+     ],
+     "stats": [
+      [
+       "local_base_physical_damage_reduction_rating",
+       60,
+       75
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalSurroundedAreaOfEffect1",
+     "lines": [
+      "(20-60)% increased Surrounded Area of Effect"
+     ],
+     "stats": [
+      [
+       "surrounded_area_of_effect_+%",
+       20,
+       60
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Quecholli": {
+   "lines": [
+    {
+     "text": "+(10-15) to all Attributes",
+     "replaceable": true
+    },
+    {
+     "text": "Gain 30 Life per enemy killed",
+     "replaceable": true
+    },
+    {
+     "text": "(100-150)% increased Physical Damage",
+     "replaceable": true
+    },
+    {
+     "text": "This Weapon's Critical Hit Chance is 100%",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalAreaOfEffectIfKilledRecently",
+     "lines": [
+      "(10-25)% increased Area of Effect if you've Killed Recently"
+     ],
+     "stats": [
+      [
+       "skill_area_of_effect_+%_if_enemy_killed_recently",
+       10,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalAftershockChance",
+     "lines": [
+      "(5-10)% chance for Slam Skills you use yourself to cause an additional Aftershock"
+     ],
+     "stats": [
+      [
+       "your_slam_aftershock_chance_%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(5-10)% chance for Slam Skills you use yourself to cause an additional Aftershock"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalPercentageStrength",
+     "lines": [
+      "(5-10)% increased Strength"
+     ],
+     "stats": [
+      [
+       "strength_+%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalPhysicalDamage1",
+     "lines": [
+      "Adds (40-60) to (70-90) Physical Damage"
+     ],
+     "stats": [
+      [
+       "local_minimum_added_physical_damage",
+       40,
+       60
+      ],
+      [
+       "local_maximum_added_physical_damage",
+       70,
+       90
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Snakepit": {
+   "lines": [
+    {
+     "text": "(20-30)% increased Spell Damage",
+     "replaceable": true
+    },
+    {
+     "text": "Left ring slot: Projectiles from Spells Fork",
+     "replaceable": true
+    },
+    {
+     "text": "Left ring slot: Projectiles from Spells cannot Chain",
+     "replaceable": true
+    },
+    {
+     "text": "Right ring slot: Projectiles from Spells Chain +1 times",
+     "replaceable": true
+    },
+    {
+     "text": "Right ring slot: Projectiles from Spells cannot Fork",
+     "replaceable": true
+    },
+    {
+     "text": "Projectiles from Spells cannot Pierce",
+     "replaceable": true
+    },
+    {
+     "text": "(10-15)% increased Cast Speed",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalSpellChanceToFireTwoAdditionalProjectiles",
+     "lines": [
+      "(5-10)% chance for Spell Skills to fire 2 additional Projectiles"
+     ],
+     "stats": [
+      [
+       "spell_skills_fire_2_additional_projectiles_final_chance_%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalManaCostEfficiency3",
+     "lines": [
+      "(-30-30)% reduced Mana Cost Efficiency"
+     ],
+     "stats": [
+      [
+       "base_mana_cost_efficiency_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalEnergyGeneration",
+     "lines": [
+      "Meta Skills gain (-30-30)% reduced Energy"
+     ],
+     "stats": [
+      [
+       "energy_generated_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Meta Skills gain (-30-30)% reduced Energy"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalSpellSkillProjectileSpeed",
+     "lines": [
+      "(-30-30)% reduced Projectile Speed for Spell Skills"
+     ],
+     "stats": [
+      [
+       "spell_skill_projectile_speed_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalChanceToNotConsumeInfusion",
+     "lines": [
+      "Skills have (5-10)% chance to not remove Elemental Infusions but still count as consuming them"
+     ],
+     "stats": [
+      [
+       "chance_to_not_consume_infusion_%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Skills have (5-10)% chance to not remove Elemental Infusions but still count as consuming them"
+     ]
+    }
+   ]
+  },
+  "The Vertex": {
+   "lines": [
+    {
+     "text": "(20-30)% increased Critical Hit Chance",
+     "replaceable": true
+    },
+    {
+     "text": "+(13-17)% to Chaos Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "(100-150)% increased Evasion and Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "Equipment and Skill Gems have 50% reduced Attribute Requirements",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalPercentageAllAttributes",
+     "lines": [
+      "(5-10)% increased Attributes"
+     ],
+     "stats": [
+      [
+       "all_attributes_+%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalManaCostEfficiency2",
+     "lines": [
+      "(13-17)% increased Mana Cost Efficiency"
+     ],
+     "stats": [
+      [
+       "base_mana_cost_efficiency_+%",
+       13,
+       17
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalAilmentChance",
+     "lines": [
+      "(20-30)% increased chance to inflict Ailments"
+     ],
+     "stats": [
+      [
+       "ailment_chance_+%",
+       20,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalCurseGemLevel",
+     "lines": [
+      "+(3-5) to Level of all Curse Skills"
+     ],
+     "stats": [
+      [
+       "curse_skill_gem_level_+",
+       3,
+       5
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Mahuxotl's Machination": {
+   "lines": [
+    {
+     "text": "(66-333)% increased effect of Socketed Soul Cores",
+     "replaceable": true
+    },
+    {
+     "text": "(333-666)% increased Armour and Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "Everlasting Sacrifice",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalEnergyShieldDelay1",
+     "lines": [
+      "(33-66)% faster start of Energy Shield Recharge"
+     ],
+     "stats": [
+      [
+       "energy_shield_delay_-%",
+       33,
+       66
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalArmourAppliesToElementalDamage",
+     "lines": [
+      "+(33-66)% of Armour also applies to Elemental Damage"
+     ],
+     "stats": [
+      [
+       "armour_%_applies_to_fire_cold_lightning_damage",
+       33,
+       66
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Rathpith Globe": {
+   "lines": [
+    {
+     "text": "(60-100)% increased Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "+(60-100) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "Non-Channelling Spells cost an additional 6% of your maximum Liferathpith surge [1]",
+     "replaceable": true
+    },
+    {
+     "text": "Non-Channelling Spells deal 6% increased Damage per 100 maximum Liferathpith surge [1]",
+     "replaceable": true
+    },
+    {
+     "text": "Non-Channelling Spells have 3% increased Critical Hit Chance per 100 maximum Liferathpith surge [1]",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLifeCostEfficiency",
+     "lines": [
+      "(8-15)% increased Life Cost Efficiency"
+     ],
+     "stats": [
+      [
+       "base_life_cost_efficiency_+%",
+       8,
+       15
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalSpellAilmentEffectPerLife",
+     "lines": [
+      "Non-Channelling Spells have 3% increased Magnitude of Ailments per 100 maximum Life"
+     ],
+     "stats": [
+      [
+       "spell_ailment_magnitude_+%_per_100_max_life_with_non_channelling_skills",
+       3,
+       3
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalSpellCriticalChancePerMana",
+     "lines": [
+      "Non-Channelling Skills have 3% increased Spell Critical Hit Chance per 100 maximum Mana"
+     ],
+     "stats": [
+      [
+       "spell_critical_strike_chance_+%_per_100_max_mana_with_non_channelling_skills",
+       3,
+       3
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalSpellDamagePerMana",
+     "lines": [
+      "Non-Channelling Spells deal 6% increased Damage per 100 maximum Mana"
+     ],
+     "stats": [
+      [
+       "spell_damage_+%_per_100_max_mana_with_non_channelling_skills",
+       6,
+       6
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Drillneck": {
+   "lines": [
+    {
+     "text": "+(60-90) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "(8-12)% increased Attack Speed",
+     "replaceable": true
+    },
+    {
+     "text": "Gain Deflection Rating equal to (24-32)% of Evasion Rating",
+     "replaceable": true
+    },
+    {
+     "text": "Attack Projectiles Return if they Pierced at least (2-4) times",
+     "replaceable": true
+    },
+    {
+     "text": "Projectiles deal (42-64)% increased Damage with Hits for each time they have Pierced",
+     "replaceable": true
+    },
+    {
+     "text": "Projectiles have (42-64)% increased Critical Hit chance for each time they have Pierced",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalProjectileSpeed",
+     "lines": [
+      "(16-24)% increased Projectile Speed"
+     ],
+     "stats": [
+      [
+       "base_projectile_speed_+%",
+       16,
+       24
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalEvasionRatingPercentWhileSprinting",
+     "lines": [
+      "(100-150)% increased Evasion Rating while Sprinting"
+     ],
+     "stats": [
+      [
+       "evasion_rating_+%_if_sprinting",
+       100,
+       150
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalAdditionalArrowPierce",
+     "lines": [
+      "Arrows Pierce an additional Target"
+     ],
+     "stats": [
+      [
+       "arrow_base_number_of_targets_to_pierce",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Zerphi's Serape": {
+   "lines": [
+    {
+     "text": "(-30-30)% reduced Life Regeneration rate",
+     "replaceable": true
+    },
+    {
+     "text": "(-30-30)% reduced Mana Regeneration Rate",
+     "replaceable": true
+    },
+    {
+     "text": "+(40-60) to maximum Mana",
+     "replaceable": true
+    },
+    {
+     "text": "50% increased Attribute Requirements",
+     "replaceable": true
+    },
+    {
+     "text": "Soul Eater",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalPresenceRadius1",
+     "lines": [
+      "(15-30)% increased Presence Area of Effect"
+     ],
+     "stats": [
+      [
+       "presence_area_+%",
+       15,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalEnergyShield",
+     "lines": [
+      "+(90-120) to maximum Energy Shield"
+     ],
+     "stats": [
+      [
+       "local_energy_shield",
+       90,
+       120
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalGainSoulEaterStackOnHit",
+     "lines": [
+      "Eat a Soul when you Hit a Unique Enemy, no more than once every 0.5 seconds"
+     ],
+     "stats": [
+      [
+       "gain_soul_eater_stack_on_hit_vs_unique_cooldown_ms",
+       500,
+       500
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Eat a Soul when you Hit a Unique Enemy, no more than once every 0.5 seconds"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalSkillCostEfficiency1",
+     "lines": [
+      "(-30-30)% reduced Cost Efficiency"
+     ],
+     "stats": [
+      [
+       "base_skill_cost_efficiency_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Belly of the Beast": {
+   "lines": [
+    {
+     "text": "(100-150)% increased Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "+(100-150) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "(100-150)% increased Armour and Evasion",
+     "replaceable": true
+    },
+    {
+     "text": "+(100-150) to Stun Threshold",
+     "replaceable": true
+    },
+    {
+     "text": "Life Recovery from Flasks is instant",
+     "replaceable": true
+    },
+    {
+     "text": "(25-30) to (35-40) Physical Thorns damage",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLifeFlaskChargePercentGeneration",
+     "lines": [
+      "(15-30)% increased Life Flask Charges gained"
+     ],
+     "stats": [
+      [
+       "life_flask_charges_gained_+%",
+       15,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalGlobalFlaskLifeRecovery",
+     "lines": [
+      "(25-50)% increased Life Recovery from Flasks"
+     ],
+     "stats": [
+      [
+       "flask_life_to_recover_+%",
+       25,
+       50
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLifeLeechFromThorns",
+     "lines": [
+      "(5-10)% of Thorns Damage Leeched as Life"
+     ],
+     "stats": [
+      [
+       "base_life_leech_from_all_thorns_damage_permyriad",
+       500,
+       1000
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalPhysicalDamageReductionRating2",
+     "lines": [
+      "+(220-320) to Armour"
+     ],
+     "stats": [
+      [
+       "local_base_physical_damage_reduction_rating",
+       220,
+       320
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "The Covenant": {
+   "lines": [
+    {
+     "text": "Skills Gain 100% of Mana Cost as Extra Life Cost",
+     "replaceable": true
+    },
+    {
+     "text": "10% of Spell Damage Leeched as Life",
+     "replaceable": true
+    },
+    {
+     "text": "+(100-150) to maximum Life",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLifeCostEfficiency1",
+     "lines": [
+      "(10-25)% increased Life Cost Efficiency"
+     ],
+     "stats": [
+      [
+       "base_life_cost_efficiency_+%",
+       10,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMaximumLifeIncreasePercent",
+     "lines": [
+      "(5-10)% increased maximum Life"
+     ],
+     "stats": [
+      [
+       "maximum_life_+%",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLifeRegenerationRatePercentage1",
+     "lines": [
+      "Regenerate (1-3)% of maximum Life per second"
+     ],
+     "stats": [
+      [
+       "life_regeneration_rate_per_minute_%",
+       60,
+       180
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Cornathaum": {
+   "lines": [
+    {
+     "text": "+(40-50) to Intelligence",
+     "replaceable": true
+    },
+    {
+     "text": "(10-20)% increased Rarity of Items found",
+     "replaceable": true
+    },
+    {
+     "text": "5% increased Experience gain",
+     "replaceable": true
+    },
+    {
+     "text": "30% increased Light Radius",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLocalArmourAndEnergyShield",
+     "lines": [
+      "(100-150)% increased Armour and Energy Shield"
+     ],
+     "stats": [
+      [
+       "local_armour_and_energy_shield_+%",
+       100,
+       150
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalGoldFoundIncrease1",
+     "lines": [
+      "(5-10)% increased Quantity of Gold Dropped by Slain Enemies"
+     ],
+     "stats": [
+      [
+       "gold_+%_from_enemies",
+       5,
+       10
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(5-10)% increased Quantity of Gold Dropped by Slain Enemies"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalLightRadiusModifiersApplyToAreaOfEffect",
+     "lines": [
+      "Increases and Reductions to Light Radius also apply to Area of Effect at (25-50)% of their value"
+     ],
+     "stats": [
+      [
+       "light_radius_additive_modifiers_apply_to_area_%_value",
+       25,
+       50
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Atziri's Contempt": {
+   "lines": [
+    {
+     "text": "(100-120)% increased Physical Damage",
+     "replaceable": true
+    },
+    {
+     "text": "Adds (83-97) to (123-153) Fire Damage",
+     "replaceable": true
+    },
+    {
+     "text": "Adds 1 to (193-207) Lightning Damage",
+     "replaceable": true
+    },
+    {
+     "text": "(10-16)% increased Attack Speed",
+     "replaceable": true
+    },
+    {
+     "text": "(60-80)% increased Presence Area of Effect",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalIncreasedWeaponElementalDamagePercent",
+     "lines": [
+      "(100-150)% increased Elemental Damage with Attacks"
+     ],
+     "stats": [
+      [
+       "elemental_damage_with_attack_skills_+%",
+       100,
+       150
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalBaseCriticalStrikeChance",
+     "lines": [
+      "+(2-4)% to Critical Hit Chance"
+     ],
+     "stats": [
+      [
+       "local_critical_strike_chance",
+       200,
+       400
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalTreatResistsAsInvertedChance",
+     "lines": [
+      "Hits have (15-30)% chance to treat Enemy Monster Elemental Resistance values as inverted"
+     ],
+     "stats": [
+      [
+       "treat_enemy_resistances_as_negated_on_elemental_damage_hit_%_chance",
+       15,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalProjectileForkChanceIfMeleeRecently",
+     "lines": [
+      "Projectiles have (50-75)% chance to Fork if you've dealt a Melee Hit in the past eight seconds"
+     ],
+     "stats": [
+      [
+       "projectiles_fork_chance_%_if_youve_dealt_melee_hit_recently",
+       50,
+       75
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Projectiles have (50-75)% chance to Fork if you've dealt a Melee Hit in the past eight seconds"
+     ]
+    }
+   ]
+  },
+  "Atziri's Splendour": {
+   "lines": [
+    {
+     "text": "This item gains bonuses from Socketed Soul Cores as though it was also a Helmet",
+     "replaceable": true
+    },
+    {
+     "text": "This item gains bonuses from Socketed Soul Cores as though it was also Gloves",
+     "replaceable": true
+    },
+    {
+     "text": "This item gains bonuses from Socketed Soul Cores as though it was also Boots",
+     "replaceable": true
+    },
+    {
+     "text": "This item gains bonuses from Socketed Soul Cores as though it was also a Shield",
+     "replaceable": true
+    },
+    {
+     "text": "(200-300)% increased Armour",
+     "replaceable": true
+    },
+    {
+     "text": "(200-300)% increased Evasion Rating",
+     "replaceable": true
+    },
+    {
+     "text": "(200-300)% increased Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "(120-180)% increased Armour and Evasion",
+     "replaceable": true
+    },
+    {
+     "text": "(120-180)% increased Armour and Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "(120-180)% increased Evasion and Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "(80-120)% increased Armour, Evasion and Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "+(10-20)% to all Elemental Resistances",
+     "replaceable": true
+    },
+    {
+     "text": "Skills from Corrupted Gems have 50% of Mana Costs Converted to Life Costs",
+     "replaceable": true
+    },
+    {
+     "text": "Has no Attribute Requirements",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalSkillCostEfficiency2",
+     "lines": [
+      "(10-20)% increased Cost Efficiency"
+     ],
+     "stats": [
+      [
+       "base_skill_cost_efficiency_+%",
+       10,
+       20
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalSoulCoreEffect",
+     "lines": [
+      "(10-20)% increased effect of Socketed Soul Cores"
+     ],
+     "stats": [
+      [
+       "local_soul_core_effect_+%",
+       10,
+       20
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalAtziriSplendourArmour1",
+     "lines": [
+      "+(100-200) to Armour"
+     ],
+     "stats": [
+      [
+       "local_base_physical_damage_reduction_rating",
+       100,
+       200
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalAtziriSplendourEvasion1",
+     "lines": [
+      "+(100-200) to Evasion Rating"
+     ],
+     "stats": [
+      [
+       "local_base_evasion_rating",
+       100,
+       200
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalAtziriSplendourEnergyShield1",
+     "lines": [
+      "+(66-100) to maximum Energy Shield"
+     ],
+     "stats": [
+      [
+       "local_energy_shield",
+       66,
+       100
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalSoulCoreAlsoGainBenefitsFromBoots",
+     "lines": [
+      "This item gains bonuses from Socketed Soul Cores as though it was also Boots"
+     ],
+     "stats": [
+      [
+       "local_soul_core_gain_benefits_from_boots_as_well",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "This item gains bonuses from Socketed Soul Cores as though it was also Boots"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalSoulCoreAlsoGainBenefitsFromGloves",
+     "lines": [
+      "This item gains bonuses from Socketed Soul Cores as though it was also Gloves"
+     ],
+     "stats": [
+      [
+       "local_soul_core_gain_benefits_from_gloves_as_well",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "This item gains bonuses from Socketed Soul Cores as though it was also Gloves"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalSoulCoreAlsoGainBenefitsFromHelmet",
+     "lines": [
+      "This item gains bonuses from Socketed Soul Cores as though it was also a Helmet"
+     ],
+     "stats": [
+      [
+       "local_soul_core_gain_benefits_from_helmet_as_well",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "This item gains bonuses from Socketed Soul Cores as though it was also a Helmet"
+     ]
+    }
+   ]
+  },
+  "Shackles of the Wretched": {
+   "lines": [
+    {
+     "text": "(30-50)% increased Armour and Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "You cannot be Chilled for 6 seconds after being Chilled",
+     "replaceable": true
+    },
+    {
+     "text": "You cannot be Frozen for 6 seconds after being Frozen",
+     "replaceable": true
+    },
+    {
+     "text": "You cannot be Ignited for 6 seconds after being Ignited",
+     "replaceable": true
+    },
+    {
+     "text": "You cannot be Shocked for 6 seconds after being Shocked",
+     "replaceable": true
+    },
+    {
+     "text": "Curses you inflict are reflected back to you",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalCurseEffectiveness",
+     "lines": [
+      "(10-20)% increased Curse Magnitudes"
+     ],
+     "stats": [
+      [
+       "curse_effect_+%",
+       10,
+       20
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalFreezeDuration",
+     "lines": [
+      "(10-20)% increased Freeze Duration on Enemies"
+     ],
+     "stats": [
+      [
+       "freeze_duration_+%",
+       10,
+       20
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIgniteEffect1",
+     "lines": [
+      "(20-40)% increased Ignite Magnitude"
+     ],
+     "stats": [
+      [
+       "base_ignite_effect_+%",
+       20,
+       40
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalShockEffect",
+     "lines": [
+      "(20-40)% increased Magnitude of Shock you inflict"
+     ],
+     "stats": [
+      [
+       "shock_effect_+%",
+       20,
+       40
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalChillEffect",
+     "lines": [
+      "(20-40)% increased Magnitude of Chill you inflict"
+     ],
+     "stats": [
+      [
+       "chill_effect_+%",
+       20,
+       40
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalDamagePerCurse",
+     "lines": [
+      "(10-15)% increased Damage per Curse on you"
+     ],
+     "stats": [
+      [
+       "damage_+%_per_active_curse_on_self",
+       10,
+       15
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Redflare Conduit": {
+   "lines": [
+    {
+     "text": "+(50-70) to maximum Mana",
+     "replaceable": true
+    },
+    {
+     "text": "+(20-30)% to Lightning Resistance",
+     "replaceable": true
+    },
+    {
+     "text": "20% chance to gain a Power Charge on Hit",
+     "replaceable": true
+    },
+    {
+     "text": "Lose all Power Charges on reaching maximum Power Charges",
+     "replaceable": true
+    },
+    {
+     "text": "Shocks you when you reach maximum Power Charges",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLocalIncreasedEvasionAndEnergyShield",
+     "lines": [
+      "(150-300)% increased Evasion and Energy Shield"
+     ],
+     "stats": [
+      [
+       "local_evasion_and_energy_shield_+%",
+       150,
+       300
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalManaGainedOnPowerChargeConsumption",
+     "lines": [
+      "Recover (2-5)% of maximum Mana when you consume a Power Charge"
+     ],
+     "stats": [
+      [
+       "recover_x%_of_maximum_mana_when_you_consume_a_power_charge",
+       2,
+       5
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Recover (2-5)% of maximum Mana when you consume a Power Charge"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalGainPowerChargesNotLostRecently",
+     "lines": [
+      "Gain a Power Charge every Second if you haven't lost Power Charges Recently"
+     ],
+     "stats": [
+      [
+       "gain_power_charge_per_second_if_have_not_lost_power_charge_recently",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "Gain a Power Charge every Second if you haven't lost Power Charges Recently"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalReducedShockEffectOnSelf",
+     "lines": [
+      "(25-50)% reduced effect of Shock on you"
+     ],
+     "stats": [
+      [
+       "shocked_effect_on_self_+%",
+       -50,
+       -25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "The Adorned": {
+   "lines": [
+    {
+     "text": "(0-150)% increased Effect of Jewel Socket Passive Skillscontaining Corrupted Magic Jewels",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalPhysicalDamagePercent",
+     "lines": [
+      "(-30-30)% reduced Global Physical Damage"
+     ],
+     "stats": [
+      [
+       "physical_damage_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalCorruptedRareJewelModEffect",
+     "lines": [
+      "(0-75)% increased Effect of Jewel Socket Passive Skills",
+      "containing Corrupted Rare Jewels"
+     ],
+     "stats": [
+      [
+       "local_unique_jewel_passive_jewel_socket_mod_effect_+%_with_corrupted_rare_jewel_socketed",
+       0,
+       75
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(0-75)% increased Effect of Jewel Socket Passive Skills",
+      "containing Corrupted Rare Jewels"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalFireDamagePercentage1",
+     "lines": [
+      "(-30-30)% reduced Fire Damage"
+     ],
+     "stats": [
+      [
+       "fire_damage_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalColdDamagePercentage1",
+     "lines": [
+      "(-30-30)% reduced Cold Damage"
+     ],
+     "stats": [
+      [
+       "cold_damage_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLightningDamagePercentage1",
+     "lines": [
+      "(-30-30)% reduced Lightning Damage"
+     ],
+     "stats": [
+      [
+       "lightning_damage_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIncreasedChaosDamage1",
+     "lines": [
+      "(-30-30)% reduced Chaos Damage"
+     ],
+     "stats": [
+      [
+       "chaos_damage_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIncreasedArmourForJewel",
+     "lines": [
+      "(-30-30)% reduced Armour"
+     ],
+     "stats": [
+      [
+       "physical_damage_reduction_rating_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIncreasedEvasionForJewel",
+     "lines": [
+      "(-30-30)% reduced Evasion Rating"
+     ],
+     "stats": [
+      [
+       "evasion_rating_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalIncreasedEnergyShieldForJewel",
+     "lines": [
+      "+(-30-30) to maximum Energy Shield"
+     ],
+     "stats": [
+      [
+       "base_maximum_energy_shield",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMinionDamage",
+     "lines": [
+      "Minions deal (-30-30)% reduced Damage"
+     ],
+     "stats": [
+      [
+       "minion_damage_+%",
+       -30,
+       30
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Hateforge": {
+   "lines": [
+    {
+     "text": "(300-400)% increased Armour",
+     "replaceable": true
+    },
+    {
+     "text": "(-10-10) to Maximum Rage",
+     "replaceable": true
+    },
+    {
+     "text": "Gain a random Charge on reaching Maximum Rage, no more than once every (3-6) seconds",
+     "replaceable": true
+    },
+    {
+     "text": "Lose all Rage on reaching Maximum Rage",
+     "replaceable": true
+    },
+    {
+     "text": "Gain (3-6) Rage on Hit",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalIncreasedAttackSpeed",
+     "lines": [
+      "25% increased Attack Speed"
+     ],
+     "stats": [
+      [
+       "attack_speed_+%",
+       25,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMaximumRagePerGlorySkillUsed",
+     "lines": [
+      "+(8-10) maximum Rage if you've used a Skill that Requires Glory in the past 20 seconds"
+     ],
+     "stats": [
+      [
+       "max_rage_+_if_glory_skill_used_in_last_20_seconds",
+       8,
+       10
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "+(8-10) maximum Rage if you've used a Skill that Requires Glory in the past 20 seconds"
+     ]
+    },
+    {
+     "mod": "UniqueMutatedVaalMaxRageFromRageOnHitChance",
+     "lines": [
+      "(12-16)% chance that if you would gain Rage on Hit, you instead gain up to your maximum Rage"
+     ],
+     "stats": [
+      [
+       "gain_max_rage_on_rage_gain_from_hit_%_chance",
+       12,
+       16
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(12-16)% chance that if you would gain Rage on Hit, you instead gain up to your maximum Rage"
+     ]
+    }
+   ]
+  },
+  "Atziri's Rule": {
+   "lines": [
+    {
+     "text": "(10-20)% increased maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "+(3-5) to Level of all Corrupted Spell Skill Gems",
+     "replaceable": true
+    },
+    {
+     "text": "(10-20)% increased Cast Speed",
+     "replaceable": true
+    },
+    {
+     "text": "+(20-30) to Intelligence",
+     "replaceable": true
+    },
+    {
+     "text": "Spells which cost Life Gain (80-120)% of Damage as Extra Physical Damage",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalSpellChanceToFireTwoAdditionalProjectiles1",
+     "lines": [
+      "(10-25)% chance for Spell Skills to fire 2 additional Projectiles"
+     ],
+     "stats": [
+      [
+       "spell_skills_fire_2_additional_projectiles_final_chance_%",
+       10,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLifeCostEfficiency2",
+     "lines": [
+      "(10-20)% increased Life Cost Efficiency"
+     ],
+     "stats": [
+      [
+       "base_life_cost_efficiency_+%",
+       10,
+       20
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalMaximumLifeConvertedToEnergyShield",
+     "lines": [
+      "(10-15)% of Maximum Life Converted to Energy Shield"
+     ],
+     "stats": [
+      [
+       "maximum_life_%_to_convert_to_maximum_energy_shield",
+       10,
+       15
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalSpellDamageLifeLeech",
+     "lines": [
+      "5% of Spell Damage Leeched as Life"
+     ],
+     "stats": [
+      [
+       "base_life_leech_from_all_spell_damage_permyriad",
+       500,
+       500
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Atziri's Step": {
+   "lines": [
+    {
+     "text": "30% increased Movement Speed",
+     "replaceable": true
+    },
+    {
+     "text": "(80-120)% increased Evasion Rating",
+     "replaceable": true
+    },
+    {
+     "text": "+(70-100) to maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "Gain Deflection Rating equal to (40-60)% of Evasion Rating",
+     "replaceable": true
+    },
+    {
+     "text": "(-12--6)% to amount of Damage Prevented by Deflection",
+     "replaceable": true
+    },
+    {
+     "text": "Cannot be Light Stunned by Deflected Hits",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalGlobalDeflectionRatingWhileMoving",
+     "lines": [
+      "(15-25)% increased Deflection Rating while moving"
+     ],
+     "stats": [
+      [
+       "deflection_rating_+%_while_moving",
+       15,
+       25
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalEvasionRating",
+     "lines": [
+      "+(50-150) to Evasion Rating"
+     ],
+     "stats": [
+      [
+       "local_base_evasion_rating",
+       50,
+       150
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalGlancingBlows",
+     "lines": [
+      "Glancing Blows"
+     ],
+     "stats": [
+      [
+       "keystone_glancing_blows",
+       1,
+       1
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "Flesh Crucible": {
+   "lines": [
+    {
+     "text": "Random 1 Keystone Passive Skill [1,33]",
+     "replaceable": true
+    },
+    {
+     "text": "(10-20)% less maximum Life",
+     "replaceable": true
+    },
+    {
+     "text": "(10-20)% less maximum Mana",
+     "replaceable": true
+    },
+    {
+     "text": "(10-20)% less Armour, Evasion and Energy Shield",
+     "replaceable": true
+    },
+    {
+     "text": "(10-20)% less Spirit",
+     "replaceable": true
+    },
+    {
+     "text": "(10-20)% less Movement Speed",
+     "replaceable": true
+    },
+    {
+     "text": "(10-20)% less Damage",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalRandomKeystoneFromTable",
+     "lines": [
+      "(1-33)"
+     ],
+     "stats": [
+      [
+       "local_additional_vivisection_random_keystone_index",
+       1,
+       33
+      ]
+     ],
+     "pob_reads": false,
+     "pob_unread_lines": [
+      "(1-33)"
+     ],
+     "not_offered": "grants one of 33 random keystones (stat local_additional_vivisection_random_keystone_index 1-33): which keystone is decided per item, and PoB reads the line '(1-33)' as nothing; offering it needs one variant per keystone (CULT follow-up)"
+    },
+    {
+     "mod": "UniqueMutatedVaalVivisectionPriceDamage",
+     "lines": [
+      "(10-20)% less Damage"
+     ],
+     "stats": [
+      [
+       "vivisection_damage_+%_final",
+       -20,
+       -10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalVivisectionPriceDefences",
+     "lines": [
+      "(10-20)% less Armour, Evasion and Energy Shield"
+     ],
+     "stats": [
+      [
+       "vivisection_armour_evasion_energy_shield_+%_final",
+       -20,
+       -10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalVivisectionPriceLife",
+     "lines": [
+      "(10-20)% less maximum Life"
+     ],
+     "stats": [
+      [
+       "vivisection_maximum_life_+%_final",
+       -20,
+       -10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalVivisectionPriceMana",
+     "lines": [
+      "(10-20)% less maximum Mana"
+     ],
+     "stats": [
+      [
+       "vivisection_maximum_mana_+%_final",
+       -20,
+       -10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalVivisectionPriceMovementSpeed",
+     "lines": [
+      "(10-20)% less Movement Speed"
+     ],
+     "stats": [
+      [
+       "vivisection_movement_speed_+%_final",
+       -20,
+       -10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalVivisectionPriceSpirit",
+     "lines": [
+      "(10-20)% less Spirit"
+     ],
+     "stats": [
+      [
+       "vivisection_spirit_+%_final",
+       -20,
+       -10
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  },
+  "The Flesh Poppet": {
+   "lines": [
+    {
+     "text": "(90-120)% increased Physical Damage",
+     "replaceable": true
+    },
+    {
+     "text": "(7-13)% increased Attack Speed",
+     "replaceable": true
+    },
+    {
+     "text": "+(7-13) to all Attributes",
+     "replaceable": true
+    },
+    {
+     "text": "(30-40)% reduced Presence Area of Effect",
+     "replaceable": true
+    },
+    {
+     "text": "Copy a random Modifier from each enemy in your Presence whenyou Shapeshift to an Animal formModifiers gained this way are lost after 30 seconds or when you next Shapeshift",
+     "replaceable": true
+    }
+   ],
+   "outcomes": [
+    {
+     "mod": "UniqueMutatedVaalLocalBaseCriticalStrikeChance",
+     "lines": [
+      "+(2-4)% to Critical Hit Chance"
+     ],
+     "stats": [
+      [
+       "local_critical_strike_chance",
+       200,
+       400
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalLocalPhysicalDamage",
+     "lines": [
+      "Adds (65-73) to (83-91) Physical Damage"
+     ],
+     "stats": [
+      [
+       "local_minimum_added_physical_damage",
+       65,
+       73
+      ],
+      [
+       "local_maximum_added_physical_damage",
+       83,
+       91
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    },
+    {
+     "mod": "UniqueMutatedVaalDamageAsExtraFire",
+     "lines": [
+      "Gain (25-40)% of Damage as Extra Fire Damage"
+     ],
+     "stats": [
+      [
+       "non_skill_base_all_damage_%_to_gain_as_fire",
+       25,
+       40
+      ]
+     ],
+     "pob_reads": true,
+     "pob_unread_lines": []
+    }
+   ]
+  }
+ }
+}
