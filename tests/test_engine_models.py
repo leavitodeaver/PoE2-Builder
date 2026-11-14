@@ -163,6 +163,36 @@ def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):
     assert [[g["name"] for g in group["gems"]] for group in search.build.groups()] == before
 
 
+def test_meta_round_ranks_energy_at_the_builds_own_boss_power(engine, monkeypatch):
+    """(SEARCH18; MECH67's note) the meta round's Energy ranking read a flat 20 Power: with the build's "Enemies in your
+    Presence count as having double Power" line it reads boss_power's doubled Power, as Assumptions.models does."""
+    from builder.search import models
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    powers = []
+    gain = models.energy_gain
+    monkeypatch.setattr(models, "energy_gain", lambda meta, stats, *a: powers.append(models.power_of(stats)) or gain(meta, stats, *a))
+    search.gems.trial_meta = lambda gems: None  # (only the ranking is under test)
+    search.gems.meta_round(clock.now() + 60)
+    assert powers and set(powers) == {float(models.BOSS_POWER)}  # (no Power line: 20)
+    call = search.build.call
+
+    def with_line(name, **kw):
+        out = call(name, **kw)
+        if name == "sourceLines":
+            out = {**out, "lines": [*out["lines"], {"text": "Enemies in your Presence count as having double Power"}]}
+        if name == "getConfig":  # (the boss 1 m away: inside any Presence)
+            out = {**out, "input": {**out["input"], "enemyDistance": 10}}
+        return out
+    monkeypatch.setattr(search.build, "call", with_line)
+    powers.clear()
+    search.gems.meta_round(clock.now() + 60)
+    assert powers and set(powers) == {2.0 * models.BOSS_POWER}
+
+
 def test_a_build_that_counts_on_cast_on_dodge_loses_its_rolling_time(engine):
     """The user, 7 Nov: a build whose damage counts on Cast on Dodge loses the time its rolls take (0.75 s per roll, one
     per 2 s: 37.5%) from its main skill; PoB applies the line to that skill's speed."""

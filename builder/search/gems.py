@@ -978,6 +978,12 @@ class Gems:
         # it minion_deaths took none, an UNDERCOUNT in this round; SEARCH9)
         stats = {**build.call("stats", fields=models.MODEL_FIELDS), "_minion_lives": getattr(build, "minion_lives", {})}
         stats["_minion_deaths"] = models.minion_deaths(skills, main, stats)  # (Cast on Minion Death)
+        # (SEARCH18; MECH67's note: this ranking read a flat 20 Power, an UNDERCOUNT for a build with Power lines) the
+        # boss's Power and the roll distance from the build's own lines, as Assumptions.models gives the Energy models
+        texts = [e["text"] for e in build.call("sourceLines")["lines"]]
+        stats["_boss_power"] = models.boss_power(
+            texts, stats, models.number(build.call("getConfig")["input"].get("enemyDistance")) or None, bool(main.attack))
+        stats["_dodge_roll"] = models.dodge_roll(texts, stats)
         left, usage = self.budget_left(), self.usage_stats()
         metas = []
         for name in self.meta_candidates():
