@@ -3380,7 +3380,7 @@ class Conditions:
             raw = self.build.call("activeSkills")
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
             metres = (stats.get("_distance_choice") or (natural_distance(main_types), ""))[0]
-            stats["_raised_plan"] = models.raised_plan(found, texts, metres)
+            stats["_raised_plan"] = models.raised_plan(found, texts, metres, models.raised_taps_on(self.build))
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             broken, stats["_full_break_rate"] = roar, roar[2] / models.full_break_duration([line["text"] for line in lines])

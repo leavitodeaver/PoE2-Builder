@@ -5196,6 +5196,18 @@ RAISED_REACH = re.compile(r"(\d+(?:\.\d+)?) metres in front of you", re.I)
 # (UNVERIFIED in game)
 RAISE_TAP = 0.55
 BLIND_SECONDS = 4.0  # KeywordPopups Blind (conditions.DEBUFF_DURATION)
+# The taps are presses (THE USER, 14 Nov ~02:30: an item-granted skill the build actually presses counts toward the button
+# cap, "Count it if used"; AUDIT31 A31-4). The search can turn them off on a build (build.objective.raised_taps = False,
+# RAISED_TAPS: a build at its cap drops Bastion's Blind and the taps' time); with them on, the build's tap rate is on
+# build.item_presses ({skill: (uses a second, how)}; ITEM_PRESSES, set by Assumptions) for constraints.player_buttons
+# (SEARCH18) to count Raise Shield as a button. The play guide's "with the taps / without the taps" row: play_guide.raised_row.
+RAISED_TAPS = "raised_taps"
+ITEM_PRESSES = "item_presses"
+
+
+def raised_taps_on(build) -> bool:
+    """Does the build tap Raise Shield for its raised-shield lines (the search's switch, RAISED_TAPS; on unless set)?"""
+    return getattr(getattr(build, "objective", None), RAISED_TAPS, True) is not False
 
 
 @dataclass(frozen=True)
@@ -5203,9 +5215,10 @@ class RaisedPlan:
     blind: float  # share of the fight the boss is Blinded by the raised-shield line
     lost: float  # share of the main skill's time spent raising the shield
     how: str
+    taps: float = 0.0  # Raise Shield presses a second (a button: ITEM_PRESSES)
 
 
-def raised_plan(skills: list[Skill], texts: list[str], metres: float) -> RaisedPlan:
+def raised_plan(skills: list[Skill], texts: list[str], metres: float, taps: bool = True) -> RaisedPlan:
     """How the build raises its shield for a "Blind ... while your Shield is raised" line (Bastion of Light): one tap per
     Blind duration while the boss is within the line's reach (`metres`, the build's distance), else none."""
     lines = [t for t in texts if RAISED_BLIND.search(t)]
@@ -5217,6 +5230,9 @@ def raised_plan(skills: list[Skill], texts: list[str], metres: float) -> RaisedP
     if metres > reach:
         return RaisedPlan(0.0, 0.0, f"Blind while your Shield is raised reaches {reach:g} m in front of you and the boss "
                                     f"stands {metres:g} m away: no taps, 0 (closer: Blinded all fight)")
+    if not taps:
+        return RaisedPlan(0.0, 0.0, "Blind while your Shield is raised: the build doesn't tap Raise Shield (a button: "
+                                    "the search left it out, e.g. at the button cap), so 0 and no time lost")
     duration = BLIND_SECONDS * duration_scale(texts, "blind")
     if duration <= 0:
         return RaisedPlan(0.0, 0.0, "Blind while your Shield is raised: Blind lasts 0 s with the build's lines, so 0")
@@ -5225,14 +5241,16 @@ def raised_plan(skills: list[Skill], texts: list[str], metres: float) -> RaisedP
         f"tap Raise Shield once every {duration:g} s (the Blind's duration) with the boss within "
         f"{'' if reach == math.inf else f'{reach:g} m '}in front of you ({metres:g} m away): each pulse renews the Blind, so "
         f"the boss is Blinded all fight; each tap takes {RAISE_TAP:g} s ({lost:.1%} of the main skill's time, counted; "
-        f"LOW: a tap's length is UNVERIFIED). Without the taps: no Blind and no time lost"))
+        f"LOW: a tap's length is UNVERIFIED). Raise Shield is a button here (pressed {1 / duration:.2f} times a second). "
+        f"Without the taps: no Blind and no time lost"), 1 / duration)
 
 
-def raised_model(skills: list[Skill], texts: list[str], metres: float, main: Skill | None) -> tuple[list[dict], list[dict]]:
+def raised_model(skills: list[Skill], texts: list[str], metres: float, main: Skill | None,
+                 taps: bool = True) -> tuple[list[dict], list[dict]]:
     """The main skill's time spent tapping the shield (raised_plan; the Blinded box itself is conditions')."""
     if main is None or main.name == RAISE_SHIELD:
         return [], []
-    plan = raised_plan(skills, texts, metres)
+    plan = raised_plan(skills, texts, metres, taps)
     if not plan.how:
         return [], []
     notes = [{"label": "Blind while your Shield is raised (how the build raises it)", "value": f"{plan.blind:.0%} of the fight",

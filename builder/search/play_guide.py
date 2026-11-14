@@ -168,6 +168,8 @@ def guide(search: Any) -> list[dict]:
         rows.append(row)
     if row := boss_moving_row(search, headline):
         rows.append(row)
+    if row := raised_row(search, headline):
+        rows.append(row)
     after, base = build.objective.dps(build.stats), headline
     if abs(after - base) > 1e-6 * base:  # the switches must leave the build as it was; say so if they didn't
         rows.append({"var": "", "label": "(restore check)", "kind": BUILD, "counted": False, "play": "",
@@ -263,6 +265,34 @@ def boss_moving_row(search: Any, headline: float) -> dict | None:
                      f"{headline:,.0f} with the boss in reach (the headline). Close the gap at once after each dash"),
             "dps_with": headline, "dps_without": moving, "change": (headline - moving) / moving if moving else 0.0,
             "confidence": "theory (an upper bound on the loss; the travel time UNVERIFIED, MECH-D's LOW)"}
+
+
+def raised_row(search: Any, headline: float) -> dict | None:
+    """Bastion of Light's shield taps (MECHC21; THE USER, 14 Nov: an item-granted skill the build presses is a button):
+    "with the taps / without the taps". The headline counts the taps (models.raised_plan) when the build makes them
+    (build.item_presses names Raise Shield); one trial with them off (models.RAISED_TAPS: the Blind and the taps' time
+    both go), conditions and assumptions re-read, then put back. Counted in the headline; a build at its button cap can
+    drop the taps (the search's switch) for the "without" figure."""
+    from builder.search import models
+
+    build = search.build
+    presses = getattr(build, models.ITEM_PRESSES, None) or {}
+    if models.RAISE_SHIELD not in presses or not models.raised_taps_on(build):
+        return None
+    rate, how = presses[models.RAISE_SHIELD]
+    setattr(build.objective, models.RAISED_TAPS, False)
+    try:
+        search.settle()
+        without = build.objective.dps(build.stats)
+    finally:
+        setattr(build.objective, models.RAISED_TAPS, True)
+        search.settle()
+    return {"var": "press:Raise Shield", "label": f"Raise Shield: tapped {rate:.2f} times a second for Bastion of Light's "
+                                                  "Blind (a button)*", "kind": PLAYER, "counted": True,
+            "play": (f"{how}: {headline:,.0f} DPS with the taps (the headline), {without:,.0f} without them. Raise Shield "
+                     "counts as a button while you tap it; at the button cap, leave the taps (and Bastion's Blind) out"),
+            "dps_with": headline, "dps_without": without,
+            "change": (headline - without) / without if without > 0 else 0.0, "confidence": "theory (the tap's length LOW)"}
 
 
 __all__ = ["guide", "kind", "KINDS", "OFF_OPTIONS", "PLAYER", "BUILD", "FIGHT"]

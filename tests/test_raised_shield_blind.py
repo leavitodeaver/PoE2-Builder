@@ -38,3 +38,41 @@ def test_blinded_box_reads_the_plan():
     up, how = _debuff_source(BASTION, "conditionEnemyBlinded", [BASTION], {"_raised_plan": plan})
     assert up == 1.0 and "tap Raise Shield" in how
     assert _debuff_source(BASTION, "conditionEnemyBlinded", [BASTION], {})[0] == 0.0  # (before: 0, "not modelled")
+
+
+def test_taps_are_presses_the_search_can_turn_off():
+    # (THE USER, 14 Nov: an item-granted skill the build presses counts toward the button cap)
+    plan = models.raised_plan([SHIELD], [BASTION], 2.0)
+    assert plan.taps == 0.25 and "a button" in plan.how
+    off = models.raised_plan([SHIELD], [BASTION], 2.0, taps=False)
+    assert off.blind == 0 and off.lost == 0 and off.taps == 0 and "doesn't tap" in off.how
+    assert models.raised_model([SHIELD], [BASTION], 2.0, STRIKE, taps=False)[0] == []
+
+
+class _Objective:
+    def __init__(self):
+        self.dps_calls = []
+
+    def dps(self, stats):
+        return 900.0 if getattr(self, models.RAISED_TAPS, True) is False else 1000.0
+
+
+class _Search:
+    def __init__(self, presses):
+        self.build = type("B", (), {})()
+        self.build.objective, self.build.stats = _Objective(), {}
+        setattr(self.build, models.ITEM_PRESSES, presses)
+        self.settled = 0
+
+    def settle(self):
+        self.settled += 1
+
+
+def test_play_guide_row_with_and_without_the_taps():
+    from builder.search.play_guide import raised_row
+
+    search = _Search({models.RAISE_SHIELD: (0.25, "tap Raise Shield once every 4 s")})
+    row = raised_row(search, 1000.0)
+    assert row["dps_with"] == 1000 and row["dps_without"] == 900 and "a button" in row["label"]
+    assert models.raised_taps_on(search.build) and search.settled == 2  # put back
+    assert raised_row(_Search({}), 1000.0) is None  # no taps: no row

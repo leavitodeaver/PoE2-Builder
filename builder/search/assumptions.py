@@ -581,10 +581,16 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
         parry_mods, parry_notes = models.parry_model(found, stats, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS))
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
+        presses: dict[str, tuple[float, str]] = {}  # (item-granted skills the build presses: models.ITEM_PRESSES)
         if any(models.RAISED_BLIND.search(e["text"]) for e in source_lines):  # (Bastion of Light's shield taps, MECHC21)
             metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(main_types)
-            raised_mods, raised_notes = models.raised_model(found, [e["text"] for e in source_lines], metres, main)
+            raised_texts, taps = [e["text"] for e in source_lines], models.raised_taps_on(build)
+            raised_mods, raised_notes = models.raised_model(found, raised_texts, metres, main, taps)
             hand_mods, hand_notes = hand_mods + raised_mods, hand_notes + raised_notes
+            plan = models.raised_plan(found, raised_texts, metres, taps)  # (its taps are presses: the button cap's)
+            if plan.taps > 0:
+                presses[models.RAISE_SHIELD] = (plan.taps, plan.how)
+        setattr(build, models.ITEM_PRESSES, presses)
         roar_mods, roar_notes = models.roar_model(found, {**stats, "_texts": [e["text"] for e in source_lines]}, main)
         hand_mods, hand_notes = hand_mods + roar_mods, hand_notes + roar_notes
         rod_mods, rod_notes = models.rod_model(found, stats, main)
