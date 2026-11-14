@@ -56,9 +56,8 @@ RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
 def _hit_recently(stats: dict) -> bool:
     """At least one boss hit lands in any 4 s with chance UPTIME (landing hits come one after another, one every enemySkillTime)."""
-    every = number(stats.get("enemySkillTime")) or 0.7
-    land = boss_hits.land_share(stats)  # (red-flash hits always land, MECHC5)
-    return 1 - (1 - land) ** (RECENTLY / every) >= UPTIME
+    # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's, gain_hit_recently)
+    return boss_hits.gain_hit_recently(stats, RECENTLY, UPTIME)
 
 
 WITHERED_MAX = 10  # "Withered applies 5% increased Chaos damage Taken, and can be inflicted up to 10 times" (poe2db)
@@ -477,7 +476,10 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     if "critical hit" in when and "take" not in when:
         return chance * crits, f"{chance:.0%} x {crits:.2f} crits/s"
     if "take a critical hit" in when:
-        return chance * boss * 0.05, "when the boss crits you (5% of its hits)"
+        # (MECHC20: a crit on you is a hit that lands: the boss's landed hits, the worst case's lowest real boss's; before,
+        # every use of its skills, evaded and blocked ones too, an overcount)
+        landed = boss_hits.gain_hits(stats)[0]
+        return chance * landed * 0.05, f"when the boss crits you (5% of its {landed:.2f} landed hits/s)"
     if "block" in when:
         block = boss_hits.block_share(stats, evaded_first=False)  # (red-flash hits can't be Blocked, MECHC5)
         return chance * boss * block, f"{chance:.0%} x {boss * block:.2f} blocks/s"
@@ -899,7 +901,8 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
                                          f"spending {rate:.1f}/s (other skills' Mana not counted): {events:.2f} gains/s")
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
-    land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
+    # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
+    land = boss_hits.gain_hits(stats)[0]
     if "kill" in when:
         rate, how = kill_events(when, stats)
         events = chance * rate
@@ -965,7 +968,8 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     elif refund and not gain:
         return 0.0, ""  # (a refund with nothing gained: no Rage to spend in the first place)
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
-    land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
+    # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
+    land = boss_hits.gain_hits(stats)[0]
     pause, decay, loss_how = models.rage_loss(lines)  # (the build's later / faster / slower lines, MECHC5)
     basis = f"{gain:.2f} Rage/s gained"
     if loss_how:
@@ -1049,7 +1053,8 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     duration = float(d.group(1)) if d else ONSLAUGHT_DURATION
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
-    land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
+    # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
+    land = boss_hits.gain_hits(stats)[0]
     if re.search(r"\bkill|culling strike", when):
         rate, how = kill_events(when, stats)
         up = 1 - math.exp(-rate * duration * min(chance, 1.0))
@@ -1295,7 +1300,7 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         if "permanently" in text.lower():
             return (1.0, "permanent after a Block") if events > 0 else (0.0, "no Block chance")
     elif "hit you" in when:
-        land = boss_hits.land_share(stats) / every  # (red-flash hits always land, MECHC5)
+        land = boss_hits.gain_hits(stats)[0]  # (red-flash hits always land, MECHC5; the worst case's lowest real, MECHC20)
         events, how = land, "the boss's hits that land (red-flash hits always do)"
     elif ("critical" in when or "on hit" in when) and var == "conditionEnemyBlinded" and stats.get("_main_no_blind"):
         # Blindside: "Supported Skills ... cannot themselves inflict Blind" (cannot_inflict_blind; the line's hits are

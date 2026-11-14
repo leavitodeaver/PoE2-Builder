@@ -667,3 +667,31 @@ def gain_floor(stats: dict, read) -> tuple[float, str]:
     high = max(rows, key=lambda r: r[1])
     return low[1], (f"worst case: a gain counts the lowest real boss's rate (AUDIT29 A29-1), {low[0]}'s: {low[2]} "
                     f"(the highest, {high[0]}'s: {high[1] * 60:.1f} a minute, not counted)")
+
+
+# "When hit" gains on the worst-case pinnacle (MECHC20; MECHC19's Handover, the same rule as AUDIT29 A29-1): Rage,
+# charges, Onslaught, debuffs on the boss, meta Energy, Iron Ward, Deadly Resolve, "Hit Recently" and the recovery lines
+# read the boss's landed hits a second. On the worst case that was land_share at its HIGHEST real red-flash share (the
+# Arbiter of Divinity's, more hits land) over the slowest real cadence: a mix no real boss has, above the lowest real
+# boss's rate. gain_hits gives a gain the lowest real preset's landed rate (real_readings: each preset's own shares and
+# cadence); a named boss reads its own, as before. Defences (damage taken, recharge resets) keep the highest share.
+def gain_hits(stats: dict) -> tuple[float, str]:
+    """(the boss's landed hits a second at the "when hit" benefit pace, how) for a GAIN its hits give; on the worst-case
+    pinnacle the lowest real preset's (gain_floor)."""
+    from builder.search import bosses
+
+    def one(read: dict) -> tuple[float, str]:
+        rate = land_share(read) / bosses.benefit_skill_time(read)
+        return rate, f"{rate:.2f} landed hits/s"
+
+    return gain_floor(stats, one)
+
+
+def gain_hit_recently(stats: dict, seconds: float, uptime: float) -> bool:
+    """At least one landed boss hit in any `seconds` with chance `uptime` (PoB's enemySkillTime, the scored cadence, as
+    conditions._hit_recently reads it); on the worst case only if the lowest real preset's chance reaches it too."""
+    def one(read: dict) -> tuple[float, str]:
+        every = number(read.get("enemySkillTime")) or 0.7
+        return 1 - (1 - land_share(read)) ** (seconds / every), ""
+
+    return gain_floor(stats, one)[0] >= uptime

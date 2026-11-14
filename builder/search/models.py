@@ -2128,26 +2128,32 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         pool = number(stats.get("EnergyShield"))
         if pool <= 0:
             return 0.0, "the build has no Energy Shield: no Energy"
-        every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per damaging use, MECHD4; MECHB13)
-        land = boss_hits.land_share(stats)  # (MECHB6: red-flash hits always land; MECHC5's shares)
-        # (MECHB9, MECHC6: each {Type}TakenHit is that type at its full hit size, boss_hits.config_vars, so summing them
-        # was one hit of every type at once; type_taken weights each by its share of the boss's hits)
-        hit = boss_hits.type_taken(stats)
-        hits = land / every
-        if hits <= 0:
-            return 0.0, "none of the boss's hits land: no Energy"
-        # Over a fight, a hit can only take the Energy Shield that came back since the last one: regeneration, and
-        # recharge once the gap between landed hits outlasts the recharge delay (the first pool's worth isn't counted)
-        gap = 1 / hits
-        regen, recharge = number(stats.get("EnergyShieldRegenRecovery")), number(stats.get("EnergyShieldRecharge"))
-        delay = number(stats.get("EnergyShieldRechargeDelay"))
-        restored = regen * gap + recharge * max(0.0, gap - delay)
-        taken = min(hit, pool, restored)
-        return hits * taken * per, (f"the boss's hits land {hits:.2f} times per second (one every {every:g} s, {land:.0%} neither "
-                                    f"evaded nor blocked; red-flash hits always land, boss_hits), each taking {taken:,.0f} Energy Shield after mitigation (PoB's boss "
-                                    f"preset; an average hit of {hit:,.0f}, each damage type at its share of the boss's hits, at most the {restored:,.0f} that returns between hits: "
-                                    f"{regen:,.0f}/s regenerated, {recharge:,.0f}/s recharge after {delay:g} s): "
-                                    f"1 Energy per 10 lost")
+
+        def one(read: dict) -> tuple[float, str]:
+            every = bosses.benefit_skill_time(read)  # (a "when hit" benefit: one hit per damaging use, MECHD4; MECHB13)
+            land = boss_hits.land_share(read)  # (MECHB6: red-flash hits always land; MECHC5's shares)
+            # (MECHB9, MECHC6: each {Type}TakenHit is that type at its full hit size, boss_hits.config_vars, so summing
+            # them was one hit of every type at once; type_taken weights each by its share of the boss's hits)
+            hit = boss_hits.type_taken(read)
+            hits = land / every
+            if hits <= 0:
+                return 0.0, "none of the boss's hits land: no Energy"
+            # Over a fight, a hit can only take the Energy Shield that came back since the last one: regeneration, and
+            # recharge once the gap between landed hits outlasts the recharge delay (the first pool's worth isn't counted)
+            gap = 1 / hits
+            regen, recharge = number(read.get("EnergyShieldRegenRecovery")), number(read.get("EnergyShieldRecharge"))
+            delay = number(read.get("EnergyShieldRechargeDelay"))
+            restored = regen * gap + recharge * max(0.0, gap - delay)
+            taken = min(hit, pool, restored)
+            return hits * taken * per, (f"the boss's hits land {hits:.2f} times per second (one every {every:g} s, {land:.0%} neither "
+                                        f"evaded nor blocked; red-flash hits always land, boss_hits), each taking {taken:,.0f} Energy Shield after mitigation (PoB's boss "
+                                        f"preset; an average hit of {hit:,.0f}, each damage type at its share of the boss's hits, at most the {restored:,.0f} that returns between hits: "
+                                        f"{regen:,.0f}/s regenerated, {recharge:,.0f}/s recharge after {delay:g} s): "
+                                        f"1 Energy per 10 lost")
+
+        # (MECHC20: a gain the boss's hits give, so the worst-case pinnacle reads the lowest real boss's, A29-1's rule;
+        # before, its highest red-flash share and biggest hits)
+        return boss_hits.gain_floor(stats, one)
     if kind == "minion death":
         rate, how = stats.get("_minion_deaths") or (0.0, "the build's minions weren't read")
         if rate <= 0:
@@ -2614,7 +2620,8 @@ class IronWardStore:
 def iron_ward_store(skill: Skill, stats: dict) -> IronWardStore:
     # (a "when hit" benefit: one hit per boss skill use, MECHC11; no boss timing in the stats: no hits, as before)
     skill_time = bosses.benefit_skill_time(stats) if number(stats.get("enemySkillTime")) > 0 else 0.0
-    hits = (1 / skill_time if skill_time > 0 else 0.0) * boss_hits.land_share(stats)  # (MECHB6: red-flash hits land)
+    # (MECHB6: red-flash hits land; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
+    hits = boss_hits.gain_hits(stats)[0] if skill_time > 0 else 0.0
     return IronWardStore(number(skill.level_stats.get(STORE_CAP)), number(skill.level_stats.get(STORE_GAIN)) / 100,
                          number(stats.get("PhysicalEnemyDamage")), number(stats.get("PhysicalDamageReduction")), hits,
                          skill.cast_time or 1.0,
@@ -4774,8 +4781,8 @@ def deadly_resolve_model(skills: list[Skill], stats: dict, main: Skill | None) -
             "basis": "its channelled skill isn't the main skill, so it isn't channelled through the fight: not counted",
             "confidence": "theory", "entry": "deadly-resolve-rate"}]
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
-    land = boss_hits.land_share(stats)  # (MECHB6: red-flash hits always land; MECHC5's shares)
-    hits = land / every
+    # (MECHB6: red-flash hits always land; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
+    hits = boss_hits.gain_hits(stats)[0]
     rate = min(1 / DEADLY_RESOLVE_STAGE_EVERY, hits, 1 / DEADLY_RESOLVE_COOLDOWN)
     limit = "a stage per second of channelling" if rate < hits else "the boss's hits that land"
     return trigger_rate(DEADLY_RESOLVE, rate), [{

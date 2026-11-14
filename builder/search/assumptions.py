@@ -1563,7 +1563,9 @@ class Assumptions:
         per_hit = sum(taken.values()) / landed * share if landed > 0 else 0.0
         every = objective.benefit_every(hit)
         blocked = boss_hits.block_share(hit) / every
-        landed = boss_hits.land_share(hit) / every  # (a "when hit" benefit: the benefit pace, the hit's size as scored)
+        # (a "when hit" benefit: the benefit pace, the hit's size as scored; MECHC20: the worst case reads the lowest real
+        # boss's landed hits, boss_hits.gain_hits, A29-1's rule for gains)
+        landed = boss_hits.gain_hits(hit)[0]
         types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()
         casts = number(hit.get("Speed")) if "Spell" in types else 0.0
         how = (f"{main}'s casts; other Spells' casts not counted (LOW)" if casts > 0
@@ -2358,6 +2360,13 @@ class Assumptions:
 
         from builder.search import boss_hits, bosses
 
+        if boss == bosses.WORST:
+            # (MECHC20: a gain the boss's hits give, so the worst-case pinnacle reads the lowest real preset's share, as
+            # boss_hits.gain_floor does (AUDIT29 A29-1's rule); before, its pooled type counts over its slowest cadence)
+            rows = [(name, *Assumptions.boss_hit_recently_share(name, kind)) for name in bosses.REAL]
+            low, high = min(rows, key=lambda r: r[1]), max(rows, key=lambda r: r[1])
+            return low[1], (f"worst case: a gain counts the lowest real boss's share (AUDIT29 A29-1), {low[0]}'s: {low[2]} "
+                            f"(the highest, {high[0]}'s: {high[1]:.0%}, not counted)")
         counts = boss_hits.hit_table(boss)[1]
         every = bosses.HIT_EVERY.get(boss)
         damaging = (boss_hits.RED_FLASH.get(boss) or (0, 0, 0, ""))[2]
