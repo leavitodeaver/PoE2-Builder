@@ -1669,6 +1669,8 @@ class Assumptions:
                                                                  "_minion_lives": getattr(build, "minion_lives", {})})
             out["revived"] = (rate, f"each of your Reviving minions Killed is Revived once its revival ends: {how}"
                               if rate > 0 else how)
+        if has(recovery.RAGE_SHIFT):  # (MECHC21: Rage consumed on each shift back to Human form, conditions.rage_held)
+            out["rage"] = flow.get("Rage") or (0.0, "no Rage held, or no shift back to Human form read")
         if has(recovery.OFFERING_LIFE):
             uses, parts = typed_uses({"Offering"})
             out["offerings"] = (uses, "; ".join(parts) or "no Offering skill in the build")

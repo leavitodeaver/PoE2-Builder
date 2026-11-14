@@ -942,6 +942,60 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
     return events * amount, events, f"{chance:.0%} x {amount:g} Rage, {how}, {events:.2f} gains/s"
 
 
+# Invigorating Hate (MECHC21; PassiveSkills rage27, consume_rage_when_reverting_to_recover_x%_maximum_life_per_rage: its
+# only carrier in PassiveSkills and Mods (checked: every Stats.json id holding "rage" with "shapeshift", "human" or
+# "consum", their carriers in Mods and PassiveSkills; PoB's tree.lua 73480, ModCache has no mod for it); "Consume all Rage
+# when Shapeshifting to Human form to recover 1% of maximum life per Rage Consumed". KeywordPopups Shapeshift: "Using a
+# skill that is not compatible with your Shapeshifted form will automatically Shapeshift you back to human form". So the
+# build shifts back at the uses of its pressed skills of the other kind than its main skill (human_shifts): a
+# Shapeshift main skill (types Shapeshift and Bear / Wolf / Wyvern) shifts back on each use of a pressed skill that is
+# neither Shapeshift nor UsableWhileShapeshifted; a human main skill (not UsableWhileShapeshifted) on its next use after
+# each Shapeshift skill's. Each shift consumes the Rage built since the last (rage_held). A change from one animal form to
+# another isn't counted as reaching Human form (UNVERIFIED: a lower reading); Demon Form (a Shapeshift whose form keeps
+# spells) isn't read as a form here (UNVERIFIED, 0); "chance to not consume Rage" (rage_skip_consume_chance_%) and
+# "+N maximum Rage while Shapeshifted" aren't read (labelled).
+INVIGORATING_HATE = re.compile(r"\bconsume all rage when shapeshifting to human form\b", re.I)
+ANIMAL_FORMS = ("Bear", "Wolf", "Wyvern")
+
+
+def human_shifts(main_types: set[str], others: dict[str, tuple[set[str], float]], speed: float) -> tuple[float, str]:
+    """(shifts back to Human form a second, how) from the main skill's types and speed and the build's other pressed
+    skills ({name: (types, uses a second)})."""
+    def form(types: set[str]) -> str | None:
+        return next((f for f in ANIMAL_FORMS if f in types), None) if "Shapeshift" in types else None
+
+    main_form = form(main_types)
+    if main_form is not None:
+        back = {n: u for n, (t, u) in others.items() if u > 0 and "Shapeshift" not in t and "UsableWhileShapeshifted" not in t}
+        rate = min(sum(back.values()), speed) if speed > 0 else 0.0
+        if rate <= 0:
+            return 0.0, (f"the main skill keeps you in {main_form} form and the build presses no skill that isn't "
+                         "usable in it: no shift back to Human form, 0")
+        return rate, (f"the main skill keeps you in {main_form} form; each use of " + ", ".join(
+            f"{n} ({u:.2f}/s)" for n, u in back.items()) + f" shifts you back to Human form: {rate:.2f}/s")
+    if "Shapeshift" in main_types or "UsableWhileShapeshifted" in main_types:
+        return 0.0, ("the main skill is usable while Shapeshifted (or isn't an animal form's): which presses shift you "
+                     "back isn't read, 0 (UNVERIFIED)")
+    into = {n: u for n, (t, u) in others.items() if u > 0 and form(t) is not None}
+    rate = min(sum(into.values()), speed) if speed > 0 else 0.0
+    if rate <= 0:
+        return 0.0, "the build presses no Shapeshift skill beside its human-form main skill: no shift, 0"
+    return rate, ("each use of " + ", ".join(f"{n} ({u:.2f}/s)" for n, u in into.items()) +
+                  f" shifts you into its form, and the main skill's next use back to Human form: {rate:.2f}/s")
+
+
+def rage_on_shift(held: float, net: float, shifts: float) -> tuple[float, float]:
+    """(Rage held on average, Rage consumed a second) when every shift back to Human form consumes all Rage: it builds
+    again at `net` Rage a second from 0, at most the steady reading `held` (MEDIUM: the loss is taken as no faster than
+    in that reading)."""
+    if shifts <= 0 or held <= 0 or net <= 0:
+        return held, 0.0
+    gap = 1 / shifts
+    top = min(net * gap, held)
+    fill = top / net
+    return min(held, top * (gap - fill / 2) / gap), top * shifts
+
+
 def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     main_types = stats.get("_main_types") or set()
     spend = stats.get("_rage_spend") or {}
@@ -1024,6 +1078,15 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         held = most / 2
         basis += (f"; all Rage is lost on reaching the maximum (a line of the build): it climbs to {most:g} and drops "
                   f"back, {held:g} on average (gains taken as steady, LOW)")
+    if any(INVIGORATING_HATE.search(t) for t in lines):  # (MECHC21: each shift back to Human form consumes all Rage)
+        shifts, shift_how = stats.get("_human_shifts") or (0.0, "the build's shifts weren't read, 0")
+        before = held
+        held, consumed = rage_on_shift(held, net, shifts)
+        stats.setdefault("_charge_flow", {})["Rage"] = (consumed, shift_how + (
+            f": {consumed / shifts:.0f} Rage consumed a shift" if consumed > 0 else ""))
+        if consumed > 0:
+            basis += (f"; all Rage consumed on each shift back to Human form ({shift_how}): it builds from 0 again, "
+                      f"{held:.1f} held on average (was {before:.1f})")
     held = float(int(held))
     return held, f"{basis} = {held:.0f} held, at most {most:g}: " + "; ".join(how[:3])
 
@@ -2884,6 +2947,21 @@ class Conditions:
         it (models.press_choices), else 0 (no source, 0; MECH56: before, one use every models.PRESS_EVERY s)."""
         return models.press_choice({"name": name}, models.press_choices(self.build)) or 0.0
 
+    def _human_shifts(self, speed: float) -> tuple[float, str]:
+        """human_shifts for the build: its pressed active skills beside the main one (constraints.presses), each at its
+        group's rate (_group_uses; else the search's chosen rate, else 0). Triggered and persistent skills aren't
+        presses, so they aren't counted (UNVERIFIED whether a triggered skill shifts you back: a lower reading)."""
+        from builder.request.constraints import presses
+
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        gems = self.build.ctx.gems
+        names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)
+                 and n["name"] != self.main_skill and (gem := gems.get(n["name"])) and not gem.get("support")
+                 and presses(gem)}
+        uses = self._group_uses(groups, names)
+        others = {n: (set(gems[n].get("skillTypes") or []), uses.get(n, self._chosen_use(n))) for n in names}
+        return human_shifts(self.main_types, others, speed)
+
     def _minion_inputs(self) -> tuple[list, object, dict]:
         """(the build's enabled skills, the main one, the stats models.minion_deaths reads) for the minion models."""
         found = [models.Skill.of(s) for s in self.build.call("activeSkills")["skills"] if not s["disabled"]]
@@ -3166,6 +3244,8 @@ class Conditions:
             for n in [n for n, u in rage_spend.items() if u is None]:
                 each = uses.get(n, self._chosen_use(n))
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
+        if any(INVIGORATING_HATE.search(t) for t in texts):  # (MECHC21: shifts back to Human form, from the build's presses)
+            stats["_human_shifts"] = self._human_shifts(number(stats.get("Speed")))
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
             stats["_minion_deaths"] = self._minion_deaths()
         if any(KILL_LINE.search(t) for t in texts):  # (MECHC9, A23-4: on-kill lines at the build's kills)
