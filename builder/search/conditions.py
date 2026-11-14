@@ -2413,42 +2413,63 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
 # switched on for any skill or gem whose name or description said "Jagged Ground": Shockwave Totem's text, Soaring
 # Midnight's "Jagged Ground duration" (it makes none), Jagged Ground I with no Endurance Charge to consume, Furious Slam
 # without Rage. Player sources (checked by RESEARCH5: every stat with "jagged" in its id and every stat set with
-# can_create_jagged_ground; the only other one, support_jagged_ground_chance_%, is on a monster skill): Earthquake (a patch
+# can_create_jagged_ground; support_jagged_ground_chance_% is used only by a Rogue Exile's Leap Slam among Mods,
+# PassiveSkills, GrantedEffectStatSets, GrantedEffectQualityStats and SoulCoreStats (MECH68's rescan; that says nothing
+# about the mechanic, only about that stat)): Earthquake (a patch
 # per use, none on an existing patch, skill_jagged_ground_base_duration_ms 4000), Stampede (a patch per footstep; its
 # closing slam explodes them, whether they end then: UNVERIFIED, counted), Furious Slam (only when it spends Rage, 4 s),
 # Jagged Ground I (when the supported Slam consumes an Endurance Charge, 4 s), Jagged Ground II (each Aftershock of the
 # supported Slam, 4 s). Each patch is taken to be made on the boss, and the boss to stay in it (LOW, as Shocked Ground).
 JAGGED_GROUND_SECONDS = 4.0
+# Its duration modifiers (MECH68; AUDIT32 A32-12, an UNDERCOUNT: fixed 4 s / 6 s before): jagged_ground_duration_+%,
+# "N% increased Jagged Ground Duration" (checked: every Stats.json id with "jagged" and the five tables above: its only
+# user is the Perforation notable, PassiveSkills jagged_ground25, 40%); Persistent Ground I-III's "50% increased duration
+# of Ground Surfaces" on the main skill (ground_effect_duration_+%; Jagged Ground is a Ground Surface, UNVERIFIED that it
+# applies, MEDIUM). Both "increased" lines add together. Skill Effect Duration isn't read: the ground's own base stat
+# (skill_jagged_ground_base_duration_ms) isn't a skill effect duration (UNVERIFIED either way).
+PERSISTENT_GROUND_GEMS = ("Persistent Ground I", "Persistent Ground II", "Persistent Ground III")
+PERSISTENT_GROUND_INC = 50.0
+JAGGED_DURATION_LINE = re.compile(r"(\d+(?:\.\d+)?)% (increased|reduced) Jagged Ground Duration", re.I)
 JAGGED_GROUND_ASSUMED = 0.4  # the share the ledger's "if:JaggedGround" lines bake in (spike-pit, aggravate-bleed-jagged-ground)
 FURIOUS_SLAM_RAGE = 10  # bear_slam_spend_X_rage_for_stronger_slam (RAGE_PER_USE)
 
 
 def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], stats: dict, endurance_gains: float = 0.0,
-                  aftershock_pct: float = 0.0, rage: float = 0.0) -> tuple[float, str]:
+                  aftershock_pct: float = 0.0, rage: float = 0.0, texts: list[str] | None = None) -> tuple[float, str]:
     """(share of the fight the boss stands in your Jagged Ground, how), from the main skill's own sources. Sources combine as
-    independent; a skill other than the main one makes none here (an undercount, said in the note)."""
+    independent; a skill other than the main one makes none here (an undercount, said in the note). `texts`: the build's
+    lines, for the "N% increased Jagged Ground Duration" lines."""
     uses = number(stats.get("Speed"))
     off, parts, notes = 1.0, [], []
+    inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+              for t in texts or [] if (m := JAGGED_DURATION_LINE.search(t)))
+    persistent = any(g in main_gems for g in PERSISTENT_GROUND_GEMS)
+    factor = max(0.0, 1 + (inc + (PERSISTENT_GROUND_INC if persistent else 0.0)) / 100)
+    seconds = JAGGED_GROUND_SECONDS * factor
+    if factor != 1:
+        notes.append(f"each patch lasts x{factor:g} ({inc:+g}% Jagged Ground Duration"
+                     + (", +50% Persistent Ground's Ground Surfaces, MEDIUM" if persistent else "") + ")")
     slam = "Slam" in main_types and "CannotCreateJaggedGround" not in main_types
     if main == "Earthquake":
-        up = min(1.0, uses * JAGGED_GROUND_SECONDS)
-        parts.append(f"Earthquake's patch on each use ({uses:.2f}/s; none on an existing patch, {JAGGED_GROUND_SECONDS:g} s): "
+        up = min(1.0, uses * seconds)
+        parts.append(f"Earthquake's patch on each use ({uses:.2f}/s; none on an existing patch, {seconds:g} s): "
                      f"{up:.0%}")
         off *= 1 - up
     if main == "Stampede":
-        up = min(1.0, uses * 6.0)
-        parts.append(f"Stampede's footstep patches (6 s; whether its closing slam ends them: UNVERIFIED, counted): {up:.0%}")
+        up = min(1.0, uses * 6.0 * factor)
+        parts.append(f"Stampede's footstep patches ({6.0 * factor:g} s; whether its closing slam ends them: UNVERIFIED, "
+                     f"counted): {up:.0%}")
         off *= 1 - up
     if main == "Furious Slam":
         if rage >= FURIOUS_SLAM_RAGE:
-            up = min(1.0, uses * JAGGED_GROUND_SECONDS)
+            up = min(1.0, uses * seconds)
             parts.append(f"Furious Slam spending Rage ({rage:.0f} held, {FURIOUS_SLAM_RAGE} a slam): {up:.0%}")
             off *= 1 - up
         else:
             notes.append(f"Furious Slam makes it only when it spends Rage ({rage:.0f} held: none)")
     if "Jagged Ground I" in main_gems and slam:
         rate = min(uses, endurance_gains)
-        up = min(1.0, rate * JAGGED_GROUND_SECONDS)
+        up = min(1.0, rate * seconds)
         if up > 0:
             parts.append(f"Jagged Ground I, a patch per Endurance Charge consumed ({endurance_gains:.2f} gained/s, "
                          f"{uses:.2f} uses/s): {up:.0%}")
@@ -2457,7 +2478,7 @@ def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], s
             notes.append("Jagged Ground I consumes an Endurance Charge for each patch: the build gains none")
     if "Jagged Ground II" in main_gems and slam:
         rate = uses * min(1.0, aftershock_pct / 100)
-        up = min(1.0, rate * JAGGED_GROUND_SECONDS)
+        up = min(1.0, rate * seconds)
         if up > 0:
             parts.append(f"Jagged Ground II, a patch per Aftershock ({aftershock_pct:.0f}% chance): {up:.0%}")
             off *= 1 - up

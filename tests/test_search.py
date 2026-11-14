@@ -3138,3 +3138,19 @@ def test_persistent_ground_lengthens_the_main_skills_shocked_ground():
     warp = SimpleNamespace(main_skill="Lightning Warp", build=FakeBuild())
     assert Conditions.ground_ms(warp, {"base_secondary_skill_effect_duration": 8000}, 50) == pytest.approx(13600)
 
+
+def test_jagged_ground_reads_its_duration_lines():
+    """AUDIT32 A32-12 (MECH68, an UNDERCOUNT): the Perforation notable's "40% increased Jagged Ground Duration" and
+    Persistent Ground's 50% increased Ground Surface duration lengthen each patch (fixed 4 s / 6 s before)."""
+    from builder.search.conditions import jagged_ground
+
+    perforation = ["40% increased Jagged Ground Duration"]
+    assert jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 0.1})[0] == pytest.approx(0.4)
+    up, how = jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 0.1}, texts=perforation)
+    assert up == pytest.approx(0.56) and "x1.4" in how
+    assert jagged_ground("Earthquake", {"Slam"}, {"Persistent Ground I"}, {"Speed": 0.1},
+                         texts=perforation)[0] == pytest.approx(0.76)
+    assert jagged_ground("Stampede", set(), set(), {"Speed": 0.05}, texts=perforation)[0] == pytest.approx(0.42)
+    assert jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 0.1},
+                         texts=["20% reduced Jagged Ground Duration"])[0] == pytest.approx(0.32)
+

@@ -2495,7 +2495,7 @@ class Assumptions:
             aftershock = models.aftershock_chance(texts, (main_group or {}).get("gems") or [], True, True,
                                                   any("Shapeshift" in t for t in main_types))[0]
         rage = conditions_mod.rage_held(texts, stats)[0] if main == "Furious Slam" else 0.0
-        return conditions_mod.jagged_ground(main, main_types, main_gems, stats, gains, aftershock, rage)
+        return conditions_mod.jagged_ground(main, main_types, main_gems, stats, gains, aftershock, rage, texts)
 
     def apply(self) -> bool:
         """Match PoB's assumed modifiers to the build. True if they changed."""
