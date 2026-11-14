@@ -109,3 +109,18 @@ def test_a_life_cost_resets_life_recharges_delay():
     assert objective.life_recharge({**stats, "Speed": 0.0}, 0.0) == (0.0, 0.0)
     es = {"EnergyShieldRecharge": 50.0, "EnergyShieldRechargeDelay": 4.0, "EnergyShield": 500.0}
     assert objective.es_recharge({**stats, **es}, 0.0) == (50.0, 1.0)
+
+
+def test_energy_shield_counts_its_event_and_prevented_recoup_recovery():
+    """SEARCH19 (the manager's 03:05 item, an UNDERCOUNT): the recovery floor's Energy Shield pool reads the build's own
+    Energy Shield recovery like the Life pool's: "Regenerate N% of maximum Energy Shield over 1 second when Stunned"
+    (recovery.py's EnergyShieldOnEventRecovery, MECHC17) and, from MECHC21 (train 43), Scarred Faith's recoup of damage
+    prevented, whatever recovery.FIELDS["EnergyShield"] lists."""
+    from builder.search import recovery
+    from builder.search.objective import ADDED_RECOVERY_FIELDS
+
+    base = boss_recovery(king(50))
+    for field in recovery.FIELDS["EnergyShield"]:
+        r = boss_recovery(king(50, **{field: 120.0}))
+        assert r["parts"]["EnergyShield"] == pytest.approx(base["parts"]["EnergyShield"] + 120.0)
+        assert field in ADDED_RECOVERY_FIELDS and field not in RECOVERY_INPUTS  # (the search's own, never asked of PoB)

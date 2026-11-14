@@ -109,7 +109,11 @@ SUSTAIN_FLOOR = 0.10
 # recovery (flasks.RECOVERY_FIELDS) and Life / Mana from kills, Remnants, charms, events and what the build spends
 # (recovery.FIELDS, MECHC12 / MECHC13; SEARCH12: before, nothing scored them, so a build paying its costs through
 # Remnants or on-kill recovery read short of the sustain floor; the user's rule, 12 Nov)
-ADDED_RECOVERY = {pool: (RECOVERY_FIELDS[pool], *recovery.FIELDS[pool]) for pool in ("Life", "Mana")}
+# Energy Shield too (SEARCH19; the manager's 03:05 item, an UNDERCOUNT): its events (MECHC17: "Regenerate N% of maximum
+# Energy Shield over 1 second when Stunned") and recoup of damage prevented (MECHC21: Scarred Faith) count in the recovery
+# floor (RECOVERY_POOLS) as Life's do; it has no flask field (flasks.RECOVERY_FIELDS: Life and Mana only)
+ADDED_RECOVERY = {pool: (*((RECOVERY_FIELDS[pool],) if pool in RECOVERY_FIELDS else ()), *recovery.FIELDS.get(pool, ()))
+                  for pool in ("Life", "Mana", "EnergyShield")}
 ADDED_RECOVERY_FIELDS = {f for fields in ADDED_RECOVERY.values() for f in fields}
 SUSTAIN_POOLS = {
     "Mana": ("ManaPerSecondCost", ("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", *ADDED_RECOVERY["Mana"])),
@@ -143,7 +147,8 @@ SUSTAIN_LEFT_OUT = ("recovery on " + ", ".join(
 # SEARCH13; AUDIT3 #15, AUDIT26: before, none, an UNDERCOUNT for every high-avoidance Energy Shield build).
 RECOVERY_POOLS = {
     "Life": (("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate", *ADDED_RECOVERY["Life"]), "LifePerSecondCost"),
-    "EnergyShield": (("EnergyShieldRegenRecovery", "EnergyShieldLeechRate", "EnergyShieldOnHitRate"), None),
+    "EnergyShield": (("EnergyShieldRegenRecovery", "EnergyShieldLeechRate", "EnergyShieldOnHitRate",
+                      *ADDED_RECOVERY["EnergyShield"]), None),
     "Mana": (("ManaRegenRecovery", "ManaLeechRate", "ManaOnHitRate", *ADDED_RECOVERY["Mana"]), "ManaPerSecondCost"),
 }
 RECOVERY_DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
