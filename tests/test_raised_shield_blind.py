@@ -88,8 +88,11 @@ def test_bastions_parried_rides_the_taps_and_waits_for_the_ledger(monkeypatch):
     import builder.ledger as ledger
 
     texts = [BASTION, PARRIED]
-    assert models.raised_model([SHIELD, STRIKE], texts, 2.0, STRIKE)[0][0]["scale"] < 0  # ledger's entry: only the tap cost
-    monkeypatch.setattr(ledger, "translate", lambda line: None)  # (COV-A's entry change)
+    # (COV29: bastion-of-light-parried is a model entry now, so the ledger no longer translates the line)
+    assert ledger.translate(PARRIED) is None and ledger.model_entry(PARRIED).raw["model"] == "raised"
+    monkeypatch.setattr(ledger, "translate", lambda line: (object(), ["25% more Attack Damage while holding a Shield"]))
+    assert models.raised_model([SHIELD, STRIKE], texts, 2.0, STRIKE)[0][0]["scale"] < 0  # an old translation: only the tap cost
+    monkeypatch.setattr(ledger, "translate", lambda line: None)
     mods, notes = models.raised_model([SHIELD, STRIKE], texts, 2.0, STRIKE)
     assert [round(m["scale"], 3) for m in mods] == [25.0, round(-100 * 0.55 / 4, 3)]
     assert "Parried 2 s" in notes[1]["basis"]

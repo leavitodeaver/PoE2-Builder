@@ -313,11 +313,16 @@
 
 - id: bastion-of-light-parried
   title: Bastion of Light, Raise Shield inflicts Parried (50% more Attack damage taken, 2 s)
-  kind: pob_gap
+  kind: model
+  model: raised
   match: '^Raise Shield inflicts Parried for (\d+) seconds on Hit$'
-  replace: ['25% more Attack Damage while holding a Shield']
   confidence: theory
   notes: >-
+    COV29: now read by MECHC25's models.raised_parried (the raised-shield tap plan, models.raised_plan): each tap leaves
+    the boss Parried 2 s, so min(1, 2 x taps a second) of the main skill's Attack hits gain 50% more; nothing out of
+    reach, with taps off, for a non-Attack main skill, or beside Parry / Refutation. Before, a flat 25% more Attack
+    Damage whenever a Shield was held (an OVERCOUNT out of reach or with the taps off); kind model so ledger.translate
+    is None, which is raised_parried's gate. The old reading:
     Parried: "Takes substantially more Attack damage and cannot Evade"; the stat is
     attack_damage_taken_+%_final_from_parried, 50% more (poe2db Parry and Parried). From Raise Shield's hit it lasts 2 s.
     Reasonable play (the user's rule): you raise the shield to keep the boss Blinded (Bastion of Light's other line, 4 s
@@ -359,12 +364,14 @@
   status: proposed
 
 - id: twice-bled
-  title: Twice Bled, Physical damage prevented recouped as Life (recovery isn't a checked defence)
-  kind: pob_gap
-  match: '^\d+% of Physical Damage prevented Recouped as Life if you have at least \d+ Tribute$'
-  replace: []
+  title: Twice Bled, Physical damage prevented recouped as Life with enough Tribute, recovery model
+  kind: model
+  match: '^(\(\d+-\d+\)|\d+)% of Physical Damage prevented Recouped as Life if you have at least \d+ Tribute$'
+  model: recovery
   confidence: datamined
   notes: >-
+    COV29: read by recovery.PREVENTED_LIFE_TRIBUTE (MECHC25) with the unconditional form when PoB's Tribute output
+    reaches the line's N, else 0 with a note; a model entry now (kind model: the audit counts it). Before:
     Retired (COV27). The old note ("the optimizer checks pools, resistances and maximum hit, which recoup doesn't
     change") no longer holds: the sustain share and the recovery floor count recovery, and MECHC21's recovery model
     counts the unconditional "prevented Recouped as Life" line (model-prevented-recouped-as-life). This
@@ -372,7 +379,7 @@
     not "no effect".
   sources: ["https://poe2db.tw/us/Twice_Bled"]
   test_in_game: "Take a big physical hit with 100 Tribute: a fifth of what Armour prevented comes back as Life over 4 s."
-  status: retired  # COV27: recovery is counted now; the Tribute form is open work for MECH-C
+  status: proposed  # COV29: read since MECHC25
 
 - id: guided-hand-boost
   title: Guided Hand, the next attack after a Heavy Stun is Ancestrally Boosted (custom model)

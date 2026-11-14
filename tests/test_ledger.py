@@ -202,8 +202,9 @@ def test_recovery_lines_the_audit_counts_are_the_lines_the_recovery_model_reads(
     assert ignored_line_status("12% of Physical Damage prevented Recouped as Life", False)[:2] == \
         ("model", "model-prevented-recouped-as-life")
     assert ignored_line_status("(5-10)% of Physical Damage prevented Recouped as Life", False)[0] == "model"
+    # (COV29) ... and since MECHC25 the Tribute form too (recovery.PREVENTED_LIFE_TRIBUTE): twice-bled is a model entry
     assert ignored_line_status("20% of Physical Damage prevented Recouped as Life if you have at least 100 Tribute",
-                               True)[0] == "none"
+                               True)[:2] == ("model", "twice-bled")
 
 
 def test_share_lines_have_an_item_form_and_other_conditional_lines_dont():
