@@ -2299,14 +2299,16 @@ function bridge.removeGroup(args)
 	return { stats = pickStats(build.calcsTab.mainOutput, args.fields) }
 end
 
--- Support gems a player can socket (not item- or tree-granted, not legacy) that PoB says can
--- support an active skill of the group
+-- Support gems a player can socket (not item- or tree-granted) that PoB says can support an active
+-- skill of the group. PoB's legacy gems are returned too (COV23): the caller keeps only the gems
+-- Context.allowed_gem offers (context.LIVE_LEGACY names the legacy ones the game still has, e.g.
+-- Murderous Intent; the rest stay out there), so the search can offer a live gem PoB marks legacy.
 function bridge.supportCandidates(args)
 	local group = socketGroup(args.group)
 	local names = { }
 	for _, gemData in pairs(build.data.gems) do
 		local effect = gemData.grantedEffect
-		if effect.support and not effect.fromItem and not effect.fromTree and not effect.legacy then
+		if effect.support and not effect.fromItem and not effect.fromTree then
 			for _, activeSkill in ipairs(group.displaySkillList or { }) do
 				if calcLib.canGrantedEffectSupportActiveSkill(effect, activeSkill) then
 					names[#names + 1] = gemData.name

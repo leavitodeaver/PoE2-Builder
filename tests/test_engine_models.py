@@ -2027,6 +2027,11 @@ def test_murderous_intents_cull_is_flagged_empower_only(engine):
     split = engine.call("cullSplit")
     assert split["regular"] > 0 and split["empowerOnly"]
     assert all(r["source"] == "Skill:SupportEmpoweredCullPlayer" for r in split["rows"])
+    # COV23: supportCandidates returns PoB-legacy supports too (the search keeps those Context.allowed_gem allows), so
+    # the support step can offer Murderous Intent; before, the bridge dropped every legacy gem itself
+    tempest = engine.call("groups")["groups"][-1]
+    names = set(engine.call("supportCandidates", group=tempest["index"])["names"])
+    assert "Murderous Intent" in names
 
 
 

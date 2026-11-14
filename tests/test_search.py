@@ -313,6 +313,21 @@ def test_the_search_offers_murderous_intent_with_its_cull_priced_at_empowered_us
     assert c.cull_window_scale(mult, mult, 1e7, 1e6, 5.0, 1.0, 0.0, empowered, 0.0, (0.0, "none"))[0] == 0.0
 
 
+def test_gems_the_game_removed_are_left_out_and_unpriced_legacy_supports_wait():
+    """COV23: Untouchable, an ordinary gem in PoB, was removed in 0.3.0 (the official notes and poe2db agree): the search
+    can't pick it (an OVERCOUNT while it could), though a PoB code holding one still reads its skill types. PoB-legacy
+    gems the game removed (0.5.0: Infernal Legion III, Overextend, Shock Conduction II) stay out, and so do the live ones
+    PoB scores at nothing (Lasting Ground, Undermine) until a model prices them."""
+    from builder.search.context import GONE_GEMS, LIVE_LEGACY
+
+    ctx = context(main_skill="Ice Shot")
+    assert "Untouchable" in GONE_GEMS and "Untouchable" not in ctx.gems and "Untouchable" in ctx.any_gems
+    assert not ctx.allowed_gem("Untouchable")
+    for name in ("Infernal Legion III", "Overextend", "Shock Conduction II", "Lasting Ground", "Undermine"):
+        assert name not in LIVE_LEGACY and name not in ctx.gems and not ctx.allowed_gem(name)
+    assert ctx.allowed_gem("Murderous Intent")
+
+
 # Objective -------------------------------------------------------------------------------------
 
 

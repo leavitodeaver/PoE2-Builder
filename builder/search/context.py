@@ -31,15 +31,40 @@ SUPPORT_SLOTS = 5  # support sockets on a fully socketed skill gem
 MAX_GEM_GROUPS = 9  # non-item gem groups the game allows
 GEM_LEVEL = 20
 GEM_QUALITY = 20
-# PoB-legacy gems the current game still offers, each with its evidence (Context.gems offers them). The other gems PoB
-# marks legacy (Bloodlust, Commandment, Infernal Legion III, Lasting Ground, Overextend, Shock Conduction II, Undermine)
-# stay out until checked the same way: live.json calls them "live (inferred)" by the support weight alone (UNVERIFIED).
+# PoB-legacy gems the current game still offers, each with its evidence (Context.gems offers them; bridge.supportCandidates
+# returns legacy gems too and the search keeps those Context.allowed_gem allows). The game files can't tell a live support
+# from a removed one: live.json reaches every one of them by the support weight alone ("live (inferred)"), and so it does
+# Overextend, Font of Rage and Ricochet III, which the patch notes removed. So the evidence is poe2db's current page and the
+# patch notes. The other gems PoB marks legacy (COV23, checked: poe2db's current page of each; the 0.5.0 patch notes
+# (kami-labs' full copy) and the official 0.3.0 notes (pathofexile.com forum 3826682); 0.4.0's disabled list (maxroll /
+# game8 copies, via search)):
+# - Infernal Legion III, Overextend, Shock Conduction II: gone. 0.5.0: "Can no longer be obtained" (poe2db's version
+#   history and the 0.5.0 notes agree). PoB is right to leave them out.
+# - Lasting Ground ("50% increased duration of Ground Surfaces created by Supported Skills"): live (no removal on poe2db or
+#   in the 0.3.0 / 0.4.0 / 0.5.0 notes), but out until priced: PoB maps ground_effect_duration_+% to nothing (absent from
+#   SkillStatMap.lua), so it scores 0, an undercount; MECH-A's ground models read only Shocked Ground's own duration stats.
+# - Undermine ("Consume Maim on Hit to Break 35% of the Maimed target's Armour"; "cannot inflict Maim"): live (the same
+#   check), but out until priced: PoB maps neither consume_maim_on_hit_to_break_%_armour nor cannot_inflict_maim (absent
+#   from SkillStatMap.lua), so it scores 0 and would keep the skill's own Maim on (an OVERCOUNT where Maim matters).
+# - Bloodlust, Commandment: live (the same check); PoB maps their lines (30% more Melee Physical Damage vs Bleeding enemies
+#   and CannotBleed; 100% less minion damage with non-Command skills and 100% increased Command cooldown recovery). Out
+#   until COV23's probe (scratch/cov23/probe_legacy.py) shows PoB scores them right.
 LIVE_LEGACY = {
     # MECH60 (checked: game files BaseItemTypes SupportGemMurderousIntent, SkillGems 479, GrantedEffects 751, live.json
     # "live (inferred)", weight 50; poe2db's current page https://poe2db.tw/us/Murderous_Intent, no legacy mark).
     # Offered once its Cull is priced at the main skill's Empowered uses (MECH63's bridge.cullSplit empowerOnly and
     # conditions.cull_window_scale), not PoB's Culling Strike on every hit.
     "Murderous Intent": "MECH60: live (game files; poe2db current page)",
+}
+# Gems PoB offers as ordinary gems that the game removed, each with two sources that agree (the rule for removing anything):
+# Context.gems leaves them out, so the search never picks them; any_gems still reads them in a PoB code that holds one.
+# The game files still carry them (live.json "live (inferred)" by the support weight, as for the removed gems above).
+GONE_GEMS = {
+    # COV23 (checked: the official 0.3.0 notes, pathofexile.com forum 3826682: "Blood in the Eyes, Discombobulate, Unsteady
+    # Tempo, Unbating, Unbending, Untouchable, and Unyielding can no longer be engraved in the Gemcutting menu, and existing
+    # Gems will be deleted upon logging in"; poe2db's current page https://poe2db.tw/us/Untouchable quotes the same in its
+    # version history, and no later version brings it back). PoB carries only Untouchable of the seven, not marked legacy.
+    "Untouchable": "removed in 0.3.0 (the official 0.3.0 notes and poe2db's version history agree)",
 }
 
 ARMOUR_SLOTS = ["Helmet", "Body Armour", "Gloves", "Boots"]
@@ -176,10 +201,11 @@ class Context:
     @cached_property
     def gems(self) -> dict[str, dict]:
         """Gems a player can socket at the requested level, by name. PoB's legacy gems are left out, except those
-        LIVE_LEGACY names (checked live against the game files and a second source)."""
+        LIVE_LEGACY names (checked live against the game files and a second source); GONE_GEMS are left out too."""
         gems = {}
         for gem in self.data.gems:
-            if gem.get("fromItem") or gem.get("fromTree") or (gem.get("legacy") and gem["name"] not in LIVE_LEGACY):
+            if gem.get("fromItem") or gem.get("fromTree") or (gem.get("legacy") and gem["name"] not in LIVE_LEGACY) \
+                    or gem["name"] in GONE_GEMS:
                 continue
             if (gem.get("levelRequirement") or 0) > self.level:
                 continue
