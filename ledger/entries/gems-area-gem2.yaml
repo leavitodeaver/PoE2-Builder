@@ -1,0 +1,20 @@
+# is_area_damage (GEM2, 14 Nov 2026): read by the bridge since b79f36e (engine/bridge.lua installAreaDamageFlag), which
+# gives every PoB stat set carrying it PoB's Area flag, so "increased Area Damage" reaches the sets the game marks area
+# damage. Kind `model` with `stats` and no `skill`: the audit counts the stat as read on every skill that has it.
+
+- id: model-stats-is-area-damage
+  title: "Area damage sets: the game's is_area_damage gives the set PoB's Area flag (bridge)"
+  kind: model
+  model: area_damage_flag
+  stats: ["is_area_damage"]
+  confidence: datamined
+  notes: >-
+    PoB maps no is_area_damage (checked: grep of SkillStatMap.lua and Modules/*.lua) and gives ModFlag.Area only from a
+    stat set's baseFlags.area (CalcActiveSkill 601). GEM1's probe POE2T2016 read x1.0 with "100% increased Area Damage"
+    on Voltaic Barrier, Herald of Blood's Explosion, Bitter Dead's Explosion and Core, Catalysing Discharge's Fire /
+    Lightning / Cold, Midnight Zenith's Crystal, Falling Thunder's Projectile and Tempest Flurry's Third / Fourth Strike
+    (an UNDERCOUNT), and x2 on sets PoB already flags. The bridge flags all of them (91 PoB sets lacked it, 64 of them
+    spectres'; scratch/gem2/area_scan.py). Test: tests/test_gem_area_flag.py.
+  sources: ["engine/bridge.lua installAreaDamageFlag", "data/game-26476662/tables/GrantedEffectStatSets.json (is_area_damage)",
+            "GEM1 probe POE2T2016 (scratch/gem1/probe_other_way.json)"]
+  status: proposed
