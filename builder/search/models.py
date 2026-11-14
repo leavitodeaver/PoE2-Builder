@@ -2304,9 +2304,15 @@ def round_energy(meta: str, x: dict, cost: float) -> float:
 # Keystone changes your Invocations to trigger skills every 2 seconds instead of all at once, but triggered skills consume
 # less Energy" (the archive's newest entry for it; no later hit, which isn't proof of no later change). PoB parses none of
 # the three lines (ModCache 8384-8386 / 8389: leftover text) and nothing reads its Condition:HaveRitualCadence (checked:
-# grep RitualCadence over PoB's src: the keystone list and ModCache only). The tree node is its one source in the game
-# files (checked: every table's Stat columns for stat 22937 keystone_auto_invocation: PassiveSkills row 5969 only; PoB's
-# uniques name no item granting it).
+# grep RitualCadence over PoB's src: the keystone list and ModCache only). Two sources (AUDIT35 A35-1 corrected
+# MECHB27's "the tree node is its one source"): the tree node 11230 (every table's Stat columns for stat 22937
+# keystone_auto_invocation: PassiveSkills row 5969 only), and Flesh Crucible, whose random keystone (plain
+# local_vivisection_random_keystone_index and cultivated local_additional_vivisection_random_keystone_index, 1-33, indexing
+# PassiveKeystoneList) can be Ritual Cadence (1 of 33; poe2db Flesh Crucible "Random 1 Keystone Passive Skill [1,33]",
+# 14 Nov; PoB's 33 crucibleMods variants, Data/Uniques/Special/Generated.lua, parse "Ritual Cadence" to Keystone LIST +
+# Condition:HaveRitualCadence, ModCache 9326: the node's mods, not its text). The model reads the keystone's text lines
+# only, so a Flesh Crucible rolled to it gets neither the 2 s cadence nor the 50% less Energy (an error either way, LOW
+# reach: Flesh Crucible + Invocation builds): the general fix, reading an item-granted keystone's node lines, is COV29's.
 # The reading (MEDIUM: the game's words, how the triggering state times out is not in them): a press starts a triggering
 # state that releases one round every 2 s, at the reduced cost, until the store can't pay a round; no Energy is gained in
 # that state; the player presses again once the store has refilled. Each round then takes 2 s of triggering plus the time

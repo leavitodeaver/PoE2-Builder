@@ -252,7 +252,7 @@
   match: '^Invocation Skills instead Trigger Spells every (\d+) seconds$'
   replace: ['mult:InvocationCadence {1}']
   confidence: datamined
-  notes: "Keystone Ritual Cadence (passive_keystone_auto_invocation, tree node 11230). A press starts a triggering state releasing one round every 2 s until the store can't pay a round (the reading; how the state times out is UNVERIFIED). models.cadence_rate. PoB parses none of it (ModCache: leftover text) (MECHB27)."
+  notes: "Keystone Ritual Cadence (passive_keystone_auto_invocation, tree node 11230). A press starts a triggering state releasing one round every 2 s until the store can't pay a round (the reading; how the state times out is UNVERIFIED). models.cadence_rate. PoB parses none of it (ModCache: leftover text) (MECHB27). Sources: the tree node and Flesh Crucible's random keystone (1 of 33, plain or cultivated; AUDIT35 A35-1); a Flesh Crucible rolled to it isn't read yet (its node's lines come through no item text: COV29's general fix)."
   sources: ["https://poe2db.tw/us/Ritual_Cadence", "patch 0.3.0: Ritual Cadence added"]
   status: approved
 
