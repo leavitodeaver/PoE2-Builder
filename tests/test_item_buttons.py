@@ -106,3 +106,10 @@ def test_taps_come_back_on_when_a_button_is_spare():
     Search.fit_buttons(search)
     assert search.build.objective.raised_taps is True
     assert search.build.score == 125.0
+
+
+def test_the_names_match_mechc21s():
+    """fit_buttons and pressed_item_skills read MECHC21's build.item_presses and objective.raised_taps by name."""
+    from builder.search import models
+
+    assert gems_module.ITEM_PRESSES == models.ITEM_PRESSES and models.RAISED_TAPS == "raised_taps"
