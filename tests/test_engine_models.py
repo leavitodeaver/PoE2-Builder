@@ -2235,3 +2235,38 @@ def test_shavronnes_satchel_gives_energy_shield_the_life_flasks_recovery(engine)
     Assumptions(build).life_mana_income(build.call("activeSkills")["skills"], "Spark")
     assert build.recovery_sources["EnergyShieldFlaskRecovery"] == pytest.approx(expected)
     assert build.recovery_sources[flasks.ES_STARTS_FIELD] == 0.0
+
+
+def test_plain_exposure_lines_and_the_exposure_supports_lower_the_bosss_resistances(engine):
+    """AUDIT31 A31-26 (MECH69, an UNDERCOUNT): today's single Exposure. The probe: PoB's Exposure box alone changes
+    nothing (no source PoB accepts); a plain "N% chance to inflict Exposure on Hit" line PoB can't parse gets its
+    CanApply flags from the assumptions, so the box applies; the Fire Exposure support (PoB's InflictExposure) is a
+    source PoB accepts, and the evidence now rates it for all three elements by its stats."""
+    payload = make_payload(BuildRequest(main_skill="Fireball", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+
+    def box(on: bool) -> float:
+        build.set_config({"conditionEnemyFireExposure": on})
+        return build.call("stats", fields=["FullDPS"])["FullDPS"]
+
+    plain = (box(True), box(False))
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                         "40% chance to inflict Exposure on Hit"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    search.assumptions.apply()
+    lined = (box(True), box(False))
+    found = search.conditions.evidence()
+    print("PROBE plain", plain, "line", lined, found.get("conditionEnemyColdExposure"))
+    assert plain[0] == pytest.approx(plain[1])  # the box alone: no source PoB accepts
+    assert lined[0] > lined[1] * 1.01  # the line's CanApply flags: the box applies
+    assert "40% chance to inflict Exposure" in found["conditionEnemyColdExposure"][1]
+
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
+    build.set_group(index=main["index"], gems=[*old, {"name": "Fire Exposure", "level": 1, "quality": 0}])
+    found = search.conditions.evidence()
+    print("PROBE support", found.get("conditionEnemyLightningExposure"))
+    assert "inflict_exposure_for_x_ms_on_ignite" in found["conditionEnemyLightningExposure"][1]

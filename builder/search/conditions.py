@@ -51,6 +51,7 @@ EVIDENCE_FIELDS = [
     # (the boss's Ignite on you, which pauses Rage loss while it burns: boss_hits.es_dot; MECHC7)
     "AilmentThreshold", "Life", "FireTakenHit", "IgniteAvoidChance", "SelfIgniteDuration",
     "ChillDuration", "ChillEffectMod",  # (chill_share; MECH53, MECH54)
+    "ColdHitAverage", "MainHand.ColdHitAverage",  # (the Cold Exposure support's crits with Cold Damage; MECH69)
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -1638,8 +1639,38 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
     held = models.full_break_duration(lines)  # (12 s x the Armour Break Duration lines)
     up = held / (held + to_break)
     up = 1 - (1 - up) * (1 - min(1.0, full * held))
+    if (uses := number(stats.get("_riven_uses"))) > 0 and armour > 0:
+        up, riven = _riven_cycle(to_break, full, held, uses)
+        how.insert(0, riven)
     return up, (f"Armour Fully Broken {up:.0%} of the fight ({shared(up)}): {rate:,.0f} Armour broken/s against "
                 f"the boss's {armour:,.0f} (PoB), {held:g} s each Full Break: " + "; ".join(how[:3]))
+
+
+# Riven Armour (MECH69; GEM1's note, a possible OVERCOUNT): game files, KeywordPopups RivenArmour: "Enemies with Riven
+# Armour cannot get their Armour Broken further". High Velocity Rounds (skill type ConsumesFullyBrokenArmour; its own
+# statset has cannot_break_armour) consumes a Full Break and inflicts Riven Armour: its HighVelocityRoundsArmourBroken
+# statset, base_skill_effect_duration 5000 (5 s). So with it in the build the boss is Fully Broken only from the Full
+# Break to the next HVR use (half the gap between uses on average, at most the Full Break's own duration), then 5 s of
+# Riven Armour with no Breaking, then Breaking again from full Armour (ASSUMED: a consumed Full Break restores the
+# Armour, as a fresh target). Up = wait / (time to Fully Break + wait + 5 s). HVR's uses: the main skill's speed, or its
+# group's rate (Conditions.evidence, stats["_riven_uses"]). Skill Effect Duration modifiers on the 5 s aren't read
+# (UNVERIFIED that they apply; a longer Riven Armour only lowers this share further). MEDIUM. GEM2 models Riven Armour's
+# own added damage.
+RIVEN_SKILL = "High Velocity Rounds"
+RIVEN_SECONDS = 5.0
+
+
+def _riven_cycle(to_break: float, full: float, held: float, uses: float) -> tuple[float, str]:
+    """(share of the fight Fully Broken, how) when High Velocity Rounds consumes each Full Break at `uses` per second:
+    `to_break` s of Breaking per Full Break (inf if none), `full` Full Breaks per second from other events."""
+    breaks = (1 / to_break if 0 < to_break < float("inf") else 0.0) + full
+    if breaks <= 0:
+        return 0.0, f"{RIVEN_SKILL} consumes each Full Break; none happen"
+    wait = min(held, 1 / (2 * uses))
+    cycle = 1 / breaks + wait + RIVEN_SECONDS
+    up = wait / cycle
+    return up, (f"{RIVEN_SKILL} at {uses:.2f}/s consumes each Full Break after {wait:.2f} s, then {RIVEN_SECONDS:g} s of "
+                f"Riven Armour that can't be Broken; a Full Break every {1 / breaks:.2f} s of Breaking (MEDIUM)")
 
 
 def armour_broken_share(lines: list[str], stats: dict) -> float:
@@ -1656,45 +1687,131 @@ def armour_broken_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 
 
 # Exposure's uptime (MECH28, 9 Nov 2026; before, any line inflicting it turned the box on). The game files' KeywordPopups
-# Exposure: -20% to the element's Resistance, 4 seconds by default (PoB's box applies the -20%, and only when PoB
-# itself sees a source: CanApply<Element>Exposure). Each line's uptime is the chance at least one of its events falls in
-# the last 4 s (1 - (1 - chance)^(events x 4)); "Elemental Exposure" counts for all three; sources combine as
-# independent; the box is on at UPTIME, else explicitly off with its basis. Events: the main skill's hits, crits,
-# Shocks / Ignites (PoB's chance per hit), Fully Breaking Armour (armour_broken_share's Full Breaks), "to Enemies 3
-# metres in front of you" while the boss stands that close (the build's distance). A line's own condition (Devotion,
-# socketed jewels) is left to PoB, which applies the box only with a source it accepts. Exposure duration modifiers
-# aren't read (4 s, labelled).
+# Exposure: "lowers the affected enemy's Total Elemental Resistances. By default it lowers Resistances by -20% and lasts
+# for 4 seconds" (PoB's box applies the -20%, and only when PoB itself sees a source: CanApply<Element>Exposure). Each
+# line's uptime is the chance at least one of its events falls in the last 4 s (1 - (1 - chance)^(events x 4));
+# "Elemental Exposure" and plain "Exposure" count for all three; sources combine as independent; the box is on at
+# UPTIME, else explicitly off with its basis. Events: the main skill's hits, crits, Shocks / Ignites (PoB's chance per
+# hit), Fully Breaking Armour (armour_broken_share's Full Breaks), "to Enemies 3 metres in front of you" while the boss
+# stands that close (the build's distance). A line's own condition (Devotion, socketed jewels) is left to PoB, which
+# applies the box only with a source it accepts. Exposure duration modifiers aren't read (4 s, labelled).
+# (MECH69; AUDIT31 A31-26, an UNDERCOUNT) Today's game has one Exposure on all three elements (KeywordPopups above;
+# AUDIT31 checked poe2db's keyword page; the 0.3.0 notes move sources from one element's Exposure to Elemental Exposure
+# one by one, e.g. Frost Bomb, The Whispering Ice, Shattering Concoction), and the stats still in use display plain
+# "Exposure" (stat_descriptions: "{0}% chance to inflict Exposure on Hit", "Attacks with this Weapon have {0}% chance
+# to inflict Exposure", the supports' "Supported Skills inflict Exposure for {0} seconds on Igniting a target"). The
+# pattern needed an element word, so those gave nothing. Now plain "Exposure" = all three. A line naming one element
+# ("Inflict Fire Exposure on Shocking an Enemy", PoB's older texts) still counts for that element only (UNVERIFIED
+# whether the game's current text for it is plain "Exposure": an undercount if so, never an overcount).
+# The Fire / Lightning / Cold Exposure supports (GrantedEffectStatSets: inflict_exposure_for_x_ms_on_ignite /
+# _on_shock / _on_cold_crit, 8000 ms each) are read off the main skill's support stats (Conditions.evidence puts them
+# in stats["_exposure_supports"]), at the build's own Ignite / Shock rates and crits with Cold damage, for their own 8 s
+# (the stat's value). The Cold one's gem description says "when it inflicts Freeze" but its stat (game files and PoB's
+# SkillStatMap: CritInPast8Sec + ColdHasDamage) and its stat text say "on Critical Hit with Cold Damage": the stat is
+# read (both written down; the AUDIT may settle it). PoB maps all three to its InflictExposure flag, which already
+# makes them a source PoB accepts (CalcPerform hasExposureSource), but never ticks the box itself: so they gave no -20%
+# before. The supports' own descriptions ("Supports any skill ...") are skipped as text sources (they'd count a support
+# socketed with any skill as the main skill's). For text sources PoB doesn't parse (ModParser has no pattern for
+# "chance to inflict Exposure on Hit", the weapon line, "Inflict Exposure on Hit"), exposure_source_flags gives PoB the
+# CanApply flags through the assumptions, so the box applies; the box itself still follows the uptime.
 EXPOSURE_DURATION = 4.0
-EXPOSURE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\b(?:inflict|apply|cause)s? (fire|cold|lightning|elemental) exposure\b(.*)$", re.I)
+EXPOSURE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?(?<!cannot )(?<!not )\b(?:inflict|apply|cause)s? "
+                             r"(?:(fire|cold|lightning|elemental) )?exposure\b(.*)$", re.I)
+EXPOSURE_ELEMENTS = ("Fire", "Cold", "Lightning")
+EXPOSURE_WORD = re.compile(r"\bExposure\b")
+# (stat -> what fires it) the Exposure supports' stats on the main skill (game files: GrantedEffectStatSets
+# SupportFireExposurePlayer / SupportLightningExposurePlayer / SupportColdExposurePlayer), and the Warcry support's
+# all_exposure_on_hit_for_duration_ms ("Supported Skills apply Exposure on Hit for {0} seconds")
+EXPOSURE_SUPPORT_STATS = {
+    "inflict_exposure_for_x_ms_on_ignite": "ignite",
+    "inflict_exposure_for_x_ms_on_shock": "shock",
+    "inflict_exposure_for_x_ms_on_cold_crit": "cold crit",
+    "all_exposure_on_hit_for_duration_ms": "hit",
+}
+
+
+def _exposure_match(text: str, element: str | None = None) -> re.Match | None:
+    """The line's Exposure-source match, for `element` if given (plain and Elemental Exposure count for all three);
+    None for a support's own description (read through its stats instead) or a line that isn't a source."""
+    if text.startswith("Supports "):
+        return None
+    m = EXPOSURE_SOURCE.search(text)
+    if not m or (element and (m.group(2) or "elemental").lower() not in (element.lower(), "elemental")):
+        return None
+    return m
+
+
+def _exposure_events(kind: str, stats: dict) -> tuple[float, str]:
+    """(events per second, what they are) for an Exposure source fired by `kind`."""
+    hits = models.hits_per_second(stats)
+    if kind == "shock":
+        return hits * min(number(stats.get("ShockChancePerHit")), 100) / 100, "Shocks (PoB's chance per hit)"
+    if kind == "ignite":
+        return hits * min(number(stats.get("IgniteChancePerHit")), 100) / 100, "Ignites (PoB's chance per hit)"
+    if kind == "cold crit":
+        if not (number(stats.get("ColdHitAverage")) or number(stats.get("MainHand.ColdHitAverage"))):
+            return 0.0, "crits with Cold Damage (the main skill deals no Cold hit damage)"
+        return models.crits_per_second(stats), "crits with Cold Damage"
+    if kind == "crit":
+        return models.crits_per_second(stats), "crits"
+    return hits, "hits"
 
 
 def _exposure_source(text: str, element: str, stats: dict) -> tuple[float, str] | None:
     """(uptime, how) of one line for `element`'s Exposure, or None if it isn't a source of it."""
-    m = EXPOSURE_SOURCE.search(text)
-    if not m or m.group(2).lower() not in (element.lower(), "elemental"):
+    m = _exposure_match(text, element)
+    if m is None:
         return None
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     when = m.group(3).lower()
-    hits = models.hits_per_second(stats)
     if "fully breaks armour" in when:
         events, how = number(stats.get("_full_break_rate")), "Full Breaks of the boss's Armour"
     elif near := re.search(r"(\d+(?:\.\d+)?) metres in front", when):
         metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set()), ""))[0]
         up = 1.0 if metres <= float(near.group(1)) else 0.0
         return up, f"the boss {metres:g} m away ({near.group(1)} m needed)"
+    elif re.match(r"\s*minions?\b", text, re.I):
+        return 0.0, "a minion's hits: their rate isn't modelled (0, labelled)"
     elif "shock" in when:
-        events, how = hits * min(number(stats.get("ShockChancePerHit")), 100) / 100, "Shocks (PoB's chance per hit)"
+        events, how = _exposure_events("shock", stats)
     elif "ignit" in when:
-        events, how = hits * min(number(stats.get("IgniteChancePerHit")), 100) / 100, "Ignites (PoB's chance per hit)"
+        events, how = _exposure_events("ignite", stats)
     elif "critical" in when:
-        events, how = models.crits_per_second(stats), "crits"
-    elif "on hit" in when:
-        events, how = hits, "hits"
+        events, how = _exposure_events("crit", stats)
+    elif "on hit" in when or (not when.strip(" .") and re.match(r"\s*attacks with this weapon\b", text, re.I)):
+        events, how = _exposure_events("hit", stats)  # (the weapon line: the main skill's attacks; hand not split)
     else:
         return 0.0, f"'{when.strip()[:40]}': its rate isn't modelled (0, labelled)"
     n = events * EXPOSURE_DURATION
     up = 1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)
     return up, f"{chance:.0%} x {events:.2f} {how}/s, {EXPOSURE_DURATION:g} s: {up:.0%} up"
+
+
+def _exposure_support_sources(stats: dict) -> list[tuple[float, str]]:
+    """(uptime, how) for each Exposure support on the main skill (stats["_exposure_supports"]: stat -> value in ms),
+    for all three elements: each lasts its own stat's duration."""
+    out = []
+    for stat, ms in sorted((stats.get("_exposure_supports") or {}).items()):
+        if stat not in EXPOSURE_SUPPORT_STATS or number(ms) <= 0:
+            continue
+        seconds = number(ms) / 1000
+        events, how = _exposure_events(EXPOSURE_SUPPORT_STATS[stat], stats)
+        up = min(1.0, events * seconds)
+        out.append((up, f"{stat} (a support on the main skill): {events:.2f} {how}/s, {seconds:g} s: {up:.0%} up"))
+    return out
+
+
+def exposure_source_flags(texts: list[str], main_types: set[str]) -> list[dict]:
+    """PoB's CanApply<Element>Exposure flags for the main skill's Exposure text sources PoB itself doesn't parse
+    (MECH69): without them PoB's Exposure box applies nothing for such a line (ConfigOptions conditionEnemy*Exposure:
+    ActorCondition CanApply*Exposure). Only the flags: the -20% still comes from the box, ticked at the uptime."""
+    elements: set[str] = set()
+    for text in texts:
+        if not qualifies(text, main_types) or (m := _exposure_match(text)) is None or re.match(r"\s*minions?\b", text, re.I):
+            continue
+        named = (m.group(2) or "elemental").capitalize()
+        elements |= set(EXPOSURE_ELEMENTS) if named == "Elemental" else {named}
+    return [models.raw_mod(f"Condition:CanApply{e}Exposure", "FLAG", 1) for e in EXPOSURE_ELEMENTS if e in elements]
 
 
 def _exposure_uptime(element: str) -> Callable[[list[str], dict], tuple[object, str]]:
@@ -1706,6 +1823,9 @@ def _exposure_uptime(element: str) -> Callable[[list[str], dict], tuple[object, 
                 continue
             down *= 1 - r[0]
             how.append(f"{text[:60]} ({r[1]})")
+        for r in _exposure_support_sources(stats):
+            down *= 1 - r[0]
+            how.append(r[1])
         if not how:
             return 0.0, ""
         up = 1 - down
@@ -3423,10 +3543,21 @@ class Conditions:
                          for stat, value in (main.get(part) or {}).items() if stat in BREAK_STATS and value]
             texts = [line["text"] for line in lines if not line["source"].startswith("gem:")] + gem_lines
             armour_stats = {**stats, "_enemy_armour": number(raw.get("enemyArmour"))}
+            if RIVEN_SKILL in gem_types:  # (MECH69: Riven Armour stops Breaking while it's up; _riven_cycle)
+                armour_stats["_riven_uses"] = (number(stats.get("Speed")) if self.main_skill == RIVEN_SKILL else
+                                               self._group_uses(self.build.call("groups")["groups"], {RIVEN_SKILL}).get(
+                                                   RIVEN_SKILL) or self._chosen_use(RIVEN_SKILL))
             up, basis = _armour_broken(texts, armour_stats)
             if basis:
                 broken = _box(up, basis)
                 stats["_full_break_rate"] = up / models.full_break_duration(texts)
+        # (MECH69) the Exposure supports on the main skill, by their stats (_exposure_support_sources)
+        if any(line["source"].startswith("gem:") and EXPOSURE_WORD.search(line["text"]) for line in lines):
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(EXPOSURE_SUPPORT_STATS))
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            stats["_exposure_supports"] = {stat: value for part in ("levelStats", "supportStats")
+                                           for stat, value in (main.get(part) or {}).items()
+                                           if stat in EXPOSURE_SUPPORT_STATS and value}
         found: dict[str, tuple[object, str]] = {}
         uptimes: dict[str, float] = {}  # var -> share of the fight, for the effects the build keeps up at a rate
         self.off_values: dict[str, object] = {}  # var -> its box with the effect off, if not False (Withered's base stacks)
@@ -3555,9 +3686,10 @@ class Conditions:
         the effect is enough to deserve a real trial."""
         if condition.text and text_evidence(condition, text) and qualifies(text, self.main_types):
             return True
-        element = condition.var[len("conditionEnemy"):-len("Exposure")].lower()
-        if condition.var.endswith("Exposure") and (m := EXPOSURE_SOURCE.search(text)) and m.group(2).lower() in ("elemental", element):
-            return True  # (_exposure_uptime rates it in the real trial)
+        element = condition.var[len("conditionEnemy"):-len("Exposure")]
+        if condition.var.endswith("Exposure") and element in EXPOSURE_ELEMENTS and (
+                _exposure_match(text, element) or (text.startswith("Supports ") and EXPOSURE_WORD.search(text))):
+            return True  # (_exposure_uptime rates it in the real trial; a support through its stats)
         if condition.var in DEBUFFS and _debuff_pattern(condition.var).search(text) and not DEBUFF_NOT_SOURCE.search(text):
             return True  # (debuff_uptime rates it in the real trial)
         if condition.var == "buffArcaneSurge" and (

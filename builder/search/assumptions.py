@@ -618,6 +618,9 @@ class Assumptions:
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()
         hand_mods, hand_notes = models.guided_hand_model(inputs, source_lines, stats, main, slam="Slam" in main_types)
         texts = [e["text"] for e in source_lines]
+        # (MECH69) PoB's CanApply flags for Exposure lines it doesn't parse ("N% chance to inflict Exposure on Hit"): the
+        # -20% comes from the condition box at the line's uptime (conditions._exposure_uptime)
+        exposure_flags = conditions_mod.exposure_source_flags(texts, main_types)
         if any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t)
                or models.EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts):
             # (MECH-B, MECHB18: Ancestral Boost's sources PoB leaves unparsed; PoB's own boost uptimes beside the stats;
@@ -778,7 +781,7 @@ class Assumptions:
         # (BUILDER_RESCORE_MODELS=1 puts the trials back, to measure what they cost: benchmarks/rescore_cost.py)
         build.models_on_stats = bool(stat_notes or harmony_notes or hand_notes or pulse_notes
                                      or totem_notes) and RESCORE_MODELS
-        mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods
+        mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods + exposure_flags
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
         mods, corpse_notes = models.corpse_model(found, mods, stats, main)  # last: it overrides the trigger rates above (MECHB11: the adds' corpses)
         notes += corpse_notes + models.spirit_vessel_notes(skills)

@@ -3154,3 +3154,53 @@ def test_jagged_ground_reads_its_duration_lines():
     assert jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 0.1},
                          texts=["20% reduced Jagged Ground Duration"])[0] == pytest.approx(0.32)
 
+
+
+def test_plain_exposure_counts_for_all_three_elements_and_the_supports_by_their_stats():
+    """AUDIT31 A31-26 (MECH69, an UNDERCOUNT): today's game has one Exposure; plain "Exposure" lines and the Fire /
+    Lightning / Cold Exposure supports (8 s, by the main skill's support stats) gave nothing before."""
+    from builder.search.conditions import _exposure_uptime, exposure_source_flags as _flags
+
+    fire, cold, lightning = (_exposure_uptime(e) for e in ("Fire", "Cold", "Lightning"))
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "ShockChancePerHit": 0, "IgniteChancePerHit": 10,
+             "_main_types": {"Attack", "Melee"}}
+    # 40% x 2 hits/s x 4 s: 1 - 0.6^8 = 98%
+    for f in (fire, cold, lightning):
+        assert f(["40% chance to inflict Exposure on Hit"], stats)[2] >= 0.9
+    weapon = cold(["Attacks with this Weapon have 10% chance to inflict Exposure"], stats)
+    assert "57%" in weapon[1]  # 1 - 0.9^8
+    assert fire(["Players cannot inflict Exposure"], stats) == (0.0, "")
+    assert fire(["15% increased Critical Hit Chance against enemies with Exposure"], stats) == (0.0, "")
+    assert fire(["Supports any skill that Hits enemies, causing it to inflict Exposure when Igniting."], stats) == (0.0, "")
+    assert cold(["Inflict Fire Exposure on Shocking an Enemy"], stats) == (0.0, "")  # one element's line: that one only
+    # the Fire Exposure support: 0.2 Ignites/s x 8 s = 1.6 -> up all fight, all three elements
+    support = {**stats, "_exposure_supports": {"inflict_exposure_for_x_ms_on_ignite": 8000}}
+    for f in (fire, cold, lightning):
+        assert f([], support)[2] >= 0.9 and "Ignites" in f([], support)[1]
+    # the Cold one fires on crits with Cold Damage (its stat), none without Cold hit damage
+    crit = {**stats, "_exposure_supports": {"inflict_exposure_for_x_ms_on_cold_crit": 8000}}
+    assert fire([], crit)[2] == 0 and "no Cold hit damage" in fire([], crit)[1]
+    assert fire([], {**crit, "ColdHitAverage": 100})[2] >= 0.9  # 0.2 crits/s x 8 s
+    flags = _flags(["40% chance to inflict Exposure on Hit"], {"Attack"})
+    assert {m["name"] for m in flags} == {f"Condition:CanApply{e}Exposure" for e in ("Fire", "Cold", "Lightning")}
+    assert _flags(["Inflict Fire Exposure on Shocking an Enemy"], {"Attack"})[0]["name"] == "Condition:CanApplyFireExposure"
+    assert _flags(["Players cannot inflict Exposure"], {"Attack"}) == []
+
+
+def test_riven_armour_stops_armour_break_while_it_is_up():
+    """GEM1 / MECH69 (an OVERCOUNT): KeywordPopups RivenArmour "Enemies with Riven Armour cannot get their Armour Broken
+    further"; High Velocity Rounds consumes each Full Break and inflicts it for 5 s (its ArmourBroken statset)."""
+    from builder.search.conditions import _armour_broken, _riven_cycle
+
+    # 2 s of Breaking, HVR at 2 uses/s: Broken 0.25 s, then 5 s Riven: 0.25 / 7.25
+    up, how = _riven_cycle(2.0, 0.0, 12.0, 2.0)
+    assert up == pytest.approx(0.25 / 7.25) and "Riven Armour" in how
+    assert _riven_cycle(float("inf"), 0.0, 12.0, 2.0)[0] == 0.0
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 0, "PhysicalHitAverage": 1000, "_main_types": {"Attack"},
+             "_enemy_armour": 2000}
+    lines = ["Break Armour equal to 100% of Physical Damage dealt"]
+    plain = _armour_broken(lines, stats)[0]  # 2,000 broken/s: 1 s to break, 12 s held: 12/13
+    riven = _armour_broken(lines, {**stats, "_riven_uses": 1.0})
+    assert plain == pytest.approx(12 / 13)
+    assert riven[0] == pytest.approx(0.5 / 6.5) and "High Velocity Rounds" in riven[1]
+    assert _armour_broken(lines, {**stats, "_riven_uses": 0.0})[0] == pytest.approx(plain)  # HVR never used
