@@ -5176,6 +5176,72 @@ def power_mods(power: float) -> list[dict]:
     return [raw_mod("WarcryPower", "BASE", extra), raw_mod("Multiplier:EnemyPower", "BASE", extra)] if extra > 0 else []
 
 
+# Blind while the Shield is raised (MECHC21, 14 Nov 2026; plans/term-blind-enemies.md G4 with term-raised.md). Bastion of
+# Light (notable): "Blind Enemies 3 metres in front of you every 0.25 seconds while your Shield is raised"
+# (inflict_blind_on_enemies_within_x_meters_while_shield_is_raised; PoB leaves it as text, ModCache's {nil}, so it never
+# set the Blinded box: 0 before, an UNDERCOUNT). Raise Shield (ActiveSkills shield_block, every PoB shield base's
+# "Grants Skill: Raise Shield") raises it; the share of the fight it's raised is the build's own play: a player who takes
+# the line taps the shield once per Blind (KeywordPopups Blind: 4 s by default, x the build's Blind Duration lines,
+# duration_scale), each pulse renewing it, so the boss is Blinded all fight while it stands within the line's reach, and
+# each tap takes RAISE_TAP s of the main skill's time. The boss further than the reach (the build's distance choice): no
+# taps, 0. No Raise Shield (no shield): 0, labelled. Raise Shield is item-granted, so it isn't a button
+# (constraints.player_buttons). The tap's own defence (Block all blockable hits, no Evasion while raised) and its shield
+# bash's damage aren't counted (LOW). Bastion's other line (Raise Shield inflicts Parried) is the ledger's
+# (bastion-of-light-parried), which assumes the same one raise per 4 s.
+RAISE_SHIELD = "Raise Shield"
+RAISED_BLIND = re.compile(r"\bblind\b.*\bwhile (?:your )?shield is raised", re.I)
+RAISED_REACH = re.compile(r"(\d+(?:\.\d+)?) metres in front of you", re.I)
+# A tap: the shield bash's 550 ms (PoB ShieldBlockPlayer attackTime; the game files give its channel CastTime 1000 ms),
+# taken as one raise and release; a pulse every 0.25 s needs at least 0.25 s held. How long a tap really takes: LOW
+# (UNVERIFIED in game)
+RAISE_TAP = 0.55
+BLIND_SECONDS = 4.0  # KeywordPopups Blind (conditions.DEBUFF_DURATION)
+
+
+@dataclass(frozen=True)
+class RaisedPlan:
+    blind: float  # share of the fight the boss is Blinded by the raised-shield line
+    lost: float  # share of the main skill's time spent raising the shield
+    how: str
+
+
+def raised_plan(skills: list[Skill], texts: list[str], metres: float) -> RaisedPlan:
+    """How the build raises its shield for a "Blind ... while your Shield is raised" line (Bastion of Light): one tap per
+    Blind duration while the boss is within the line's reach (`metres`, the build's distance), else none."""
+    lines = [t for t in texts if RAISED_BLIND.search(t)]
+    if not lines:
+        return RaisedPlan(0.0, 0.0, "")
+    if not any(s.name == RAISE_SHIELD for s in skills):
+        return RaisedPlan(0.0, 0.0, "Blind while your Shield is raised: the build has no Raise Shield (no shield), so 0")
+    reach = max((float(m.group(1)) for t in lines if (m := RAISED_REACH.search(t))), default=math.inf)
+    if metres > reach:
+        return RaisedPlan(0.0, 0.0, f"Blind while your Shield is raised reaches {reach:g} m in front of you and the boss "
+                                    f"stands {metres:g} m away: no taps, 0 (closer: Blinded all fight)")
+    duration = BLIND_SECONDS * duration_scale(texts, "blind")
+    if duration <= 0:
+        return RaisedPlan(0.0, 0.0, "Blind while your Shield is raised: Blind lasts 0 s with the build's lines, so 0")
+    lost = min(RAISE_TAP / duration, 1.0)
+    return RaisedPlan(1.0, lost, (
+        f"tap Raise Shield once every {duration:g} s (the Blind's duration) with the boss within "
+        f"{'' if reach == math.inf else f'{reach:g} m '}in front of you ({metres:g} m away): each pulse renews the Blind, so "
+        f"the boss is Blinded all fight; each tap takes {RAISE_TAP:g} s ({lost:.1%} of the main skill's time, counted; "
+        f"LOW: a tap's length is UNVERIFIED). Without the taps: no Blind and no time lost"))
+
+
+def raised_model(skills: list[Skill], texts: list[str], metres: float, main: Skill | None) -> tuple[list[dict], list[dict]]:
+    """The main skill's time spent tapping the shield (raised_plan; the Blinded box itself is conditions')."""
+    if main is None or main.name == RAISE_SHIELD:
+        return [], []
+    plan = raised_plan(skills, texts, metres)
+    if not plan.how:
+        return [], []
+    notes = [{"label": "Blind while your Shield is raised (how the build raises it)", "value": f"{plan.blind:.0%} of the fight",
+              "basis": plan.how, "confidence": "LOW" if plan.lost > 0 else "theory"}]
+    if plan.lost <= 0:
+        return [], notes
+    return [line("1% more Attack and Cast Speed", -100 * plan.lost, skill=main.name)], notes
+
+
 # ===================================================================================================================
 # MECH-B (skills and damage sources: projectiles, triggered skills, repeats, minions, totems). New MECH-B models go below.
 # ===================================================================================================================

@@ -1273,6 +1273,11 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         return up, f"the boss {metres:g} m away, your Presence {radius:.1f} m"
     if "you curse" in when:
         return models.curse_share(stats.get("_curse_uses") or [])
+    if "shield is raised" in when and var == "conditionEnemyBlinded":  # (Bastion of Light: models.raised_plan, MECHC21)
+        plan = stats.get("_raised_plan")
+        if plan is None:
+            return 0.0, "the build's shield taps weren't read (0, labelled)"
+        return plan.blind, plan.how
     if "fully armour break" in when or "fully break" in when:  # (armour_broken's Full Breaks, as Exposure's)
         events = number(stats.get("_full_break_rate"))
         up = 1 - (1 - min(chance, 1.0)) ** (events * duration) if chance < 1 else min(1.0, events * duration)
@@ -3291,6 +3296,11 @@ class Conditions:
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
             stats["_parry_plan"] = self.parry_plan = models.parry_plan(
                 found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS))
+        if any(models.RAISED_BLIND.search(t) for t in texts):  # (Bastion of Light's shield taps, MECHC21)
+            raw = self.build.call("activeSkills")
+            found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
+            metres = (stats.get("_distance_choice") or (natural_distance(main_types), ""))[0]
+            stats["_raised_plan"] = models.raised_plan(found, texts, metres)
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             broken, stats["_full_break_rate"] = roar, roar[2] / models.full_break_duration([line["text"] for line in lines])
