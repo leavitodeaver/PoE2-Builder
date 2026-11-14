@@ -1412,7 +1412,8 @@ def test_brambles_full_dps_entry_follows_the_slams_rate(engine):
 def test_barbs_on_a_side_melee_group_reads_that_skills_own_hits(engine, monkeypatch):
     """(MECHB24) Barbs supporting a skill other than the main one counted 0 (an undercount): assumptions.thorns now
     hands thorns_model the supported skill's own hits a second (its group's use rate x hit chance x the press model's
-    share) and whether it's a non-triggered Melee Attack."""
+    share) and whether it's a non-triggered Melee Attack. (A second Boneshatter group: POE2T1112 read a side Mace Strike
+    at speed 0 on the build's weapon.)"""
     from builder.search import models
     from builder.search.assumptions import thorns
     from builder.search.inner import Search
@@ -1423,18 +1424,19 @@ def test_barbs_on_a_side_melee_group_reads_that_skills_own_hits(engine, monkeypa
     search = Search(engine, None, payload, skeleton.as_dict(), 1)
     search.setup(quests=False)
     build = search.build
-    build.objective.press_scales = {"Mace Strike": 0.5}
-    new = build.call("setGroup", gems=[{"name": "Mace Strike", "level": 20}, {"name": "Barbs I", "level": 1}], fullDPS=True)
+    build.objective.press_scales = {"Boneshatter": 0.5}
+    new = build.call("setGroup", gems=[{"name": "Boneshatter", "level": 20}, {"name": "Barbs I", "level": 1}], fullDPS=True)
     idx = (new.get("index") if isinstance(new, dict) else None) or max(g["index"] for g in build.groups())
     belt = chr(10).join(["Rarity: RARE", "Probe Cord", "Heavy Belt", "15 to 25 Physical Thorns damage"])
     build.call("equip", slot="Belt", raw=belt, fields=["FullDPS"])
     seen = {}
     monkeypatch.setattr(models, "thorns_model", lambda rate, texts, stats, main, barbs=None: seen.update(barbs=barbs) or (0.0, []))
-    skill = next(models.Skill.of(s) for s in build.call("activeSkills")["skills"] if s["name"] == "Boneshatter")
+    skill = next(sk for sk in map(models.Skill.of, build.call("activeSkills")["skills"])
+                 if sk.name == "Boneshatter" and sk.group != idx)  # (the main group's, not the side copy)
     thorns(build, skill, {"_boss": models.THORNS_WORST}, [])
-    side = next(b for b in seen["barbs"] if b[0] == "Barbs I" and b[3] and b[3]["skill"] == "Mace Strike")
+    side = next(b for b in seen["barbs"] if b[0] == "Barbs I" and b[3] and b[3]["skill"] == "Boneshatter")
     used = next(r for r in build.call("useRates", indices=[idx], actives=[1])["rates"])
     assert side[2] is False and side[3]["melee_attack"] is True
     chance = used.get("HitChance") or 100.0  # (POE2T1106: real PoB gave this row no HitChance; 100% taken, labelled)
-    assert side[3]["hits"] == pytest.approx(used["speed"] * chance / 100 * 0.5) and side[3]["hits"] > 0
+    assert side[3]["hits"] == pytest.approx(used["speed"] * chance / 100 * 0.5) and side[3]["hits"] > 0, used
     assert ("100% taken" in side[3]["basis"]) == ("HitChance" not in used)
