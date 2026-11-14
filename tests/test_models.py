@@ -2793,6 +2793,36 @@ def test_orb_of_storms_keeps_one_bolt_per_cast_and_says_the_rate_without_a_recas
     assert f"{3 / 12.5:.2f}/s" in note["value"]
 
 
+def test_a_side_orb_of_storms_fires_a_bolt_for_each_main_spell_cast_up_to_its_maximum_hits():
+    """MECHB28 (GEM6's point 1): a side Orb's bolts come from its timer and the main Spell's casts near it, capped at its
+    maximum hits, replacing PoB's one bolt per Orb cast; a triggered or non-Spell main skill gets timer bolts only."""
+    orb = {"index": 2, "name": "Orb of Storms", "speed": 1.25, "duration": 12.0, "castTime": 0.8, "orbMaxHits": 6,
+           "orbBoltFrequency": 4000}
+    slow = {"index": 1, "name": "Spark", "speed": 0.2, "spell": True}
+    # 0.2 casts/s: 2.4 cast bolts + 3 timer bolts = 5.4 under 6, the Orb lasts 12 s, recast in 0.8 s
+    presses, bolts, note = models.orb_cycle(orb, slow, 0.0)
+    assert presses == pytest.approx(1 / 12.8) and bolts == pytest.approx(5.4 / 12.8)
+    assert f"{3 / 12.8:.2f}/s" in note["value"] and note["confidence"] == "MEDIUM"
+    # 2 casts/s: 6 bolts in 6 / 2.25 s, then recast
+    fast = {**slow, "speed": 2.0}
+    presses, bolts, _ = models.orb_cycle(orb, fast, 0.0)
+    life = 6 / 2.25
+    assert presses == pytest.approx(1 / (life + 0.8)) and bolts == pytest.approx(6 / (life + 0.8))
+    # the other presses' share slows the casts while the Orb is up; Gemling's quality raises the maximum hits
+    assert models.orb_cycle(orb, fast, 0.5)[1] < bolts < models.orb_cycle({**orb, "orbMaxHits": 12}, fast, 0.0)[1]
+    for main in ({**fast, "triggered": True}, {**fast, "spell": None}, None):
+        presses, bolts, note = models.orb_cycle(orb, main, 0.0)
+        assert bolts == pytest.approx(3 / 12.8) and "timer bolts only" in note["basis"]
+    # press_model: the Orb's entry counts its bolts over PoB's Speed (one bolt per cast), the main skill loses its recasts
+    scales, notes = models.press_model([orb, {**fast, "speed": 2.0}], 1, {2})
+    assert scales["Orb of Storms"] == pytest.approx(6 / (life + 0.8) / 1.25)
+    assert scales["Spark"] == pytest.approx(1 - 0.8 / (life + 0.8))
+    assert any(n["label"].startswith("Orb of Storms: bolts") for n in notes)
+    # without orbMaxHits (no Orb row from the bridge) the old count stands: one per duration
+    old = {k: v for k, v in orb.items() if k != "orbMaxHits"}
+    assert models.press_model([old, fast], 1, {2})[0]["Orb of Storms"] == pytest.approx(1 / 12 / 1.25)
+
+
 def test_danse_macabre_needs_a_second_skeleton_per_offering_cast():
     """MECHB6 (RESEARCH22 #133): each Danse Macabre Offering uses 2 skeletons and gives nothing without the second; the
     build's skeletons revive 12 s after the last use, so 4 skeletons keep Pain Offering (6 s) up 12 s of every 18 s."""

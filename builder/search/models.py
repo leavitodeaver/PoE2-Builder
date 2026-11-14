@@ -5738,6 +5738,17 @@ def press_group_rate(rate: dict, pace: float | None = None, cap: "PressCap | Non
     return real, how, confidence
 
 
+def press_action(rate: dict) -> float:
+    """The main skill's time one press of a `useRates` row takes: 1/speed, unless the cooldown capped PoB's speed: then
+    its own use time (PoB's Time/HitTime, before action speed), else its base cast time."""
+    speed, repeats, cooldown = number(rate.get("speed")), number(rate.get("repeats")) or 1.0, number(rate.get("cooldown"))
+    if speed <= 0:
+        return 0.0
+    capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)
+    uncapped = number(rate.get("time")) or number(rate.get("castTime"))
+    return min(1 / speed, uncapped) if capped else 1 / speed
+
+
 def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
                 paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None,
                 choices: dict[str, float] | None = None) -> tuple[dict[str, float], list[dict]]:
@@ -5750,26 +5761,37 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
     scales: dict[str, float] = {}
     notes: list[dict] = []
     busy, users = 0.0, []
+    main_rate = next((r for r in rates if r["index"] == main_index), None)
+    orbs = {r["index"]: r for r in rates if r["index"] in pressed and r["index"] != main_index
+            and r.get("name") == ORB_OF_STORMS and number(r.get("orbMaxHits")) > 0 and number(r.get("speed")) > 0}
+    orb_rates: dict[int, tuple[float, float]] = {}  # (MECHB28) {group: (presses/s, bolts/s)}, orb_cycle
+    if orbs:
+        def press_time(rate: dict) -> float:  # (the main skill's time each other press takes, as below)
+            cap = (caps or {}).get(rate["index"])
+            real = press_group_rate(rate, (paced or {}).get(rate["index"]), cap, press_choice(rate, choices))[0]
+            return real * (press_action(rate) + (cap.moving if cap is not None else 0.0))
+        others = sum(press_time(r) for r in rates if r["index"] in pressed and r["index"] != main_index
+                     and r["index"] not in orbs and number(r.get("speed")) > 0)
+        for index, orb in orbs.items():
+            presses, bolts, orb_note = orb_cycle(orb, main_rate, others, (paced or {}).get(index), (caps or {}).get(index))
+            orb_rates[index] = (presses, bolts)
+            notes.append(orb_note)
     for rate in rates:
         if rate["index"] not in pressed or rate["index"] == main_index:
             continue
-        speed, repeats = number(rate.get("speed")), number(rate.get("repeats")) or 1.0
+        speed = number(rate.get("speed"))
         if speed <= 0:
             continue
-        cooldown = number(rate.get("cooldown"))
         cap = (caps or {}).get(rate["index"])
         real, how, confidence = press_group_rate(rate, (paced or {}).get(rate["index"]), cap, press_choice(rate, choices))
+        if rate["index"] in orb_rates:  # (MECHB28: its presses from the Orb's cycle, its damage from its bolts below)
+            real, how, confidence = orb_rates[rate["index"]][0], "once each Orb's life (orb_cycle)", "MEDIUM"
         if cap is not None and cap.moving > 0:
             busy += real * cap.moving  # (no skill is used while walking between its uses)
-        capped = cooldown > 0 and speed >= repeats / cooldown * (1 - 1e-6)
-        # time per use: 1/speed, unless the cooldown capped PoB's speed (then its base cast time, before speed: an
-        # overcount of the time it takes)
-        # time per use: 1/speed, unless the cooldown capped PoB's speed: then its own use time (PoB's Time/HitTime,
-        # before action speed), else its base cast time
-        uncapped = number(rate.get("time")) or number(rate.get("castTime"))
-        action = min(1 / speed, uncapped) if capped else 1 / speed
+        action = press_action(rate)
         busy += real * action
-        ratio = real / speed
+        # (MECHB28: a side Orb of Storms' damage is its bolts, orb_cycle: PoB's entry is one bolt per cast)
+        ratio = (orb_rates[rate["index"]][1] if rate["index"] in orb_rates else real) / speed
         scales[rate["name"]] = scales.get(rate["name"], 1.0) * ratio
         users.append(rate["name"])
         # Its ailments: PoB counts min(stacks, the most that count), stacks = chance x duration x its speed (its
@@ -5790,7 +5812,6 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
                         f"up (PoB's chance x duration x rate, capped at the most that count): {'; '.join(ailing)}"
                         if ailing else ""),
             "confidence": confidence})
-    main_rate = next((r for r in rates if r["index"] == main_index), None)
     main = main_rate["name"] if main_rate else None
     if users and main is not None and busy > 0:
         share = max(0.0, 1.0 - busy)
@@ -6731,7 +6752,7 @@ def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_typ
 # and the 6-bolt cap never binds (one bolt per orb): PoB's count. Without it, the orb fires on its timer only: 3 bolts
 # per 12 s orb (at 4, 8, 12 s; the 12 s one at the edge, so 2-3), plus the recast. The headline keeps PoB's count (no
 # zero or cut on an unverified point, CLAUDE.md rule 5) and the note gives the rate without it; the in-game check is
-# held for the user. Bolts from other spells cast near the orb (Orb as a side skill) aren't counted: an undercount.
+# held for the user. Orb as a side skill: orb_cycle below (MECHB28).
 ORB_OF_STORMS = "Orb of Storms"
 ORB_BOLT_EVERY, ORB_DURATION, ORB_MAX_BOLTS = 4.0, 12.0, 6
 
@@ -6753,6 +6774,83 @@ def orb_of_storms_note(main: Skill | None, stats: dict) -> list[dict]:
                       f"timer bolts per {ORB_DURATION:g} s Orb plus the recast: {without:.2f} bolts/s. Bolts fed by other "
                       "spells cast near the Orb aren't counted (an undercount when it's a side skill)",
              "confidence": "UNVERIFIED"}]
+
+
+# Orb of Storms as a side skill (MECHB28; GEM6's point 1, MECHB27's design): the main Spell's casts near the Orb fire its
+# bolts. The game (OrbOfStormsPlayer's constant stats, GrantedEffectStatSets 92, build 26476662): a bolt every
+# orb_of_storms_base_bolt_frequency_ms 4000 and "when you cast a Spell near the Orb", at most
+# orb_of_storms_maximum_number_of_hits 6 a Orb, base_skill_effect_duration 12000, one Orb (base_maximum_number_of_orbs 1).
+# None of these varies by gem level (checked: GrantedEffectStatSetsPerLevel holds no orb_of_storms stat for the set);
+# quality's second stat (GrantedEffectQualityStats row 17, AltStats) adds 0.3 maximum hits per 1%, which PoB applies only
+# with its GemlingQuality flag (CalcSetup 1142, CalcTools 170): the bridge reads the set's stats as PoB builds them
+# (useRates' orbMaxHits / orbBoltFrequency). No item, passive or rune line grants any orb_of_storms_* stat (checked: the
+# Stat fields of every game table for the 10 orb_of_storms_* stat ids: only ActiveSkills, ModType, the quality row and the
+# set; PoB's ModCache names Orb of Storms only in "+3 to Level of all Orb of Storms Skills"; poe2db not checked:
+# UNVERIFIED). Patch 0.3.0 (the newest entry naming its bolts; 0.3.0c only its supports): "Now triggers from casting any
+# spell in its radius", "a maximum of 6 bolts at all Gem levels", "fires a bolt every 4 seconds, and when you use a
+# Lightning Skill near the Orb" (the same note says both; the game text says any Spell, kept).
+# PoB (COVC9's grep; MECHB28's probe POE2T1138): its "Orb of Storms" entry is one bolt per cast at the Orb's own Speed, and
+# press_model counted one cast per Orb life, so one bolt per 12 s: the timer bolts and the near-cast bolts uncounted (an
+# UNDERCOUNT). orb_cycle replaces that count (press_model's ratio for the Orb is its bolts / s over PoB's Speed, never
+# added to it). A play strategy: the player keeps the Orb where they cast and casts the main Spell near it.
+# Assumptions, labelled: every main-Spell cast is near the Orb (what "near" is, the Orb's radius around the caster or the
+# spell's target, is not in the game text: UNVERIFIED); only a Spell the player casts counts: a triggered main Spell and a
+# channelled one get timer bolts only (whether a triggered spell is "cast", and how a channelled one feeds the
+# channelling bolt frequency stats, which the player set doesn't hold: UNVERIFIED, left uncounted, said in the note);
+# other side Spells cast near it aren't counted (an undercount, said). The main skill's casts while an Orb is up are its
+# Speed x (1 - the other presses' share): the Orb's own recast is between lives. An Orb fires its timer bolts at 4, 8 and
+# 12 s (floor(duration / frequency): the one at 12 s at the edge counted, UNVERIFIED), and the casts' bolts on top;
+# when the two reach the maximum before the duration ends, the Orb expires at max hits / (casts/s + 1/frequency) (bolts
+# taken as spread evenly, MEDIUM) and is recast at once; each cycle is its life plus one cast of the Orb.
+def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = None,
+              cap: "PressCap | None" = None) -> tuple[float, float, dict]:
+    """A pressed side Orb of Storms' (presses/s, bolts/s, note), from its `useRates` row (orbMaxHits, orbBoltFrequency,
+    duration, speed), the main skill's row (its Speed, spell / triggered / channel) and `others`, the share of the
+    fight the other presses take from the main skill. Held to Cadence's `pace` and the `cap` as press_group_rate is."""
+    hits = number(orb.get("orbMaxHits"))
+    every = number(orb.get("orbBoltFrequency")) / 1000 or ORB_BOLT_EVERY
+    duration = number(orb.get("duration")) or ORB_DURATION
+    action = press_action(orb)
+    casting = bool(main) and main.get("spell") and not main.get("triggered") and not main.get("channel")
+    casts = number(main.get("speed")) * max(0.0, 1.0 - others) if casting else 0.0
+    timer = math.floor(duration / every + 1e-9)
+
+    def cycle(rate: float) -> tuple[float, float, float]:  # (life, bolts an Orb, presses/s)
+        if rate * duration + timer <= hits:
+            life, bolts = duration, rate * duration + timer
+        else:
+            life, bolts = min(duration, hits / (rate + 1 / every)), hits
+        return life, bolts, 1 / (life + action)
+
+    life, per, presses = cycle(casts)
+    _, alone, alone_presses = cycle(0.0)
+    held = ""
+    for limit, why in ((pace, f"Cadence's {pace} uses/s"), (cap.uses if cap is not None else None,
+                                                            cap.how if cap is not None else "")):
+        if limit is not None:
+            if presses > limit:
+                presses, held = limit, f", held to {limit:.3g} presses/s by {why}"
+            alone_presses = min(alone_presses, limit)
+    bolts, without = presses * per, alone_presses * alone
+    name = main.get("name") if main else None
+    if casting:
+        how = (f"{name}'s {casts:.2f} casts/s near the Orb (a play strategy: cast it where the Orb is*) plus "
+               f"{timer} timer bolts: {per:.2g} bolts an Orb, which lasts {life:.2f} s")
+    else:
+        why = ("a triggered Spell (whether it counts as cast near the Orb: UNVERIFIED, not counted)" if main and
+               main.get("triggered") else "a channelled Spell (how it feeds the Orb: UNVERIFIED, not counted)" if main
+               and main.get("channel") else "not a Spell (only casting a Spell fires a bolt)")
+        how = f"timer bolts only: {timer} an Orb in its {duration:.2f} s; the main skill {name or '(none)'} is {why}"
+    note = {"label": "Orb of Storms: bolts per second beside the main skill*",
+            "value": f"{bolts:.2f}/s ({presses:.3f} Orbs/s); without casting near it {without:.2f}/s",
+            "basis": (f"{how}{held}; at most {hits:g} bolts an Orb (game files, quality as PoB builds it), a bolt every "
+                      f"{every:g} s and when you cast a Spell near it, {duration:.2f} s, recast at once ({action:.2f} s "
+                      "each). Replaces PoB's one bolt per Orb cast. Every main-Spell cast is taken as near the Orb "
+                      "(what 'near' covers: UNVERIFIED); other side Spells' casts aren't counted (an undercount). "
+                      f"Without it / with it: {without:.2f} / {bolts:.2f} bolts a second"),
+            "confidence": "MEDIUM" if casting else "UNVERIFIED" if main and (main.get("triggered") or main.get("channel"))
+            else "MEDIUM"}
+    return presses, bolts, note
 
 
 # Danse Macabre's second skeleton (MECHB6; RESEARCH22 #133, research/danse-macabre-skeleton-use.md) -------------------------

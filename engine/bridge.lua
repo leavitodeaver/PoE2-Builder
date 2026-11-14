@@ -3184,6 +3184,25 @@ function bridge.useRates(args)
 			if type(output.WardCost) == "number" and output.WardCost > 0 then
 				entry.wardCost = jsonNumber(output.WardCost)
 			end
+			-- (MECHB28: Orb of Storms as a side skill, models.orb_cycle) whether the rated skill is a Spell the player
+			-- casts (not triggered, not channelled): the casts that make a side Orb fire; and for Orb of Storms itself its
+			-- set's maximum hits (with quality, and the second quality stat when PoB's GemlingQuality flag is on:
+			-- CalcSetup 1142) and bolt frequency
+			local types = skill.skillTypes or { }
+			if types[SkillType.Spell] then
+				entry.spell = true
+				entry.triggered = (types[SkillType.Triggered] or (skill.skillFlags and skill.skillFlags.triggered)) and true or nil
+				entry.channel = types[SkillType.Channel] and true or nil
+			end
+			if set and set.constantStats then
+				local okOrb, orbStats = pcall(calcLib.buildSkillInstanceStats, skill.activeEffect,
+					skill.activeEffect.grantedEffect, set, env.useAltGemQualityStats)
+				local hits = okOrb and orbStats and orbStats["orb_of_storms_maximum_number_of_hits"]
+				if hits and hits > 0 then
+					entry.orbMaxHits = jsonNumber(hits)
+					entry.orbBoltFrequency = jsonNumber(orbStats["orb_of_storms_base_bolt_frequency_ms"] or 0)
+				end
+			end
 			-- (MECHB14: IgniteDuration, how long an Ignite of the group lasts: Frostflame Nova's ice per cast, models.frostflame_plan)
 			-- (MECH69: PhysicalStoredCombinedAvg / PhysicalStoredHitAvg, the group's pre-mitigation Physical hit, crit-weighted /
 			-- not: High Velocity Rounds' Riven Armour magnitude, GEM3's models.riven_armour_model)

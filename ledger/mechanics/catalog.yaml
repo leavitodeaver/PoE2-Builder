@@ -344,6 +344,21 @@
   impact: 3
   effort: S
 
+- id: orb-of-storms-bolts
+  name: Orb of Storms' bolts from Spells cast near it
+  terms: [Orb of Storms]
+  category: damage sources
+  game: "Orb of Storms fires a bolt every 4 seconds and when you cast a Spell near the Orb; one Orb, 12 s, at most 6 bolts (OrbOfStormsPlayer's constant stats; quality's second stat +0.3 bolts per 1% with Gemling's flag). Patch 0.3.0: triggers from casting any spell in its radius; 6 bolts at all gem levels."
+  game_source: https://poe2db.tw/us/Orb_of_Storms
+  pob: partial
+  pob_check: "PoB scores one bolt per Orb cast at the Orb's own Speed (probe MECHB28, POE2T1139: 103.6 DPS = 82.9 a bolt x 1.25 casts/s); nothing reads the timer, the near-cast bolts or the maximum hits."
+  handling: "models.orb_cycle (MECH-B, MECHB28): a pressed side Orb fires its timer bolts plus one per main-Spell cast while it is up (a play strategy: cast where the Orb is), capped at its maximum hits; it expires early at max hits / (casts/s + 1/4) and is recast at once (its cast time taken from the main skill); press_model's ratio for it is bolts/s over PoB's Speed (replacing, not adding). A triggered, channelled or non-Spell main skill gets timer bolts only (UNVERIFIED either way). What 'near' covers: UNVERIFIED. Other side Spells' casts aren't counted (an undercount). As the main skill: models.orb_of_storms_note (one bolt per cast kept, UNVERIFIED)."
+  plan: {approach: custom model, how: "Done for the main Spell; other side Spells' casts and the Orb's Remnant rate (MECH-C) left.", inputs: [useRates orbMaxHits / orbBoltFrequency / duration, the main skill's Speed and types, the other presses]}
+  what_if: visible
+  guide_note: "Cast your main Spell near the Orb: each cast fires a bolt, 6 an Orb; recast it when the bolts run out."
+  impact: 2
+  effort: S
+
 - id: hazard-early-trigger
   name: Hazards set off in their first half second
   terms: [Hazard, Hazards, Ice Crystals]
