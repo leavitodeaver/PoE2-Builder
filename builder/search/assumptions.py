@@ -494,6 +494,88 @@ def riven_armour(build: Build, main: models.Skill | None) -> tuple[float, list[d
                                      how="; ".join(part for part in (how, taken_how) if part))
 
 
+
+def _skill_hits(build: Build, group: dict, position: int, press: dict) -> tuple[float, dict]:
+    """(hits a second on the boss, its useRates row) for the active skill at `position` of `group`: PoB's use rate x
+    hit chance x the press model's share for its Full DPS entry (objective.press_scales; 1 when it has none, as
+    thorns' side skills: Full DPS counts it at PoB's own rate then)."""
+    row = next(iter(build.call("useRates", indices=[group["index"]], actives=[position])["rates"]), None) or {}
+    chance = min(models.number(row.get("HitChance", 100) or 100), 100.0) / 100
+    return models.number(row.get("speed")) * chance * models.number(press.get(row.get("name"), 1.0)), row
+
+
+def elemental_discharge(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Elemental Discharge (GEM5's models.elemental_discharge_model; GEM6 wires it): in each
+    enabled group holding the triggered skill (PoB adds it beside a spell the support supports), the supported spell's
+    hits a second (_skill_hits), the triggered skill's per-element hit with PoB's three Consumed boxes ticked for that
+    call only (useRates `config`; they stay off in the build, so PoB's own DPS never counts it: no double count), its
+    Cooldown, and the boss's uptimes after the consume cut (MECH69's build.ailment_uptimes, which already takes the
+    support's own consume off). The spell's casts a second are its hits: a spell hitting the boss more than once a cast
+    (Spark's projectiles) is read low (LOW-side, labelled in the model's MEDIUM)."""
+    found = [(each, position) for each in build.groups() if each["enabled"]
+             for position, skill in enumerate(each["skills"], start=1) if skill["name"] == models.DISCHARGE_SKILL]
+    if not found:
+        return 0.0, []
+    up, up_how = models.ailment_up_of(build)
+    press = getattr(build.objective, "press_scales", None) or {}
+    boxes = {box: True for box, _ in models.DISCHARGE_BOXES.values()}
+    total, notes = 0.0, []
+    for each, position in found:
+        spot = next((i for i, s in enumerate(each["skills"], start=1) if s["name"] != models.DISCHARGE_SKILL), None)
+        if spot is None:
+            continue
+        spell_hits, _ = _skill_hits(build, each, spot, press)
+        row = next(iter(build.call("useRates", indices=[each["index"]], actives=[position], config=boxes)["rates"]),
+                   None) or {}
+        dps, these = models.elemental_discharge_model(
+            models.discharge_element_hits(row), spell_hits, up, cooldown=models.number(row.get("cooldown") or 1.0),
+            spell=each["skills"][spot - 1]["name"], how=up_how)
+        total, notes = total + dps, notes + these
+    return total, notes
+
+
+def broken_stance(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Vaulting Impact's Broken Stance (GEM5's models.broken_stance_model; GEM6 wires it): the
+    best Vaulting Impact in an enabled group (its pre-mitigation Physical hit, PoB's PhysicalStoredCombinedAvg, and its
+    hits a second, _skill_hits), the share of the fight the boss is Dazed by the build's other sources (MECH-A's
+    build.dazed_up, a share or (share, how); 0 until it is published, so 0 with that reason), the main skill's hits a
+    second (they gain the magnitude) and the boss's x on Physical hit damage read off the main skill's hit (as
+    riven_armour; 1.0 labelled when it has no Physical hit)."""
+    press = getattr(build.objective, "press_scales", None) or {}
+    vault_hit = vault_hits = 0.0
+    for each in build.groups():
+        if not each["enabled"]:
+            continue
+        for position, skill in enumerate(each["skills"], start=1):
+            if skill["name"] == models.STANCE_SKILL:
+                hits, row = _skill_hits(build, each, position, press)
+                if models.number(row.get("PhysicalStoredCombinedAvg")) > vault_hit:
+                    vault_hit, vault_hits = models.number(row.get("PhysicalStoredCombinedAvg")), hits
+    if vault_hit <= 0:
+        return 0.0, []
+    raw = getattr(build, "dazed_up", None)
+    dazed = models.number(raw[0] if isinstance(raw, (tuple, list)) else raw) if raw is not None else 0.0
+    how = ((raw[1] if isinstance(raw, (tuple, list)) and len(raw) > 1 else "") if raw is not None
+           else "MECH-A's Daze share (build.dazed_up) is not published yet")
+    fields = ["PhysicalHitAverage", "PhysicalCritAverage", "CritChance", "PhysicalStoredCombinedAvg", "Speed", "HitChance"]
+    main_stats = build.call("stats", fields=fields)
+    crit = min(models.number(main_stats.get("CritChance")), 100) / 100
+    after = (models.number(main_stats.get("PhysicalHitAverage")) * (1 - crit)
+             + models.number(main_stats.get("PhysicalCritAverage")) * crit)
+    before = models.number(main_stats.get("PhysicalStoredCombinedAvg"))
+    if after > 0 and before > 0:
+        phys_taken, taken = after / before, f"the boss takes x{after / before:.2f} of the main skill's Physical hit"
+    else:
+        phys_taken, taken = 1.0, "the main skill has no Physical hit to read the boss's mitigation from: x1.00 (labelled)"
+    hits = (models.number(main_stats.get("Speed")) * min(models.number(main_stats.get("HitChance", 100) or 100), 100) / 100
+            * models.number(press.get(main.name, 1.0) if main is not None else 1.0))
+    # (its hit limit at the gem's level and quality: GrantedEffectQualityStats gives +1 hit per 10% quality)
+    raw_skills = build.call("activeSkills", levelStats=[models.STANCE_SKILL])["skills"]
+    limit = max((models.number((s.get("levelStats") or {}).get("broken_stance_hit_limit")) for s in raw_skills
+                 if s["name"] == models.STANCE_SKILL), default=0.0) or models.STANCE_HITS
+    return models.broken_stance_model(vault_hit, vault_hits, dazed, hits, phys_taken, limit=int(limit),
+                                      how="; ".join(part for part in (how, taken) if part))
+
 def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str]) -> tuple[float, list[dict]]:
     """(added DPS, notes) for the build's Thorns hits on the boss (models.thorns_model, MECHB22): PoB's own Thorns
     group's hit (useRates), which no PoB DPS counts."""
@@ -831,7 +913,14 @@ class Assumptions:
         riven, riven_notes = riven_armour(build, main)  # (GEM3's model; MECH69's Armour Break cycle gives its uptime)
         hand_mods += [models.added_input("RivenArmour", riven)] if riven > 0 else []
         hand_notes += riven_notes
-        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven})
+        discharge, discharge_notes = elemental_discharge(build, main)  # (GEM5's model; MECH69's ailment uptimes)
+        hand_mods += [models.added_input("ElementalDischarge", discharge)] if discharge > 0 else []
+        hand_notes += discharge_notes
+        stance, stance_notes = broken_stance(build, main)  # (GEM5's model; MECH-A's build.dazed_up, 0 until published)
+        hand_mods += [models.added_input("BrokenStance", stance)] if stance > 0 else []
+        hand_notes += stance_notes
+        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
+                                   "Elemental Discharge": discharge, "Broken Stance": stance})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.

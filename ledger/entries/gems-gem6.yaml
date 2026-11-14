@@ -1,0 +1,88 @@
+# Gem stats PoB never reads that a model now counts (GEM6, 14 Nov 2026): Elemental Discharge's and Broken Stance's
+# models (GEM5) wired in builder/search/assumptions.py (elemental_discharge / broken_stance, GEM6), High Velocity Rounds'
+# Riven Armour (GEM3's model, wired by MECH69), and Frostfire's Freeze consume (the condition resolver's consume cut).
+# Each is scoped to the skill named: the same stat on other skills stays open.
+
+- id: model-gem6-elemental-discharge
+  title: "Elemental Discharge: the support's consume-to-trigger and the triggered skill's trigger are the Elemental Discharge model's"
+  kind: model
+  model: elemental_discharge
+  stats: ["consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge",
+          "triggered_by_supported_spell_consuming_ignite_freeze_shock_on_hit"]
+  skill: [Elemental Discharge]
+  confidence: theory
+  notes: >-
+    models.elemental_discharge_model (GEM5), wired by GEM6 (assumptions.elemental_discharge, an added_input beside Riven
+    Armour's): in each enabled group holding the triggered skill, the supported spell's hits a second (PoB's use rate x
+    hit chance x the press model's share), PoB's hit of the triggered skill per element with its three Consumed boxes
+    ticked for that call only (bridge useRates `config`; off in the build, so PoB's own DPS never counts it), its
+    Cooldown (1 s, 1 use), and the boss's Ignite / Shock / Freeze uptimes after the consume cut (MECH69's
+    build.ailment_uptimes; the cut already holds this support's own consume: conditions.CONSUME_STATS lists
+    consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge under all three). No ailment on the boss from the
+    build's other hits: 0 with a note. MEDIUM at best (the three uptimes taken as independent; hits during the cooldown
+    taken to consume, UNVERIFIED); the spell's casts a second are read as its hits (a spell hitting more than once a
+    cast reads low).
+  sources: ["SupportElementalDischargePlayer / TriggeredElementalDischargePlayer, GrantedEffectStatSets (build 26476662)",
+            "builder/search/models.py (elemental_discharge_model, GEM5)", "builder/search/assumptions.py (elemental_discharge, GEM6)"]
+  test_in_game: "Shock a dummy with another skill, then cast the supported spell: one discharge a second at most, Lightning only."
+  status: proposed
+
+- id: model-gem6-broken-stance
+  title: "Vaulting Impact's Broken Stance (magnitude and hit limit) is the Broken Stance model's"
+  kind: model
+  model: broken_stance
+  stats: ["exploit_debuff_attack_damage_to_convert_to_magnitude_%", "broken_stance_hit_limit"]
+  skill: [Vaulting Impact]
+  confidence: theory
+  notes: >-
+    models.broken_stance_model (GEM5), wired by GEM6 (assumptions.broken_stance): 10% of Vaulting Impact's
+    pre-mitigation Physical hit (PoB's PhysicalStoredCombinedAvg; VaultingImpactDazedPlayer's
+    exploit_debuff_attack_damage_to_convert_to_magnitude_% 10) added to each of the next broken_stance_hit_limit hits
+    (read at the gem's level and quality from the bridge's levelStats: 10, +1 per 10% quality, GrantedEffectQualityStats)
+    or 60 s, re-applied by a Vaulting Impact hit while the boss is Dazed by another source (MECH-A's build.dazed_up;
+    not on main yet, so 0 with that reason), x the boss's Physical mitigation off the main skill's hit. LOW.
+    cannot_daze is NOT closed here: the model assumes the Daze comes from elsewhere, but whether MECH-A's Daze share
+    leaves Vaulting Impact's own hits out is MECH-A's to show (routed).
+  sources: ["VaultingImpactPlayer / VaultingImpactDazedPlayer, GrantedEffectStatSets (build 26476662)",
+            "GrantedEffectQualityStats row 130", "patch notes 0.4.0 (Vaulting Impact)",
+            "builder/search/models.py (broken_stance_model, GEM5)", "builder/search/assumptions.py (broken_stance, GEM6)"]
+  test_in_game: "Daze a dummy with another skill, Vault it, then count the hits that show the added Physical damage (10, +1 per 10% quality)."
+  status: proposed
+
+- id: model-gem6-riven-armour
+  title: "High Velocity Rounds' Riven Armour magnitude is the Riven Armour model's"
+  kind: model
+  model: riven_armour
+  stats: ["exploit_debuff_attack_damage_to_convert_to_magnitude_%"]
+  skill: [High Velocity Rounds]
+  confidence: theory
+  notes: >-
+    models.riven_armour_model (GEM3), wired by MECH69 (assumptions.riven_armour, an added_input "RivenArmour"): 5% of
+    High Velocity Rounds' pre-mitigation Physical hit (models.RIVEN_STAT / RIVEN_PERCENT; HighVelocityRoundsArmourBrokenPlayer's
+    value 5) on the build's attack hits while Riven Armour is up (MECH-A's Armour Break cycle, build.riven_up). (checked:
+    assumptions.py's call beside Thorns, and the real-engine test tests/test_engine_models.py
+    test_riven_armour_adds_damage_at_the_share_the_armour_break_cycle_publishes.)
+  sources: ["HighVelocityRoundsArmourBrokenPlayer, GrantedEffectStatSets (build 26476662)",
+            "builder/search/models.py (riven_armour_model)", "builder/search/assumptions.py (riven_armour)"]
+  test_in_game: "Not needed for the label (the model's own test_in_game stands)."
+  status: proposed
+
+- id: model-gem6-frostfire-consume
+  title: "Frostfire's Freeze consume on Ignite is the condition resolver's consume cut"
+  kind: model
+  model: conditions
+  stats: ["remove_freeze_on_ignite"]
+  skill: [Frostfire]
+  confidence: theory
+  notes: >-
+    "Supported Skills Consume Freeze from Enemies they Ignite" (gem_stat_descriptions). PoB gives the supported skill the
+    SkillConsumesFreeze type (sup_int.lua SupportFrostfirePlayer addSkillTypes), the bridge reports it (activeSkills
+    `consumes`), and conditions._type_consumes takes it off the boss's Frozen share (MECH55's consume cut). That is the
+    stat's effect on the Frozen share. Left for MECH-A (routed, the ledger's support-frostfire-unique-ignite says the
+    same): the weight of Frostfire's Ignite bonus is the Frozen share, where the game boosts one Ignite per consumed
+    Freeze for that Ignite's own duration (an UNDERCOUNT of the bonus while the supported skill Ignites more often than
+    the boss is Frozen, an overcount otherwise; not measured).
+  sources: ["SupportFrostfirePlayer, GrantedEffectStatSets (build 26476662)", "gem_stat_descriptions.csd (remove_freeze_on_ignite)",
+            "vendor PoB sup_int.lua SupportFrostfirePlayer", "builder/search/conditions.py (_type_consumes)"]
+  test_in_game: "Freeze a dummy, Ignite it with the supported skill: the Freeze ends at once."
+  status: proposed
