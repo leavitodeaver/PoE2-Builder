@@ -493,7 +493,8 @@ def brambles(build: Build, main: models.Skill | None) -> list[dict]:
         names = [s["name"] for s in group["skills"]]
         if models.BRAMBLES not in names:
             continue
-        rows = build.call("useRates", indices=[group["index"]], actives=list(range(1, len(names) + 1)))["rates"]
+        rows = [{**r, "name": names[pos - 1]} for pos in range(1, len(names) + 1)  # (one row per call: by position)
+                for r in build.call("useRates", indices=[group["index"]], actives=[pos])["rates"][:1]]
         row = next((r for r in rows if r.get("name") == models.BRAMBLES), None)
         slams = [r for r in rows if r.get("name") not in (models.BRAMBLES, None) and number(r.get("speed")) > 0]
         if row is None or not slams:

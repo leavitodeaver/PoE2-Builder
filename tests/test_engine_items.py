@@ -1396,7 +1396,9 @@ def test_brambles_full_dps_entry_follows_the_slams_rate(engine):
     idx = (new.get("index") if isinstance(new, dict) else None) or max(g["index"] for g in build.groups())
     build.call("setGroup", index=idx, gems=[{"name": "Earthquake", "level": 20}, {"name": "Brambleslam", "level": 1}],
                fullDPS=True)
-    rows = {r["name"]: r for r in build.call("useRates", indices=[idx], actives=[1, 2])["rates"]}
+    group = next(g for g in build.groups() if g["index"] == idx)
+    rows = {s["name"]: build.call("useRates", indices=[idx], actives=[pos])["rates"][0]
+            for pos, s in enumerate(group["skills"], start=1)}
     quake, bramble = rows["Earthquake"], rows[models.BRAMBLES]
     notes = brambles(build, None)
     assert len(notes) == 1 and notes[0]["confidence"] == "LOW"
