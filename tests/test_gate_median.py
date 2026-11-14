@@ -54,3 +54,17 @@ def test_a_seed_base_moves_every_task_seed_and_base_0_keeps_the_old_seeds():
     run.seed_base = 2
     assert run.task_seed(31) == 31 + 2 * SEED_STRIDE
     assert SEED_STRIDE > 7919 * 6 + 104729 * 4  # (past every seed one run makes: no two draw sets share a task seed)
+
+
+def test_a_tasks_gear_census_names_its_empty_gear_slots_but_not_flasks_or_charms():
+    """SEARCH20: the 14 Nov 2b75d gate's best build (15,518) wore no boots, gloves, rings or belt; each task's event
+    now says which gear slots are empty, where the next full gear round starts, the divines spent and the budget weight."""
+    from types import SimpleNamespace
+
+    from builder.search.inner import Search
+
+    search = Search.__new__(Search)
+    ring = SimpleNamespace(price=12.0)
+    search.gear = SimpleNamespace(slots={"Ring 1": 0, "Ring 2": 0, "Flask 1": 0, "Charm 1": 0}, resume="Ring 2", lam=0.02)
+    search.build = SimpleNamespace(equipped={"Ring 1": ring}, spent=lambda: 12.0)
+    assert search.gear_census() == {"empty": ["Ring 2"], "resume": "Ring 2", "spent": 12.0, "lam": 0.02}

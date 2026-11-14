@@ -225,7 +225,8 @@ class Run:
                       kicks_kept=result.get("kicks_kept"), kick_kinds=result.get("kick_kinds"),
                       # restores and how far their scores came back from the snapshots' (inner.restore_drift)
                       restore_drift=result.get("restore_drift"), line=result.get("line"),
-                      over_budget=result.get("over_budget"))  # (SEARCH8: where the tree first went over its points)
+                      over_budget=result.get("over_budget"),  # (SEARCH8: where the tree first went over its points)
+                      gear=result.get("gear"))  # (SEARCH20: empty gear slots, where the gear round resumes, spent)
             if result.get("seed_start") and self.seed_start is None:
                 self.seed_start = result["seed_start"]
             # Ranked on the request's goal, whichever the search had; its own goal picks the state

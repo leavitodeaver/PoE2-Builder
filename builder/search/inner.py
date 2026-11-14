@@ -28,7 +28,7 @@ from builder.search.conditions import (
     LOW_LIFE_LINE, LOW_LIFE_SHARE, MELEE_DISTANCE, STATIONARY_LINE, UPTIME, Conditions, distance_candidates,
 )
 from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, context_for
-from builder.search.gear import Gear, SlotSpec, extra_ring_passive
+from builder.search.gear import CHARM_SLOTS, Gear, SlotSpec, extra_ring_passive, is_flask_slot
 from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
 from builder.search import flasks, play_guide
@@ -1080,6 +1080,15 @@ class Search:
         return [g["gems"][0]["name"] for g in self.build.groups()
                 if g["enabled"] and not g["fromItem"] and g["gems"] and not g["set1"]]
 
+    def gear_census(self) -> dict:
+        """Where the gear stands at a task's end (SEARCH20: the 14 Nov 2b75d gate's best build, 15,518, wore no boots,
+        gloves, rings or belt): the gear slots still empty (flask and charm slots aside), the slot the next full gear
+        round starts at, the divines spent and the budget weight."""
+        empty = [s for s in self.gear.slots if not is_flask_slot(s) and s not in CHARM_SLOTS
+                 and self.build.equipped.get(s) is None]
+        return {"empty": empty, "resume": self.gear.resume, "spent": round(self.build.spent(), 1),
+                "lam": self.gear.lam}
+
     def kick(self) -> None:
         self.kicks += 1
         self.build.phase = "kick"
@@ -1291,7 +1300,7 @@ class Search:
             "evals": build.evals, "commits": build.commits, "seconds": clock.now() - build.started,
             "kicks": self.kicks, "kicks_kept": self.kicks_kept, "kick_kinds": dict(self.kick_kinds),
             "passes": self.passes, "passes_done": self.passes_done, "problems": self.problems, "reverts": build.reverts,
-            "restore_drift": restore_drift(build), "over_budget": build.over_budget,
+            "restore_drift": restore_drift(build), "over_budget": build.over_budget, "gear": self.gear_census(),
             "line": {"passes": self.line_passes, "resume": self.resume_step},  # (M1: the line's pass, where it goes on)
             "condition_sources": list(self.sources.kept),
             "escalations": self.escalations, "multipliers": dict(build.objective.multipliers),
