@@ -61,12 +61,12 @@ from dataclasses import dataclass, field
 # The fields, per second (for SEARCH: objective.SUSTAIN_POOLS / RECOVERY_POOLS read them from the build's stats)
 FIELDS = {
     "Life": ("LifeOnKillRecovery", "LifeRemnantRecovery", "CharmLifeRecoveryRate", "LifeOnEventRecovery",
-             "LifeOnConsumeRecovery"),
+             "LifeOnConsumeRecovery", "LifePreventedRecoup"),
     "Mana": ("ManaOnKillRecovery", "ManaRemnantRecovery", "CharmManaRecoveryRate", "ManaOnEventRecovery",
              "ManaOnConsumeRecovery"),
     # (MECHC17) Energy Shield on events: "Regenerate N% of maximum Energy Shield over 1 second when Stunned" (hit_income).
     # For SEARCH: objective.RECOVERY_POOLS["EnergyShield"] doesn't read it yet
-    "EnergyShield": ("EnergyShieldOnEventRecovery",),
+    "EnergyShield": ("EnergyShieldOnEventRecovery", "EnergyShieldPreventedRecoup"),  # (MECHC21: Scarred Faith's)
 }
 ALL_FIELDS = tuple(f for fields in FIELDS.values() for f in fields)
 
@@ -127,7 +127,22 @@ STUNNED_LIFE = re.compile(rf"regenerate {NUM}% of maximum life over 1 second whe
 # ES-when-Stunned support, doesn't show it; no further second source: UNVERIFIED that none exists). Read all the same,
 # at the boss's Stuns, so a source counts the day one appears
 STUNNED_ES = re.compile(rf"regenerate {NUM}% of maximum energy shield over 1 second when stunned", re.I)
-HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNED_LIFE, STUNNED_ES)
+# Physical damage prevented, Recouped (MECHC21; FIX_QUEUE MECH67's Scarred Faith note): Scarred Faith's "5% of Physical
+# Damage prevented Recouped as Energy Shield per enemy Power" (KeywordPopups ScarredFaith) and the passives' "N% of
+# Physical Damage prevented Recouped as Life" (physical_damage_prevented_recouped_as_life_%). PoB parses both with leftover
+# text (ModCache: PhysicalDamage BASE + " prevented Recouped as ..."), so never applies them; the ledger called them
+# no-effect (no-effect-dot-and-recoup-defences, and the Life entry) while recovery wasn't checked, which it is now (the
+# user's rule, memory recovery-every-source). "Prevented" (KeywordPopups Premitigation: "the target's mitigation, such as
+# Armour, Resistances or Blocking, prevents any of that damage"): the Physical damage the build's Armour and flat
+# reduction keep from the boss's landed hits (Assumptions.hit_rates); damage Blocked isn't counted (a lower reading:
+# whether Block counts as prevented for these lines is UNVERIFIED). Recoup returns over 4 s: in a steady fight the second's
+# share of what's prevented. "per enemy Power" at the boss's Power (models.boss_power, with the build's Power lines).
+# Scarred Faith's "You cannot Recover Energy Shield to above Armour" caps the pool, not the rate: not applied (LOW).
+# The "if you have at least 100 Tribute" form (Twice Bled) isn't read (Tribute isn't read: its own ledger entry).
+PREVENTED_ES = re.compile(rf"^{NUM}% of physical damage prevented recouped as energy shield per enemy power$", re.I)
+PREVENTED_LIFE = re.compile(rf"^{NUM}% of physical damage prevented recouped as life$", re.I)
+HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNED_LIFE, STUNNED_ES, PREVENTED_ES,
+             PREVENTED_LIFE)
 # The game's Light Stun rule (KeywordPopups LightStun, build 26476662): "up to 100% base chance for Hits that deal 100%
 # of the target's maximum Life" (StunThreshold: "A Hit that deals damage equal to or greater than your Stun Threshold
 # is guaranteed to Stun you, and the chance scales down linearly"), "Chances lower than 15% are treated as 0%" (the
@@ -353,7 +368,8 @@ def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tu
 
 def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float = 0.0, life_per_hit: float = 0.0,
                blocked: float = 0.0, casts: float = 0.0, cast_how: str = "", stunned: float = 0.0,
-               stunned_how: str = "", refill: float = 0.0, refill_how: str = "") -> None:
+               stunned_how: str = "", refill: float = 0.0, refill_how: str = "", prevented: float = 0.0,
+               prevented_how: str = "", power: float = 0.0, power_how: str = "") -> None:
     """Life on the boss's hits, your Blocks and your casts (MECHC14, A27-32), each at the build's own rate: `landed` boss
     hits a second and the Life each takes (`life_per_hit`), `blocked` boss hits a second, `casts` Spells cast a second.
     "Recover N% of Missing Life before being Hit" (MECHC16, AUDIT28 A28-1: before, the last hit's Life alone, an OVERCOUNT
@@ -397,6 +413,19 @@ def hit_income(income: Income, stats: dict, texts: list[str], *, landed: float =
             income.parts.append(f"{pct:g}% of maximum Energy Shield when Stunned: 0, "
                                 + ("the build has no Energy Shield" if shield <= 0 else
                                    stunned_how or "the boss never Stuns you"))
+    for pool, pattern, field_name in (("Life", PREVENTED_LIFE, "LifePreventedRecoup"),
+                                      ("Energy Shield", PREVENTED_ES, "EnergyShieldPreventedRecoup")):
+        pct = sum(float(m.group(1)) for t in texts if (m := pattern.search(t.strip())))
+        if pct <= 0:
+            continue
+        per = f" per enemy Power x {power:g} ({power_how or 'the boss'})" if pattern is PREVENTED_ES else ""
+        share = pct * (power if pattern is PREVENTED_ES else 1.0) / 100
+        if prevented > 0 and share > 0:
+            income.add(field_name, share * prevented, f"{pct:g}% of Physical damage prevented{per} Recouped as {pool} x "
+                                                      f"{prevented:,.1f} prevented/s ({prevented_how})")
+        else:
+            income.parts.append(f"{pct:g}% of Physical damage prevented Recouped as {pool}: 0, "
+                                + (prevented_how or "no Physical damage prevented from the boss's hits"))
     pct = _sum(MISSING_BEFORE_HIT, texts)
     if pct > 0:
         if landed > 0 and life_per_hit > 0:

@@ -1589,8 +1589,26 @@ class Assumptions:
         refill = max(sum(gains.values()) - costs, 0.0)
         refill_how = (", ".join(f"{k} {v:,.1f}" for k, v in gains.items() if v > 0) or "no other Life recovery") + (
             f", less {costs:,.1f} Life costs and own damage over time" if costs > 0 else "")
-        return {"landed": landed, "life_per_hit": per_hit, "blocked": blocked, "casts": casts, "cast_how": how,
-                "stunned": stunned, "stunned_how": stunned_how, "refill": refill, "refill_how": refill_how}
+        out = {"landed": landed, "life_per_hit": per_hit, "blocked": blocked, "casts": casts, "cast_how": how,
+               "stunned": stunned, "stunned_how": stunned_how, "refill": refill, "refill_how": refill_how}
+        texts = [line["text"].strip() for line in build.call("sourceLines")["lines"]]
+        if any(recovery.PREVENTED_ES.search(t) or recovery.PREVENTED_LIFE.search(t) for t in texts):
+            # (MECHC21) Physical damage the build's Armour and flat reduction prevent a second: the boss's Physical hit
+            # (PoB's PhysicalEnemyDamage, after Deflection's expected share) x PhysicalDamageReduction, at its Physical
+            # share of hits (boss_hits.type_shares) and its landed hits (the gain pace, as above)
+            more = build.call("stats", fields=["PhysicalEnemyDamage", "PhysicalDamageReduction", "PresenceRadius"])
+            raw, cut = number(more.get("PhysicalEnemyDamage")), min(max(number(more.get("PhysicalDamageReduction")), 0.0), 100)
+            _, _, deflect = objective.boss_taken(hit)
+            physical = boss_hits.type_shares(boss_hits.boss_name(hit)).get("Physical", 1.0)
+            out["prevented"] = raw * deflect * cut / 100 * physical * landed
+            out["prevented_how"] = (f"the boss's {raw:,.0f} Physical a hit x {cut:.0f}% prevented by Armour and flat "
+                                    f"reduction x {physical:.0%} of its hits Physical x {landed:.3f} landing/s; Blocked "
+                                    "damage not counted (UNVERIFIED whether it counts as prevented)")
+            metres = number(build.call("getConfig")["input"].get("enemyDistance"))
+            out["power"], power_how = models.boss_power(texts, {**hit, **more, "_main_types": types}, metres or None,
+                                                        "Attack" in types)
+            out["power_how"] = power_how or f"a Unique boss's {models.BOSS_POWER} Power"
+        return out
 
     def spent_rates(self, skills: list[dict], main: str | None, stats: dict, lowered: list[str]) -> dict:
         """(events a second, how) for recovery.spent_income, each from the build's own sources (MECHC13; CLAUDE.md: no
