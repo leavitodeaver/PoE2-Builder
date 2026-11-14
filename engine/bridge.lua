@@ -4517,6 +4517,9 @@ function bridge.chargeGain()
 		critRate = (output.Speed or 0) * (output.HitChance or 100) / 100 * (output.CritChance or 0) / 100,
 		manaChargesUsedInc = inc("FlaskChargesUsed") + inc("ManaFlaskChargesUsed"),
 		manaChargesUsedMore = modDB:More(nil, "FlaskChargesUsed", "ManaFlaskChargesUsed"),
+		-- (MECHC19, COV22) "N% increased / reduced Charm Charges used" (belts, passives, Zerphi's Genesis, Ryslatha's
+		-- Coil): PoB parses it (CharmChargesUsed) but only shows it in its calcs tab; flasks.charges_per_use applies it
+		charmChargesUsedInc = inc("CharmChargesUsed"),
 		manaRegenOnly = manaRegenOnly,
 		lifeLossPerUse = lifeLossPerUse, mainRate = output.Speed or 0,
 		flaskNotConsume = base("FlaskChanceNotConsumeCharges"),

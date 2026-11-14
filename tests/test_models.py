@@ -4294,3 +4294,26 @@ def test_added_sources_sum_and_eternal_hunt_counts_one_wolf_net_of_its_presses()
     assert models.eternal_hunt_model({"AverageDamage": 100.0, "Cooldown": 15.0}, 3000.0, 0.0)[:2] == (0.0, [])
     none = models.eternal_hunt_model({}, 0.0, 0.0)
     assert none[:2] == (0.0, []) and "no hit" in none[2][0]["basis"]
+
+
+def test_charm_charges_used_modifiers_change_a_charms_cost_per_use():
+    """MECHC19 (COV22): PoB parses "N% increased / reduced Charm Charges used" (CharmChargesUsed) but only shows it in its
+    calcs tab, and flasks.charges_per_use read only the charm's own local cost: Zerphi's Genesis's increase was missed
+    (an OVERCOUNT), belt affixes', passives' and Ryslatha's Coil's reductions (an undercount). Now a Charm costs its
+    charges x (1 + increase / 100); a Flask's cost is unchanged by it."""
+    from builder.search.flasks import Charges, charges_per_use, charm_charges_used, uptime
+
+    charm = {"kind": "Charm", "chargesUsed": 20, "duration": 4.0, "gainBase": 0}
+    assert charges_per_use(charm, Charges(charm_used_inc=-25)) == pytest.approx(15.0)
+    assert charges_per_use(charm, Charges(charm_used_inc=30)) == pytest.approx(26.0)
+    assert charges_per_use({**charm, "kind": "Flask"}, Charges(charm_used_inc=-25)) == pytest.approx(20.0)
+    # 1 charge/s: a use every 20 s (20% up) at the base cost; every 15 s with 25% reduced (26.7%); every 26 s with 30% more
+    assert uptime(charm, Charges(charm=1.0)) == pytest.approx(0.2)
+    assert uptime(charm, Charges(charm=1.0, charm_used_inc=-25)) == pytest.approx(4 / 15)
+    assert uptime(charm, Charges(charm=1.0, charm_used_inc=30)) == pytest.approx(4 / 26)
+    # Cast on Charm Use: the charges actually spent (one use per 4 s at most, each costing 15)
+    spent = charm_charges_used([(charm, "Rarity: Magic
+Charm")], Charges(charm=10.0, charm_used_inc=-25))[0]
+    assert spent == pytest.approx(15 / 4)
+    assert Charges.from_bridge({"charmChargesUsedInc": -20}).charm_used_inc == -20
+

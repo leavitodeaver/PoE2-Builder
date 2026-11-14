@@ -95,6 +95,8 @@ class Charges:
     crit_rate: float = 0.0
     mana_used_inc: float = 0.0
     mana_used_more: float = 1.0
+    # (MECHC19, COV22) "N% increased / reduced Charm Charges used" (PoB's CharmChargesUsed, never applied by PoB)
+    charm_used_inc: float = 0.0
     life_loss_per_use: float = 0.0
     main_rate: float = 0.0
     flask_not_consume: float = 0.0
@@ -184,6 +186,7 @@ class Charges:
                    flask_on_crit=float(data.get("flaskOnCrit") or 0.0), crit_rate=float(data.get("critRate") or 0.0),
                    mana_used_inc=float(data.get("manaChargesUsedInc") or 0.0),
                    mana_used_more=float(data.get("manaChargesUsedMore") or 1.0),
+                   charm_used_inc=float(data.get("charmChargesUsedInc") or 0.0),
                    life_loss_per_use=float(data.get("lifeLossPerUse") or 0.0), main_rate=float(data.get("mainRate") or 0.0),
                    flask_not_consume=float(data.get("flaskNotConsume") or 0.0),
                    mana_regen_only=bool(data.get("manaRegenOnly", False)), stuns=stuns, stuns_how=stuns_how,
@@ -400,10 +403,16 @@ def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
 def charges_per_use(info: dict, gain: Charges) -> float:
     """Charges a use costs on average: a Flask's after "N% chance for Flasks you use to not consume Charges" (MECHC5;
     flasks_%_chance_to_not_consume_charges; PoB parses it, FlaskChanceNotConsumeCharges, but only shows it in its calcs
-    tab). Charms' own "chance for Charms you use to not consume Charges" isn't read yet (an undercount, labelled)."""
+    tab). Charms' own "chance for Charms you use to not consume Charges" isn't read yet (an undercount, labelled).
+    A Charm's after "N% increased / reduced Charm Charges used" (MECHC19, COV22: PoB parses it, CharmChargesUsed, and
+    only shows it; its charmData.chargesUsed has only the charm's own local line): before, Zerphi's Genesis's increase
+    was missed (an OVERCOUNT) and belt affixes', passives' and Ryslatha's Coil's reductions (an undercount). Not rounded
+    (the game's rounding of the total is UNVERIFIED; PoB floors the local line)."""
     used = info.get("chargesUsed") or 0
     if info.get("kind") == "Flask":
         used *= 1 - min(max(gain.flask_not_consume, 0.0), 100) / 100
+    elif info.get("kind") == "Charm":
+        used *= max(1 + gain.charm_used_inc / 100, 0.0)
     return used
 
 
@@ -490,7 +499,7 @@ def charm_charges_used(charms: list[tuple[dict, str]], gain: Charges) -> tuple[f
     [(flaskData info, item text)]."""
     total, how = 0.0, []
     for info, raw in charms:
-        used = info.get("chargesUsed") or 0
+        used = charges_per_use(info, gain)  # (MECHC19, COV22: after "increased / reduced Charm Charges used")
         if info.get("kind") != "Charm" or used <= 0 or info.get("constant") or KILL_TRIGGER in raw.lower():
             continue
         uses = charges_per_second(info, gain, None) / used

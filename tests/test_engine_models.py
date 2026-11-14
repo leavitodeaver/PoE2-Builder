@@ -2069,3 +2069,17 @@ def test_use_rates_give_a_culling_side_skill_its_own_cull(engine):
     assert rate["cullMultiplier"] > 1.0 and rate["speed"] > 0 and rate["hitChance"] > 0 and rate["hitDPS"] > 0
     assert rate["cullSplit"]["regular"] > 0 and not rate["cullSplit"]["empowerOnly"]
     assert not engine.call("cullSplit")["regular"]  # (the main skill's own split is unchanged: it doesn't Cull)
+
+
+def test_charge_gain_sends_charm_charges_used(engine):
+    """MECHC19 (COV22): bridge.chargeGain's charmChargesUsedInc sums "N% increased / reduced Charm Charges used" (PoB's
+    CharmChargesUsed, which PoB itself never applies), for flasks.charges_per_use."""
+    from builder.search.flasks import Charges
+
+    build = spark_with(engine, []).build
+    assert Charges.from_bridge(build.call("chargeGain")).charm_used_inc == 0.0
+    belt = chr(10).join(["Rarity: Rare", "Test Belt", "Heavy Belt", "Item Level: 82", "Implicits: 0",
+                         "20% reduced Charm Charges used"])
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    assert Charges.from_bridge(build.call("chargeGain")).charm_used_inc == pytest.approx(-20.0)
+
