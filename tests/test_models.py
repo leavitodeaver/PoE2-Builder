@@ -4470,6 +4470,38 @@ def test_thorns_model_counts_retaliation_at_the_melee_share_and_the_main_skills_
     assert "legacy Prized Pain" in note["basis"]
 
 
+def test_barbs_counts_n_supported_hits_per_retaliation_and_takes_pobs_flat_entry_out():
+    """(MECHB23, probe POE2T1094) PoB scores Barbs' hidden Thorns skill at Speed 1 in Full DPS (an OVERCOUNT: 0 on the
+    worst case, where nothing Retaliates); thorns_model scales that entry to 0 and counts min(Retaliations x N, the
+    main skill's hits) x (2 for Barbs III) at PoB's Barbs hit, on a non-triggered Melee Attack main skill only."""
+    from builder.search import bosses
+
+    stats = {"_boss": "Arbiter of Ash", "Speed": 2.0, "HitChance": 90.0, "CritChance": 20.0, "EvadeChance": 0.0,
+             "EffectiveBlockChance": 0.0, "enemySkillTime": 0.5}
+    retaliations = boss_hits.land_share(stats) / bosses.benefit_skill_time(stats) * 4 / 34
+    hit, barb = {"PhysicalHitAverage": 100.0}, {"PhysicalHitAverage": 120.0}
+    melee = Skill("Boneshatter", group=1, attack=True, melee=True)
+    base = models.thorns_model(hit, [], stats, melee)[0]
+    for name, count, times in (("Barbs I", 4, 1), ("Barbs II", 6, 1), ("Barbs III", 1, 2)):
+        dps, notes = models.thorns_model(hit, [], stats, melee, [(name, barb, True)])
+        assert dps == pytest.approx(base + min(retaliations * count, 1.8) * times * 120)
+        assert notes[0]["full_dps"] == {name: 0.0} and "UNVERIFIED" in notes[0]["basis"]
+    # capped by the main skill's own hits
+    slow = {**stats, "Speed": 0.1}
+    dps = models.thorns_model(hit, [], slow, melee, [("Barbs II", barb, True)])[0]
+    assert dps == pytest.approx(models.thorns_model(hit, [], slow, melee)[0] + min(retaliations * 6, 0.09) * 120)
+    # not on the main skill, or a main skill that isn't a non-triggered Melee Attack: 0, PoB's entry still out
+    for main, on_main in ((melee, False), (Skill("Spark", group=1, spell=True), True),
+                          (Skill("Boneshatter", group=1, attack=True, melee=True, triggered=True), True)):
+        dps, notes = models.thorns_model(hit, [], stats, main, [("Barbs I", barb, on_main)])
+        assert dps == pytest.approx(models.thorns_model(hit, [], stats, main)[0])
+        assert notes[0]["full_dps"] == {"Barbs I": 0.0} and "undercount" in notes[0]["basis"]
+    # the worst case: no Retaliation, so no Barbs, and PoB's flat entry is gone too
+    worst = {**stats, "_boss": models.THORNS_WORST}
+    dps, notes = models.thorns_model(hit, [], worst, melee, [("Barbs I", barb, True)])
+    assert dps == 0.0 and notes[0]["full_dps"] == {"Barbs I": 0.0}
+
+
 def test_cadiro_diamond_arrows_crit_one_arrow_in_six_and_the_other_kinds_add_nothing_on_a_boss():
     """(MECHB22; COV20) PoB doesn't read Cadiro's Gambit's line: its Diamond Arrows (1 in 6, always a Critical Hit) count
     as the crit average on that share; Crescendo / Splinter / Covetous add nothing on a lone boss, Blunt is named."""

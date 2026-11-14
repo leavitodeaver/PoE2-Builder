@@ -437,7 +437,17 @@ def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str
     rates = build.call("useRates", indices=[group["index"]]).get("rates") or []
     if not rates:
         return 0.0, []
-    return models.thorns_model(rates[0], texts, {**stats, **build.call("stats", fields=models.THORNS_FIELDS)}, main)
+    barbs = []  # (MECHB23: each Barbs skill PoB adds to a supported group, its own hit, whether it supports the main one)
+    for each in build.groups():
+        if not each["enabled"]:
+            continue
+        for position, skill in enumerate(each["skills"], start=1):
+            if skill["name"] in models.BARBS:
+                row = next(iter(build.call("useRates", indices=[each["index"]], actives=[position])["rates"]), None)
+                barbs.append((skill["name"], row or {}, bool(each["main"]) and main is not None
+                              and main.group == each["index"]))
+    return models.thorns_model(rates[0], texts, {**stats, **build.call("stats", fields=models.THORNS_FIELDS)}, main,
+                               barbs)
 
 
 class Assumptions:
@@ -682,6 +692,8 @@ class Assumptions:
         thorn, thorn_notes = thorns(build, main, stats, [e["text"] for e in source_lines])  # (MECHB22)
         hand_mods += [models.added_input("Thorns", thorn)] if thorn > 0 else []
         hand_notes += thorn_notes
+        for note in thorn_notes:  # (MECHB23: PoB's Barbs entries, scored at a flat 1 use a second, out of Full DPS)
+            build.objective.entry_scales.update(note.get("full_dps") or {})
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge

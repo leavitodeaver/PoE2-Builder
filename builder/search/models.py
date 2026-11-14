@@ -4429,9 +4429,24 @@ def boss_melee_share(boss: str, gain: bool = True) -> tuple[float, str]:
 #   - "Deal your Thorns damage to enemies you Critically Hit with Melee Attacks" (deal_thorns_damage_on_melee_crit,
 #     the hand wraps): the main skill's crits a second when it is a Melee Attack.
 #   Both on the main skill only (other melee skills' hits: an undercount); they count beside each other and beside
-#   Retaliation (no "instead" in either text; whether the game limits Thorns per hit is UNVERIFIED, RESEARCH #154).
+#   Retaliation (no "instead" in either text). No limit per hit, per second or per enemy (checked, AUDIT30 for RESEARCH
+#   #154: KeywordPopups Thorns / ThornsRetaliation / RetaliateAgainstAll, the 125 Stats ids holding "thorn" or
+#   "retaliat", GrantedEffects (no player Thorns skill: PoB's ThornsPlayer is its own); poe2db, patch notes 0.1-0.5:
+#   none in the data; a limit the data doesn't show is UNVERIFIED in game).
+#   - Barbs I / II / III (MECHB23; gem_stat_descriptions: "Deal your Thorns damage to the next {0} enemies Hit by
+#     Supported Skills after you Retaliate with Thorns", 4 / 6; III "twice to the next enemy"): PoB adds a hidden
+#     "Barbs I/II/III" Thorns skill to the supported group (Modules/Data.lua 1015-1029) and, with that group in Full DPS,
+#     scores it at its default Speed 1, one Thorns hit a second whatever the Retaliations (probe POE2T1094: a Boneshatter
+#     Titan's FullDPS 376.99 -> 381.99 with Barbs I and a Thorns belt, PoB's Barbs hit 5): an OVERCOUNT, 0 on the
+#     worst-case preset where nothing Retaliates. So PoB's entry is scaled to 0 (Objective.entry_scales) and Barbs is
+#     counted here: min(Retaliations/s x N, the supported main skill's hits/s) x (2 for III) x PoB's Barbs hit (the same
+#     whether each Retaliation refreshes the N or adds to it, at a steady rhythm). N counts hits on the one boss: the
+#     stat id is deal_thorns_damage_on_hit_for_X_hits_after_thorns_trigger ("for X hits"), the text says "enemies"
+#     (UNVERIFIED which the game counts on one boss: the note gives the once-per-Retaliation row). Only when Barbs
+#     supports the main skill, a non-triggered Melee Attack (Barbs on another group: an undercount, named). Barbs' own
+#     Thorns hits aren't Retaliation (KeywordPopups ThornsRetaliation), so they feed no more Barbs.
 # Not counted yet (undercounts, labelled in the note): legacy Prized Pain's "Deal your Thorns Damage to Enemies you Stun
-# with Melee Attacks" (removed from new drops in 0.5.0, poe2db), Barbs I-III (fed by Retaliations), Quillburst,
+# with Melee Attacks" (removed from new drops in 0.5.0, poe2db), Barbs on a skill other than the main one, Quillburst,
 # Brambleslam's briars, the Tribute notable's chance against non-melee hits. (checked: every Stats.json id holding
 # "thorn" (125), and which Mods / GrantedEffectStatSets / PassiveSkills rows use the proc stats: the sources above are
 # every row there; PoB's Uniques for the line texts; the second source RESEARCH #149's poe2db reads.)
@@ -4442,9 +4457,9 @@ THORNS_ON_CRIT = "deal your thorns damage to enemies you critically hit with mel
 THORNS_ANY_HIT = "thorns can retaliate against all hits"
 THORNS_NOT_COUNTED = {
     "deal your thorns damage to enemies you stun with melee attacks": "legacy Prized Pain's Thorns on melee Stun",
-    "after you retaliate with thorns": "Barbs' Thorns on hit after a Retaliation",
 }
 THORNS_FIELDS = ["enemySkillTime", "EvadeChance", "EffectiveBlockChance"]
+BARBS = {"Barbs I": (4, 1), "Barbs II": (6, 1), "Barbs III": (1, 2)}  # (hits after each Retaliation, Thorns per hit)
 
 
 def thorns_hit(rate: dict | None) -> float:
@@ -4457,10 +4472,13 @@ def thorns_hit(rate: dict | None) -> float:
     return hit * (1 - crit) + crits * crit if crit > 0 else hit
 
 
-def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill | None) -> tuple[float, list[dict]]:
+def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill | None,
+                 barbs: list[tuple[str, dict, bool]] | None = None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for the build's Thorns hits on the boss (see above). `rate`: the bridge's useRates entry for
     PoB's Thorns group (None: the build has no Thorns damage); `stats`: the main skill's (Speed, HitChance, CritChance)
-    with the boss (_boss) and THORNS_FIELDS."""
+    with the boss (_boss) and THORNS_FIELDS; `barbs`: (Barbs skill name, its useRates entry, whether it supports the
+    main skill) for each Barbs skill in the build. A note's "full_dps" ({SkillDPS name: scale}) takes PoB's own Barbs
+    entries out of Full DPS (Objective.entry_scales)."""
     hit = thorns_hit(rate)
     if hit <= 0:
         return 0.0, []
@@ -4481,6 +4499,26 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
     crit_line = any(THORNS_ON_CRIT in t for t in lower)
     on_crit = crits_per_second(stats) if melee_main and crit_line else 0.0
     procs = retaliations + on_hit + on_crit
+    barbs_dps, barbs_parts, scales = 0.0, [], {}
+    for name, barb_rate, on_main in barbs or []:
+        if name not in BARBS:
+            continue
+        scales[name] = 0.0  # (PoB's own entry, at its flat Speed 1: replaced by the count below)
+        count, times = BARBS[name]
+        if not (on_main and melee_main):
+            barbs_parts.append(f"{name} 0 (it doesn't support the main skill as a non-triggered Melee Attack: an "
+                               "undercount if it supports another skill)")
+            continue
+        main_hits = hits_per_second(stats)
+        barb_hits = min(retaliations * count, main_hits) * times
+        once = min(retaliations, main_hits) * times
+        barb_hit = thorns_hit(barb_rate) or hit
+        barbs_dps += barb_hits * barb_hit
+        barbs_parts.append(f"{name} {barb_hits:.3g}/s (min(Retaliations {retaliations:.3g}/s x {count}, the main "
+                           f"skill's hits {main_hits:.3g}/s)" + (f" x {times}" if times > 1 else "")
+                           + f", each PoB's Barbs hit {barb_hit:.4g}; if the game counts the boss once per Retaliation: "
+                           f"{once:.3g}/s, {once * barb_hit:.0f} DPS (UNVERIFIED: the stat counts hits, the text "
+                           "enemies); PoB's own Barbs entry, scored at 1 use a second, taken out of Full DPS)")
     parts = [f"Retaliation {retaliations:.3g}/s ({boss}'s landed hits {landed:.3g}/s, one every {every:.2f} s at "
              f"{land:.0%} landing (evaded and Blocked hits not counted; whether a Blocked hit Retaliates is "
              f"UNVERIFIED), x {share:.0%}: {share_how})"]
@@ -4490,16 +4528,20 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
     if crit_line:
         parts.append(f"on its melee crits {on_crit:.3g}/s" + ("" if melee_main else " (0: not a Melee Attack)"))
     missing = sorted({what for t in lower for key, what in THORNS_NOT_COUNTED.items() if key in t})
-    dps = procs * hit
+    if barbs_parts:
+        parts.append("Barbs: " + "; ".join(barbs_parts))
+    dps = procs * hit + barbs_dps
     return dps, [{
         "label": "Thorns damage on the boss*", "value": round(dps, 1),
         "basis": f"PoB's Thorns hit {hit:.4g} (its own Thorns group, which no PoB DPS counts) x {procs:.3g} Thorns hits "
-                 "a second: " + "; ".join(parts) + ". No limit per hit or per second counted (UNVERIFIED)"
+                 "a second: " + "; ".join(parts) + ". No limit per hit or per second (checked: the game's Thorns definitions, the 125 thorn stat ids, "
+                 "GrantedEffects; poe2db, patch notes: none in the data; in game UNVERIFIED)"
                  + (f"; not counted yet: {', '.join(missing)} (undercounts)" if missing else ""),
         "play": "Thorns hit back when the boss hits you in melee" + (" (any hit, with the Crown)" if any_hit else "")
                 + (", and on your melee hits" if on_hit or on_crit else "")
+                + (", and on your hits after each Retaliation (Barbs)" if barbs_dps else "")
                 + f". Without Thorns: +0 DPS; with it: +{dps:.0f} DPS",
-        "confidence": "LOW"}]
+        "confidence": "LOW", **({"full_dps": scales} if scales else {})}]
 
 
 # Glory on a boss (glory_uses) --------------------------------------------------------------------------------------------
