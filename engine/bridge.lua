@@ -2353,7 +2353,7 @@ local function setSlotActive(slotName, active)
 end
 
 -- Commit an item into a specific slot (or empty it when `raw` is absent), then recalculate fully.
--- `active` switches a flask or charm slot on or off.
+-- `active` switches a flask or charm slot on or off. `recalc = false` leaves the recalculation to the next equip.
 function bridge.equip(args)
 	local slot, old = slotItem(args.slot)
 	if args.raw then
@@ -2367,6 +2367,11 @@ function bridge.equip(args)
 		setSlotActive(args.slot, args.active and args.raw ~= nil)
 	end
 	forgetItem(old)
+	if args.recalc == false then
+		-- (PERF23) The caller's next call is another equip, whose recalculation covers this change too: Build's
+		-- real trials of item candidates put the old item back between two trials (builder/search/state.py)
+		return { seconds = 0, stats = setmetatable({ }, { __jsontype = "object" }) }
+	end
 	local start = os.clock()
 	recalc()
 	return { seconds = os.clock() - start, stats = pickStats(build.calcsTab.mainOutput, args.fields) }

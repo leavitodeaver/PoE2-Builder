@@ -203,14 +203,16 @@ class Build:
             return scored
         best = sorted(touched, key=lambda i: -scored[i][0])[:self.RESCORE_TOP]
         before = (self.score, dict(self.stats), self.commits)
-        for i in best:
+        for n, i in enumerate(best):
             case = cases[i]
             old = current.get(case["slot"])
             self.call("equip", slot=case["slot"], raw=case.get("raw"), fields=[])
             self.reassume()
             stats = self.objective.prepare({**self.call("stats", fields=self.objective.fields), **self.added_stats()})
             scored[i] = (self.objective.score(stats), stats)
-            self.call("equip", slot=case["slot"], raw=old, fields=[])
+            # (PERF23: between two trials the old item goes back without a recalculation of its own: the next trial's
+            # equip is the very next engine call and recalculates the whole build; the last one recalculates as before)
+            self.call("equip", slot=case["slot"], raw=old, fields=[], **({"recalc": False} if n + 1 < len(best) else {}))
             self.rescored += 1
         self.reassume()
         self.score, self.stats = before[0], before[1]
