@@ -2053,28 +2053,41 @@ def test_the_request_names_its_boss():
 
 def test_a_flask_up_part_of_the_fight_is_ranked_at_its_share():
     """MECHC5's spec (SEARCH5): a flask or charm up between gear.FLASK_ON (7%) and gear.FLASK_WHOLE (99.5%) of the fight
-    is switched on and ranked at its share, d_off + ln(u e^(d_on - d_off) + 1 - u) (SEARCH6: AUDIT19's A19-1 / A19-7)."""
+    is switched on and ranked at its share (SEARCH6: AUDIT19's A19-1 / A19-7). Since SEARCH22 as weigh_uptimes counts it:
+    its value at its share, u x on + (1 - u) x off, and the worse case's floors, never the on case's alone (a part-time
+    Enduring Elixirs Life flask's on case reads PoB's whole flask recovery plus ours: MECHC25's double count)."""
     import math
 
     from builder.search.gear import Gear
 
+    class FakeObjective:
+        value = staticmethod(lambda stats: stats["value"])
+        penalty = staticmethod(lambda stats: stats["penalty"])
+
     class FakeBuild:
+        objective = FakeObjective()
+
         def item_deltas(self, cases):
-            return [((0.2 if c["active"] else -0.1), {"active": c["active"]}) for c in cases]
+            # on: more DPS and a smaller recovery shortfall (the doubled flask recovery); off: ours alone
+            on = {"value": 10.0, "penalty": 0.1}
+            off = {"value": 6.0, "penalty": 0.3}
+            return [(math.log1p(case["value"]) - case["penalty"], {"active": c["active"], **case})
+                    for c in cases for case in [on if c["active"] else off]]
 
     gear = object.__new__(Gear)
     gear.build = FakeBuild()
     gear.flask_info = lambda raws: [{} for _ in raws]
-    gear.recovery_stats = lambda replace=None: {}
+    gear.recovery_stats = lambda replace=None, raws=None: {}
     shares = {"half": 0.5, "most": 0.95, "full": 0.996, "rare": 0.01, "six": 0.06}
     gear.share = lambda slot, info, raw: shares[raw]
     half, most, full, rare, six = gear.deltas("Flask 2", ["half", "most", "full", "rare", "six"])
-    assert half[0] == pytest.approx(-0.1 + math.log(0.5 * math.exp(0.3) + 0.5)) and half[1]["active"]
+    # the off case's floors (0.3), not the on case's (0.1) blended in
+    assert half[0] == pytest.approx(math.log1p(0.5 * 10.0 + 0.5 * 6.0) - 0.3) and half[1]["active"]
     # A19-1 (AUDIT19): 95% is no longer whole (it was from flasks.ACTIVE_UPTIME, 90%); whole only from FULL_UPTIME
-    assert most[0] == pytest.approx(-0.1 + math.log(0.95 * math.exp(0.3) + 0.05)) and most[1]["active"]
-    assert full[0] == pytest.approx(0.2)  # from FLASK_WHOLE (99.5%): whole
-    assert rare[0] == pytest.approx(-0.1) and not rare[1]["active"]  # under FLASK_ON: off
-    assert six[0] == pytest.approx(-0.1) and not six[1]["active"]  # A19-7: 6% is under the 7% switch-on: off
+    assert most[0] == pytest.approx(math.log1p(0.95 * 10.0 + 0.05 * 6.0) - 0.3) and most[1]["active"]
+    assert full[0] == pytest.approx(math.log1p(10.0) - 0.1)  # from FLASK_WHOLE (99.5%): whole
+    assert rare[0] == pytest.approx(math.log1p(6.0) - 0.3) and not rare[1]["active"]  # under FLASK_ON: off
+    assert six[0] == pytest.approx(math.log1p(6.0) - 0.3) and not six[1]["active"]  # A19-7: 6% is under the 7% switch-on
 
 
 def test_support_gems_that_scale_with_distance_put_their_distances_in_the_trials():

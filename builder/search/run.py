@@ -584,7 +584,13 @@ class Run:
                 low = [g["name"] for g in final["gear"].values() if g["confidence"] in ("low", "unknown")]
                 check.update(delivered=f"{spent:.2f} divine", ok=spent <= budget + 1e-9,
                              note="poe.ninja prices" + (f"; low-confidence: {', '.join(low)}" if low else ""))
-        share, pool = sustain(facts["stats"])
+        # The sustain and recovery rows read the worse of the build as it is and the build with its part-time effects
+        # off (floor_deltas, as the search's deficits and floors_at_full_uptime do; SEARCH22): with a part-time Enduring
+        # Elixirs Life flask (or Melting Maelstrom) the stats as they are hold PoB's whole flask recovery plus ours
+        # (flasks.pob_counts_whole's note, MECHC25), counted twice; with the slot off ours alone is its time-weighted share
+        cases = [facts["stats"], *({**facts["stats"], **{k: number(facts["stats"].get(k)) + d for k, d in deltas.items()}}
+                                   for deltas in final.get("floor_deltas") or [])]
+        share, pool = min((sustain(case) for case in cases), key=lambda found: found[0])
         checks.append({"label": "Skill costs sustained", "requested": f"≥ {SUSTAIN_FLOOR:.0%} by recovery",
                        "delivered": "no costs to pay" if pool is None and share >= 1 else f"{min(share, 9.99):.0%}"
                        + (f" of {pool}" if pool else ""), "ok": share >= SUSTAIN_FLOOR,
@@ -593,13 +599,14 @@ class Run:
                                "kills, Remnants, charms and events at the build's own rates, against the per-second "
                                "cost. Not counted yet (so the share may be low): " + SUSTAIN_LEFT_OUT})
         if self.request.floors.recovery is None:  # always reported; a requirement only when the request sets one
-            recovery = boss_recovery(facts["stats"])
+            recovery = min((boss_recovery(case) for case in cases), key=lambda found: found["share"])
             checks.append({"label": "Recovery vs boss damage %", "requested": "not required",
                            "delivered": recovery_text(recovery), "ok": None, "note": RECOVERY_NOTE})
         else:
             for check in checks:
                 if check["label"] == "Recovery vs boss damage %":
-                    check.update(delivered=recovery_text(boss_recovery(facts["stats"])), note=RECOVERY_NOTE)
+                    check.update(delivered=recovery_text(min((boss_recovery(case) for case in cases),
+                                                             key=lambda found: found["share"])), note=RECOVERY_NOTE)
         floors_at_full_uptime(checks, self.ctx.compiled.penalties, facts["stats"], final.get("floor_deltas") or [])
         failing = [c for c in checks if c["ok"] is False]
         reasons = [f"{c['label']}: requested {c['requested']}, delivered {c['delivered']}" for c in failing]

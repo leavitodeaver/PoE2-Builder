@@ -863,11 +863,10 @@ class Search:
                 self.uptime_cache[var] = (ratio, deltas)
                 share = 1.0 if info.get("in_stats") else up + (1.0 - up) * ratio  # (LEDGER_VAR: in PoB's stats)
                 factor *= share
-                floors = [(p.label, number(on_stats.get(p.stat)), number(on_stats.get(p.stat)) + deltas[p.stat])
-                          for p in objective.penalties if p.stat in deltas]
-                defence = "; ".join(f"{label} {a:,.4g} with it, {b:,.4g} without, {up * a + (1 - up) * b:,.4g} "
+                floors = _uptime_floor_rows(self, var, up, on_stats, off_stats, deltas)
+                defence = "; ".join(f"{label} {a:,.4g} with it, {b:,.4g} without, {w:,.4g} "
                                     f"time-weighted (the floors are checked with "
-                                    f"every part-time effect off)" for label, a, b in floors[:3])
+                                    f"every part-time effect off)" for label, a, b, w in floors[:3])
                 self.uptime_rows.append({"var": var, "label": info["label"], "uptime": up, "ratio": ratio, "factor": share,
                                          "defence": defence})
                 self.play_notes[f"uptime:{var}"] = {
@@ -1404,9 +1403,60 @@ def _part_time(search: Any) -> dict[str, tuple[float, dict]]:
     return out
 
 
+def _uptime_floor_rows(search: Any, var: str, up: float, on_stats: dict, off_stats: dict,
+                       deltas: dict) -> list[tuple[str, float, float, float]]:
+    """weigh_uptimes' defence rows for one part-time effect: (floor label, with it, without, time-weighted), the
+    time-weighted figure u x with + (1 - u) x without. A flask slot PoB counts in its own regeneration while it's up
+    (kept at full: Enduring Elixirs' Life flask, Melting Maelstrom's own Mana line; flasks.pob_counts_whole's note,
+    MECHC25) holds PoB's whole flask recovery AND ours (Gear.recovery_stats, which doesn't follow the slot's flag) with
+    it on, and ours alone with it off, so that weighting counted its recovery twice (MECHC25; SEARCH22). Its rows are:
+    with it, PoB's alone (ours taken off); without, none from it (ours taken off too); time-weighted, ours alone (its
+    recovery at the rate its charges allow: what the floors read) where ours moves the floor, else the weighting."""
+    objective = search.build.objective
+    plain = [(p.label, number(on_stats.get(p.stat)), number(on_stats.get(p.stat)) + deltas[p.stat])
+             for p in objective.penalties if p.stat in deltas]
+    ours, field = _pob_counted_flask(search, var, deltas)
+    if ours <= 0:
+        return [(label, a, b, up * a + (1 - up) * b) for label, a, b in plain]
+    from builder.search.objective import with_boss_recovery, with_life_es
+
+    def less_ours(stats: dict) -> dict:
+        return with_life_es(with_boss_recovery({**stats, field: number(stats.get(field)) - ours}))
+
+    up_stats, down_stats = less_ours(on_stats), less_ours(off_stats)
+    rows = []
+    for p in objective.penalties:
+        if p.stat not in deltas:
+            continue
+        a, c, b = number(up_stats.get(p.stat)), number(down_stats.get(p.stat)), number(off_stats.get(p.stat))
+        rows.append((p.label, a, c, b if abs(b - c) > 1e-9 else up * a + (1 - up) * c))
+    return rows
+
+
+def _pob_counted_flask(search: Any, var: str, deltas: dict) -> tuple[float, str]:
+    """(our recovery a second, its field) for a part-time Life / Mana flask slot (FLASK_VAR) whose recovery PoB also adds
+    to its own regeneration while the slot is on: the effect kept when the pool fills (the build's Enduring Elixirs
+    flag for Life, flasks.Charges.life_effect_kept; the flask's own Mana line, flasks.KEPT_AT_FULL) and the slot's on /
+    off recalculation moving that pool's RegenRecovery (measured, not read off the text alone). (0.0, "") otherwise."""
+    gear = getattr(search, "gear", None)
+    if gear is None or not var.startswith(FLASK_VAR):
+        return 0.0, ""
+    slot = var[len(FLASK_VAR):].split(":", 1)[0]
+    pool, option = flasks.slot_pool(slot), search.build.equipped.get(slot)
+    if pool not in flasks.RECOVERY_FIELDS or option is None or number(deltas.get(f"{pool}RegenRecovery")) >= 0:
+        return 0.0, ""
+    charges = getattr(gear, "charges", None)
+    kept = (getattr(charges, "life_effect_kept", False) if pool == "Life"
+            else flasks.KEPT_AT_FULL["Mana"] in (option.raw or "").lower())
+    if not kept or charges is None:
+        return 0.0, ""
+    ours = flasks.recovery_per_second(gear.flask_info([option.raw])[0], charges, pool, option.raw)
+    return ours, flasks.RECOVERY_FIELDS[pool]
+
+
 def _switch(search: Any, values: dict[str, Any]) -> None:
     """Set part-time effects on or off: PoB config vars, and flask / charm slots (FLASK_VAR) through the slot's active
-    flag (the item stays equipped; its recovery, Gear.recovery_stats, doesn't depend on the flag)."""
+    flag (the item stays equipped; its recovery, Gear.recovery_stats, doesn't depend on the flag: _uptime_floor_rows)."""
     config = {}
     for var, value in values.items():
         if var.startswith(LEDGER_VAR):

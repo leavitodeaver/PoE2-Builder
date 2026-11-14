@@ -284,17 +284,23 @@ class Gear:
         for case, raw, info in zip(cases, raws, self.flask_info(raws)):
             shares.append(self.share(slot, info, raw))
             case["active"] = shares[-1] >= FLASK_ON
-            case["extra"] = self.recovery_stats({slot: info})
-        # An effect up only part of the fight: scored on and off, blended at its share, d_off + ln(u e^(d_on - d_off)
-        # + 1 - u) (the score is ln DPS; the off case's floors, as weigh_uptimes checks them). A ranking estimate:
-        # once equipped, Search.follow_uptimes weighs it with a real recalculation
+            case["extra"] = self.recovery_stats({slot: info}, {slot: raw})
+        # An effect up only part of the fight: scored on and off and blended as weigh_uptimes counts it once equipped:
+        # the value (DPS) at its share, u x on + (1 - u) x off, and the floors of the worse case (objective.deficits:
+        # the build as it is or with its part-time effects off), so the floors never read the slot on alone. Before
+        # (to SEARCH22), d_off + ln(u e^(d_on - d_off) + 1 - u) blended the on case's floors in at u: with a part-time
+        # Enduring Elixirs Life flask (or Melting Maelstrom) the on case's recovery is PoB's whole flask recovery plus
+        # ours (flasks.pob_counts_whole's note, MECHC25), so a short recovery floor read that doubled figure at its
+        # share (a ranking OVERCOUNT). A ranking estimate: once equipped, Search.follow_uptimes weighs it exactly
         part = [i for i, up in enumerate(shares) if FLASK_ON <= up < FLASK_WHOLE]
         scored = self.build.item_deltas(cases + [{**cases[i], "active": False} for i in part])
         out = scored[:len(cases)]
-        for i, (d_off, _) in zip(part, scored[len(cases):]):
-            d_on, stats = out[i]
+        objective = self.build.objective
+        for i, (_, off_stats) in zip(part, scored[len(cases):]):
+            _, stats = out[i]
             up = shares[i]
-            out[i] = (d_off + math.log(up * math.exp(min(d_on - d_off, 50.0)) + 1.0 - up), stats)
+            value = up * max(objective.value(stats), 0.0) + (1.0 - up) * max(objective.value(off_stats), 0.0)
+            out[i] = (math.log1p(value) - max(objective.penalty(stats), objective.penalty(off_stats)), stats)
         return out
 
     def put(self, slot: str, option: ItemOption | None) -> float:
@@ -302,7 +308,7 @@ class Gear:
         if not is_flask_slot(slot):
             return self.build.equip(slot, option)
         info = self.flask_info([option.raw])[0] if option else {}
-        self.build.extra_stats = self.recovery_stats({slot: info})
+        self.build.extra_stats = self.recovery_stats({slot: info}, {slot: option.raw} if option else None)
         return self.build.equip(slot, option, active=option is not None and self.counts(slot, info, option.raw))
 
     # Restrictions from the build's own lines (SLOT_RESTRICTIONS; COV-B) ---------------------------
@@ -388,18 +394,23 @@ class Gear:
                     out[slot] = (up, option.name)
         return out
 
-    def recovery_stats(self, replace: dict[str, dict] | None = None) -> dict:
-        """Flask recovery per second (the sustain floor's flask share), with `replace`d slots."""
-        replace = replace or {}
+    def recovery_stats(self, replace: dict[str, dict] | None = None, raws: dict[str, str] | None = None) -> dict:
+        """Flask recovery per second (the sustain floor's flask share), with `replace`d slots (`raws`: their texts).
+        Each flask's own text goes to recovery_per_second (SEARCH22, MECHC25's item): its own "Effect is not removed
+        when Unreserved Mana is Filled" (Melting Maelstrom) is how flasks.pob_counts_whole knows PoB counts that flask's
+        whole recovery up the whole fight; without the text ours was added on top of PoB's (an OVERCOUNT of Mana
+        recovery in the sustain and recovery floors; Enduring Elixirs' Life case reads the build's flag, not the text)."""
+        replace, raws = replace or {}, raws or {}
         totals = {field: 0.0 for field in RECOVERY_FIELDS.values()}
         for slot, pool in FLASK_SLOTS.items():
             if slot in replace:
-                info = replace[slot]
+                info, raw = replace[slot], raws.get(slot, "")
             else:
                 option = self.build.equipped.get(slot)
                 info = self.flask_info([option.raw])[0] if option else None
+                raw = option.raw if option else ""
             if info:
-                totals[RECOVERY_FIELDS[pool]] += recovery_per_second(info, self.charges, pool)
+                totals[RECOVERY_FIELDS[pool]] += recovery_per_second(info, self.charges, pool, raw)
         return totals
 
     def sync_flasks(self) -> None:
