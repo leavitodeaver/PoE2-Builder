@@ -1445,7 +1445,8 @@ def test_barbs_on_a_side_melee_group_reads_that_skills_own_hits(engine, monkeypa
 
 def test_energy_capacitor_on_a_real_invocation_group_raises_its_store(engine):
     """(MECHB25, GEM4) On a real build, Energy Capacitor in Elemental Invocation's group reaches the Energy model by the
-    name PoB gives the gem, and the Invocation's store reads 900 (500 x 1.8; skill_maximum_energy_+% 80, game files)."""
+    name PoB gives the gem, and the Invocation's store reads 1080 ((500 + 20% quality x 5) x 1.8; skill_maximum_energy_+% 80,
+    game files)."""
     from builder.search.inner import Search
     from builder.search.skeletons import enumerate_skeletons
 
@@ -1454,12 +1455,15 @@ def test_energy_capacitor_on_a_real_invocation_group_raises_its_store(engine):
     search = Search(engine, None, payload, skeleton.as_dict(), 1)
     search.setup(quests=False)
     build = search.build
-    build.call("setGroup", gems=[{"name": "Elemental Invocation", "support": False, "level": 20, "quality": 0, "enabled": True},
+    build.call("setGroup", gems=[{"name": "Elemental Invocation", "support": False, "level": 20, "quality": 20, "enabled": True},
                                  {"name": "Comet", "support": False, "level": 20, "quality": 0, "enabled": True},
                                  {"name": "Energy Capacitor", "support": True, "level": 1, "quality": 0, "enabled": True}])
     search.assumptions.apply()
     note = next(n for n in search.assumptions.active if n["label"].startswith("Elemental Invocation triggers per second"))
-    assert "900 Energy store (500 base, Energy Capacitor +80% increased Maximum Energy)" in note["basis"], note
+    # (MECHB26: its 20% quality adds 100, GrantedEffectQualityStats; the bridge's cooldown reaches the press cap, A34-18)
+    assert ("store holds 1080 Energy (500 base, +100 from its 20% quality, Energy Capacitor +80% increased Maximum "
+            "Energy)") in note["basis"], note
+    assert "pressed on its" in note["basis"] and "s cooldown*" in note["basis"], note
 
 
 def test_fireflower_self_damage_reaches_pob_as_fire_damage_taken(engine):

@@ -633,7 +633,10 @@ class Assumptions:
                           "confidence": "MEDIUM"})
         supports = {g["index"]: [x["name"] for x in g["gems"] if x["support"] and x.get("enabled", True)]
                     for g in build.groups()}
-        energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports)
+        qualities = {g["index"]: models.number(x.get("quality")) for g in build.groups() for x in g["gems"]
+                     if not x["support"] and x["name"] in models.QUALITY_MAX_ENERGY}  # (an Invocation's store, MECHB26)
+        energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports, qualities,
+                                                                       models.press_choices(build))
         # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
         build.trigger_rates = {m["skill"]: m["value"] for m in energy_mods
                                if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"}

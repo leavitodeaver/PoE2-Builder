@@ -281,7 +281,7 @@ def test_energy_capacitor_and_invocated_maximum_energy_raise_an_invocations_stor
 
     assert rate(Inputs(), {})[0] == 0
     on, notes = rate(Inputs(), {2: ["Energy Capacitor"]})
-    assert on > 0 and any("900 Energy store (500 base, Energy Capacitor +80%" in n["basis"] for n in notes)
+    assert on > 0 and any("store holds 900 Energy (500 base, Energy Capacitor +80%" in n["basis"] for n in notes)
     assert rate(Inputs(), {1: ["Energy Capacitor"]})[0] == 0
     assert models.invocation_max_energy(Inputs(items={"InvocationMaxEnergy": 30.0}), ["Energy Capacitor"])[0] == pytest.approx(1050)
     assert rate(Inputs(items={"InvocationMaxEnergy": 30.0}), {})[0] > 0  # 650 >= 600
@@ -290,6 +290,37 @@ def test_energy_capacitor_and_invocated_maximum_energy_raise_an_invocations_stor
     assert entry is not None and entry.translate("Invocated skills have 30% increased Maximum Energy") == ["mult:InvocationMaxEnergy 30"]
     reduced = models.model_entry("Invocated skills have 25% reduced Maximum Energy")
     assert reduced.translate("Invocated skills have 25% reduced Maximum Energy") == ["mult:InvocationMaxEnergy -25"]
+
+
+def test_an_invocations_store_caps_what_the_presses_release():
+    """A34-18 (MECHB26): an Invocation releases at most floor(store / a round's Energy) rounds a press, pressed on its
+    0.2 s cooldown or at the search's chosen rate; Energy gained while the store is full is lost. Energy Capacitor then
+    moves a build gaining faster than it presses (one 300-Energy round a press at 500, three at 900), and Elemental
+    Invocation's quality adds 5 Energy a 1% (GrantedEffectQualityStats)."""
+    elemental = Skill("Elemental Invocation", group=2, energy=True, cooldown=0.2)
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=3.0)
+    stats = {"Speed": 4, "HitChance": 100, "ShockChanceOnHit": 100}
+
+    def rate(supports=None, qualities=None, choices=None):
+        mods, notes, _ = models.energy_model(Inputs(), stats, [SPARK, elemental, comet], SPARK, supports, qualities, choices)
+        return {m["skill"]: m["value"] for m in mods if m.get("key") == "triggerRate"}["Comet"], notes
+
+    fed, notes = rate()
+    assert fed > 0 and fed < 5  # (the 0.2 s cooldown lets 5 presses x 1 round a second through: not capped)
+    assert any("presses keep up" in n["basis"] for n in notes)
+    slow = fed / 4  # presses a second the search chose: fewer than the build's rounds
+    capped, notes = rate(choices={"Elemental Invocation": slow})
+    assert capped == pytest.approx(slow, rel=1e-3)
+    assert any("of the Energy gained is lost" in n["basis"] for n in notes)
+    assert rate({2: ["Energy Capacitor"]}, choices={"Elemental Invocation": slow})[0] == pytest.approx(3 * slow, rel=1e-3)
+    # 20% quality: 600 stored, two rounds a press
+    assert rate(qualities={2: 20}, choices={"Elemental Invocation": slow})[0] == pytest.approx(2 * slow, rel=1e-3)
+    assert models.invocation_max_energy(None, [], "Elemental Invocation", 20)[0] == pytest.approx(600)
+    assert models.invocation_max_energy(None, [], "Spellslinger", 20)[0] == pytest.approx(500)
+    # a chosen rate faster than the cooldown is held to it; a cooldown recovery raises it
+    many = Skill("Elemental Invocation", group=2, energy=True, cooldown=0.2, cooldown_recovery=2.0)
+    assert models.invocation_release(elemental, {"EnergyRefund": 0, "InvocationHalfCost": 0}, 300, 500, {"Elemental Invocation": 50})[1] == pytest.approx(5)
+    assert models.invocation_release(many, {"EnergyRefund": 0, "InvocationHalfCost": 0}, 300, 500)[0] == pytest.approx(10)
 
 
 def test_unmodeled_metas_count_nothing_rather_than_a_self_cast():

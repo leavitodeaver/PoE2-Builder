@@ -610,18 +610,30 @@ INVOCATION_MAX_ENERGY = 500  # generic_ongoing_trigger_maximum_energy of every I
 # 25-35, a soul core's Bonded 25) reaches the model as the InvocationMaxEnergy input (ledger meta-invocation-maximum);
 # PoB parses that line only in part (ModCache: leftover " Maximum Energy "), so applies none of it.
 ENERGY_CAPACITY_SUPPORTS = {"Energy Capacitor": 80.0}
+# Gem quality adding to the store (MECHB26): Elemental Invocation's quality gives +5 generic_ongoing_trigger_maximum_energy
+# per 1% (GrantedEffectQualityStats row 196, MetaElementalInvocationPlayer, 5000 permille). It is the one Invocation whose
+# quality does (checked: every GrantedEffectQualityStats row holding stat 17830 generic_ongoing_trigger_maximum_energy,
+# build 26476662: only that row; PoB 0.23 act_int.lua's qualityStats agree, only Elemental Invocation's line 5721). The
+# flat quality Energy is taken as added before the increases (the usual base-then-increased order; UNVERIFIED).
+QUALITY_MAX_ENERGY = {"Elemental Invocation": 5.0}
 
 
-def invocation_max_energy(inputs: "Inputs | None", supports: list[str]) -> tuple[float, str]:
-    """An Invocation's maximum Energy: 500 x (1 + (its group's Energy Capacitor + the build's Invocated-skills increased
-    Maximum Energy) / 100), and a few words on where the increase came from ("" with none). The increases are taken as
-    adding together (both are "increased"; no game text says otherwise: UNVERIFIED)."""
+def invocation_max_energy(inputs: "Inputs | None", supports: list[str], meta: str = "",
+                          quality: float = 0.0) -> tuple[float, str]:
+    """An Invocation's maximum Energy: (500 + its gem quality's flat Energy, QUALITY_MAX_ENERGY) x (1 + (its group's
+    Energy Capacitor + the build's Invocated-skills increased Maximum Energy) / 100), and a few words on where the change
+    came from ("" with none). The increases are taken as adding together (both are "increased"; no game text says
+    otherwise: UNVERIFIED)."""
     own = sum(ENERGY_CAPACITY_SUPPORTS.get(n, 0.0) for n in supports)
     wide = inputs.total("InvocationMaxEnergy") if inputs is not None else 0.0
+    flat = QUALITY_MAX_ENERGY.get(meta, 0.0) * max(0.0, quality)
     pct = own + wide
-    cap = max(0.0, INVOCATION_MAX_ENERGY * (1 + pct / 100))
-    parts = ([f"Energy Capacitor {own:+g}%"] if own else []) + ([f"Invocated skills {wide:+g}% (passives, items)"] if wide else [])
-    return cap, (f" ({INVOCATION_MAX_ENERGY} base, {', '.join(parts)} increased Maximum Energy)" if parts else "")
+    cap = max(0.0, (INVOCATION_MAX_ENERGY + flat) * (1 + pct / 100))
+    parts = (([f"+{flat:g} from its {quality:g}% quality"] if flat else [])
+             + ([f"Energy Capacitor {own:+g}%"] if own else [])
+             + ([f"Invocated skills {wide:+g}% (passives, items)"] if wide else []))
+    return cap, (f" ({INVOCATION_MAX_ENERGY} base, {', '.join(parts)}"
+                 + (" increased Maximum Energy" if pct else "") + ")" if parts else "")
 DODGE_ROLL_METRES = 4.6  # dodge_roll_base_travel_distance 46 units (game files, build 26476662); distance mods not counted
 DODGE_EVERY = 2.0  # seconds between dodge rolls against a boss: the user's default (7 Nov 2026), said in the guide
 DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); movement speed doesn't shorten it (RESEARCH 18w)
@@ -2242,10 +2254,54 @@ def energy_rate(meta: str, x: dict, gain: float, cost: float, crits_recently: bo
     info = META_GEMS[meta]
     increased = gem_energy(meta, level) + x["MetaEnergy"] + (x["MetaEnergyCrit"] if crits_recently else 0.0)
     multiplier = max(0.0, 1 + increased / 100) * max(0.0, 1 + x["MetaEnergyMore"] / 100) * (2.0 if doubled else 1.0)
-    spent = cost * (1 - min(x["EnergyRefund"], 100.0) / 200)
-    if info.get("invocation"):
-        spent *= 1 - min(x["InvocationHalfCost"], 100.0) / 200
+    spent = round_energy(meta, x, cost)
     return gain * multiplier / spent if spent > 0 else 0.0
+
+
+def round_energy(meta: str, x: dict, cost: float) -> float:
+    """The Energy one round of triggers takes on average: its cost less the refund chance's half, and for an Invocation
+    less the chance to consume half (InvocationHalfCost)."""
+    spent = cost * (1 - min(x["EnergyRefund"], 100.0) / 200)
+    if META_GEMS[meta].get("invocation"):
+        spent *= 1 - min(x["InvocationHalfCost"], 100.0) / 200
+    return spent
+
+
+# An Invocation's store against the build's press rate (MECHB26; AUDIT34 A34-18, CLAUDE.md's flat-rate rule). The
+# Invocation definition (KeywordPopups 614): "can be used once sufficient Energy has been gathered to Invoke socketed
+# Skills, expending the Energy to Trigger them ... multiple times if enough Energy is expended". The store holds at most
+# its maximum Energy (invocation_max_energy): Energy gained while it's full is lost. Each press releases whole rounds
+# (a round's Energy is spent only when the store holds it), so one press triggers at most floor(store / round) rounds and
+# the rest stays for the next press. Every Invocation is instant (castTime 0) with a 0.2 s cooldown (PoB 0.23's
+# act_int.lua for Elemental Invocation, Spellslinger, Barrier Invocation and Reaper's Invocation, from the game files'
+# levels; patch 0.4.0: "Invocation skills now have 0.2 second cooldowns"; cooldown recovery shortens it). How often it's pressed is a play choice: the search's chosen rate
+# (press_choices) when it set one, else on its cooldown (a player who takes it plays to feed it; MEDIUM: that's 5 presses
+# a second at the base cooldown). An instant press is taken to cost the main skill no time (UNVERIFIED, as before).
+# Triggers per second = min(the rate the build's Energy gain feeds, presses per second x rounds per press). With no
+# cooldown and no chosen rate, nothing caps it (the old reading: pressed before the store fills; UNVERIFIED).
+def invocation_release(meta: Skill, x: dict, cost: float, store: float,
+                       choices: dict[str, float] | None = None) -> tuple[float, float, str]:
+    """(most rounds per second the presses can release, presses per second, how) for an Invocation; inf when nothing
+    caps it."""
+    spent = round_energy(meta.name, x, cost)
+    if spent <= 0:
+        return float("inf"), 0.0, "a round costs no Energy"
+    cooldown = number(meta.cooldown)
+    fastest = (meta.cooldown_recovery or 1.0) / cooldown if cooldown > 0 else float("inf")
+    chosen = press_choice({"name": meta.name}, choices)
+    if chosen is not None and chosen > 0:
+        presses = min(chosen, fastest)
+        how = f"pressed {presses:.3g} times a second* (the rate the search chose"
+        how += f", held to its {cooldown / (meta.cooldown_recovery or 1.0):.2f} s cooldown)" if chosen > fastest else ")"
+    elif cooldown > 0:
+        presses = fastest
+        how = (f"pressed on its {cooldown / (meta.cooldown_recovery or 1.0):.2f} s cooldown* ({presses:.3g} times a second; "
+               "a player who takes it plays to release it, MEDIUM)")
+    else:
+        return float("inf"), 0.0, "no cooldown and no chosen press rate: taken as pressed before the store fills (UNVERIFIED)"
+    rounds = math.floor(store / spent + 1e-9)
+    return presses * rounds, presses, (f"{how}; each press releases at most {rounds} round{'s' if rounds != 1 else ''} "
+                                       f"({store:.0f} Energy stored / {spent:.0f} a round, whole rounds only)")
 
 
 def minion_count(spell: Skill, rate: float) -> tuple[float, str]:
@@ -2272,10 +2328,12 @@ def minion_count(spell: Skill, rate: float) -> tuple[float, str]:
 
 
 def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill | None,
-                 supports: dict[int, list[str]] | None = None) -> tuple[list, list, set[int]]:
+                 supports: dict[int, list[str]] | None = None, qualities: dict[int, float] | None = None,
+                 choices: dict[str, float] | None = None) -> tuple[list, list, set[int]]:
     """Trigger rates for the spells socketed in meta skills that gain Energy, fed by the main skill. Every spell in a meta
     group triggers once per round, and a round costs all their Energy: a second spell halves (about) the first's rate.
-    `supports` ({group: support names}) adds the meta group's own Energy supports (META_SUPPORTS).
+    `supports` ({group: support names}) adds the meta group's own Energy supports (META_SUPPORTS). `qualities` ({group:
+    the meta gem's quality}) and `choices` (press_choices) set an Invocation's store and press rate (invocation_release).
     Returns (mods, notes, groups whose damage counts)."""
     mods: list[dict] = []
     notes: list[dict] = []
@@ -2301,7 +2359,8 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                           else "the main skill is one it triggers, so nothing else feeds its Energy",
                           "confidence": "theory"})
             continue
-        cap, cap_basis = invocation_max_energy(inputs, (supports or {}).get(meta.group, []))
+        cap, cap_basis = invocation_max_energy(inputs, (supports or {}).get(meta.group, []), meta.name,
+                                               (qualities or {}).get(meta.group, 0.0))
         too_big = [s for s in spells if META_GEMS.get(meta.name, {}).get("invocation")
                    and energy_cost(s) > cap]
         for spell in too_big:  # (MECHB4, COVC6: the Invocation's store can never hold its cost)
@@ -2334,13 +2393,22 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
         for name in own:
             key, value = META_SUPPORTS[name]
             x[key] += value
-        rate = energy_rate(meta.name, x, gain, cost, crits_recently, doubled, meta.level)
+        invocation = bool(META_GEMS[meta.name].get("invocation"))
+
+        def released(x: dict, meta: Skill = meta, cost: float = cost, cap: float = cap,
+                     invocation: bool = invocation) -> tuple[float, float, str]:
+            return invocation_release(meta, x, cost, cap, choices) if invocation else (float("inf"), 0.0, "")
+
+        fed = energy_rate(meta.name, x, gain, cost, crits_recently, doubled, meta.level)
+        most, presses, release_how = released(x)
+        rate = min(fed, most)
         if rate > 0:  # (a group whose spells never trigger adds no damage, and mustn't change how the build is scored)
             groups.add(meta.group)
 
         def relative(x: dict, meta_name: str = meta.name, gain: float = gain, cost: float = cost,
-                     base: float = rate, level: int | None = meta.level) -> float:
-            return 100 * (energy_rate(meta_name, x, gain, cost, crits_recently, doubled, level) / base - 1) if base else 0.0
+                     base: float = rate, level: int | None = meta.level, released=released) -> float:
+            fed = energy_rate(meta_name, x, gain, cost, crits_recently, doubled, level)
+            return 100 * (min(fed, released(x)[0]) / base - 1) if base else 0.0
 
         keys = tuple(k for k in ENERGY_INPUTS if k != "MetaEnergyCrit" or crits_recently)
         for spell in spells:
@@ -2367,8 +2435,13 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                      + f"; one round costs {cost:.0f} Energy (10 per 0.1s of base cast time)"
                      + energy_time_note(spells)
                      + (f", {x['EnergyRefund']:.0f}% chance to refund half" if x["EnergyRefund"] else "")
-                     + ("; an Invocation: you press it to release its Energy (instant in the game files), assumed often "
-                        f"enough that its {cap:.0f} Energy store{cap_basis} never fills" if info.get("invocation") else "")
+                     + (f"; an Invocation: its store holds {cap:.0f} Energy{cap_basis}, {release_how}"
+                        + (f"; the build's Energy would feed {fed:.3f} rounds a second, the presses release {most:.3f}: "
+                           f"the store fills between presses and {1 - most / fed:.0%} of the Energy gained is lost "
+                           "(without that cap: " f"{fed:.3f}/s)" if fed > most and fed > 0
+                           else f"; the presses keep up (they release up to {most:.3f} rounds a second; the store "
+                                f"would fill between them above that)" if most < float("inf") else "")
+                        if info.get("invocation") else "")
                      + (f"; its spells deal {info['less']:.0f}% less damage" if info.get("less") else ""),
             "confidence": "theory"})
         if META_GEMS[meta.name]["gain"] == "dodge" and rate > 0:
