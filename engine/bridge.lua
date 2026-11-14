@@ -3046,6 +3046,18 @@ function bridge.useRates(args)
 	local calcs = require("Modules.CalcBase")
 	local saved = build.mainSocketGroup
 	local rates = { }
+	-- (GEM5: Elemental Discharge, models.discharge_element_hits) args.config: config inputs set for this call only, as
+	-- setConfig sets them ({ var = value }, false for off), put back before it returns, e.g. the three Consumed boxes
+	-- PoB's triggered Elemental Discharge deals its damage under (ConfigOptions conditionIgniteConsumed etc.)
+	local configTab = build.configTab
+	local savedInput = { }
+	if args and args.config then
+		for var, value in pairs(args.config) do
+			savedInput[var] = { configTab.input[var] }
+			configTab.input[var] = (value ~= false and value ~= "nil") and value or nil
+		end
+		configTab:BuildModList()
+	end
 	for n, index in ipairs(args and args.indices or { }) do
 		build.mainSocketGroup = index
 		-- (MECHB10: args.actives[n], if given, is the active skill of that group to rate, for a skill Full DPS counts
@@ -3148,6 +3160,12 @@ function bridge.useRates(args)
 		end
 	end
 	build.mainSocketGroup = saved
+	if next(savedInput) then
+		for var, old in pairs(savedInput) do
+			configTab.input[var] = old[1]
+		end
+		configTab:BuildModList()
+	end
 	return { rates = rates }
 end
 

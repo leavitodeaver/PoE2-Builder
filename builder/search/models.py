@@ -3603,6 +3603,91 @@ def riven_armour_model(hvr_hit: float, riven_up: float, main: Skill | None, stat
     return dps, [{"label": label, "value": f"{dps:,.0f} DPS", "basis": basis, "confidence": conf, "play": play}]
 
 
+# Elemental Discharge's payout (GEM5; GEM4's design, the manager's ruling (a) 14 Nov: an UNDERCOUNT, it scores 0 today).
+# The support (SupportElementalDischargePlayer): "Supports any Spell that Hits enemies, causing it to Consume Elemental
+# Ailments on hit to trigger an Elemental Discharge" (consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge),
+# and the supported spell never Freezes, Shocks or Ignites (active_skill_never_freeze_shock_ignite): the ailments it
+# consumes come from the build's other hits. The triggered skill (TriggeredElementalDischargePlayer): "Triggered when
+# supported skill Consumes Ignite, Shock, or Freeze, to deal damage of Types matching the Consumed Ailments": Fire 40-60%,
+# Cold 80-120%, Lightning 1-120% of Intelligence (PoB maps each under its config box conditionIgniteConsumed /
+# FreezeConsumed / ShockConsumed, all off in the optimizer, and gives the triggered skill no rate: so 0 today). Cooldown
+# 1 s, 1 stored use (game files 26476662 GrantedEffectsPerLevel: Cooldown 1000, StoredUses 1; PoB's levels the same).
+# Patch notes (grep_notes.py --history "Elemental Discharge": 0.1.1 made it a triggered skill, 0.2.0g gave it no cost;
+# no later entry; no hit is not proof of no silent change).
+# The model: the supported spell's hits find the boss carrying an ailment with chance P(any) = 1 - prod(1 - up_e) (the
+# three treated as independent: MEDIUM), where up_e is the share of the fight the boss carries it AFTER the consume cut
+# (the resolver's found_uptimes for conditionEnemyIgnited / Shocked / Frozen, published by MECH-A as
+# build.ailment_up = {"Ignite": share, "Shock": share, "Freeze": share}; MECH69's change: read through
+# ailment_up_of(build); not snap_found's bare reading, which skips the consume cut and would overcount discharges).
+# Discharges a second = 1 / (cooldown + 1 / (hits/s x P(any))) (the first finding hit after the cooldown ends). Each
+# discharge deals each element's hit with the share of discharges that consumed it, up_e / P(any): PoB's per-type hit
+# averages of the triggered skill with all three boxes ticked (bridge useRates' `config`), crit-weighted, after the
+# boss's mitigation. Hits during the cooldown still consume (the support's text says it consumes on hit, the trigger is
+# what waits: UNVERIFIED; the resolver's cut assumes so). No source of an ailment on the boss: 0 with a note, never a
+# flat guess (CLAUDE.md). Confidence MEDIUM at best (the independence and the consume-during-cooldown reading).
+DISCHARGE_SKILL = "Elemental Discharge"
+DISCHARGE_COOLDOWN = 1.0  # (s; GrantedEffectsPerLevel Cooldown 1000, StoredUses 1)
+DISCHARGE_BOXES = {"Ignite": ("conditionIgniteConsumed", "Fire"), "Shock": ("conditionShockConsumed", "Lightning"),
+                   "Freeze": ("conditionFreezeConsumed", "Cold")}
+
+
+def ailment_up_of(build) -> tuple[dict[str, float], str]:
+    """(the boss's ailment uptimes after the consume cut, basis): MECH-A's build.ailment_up ({ailment: share} or
+    {ailment: (share, how)}), or ({}, why) while nothing publishes it."""
+    raw = getattr(build, "ailment_up", None)
+    if not raw:
+        return {}, "the resolver's ailment uptimes are not published on the build yet (MECH-A's build.ailment_up)"
+    up = {}
+    for ailment in DISCHARGE_BOXES:
+        value = raw.get(ailment, 0.0)
+        up[ailment] = min(1.0, max(0.0, number(value[0] if isinstance(value, (tuple, list)) else value)))
+    return up, "the resolver's uptimes after the consume cut"
+
+
+def discharge_element_hits(row: dict) -> dict[str, float]:
+    """Each element's crit-weighted hit of the triggered Elemental Discharge, after the boss's mitigation, from a bridge
+    useRates row calculated with the three Consumed boxes ticked: {"Fire": .., "Cold": .., "Lightning": ..}."""
+    crit = min(1.0, max(0.0, number(row.get("CritChance")) / 100))
+    hit_chance = number(row.get("HitChance", 100) or 100) / 100
+    out = {}
+    for _, element in DISCHARGE_BOXES.values():
+        hit, crit_hit = number(row.get(f"{element}HitAverage")), number(row.get(f"{element}CritAverage"))
+        out[element] = max(0.0, (hit * (1 - crit) + (crit_hit or hit) * crit) * hit_chance)
+    return out
+
+
+def elemental_discharge_model(element_hits: dict[str, float], spell_hits: float, ailment_up: dict[str, float],
+                              cooldown: float = DISCHARGE_COOLDOWN, spell: str = "", how: str = ""
+                              ) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Elemental Discharge triggered by `spell`'s consuming hits (see above). `element_hits`:
+    discharge_element_hits; `spell_hits`: the supported spell's hits a second on the boss; `ailment_up`: ailment_up_of;
+    `cooldown`: the triggered skill's cooldown after recovery (PoB's Cooldown on its useRates row, else 1 s)."""
+    label, conf = f"{DISCHARGE_SKILL}*", "MEDIUM"
+    on = f"{DISCHARGE_SKILL} on {spell}" if spell else DISCHARGE_SKILL
+    missing = 1.0
+    for ailment in DISCHARGE_BOXES:
+        missing *= 1.0 - min(1.0, max(0.0, ailment_up.get(ailment, 0.0)))
+    any_up = 1.0 - missing
+    if any_up <= 0 or spell_hits <= 0:
+        why = ("no Ignite, Shock or Freeze on the boss from the build's other hits (the supported spell never inflicts "
+               "them)" if spell_hits > 0 else "the supported spell doesn't hit the boss")
+        return 0.0, [{"label": label, "value": "0", "basis": f"{on}: {why}" + (f"; {how}" if how else ""),
+                      "confidence": conf}]
+    cooldown = max(cooldown, 0.0)
+    rate = 1.0 / (cooldown + 1.0 / (spell_hits * any_up))
+    per = sum(min(1.0, max(0.0, ailment_up.get(ailment, 0.0))) / any_up * element_hits.get(element, 0.0)
+              for ailment, (_, element) in DISCHARGE_BOXES.items())
+    dps = rate * per
+    shares = ", ".join(f"{a} {ailment_up.get(a, 0.0):.0%}" for a in DISCHARGE_BOXES if ailment_up.get(a, 0.0) > 0)
+    basis = (f"{on}: {spell_hits:.2f} hits/s find the boss Ignited, Shocked or Frozen {any_up:.0%} of the time ({shares}; "
+             f"treated as independent), {cooldown:g} s cooldown: {rate:.2f} discharges/s x {per:,.0f} a discharge (each "
+             "element at the share of discharges that consumed it, PoB's hit of the triggered skill)"
+             + (f"; {how}" if how else ""))
+    play = (f"Put {DISCHARGE_SKILL} on a spell that hits often, and keep Ignite, Shock or Freeze on the boss with another "
+            f"skill: the supported spell can't inflict them (without it: 0; with it: {dps:,.0f} DPS)")
+    return dps, [{"label": label, "value": f"{dps:,.0f} DPS", "basis": basis, "confidence": conf, "play": play}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
