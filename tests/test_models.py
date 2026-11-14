@@ -4496,10 +4496,33 @@ def test_barbs_counts_n_supported_hits_per_retaliation_and_takes_pobs_flat_entry
         dps, notes = models.thorns_model(hit, [], stats, main, [("Barbs I", barb, on_main)])
         assert dps == pytest.approx(models.thorns_model(hit, [], stats, main)[0])
         assert notes[0]["full_dps"] == {"Barbs I": 0.0} and "undercount" in notes[0]["basis"]
+    # Quill Burst can't hit the boss that triggered it: 0, PoB's flat entry out
+    dps, notes = models.thorns_model(hit, [], stats, melee, [("Quill Burst", barb, True)])
+    assert dps == pytest.approx(base) and notes[0]["full_dps"] == {"Quill Burst": 0.0}
     # the worst case: no Retaliation, so no Barbs, and PoB's flat entry is gone too
     worst = {**stats, "_boss": models.THORNS_WORST}
     dps, notes = models.thorns_model(hit, [], worst, melee, [("Barbs I", barb, True)])
     assert dps == 0.0 and notes[0]["full_dps"] == {"Barbs I": 0.0}
+
+
+def test_toll_of_agony_retaliates_against_the_bosss_non_melee_hits_at_200_tribute():
+    """(MECHB23) "25% chance for Thorns to Retaliate against Non-Melee Hits if you have at least 200 Tribute": the
+    chance x the non-melee share (1 - the melee share's upper bound) of the landed hits, at PoB's Tribute >= 200 only;
+    nothing more with "Thorns can Retaliate against all Hits"; 0 for a boss whose melee share isn't read."""
+    from builder.search import bosses
+
+    stats = {"_boss": "Arbiter of Ash", "Speed": 2.0, "HitChance": 90.0, "EvadeChance": 0.0,
+             "EffectiveBlockChance": 0.0, "enemySkillTime": 0.5, "Tribute": 250}
+    landed = boss_hits.land_share(stats) / bosses.benefit_skill_time(stats)
+    low, high = models.THORNS_MELEE_SHARE["Arbiter of Ash"]
+    hit, line = {"PhysicalHitAverage": 100.0}, ["25% chance for Thorns to Retaliate against Non-Melee Hits if you have at least 200 Tribute"]
+    dps, notes = models.thorns_model(hit, line, stats, None)
+    assert dps == pytest.approx(100 * landed * (low + 0.25 * (1 - high))) and "Toll of Agony" in notes[0]["basis"]
+    assert models.thorns_model(hit, line, {**stats, "Tribute": 150}, None)[0] == pytest.approx(100 * landed * low)
+    crown = line + ["Thorns can Retaliate against all Hits"]
+    assert models.thorns_model(hit, crown, stats, None)[0] == pytest.approx(100 * landed)
+    unread = {**stats, "_boss": "The Bodach"}
+    assert models.thorns_model(hit, line, unread, None)[0] == 0.0
 
 
 def test_cadiro_diamond_arrows_crit_one_arrow_in_six_and_the_other_kinds_add_nothing_on_a_boss():

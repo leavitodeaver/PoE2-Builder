@@ -1341,10 +1341,10 @@ def test_living_bomb_is_a_gem_pob_scores_socketed_at_one_explosion_a_cast(engine
 
 
 
-def test_barbs_flat_full_dps_entry_comes_out_and_barbs_counts_at_its_retaliations(engine):
+def test_barbs_and_quill_burst_flat_full_dps_entries_come_out(engine):
     """(MECHB23, probe POE2T1094) With Barbs I in a Full DPS group and any Thorns damage, PoB scores Barbs' hidden
-    Thorns skill at Speed 1 (FullDPS 376.99 -> 381.99): an OVERCOUNT on a boss that never Retaliates. thorns() gives
-    that SkillDPS entry a 0 scale (Objective.rescaled takes it out) and counts Barbs at its Retaliations."""
+    Thorns skill at Speed 1 (FullDPS 376.99 -> 381.99): an OVERCOUNT on a boss that never Retaliates; Quill Burst's too
+    (POE2T1097; it can't hit the boss that triggered it). thorns() gives those SkillDPS entries a 0 scale (Objective.rescaled takes it out) and counts Barbs at its Retaliations."""
     from builder.search import models
     from builder.search.assumptions import thorns
     from builder.search.inner import Search
@@ -1358,16 +1358,17 @@ def test_barbs_flat_full_dps_entry_comes_out_and_barbs_counts_at_its_retaliation
     build = search.build
     main = next(g for g in build.groups() if g["main"])
     gems = [{"name": g["name"], "level": g.get("level") or 20, "quality": g.get("quality") or 0} for g in main["gems"]]
-    build.call("setGroup", index=main["index"], gems=gems + [{"name": "Barbs I", "level": 1}], fullDPS=True)
+    build.call("setGroup", index=main["index"], gems=gems + [{"name": "Barbs I", "level": 1}, {"name": "Quill Burst", "level": 1}],
+               fullDPS=True)
     belt = chr(10).join(["Rarity: RARE", "Probe Cord", "Heavy Belt", "15 to 25 Physical Thorns damage"])
     build.call("equip", slot="Belt", raw=belt, fields=["FullDPS"])
     fields = ["FullDPS", "SkillDPS"]
     stats = build.call("stats", fields=fields)
-    entry = next(e for e in stats["SkillDPS"] if e["name"] == "Barbs I")
-    assert entry["dps"] > 0  # PoB's flat 1 use a second
+    entries = [e for e in stats["SkillDPS"] if e["name"] in ("Barbs I", "Quill Burst")]
+    assert len(entries) == 2 and all(e["dps"] > 0 for e in entries)  # PoB's flat 1 use a second
     skill = next(models.Skill.of(s) for s in build.call("activeSkills")["skills"] if s["name"] == "Boneshatter")
     dps, notes = thorns(build, skill, {"_boss": models.THORNS_WORST}, [])
-    assert dps == 0.0 and notes[0]["full_dps"] == {"Barbs I": 0.0}
+    assert dps == 0.0 and notes[0]["full_dps"] == {"Barbs I": 0.0, "Quill Burst": 0.0}
     objective = Objective.__new__(Objective)
     objective.entry_scales, objective.press_scales, objective.cull_scale = dict(notes[0]["full_dps"]), {}, 1.0
-    assert objective.rescaled(stats) == pytest.approx(-entry["dps"] * (entry.get("count") or 1))
+    assert objective.rescaled(stats) == pytest.approx(-sum(e["dps"] * (e.get("count") or 1) for e in entries))

@@ -437,12 +437,12 @@ def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str
     rates = build.call("useRates", indices=[group["index"]]).get("rates") or []
     if not rates:
         return 0.0, []
-    barbs = []  # (MECHB23: each Barbs skill PoB adds to a supported group, its own hit, whether it supports the main one)
+    barbs = []  # (MECHB23: each Barbs / Quill Burst skill PoB adds to a supported group, its own hit, whether it supports the main one)
     for each in build.groups():
         if not each["enabled"]:
             continue
         for position, skill in enumerate(each["skills"], start=1):
-            if skill["name"] in models.BARBS:
+            if skill["name"] in models.BARBS or skill["name"] == models.QUILL_BURST:
                 row = next(iter(build.call("useRates", indices=[each["index"]], actives=[position])["rates"]), None)
                 barbs.append((skill["name"], row or {}, bool(each["main"]) and main is not None
                               and main.group == each["index"]))

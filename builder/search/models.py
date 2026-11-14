@@ -4446,8 +4446,8 @@ def boss_melee_share(boss: str, gain: bool = True) -> tuple[float, str]:
 #     supports the main skill, a non-triggered Melee Attack (Barbs on another group: an undercount, named). Barbs' own
 #     Thorns hits aren't Retaliation (KeywordPopups ThornsRetaliation), so they feed no more Barbs.
 # Not counted yet (undercounts, labelled in the note): legacy Prized Pain's "Deal your Thorns Damage to Enemies you Stun
-# with Melee Attacks" (removed from new drops in 0.5.0, poe2db), Barbs on a skill other than the main one, Quillburst,
-# Brambleslam's briars, the Tribute notable's chance against non-melee hits. (checked: every Stats.json id holding
+# with Melee Attacks" (removed from new drops in 0.5.0, poe2db), Barbs on a skill other than the main one, Brambleslam's
+# Brambles (PoB scores them in Full DPS at its own Speed, not the slams' rate: probe POE2T1097, open). (checked: every Stats.json id holding
 # "thorn" (125), and which Mods / GrantedEffectStatSets / PassiveSkills rows use the proc stats: the sources above are
 # every row there; PoB's Uniques for the line texts; the second source RESEARCH #149's poe2db reads.)
 THORNS_GROUP = "Thorns"
@@ -4458,8 +4458,22 @@ THORNS_ANY_HIT = "thorns can retaliate against all hits"
 THORNS_NOT_COUNTED = {
     "deal your thorns damage to enemies you stun with melee attacks": "legacy Prized Pain's Thorns on melee Stun",
 }
-THORNS_FIELDS = ["enemySkillTime", "EvadeChance", "EffectiveBlockChance"]
+THORNS_FIELDS = ["enemySkillTime", "EvadeChance", "EffectiveBlockChance", "Tribute"]
+# Toll of Agony (MECHB23; PassiveSkills AbyssJewelHistoricOverrideNotable_T_T_12, stat
+# thorns_proc_chance_%_against_non_melee_hits_if_you_have_at_least_200_tribute 25): "25% chance for Thorns to Retaliate
+# against Non-Melee Hits if you have at least 200 Tribute" (checked: the Stats ids holding "thorn" with "proc",
+# "retaliat" or "non_melee" are this and thorns_proc_off_any_hit, and their only Mods / PassiveSkills carriers are
+# UniqueThornsOnAnyHit1 and this notable; poe2db Toll_of_Agony, AUDIT20 A20-2). The chance x the boss's non-melee
+# landed hits (1 - the melee share's UPPER bound: the gain's lower bound; 0 for a boss whose share isn't read), when
+# PoB's Tribute (CalcPerform 493) reaches the threshold.
+THORNS_NON_MELEE = re.compile(r"(\d+(?:\.\d+)?)% chance for Thorns to Retaliate against Non-Melee Hits if you have at least "
+                              r"(\d+) Tribute", re.IGNORECASE)
 BARBS = {"Barbs I": (4, 1), "Barbs II": (6, 1), "Barbs III": (1, 2)}  # (hits after each Retaliation, Thorns per hit)
+# Quill Burst (MECHB23; ActiveSkills triggered_spiked_gauntlets: "Deal your Thorns Damage in an Area. Cannot Hit the
+# target this was Triggered from"): 0 on a lone boss, the only enemy its trigger hits. PoB scores its hidden skill in Full
+# DPS at Speed 1 (probe POE2T1097: Boneshatter + Quill Burst + a Thorns belt, FullDPS 376.99 -> 381.99, entry "Quill
+# Burst" 5): an OVERCOUNT, scaled to 0 as Barbs' is.
+QUILL_BURST = "Quill Burst"
 
 
 def thorns_hit(rate: dict | None) -> float:
@@ -4492,7 +4506,22 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
         share, share_how = 1.0, "every hit (\"Thorns can Retaliate against all Hits\")"
     else:
         share, share_how = boss_melee_share(boss, gain=True)
-    retaliations = landed * share
+    non_melee, non_how = 0.0, ""
+    if not any_hit:
+        for t in texts:
+            if (m := THORNS_NON_MELEE.search(t)) is None:
+                continue
+            tribute = number(stats.get("Tribute"))
+            if tribute < float(m.group(2)):
+                non_how = f"; Toll of Agony 0 (Tribute {tribute:.0f} < {m.group(2)})"
+                continue
+            known = boss == THORNS_WORST or THORNS_MELEE_SHARE.get(boss) is not None
+            upper = boss_melee_share(boss, gain=False)[0] if known else 1.0
+            chance = min(float(m.group(1)), 100.0) / 100
+            non_melee = max(non_melee, chance * (1 - upper))
+            non_how = (f"; + {chance:.0%} of the non-melee hits ({1 - upper:.0%}: 1 - the melee share's upper bound"
+                       + ("" if known else f", 0: {boss}'s share isn't read") + f"; Toll of Agony, Tribute {tribute:.0f})")
+    retaliations = landed * (share + non_melee)
     melee_main = main is not None and main.attack and main.melee and not main.triggered
     chance = min(sum(float(m.group(1)) for t in texts for m in THORNS_ON_HIT.finditer(t)), 100.0) / 100
     on_hit = chance * hits_per_second(stats) if melee_main else 0.0
@@ -4501,6 +4530,11 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
     procs = retaliations + on_hit + on_crit
     barbs_dps, barbs_parts, scales = 0.0, [], {}
     for name, barb_rate, on_main in barbs or []:
+        if name == QUILL_BURST:
+            scales[name] = 0.0
+            barbs_parts.append("Quill Burst 0 (\"Cannot Hit the target this was Triggered from\": the lone boss; PoB's own "
+                               "entry, scored at 1 use a second, taken out of Full DPS)")
+            continue
         if name not in BARBS:
             continue
         scales[name] = 0.0  # (PoB's own entry, at its flat Speed 1: replaced by the count below)
@@ -4521,7 +4555,7 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
                            "enemies); PoB's own Barbs entry, scored at 1 use a second, taken out of Full DPS)")
     parts = [f"Retaliation {retaliations:.3g}/s ({boss}'s landed hits {landed:.3g}/s, one every {every:.2f} s at "
              f"{land:.0%} landing (evaded and Blocked hits not counted; whether a Blocked hit Retaliates is "
-             f"UNVERIFIED), x {share:.0%}: {share_how})"]
+             f"UNVERIFIED), x {share:.0%}: {share_how}{non_how})"]
     if chance > 0:
         parts.append(f"{chance:.0%} of the main skill's hits {on_hit:.3g}/s"
                      + ("" if melee_main else " (0: the main skill isn't a Melee Attack)"))
@@ -4529,7 +4563,7 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
         parts.append(f"on its melee crits {on_crit:.3g}/s" + ("" if melee_main else " (0: not a Melee Attack)"))
     missing = sorted({what for t in lower for key, what in THORNS_NOT_COUNTED.items() if key in t})
     if barbs_parts:
-        parts.append("Barbs: " + "; ".join(barbs_parts))
+        parts.append("Barbs / Quill Burst: " + "; ".join(barbs_parts))
     dps = procs * hit + barbs_dps
     return dps, [{
         "label": "Thorns damage on the boss*", "value": round(dps, 1),
