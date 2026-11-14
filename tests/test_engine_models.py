@@ -2358,3 +2358,28 @@ def test_the_dazed_box_moves_pobs_damage_against_dazed_enemies(engine):
     assert on > off * 1.05
     assert "40% chance to Daze on Hit" in found["conditionEnemyDazed"][1]
     assert 0 < build.dazed_up[0] <= 1 and build.dazed_up[1] == found["conditionEnemyDazed"][1]
+
+
+def test_a_dazed_boss_takes_more_stun_buildup_at_its_share_not_pobs_full_box(engine):
+    """The probe behind models.DAZED_STUN_MORE (MECH70): PoB's Dazed box applies the whole 50% to the main skill's Heavy
+    Stun buildup, so heavy_stun_rate takes it back while the box is on and applies it at the Dazed share."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+
+    def buildup(on: bool) -> float:
+        build.set_config({"conditionEnemyDazed": on})
+        return build.call("stats", fields=["HeavyStunBuildupAvg"])["HeavyStunBuildupAvg"]
+
+    on, off = buildup(True), buildup(False)
+    print("PROBE stun buildup dazed", on, "plain", off)
+    assert off > 0 and on == pytest.approx(off * (1 + models.DAZED_STUN_MORE))
+    stats = build.call("stats", fields=models.MODEL_FIELDS)
+    half = models.heavy_stun_rate({**stats, "_dazed_share": 0.5})[0]
+    build.set_config({"conditionEnemyDazed": True})
+    boxed = models.heavy_stun_rate({**build.call("stats", fields=models.MODEL_FIELDS), "_dazed_share": 0.5,
+                                    "_dazed_box": True})[0]
+    assert boxed == pytest.approx(half)  # (the box's full 50% taken back: the same rate at a 50% share)
+    build.set_config({"conditionEnemyDazed": False})

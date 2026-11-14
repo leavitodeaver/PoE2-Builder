@@ -3679,6 +3679,17 @@ class Conditions:
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
             metres = (stats.get("_distance_choice") or (natural_distance(main_types, self.main_skill), ""))[0]
             stats["_raised_plan"] = models.raised_plan(found, texts, metres, models.raised_taps_on(self.build))
+        if any(DAZE_WORD.search(t) for t in texts):  # (MECH70: the main skill's own Daze stats, _dazed)
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(DAZE_SKILL_STATS))
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            got = {stat: number(value) for part in ("levelStats", "supportStats")
+                   for stat, value in (main.get(part) or {}).items() if stat in DAZE_SKILL_STATS and value}
+            stats["_daze"] = {"chance": got.get("base_chance_to_daze_%", 0.0), "cannot": bool(got.get("cannot_daze")),
+                              "concussive": bool(got.get("spell_daze_on_critical_hit_dealing_physical_damage")),
+                              "opening": bool(got.get("daze_on_hit_vs_enemies_at_full_life"))}
+            stats["_daze_weapon_lines"] = {line["text"] for line in lines if line["source"].startswith("item:Weapon")}
+            stats["_dazed_share"] = number((_dazed(texts, stats) + (0.0,))[2])
+            stats["_dazed_box"] = "conditionEnemyDazed" in self.active  # (PoB's box as it is now: heavy_stun_rate)
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         self.riven_share = 0.0  # (share of the fight Riven Armour is up: _riven_cycle)
         self.riven_how = ""
@@ -3708,15 +3719,6 @@ class Conditions:
             stats["_exposure_supports"] = {stat: value for part in ("levelStats", "supportStats")
                                            for stat, value in (main.get(part) or {}).items()
                                            if stat in EXPOSURE_SUPPORT_STATS and value}
-        if any(DAZE_WORD.search(t) for t in texts):  # (MECH70: the main skill's own Daze stats, _dazed)
-            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(DAZE_SKILL_STATS))
-            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
-            got = {stat: number(value) for part in ("levelStats", "supportStats")
-                   for stat, value in (main.get(part) or {}).items() if stat in DAZE_SKILL_STATS and value}
-            stats["_daze"] = {"chance": got.get("base_chance_to_daze_%", 0.0), "cannot": bool(got.get("cannot_daze")),
-                              "concussive": bool(got.get("spell_daze_on_critical_hit_dealing_physical_damage")),
-                              "opening": bool(got.get("daze_on_hit_vs_enemies_at_full_life"))}
-            stats["_daze_weapon_lines"] = {line["text"] for line in lines if line["source"].startswith("item:Weapon")}
         found: dict[str, tuple[object, str]] = {}
         uptimes: dict[str, float] = {}  # var -> share of the fight, for the effects the build keeps up at a rate
         self.off_values: dict[str, object] = {}  # var -> its box with the effect off, if not False (Withered's base stacks)

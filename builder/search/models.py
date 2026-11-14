@@ -4081,6 +4081,26 @@ def eternal_hunt_model(hunt: dict, player_dps: float, wolf_dps: float) -> tuple[
 HEAVY_STUN_BOSS = (9.38, 12.35)  # PoB's Pinnacle (Xesht) threshold multiplier, the game files' Arbiter of Ash (user, 9 Nov)
 HEAVY_STUN_REPEAT = (6.0, 16.5)  # threshold x(1 + 500%) for 16.5 s after a Heavy Stun
 HEAVY_STUN_PHYSICAL = 1.5  # player Physical damage's 50% more buildup (weighting the Cold share)
+# A Dazed boss (MECH70; the manager's turn-2 item, an UNDERCOUNT before): KeywordPopups Daze, "a Dazed enemy will take
+# 50% more Stun Buildup". PoB applies the whole 50% to HeavyStunBuildupAvg while its conditionEnemyDazed box is on
+# (probe, tests/test_engine_models.py test_a_dazed_boss_takes_more_stun_buildup...: 0.00470 -> 0.00704, x1.50) and none
+# while it is off; the box is on from MIN_UPTIME at any share. So PoB's buildup is taken back to plain (/1.5 when
+# stats["_dazed_box"]) and x(1 + 50% x the share of the fight the boss is Dazed): stats["_dazed_share"],
+# conditions._dazed's share (Conditions.evidence sets both; the models read build.dazed_up through dazed_share and the
+# box from PoB's config, dazed_box). Before, a box on at a 30% share counted the full 50%: an OVERCOUNT; with no box,
+# nothing: an UNDERCOUNT. Daze Magnitude isn't read (UNVERIFIED that it scales the 50%).
+DAZED_STUN_MORE = 0.5
+
+
+def dazed_share(build) -> float:
+    """The share of the fight the boss is Dazed, as the last condition round published it (build.dazed_up)."""
+    return min(1.0, max(0.0, number((getattr(build, "dazed_up", None) or (0.0, ""))[0])))
+
+
+def dazed_stats(build) -> dict:
+    """The two Daze fields heavy_stun_rate reads: the published share and whether PoB's Dazed box is on now."""
+    return {"_dazed_share": dazed_share(build),
+            "_dazed_box": bool((build.call("getConfig").get("input") or {}).get("conditionEnemyDazed"))}
 
 
 def repeat_every(t: float, times: float, window: float) -> float:
@@ -4102,13 +4122,19 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     total = sum(weight.values())
     uncold = 1 - weight["Cold"] / total if total > 0 else 1.0
     scale = bosses.threshold_scale(stats)  # (938 / the boss's own threshold: MECHD1, RESEARCH18 #91)
-    fill = per_hit * uncold * scale * hits  # bars per second at the plain threshold
+    dazed = min(1.0, max(0.0, number(stats.get("_dazed_share"))))
+    daze = (1 + DAZED_STUN_MORE * dazed) / ((1 + DAZED_STUN_MORE) if stats.get("_dazed_box") else 1.0)
+    fill = per_hit * uncold * scale * daze * hits  # bars per second at the plain threshold
     if fill <= 0:
         return 0.0, "Cold hits build no Heavy Stun (the game's Cold text; PoB counts them)"
     t = 1 / fill
     every = repeat_every(t, *HEAVY_STUN_REPEAT)
     basis = (f"{per_hit:.2%} of the boss's Stun bar per hit (PoB){f', {1 - uncold:.0%} of it Cold, which builds none' if uncold < 1 else ''}, "
-             f"x{scale:.2f} for {bosses.of(stats).name}'s threshold ({bosses.of(stats).poise}%, the game files; PoB's is 938%), {hits:.2f} hits/s: "
+             f"x{scale:.2f} for {bosses.of(stats).name}'s threshold ({bosses.of(stats).poise}%, the game files; PoB's is 938%), "
+             + (f"x{daze:.2f} for the boss Dazed {dazed:.0%} of the fight (50% more Stun Buildup while Dazed"
+                + (", PoB's box at the full 50% taken back" if stats.get("_dazed_box") else "") + "), "
+                if dazed or stats.get("_dazed_box") else "")
+             + f"{hits:.2f} hits/s: "
              f"full in {t:.1f} s, then +500% threshold for 16.5 s after each stun: one every {every:.1f} s")
     return 1 / every, basis
 

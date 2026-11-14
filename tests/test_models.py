@@ -1445,7 +1445,7 @@ def test_explosive_transmutation_counts_every_remnant_source_the_build_has():
         class Build:
             def call(self, method, **kw):
                 return {"activeSkills": {"skills": skills}, "sourceLines": {"lines": [{"text": t} for t in lines]},
-                        "stats": {}}[method]
+                        "stats": {}, "getConfig": {"input": {}}}[method]
 
             def main_group(self):
                 return None
@@ -1533,7 +1533,7 @@ def test_remnant_rates_from_freezes_stuns_and_doubled_pickups(monkeypatch):
             return {"activeSkills": {"skills": [{"name": "Transmutation Explosion", "disabled": False, "cooldown": 0.0},
                                                 {"name": "Siphon Elements", "disabled": False}]},
                     "sourceLines": {"lines": [{"text": "15% chance for Remnants you create to grant their effects twice"}]},
-                    "stats": {}}[method]
+                    "stats": {}, "getConfig": {"input": {}}}[method]
 
         def main_group(self):
             return None

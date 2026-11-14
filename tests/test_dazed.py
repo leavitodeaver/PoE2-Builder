@@ -53,3 +53,26 @@ def test_a_main_skill_that_cannot_daze_dazes_nothing():
     on, basis = _dazed(["Dazes on Hit"], {**HITS, "_daze": {"cannot": True}})[:2]
     assert on is False and "cannot_daze" in basis
 
+
+
+def test_a_dazed_boss_fills_its_stun_bar_faster():
+    """KeywordPopups Daze: "a Dazed enemy will take 50% more Stun Buildup" (MECH70, turn 2). PoB applies the
+    whole 50% while its Dazed box is on (the probe in test_engine_models.py), so heavy_stun_rate counts it at the share."""
+    from builder.search import models
+
+    stats = {"HeavyStunBuildupAvg": 2.0, "Speed": 2.0, "HitChance": 100.0, "CritChance": 0.0, "PhysicalHitAverage": 100.0}
+    plain, how = models.heavy_stun_rate(stats)
+    dazed, dazed_how = models.heavy_stun_rate({**stats, "_dazed_share": 1.0})
+    half = models.heavy_stun_rate({**stats, "_dazed_share": 0.5})[0]
+    assert plain < half < dazed and "Dazed" not in how and "x1.50 for the boss Dazed 100%" in dazed_how
+    assert models.heavy_stun_rate({**stats, "_dazed_share": 0.0}) == (plain, how)
+
+
+def test_dazed_share_reads_the_published_share():
+    from types import SimpleNamespace
+
+    from builder.search import models
+
+    assert models.dazed_share(SimpleNamespace()) == 0.0
+    assert models.dazed_share(SimpleNamespace(dazed_up=(0.4, "basis"))) == 0.4
+

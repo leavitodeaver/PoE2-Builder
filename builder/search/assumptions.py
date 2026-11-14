@@ -680,6 +680,7 @@ class Assumptions:
         main = next((s for s in found if group and s.group == group["index"] and s.name == name), None)
         main_gems = {g["name"] for g in group["gems"]} if group else set()
         stats = build.call("stats", fields=models.MODEL_FIELDS)
+        stats.update(models.dazed_stats(build))  # (MECH70: a Dazed boss's Stun Buildup, heavy_stun_rate)
         from builder.search import bosses  # (MECH-D: the request's boss, its add kills / Culls per second, for the models)
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**stats, **bosses.kill_stats(boss)}
@@ -1005,7 +1006,8 @@ class Assumptions:
         if entry is not None:
             mult = 1.0 + culled / max(base, 1e-9)
             # (MECH59: a Cull only Heavy Contact gives lands on the main skill's Heavy Stuns of the boss)
-            heavy = models.heavy_stun_rate(build.call("stats", fields=models.MODEL_FIELDS))[0] if split.get("heavyOnly") else 0.0
+            heavy = models.heavy_stun_rate({**build.call("stats", fields=models.MODEL_FIELDS),
+                                            **models.dazed_stats(build)})[0] if split.get("heavyOnly") else 0.0
             # (MECH63: a Cull only Murderous Intent gives lands on the main skill's Empowered uses)
             empowered = self.empowered_uses(stats) if split.get("empowerOnly") else None
             main_mult = number(stats.get("CullMultiplier"))
@@ -1138,7 +1140,8 @@ class Assumptions:
                 parts.append(f"{name} can't Empower other skills: Murderous Intent does nothing there")
             elif number(rate.get("warcryEmpowers")) > 0:
                 n = number(rate["warcryEmpowers"])
-                what, fits, share, why = warcry_empowers(name, mains, stats)
+                # (MECH71: the Heavy Stunned share reads the Dazed boss's 50% more Stun Buildup: heavy_stun_rate)
+                what, fits, share, why = warcry_empowers(name, mains, {**stats, **models.dazed_stats(build)})
                 if not fits:
                     parts.append(f"{name} Empowers {what}, and the main skill isn't one")
                     continue
@@ -1293,6 +1296,7 @@ class Assumptions:
         main = next((s for s in skills if s.group == main_group.get("index")
                      and s.name in {g.get("name") for g in main_group.get("gems") or []}), None)
         stats = build.call("stats", fields=models.MODEL_FIELDS)
+        stats.update(models.dazed_stats(build))  # (MECH70: heavy_stun_rate)
         texts = [line["text"] for line in build.call("sourceLines")["lines"]]
         out = {}
         for s in skills:
@@ -1742,7 +1746,8 @@ class Assumptions:
         stats = {**build.call("stats", fields=list(dict.fromkeys([
             "Life", "Mana", "EnergyShield", "LifeOnKill", "ManaOnKill", "IgniteChancePerHit", "ShockChancePerHit", "Tribute",
             *models.MODEL_FIELDS,
-            *conditions_mod.EVIDENCE_FIELDS, *CHILL_FIELDS]))), **bosses.kill_stats(boss)}
+            *conditions_mod.EVIDENCE_FIELDS, *CHILL_FIELDS]))), **bosses.kill_stats(boss),
+                 **models.dazed_stats(build)}  # (MECH71: the recovery unique's Heavy Stuns read the Dazed share)
         kills = getattr(build, "kills", None) or (0.0, 0.0, "")  # (models.kill_rate: the boss preset's adds)
         enemies = number(kills[0])
         hits = models.hits_per_second(stats)
