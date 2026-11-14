@@ -110,6 +110,9 @@ FLASH = "Blind Enemies when they Stun you"
 def test_blinding_flash_blinds_at_the_bosss_stuns_on_you():
     """MECHC25 (plans/term-blind-enemies.md G3; 0 before, an UNDERCOUNT): Blinding Flash Blinds the boss each time it
     Light Stuns you (flasks.Charges.stuns, set in evidence as _stuns_you); each Blind lasts 4 s."""
+    from builder.search.conditions import STUNS_YOU
+
+    assert STUNS_YOU.search(FLASH)  # (the evidence reads the boss's Stuns only for a build with the line)
     up, how = _debuff_source(FLASH, "conditionEnemyBlinded", [FLASH], {"_stuns_you": (0.1, "test")})
     assert abs(up - 0.4) < 1e-9 and "Stuns you 0.100/s" in how
     assert _debuff_source(FLASH, "conditionEnemyBlinded", [FLASH], {"_stuns_you": (1.0, "test")})[0] == 1.0

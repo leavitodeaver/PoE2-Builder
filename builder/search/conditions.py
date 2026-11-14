@@ -1357,7 +1357,7 @@ def _debuff_pattern(var: str) -> re.Pattern:
 WHEN_YOU_AILMENT = re.compile(r"\bwhen you (poison|ignite|shock)\b", re.I)
 
 
-STUNS_YOU = re.compile(r"when they stun you", re.I)
+STUNS_YOU = re.compile(r"\bwhen they stun you\b", re.I)
 
 
 def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
