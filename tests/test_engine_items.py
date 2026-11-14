@@ -1286,3 +1286,35 @@ def test_unearth_counts_bone_constructs_only_from_the_builds_dead_reviving_minio
     search.assumptions.apply()
     note = next(n for n in search.assumptions.active if n["label"].startswith("Unearth's Bone Constructs"))
     assert note["value"] > 0 and "dead Reviving" in note["basis"] and minion() > 0, note
+
+
+def test_pobs_thorns_group_counts_in_no_dps_and_thorns_adds_its_hits(engine):
+    """(MECHB22, probe POE2T1087) A Thorns belt makes PoB add its own Thorns group (CalcSetup 2027-2070), whose hit no
+    PoB DPS counts (FullDPS unchanged: so no overcount to take out); assumptions.thorns adds its hits on the boss."""
+    from builder.search import boss_hits, bosses, models
+    from builder.search.assumptions import thorns
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    main = next(g for g in build.groups() if g["main"])
+    build.call("setGroup", index=main["index"], fullDPS=True)
+    fields = ["FullDPS", "TotalDPS"]
+    before = build.call("stats", fields=fields)
+    assert thorns(build, None, {}, []) == (0.0, [])
+    belt = chr(10).join(["Rarity: RARE", "Probe Cord", "Heavy Belt", "15 to 25 Physical Thorns damage"])
+    after = build.call("equip", slot="Belt", raw=belt, fields=fields)["stats"]
+    assert after["FullDPS"] == pytest.approx(before["FullDPS"]) and after["TotalDPS"] == pytest.approx(before["TotalDPS"])
+    group = next(g for g in build.groups() if g["label"] == models.THORNS_GROUP)
+    assert group["fromItem"] and not group["fullDPS"]
+    hit = models.thorns_hit(build.call("useRates", indices=[group["index"]])["rates"][0])
+    assert hit > 0
+    stats = {"_boss": "Arbiter of Ash"}
+    dps, notes = thorns(build, None, stats, ["Thorns can Retaliate against all Hits"])
+    full = {**stats, **build.call("stats", fields=models.THORNS_FIELDS)}
+    assert dps == pytest.approx(hit * boss_hits.land_share(full) / bosses.benefit_skill_time(full))
+    assert notes and notes[0]["confidence"] == "LOW"

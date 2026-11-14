@@ -4404,6 +4404,97 @@ def boss_melee_share(boss: str, gain: bool = True) -> tuple[float, str]:
                    f"Melee-typed {low:.0%}, with the slam / slash geometry attacks {high:.0%}; whether those count as "
                    "Melee is RESEARCH #38, open; a skill mix from the game files, LOW as a hit rate)")
 
+# Thorns damage on the boss (MECHB22; plans/term-thorns-damage-to-enemies.md, RESEARCH #149 thorns-trigger-sources-r25.md).
+# PoB builds its own "Thorns" group (CalcSetup 2027-2070, skill ThornsPlayer, fromItem) when the build has Thorns damage,
+# and scores one Thorns hit against the boss there, but no DPS field counts it: it is never in Full DPS (CalcSetup leaves
+# includeInFullDPS unset; assumptions.pressed_group skips item groups) and never the main skill (probe POE2T1087: a
+# Boneshatter Titan with "15 to 25 Physical Thorns damage" and "100% increased Thorns damage": FullDPS 376.99 with and
+# without the belt; the Thorns group's AverageHit 10, Speed PoB's placeholder 1). So every Thorns hit was an
+# UNDERCOUNT, none an overcount. Counted here, as an added damage source (added_input, fixed at the resolve like
+# Eternal Hunt), at PoB's Thorns hit (its per-type averages at its crit chance, the boss's mitigation in them) x:
+#   - Retaliation (KeywordPopups Thorns: "you inherently Retaliate against [Melee] [Attack] [Hit|Hits]"): the boss's
+#     hits that land a second (bosses.benefit_skill_time, one hit per damaging use, LOW; boss_hits.land_share: evaded
+#     and Blocked hits don't count, whether a Blocked hit Retaliates is UNVERIFIED, so a possible undercount) x its
+#     melee share (boss_melee_share's lower bound: 0 on the worst-case preset, where Zarokh has no Melee-typed hits),
+#     or every landed hit with "Thorns can Retaliate against all Hits" (Crown of the Pale King, thorns_proc_off_any_hit).
+#   - "N% chance to deal your Thorns Damage to Enemies you Hit with Melee Attacks" (Prized Pain, Loreweave,
+#     melee_attack_deal_thorns_damage_chance_%_on_hit): N% of the main skill's hits a second when it is a Melee Attack.
+#   - "Deal your Thorns damage to enemies you Critically Hit with Melee Attacks" (deal_thorns_damage_on_melee_crit,
+#     the hand wraps): the main skill's crits a second when it is a Melee Attack.
+#   Both on the main skill only (other melee skills' hits: an undercount); they count beside each other and beside
+#   Retaliation (no "instead" in either text; whether the game limits Thorns per hit is UNVERIFIED, RESEARCH #154).
+# Not counted yet (undercounts, labelled in the note): legacy Prized Pain's "Deal your Thorns Damage to Enemies you Stun
+# with Melee Attacks" (removed from new drops in 0.5.0, poe2db), Barbs I-III (fed by Retaliations), Quillburst,
+# Brambleslam's briars, the Tribute notable's chance against non-melee hits. (checked: every Stats.json id holding
+# "thorn" (125), and which Mods / GrantedEffectStatSets / PassiveSkills rows use the proc stats: the sources above are
+# every row there; PoB's Uniques for the line texts; the second source RESEARCH #149's poe2db reads.)
+THORNS_GROUP = "Thorns"
+THORNS_ON_HIT = re.compile(r"(\d+(?:\.\d+)?)% chance to deal your Thorns Damage to Enemies you Hit with Melee Attacks",
+                           re.IGNORECASE)
+THORNS_ON_CRIT = "deal your thorns damage to enemies you critically hit with melee attacks"
+THORNS_ANY_HIT = "thorns can retaliate against all hits"
+THORNS_NOT_COUNTED = {
+    "deal your thorns damage to enemies you stun with melee attacks": "legacy Prized Pain's Thorns on melee Stun",
+    "after you retaliate with thorns": "Barbs' Thorns on hit after a Retaliation",
+}
+THORNS_FIELDS = ["enemySkillTime", "EvadeChance", "EffectiveBlockChance"]
+
+
+def thorns_hit(rate: dict | None) -> float:
+    """One Thorns hit on the boss from the bridge's useRates entry for PoB's Thorns group: its per-type hit averages,
+    each crit's at its crit chance."""
+    rate = rate or {}
+    crit = min(max(number(rate.get("CritChance")), 0.0), 100.0) / 100
+    hit = sum(number(rate.get(f"{t}HitAverage")) for t in DAMAGE_TYPES)
+    crits = sum(number(rate.get(f"{t}CritAverage")) for t in DAMAGE_TYPES)
+    return hit * (1 - crit) + crits * crit if crit > 0 else hit
+
+
+def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for the build's Thorns hits on the boss (see above). `rate`: the bridge's useRates entry for
+    PoB's Thorns group (None: the build has no Thorns damage); `stats`: the main skill's (Speed, HitChance, CritChance)
+    with the boss (_boss) and THORNS_FIELDS."""
+    hit = thorns_hit(rate)
+    if hit <= 0:
+        return 0.0, []
+    lower = [t.lower() for t in texts]
+    boss = boss_hits.boss_name(stats)
+    every = bosses.benefit_skill_time(stats)
+    land = boss_hits.land_share(stats)
+    landed = land / every if every > 0 else 0.0
+    any_hit = any(THORNS_ANY_HIT in t for t in lower)
+    if any_hit:
+        share, share_how = 1.0, "every hit (\"Thorns can Retaliate against all Hits\")"
+    else:
+        share, share_how = boss_melee_share(boss, gain=True)
+    retaliations = landed * share
+    melee_main = main is not None and main.attack and main.melee and not main.triggered
+    chance = min(sum(float(m.group(1)) for t in texts for m in THORNS_ON_HIT.finditer(t)), 100.0) / 100
+    on_hit = chance * hits_per_second(stats) if melee_main else 0.0
+    crit_line = any(THORNS_ON_CRIT in t for t in lower)
+    on_crit = crits_per_second(stats) if melee_main and crit_line else 0.0
+    procs = retaliations + on_hit + on_crit
+    parts = [f"Retaliation {retaliations:.3g}/s ({boss}'s landed hits {landed:.3g}/s, one every {every:.2f} s at "
+             f"{land:.0%} landing (evaded and Blocked hits not counted; whether a Blocked hit Retaliates is "
+             f"UNVERIFIED), x {share:.0%}: {share_how})"]
+    if chance > 0:
+        parts.append(f"{chance:.0%} of the main skill's hits {on_hit:.3g}/s"
+                     + ("" if melee_main else " (0: the main skill isn't a Melee Attack)"))
+    if crit_line:
+        parts.append(f"on its melee crits {on_crit:.3g}/s" + ("" if melee_main else " (0: not a Melee Attack)"))
+    missing = sorted({what for t in lower for key, what in THORNS_NOT_COUNTED.items() if key in t})
+    dps = procs * hit
+    return dps, [{
+        "label": "Thorns damage on the boss*", "value": round(dps, 1),
+        "basis": f"PoB's Thorns hit {hit:.4g} (its own Thorns group, which no PoB DPS counts) x {procs:.3g} Thorns hits "
+                 "a second: " + "; ".join(parts) + ". No limit per hit or per second counted (UNVERIFIED)"
+                 + (f"; not counted yet: {', '.join(missing)} (undercounts)" if missing else ""),
+        "play": "Thorns hit back when the boss hits you in melee" + (" (any hit, with the Crown)" if any_hit else "")
+                + (", and on your melee hits" if on_hit or on_crit else "")
+                + f". Without Thorns: +0 DPS; with it: +{dps:.0f} DPS",
+        "confidence": "LOW"}]
+
+
 # Glory on a boss (glory_uses) --------------------------------------------------------------------------------------------
 # Each Glory skill's cost and what builds its Glory, from the game files (build 26476662, GrantedEffectStatSets, level 20;
 # 9 Nov, MECH20): active_skill_requires_X_glory and active_skill_generates_mp_%_glory_per_<event> (that % of the target's

@@ -428,6 +428,18 @@ def warcry_empowers(name: str, mains: list[dict], stats: dict) -> tuple[str, boo
                                "Empower when the boss gets there later)")
 
 
+def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str]) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for the build's Thorns hits on the boss (models.thorns_model, MECHB22): PoB's own Thorns
+    group's hit (useRates), which no PoB DPS counts."""
+    group = next((g for g in build.groups() if g["fromItem"] and g["label"] == models.THORNS_GROUP and g["gems"]), None)
+    if group is None:
+        return 0.0, []
+    rates = build.call("useRates", indices=[group["index"]]).get("rates") or []
+    if not rates:
+        return 0.0, []
+    return models.thorns_model(rates[0], texts, {**stats, **build.call("stats", fields=models.THORNS_FIELDS)}, main)
+
+
 class Assumptions:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -651,7 +663,10 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + hunt_mods, hand_notes + hunt_notes
         # separately computed damage (Melting Maelstrom's pulses, Eternal Hunt: models.added_input); what-ifs get their own
         # sum from the bridge's LedgerAddedDPS; set_added (SEARCH14) keeps each source for the result's list
-        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt})
+        thorn, thorn_notes = thorns(build, main, stats, [e["text"] for e in source_lines])  # (MECHB22)
+        hand_mods += [models.added_input("Thorns", thorn)] if thorn > 0 else []
+        hand_notes += thorn_notes
+        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.

@@ -4429,3 +4429,39 @@ def test_the_bosss_power_reads_the_builds_power_lines():
     skill = Skill(name="Ferocious Roar", level_stats={"bear_warcry_gain_X_centirage_per_enemy_power": 200})
     assert models.roar_rage(skill, 40) == 2 * models.roar_rage(skill)
     assert models.roar_empowered(40) == 5 and models.roar_empowered() == 2
+
+
+def test_thorns_model_counts_retaliation_at_the_melee_share_and_the_main_skills_melee_procs():
+    """(MECHB22) Thorns hits on the boss, which no PoB DPS counts (probe POE2T1087): Retaliation at the boss's landed
+    hits x its melee share (all hits with the Crown's line), plus the chance on melee hit and the melee-crit line on a
+    Melee Attack main skill, each at PoB's Thorns hit."""
+    from builder.search import bosses
+
+    rate = {"PhysicalHitAverage": 80.0, "PhysicalCritAverage": 160.0, "CritChance": 25.0}
+    assert models.thorns_hit(rate) == pytest.approx(80 * 0.75 + 160 * 0.25)
+    assert models.thorns_hit({"FireHitAverage": 10.0, "ColdHitAverage": 5.0}) == pytest.approx(15.0)
+    assert models.thorns_model({}, [], {}, None) == (0.0, [])
+    stats = {"_boss": "Arbiter of Ash", "Speed": 2.0, "HitChance": 90.0, "CritChance": 20.0, "EvadeChance": 0.0,
+             "EffectiveBlockChance": 0.0, "enemySkillTime": 0.5}
+    landed = boss_hits.land_share(stats) / bosses.benefit_skill_time(stats)
+    hit = {"PhysicalHitAverage": 100.0}
+    dps, notes = models.thorns_model(hit, [], stats, None)
+    assert dps == pytest.approx(100 * landed * 4 / 34) and dps > 0 and notes[0]["confidence"] == "LOW"
+    assert "Retaliation" in notes[0]["basis"] and "+0 DPS" in notes[0]["play"]
+    melee = Skill("Boneshatter", group=1, attack=True, melee=True)
+    lines = ["20% chance to deal your Thorns Damage to Enemies you Hit with Melee Attacks",
+             "Deal your Thorns damage to enemies you Critically Hit with Melee Attacks"]
+    dps2, _ = models.thorns_model(hit, lines, stats, melee)
+    assert dps2 == pytest.approx(100 * (landed * 4 / 34 + 0.2 * 1.8 + 1.8 * 0.2))
+    # a spell or a non-melee attack gets no melee procs; a triggered melee skill isn't the hits counted either
+    for other in (Skill("Spark", group=1, spell=True), Skill("Lightning Arrow", group=1, attack=True),
+                  Skill("Boneshatter", group=1, attack=True, melee=True, triggered=True)):
+        assert models.thorns_model(hit, lines, stats, other)[0] == pytest.approx(dps)
+    # the worst-case preset's lower melee bound is 0 (Zarokh): no Retaliation, unless Thorns retaliates against all hits
+    worst = {**stats, "_boss": models.THORNS_WORST}
+    assert models.thorns_model(hit, [], worst, None)[0] == 0.0
+    every = boss_hits.land_share(worst) / bosses.benefit_skill_time(worst)
+    assert models.thorns_model(hit, ["Thorns can Retaliate against all Hits"], worst, None)[0] == pytest.approx(100 * every)
+    # legacy and not-yet-modelled sources are named as undercounts, not counted
+    note = models.thorns_model(hit, ["Deal your Thorns Damage to Enemies you Stun with Melee Attacks"], stats, melee)[1][0]
+    assert "legacy Prized Pain" in note["basis"]
