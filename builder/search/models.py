@@ -5158,7 +5158,7 @@ POWER_FALLBACK_DISTANCE = 50.0  # (units: conditions.RANGED_DISTANCE 5 m, when t
 # - local_apply_ancients_challenge_on_hit and has_ancients_challenge_buff: no user in those tables.
 # PoB parses none of the lines (ModCache). Off-hand hits with a shield in the off hand: the skills PoB flags shieldAttack
 # (its only way to set weapon2Attack with a shield, CalcActiveSkill 515-517; a shield isn't a weapon to getWeaponFlags):
-# SHIELD_HITTERS below (Raise Shield itself left out: raising doesn't hit). Only the main skill's hits are read (another
+# SHIELD_HITTERS below (Raise Shield's own Shield Bash after a block: RAISE_SHIELD_GRANT below). Only the main skill's hits are read (another
 # skill's shield hits pressed beside it aren't: a small undercount). Raise Shield: the boss within 6 m (PoB's
 # enemyDistance) and the shield raised once per Challenge duration (a button the player presses to feed it: the time
 # raised isn't taken from the main skill, a small overcount, named). Its duration: no game data we have (BuffDefinitions
@@ -5170,6 +5170,12 @@ CHALLENGE_DURATION = 10.0  # LOW: a community observation, no game data
 CHALLENGE_RAISE_RANGE = 60.0  # units: "6 metres in front of you when raised"
 CHALLENGE_OFF_HAND = re.compile(r"^Off-hand Hits inflict Runefather's Challenge$", re.I)
 CHALLENGE_RAISE = re.compile(r"^Inflicts Runefather's Challenge on enemies ([\d.]+) metres in front of you when raised", re.I)
+# Raise Shield's own hit (AUDIT31 A31-5, an UNDERCOUNT): "Release immediately after Blocking when an enemy is close to
+# perform a Shield Bash, damaging and Stunning enemies" (PoB's ShieldBlockPlayer description; it's a shieldAttack skill):
+# an off-hand Hit per blocked hit. Blocks against the boss: one telegraphed hit every PARRY_EVERY s (the user's Parry
+# cadence). Every shield base granting it says "Grants Skill: Raise Shield" (PoB's bases). "Close": 2 m (LOW).
+RAISE_SHIELD_GRANT = re.compile(r"Grants Skill:[^.;]*\bRaise Shield\b", re.I)
+SHIELD_BASH_RANGE = 20.0  # units
 SHIELD_HITTERS = frozenset({"Shield Wave", "Magma Spray", "Resonating Shield", "Shield Charge", "Shield Wall", "Parry",
                             "Soaring Midnight", "Embrace The Fall"})  # PoB's shieldAttack skills (Data/Skills)
 
@@ -5184,10 +5190,19 @@ def challenge_share(texts: list[str], stats: dict, distance: float | None, main:
     if raise_line and far <= float(raise_line.group(1)) * 10:
         return 1.0, (f"you raise your shield once every {CHALLENGE_DURATION:g} s with the boss {far / 10:g} m away "
                      f"(within {raise_line.group(1)} m): the boss stays Challenged")
-    if off_hand and main in SHIELD_HITTERS:
-        hits = hits_per_second(stats)
-        share = min(1.0, hits * CHALLENGE_DURATION)
-        return share, f"{main} hits with the shield, {hits:.2f} hits/s: Challenged {share:.0%} of the fight"
+    if off_hand:
+        hits = hits_per_second(stats) if main in SHIELD_HITTERS else 0.0
+        bash = (1 / PARRY_EVERY if any(RAISE_SHIELD_GRANT.search(t) for t in texts) and far <= SHIELD_BASH_RANGE
+                else 0.0)
+        if hits + bash > 0:
+            share = min(1.0, (hits + bash) * CHALLENGE_DURATION)
+            how = [f"{main} hits with the shield, {hits:.2f} hits/s"] if hits else []
+            if bash:
+                how.append(f"a Shield Bash after blocking one telegraphed boss hit every {PARRY_EVERY:g} s with Raise "
+                           f"Shield (the Parry cadence the user called fair; the boss within {SHIELD_BASH_RANGE / 10:g} m, "
+                           "LOW: the game says only \"when an enemy is close\"; the time raised isn't taken from the "
+                           "main skill)")
+            return share, "; ".join(how) + f": Challenged {share:.0%} of the fight"
     why = [f"no off-hand (shield) hits from {main or 'the main skill'}"] if off_hand else []
     if raise_line:
         why.append(f"the boss {far / 10:g} m away, beyond the raised shield's {raise_line.group(1)} m")

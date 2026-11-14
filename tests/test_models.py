@@ -4571,6 +4571,12 @@ def test_runefathers_challenge_raises_the_bosss_power_at_the_builds_own_uptime()
     power, basis = models.boss_power(doubled + raised, stats)
     assert power == 45 and "Runefather's Challenge" in basis and "LOW" in basis
     assert {m["name"]: m["value"] for m in models.power_mods(25)} == {"WarcryPower": 5, "Multiplier:EnemyPower": 5}
+    # AUDIT31 A31-5: Raise Shield's Shield Bash after a block is an off-hand Hit (one blocked telegraphed hit every
+    # PARRY_EVERY s), with the boss close; not when it's far, nor without a shield granting Raise Shield
+    granted = off_hand + ["Grants Skill: Raise Shield"]
+    assert models.boss_power(granted, stats, distance=15, main="Lightning Arrow")[0] == 25
+    assert models.boss_power(granted, stats, distance=50, main="Lightning Arrow")[0] == 20
+    assert models.boss_power(off_hand, stats, distance=15, main="Lightning Arrow")[0] == 20
 
 
 def test_living_bomb_as_the_main_skill_explodes_once_per_seed_from_the_builds_other_damage():
