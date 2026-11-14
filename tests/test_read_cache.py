@@ -39,6 +39,8 @@ def make(monkeypatch, mode: str | None = None):
         monkeypatch.delenv("POE2_READ_CACHE", raising=False)
     else:
         monkeypatch.setenv("POE2_READ_CACHE", mode)
+    # (one fake Lua, not POE2_CALCS_PASS=check's pair of states: these tests read the fake's own counters; PERF21)
+    monkeypatch.delenv(engine_module.CALCS_PASS_VARIABLE, raising=False)
     # the real class, without booting PoB
     monkeypatch.setattr(LuaState, "__init__", lambda self, runtime_dir: FakeLua.__init__(self))
     monkeypatch.setattr(LuaState, "call", FakeLua.call)

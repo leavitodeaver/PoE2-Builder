@@ -4981,3 +4981,124 @@ function bridge_dispatch(method, jsonArgs)
 	end
 	return true, dkjson.encode(result or { })
 end
+
+-- (PERF18) PoB's second calculation pass, put off until an export needs it.
+-- CalcsTab:BuildOutput (Classes/CalcsTab.lua 484-487) calculates the build twice on every recalculation: "MAIN",
+-- then "CALCS" (the Calcs tab's own skill choices). Headless, the second pass's result is read by Build:Save alone
+-- (Modules/Build.lua 1221-1223: the saved code's BuffList / CombatList / CurseList), but on its way the pass also
+-- writes state that lasts: its setup (calcs.initEnv "CALCS") clamps the Calcs tab's selection fields, which the
+-- code saves, and the rest writes a reserving Spectre's / Companion's names from the Calcs tab's minion
+-- (Modules/CalcDefence.lua 205-216), which this bridge and the next pass read.
+-- BRIDGE_CALCS_PASS = "late" (POE2_CALCS_PASS, builder/pob/engine.py): the setup still runs at once; the rest runs
+-- when Build:Save is next called, before it reads the result. The guard: whenever a gem's or group's Calcs-tab
+-- choice differs from its main one after the setup, the whole pass runs at once, as before. "now": PoB untouched.
+BRIDGE_CALCS_PASS = BRIDGE_CALCS_PASS or "now"
+BRIDGE_CALCS_GUARD = true -- (false only in the probe that shows the check catches an unguarded Spectre)
+BRIDGE_CALCS_COUNT = { late = 0, guarded = 0, settled = 0, why = { } } -- (why: which choice made the guard run the pass)
+do
+	local owed = setmetatable({ }, { __mode = "k" })
+	local GEM_CHOICES = { { "skillPart", "skillPartCalcs" }, { "skillMinion", "skillMinionCalcs" },
+		{ "skillMinionItemSet", "skillMinionItemSetCalcs" }, { "skillMinionSkill", "skillMinionSkillCalcs" },
+		{ "statSet", "statSetCalcs" }, { "skillMineCount", "skillMineCountCalcs" },
+		{ "skillStageCount", "skillStageCountCalcs" },
+		{ "skillMinionSkillStatSetIndexLookup", "skillMinionSkillStatSetIndexLookupCalcs" } }
+	local function same(a, b) -- equal values, or tables equal key by key (a gem's per-skill lookups)
+		if a == b then
+			return true
+		end
+		if a == nil and type(b) == "table" then -- (an unset lookup reads as an empty one)
+			a = { }
+		elseif b == nil and type(a) == "table" then
+			b = { }
+		end
+		if type(a) ~= "table" or type(b) ~= "table" then
+			return false
+		end
+		for key, value in pairs(a) do
+			if not same(value, b[key]) then
+				return false
+			end
+		end
+		for key in pairs(b) do
+			if a[key] == nil then
+				return false
+			end
+		end
+		return true
+	end
+	-- Which Calcs-tab choice differs from its main twin (nil: none). The pass reads a group's mainActiveSkillCalcs
+	-- for one group alone, the Calcs tab's own (index == env.mainSocketGroup, CalcSetup.lua 2390-2396; checked:
+	-- every "mainActiveSkillCalcs" in Modules/Calc*.lua: those lines and 803 / 809, the granted groups' kept state,
+	-- read in every mode's setup alike), and reads an unset index as 1 (2394 / 2397); a gem's fields it reads for
+	-- every skill (statSetCalcs: CalcPerform.lua 3396; mine and stage counts: CalcActiveSkill.lua 869 / 892).
+	local function choicesDiffer(b)
+		local list = b.skillsTab.socketGroupList
+		local own = list[b.calcsTab.input.skill_number]
+		if own and (own.mainActiveSkill or 1) ~= (own.mainActiveSkillCalcs or 1) then
+			return "mainActiveSkill"
+		end
+		for _, group in ipairs(list) do
+			for _, gem in ipairs(group.gemList) do
+				for _, pair in ipairs(GEM_CHOICES) do
+					if not same(gem[pair[1]], gem[pair[2]]) then
+						return pair[1] .. (gem[pair[2]] == nil and " (Calcs unset)" or gem[pair[1]] == nil and " (main unset)" or "")
+					end
+				end
+			end
+		end
+		return nil
+	end
+	local function settle(tab)
+		if tab and owed[tab] then
+			owed[tab] = nil
+			tab.calcsEnv = tab.calcs.buildOutput(tab.build, "CALCS")
+			tab.calcsOutput = tab.calcsEnv.player.output
+			BRIDGE_CALCS_COUNT.settled = BRIDGE_CALCS_COUNT.settled + 1
+		end
+	end
+	local class = common.classes.CalcsTab
+	local realBuildOutput = class.BuildOutput
+	class.BuildOutput = function(self, ...)
+		if BRIDGE_CALCS_PASS ~= "late" then
+			owed[self] = nil
+			return realBuildOutput(self, ...)
+		end
+		local owner = self.build
+		if not rawget(owner, "calcsPassSave") then
+			local realSave = owner.Save
+			owner.calcsPassSave = true
+			owner.Save = function(saved, xml)
+				settle(saved.calcsTab)
+				return realSave(saved, xml)
+			end
+		end
+		local calcs = self.calcs
+		local real = calcs.buildOutput
+		local main
+		calcs.buildOutput = function(b, mode)
+			if mode ~= "CALCS" or not main then
+				local env = real(b, mode)
+				if mode == "MAIN" then
+					main = env
+				end
+				return env
+			end
+			calcs.initEnv(b, "CALCS")
+			local why = BRIDGE_CALCS_GUARD and choicesDiffer(b)
+			if why then
+				owed[self] = nil
+				BRIDGE_CALCS_COUNT.guarded = BRIDGE_CALCS_COUNT.guarded + 1
+				BRIDGE_CALCS_COUNT.why[why] = (BRIDGE_CALCS_COUNT.why[why] or 0) + 1
+				return real(b, mode)
+			end
+			owed[self] = true
+			BRIDGE_CALCS_COUNT.late = BRIDGE_CALCS_COUNT.late + 1
+			return main
+		end
+		local ok, err = xpcall(function(...) return realBuildOutput(self, ...) end, debug.traceback, ...)
+		calcs.buildOutput = real
+		if not ok then
+			error(err, 0)
+		end
+	end
+end

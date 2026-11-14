@@ -155,6 +155,95 @@ def setgroup_mode() -> str:
     raise PobError(f"{SETGROUP_VARIABLE}={text!r}: unset or one, two or check")
 
 
+CALCS_PASS_VARIABLE = "POE2_CALCS_PASS"
+
+
+def calcs_pass_mode() -> str:
+    """When PoB's second calculation pass (the Calcs tab's own, CalcsTab.lua 486) runs (PERF18, 14 Nov 2026): "now"
+    (the default: on every recalculation, PoB untouched), "late" (POE2_CALCS_PASS=late: its setup at once, the rest
+    when an export next reads its result; at once whenever a gem's Calcs-tab choice differs from its main one:
+    engine/bridge.lua's last section) or "check" (POE2_CALCS_PASS=check: a "late" PoB and a "now" PoB side by side
+    in this process, every call made on both, PobError when two answers differ: the equality check for "late",
+    which sees whatever the pass leaves behind as soon as any answer shows it; twice the memory and time)."""
+    text = os.environ.get(CALCS_PASS_VARIABLE, "").strip().lower()
+    if text in ("", "0", "now"):
+        return "now"
+    if text in ("late", "check"):
+        return text
+    raise PobError(f"{CALCS_PASS_VARIABLE}={text!r}: unset or now, late or check")
+
+
+def _table_orders_out(value: Any) -> Any:
+    """value with every text's runs of PoB's table-order lines sorted (replay.table_order_free: an item's "{base:N}"
+    lines, a gem's StatSetIndex lines), which two Lua states write in different orders."""
+    from builder.pob import replay
+    if isinstance(value, dict):
+        return {key: _table_orders_out(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_table_orders_out(item) for item in value]
+    return replay.table_order_free(value) if isinstance(value, str) else value
+
+
+class _Checked:
+    """Two Lua states used as one (POE2_CALCS_PASS=check): everything runs on both, the "late" one first, and the
+    answers must be the same (replay.same_answer: equal but for the bridge's stopwatch readings and the orders PoB
+    picks anew in each state). Returns the "late" state's answer."""
+
+    def __init__(self, late: LuaState, now: LuaState) -> None:
+        self.late, self.now = late, now
+        self.compared = self.unequal_bytes = 0
+
+    @property
+    def calls(self) -> int:
+        return self.late.calls
+
+    def run(self, code: str, chunk_name: str, *args: str | bytes) -> list[bytes]:
+        if chunk_name == "log_tail":
+            return self.late.run(code, chunk_name, *args)
+        return self._both("run", chunk_name, code, chunk_name, *args)
+
+    def call(self, function: str, *args: str | bytes) -> list[bytes]:
+        return self._both("call", function, function, *args)
+
+    def close(self) -> None:
+        self.late.close()
+        self.now.close()
+
+    def _both(self, how: str, what: str, *args: str | bytes) -> list[bytes]:
+        answers: list[Any] = []
+        for state in (self.late, self.now):
+            try:
+                answers.append(getattr(state, how)(*args))
+            except LuaError as error:
+                answers.append(error)
+        late, now = answers
+        if isinstance(late, LuaError) or isinstance(now, LuaError):
+            if isinstance(late, LuaError) and isinstance(now, LuaError):
+                raise late
+            raise PobError(f"{what}: one PoB raised and the other did not ({CALCS_PASS_VARIABLE}=check); "
+                           f"put off: {late!r:.2000}; as it is: {now!r:.2000}")
+        self.compared += 1
+        if late != now:
+            from builder.pob import replay  # (replay imports this module)
+            self.unequal_bytes += 1
+            bridge_call = how == "call" and what == "bridge_dispatch" and len(args) > 1
+            method = str(args[1]) if bridge_call else what
+            same = False
+            if bridge_call and len(late) == len(now) == 2 and late[0] == now[0] == b"true":
+                # ({"ok": answer}: the shape a recording keeps, which same_answer's order-free paths are written for)
+                a, b = ({"ok": replay._strip_timings(json.loads(answer[1]))} for answer in (now, late))
+                same = replay.same_answer(f"call:{method}", a, b)
+                if not same:  # (an item's raw text holds the same table-order lines as an export: bridge.equipped)
+                    same = _table_orders_out(a) == _table_orders_out(b)
+                where = "" if same else replay.difference(a, b)
+            else:
+                where = f"put off: {late!r:.2000}; as it is: {now!r:.2000}"
+            if not same:
+                raise PobError(f"{method}: PoB with its second pass put off answers differently from PoB as it is "
+                               f"({CALCS_PASS_VARIABLE}=check; the difference is from as it is to put off): {where}")
+        return late
+
+
 class PobEngine:
     def __init__(self, pob_dir: Path = POB_DIR) -> None:
         slots.take()  # inside the PC queue: one of PoE2's 6 LuaJIT slots for this process, or PoolFull
@@ -162,24 +251,34 @@ class PobEngine:
         src = pob_dir / "src"
         started = time.perf_counter()
         os.chdir(src)
-        self.lua = LuaState(pob_dir / "runtime")
-        tight = boot_gc()
-        if tight:
-            self.lua.run(BOOT_GC_BEFORE % (gc_pause(), gc_pause()), "boot_gc_before")
-        self._run_file(ENGINE_DIR / "bootstrap.lua", src.as_posix())
-        self._run_file(ENGINE_DIR / "bridge.lua")
-        if tight:
-            self.lua.run(BOOT_GC_AFTER, "boot_gc_after")
-        # after boot: Launch.lua sets PoB's own 400 while it loads
-        self.lua.run(f'collectgarbage("setpause", {gc_pause()})', "gc_pause")
-        mode = setgroup_mode()
-        if mode != "one":
-            self.lua.run(f'BRIDGE_SETGROUP = "{mode}"', "setgroup_mode")
+        calcs = calcs_pass_mode()
+        self.lua = self._boot(pob_dir, src, "now" if calcs == "now" else "late")
+        if calcs == "check":
+            self.lua = _Checked(self.lua, self._boot(pob_dir, src, "now"))  # type: ignore[assignment]
         self.boot_seconds = time.perf_counter() - started
         self._read_cache = read_cache()
         self._reads: dict[tuple[str, str], bytes] = {}  # (method, arguments) -> PoB's answer since the last other call
         self._reads_at = -1  # self.lua.calls after the last call made here: anything else run in Lua since drops them
         self.read_hits = 0
+
+    def _boot(self, pob_dir: Path, src: Path, calcs: str) -> LuaState:
+        """A Lua state with PoB and the bridge loaded; calcs: "now" or "late" (calcs_pass_mode)."""
+        lua = LuaState(pob_dir / "runtime")
+        tight = boot_gc()
+        if tight:
+            lua.run(BOOT_GC_BEFORE % (gc_pause(), gc_pause()), "boot_gc_before")
+        self._run_file(lua, ENGINE_DIR / "bootstrap.lua", src.as_posix())
+        self._run_file(lua, ENGINE_DIR / "bridge.lua")
+        if tight:
+            lua.run(BOOT_GC_AFTER, "boot_gc_after")
+        # after boot: Launch.lua sets PoB's own 400 while it loads
+        lua.run(f'collectgarbage("setpause", {gc_pause()})', "gc_pause")
+        mode = setgroup_mode()
+        if mode != "one":
+            lua.run(f'BRIDGE_SETGROUP = "{mode}"', "setgroup_mode")
+        if calcs != "now":
+            lua.run(f'BRIDGE_CALCS_PASS = "{calcs}"', "calcs_pass_mode")
+        return lua
 
     def call(self, method: str, **args: Any) -> Any:
         """Call bridge.<method>(args) and return its decoded JSON result. A repeated read (CACHED_READS) with nothing
@@ -221,9 +320,9 @@ class PobEngine:
         tests) must close each: nothing else frees one. Calls after this raise PobError."""
         self.lua.close()
 
-    def log_tail(self, lines: int = 30) -> str:
+    def log_tail(self, lines: int = 30, lua: LuaState | None = None) -> str:
         try:
-            (text,) = self.lua.run(
+            (text,) = (lua or self.lua).run(
                 "return table.concat(engineLog or {}, '\\n', math.max(1, #(engineLog or {}) - ...))",
                 "log_tail",
                 str(lines - 1),
@@ -232,8 +331,8 @@ class PobEngine:
             return ""
         return text.decode("utf-8", "replace")
 
-    def _run_file(self, path: Path, *args: str) -> None:
+    def _run_file(self, lua: LuaState, path: Path, *args: str) -> None:
         try:
-            self.lua.run(path.read_text(encoding="utf-8"), path.as_posix(), *args)
+            lua.run(path.read_text(encoding="utf-8"), path.as_posix(), *args)
         except LuaError as error:
-            raise PobError(f"{path.name}: {error}\n{self.log_tail()}") from error
+            raise PobError(f"{path.name}: {error}\n{self.log_tail(lua=lua)}") from error
