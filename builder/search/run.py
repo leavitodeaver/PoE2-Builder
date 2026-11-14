@@ -129,10 +129,18 @@ def floors_at_full_uptime(checks: list[dict], penalties: list, stats: dict, floo
 class Run:
     def __init__(self, request: BuildRequest, prices: Any = None, workers: int | None = None,
                  seconds: float | None = None, on_event: Callable[[dict], None] | None = None,
-                 should_cancel: Callable[[], bool] | None = None) -> None:
+                 should_cancel: Callable[[], bool] | None = None, cpu_clock: bool = False) -> None:
         self.request = request
         self.price_table = prices
         self.payload = make_payload(request, prices)
+        # A gate that compares code, not PC load (SEARCH19; gate4 --cpu): each worker's task time is its own processor
+        # time (inner.use_cpu_clock), and the run's own clock is the task time it has handed out (each wave adds its
+        # longest task's seconds), so the plan's shares and the phases are the same on a busy PC as on a quiet one; the
+        # wall time grows instead. The result says so (cpu_clock, wall_seconds).
+        self.cpu_clock = cpu_clock
+        self.handed_out = 0.0
+        if cpu_clock:
+            self.payload["cpu_clock"] = True  # (inner.CPU_CLOCK)
         self.ctx = Context(self.payload)
         self.workers = workers or default_workers()
         self.seconds = seconds if seconds is not None else request.effort_minutes * 60.0
@@ -152,7 +160,12 @@ class Run:
         self.on_event({"kind": kind, "t": round(clock.now() - self.started, 2), **data})
 
     def elapsed(self) -> float:
-        return clock.now() - self.started
+        return self.handed_out if getattr(self, "cpu_clock", False) else clock.now() - self.started
+
+    def hand_out(self, tasks: list[tuple[str, dict]], key: str = "seconds") -> None:
+        """(cpu_clock) The run's clock moves by a wave's longest task time once the wave is done."""
+        if getattr(self, "cpu_clock", False):
+            self.handed_out += max((number(t[1].get(key)) for t in tasks), default=0.0)
 
     def remaining(self) -> float:
         return self.seconds - self.elapsed()
@@ -308,7 +321,9 @@ class Run:
         return goal_value(self.request.objective, result["dps"], result.get("clear") or 0.0)
 
     def _tasks(self, pool: EnginePool, tasks: list[tuple[str, dict]]) -> list[Any]:
-        return pool.run_tasks(tasks, on_progress=self._progress(), should_cancel=self.should_cancel)
+        raw = pool.run_tasks(tasks, on_progress=self._progress(), should_cancel=self.should_cancel)
+        self.hand_out(tasks)
+        return raw
 
     # Stages ------------------------------------------------------------------------------------
 
@@ -331,6 +346,8 @@ class Run:
                                    {"payload": self.payload, "skeletons": [s.as_dict() for s in chunk]})
                                   for chunk in chunks],
                                  should_cancel=lambda: self.should_cancel() or self.elapsed() > deadline)
+        if self.cpu_clock:  # (each chunk's screen takes its seconds_each per setup; the share is what the plan gave it)
+            self.handed_out += SCREEN_SHARE * self.seconds
         screened = sum(len(chunk) for chunk in results if isinstance(chunk, list))
         if screened < len(screen):
             self.notes.append(f"The skill screen covered {screened} of {len(screen)} skill setups in its time share; "
@@ -492,6 +509,8 @@ class Run:
                 final = pool.run_tasks([("builder.search.inner:finalize_task", {
                     "payload": self.payload, "skeleton": best["skeleton"], "state": best["state"], "seconds": polish})],
                     on_progress=self._progress())[0]
+                if self.cpu_clock:
+                    self.handed_out += polish
                 if not isinstance(final, WorkerError):
                     break
                 self.notes.append(f"finalizing failed once: {str(final).strip().splitlines()[-1][:200]}")
@@ -517,6 +536,7 @@ class Run:
         return {
             "status": status, "request": self.request.model_dump(mode="json"), "notes": self.notes,
             "seconds": round(elapsed, 1), "evaluations": self.evals_done,
+            "wall_seconds": round(clock.now() - self.started, 1), "cpu_clock": getattr(self, "cpu_clock", False),
             "evals_per_second": round(self.evals_done / elapsed) if elapsed > 0 else 0,
             "workers": self.workers,
             "probes": sorted(({"skeleton": label, "dps": r["dps"], "clear": r.get("clear"),

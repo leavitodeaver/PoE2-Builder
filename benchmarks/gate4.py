@@ -7,7 +7,7 @@ Energy Shield, resistances (capped at 75%) and physical maximum hit. The target 
 reference's boss DPS with every floor met, within the time limit. Both sides are measured with
 the same objective (on-death damage left out).
 
-Usage: uv run python benchmarks/gate4.py [name-filter ...] [--seconds 600] [--workers N] [--events FILE]
+Usage: uv run python benchmarks/gate4.py [name-filter ...] [--seconds 600] [--workers N] [--events FILE] [--cpu]
 """
 
 from __future__ import annotations
@@ -90,6 +90,9 @@ def main() -> None:
     parser.add_argument("--seconds", type=float, default=600)
     parser.add_argument("--workers", type=int)
     parser.add_argument("--events", help="append the run's events (all but progress) to this JSONL file")
+    parser.add_argument("--cpu", action="store_true",
+                        help="compare code, not PC load: --seconds is each worker's processor time (Run's cpu_clock, "
+                             "SEARCH19); the wall time grows on a busy PC. Every row reports its evaluations either way")
     args = parser.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -130,21 +133,25 @@ def main() -> None:
                 if event["kind"] != "progress":
                     with open(args.events, "a", encoding="utf-8") as log:
                         log.write(json.dumps({"build": name, **event}) + "\n")
-        result = optimize(request, prices=prices, workers=args.workers, seconds=args.seconds, on_event=on_event)
+        result = optimize(request, prices=prices, workers=args.workers, seconds=args.seconds, on_event=on_event,
+                          cpu_clock=args.cpu)
         dps = (result.get("dps") or {}).get("full", 0.0)
         failing = [c["label"] for c in result.get("checks", []) if c["ok"] is False]
         passed = result.get("feasible", False) and dps >= reference_dps
         rows.append({"name": name, "skeleton": result.get("label"), "reference_dps": reference_dps, "dps": dps,
                      "ratio": dps / reference_dps, "feasible": result.get("feasible"), "failing": failing,
                      "passed": passed, "request": request.model_dump(mode="json"), "code": result.get("code"),
-                     "play_guide": result.get("play_guide"),
+                     "play_guide": result.get("play_guide"), "evaluations": result.get("evaluations"),
+                     "wall_seconds": result.get("wall_seconds"), "workers": result.get("workers"),
                      "checks": result.get("checks")})  # (each floor's row: the sustain and recovery rows' delivered values)
         print(f"[{'PASS' if passed else 'FAIL'}] {name} {result.get('label')}: {dps:,.0f} vs reference "
               f"{reference_dps:,.0f} (x{dps / reference_dps:.2f}); "
-              + ("all floors met" if result.get("feasible") else "short: " + ", ".join(failing)), flush=True)
+              + ("all floors met" if result.get("feasible") else "short: " + ", ".join(failing))
+              + f"; {result.get('evaluations', 0):,} evaluations, {result.get('wall_seconds', 0):,.0f} s wall"
+              + (" (processor-time clock)" if args.cpu else ""), flush=True)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     out = RESULT_DIR / f"gate4-{datetime.now():%Y%m%d-%H%M%S}.json"
-    out.write_text(json.dumps({"seconds": args.seconds, "boss": BOSS, "rows": rows}, indent=1), encoding="utf-8")
+    out.write_text(json.dumps({"seconds": args.seconds, "cpu_clock": args.cpu, "boss": BOSS, "rows": rows}, indent=1), encoding="utf-8")
     print(f"gate 4: {sum(r['passed'] for r in rows)}/{len(rows)} pass; wrote {out.relative_to(ROOT)}")
 
 

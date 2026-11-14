@@ -1430,11 +1430,24 @@ def _all_off(search: Any, infos: dict[str, dict], on_stats: dict) -> dict:
             if isinstance(v, (int, float)) and number(v) != number(on_stats.get(k))}
 
 
+# A gate that compares code, not PC load (SEARCH19; the manager's 14 Nov 02:40 item): with the payload's "cpu_clock" set
+# (Run's cpu_clock, gate4 --cpu), a worker's search time is its own processor time (time.process_time: the worker's Python
+# and its in-process PoB, builder.pob.lua), so a busy PC stretches the run's wall time but not the work each task does.
+# The search's deadlines and hard stop all read builder.clock.now, which this swaps in the worker process only.
+CPU_CLOCK = "cpu_clock"
+
+
+def use_cpu_clock(payload: dict) -> None:
+    if payload.get(CPU_CLOCK) and clock.now is not time.process_time:
+        clock.now = time.process_time
+
+
 def optimize_task(engine: Any, report: Any, payload: dict, skeleton: dict, seconds: float, seed: int = 0,
                   state: dict | None = None, goal: str | None = None, full: bool = False) -> dict:
     """`goal` overrides the request's (a balanced run's boss-DPS searches); the result's `value` is
     on that goal, so the run ranks results on its own goal from `dps` and `clear`. `full`: scored on PoB's Full
     DPS, as the delivered build is, the damaging non-main groups included (the run's focus stage)."""
+    use_cpu_clock(payload)
     deadline = clock.now() + seconds
     wall, left_out = time.perf_counter(), clock.paused()
     search = Search(engine, report, payload, skeleton, seed, goal=goal, full=full)
@@ -1515,6 +1528,7 @@ def seed_task(engine: Any, report: Any, payload: dict) -> dict:
 
 def screen_task(engine: Any, report: Any, payload: dict, skeletons: list[dict], seconds_each: float = 3.0) -> list[dict]:
     """Main-skill DPS with a starting weapon and greedy supports, no tree: a cheap shortlist."""
+    use_cpu_clock(payload)
     from builder.pob.pool import Cancelled
 
     results = []
@@ -1555,6 +1569,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     the build and reload the exported code to prove it reproduces the same numbers."""
     from builder.pob.pool import Cancelled
 
+    use_cpu_clock(payload)
     deadline = clock.now() + seconds
     search = Search(engine, report, payload, skeleton, 1, full=True)
     search.load(state)
