@@ -18,6 +18,7 @@ generation and scaling from the committed build (bridge `chargeGain`).
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
@@ -105,6 +106,11 @@ class Charges:
     # it with leftover text (ModCache: FlaskCharges BASE + " for Charms you use to not consume "), so never applies it;
     # Charges.of reads the build's lines (CHARM_NOT_CONSUME)
     charm_not_consume: float = 0.0
+    # (MECHC21, AUDIT31 A31-21) "N% chance when a Charm is used to use another Charm without consuming Charges" (charms13,
+    # charms15, Heart of the Well's unveiled mod; PoB parses it with leftover text and never applies it): the summed chance,
+    # and each equipped charm's free uses a second from the others' uses ((item text, uses/s, how), charm_free_uses)
+    charm_another: float = 0.0
+    charm_extra: tuple = ()
     # (MECHC7, #105) Wildwood's Gifts: Ancient Blooms per second and the charges a Bloom of each kind gives (bloom_charges)
     bloom_rate: float = 0.0
     bloom_life: float = 0.0
@@ -147,6 +153,13 @@ class Charges:
             cached = getattr(build, "_build_texts", None)  # (state.Build's per-commit cache of the same lines)
             texts = cached() if callable(cached) else [line["text"] for line in build.call("sourceLines")["lines"]]
             gain = replace(gain, charm_not_consume=charm_not_consume(texts))
+            another = sum(float(m.group(1)) for t in texts for m in CHARM_ANOTHER.finditer(t))
+            equipped = getattr(build, "equipped", None) or {}
+            raws = [o.raw for slot in CHARM_SLOTS[:gain.charm_limit] if (o := equipped.get(slot)) is not None]
+            if another > 0 and len(raws) >= 2:
+                infos = build.call("flaskData", raws=raws)["results"]
+                gain = replace(gain, charm_another=another,
+                               charm_extra=charm_free_uses(list(zip(infos, raws)), replace(gain, charm_another=another)))
         groups = [int(i) for i in data.get("perfectGroups") or [] if i]
         if groups and gain.perfect_main_rate <= 0:
             from dataclasses import replace
@@ -414,6 +427,35 @@ def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
 CHARM_NOT_CONSUME = re.compile(r"(\d+(?:\.\d+)?)% chance for Charms you use to not consume Charges", re.I)
 
 
+CHARM_ANOTHER = re.compile(r"(\d+(?:\.\d+)?)% chance when a Charm is used to use another Charm without consuming Charges",
+                           re.I)
+
+
+def charm_free_uses(charms: list[tuple[dict, str]], gain: Charges) -> tuple:
+    """((item text, free uses a second, how), ...): each charm's uses from the others' (MECHC21, A31-21). Each use of a
+    charm, at its own rate (uses_per_second), has gain.charm_another% to use another charm without its charges, taken as
+    one of the build's other equipped charms at random (UNVERIFIED: the game text names no choice rule); a free use
+    doesn't roll again (UNVERIFIED: a lower reading). A free use landing while that charm's effect is up does nothing
+    (the uptime and use readers count only the share that lands while it's down)."""
+    chance = min(max(gain.charm_another, 0.0), 100) / 100
+    own = [(raw, uses_per_second(info, gain, raw, None)[0]) for info, raw in charms]
+    if chance <= 0 or len(own) < 2:
+        return ()
+    total = sum(u for _, u in own)
+    out = []
+    for raw, uses in own:
+        others = total - uses
+        free = chance * others / (len(own) - 1)
+        out.append((raw, free, f"{chance:.0%} of the other {len(own) - 1} charm(s)' {others:.3f} uses/s, one of them "
+                               f"at random (UNVERIFIED): {free:.3f} free uses/s"))
+    return tuple(out)
+
+
+def charm_extra_uses(gain: Charges, raw: str) -> tuple[float, str]:
+    """This charm's free uses a second from the build's others (charm_free_uses), and how."""
+    return next(((u, h) for r, u, h in gain.charm_extra if r == raw), (0.0, ""))
+
+
 def charm_not_consume(texts: list[str]) -> float:
     """The build's summed "N% chance for Charms you use to not consume Charges" (MECHC21)."""
     return sum(float(m.group(1)) for t in texts for m in CHARM_NOT_CONSUME.finditer(t))
@@ -458,6 +500,9 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
     if info.get("kind") == "Charm" and (event := trigger_rate(trigger, gain)) is not None:
         uses = min(uses, event[0])  # (a charm is used by its trigger only: charges and the event both needed)
     share = min(1.0, uses * duration(info, gain))
+    if info.get("kind") == "Charm" and (free := charm_extra_uses(gain, trigger)[0]) > 0:
+        # (MECHC21: another charm's use uses this one free, at random times: it starts an effect only while it's down)
+        share = 1 - (1 - share) * math.exp(-free * duration(info, gain))
     if (cap := full_pool_cap(info, gain, pool, trigger)) is not None:
         share = min(share, cap[0])
     return share
@@ -555,6 +600,10 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
     uses, how = made / used, f"{made:.2f} charges/s / {used:g} per use"
     if pool not in ("Life", "Mana") and (length := duration(info, gain)) > 0 and uses > 1 / length:
         uses, how = 1 / length, how + f", at most once per its {length:.1f} s effect"
+    if info.get("kind") == "Charm" and (free := charm_extra_uses(gain, raw))[0] > 0:
+        length = duration(info, gain)
+        down = max(1 - uses * length, 0.0) if length > 0 else 1.0
+        uses, how = uses + free[0] * down, how + f"; + {free[0] * down:.3f} free uses/s while its effect is down ({free[1]})"
     return uses, how
 
 
