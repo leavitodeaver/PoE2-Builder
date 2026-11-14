@@ -2267,10 +2267,15 @@ SHOCKED_GROUND_SKILL_STATS = ("secondary_skill_shocked_ground_effect_duration_ms
 # table value; the game's formula isn't in the files): PoB's DurationMod (Duration, PrimaryDuration) for the main one,
 # DurationSecondary over its base for the secondary one where the main stat set has it (Lightning Warp), else DurationMod
 # (Storm Lance's ground is in its Frenzy-Charged set: SecondaryDuration-only lines missed there, a small undercount).
+# Persistent Ground I-III (AUDIT30 A30-3 / AUDIT31 A31-6, an UNDERCOUNT): ground_effect_duration_+% 50 ("50% increased
+# duration of Ground Surfaces"), a support stat PoB's DurationMod never holds: read from the main skill's supports and
+# added to the factor (ground_ms; Shocking Leap's ground x (1 + it), the supported skill's surface). No Mods row or
+# passive uses ground_effect_duration_+% (MECH67's scan of Mods / PassiveSkills; the supports carry it in their stat sets).
 # support_shocked_ground_effect_duration_+%_final: no user (checked: Mods, PassiveSkills, GrantedEffectStatSets,
 # GrantedEffectStatSetsPerLevel, GrantedEffectQualityStats, SoulCoreStats, game 26476662; nothing to read). Whether
 # duration modifiers lengthen Shocking Leap's support_shocking_leap_shocked_ground_duration_ms (a virtual_ copy exists)
 # is UNVERIFIED: left at its base.
+GROUND_SURFACE_DURATION_STAT = "ground_effect_duration_+%"
 SHOCKED_GROUND_DURATION_STAT = {"Lightning Warp": "base_secondary_skill_effect_duration",
                                 "Storm Lance": "base_secondary_skill_effect_duration",
                                 "Vivid Stampede": "base_skill_effect_duration",
@@ -2320,7 +2325,8 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
     the boss to stay in it for its duration (LOW: bosses move, and the ground's radius isn't read). Sources combine as
     independent. Charged Mark's ground counts at the supported Mark's Activations (MECH61). Labelled, not counted: ground
     from a skill other than the main one. The main skill's ground carries the build's duration modifiers (MECH68,
-    Conditions.ground_ms); Shocking Leap's and the "chance on Shocking" ground stay at their base (UNVERIFIED)."""
+    Conditions.ground_ms); Shocking Leap's takes only Persistent Ground's line and the "chance on Shocking" ground stays at its base (whether
+    other duration lines lengthen them: UNVERIFIED)."""
     uses = number(stats.get("Speed"))
     hit = min(number(stats.get("HitChance")) or 100.0, 100.0) / 100.0
     parts: list[str] = []
@@ -3111,19 +3117,21 @@ class Conditions:
             return rate, how + f"; radius {radius:g} m at the {mark['name']}'s level {level}, with +level lines (the triggered skill "                 "copies its parent's level, HIGH)", radius
         return 0.0, "it supports no Mark", charged_mark_radius(1)
 
-    def ground_ms(self, level_stats: dict) -> float:
+    def ground_ms(self, level_stats: dict, ground_inc: float = 0.0) -> float:
         """The main skill's Shocked Ground duration in ms (SHOCKED_GROUND_DURATION_STAT) with the build's duration
-        modifiers (PoB's DurationMod / DurationSecondary); an old shocked-ground stat if PoB ever gives one."""
+        modifiers (PoB's DurationMod / DurationSecondary) plus `ground_inc`, the supports' "increased duration of Ground
+        Surfaces" (Persistent Ground; PoB's DurationMod never holds it: added to the factor, the lower reading of an
+        increased line where more multipliers exist, UNVERIFIED); an old shocked-ground stat if PoB ever gives one."""
         old = max(number(level_stats.get(s)) for s in SHOCKED_GROUND_SKILL_STATS)
         stat = SHOCKED_GROUND_DURATION_STAT.get(self.main_skill)
         base = number(level_stats.get(stat)) if stat else 0.0
         if old > 0 or base <= 0:
-            return old
+            return old * (1 + ground_inc / 100)
         got = self.build.call("stats", fields=["DurationMod", "DurationSecondary"])
         factor = number(got.get("DurationMod")) or 1.0
         if stat.startswith("base_secondary") and number(got.get("DurationSecondary")) > 0:
             factor = number(got.get("DurationSecondary")) * 1000 / base
-        return base * factor
+        return base * (factor + ground_inc / 100)
 
     def ground_feed(self, texts: list[str], stats: dict, names: set[str]) -> dict:
         """(MECH58) What lets the main skill make its Shocked Ground (SHOCKED_GROUND_GATED): {"share": the share of the
@@ -3354,13 +3362,16 @@ class Conditions:
             stats["_pin_more"] = number((main.get("supportStats") or {}).get(PIN_MORE_STAT))
         # Shocked Ground (shocked_ground): the main skill's own, the Shocking Leap support on it, and the lines
         if self.main_skill in SHOCKED_GROUND_SKILLS or SHOCKED_GROUND_SUPPORT in main_gems:
-            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(SHOCKED_GROUND_SUPPORT_STATS))
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill],
+                                  supportStats=[*SHOCKED_GROUND_SUPPORT_STATS, GROUND_SURFACE_DURATION_STAT])
             main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
             got = main.get("levelStats") or {}
+            ground_inc = number((main.get("supportStats") or {}).get(GROUND_SURFACE_DURATION_STAT))
             if self.main_skill in SHOCKED_GROUND_SKILLS:
-                stats["_sg_skill"] = (self.main_skill, self.ground_ms(got))
+                stats["_sg_skill"] = (self.main_skill, self.ground_ms(got, ground_inc))
                 stats["_sg_feed"] = self.ground_feed(texts, stats, names)
-            stats["_sg_support"] = number((main.get("supportStats") or {}).get(SHOCKED_GROUND_SUPPORT_STATS[0]))
+            stats["_sg_support"] = (number((main.get("supportStats") or {}).get(SHOCKED_GROUND_SUPPORT_STATS[0]))
+                                    * (1 + ground_inc / 100))
         stats["_sg_charged_mark"] = self.charged_mark(stats) if CHARGED_MARK in names else None
         stats["_sg_death_storm"] = self.death_storm() if DEATH_STORM_SUMMON in names else None
         stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)

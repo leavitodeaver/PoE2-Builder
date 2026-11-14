@@ -3119,3 +3119,22 @@ def test_equal_scoring_distances_keep_the_nearer_one_whatever_order_pob_lists_th
 
     a = ["10% more Damage against enemies further than 8 m", "5% more Damage against enemies further than 12 m"]
     assert chosen(a) == chosen(list(reversed(a))) == 8.5
+
+
+def test_persistent_ground_lengthens_the_main_skills_shocked_ground():
+    """AUDIT30 A30-3 / AUDIT31 A31-6 (MECH68, an UNDERCOUNT): Persistent Ground's "50% increased duration of Ground
+    Surfaces" (ground_effect_duration_+%) isn't in PoB's DurationMod; ground_ms adds it to the build's duration factor."""
+    from types import SimpleNamespace
+
+    from builder.search.conditions import Conditions
+
+    class FakeBuild:
+        def call(self, name, **_):
+            return {"DurationMod": 1.2, "DurationSecondary": 0}
+
+    stub = SimpleNamespace(main_skill="Vivid Stampede", build=FakeBuild())
+    assert Conditions.ground_ms(stub, {"base_skill_effect_duration": 4000}) == pytest.approx(4800)
+    assert Conditions.ground_ms(stub, {"base_skill_effect_duration": 4000}, 50) == pytest.approx(6800)
+    warp = SimpleNamespace(main_skill="Lightning Warp", build=FakeBuild())
+    assert Conditions.ground_ms(warp, {"base_secondary_skill_effect_duration": 8000}, 50) == pytest.approx(13600)
+
