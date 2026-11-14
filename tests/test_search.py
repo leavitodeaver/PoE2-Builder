@@ -3048,7 +3048,7 @@ def test_a_line_raises_a_short_floors_weight_when_its_pass_spans_tasks(monkeypat
     objective = SimpleNamespace(deficits=lambda stats: [("Physical max hit", 0.27, False)],
                                 escalate=lambda stats: raised.append(1) or True, score=lambda stats: 0.0)
     build = SimpleNamespace(objective=objective, stats={}, phase="", refresh=lambda: None, score=0.0)
-    search = SimpleNamespace(passes_done=0, line_short=None, escalations=0, kicked=set(), build=build,
+    search = SimpleNamespace(passes_done=0, line_short=None, resume_step=None, escalations=0, kicked=set(), build=build,
                              blocks=blocks, note_feasible=lambda: None, kick=lambda: kicks.append(1),
                              tree=SimpleNamespace(reset=lambda: resets.append(1)))
     inner.Search._ascend(search, 100.0, None, None, True)  # the line's first finished pass: nothing to compare with

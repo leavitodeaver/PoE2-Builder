@@ -1079,11 +1079,10 @@ class Search:
         # (the line's last finished pass, carried across its tasks: Search.line_short; a task of its own without M1)
         last_short = self.line_short if PERSIST_LINES and self.line_short is not None else float("inf")
         while clock.now() < deadline:
-            done = self.passes_done
             improved = self.blocks(deadline)
             self.note_feasible()
-            if self.passes_done == done:  # (stopped mid-pass: its next task goes on with it, and compares at its end)
-                break
+            if self.resume_step is not None:  # (stopped mid-pass, Search.blocks: its next task goes on with it and
+                break                         # compares at its end)
             objective = self.build.objective
             short = shortfall([{"amount": a, "hard": h} for _, a, h in objective.deficits(self.build.stats)])
             # (a pass that finishes at the deadline is still compared: else a line whose pass takes about a task never
