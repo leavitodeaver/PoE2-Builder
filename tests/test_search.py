@@ -3227,7 +3227,8 @@ def test_a_shotgun_main_skill_stands_at_close_range():
 
 def test_electromagnetism_does_not_consume_a_lone_bosss_shock_on_every_hit():
     """GEM4 / MECH69 (an UNDERCOUNT of Shock uptime): Electromagnetism consumes Shock only "where there are at least 3
-    Shocked enemies within 4 metres", never against one boss, so its stats aren't a per-hit consume."""
+    Shocked enemies within 4 metres": never against the default lone boss, and no boss preset's adds have a known rate, so
+    its stats aren't a per-hit consume (AUDIT34 A34-19)."""
     from types import SimpleNamespace
 
     from builder.search.conditions import CONSUME_STATS, main_consumes

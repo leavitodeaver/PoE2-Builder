@@ -1944,7 +1944,10 @@ CONSUME_STATS = {
     # (MECH69; GEM4: Electromagnetism's try_consuming_shock_to_trigger_shocking_rift_in_radius_on_shocking_enemy and
     # consume_shock_of_X_enemies_to_trigger_shocking_rift are out: its stat text consumes Shock only "On Shocking an
     # enemy where there are at least {1} Shocked enemies within {0} metres" (gem_stat_descriptions; its values 40 / 3:
-    # 4 m, 3 enemies), never against one boss, so it isn't a per-hit consume: Shock uptime was undercounted with it.
+    # 4 m, 3 enemies). The default fight is the worst case, a lone boss (the user's rule), where it never fires, so it
+    # isn't a per-hit consume: Shock uptime was undercounted with it. Bosses with adds (bosses.py: Kulemak's, Olroth's
+    # and the Raven's adds are "no known rate" placeholders; Atziri's wave is a lower bound) could give it 3 Shocked
+    # enemies, but no source gives a rate, so it counts 0 there too (no source = 0, noted here; AUDIT34 A34-19).
     # In GrantedEffectStatSets the two are on SupportShockingRiftPlayer alone: checked 26476662's stat sets.)
     "Shock": ("lightning_conduit_x_additional_strikes_if_consumed_a_shock",
               "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge", "base_consume_enemy_shock_on_hit",
