@@ -5162,11 +5162,12 @@ POWER_FALLBACK_DISTANCE = 50.0  # (units: conditions.RANGED_DISTANCE 5 m, when t
 # skill's shield hits pressed beside it aren't: a small undercount). Raise Shield: the boss within 6 m (PoB's
 # enemyDistance) and the shield raised once per Challenge duration (a button the player presses to feed it: the time
 # raised isn't taken from the main skill, a small overcount, named). Its duration: no game data we have (BuffDefinitions
-# not extracted) and poe2db states none; CHALLENGE_DURATION 10 s is a community observation ("appears to expire after a
-# 10 second period", mobalytics.gg guides/runefathers-challenge-runefathers-boast): LOW, a flat number named to the
-# manager. The +5 is added after any doubling (UNVERIFIED order: the lower reading, 20 x 2 + 5 = 45, not (20 + 5) x 2).
+# not extracted) and poe2db states none, nor any "until the target dies" (its neighbour Runefather's Boast's definition
+# says outright it "does not have a duration"; the Challenge's doesn't); CHALLENGE_DURATION 10 s from poe2wiki
+# ("approximately 10 seconds") and Mobalytics ("appears to expire after a 10 second period", guides/runefathers-
+# challenge-runefathers-boast) (AUDIT32 A32-9): LOW, a flat number; the user may check it in game. The +5 is added after any doubling (UNVERIFIED order: the lower reading, 20 x 2 + 5 = 45, not (20 + 5) x 2).
 CHALLENGE_POWER = 5
-CHALLENGE_DURATION = 10.0  # LOW: a community observation, no game data
+CHALLENGE_DURATION = 10.0  # LOW: poe2wiki "approximately 10 seconds" and Mobalytics; no game data (AUDIT32 A32-9)
 CHALLENGE_RAISE_RANGE = 60.0  # units: "6 metres in front of you when raised"
 CHALLENGE_OFF_HAND = re.compile(r"^Off-hand Hits inflict Runefather's Challenge$", re.I)
 CHALLENGE_RAISE = re.compile(r"^Inflicts Runefather's Challenge on enemies ([\d.]+) metres in front of you when raised", re.I)
@@ -5221,7 +5222,7 @@ def boss_power(texts: list[str], stats: dict, distance: float | None = None,
         return power, basis
     power += CHALLENGE_POWER * share
     told = (f"+{CHALLENGE_POWER * share:g} from Runefather's Challenge ({why}; +{CHALLENGE_POWER} while Challenged, "
-            f"{CHALLENGE_DURATION:g} s each, LOW: a community observation; added after any doubling, the lower reading, "
+            f"{CHALLENGE_DURATION:g} s each, LOW: poe2wiki and Mobalytics, no game data; added after any doubling, the lower reading, "
             "UNVERIFIED)")
     return power, (f"the boss's Power {power:g} ({basis}; {told})" if basis else f"the boss's Power {power:g} (20; {told})")
 
