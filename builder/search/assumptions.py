@@ -2011,9 +2011,13 @@ class Assumptions:
                 counted = ("counted whole" if share >= conditions_mod.FULL_UPTIME else
                            "counted 0 in PoB: under 99.5% of the fight, so not in the defence floors (its share is "
                            "for the search's part-time weighing)" if share > 0 else "counted 0")
-                notes.append({"label": f"{condition['title']}", "value": f"{share:.0%} up", "basis": f"{how}; {counted}",
-                              "confidence": "LOW (play strategy: Runic Reprieve channelled into the boss's hits; the "
-                                            "Ward each blocked hit takes is the hit's damage after mitigation, UNVERIFIED)"})
+                # (MECHC19, COV22) the note only for a build with the line (before, a "0% up" note on every build)
+                if self.has_line(r"Runic Ward has been damaged Recently"):
+                    notes.append({"label": f"{condition['title']}", "value": f"{share:.0%} up",
+                                  "basis": f"{how}; {counted}",
+                                  "confidence": "LOW (play strategy: Runic Reprieve channelled into the boss's hits; the "
+                                                "Ward each blocked hit takes is the hit's damage after mitigation, "
+                                                "UNVERIFIED)"})
                 continue
             if condition.get("warcries_recently"):
                 # different Warcries used Recently (4 s), summed over the build's own Warcries (Escalation; COV13: before,
