@@ -292,17 +292,17 @@ def test_legacy_and_granted_gems_are_not_socketable():
                for g in ctx.gems.values())
 
 
-def test_the_search_offers_murderous_intent_with_its_cull_priced_at_empowered_uses():
-    """COV22 (MECH60: live by the game files and poe2db, though PoB marks it legacy; an UNDERCOUNT while the search
-    dropped it): Context.gems offers Murderous Intent, and only once its Cull is priced as the game gives it, on the main
-    skill's Empowered uses (MECH63's bridge.cullSplit empowerOnly, which test_murderous_intents_cull_is_flagged_empower_only
-    checks on the engine), not PoB's Culling Strike on every hit. Other PoB-legacy gems stay out until checked."""
+def test_murderous_intent_is_drop_disabled_but_its_cull_stays_priced_at_empowered_uses():
+    """COV24 (an OVERCOUNT while COV22 offered it: drop-disabled, can't be engraved since 0.3.0 by poe2wiki, PoB's issue
+    #2253 / PR #2281 and forum reports; the game files can't tell and poe2db keeps deprecated entries unmarked): Context.gems
+    leaves Murderous Intent out again. Its Cull model stays for a PoB code that holds one: priced on the main skill's
+    Empowered uses (MECH63's bridge.cullSplit empowerOnly, which test_murderous_intents_cull_is_flagged_empower_only checks
+    on the engine), not PoB's Culling Strike on every hit."""
     from builder.search import conditions as c
 
     ctx = context(main_skill="Ice Shot")
-    gem = ctx.gems["Murderous Intent"]
-    assert gem.get("legacy") and gem.get("support") and "Murderous Intent" in ctx.any_gems
-    assert "Overextend" not in ctx.gems  # (PoB-legacy, not checked live: UNVERIFIED, left out as before)
+    assert "Murderous Intent" not in ctx.gems and not ctx.allowed_gem("Murderous Intent")
+    assert "Overextend" not in ctx.gems
     mult = 1 / 0.95
     every_hit = {"critical": 0.0, "regular": 5.0, "inc": 1.0, "critChance": 0.0}
     empowered = {**every_hit, "empowerOnly": True}
@@ -315,17 +315,20 @@ def test_the_search_offers_murderous_intent_with_its_cull_priced_at_empowered_us
 
 def test_gems_the_game_removed_are_left_out_and_unpriced_legacy_supports_wait():
     """COV23: Untouchable, an ordinary gem in PoB, was removed in 0.3.0 (the official notes and poe2db agree): the search
-    can't pick it (an OVERCOUNT while it could), though a PoB code holding one still reads its skill types. PoB-legacy
-    gems the game removed (0.5.0: Infernal Legion III, Overextend, Shock Conduction II) stay out, and so do the live ones
-    PoB scores at nothing (Lasting Ground, Undermine) until a model prices them."""
+    can't pick it (an OVERCOUNT while it could), though a PoB code holding one still reads its skill types. COV24: Shock
+    Siphon, also ordinary in PoB, can't be engraved since 0.2.0 (poe2db's version history and the 0.2.0 notes agree): out
+    the same way. PoB-legacy gems stay out: the ones the game removed (0.5.0: Infernal Legion III, Overextend, Shock
+    Conduction II), the drop-disabled ones (Murderous Intent, Bloodlust, Commandment, Lasting Ground) and Undermine
+    (UNVERIFIED, and PoB scores it 0)."""
     from builder.search.context import GONE_GEMS, LIVE_LEGACY
 
     ctx = context(main_skill="Ice Shot")
-    assert "Untouchable" in GONE_GEMS and "Untouchable" not in ctx.gems and "Untouchable" in ctx.any_gems
-    assert not ctx.allowed_gem("Untouchable")
-    for name in ("Infernal Legion III", "Overextend", "Shock Conduction II", "Lasting Ground", "Undermine"):
+    for gone in ("Untouchable", "Shock Siphon"):
+        assert gone in GONE_GEMS and gone not in ctx.gems and gone in ctx.any_gems
+        assert not ctx.allowed_gem(gone)
+    for name in ("Infernal Legion III", "Overextend", "Shock Conduction II", "Lasting Ground", "Undermine",
+                 "Murderous Intent", "Bloodlust", "Commandment"):
         assert name not in LIVE_LEGACY and name not in ctx.gems and not ctx.allowed_gem(name)
-    assert ctx.allowed_gem("Murderous Intent")
 
 
 # Objective -------------------------------------------------------------------------------------

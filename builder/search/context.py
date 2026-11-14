@@ -31,40 +31,45 @@ SUPPORT_SLOTS = 5  # support sockets on a fully socketed skill gem
 MAX_GEM_GROUPS = 9  # non-item gem groups the game allows
 GEM_LEVEL = 20
 GEM_QUALITY = 20
-# PoB-legacy gems the current game still offers, each with its evidence (Context.gems offers them; bridge.supportCandidates
+# PoB-legacy gems the current game still offers, each with its evidence (none since COV24; Context.gems offers them; bridge.supportCandidates
 # returns legacy gems too and the search keeps those Context.allowed_gem allows). The game files can't tell a live support
 # from a removed one: live.json reaches every one of them by the support weight alone ("live (inferred)"), and so it does
 # Overextend, Font of Rage and Ricochet III, which the patch notes removed. So the evidence is poe2db's current page and the
-# patch notes. The other gems PoB marks legacy (COV23, checked: poe2db's current page of each; the 0.5.0 patch notes
-# (kami-labs' full copy) and the official 0.3.0 notes (pathofexile.com forum 3826682); 0.4.0's disabled list (maxroll /
-# game8 copies, via search)):
+# patch notes. Why PoB marks a gem legacy: its own flag (Export/Skills/sup_*.txt "legacy = true"), set by hand for gems
+# "no longer obtainable" (PoB PR #1935, from poe2wiki's Historical content and the 0.5.0 notes' "Can no longer be obtained")
+# or "drop-disabled" (PR #2281, issue #2253; COV24). The gems PoB marks legacy (COV23 and COV24, checked: poe2db's current
+# page of each; the 0.5.0 patch notes (kami-labs' full copy), the official 0.3.0 notes (pathofexile.com forum 3826682) and
+# 0.4.0's disabled list (maxroll / game8 copies, via search); PoB's PRs #1935 / #2281 and issue #2253 (GitHub); poe2wiki's
+# page of each, read through search-engine excerpts because poe2wiki turns bots away; pathofexile.com forum threads):
 # - Infernal Legion III, Overextend, Shock Conduction II: gone. 0.5.0: "Can no longer be obtained" (poe2db's version
 #   history and the 0.5.0 notes agree). PoB is right to leave them out.
-# - Lasting Ground ("50% increased duration of Ground Surfaces created by Supported Skills"): live (no removal on poe2db or
-#   in the 0.3.0 / 0.4.0 / 0.5.0 notes), but out until priced: PoB maps ground_effect_duration_+% to nothing (absent from
-#   SkillStatMap.lua), so it scores 0, an undercount; MECH-A's ground models read only Shocked Ground's own duration stats.
-# - Undermine ("Consume Maim on Hit to Break 35% of the Maimed target's Armour"; "cannot inflict Maim"): live (the same
-#   check), but out until priced: PoB maps neither consume_maim_on_hit_to_break_%_armour nor cannot_inflict_maim (absent
-#   from SkillStatMap.lua), so it scores 0 and would keep the skill's own Maim on (an OVERCOUNT where Maim matters).
-# - Bloodlust, Commandment: live (the same check); PoB maps their lines (30% more Melee Physical Damage vs Bleeding enemies
-#   and CannotBleed; 100% less minion damage with non-Command skills and 100% increased Command cooldown recovery). Out
-#   until COV23's probe (scratch/cov23/probe_legacy.py) shows PoB scores them right.
-LIVE_LEGACY = {
-    # MECH60 (checked: game files BaseItemTypes SupportGemMurderousIntent, SkillGems 479, GrantedEffects 751, live.json
-    # "live (inferred)", weight 50; poe2db's current page https://poe2db.tw/us/Murderous_Intent, no legacy mark).
-    # Offered once its Cull is priced at the main skill's Empowered uses (MECH63's bridge.cullSplit empowerOnly and
-    # conditions.cull_window_scale), not PoB's Culling Strike on every hit.
-    "Murderous Intent": "MECH60: live (game files; poe2db current page)",
-}
-# Gems PoB offers as ordinary gems that the game removed, each with two sources that agree (the rule for removing anything):
-# Context.gems leaves them out, so the search never picks them; any_gems still reads them in a PoB code that holds one.
-# The game files still carry them (live.json "live (inferred)" by the support weight, as for the removed gems above).
+# - Murderous Intent, Bloodlust, Commandment, Lasting Ground: drop-disabled, can't be engraved since 0.3.0 (a change the
+#   0.3.0 notes don't list): poe2wiki's page of each says "drop disabled ... Can be only acquired in Early access standard
+#   league from other players" with an undocumented 0.3.0 "can no longer be engraved" row; PoB's issue #2253 names Murderous
+#   Intent and PR #2281 adds the other three; players on the forum (threads 3876247, Nov 2025: Murderous Intent "can no
+#   longer cut any new gems"; 3978747, Jun 2026: Bloodlust missing from the Gemcutting menu). poe2db's pages show no mark,
+#   but poe2db keeps deprecated entries unmarked (the user's note). So none is obtainable in a new league: an OVERCOUNT
+#   while the search offered Murderous Intent (MECH60 / COV22 read it live from the game files, which can't tell, and
+#   poe2db). Its Cull model (MECH63) stays for a PoB code that holds one.
+# - Undermine: PoB's issue #2253 names it drop-disabled; no second source found (poe2wiki's page didn't come up; poe2db
+#   shows no mark): UNVERIFIED either way. It stays out as before, and also because PoB scores it 0 (it maps neither
+#   consume_maim_on_hit_to_break_%_armour nor cannot_inflict_maim, so the skill's own Maim stays on: an OVERCOUNT).
+LIVE_LEGACY: dict[str, str] = {}
+# Gems PoB offers as ordinary gems that the game removed or stopped giving, each with two sources that agree (the rule for
+# removing anything): Context.gems leaves them out, so the search never picks them; any_gems still reads them in a PoB code
+# that holds one. The game files still carry them (live.json "live (inferred)" by the support weight, as for those above).
 GONE_GEMS = {
     # COV23 (checked: the official 0.3.0 notes, pathofexile.com forum 3826682: "Blood in the Eyes, Discombobulate, Unsteady
     # Tempo, Unbating, Unbending, Untouchable, and Unyielding can no longer be engraved in the Gemcutting menu, and existing
     # Gems will be deleted upon logging in"; poe2db's current page https://poe2db.tw/us/Untouchable quotes the same in its
     # version history, and no later version brings it back). PoB carries only Untouchable of the seven, not marked legacy.
     "Untouchable": "removed in 0.3.0 (the official 0.3.0 notes and poe2db's version history agree)",
+    # COV24 (checked: poe2db's current page https://poe2db.tw/us/Shock_Siphon, version history "0.2.0: Shock Siphon can no
+    # longer be engraved in the Gemcutting menu. Existing copies of this support will still function"; the same line quoted
+    # from the 0.2.0 notes on pathofexile.com forum thread 3755262, Apr 2025, where players report they can't cut it; poe2wiki's
+    # page, through search excerpts, gives the same 0.2.0 row; no later version brings it back). Existing copies still work,
+    # so a PoB code holding one still reads it; a new character can't get one.
+    "Shock Siphon": "can't be engraved since 0.2.0 (poe2db's version history and the 0.2.0 notes agree)",
 }
 
 ARMOUR_SLOTS = ["Helmet", "Body Armour", "Gloves", "Boots"]
