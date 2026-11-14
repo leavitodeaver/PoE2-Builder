@@ -1261,3 +1261,28 @@ def test_skeletons_without_a_count_stat_count_one_each_on_a_real_build(engine):
     uses, struck, some, storm = models.death_storm(found, main, {"Speed": 0.0})
     assert rate > 0 and "one minion each" in how, how
     assert uses > 0 and struck > 0, storm
+
+
+def test_unearth_counts_bone_constructs_only_from_the_builds_dead_reviving_minions(engine):
+    """(MECHB21, AUDIT28 A28-5) PoB counts one Bone Construct fighting nonstop whatever the corpses (probe POE2T1081). On
+    a real Unearth Infernalist with no corpse source the models take it off (its spikes only); with Skeletal Warriors
+    and Sacrifice, whose undead Reviving minions die to Unearth's own uses, the constructs alive come from those deaths
+    (models.unearth_constructs), with or without Sacrifice counted once (the larger of the two, never their sum)."""
+    from builder.search import models
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Unearth", ascendancies=["Infernalist"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Unearth"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    minion = lambda: models.number(build.call("stats", fields=["Minion.CombinedDPS"]).get("Minion.CombinedDPS"))
+    search.assumptions.apply()  # (setup resolves them already; PoB alone counts one construct, 38 DPS: probe POE2T1081)
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Unearth's Bone Constructs"))
+    assert note["value"] == 0 and minion() == pytest.approx(0.0, abs=1e-6), note
+    for gem in ("Sacrifice", "Skeletal Warrior"):
+        build.call("setGroup", gems=[{"name": gem, "support": False, "level": 20, "quality": 0, "enabled": True}])
+    search.assumptions.apply()
+    note = next(n for n in search.assumptions.active if n["label"].startswith("Unearth's Bone Constructs"))
+    assert note["value"] > 0 and "dead Reviving" in note["basis"] and minion() > 0, note

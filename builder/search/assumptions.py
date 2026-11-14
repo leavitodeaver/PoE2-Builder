@@ -469,6 +469,9 @@ class Assumptions:
         if any(s.name == models.SACRIFICE for s in found):  # (MECH-B, MECHB19, A27-4: Sacrifice's corpses, the build's own
             # undead Reviving minion deaths, for models.corpse_supply's readers)
             stats = {**stats, models.SACRIFICE_CORPSES_STAT: models.sacrifice_corpses(found, main, stats)}
+        if any(s.name == models.UNEARTH for s in found):  # (MECHB21, A28-5: Unearth's Bone Constructs from any dead
+            # Reviving minion, with or without Sacrifice: models.reviving_extra / unearth_constructs)
+            stats = {**stats, models.REVIVING_DEATHS_STAT: models.minion_deaths(found, main, stats)}
         if any(s.name == "Cast on Charm Use" for s in found):  # (its Energy: charm charges spent, from the flask model)
             stats = {**stats, **charm_stats(build)}
         if any(s.name == "Cast on Minion Death" for s in found):  # (its Energy: the build's minions dying)
@@ -637,8 +640,8 @@ class Assumptions:
         hunt, hunt_mods, hunt_notes = eternal_hunt(build, main)  # (MECHB20: the Azmerian Wolf's Command, an added source)
         hand_mods, hand_notes = hand_mods + hunt_mods, hand_notes + hunt_notes
         # separately computed damage (Melting Maelstrom's pulses, Eternal Hunt: models.added_input); what-ifs get their own
-        # sum from the bridge's LedgerAddedDPS
-        build.objective.added_dps = pulse + hunt
+        # sum from the bridge's LedgerAddedDPS; set_added (SEARCH14) keeps each source for the result's list
+        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.
@@ -942,12 +945,15 @@ class Assumptions:
         needs Combo, walking between uses, or Mana Flask charges for a throw, the most uses a second the build can feed
         it (models.PressCap). Combo: usage.combo_rate (N builder Strikes, then a use: 0 with no builder in the build);
         walking: usage.travel_rate (10 m at the build's movement speed, LOW; once it's in usage.py); a Concoction:
-        flasks.charge_use_rate (the Mana Flask's charge generation / 5 a throw). Groups needing none are left out."""
+        flasks.charge_use_rate (the Mana Flask's charge generation / 5 a throw); a Glory skill (models.GLORY_SKILLS /
+        GLORY_FROM_LIFE) outside the main group: the uses its Glory pays for (models.glory_plan; MECHB21, SEARCH15's
+        open OVERCOUNT: a damaging Glory skill in a pressed Full DPS group was counted at its duration or the search's
+        chosen rate, never held to its Glory). Groups needing none are left out."""
         from builder.search.flasks import THROW_CHARGES
         from builder.search.usage import Usage, requirements
 
         caps: dict[int, models.PressCap] = {}
-        usage, rules = None, usage_rules(self.build)
+        usage, rules, glory = None, usage_rules(self.build), None
         for group in groups:
             if group.get("index") not in indices or not group.get("enabled", True):
                 continue
@@ -959,6 +965,12 @@ class Assumptions:
                 if not gem["support"] and name in THROW_CHARGES:
                     uses, how = self.throw_rate(name)
                     cap = models.PressCap(uses, how, 0.0, "MEDIUM")
+                if not gem["support"] and not group.get("main") and (
+                        name in models.GLORY_SKILLS or name in models.GLORY_FROM_LIFE):
+                    glory = glory or self.glory_caps()
+                    uses, how = glory.get(name, (0.0, f"{name}: its Glory wasn't read"))
+                    found = models.PressCap(uses, f"Glory: {how}", 0.0, "MEDIUM")
+                    cap = found if cap is None or found.uses < cap.uses else cap
                 for need in requirements(name, rules[name]) if rules.get(name) else []:
                     usage = usage or Usage(self.build, None)
                     if need.kind == "combo":
@@ -988,6 +1000,25 @@ class Assumptions:
                     old = caps.get(group["index"])
                     caps[group["index"]] = cap if old is None or cap.uses < old.uses else old
         return caps
+
+    def glory_caps(self) -> dict[str, tuple[float, str]]:
+        """{Glory skill: (uses per second its Glory pays for, how)} for press_caps: models.glory_plan for each Glory skill
+        in the build on its own (each skill builds its own Glory: KeywordPopups Glory, "each Skill can only generate
+        Glory"), from the main skill's events (glory_events), the skills' cooldowns and the build's Glory lines."""
+        build = self.build
+        raw = [s for s in build.call("activeSkills")["skills"] if not s.get("disabled")]
+        skills = [models.Skill.of(s) for s in raw]
+        main_group = build.main_group() or {}
+        main = next((s for s in skills if s.group == main_group.get("index")
+                     and s.name in {g.get("name") for g in main_group.get("gems") or []}), None)
+        stats = build.call("stats", fields=models.MODEL_FIELDS)
+        texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+        out = {}
+        for s in skills:
+            if (s.name in models.GLORY_SKILLS or s.name in models.GLORY_FROM_LIFE) and s.name not in out:
+                plan, how = models.glory_plan([s.name], stats, main, skills, texts)
+                out[s.name] = (plan.get(s.name, (0.0, 0.0))[0], how)
+        return out
 
     def pustule_cap(self, found: list["models.Skill"]) -> tuple[list[dict], list[dict]]:
         """Poison Spores' Pustule Explosion at one a fuse on the boss (models.pustule_cap): PoB's rate for each group's

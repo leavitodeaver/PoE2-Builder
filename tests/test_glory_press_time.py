@@ -61,3 +61,20 @@ def test_objective_busy_adds_the_glory_press_time():
     assert o.busy() == pytest.approx(0.75)
     o.glory_busy = 0.9
     assert o.busy() == 1.0
+
+
+def test_a_pressed_glory_skill_is_held_to_the_uses_its_glory_pays_for(monkeypatch):
+    """(MECHB21, SEARCH15's open OVERCOUNT) press_caps holds a Glory skill outside the main group to models.glory_plan's
+    uses, so press_model never counts it at its duration or the search's chosen rate beyond them; the main group's own
+    Glory skill is left to glory_main."""
+    from builder.search import assumptions as assumptions_mod
+
+    monkeypatch.setattr(assumptions_mod, "usage_rules", lambda build: {})
+    monkeypatch.setattr(Assumptions, "glory_caps", lambda self: {"Molten Blast": (0.4, "one per 2.5 s")})
+    a = Assumptions.__new__(Assumptions)
+    a.build = Build(full=True)
+    a.build._groups[1]["gems"].append(gem("Molten Blast"))
+    caps = a.press_caps(a.build._groups, {1, 2})
+    assert set(caps) == {1} and caps[1].uses == pytest.approx(0.4) and caps[1].how.startswith("Glory")
+    real, how, _ = models.press_group_rate({"speed": 4.0}, cap=caps[1], chosen=2.0)
+    assert real == pytest.approx(0.4) and "Glory" in how

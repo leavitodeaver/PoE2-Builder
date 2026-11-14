@@ -4367,3 +4367,28 @@ def test_aggravate_on_empowered_attacks_reads_the_builds_empowered_hits():
     assert mods[0]["scale"] == pytest.approx(100 * models.aggravated_share(5.0, 0.5 * 0.2, None, 2.0), rel=1e-3)
     assert "Infernal Cry" in notes[0]["basis"]
     assert models.aggravate_model([line], stats, {"Attack"}, empowered=(0.0, ""))[0] == []
+
+
+def test_unearth_raises_bone_constructs_from_the_builds_corpses_and_dead_reviving_minions():
+    """(MECHB21, AUDIT28 A28-5) PoB counts one Bone Construct fighting nonstop (probe POE2T1081): the count is Unearth's
+    corpses per second x the construct's duration, capped at its limit; 0 with no corpses (its spikes only). Its corpses:
+    a share of the common supply plus the dead Reviving minions only it can use (the larger of those and Sacrifice's)."""
+    summon = {"duration": 20, "limit": 20, "persistent": False}
+    unearth = models.Skill("Unearth", group=1, spell=True, corpses=True, summon=summon)
+
+    def count(skills, stats):
+        mods, notes = models.corpse_model(skills, [], stats)
+        more = next(m for m in mods if m.get("skill") == "Unearth")
+        note = next(n for n in notes if n["label"].startswith("Unearth"))
+        assert more["scale"] == pytest.approx(100 * (note["value"] - 1), abs=0.01)
+        return note["value"], mods, notes
+
+    assert count([unearth], {})[0] == 0  # (no corpses on a lone boss: PoB's one construct taken off)
+    assert count([unearth], {models.REVIVING_DEATHS_STAT: (0.5, "x")})[0] == pytest.approx(10.0)  # (no Sacrifice)
+    assert count([unearth], {models.REVIVING_DEATHS_STAT: (5.0, "x")})[0] == 20  # (the limit)
+    # (with Sacrifice and Detonate Dead: Sacrifice's 0.3 is shared by both users; Unearth adds the other 0.2 deaths)
+    detonate = models.Skill("Detonate Dead", group=2, spell=True, corpses=True)
+    stats = {models.REVIVING_DEATHS_STAT: (0.5, "x"), models.SACRIFICE_CORPSES_STAT: (0.3, "y")}
+    value, mods, _ = count([unearth, detonate, models.Skill("Sacrifice")], stats)
+    assert value == pytest.approx((0.15 + 0.2) * 20)
+    assert {m["skill"]: m["value"] for m in mods if m.get("key") == "triggerRate"} == {"Detonate Dead": pytest.approx(0.15)}

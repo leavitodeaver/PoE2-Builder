@@ -1361,7 +1361,8 @@ CORPSE_SOURCES = {"Sacrifice": "your undead Reviving Minions in place of corpses
 # Skills of those types that still work without a corpse: never set to 0, the part that needs corpses said in the guide
 CORPSE_OPTIONAL = {
     "Raise Zombie": "consumes a Power Charge when there's no corpse; zombies from corpses not counted",
-    "Unearth": "its bone spikes hit without corpses; its Bone Constructs (from corpses) not counted",
+    "Unearth": "its bone spikes hit without corpses; its Bone Constructs only from the corpses and dead Reviving minions "
+               "the build supplies (unearth_constructs)",
     # (Ritualist's As the Whispers Demand grants it with head_hunt_without_a_corpse; RitualSacrificePlayer's
     # head_hunt_%_life_to_remove_on_self_stab is 20: game files, build 26476662)
     "Ritual Sacrifice": "used on yourself it takes 20% of maximum Life for one random Monster Modifier instead of a rare "
@@ -1507,6 +1508,55 @@ def spirit_vessel_notes(skills: list[dict]) -> list[dict]:
     return notes
 
 
+# Unearth's Bone Constructs (MECHB21; AUDIT28 A28-5, an UNDERCOUNT, and an OVERCOUNT found probing it). The game
+# (ActiveSkills unearth): "The bones of Corpses and dead Reviving Minions in the area are ripped out and reassembled into
+# short-lived Bone Construct Minions that fight for you. Larger Corpses create more than one Bone Construct." PoB scores
+# the skill as its spikes and ONE Bone Construct fighting nonstop (probe POE2T1081, a real Unearth Infernalist: spikes
+# 45 DPS, Minion.CombinedDPS 38 = one construct's AverageDamage x Speed, limit 20, whatever the corpses), and the score
+# takes the larger (objective.main_dps): a construct a lone boss never gives counted (an OVERCOUNT once minion damage
+# beats the spikes), and never more than one where corpses come (an UNDERCOUNT). The constructs alive on average are
+# Unearth's corpses per second x each construct's duration (PoB's, the bridge's summon.duration), capped at the limit
+# (ActiveUnearthBoneConstructLimit): one construct per corpse (larger corpses' extra ones not counted, an undercount;
+# a Reviving minion's body counted as one, LOW), and Unearth cast often enough to raise each (LOW).
+# Its corpses: an even share of the common supply (the boss's adds, Sacrifice's undead minions; every corpse user,
+# Unearth too, splits it: corpse_model) plus the build's dead Reviving minions only Unearth can use (any Reviving
+# minion, undead or not, with or without Sacrifice: minion_deaths, less Sacrifice's share of them, which is in the
+# common supply already: so the larger of the two, never their sum). Each lies dead until it revives, so it's there to
+# be used once (assumed: whether Unearth taking its bones changes its revival is UNVERIFIED).
+# (checked: ActiveSkills unearth's text; PoB act_int.lua UnearthPlayer / Minions.lua UnearthBoneConstruct and the probe.)
+UNEARTH = "Unearth"
+REVIVING_DEATHS_STAT = "_reviving_deaths"  # stats key: minion_deaths' (rate, how), set by Assumptions.models for Unearth
+
+
+def unearth_constructs(unearth: Skill, corpses: float, how: str) -> tuple[list[dict], dict]:
+    """(mods, note) for Unearth's Bone Constructs from `corpses` per second (see above): a "Minions deal more Damage"
+    line on Unearth bringing PoB's one construct to the count alive on average (0 with no corpses)."""
+    summon = unearth.summon or {}
+    duration, limit = number(summon.get("duration")), number(summon.get("limit"))
+    if limit <= 0:
+        return [], {}
+    count = min(limit, max(corpses, 0.0) * duration)
+    basis = (f"{corpses:.3g} corpses/s for Unearth ({how}) x {duration:.3g} s each construct lasts"
+             + (f", capped at its limit of {limit:g}" if count >= limit else "")
+             + f": {count:.3g} alive on average (PoB counts one fighting nonstop, whatever the corpses). One construct a "
+               "corpse (larger corpses make more: not counted, an undercount); a dead Reviving minion's body counted "
+               "as one, and Unearth cast often enough to raise each (LOW). Without corpses: its spikes only")
+    return ([line("Minions deal 1% more Damage", 100 * (count - 1), skill=unearth.name)],
+            {"label": "Unearth's Bone Constructs alive on average*", "value": round(count, 3), "basis": basis,
+             "confidence": "LOW" if count > 0 else "datamined"})
+
+
+def reviving_extra(stats: dict | None) -> tuple[float, str]:
+    """Dead Reviving minions per second only Unearth can use: minion_deaths' rate (REVIVING_DEATHS_STAT) less Sacrifice's
+    share, which the common supply holds already (so the larger of the two counts, never their sum)."""
+    value = (stats or {}).get(REVIVING_DEATHS_STAT)
+    deaths = number(value[0] if isinstance(value, (tuple, list)) else value)
+    how = value[1] if isinstance(value, (tuple, list)) and len(value) > 1 else "the minion deaths weren't read"
+    extra = max(deaths - max(sacrifice_rate(stats), 0.0), 0.0)
+    return extra, (f"{deaths:.3g} of your Reviving minions die a second ({how})"
+                   + (f", {extra:.3g} of them beyond Sacrifice's" if sacrifice_rate(stats) > 0 else ""))
+
+
 def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = None,
                  main: Skill | None = None) -> tuple[list[dict], list[dict]]:
     """Corpses per second for each skill that needs them, from the build's own sources (CORPSE_SOURCES) and the boss
@@ -1515,17 +1565,30 @@ def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = Non
     the new mods list and the notes."""
     users = sorted({s.name for s in skills if s.corpses and not s.wrong_weapon} - set(CORPSE_OPTIONAL))
     optional = sorted({s.name for s in skills if s.corpses} & set(CORPSE_OPTIONAL))
+    present = {s.name for s in skills}
+    supply = corpse_supply(present, stats)
+    unearth = next((s for s in skills if s.name == UNEARTH and s.corpses), None)
+    sharers = len(users) + (1 if unearth is not None else 0)  # (Unearth takes the corpses in its area too: MECHB21)
     notes = [{"label": f"{name}: corpses", "value": 0, "basis": CORPSE_OPTIONAL[name] + " (no corpses on a single boss)",
-              "confidence": "datamined"} for name in optional]
+              "confidence": "datamined"} for name in optional if name != UNEARTH]
+    if unearth is not None:
+        extra, extra_how = reviving_extra(stats)
+        own = supply / sharers + extra
+        how = (f"{supply / sharers:.3g}/s, its share of {supply:.3g} corpses/s split among {sharers} corpse "
+               f"user{'s' if sharers != 1 else ''} ({add_corpses_note(stats)}"
+               + (f"; {sacrifice_note(stats)}" if SACRIFICE in present else "") + f"), + {extra:.3g}/s dead Reviving "
+               f"minions ({extra_how})")
+        more, note = unearth_constructs(unearth, own, how)
+        mods = mods + more
+        notes.append(note or {"label": "Unearth: corpses", "value": round(own, 4), "basis": CORPSE_OPTIONAL[UNEARTH]
+                              + f": {how}", "confidence": "LOW" if own > 0 else "datamined"})
     if not users:
         return mods, notes
-    present = {s.name for s in skills}
     sources = [f"{name}: {why}" for name, why in CORPSE_SOURCES.items() if name in present]
-    supply = corpse_supply(present, stats)
     dropped = set(users)
     mods = [m for m in mods if not (m.get("kind") == "SkillData" and m.get("skill") in dropped
                                     and m.get("key") in ("triggerRate", "triggered"))]
-    each = supply / len(users)
+    each = supply / sharers
     speed = number((stats or {}).get("Speed"))
     for name in users:  # (a main skill is never used faster than PoB's own Speed for it: MECHB19)
         main_user = main is not None and main.name == name and speed > 0
@@ -1536,6 +1599,7 @@ def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = Non
                  + (f"the build's own: {'; '.join(sources)}"
                     + (f" ({sacrifice_note(stats)})" if SACRIFICE in present else "") if sources
                     else "the build has no corpse source of its own")
+                 + ("; Unearth takes an even share of them too" if unearth is not None and supply > 0 else "")
                  + (f", so they're counted {each:.3g} uses per second each" if supply > 0
                     else ", so they're counted 0 uses per second"),
         "confidence": "LOW (the adds' / Sacrifice's corpses assumed)" if supply > 0
