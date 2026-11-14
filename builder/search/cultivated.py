@@ -25,6 +25,7 @@ from builder import clock
 DATA = Path(__file__).resolve().parents[1] / "data" / "cultivated.json"
 ODDS = Path(__file__).resolve().parents[1] / "data" / "cultivated_odds.json"
 ORB = "Vaal Cultivation Orb"
+VAAL_ORB = "Vaal Orb"  # corrupts the plain copy the orb needs
 LABEL = "Cultivated"
 TOP_OUTCOMES = 3  # best single outcomes (by what-if gain) tried as whole variants
 
@@ -96,11 +97,14 @@ def unread_outcomes() -> list[tuple[str, str, list[str]]]:
 # Prices ------------------------------------------------------------------------------------------------------------
 
 def payload_prices(prices) -> dict:
-    """The orb's poe.ninja price, for the search's payload (context.make_payload). Empty without it: then nothing is
-    crafted (an unpriced orb is never free)."""
+    """The orb's and the Vaal Orb's poe.ninja prices, for the search's payload (context.make_payload). Empty without
+    the orb's: then nothing is crafted (an unpriced orb is never free). Without the Vaal Orb's, only "orb"."""
     if prices is None or prices.item(ORB) is None:
         return {}
-    return {"orb": prices.item(ORB).divine}
+    out = {"orb": prices.item(ORB).divine}
+    if prices.item(VAAL_ORB) is not None:
+        out["vaal"] = prices.item(VAAL_ORB).divine
+    return out
 
 
 def _share(table: dict, count: int) -> float:
@@ -126,26 +130,36 @@ def success_chance(n_outcomes: int, k_lines: int, wanted: int, acceptable: int, 
 
 
 def craft_price(ctx, name: str, plain_price: float | None, chances: dict[str, float]) -> tuple[float, str] | None:
-    """(divines, note) for one cultivated copy, as the manager set it (14 Nov ~05:10, the user's question "how do you
-    price everything else that's not on poe ninja?"): the plain unique's price + the orb's poe.ninja price x the
-    expected uses under the odds model. No plain price (a unique poe.ninja doesn't list is never offered), no orb price
-    or a zero chance: None. `chances` is {model name: one use's chance}; the first is the model priced, the rest are
-    shown as comparison rows. The price assumes one copy takes every use (UNVERIFIED: if each use needs a fresh corrupted
-    copy, multiply the copy's price by the uses too)."""
-    orb = (ctx.payload.get("cultivation_prices") or {}).get("orb")
+    """(divines, note) for one cultivated copy: the expected uses x (a fresh corrupted copy + one orb). The manager's
+    rule (14 Nov ~05:10, the user's question "how do you price everything else that's not on poe ninja?") was the
+    plain unique's poe.ninja price + the orb's x the expected uses; CULT5 found that every use needs a fresh copy: the
+    game refuses an orb on a unique that already carries an outcome (ClientStrings
+    ItemErrorIncursionAlreadyMutatedUniqueMods, "Target already has a Vaal Unique Modifier."; the orb needs a Corrupted
+    Vaal unique, CurrencyItems row 58), so a miss keeps its wrong outcome for good and the next try starts on another
+    copy. A copy = the plain unique's price + a Vaal Orb to corrupt it (the corruption's own outcome is not counted:
+    UNVERIFIED). A miss is worth something on the market, but no price for it exists: not taken off (the cautious
+    side: the craft may be priced high, never low). No plain price (a unique poe.ninja doesn't list is never offered),
+    no orb price or a zero chance: None. `chances` is {model name: one use's chance}; the first is the model priced,
+    the rest are shown as comparison rows."""
+    costs = ctx.payload.get("cultivation_prices") or {}
+    orb = costs.get("orb")
     names = list(chances)
     if plain_price is None or orb is None or not names or chances[names[0]] <= 0.0:
         return None
+    vaal = costs.get("vaal")
+    per_use = plain_price + (vaal or 0.0) + orb
     uses = 1.0 / chances[names[0]]
-    price = plain_price + orb * uses
+    price = per_use * uses
     rows = []
     for other in names[1:]:
         if chances[other] > 0.0:
-            rows.append(f"{other}: ~{1.0 / chances[other]:.0f} uses, {plain_price + orb / chances[other]:.0f} div")
+            rows.append(f"{other}: ~{1.0 / chances[other]:.0f} uses, {per_use / chances[other]:.0f} div")
         else:
             rows.append(f"{other}: never")
-    note = (f"craft estimate, LOW: the plain unique ({plain_price:.2f} div) + ~{uses:.0f} {ORB}s x {orb:.2f} div "
-            f"({names[0]}; outcomes equally likely, UNVERIFIED)")
+    corrupt = f"a {VAAL_ORB} ({vaal:.2f} div)" if vaal is not None else f"a {VAAL_ORB} (no price: not counted)"
+    note = (f"craft estimate, LOW: ~{uses:.0f} tries x (a fresh copy of the unique ({plain_price:.2f} div) + {corrupt}"
+            f" + a {ORB} ({orb:.2f} div)): a cultivated unique can't take another orb, so each miss uses up a copy "
+            f"(its resale not counted) ({names[0]}; outcomes equally likely, UNVERIFIED)")
     if rows:
         note += "; compare " + "; ".join(rows)
     return price, note

@@ -97,15 +97,35 @@ class _Ctx:
         self.data = type("D", (), {"uniques": [{"name": "Atziri's Acuity", "raw": pob_raw("Atziri's Acuity")}]})()
 
 
-def test_a_craft_is_the_plain_price_plus_the_orbs_for_the_expected_uses_labelled_low_with_the_users_reading():
-    ctx = _Ctx({"orb": 6.0})
+def test_a_craft_pays_a_fresh_corrupted_copy_and_an_orb_per_try_labelled_low_with_the_users_reading():
+    # CULT5: the game refuses an orb on a unique that already has an outcome (ClientStrings
+    # ItemErrorIncursionAlreadyMutatedUniqueMods, "Target already has a Vaal Unique Modifier."), so each try uses up a
+    # copy, corrupted by a Vaal Orb first: uses x (copy + Vaal Orb + orb), not copy + uses x orb
+    ctx = _Ctx({"orb": 6.0, "vaal": 0.5})
     price, note = cultivated.craft_price(ctx, "Atziri's Acuity", 1.0, {"model A": 0.05, "the user's reading": 0.01})
-    assert price == pytest.approx(1.0 + 20 * 6.0)
-    assert "LOW" in note and "UNVERIFIED" in note and "~20 Vaal Cultivation Orbs" in note
-    assert "compare the user's reading: ~100 uses, 601 div" in note
+    assert price == pytest.approx(20 * (1.0 + 0.5 + 6.0))
+    assert "LOW" in note and "UNVERIFIED" in note and "~20 tries" in note and "can't take another orb" in note
+    assert "compare the user's reading: ~100 uses, 750 div" in note
+    no_vaal, note = cultivated.craft_price(_Ctx({"orb": 6.0}), "Atziri's Acuity", 1.0, {"m": 0.05})
+    assert no_vaal == pytest.approx(20 * 7.0) and "no price: not counted" in note
     assert cultivated.craft_price(ctx, "Atziri's Acuity", None, {"m": 0.05}) is None  # no poe.ninja price: not offered
     assert cultivated.craft_price(_Ctx({}), "Atziri's Acuity", 1.0, {"m": 0.05}) is None  # no orb price: never free
+    assert cultivated.craft_price(_Ctx({"vaal": 0.5}), "Atziri's Acuity", 1.0, {"m": 0.05}) is None
     assert cultivated.craft_price(ctx, "Atziri's Acuity", 1.0, {"m": 0.0}) is None
+
+
+def test_the_payload_carries_the_vaal_orbs_price_beside_the_cultivation_orbs():
+    class P:
+        def __init__(self, d):
+            self.d = d
+
+        def item(self, name):
+            return type("Price", (), {"divine": self.d[name]})() if name in self.d else None
+
+    assert cultivated.payload_prices(P({"Vaal Cultivation Orb": 6.0, "Vaal Orb": 0.02})) == {"orb": 6.0, "vaal": 0.02}
+    assert cultivated.payload_prices(P({"Vaal Cultivation Orb": 6.0})) == {"orb": 6.0}
+    assert cultivated.payload_prices(P({"Vaal Orb": 0.02})) == {}
+    assert cultivated.payload_prices(None) == {}
 
 
 def test_outcomes_pob_doesnt_read_go_through_the_ledger_and_are_offered_once_it_stands_in(monkeypatch):
@@ -195,7 +215,7 @@ def test_the_trial_crafts_the_outcome_that_helps_in_place_of_the_line_the_build_
     assert "craft estimate, LOW" in grown.confidence
     n = len(cultivated.outcomes("Atziri's Acuity", offered=False))
     k = max(3, len(cultivated._explicit(pob_raw("Atziri's Acuity"))))  # every explicit line might go: the cautious side
-    assert grown.price == pytest.approx(1.0 + 6.0 / cultivated.success_chance(n, k, 1, 1))
+    assert grown.price == pytest.approx((1.0 + 6.0) / cultivated.success_chance(n, k, 1, 1))  # a fresh copy per try
     assert "compare the user's reading" in grown.confidence
     # an outcome that adds nothing is never crafted, and the trial isn't repeated at the same score
     gear = _Gear(ctx, worth={}, cost={})
