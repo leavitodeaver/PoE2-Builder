@@ -59,6 +59,43 @@ def gc_pause() -> int:
     return pause
 
 
+BOOT_GC_VARIABLE = "POE2_BOOT_GC"
+
+
+def boot_gc() -> bool:
+    """Whether the collector keeps this process's own pace (gc_pause) while PoB loads, with one full collection at the
+    end of the boot (PERF15, 14 Nov 2026): True unless POE2_BOOT_GC=0, which is the way back.
+
+    Why: Launch.lua line 18 sets the pause to 400 for the load, so an engine's Lua heap climbed to ~250 MB during the
+    boot though ~115 MB is in use at its end, and the process kept ~300 MB from Windows (POE2T2746-2747). How: before
+    bootstrap.lua, collectgarbage is wrapped so a "setpause" from PoB is ignored; after the boot the real function is
+    put back. When the collector runs changes no value PoB computes (no __gc in PoB or the bridge; their weak tables
+    are keyed by live objects): the proof is the gate builds' fixed workload and a real suite, on and off."""
+    text = os.environ.get(BOOT_GC_VARIABLE, "").strip().lower()
+    if text in ("", "1", "on"):
+        return True
+    if text in ("0", "off"):
+        return False
+    raise PobError(f"{BOOT_GC_VARIABLE}={text!r}: unset or 1 (on), or 0 (off: PoB's own pause of 400 while it loads)")
+
+
+BOOT_GC_BEFORE = """
+local real = collectgarbage
+BOOT_GC_REAL = real
+real("setpause", %d)
+function collectgarbage(what, ...)
+	if what == "setpause" then
+		return real("setpause", %d)  -- PoB's Launch.lua asks for 400 while it loads: keep ours (the old value is returned, as ever)
+	end
+	return real(what, ...)
+end
+"""
+BOOT_GC_AFTER = """
+collectgarbage = BOOT_GC_REAL
+BOOT_GC_REAL = nil
+collectgarbage("collect")
+"""
+
 READ_CACHE_VARIABLE = "POE2_READ_CACHE"
 # Bridge methods that only read the loaded build (engine/bridge.lua: sourceLines walks the allocated passives, the
 # equipped items' lines and the enabled gems; groups describes the socket groups; getConfig copies the Configuration
@@ -126,8 +163,13 @@ class PobEngine:
         started = time.perf_counter()
         os.chdir(src)
         self.lua = LuaState(pob_dir / "runtime")
+        tight = boot_gc()
+        if tight:
+            self.lua.run(BOOT_GC_BEFORE % (gc_pause(), gc_pause()), "boot_gc_before")
         self._run_file(ENGINE_DIR / "bootstrap.lua", src.as_posix())
         self._run_file(ENGINE_DIR / "bridge.lua")
+        if tight:
+            self.lua.run(BOOT_GC_AFTER, "boot_gc_after")
         # after boot: Launch.lua sets PoB's own 400 while it loads
         self.lua.run(f'collectgarbage("setpause", {gc_pause()})', "gc_pause")
         mode = setgroup_mode()

@@ -157,3 +157,16 @@ def test_a_wrong_switch_value_is_an_error(monkeypatch):
     monkeypatch.setenv("POE2_READ_CACHE", "maybe")
     with pytest.raises(PobError, match="POE2_READ_CACHE"):
         engine_module.read_cache()
+
+
+def test_the_boot_collector_switch(monkeypatch):
+    """POE2_BOOT_GC (PERF15): on unless 0; the wrapper keeps the engine's own pause when PoB asks for another."""
+    monkeypatch.delenv(engine_module.BOOT_GC_VARIABLE, raising=False)
+    assert engine_module.boot_gc() is True
+    monkeypatch.setenv(engine_module.BOOT_GC_VARIABLE, "0")
+    assert engine_module.boot_gc() is False
+    monkeypatch.setenv(engine_module.BOOT_GC_VARIABLE, "maybe")
+    with pytest.raises(PobError, match="POE2_BOOT_GC"):
+        engine_module.boot_gc()
+    before = engine_module.BOOT_GC_BEFORE % (200, 200)
+    assert 'real("setpause", 200)' in before and "400" not in before.replace("asks for 400", "")
