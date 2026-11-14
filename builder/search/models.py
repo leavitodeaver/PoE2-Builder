@@ -1593,12 +1593,40 @@ def reviving_extra(stats: dict | None) -> tuple[float, str]:
                    + (f", {extra:.3g} of them beyond Sacrifice's" if sacrifice_rate(stats) > 0 else ""))
 
 
+# Corpse explosions PoB scores at 0 (MECHB26; GEM4's Fiery Reclamation row). Xibaqua's Rending's Fiery Reclamation "Deals
+# Fire damage in an area around the exploding Corpse based on its maximum Life": corpse_explosion_monster_life_permillage_
+# fire 60 (6% of the corpse's maximum Life; game files GrantedEffectStatSets TriggeredXibaquasRendingPlayer, build
+# 26476662). PoB's SkillStatMap maps corpse_explosion_monster_life_% and _permillage_physical only (vendor 0.23, lines
+# 318-325), so the skill gets no explodeCorpse and deals nothing. The model gives PoB the settings CalcOffence 2410-2415
+# reads: explodeCorpse, corpseExplosionLifeMultiplier, corpseExplosionDamageType. PoB then takes the corpse's Life as
+# monsterLifeTable[enemy level] (a normal monster at the boss's level: LOW for the preset's adds; for Sacrifice's undead
+# minions used as corpses the Life would be the minion's, UNVERIFIED). Its rate is corpse_model's (the corpses it gets;
+# 0 on a lone boss, with the note). Patch notes: no hit for Xibaqua / Fiery Reclamation (not evidence it never changed).
+# Each corpse is taken to explode once (its 100-corpse limit per landing never binds
+# at a boss's corpse rates, assumed), and the supported jump is taken to land where the corpses lie at least as often as they
+# appear (the corpses wait for the next landing; LOW: a jump pressed rarely or away from the corpses explodes fewer). PoB's
+# hit flag for it: the bridge's installCorpseExplosionHits (PoB's data gives the skill none).
+CORPSE_EXPLOSIONS = {"Fiery Reclamation": (0.06, "Fire")}
+
+
+def corpse_explosion_mods(skills: list[Skill]) -> list[dict]:
+    """PoB's corpse-explosion settings for the build's skills in CORPSE_EXPLOSIONS (see above)."""
+    out: list[dict] = []
+    for name in sorted({s.name for s in skills} & set(CORPSE_EXPLOSIONS)):
+        share, kind = CORPSE_EXPLOSIONS[name]
+        out += [{"kind": "SkillData", "skill": name, "key": "explodeCorpse", "value": True},
+                {"kind": "SkillData", "skill": name, "key": "corpseExplosionLifeMultiplier", "value": share},
+                {"kind": "SkillData", "skill": name, "key": "corpseExplosionDamageType", "value": kind}]
+    return out
+
+
 def corpse_model(skills: list[Skill], mods: list[dict], stats: dict | None = None,
                  main: Skill | None = None) -> tuple[list[dict], list[dict]]:
     """Corpses per second for each skill that needs them, from the build's own sources (CORPSE_SOURCES) and the boss
     preset's killed adds (corpse_supply): a skill with no supply uses 0 per second, wherever it is (main skill, meta
     group, totem), replacing any trigger rate the other models gave it; several users split the supply evenly. Returns
     the new mods list and the notes."""
+    mods = mods + corpse_explosion_mods(skills)  # (MECHB26: Fiery Reclamation's damage; its rate is set below)
     users = sorted({s.name for s in skills if s.corpses and not s.wrong_weapon} - set(CORPSE_OPTIONAL))
     optional = sorted({s.name for s in skills if s.corpses} & set(CORPSE_OPTIONAL))
     present = {s.name for s in skills}

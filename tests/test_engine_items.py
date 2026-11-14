@@ -1466,6 +1466,35 @@ def test_energy_capacitor_on_a_real_invocation_group_raises_its_store(engine):
     assert "pressed on its" in note["basis"] and "s cooldown*" in note["basis"], note
 
 
+def test_fiery_reclamation_explodes_corpses_in_full_dps_with_the_models_settings(engine):
+    """(MECHB26, GEM4) Xibaqua's Rending's Fiery Reclamation: PoB maps no corpse_explosion_monster_life_permillage_fire,
+    so at any trigger rate it deals nothing; with models.corpse_explosion_mods (explodeCorpse, 6% of the corpse's Life as
+    Fire) the same rate adds to Full DPS. On a lone boss the corpse model still gives it 0 corpses a second."""
+    from builder.search import models
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Leap Slam", ascendancies=["Titan"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Leap Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    build.call("setGroup", fullDPS=True, gems=[
+        {"name": "Leap Slam", "support": False, "level": 20, "quality": 0, "enabled": True},
+        {"name": "Xibaqua's Rending", "support": True, "level": 1, "quality": 0, "enabled": True}])
+    names = {s["name"] for s in build.call("activeSkills")["skills"]}
+    assert "Fiery Reclamation" in names, names
+    rate = [{"kind": "SkillData", "skill": "Fiery Reclamation", "key": "triggerRate", "value": 1.0},
+            {"kind": "SkillData", "skill": "Fiery Reclamation", "key": "triggered", "value": True}]
+    found = [models.Skill("Fiery Reclamation")]
+    none = build.call("setAssumptions", mods=[], fields=["FullDPS"])["stats"]["FullDPS"]
+    bare = build.call("setAssumptions", mods=rate, fields=["FullDPS"])["stats"]["FullDPS"]
+    exploding = build.call("setAssumptions", mods=rate + models.corpse_explosion_mods(found),
+                           fields=["FullDPS"])["stats"]["FullDPS"]
+    assert bare == pytest.approx(none, rel=1e-6), (none, bare)  # (PoB alone: nothing)
+    assert exploding > bare * 1.001, (bare, exploding)
+
+
 def test_fireflower_self_damage_reaches_pob_as_fire_damage_taken(engine):
     """(MECHB25, COV28) Fireflower's line is read by no PoB calculation; the model's "N Fire Damage taken per second"
     line reaches PoB as Fire damage over time taken, at the main skill's Ignite rate (non-zero only if it Ignites)."""

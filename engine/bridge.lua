@@ -1120,6 +1120,28 @@ local function installAreaDamageFlag()
 	end
 end
 
+-- Corpse explosions PoB never calculates (MECH-B, MECHB26): Xibaqua's Rending's Fiery Reclamation (TriggeredXibaquasRendingPlayer)
+-- "Deals Fire damage in an area around the exploding Corpse based on its maximum Life", but PoB's data gives it no
+-- baseFlags and its skill types (the game's ActiveSkills triggered_detonate_dead_on_landing: SkillGrantedBySupport, Area,
+-- Fire, Triggerable, Triggered, InbuiltTrigger, AttackInPlace, TargetsDestructibleCorpses) hold no Attack, Damage or
+-- Projectile, so CalcActiveSkill 179 never sets skillFlags.hit and CalcOffence 4214 deals none of its damage. Its stat set
+-- gets baseFlags.hit (the skill's types are left alone: adding Damage would change which supports apply). Its explosion
+-- taken as a Hit, as PoB scores the other corpse explosions (Decompose: UNVERIFIED for this one). Its damage settings
+-- (explodeCorpse, 6% of the corpse's Life as Fire) come from the model (models.corpse_explosion_mods), its rate from the
+-- corpses the build makes (models.corpse_model).
+local CORPSE_EXPLOSION_HITS = { "TriggeredXibaquasRendingPlayer" }
+local function installCorpseExplosionHits()
+	if not (data and data.skills) then
+		return
+	end
+	for _, id in ipairs(CORPSE_EXPLOSION_HITS) do
+		for _, set in pairs((data.skills[id] or { }).statSets or { }) do
+			set.baseFlags = set.baseFlags or { }
+			set.baseFlags.hit = true
+		end
+	end
+end
+
 -- The ledger's stand-ins for a socketed rune's / Idol's Bonded line PoB can't parse (COV13; builder/ledger/items.py):
 -- the item text carries each as "LedgerBonded:<augment type> <line>", which PoB can't parse; before PoB builds the
 -- item's modifiers, a copy of it goes in the item's rune lines as a Bonded line of that augment type, so PoB's own
@@ -1456,6 +1478,7 @@ local function installDerived()
 	installSpiritVessel()
 	installCannotChill()
 	installAreaDamageFlag()
+	installCorpseExplosionHits()
 	installBossSlow()
 	installNoCritReroll()
 	installGrantedLevel()

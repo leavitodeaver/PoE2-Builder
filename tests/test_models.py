@@ -4692,3 +4692,14 @@ def test_fireflower_burns_you_per_ignite_at_the_main_skills_ignite_rate():
     assert models.ignite_self_damage([], stats) == (0.0, 0.0, [])
     none, rate, notes = models.ignite_self_damage(text, {**stats, "IgniteChanceOnHit": 0, "IgniteChanceOnCrit": 0})
     assert none == 0 and rate == 0 and "doesn't Ignite" in notes[0]["play"]
+
+
+def test_fiery_reclamation_gets_pobs_corpse_explosion_settings_and_the_corpse_rate():
+    """MECHB26: Fiery Reclamation (corpse_explosion_monster_life_permillage_fire 60, game files) gets explodeCorpse, 6% of
+    the corpse's Life and Fire; its rate stays corpse_model's (0 on a lone boss)."""
+    reclaim = Skill("Fiery Reclamation", group=1, triggered=True, corpses=True)
+    mods, notes = models.corpse_model([reclaim], [], {})
+    data = {m["key"]: m["value"] for m in mods if m.get("skill") == "Fiery Reclamation"}
+    assert data["explodeCorpse"] is True and data["corpseExplosionLifeMultiplier"] == 0.06
+    assert data["corpseExplosionDamageType"] == "Fire" and data["triggerRate"] == 0
+    assert models.corpse_explosion_mods([Skill("Spark")]) == []
