@@ -3344,6 +3344,62 @@ def seal_echo_share(skill: Skill, stats: dict, main: Skill | None = None, prev: 
                          f"full use, MEDIUM)"), play + f" Headline: one Echo per {1 / seals:.1f} s."
 
 
+# `share: shotgun_fragments` / `shotgun_fragment_count` (GEM2, 14 Nov 2026): the Merging crossbow ammunition skills'
+# fragments. PoB counts one fragment of a use's ProjectileCount (GEM1's probe POE2T2016: "Skills fire an additional
+# Projectile" raised Incendiary Shot's, Permafrost Bolts' and Fragmentation Rounds' count 10 -> 11, Galvanic Shards'
+# 8 -> 9, at x1.0 hit and DPS; PoB has no shotgun setting: checked, grep -i shotgun over ModCache, ModParser and
+# SkillStatMap finds nothing, and ConfigOptions' ShrapnelBallistaProjectileOverlap is PoE1's Shrapnel Ballista). Game
+# files (build 26476662): their Projectile stat set carries projectiles_can_shotgun, and KeywordPopups Merging: "Merging
+# Crossbow bolts have fragments that can hit the same target at the same time to combine their damage into a single
+# Hit" (each skill's description: "These fragments can Merge"). So the fragments that land together make ONE hit of
+# their summed damage: counted as more damage on the hit (its Ignite, Freeze and stun buildup scale with it, as they do
+# for a bigger hit), not as more hits. Which fragments land together depends on distance (their speeds vary,
+# active_skill_projectile_speed_+%_variation_final 40-60, and they spread): the manager's ruling on GEM1's question (14 Nov,
+# by the user's rule of 9 Nov for conditions the player controls): the headline counts every fragment at point-blank,
+# LOW (the share that really lands together at point-blank is UNVERIFIED); without it, PoB's one fragment; the play
+# guide says to stand point-blank. Same reading as run_and_gun_model (all projectiles assumed to hit the boss).
+# The carriers: every player stat set with projectiles_can_shotgun (checked: GrantedEffectStatSets ConstantStats /
+# ImplicitStats; no Mods, PassiveSkills or Soul Core row uses the stat): Incendiary Shot, Fragmentation Rounds, Permafrost
+# Bolts, Galvanic Shards (counted, their "Projectile" set only: Fragmentation Rounds' "Vs Frozen" explosion and Galvanic
+# Shards' "Beam" are other sets), Combo Knife Throw ("[DNT-UNUSED]" in ActiveSkills, not in PoB's gems: no gem), and
+# Ice Fragments, which stays at PoB's one: KeywordPopups IceFragment, "If a Skill creates multiple Ice Fragments at the
+# same time, only one of them can damage a single enemy", and patch 0.4.0, "Ice Fragments ... are now only able to hit
+# each enemy once per group of Fragments created" (the newest hit in the archive's --history "Ice Fragment"); its stat
+# set's projectiles_can_shotgun says otherwise, written down both ways (ledger gems-shotgun-gem2.yaml).
+# On the main skill only (its ProjectileCount is the one PoB reports); another group's copy: PoB's one fragment, said.
+SHOTGUN_PLAY = ("Stand point-blank against the boss when you fire, so all of a bolt's fragments land together and Merge "
+                "into one hit")
+
+
+def _shotgun_count(skill: Skill, stats: dict, main: Skill | None) -> tuple[float, str]:
+    """The fragments a use of the main skill fires (PoB's ProjectileCount), or 0 and why not."""
+    if main is None or main.name != skill.name or main.group != skill.group:
+        return 0.0, "not the main skill: its fragment count isn't read here, so PoB's one fragment stands (an undercount)"
+    count = number(stats.get("ProjectileCount"))
+    if count <= 0:
+        return 0.0, "PoB reports no projectile count for it: PoB's one fragment stands"
+    return count, ""
+
+
+def shotgun_fragments_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    count, why = _shotgun_count(skill, stats, main)
+    if count <= 1:
+        return 0.0, why or "one fragment a use: nothing to add", SHOTGUN_PLAY
+    return 100 * (count - 1), (f"{count:g} fragments a use, all assumed to land together at point-blank and Merge into "
+                               f"one hit: x{count:g} the hit PoB scores for one (LOW: the share that lands together is "
+                               f"UNVERIFIED). Without it: x1, PoB's one fragment; with it: x{count:g}"), \
+        SHOTGUN_PLAY + f" (x{count:g} the hit; if they don't Merge, x1)."
+
+
+def shotgun_fragment_count_share(skill: Skill, stats: dict, main: Skill | None = None,
+                                 prev: float = 0.0) -> tuple[float, str, str]:
+    count, why = _shotgun_count(skill, stats, main)
+    if count <= 0:  # (one fragment at least hits: its own 30%)
+        return 1.0, f"x 1 fragment ({why.split(':')[0]})", SHOTGUN_PLAY + "."
+    return count, (f"x {count:g} fragments in the one Merged hit at point-blank (LOW, as the fragments' damage). Without "
+                   f"it: x1 (one fragment)"), SHOTGUN_PLAY + "."
+
+
 CONFIG_SHARES = {"near_boss"}  # (share functions that read PoB's config: gem_stat_model passes `_config`)
 
 SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use"}  # (read the build's skills: `_skills`)
@@ -3353,7 +3409,8 @@ SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_s
           "cull_buff": cull_buff_share, "revived_recently": revived_recently_share,
           "near_boss": near_boss_share, "corpse_consumed": corpse_consumed_share,
           "corpses_per_use": corpses_per_use_share, "stun_bar": stun_bar_share,
-          "seal_echo": seal_echo_share}
+          "seal_echo": seal_echo_share, "shotgun_fragments": shotgun_fragments_share,
+          "shotgun_fragment_count": shotgun_fragment_count_share}
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:

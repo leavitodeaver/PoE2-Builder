@@ -1,0 +1,85 @@
+# Shotgun fragments (GEM2, 14 Nov 2026): projectiles_can_shotgun and Incendiary Shot's per-fragment Ignite duration.
+#
+# PoB counts one fragment of a use (GEM1's probe POE2T2016: one more projectile raised ProjectileCount with the hit and
+# DPS at x1.0); the game's Merging crossbow bolts combine the fragments that hit a target together into one Hit
+# (KeywordPopups Merging). The headline counts every fragment at point-blank, LOW, by the manager's ruling of 14 Nov on
+# GEM1's question (the user's rule of 9 Nov: a condition the player controls counts in the headline when the build leans
+# into it, with "without it / with it" and a play note). Full reasoning and the checks: builder/search/models.py
+# shotgun_fragments_share.
+
+- id: gem-shotgun-fragments-merge
+  title: "Merging crossbow bolts: every fragment of a use lands together at point-blank and Merges into one hit (PoB counts one)*"
+  kind: gem_stat
+  share: shotgun_fragments
+  match: '^projectiles_can_shotgun$'
+  replace: ["1% more Damage"]
+  stats: ["projectiles_can_shotgun"]
+  skill: [Incendiary Shot, Fragmentation Rounds, Permafrost Bolts, Galvanic Shards]
+  # (the stat is on each skill's "Projectile" set; Fragmentation Rounds' "Vs Frozen" explosion and Galvanic Shards'
+  # "Beam" are other sets: GrantedEffectStatSets IncendiaryShotPlayer, FragmentationRoundsPlayer, PermafrostBoltsPlayer,
+  # GalvanicShardsPlayer carry it; PoB's Data/Skills/act_str.lua lists it on the Projectile set only)
+  stat_sets:
+    Incendiary Shot: [Projectile]
+    Fragmentation Rounds: [Projectile]
+    Permafrost Bolts: [Projectile]
+    Galvanic Shards: [Projectile]
+  confidence: theory
+  play: "Stand point-blank against the boss when you fire, so all of a bolt's fragments land together and Merge into one hit."
+  notes: >-
+    KeywordPopups Merging (build 26476662): "Merging Crossbow bolts have fragments that can hit the same target at the
+    same time to combine their damage into a single Hit"; each of the four skills' descriptions: "These fragments can
+    Merge". Counted as x(ProjectileCount) on the hit (more damage, not more hits: the Merged hit is one Hit, so its
+    Ignite, Freeze and stun buildup grow with it). LOW: every fragment assumed to land together at point-blank (their
+    speeds vary 40-60% and they spread: the share that Merges is UNVERIFIED). Without it: PoB's one fragment. Main skill
+    only (another group's copy keeps PoB's one, an undercount, said in its note). Second source: patch 0.3.0's Incendiary
+    Shot note, "30% increased Ignite Duration for each Pellet that hits a Target", and 0.5.0's Fragmentation Rounds
+    quality "+0-2 Fragments per Shot" (both only matter if several fragments hit one target).
+  sources: ["data/game-26476662/tables/KeywordPopups.json (Merging)", "data/game-26476662/tables/ActiveSkills.json (incendiary_shot, fragmentation_rounds, permafrost_bolts, galvanic_shards)",
+            "data/game-26476662/tables/GrantedEffectStatSets.json (projectiles_can_shotgun)",
+            "scratch/manager/research/patchnotes (0.3.0 Incendiary Shot; 0.5.0 Load Fragmentation Rounds)",
+            "GEM1 probe POE2T2016 (scratch/gem1/probe_other_way.json)"]
+  test_in_game: "Fire one bolt point-blank at a training dummy and compare the hit's number with one fired from across the screen: about x the fragment count if they all Merge."
+  status: proposed
+
+- id: gem-incendiary-ignite-duration-per-fragment
+  title: "Incendiary Shot: 30% increased Ignite duration for each Fragment in the one Merged hit (every fragment at point-blank)*"
+  kind: gem_stat
+  share: shotgun_fragment_count
+  match: '^ignite_duration_\+%_per_shotgun_pellet_hit$'
+  replace: ["1% increased Ignite Duration"]
+  stats: ["ignite_duration_+%_per_shotgun_pellet_hit"]
+  skill: [Incendiary Shot]
+  stat_sets:
+    Incendiary Shot: [Projectile]
+  confidence: theory
+  play: "Stand point-blank against the boss when you fire, so all of a bolt's fragments land together and Merge into one hit."
+  notes: >-
+    incendiary_shot.csd: "{0}% increased Ignite duration for each Fragment in a single hit" (30 on IncendiaryShotPlayer's
+    Projectile set, +0.75 a quality point: PoB's act_str.lua holds the same and maps nothing to it). Patch 0.3.0: "30%
+    increased Ignite Duration for each Pellet that hits a Target ... Quality now provides 0-15% increased Ignite Duration
+    for each Fragment that hits a Target". Counted at the fragment count the damage entry assumes (every fragment at
+    point-blank, LOW); without it, one fragment's worth.
+  sources: ["data/game-26476662/files/data/statdescriptions/specific_skill_stat_descriptions/incendiary_shot.csd",
+            "scratch/manager/research/patchnotes (0.3.0 Incendiary Shot)"]
+  test_in_game: "Compare the Ignite's duration on a dummy from a point-blank bolt and from one fragment at long range."
+  status: proposed
+
+- id: gem-ice-fragments-one-per-group
+  title: "Ice Fragments: one fragment of a group hits each enemy, as PoB counts (projectiles_can_shotgun has no effect)"
+  kind: gem_stat
+  match: '^projectiles_can_shotgun$'
+  replace: []
+  stats: ["projectiles_can_shotgun"]
+  skill: [Ice Fragments]
+  confidence: datamined
+  notes: >-
+    The IceFragmentsPlayer stat set carries projectiles_can_shotgun, but the game's own rule says one: KeywordPopups
+    IceFragment (build 26476662), "If a Skill creates multiple Ice Fragments at the same time, only one of them can
+    damage a single enemy", and patch 0.4.0, "Ice Fragments (created by skills such as from Escape Shot and Ice-Tipped
+    Arrows) are now only able to hit each enemy once per group of Fragments created" (the newest entry in the archive's
+    --history "Ice Fragment"; no later change found, which isn't proof of none). The two sources agree and the stat
+    disagrees: written down both ways; PoB's one fragment is kept, nothing is zeroed.
+  sources: ["data/game-26476662/tables/KeywordPopups.json (IceFragment)", "data/game-26476662/tables/GrantedEffectStatSets.json (IceFragmentsPlayer)",
+            "scratch/manager/research/patchnotes (0.4.0 Gem Changes)"]
+  test_in_game: "Not needed for the number: two game sources agree with PoB's one."
+  status: proposed
