@@ -12,6 +12,7 @@ stats every character picks, so they're chosen here too, by score.
 
 from __future__ import annotations
 
+from functools import lru_cache
 import math
 import re
 from collections.abc import Callable
@@ -2825,8 +2826,15 @@ QUALIFIERS = [
 ]
 
 
+@lru_cache(maxsize=None)
+def _line_qualifiers(line: str) -> tuple[frozenset[str], ...]:
+    """The skill-type sets a line asks for (QUALIFIERS is a module constant, so a line's answer never changes; PERF14:
+    qualifies was 1-6 % of a search)."""
+    return tuple(frozenset(types) for pattern, types in QUALIFIERS if pattern.search(line))
+
+
 def qualifies(line: str, skill_types: set[str]) -> bool:
-    return all(types & skill_types for pattern, types in QUALIFIERS if pattern.search(line))
+    return all(types & skill_types for types in _line_qualifiers(line))
 
 
 def text_evidence(condition: Condition, line: str) -> bool:
