@@ -4572,3 +4572,20 @@ def test_runefathers_challenge_raises_the_bosss_power_at_the_builds_own_uptime()
     assert power == 45 and "Runefather's Challenge" in basis and "LOW" in basis
     assert {m["name"]: m["value"] for m in models.power_mods(25)} == {"WarcryPower": 5, "Multiplier:EnemyPower": 5}
 
+
+def test_living_bomb_as_the_main_skill_explodes_once_per_seed_from_the_builds_other_damage():
+    """MECHC22 (COV26 section 2): PoB counts a Living Bomb explosion every cast; in the game the one seed explodes once
+    the boss is dealt 200% of its Ailment Threshold by the build's other damage (or its 15 s run out, UNVERIFIED), so
+    PoB's casts are cut to one per 1/Speed + wait."""
+    from builder.search.assumptions import living_bomb_main_speed
+
+    alone = {"EnemyAilmentThreshold": 1000, "FullDPS": 0, "TotalDPS": 535.9, "TotalDotDPS": 0}
+    share, how = living_bomb_main_speed(alone, 1.667)
+    assert share == pytest.approx(1 / (1 + 1.667 * 15))  # no other damage: the seed's 15 s
+    assert "UNVERIFIED" in how
+    fed = {**alone, "FullDPS": 535.9 + 5000}  # other skills 5,000 DPS: 2,000 damage in 0.4 s
+    assert living_bomb_main_speed(fed, 1.667)[0] == pytest.approx(1 / (1 + 1.667 * 0.4))
+    # its own Ignite from the last explosion feeds the next seed; damage computed outside PoB too
+    dot = {**alone, "FullDPS": 535.9 + 1000, "TotalDotDPS": 1000}
+    assert living_bomb_main_speed(dot, 1.667, added=1000)[0] == pytest.approx(1 / (1 + 1.667 * 1.0))
+    assert living_bomb_main_speed({**alone, "EnemyAilmentThreshold": 0}, 1.667)[0] == 1.0

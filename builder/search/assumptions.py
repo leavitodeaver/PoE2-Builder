@@ -97,6 +97,37 @@ def living_bomb_rate(stats: dict, cast_time: float) -> tuple[float, str]:
         how += (f" (the {LIVING_BOMB_DURATION:g} s seed runs out first; counted as exploding then, UNVERIFIED: the game "
                 "text names damage or a kill only)")
     return 1 / period, how
+
+
+# Living Bomb as the MAIN skill (MECHC22; COV26 section 2, its probe POE2T2465: PoB reads no living_bomb stat (COV26:
+# grep of src/Modules and SkillStatMap.lua) and counts an explosion every cast, AverageDamage 321.5 x Speed 1.667 = 535.9
+# DPS). In the game the one seed (living_bomb_base_number_of_bombs_allowed 1) explodes once the boss is dealt 200% of
+# its Ailment Threshold: cast, then wait for the build's OTHER damage (its other skills, Full DPS less Living Bomb's own
+# hits, the damage computed outside PoB, and Living Bomb's own damage over time from the last explosion, e.g. its
+# Ignite: whether damage over time counts toward "dealt damage" is UNVERIFIED, counted) to reach it, at most the seed's
+# 15 s (counted as exploding then, as living_bomb_rate does, UNVERIFIED). One explosion per 1/Speed + wait seconds, so
+# PoB's casts per second are cut by 1 / (1 + Speed x wait), as a "less Attack and Cast Speed" line on it (the explosion's
+# damage, and so its Ignite's, stays whole). Alone, with no other damage, it explodes once per 15 s + cast.
+LIVING_BOMB_MAIN_FIELDS = ("Speed", "FullDPS", "TotalDPS", "TotalDotDPS", "EnemyAilmentThreshold")
+
+
+def living_bomb_main_speed(stats: dict, speed: float, added: float = 0.0) -> tuple[float, str]:
+    """The share of PoB's casts that explode (Living Bomb as the main skill), from the build's casts per second without
+    this line (`speed`), its other damage and the boss's Ailment Threshold; and how."""
+    need = LIVING_BOMB_SHARE * number(stats.get("EnemyAilmentThreshold"))
+    full, hits, dot = (number(stats.get(f)) for f in ("FullDPS", "TotalDPS", "TotalDotDPS"))
+    others = max(full - hits - dot, 0.0)
+    feed = others + dot + max(added, 0.0)
+    if speed <= 0 or need <= 0:
+        return 1.0, "no casts or no Ailment Threshold read: PoB's count kept"
+    wait = min(need / feed, LIVING_BOMB_DURATION) if feed > 0 else LIVING_BOMB_DURATION
+    share = 1.0 / (1.0 + speed * wait)
+    how = (f"one seed at a time, exploding after {need:,.0f} damage (200% of the boss's Ailment Threshold) dealt by the "
+           f"build's other damage, {feed:,.0f} DPS (other skills {others:,.0f}, its own damage over time {dot:,.0f}, "
+           f"computed outside PoB {max(added, 0.0):,.0f}): " + (f"{wait:.1f} s" if feed > 0 and wait < LIVING_BOMB_DURATION
+           else f"the seed's {LIVING_BOMB_DURATION:g} s run out first (counted as exploding then, UNVERIFIED)")
+           + f" after each {1 / speed:.2f} s cast: one explosion per {1 / speed + wait:.1f} s, not one per cast")
+    return share, how
 # created_remnants_have_%_chance_to_duplicate_pick_up_results (the Empowering Remnants passive, the "of Accumulation" to
 # "of Multiplication" item suffixes): "#% chance for Remnants you pick up to count as picking up an additional Remnant"
 # (stat_descriptions), "... you create to grant their effects twice" (passive_skill_stat_descriptions): one stat, both
@@ -463,6 +494,7 @@ class Assumptions:
         self.infused: dict | None = None
         self.infused_skipped: dict[str, str] = {}
         self.press_busy = 0.0  # the share of the fight remnant_presses took from the main skill in the last wanted()
+        self.bomb_speed = 1.0  # Living Bomb as the main skill: the share of PoB's casts that explode, now on PoB's numbers
         self.ledger_shares: dict[str, int] = {}  # condition -> its share in whole percent, for the ledger's `share:` lines
 
     def main_skill(self) -> str | None:
@@ -1211,6 +1243,24 @@ class Assumptions:
                     out.append((spender, uses, how))
         return out
 
+    def living_bomb_main(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
+        """Living Bomb as the main skill: its casts cut to one explosion per seed (living_bomb_main_speed)."""
+        if main != LIVING_BOMB or not any(s["name"] == LIVING_BOMB and not s["disabled"] for s in skills):
+            self.bomb_speed = 1.0
+            return [], []
+        stats = self.build.call("stats", fields=list(LIVING_BOMB_MAIN_FIELDS))
+        speed = number(stats.get("Speed")) / (self.bomb_speed or 1.0)  # (without this line, which is on PoB's numbers)
+        added = number(getattr(getattr(self.build, "objective", None), "added_dps", 0.0))
+        share, how = living_bomb_main_speed(stats, speed, added)
+        self.bomb_speed = share
+        if share >= 1.0:
+            return [], []
+        return ([models.line("1% more Attack and Cast Speed", -100 * (1 - share), skill=LIVING_BOMB)],
+                [{"label": "Living Bomb: one explosion per seed", "value": f"{share:.1%} of PoB's casts",
+                  "basis": how + " (PoB counts an explosion every cast)",
+                  "play": "cast a new seed as the last one explodes; the build's other damage sets how fast it does",
+                  "confidence": "game files' rule; UNVERIFIED as labelled"}])
+
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
@@ -1302,6 +1352,8 @@ class Assumptions:
             press_mods, press_notes = self.remnant_presses(skills, main)
             mods, notes = mods + press_mods, notes + press_notes
             self.press_busy = press_notes[0]["value"] if press_notes else 0.0
+        bomb_mods, bomb_notes = self.living_bomb_main(skills, main)
+        mods, notes = mods + bomb_mods, notes + bomb_notes
         self.ledger_shares = {}  # (COV11; set again by ledger_conditions)
         found, condition_notes = self.ledger_conditions(skills)
         # (SEARCH10, the manager's ruling: a part-time ledger condition counts at its share, in PoB's stats; the search's
