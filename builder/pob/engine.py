@@ -70,9 +70,14 @@ CACHED_READS = frozenset({"sourceLines", "groups", "getConfig", "stats"})
 # read the passive spec; equipped reads the items' text; useRates calculates each asked group in an environment of
 # its own (calcs.initEnv "CALCULATOR", which sets no group's displaySkillList or mainActiveSkill: CalcSetup 2393-2432
 # write those in "MAIN" / "CALCS" only) and puts build.mainSocketGroup and the group's mainActiveSkill back.
+# PERF15: chargeGain queries the last calculation's modDB and output (ModStore's Sum / More / Override assign
+# nothing: ModStore.lua 153-345), the flask and charm slots' "active" flags and calcLib.buildSkillInstanceStats (a new
+# table of its own); supportCandidates asks calcLib.canGrantedEffectSupportActiveSkill about each gem (locals only).
+# exportXml stays OUT on purpose: build:SaveDB is not a read, ItemsTab:Save rebuilds and re-parses every item's text
+# (ItemsTab.lua 1219, item:BuildAndParseRaw), so the answers kept before it are dropped as before.
 # The proof is POE2_READ_CACHE=check on a whole real suite and the gate builds, not the reading alone.
 PASSING_READS = frozenset({"activeSkills", "useRates", "attributeNodes", "equipped", "allocatedNodes", "conqueredNodes",
-                           "frontier", "pointBudget", "cullSplit"})
+                           "frontier", "pointBudget", "cullSplit", "chargeGain", "supportCandidates"})
 
 
 def read_cache() -> str:

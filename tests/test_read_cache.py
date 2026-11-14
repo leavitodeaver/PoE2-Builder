@@ -72,7 +72,7 @@ def test_the_arguments_are_part_of_the_question(monkeypatch):
 
 
 @pytest.mark.parametrize("other", ["setConfig", "equip", "nodeDeltas", "itemDeltas", "gemDeltas", "loadXml", "setGroup",
-                                   "exportXml", "setRates", "minionSkillHit", "chargeGain", "anythingNotListed"])
+                                   "exportXml", "setRates", "minionSkillHit", "anythingNotListed"])
 def test_any_other_call_drops_the_answers(monkeypatch, other):
     assert other not in CACHED_READS and other not in PASSING_READS
     engine = make(monkeypatch)
