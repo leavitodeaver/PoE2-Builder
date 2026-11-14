@@ -169,16 +169,6 @@ def unread_recovery(line: str) -> str | None:
     return next((name for name, pattern in EVENT_UNREAD.items() if pattern.search(line)), None)
 
 
-# Life Recharge (AUDIT28 A28-3, COV21): "Life Recharges" (base_life_recharges_like_energy_shield) makes lost Life
-# "start Recharging at a rate of 12.5% per second after a base delay of 4 seconds. Further loss of Life resets this
-# delay" (KeywordPopups LifeRecharge). PoB parses it to no mod (ModCache {nil}), and no recovery rate reads it: an
-# UNDERCOUNT in the recovery floor and sustain share for a build wearing Tetzlapokal's Desire, named in
-# objective.SUSTAIN_LEFT_OUT and routed (SEARCH: beside objective.es_recharge, the same delay rules; MECH-C: recovery).
-# (checked 13 Nov: every Stats id holding life and recharge (five); Mods.json rows with any of them: UniqueLifeRecharge1
-# only (GenerationType unique); PassiveSkills.json none; the timeless keystone Eternal Youth's "Life Recharges instead
-# of Energy Shield" is a faction no 0.5 jewel conquers for (NO_JEWEL_FACTIONS); second source: AUDIT28 A28-3 (PoB
-# body.lua 440, ModCache 8486).)
-LIFE_RECHARGE = re.compile(r"^Life Recharges$")
 
 
 def _strip_comments(text: str) -> str:
@@ -808,13 +798,6 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             record["undercount"] = True
             record["reason"] += (f"; a recovery source no rate reads yet ({name}, recovery.EVENT_UNREAD): an UNDERCOUNT "
                                  "in the sustain share and the recovery floor, routed to MECH-C")
-    for record in records:
-        if record["status"] == "none" and LIFE_RECHARGE.match(record["line"]):
-            record["routed"] = "SEARCH / MECH-C"
-            record["undercount"] = True
-            record["reason"] += ("; Life Recharge no recovery rate reads yet (LIFE_RECHARGE, AUDIT28 A28-3): an UNDERCOUNT "
-                                 "in the sustain share and the recovery floor, named in objective.SUSTAIN_LEFT_OUT, "
-                                 "routed to SEARCH (beside es_recharge) / MECH-C")
     # e. skills that calculate 0 alone on a plain character (data/pob-*/skill_zero.json, scratch/zero_skills.py)
     for skill in zero_skills(data_dir):
         add("skill-zero", skill["name"], "active gem", skill["name"], skill["status"], skill.get("entry"), skill["reason"],

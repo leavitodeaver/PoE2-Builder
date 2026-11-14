@@ -57,8 +57,8 @@
   notes: >-
     builder/search/assumptions.py (REAPPEAR): each Remnant is collected twice, both in the Remnant rate the
     Explosive Transmutation assumption uses and in the Infusion supply. The delay before it reappears isn't counted
-    (it only moves the second pickup later in a long fight).
-  sources: ["builder/search/assumptions.py (REAPPEAR, infusion_supply, the Remnant rate)", "https://poe2db.tw/us/Storm%27s_Recollection"]
+    (it only moves the second pickup later in a long fight). Since MECHC15 / COV17 (COV23's note) it also counts in the Life / Mana Remnant recovery and in every Remnant pickup line: assumptions.remnant_multiplier, which Assumptions passes to recovery.remnant_income.
+  sources: ["builder/search/assumptions.py (REAPPEAR, infusion_supply, the Remnant rate, remnant_multiplier)", "builder/search/recovery.py (remnant_income)", "https://poe2db.tw/us/Storm%27s_Recollection"]
   test_in_game: "Collect a Remnant: it comes back once a few seconds later."
   status: proposed
 
@@ -69,8 +69,8 @@
   match: '^(\d+(\.\d+)?)% chance to create an additional Remnant$'
   replace: []
   confidence: datamined
-  notes: "builder/search/assumptions.py ADDITIONAL_REMNANT: the build's Remnant rate x (1 + the summed chance). Not read by infusion_supply (an undercount of Infusions: listed in COVB1's report)."
-  sources: ["builder/search/assumptions.py (ADDITIONAL_REMNANT)"]
+  notes: "builder/search/assumptions.py ADDITIONAL_REMNANT: the build's Remnant rate x (1 + the summed chance). Since MECHC15 / COV17 (COV23's note) it also counts in the Life / Mana Remnant recovery and in every Remnant pickup line: assumptions.remnant_multiplier, which Assumptions passes to recovery.remnant_income. Still not read by infusion_supply (an undercount of Infusions: listed in COVB1's report; infusion_supply reads only the 'additional Infusion Remnant' wording)."
+  sources: ["builder/search/assumptions.py (ADDITIONAL_REMNANT, remnant_multiplier)", "builder/search/recovery.py (remnant_income)"]
   test_in_game: "Count Remnants from 50 uses of a Remnant skill: about 5 extra at 10%."
   status: proposed
 
@@ -84,7 +84,8 @@
   notes: >-
     builder/search/assumptions.py DUPLICATE_PICKUP / duplicate_pickups: that share of pickups counts twice (the game
     files give one stat, created_remnants_have_%_chance_to_duplicate_pick_up_results, with this wording on passives).
-  sources: ["builder/search/assumptions.py (DUPLICATE_PICKUP)"]
+    Read by infusion_supply too. Since MECHC15 / COV17 (COV23's note) it also counts in the Life / Mana Remnant recovery and in every Remnant pickup line: assumptions.remnant_multiplier, which Assumptions passes to recovery.remnant_income.
+  sources: ["builder/search/assumptions.py (DUPLICATE_PICKUP, remnant_multiplier)", "builder/search/recovery.py (remnant_income)"]
   test_in_game: "Collect 20 Infusion Remnants: about 3 grant two Infusions at 15%."
   status: proposed
 

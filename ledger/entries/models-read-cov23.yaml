@@ -1,0 +1,36 @@
+# Lines PoB ignores that our own models read (COV23, 13 Nov 2026). Each reader was read on main ddfdeaf (train 38)
+# before crediting.
+
+- id: model-life-recharges
+  title: Tetzlapokal's Desire, Life Recharges (Life Recharge in the recovery floor and sustain share)
+  kind: pob_gap
+  model: life_recharge
+  match: '^Life Recharges$'
+  replace: []
+  confidence: reported
+  notes: >-
+    SEARCH15 (AUDIT28 A28-3, an UNDERCOUNT before: PoB parses the line to no mod, ModCache {nil}). engine/bridge.lua
+    setLifeRecharge gives LifeRecharge (and LifeRechargeDelay) for the line; builder/search/objective.py life_recharge
+    counts it in the recovery floor at the Energy Shield Recharge's between-hits share (reset by landed hits and the
+    build's own damage events, stopped by a steady own loss of Life), the two recharges capped at the incoming damage.
+    Replaces COV21's audit routing (coverage.LIFE_RECHARGE, removed by COV23). Game definition: KeywordPopups
+    LifeRecharge ("start Recharging at a rate of 12.5% per second after a base delay of 4 seconds"). Carrier: the unique
+    mod UniqueLifeRecharge1 (Tetzlapokal's Desire; COV21's check: no other Mods.json or PassiveSkills.json row).
+  sources: ["engine/bridge.lua (setLifeRecharge)", "builder/search/objective.py (life_recharge)", "tests/test_engine_models.py (test_tetzlapokals_life_recharges_line_gives_a_life_recharge)"]
+  test_in_game: "Not needed for the shape: the recharge rate and delay are the game's definition; the reset on Energy Shield-only hits is SEARCH15's MEDIUM."
+  status: proposed
+
+- id: model-energy-shield-when-stunned
+  title: Regenerate N% of maximum Energy Shield over 1 second when Stunned (recovery model, at the boss's hits that Light Stun you)
+  kind: pob_gap
+  model: recovery
+  match: '^Regenerate (\d+(?:\.\d+)?)% of maximum Energy Shield over 1 second when Stunned$'
+  replace: []
+  confidence: reported
+  notes: >-
+    MECHC17 (the Energy Shield twin of model-life-when-stunned; PoB parses it to no mod). recovery.py STUNNED_ES reads
+    it into EnergyShieldOnEventRecovery at recovery.stuns_taken's rate (the same Stuns as the Life form), 0 with a note
+    for a build with no Energy Shield or one the boss never Stuns.
+  sources: ["builder/search/recovery.py (STUNNED_ES, stuns_taken)"]
+  test_in_game: "Not needed for the shape: tests/test_recovery.py covers the Stun rate."
+  status: proposed

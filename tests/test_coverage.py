@@ -382,25 +382,21 @@ def test_fishing_lines_have_no_combat_effect_and_leave_the_open_list():
     assert coverage.ignored_line_status("20% increased Fishing Range and Damage", False)[1] != "no-effect-fishing"
 
 
-def test_cov21_mechc14_readers_are_credited_and_life_recharge_is_a_named_undercount():
+def test_cov21_mechc14_readers_are_credited_and_life_recharge_is_model_read():
     """COV21: Indigon's line (bridge setManaRegenOnly, flasks, recovery.NO_MANA) and "Lose all <kind> Charges on reaching
-    maximum" (conditions.CHARGE_RESET_AT_MAX) count as model-read; Tetzlapokal's Desire's "Life Recharges" (AUDIT28
-    A28-3) is named in the sustain note and routed as an UNDERCOUNT, never left as a plain open line."""
-    from builder.data import data_dir
-    from builder.search.objective import SUSTAIN_LEFT_OUT
-
+    maximum" (conditions.CHARGE_RESET_AT_MAX) count as model-read. COV23: Tetzlapokal's Desire's "Life Recharges" (AUDIT28
+    A28-3) is read since SEARCH15 (bridge setLifeRecharge, objective.life_recharge), and so is MECHC17's "Regenerate N% of
+    maximum Energy Shield over 1 second when Stunned" (recovery.STUNNED_ES): both credited, no routing left."""
     assert coverage.ignored_line_status("Mana Recovery other than Regeneration cannot Recover Mana", False)[:2] == (
         "model", "model-indigon-mana-regeneration-only")
     assert coverage.ignored_line_status("Lose all Power Charges on reaching maximum Power Charges", False)[:2] == (
         "model", "model-lose-all-charges-on-maximum")
     assert coverage.ignored_line_status("Lose all Power Charges on reaching maximum Frenzy Charges", False)[0] != "model"
-    assert "Life Recharge" in SUSTAIN_LEFT_OUT and "A28-3" in SUSTAIN_LEFT_OUT
-    assert coverage.LIFE_RECHARGE.match("Life Recharges")
-    assert not coverage.LIFE_RECHARGE.match("Life Recharges instead of Energy Shield")
-    if not (data_dir() / "coverage.json").exists():
-        pytest.skip("no coverage.json")
-    recharge = [r for r in coverage.audit()["records"] if r["line"] == "Life Recharges"]
-    assert recharge and all(r["status"] == "none" and r.get("undercount") and "A28-3" in r["reason"] for r in recharge)
+    assert coverage.ignored_line_status("Life Recharges", False)[:2] == ("model", "model-life-recharges")
+    assert coverage.ignored_line_status("Life Recharges instead of Energy Shield", False)[1] != "model-life-recharges"
+    assert coverage.ignored_line_status("Regenerate 4% of maximum Energy Shield over 1 second when Stunned", False)[:2] == (
+        "model", "model-energy-shield-when-stunned")
+    assert not hasattr(coverage, "LIFE_RECHARGE")
 
 
 def test_grand_spectrum_multiplier_has_a_setter_and_golem_mods_are_poe1_leftovers():

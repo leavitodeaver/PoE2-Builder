@@ -15,8 +15,8 @@
     under 15% none: KeywordPopups LightStun / StunThreshold), less PoB's StunAvoidChance (LOW: each hit at its type's
     full size). A build that can't be Stunned gets 0, said in the recovery row. Carriers: the passives Quick Recovery
     and Chakra of Stability (the stat regenerate_%_life_over_1_second_when_stunned). The Energy Shield twin ("...
-    maximum Energy Shield over 1 second when Stunned") isn't counted here: MECHC17 (MECH-C's branch) counts it; credited
-    when it lands on main.
+    maximum Energy Shield over 1 second when Stunned") is MECHC17's (recovery.STUNNED_ES), credited in
+    models-read-cov23.yaml (model-energy-shield-when-stunned).
   sources: ["builder/search/recovery.py (STUNNED_LIFE, stuns_taken)", "data/game-26476662/tables/KeywordPopups.json (LightStun, StunThreshold)"]
   test_in_game: "Not needed for the shape: tests/test_recovery.py covers the Stun rate; the Light Stun floor (15% vs 10%) is the open game question."
   status: proposed
