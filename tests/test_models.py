@@ -4392,3 +4392,40 @@ def test_unearth_raises_bone_constructs_from_the_builds_corpses_and_dead_revivin
     value, mods, _ = count([unearth, detonate, models.Skill("Sacrifice")], stats)
     assert value == pytest.approx((0.15 + 0.2) * 20)
     assert {m["skill"]: m["value"] for m in mods if m.get("key") == "triggerRate"} == {"Detonate Dead": pytest.approx(0.15)}
+
+
+def test_the_bosss_power_reads_the_builds_power_lines():
+    """(MECH67, RESEARCH22 #130) Redblade Banner's and the Abyssal Wasting line's double Power, Gruelling Madness's
+    added Power, each only with the boss in your Presence; the Energy, Glory and roar models and PoB's readers take it."""
+    stats = {"PresenceRadius": 60, "Speed": 2.0, "HitChance": 100}
+    assert models.boss_power([], stats) == (20.0, "")
+    assert models.boss_power(["Enemies in your Presence count as having double Power"], stats)[0] == 40
+    # outside the Presence (the fallback 5 m against a 4 m Presence): no change
+    assert models.boss_power(["Enemies in your Presence count as having double Power"],
+                             dict(stats, PresenceRadius=40))[0] == 20
+    wasted = ["Targets affected by Abyssal Wasting in your Presence have double Power"]
+    assert models.boss_power(wasted, stats)[0] == 20  # nothing inflicts Abyssal Wasting
+    on_hit = wasted + ["Inflict Abyssal Wasting on Hit"]
+    assert models.boss_power(on_hit, stats)[0] == 40
+    assert models.boss_power(on_hit, dict(stats, Speed=0.1))[0] == pytest.approx(32)  # Wasted 60% of the fight
+    assert models.boss_power(on_hit + ["Abyssal Wasting you inflict has Infinite Duration"], dict(stats, Speed=0.1))[0] == 40
+    # both doublings: counted once (the lower reading)
+    assert models.boss_power(on_hit + ["Enemies in your Presence count as having double Power"], stats)[0] == 40
+    madness = ["Enemies in your Presence have additional Power equal to their Gruelling Madness",
+               "Hits with this Weapon inflict 3 Gruelling Madness"]
+    assert models.boss_power(madness, stats, attack=True)[0] == 30
+    assert models.boss_power(madness, stats, attack=False)[0] == 20
+    assert models.boss_power(madness, dict(stats, Speed=0.2), attack=True)[0] == 23
+    assert models.boss_power(madness[:1] + ["Enemies in your Presence gain 1 Gruelling Madness each second"], stats)[0] == 30
+    assert models.power_mods(20) == []
+    assert {m["name"]: m["value"] for m in models.power_mods(40)} == {"WarcryPower": 20, "Multiplier:EnemyPower": 20}
+    # the Energy model at the doubled Power
+    hit = dict(stats, Speed=1.0)
+    base = models.energy_gain("Thundergod's Wrath", hit, "Main")[0]
+    assert models.energy_gain("Thundergod's Wrath", dict(hit, _boss_power=(40.0, "x")), "Main")[0] == pytest.approx(2 * base)
+    # Glory: per-Power events scale, Spear of Solaris' flat Ignite / Shock Glory doesn't
+    assert models.power_of({"_boss_power": (40.0, "")}) == 40
+    assert models.power_of({**stats, "_texts": ["Enemies in your Presence count as having double Power"]}) == 40
+    skill = Skill(name="Ferocious Roar", level_stats={"bear_warcry_gain_X_centirage_per_enemy_power": 200})
+    assert models.roar_rage(skill, 40) == 2 * models.roar_rage(skill)
+    assert models.roar_empowered(40) == 5 and models.roar_empowered() == 2

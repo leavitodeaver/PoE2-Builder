@@ -1274,9 +1274,9 @@ def roar_period(skill: Skill) -> float:
     return max((skill.cooldown or ROAR_COOLDOWN) / (skill.cooldown_recovery or 1.0), skill.cast_time)
 
 
-def roar_rage(skill: Skill) -> float:
+def roar_rage(skill: Skill, power: float = BOSS_POWER) -> float:
     per_power = number(skill.level_stats.get("bear_warcry_gain_X_centirage_per_enemy_power")) / 100 or 2.0
-    return per_power * BOSS_POWER
+    return per_power * power
 
 
 # Inherent Rage loss's modifiers (MECHC5; RESEARCH17 #89, research/rage-loss-modifiers.md; AUDIT11 A11-2). The game's
@@ -1327,17 +1327,19 @@ def rage_average(gain: float, maximum: float, period: float, hold: float = RAGE_
     return (top * held + top * decay - loss * decay * decay / 2) / period
 
 
-def roar_empowered() -> int:
-    return max(1, min(BOSS_POWER, ROAR_EMPOWER_POWER_CAP) // ROAR_EMPOWER_PER_POWER)
+def roar_empowered(power: float = BOSS_POWER) -> int:
+    return max(1, int(min(power, ROAR_EMPOWER_POWER_CAP) // ROAR_EMPOWER_PER_POWER))
 
 
-def roar_break(skill: Skill, enemy_armour: float, duration: float = FULL_BREAK_DURATION) -> tuple[float, str]:
-    """Share of the fight the boss's Armour is Fully Broken by the roar's Empowered hits, and its basis."""
+def roar_break(skill: Skill, enemy_armour: float, duration: float = FULL_BREAK_DURATION,
+               power: float = BOSS_POWER) -> tuple[float, str]:
+    """Share of the fight the boss's Armour is Fully Broken by the roar's Empowered hits, and its basis. `power`: the
+    boss's Power (boss_power: 20, or more with the build's Power lines)."""
     per_hit = number(skill.level_stats.get("warcry_grant_break_X_armour_on_hit"))
-    hits, period = roar_empowered(), roar_period(skill)
+    hits, period = roar_empowered(power), roar_period(skill)
     broken = per_hit * hits
     basis = (f"{FEROCIOUS_ROAR} Empowers {hits} Attacks per use (one per {ROAR_EMPOWER_PER_POWER} of the boss's "
-             f"{BOSS_POWER} Power), each Breaking {per_hit:,.0f} Armour: {broken:,.0f} against the boss's {enemy_armour:,.0f}")
+             f"{power:g} Power), each Breaking {per_hit:,.0f} Armour: {broken:,.0f} against the boss's {enemy_armour:,.0f}")
     if per_hit <= 0 or broken < enemy_armour:
         return 0.0, basis + ": not Fully Broken"
     return min(1.0, duration / period), (
@@ -1623,12 +1625,13 @@ def roar_model(skills: list[Skill], stats: dict, main: Skill | None) -> tuple[li
     mods: list[dict] = []
     notes: list[dict] = []
     if main.attack and number(stats.get("Rage")) <= 0:
-        gain = roar_rage(skill)
+        power = power_of(stats)
+        gain = roar_rage(skill, power)
         hold, loss, how = rage_loss(stats.get("_texts") or [])
         rage = rage_average(gain, number(stats.get("MaximumRage")) or RAGE_MAXIMUM, period, hold, loss)
         mods.append(line("1% more Attack Damage", rage))
         notes.append({"label": f"{FEROCIOUS_ROAR}: average Rage", "value": round(rage, 1), "confidence": "theory",
-                      "basis": f"{gain:g} Rage per roar ({BOSS_POWER} Power x {gain / BOSS_POWER:g}), capped at "
+                      "basis": f"{gain:g} Rage per roar ({power:g} Power x {gain / power:g}), capped at "
                                f"{number(stats.get('MaximumRage')) or RAGE_MAXIMUM:g}, used every {period:.1f} s; held "
                                f"{hold:.2g} s, then {loss:.2g} lost per second (game files: 4 s and 5/s"
                                + (f"; the build's {how}" if how else "") + "); 1% more Attack damage each. "
@@ -2166,11 +2169,12 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         return spent * per, (f"charms spend {spent:.2f} charges per second, each used as soon as its generated charges allow "
                              f"and not again while its effect lasts (the flask model: {stats.get('_charm_basis', '')}), for "
                              f"{per:g} Energy per charge (game files)")
+    power = power_of(stats)  # (the boss's Power: 20, or more with the build's Power lines; boss_power, MECH67)
     if kind == "melee hit":
         if skill is not None and not skill.melee:
             return 0.0, f"{main} is not a melee attack: no Energy"
         hits = hits_per_second(stats)
-        return hits * per * BOSS_POWER, f"{main} hits {hits:.2f} times per second for {per * BOSS_POWER:g} Energy each ({per:g} per Power)"
+        return hits * per * power, f"{main} hits {hits:.2f} times per second for {per * power:g} Energy each ({per:g} per Power)"
     if kind == "cast":
         if skill is not None and not skill.spell:
             return 0.0, f"{main} is not a spell: no Energy"
@@ -2188,20 +2192,20 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         crit_hit = sum(number(stats.get(f"{t}CritAverage")) for t in DAMAGE_TYPES)             or sum(number(stats.get(f"MainHand.{t}CritAverage")) for t in DAMAGE_TYPES)
         threshold = number(stats.get("EnemyAilmentThreshold"))
         share = min(1.0, crit_hit / threshold) if threshold > 0 else 1.0
-        per = BOSS_POWER * share
-        return crits * per, (f"{main} crits {crits:.2f} times per second (one hit per use) for {per:.2f} Energy each (Power {BOSS_POWER}"
+        per = power * share
+        return crits * per, (f"{main} crits {crits:.2f} times per second (one hit per use) for {per:.2f} Energy each (Power {power:g}"
                              f" × {share:.0%}: a {crit_hit:,.0f} critical hit against the boss's {threshold:,.0f} "
                              "Ailment Threshold)")
     shock = (number(stats.get("ShockChanceOnHit")) * (1 - crit) + number(stats.get("ShockChanceOnCrit")) * crit) / 100
     ignite = (number(stats.get("IgniteChanceOnHit")) * (1 - crit) + number(stats.get("IgniteChanceOnCrit")) * crit) / 100
     events = hits_per_second(stats) * (min(shock, 1.0) + min(ignite, 1.0))
     freezes = buildup_rate(stats, "Freeze")  # (RULE_AUDIT #2, MECH41: before, Freezes gave none on a boss)
-    how = f"{main} shocks or ignites {events:.2f} times per second (one hit per use) for {BOSS_POWER} Energy each (the boss's Power)"
+    how = f"{main} shocks or ignites {events:.2f} times per second (one hit per use) for {power:g} Energy each (the boss's Power)"
     if freezes > 0:
-        how += (f", and freezes the boss {freezes:.3f} times per second for {FREEZE_ENERGY * BOSS_POWER:g} Energy each "
+        how += (f", and freezes the boss {freezes:.3f} times per second for {FREEZE_ENERGY * power:g} Energy each "
                 f"({FREEZE_ENERGY:g} per Power; models.buildup_rate: the main skill's buildup only, other skills' Freezes "
                 "aren't counted, an undercount)")
-    return (events + freezes * FREEZE_ENERGY) * BOSS_POWER, how
+    return (events + freezes * FREEZE_ENERGY) * power, how
 
 
 def energy_rate(meta: str, x: dict, gain: float, cost: float, crits_recently: bool, doubled: bool,
@@ -4418,6 +4422,10 @@ GLORY_SKILLS = {  # skill: (Glory per use, {event: Glory per event on a boss})
     "Archon of Chayula": (100, {"chaos hit": 20}), "Hammer of the Gods": (20, {"heavy stun": 20}),
     "Molten Blast": (20, {"ignite": 20}), "Walking Calamity": (50, {}), "Skyfall": (270, {}),
 }
+# The per-event Glory above is mp_% of the boss's 20 Power (every event but Spear of Solaris' Ignite and Shock, which are
+# active_skill_hundred_times_generates_glory_per_ignite / _shock: flat; checked: GrantedEffectStatSets of each skill, game
+# 26476662), so with the build's Power lines (boss_power, MECH67) those scale with the boss's Power.
+GLORY_FLAT_EVENTS = {("Spear of Solaris", "ignite"), ("Spear of Solaris", "shock")}
 GLORY_FROM_LIFE = {"Zerphi's Infamy": (50, 0.05)}  # Glory per use, share of Life spent on skills that becomes Glory
 # KeywordPopups Glory (build 26476662): "each Skill can only generate Glory once every 0.5 seconds per monster" (MECHC2,
 # RESEARCH4 glory-warcry-flat-rates.md, HIGH for the text; before, every event counted: a Banner at 6 hits/s got a use
@@ -4592,15 +4600,18 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
     events = glory_events(stats, main)
     lines = glory_lines(list(texts if texts is not None else stats.get("_texts") or []))
     cooldowns = {s.name: s.cooldown / (s.cooldown_recovery or 1.0) for s in skills or [] if s.cooldown}
+    power = power_of(stats, texts if texts is not None else None)
     plan, parts = {}, []
     for name in dict.fromkeys(names):
         banner = name.endswith("Banner")
         extra = []
         if name in GLORY_SKILLS:
             cost, gains = GLORY_SKILLS[name]
+            if power != BOSS_POWER:
+                gains = {e: g if (name, e) in GLORY_FLAT_EVENTS else g * power / BOSS_POWER for e, g in gains.items()}
             rate = sum(events[e] for e in gains)
             glory = sum(events[e] * g for e, g in gains.items())
-            how = " + ".join(f"{events[e]:.2f} {e}s/s x {g}" for e, g in gains.items()) or "no source counted"
+            how = " + ".join(f"{events[e]:.2f} {e}s/s x {g:g}" for e, g in gains.items()) or "no source counted"
             if rate > 0:  # one gain per 0.5 s per monster
                 kept = glory_gains(rate, number(stats.get("Speed"))) / rate
                 glory *= kept
@@ -4900,6 +4911,107 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
                      "shrink with it (PoB's chance x duration x rate, capped at the most that count)",
             "confidence": "MEDIUM"})
     return scales, notes
+
+
+# The boss's Power raised by the build (MECH67; RESEARCH22 #130, research/abyssal-wasting-sources.md; plans/
+# kw-abyssal-wasting.md C). A pinnacle boss has 20 Power (KeywordPopups Power: "Unique monsters always have 20 Power";
+# PoB's Boss config: WarcryPower and Multiplier:EnemyPower BASE 20). Every player stat that raises an enemy's Power
+# (checked: Stats.json ids with "power" and "enemy|monster|target", their Mods users, game 26476662; PoB's uniques; poe2db
+# not checked: UNVERIFIED that no other source exists):
+# - unique_redblade_banner_enemies_in_presence_monster_power_+%_final 100 (UniqueEnemiesInPresenceMonsterPower1, Redblade
+#   Banner): "Enemies in your Presence count as having double Power". PoB: ModCache parses it to nothing.
+# - enemies_in_your_presence_with_abyssal_wasting_have_doubled_power (PassageUniqueAmanamuAbyssalWastingDoubledPower; a
+#   Desecrated line of the Grip of Kulemak, MEDIUM): "Targets affected by Abyssal Wasting in your Presence have double
+#   Power". Abyssal Wasting: "Inflict Abyssal Wasting on Hit" (the Abyssal Signet ring's implicit, Grip of Kulemak), 6 s
+#   per Hit (KeywordPopups AbyssalWasting): Wasted while the main skill hits at least once per 6 s, else that share
+#   (hits x 6 s); "Abyssal Wasting you inflict has Infinite Duration": any hit. PoB: ModCache parses it to nothing.
+# - monsters_in_your_presence_have_additional_power_equal_to_their_gruelling_madness_stacks (Sadist's Mercy): "Enemies in
+#   your Presence have additional Power equal to their Gruelling Madness". Gruelling Madness (KeywordPopups): at most 10
+#   on a target, "lose 1 Gruelling Madness every 2 seconds that passes without more being inflicted". Fed by "Hits with
+#   this Weapon inflict N Gruelling Madness" (the main skill an Attack hitting at least once per 2 s: 10; slower: N, LOW)
+#   or "Enemies in your Presence gain 1 Gruelling Madness each second" (Sculpted Suffering: 10). The ramp isn't counted.
+# - Not read here: warcry_monster_power_+% / Echoing Cry's (a warcry's own Power: PoB reads them); monster-side stats
+#   (monster_power_doubled_if_afflicted_by_abyssal_wasting: no Mods row uses it); adds' Power (ADD_POWER) isn't doubled.
+# Both doublings together: counted once (x2), the lower reading (UNVERIFIED whether "double" twice is x4); the Madness
+# Power added after the doubling (UNVERIFIED order; the lower reading). All need the boss in your Presence (the boss's
+# distance vs PoB's PresenceRadius). Read by energy_gain, glory_plan, roar_model / roar_break and PoB's own EnemyPower /
+# WarcryPower (power_mods, from Assumptions.models). Not yet: Siphon Elements' Cold Remnant chance (5% per Power, already
+# 100% at 20 Power: no change).
+POWER_DOUBLED = re.compile(r"^Enemies in your Presence count as having double Power$", re.I)
+POWER_DOUBLED_WASTED = re.compile(r"^Targets affected by Abyssal Wasting in your Presence have double Power$", re.I)
+WASTING_ON_HIT = re.compile(r"^Inflict Abyssal Wasting on Hit$", re.I)
+WASTING_INFINITE = re.compile(r"^Abyssal Wasting you inflict has Infinite Duration$", re.I)
+WASTING_DURATION = 6.0
+MADNESS_POWER = re.compile(r"^Enemies in your Presence have additional Power equal to their Gruelling Madness$", re.I)
+MADNESS_ON_HIT = re.compile(r"^Hits with this Weapon inflict (\d+) Gruelling Madness$", re.I)
+MADNESS_PER_SECOND = re.compile(r"^Enemies in your Presence gain (\d+) Gruelling Madness each second$", re.I)
+MADNESS_MAX, MADNESS_DECAY = 10, 2.0
+POWER_FALLBACK_DISTANCE = 50.0  # (units: conditions.RANGED_DISTANCE 5 m, when the boss's distance isn't known: the far
+# reading, so a Presence line counts only when the Presence reaches 5 m)
+
+
+def boss_power(texts: list[str], stats: dict, distance: float | None = None,
+               attack: bool | None = None) -> tuple[float, str]:
+    """(The boss's Power with the build's Power lines, its basis). `distance`: the boss's distance in units (PoB's
+    enemyDistance; POWER_FALLBACK_DISTANCE if None); `attack`: whether the main skill is an Attack (for "Hits with this
+    Weapon"; None: from stats["_main_types"], else not counted)."""
+    doubled = any(POWER_DOUBLED.match(t) for t in texts)
+    wasted_line = any(POWER_DOUBLED_WASTED.match(t) for t in texts)
+    madness_line = any(MADNESS_POWER.match(t) for t in texts)
+    if not (doubled or wasted_line or madness_line):
+        return float(BOSS_POWER), ""
+    radius = number(stats.get("PresenceRadius"))
+    far = POWER_FALLBACK_DISTANCE if not distance else distance
+    if radius < far:
+        return float(BOSS_POWER), (f"the boss {far / 10:g} m away, outside your {radius / 10:.1f} m Presence: its Power "
+                                   f"lines don't apply ({BOSS_POWER})")
+    hits = hits_per_second(stats)
+    parts = []
+    share = 1.0 if doubled else 0.0
+    if doubled:
+        parts.append("Enemies in your Presence count as having double Power")
+    elif wasted_line:
+        if not any(WASTING_ON_HIT.match(t) for t in texts):
+            parts.append("the Abyssal Wasting double-Power line with nothing inflicting Abyssal Wasting: no change")
+        elif hits <= 0:
+            parts.append("Abyssal Wasting from your hits, but the main skill doesn't hit: no change")
+        else:
+            share = 1.0 if any(WASTING_INFINITE.match(t) for t in texts) else min(1.0, hits * WASTING_DURATION)
+            parts.append(f"double while the boss has Abyssal Wasting ({share:.0%} of the fight: {hits:.2f} hits/s, "
+                         f"{WASTING_DURATION:g} s each)")
+    power = BOSS_POWER * (1 + share)
+    if madness_line:
+        if attack is None:
+            attack = "Attack" in (stats.get("_main_types") or set())
+        per_second = max([int(m.group(1)) for t in texts if (m := MADNESS_PER_SECOND.match(t))] or [0])
+        per_hit = (max([int(m.group(1)) for t in texts if (m := MADNESS_ON_HIT.match(t))] or [0])
+                   if attack and hits > 0 else 0)
+        if per_second or (per_hit and hits >= 1 / MADNESS_DECAY):
+            stacks, why = float(MADNESS_MAX), "kept at its 10 maximum"
+        elif per_hit:
+            stacks, why = float(min(MADNESS_MAX, per_hit)), f"{per_hit} per hit, hits too slow to stack it (LOW)"
+        else:
+            stacks, why = 0.0, "nothing inflicts it on the boss from the main skill"
+        power += stacks
+        parts.append(f"+{stacks:g} from Gruelling Madness ({why})")
+    return power, (f"the boss's Power {power:g} (20; " + "; ".join(parts) + f"; in your {radius / 10:.1f} m Presence, "
+                   f"the boss {far / 10:g} m away; two doublings counted once and Madness added after, the lower "
+                   "readings, UNVERIFIED)")
+
+
+def power_of(stats: dict, texts: list[str] | None = None) -> float:
+    """The boss's Power for a model: stats["_boss_power"] (set by Assumptions.models / Conditions.evidence) when there,
+    else boss_power from `texts` (or stats["_texts"]) at the fallback distance, else 20."""
+    if "_boss_power" in stats:
+        return float(stats["_boss_power"][0])
+    found = texts if texts is not None else stats.get("_texts")
+    return boss_power(list(found), stats)[0] if found else float(BOSS_POWER)
+
+
+def power_mods(power: float) -> list[dict]:
+    """PoB's own Power readers (warcry Power, "per enemy Power" lines, Harbinger of Madness) at the boss's Power."""
+    extra = power - BOSS_POWER
+    return [raw_mod("WarcryPower", "BASE", extra), raw_mod("Multiplier:EnemyPower", "BASE", extra)] if extra > 0 else []
 
 
 # ===================================================================================================================

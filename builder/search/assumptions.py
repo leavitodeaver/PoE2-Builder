@@ -481,7 +481,17 @@ class Assumptions:
             stats = {**stats, "_dodge_roll": models.dodge_roll([e["text"] for e in source_lines], stats)}
         forbidden = set(build.ctx.request.forbid_ledger_entries)
         inputs = models.read_inputs(source_lines)
+        # (MECH67) the boss's Power with the build's Power lines (models.boss_power), for the Energy / Glory / roar
+        # models and PoB's own EnemyPower / WarcryPower readers
+        texts = [e["text"] for e in source_lines]
+        power = models.boss_power(texts, stats, models.number(build.call("getConfig")["input"].get("enemyDistance")) or None,
+                                  bool(main and main.attack))
+        stats = {**stats, "_boss_power": power}
         mods, notes = models.archon_model(inputs, stats, main, main_gems)
+        if power[1]:
+            mods += models.power_mods(power[0])
+            notes.append({"label": "Boss Power (your Power lines)*", "value": f"{power[0]:g}", "basis": power[1],
+                          "confidence": "MEDIUM"})
         supports = {g["index"]: [x["name"] for x in g["gems"] if x["support"] and x.get("enabled", True)]
                     for g in build.groups()}
         energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports)

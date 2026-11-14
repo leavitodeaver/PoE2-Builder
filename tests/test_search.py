@@ -2987,3 +2987,22 @@ def test_murderous_intent_in_a_ferocious_roar_group_reads_the_warcry_it_triggers
     a.build = FakeBuild()
     rate, how = a.empowered_uses({"Speed": 2.0})
     assert rate == pytest.approx(0.5) and "triggered by Ferocious Roar" in how
+
+
+def test_withered_from_the_abyssal_wasting_line_and_minions_chance():
+    """(MECH67) "N% chance to inflict Withered with Hits against targets affected by Abyssal Wasting" at the main skill's
+    hits while the boss is Wasted, and "Minions have N% chance to inflict Withered on Hit" at one minion's hits, both
+    2 s each (no duration in the game data: the shortest stated one, LOW)."""
+    from builder.search.conditions import _withered_stacks
+
+    wasting = "10% chance to inflict Withered with Hits against targets affected by Abyssal Wasting"
+    stats = {"Speed": 5.0, "HitChance": 100}
+    assert _withered_stacks([wasting], stats)[0] == 0  # nothing inflicts Abyssal Wasting
+    assert _withered_stacks([wasting, "Inflict Abyssal Wasting on Hit"], stats)[0] == 1.0  # 0.1 x 5 x 2 s
+    # a hit every 10 s: Wasted 60% of the fight (6 s per hit): 0.1 x 0.1 x 0.6 x 2 s, under one stack (PoB's whole count)
+    stacks, basis = _withered_stacks([wasting, "Inflict Abyssal Wasting on Hit"], {"Speed": 0.1, "HitChance": 100})
+    assert stacks == 0 and "Wasted 60%" in basis and "not counted" not in basis
+    minions = "Minions have 10% chance to inflict Withered on Hit"
+    assert _withered_stacks([minions], stats)[0] == 0  # the main skill isn't a minion's
+    stacks, basis = _withered_stacks([minions], {**stats, "Minion.Speed": 10.0, "Minion.HitChance": 100})
+    assert stacks == 2.0 and "LOW" in basis  # 0.1 x 10 x 2 s

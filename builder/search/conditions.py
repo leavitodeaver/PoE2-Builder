@@ -84,9 +84,24 @@ WITHERING_PRESENCE_STATS = ("skill_withering_presence_frequency_ms", "base_skill
 WITHER_SUPPORT_STATS = ("support_withered_base_duration_ms",
                         "withered_on_hit_chance_%_for_every_100%_target_ailment_threshold_dealt_as_chaos_damage")
 WITHER_FIELDS = ("Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration", "PresenceRadius", "ChaosHitAverage",
-                 "MainHand.ChaosHitAverage", "EnemyAilmentThreshold")
+                 "MainHand.ChaosHitAverage", "EnemyAilmentThreshold", "Minion.Speed", "Minion.HitChance")
+# (MECH67; RESEARCH22 #130, RESEARCH11 withered-sources.md #48) Two chance lines with no duration in their text:
+# chance_to_inflict_wither_%_against_enemies_with_abyssal_wasting ("N% chance to inflict Withered with Hits against targets
+# affected by Abyssal Wasting": Kurgal's Passage mods, a Grip of Kulemak Desecrated line) and
+# minions_have_%_chance_to_inflict_wither_on_hit ("Minions have N% chance to inflict Withered on Hit": Right Hand of
+# Darkness). Withered has no base duration in the game files (KeywordPopups Withered, the stat descriptions) or on poe2db's
+# Withered page (fetched 13 Nov 2026: "no duration value is listed"): taken as the shortest stated one, 2 s (Ritual of
+# Shadows, the monster mods), the lower reading, LOW (a flat number where the game decides and no data gives it).
+# The Wasting line: at the main skill's hits x the share the boss is Wasted (models.boss_power's: 6 s per Hit, Infinite
+# Duration), only with an "Inflict Abyssal Wasting on Hit" source. The minions' line: one minion's hits (PoB's
+# Minion.Speed x Minion.HitChance for the main skill's minion), the others not counted (an undercount, labelled); 0 when
+# the main skill isn't a minion's.
+WITHER_DEFAULT_DURATION = 2.0
+WITHER_WASTING = re.compile(r"^(\d+)% chance to inflict Withered with Hits against targets affected by Abyssal Wasting$",
+                            re.I)
+WITHER_MINIONS = re.compile(r"^Minions have (\d+)% chance to inflict Withered on Hit$", re.I)
 # Lines that inflict Withered but aren't counted (labelled in the basis): on entering your Presence (once on a lone boss),
-# minions' chance, against Abyssal Wasting, on curse
+# on curse
 WITHER_UNCOUNTED = re.compile(r"withered .*when they enter your presence|minions have .*withered|abyssal wasting.*|"
                               r"withered with hits against|curse .*withered|withered .*curse", re.I)
 
@@ -107,6 +122,11 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
     rate = number(stats.get("Speed")) * hit  # hits per second
     spell = "Spell" in (stats.get("_main_types") or set())
     stacks, sources, idle = 0.0, [], []
+    wasting = any(models.WASTING_ON_HIT.match(t) for t in lines)
+    wasted = (1.0 if any(models.WASTING_INFINITE.match(t) for t in lines) else min(1.0, rate * models.WASTING_DURATION)
+              ) if wasting and rate > 0 else 0.0
+    minion_rate = number(stats.get("Minion.Speed")) * (number(stats.get("Minion.HitChance")) / 100
+                                                        if "Minion.HitChance" in stats else 1.0)
     for text in lines:
         if m := WITHER_CHANCE.search(text):
             if WITHER_SPELLS.search(text) and not spell:
@@ -114,7 +134,21 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
                 continue
             stacks += float(m.group(1)) / 100 * rate * float(m.group(2))
             sources.append(text)
-        elif WITHER_UNCOUNTED.search(text):
+        elif m := WITHER_WASTING.match(text):  # (MECH67)
+            if wasted <= 0:
+                idle.append(f"{text} (nothing Wastes the boss)" if not wasting else f"{text} (the main skill doesn't hit)")
+                continue
+            stacks += float(m.group(1)) / 100 * rate * wasted * WITHER_DEFAULT_DURATION
+            sources.append(f"{text} (the boss Wasted {wasted:.0%} of the fight; {WITHER_DEFAULT_DURATION:g} s each, "
+                           "no duration in the game data: the shortest stated one, LOW)")
+        elif m := WITHER_MINIONS.match(text):  # (MECH67)
+            if minion_rate <= 0:
+                idle.append(f"{text} (the main skill isn't a minion's)")
+                continue
+            stacks += float(m.group(1)) / 100 * minion_rate * WITHER_DEFAULT_DURATION
+            sources.append(f"{text} (one minion's {minion_rate:.2f} hits/s, the others not counted; "
+                           f"{WITHER_DEFAULT_DURATION:g} s each, no duration in the game data: the shortest stated one, LOW)")
+        elif WITHER_UNCOUNTED.search(text) and not models.WASTING_ON_HIT.match(text):
             idle.append(text)
     name, own = stats.get("_wither_main") or ("", {})
     if (duration := number(own.get(WITHER_SKILL_STATS[0])) / 1000) > 0:
@@ -3198,6 +3232,8 @@ class Conditions:
         stats["_sg_charged_mark"] = self.charged_mark(stats) if CHARGED_MARK in names else None
         stats["_sg_death_storm"] = self.death_storm() if DEATH_STORM_SUMMON in names else None
         stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)
+        # (MECH67) the boss's Power with the build's Power lines (models.boss_power): Glory, the roar's Empowers
+        stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types)
         stats["_shocked_ground"] = shocked_ground(stats, texts)
         if stats["_shocked_ground"][0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)
             stats["_sg_magnitude"] = self.build.call("shockMagnitude")
@@ -3296,7 +3332,9 @@ class Conditions:
         if skill is None or warcry:
             return None
         texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]
-        share, basis = models.roar_break(skill, number(raw.get("enemyArmour")), models.full_break_duration(texts))
+        power = models.boss_power(texts, self.build.call("stats", fields=["PresenceRadius", "Speed", "HitChance"]),
+                                  number(self.build.call("getConfig")["input"].get("enemyDistance")) or None, True)[0]
+        share, basis = models.roar_break(skill, number(raw.get("enemyArmour")), models.full_break_duration(texts), power)
         return (True, f"gem:{models.FEROCIOUS_ROAR}: {basis} ({shared(share)})", share) if share >= MIN_UPTIME else None
 
     def resolve(self) -> bool:
