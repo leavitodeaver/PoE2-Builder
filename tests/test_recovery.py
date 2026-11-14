@@ -717,3 +717,47 @@ def test_worst_case_boss_counts_the_lowest_real_bosss_rate_of_a_gain():
     # Slow: no higher than the lowest real boss (four keep the labelled once per 10 s, the user's choice 13 Nov)
     slow, how = trigger_rate("Used when you are affected by a Slow", worst)
     assert slow <= 0.1 + 1e-9 and "lowest real boss" in how
+
+
+def test_rune_of_reach_s_reduced_remnant_effect_lowers_remnant_recovery(engine):
+    """COV25 (an OVERCOUNT): Rune of Reach in a wand gives "Remnants you create have 25% reduced effect", which PoB drops
+    (ModParser reads only "increased"). The ledger's raw modifier (mod:RemnantEffect INC -25, on the item as
+    "LedgerMod:...") makes it RemnantEffect INC -25: a Life Remnant gives 25% less, and so does LifeRemnantRecovery."""
+    from builder.ledger import translate
+    from builder.ledger.items import corrected_item
+    from builder.request.schema import BuildRequest, Choices
+    from builder.search.assumptions import Assumptions
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    entry, lines = translate("Remnants you create have 25% reduced effect")
+    assert entry.id == "items-rune-of-reach-reduced-remnant-effect" and lines == ["mod:RemnantEffect INC -25"]
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"],
+                                        require=Choices(skills=["Mana Tempest"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    hook = Assumptions(build)
+    helmet = chr(10).join(["Rarity: Rare", "Test Crown", "Hewn Mask", "Item Level: 82", "Implicits: 1",
+                           "Grants Skill: Level 20 Life Remnants"])
+    build.call("equip", slot="Helmet", raw=helmet, fields=[])
+
+    def gain(wand_lines):
+        build.call("equip", slot="Weapon 1", raw=chr(10).join(wand_lines), fields=[])
+        skills = build.call("activeSkills")["skills"]
+        remnants = next(s for s in skills if s["name"] == recovery.LIFE_REMNANTS)
+        hook.life_mana_income(skills, "Spark")
+        return remnants["remnantGain"]["Life"], build.recovery_sources["LifeRemnantRecovery"]
+
+    head = ["Rarity: Rare", "Test Wand", "Attuned Wand", "Item Level: 82"]
+    plain, plain_rate = gain(head + ["Implicits: 0"])
+    raw = chr(10).join(head + ["Sockets: S", "Rune: Rune of Reach", "Implicits: 0"])
+    assert gain(raw.split(chr(10)))[0] == pytest.approx(plain)  # PoB alone drops the line
+    corrected = corrected_item(raw)
+    assert "{custom}LedgerMod:RemnantEffect INC -25" in corrected.split(chr(10))
+    reduced, reduced_rate = gain(corrected.split(chr(10)))
+    assert plain > 0 and plain_rate > 0
+    assert reduced == pytest.approx(0.75 * plain, abs=1)  # (PoB floors the gain: 410 -> 307)
+    assert reduced_rate == pytest.approx(plain_rate * reduced / plain, rel=1e-3)

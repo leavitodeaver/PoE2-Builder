@@ -291,3 +291,18 @@ def test_cov20_cull_on_block_and_ironbound_are_counted_and_cadiros_arrows_stay_o
         assert ignored_line_status(line, False)[0] == "model", line
     cadiro = "Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow"
     assert models.CADIRO_ARROWS.search(cadiro) and ignored_line_status(cadiro, False)[0] == "none"
+
+
+def test_raw_mod_lines_have_an_item_form_and_apply_on_items():
+    """COV25: a `mod:` line (a raw PoB modifier, for a line no PoB text carries) goes on items as "LedgerMod:<Name>
+    <TYPE> <value>"; it isn't conditional, so it applies on items and bonded lines; Rune of Reach's reduced Remnant effect
+    is one, and the audit counts it as the ledger's."""
+    from builder.ledger import RAW_MOD, item_lines
+    from builder.ledger.coverage import ignored_line_status
+
+    assert item_lines(["mod:RemnantEffect INC -25", "+5 to Strength"]) == ["LedgerMod:RemnantEffect INC -25", "+5 to Strength"]
+    assert not RAW_MOD.match("mod:RemnantEffect LESS -25") and not RAW_MOD.match("mod:RemnantEffect INC (15-25)")
+    line = "Remnants you create have 25% reduced effect"
+    entry, lines = translate(line)
+    assert lines == ["mod:RemnantEffect INC -25"] and entry.on_items and not entry.conditional
+    assert ignored_line_status(line, False)[0] == "ledger"

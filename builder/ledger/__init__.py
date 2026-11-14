@@ -28,6 +28,13 @@ Jagged Ground some of the time) is a share, not on / off: a `share:` line counts
 (bridge applyLedger: value / 100 x Multiplier:LedgerShare<Name>, which assumptions.ledger_conditions sets to the share
 in whole percent; COV11). Conditional lines apply to passives only, not to uniques.
 
+A modifier no PoB line can carry (COV25: "Remnants you create have 25% reduced effect", which PoB's ModParser reads
+only as "increased", and "-25% increased" doesn't match its "(%d+)") is written as a raw PoB modifier:
+    mod:RemnantEffect INC -{1}     # PoB's modifier RemnantEffect, type INC, value -25 (BASE / INC / MORE / FLAG)
+It applies on items and passives alike (no condition). On an item it is carried as "LedgerMod:<Name> <TYPE> <value>"
+(item_lines); the bridge's parser hook (engine/bridge.lua, "Raw ledger modifiers") makes either form the modifier.
+Its value is a plain number (a rolled range isn't read: the line stays unapplied and the audit shows it).
+
 Lines that feed a custom model (builder/search/models.py) rather than standing for a modifier of
 their own name it with `model:` and use
     mult:ArchonDuration 15         # this passive adds 15 to the model input "ArchonDuration"
@@ -67,6 +74,7 @@ RANGE = re.compile(r"^\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)$")
 SYNTAX = re.compile(r"^(flag|if|mult|share):(\w+)\s*(.*)$")
 ROLLED = re.compile(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)")  # a roll range inside a line
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+RAW_MOD = re.compile(r"^mod:([\w:]+)\s+(BASE|INC|MORE|FLAG)\s+(-?\d+(?:\.\d+)?)$")  # a raw PoB modifier (COV25)
 
 
 def merge_ends(low: str, high: str) -> str:
@@ -149,6 +157,7 @@ class Entry:
         return all(not (m := SYNTAX.match(line)) or m.group(1) == "share" for line in self.replace)
 
 
+ITEM_MOD = "LedgerMod:"  # a `mod:` line's form in an item's text (COV25); the bridge's parser hook makes it the modifier
 ITEM_SHARE = "LedgerShare:"  # a `share:` line's stand-in in an item's text; the bridge (installLedgerShare) applies it
 
 
@@ -156,8 +165,10 @@ def item_lines(lines: list[str]) -> list[str]:
     """A translation's lines as an item's text carries them (COV17): a `share:Name <line>` line as
     "LedgerShare:Name <line>", which PoB can't parse; the bridge (installLedgerShare) parses <line> and counts it at
     Multiplier:LedgerShareName / 100, as applyLedger does on passives. Other lines as they are. Only for entries that
-    are `on_items` (flag:, if: and mult: lines have no item form)."""
-    return [ITEM_SHARE + m.group(2) + " " + m.group(3) if (m := SYNTAX.match(line)) else line for line in lines]
+    are `on_items` (flag:, if: and mult: lines have no item form). A `mod:` line (a raw PoB modifier, COV25) as
+    "LedgerMod:<Name> <TYPE> <value>"."""
+    return [ITEM_SHARE + m.group(2) + " " + m.group(3) if (m := SYNTAX.match(line))
+            else ITEM_MOD + line[len("mod:"):] if RAW_MOD.match(line) else line for line in lines]
 
 
 def _number(text: str) -> bool:

@@ -1,0 +1,26 @@
+# Rune lines PoB can't carry with any text it parses (COV25, 13 Nov 2026): written as raw PoB modifiers (`mod:` lines,
+# builder/ledger's module docstring; the bridge's "Raw ledger modifiers" parser hook).
+
+- id: items-rune-of-reach-reduced-remnant-effect
+  title: Rune of Reach (wand / staff), Remnants you create have 25% reduced effect
+  kind: pob_gap
+  match: '^Remnants you create have (\d+)% reduced effect$'
+  replace: ['mod:RemnantEffect INC -{1}']
+  confidence: datamined
+  notes: >-
+    COV24's ranking, an OVERCOUNT in every Remnant recovery: Rune of Reach in a wand or staff gives "Remnants you create
+    have 25% reduced effect" (runes.json, slots wand / staff, stat order 9738, trade hash 1999910726, the same stat as the
+    helmet's "15% increased"). PoB's ModParser matches only "remnants (you create )have (%d+)% increased effect"
+    (5628-5629) and the whole line must match, so PoB drops the line and RemnantEffect misses its -25%: PoB's
+    LifeGainPerRemnant / ManaGainPerRemnant (CalcOffence 1660-1685), Into the Breach's chaos gain (CalcPerform 1432) and
+    the bridge's remnantGain (activeSkills, feeding recovery.remnant_income) all counted the Remnants at full effect. No PoB
+    text carries a negative RemnantEffect ("-25% increased" doesn't match "(%d+)"), so the line is the raw modifier
+    RemnantEffect INC -25, which every reader above takes through calcLib.mod(..., "RemnantEffect"). Other lines with a
+    reduced Remnant effect: none in PoB's export besides this rune's (checked: "Remnant ... reduced" in gaps.json,
+    uniques.json, tree.json, mods.json and runes.json; the game files' Mods with remnant_effect_+%: one Abyss ring /
+    amulet prefix, 8-15 increased). Not counted here: the rune's "Remnants can be collected from 50% further away"
+    (pickup range, no number in the fight model).
+  sources: ["data/pob-bb52d6b368/runes.json (Rune of Reach, wand / staff)", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:5628-5629",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua:1660-1685", "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua:1432"]
+  test_in_game: "With a Remnant source (e.g. Life Remnants), note the Life a Remnant gives; socket Rune of Reach in the wand: it gives 25% less (a quarter less with no other Remnant effect)."
+  status: proposed

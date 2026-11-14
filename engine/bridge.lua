@@ -110,6 +110,30 @@ do
 	end
 end
 
+-- Raw ledger modifiers (COV25; builder/ledger RAW_MOD): a ledger line "mod:<Name> <TYPE> <value>" (a passive's, through
+-- applyLedger) or its item form "LedgerMod:<Name> <TYPE> <value>" (ledger.item_lines) is PoB's modifier <Name> of that
+-- type and value, for a line no PoB text can carry: Rune of Reach's "Remnants you create have 25% reduced effect" is
+-- RemnantEffect INC -25 (ModParser 5628-5629 read only "increased", and "-25% increased" doesn't match their "(%d+)").
+do
+	local parseBefore = modLib.parseMod
+	modLib.parseMod = function(line, ...)
+		if type(line) == "string" then
+			local name, kind, value = line:match("^LedgerMod:([%w:]+)%s+(%u+)%s+(%-?[%d%.]+)$")
+			if not name then
+				name, kind, value = line:match("^mod:([%w:]+)%s+(%u+)%s+(%-?[%d%.]+)$")
+			end
+			if name and (kind == "BASE" or kind == "INC" or kind == "MORE" or kind == "FLAG") and tonumber(value) then
+				local v = tonumber(value)
+				if kind == "FLAG" then
+					v = v ~= 0
+				end
+				return { modLib.createMod(name, kind, v, "Ledger") }, nil
+			end
+		end
+		return parseBefore(line, ...)
+	end
+end
+
 local DEFAULT_FIELDS = {
 	"FullDPS", "CombinedDPS", "TotalDPS", "TotalDotDPS", "Life", "EnergyShield", "Mana",
 	"TotalEHP", "Armour", "Evasion", "FireResist", "ColdResist", "LightningResist", "ChaosResist",
