@@ -56,6 +56,14 @@ WIKI_UNREPLACEABLE = {
     "The Vertex": "UniqueLocalNoAttributeRequirements1",
     "Quecholli": "UniqueLocalNoCriticalStrikeMultiplier1",
 }
+# Outcomes PoB reads by their text in Classes/Item.lua rather than through its modifier parser, so coverage.json (which
+# parses lines alone) calls them unsupported: Item.lua 1280 matches "^this item gains bonuses from socketed soul cores as
+# though it was also a? ?(.+)$" and 1527 applies a socketed Soul Core's mod for that slot too (COV28's correction, 14 Nov;
+# probed: tests/test_cultivated.py's real-engine Soul Core test)
+READ_BY_ITEM = {
+    f"UniqueMutatedVaalLocalSoulCoreAlsoGainBenefitsFrom{slot}": "Item.lua 1280 / 1527 (socketedSoulCoreTypes), by text"
+    for slot in ("Boots", "Gloves", "Helmet")
+}
 # Outcomes the search must not offer as a fixed line, with why (never dropped silently: they stay in the data).
 NOT_OFFERED = {
     "UniqueMutatedVaalRandomKeystoneFromTable": "grants one of 33 random keystones (stat local_additional_vivisection_"
@@ -153,8 +161,9 @@ def main(vco_html: str, export_dir: str) -> None:
                 "mod": mod_id,
                 "lines": lines,
                 "stats": stat_ranges(row),
-                "pob_reads": bool(covered) and all(ok for _, ok in covered),
-                "pob_unread_lines": [line for line, ok in covered if not ok],
+                "pob_reads": mod_id in READ_BY_ITEM or (bool(covered) and all(ok for _, ok in covered)),
+                "pob_unread_lines": [] if mod_id in READ_BY_ITEM else [line for line, ok in covered if not ok],
+                **({"pob_reads_how": READ_BY_ITEM[mod_id]} if mod_id in READ_BY_ITEM else {}),
                 **({"not_offered": NOT_OFFERED[mod_id]} if mod_id in NOT_OFFERED else {}),
             })
         lines = []
@@ -188,9 +197,11 @@ def main(vco_html: str, export_dir: str) -> None:
                 "source": "poe2wiki's Cultivated unique page (AUDIT33 A33-14): 5 lines the orb can't replace",
                 "lines": {u: {"mod": m, "in_game_OriginalMods": m in replaceable} for u, m in WIKI_UNREPLACEABLE.items()},
                 "note": "4 of 5 are not in the game's OriginalMods and not on poe2db's list: the search never drops them. "
-                        "The Vertex's UniqueLocalNoAttributeRequirements1 IS in OriginalMods (game files vs wiki disagree; "
-                        "0.4.0b fixed 'the attribute requirement modifiers on The Vertex could not be modified'); poe2db's "
-                        "Vertex lines don't show it, so the search doesn't offer dropping it either (UNVERIFIED)"},
+                        "The Vertex's attribute-requirement lines ARE in OriginalMods, and the newest patch entry on them, "
+                        "0.4.0b, 'Fixed a bug where the attribute requirement modifiers on The Vertex Unique Helmet could "
+                        "not be modified by a Vaal Cultivation Orb': the game files and the patch notes win over the wiki, "
+                        "so the search may drop them (AUDIT34 A34-10)"},
+            "original_lines": sorted({" ".join(pob[m]) for m in replaceable if m in pob}),
             "outcome_mods_in_game_files": len(outcome_rows),
             "outcome_mods_on_listed_uniques": len(used),
             "outcome_mods_on_no_listed_unique": sorted(r["Id"] for r in outcome_rows if r["Id"] not in used),

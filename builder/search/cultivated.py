@@ -174,7 +174,7 @@ def _key(s: str) -> str:
 
 def _explicit(raw: str) -> list[tuple[int, str]]:
     """(index, text without tags) of a unique's explicit lines in its selected variant (the last one when the text names
-    none, as PoB does): past the implicits (or the header when there's no Implicits line), no enchants, sockets,
+    none, as PoB does; a {group:g} line by that group's own selection): past the implicits (or the header when there's no Implicits line), no enchants, sockets,
     blanks or bare keywords."""
     lines = raw.split("\n")
     variants = [line for line in lines if line.startswith("Variant:")]
@@ -182,11 +182,17 @@ def _explicit(raw: str) -> list[tuple[int, str]]:
                     len(variants) or None)
     start = next((i + 1 + int(m.group(1)) for i, line in enumerate(lines)
                   if (m := re.match(r"Implicits: (\d+)", line))), 3)
+    # "Selected Variant Group: 1=3": the variant chosen in group 1 (Atziri's Splendour picks its Soul Core slot line and
+    # its defence line this way, with no "Selected Variant" line)
+    groups = {m.group(1): int(m.group(2)) for line in lines
+              if (m := re.match(r"Selected Variant Group: (\d+)=(\d+)", line))}
     found = []
     for i in range(start, len(lines)):
         tags, text = re.match(r"^((?:\{[^}]*\})*)(.*)$", lines[i]).groups()
         if variant := re.search(r"\{variant:([\d,]+)\}", tags):
-            if selected is None or str(selected) not in variant.group(1).split(","):
+            group = re.search(r"\{group:(\d+)\}", tags)
+            chosen = groups.get(group.group(1)) if group else selected  # a variant group's own choice (Splendour)
+            if chosen is None or str(chosen) not in variant.group(1).split(","):
                 continue
         text = text.strip()
         if not text or "{enchant}" in tags or text in ("Corrupted", "Mirrored") or HEADER.match(text):
@@ -203,7 +209,9 @@ def explicit_lines(name: str, raw: str, original: str | None = None,
     poe2db doesn't show is not offered as the line lost (UNVERIFIED whether the orb can replace it: the cautious side).
     Found in `raw` by its exact text, so the ledger's stand-ins (appended) and in-place fixes are never the line lost; a
     line PoB ignores (`ignored`, the ledger's gaps) is never offered either: losing it would look free."""
-    wanted = {_key(t) for t in replaceable_lines(name)}
+    # poe2db's lines for this unique, and any of the unique's own lines whose text is one of the game's OriginalMods (the
+    # game files list The Vertex's attribute-requirement lines there, and 0.4.0b fixed the orb not modifying them: A34-10)
+    wanted = {_key(t) for t in replaceable_lines(name)} | {_key(t) for t in load()["_about"].get("original_lines", [])}
     own = Counter(text for _, text in _explicit(original if original is not None else raw))
     lines = []
     for i, text in _explicit(raw):  # each of the unique's own lines once, its first copy: a later copy is the ledger's

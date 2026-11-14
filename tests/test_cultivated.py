@@ -127,8 +127,9 @@ def test_outcomes_pob_doesnt_read_go_through_the_ledger_and_are_offered_once_it_
 def test_the_lines_lost_are_the_uniques_own_in_its_selected_variant_and_two_line_mods_go_whole():
     acuity = pob_raw("Atziri's Acuity")
     found = cultivated.explicit_lines("Atziri's Acuity", acuity)
+    # poe2db's three, and Vaal Pact: its text is one of the game's OriginalMods (the 0.5.0 rework's line)
     assert [text for _, text in found] == ["(150-200)% increased Armour", "+(100-150) to maximum Life",
-                                           "10% of Physical damage dealt by your Hits causes Blood Loss"]
+                                           "10% of Physical damage dealt by your Hits causes Blood Loss", "Vaal Pact"]
     # a ledger stand-in appended to the text is never the line lost; a line PoB ignores isn't either
     assert cultivated.explicit_lines("Atziri's Acuity", acuity + "\n(150-200)% increased Armour", acuity) == found
     assert all(t != "+(100-150) to maximum Life" for _, t in cultivated.explicit_lines(
@@ -173,6 +174,10 @@ class _Gear:
         return score - self.lam * ((option.price or 0.0) if option else 0.0)
 
 
+ACUITY_COSTS = {"(150-200)% increased Armour": 0.01, "+(100-150) to maximum Life": 0.05,
+                "10% of Physical damage dealt by your Hits causes Blood Loss": 0.03, "Vaal Pact": 0.04}
+
+
 def _acuity_option():
     from builder.search.context import ItemOption
     return ItemOption("Atziri's Acuity", "Vaal Gloves", "Gloves", None, pob_raw("Atziri's Acuity"), True, 1.0, "high", 60)
@@ -181,8 +186,7 @@ def _acuity_option():
 def test_the_trial_crafts_the_outcome_that_helps_in_place_of_the_line_the_build_loses_least_by():
     ctx = _Ctx({"orb": 6.0})
     gear = _Gear(ctx, worth={"(5-10)% increased maximum Life": 0.10},
-                 cost={"(150-200)% increased Armour": 0.01, "+(100-150) to maximum Life": 0.05,
-                       "10% of Physical damage dealt by your Hits causes Blood Loss": 0.03})
+                 cost=ACUITY_COSTS)
     plain = _acuity_option()
     grown = cultivated.trial(gear, "Gloves", plain, deadline=float("inf"))
     assert grown is not plain and "(150-200)% increased Armour" not in grown.raw
@@ -203,7 +207,7 @@ def test_the_trial_crafts_the_outcome_that_helps_in_place_of_the_line_the_build_
 def test_the_trial_keeps_the_plain_unique_when_the_craft_costs_more_than_it_gives_or_cant_be_bought():
     ctx = _Ctx({"orb": 6.0})
     worth = {"(5-10)% increased maximum Life": 0.10}
-    cost = {"(150-200)% increased Armour": 0.01}
+    cost = ACUITY_COSTS
     assert cultivated.trial(_Gear(ctx, worth, cost, lam=0.01), "Gloves", _acuity_option(), float("inf")).variants == ()
     assert cultivated.trial(_Gear(ctx, worth, cost, left=50.0), "Gloves", _acuity_option(), float("inf")).variants == ()
     assert cultivated.trial(_Gear(_Ctx({}), worth, cost), "Gloves", _acuity_option(), float("inf")).variants == ()
@@ -257,3 +261,40 @@ def test_the_lines_the_wiki_and_the_game_say_the_orb_cant_replace_are_never_the_
         assert not any(words in text for _, text in cultivated.explicit_lines(name, pob_raw(name))), name
     wiki = cultivated.load()["_about"]["unreplaceable_per_wiki"]["lines"]
     assert [u for u, row in wiki.items() if row["in_game_OriginalMods"]] == ["The Vertex"]
+
+
+def test_the_vertex_attribute_requirement_lines_may_be_lost_as_the_game_files_and_0_4_0b_say():
+    # A34-10: the game's OriginalMods lists them, and 0.4.0b "Fixed a bug where the attribute requirement modifiers on
+    # The Vertex Unique Helmet could not be modified by a Vaal Cultivation Orb"
+    lost = {text for _, text in cultivated.explicit_lines("The Vertex", pob_raw("The Vertex"))}
+    assert {"Has no Attribute Requirements", "Skill Gems have no Attribute Requirements"} <= lost
+
+
+def test_pob_gives_a_body_armour_a_helmet_soul_cores_bonus_with_splendours_cultivated_line(engine):
+    """Real engine (COV28's correction): PoB reads "This item gains bonuses from Socketed Soul Cores as though it was
+    also a Helmet" by its text (Item.lua 1280 / 1527), though coverage.json's line-alone parse calls it unsupported.
+    Soul Core of Zalatl gives a helmet "5% increased maximum Mana" and a body armour nothing."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.rares import with_runes
+    from builder.search.skeletons import enumerate_skeletons
+
+    helmet = next(o for o in cultivated.outcomes("Atziri's Splendour")
+                  if o["mod"] == "UniqueMutatedVaalLocalSoulCoreAlsoGainBenefitsFromHelmet")
+    assert helmet["pob_reads"] and "Item.lua" in helmet["pob_reads_how"]
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    # Splendour's own text already picks one such line by variant group 1 (1 = Helmet): take its Boots copy, so only the
+    # cultivated Helmet line can make the helmet core count (CULT4's probe, POE2T1337: Mana 462 -> 484 only with it)
+    splendour = pob_raw("Atziri's Splendour").replace("Selected Variant Group: 1=1", "Selected Variant Group: 1=3")
+    assert "Selected Variant Group: 1=3" in splendour
+    plain = with_runes(Context(payload).corrected_raw("Atziri's Splendour", splendour), ["Soul Core of Zalatl"])
+    # the group's own line is the one the trial may lose, not another group's
+    assert any("also Boots" in t for _, t in cultivated.explicit_lines("Atziri's Splendour", splendour))
+    grown = cultivated.edited(plain, [], [helmet])
+    (_, before), (_, after) = search.build.item_deltas([{"slot": "Body Armour", "raw": plain},
+                                                         {"slot": "Body Armour", "raw": grown}])
+    assert after["Mana"] > before["Mana"] * 1.03  # the helmet's 5% increased maximum Mana now counts
