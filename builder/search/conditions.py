@@ -3,8 +3,8 @@ real source for it, and off again when the source goes away.
 
 Evidence is either text (a passive, item line or gem description that generates the effect,
 e.g. "Gain a Frenzy Charge on Critical Hit") or PoB's own numbers (a chance to shock high enough
-to keep a boss shocked). The table is data; the ledger can extend it later. Conditions a boss
-fight doesn't sustain (stun, freeze, electrocute, daze, pin) are never turned on.
+to keep a boss shocked). The table is data; the ledger can extend it later. Conditions on the boss that a fight
+sustains only at a rate (Freeze, Electrocute, Pin, Heavy Stun, Daze) are on at their share of the fight (_box).
 
 Campaign quest rewards that are a choice (e.g. +5% Cold Resistance or +5 Intelligence) are free
 stats every character picks, so they're chosen here too, by score.
@@ -52,6 +52,7 @@ EVIDENCE_FIELDS = [
     "AilmentThreshold", "Life", "FireTakenHit", "IgniteAvoidChance", "SelfIgniteDuration",
     "ChillDuration", "ChillEffectMod",  # (chill_share; MECH53, MECH54)
     "ColdHitAverage", "MainHand.ColdHitAverage",  # (the Cold Exposure support's crits with Cold Damage; MECH69)
+    "PhysicalCritAverage",  # (Concussive Spells' crits with Physical damage, _dazed; MECH70)
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -1568,6 +1569,93 @@ def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
     return uptime
 
 
+# Dazed (MECH70; plans/term-dazed-enemies.md, an UNDERCOUNT before: nothing set PoB's conditionEnemyDazed box, so every
+# "against Dazed Enemies" line counted 0: Stupefy, Dizzying Hits, their small passives, Shattering / Electrifying Daze,
+# the Amanamu wraps' Phys as Cold). Game files (26476662) KeywordPopups Daze: "a chance to apply Daze to enemies on Hit.
+# Daze lasts for 8 seconds, and a Dazed enemy will take 50% more Stun Buildup". Sources read, each on the main skill's
+# hits: "X% chance to Daze on Hit" / "Dazes on Hit" lines (one on a weapon only for an Attack main skill: PoB's
+# {Hand}Attack, the weapon-local stats); "X% chance to inflict Daze with Hits against Enemies further than 6m" (Headshot,
+# projectile_daze_chance_%_vs_enemies_further_than_6m: a Projectile main skill with the boss past 6 m); the main skill's
+# own base_chance_to_daze_% (PoB's levelStats: Wind Blast 100, whose text says "based on how close they are to you", a
+# falloff no file gives, so 100 is a possible OVERCOUNT for a far Wind Blast, labelled; Siphoning Strike's quality);
+# Concussive Spells on a Spell main skill ("Daze on Critically Hitting enemies with Physical damage": its crits while it
+# deals Physical damage). Each as the debuffs' 1 - (1 - chance)^(events x duration), combined as independent, 8 s x the
+# "Daze Duration" lines (Seeing Stars). A main skill with cannot_daze (Vaulting Impact's sets) applies none.
+# Not counted (0, labelled, an UNDERCOUNT): Opening Move (only on a boss at full Life, the fight's opening hit; 8 s of
+# the fight), Dazing Blocks (raised-shield blocks aren't rated here), Thorns' and a Tower Shield's Shield Bash Daze
+# (0.2.0 notes), other skills' hits. Daze Magnitude isn't read (UNVERIFIED that it scales the 50%; the buildup bonus is
+# the stun model's, MECH-D). The boss can be Dazed: cannot_be_dazed has no Mod, passive or stat-set user (checked:
+# Stats ids holding daze / dazing / dazed, 49, and every Mods / PassiveSkills / GrantedEffectStatSets user of each,
+# scratch/mech70/daze2.py; poe2db's Daze page names no boss rule, per the plan) (MEDIUM: an absence).
+# No consumer is subtracted: no gem the search can socket consumes Daze (checked: daze2.py's users of every stat holding
+# consume and daze: consume_enemy_daze_to_always_hit only SupportDazzlePlayer, a support PoB's gem data (bb52d6b368)
+# doesn't hold (grep "Dazzle" over vendor/PathOfBuilding-PoE2/src/Data: none); consume_enemy_dazed_to_gain_hit_damage_
+# stun_multiplier_+%_final only VaultingImpactExileMonk1, a monster's set (the player's VaultingImpactPlayer holds
+# cannot_daze, not it); the other four consume_*daze* stats have no user; patch 0.3.0 (grep_notes.py --history "Vaulting
+# Impact", newest entry 0.5.1, a controller fix): Vaulting Impact "escalates Daze ... until the Daze Expires", no
+# consume). Dazing Cry and Break Posture aren't in PoB's gem data either (same grep), so they aren't sources here.
+DAZE_SECONDS = 8.0
+DAZE_LINE = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to (?:inflict )?daze(?: enemies)? (?:on hit|with hits)(.*)|dazes on hit)$",
+                       re.I)
+DAZE_SKILL_STATS = ("base_chance_to_daze_%", "cannot_daze", "spell_daze_on_critical_hit_dealing_physical_damage",
+                    "daze_on_hit_vs_enemies_at_full_life")
+DAZE_WORD = re.compile(r"\bdaz(?:e|es|ed|ing)\b", re.I)
+
+
+def _daze_source(text: str, lines: list[str], stats: dict) -> tuple[float, float, str] | None:
+    """(chance per event, events per second, how) of one Daze line on the main skill's hits, or None if it isn't one."""
+    m = DAZE_LINE.match(text.strip())
+    if not m:
+        return None
+    main_types = stats.get("_main_types") or set()
+    chance = float(m.group(1)) / 100 if m.group(1) else 1.0
+    rest = (m.group(2) or "").lower()
+    if text in (stats.get("_daze_weapon_lines") or ()) and "Attack" not in main_types:
+        return 0.0, 0.0, "a weapon's own line, and the main skill isn't an Attack: 0"
+    if "further than" in rest:
+        if "Projectile" not in main_types:
+            return 0.0, 0.0, "projectiles past 6 m, and the main skill isn't a Projectile skill: 0"
+        metres = _boss_distance(lines, stats)[0] / 10
+        if metres <= 6:
+            return 0.0, 0.0, f"projectiles past 6 m, the boss {metres:g} m away: 0"
+    elif rest.strip():
+        return 0.0, 0.0, f"'{rest.strip()[:30]}': its rate isn't modelled (0, labelled)"
+    return chance, models.hits_per_second(stats), "hits"
+
+
+def _dazed(lines: list[str], stats: dict) -> tuple[object, str]:
+    """The Dazed box at the share of the fight the boss carries Daze from the main skill's hits (see the note above)."""
+    own = stats.get("_daze") or {}
+    found = [(text, r) for text in lines if (r := _daze_source(text, lines, stats)) is not None]
+    if own.get("chance"):
+        found.append((f"the main skill's own {own['chance']:g}% chance to Daze",
+                      (min(own["chance"], 100) / 100, models.hits_per_second(stats), "hits")))
+    if own.get("concussive"):
+        physical = _hit_average(stats, ("Physical",), crit_only=True) > 0
+        spell = "Spell" in (stats.get("_main_types") or set())
+        found.append(("Concussive Spells: Daze on spell crits with Physical damage",
+                      (1.0, models.crits_per_second(stats) if physical and spell else 0.0,
+                       "crits with Physical damage" if physical else "crits, and it deals no Physical damage")))
+    if own.get("opening"):
+        found.append(("Opening Move: Daze on hits against a boss at full Life",
+                      (0.0, 0.0, "only the fight's opening hit, not counted (an UNDERCOUNT, 8 s of the fight)")))
+    if not found:
+        return 0.0, ""
+    duration = DAZE_SECONDS * models.duration_scale(lines, "Daze")
+    if own.get("cannot"):
+        return False, ("Dazed 0% of the fight: the main skill can't Daze (cannot_daze), and other skills' Daze isn't "
+                       "counted; sources: " + "; ".join(t[:50] for t, _ in found[:3]))
+    down, how = 1.0, []
+    for text, (chance, events, what) in found:
+        n = events * duration
+        up = (1 - (1 - min(chance, 1.0)) ** n if chance < 1 else min(1.0, n)) if events > 0 else 0.0
+        down *= 1 - up
+        how.append(f"{text[:60]} ({chance:.0%} x {events:.2f} {what}/s, {duration:g} s: {up:.0%} up)" if events > 0
+                   else f"{text[:60]} ({what})")
+    up = 1 - down
+    return _box(up, f"Dazed {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:3]))
+
+
 # Armour Broken (MECH28, 9 Nov 2026; before, any line that Breaks Armour turned the box on, partial breaks too). The game
 # files' KeywordPopups ArmourBreak: Breaking lowers a target's Armour; at 0 it is Fully Broken for 12 seconds (non-players;
 # then +20% Physical damage taken from Hits, which is what PoB's box applies). Each line's Armour broken per second, from
@@ -3012,6 +3100,9 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "HitChance", "IgniteChancePerHit", "ShockChancePerHit", "ChillChanceOnHit",
                       *models.IMMOBILISE_FIELDS, *CHILL_FIELDS)),
     Condition("conditionEnemyArmourBroken", "Armour Broken"),  # (armour_broken_uptime, Conditions.evidence)
+    # (MECH70: "against Dazed Enemies" lines at the share the main skill's Daze sources keep the boss Dazed, _dazed)
+    Condition("conditionEnemyDazed", "Dazed", value_fn=_dazed,
+              fields=("Speed", "HitChance", "CritChance", "PhysicalCritAverage")),
     Condition("conditionEnemyCursed", "Cursed", value_fn=lambda lines, stats: _cursed(stats),
               fields=("PresenceRadius",)),
     # Sustained in any boss fight by the build's own numbers or skills (coverage audit item f, 6 Nov 2026: lines needing these
@@ -3617,6 +3708,15 @@ class Conditions:
             stats["_exposure_supports"] = {stat: value for part in ("levelStats", "supportStats")
                                            for stat, value in (main.get(part) or {}).items()
                                            if stat in EXPOSURE_SUPPORT_STATS and value}
+        if any(DAZE_WORD.search(t) for t in texts):  # (MECH70: the main skill's own Daze stats, _dazed)
+            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(DAZE_SKILL_STATS))
+            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
+            got = {stat: number(value) for part in ("levelStats", "supportStats")
+                   for stat, value in (main.get(part) or {}).items() if stat in DAZE_SKILL_STATS and value}
+            stats["_daze"] = {"chance": got.get("base_chance_to_daze_%", 0.0), "cannot": bool(got.get("cannot_daze")),
+                              "concussive": bool(got.get("spell_daze_on_critical_hit_dealing_physical_damage")),
+                              "opening": bool(got.get("daze_on_hit_vs_enemies_at_full_life"))}
+            stats["_daze_weapon_lines"] = {line["text"] for line in lines if line["source"].startswith("item:Weapon")}
         found: dict[str, tuple[object, str]] = {}
         uptimes: dict[str, float] = {}  # var -> share of the fight, for the effects the build keeps up at a rate
         self.off_values: dict[str, object] = {}  # var -> its box with the effect off, if not False (Withered's base stacks)
@@ -3671,6 +3771,11 @@ class Conditions:
         # or not a box is on; Frozen from its resolver share, 0 without a Freeze source)
         self.build.ailment_uptimes = {"Ignited": _ailment_share("Ignite")(stats), "Shocked": shock_share(stats),
                                       "Frozen": number(uptimes.get("conditionEnemyFrozen"))}
+        # (MECH70, for GEM5's Vaulting Impact Broken Stance model: the share of the fight the boss is Dazed and its basis,
+        # read whether or not the box is on; (0.0, "") without a Daze source. With no consumer of Daze (_dazed's note),
+        # it is also the share of any later hit that finds the boss Dazed.)
+        dazed = found.get("conditionEnemyDazed")
+        self.build.dazed_up = (number(uptimes.get("conditionEnemyDazed")), dazed[1] if dazed else "")
         # Charges held: PoB reads an override of 0 as "not set" (the maximum), so none held switches the "use" box off
         for kind in ("Power", "Frenzy", "Endurance"):
             held = found.get(f"override{kind}Charges")

@@ -1,0 +1,55 @@
+"""MECH70 (plans/term-dazed-enemies.md; an UNDERCOUNT: nothing set PoB's conditionEnemyDazed box, so "against Dazed
+Enemies" lines counted 0): the Dazed box at the share of the fight the main skill's Daze sources keep the boss Dazed
+(KeywordPopups Daze: 8 s), published as build.dazed_up for GEM5's Vaulting Impact Broken Stance."""
+from __future__ import annotations
+
+import pytest
+
+from builder.search.conditions import DAZE_SECONDS, _dazed
+
+HITS = {"Speed": 2.0, "HitChance": 100.0, "CritChance": 0.0, "_main_types": {"Attack", "Melee"}}
+
+
+def test_a_chance_line_dazes_at_its_share_of_the_main_skills_hits():
+    on, basis, up = _dazed(["5% chance to Daze on Hit"], HITS)
+    expected = 1 - 0.95 ** (2.0 * DAZE_SECONDS)
+    assert up == pytest.approx(expected) and on is (expected >= 0.25) and "Dazed" in basis
+    # Seeing Stars' "25% increased Daze Duration": 10 s per Daze
+    longer = _dazed(["5% chance to Daze on Hit", "25% increased Daze Duration"], HITS)[2]
+    assert longer == pytest.approx(1 - 0.95 ** (2.0 * DAZE_SECONDS * 1.25))
+    assert _dazed(["Dazes on Hit"], HITS)[2] == pytest.approx(1.0)
+
+
+def test_no_source_and_lines_that_only_read_daze():
+    assert _dazed([], HITS) == (0.0, "")
+    assert _dazed(["30% increased Damage against Dazed Enemies", "15% increased Magnitude of Daze"], HITS) == (0.0, "")
+
+
+def test_a_weapons_own_line_needs_an_attack():
+    spell = {**HITS, "_main_types": {"Spell"}, "_daze_weapon_lines": {"Dazes on Hit"}}
+    assert _dazed(["Dazes on Hit"], spell)[2] == 0.0
+    assert _dazed(["Dazes on Hit"], {**spell, "_main_types": {"Attack"}})[2] == pytest.approx(1.0)
+
+
+def test_headshot_needs_a_projectile_past_six_metres():
+    line = "25% chance to inflict Daze with Hits against Enemies further than 6m"
+    bow = {**HITS, "_main_types": {"Attack", "Projectile"}}
+    assert _dazed([line], {**bow, "_distance_choice": (8.0, "test")})[2] > 0.9
+    assert _dazed([line], {**bow, "_distance_choice": (4.0, "test")})[2] == 0.0
+    assert _dazed([line], {**HITS, "_distance_choice": (8.0, "test")})[2] == 0.0  # (not a Projectile skill)
+
+
+def test_the_main_skills_own_chance_and_concussive_spells():
+    own = _dazed([], {**HITS, "_daze": {"chance": 100.0}})
+    assert own[2] == pytest.approx(1.0) and "own 100% chance" in own[1]
+    spell = {**HITS, "_main_types": {"Spell"}, "CritChance": 10.0, "PhysicalCritAverage": 100.0,
+             "_daze": {"concussive": True}}
+    assert _dazed([], spell)[2] == pytest.approx(min(1.0, 2.0 * 0.1 * DAZE_SECONDS))
+    assert _dazed([], {**spell, "PhysicalCritAverage": 0.0})[2] == 0.0  # (no Physical damage on its crits)
+
+
+def test_a_main_skill_that_cannot_daze_dazes_nothing():
+    """Vaulting Impact's sets hold cannot_daze (game files and PoB); its own hits apply no Daze."""
+    on, basis = _dazed(["Dazes on Hit"], {**HITS, "_daze": {"cannot": True}})[:2]
+    assert on is False and "cannot_daze" in basis
+

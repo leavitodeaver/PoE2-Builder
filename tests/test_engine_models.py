@@ -2333,3 +2333,28 @@ def test_riven_armour_adds_damage_at_the_share_the_armour_break_cycle_publishes(
     assert dps > 0 and "Riven Armour" in notes[0]["label"] and "half the fight" in notes[0]["basis"]
     build.riven_up = (0.0, "")
     assert riven_armour(build, main)[0] == 0
+
+
+def test_the_dazed_box_moves_pobs_damage_against_dazed_enemies(engine):
+    """The probe (LANE_RULES: "PoB already does X" needs one): a "Damage against Dazed Enemies" line moves PoB's DPS only
+    with the box on (ModParser's "against dazed enemies" tag); the evidence rates a ring's Daze chance and publishes
+    build.dazed_up."""
+    payload = make_payload(BuildRequest(main_skill="Fireball", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+
+    def box(on: bool) -> float:
+        build.set_config({"conditionEnemyDazed": on})
+        return build.call("stats", fields=["FullDPS"])["FullDPS"]
+
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                         "40% chance to Daze on Hit", "30% increased Damage against Dazed Enemies"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    on, off = box(True), box(False)
+    found = search.conditions.evidence()
+    print("PROBE dazed", on, off, found.get("conditionEnemyDazed"), build.dazed_up)
+    assert on > off * 1.05
+    assert "40% chance to Daze on Hit" in found["conditionEnemyDazed"][1]
+    assert 0 < build.dazed_up[0] <= 1 and build.dazed_up[1] == found["conditionEnemyDazed"][1]
