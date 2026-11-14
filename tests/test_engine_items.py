@@ -1373,3 +1373,35 @@ def test_barbs_and_quill_burst_flat_full_dps_entries_come_out(engine):
     objective = Objective.__new__(Objective)
     objective.entry_scales, objective.press_scales, objective.cull_scale = dict(notes[0]["full_dps"]), {}, 1.0
     assert objective.rescaled(stats) == pytest.approx(-sum(e["dps"] * (e.get("count") or 1) for e in entries))
+
+
+
+def test_brambles_full_dps_entry_follows_the_slams_rate(engine):
+    """(MECHB24, probes POE2T1097 / POE2T1101) PoB scores Brambleslam's Brambles in Full DPS at its own Speed 1.4 a
+    second, whatever the slam's rate (Earthquake 1.05 slams a second: 3.15 Brambles); assumptions.brambles scales the
+    entry to the slams' Brambles. hazard_early_model's -80% line reaches the same entry (7.94 -> 1.56 in the probe)."""
+    from builder.search import models
+    from builder.search.assumptions import brambles
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    build.objective.press_scales = {}
+    assert brambles(build, None) == []
+    new = build.call("setGroup", gems=[{"name": "Earthquake", "level": 20}], fullDPS=True)
+    idx = (new.get("index") if isinstance(new, dict) else None) or max(g["index"] for g in build.groups())
+    build.call("setGroup", index=idx, gems=[{"name": "Earthquake", "level": 20}, {"name": "Brambleslam", "level": 1}],
+               fullDPS=True)
+    rows = {r["name"]: r for r in build.call("useRates", indices=[idx], actives=[1, 2])["rates"]}
+    quake, bramble = rows["Earthquake"], rows[models.BRAMBLES]
+    notes = brambles(build, None)
+    assert len(notes) == 1 and notes[0]["confidence"] == "LOW"
+    want = min(3 * quake["speed"], 1 / bramble["cooldown"]) / bramble["speed"]
+    assert notes[0]["full_dps"] == {models.BRAMBLES: pytest.approx(want, abs=1e-3)} and want > 1  # (an undercount fixed)
+    build.objective.press_scales = {"Earthquake": 0.5}  # (a pressed side slam: the press model's share)
+    assert brambles(build, None)[0]["full_dps"][models.BRAMBLES] == pytest.approx(
+        min(1.5 * quake["speed"], 1 / bramble["cooldown"]) / bramble["speed"], abs=1e-3)

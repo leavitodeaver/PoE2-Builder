@@ -4600,3 +4600,17 @@ def test_living_bomb_as_the_main_skill_explodes_once_per_seed_from_the_builds_ot
     dot = {**alone, "FullDPS": 535.9 + 1000, "TotalDotDPS": 1000}
     assert living_bomb_main_speed(dot, 1.667, added=1000)[0] == pytest.approx(1 / (1 + 1.667 * 1.0))
     assert living_bomb_main_speed({**alone, "EnemyAilmentThreshold": 0}, 1.667)[0] == 1.0
+
+
+
+
+def test_brambles_are_scaled_to_three_a_slam_capped_by_their_cooldown():
+    """MECHB24: PoB scores Brambleslam's Brambles at its own Speed (1.4 a second, probe POE2T1097) whatever the slams'
+    rate; brambles_model scales its Full DPS entry to 3 Brambles a slam (create_X_briar_thorns_on_slam), capped at one
+    per its 0.15 s cooldown."""
+    note = models.brambles_model("Earthquake", 1.05, "the main skill's Speed", {"speed": 1.4, "cooldown": 0.15})[0]
+    assert note["full_dps"] == {"Brambles": pytest.approx(3 * 1.05 / 1.4, abs=1e-4)} and note["confidence"] == "LOW"
+    assert note["value"] == pytest.approx(3.15) and "UNVERIFIED" in note["basis"] and "without it" in note["play"]
+    fast = models.brambles_model("Earthquake", 4.0, "x", {"speed": 1.4, "cooldown": 0.15})[0]
+    assert fast["value"] == pytest.approx(1 / 0.15, abs=1e-3) and "cooldown" in fast["basis"]
+    assert models.brambles_model("Earthquake", 1.0, "x", {"speed": 0.0})[0]["full_dps"] == {"Brambles": 0.0}

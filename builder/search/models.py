@@ -4583,8 +4583,8 @@ def boss_melee_share(boss: str, gain: bool = True) -> tuple[float, str]:
 #     supports the main skill, a non-triggered Melee Attack (Barbs on another group: an undercount, named). Barbs' own
 #     Thorns hits aren't Retaliation (KeywordPopups ThornsRetaliation), so they feed no more Barbs.
 # Not counted yet (undercounts, labelled in the note): legacy Prized Pain's "Deal your Thorns Damage to Enemies you Stun
-# with Melee Attacks" (removed from new drops in 0.5.0, poe2db), Barbs on a skill other than the main one, Brambleslam's
-# Brambles (PoB scores them in Full DPS at its own Speed, not the slams' rate: probe POE2T1097, open). (checked: every Stats.json id holding
+# with Melee Attacks" (removed from new drops in 0.5.0, poe2db), Barbs on a skill other than the main one. (Brambleslam's
+# Brambles: brambles_model, MECHB24.) (checked: every Stats.json id holding
 # "thorn" (125), and which Mods / GrantedEffectStatSets / PassiveSkills rows use the proc stats: the sources above are
 # every row there; PoB's Uniques for the line texts; the second source RESEARCH #149's poe2db reads.)
 THORNS_GROUP = "Thorns"
@@ -4714,6 +4714,53 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
                 + f". Without Thorns: +0 DPS; with it: +{dps:.0f} DPS",
         "confidence": "LOW", **({"full_dps": scales} if scales else {})}]
 
+
+
+# Brambleslam's Brambles (MECHB24; MECHB23's probe POE2T1097). The game (build 26476662): SupportBrambleslamPlayer
+# create_X_briar_thorns_on_slam 3; TriggeredBrambleslamPlayer (ActiveSkills triggered_briar_patch, "Brambles": "Creates
+# Hazardous Brambles on the ground that activate after a duration. Enemies which come in contact with these thorns take
+# damage and are Maimed. A maximum of 20 Brambles are allowed at one time"): triggered_by_briarpatch_support_on_slam_%
+# 100, base_skill_effect_duration 8000, briarpatches_arming_time_ms 400, hazard_damage_+%_final_for_first_500_ms_when_
+# not_killed_by_self -80; GrantedEffectsPerLevel Cooldown 150 ms, StoredUses 6 (patch 0.4.0: "Brambles, from
+# Brambleslam, is now supportable by cooldown supports"; no later change in the patch-notes archive, which isn't proof
+# of none). PoB adds a "Brambles" skill to the slam's group and, with that group in Full DPS, scores it at its own Speed
+# (1.4 a second on Rolling Slam at 0.58 slams/s and on Earthquake at 1.05/s: POE2T1097), whatever the slams' rate.
+# Counted here: Brambles a second = min(the supported slam's uses/s x 3, 1 / Brambles' cooldown), and PoB's entry
+# scaled to that (Objective.entry_scales). Labelled:
+#   - each Bramble set off by the boss: hazard_early_model's LOW play assumption (placed where the boss stands, so it
+#     sets them off as they arm, inside the 0.5 s of the -80%; the play guide's "lay them ahead" row there);
+#   - one trigger (one use of the cooldown) per Bramble (UNVERIFIED: if one use makes all 3, the cap is 3x higher; the
+#     tighter cap is the safe side, and binds only past 2.2 slams a second);
+#   - the 20-Bramble limit doesn't bind: a Bramble the boss sets off is gone ("destroyed when traversed by an enemy",
+#     KeywordPopups Hazard), so about rate x 0.4 s are alive at once; Brambles the boss never reaches deal nothing;
+#   - an Earthquake's aftershock as a slam: not counted (UNVERIFIED, an undercount if it is one).
+BRAMBLES = "Brambles"
+BRAMBLESLAM = "Brambleslam"
+BRAMBLES_PER_SLAM = 3  # (SupportBrambleslamPlayer create_X_briar_thorns_on_slam)
+BRAMBLES_COOLDOWN = 0.15  # s (GrantedEffectsPerLevel Cooldown 150, StoredUses 6)
+
+
+def brambles_model(slam: str, slam_rate: float, slam_basis: str, row: dict) -> list[dict]:
+    """Notes for Brambleslam's Brambles: `slam`, the supported slam; `slam_rate`, its real uses a second (`slam_basis`
+    says where from); `row`, PoB's useRates for the Brambles skill (its Speed is what PoB's Full DPS entry is scored
+    at). The note's "full_dps" scales PoB's "Brambles" entry to the Brambles the slams make."""
+    pob = number(row.get("speed"))
+    cooldown = number(row.get("cooldown")) or BRAMBLES_COOLDOWN
+    made = max(slam_rate, 0.0) * BRAMBLES_PER_SLAM
+    rate = min(made, 1 / cooldown) if cooldown > 0 else made
+    scale = rate / pob if pob > 0 else 0.0
+    capped = made > rate
+    return [{"label": f"Brambles (Brambleslam on {slam}): set off a second", "value": round(rate, 3),
+             "basis": (f"{BRAMBLES_PER_SLAM} Brambles a slam x {slam_rate:.3g} slams a second ({slam_basis})"
+                       + (f", capped at 1 per its {cooldown:g} s cooldown (one use a Bramble: UNVERIFIED)" if capped else "")
+                       + f" = {rate:.3g} a second, each set off by the boss as it arms (LOW, a play assumption; "
+                       "the -80% early hit is the hazard model's); PoB scored them at its own "
+                       f"{pob:.3g} a second whatever the slams' rate, so its Brambles entry x{scale:.3g}. "
+                       "The 20-Bramble limit doesn't bind (set-off Brambles are gone); an Earthquake's aftershock "
+                       "isn't counted as a slam (UNVERIFIED)"),
+             "play": (f"Slam where the boss stands: with it {rate:.3g} Brambles a second; without it (the boss away "
+                      "from them) +0"),
+             "confidence": "LOW", "full_dps": {BRAMBLES: round(scale, 4)}}]
 
 # Glory on a boss (glory_uses) --------------------------------------------------------------------------------------------
 # Each Glory skill's cost and what builds its Glory, from the game files (build 26476662, GrantedEffectStatSets, level 20;

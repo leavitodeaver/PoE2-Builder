@@ -481,6 +481,30 @@ def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str
                                barbs)
 
 
+def brambles(build: Build, main: models.Skill | None) -> list[dict]:
+    """Notes (with "full_dps" scales) for each Brambleslam's Brambles (models.brambles_model, MECHB24): PoB scores the
+    Brambles skill it adds to the slam's group at its own Speed; the slam's real uses a second set the Brambles' rate:
+    the group's useRates speed, x the press model's share for a pressed side group (press_scales)."""
+    notes = []
+    press = getattr(build.objective, "press_scales", None) or {}
+    for group in build.groups():
+        if not group["enabled"] or not group.get("fullDPS") and not group["main"]:
+            continue
+        names = [s["name"] for s in group["skills"]]
+        if models.BRAMBLES not in names:
+            continue
+        rows = build.call("useRates", indices=[group["index"]], actives=list(range(1, len(names) + 1)))["rates"]
+        row = next((r for r in rows if r.get("name") == models.BRAMBLES), None)
+        slams = [r for r in rows if r.get("name") not in (models.BRAMBLES, None) and number(r.get("speed")) > 0]
+        if row is None or not slams:
+            continue
+        slam = slams[0]
+        own = 1.0 if group["main"] else number(press.get(slam["name"], 1.0))
+        basis = ("the main skill's Speed" if group["main"] else
+                 "its group's use rate" + (f" x {own:.3g}, the press model's share" if own != 1.0 else ""))
+        notes += models.brambles_model(slam["name"], number(slam.get("speed")) * own, basis, row)
+    return notes
+
 class Assumptions:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -724,7 +748,9 @@ class Assumptions:
         thorn, thorn_notes = thorns(build, main, stats, [e["text"] for e in source_lines])  # (MECHB22)
         hand_mods += [models.added_input("Thorns", thorn)] if thorn > 0 else []
         hand_notes += thorn_notes
-        for note in thorn_notes:  # (MECHB23: PoB's Barbs entries, scored at a flat 1 use a second, out of Full DPS)
+        bramble_notes = brambles(build, main)  # (MECHB24: Brambleslam's Brambles at the slams' rate)
+        hand_notes += bramble_notes
+        for note in thorn_notes + bramble_notes:  # (MECHB23: PoB's Barbs entries, scored at a flat 1 use a second, out of Full DPS)
             build.objective.entry_scales.update(note.get("full_dps") or {})
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
