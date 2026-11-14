@@ -108,3 +108,12 @@ def test_use_rates_config_gives_the_discharges_hits_and_puts_the_config_back(eng
     dps, notes = models.elemental_discharge_model(on, 3.0, {"Shock": 0.6}, cooldown=on_row.get("cooldown") or 1.0,
                                                   spell="Spark")
     assert dps > 0, notes
+
+
+def test_bone_shrapnel_is_0_until_the_adds_life_pin_and_distance_are_known():
+    dps, notes = models.bone_shrapnel_model(0.02, None, None, None, 1.0)
+    assert dps == 0.0 and "add Life" in notes[0]["basis"] and "Pin share" in notes[0]["basis"]
+    assert models.bone_shrapnel_model(0.0, 1e5, 1.0, 1.0, 1.0)[0] == 0.0  # (no adds: the boss dies once)
+    # 0.02 kills/s, half Pinned, all near, 25% of 100,000 Life x0.8 -> 0.01 x 20,000 = 200 DPS
+    dps, notes = models.bone_shrapnel_model(0.02, 100_000.0, 0.5, 1.0, 0.8)
+    assert dps == pytest.approx(200.0) and notes[0]["confidence"] == "LOW" and "without it: 0" in notes[0]["play"]

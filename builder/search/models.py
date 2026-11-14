@@ -3688,6 +3688,47 @@ def elemental_discharge_model(element_hits: dict[str, float], spell_hits: float,
     return dps, [{"label": label, "value": f"{dps:,.0f} DPS", "basis": basis, "confidence": conf, "play": play}]
 
 
+# Bone Shrapnel (GEM5; GEM4's ranked item 4, ~27 open impact; scores 0 today: PoB has no kill events). The support
+# (GemEffects BoneShrapnelSupport): "Supported Skills trigger Bone Shrapnel explosions when killing [Pinned] Enemies";
+# the triggered skill (ActiveSkills triggered_bone_shrapnel): "Deal [Physical] Area Damage based off of the maximum Life
+# of the [Pinned] target slain"; its statset (TriggeredBoneShrapnelPlayer, game files 26476662): 25%
+# (support_bone_shrapnel_physical_damage_equal_to_%_monster_life), radius 20 (2 m), triggered 100%. Patch notes: no hit
+# for "Bone Shrapnel" (no hit is not proof of no change). On-kill: the boss dies once, at the end, so only the preset's
+# adds count (bosses.kills_per_second: the King's totems, Atziri's acolytes; every add killed, as the on-kill lines read
+# them), each Pinned when it dies at `pinned` (MECH-A's Pin, on an add), the explosion reaching the boss at `near` (the
+# add within 2 m of it: fight-decided, LOW, the manager's to ask), and its hit = 25% of the add's maximum Life x
+# `hit_scale` (the build's modifiers on the triggered skill's Physical area hit, after the boss's mitigation). The
+# presets carry no add Life (MECH-D's bosses.py) and nothing publishes the adds' Pin share yet: until both exist the model
+# gives 0 with the reason, never a flat guess (CLAUDE.md). Not wired: no number moves.
+SHRAPNEL_SKILL = "Bone Shrapnel"
+SHRAPNEL_PERCENT = 25.0  # (TriggeredBoneShrapnelPlayer's constant stat)
+
+
+def bone_shrapnel_model(kills: float, add_life: float | None, pinned: float | None, near: float | None,
+                        hit_scale: float, how: str = "") -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Bone Shrapnel explosions of the preset's slain Pinned adds hitting the boss (see above).
+    `kills`: adds killed a second (bosses.kills_per_second); `add_life`: an add's maximum Life (None: not known);
+    `pinned`: the share of them Pinned when they die; `near`: the share within 2 m of the boss; `hit_scale`: the
+    explosion's hit on the boss per point of base Physical damage."""
+    label, conf = f"{SHRAPNEL_SKILL}*", "LOW"
+    missing = [why for value, why in ((add_life, "the boss preset has no add Life (MECH-D's bosses.py)"),
+                                      (pinned, "no Pin share on the adds is published (MECH-A)"),
+                                      (near, "how often a slain add is within 2 m of the boss isn't set (fight-decided)"))
+               if value is None]
+    if kills <= 0 or missing:
+        why = "; ".join(missing) if kills > 0 else "no killable adds in this fight (the boss itself dies once)"
+        return 0.0, [{"label": label, "value": "0", "basis": f"{SHRAPNEL_SKILL}: {why}" + (f"; {how}" if how else ""),
+                      "confidence": conf}]
+    hit = SHRAPNEL_PERCENT / 100 * max(add_life, 0.0) * max(hit_scale, 0.0)
+    rate = kills * min(1.0, max(0.0, pinned)) * min(1.0, max(0.0, near))
+    dps = rate * hit
+    basis = (f"{kills:.3f} adds killed/s x {pinned:.0%} Pinned when they die x {near:.0%} within 2 m of the boss = "
+             f"{rate:.3f} explosions/s x {SHRAPNEL_PERCENT:g}% of an add's {add_life:,.0f} Life x{hit_scale:.2f} (the "
+             f"build's scaling and the boss's mitigation) = {hit:,.0f}" + (f"; {how}" if how else ""))
+    play = (f"Pin the adds and kill them next to the boss (without it: 0; with it: {dps:,.0f} DPS)")
+    return dps, [{"label": label, "value": f"{dps:,.0f} DPS", "basis": basis, "confidence": conf, "play": play}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
