@@ -459,6 +459,41 @@ def warcry_empowers(name: str, mains: list[dict], stats: dict) -> tuple[str, boo
                                "Empower when the boss gets there later)")
 
 
+def riven_armour(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for High Velocity Rounds' Riven Armour (GEM3's models.riven_armour_model; MECH69 wires it):
+    HVR's pre-mitigation Physical hit (PoB's PhysicalStoredCombinedAvg: the main skill's stats if HVR is the main skill,
+    else its group's useRates row), the share of the fight Riven Armour is up (conditions' Armour Break cycle,
+    build.riven_up), and the boss's x on Physical hit damage, read off the main skill's own hit (its crit-weighted
+    Physical hit after mitigation / before; 1.0 when the main skill has no Physical hit to read it from: labelled, an
+    overcount risk against an armoured boss)."""
+    riven_up, how = getattr(build, "riven_up", (0.0, "")) or (0.0, "")
+    hvr_hit = 0.0
+    if main is not None and main.name == models.RIVEN_SKILL:
+        hvr_hit = models.number(build.call("stats", fields=["PhysicalStoredCombinedAvg"]).get("PhysicalStoredCombinedAvg"))
+    else:
+        for each in build.groups():
+            if not each["enabled"]:
+                continue
+            for position, skill in enumerate(each["skills"], start=1):
+                if skill["name"] == models.RIVEN_SKILL:
+                    row = next(iter(build.call("useRates", indices=[each["index"]], actives=[position])["rates"]), None) or {}
+                    hvr_hit = max(hvr_hit, models.number(row.get("PhysicalStoredCombinedAvg")))
+    if hvr_hit <= 0 and riven_up <= 0:
+        return 0.0, []
+    fields = ["PhysicalHitAverage", "PhysicalCritAverage", "CritChance", "PhysicalStoredCombinedAvg", "Speed", "HitChance"]
+    main_stats = build.call("stats", fields=fields)
+    crit = min(models.number(main_stats.get("CritChance")), 100) / 100
+    after = (models.number(main_stats.get("PhysicalHitAverage")) * (1 - crit)
+             + models.number(main_stats.get("PhysicalCritAverage")) * crit)
+    before = models.number(main_stats.get("PhysicalStoredCombinedAvg"))
+    if after > 0 and before > 0:
+        phys_taken, taken_how = after / before, f"the boss takes x{after / before:.2f} of the main skill's Physical hit"
+    else:
+        phys_taken, taken_how = 1.0, "the main skill has no Physical hit to read the boss's mitigation from: x1.00 (labelled)"
+    return models.riven_armour_model(hvr_hit, riven_up, main, main_stats, phys_taken,
+                                     how="; ".join(part for part in (how, taken_how) if part))
+
+
 def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str]) -> tuple[float, list[dict]]:
     """(added DPS, notes) for the build's Thorns hits on the boss (models.thorns_model, MECHB22): PoB's own Thorns
     group's hit (useRates), which no PoB DPS counts."""
@@ -774,7 +809,10 @@ class Assumptions:
         hand_notes += bramble_notes
         for note in thorn_notes + bramble_notes:  # (MECHB23: PoB's Barbs entries, scored at a flat 1 use a second, out of Full DPS)
             build.objective.entry_scales.update(note.get("full_dps") or {})
-        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn})
+        riven, riven_notes = riven_armour(build, main)  # (GEM3's model; MECH69's Armour Break cycle gives its uptime)
+        hand_mods += [models.added_input("RivenArmour", riven)] if riven > 0 else []
+        hand_notes += riven_notes
+        build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.

@@ -1941,8 +1941,12 @@ CONSUME_STATS = {
                "support_active_skill_consume_enemy_freeze_to_gain_damage_+%_final", "consume_enemy_freeze_to_guarantee_crit",
                "support_active_skill_consume_enemy_freeze_to_apply_chill", "damage_+%_final_from_consuming_freeze",
                "support_damage_+%_final_from_consuming_freeze"),
-    "Shock": ("try_consuming_shock_to_trigger_shocking_rift_in_radius_on_shocking_enemy",
-              "consume_shock_of_X_enemies_to_trigger_shocking_rift", "lightning_conduit_x_additional_strikes_if_consumed_a_shock",
+    # (MECH69; GEM4: Electromagnetism's try_consuming_shock_to_trigger_shocking_rift_in_radius_on_shocking_enemy and
+    # consume_shock_of_X_enemies_to_trigger_shocking_rift are out: its stat text consumes Shock only "On Shocking an
+    # enemy where there are at least {1} Shocked enemies within {0} metres" (gem_stat_descriptions; its values 40 / 3:
+    # 4 m, 3 enemies), never against one boss, so it isn't a per-hit consume: Shock uptime was undercounted with it.
+    # In GrantedEffectStatSets the two are on SupportShockingRiftPlayer alone: checked 26476662's stat sets.)
+    "Shock": ("lightning_conduit_x_additional_strikes_if_consumed_a_shock",
               "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge", "base_consume_enemy_shock_on_hit",
               "consume_enemy_shock_to_gain_damage_+%_final_per_5%_increased_damage_taken_from_shock",
               "damage_+%_final_from_consuming_shock"),
@@ -3659,6 +3663,11 @@ class Conditions:
         self.build.charge_flow = dict(stats.get("_charge_flow") or {})
         # (MECH69, for GEM3's models.riven_armour_model: the share of the fight Riven Armour is up, and its basis)
         self.build.riven_up = (self.riven_share, self.riven_how)
+        # (MECH69, for GEM5's Elemental Discharge model: the share of the fight the boss is Ignited / Shocked / Frozen,
+        # with the main skill's own and other skills' consumes taken off: the same functions the boxes use, read whether
+        # or not a box is on; Frozen from its resolver share, 0 without a Freeze source)
+        self.build.ailment_uptimes = {"Ignited": _ailment_share("Ignite")(stats), "Shocked": shock_share(stats),
+                                      "Frozen": number(uptimes.get("conditionEnemyFrozen"))}
         # Charges held: PoB reads an override of 0 as "not set" (the maximum), so none held switches the "use" box off
         for kind in ("Power", "Frenzy", "Endurance"):
             held = found.get(f"override{kind}Charges")

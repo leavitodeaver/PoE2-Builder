@@ -2281,6 +2281,9 @@ def test_plain_exposure_lines_and_the_exposure_supports_lower_the_bosss_resistan
     found = search.conditions.evidence()
     print("PROBE support", found.get("conditionEnemyLightningExposure"))
     assert "inflict_exposure_for_x_ms_on_ignite" in found["conditionEnemyLightningExposure"][1]
+    # (MECH69, for GEM5) the evidence publishes the three ailment shares, consumes taken off
+    shares = build.ailment_uptimes
+    assert set(shares) == {"Ignited", "Shocked", "Frozen"} and all(0 <= v <= 1 for v in shares.values())
 
 
 def test_use_rates_give_a_groups_pre_mitigation_physical_hit(engine):
@@ -2297,3 +2300,23 @@ def test_use_rates_give_a_groups_pre_mitigation_physical_hit(engine):
     print("PROBE", rate.get("PhysicalStoredCombinedAvg"), rate.get("PhysicalStoredHitAvg"), stored)
     assert rate["PhysicalStoredCombinedAvg"] > 0  # (PhysicalStoredHitAvg only where PoB sets it: not on this build)
     assert rate["PhysicalStoredCombinedAvg"] == pytest.approx(stored, rel=0.01)
+
+
+def test_riven_armour_adds_damage_at_the_share_the_armour_break_cycle_publishes(engine):
+    """GEM3's models.riven_armour_model wired (MECH69): High Velocity Rounds' pre-mitigation Physical hit (PoB's
+    PhysicalStoredCombinedAvg) x 5% on the main skill's attack hits, at the share conditions publishes (build.riven_up)."""
+    from builder.search.assumptions import riven_armour
+
+    payload = make_payload(BuildRequest(main_skill="High Velocity Rounds", ascendancies=["Witchhunter"]))
+    skeleton = enumerate_skeletons(Context(payload), ["High Velocity Rounds"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    raw = build.call("activeSkills")
+    main = next(models.Skill.of(s) for s in raw["skills"] if s["name"] == "High Velocity Rounds" and not s.get("disabled"))
+    build.riven_up = (0.5, "test: Riven Armour up half the fight")
+    dps, notes = riven_armour(build, main)
+    print("PROBE", dps, notes)
+    assert dps > 0 and "Riven Armour" in notes[0]["label"] and "half the fight" in notes[0]["basis"]
+    build.riven_up = (0.0, "")
+    assert riven_armour(build, main)[0] == 0

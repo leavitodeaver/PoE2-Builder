@@ -3223,3 +3223,23 @@ def test_a_shotgun_main_skill_stands_at_close_range():
     assert _boss_metres({"_main_types": ranged, "_main_skill": "Incendiary Shot", "_distance_choice": (8.0, "")}) == 8.0
     lines = ["Projectiles deal 20% increased Damage against Enemies further than 6m"]
     assert distance_candidates(lines, ranged, skill="Incendiary Shot")[0] == 2.0
+
+
+def test_electromagnetism_does_not_consume_a_lone_bosss_shock_on_every_hit():
+    """GEM4 / MECH69 (an UNDERCOUNT of Shock uptime): Electromagnetism consumes Shock only "where there are at least 3
+    Shocked enemies within 4 metres", never against one boss, so its stats aren't a per-hit consume."""
+    from types import SimpleNamespace
+
+    from builder.search.conditions import CONSUME_STATS, main_consumes
+
+    rift = {"try_consuming_shock_to_trigger_shocking_rift_in_radius_on_shocking_enemy": 40,
+            "consume_shock_of_X_enemies_to_trigger_shocking_rift": 3}
+    assert not set(rift) & {stat for ids in CONSUME_STATS.values() for stat in ids}
+
+    class FakeBuild:
+        ctx = SimpleNamespace(all_gems={"Electromagnetism": {"description": "Consume Shock of all enemies nearby"}})
+
+        def call(self, name, **kw):
+            return {"skills": [{"name": "Spark", "levelStats": {}, "supportStats": dict(rift), "skillTypes": []}]}
+
+    assert main_consumes(FakeBuild(), "Spark", {"Electromagnetism"}) == {}
