@@ -3021,3 +3021,41 @@ def test_withered_from_the_abyssal_wasting_line_and_minions_chance():
     assert _withered_stacks([minions], stats)[0] == 0  # the main skill isn't a minion's
     stacks, basis = _withered_stacks([minions], {**stats, "Minion.Speed": 10.0, "Minion.HitChance": 100})
     assert stacks == 2.0 and "LOW" in basis  # 0.1 x 10 x 2 s
+
+
+
+def test_a_line_raises_a_short_floors_weight_when_its_pass_spans_tasks(monkeypatch):
+    """SEARCH16 (gate 4's 2b75b, POE2T2222): a line's pass took about a whole task, so each task finished at most one
+    pass, at its deadline. The escalation compared a finished pass's shortfall with the one before it in the same task
+    only, and only before the deadline: escalations 0 in all 15 tasks, Physical max hit 27% short to the end. Now the
+    line's last finished pass is carried (Search.line_short) and a pass that ends at the deadline is still compared;
+    nothing else runs after it (no tree reset, no kick)."""
+    from types import SimpleNamespace
+
+    from builder import clock
+    from builder.search import inner
+
+    now = [0.0]
+    monkeypatch.setattr(clock, "now", lambda: now[0])
+    monkeypatch.setattr(inner, "PERSIST_LINES", True)
+    raised, resets, kicks = [], [], []
+
+    def blocks(deadline):  # one whole pass, which ends past the task's deadline
+        now[0] = deadline + 1.0
+        search.passes_done += 1
+        return True
+
+    objective = SimpleNamespace(deficits=lambda stats: [("Physical max hit", 0.27, False)],
+                                escalate=lambda stats: raised.append(1) or True, score=lambda stats: 0.0)
+    build = SimpleNamespace(objective=objective, stats={}, phase="", refresh=lambda: None, score=0.0)
+    search = SimpleNamespace(passes_done=0, line_short=None, escalations=0, kicked=set(), build=build,
+                             blocks=blocks, note_feasible=lambda: None, kick=lambda: kicks.append(1),
+                             tree=SimpleNamespace(reset=lambda: resets.append(1)))
+    inner.Search._ascend(search, 100.0, None, None, True)  # the line's first finished pass: nothing to compare with
+    assert not raised and search.line_short == 0.27 and not kicks
+    now[0] = 200.0  # its next task: the pass ends at the deadline, as short as the last one: the weight goes up
+    inner.Search._ascend(search, 300.0, None, None, True)
+    assert raised and search.escalations == 1 and search.kicked == {"gear", "supports"} and not kicks
+    now[0] = 400.0  # the second raise past the deadline doesn't clear the tree (M2's tree rebuild regrows it)
+    inner.Search._ascend(search, 500.0, None, None, True)
+    assert search.escalations == 2 and not resets and not kicks

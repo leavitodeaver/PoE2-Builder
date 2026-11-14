@@ -154,6 +154,12 @@ class Search:
         # The line's own pass (M1, PERSIST_LINES; carried in the state): passes over the line's life, the step the pass
         # goes on from (None: a new pass), and whether that pass sweeps
         self.line_passes = 0
+        # The shortfall at the end of the line's last finished pass (Search._ascend's escalation compares the next one
+        # with it). SEARCH16: it was local to one task, and a pass ended inside a task only about once (2b75b, POE2T2222:
+        # 2 line passes in 600 s, every task stopped mid-pass), so no pass was ever compared with one before it:
+        # escalations 0 in all 15 tasks, and the line kept trading its Physical max hit floor (27% short) for damage at
+        # the first weight to the end
+        self.line_short: float | None = None  # (None: no pass of the line has finished yet)
         self.resume_step: str | None = None
         self.resume_sweep = False
         self.press_rows: dict[str, dict] = {}  # (Search.press_round: each candidate's useRates row, its trial DPS)
@@ -377,6 +383,7 @@ class Search:
             "problems": self.problems,
             "press_choices": press_choices(self.build), "press_rows": copy.deepcopy(self.press_rows),
             "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
+                     "short": self.line_short,
                      "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt,
                      "tree_rebuilt": self.tree_rebuilt} if PERSIST_LINES else None,
         }
@@ -443,6 +450,7 @@ class Search:
         line = state.get("line") if PERSIST_LINES else None
         if line:
             self.line_passes, self.resume_step, self.resume_sweep = line["passes"], line["step"], line["sweep"]
+            self.line_short = line.get("short")
             self.kicked.update(line.get("kicked") or [])
             self.gems.rebuilt = bool(line.get("rebuilt"))  # (the support rebuild: once per line, SEARCH_PLAN.md §6)
             self.tree_rebuilt = bool(line.get("tree_rebuilt"))
@@ -1068,14 +1076,20 @@ class Search:
         """Search.run's loop: (best, start) as it leaves them; `self._kept` holds them for a stop (OutOfTime)."""
         self.deadline, self.boundary, self._kept = deadline, None, (best, start)
         self.stop_at = deadline + max(STOP_GRACE_MIN, STOP_GRACE_SHARE * max(0.0, deadline - clock.now()))
-        last_short = float("inf")
+        # (the line's last finished pass, carried across its tasks: Search.line_short; a task of its own without M1)
+        last_short = self.line_short if PERSIST_LINES and self.line_short is not None else float("inf")
         while clock.now() < deadline:
+            done = self.passes_done
             improved = self.blocks(deadline)
             self.note_feasible()
-            if clock.now() >= deadline:
+            if self.passes_done == done:  # (stopped mid-pass: its next task goes on with it, and compares at its end)
                 break
             objective = self.build.objective
             short = shortfall([{"amount": a, "hard": h} for _, a, h in objective.deficits(self.build.stats)])
+            # (a pass that finishes at the deadline is still compared: else a line whose pass takes about a task never
+            # raises a weight; the raise costs one recalculation. Past the deadline nothing else runs: no tree reset
+            # (M2's tree rebuild regrows the tree once per line), no kick)
+            late = clock.now() >= deadline
             if escalate and short > 0 and short >= last_short - 1e-4 and objective.escalate(self.build.stats):
                 self.escalations += 1
                 start = None  # the search now trades score for requirements on purpose
@@ -1084,12 +1098,14 @@ class Search:
                 self.build.refresh()
                 if best is not None:
                     best["score"] = objective.score(best["stats"])
-                if self.escalations == 2:
+                if self.escalations == 2 and not late:
                     self.tree.reset()
                 self.kicked.update({"gear", "supports"})
-                last_short = short
+                last_short = self.line_short = short
                 continue
-            last_short = short
+            last_short = self.line_short = short
+            if late:
+                break
             if improved:
                 continue
             if best is None or self.build.score > best["score"] + EPSILON:
