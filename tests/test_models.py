@@ -4478,7 +4478,8 @@ def test_thorns_model_counts_retaliation_at_the_melee_share_and_the_main_skills_
 def test_barbs_counts_n_supported_hits_per_retaliation_and_takes_pobs_flat_entry_out():
     """(MECHB23, probe POE2T1094) PoB scores Barbs' hidden Thorns skill at Speed 1 in Full DPS (an OVERCOUNT: 0 on the
     worst case, where nothing Retaliates); thorns_model scales that entry to 0 and counts min(Retaliations x N, the
-    main skill's hits) x (2 for Barbs III) at PoB's Barbs hit, on a non-triggered Melee Attack main skill only."""
+    supported skill's hits) x (2 for Barbs III) at PoB's Barbs hit, on a non-triggered Melee Attack (MECHB24: the main
+    skill's or another group's)."""
     from builder.search import bosses
 
     stats = {"_boss": "Arbiter of Ash", "Speed": 2.0, "HitChance": 90.0, "CritChance": 20.0, "EvadeChance": 0.0,
@@ -4500,7 +4501,14 @@ def test_barbs_counts_n_supported_hits_per_retaliation_and_takes_pobs_flat_entry
                           (Skill("Boneshatter", group=1, attack=True, melee=True, triggered=True), True)):
         dps, notes = models.thorns_model(hit, [], stats, main, [("Barbs I", barb, on_main)])
         assert dps == pytest.approx(models.thorns_model(hit, [], stats, main)[0])
-        assert notes[0]["full_dps"] == {"Barbs I": 0.0} and "undercount" in notes[0]["basis"]
+        assert notes[0]["full_dps"] == {"Barbs I": 0.0} and "isn't a non-triggered Melee Attack" in notes[0]["basis"]
+    # (MECHB24) on another group's non-triggered Melee Attack: at that skill's own hits a second; a spell there: 0
+    side = {"skill": "Mace Strike", "hits": 0.2, "melee_attack": True, "basis": "its group's use rate x hit chance"}
+    dps, notes = models.thorns_model(hit, [], stats, melee, [("Barbs I", barb, False, side)])
+    assert dps == pytest.approx(base + min(retaliations * 4, 0.2) * 120) and "Mace Strike's hits" in notes[0]["basis"]
+    spell = {**side, "skill": "Spark", "melee_attack": False}
+    dps, notes = models.thorns_model(hit, [], stats, melee, [("Barbs I", barb, False, spell)])
+    assert dps == pytest.approx(base) and "Spark isn't" in notes[0]["basis"]
     # Quill Burst can't hit the boss that triggered it: 0, PoB's flat entry out
     dps, notes = models.thorns_model(hit, [], stats, melee, [("Quill Burst", barb, True)])
     assert dps == pytest.approx(base) and notes[0]["full_dps"] == {"Quill Burst": 0.0}

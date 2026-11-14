@@ -4583,8 +4583,9 @@ def boss_melee_share(boss: str, gain: bool = True) -> tuple[float, str]:
 #     supports the main skill, a non-triggered Melee Attack (Barbs on another group: an undercount, named). Barbs' own
 #     Thorns hits aren't Retaliation (KeywordPopups ThornsRetaliation), so they feed no more Barbs.
 # Not counted yet (undercounts, labelled in the note): legacy Prized Pain's "Deal your Thorns Damage to Enemies you Stun
-# with Melee Attacks" (removed from new drops in 0.5.0, poe2db), Barbs on a skill other than the main one. (Brambleslam's
-# Brambles: brambles_model, MECHB24.) (checked: every Stats.json id holding
+# with Melee Attacks" (removed from new drops in 0.5.0, poe2db). (Brambleslam's Brambles: brambles_model, MECHB24; Barbs
+# on another group's non-triggered Melee Attack: at that skill's hits a second, its group's use rate x hit chance x the
+# press model's share, MECHB24.) (checked: every Stats.json id holding
 # "thorn" (125), and which Mods / GrantedEffectStatSets / PassiveSkills rows use the proc stats: the sources above are
 # every row there; PoB's Uniques for the line texts; the second source RESEARCH #149's poe2db reads.)
 THORNS_GROUP = "Thorns"
@@ -4628,7 +4629,7 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
     """(added DPS, notes) for the build's Thorns hits on the boss (see above). `rate`: the bridge's useRates entry for
     PoB's Thorns group (None: the build has no Thorns damage); `stats`: the main skill's (Speed, HitChance, CritChance)
     with the boss (_boss) and THORNS_FIELDS; `barbs`: (Barbs skill name, its useRates entry, whether it supports the
-    main skill) for each Barbs skill in the build. A note's "full_dps" ({SkillDPS name: scale}) takes PoB's own Barbs
+    main skill[, and for another group's: {skill, hits (a second), melee_attack, basis}]) for each Barbs skill. A note's "full_dps" ({SkillDPS name: scale}) takes PoB's own Barbs
     entries out of Full DPS (Objective.entry_scales)."""
     hit = thorns_hit(rate)
     if hit <= 0:
@@ -4666,7 +4667,8 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
     on_crit = crits_per_second(stats) if melee_main and crit_line else 0.0
     procs = retaliations + on_hit + on_crit
     barbs_dps, barbs_parts, scales = 0.0, [], {}
-    for name, barb_rate, on_main in barbs or []:
+    for name, barb_rate, on_main, *rest in barbs or []:
+        side = rest[0] if rest else None  # (MECHB24: Barbs supporting another group's skill)
         if name == QUILL_BURST:
             scales[name] = 0.0
             barbs_parts.append("Quill Burst 0 (\"Cannot Hit the target this was Triggered from\": the lone boss; PoB's own "
@@ -4676,17 +4678,20 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
             continue
         scales[name] = 0.0  # (PoB's own entry, at its flat Speed 1: replaced by the count below)
         count, times = BARBS[name]
-        if not (on_main and melee_main):
-            barbs_parts.append(f"{name} 0 (it doesn't support the main skill as a non-triggered Melee Attack: an "
-                               "undercount if it supports another skill)")
+        if on_main and melee_main:
+            main_hits, whose = hits_per_second(stats), "the main skill's hits"
+        elif not on_main and side and side.get("melee_attack"):
+            main_hits, whose = number(side.get("hits")), f"{side['skill']}'s hits ({side.get('basis', 'its group')})"
+        else:
+            what = side["skill"] if side and side.get("skill") else ("the main skill" if on_main else "its skill")
+            barbs_parts.append(f"{name} 0 ({what} isn't a non-triggered Melee Attack)")
             continue
-        main_hits = hits_per_second(stats)
         barb_hits = min(retaliations * count, main_hits) * times
         once = min(retaliations, main_hits) * times
         barb_hit = thorns_hit(barb_rate) or hit
         barbs_dps += barb_hits * barb_hit
-        barbs_parts.append(f"{name} {barb_hits:.3g}/s (min(Retaliations {retaliations:.3g}/s x {count}, the main "
-                           f"skill's hits {main_hits:.3g}/s)" + (f" x {times}" if times > 1 else "")
+        barbs_parts.append(f"{name} {barb_hits:.3g}/s (min(Retaliations {retaliations:.3g}/s x {count}, "
+                           f"{whose} {main_hits:.3g}/s)" + (f" x {times}" if times > 1 else "")
                            + f", each PoB's Barbs hit {barb_hit:.4g}; if the game counts the boss once per Retaliation: "
                            f"{once:.3g}/s, {once * barb_hit:.0f} DPS (UNVERIFIED: the stat counts hits, the text "
                            "enemies); PoB's own Barbs entry, scored at 1 use a second, taken out of Full DPS)")

@@ -1407,3 +1407,32 @@ def test_brambles_full_dps_entry_follows_the_slams_rate(engine):
     build.objective.press_scales = {"Earthquake": 0.5}  # (a pressed side slam: the press model's share)
     assert brambles(build, None)[0]["full_dps"][models.BRAMBLES] == pytest.approx(
         min(1.5 * quake["speed"], 1 / bramble["cooldown"]) / bramble["speed"], abs=1e-3)
+
+
+def test_barbs_on_a_side_melee_group_reads_that_skills_own_hits(engine, monkeypatch):
+    """(MECHB24) Barbs supporting a skill other than the main one counted 0 (an undercount): assumptions.thorns now
+    hands thorns_model the supported skill's own hits a second (its group's use rate x hit chance x the press model's
+    share) and whether it's a non-triggered Melee Attack."""
+    from builder.search import models
+    from builder.search.assumptions import thorns
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    build.objective.press_scales = {"Mace Strike": 0.5}
+    new = build.call("setGroup", gems=[{"name": "Mace Strike", "level": 20}, {"name": "Barbs I", "level": 1}], fullDPS=True)
+    idx = (new.get("index") if isinstance(new, dict) else None) or max(g["index"] for g in build.groups())
+    belt = chr(10).join(["Rarity: RARE", "Probe Cord", "Heavy Belt", "15 to 25 Physical Thorns damage"])
+    build.call("equip", slot="Belt", raw=belt, fields=["FullDPS"])
+    seen = {}
+    monkeypatch.setattr(models, "thorns_model", lambda rate, texts, stats, main, barbs=None: seen.update(barbs=barbs) or (0.0, []))
+    skill = next(models.Skill.of(s) for s in build.call("activeSkills")["skills"] if s["name"] == "Boneshatter")
+    thorns(build, skill, {"_boss": models.THORNS_WORST}, [])
+    side = next(b for b in seen["barbs"] if b[0] == "Barbs I" and b[3] and b[3]["skill"] == "Mace Strike")
+    used = next(r for r in build.call("useRates", indices=[idx], actives=[1])["rates"])
+    assert side[2] is False and side[3]["melee_attack"] is True
+    assert side[3]["hits"] == pytest.approx(used["speed"] * used["HitChance"] / 100 * 0.5) and side[3]["hits"] > 0

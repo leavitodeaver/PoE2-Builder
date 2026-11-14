@@ -469,14 +469,30 @@ def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str
     if not rates:
         return 0.0, []
     barbs = []  # (MECHB23: each Barbs / Quill Burst skill PoB adds to a supported group, its own hit, whether it supports the main one)
+    found = None
+    press = getattr(build.objective, "press_scales", None) or {}
     for each in build.groups():
         if not each["enabled"]:
             continue
         for position, skill in enumerate(each["skills"], start=1):
             if skill["name"] in models.BARBS or skill["name"] == models.QUILL_BURST:
                 row = next(iter(build.call("useRates", indices=[each["index"]], actives=[position])["rates"]), None)
-                barbs.append((skill["name"], row or {}, bool(each["main"]) and main is not None
-                              and main.group == each["index"]))
+                on_main = bool(each["main"]) and main is not None and main.group == each["index"]
+                side = None
+                if not on_main and skill["name"] in models.BARBS:  # (MECHB24: the supported skill's own hits)
+                    if found is None:
+                        found = [models.Skill.of(s) for s in build.call("activeSkills")["skills"]]
+                    own = next((s for s in found if s.group == each["index"] and s.name not in models.BARBS
+                                and s.name != models.QUILL_BURST), None)
+                    spot = next((i for i, s in enumerate(each["skills"], start=1) if own and s["name"] == own.name), None)
+                    used = next(iter(build.call("useRates", indices=[each["index"]], actives=[spot])["rates"]), None) if spot else None
+                    if own is not None and used:
+                        share = number(press.get(own.name, 1.0))
+                        side = {"skill": own.name, "melee_attack": own.attack and own.melee and not own.triggered,
+                                "hits": number(used.get("speed")) * number(used.get("HitChance")) / 100 * share,
+                                "basis": "its group's use rate x hit chance"
+                                         + (f" x {share:.3g}, the press model's share" if share != 1.0 else "")}
+                barbs.append((skill["name"], row or {}, on_main, side))
     return models.thorns_model(rates[0], texts, {**stats, **build.call("stats", fields=models.THORNS_FIELDS)}, main,
                                barbs)
 
