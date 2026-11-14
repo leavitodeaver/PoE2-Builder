@@ -108,11 +108,14 @@ GONE_GEMS = {
     "Detonate Minion": "the Skeletal Arsonist's own command, not a gem (PoB's minion skills and the wiki agree)",
 }
 
-# Gems the current league's mechanic gives (AUDIT30 A30-31, AUDIT31 A31-19: the 0.5 Runes of Aldur "runeforged" gems; the
-# game's BaseItemTypes tag "runeforged", none cuttable; the 0.5.0 notes' Kalguuran Supports "crafted from remnants"; all
-# drop-enabled in the wiki's item data). Offered, as a new character in this league can get them; labelled so they are
-# rechecked when the league ends (if they aren't made core then, offering them becomes an OVERCOUNT).
-LEAGUE_GEMS = {name: "Runes of Aldur (0.5) league mechanic: runeforged" for name in (
+# Gems an expansion mechanic gives, not Gemcutting (AUDIT30 A30-31, AUDIT31 A31-19: the 0.5 Runes of Aldur "runeforged"
+# gems; the game's BaseItemTypes tag "runeforged", none cuttable; the 0.5.0 notes' Kalguuran Supports "crafted from
+# remnants"; all drop-enabled in the wiki's item data). Offered: the mechanic is core since 0.5.5 (AUDIT32 A32-2; the
+# 0.5.5 notes, "Runes of Aldur Moving to Core": "Farrow, Dannig, and Expedition content is now available in the Atlas as a
+# core mechanic, including in Standard League", and "The Verisium Anvil is now unlocked by completing The Runeseeker
+# quest in Act 4 outside of the Runes of Aldur League"; the current league is Forbidden Rites), so a new character in
+# any league can get them.
+LEAGUE_GEMS = {name: "runeforged (Runes of Aldur, core since 0.5.5)" for name in (
     "Animus Exchange", "Animus Splinters", "Bitter Dead", "Concussive Runes", "Conductive Runes", "Detonate Living",
     "Eternal March", "Explosive Transmutation", "Fist Of Kalguur", "Fragments Of The Past", "Frostflame Nova",
     "Grim Pillars", "Healing Runes", "Hollow Shell", "Leylines", "Powered by Verisium", "Rain of Blades", "Refutation",
