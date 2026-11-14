@@ -497,7 +497,7 @@ class Assumptions:
         # models and PoB's own EnemyPower / WarcryPower readers
         texts = [e["text"] for e in source_lines]
         power = models.boss_power(texts, stats, models.number(build.call("getConfig")["input"].get("enemyDistance")) or None,
-                                  bool(main and main.attack))
+                                  bool(main and main.attack), main.name if main else "")
         stats = {**stats, "_boss_power": power}
         mods, notes = models.archon_model(inputs, stats, main, main_gems)
         if power[1]:

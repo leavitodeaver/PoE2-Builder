@@ -4497,3 +4497,23 @@ def test_cadiro_diamond_arrows_crit_one_arrow_in_six_and_the_other_kinds_add_not
     # no crit average above the average: a note, no line
     mods, notes = models.cadiro_model([line], {"MainHand.PhysicalHitAverage": 50.0}, bow, {"Attack", "Projectile"}, {"Bow"})
     assert mods == [] and notes[0]["value"] == 0
+
+
+def test_runefathers_challenge_raises_the_bosss_power_at_the_builds_own_uptime():
+    """(MECH68; the user's catch) Runefather's Challenge: +5 Power while the boss is Challenged, from the main skill's
+    shield hits or from raising the shield with the boss within 6 m, added after any doubling (the lower reading)."""
+    stats = {"PresenceRadius": 60, "Speed": 2.0, "HitChance": 100}
+    off_hand = ["Off-hand Hits inflict Runefather's Challenge"]
+    raised = ["Inflicts Runefather's Challenge on enemies 6 metres in front of you when raised, no more than once "
+              "every 2 seconds"]
+    assert models.boss_power(off_hand, stats, main="Shield Charge")[0] == 25
+    assert models.boss_power(off_hand, dict(stats, Speed=0.05), main="Shield Charge")[0] == pytest.approx(22.5)
+    assert models.boss_power(off_hand, stats, main="Lightning Arrow")[0] == 20  # no shield hits: not Challenged
+    assert models.boss_power(off_hand, dict(stats, _main_name="Resonating Shield"))[0] == 25
+    assert models.boss_power(raised, stats, distance=50, main="Lightning Arrow")[0] == 25  # 5 m: within 6 m
+    assert models.boss_power(raised, stats, distance=100, main="Lightning Arrow")[0] == 20  # 10 m: beyond it
+    doubled = ["Enemies in your Presence count as having double Power"]
+    power, basis = models.boss_power(doubled + raised, stats)
+    assert power == 45 and "Runefather's Challenge" in basis and "LOW" in basis
+    assert {m["name"]: m["value"] for m in models.power_mods(25)} == {"WarcryPower": 5, "Multiplier:EnemyPower": 5}
+

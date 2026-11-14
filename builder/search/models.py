@@ -5047,12 +5047,76 @@ MADNESS_MAX, MADNESS_DECAY = 10, 2.0
 POWER_FALLBACK_DISTANCE = 50.0  # (units: conditions.RANGED_DISTANCE 5 m, when the boss's distance isn't known: the far
 # reading, so a Presence line counts only when the Presence reaches 5 m)
 
+# Runefather's Challenge (MECH68; the user's catch, 13 Nov ~21:55, an UNDERCOUNT). KeywordPopups RunefathersChallenge:
+# "Runefather's Challenge is a [Debuff] which raises the [Power] of affected targets by 5" (stat
+# monster_power_+_from_ancients_challenge; the game's internal name is Ancient's Challenge). The sources (checked: every
+# Stats.json id with "ancients_challenge" (5 ids), each looked up in Mods, PassiveSkills, GrantedEffectStatSets,
+# GrantedEffectStatSetsPerLevel, GrantedEffectQualityStats and SoulCoreStats, game 26476662; second source poe2db's
+# Runefathers_Challenge and Eyes_of_the_Runefather pages, which list the same three):
+# - Eyes of the Runefather (Venerable Defender): UniqueAncientsChallengeOnOffHandDamage1 "Off-hand Hits inflict
+#   Runefather's Challenge" and UniqueRaiseShieldAncientsChallenge1 "Inflicts Runefather's Challenge on enemies 6 metres
+#   in front of you when raised, no more than once every 2 seconds";
+# - the soul core Legacy of A Worthy Foe (an Aldur's Legacy, SoulCoreStats 522, socketed in a shield, limit 3): the same
+#   off-hand line (off_hand_apply_ancients_challenge_on_hit). (The manager's "only the shield's two mods" missed it.)
+# - local_apply_ancients_challenge_on_hit and has_ancients_challenge_buff: no user in those tables.
+# PoB parses none of the lines (ModCache). Off-hand hits with a shield in the off hand: the skills PoB flags shieldAttack
+# (its only way to set weapon2Attack with a shield, CalcActiveSkill 515-517; a shield isn't a weapon to getWeaponFlags):
+# SHIELD_HITTERS below (Raise Shield itself left out: raising doesn't hit). Only the main skill's hits are read (another
+# skill's shield hits pressed beside it aren't: a small undercount). Raise Shield: the boss within 6 m (PoB's
+# enemyDistance) and the shield raised once per Challenge duration (a button the player presses to feed it: the time
+# raised isn't taken from the main skill, a small overcount, named). Its duration: no game data we have (BuffDefinitions
+# not extracted) and poe2db states none; CHALLENGE_DURATION 10 s is a community observation ("appears to expire after a
+# 10 second period", mobalytics.gg guides/runefathers-challenge-runefathers-boast): LOW, a flat number named to the
+# manager. The +5 is added after any doubling (UNVERIFIED order: the lower reading, 20 x 2 + 5 = 45, not (20 + 5) x 2).
+CHALLENGE_POWER = 5
+CHALLENGE_DURATION = 10.0  # LOW: a community observation, no game data
+CHALLENGE_RAISE_RANGE = 60.0  # units: "6 metres in front of you when raised"
+CHALLENGE_OFF_HAND = re.compile(r"^Off-hand Hits inflict Runefather's Challenge$", re.I)
+CHALLENGE_RAISE = re.compile(r"^Inflicts Runefather's Challenge on enemies ([\d.]+) metres in front of you when raised", re.I)
+SHIELD_HITTERS = frozenset({"Shield Wave", "Magma Spray", "Resonating Shield", "Shield Charge", "Shield Wall", "Parry",
+                            "Soaring Midnight", "Embrace The Fall"})  # PoB's shieldAttack skills (Data/Skills)
+
+
+def challenge_share(texts: list[str], stats: dict, distance: float | None, main: str | None) -> tuple[float, str]:
+    """(The share of the fight the boss has Runefather's Challenge, its basis; "" when no line)."""
+    raise_line = next((m for t in texts if (m := CHALLENGE_RAISE.match(t))), None)
+    off_hand = any(CHALLENGE_OFF_HAND.match(t) for t in texts)
+    if not (raise_line or off_hand):
+        return 0.0, ""
+    far = POWER_FALLBACK_DISTANCE if not distance else distance
+    if raise_line and far <= float(raise_line.group(1)) * 10:
+        return 1.0, (f"you raise your shield once every {CHALLENGE_DURATION:g} s with the boss {far / 10:g} m away "
+                     f"(within {raise_line.group(1)} m): the boss stays Challenged")
+    if off_hand and main in SHIELD_HITTERS:
+        hits = hits_per_second(stats)
+        share = min(1.0, hits * CHALLENGE_DURATION)
+        return share, f"{main} hits with the shield, {hits:.2f} hits/s: Challenged {share:.0%} of the fight"
+    why = [f"no off-hand (shield) hits from {main or 'the main skill'}"] if off_hand else []
+    if raise_line:
+        why.append(f"the boss {far / 10:g} m away, beyond the raised shield's {raise_line.group(1)} m")
+    return 0.0, " and ".join(why) + ": not Challenged"
+
 
 def boss_power(texts: list[str], stats: dict, distance: float | None = None,
-               attack: bool | None = None) -> tuple[float, str]:
+               attack: bool | None = None, main: str | None = None) -> tuple[float, str]:
     """(The boss's Power with the build's Power lines, its basis). `distance`: the boss's distance in units (PoB's
     enemyDistance; POWER_FALLBACK_DISTANCE if None); `attack`: whether the main skill is an Attack (for "Hits with this
-    Weapon"; None: from stats["_main_types"], else not counted)."""
+    Weapon"; None: from stats["_main_types"], else not counted); `main`: the main skill's name (for Runefather's
+    Challenge from off-hand hits; None: stats["_main_name"])."""
+    power, basis = presence_power(texts, stats, distance, attack)
+    share, why = challenge_share(texts, stats, distance, main if main is not None else stats.get("_main_name"))
+    if not why:
+        return power, basis
+    power += CHALLENGE_POWER * share
+    told = (f"+{CHALLENGE_POWER * share:g} from Runefather's Challenge ({why}; +{CHALLENGE_POWER} while Challenged, "
+            f"{CHALLENGE_DURATION:g} s each, LOW: a community observation; added after any doubling, the lower reading, "
+            "UNVERIFIED)")
+    return power, (f"the boss's Power {power:g} ({basis}; {told})" if basis else f"the boss's Power {power:g} (20; {told})")
+
+
+def presence_power(texts: list[str], stats: dict, distance: float | None = None,
+                   attack: bool | None = None) -> tuple[float, str]:
+    """boss_power's Presence lines: the doublings and Gruelling Madness."""
     doubled = any(POWER_DOUBLED.match(t) for t in texts)
     wasted_line = any(POWER_DOUBLED_WASTED.match(t) for t in texts)
     madness_line = any(MADNESS_POWER.match(t) for t in texts)

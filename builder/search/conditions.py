@@ -3238,7 +3238,8 @@ class Conditions:
         stats["_sg_death_storm"] = self.death_storm() if DEATH_STORM_SUMMON in names else None
         stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)
         # (MECH67) the boss's Power with the build's Power lines (models.boss_power): Glory, the roar's Empowers
-        stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types)
+        stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types,
+                                                 self.main_skill)
         stats["_shocked_ground"] = shocked_ground(stats, texts)
         if stats["_shocked_ground"][0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)
             stats["_sg_magnitude"] = self.build.call("shockMagnitude")
@@ -3338,7 +3339,8 @@ class Conditions:
             return None
         texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]
         power = models.boss_power(texts, self.build.call("stats", fields=["PresenceRadius", "Speed", "HitChance"]),
-                                  number(self.build.call("getConfig")["input"].get("enemyDistance")) or None, True)[0]
+                                  number(self.build.call("getConfig")["input"].get("enemyDistance")) or None, True,
+                                  self.main_skill)[0]
         share, basis = models.roar_break(skill, number(raw.get("enemyArmour")), models.full_break_duration(texts), power)
         return (True, f"gem:{models.FEROCIOUS_ROAR}: {basis} ({shared(share)})", share) if share >= MIN_UPTIME else None
 
