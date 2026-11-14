@@ -1202,3 +1202,35 @@ def test_eternal_hunt_is_scored_as_the_wolfs_hunt_and_added_to_the_boss_dps(engi
     hit = hunt.get("AverageDamage") or hunt["AverageHit"]
     assert dps <= hit / hunt["Cooldown"] + 1e-6 and notes and notes[0]["confidence"] == "LOW"
     assert "all 7" in notes[0]["basis"] and (not mods or models.added_total(mods) == pytest.approx(dps, abs=0.01))
+
+
+def test_sacrifice_supplies_corpses_on_a_real_skeleton_build(engine):
+    """(MECHB20; MECHC15's finding) On a real Detonate Dead + Sacrifice + Skeletal Warrior Minion build Sacrifice's corpse
+    supply (models.sacrifice_corpses) was a silent 0 twice over: PoB gives PoE2's minion gems no limit (the bridge now
+    takes the gem's own skill_desired_initial_amount, 2), and Detonate Dead's PoB Speed is corpse_model's own corpse
+    rate (0 with no corpses), so the deaths it feeds read 0 (models.own_uses: its base cast time instead)."""
+    from builder.search import models
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Detonate Dead", ascendancies=["Infernalist"], level=90, objective="boss"))
+    skeleton = enumerate_skeletons(Context(payload), ["Detonate Dead"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 1)
+    search.setup(quests=False)
+    build = search.build
+    speed = models.number(build.call("stats", fields=["Speed"])["Speed"])  # (Detonate Dead's, before groups are added)
+    for gem in ("Sacrifice", "Skeletal Warrior"):  # (the gem; its skill is "Skeletal Warrior Minion")
+        build.call("setGroup", gems=[{"name": gem, "support": False, "level": 20, "quality": 0, "enabled": True}])
+    raw = build.call("activeSkills")["skills"]
+    warrior = next((s for s in raw if s["name"] == "Skeletal Warrior Minion"), None)
+    assert warrior is not None, [s["name"] for s in raw]
+    summon = warrior.get("summon") or {}
+    assert summon.get("undead") and summon.get("persistent") and models.number(summon.get("limit")) > 0, warrior
+    assert not models.number(summon.get("duration")), summon
+    # (PoB's limit stat gives PoE2's warriors 0: the bridge takes the gem's own skill_desired_initial_amount, 2)
+    assert summon.get("limitFrom") == "desired" and summon["limit"] == 2, summon
+    found = [models.Skill.of(s) for s in raw if not s["disabled"]]
+    main = next(s for s in found if s.name == "Detonate Dead")
+    rate, how = models.sacrifice_corpses(found, main, {"Speed": speed})
+    # (PoB's Speed for Detonate Dead is corpse_model's own corpse rate, 0 here: the deaths come from its base cast)
+    assert rate > 0 and main.cast_time > 0 and "base" in how, (speed, how[:300], main.cast_time)

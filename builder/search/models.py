@@ -728,6 +728,16 @@ def pact_uses_per_kill(reviving: list[Skill], pact: float, stats: dict) -> tuple
                       "dies, no regeneration between uses; which minion the gem picks is UNVERIFIED)")
 
 
+def own_uses(main: Skill | None, stats: dict) -> tuple[float, str]:
+    """(uses per second, how) the main skill feeds minion_deaths' sources. For a corpse-using main skill, PoB's Speed is
+    corpse_model's own triggerRate (the corpse supply), so reading it back would shrink Sacrifice's supply to 0 at every
+    resolve (MECHB20, MECHC15's silent 0 on a real Detonate Dead + Sacrifice build): its base cast time instead, without
+    your cast speed (an undercount, labelled)."""
+    if main is not None and main.corpses and main.cast_time > 0:
+        return 1.0 / main.cast_time, f"its base {main.cast_time:g} s cast, without cast speed (an undercount)"
+    return number(stats.get("Speed")), "PoB's Speed"
+
+
 def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[float, str]:
     """Your Persistent, Reviving minions Killed per second against a boss, from the build's own sources (see above), capped
     by their revival (N r / (N + revive r: revive_seconds)), and how. 0 with a note when nothing in the build kills them."""
@@ -739,11 +749,12 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict) -> tuple
     kills, parts = 0.0, []
     if SACRIFICE in names and main is not None and main.corpses:
         undead = sum(number(s.summon.get("limit")) for s in reviving if s.summon.get("undead"))
-        uses = number(stats.get("Speed"))
+        uses, source = own_uses(main, stats)
         if undead > 0 and uses > 0:
             kills += uses
             parts.append(f"Sacrifice: {main.name} uses one of your {undead:g} undead minions as its corpse each use "
-                         f"({uses:.2f} uses/s; one corpse per use assumed; that it is Killed is UNVERIFIED, LOW)")
+                         f"({uses:.2f} uses/s, {source}; one corpse per use assumed; that it is Killed is UNVERIFIED, "
+                         "LOW)")
     pact = number(main.support_stats.get(MINION_PACT_STAT)) if main is not None else 0.0
     if pact > 0 and number(stats.get("Speed")) > 0:
         uses = number(stats.get("Speed"))

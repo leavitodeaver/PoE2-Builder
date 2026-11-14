@@ -3139,7 +3139,20 @@ function bridge.activeSkills(args)
 				local minionData = activeSkill.minion.minionData
 				local base = (activeSkill.skillData.duration or 0) + list:Sum("BASE", cfg, "Duration", "PrimaryDuration")
 				return {
-					limit = minionData.limit and math.floor(calcLib.val(list, minionData.limit, cfg)) or nil,
+					-- (MECHB20, MECHC15's silent 0) as PoB's ActiveMinionLimit, CalcOffence 1420: the override, else the
+					-- minion's own limit stat plus ActiveMinionLimit (Skeletal Warriors' count comes from the latter;
+					-- read alone, the former gave them 0, and every Sacrifice / minion-death model 0)
+					limit = minionData.limit and math.floor(env.modDB:Override(nil, minionData.limit)
+						or (calcLib.val(list, minionData.limit, cfg) + calcLib.val(list, "ActiveMinionLimit", cfg))) or nil,
+					-- PoE2's persistent minion gems carry no limit stat (Skeletal Warrior: probe POE2T1072 gave 0); their
+					-- own count is skill_desired_initial_amount (2 on Skeletal Warrior), which PoB doesn't map
+					-- (SkillStatMap has only first_X_minions_have_0_base_spirit_reservation -> MinionFreeSpiritCount)
+					desired = (function()
+						local sets = effect.statSets
+						local ok2, built = pcall(calcLib.buildSkillInstanceStats, activeSkill.activeEffect, effect,
+							sets and sets[1])
+						return ok2 and built and built["skill_desired_initial_amount"] or nil
+					end)(),
 					duration = base * calcLib.mod(list, cfg, "Duration", "PrimaryDuration"),
 					persistent = types[SkillType.Persistent] and true or false,
 					undead = types[SkillType.CreatesUndeadMinion] and true or false,
@@ -3152,6 +3165,9 @@ function bridge.activeSkills(args)
 				}
 			end)
 			if ok then
+				if (summon.limit or 0) <= 0 and (summon.desired or 0) > 0 then
+					summon.limit, summon.limitFrom = summon.desired, "desired"
+				end
 				skills[#skills].summon = summon
 			end
 		end
