@@ -3429,6 +3429,58 @@ def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
     return sorted(found)
 
 
+# Riven Armour (GEM3; GEM1's design; an UNDERCOUNT, PoB never reads it: exploit_debuff_attack_damage_to_convert_to_magnitude_%
+# has no stat map and PoB's Modules have no riven: checked grep -i "riven\|exploit_debuff" over PoB's src, two skill-data
+# hits only). Game files (26476662): KeywordPopups RivenArmour "stores 5% of the Pre-mitigation Physical Hit damage of the
+# Hit that inflicts it as its Magnitude. The inflicter's subsequent Attack Hits against the target will gain additional
+# unscaleable added Physical Damage equal to that magnitude. Enemies with Riven Armour cannot get their Armour Broken
+# further"; High Velocity Rounds' HighVelocityRoundsArmourBroken statset: base_skill_effect_duration 5000 and
+# exploit_debuff_attack_damage_to_convert_to_magnitude_% 5; the skill is ConsumesFullyBrokenArmour and its own statset
+# has cannot_break_armour (another source must Fully Break the Armour). The skill's description says "any Hits", the
+# keyword says "Attack Hits": the narrower one is counted (both written here). Does it consume the Full Break? The game
+# files still type it ConsumesFullyBrokenArmour (ActiveSkills high_velocity_rounds and _ammo), but patch 0.3.0 (its
+# newest entry, grep_notes --history "High Velocity Rounds"): "No longer consumes Fully Broken Armour. Instead, hitting a
+# Fully Armour Broken enemy will apply a Debuff ... equal to 5% of the Physical damage dealt by the High Velocity Round"
+# (the current description says "applies", not "consumes"); the newest note is the reading here, both written. So the
+# model takes the share of the fight Riven Armour is up (`riven_up`) from MECH-A's Armour Break cycle (conditions; MECH69
+# owns how Riven Armour's "no further Break" and High Velocity Rounds' uses shape it), not a consume rate. The boss's
+# mitigation of the added damage is `phys_taken` (the main hit's own Physical post- / pre-mitigation). The note says "5% of
+# the Physical damage dealt", the keyword "Pre-mitigation Physical Hit damage": the keyword (game files) is read, both
+# written. Counted on the main skill's Attack hits only (other Attack skills' hits: not counted, an undercount,
+# labelled). "Unscaleable": no crit multiplier on it (UNVERIFIED). LOW. Skill Effect Duration on the 5 s: not read (as MECH69).
+RIVEN_SKILL = "High Velocity Rounds"
+RIVEN_STAT = "exploit_debuff_attack_damage_to_convert_to_magnitude_%"
+RIVEN_PERCENT = 5.0  # (its HighVelocityRoundsArmourBroken statset; the keyword's 5%)
+RIVEN_SECONDS = 5.0  # (base_skill_effect_duration 5000 on that statset)
+
+
+def riven_armour_model(hvr_hit: float, riven_up: float, main: Skill | None, stats: dict, phys_taken: float,
+                       percent: float = RIVEN_PERCENT, how: str = "") -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Riven Armour's added Physical damage on the main skill's later Attack hits (see above).
+    `hvr_hit`: High Velocity Rounds' pre-mitigation Physical hit, crit-weighted (PoB's PhysicalStoredCombinedAvg);
+    `riven_up`: the share of the fight Riven Armour is up on the boss (MECH-A's Armour Break cycle; `how` its basis);
+    `stats`: the main skill's Speed and HitChance; `phys_taken`: the boss's x on Physical hit damage."""
+    label, conf = "Riven Armour (High Velocity Rounds)*", "LOW"
+    magnitude = percent / 100 * max(hvr_hit, 0.0)
+    if magnitude <= 0 or riven_up <= 0:
+        why = ("the boss is never Fully Broken when it hits (another skill or line must Fully Break the Armour: its own "
+               "statset has cannot_break_armour)" if magnitude > 0 else "no Physical hit to store")
+        return 0.0, [{"label": label, "value": "0", "basis": f"{RIVEN_SKILL}: {why}" + (f"; {how}" if how else ""),
+                      "confidence": conf}]
+    if main is None or not main.attack:
+        return 0.0, [{"label": label, "value": "0", "basis": f"its magnitude {magnitude:,.0f} adds to Attack hits only; "
+                      "the main skill isn't an Attack (other skills' hits not counted)", "confidence": conf}]
+    up = min(1.0, riven_up)
+    hits = hits_per_second(stats)
+    dps = magnitude * hits * up * max(phys_taken, 0.0)
+    basis = (f"{percent:g}% of {RIVEN_SKILL}'s pre-mitigation Physical hit ({hvr_hit:,.0f}) = {magnitude:,.0f} added to "
+             f"each of {main.name}'s {hits:.2f} hits/s while Riven Armour is up ({up:.0%} of the fight), x{phys_taken:.2f} the boss's Physical mitigation; other Attack skills' hits not counted"
+             + (f"; {how}" if how else ""))
+    play = (f"Fully Break the boss's Armour, then hit it with {RIVEN_SKILL} to inflict Riven Armour, and attack during "
+            f"its {RIVEN_SECONDS:g} s (without it: 0 added; with it: {dps:,.0f} DPS)")
+    return dps, [{"label": label, "value": f"{dps:,.0f} DPS", "basis": basis, "confidence": conf, "play": play}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
