@@ -216,8 +216,10 @@ def test_a_noop_line_is_closed_only_by_what_really_applies_to_it():
     status, entry, reason = noop_status("Take 20% less Damage over time", missing, False)
     assert status == "none" and entry == "keeper-of-the-arc-dot" and "only on items" in reason
     assert noop_status("40% increased Archon Buff duration", missing, False)[:2] == ("model", "archon-duration")
-    # (a "no effect" record; was Blackflame's, retired by COV7 for COVD8's stack-based entry)
-    assert noop_status("12% of Physical Damage prevented Recouped as Energy Shield per enemy Power", missing, True)[0] == "ledger"
+    # (a "no effect" record: Heartstopper's; Scarred Faith's recoup line, the example until COV27, is the recovery model's now)
+    assert noop_status("Take 10% less Damage over Time if you've started taking Damage over Time in the past second",
+                       missing, True)[:2] == ("ledger", "no-effect-dot-and-recoup-defences")
+    assert noop_status("12% of Physical Damage prevented Recouped as Energy Shield per enemy Power", missing, True)[:2] ==         ("model", "model-prevented-recouped-as-es-per-power")
     status, entry, _ = noop_status("Repeatable Spells have 20% chance to Repeat", missing, True)
     assert status == "none" and entry == "now-and-again-repeat"  # (a pob_gap translation isn't applied to parsed lines)
     assert noop_status("A line nothing knows", missing, True) == ("none", None, "parsed, but no calculation reads SomeName")
@@ -410,3 +412,37 @@ def test_grand_spectrum_multiplier_has_a_setter_and_golem_mods_are_poe1_leftover
                {"pool": "Exclusive", "id": "Other", "line": "Gain 30 Mana per Grand Spectrum"}]
     found = coverage.poe1_leftover_mods(affixes, carried=frozenset())
     assert found == {"MaximumGolemsUnique__1": "golems", "Other": ""}
+
+
+def test_a_parsed_line_pob_reads_but_the_tool_doesnt_count_is_reported_not_applied():
+    """COV27 (AUDIT33 A33-1): Shavronne's Satchel's "Life Recovery from Flasks also applies to Energy Shield" is parsed and
+    its flag read (CalcPerform 1635's joined name, and the flask tooltip), so the audit called it "pob"; but PoB applies it
+    only to a flask whose effect isn't removed at full Life, and the tool's flask model counts Life and Mana only. A
+    `parsed_unused` entry reports it "none", routed to MECH-C, and adds nothing to PoB."""
+    from builder.ledger import parsed_unused
+
+    reads = coverage.calc_reads()
+    satchel = "Life Recovery from Flasks also applies to Energy Shield"
+    assert coverage.name_read("LifeFlaskAppliesToEnergyShield", reads)  # (why the audit called it counted)
+    entry = parsed_unused(satchel)
+    assert entry and entry.id == "unused-life-flask-recovery-applies-to-es" and entry.raw["owner"] == "MECH-C"
+    assert not entry.replace and parsed_unused(satchel + " during Effect") == entry
+    status, found, reason = coverage.unused_status(satchel, entry)
+    assert (status, found) == ("none", entry.id) and "MECH-C" in reason
+    # a line nothing reads at all keeps its no-op reason, now with the entry naming its owner
+    status, found, reason = coverage.noop_status("Charms use no Charges", ["CharmsUseNoCharges"], True)
+    assert (status, found) == ("none", "unused-charms-use-no-charges") and reason.startswith("parsed, but no calculation")
+    assert parsed_unused("Life Recovery from Flasks also applies to Mana") is None
+
+
+def test_cultivated_outcomes_are_live_and_the_no_carrier_ones_labelled_not_dropped():
+    """A32-10 / CULT1 (COV27): the Vaal Cultivation Orb's outcome mods (UniqueMutatedVaal*) are core since 0.5.0, so they
+    are live, never "a PoE1 leftover"; the 28 on no listed Cultivated unique and the 28 HandWraps ones (two different sets)
+    are labelled "no current carrier (UNVERIFIED)" and keep their status."""
+    assert "live" in coverage.cultivated_label("UniqueMutatedVaalFireExposureOnHit")  # Saitha's Spear's Exposure line
+    assert coverage.cultivated_label("UniqueMutatedVaalReflectElementalAilmentsToSelf").startswith("no current carrier")
+    assert coverage.cultivated_label("HandWrapsUniqueMutatedVaalChanceToBleed").startswith("no current carrier")
+    assert coverage.cultivated_label("UniqueSomethingElse1") is None
+    assert len(coverage.CULTIVATED_NO_CARRIER) == 28
+    assert not any(coverage.HANDWRAPS_MUTATED.match(m) for m in coverage.CULTIVATED_NO_CARRIER)
+

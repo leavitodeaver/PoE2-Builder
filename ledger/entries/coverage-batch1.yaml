@@ -364,10 +364,15 @@
   match: '^\d+% of Physical Damage prevented Recouped as Life if you have at least \d+ Tribute$'
   replace: []
   confidence: datamined
-  notes: "Recovery: the optimizer checks pools, resistances and maximum hit, which recoup doesn't change. It does keep you alive in a long fight (not counted)."
+  notes: >-
+    Retired (COV27). The old note ("the optimizer checks pools, resistances and maximum hit, which recoup doesn't
+    change") no longer holds: the sustain share and the recovery floor count recovery, and MECHC21's recovery model
+    counts the unconditional "prevented Recouped as Life" line (model-prevented-recouped-as-life). This
+    Tribute-conditional form isn't read by it (recovery.py's own note), so it is an open UNDERCOUNT routed to MECH-C,
+    not "no effect".
   sources: ["https://poe2db.tw/us/Twice_Bled"]
   test_in_game: "Take a big physical hit with 100 Tribute: a fifth of what Armour prevented comes back as Life over 4 s."
-  status: proposed
+  status: retired  # COV27: recovery is counted now; the Tribute form is open work for MECH-C
 
 - id: guided-hand-boost
   title: Guided Hand, the next attack after a Heavy Stun is Ancestrally Boosted (custom model)
@@ -447,9 +452,9 @@
   status: proposed
 
 - id: no-effect-dot-and-recoup-defences
-  title: Heartstopper's damage over time taken, Scarred Faith's Energy Shield recoup (not checked defences)
+  title: Heartstopper's damage over time taken (not a checked defence)
   kind: pob_gap
-  match: "^(Take \\d+% (less|more) Damage over Time if you('ve| haven't) started taking Damage over Time in the past second|\\d+% of Physical Damage prevented Recouped as Energy Shield per enemy Power)$"
+  match: "^Take \\d+% (less|more) Damage over Time if you('ve| haven't) started taking Damage over Time in the past second$"
   replace: []
   confidence: verified_by_you
   notes: >-
@@ -457,8 +462,10 @@
     recovery aren't among them. Scarred Faith's "You cannot Recover Energy Shield from Regeneration" has its own
     entry now (scarred-faith-no-es-regeneration, COV7). (checked: RESEARCH13 #18ak,
     scratch/manager/research/no-effect-batch-research13.md: holds for the checked numbers; Scarred Faith's ES
-    regeneration line is its own entry now (scarred-faith-no-es-regeneration, COV7).)
-  sources: ["https://poe2db.tw/us/Heartstopper", "https://poe2db.tw/us/Scarred_Faith"]
+    regeneration line is its own entry now (scarred-faith-no-es-regeneration, COV7).) COV27: Scarred Faith's "N% of
+    Physical Damage prevented Recouped as Energy Shield per enemy Power" left this entry: MECHC21's recovery model
+    counts it (model-prevented-recouped-as-es-per-power, models-read-cov27.yaml).
+  sources: ["https://poe2db.tw/us/Heartstopper"]
   test_in_game: "Not needed for the checked numbers."
   status: proposed
 
@@ -585,10 +592,11 @@
     scratch/manager/research/no-effect-batch-research13.md: the Recoup half holds (recovery, not checked).)
     The "Recover N% of your maximum Life / Mana when an Enemy dies in your Presence" half moved to
     recovery-enemy-dies-in-presence (models-recovery.yaml, COV17): MECHC12's recovery model counts it at the boss
-    preset's kills.
+    preset's kills. Retired (COV27): MECHC21's recovery model counts the Recoup half now
+    (model-prevented-recouped-as-life, models-read-cov27.yaml).
   sources: ["https://poe2db.tw/us/Grip_of_Kulemak"]
   test_in_game: "Not needed for the calculated numbers."
-  status: proposed
+  status: retired  # COV27: the recovery model reads the line
 
 - id: life-flask-effect-kept
   title: "Life flask effect not removed when Life is full (read by flasks.full_pool_cap: such a flask keeps its whole duration)"

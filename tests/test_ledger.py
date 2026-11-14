@@ -193,9 +193,13 @@ def test_recovery_lines_the_audit_counts_are_the_lines_the_recovery_model_reads(
     # (COV21) Indigon's restriction counts since MECHC14: the bridge zeroes PoB's Mana leech / on-hit / recoup outputs
     # and flasks.mana_regen_only its Mana flasks (models-read-cov21.yaml)
     assert model_entry("Mana Recovery other than Regeneration cannot Recover Mana").raw["model"] == "mana_regen_only"
-    # Recoup stays recorded as no effect (recovery, not a checked defence)
+    # (COV27) Recoup is MECHC21's recovery model's now (it was recorded as no effect while recovery wasn't checked); the
+    # Tribute-conditional form (Twice Bled) isn't read by it, so it is open, no longer "no effect"
     assert ignored_line_status("12% of Physical Damage prevented Recouped as Life", False)[:2] == \
-        ("ledger", "no-effect-enemy-death-and-recoup")
+        ("model", "model-prevented-recouped-as-life")
+    assert ignored_line_status("(5-10)% of Physical Damage prevented Recouped as Life", False)[0] == "model"
+    assert ignored_line_status("20% of Physical Damage prevented Recouped as Life if you have at least 100 Tribute",
+                               True)[0] == "none"
 
 
 def test_share_lines_have_an_item_form_and_other_conditional_lines_dont():

@@ -40,7 +40,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from builder import ROOT
-from builder.ledger import checked_parse, entries, model_entry, parse_audit, translate, wrong
+from builder.ledger import checked_parse, entries, model_entry, parse_audit, parsed_unused, translate, wrong
 from builder.search.recovery import EVENT_UNREAD
 
 POB_SRC = ROOT / "vendor" / "PathOfBuilding-PoE2" / "src"
@@ -127,6 +127,44 @@ _POE1_ONLY = [(name, re.compile(rx)) for name, rx in POE1_ONLY_GROUPS.items()]
 # TriggeredShockingRiftPlayer from, and no "Flawed Edict" name is in Words or UniqueStashLayout; second source: poe2db's
 # unique lists (COV19, both halves) carry none of the seven lines, and poe2db has no The_Flawed_Edict page (404).)
 DNT_UNUSED = re.compile(r"^DNT\b")
+
+# Cultivated uniques (A32-10, COV27): the game's "UniqueMutatedVaal*" mods (Mods GenerationType 3) are the Vaal
+# Cultivation Orb's outcomes, which replace 1-2 lines of a Corrupted Vaal unique. Fate of the Vaal moved to core in 0.5.0
+# (patch-notes archive 0.5.0, "Fate of the Vaal Moving To Core"), so they're obtainable in a new league (AUDIT32 A32-10;
+# the user chose to offer them, 14 Nov). No PoB-PoE2 unique carries them in its text, so the leftover pass below would
+# call them "a PoE1 leftover or PoE2 content PoB lacks": they're live and labelled as Cultivated outcomes instead.
+CULTIVATED = re.compile(r"^UniqueMutatedVaal")
+# Of those, the 28 that sit on none of the 48 Cultivated uniques poe2db's orb page lists (CULT1's data,
+# cultivated.json _about.outcome_mods_on_no_listed_unique): outcomes the 0.5.0 notes removed (Shackles' reflected
+# ailments, The Vertex's +2-4 skill levels), duplicates and the two HiddenNonStat dummies. "No current carrier" rests on
+# poe2db alone, which keeps old entries unmarked: UNVERIFIED, so they stay counted (status untouched), only labelled.
+CULTIVATED_NO_CARRIER = frozenset({
+    "UniqueMutatedVaalBaseSpirit", "UniqueMutatedVaalCriticalStrikeChanceIfNoCriticalStrikeDealtRecently",
+    "UniqueMutatedVaalDamageLifeRecoup", "UniqueMutatedVaalDamageRemovedFromManaBeforeLifeWhileNotLowMana",
+    "UniqueMutatedVaalDeflectDamageTaken", "UniqueMutatedVaalElementalExposureEffectOnHitWithMagnitude",
+    "UniqueMutatedVaalGlobalFireGemLevel1", "UniqueMutatedVaalGlobalSkillGemLevel", "UniqueMutatedVaalGlobalSkillGemQuality",
+    "UniqueMutatedVaalGoldFoundIncrease", "UniqueMutatedVaalHiddenNonStat", "UniqueMutatedVaalHiddenNonStat1",
+    "UniqueMutatedVaalIgniteEffect", "UniqueMutatedVaalIncreasedAttackSpeed1", "UniqueMutatedVaalIncreasedLifePercent",
+    "UniqueMutatedVaalLifeLeechAmount", "UniqueMutatedVaalLifeLeechAmount1", "UniqueMutatedVaalLocalCriticalStrikeChance",
+    "UniqueMutatedVaalLocalEvasionRating1", "UniqueMutatedVaalLocalEvasionRating2", "UniqueMutatedVaalManaCostEfficiency1",
+    "UniqueMutatedVaalMaximumLifeConvertedToEnergyShield1", "UniqueMutatedVaalMaximumLifeConvertedToEnergyShield2",
+    "UniqueMutatedVaalMaximumLifeIncreasePercent1", "UniqueMutatedVaalMaximumLifeIncreasePercent2",
+    "UniqueMutatedVaalPercentOfLeechIsInstant", "UniqueMutatedVaalPowerFrenzyOrEnduranceChargeOnKill",
+    "UniqueMutatedVaalReflectElementalAilmentsToSelf"})
+# The 28 "HandWrapsUniqueMutatedVaal*" mods (GenerationType 1 / 2, spawn weight 0; PoB ModItemExclusive): a different set
+# from the 28 above (COV27: no id in common). None of their distinctive texts is among poe2db's cultivation outcomes and
+# no PoE2 base is named "Hand Wraps" (AUDIT32 A32-10): no carrier found, UNVERIFIED (one source), so counted and labelled.
+HANDWRAPS_MUTATED = re.compile(r"^HandWraps\w*MutatedVaal")
+
+
+def cultivated_label(mod_id: str) -> str | None:
+    """The audit's note for a Cultivated (Mutated Vaal) mod, or None for any other mod (A32-10, COV27)."""
+    if mod_id in CULTIVATED_NO_CARRIER or HANDWRAPS_MUTATED.match(mod_id):
+        return ("no current carrier (UNVERIFIED): a Mutated Vaal mod on none of the Cultivated uniques poe2db lists "
+                "(one source; kept counted, not dropped)")
+    if CULTIVATED.match(mod_id):
+        return "a Cultivated outcome (Vaal Cultivation Orb, core since 0.5.0): live"
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -527,7 +565,18 @@ def noop_status(line: str, missing: list[str], on_item: bool) -> tuple[str, str 
         if not lines:
             return "ledger", entry.id, f"{unread_why}; recorded as no effect on what's calculated"
         return "none", entry.id, f"{unread_why}; a ledger entry translates it, but translations apply only to lines PoB ignores"
+    if unused := parsed_unused(line):
+        return "none", unused.id, f"{unread_why}; {unused.title} (routed to {unused.raw.get('owner', '?')})"
     return "none", None, unread_why
+
+
+def unused_status(line: str, entry) -> tuple[str, str | None, str]:
+    """Status of a line PoB parses and whose names are read, but which a `parsed_unused` entry records as moving none of
+    the tool's numbers (COV27; ledger/__init__'s notes): not counted, unless a model now reads the line."""
+    if model := model_entry(line):
+        return "model", model.id, f"fed to the {model.raw['model']} model"
+    return "none", entry.id, (f"parsed and read by PoB, but not applied where the tool counts it: {entry.title} "
+                              f"(routed to {entry.raw.get('owner', '?')})")
 
 
 APPLIED_POOLS = {"Item", "Jewel", "Flask", "Charm", "Runes", "implicit"}
@@ -640,6 +689,14 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                         "entry": entry, "reason": reason, "mechanic": extra.pop("mechanic", None) or mechanic(text),
                         "weight": weight, "template": template(text), "group": group or source, **extra})
 
+    def parsed_noop(text: str, line: dict, on_item: bool):
+        """A parsed line's no-op status: names nothing reads (noop_status), or a `parsed_unused` entry (COV27); else None."""
+        if missing := unread(typed_names(line, reads), reads):
+            return noop_status(text, missing, on_item)
+        if unused := parsed_unused(text):
+            return unused_status(text, unused)
+        return None
+
     # a. lines PoB admits it ignores
     for gap in gaps["passives"]:
         kind = passive_kind(gap)
@@ -660,9 +717,9 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             if not text:
                 continue
             if affix["supported"]:
-                missing = unread(typed_names(affix, reads), reads)
-                status, entry, reason = noop_status(text, missing, affix["pool"] in APPLIED_POOLS) if missing else ("pob", None, "")
-                category = "affix-noop" if missing else "affix"
+                noop = parsed_noop(text, affix, affix["pool"] in APPLIED_POOLS)
+                status, entry, reason = noop or ("pob", None, "")
+                category = "affix-noop" if noop else "affix"
             else:
                 category = "affix"
                 status, entry, reason = not_applied(*ignored_line_status(text, False), affix["pool"],
@@ -708,15 +765,12 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                         group=skill["id"], mechanic=stat_mechanic(name), stat_set=set_.get("label"), gems=gems)
         # d. passive and unique lines PoB parses into names nothing reads
         for line in raw["passives"]:
-            missing = unread(typed_names(line, reads), reads)
-            if missing:
+            if noop := parsed_noop(line["line"], line, False):
                 kind = passive_kind(line)
-                add("passive-noop", line["node"], kind, line["line"], *noop_status(line["line"], missing, False),
-                    SOURCE_WEIGHT[kind], node_id=line["id"])
+                add("passive-noop", line["node"], kind, line["line"], *noop, SOURCE_WEIGHT[kind], node_id=line["id"])
         for line in raw["uniques"]:
-            missing = unread(typed_names(line, reads), reads)
-            if missing:
-                add("unique-noop", line["unique"], "unique", line["line"], *noop_status(line["line"], missing, True),
+            if noop := parsed_noop(line["line"], line, True):
+                add("unique-noop", line["unique"], "unique", line["line"], *noop,
                     popularity.get(line["unique"], SOURCE_WEIGHT["unique"]))
         # unique lines of variants the item parse didn't select, and Timeless jewels' passives: the same checks
         for line in raw.get("unique_variants", []):
@@ -724,16 +778,14 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             if not line["supported"]:
                 status, entry, reason = ignored_line_status(line["line"], False)
                 add("unique", line["unique"], "unique", line["line"], status, entry, reason, weight, variant=line.get("variants"))
-            elif missing := unread(typed_names(line, reads), reads):
-                add("unique-noop", line["unique"], "unique", line["line"], *noop_status(line["line"], missing, True),
-                    weight)
+            elif noop := parsed_noop(line["line"], line, True):
+                add("unique-noop", line["unique"], "unique", line["line"], *noop, weight)
         for line in raw.get("base_implicits", []):  # base items' implicit lines
             if not line["supported"]:
                 status, entry, reason = not_applied(*ignored_line_status(line["line"], False), "implicit")
                 add("base-implicit", line["base"], "affix", line["line"], status, entry, reason, SOURCE_WEIGHT["affix"])
-            elif missing := unread(typed_names(line, reads), reads):
-                add("base-implicit-noop", line["base"], "affix", line["line"], *noop_status(line["line"], missing, True),
-                    SOURCE_WEIGHT["affix"])
+            elif noop := parsed_noop(line["line"], line, True):
+                add("base-implicit-noop", line["base"], "affix", line["line"], *noop, SOURCE_WEIGHT["affix"])
         for line in raw.get("legion", []):
             kind = "notable" if line.get("notable") or line.get("kind") == "nodes" else "small"
             if no_jewel_faction(line):
@@ -744,9 +796,8 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 status, entry, reason = not_applied(*ignored_line_status(line["line"], False), "legion")
                 add("timeless", line["node"], kind, line["line"], status, entry,
                     reason + " (a Timeless jewel's passive)", SOURCE_WEIGHT[kind] * 0.5)
-            elif missing := unread(typed_names(line, reads), reads):
-                add("timeless-noop", line["node"], kind, line["line"], *noop_status(line["line"], missing, False),
-                    SOURCE_WEIGHT[kind] * 0.5)
+            elif noop := parsed_noop(line["line"], line, False):
+                add("timeless-noop", line["node"], kind, line["line"], *noop, SOURCE_WEIGHT[kind] * 0.5)
         # f. parsed lines whose condition nothing can switch on; g. parsed lines whose parse lost something
         setters = parse_audit.Setters(raw)
         parsed = ([("passive", l, passive_kind(l), SOURCE_WEIGHT[passive_kind(l)], l["node"]) for l in raw["passives"]]
@@ -774,6 +825,13 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
         # (DNT_UNUSED) first
         leftovers = poe1_leftover_mods(raw["affixes"])
         for record in records:
+            if record["source"].startswith(("Exclusive ", "Item ")) and (
+                    label := cultivated_label(record["source"].split()[1])):
+                # (A32-10, COV27: Cultivated outcomes are live, never a "PoE1 leftover"; the no-carrier ones are labelled)
+                record["cultivated"] = "no carrier" if label.startswith("no current") else "live"
+                if record["status"] != "pob":
+                    record["reason"] += "; " + label
+                continue
             if (record["status"] == "none" and record["source"].startswith("Exclusive ")
                     and DNT_UNUSED.match(record["line"])):
                 record["status"] = "unreachable"
@@ -798,6 +856,14 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             record["undercount"] = True
             record["reason"] += (f"; a recovery source no rate reads yet ({name}, recovery.EVENT_UNREAD): an UNDERCOUNT "
                                  "in the sustain share and the recovery floor, routed to MECH-C")
+    # Lines a `parsed_unused` entry records (COV27): routed to its owner as an undercount, as above
+    unused_owner = {e.id: e.raw.get("owner") for e in entries() if e.kind == "parsed_unused"}
+    for record in records:
+        if record["status"] == "none" and record["entry"] in unused_owner:
+            record["routed"] = unused_owner[record["entry"]]
+            record["undercount"] = True
+            if "UNDERCOUNT" not in record["reason"]:
+                record["reason"] += f"; an UNDERCOUNT, routed to {record['routed']}"
     # e. skills that calculate 0 alone on a plain character (data/pob-*/skill_zero.json, scratch/zero_skills.py)
     for skill in zero_skills(data_dir):
         add("skill-zero", skill["name"], "active gem", skill["name"], skill["status"], skill.get("entry"), skill["reason"],

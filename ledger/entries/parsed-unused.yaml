@@ -1,0 +1,86 @@
+# Lines PoB parses (whole) whose modifier names the audit finds read, yet which move none of the tool's numbers in the
+# case that matters, or which nothing reads and need an owner named (kind parsed_unused, COV27; builder/ledger/__init__'s
+# notes). They add nothing to PoB: the audit reports each as not counted ("none"), routed to `owner` as an UNDERCOUNT.
+# A model entry for the same line takes over once a model reads it.
+
+- id: unused-life-flask-recovery-applies-to-es
+  title: "Life Recovery from Flasks also applies to Energy Shield: PoB applies it only to a Life flask whose effect isn't removed at full Life; the tool's flask model counts Life and Mana only"
+  kind: parsed_unused
+  owner: MECH-C
+  match: '^Life Recovery from Flasks also applies to Energy Shield( during Effect)?$'
+  replace: []
+  confidence: datamined
+  why: >-
+    PoB's ModParser 2602 / 5536 make the flag LifeFlaskAppliesToEnergyShield (the "during Effect" form under Condition
+    UsingFlask). Its readers: Classes/ItemsTab.lua 4265 (the flask tooltip) and Modules/CalcPerform.lua 1635
+    (calcFlaskRecovery, the joined name type.."FlaskAppliesToEnergyShield": EnergyShieldRecovery = the flask's recovery
+    rate). But calcFlaskRecovery returns nothing unless the flask's effect isn't removed at full Life (CalcPerform 1609:
+    flaskData.lifeEffectNotRemoved or the LifeFlaskEffectNotRemoved flag, ModParser 5575 "Life Flask Effects are not
+    removed when Unreserved Life is Filled"), so with an ordinary Life flask PoB counts no Energy Shield. The tool's own
+    flask model (builder/search/flasks.py RECOVERY_FIELDS: FlaskLifeRecoveryRate, FlaskManaRecoveryRate) has no Energy
+    Shield field, and no builder/ or bridge.lua code reads the flag (checked: grep of PoB's src for
+    FlaskAppliesToEnergyShield, all .lua files; grep of builder/ and engine/bridge.lua; AUDIT33 A33-1's carrier list:
+    Shavronne's Satchel, UniqueFlaskLifeRecoveryEnergyShield1; Zealot's Oath's flask line, FlaskZealotsOathUnique__1;
+    Supreme Decadence, a Timeless keystone no 0.5 jewel conquers). An UNDERCOUNT of Energy Shield recovery for ES / CI
+    builds with the line (the recovery floor and the sustain notes). AUDIT33's "no Modules/Calc* file reads it" missed
+    the joined name in CalcPerform 1635; the conclusion (not counted in the usual case) holds. COV27's probe
+    (scratch/cov27/probe_a33.py, POE2T2475) compares PoB's outputs with and without the line.
+  sources: ["https://poe2db.tw/us/Shavronne%27s_Satchel"]
+  test_in_game: "Wear Shavronne's Satchel with Energy Shield missing and drink a Life flask: ES should rise with Life."
+  status: proposed
+
+- id: unused-charms-use-no-charges
+  title: "Charms use no Charges (Pragmatism): nothing in PoB or the tool reads it; the charm uptime still charges each use"
+  kind: parsed_unused
+  owner: MECH-C
+  match: '^Charms use no Charges$'
+  replace: []
+  confidence: datamined
+  why: >-
+    PoB's ModParser 5590 makes the flag CharmsUseNoCharges, and no PoB file reads it (checked: grep of PoB's src, all .lua
+    files: ModParser 5590 only), and neither does the tool (grep of builder/ and engine/bridge.lua: no reader; the charm
+    uptime in builder/search/flasks.py takes each use's charges from the charm's own cost). With no charge cost a charm
+    triggers whenever its condition happens, so its uptime is limited by its trigger events, not its charges: an
+    UNDERCOUNT for charm builds with this line. Carrier: Pragmatism (UniqueCharmsNoCharges1; the audit's unique-noop
+    record).
+  sources: ["https://poe2db.tw/us/Pragmatism"]
+  test_in_game: "Wear Pragmatism with a charm: it should trigger with an empty charge bar."
+  status: proposed
+
+# PoB's buildup rule (ModParser 3904 / 3907) builds the flag name from the line's own word, and these two lines say
+# "Electrocution", so PoB makes LightningCanElectrocution / CanElectrocution, while its calculation reads only
+# damageType.."Can"..ailmentType with ailmentType "Electrocute" (CalcOffence canDoAilment 5006 / 5012) (checked: grep of
+# PoB's Modules/Calc*.lua, Classes/*.lua, Data.lua and Misc.lua for "Electrocution": no reader; ModCache 8514 / 5613
+# hold the misspelt flags). The audit took them as read through the wildcard \w*Can\w*. COV27's probe (POE2T2475, Spark,
+# a ring with Kitoko's Current's line): ElectrocuteBuildupAvg didn't move. So they're pob_wrong: replaced on items by
+# PoB's own working wording ("... Electrocute Buildup", ModCache 6924's form for the Chaos line), which makes the flag
+# the calculation reads.
+
+- id: wrong-lightning-hits-electrocution-buildup
+  title: "Lightning damage from Hits Contributes to Electrocution Buildup (Kitoko's Current): PoB's flag is misspelt and read by nothing; replaced by its working Electrocute form"
+  kind: pob_wrong
+  match: '^Lightning damage from Hits Contributes to Electrocution Buildup$'
+  replace: ['Lightning Damage from Hits also Contributes to Electrocute Buildup']
+  confidence: datamined
+  notes: >-
+    UNDERCOUNT by PoB (COV27, AUDIT33 A33-2 (3)): ModCache 8514 gives LightningCanElectrocution; canDoAilment reads
+    LightningCanElectrocute. The replacement is the Chaos line's wording with Lightning, which ModParser 3904 turns into
+    LightningCanElectrocute. Carrier: Kitoko's Current (UniqueLightningDamageCanElectrocute1). The HandWraps
+    "All damage with Attacks Contributes to Electrocution Buildup" PoB doesn't parse at all (no current carrier, A32-10).
+  sources: ["https://poe2db.tw/us/Kitokos_Current"]
+  test_in_game: "Hit a boss with a Lightning skill wearing Kitoko's Current: its Electrocute bar should fill."
+  status: proposed
+
+- id: wrong-weapon-electrocution-buildup
+  title: "All damage with this Weapon causes Electrocution buildup (Brain Rattler): PoB's flag is misspelt and read by nothing; replaced by its working Electrocute form"
+  kind: pob_wrong
+  match: '^All damage with this Weapon causes Electrocution buildup$'
+  replace: ['All damage with this Weapon causes Electrocute buildup']
+  confidence: datamined
+  notes: >-
+    UNDERCOUNT by PoB (COV27): ModCache 5613 gives CanElectrocution (Condition {Hand}Attack); canDoAilment reads
+    CanElectrocute. ModParser 3907 makes "Can".."Electrocute" from the replacement, with the same weapon condition.
+    Carrier: Brain Rattler (UniqueLocalAllDamageCanElectrocute1).
+  sources: ["https://poe2db.tw/us/Brain_Rattler"]
+  test_in_game: "Hit a boss with Brain Rattler: its Electrocute bar should fill from all damage types."
+  status: proposed

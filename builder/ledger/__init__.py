@@ -51,6 +51,15 @@ on the stat id, and `replace` lines (written with a magnitude of 1) are scaled b
 the gem's level × `factor`; `applies_to: build` gives them to the whole build (a buff), `skill` (the
 default) to that skill only. An empty `replace` records that the stat changes nothing calculated.
 
+A `parsed_unused` entry is for a line PoB parses whole and whose modifier names a calculation (or the audit's
+wildcard reading) does read, yet which moves none of the tool's numbers in the case that matters: PoB reads it only in
+a branch the tool's builds never reach, or for display only, or the tool's own model of that mechanic doesn't read it
+(COV27; AUDIT33 A33-1: Shavronne's Satchel's "Life Recovery from Flasks also applies to Energy Shield", which PoB's
+calcFlaskRecovery applies only to flasks whose effect isn't removed at full Life, and the tool's flask model counts Life
+and Mana only). It adds nothing to PoB: the audit reports the line as not applied ("none"), with `owner` (the lane whose
+model would count it) as its route and `why` as the evidence. A model entry for the line takes over once one exists.
+(Also used for a line PoB reads nowhere, to name its owner: the audit lists such a line as a no-op either way.)
+
 `gap lists` come from PoB itself (bridge `auditUnsupported`, saved by the data dump as gaps.json):
 every passive and unique line its parser doesn't understand.
 """
@@ -230,6 +239,16 @@ def checked_parse(line: str, source: str | None = None) -> Entry | None:
     handles). Nothing is applied; the audit counts the line as checked."""
     for entry in entries():
         if entry.kind == "parse_checked" and entry.pattern is not None and entry.pattern.search(line)                 and (not entry.raw.get("only_sources") or source in entry.raw["only_sources"]):
+            return entry
+    return None
+
+
+def parsed_unused(line: str) -> Entry | None:
+    """A `parsed_unused` entry: a line PoB parses and reads somewhere, but that moves none of the tool's numbers where it
+    matters (COV27; see the module notes). Nothing is applied; the audit reports the line as not counted, routed to the
+    entry's `owner`."""
+    for entry in entries():
+        if entry.kind == "parsed_unused" and entry.matches(line):
             return entry
     return None
 

@@ -42,3 +42,30 @@ def test_every_replacement_line_parses(engine):
     results = engine.call("parseLines", lines=[text for _, text in lines])["results"]
     failed = [(entry, r["line"], r.get("extra")) for (entry, _), r in zip(lines, results) if not r["supported"]]
     assert not failed, failed
+
+
+def test_the_electrocution_lines_pob_misspells_count_only_through_their_ledger_replacement(engine):
+    """COV27 (AUDIT33 A33-2): PoB parses "Lightning damage from Hits Contributes to Electrocution Buildup" (Kitoko's
+    Current) into LightningCanElectrocution, which no calculation reads (canDoAilment asks for ...CanElectrocute): the
+    line builds no Electrocute. The ledger's pob_wrong replacement (PoB's own "Electrocute" wording) does."""
+    from builder.ledger import wrong
+
+    line = "Lightning damage from Hits Contributes to Electrocution Buildup"
+    entry, fixed = wrong(line)
+    assert entry.id == "wrong-lightning-hits-electrocution-buildup"
+
+    def buildup(lines):
+        engine.call("newBuild")
+        engine.call("setLevel", level=90)
+        engine.call("addSkillGroup", text="Spark 20/0 1", main=True)
+        if lines:
+            engine.call("equip", slot="Ring 1", fields=[],
+                        raw="Rarity: Rare\nProbe Ring\nAmethyst Ring\n--------\n" + "\n".join(lines))
+        return engine.call("stats", fields=["ElectrocuteBuildupAvg"]).get("ElectrocuteBuildupAvg") or 0
+
+    plain = buildup([])
+    assert buildup([line]) == plain  # PoB's own parse: nothing
+    assert buildup([fixed]) > plain  # the replacement: Lightning hits build Electrocute
+    assert wrong("All damage with this Weapon causes Electrocution buildup")[1] == \
+        "All damage with this Weapon causes Electrocute buildup"
+

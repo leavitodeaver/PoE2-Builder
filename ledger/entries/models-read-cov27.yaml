@@ -1,0 +1,41 @@
+# Lines builder/search/recovery.py now reads (COV27, from MECHC21's ca316a7, on main since train 43): "Physical Damage
+# prevented, Recouped" as a rate at the boss's landed hits (recovery.PREVENTED_ES / PREVENTED_LIFE, HIT_LINES; read by
+# Assumptions through bridge.sourceLines, assumptions.py 1613). PoB parses both lines with leftover text (ModCache:
+# PhysicalDamage BASE + " prevented Recouped as ...") and so never applies them (LANE_RULES: PoB never applies a line it
+# parses only in part), so these entries add nothing (replace: []); they tell the audit the line is counted. They
+# replace the ledger's old "no effect" readings (no-effect-dot-and-recoup-defences' Scarred Faith half and
+# no-effect-enemy-death-and-recoup, coverage-batch1.yaml), written when recovery wasn't a checked number.
+# Not here: Twice Bled's "... Recouped as Life if you have at least N Tribute" (recovery.py: "isn't read"; its old
+# no-effect entry twice-bled is retired, so the audit shows it open, routed to MECH-C).
+
+- id: model-prevented-recouped-as-es-per-power
+  title: N% of Physical Damage prevented Recouped as Energy Shield per enemy Power (Scarred Faith), recovery model
+  kind: pob_gap
+  model: recovery
+  match: '^(\(\d+-\d+\)|\d+)% of Physical Damage prevented Recouped as Energy Shield per enemy Power$'
+  replace: []
+  confidence: reported
+  notes: >-
+    recovery.py (PREVENTED_ES, field EnergyShieldPreventedRecoup): the Physical damage the build's Armour and flat
+    reduction keep from the boss's landed hits (Assumptions.hit_rates), x the % x the boss's Power (models.boss_power,
+    with the build's Power lines), recouped over 4 s (a steady fight's per-second share). Damage Blocked isn't counted as
+    prevented (UNVERIFIED, a lower reading); Scarred Faith's "cannot Recover Energy Shield to above Armour" caps the pool,
+    not the rate: not applied (LOW). Was the Scarred Faith half of no-effect-dot-and-recoup-defences until COV27.
+  sources: ["builder/search/recovery.py (PREVENTED_ES)", "https://poe2db.tw/us/Scarred_Faith"]
+  test_in_game: "Take a physical hit with Armour up next to a boss with Power: ES returns over 4 s, 5% per Power of what Armour prevented."
+  status: proposed
+
+- id: model-prevented-recouped-as-life
+  title: N% of Physical Damage prevented Recouped as Life, recovery model
+  kind: pob_gap
+  model: recovery
+  match: '^(\(\d+-\d+\)|\d+)% of Physical Damage prevented Recouped as Life$'
+  replace: []
+  confidence: reported
+  notes: >-
+    recovery.py (PREVENTED_LIFE, field LifePreventedRecoup): as the Energy Shield line, without the Power factor. Was
+    no-effect-enemy-death-and-recoup until COV27 (its "Recover ... when an Enemy dies in your Presence" half moved to
+    recovery-enemy-dies-in-presence in COV17).
+  sources: ["builder/search/recovery.py (PREVENTED_LIFE)", "https://poe2db.tw/us/Grip_of_Kulemak"]
+  test_in_game: "Take a physical hit with Armour up: the stated % of what Armour prevented comes back as Life over 4 s."
+  status: proposed
