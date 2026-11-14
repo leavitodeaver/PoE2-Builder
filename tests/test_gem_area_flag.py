@@ -43,14 +43,14 @@ def test_area_damage_reaches_the_sets_the_game_marks_area_damage(engine):
     search.setup()
     build = search.build
     group = build.call("setGroup", gems=[{"name": "Falling Thunder"}], main=True, fullDPS=True,
-                       fields=["AverageHit"])["group"]
+                       fields=["AverageDamage"])["group"]
     skill = next(i for i, s in enumerate(group["skills"], 1) if s["name"] == "Falling Thunder")
     sets = group["skills"][skill - 1].get("statSets") or []
 
     def hit(label: str) -> float:
         index = sets.index(label) + 1
         return build.call("setGroup", index=group["index"], mainActiveSkill=skill, statSet=index,
-                          fields=["AverageHit"])["stats"]["AverageHit"]
+                          fields=["AverageDamage"])["stats"]["AverageDamage"]
 
     labels = [s for s in ("Projectile", "Melee") if s in sets]
     assert "Projectile" in labels, sets
