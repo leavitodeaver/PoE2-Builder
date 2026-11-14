@@ -1154,8 +1154,12 @@ def test_shocked_ground_shocks_the_boss_and_counts_you_standing_in_it():
     assert up == pytest.approx(0.6) and "Charged Mark" in how and "1.4 m" in how
     zero = {"Speed": 1, "_sg_charged_mark": (0.0, "never Activated", 1.4)}
     assert shocked_ground(zero, [])[0] == 0 and "never Activated" in shocked_ground(zero, [])[1]
-    storm = shocked_ground({"Speed": 1, "_sg_death_storm": True}, [])
-    assert storm[0] == 0 and "Death Storm" in storm[1] and "undercount" in storm[1]
+    # MECH65: Death Storm's ground at its Commands that strike a fallen Skeleton at the boss (6 s, 2 m); 0 with none
+    # (1.2 Commands a ground lasts, each striking one at the boss half the time: 1 - 0.5^1.2)
+    storm = shocked_ground({"Speed": 1, "_sg_death_storm": (0.2, 0.5, "one Command per 5 s")}, [])
+    assert storm[0] == pytest.approx(1 - 0.5 ** 1.2) and "Death Storm" in storm[1] and "2 m" in storm[1]
+    storm = shocked_ground({"Speed": 1, "_sg_death_storm": (0.0, 0.0, "no Skeleton falls")}, [])
+    assert storm[0] == 0 and "no Skeleton falls" in storm[1]
     # Wake of Destruction: counted as a way to play it, not while the build stands still without rolling
     wake = ["Drop Shocked Ground while moving, lasting 8 seconds"]
     melee = {"Speed": 1, "_distance_choice": (1.0, "melee")}
@@ -2442,7 +2446,7 @@ def test_murderous_intent_culls_on_unleashs_empowered_uses_where_pob_gives_none(
             return {"index": 1}
 
         def call(self, what, **_):
-            return {"activeSkills": {"skills": [{"name": "Spark", "spell": True, "group": 1},
+            return {"activeSkills": {"skills": [{"name": "Spark", "spell": True, "repeatable": True, "group": 1},
                                                 {"name": "Unleash", "group": 2, "empowers": True}]},
                     "useRates": {"rates": [{"index": 2, "speed": 4.0}]},
                     "cullSplit": {"regular": 0, "critical": 0, "inc": 1.0, "rows": []}}.get(
@@ -2873,11 +2877,13 @@ def test_empowered_uses_come_from_the_skills_murderous_intent_supports():
         return a.empowered_uses({"Speed": 2.0, **(stats or {})})
 
     spear = {"name": "Explosive Spear", "attack": True}
-    spark = {"name": "Spark", "spell": True}
+    spark = {"name": "Spark", "spell": True, "repeatable": True}
     assert run("Mana Tempest", spear, {"speed": 1.0})[0] == 0.0
     assert run("Mana Tempest", spark, {"speed": 1.0})[0] == pytest.approx(2.0)  # (regen covers the storm: always up)
     assert run("Unleash", spark, {"speed": 0.25})[0] == pytest.approx(0.25)
     assert run("Unleash", {**spark, "cooldown": 3.0}, {"speed": 0.25})[0] == 0.0
+    # (MECH65, AUDIT29 A29-3: Unleash Empowers "the next Repeatable Spell"; Solar Orb, Frost Darts aren't Repeatable)
+    assert run("Unleash", {"name": "Solar Orb", "spell": True}, {"speed": 0.25})[0] == 0.0
     stab = {"name": "Spear Stab", "attack": True, "melee": True}
     assert run("Infernal Cry", stab, {"speed": 0.125, "warcryEmpowers": 4})[0] == pytest.approx(0.5)
     # (MECH64: KeywordPopups Warcry Empowers "subsequent Melee Attacks"; Explosive Spear is thrown)
@@ -2886,3 +2892,38 @@ def test_empowered_uses_come_from_the_skills_murderous_intent_supports():
     assert rate == 2.0 and "LOW" in how  # (capped at the main skill's uses)
     # (MECH64: Murderous Intent needs a skill that can Empower others, requireSkillTypes EmpowersOtherSkill)
     assert run("Living Bomb", spark, {"speed": 1.0}, empowers=None)[0] == 0.0
+    # (MECH65: a Warcry without EmpowersOtherSkill can't take Murderous Intent, whatever PoB's Empower count)
+    assert run("Rallying Cry", stab, {"speed": 0.125, "warcryEmpowers": 4}, empowers=None)[0] == 0.0
+    # (MECH65, AUDIT29 A29-4: each Warcry's own text) Arctic Howl Empowers "your attacks", thrown ones too, only while
+    # the boss is Frozen; Seismic Cry only Slams, only while it's Heavy Stunned
+    from builder.search import models
+    orig = models.immobilised_share, models.heavy_stunned_share
+    try:
+        models.immobilised_share = lambda stats, ailment: (0.25, "Frozen 25%")
+        models.heavy_stunned_share = lambda stats: (0.5, "Heavy Stunned 50%")
+        rate, how = run("Arctic Howl", spear, {"speed": 0.125, "warcryEmpowers": 4})
+        assert rate == pytest.approx(0.125) and "Frozen" in how
+        assert run("Seismic Cry", stab, {"speed": 0.125, "warcryEmpowers": 4})[0] == 0.0
+        assert run("Seismic Cry", {**stab, "slam": True}, {"speed": 0.125, "warcryEmpowers": 4})[0] == pytest.approx(0.25)
+    finally:
+        models.immobilised_share, models.heavy_stunned_share = orig
+
+
+def test_death_storms_ground_counts_only_skeletons_fallen_at_the_boss(monkeypatch):
+    """MECH65: Conditions.death_storm takes models.death_storm's Commands and mean fallen Skeletons (MECHB20) and keeps
+    the melee Skeletons' share (Warriors, Reavers, Brutes fall at the boss; Snipers and Mages away from it): the chance a
+    Command strikes one at the boss is 1 - e^-(fallen x melee share); no fallen Skeletons, no ground."""
+    import math
+    from builder.search import conditions as c, models
+
+    def skel(name, limit):
+        return models.Skill.of({"name": name, "summon": {"persistent": True, "limit": limit}})
+
+    found = [skel("Skeletal Warrior Minion", 6), skel("Skeletal Sniper Minion", 2), skel("Skeletal Storm Mage Minion", 4)]
+    cond = c.Conditions.__new__(c.Conditions)
+    monkeypatch.setattr(cond, "_minion_inputs", lambda: (found, None, {}), raising=False)
+    monkeypatch.setattr(models, "death_storm", lambda skills, main, stats: (0.2, 1.2, 0.7, "fallen"))
+    uses, chance, how = cond.death_storm()
+    assert uses == 0.2 and chance == pytest.approx(1 - math.exp(-1.2 * 6 / 12)) and "6 of your 12" in how
+    monkeypatch.setattr(models, "death_storm", lambda skills, main, stats: (0.0, 0.0, 0.0, "none fall"))
+    assert cond.death_storm() == (0.0, 0.0, "none fall")

@@ -2029,6 +2029,21 @@ def test_murderous_intents_cull_is_flagged_empower_only(engine):
     assert all(r["source"] == "Skill:SupportEmpoweredCullPlayer" for r in split["rows"])
 
 
+
+def test_active_skills_flag_what_another_skill_can_empower(engine):
+    """MECH65 (AUDIT29 A29-3/4): bridge.activeSkills flags a Repeatable skill (Multicastable, not Instant, Channelling or
+    Triggered: KeywordPopups Repeat) for Unleash, a Slam for Seismic Cry; Assumptions.empowered_uses reads them."""
+    from builder import ROOT
+    from builder.pob import codes
+
+    code = (ROOT / "benchmarks" / "reference" / "2b75c.txt").read_text(encoding="utf-8").strip()
+    engine.call("loadXml", xml=codes.decode(code))
+    for text in ("Spark 20/0 1", "Solar Orb 20/0 1", "Earthquake 20/0 1"):
+        engine.call("addSkillGroup", text=text)
+    skills = {s["name"]: s for s in engine.call("activeSkills")["skills"]}
+    assert skills["Spark"].get("repeatable") and not skills["Solar Orb"].get("repeatable")
+    assert skills["Earthquake"].get("slam") and not skills["Spark"].get("slam")
+
 def test_use_rates_give_a_culling_side_skill_its_own_cull(engine):
     """MECH64: bridge.useRates gives a Full DPS skill that Culls its own CullMultiplier, hit chance, hit DPS and
     cullSplit (calculated as the main one), so conditions.cull_window_scale prices a Cull on another skill than the main

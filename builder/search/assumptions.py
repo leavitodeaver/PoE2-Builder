@@ -395,6 +395,39 @@ def eternal_hunt(build: Build, main: models.Skill | None) -> tuple[float, list[d
             return models.eternal_hunt_model(hunt, player, number(hunt.get("baseDPS")) if counted else 0.0)
     return 0.0, [], []
 
+# What each Warcry Empowers, by its own game text (MECH65, AUDIT29 A29-4; ActiveSkills 26476662 descriptions):
+# KeywordPopups Warcry says Warcries "Empower your subsequent Melee Attacks", but the skills' own texts differ: Arctic
+# Howl "Empowers your attacks" (and Slams), but only "If an enemy is Frozen or a Frozen enemy is Hit"; Seismic Cry
+# "Empowers subsequent Slams", only "If an enemy is Heavy Stunned or a currently Heavy Stunned enemy is Hit"; Fortifying
+# Cry's subsequent "Shield Attacks"; Infernal Cry "subsequent Melee Attacks". Ferocious Roar ("subsequent Attacks")
+# can't take Murderous Intent (no EmpowersOtherSkill type). Others follow the keyword: Melee Attacks.
+# (what, needs on the main skill, the boss condition the Empower waits for)
+WARCRY_EMPOWERS = {
+    "Infernal Cry": ("Melee Attacks", ("melee", "attack"), None),
+    "Seismic Cry": ("Slams", ("slam",), "Heavy Stunned"),
+    "Arctic Howl": ("attacks", ("attack",), "Frozen"),
+    "Ferocious Roar": ("Attacks", ("attack",), None),
+    "Fortifying Cry": ("Shield Attacks", ("attack", "shield"), None),
+}
+
+
+def warcry_empowers(name: str, mains: list[dict], stats: dict) -> tuple[str, bool, float, str]:
+    """(what the Warcry Empowers, whether the main skill is one, the share of its uses that Empower, why) for
+    Assumptions.empowered_uses. A Warcry whose Empower waits on the boss being Heavy Stunned or Frozen counts at the
+    share of the fight the boss is (models.heavy_stunned_share / immobilised_share): a lower reading, since a use can
+    also Empower once the boss gets there later in its window (LOW)."""
+    what, needs, cond = WARCRY_EMPOWERS.get(name, ("Melee Attacks", ("melee", "attack"), None))
+    fits = any(all(s.get(k) for k in needs) for s in mains)
+    if not fits or cond is None:
+        return what, fits, 1.0, ""
+    if cond == "Heavy Stunned":
+        share, how = models.heavy_stunned_share(stats)
+    else:
+        share, how = models.immobilised_share(stats, "Freeze")[:2]
+    return what, fits, share, (f"it Empowers only while the boss is {cond}: {how}; LOW, a lower reading (a use can "
+                               "Empower when the boss gets there later)")
+
+
 class Assumptions:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -749,8 +782,9 @@ class Assumptions:
         Empowered by Supported Skills have Culling Strike"), each at the build's own use of it (rule 2: no flat rate):
         Mana Tempest Empowers every Mana-costing Spell cast in its storm (the main skill's uses x the storm's uptime,
         models.mana_tempest_uptime); Unleash "the next Repeatable Spell you cast", not one with a Cooldown (one per
-        Unleash, at its use rate: bridge useRates, cooldown-capped); a Warcry Empowers PoB's Num<Warcry>Empowers attacks
-        per use (its Power over the boss's, CalcPerform 2196-2215: bridge useRates warcryEmpowers); any other
+        Unleash, at its use rate: bridge useRates, cooldown-capped; MECH65: Repeatable checked); a Warcry Empowers PoB's
+        Num<Warcry>Empowers attacks per use (its Power over the boss's, CalcPerform 2196-2215: bridge useRates
+        warcryEmpowers) where the main skill is what its own text Empowers (WARCRY_EMPOWERS, MECH65); any other
         Empowering skill one use per use of it (LOW, UNVERIFIED: its own count isn't read). Capped at the main skill's
         uses. Mana Tempest's storm comes in long blocks, not evenly spaced uses (MEDIUM)."""
         build = self.build
@@ -763,6 +797,7 @@ class Assumptions:
         main = build.main_group() or {}
         mains = [s for s in raw if s.get("group") == main.get("index") and not s.get("disabled")]
         spell, cooled = any(s.get("spell") for s in mains), any(s.get("cooldown") for s in mains)
+        repeatable = spell and any(s.get("repeatable") for s in mains)
         rates = {r["index"]: r for r in build.call("useRates", indices=[g["index"] for g in groups])["rates"]}
         total, parts = 0.0, []
         for group in groups:
@@ -781,20 +816,27 @@ class Assumptions:
                 total += uses * share
                 parts.append(f"Mana Tempest: the main skill's {uses:.2f} uses/s x the storm's {share:.0%} uptime ({why})")
             elif name == "Unleash":
-                ok = spell and not cooled
+                # (MECH65, AUDIT29 A29-3: "Empowering the next Repeatable Spell you cast ... Cannot Empower Skills with
+                # a Cooldown", ActiveSkills unleash; Incinerate, Bonestorm, Solar Orb, Frost Darts aren't Repeatable)
+                ok = repeatable and not cooled
                 total += per if ok else 0.0
                 parts.append(f"Unleash Empowers the next Repeatable Spell, one per use: {per:.3f}/s" if ok else
-                             "Unleash Empowers only a Spell without a Cooldown, and the main skill isn't one")
-            elif number(rate.get("warcryEmpowers")) > 0 and not any(s.get("melee") and s.get("attack") for s in mains):
-                # (MECH64: KeywordPopups Warcry: "Empower your subsequent Melee Attacks"; MECH63 counted any main skill)
-                parts.append(f"{name} Empowers Melee Attacks, and the main skill isn't one")
+                             "Unleash Empowers only a Repeatable Spell without a Cooldown, and the main skill isn't one")
+            elif not skill.get("empowers"):  # (MECH64: Murderous Intent "Supports skills that can Empower skills other
+                # than themselves", requireSkillTypes EmpowersOtherSkill: on any other skill it does nothing. MECH65:
+                # the game files' SupportEmpoweredCullPlayer has AllowedActiveSkillTypes [EmpowersOtherSkill] too, and no
+                # GrantedEffect adds that type; checked GrantedEffects 26476662. So Ferocious Roar, Rallying Cry and
+                # Battlemage's Cry, Warcries without the type, get nothing even with PoB's Empower count)
+                parts.append(f"{name} can't Empower other skills: Murderous Intent does nothing there")
             elif number(rate.get("warcryEmpowers")) > 0:
                 n = number(rate["warcryEmpowers"])
-                total += per * n
-                parts.append(f"{name}: {n:g} Empowered attacks per use (PoB's count from its Power) x {per:.3f} uses/s")
-            elif not skill.get("empowers"):  # (MECH64: Murderous Intent "Supports skills that can Empower skills other
-                # than themselves", requireSkillTypes EmpowersOtherSkill: on any other skill it does nothing)
-                parts.append(f"{name} can't Empower other skills: Murderous Intent does nothing there")
+                what, fits, share, why = warcry_empowers(name, mains, stats)
+                if not fits:
+                    parts.append(f"{name} Empowers {what}, and the main skill isn't one")
+                    continue
+                total += per * n * share
+                parts.append(f"{name}: {n:g} Empowered {what} per use (PoB's count from its Power) x {per:.3f} uses/s"
+                             + (f" x {share:.0%} ({why})" if share < 1.0 else ""))
             else:
                 total += per
                 parts.append(f"{name}: one Empowered use per use of it, {per:.3f}/s (LOW, UNVERIFIED: its own count "

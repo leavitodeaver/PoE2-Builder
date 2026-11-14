@@ -2128,6 +2128,7 @@ GROUND_WHILE_MOVING = re.compile(r"drops? shocked ground while moving, lasting (
 ON_SHOCKED_GROUND = re.compile(r"\bon shocked ground\b", re.I)
 CHARGED_MARK = "Charged Mark"
 DEATH_STORM_SUMMON = "Skeletal Storm Mage"  # its minions' Death Storm (DeathStormSkeletonStormMageMinion) makes ground
+DEATH_STORM_MELEE = ("Skeletal Warrior", "Skeletal Reaver", "Skeletal Brute")  # (MECH65: Conditions.death_storm)
 CHARGED_MARK_SECONDS = 6.0  # TriggeredChargedMarkPlayer base_skill_effect_duration 6000 (research/ground-radii.md, HIGH)
 
 
@@ -2230,10 +2231,16 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
             radii.append((up, radius))
         else:
             notes.append(f"{CHARGED_MARK}'s ground ({how}: 0)")
-    if stats.get("_sg_death_storm"):  # (MECH61: a missed source, research/shocked-ground-sources.md)
-        notes.append("Death Storm's ground (the Skeletal Storm Mages' command: Shocked Ground, 6 s, 2 m, around each "
-                     "fallen Skeleton it strikes; its rate needs your Skeletons falling at the boss and the command's "
-                     "use, not modelled: not counted, an undercount)")
+    if storm := stats.get("_sg_death_storm"):  # (MECH65: counted; MECH61 had it as a note, an undercount)
+        rate, chance, how = storm
+        up = _covered(rate, chance, models.DEATH_STORM_SECONDS)
+        if up > 0:
+            parts.append(f"Death Storm's ground around the fallen Skeletons it strikes at the boss ({how}; "
+                         f"{models.DEATH_STORM_SECONDS:g} s, {models.DEATH_STORM_RADIUS:g} m): {up:.0%}")
+            off *= 1 - up
+            radii.append((up, models.DEATH_STORM_RADIUS))
+        else:
+            notes.append(f"Death Storm's ground ({how}: 0)")
     stats["_sg_radii"] = radii
     if not parts:
         return 0.0, "; ".join(notes)
@@ -2777,13 +2784,40 @@ class Conditions:
         it (models.press_choices), else 0 (no source, 0; MECH56: before, one use every models.PRESS_EVERY s)."""
         return models.press_choice({"name": name}, models.press_choices(self.build)) or 0.0
 
-    def _minion_deaths(self) -> tuple[float, str]:
-        """Your minions Killed per second against a boss and how (models.minion_deaths, from the build's skills; MECHC7)."""
+    def _minion_inputs(self) -> tuple[list, object, dict]:
+        """(the build's enabled skills, the main one, the stats models.minion_deaths reads) for the minion models."""
         found = [models.Skill.of(s) for s in self.build.call("activeSkills")["skills"] if not s["disabled"]]
         group = self.build.main_group()
         main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
-        return models.minion_deaths(found, main, {**self.build.call("stats", fields=models.MODEL_FIELDS),  # (MECHB12: A25-2)
-                                                  "_minion_lives": getattr(self.build, "minion_lives", {})})
+        return found, main, {**self.build.call("stats", fields=models.MODEL_FIELDS),  # (MECHB12: A25-2)
+                             "_minion_lives": getattr(self.build, "minion_lives", {})}
+
+    def _minion_deaths(self) -> tuple[float, str]:
+        """Your minions Killed per second against a boss and how (models.minion_deaths, from the build's skills; MECHC7)."""
+        return models.minion_deaths(*self._minion_inputs())
+
+    def death_storm(self) -> tuple[float, float, str]:
+        """(MECH65) Death Storm's ground: (Commands per second, the chance a Command strikes at least one fallen
+        Skeleton at the boss, how), for shocked_ground. models.death_storm (MECHB20) gives the presses and the mean
+        Skeletons fallen at a moment, from the build's own minion deaths (no source: 0, CLAUDE.md). The ground is made
+        around each struck Skeleton, so only those that fall at the boss put the boss in it: the melee ones (Skeletal
+        Warriors, Reavers, Brutes: ActiveSkills summon_skeleton_* texts and Summon Skeletons' "They use a melee
+        attack"), taken as their share of your Reviving Skeletons (MEDIUM); Snipers, Mages, Arsonists and Clerics keep
+        their distance, and their fallen bodies are taken to be away from the boss (LOW: a boss that closes in on them
+        is missed, an undercount). Deaths at random times, so a Command finds k at the boss with Poisson odds."""
+        found, main, stats = self._minion_inputs()
+        uses, fallen, _, how = models.death_storm(found, main, stats)
+        bones = [s for s in found if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))
+                 and models.is_skeleton(s)]
+        total = sum(number(s.summon.get("limit")) for s in bones)
+        melee = sum(number(s.summon.get("limit")) for s in bones if any(m in s.name for m in DEATH_STORM_MELEE))
+        if uses <= 0 or fallen <= 0 or total <= 0:
+            return 0.0, 0.0, how
+        at_boss = fallen * melee / total
+        chance = 1.0 - math.exp(-at_boss)
+        return uses, chance, (f"{how}; {melee:g} of your {total:g} Reviving Skeletons fight in melee, so "
+                              f"{at_boss:.2f} fallen at the boss on average and {chance:.0%} of Commands strike one "
+                              "there (MEDIUM; ranged Skeletons' bodies taken to be away from it, LOW)")
 
     def _kills(self) -> tuple[float, float, str]:
         """models.kill_rate's (enemies/s, all/s, how) for the request's boss: its preset's add kills (bosses.kill_stats,
@@ -3126,7 +3160,7 @@ class Conditions:
                 stats["_sg_feed"] = self.ground_feed(texts, stats, names)
             stats["_sg_support"] = number((main.get("supportStats") or {}).get(SHOCKED_GROUND_SUPPORT_STATS[0]))
         stats["_sg_charged_mark"] = self.charged_mark(stats) if CHARGED_MARK in names else None
-        stats["_sg_death_storm"] = DEATH_STORM_SUMMON in names
+        stats["_sg_death_storm"] = self.death_storm() if DEATH_STORM_SUMMON in names else None
         stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)
         stats["_shocked_ground"] = shocked_ground(stats, texts)
         if stats["_shocked_ground"][0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)

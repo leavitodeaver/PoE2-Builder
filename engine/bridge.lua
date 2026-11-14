@@ -3015,6 +3015,13 @@ function bridge.activeSkills(args)
 			melee = types[SkillType.Melee] and true or false,
 			-- (MECH64) it can Empower other skills (Murderous Intent's requireSkillTypes; Assumptions.empowered_uses)
 			empowers = types[SkillType.EmpowersOtherSkill] and true or nil,
+			-- (MECH65, AUDIT29 A29-3/4) what a skill must be for another to Empower it (Assumptions.empowered_uses):
+			-- Repeatable (Multicastable; KeywordPopups Repeat: Triggered, Instant and Channelling skills can't Repeat),
+			-- a Slam (Seismic Cry), a Shield attack (Fortifying Cry)
+			repeatable = (types[SkillType.Multicastable] and not types[SkillType.Instant] and not types[SkillType.Channel]
+				and not types[SkillType.Triggered]) and true or nil,
+			slam = types[SkillType.Slam] and true or nil,
+			shield = types[SkillType.RequiresShield] and true or nil,
 			instant = (effect.castTime or 0) == 0 or nil,
 			castTime = effect.castTime,
 			energy = types[SkillType.GeneratesEnergy] and true or false,
