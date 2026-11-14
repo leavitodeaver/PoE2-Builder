@@ -284,12 +284,13 @@ def test_armour_pieces_respect_the_defence_style():
 
 
 def test_legacy_and_granted_gems_are_not_socketable():
-    from builder.search.context import LIVE_LEGACY
+    from builder.search.context import ITEM_SKILL_GEMS, LIVE_LEGACY
 
     ctx = context(main_skill="Ice Shot")
     assert "Ice Shot" in ctx.gems
-    assert all(not g.get("fromItem") and not g.get("fromTree") and (not g.get("legacy") or g["name"] in LIVE_LEGACY)
-               for g in ctx.gems.values())
+    # (COV26: an item-granted skill the game now gives as a gem, ITEM_SKILL_GEMS: Living Bomb, is socketable)
+    assert all((not g.get("fromItem") or g["name"] in ITEM_SKILL_GEMS) and not g.get("fromTree")
+               and (not g.get("legacy") or g["name"] in LIVE_LEGACY) for g in ctx.gems.values())
 
 
 def test_murderous_intent_is_drop_disabled_but_its_cull_stays_priced_at_empowered_uses():
