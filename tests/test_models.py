@@ -323,6 +323,41 @@ def test_an_invocations_store_caps_what_the_presses_release():
     assert models.invocation_release(many, {"EnergyRefund": 0, "InvocationHalfCost": 0}, 300, 500)[0] == pytest.approx(10)
 
 
+def test_ritual_cadence_triggers_one_round_each_2_seconds_at_half_cost_and_gains_nothing_meanwhile():
+    """Ritual Cadence (MECHB27): its three tree lines reach the model through the ledger; a round costs 50% less and comes
+    each 2 s while the Invocation triggers, gaining no Energy meanwhile: rounds/s = fed / (1 + 2 x fed), where fed is
+    the rate the Energy feeds at the halved cost. The press rate no longer caps it; a spell costing up to twice the store
+    can now trigger."""
+    keystone = models.read_inputs([{"source": "passive:Ritual Cadence", "text": t} for t in (
+        "Invocation Skills instead Trigger Spells every 2 seconds",
+        "Invocation Skills cannot gain Energy while Triggering Spells", "Invoked Spells consume 50% less Energy")])
+    assert keystone.total("InvocationCadence") == 2 and keystone.total("InvocationLess") == 50
+    assert keystone.has("InvocationNoGainTriggering")
+    elemental = Skill("Elemental Invocation", group=2, energy=True, cooldown=0.2)
+    comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=3.0)
+    stats = {"Speed": 4, "HitChance": 100, "ShockChanceOnHit": 100}
+
+    def rate(inputs, skills=(SPARK, elemental, comet), choices=None):
+        mods, notes, _ = models.energy_model(inputs, stats, list(skills), SPARK, None, None, choices)
+        return {m["skill"]: m["value"] for m in mods if m.get("key") == "triggerRate"}[skills[-1].name], notes
+
+    plain, _ = rate(Inputs())
+    fed = 2 * plain  # (the halved cost doubles what the Energy feeds; the presses kept up without the keystone)
+    cadenced, notes = rate(keystone)
+    assert cadenced == pytest.approx(fed / (1 + 2 * fed), rel=1e-3) and cadenced < 0.5
+    assert any("Ritual Cadence" in n["basis"] for n in notes)
+    # a slow chosen press rate doesn't cap it: one press a cycle
+    assert rate(keystone, choices={"Elemental Invocation": plain / 10})[0] == pytest.approx(cadenced, rel=1e-3)
+    # without the no-gain line: at most one round each 2 s
+    every = Inputs(passive={"InvocationCadence": 2.0, "InvocationLess": 50.0})
+    assert rate(every)[0] == pytest.approx(min(fed, 0.5), rel=1e-3)
+    assert models.cadence_rate(float("inf"), 2, True) == pytest.approx(0.5)
+    # an 8 s spell (800 Energy) never fits the 500 store, but at 50% less (400) it does
+    big = Skill("Comet", group=2, spell=True, triggered=True, cast_time=8.0)
+    assert rate(Inputs(), (SPARK, elemental, big))[0] == 0
+    assert rate(keystone, (SPARK, elemental, big))[0] > 0
+
+
 def test_unmodeled_metas_count_nothing_rather_than_a_self_cast():
     dodge = Skill("Feral Invocation", group=2, energy=True)
     comet = Skill("Comet", group=2, spell=True, triggered=True, cast_time=1.2)

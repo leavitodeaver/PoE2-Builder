@@ -2166,7 +2166,7 @@ def meta_handling(name: str) -> tuple[bool, str]:
         if name in table:
             return False, why.format(table[name])
     return False, "a Meta gem the builder doesn't know yet"
-ENERGY_INPUTS = ("MetaEnergy", "MetaEnergyCrit", "MetaEnergyMore", "EnergyRefund", "InvocationHalfCost")
+ENERGY_INPUTS = ("MetaEnergy", "MetaEnergyCrit", "MetaEnergyMore", "EnergyRefund", "InvocationHalfCost", "InvocationLess")
 RECENTLY = 4.0  # seconds
 
 
@@ -2292,7 +2292,35 @@ def round_energy(meta: str, x: dict, cost: float) -> float:
     spent = cost * (1 - min(x["EnergyRefund"], 100.0) / 200)
     if META_GEMS[meta].get("invocation"):
         spent *= 1 - min(x["InvocationHalfCost"], 100.0) / 200
+        spent *= 1 - min(x.get("InvocationLess", 0.0), 100.0) / 100  # (Ritual Cadence's 50% less: taken to stack
+        # with the chance to consume half, both multiplying the cost; UNVERIFIED)
     return spent
+
+
+# Ritual Cadence (MECHB27; plans/kw-invoke.md; research 18ag): the keystone (PassiveSkills passive_keystone_auto_invocation,
+# stat keystone_auto_invocation; tree node 11230, PoB tree 0_5) reads "Invocation Skills instead Trigger Spells every 2
+# seconds" / "Invocation Skills cannot gain Energy while Triggering Spells" / "Invoked Spells consume 50% less Energy"
+# (KeywordPopups KeystoneAutoInvocation; poe2db Ritual_Cadence, 14 Nov: the same three lines). Patch 0.3.0 added it: "This
+# Keystone changes your Invocations to trigger skills every 2 seconds instead of all at once, but triggered skills consume
+# less Energy" (the archive's newest entry for it; no later hit, which isn't proof of no later change). PoB parses none of
+# the three lines (ModCache 8384-8386 / 8389: leftover text) and nothing reads its Condition:HaveRitualCadence (checked:
+# grep RitualCadence over PoB's src: the keystone list and ModCache only). The tree node is its one source in the game
+# files (checked: every table's Stat columns for stat 22937 keystone_auto_invocation: PassiveSkills row 5969 only; PoB's
+# uniques name no item granting it).
+# The reading (MEDIUM: the game's words, how the triggering state times out is not in them): a press starts a triggering
+# state that releases one round every 2 s, at the reduced cost, until the store can't pay a round; no Energy is gained in
+# that state; the player presses again once the store has refilled. Each round then takes 2 s of triggering plus the time
+# the build needs to gain its Energy, so rounds per second = 1 / (2 + a round's Energy / Energy per second) =
+# fed / (1 + 2 x fed), whatever the number of rounds stored (each 2 s per round counted, the first one too: UNVERIFIED;
+# if the state ended at its last trigger, a full store would come slightly faster). Without the no-gain line the rounds
+# would be min(fed, one per 2 s). The 0.2 s cooldown and the chosen press rate don't cap it (one press a cycle).
+def cadence_rate(fed: float, every: float, no_gain: bool) -> float:
+    """Rounds per second under Ritual Cadence from the rate the build's Energy gain feeds at the reduced cost."""
+    if fed <= 0 or every <= 0:
+        return max(fed, 0.0)
+    if math.isinf(fed):
+        return 1 / every
+    return fed / (1 + every * fed) if no_gain else min(fed, 1 / every)
 
 
 # An Invocation's store against the build's press rate (MECHB26; AUDIT34 A34-18, CLAUDE.md's flat-rate rule). The
@@ -2389,13 +2417,15 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
             continue
         cap, cap_basis = invocation_max_energy(inputs, (supports or {}).get(meta.group, []), meta.name,
                                                (qualities or {}).get(meta.group, 0.0))
+        less = min(inputs.total("InvocationLess"), 100.0) / 100  # (Ritual Cadence: the cost a trigger consumes)
         too_big = [s for s in spells if META_GEMS.get(meta.name, {}).get("invocation")
-                   and energy_cost(s) > cap]
+                   and energy_cost(s) * (1 - less) > cap]
         for spell in too_big:  # (MECHB4, COVC6: the Invocation's store can never hold its cost)
             mods += trigger_rate(spell.name, 0.0)
             notes.append({"label": f"{meta.name} triggers per second ({spell.name}; not counted)", "value": 0,
                           "basis": f"{spell.name} costs {energy_cost(spell):.0f} Energy (10 per 0.1 s of base cast time"
-                                   f"{', its Total Cast Time addition counted double' if spell.total_time_added else ''}), "
+                                   f"{', its Total Cast Time addition counted double' if spell.total_time_added else ''}"
+                                   f"{f', {less:.0%} less consumed (Ritual Cadence)' if less else ''}), "
                                    f"more than the {cap:.0f} Energy this Invocation can store{cap_basis} "
                                    "(generic_ongoing_trigger_maximum_energy, game files): it never triggers",
                           "confidence": "theory"})
@@ -2427,16 +2457,25 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                      invocation: bool = invocation) -> tuple[float, float, str]:
             return invocation_release(meta, x, cost, cap, choices) if invocation else (float("inf"), 0.0, "")
 
+        cadence = inputs.total("InvocationCadence") if invocation else 0.0
+        no_gain = inputs.has("InvocationNoGainTriggering")
+
+        def combined(fed: float, most: float, cadence: float = cadence, no_gain: bool = no_gain) -> float:
+            if cadence > 0:  # (Ritual Cadence: one round each 2 s while triggering; a round the store can't hold, none)
+                return cadence_rate(fed, cadence, no_gain) if most > 0 else 0.0
+            return min(fed, most)
+
         fed = energy_rate(meta.name, x, gain, cost, crits_recently, doubled, meta.level)
         most, presses, release_how = released(x)
-        rate = min(fed, most)
+        rate = combined(fed, most)
         if rate > 0:  # (a group whose spells never trigger adds no damage, and mustn't change how the build is scored)
             groups.add(meta.group)
 
         def relative(x: dict, meta_name: str = meta.name, gain: float = gain, cost: float = cost,
-                     base: float = rate, level: int | None = meta.level, released=released) -> float:
+                     base: float = rate, level: int | None = meta.level, released=released,
+                     combined=combined) -> float:
             fed = energy_rate(meta_name, x, gain, cost, crits_recently, doubled, level)
-            return 100 * (min(fed, released(x)[0]) / base - 1) if base else 0.0
+            return 100 * (combined(fed, released(x)[0]) / base - 1) if base else 0.0
 
         keys = tuple(k for k in ENERGY_INPUTS if k != "MetaEnergyCrit" or crits_recently)
         for spell in spells:
@@ -2463,7 +2502,19 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                      + f"; one round costs {cost:.0f} Energy (10 per 0.1s of base cast time)"
                      + energy_time_note(spells)
                      + (f", {x['EnergyRefund']:.0f}% chance to refund half" if x["EnergyRefund"] else "")
-                     + (f"; an Invocation: its store holds {cap:.0f} Energy{cap_basis}, {release_how}"
+                     + (f", {x['InvocationLess']:.0f}% less Energy consumed" if x.get("InvocationLess") else "")
+                     + (f"; Ritual Cadence: one round each {cadence:g} s while it triggers"
+                        + (", and no Energy gained meanwhile" if no_gain else "")
+                        + f" (its store holds {cap:.0f} Energy{cap_basis}: "
+                        + (f"{math.floor(cap / round_energy(meta.name, x, cost) + 1e-9)} rounds stored, "
+                           if round_energy(meta.name, x, cost) > 0 else "")
+                        + f"pressed once the store has refilled): the Energy alone would feed {fed:.3f} rounds a "
+                          f"second, Ritual Cadence gives {rate:.3f} ("
+                        + (f"1 / ({cadence:g} s + the {(1 / fed if fed > 0 else float('inf')):.2f} s a round's Energy "
+                           "takes to gain)" if no_gain else f"at most one round each {cadence:g} s")
+                        + "); how the triggering state times out is UNVERIFIED, MEDIUM"
+                        if cadence > 0 and info.get("invocation") else
+                        f"; an Invocation: its store holds {cap:.0f} Energy{cap_basis}, {release_how}"
                         + (f"; the build's Energy would feed {fed:.3f} rounds a second, the presses release {most:.3f}: "
                            f"the store fills between presses and {1 - most / fed:.0%} of the Energy gained is lost "
                            "(without that cap: " f"{fed:.3f}/s)" if fed > most and fed > 0

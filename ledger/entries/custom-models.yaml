@@ -242,6 +242,39 @@
   sources: ["https://poe2db.tw/Invocated_Echoes"]
   status: approved
 
+- id: meta-ritual-cadence-every
+  title: "Ritual Cadence: Invocations trigger spells every N seconds (Energy model input)"
+  kind: pob_gap
+  model: energy
+  match: '^Invocation Skills instead Trigger Spells every (\d+) seconds$'
+  replace: ['mult:InvocationCadence {1}']
+  confidence: datamined
+  notes: "Keystone Ritual Cadence (passive_keystone_auto_invocation, tree node 11230). A press starts a triggering state releasing one round every 2 s until the store can't pay a round (the reading; how the state times out is UNVERIFIED). models.cadence_rate. PoB parses none of it (ModCache: leftover text) (MECHB27)."
+  sources: ["https://poe2db.tw/us/Ritual_Cadence", "patch 0.3.0: Ritual Cadence added"]
+  status: approved
+
+- id: meta-ritual-cadence-no-gain
+  title: "Ritual Cadence: no Energy gained while triggering (Energy model input)"
+  kind: pob_gap
+  model: energy
+  match: '^Invocation Skills cannot gain Energy while Triggering Spells$'
+  replace: ['flag:InvocationNoGainTriggering']
+  confidence: datamined
+  notes: "With it each round takes 2 s plus the time its Energy takes to gain: rounds/s = 1 / (2 + Energy a round / Energy per second) (MECHB27)."
+  sources: ["https://poe2db.tw/us/Ritual_Cadence"]
+  status: approved
+
+- id: meta-ritual-cadence-less
+  title: "Invoked Spells consume less Energy (Energy model input)"
+  kind: pob_gap
+  model: energy
+  match: '^Invoked Spells consume (\d+)% less Energy$'
+  replace: ['mult:InvocationLess {1}']
+  confidence: datamined
+  notes: "Ritual Cadence's 50% less: an Invocation's round costs x(1 - N/100), and a spell costing up to twice the store can trigger. Taken to stack multiplicatively with Invocated Echoes' chance to consume half (UNVERIFIED) (MECHB27)."
+  sources: ["https://poe2db.tw/us/Ritual_Cadence"]
+  status: approved
+
 - id: meta-invocation-maximum
   title: Invocated skills' maximum Energy (Energy model input, which spells an Invocation can afford)
   kind: pob_gap
