@@ -59,6 +59,8 @@ calcFlaskRecovery applies only to flasks whose effect isn't removed at full Life
 and Mana only). It adds nothing to PoB: the audit reports the line as not applied ("none"), with `owner` (the lane whose
 model would count it) as its route and `why` as the evidence. A model entry for the line takes over once one exists.
 (Also used for a line PoB reads nowhere, to name its owner: the audit lists such a line as a no-op either way.)
+`direction: overcount` (COV28) marks a downside nothing counts (Fireflower's self-damage on Ignite): the audit routes it
+as an OVERCOUNT, not an undercount.
 
 `gap lists` come from PoB itself (bridge `auditUnsupported`, saved by the data dump as gaps.json):
 every passive and unique line its parser doesn't understand.

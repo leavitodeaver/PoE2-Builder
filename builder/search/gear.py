@@ -32,7 +32,7 @@ from builder.search.flasks import (
 )
 from builder.search.rares import (
     MAGIC_LIMIT, RUNE_KEEP, SCREEN_KEEP, Affix, AffixPools, RuneCatalog, magic_price, magic_text, rare_price, rare_text,
-    socket_count, with_runes,
+    socket_count, unique_text, with_runes,
 )
 from builder.search.state import EPSILON, Build
 from builder.search.conditions import FULL_UPTIME, SWITCH_ON
@@ -523,12 +523,13 @@ class Gear:
         """The option with its sockets filled by the runes that score best."""
         build = self.build
         base = self.ctx.bases_by_name.get(option.base)
-        count = socket_count(base, option.unique) if base else 0
+        count = socket_count(base, option.unique, unique_text(self.ctx, option)) if base else 0
         if count == 0 or clock.now() > deadline:
             return option
         raw = with_runes(option.raw, [])
         left = self.left_for(slot) - (option.price or 0.0)
-        names = [n for n in self.runes.candidates(base, option.unique) if (self.runes.price(n) or 0.0) <= left]
+        names = [n for n in self.runes.candidates(base, option.unique, unique_text(self.ctx, option))
+                 if (self.runes.price(n) or 0.0) <= left]
         if not names:
             return option
         scored = build.item_deltas([{"slot": slot, "raw": with_runes(raw, [n])} for n in names])
@@ -641,8 +642,9 @@ class Gear:
                 or anoints.SEALED.search(option.raw) or anoints.capacity(option) > 0):
             return option
         base = self.ctx.bases_by_name.get(option.base)
-        count = socket_count(base, option.unique) if base else 0
-        if count == 0 or anoints.SHARD not in self.runes.candidates(base, option.unique):
+        count = socket_count(base, option.unique, unique_text(self.ctx, option)) if base else 0
+        if count == 0 or anoints.SHARD not in self.runes.candidates(base, option.unique,
+                                                                    unique_text(self.ctx, option)):
             return option
         limit = self.runes.limit(anoints.SHARD)
         if limit:

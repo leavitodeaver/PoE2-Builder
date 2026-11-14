@@ -446,3 +446,22 @@ def test_cultivated_outcomes_are_live_and_the_no_carrier_ones_labelled_not_dropp
     assert len(coverage.CULTIVATED_NO_CARRIER) == 28
     assert not any(coverage.HANDWRAPS_MUTATED.match(m) for m in coverage.CULTIVATED_NO_CARRIER)
 
+
+
+def test_a_downside_pob_parses_but_nothing_reads_is_routed_as_an_overcount():
+    """COV28 (AUDIT33 A33-2's scan, widened to wildcard reads): Fireflower's "Take 100 Fire Damage when you Ignite an
+    Enemy" is parsed to EyeOfInnocenceSelfDamage, which no PoB code reads (the audit's \w*Damage wildcard matched it):
+    a `direction: overcount` parsed_unused entry routes it as an OVERCOUNT, never an undercount."""
+    from builder.data import data_dir
+    from builder.ledger import parsed_unused
+
+    line = "Take 100 Fire Damage when you Ignite an Enemy"
+    entry = parsed_unused(line)
+    assert entry and entry.id == "unused-fire-damage-taken-on-ignite" and entry.raw["direction"] == "overcount"
+    if not (data_dir() / "coverage.json").exists():
+        pytest.skip("no coverage.json")
+    records = [r for r in coverage.audit()["records"] if r["line"] == line]
+    assert records
+    for r in records:
+        assert r["status"] == "none" and r["entry"] == entry.id and r["routed"] == "MECH-B"
+        assert r.get("overcount") and not r.get("undercount") and "OVERCOUNT" in r["reason"]

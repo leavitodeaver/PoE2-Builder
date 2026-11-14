@@ -857,10 +857,17 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
             record["reason"] += (f"; a recovery source no rate reads yet ({name}, recovery.EVENT_UNREAD): an UNDERCOUNT "
                                  "in the sustain share and the recovery floor, routed to MECH-C")
     # Lines a `parsed_unused` entry records (COV27): routed to its owner as an undercount, as above
+    # (an entry with `direction: overcount`, COV28, records a downside nothing counts: an OVERCOUNT, not an undercount)
     unused_owner = {e.id: e.raw.get("owner") for e in entries() if e.kind == "parsed_unused"}
+    overcounts = {e.id for e in entries() if e.kind == "parsed_unused" and e.raw.get("direction") == "overcount"}
     for record in records:
         if record["status"] == "none" and record["entry"] in unused_owner:
             record["routed"] = unused_owner[record["entry"]]
+            if record["entry"] in overcounts:
+                record["overcount"] = True
+                if "OVERCOUNT" not in record["reason"]:
+                    record["reason"] += f"; an OVERCOUNT (a downside nothing counts), routed to {record['routed']}"
+                continue
             record["undercount"] = True
             if "UNDERCOUNT" not in record["reason"]:
                 record["reason"] += f"; an UNDERCOUNT, routed to {record['routed']}"

@@ -84,3 +84,25 @@
   sources: ["https://poe2db.tw/us/Brain_Rattler"]
   test_in_game: "Hit a boss with Brain Rattler: its Electrocute bar should fill from all damage types."
   status: proposed
+
+- id: unused-fire-damage-taken-on-ignite
+  title: "Take 100 Fire Damage when you Ignite an Enemy (Fireflower): PoB parses it to EyeOfInnocenceSelfDamage and nothing reads that name; the downside isn't counted"
+  kind: parsed_unused
+  owner: MECH-B
+  direction: overcount
+  match: '^Take 100 Fire Damage when you Ignite an Enemy$'
+  replace: []
+  confidence: datamined
+  why: >-
+    PoB's ModCache 9576 makes a LIST mod EyeOfInnocenceSelfDamage {baseDamage=100, damageType="fire"}. No PoB file reads
+    that name (checked: grep of PoB's src Modules/, Classes/, Data/Misc.lua for EyeOfInnocence: none outside
+    ModParser / ModCache; grep of builder/ and engine/bridge.lua: none). The audit counted the line as read only because
+    its wildcard \w*Damage (a joined name) matches it (COV28's scan, scratch/cov28/wild.py: the wildcard piece
+    "EyeOfInnocenceSelf" is no string PoB writes). Carrier: Fireflower (Solar Amulet, PoB Data/Uniques/amulet.lua 131,
+    "Current" variant). An OVERCOUNT of Life sustain and the recovery floor for an Ignite build wearing it: 100 Fire
+    damage (before Fire Resistance) per Ignite inflicted. The tool already takes per-event self-damage through
+    Build.added_stats' SelfDamageEvents (objective.py SELF_EVENTS, the minion-death self-damage), so the model is the
+    build's Ignites per second x 100 Fire x (1 - Fire Resistance) there.
+  sources: ["https://poe2db.tw/us/Fireflower"]
+  test_in_game: "Wear Fireflower and Ignite a boss: Life should drop by about 100 x (1 - Fire Resistance) per Ignite."
+  status: proposed

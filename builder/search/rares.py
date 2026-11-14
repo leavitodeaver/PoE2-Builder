@@ -281,13 +281,68 @@ def rare_price(slot: str, affixes: list[Affix]) -> float:
 
 # Sockets ------------------------------------------------------------------------------------
 
-def socket_count(base: dict, unique: bool) -> int:
+def socket_count(base: dict, unique: bool, raw: str | None = None) -> int:
     """Rune sockets an item gets without corruption: two on body armours and two-handers, one
-    elsewhere on items that take sockets at all."""
+    elsewhere on items that take sockets at all. A unique's own fixed sockets (`raw`, below) win."""
+    if raw is not None and (own := own_sockets(base, raw)) is not None:
+        return own
     limit = base.get("socketLimit")
     if not limit:
         return 0
     return max(limit - 2, 0)
+
+
+# A unique's own socket rules (COV28; AUDIT33 A33-2's scan: PoB parses these lines into the flags SocketedRunesOnly,
+# SocketedSoulCoresOnly and NoSockets and reads them only in ItemsTab's socket menu, ItemsTab.lua 2290-2303, so a filler
+# that ignores them puts any augment in). Game stats local_can_only_socket_runes / _soul_cores / local_has_no_sockets
+# (Mods UniqueOnlySocketRunes1, UniqueOnlySocketSoulCores1, HasNoSockets).
+ONLY_AUGMENT = {"Only Runes can be Socketed in this item": "Rune",
+                "Only Soul Cores can be Socketed in this item": "SoulCore"}
+TAGS = re.compile(r"^(?:\{[^}]*\})*")
+# Uniques whose fixed sockets are augment sockets, each checked on poe2db (14 Nov 2026, "Has N Augment Sockets
+# (Hidden)") against PoB's "Sockets:" line. Not a rule for every "Sockets:" line: Tabula Rasa's 6 are "Jewel Sockets
+# (Hidden)" (poe2db), and the rings' (Eshtera's Path, ...) hold jewels; Darkness Enthroned (a belt the rune categories
+# can't place), Serle's Grit (by base variant) and the "Has 4 Augment Sockets" variants (Greymake, The Bringer of Rain)
+# aren't checked: they keep the base's count, an open UNDERCOUNT.
+AUGMENT_SOCKETS = {"Atziri's Splendour": 6, "Runeseeker's Call": 5, "Morior Invictus": 4}
+
+
+def _lines(raw: str) -> list[str]:
+    return [TAGS.sub("", line) for line in raw.splitlines()]
+
+
+def own_sockets(base: dict, raw: str) -> int | None:
+    """A unique's fixed augment sockets (AUGMENT_SOCKETS), 0 on "Has no Sockets", else None (the base's count).
+    Before COV28 the filler erased them and gave the base's count (Atziri's Splendour 2, Runeseeker's Call 1,
+    Morior Invictus 2: an UNDERCOUNT)."""
+    lines = _lines(raw)
+    if "Has no Sockets" in lines:
+        return 0
+    name = lines[1] if len(lines) > 1 and lines[0].startswith("Rarity:") else lines[0] if lines else ""
+    return AUGMENT_SOCKETS.get(name)
+
+
+_UNIQUE_TEXTS: dict[int, dict[str, str]] = {}
+
+
+def unique_text(ctx: Context, option: ItemOption) -> str | None:
+    """A unique option's catalogue text, for its fixed sockets and socket rules (None for other items). Not the
+    option's own text: once filled, that holds only as many sockets as runes were bought."""
+    if not option.unique:
+        return None
+    texts = _UNIQUE_TEXTS.get(id(ctx.data))
+    if texts is None:
+        texts = _UNIQUE_TEXTS[id(ctx.data)] = {}
+        for unique in ctx.data.uniques:
+            texts.setdefault(unique["name"], unique["raw"])
+    return texts.get(option.name)
+
+
+def only_augment(raw: str | None) -> str | None:
+    """The one augment type a unique takes ("Rune" / "SoulCore"), or None."""
+    if not raw:
+        return None
+    return next((ONLY_AUGMENT[l] for l in _lines(raw) if l in ONLY_AUGMENT), None)
 
 
 def rune_categories(base: dict) -> set[str]:
@@ -328,8 +383,9 @@ class RuneCatalog:
         price = self.prices.get(name)
         return price if price is not None and price <= self.ctx.price_cap else None
 
-    def candidates(self, base: dict, unique: bool) -> list[str]:
+    def candidates(self, base: dict, unique: bool, raw: str | None = None) -> list[str]:
         categories = rune_categories(base)
+        only = only_augment(raw)  # "Only Runes / Soul Cores can be Socketed in this item"
         names = []
         for rune in self.ctx.data.runes:
             if rune["name"] in self.ctx.compiled.filters.forbidden_augments:
@@ -337,6 +393,8 @@ class RuneCatalog:
             slots = rune["slots"]
             entries = [slots[c] for c in categories if c in slots]
             if not entries:
+                continue
+            if only and not any(e.get("type") == only for e in entries):
                 continue
             if unique and not any(e.get("canSocketInUniqueItems") for e in entries):
                 continue
@@ -347,5 +405,5 @@ class RuneCatalog:
         return names
 
 
-__all__ = ["AffixPools", "Affix", "RuneCatalog", "rare_text", "rare_price", "with_runes", "socket_count", "boosted",
+__all__ = ["AffixPools", "Affix", "RuneCatalog", "rare_text", "rare_price", "with_runes", "socket_count", "own_sockets", "only_augment", "unique_text", "boosted",
            "implicit_lines", "TIER_RULES", "SCREEN_KEEP", "RUNE_KEEP", "ItemOption"]
