@@ -450,7 +450,7 @@ def test_cultivated_outcomes_are_live_and_the_no_carrier_ones_labelled_not_dropp
 
 def test_a_downside_pob_parses_but_nothing_reads_is_routed_as_an_overcount():
     """COV28 (AUDIT33 A33-2's scan, widened to wildcard reads): Fireflower's "Take 100 Fire Damage when you Ignite an
-    Enemy" is parsed to EyeOfInnocenceSelfDamage, which no PoB code reads (the audit's \w*Damage wildcard matched it):
+    Enemy" is parsed to EyeOfInnocenceSelfDamage, which no PoB code reads (the audit's "...Damage" wildcard matched it):
     a `direction: overcount` parsed_unused entry routes it as an OVERCOUNT, never an undercount."""
     from builder.data import data_dir
     from builder.ledger import parsed_unused

@@ -528,7 +528,7 @@ class Gear:
             return option
         raw = with_runes(option.raw, [])
         left = self.left_for(slot) - (option.price or 0.0)
-        names = [n for n in self.runes.candidates(base, option.unique, unique_text(self.ctx, option))
+        names = [n for n in self.runes.candidates(base, option.unique, option.raw)
                  if (self.runes.price(n) or 0.0) <= left]
         if not names:
             return option
@@ -643,8 +643,7 @@ class Gear:
             return option
         base = self.ctx.bases_by_name.get(option.base)
         count = socket_count(base, option.unique, unique_text(self.ctx, option)) if base else 0
-        if count == 0 or anoints.SHARD not in self.runes.candidates(base, option.unique,
-                                                                    unique_text(self.ctx, option)):
+        if count == 0 or anoints.SHARD not in self.runes.candidates(base, option.unique, option.raw):
             return option
         limit = self.runes.limit(anoints.SHARD)
         if limit:

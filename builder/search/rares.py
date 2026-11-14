@@ -299,12 +299,56 @@ def socket_count(base: dict, unique: bool, raw: str | None = None) -> int:
 ONLY_AUGMENT = {"Only Runes can be Socketed in this item": "Rune",
                 "Only Soul Cores can be Socketed in this item": "SoulCore"}
 TAGS = re.compile(r"^(?:\{[^}]*\})*")
-# Uniques whose fixed sockets are augment sockets, each checked on poe2db (14 Nov 2026, "Has N Augment Sockets
-# (Hidden)") against PoB's "Sockets:" line. Not a rule for every "Sockets:" line: Tabula Rasa's 6 are "Jewel Sockets
-# (Hidden)" (poe2db), and the rings' (Eshtera's Path, ...) hold jewels; Darkness Enthroned (a belt the rune categories
-# can't place), Serle's Grit (by base variant) and the "Has 4 Augment Sockets" variants (Greymake, The Bringer of Rain)
-# aren't checked: they keep the base's count, an open UNDERCOUNT.
-AUGMENT_SOCKETS = {"Atziri's Splendour": 6, "Runeseeker's Call": 5, "Morior Invictus": 4}
+# Uniques whose fixed sockets are augment sockets, each checked on poe2db (14 Nov 2026: "Has N Augment Sockets
+# (Hidden)", Serle's Grit "Has 3 Sockets") against PoB's text ("Sockets:" line or "Has N Augment Sockets"). Not a rule for
+# every "Sockets:" line: Tabula Rasa's 6 are "Jewel Sockets (Hidden)" (poe2db), and the rings' (Eshtera's Path, Safrin's
+# Resolve, Zaida's Longevity) hold jewels. Greymake's and The Bringer of Rain's 4 are their current variants' (PoB:
+# {variant:2} / {variant:3}, the variant selected).
+AUGMENT_SOCKETS = {"Atziri's Splendour": 6, "Runeseeker's Call": 5, "Morior Invictus": 4, "Darkness Enthroned": 2,
+                   "Serle's Grit": 3, "Greymake": 4, "The Bringer of Rain": 4}
+# "This item gains bonuses from Socketed Items as though it was a <type>" (Darkness Enthroned, The Bringer of Rain: every
+# augment counts for that type) and "... from Socketed Soul Cores as though it was also <type>" (Atziri's Splendour: Soul
+# Cores count for that type too). PoB reads the text itself (Classes/Item.lua 1279 / 1280; GetSocketedAugmentTypes 2387
+# returns "armour", <type>; 1527 applies a Soul Core's <type> line), so the filler must offer what those types take.
+AS_THOUGH = re.compile(r"^This item gains bonuses from Socketed Items as though it was a? ?(.+)$", re.I)
+AS_THOUGH_CORE = re.compile(r"^This item gains bonuses from Socketed Soul Cores as though it was also a? ?(.+)$", re.I)
+VARIANT_TAG = re.compile(r"\{(variant|group|base):([\d,]+)\}")
+
+
+def active_lines(raw: str) -> list[str]:
+    """The item text's lines PoB applies, tags stripped: PoB's variant rule (Classes/Item.lua CheckModLineVariant) for
+    "{variant:..}", "{group:..}" and "{base:..}" tags, with PoB's default (the last variant) when none is selected."""
+    lines = raw.splitlines()
+    variants = sum(1 for l in lines if l.startswith("Variant:"))
+    selected = next((int(l.split(":")[1]) for l in lines if l.startswith("Selected Variant:")), variants or None)
+    groups = dict(tuple(int(x) for x in l.split(":")[1].split("=")) for l in lines
+                  if l.startswith("Selected Variant Group:"))
+    base = next((int(l.split(":")[1]) for l in lines if l.startswith("Selected Base Variant:")), None)
+    found = []
+    for line in lines:
+        tags = {k: {int(x) for x in v.split(",")} for k, v in VARIANT_TAG.findall(TAGS.match(line).group(0))}
+        if "base" in tags and base is not None and base not in tags["base"]:
+            continue
+        if "group" in tags:
+            if not any(groups.get(g) in tags.get("variant", set()) for g in tags["group"]):
+                continue
+        elif "variant" in tags and selected is not None and selected not in tags["variant"]:
+            continue
+        found.append(TAGS.sub("", line))
+    return found
+
+
+def augment_types(raw: str | None) -> tuple[str | None, set[str]]:
+    """(the type every augment counts for, or None; extra types Soul Cores count for) from the item's applied lines."""
+    if not raw:
+        return None, set()
+    override, cores = None, set()
+    for line in active_lines(raw):
+        if m := AS_THOUGH.match(line):
+            override = m.group(1).strip().lower()
+        elif m := AS_THOUGH_CORE.match(line):
+            cores.add(m.group(1).strip().lower())
+    return override, cores
 
 
 def _lines(raw: str) -> list[str]:
@@ -384,17 +428,24 @@ class RuneCatalog:
         return price if price is not None and price <= self.ctx.price_cap else None
 
     def candidates(self, base: dict, unique: bool, raw: str | None = None) -> list[str]:
-        categories = rune_categories(base)
+        """Augments for the item's sockets. `raw`, the item's text, carries a unique's socket rules (only_augment,
+        augment_types); jewellery takes only augments marked canSocketInJewellery (ItemsTab.lua 2303)."""
+        override, cores = augment_types(raw)
+        categories = {"armour", override} if override else rune_categories(base)
         only = only_augment(raw)  # "Only Runes / Soul Cores can be Socketed in this item"
+        jewellery = base["type"] in ("Ring", "Amulet", "Belt")
         names = []
         for rune in self.ctx.data.runes:
             if rune["name"] in self.ctx.compiled.filters.forbidden_augments:
                 continue
             slots = rune["slots"]
             entries = [slots[c] for c in categories if c in slots]
+            entries += [slots[c] for c in cores - categories if c in slots and slots[c].get("type") == "SoulCore"]
             if not entries:
                 continue
             if only and not any(e.get("type") == only for e in entries):
+                continue
+            if jewellery and not any(e.get("canSocketInJewellery") for e in entries):
                 continue
             if unique and not any(e.get("canSocketInUniqueItems") for e in entries):
                 continue
@@ -405,5 +456,5 @@ class RuneCatalog:
         return names
 
 
-__all__ = ["AffixPools", "Affix", "RuneCatalog", "rare_text", "rare_price", "with_runes", "socket_count", "own_sockets", "only_augment", "unique_text", "boosted",
+__all__ = ["AffixPools", "Affix", "RuneCatalog", "rare_text", "rare_price", "with_runes", "socket_count", "own_sockets", "only_augment", "unique_text", "active_lines", "augment_types", "boosted",
            "implicit_lines", "TIER_RULES", "SCREEN_KEEP", "RUNE_KEEP", "ItemOption"]
