@@ -3732,6 +3732,55 @@ def bone_shrapnel_model(kills: float, add_life: float | None, pinned: float | No
     return dps, [{"label": label, "value": f"{dps:,.0f} DPS", "basis": basis, "confidence": conf, "play": play}]
 
 
+# Broken Stance (GEM5; GEM1's design, corrected by MECH70 and checked here). Game files 26476662: KeywordPopups
+# BrokenStance "a [Debuff] inflicted by [Hit|Hits], which stores 10% of the Pre-mitigation Physical Hit damage of the Hit
+# that inflicts it as its Magnitude. The inflicter's subsequent Hits against the target will gain additional unscaleable
+# added Physical Damage equal to that magnitude. Enemies with Broken Stance cannot be Dazed again"; ActiveSkills
+# vaulting_impact "The shockwave applies Broken Stance to Dazed enemies"; statset VaultingImpactDazedPlayer:
+# exploit_debuff_attack_damage_to_convert_to_magnitude_% 10, base_skill_effect_duration 60000, broken_stance_hit_limit 10.
+# Patch notes (--history "Vaulting Impact", newest on this: 0.4.0): "Broken Stance ... now has a 60-second duration and is
+# removed after taking 10 Hits ... stored ... is now 10%"; quality raises the hit count. The player's Vaulting Impact
+# (VaultingImpactPlayer) carries cannot_daze and NOT consume_enemy_dazed_to_gain_hit_damage_stun_multiplier_+%_final (that
+# stat is only on VaultingImpactExileMonk1, a monster's set: checked GrantedEffectStatSets; MECH70 found the same): it
+# neither Dazes nor consumes Daze. GEM1's note "Vaulting Impact also consumes Daze" was wrong for the player's skill.
+# So Broken Stance needs the boss Dazed by ANOTHER of the build's sources: `dazed` is MECH-A's build.dazed_up share (MECH70,
+# c08db85), 0 without a source, so the model gives 0 with that reason. The cycle: after a Broken Stance ends, the next
+# Vaulting Impact hit on a Dazed boss applies a new one (wait 1 / (its hits/s x dazed)); it lasts until `limit` of the
+# build's later hits or 60 s; each of those hits gains the magnitude x the boss's Physical mitigation. The "cannot be Dazed
+# again" while it's up isn't fed back into the Daze share (an OVERCOUNT where the Daze would lapse meanwhile: LOW).
+# "Unscaleable": no crit multiplier on it (UNVERIFIED, as Riven Armour's). Not wired: no number moves.
+STANCE_SKILL = "Vaulting Impact"
+STANCE_PERCENT = 10.0  # (VaultingImpactDazedPlayer; KeywordPopups BrokenStance)
+STANCE_SECONDS = 60.0  # (base_skill_effect_duration 60000)
+STANCE_HITS = 10  # (broken_stance_hit_limit; quality raises it)
+
+
+def broken_stance_model(vault_hit: float, vault_hits: float, dazed: float, hits: float, phys_taken: float,
+                        limit: int = STANCE_HITS, how: str = "") -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Broken Stance (see above). `vault_hit`: Vaulting Impact's pre-mitigation Physical hit
+    (PoB's PhysicalStoredCombinedAvg); `vault_hits`: its hits a second on the boss; `dazed`: the share of the fight the
+    boss is Dazed by the build's other sources (build.dazed_up); `hits`: the build's hits a second on the boss that
+    gain the magnitude (the main skill's); `phys_taken`: the boss's x on Physical hit damage."""
+    label, conf = "Broken Stance (Vaulting Impact)*", "LOW"
+    magnitude = STANCE_PERCENT / 100 * max(vault_hit, 0.0)
+    dazed = min(1.0, max(0.0, dazed))
+    if magnitude <= 0 or vault_hits <= 0 or dazed <= 0 or hits <= 0:
+        why = ("the boss is never Dazed by the build's other skills (the player's Vaulting Impact cannot Daze)"
+               if dazed <= 0 else "no Vaulting Impact hit on the boss or no later hits to gain it")
+        return 0.0, [{"label": label, "value": "0", "basis": f"{STANCE_SKILL}: {why}" + (f"; {how}" if how else ""),
+                      "confidence": conf}]
+    gained = min(float(limit), STANCE_SECONDS * hits)  # (hits that gain it before the 10 hits or 60 s end it)
+    cycle = 1.0 / (vault_hits * dazed) + gained / hits
+    dps = magnitude * gained / cycle * max(phys_taken, 0.0)
+    basis = (f"{STANCE_PERCENT:g}% of {STANCE_SKILL}'s pre-mitigation Physical hit ({vault_hit:,.0f}) = {magnitude:,.0f} "
+             f"on each of the next {gained:g} hits; a new one every {cycle:.1f} s (the wait for a {STANCE_SKILL} hit on "
+             f"the boss while it's Dazed {dazed:.0%} of the fight, then {gained:g} hits at {hits:.2f}/s), x{phys_taken:.2f} "
+             "the boss's Physical mitigation; the Daze it blocks while up isn't fed back" + (f"; {how}" if how else ""))
+    play = (f"Daze the boss with another skill or line, then hit it with {STANCE_SKILL}'s shockwave (without it: 0; "
+            f"with it: {dps:,.0f} DPS)")
+    return dps, [{"label": label, "value": f"{dps:,.0f} DPS", "basis": basis, "confidence": conf, "play": play}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
