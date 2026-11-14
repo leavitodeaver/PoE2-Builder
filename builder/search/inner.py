@@ -296,7 +296,8 @@ class Search:
                                     None if ctx.ssf else price, "ssf" if ctx.ssf else confidence,
                                     (base.get("req") or {}).get("level") or 0, rare=item["rarity"] in ("RARE", "MAGIC"))
         build.equipped = kept
-        for slot, option in sorted(kept.items(), key=lambda x: -(x[1].price or 0.0)):
+        # (dearest first; equal prices by slot name, not PoB's per-process slot order: PERF12)
+        for slot, option in sorted(kept.items(), key=lambda x: (-(x[1].price or 0.0), x[0])):
             if build.spent() <= ctx.budget + 1e-9:
                 break
             if option.price:
@@ -652,6 +653,9 @@ class Search:
                 self.settle()
             return before is not None
         natural = candidates[0]
+        # (the others in order of distance, not of the bridge's sourceLines, which walks PoB's per-process order: two
+        # "further than N m" distances that score the same keep the nearer one, every run; PERF12)
+        candidates = [natural] + sorted(candidates[1:])
         scores = {}
         for metres in candidates:
             conditions.distance = None if metres == natural else (metres, "")
@@ -1314,7 +1318,10 @@ def _switch(search: Any, values: dict[str, Any]) -> None:
 
 
 def _all_off(search: Any, infos: dict[str, dict], on_stats: dict) -> dict:
-    """One recalculation with every given part-time effect off, then back on: the stats that change (off - on)."""
+    """One recalculation with every given part-time effect off, then back on: the stats that change (off - on).
+    The order the effects are switched in (a frozenset's, floor_without) can't change the result: each config var writes
+    its own key and bridge.setConfig rebuilds the mod list once after all of them; each flask slot and ledger switch is
+    its own key; and the stats are read after the last recalculation (SEARCH17, PERF12's open question)."""
     _switch(search, {var: info.get("off", False) for var, info in infos.items()})
     search.assumptions.apply()
     off_stats = dict(search.build.stats)

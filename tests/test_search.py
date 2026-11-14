@@ -3095,3 +3095,27 @@ def test_gems_no_new_league_character_can_get_are_not_offered_and_league_gems_ar
     assert ctx.skill_source("Coiling Bolts")[1] == "Liminal Coil"
     assert ctx.skill_source("Cackling Companions")[1] == "Hysseg's Claw"
     assert len(LEAGUE_GEMS) == 30 and set(LEAGUE_GEMS) <= set(ctx.gems) and not set(LEAGUE_GEMS) & set(GONE_GEMS)
+
+
+def test_equal_scoring_distances_keep_the_nearer_one_whatever_order_pob_lists_their_lines():
+    """PERF12 (SEARCH17): choose_distance took its candidates in the order of the bridge's sourceLines, which walks PoB's
+    per-process order, so two "further than N m" distances that scored the same kept whichever line came first."""
+    from types import SimpleNamespace
+
+    from builder.search import inner
+
+    def chosen(lines):
+        conditions = SimpleNamespace(distance=None, main_types={"Spell"})
+        build = SimpleNamespace(score=0.0, call=lambda name: {"lines": [{"text": t} for t in lines]},
+                                groups=lambda: [])
+        search = SimpleNamespace(conditions=conditions, build=build)
+
+        def settle():  # the natural 5 m and close range score low; 8.5 m and 12.5 m score the same
+            d = conditions.distance
+            build.score = 1.0 if d is None or d[0] <= 2.0 else 3.0
+        search.settle = settle
+        inner.Search.choose_distance(search)
+        return conditions.distance[0]
+
+    a = ["10% more Damage against enemies further than 8 m", "5% more Damage against enemies further than 12 m"]
+    assert chosen(a) == chosen(list(reversed(a))) == 8.5
