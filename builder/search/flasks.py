@@ -18,6 +18,7 @@ generation and scaling from the committed build (bridge `chargeGain`).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from builder.search.boss_hits import land_share, type_taken
@@ -100,6 +101,10 @@ class Charges:
     life_loss_per_use: float = 0.0
     main_rate: float = 0.0
     flask_not_consume: float = 0.0
+    # (MECHC21) "N% chance for Charms you use to not consume Charges" (charms_%_chance_to_not_consume_charges): PoB parses
+    # it with leftover text (ModCache: FlaskCharges BASE + " for Charms you use to not consume "), so never applies it;
+    # Charges.of reads the build's lines (CHARM_NOT_CONSUME)
+    charm_not_consume: float = 0.0
     # (MECHC7, #105) Wildwood's Gifts: Ancient Blooms per second and the charges a Bloom of each kind gives (bloom_charges)
     bloom_rate: float = 0.0
     bloom_life: float = 0.0
@@ -136,6 +141,12 @@ class Charges:
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         data = build.call("chargeGain")
         gain = cls.from_bridge(data, bosses.kill_stats(boss).get(bosses.KILLS_STAT) or 0.0, boss)
+        if data.get("charm"):  # (MECHC21: only a build with charms reads its lines for the charm line)
+            from dataclasses import replace
+
+            cached = getattr(build, "_build_texts", None)  # (state.Build's per-commit cache of the same lines)
+            texts = cached() if callable(cached) else [line["text"] for line in build.call("sourceLines")["lines"]]
+            gain = replace(gain, charm_not_consume=charm_not_consume(texts))
         groups = [int(i) for i in data.get("perfectGroups") or [] if i]
         if groups and gain.perfect_main_rate <= 0:
             from dataclasses import replace
@@ -400,10 +411,19 @@ def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
     return max(0.0, generated * (1 + (inc + info.get("gainInc", 0)) / 100) * info.get("gainMod", 1))
 
 
+CHARM_NOT_CONSUME = re.compile(r"(\d+(?:\.\d+)?)% chance for Charms you use to not consume Charges", re.I)
+
+
+def charm_not_consume(texts: list[str]) -> float:
+    """The build's summed "N% chance for Charms you use to not consume Charges" (MECHC21)."""
+    return sum(float(m.group(1)) for t in texts for m in CHARM_NOT_CONSUME.finditer(t))
+
+
 def charges_per_use(info: dict, gain: Charges) -> float:
     """Charges a use costs on average: a Flask's after "N% chance for Flasks you use to not consume Charges" (MECHC5;
     flasks_%_chance_to_not_consume_charges; PoB parses it, FlaskChanceNotConsumeCharges, but only shows it in its calcs
-    tab). Charms' own "chance for Charms you use to not consume Charges" isn't read yet (an undercount, labelled).
+    tab). A Charm's after "N% chance for Charms you use to not consume Charges" (MECHC21, Charges.charm_not_consume:
+    before, unread, an undercount of its uses).
     A Charm's after "N% increased / reduced Charm Charges used" (MECHC19, COV22: PoB parses it, CharmChargesUsed, and
     only shows it; its charmData.chargesUsed has only the charm's own local line): before, Zerphi's Genesis's increase
     was missed (an OVERCOUNT) and belt affixes', passives' and Ryslatha's Coil's reductions (an undercount). Not rounded
@@ -412,7 +432,7 @@ def charges_per_use(info: dict, gain: Charges) -> float:
     if info.get("kind") == "Flask":
         used *= 1 - min(max(gain.flask_not_consume, 0.0), 100) / 100
     elif info.get("kind") == "Charm":
-        used *= max(1 + gain.charm_used_inc / 100, 0.0)
+        used *= max(1 + gain.charm_used_inc / 100, 0.0) * (1 - min(max(gain.charm_not_consume, 0.0), 100) / 100)
     return used
 
 
