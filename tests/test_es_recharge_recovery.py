@@ -91,3 +91,21 @@ def test_life_recharge_counts_like_energy_shield_recharge():
     assert boss_recovery({**stats, "FireBuildDegen": 20})["life_recharging"] == 0.0
     for field in ("LifeRecharge", "LifeRechargeDelay", "ChaosBuildDegen", "ChaosEnergyShieldBypass"):
         assert field in RECOVERY_INPUTS
+
+
+def test_a_life_cost_resets_life_recharges_delay():
+    """MECHC19 / SEARCH17 (MEDIUM-LOW): "Further loss of Life resets this delay, interrupting Recharge" (KeywordPopups
+    LifeRecharge): the main skill's Life cost, paid at its use rate, resets Life Recharge as the boss's hits do. A skill
+    used twice a second leaves it almost nothing; one used every 10 s most of it; a cost PoB charges with no use rate
+    stops it. A build without a Life cost keeps all of it, and Energy Shield Recharge doesn't feel a Life cost."""
+    import math
+
+    from builder.search import objective
+
+    stats = {"LifeRecharge": 100.0, "LifeRechargeDelay": 4.0, "Speed": 2.0, "LifePerSecondCost": 10.0}
+    assert objective.life_recharge({**stats, "LifePerSecondCost": 0.0}, 0.0) == (100.0, 1.0)
+    assert objective.life_recharge(stats, 0.0)[1] == pytest.approx(math.exp(-8.0))
+    assert objective.life_recharge({**stats, "Speed": 0.1}, 0.0)[1] == pytest.approx(math.exp(-0.4))
+    assert objective.life_recharge({**stats, "Speed": 0.0}, 0.0) == (0.0, 0.0)
+    es = {"EnergyShieldRecharge": 50.0, "EnergyShieldRechargeDelay": 4.0, "EnergyShield": 500.0}
+    assert objective.es_recharge({**stats, **es}, 0.0) == (50.0, 1.0)

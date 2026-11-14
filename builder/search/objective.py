@@ -128,8 +128,9 @@ SUSTAIN_POOLS = {
 _SPENT = "LifeOnConsumeRecovery" in recovery.ALL_FIELDS  # (MECHC13's spent / consumed sources)
 SUSTAIN_LEFT_OUT = ("recovery on " + ", ".join(
     [*recovery.EVENT_UNREAD, *([] if _SPENT else ["charges, Glory, Combo or corpses consumed, Offerings created"])])
-    + "; Life Recharge (Tetzlapokal's Desire's \"Life Recharges\": Life recharging like Energy Shield, 12.5% a "
-    "second after a 4 s delay, between the boss's landed hits; AUDIT28 A28-3, an UNDERCOUNT)"
+    + "; Life Recharge (Eternal Youth, Tetzlapokal's Desire: counted in the recovery floor, objective.life_recharge, "
+    "not here: paying a Life cost likely resets its delay, \"Further loss of Life resets this delay\", so a Life "
+    "cost paid more often than about every 4 s leaves it little to pay with; MEDIUM-LOW)"
     + "; recovery-rate modifiers on those per-event amounts; and Energy Shield paying a cost (Runic Ward: "
     "Assumptions.ward_paid holds Ward-cost skills to what Ward recovery, Remnants of Kalguur's included, pays for)")
 # Recovery against a boss (the request's optional recovery floor; always reported): the boss's damage per second after
@@ -253,17 +254,32 @@ def own_events(stats: dict) -> float:
     return max(number(stats.get(SELF_EVENTS)), 0.0) if number(stats.get(SELF_PER_SECOND)) > 0 else 0.0
 
 
-def recharge_share(stats: dict, hits: float, delay: float, steady: float = 0.0) -> float:
+def life_cost_events(stats: dict) -> float:
+    """Life costs paid per second, as events that reset Life Recharge's delay (MECHC19, SEARCH17; MEDIUM-LOW, a labelled
+    assumption): "Further loss of Life resets this delay, interrupting Recharge" (KeywordPopups LifeRecharge) names no
+    exemption, and MECHC19 found no text that calls a cost anything but Life lost (checked: KeywordPopups, whose
+    Sacrifice calls sacrificing "loss of a resource ... that does not count as taking damage"; UNVERIFIED beyond that:
+    not tested in game, no second source). PoB's LifePerSecondCost is the main
+    skill's Life cost x its use rate (CalcOffence: Cost x useSpeed), so the events come at its use rate (Speed); with no
+    use rate PoB still charges a cost per second, which is taken as a steady loss (inf: recharge never starts)."""
+    if number(stats.get("LifePerSecondCost")) <= 0:
+        return 0.0
+    speed = number(stats.get("Speed"))
+    return speed if speed > 0 else float("inf")
+
+
+def recharge_share(stats: dict, hits: float, delay: float, steady: float = 0.0, events: float = 0.0) -> float:
     """The share of the fight a recharge with this `delay` runs: the boss's landed hits (`hits` per second, a Poisson
     stream; a share p of them leave damage over time on you for D seconds, boss_hits.es_dot) and the build's own damage
     events (own_events, r per second, another Poisson stream) each reset it. With L = hits + r, after each event it runs
     for E[max(0, gap - T)] = e^(-L T) / L, T the delay (plus D after a hit with damage over time), so the share is
     (hits / L) (plain e^(-L delay) + sum p e^(-L (delay + D))) + (r / L) e^(-L delay) (exact for Poisson streams; a new
     hit while an older damage over time still burns isn't followed, as in boss_hits.recharge_wait). 0 under a `steady`
-    own loss on the pool (own_loss)."""
-    if steady > 0:
+    own loss on the pool (own_loss). `events`: more of the build's own resets per second, counted with r (Life costs,
+    life_cost_events; inf: steady)."""
+    if steady > 0 or events == float("inf"):
         return 0.0
-    rate = own_events(stats)
+    rate = own_events(stats) + max(events, 0.0)
     total = hits + rate
     if total <= 0:
         return 1.0
@@ -293,14 +309,15 @@ def life_recharge(stats: dict, hits: float) -> tuple[float, float]:
     """(Life recharged per second against the boss, the share of the fight it runs). SEARCH15 (AUDIT28 A28-3, an
     UNDERCOUNT): PoB's LifeRecharge (Eternal Youth; the bridge's setLifeRecharge adds Tetzlapokal's Desire's "Life
     Recharges", which PoB parses to nothing) at the Energy Shield Recharge delay (LifeRechargeDelay), reset by the same
-    landed hits and own damage events as Energy Shield Recharge and stopped by a steady own loss of Life. MEDIUM: a hit
+    landed hits and own damage events as Energy Shield Recharge and stopped by a steady own loss of Life; the main
+    skill's Life costs reset it too (life_cost_events, MEDIUM-LOW: MECHC19's reading of the game text). MEDIUM: a hit
     Energy Shield takes in full doesn't reset Life's delay in the game, but it also takes no Life to recharge, so the
     shared share is kept (a lower bound)."""
     recharge = number(stats.get("LifeRecharge"))
     if recharge <= 0:
         return 0.0, 0.0
     delay = max(number(stats.get("LifeRechargeDelay")) or 4.0, 0.0)
-    share = recharge_share(stats, hits, delay, own_loss(stats)["Life"])
+    share = recharge_share(stats, hits, delay, own_loss(stats)["Life"], life_cost_events(stats))
     return recharge * share, share
 
 
