@@ -56,6 +56,10 @@ def test_the_search_is_offered_only_outcomes_pob_scores_and_the_rest_stay_listed
     keystone = next(o for o in cultivated.outcomes("Flesh Crucible", offered=False)
                     if o["mod"] == "UniqueMutatedVaalRandomKeystoneFromTable")
     assert "not_offered" in keystone and keystone not in cultivated.outcomes("Flesh Crucible")
+    # ... offered instead as one outcome per keystone of the game's PassiveKeystoneList (CULT5)
+    keystones = [o for o in cultivated.outcomes("Flesh Crucible") if o["mod"].startswith(keystone["mod"] + ":")]
+    assert [o["lines"] for o in keystones] == [[k] for k in cultivated.KEYSTONE_TABLE] and len(keystones) == 33
+    assert all(o["share"] == pytest.approx(1 / 33) for o in keystones)
     assert all(cultivated.outcome_lines(o) is not None for name in cultivated.uniques() for o in cultivated.outcomes(name))
 
 
@@ -318,3 +322,49 @@ def test_pob_gives_a_body_armour_a_helmet_soul_cores_bonus_with_splendours_culti
     (_, before), (_, after) = search.build.item_deltas([{"slot": "Body Armour", "raw": plain},
                                                          {"slot": "Body Armour", "raw": grown}])
     assert after["Mana"] > before["Mana"] * 1.03  # the helmet's 5% increased maximum Mana now counts
+
+
+def test_flesh_crucibles_keystone_outcomes_match_its_plain_versions_and_cost_33_times_the_tries():
+    # the game's PassiveKeystoneList (the index's table) and PoB's 33 keystone versions of the plain item: one set
+    raw = pob_raw("Flesh Crucible")
+    versions = {line.split("}", 1)[1] for line in raw.splitlines() if line.startswith("{variant:")}
+    assert set(cultivated.KEYSTONE_TABLE) <= versions and len(set(cultivated.KEYSTONE_TABLE)) == 33
+    from builder.search.context import ItemOption
+    plain = ItemOption("Flesh Crucible", "Diamond", "Jewel", None, raw, True, 1.0, "high", 60)
+    # ~290 tries x 7 div is ~2,000 div: over the default 1,000 cap and budget, so both are raised here
+    gear = _Gear(_Ctx({"orb": 6.0}, cap=1e6), worth={"Chaos Inoculation": 0.10}, cost={}, left=1e6)
+    grown = cultivated.trial(gear, "Jewel", plain, deadline=float("inf"))
+    assert grown is not plain and "{mutated}{range:0.5}Chaos Inoculation" in grown.raw
+    assert grown.variants[-1].startswith("Cultivated: RandomKeystoneFromTable:Chaos Inoculation")
+    n = len(cultivated.outcomes("Flesh Crucible", offered=False))  # the keystone outcome counts once among the 7
+    lines = cultivated.explicit_lines("Flesh Crucible", raw, None, set())
+    # its keystone is an alt variant (PoB applies it beside the selected variant) and the orb may replace it
+    # (UniqueRandomKeystoneFromTable1 is in the game's OriginalMods)
+    assert [t for _, t in lines] == ["(10-20)% less Armour, Evasion and Energy Shield", "Mind Over Matter"]
+    assert "Selected Alt Variant: 25" not in [t for _, t in cultivated._explicit(raw)]
+    k = max(len(lines), len(cultivated._explicit(raw)))
+    # every line is also in the Variant headers, so the stand-in gear scores no loss for any: all are acceptable
+    one = cultivated.success_chance(n, k, 1, len(lines))
+    assert grown.price == pytest.approx((1.0 + 6.0) / (one / 33))
+    # two keystones from the one index outcome are never offered together
+    pair = [o for o in cultivated.outcomes("Flesh Crucible") if o["lines"] in (["Conduit"], ["Oasis"])]
+    assert cultivated._base_mod(pair[0]) == cultivated._base_mod(pair[1])
+    assert cultivated.shared({"m": 0.5}, pair) == {"m": pytest.approx(0.5 / 33 / 33)}
+
+
+def test_a_mod_pob_writes_over_three_lines_is_one_line_the_orb_may_take():
+    # The Flesh Poppet's Shapeshift copy: one game mod (poe2db's one line), three PoB lines; losing it drops all three
+    raw = pob_raw("The Flesh Poppet")
+    lines = dict((text, at) for at, text in cultivated.explicit_lines("The Flesh Poppet", raw, None, set()))
+    copy = next(t for t in lines if t.startswith("Copy a random Modifier"))
+    assert len(lines[copy]) == 3 and copy.endswith("when you next Shapeshift")
+    gone = cultivated.edited(raw, list(lines[copy]), [])
+    assert "Shapeshift" not in gone and "(30-40)% reduced Presence Area of Effect" in gone
+
+
+def test_a_keystone_craft_over_the_budget_is_never_offered():
+    from builder.search.context import ItemOption
+    raw = pob_raw("Flesh Crucible")
+    plain = ItemOption("Flesh Crucible", "Diamond", "Jewel", None, raw, True, 1.0, "high", 60)
+    gear = _Gear(_Ctx({"orb": 6.0}), worth={"Chaos Inoculation": 0.10}, cost={})  # cap and budget 1,000 div
+    assert cultivated.trial(gear, "Jewel", plain, deadline=float("inf")) is plain

@@ -27,7 +27,25 @@ ODDS = Path(__file__).resolve().parents[1] / "data" / "cultivated_odds.json"
 ORB = "Vaal Cultivation Orb"
 VAAL_ORB = "Vaal Orb"  # corrupts the plain copy the orb needs
 LABEL = "Cultivated"
-TOP_OUTCOMES = 3  # best single outcomes (by what-if gain) tried as whole variants
+TOP_OUTCOMES = 3
+MOD_LINES_MAX = 3  # the most lines PoB writes one cultivatable unique mod over (The Flesh Poppet, CULT6)  # best single outcomes (by what-if gain) tried as whole variants
+
+# Flesh Crucible's cultivated "Random 1 Keystone" (UniqueMutatedVaalRandomKeystoneFromTable, stat
+# local_additional_vivisection_random_keystone_index 1-33) names a keystone by index: stat_descriptions.csd formats it
+# (and the plain item's local_vivisection_random_keystone_index 1-33) as passive_keystone_index, an index into the
+# game's PassiveKeystoneList, 33 rows in this order (build 26476662, CULT5). The same 33 are PoB's 33 keystone versions
+# of Flesh Crucible, every one read whole (checked: both sets compared, none missing either way; coverage.json).
+# Offered as 33 outcomes, each at 1/33 of the outcome's chance: even odds over the index are UNVERIFIED (no weights
+# exist); whether it can repeat the item's own keystone is UNVERIFIED too, and 1/33 is the cautious side (1/32 if not).
+KEYSTONE_TABLE = (
+    "Ancestral Bond", "Giant's Blood", "Unwavering Stance", "Avatar of Fire", "Blood Magic", "Resolute Technique",
+    "Pain Attunement", "Chaos Inoculation", "Eldritch Battery", "Mind Over Matter", "Whispers of Doom",
+    "Necromantic Talisman", "Conduit", "Resonance", "Eternal Youth", "Primal Hunger", "Dance with Death", "Heartstopper",
+    "Oasis", "Vaal Pact", "Iron Reflexes", "Glancing Blows", "Elemental Equilibrium", "Bulwark", "Trusted Kinship",
+    "Crimson Assault", "Hollow Palm Technique", "Blackflame Covenant", "Ritual Cadence", "Scarred Faith",
+    "Lord of the Wilds", "Wildsurge Incantation", "Zealot's Oath",
+)
+KEYSTONE_OUTCOMES = {"UniqueMutatedVaalRandomKeystoneFromTable"}
 
 
 @lru_cache(maxsize=1)
@@ -75,12 +93,37 @@ def outcome_lines(o: dict) -> list[str] | None:
 def outcomes(name: str, offered: bool = True) -> list[dict]:
     """A unique's outcomes. offered=True keeps those the search can score as a fixed line: PoB reads them whole, or the
     ledger stands in for what it doesn't (outcome_lines), and nothing marks them 'not_offered'. The rest stay in the
-    data (an outcome PoB doesn't read is a coverage gap for the ledger, not a dropped mechanic; Flesh Crucible's random
-    keystone needs one variant per keystone)."""
+    data (an outcome PoB doesn't read is a coverage gap for the ledger, not a dropped mechanic). Flesh Crucible's random
+    keystone is offered as one outcome per keystone (_keystones)."""
     found = uniques().get(name, {}).get("outcomes", [])
     if not offered:
         return list(found)
+    found = [k for o in found for k in (_keystones(o) if o["mod"] in KEYSTONE_OUTCOMES else [o])]
     return [o for o in found if "not_offered" not in o and outcome_lines(o) is not None]
+
+
+def _keystones(o: dict) -> list[dict]:
+    """A keystone-index outcome as one outcome per keystone of KEYSTONE_TABLE, each line the keystone's bare name (as
+    PoB's versions of the plain item write it) and its `share` of the outcome's chance 1/33."""
+    out = []
+    for name in KEYSTONE_TABLE:
+        k = {key: v for key, v in o.items() if key != "not_offered"}
+        k.update({"mod": f"{o['mod']}:{name}", "lines": [name], "pob_reads": True, "pob_unread_lines": [],
+                  "share": 1.0 / len(KEYSTONE_TABLE)})
+        out.append(k)
+    return out
+
+
+def _base_mod(o: dict) -> str:
+    """The game mod an offered outcome comes from (a keystone outcome's is the index mod)."""
+    return o["mod"].split(":", 1)[0]
+
+
+def shared(chance: dict[str, float], add: list[dict]) -> dict[str, float]:
+    """One use's chances (chances()) for an exact result whose outcomes carry a `share` (one keystone of 33): times
+    each share."""
+    factor = math.prod(o.get("share", 1.0) for o in add)
+    return {name: c * factor for name, c in chance.items()}
 
 
 def replaceable_lines(name: str) -> list[str]:
@@ -174,7 +217,7 @@ def chances(n_outcomes: int, k_lines: int, wanted: int, acceptable: int) -> dict
 
 # Item text ---------------------------------------------------------------------------------------------------------
 
-HEADER = re.compile(r"^(?:Rarity|Source|Variant|Selected Variant|Base Variant|Selected Base Variant|Limited to|Radius|"
+HEADER = re.compile(r"^(?:Rarity|Source|Variant|Selected Variant|Selected Alt Variant|Base Variant|Selected Base Variant|Limited to|Radius|"
                     r"Quality|LevelReq|Item Level|Sockets|Rune|Implicits|League|Requires|Has Alt Variant)\b.*:")
 
 
@@ -200,13 +243,16 @@ def _explicit(raw: str) -> list[tuple[int, str]]:
     # its defence line this way, with no "Selected Variant" line)
     groups = {m.group(1): int(m.group(2)) for line in lines
               if (m := re.match(r"Selected Variant Group: (\d+)=(\d+)", line))}
+    # "Selected Alt Variant[ Two..Five]: n": PoB applies a variant line that matches the selected variant or any selected
+    # alt variant (Classes/Item.lua 2353-2357; Flesh Crucible's keystone is its alt variant)
+    alts = {int(m.group(1)) for line in lines if (m := re.match(r"Selected Alt Variant(?: \w+)?: (\d+)", line))}
     found = []
     for i in range(start, len(lines)):
         tags, text = re.match(r"^((?:\{[^}]*\})*)(.*)$", lines[i]).groups()
         if variant := re.search(r"\{variant:([\d,]+)\}", tags):
             group = re.search(r"\{group:(\d+)\}", tags)
-            chosen = groups.get(group.group(1)) if group else selected  # a variant group's own choice (Splendour)
-            if chosen is None or str(chosen) not in variant.group(1).split(","):
+            chosen = {groups.get(group.group(1))} if group else {selected} | alts  # a group's own choice (Splendour)
+            if not {str(c) for c in chosen if c is not None} & set(variant.group(1).split(",")):
                 continue
         text = text.strip()
         if not text or "{enchant}" in tags or text in ("Corrupted", "Mirrored") or HEADER.match(text):
@@ -219,28 +265,33 @@ def explicit_lines(name: str, raw: str, original: str | None = None,
                    ignored: set[str] = frozenset()) -> list[tuple[tuple[int, ...], str]]:
     """(indices in raw, text) of the lines the orb may replace: the unique's explicit lines (its `original` PoB text;
     the item's own text when not given) that match a line poe2db shows on it, each of which is in the game's OriginalMods
-    (checked: tools/build_cultivated.py, all 234). A mod PoB writes over two lines is one entry (both go). A PoB line
+    (checked: tools/build_cultivated.py, all 234). A mod PoB writes over two or three lines is one entry (all go). A PoB line
     poe2db doesn't show is not offered as the line lost (UNVERIFIED whether the orb can replace it: the cautious side).
     Found in `raw` by its exact text, so the ledger's stand-ins (appended) and in-place fixes are never the line lost; a
     line PoB ignores (`ignored`, the ledger's gaps) is never offered either: losing it would look free."""
     # poe2db's lines for this unique, and any of the unique's own lines whose text is one of the game's OriginalMods (the
     # game files list The Vertex's attribute-requirement lines there, and 0.4.0b fixed the orb not modifying them: A34-10)
     wanted = {_key(t) for t in replaceable_lines(name)} | {_key(t) for t in load()["_about"].get("original_lines", [])}
+    if any(t.startswith("Random 1 Keystone") for t in replaceable_lines(name)):  # Flesh Crucible: its keystone line is
+        wanted |= {_key(k) for k in KEYSTONE_TABLE}  # the game's UniqueRandomKeystoneFromTable1, in OriginalMods (CULT5)
     own = Counter(text for _, text in _explicit(original if original is not None else raw))
     lines = []
     for i, text in _explicit(raw):  # each of the unique's own lines once, its first copy: a later copy is the ledger's
         if own[text] > 0:
             own[text] -= 1
             lines.append((i, text))
-    found, skip = [], False
+    found, skip = [], 0
     for n, (i, text) in enumerate(lines):
         if skip:
-            skip = False
+            skip -= 1
             continue
-        if _key(text) in wanted:
-            parts = [(i, text)]
-        elif n + 1 < len(lines) and lines[n + 1][0] == i + 1 and _key(text + lines[n + 1][1]) in wanted:
-            parts, skip = [(i, text), lines[n + 1]], True
+        # a mod PoB writes over 2 or 3 consecutive lines (The Flesh Poppet's Shapeshift copy: 3) is one entry
+        for size in range(1, MOD_LINES_MAX + 1):
+            parts = lines[n:n + size]
+            if (len(parts) == size and all(parts[j][0] == i + j for j in range(size))
+                    and _key("".join(t for _, t in parts)) in wanted):
+                skip = size - 1
+                break
         else:
             continue
         if not any(t in ignored for _, t in parts):
@@ -307,10 +358,12 @@ def trial(gear, slot: str, target, deadline: float):
     variants = []
     for _, o in gains[:TOP_OUTCOMES]:
         acceptable = sum(1 for c in costs if c[0] <= costs[0][0] + EPSILON)
-        variants.append((costs[:1], [o], chances(n_all, k, 1, acceptable)))
+        variants.append((costs[:1], [o], shared(chances(n_all, k, 1, acceptable), [o])))
     if len(gains) >= 2 and k >= 2:
         acceptable = sum(1 for c in costs if c[0] <= costs[1][0] + EPSILON)
-        variants.append((costs[:2], [gains[0][1], gains[1][1]], chances(n_all, k, 2, acceptable)))
+        pair = [gains[0][1], gains[1][1]]
+        if _base_mod(pair[0]) != _base_mod(pair[1]):  # one mod never comes twice (two keystones of one index)
+            variants.append((costs[:2], pair, shared(chances(n_all, k, 2, acceptable), pair)))
     left = gear.left_for(slot)
     options = []
     for dropped, add, chance in variants:
