@@ -234,8 +234,14 @@ def checked_parse(line: str, source: str | None = None) -> Entry | None:
     return None
 
 
+@lru_cache(maxsize=None)
 def model_entry(line: str) -> Entry | None:
-    """The entry that feeds this line to a custom model, if any (wherever the line is)."""
+    """The entry that feeds this line to a custom model, if any (wherever the line is).
+
+    Memoised (PERF14: 27-35 % of a 2b75c / 2b75d search's worker time, from Build._rescore_model_items' item
+    what-ifs): the answer depends only on the line and on entries(), which is itself cached for the process and never
+    cleared (no cache_clear and no patching of entries / ENTRY_DIR anywhere in builder, tools or tests; COV26), so a
+    cached answer can't go stale. Must stay on the function itself: models.py imports it by name."""
     for entry in entries():
         if entry.raw.get("model") and entry.matches(line):
             return entry

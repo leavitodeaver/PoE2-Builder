@@ -306,3 +306,20 @@ def test_raw_mod_lines_have_an_item_form_and_apply_on_items():
     entry, lines = translate(line)
     assert lines == ["mod:RemnantEffect INC -25"] and entry.on_items and not entry.conditional
     assert ignored_line_status(line, False)[0] == "ledger"
+
+
+def test_model_entry_is_memoised_and_answers_as_the_plain_lookup_does():
+    """COV26 (PERF14): model_entry is cached for the process; a cached answer is the same Entry the plain lookup finds,
+    for lines with and without a model, and asking again is a cache hit returning the very same object."""
+    from builder.ledger import entries, model_entry
+
+    plain = model_entry.__wrapped__
+    lines = ["Archon Buffs also grant 30% increased Critical Hit Chance", "-1 Prefix Modifier allowed",
+             "Mana Recovery other than Regeneration cannot Recover Mana", "+10 to Strength", "not a line at all"]
+    for line in lines:
+        first = model_entry(line)
+        hits = model_entry.cache_info().hits
+        assert model_entry(line) is first and model_entry.cache_info().hits == hits + 1, line
+        assert first is plain(line), line
+    assert model_entry("+10 to Strength") is None
+    assert all(e is f for e, f in zip(entries(), entries()))  # the ledger is loaded once: nothing to invalidate
