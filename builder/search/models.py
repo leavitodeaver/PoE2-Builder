@@ -3712,7 +3712,9 @@ def added_total(mods: list[dict]) -> float:
 # scores it: a minion is scored on its first skill (CalcActiveSkill 1195-1203, skillMinionSkill unset), so the bridge's
 # minionSkillHit scores the wolf with the hunt chosen. Counted as an added damage source (added_input, fixed at the
 # resolve: an item's what-if doesn't move it until the next resolve, an undercount for minion-damage items):
-#   - one wolf's hit per use (whether all 7 reach a lone boss is on the user's in-game list: LOW, a "with all 7" row);
+#   - 5 wolves' hits per use (the user's play experience, 14 Nov, on a Spirit Walker build: "most of the wolves would hit
+#     a boss unless something weird happened, you could safely assume 5 or 6 will hit a single target"; the low end of
+#     that range; MECHB24, replacing MECHB20's one-wolf LOW reading, an UNDERCOUNT), with "1 wolf / all 7" rows;
 #     a spirit wolf's hit taken as the Azmerian Wolf's own hit with the hunt chosen (its stats: UNVERIFIED);
 #   - one use per cooldown (a press under the button cap; the search's press rules don't see it yet: SEARCH's);
 #   - charged: the main skill's time for the Command's 1 s cast (whether a Command stops your skill is UNVERIFIED: the
@@ -3721,6 +3723,7 @@ def added_total(mods: list[dict]) -> float:
 ETERNAL_HUNT = "GreatHuntPackleaderMinion"
 AZMERIAN_WOLF = "Azmerian Wolf"
 ETERNAL_HUNT_WOLVES = 7
+ETERNAL_HUNT_HITTING = 5  # wolves that hit a lone boss per use (the user's play experience, 14 Nov: "5 or 6")
 ETERNAL_HUNT_COOLDOWN = 15.0  # s (GrantedEffectsPerLevel Cooldown 15000)
 ETERNAL_HUNT_HOWL = 4.0  # s (GrantedEffects CastTime 4000)
 COMMAND_CAST = 1.0  # s (CommandPackleaderPlayer CastTime 1000)
@@ -3738,19 +3741,23 @@ def eternal_hunt_model(hunt: dict, player_dps: float, wolf_dps: float) -> tuple[
     every = max(number(hunt.get("Cooldown")) or ETERNAL_HUNT_COOLDOWN, COMMAND_CAST)
     lost = player_dps * COMMAND_CAST / every + wolf_dps * min(ETERNAL_HUNT_HOWL / every, 1.0)
     one, seven = hit / every - lost, ETERNAL_HUNT_WOLVES * hit / every - lost
-    dps = max(one, 0.0)
-    basis = (f"one Spirit Wolf's hit ({hit:,.0f}, PoB's Azmerian Wolf with Eternal Hunt chosen: 1000% of base) per use, "
+    five = ETERNAL_HUNT_HITTING * hit / every - lost
+    dps = max(five, 0.0)
+    basis = (f"{ETERNAL_HUNT_HITTING} Spirit Wolves' hits ({hit:,.0f} each, PoB's Azmerian Wolf with Eternal Hunt chosen: "
+             f"1000% of base) per use (of the {ETERNAL_HUNT_WOLVES} summoned: the user's play experience, 14 Nov, \"you could "
+             "safely assume 5 or 6 will hit a single target\"; the low end), "
              f"one use every {every:.3g} s (its cooldown: a press under the button cap), less {lost:,.1f} DPS for the "
              f"Command's {COMMAND_CAST:g} s cast ({player_dps:,.0f} main-skill DPS; whether a Command stops your skill is "
              f"UNVERIFIED) and the wolf's {ETERNAL_HUNT_HOWL:g} s howl ({wolf_dps:,.0f} wolf DPS where the score counts it): "
-             f"{one:,.1f} DPS. With all {ETERNAL_HUNT_WOLVES} wolves reaching a lone boss: {seven:,.1f} DPS (on the "
-             "user's in-game list). A spirit wolf's hit taken as the Azmerian Wolf's own (UNVERIFIED)")
-    if one <= 0:
-        basis += "; a net loss with one wolf, so not pressed (0)"
+             f"{five:,.1f} DPS. With 1 wolf: {one:,.1f} DPS; with all {ETERNAL_HUNT_WOLVES}: {seven:,.1f} DPS. A spirit "
+             "wolf's hit taken as the Azmerian Wolf's own (UNVERIFIED)")
+    if five <= 0:
+        basis += f"; a net loss with {ETERNAL_HUNT_HITTING} wolves, so not pressed (0)"
     note = {"label": "Eternal Hunt (the Azmerian Wolf's Command, added to the boss DPS)", "value": round(dps, 1),
-            "basis": basis, "confidence": "LOW",
+            "basis": basis, "confidence": "LOW",  # (the wolf count is the user's; the spirit wolf's hit and the Command's stop stay UNVERIFIED)
             "play": (f"Command Eternal Hunt each time its cooldown is up (every {every:.3g} s): with it +{dps:,.1f} DPS "
-                     f"(one wolf) or +{max(seven, 0.0):,.1f} DPS (all {ETERNAL_HUNT_WOLVES}); without it +0.")}
+                     f"({ETERNAL_HUNT_HITTING} wolves hitting the boss), +{max(one, 0.0):,.1f} DPS with 1 wolf, "
+                     f"+{max(seven, 0.0):,.1f} DPS with all {ETERNAL_HUNT_WOLVES}; without it +0.")}
     return dps, ([added_input("EternalHunt", dps)] if dps > 0 else []), [note]
 
 # Heavy Stuns of the boss (heavy_stun_rate) ------------------------------------------------------------------------------

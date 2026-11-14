@@ -1177,7 +1177,8 @@ def test_doom_blast_takes_the_supported_skills_level_in_pobs_damage(engine):
 def test_eternal_hunt_is_scored_as_the_wolfs_hunt_and_added_to_the_boss_dps(engine):
     """(MECHB20) PoB scores a minion on its first skill only, so the Azmerian Wolf's Eternal Hunt (1000% of base, 15 s
     cooldown; game files and poe2db) never counted. The bridge's minionSkillHit scores the wolf with the hunt chosen and
-    puts the build back; assumptions.eternal_hunt adds one wolf's hit per cooldown (LOW, a "with all 7" row)."""
+    puts the build back; assumptions.eternal_hunt adds 5 wolves' hits per cooldown (MECHB24, the user's play experience;
+    "1 wolf / all 7" rows)."""
     from builder.search import models
     from builder.search.assumptions import eternal_hunt
     from builder.search.inner import Search
@@ -1200,7 +1201,7 @@ def test_eternal_hunt_is_scored_as_the_wolfs_hunt_and_added_to_the_boss_dps(engi
         "reason": "the minion has no such skill"}
     dps, mods, notes = eternal_hunt(build, None)
     hit = hunt.get("AverageDamage") or hunt["AverageHit"]
-    assert dps <= hit / hunt["Cooldown"] + 1e-6 and notes and notes[0]["confidence"] == "LOW"
+    assert dps <= models.ETERNAL_HUNT_HITTING * hit / hunt["Cooldown"] + 1e-6 and notes and notes[0]["confidence"] == "LOW"
     assert "all 7" in notes[0]["basis"] and (not mods or models.added_total(mods) == pytest.approx(dps, abs=0.01))
 
 

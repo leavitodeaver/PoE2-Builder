@@ -4278,9 +4278,9 @@ def test_death_storm_strikes_the_builds_own_fallen_skeletons():
     assert models.death_storm([warriors, sacrifice, detonate], detonate, stats)[0] == 0.0
 
 
-def test_added_sources_sum_and_eternal_hunt_counts_one_wolf_net_of_its_presses():
+def test_added_sources_sum_and_eternal_hunt_counts_five_wolves_net_of_its_presses():
     """MECHB20: the added-damage slot sums several sources (Melting Maelstrom's pulses and models.added_input's) for the
-    bridge's LedgerAddedDPS; Eternal Hunt adds one wolf's hit per cooldown (LOW, with an all-7 row), less the main
+    bridge's LedgerAddedDPS; Eternal Hunt adds 5 wolves' hits per cooldown (the user's play experience; 1 / all-7 rows), less the main
     skill's time for the Command's 1 s cast and the wolf's own DPS for its 4 s howl; a net loss is not pressed (0)."""
     fixed = models.added_input("EternalHunt", 12.345)
     scaled = models.added_input("Thorns", 40.0, field="ThornsDPS", factor=0.5)
@@ -4290,11 +4290,16 @@ def test_added_sources_sum_and_eternal_hunt_counts_one_wolf_net_of_its_presses()
     assert models.added_total([fixed, scaled, pulse, models.derived("Harmony", "harmony", 1)]) == pytest.approx(
         12.34 + 40.0 + 5.0)
     dps, mods, notes = models.eternal_hunt_model({"AverageDamage": 3000.0, "Cooldown": 15.0}, 300.0, 60.0)
-    assert dps == pytest.approx(3000 / 15 - 300 * 1 / 15 - 60 * 4 / 15)
+    # (MECHB24: 5 wolves hit a lone boss per use, the user's play experience, 14 Nov; was 1, an undercount)
+    assert dps == pytest.approx(5 * 3000 / 15 - 300 * 1 / 15 - 60 * 4 / 15)
     assert models.added_total(mods) == pytest.approx(dps, abs=0.01) and notes[0]["confidence"] == "LOW"
-    assert "all 7" in notes[0]["basis"] and "without it +0" in notes[0]["play"]
-    # (a net loss: not pressed; no hit read: 0 with a note)
+    assert "all 7" in notes[0]["basis"] and "With 1 wolf" in notes[0]["basis"] and "14 Nov" in notes[0]["basis"]
+    assert "without it +0" in notes[0]["play"] and "with 1 wolf" in notes[0]["play"]
+    # (a net loss: not pressed (5 x 100 / 15 = 33 < 3000 / 15); no hit read: 0 with a note)
     assert models.eternal_hunt_model({"AverageDamage": 100.0, "Cooldown": 15.0}, 3000.0, 0.0)[:2] == (0.0, [])
+    # (a hit one wolf can't pay for but five can: counted now)
+    assert models.eternal_hunt_model({"AverageDamage": 100.0, "Cooldown": 15.0}, 200.0, 0.0)[0] == pytest.approx(
+        5 * 100 / 15 - 200 / 15)
     none = models.eternal_hunt_model({}, 0.0, 0.0)
     assert none[:2] == (0.0, []) and "no hit" in none[2][0]["basis"]
 
