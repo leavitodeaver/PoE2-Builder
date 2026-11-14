@@ -2972,7 +2972,10 @@ function bridge.useRates(args)
 				entry.wardCost = jsonNumber(output.WardCost)
 			end
 			-- (MECHB14: IgniteDuration, how long an Ignite of the group lasts: Frostflame Nova's ice per cast, models.frostflame_plan)
-			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance", "IgniteDuration" }) do
+			-- (MECH69: PhysicalStoredCombinedAvg / PhysicalStoredHitAvg, the group's pre-mitigation Physical hit, crit-weighted /
+			-- not: High Velocity Rounds' Riven Armour magnitude, GEM3's models.riven_armour_model)
+			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance", "IgniteDuration",
+					"PhysicalStoredCombinedAvg", "PhysicalStoredHitAvg" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end

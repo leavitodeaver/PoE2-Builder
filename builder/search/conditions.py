@@ -555,19 +555,24 @@ DISTANCE_LINE = re.compile(r"\bin your presence\b|\bclose range\b|\bwithin \d+(?
 PRESENCE_LINE = re.compile(r"\bin your presence\b", re.I)
 
 
-def natural_distance(main_types: set[str]) -> float:
-    """The distance in metres a build stands at when nothing it has depends on it."""
+def natural_distance(main_types: set[str], skill: str = "") -> float:
+    """The distance in metres a build stands at when nothing it has depends on it. (MECH69; GEM2, PLAY_GUIDE_SPEC 1a) A
+    shotgun main skill (models.SHOTGUN_SKILLS) stands at close range: its headline counts every projectile of a use on
+    the boss at point-blank (the user's 9 Nov conditional rule), so the defence checks read the same distance."""
+    if skill in models.SHOTGUN_SKILLS:
+        return MELEE_DISTANCE
     return MELEE_DISTANCE if "Melee" in main_types or main_types & NEAR_TYPES else RANGED_DISTANCE
 
 
-def distance_candidates(lines: list[str], main_types: set[str], presence_radius: float = 0.0) -> list[float]:
+def distance_candidates(lines: list[str], main_types: set[str], presence_radius: float = 0.0,
+                        skill: str = "") -> list[float]:
     """Distances worth a trial: the natural one first, close range, and just beyond any "further than N m" line. A build
     standing back with "in your Presence" lines also tries the edge of its Presence (presence_radius, metres), when that
     lies between close range and its natural distance: the boss's Accuracy against you falls with distance (CalcDefence;
     KeywordPopups Accuracy), so the build keeps the boss in its Presence as far away as it reaches, and Presence Area of
     Effect lines (PoB's PresenceArea, CalcPerform calcBuffRadius) decide how far that is (MECHC1, 12 Nov 2026: the user's
     Presence answer of 11 Nov, the player moves so the boss is in or out of the Presence as needed)."""
-    natural = natural_distance(main_types)
+    natural = natural_distance(main_types, skill)
     found = [natural]
     for text in lines:
         if m := DISTANCE_LINE.search(text):
@@ -1331,7 +1336,7 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
     duration = (float(d.group(1)) if d else DEBUFF_DURATION) * models.duration_scale(lines, DEBUFFS[var][0])
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     if "presence" in when:
-        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set()), ""))[0]
+        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or ""), ""))[0]
         radius = number(stats.get("PresenceRadius")) / 10
         up = 1.0 if radius >= metres else 0.0
         return up, f"the boss {metres:g} m away, your Presence {radius:.1f} m"
@@ -1640,37 +1645,49 @@ def _armour_broken(lines: list[str], stats: dict) -> tuple[float, str]:
     up = held / (held + to_break)
     up = 1 - (1 - up) * (1 - min(1.0, full * held))
     if (uses := number(stats.get("_riven_uses"))) > 0 and armour > 0:
-        up, riven = _riven_cycle(to_break, full, held, uses)
+        up, stats["_riven_share"], riven = _riven_cycle(to_break, full, held, uses)
         how.insert(0, riven)
     return up, (f"Armour Fully Broken {up:.0%} of the fight ({shared(up)}): {rate:,.0f} Armour broken/s against "
                 f"the boss's {armour:,.0f} (PoB), {held:g} s each Full Break: " + "; ".join(how[:3]))
 
 
 # Riven Armour (MECH69; GEM1's note, a possible OVERCOUNT): game files, KeywordPopups RivenArmour: "Enemies with Riven
-# Armour cannot get their Armour Broken further". High Velocity Rounds (skill type ConsumesFullyBrokenArmour; its own
-# statset has cannot_break_armour) consumes a Full Break and inflicts Riven Armour: its HighVelocityRoundsArmourBroken
-# statset, base_skill_effect_duration 5000 (5 s). So with it in the build the boss is Fully Broken only from the Full
-# Break to the next HVR use (half the gap between uses on average, at most the Full Break's own duration), then 5 s of
-# Riven Armour with no Breaking, then Breaking again from full Armour (ASSUMED: a consumed Full Break restores the
-# Armour, as a fresh target). Up = wait / (time to Fully Break + wait + 5 s). HVR's uses: the main skill's speed, or its
-# group's rate (Conditions.evidence, stats["_riven_uses"]). Skill Effect Duration modifiers on the 5 s aren't read
-# (UNVERIFIED that they apply; a longer Riven Armour only lowers this share further). MEDIUM. GEM2 models Riven Armour's
-# own added damage.
+# Armour cannot get their Armour Broken further"; High Velocity Rounds' HighVelocityRoundsArmourBroken statset:
+# base_skill_effect_duration 5000 (Riven Armour 5 s). Patch 0.3.0 (the newest entry: grep_notes.py --history "High
+# Velocity Rounds"): "No longer consumes Fully Broken Armour. Instead, hitting a Fully Armour Broken enemy will apply a
+# Debuff". The game files still give it the ConsumesFullyBrokenArmour type, but its description now says "applies":
+# both written here, the patch note used (newest wins). So the Full Break runs its whole duration; HVR's first hit on
+# the Fully Broken boss (half the gap between its uses on average) applies Riven Armour for 5 s, re-applied by the
+# next hit after it ends while the boss is still Fully Broken. Whether a hit renews it while it is up isn't known: not
+# renewed here (the lower reading, UNVERIFIED). When the Full Break ends with Riven Armour still up, the boss can't be
+# Broken again until it expires: that tail is added to the cycle. HVR's uses: the main skill's speed, or its group's
+# rate (Conditions.evidence, stats["_riven_uses"]). Skill Effect Duration on the 5 s isn't read (UNVERIFIED). MEDIUM.
+# The share of the fight Riven Armour is up goes to stats["_riven_share"] (Conditions.riven_share) for GEM3's
+# models.riven_armour_model (its damage).
 RIVEN_SKILL = "High Velocity Rounds"
 RIVEN_SECONDS = 5.0
 
 
-def _riven_cycle(to_break: float, full: float, held: float, uses: float) -> tuple[float, str]:
-    """(share of the fight Fully Broken, how) when High Velocity Rounds consumes each Full Break at `uses` per second:
-    `to_break` s of Breaking per Full Break (inf if none), `full` Full Breaks per second from other events."""
+def _riven_cycle(to_break: float, full: float, held: float, uses: float) -> tuple[float, float, str]:
+    """(share of the fight Fully Broken, share with Riven Armour up, how) with High Velocity Rounds hitting at `uses` per
+    second: `to_break` s of Breaking per Full Break (inf if none), `full` Full Breaks per second from other events,
+    `held` s each Full Break lasts."""
     breaks = (1 / to_break if 0 < to_break < float("inf") else 0.0) + full
     if breaks <= 0:
-        return 0.0, f"{RIVEN_SKILL} consumes each Full Break; none happen"
+        return 0.0, 0.0, f"{RIVEN_SKILL}: no Full Break happens, so no Riven Armour"
     wait = min(held, 1 / (2 * uses))
-    cycle = 1 / breaks + wait + RIVEN_SECONDS
-    up = wait / cycle
-    return up, (f"{RIVEN_SKILL} at {uses:.2f}/s consumes each Full Break after {wait:.2f} s, then {RIVEN_SECONDS:g} s of "
-                f"Riven Armour that can't be Broken; a Full Break every {1 / breaks:.2f} s of Breaking (MEDIUM)")
+    t, riven, last_end = wait, 0.0, 0.0
+    while t < held:  # (applications while Fully Broken, each 5 s, not renewed while up)
+        last_end = t + RIVEN_SECONDS
+        riven += RIVEN_SECONDS
+        t = last_end + wait
+    tail = max(0.0, last_end - held)
+    cycle = 1 / breaks + held + tail
+    up, riven_up = held / cycle, riven / cycle
+    return up, riven_up, (f"{RIVEN_SKILL} at {uses:.2f}/s applies {RIVEN_SECONDS:g} s of Riven Armour to the Fully Broken "
+                          f"boss (up {riven_up:.0%}); it outlasts each {held:g} s Full Break by {tail:.2f} s, when the "
+                          f"Armour can't be Broken; a Full Break every {1 / breaks:.2f} s of Breaking (MEDIUM; not "
+                          "renewed while up, UNVERIFIED)")
 
 
 def armour_broken_share(lines: list[str], stats: dict) -> float:
@@ -1767,7 +1784,7 @@ def _exposure_source(text: str, element: str, stats: dict) -> tuple[float, str] 
     if "fully breaks armour" in when:
         events, how = number(stats.get("_full_break_rate")), "Full Breaks of the boss's Armour"
     elif near := re.search(r"(\d+(?:\.\d+)?) metres in front", when):
-        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set()), ""))[0]
+        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or ""), ""))[0]
         up = 1.0 if metres <= float(near.group(1)) else 0.0
         return up, f"the boss {metres:g} m away ({near.group(1)} m needed)"
     elif re.match(r"\s*minions?\b", text, re.I):
@@ -2437,7 +2454,7 @@ def _covered(uses: float, chance: float, duration: float) -> float:
 def _boss_metres(stats: dict) -> float:
     """The distance the build fights the boss from: the search's choice, else the main skill's natural one."""
     chosen = stats.get("_distance_choice")
-    return chosen[0] if chosen else natural_distance(stats.get("_main_types") or set())
+    return chosen[0] if chosen else natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or "")
 
 
 def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
@@ -3413,11 +3430,11 @@ class Conditions:
             FLASK_EVENT.search(t) for t in texts) else {}
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**stats, "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend,
-                 "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_distance_choice": self.distance,
+                 "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],
                  "_stationary_off": self.stationary_off, "_rolling": self.rolling,
-                 "_curse_uses": curse_uses(self.build, stats, texts, (self.distance or (natural_distance(main_types), ""))[0])
+                 "_curse_uses": curse_uses(self.build, stats, texts, (self.distance or (natural_distance(main_types, self.main_skill), ""))[0])
                  if any("AppliesCurse" in types for types in gem_types.values())
                  or any(models.CURSE_ON_HIT.search(t) for t in texts) else []}
         profusion = {}  # Charge Profusion: the descriptions of the charge-making skills it supports (_charges_held)
@@ -3531,9 +3548,11 @@ class Conditions:
         if any(models.RAISED_BLIND.search(t) for t in texts):  # (Bastion of Light's shield taps, MECHC21)
             raw = self.build.call("activeSkills")
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
-            metres = (stats.get("_distance_choice") or (natural_distance(main_types), ""))[0]
+            metres = (stats.get("_distance_choice") or (natural_distance(main_types, self.main_skill), ""))[0]
             stats["_raised_plan"] = models.raised_plan(found, texts, metres, models.raised_taps_on(self.build))
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
+        self.riven_share = 0.0  # (share of the fight Riven Armour is up: _riven_cycle)
+        self.riven_how = ""
         if "Ferocious Roar" in gem_types and (roar := self.roar_evidence()):
             broken, stats["_full_break_rate"] = roar, roar[2] / models.full_break_duration([line["text"] for line in lines])
         elif any(ARMOUR_BREAK_LINE.search(line["text"]) for line in lines):
@@ -3548,6 +3567,8 @@ class Conditions:
                                                self._group_uses(self.build.call("groups")["groups"], {RIVEN_SKILL}).get(
                                                    RIVEN_SKILL) or self._chosen_use(RIVEN_SKILL))
             up, basis = _armour_broken(texts, armour_stats)
+            self.riven_share = number(armour_stats.get("_riven_share"))  # (GEM3's riven_armour_model reads it)
+            self.riven_how = basis if self.riven_share > 0 else ""
             if basis:
                 broken = _box(up, basis)
                 stats["_full_break_rate"] = up / models.full_break_duration(texts)
@@ -3605,6 +3626,8 @@ class Conditions:
         self.found_uptimes = uptimes
         # (MECHC13) charges consumed a second by kind ({kind: (rate, how)}; _charges_held), for recovery.spent_income
         self.build.charge_flow = dict(stats.get("_charge_flow") or {})
+        # (MECH69, for GEM3's models.riven_armour_model: the share of the fight Riven Armour is up, and its basis)
+        self.build.riven_up = (self.riven_share, self.riven_how)
         # Charges held: PoB reads an override of 0 as "not set" (the maximum), so none held switches the "use" box off
         for kind in ("Power", "Frenzy", "Endurance"):
             held = found.get(f"override{kind}Charges")
@@ -3733,7 +3756,7 @@ class Conditions:
         self.active = active
         metres = number(config.get("enemyDistance")) / 10
         if self.distance and metres != self.distance[0]:  # (a restored build stands where its code says)
-            self.distance = None if metres == natural_distance(self.main_types) or not metres else (metres, "restored")
+            self.distance = None if metres == natural_distance(self.main_types, self.main_skill) or not metres else (metres, "restored")
 
     def describe(self) -> list[dict]:
         return [{"var": var, **info} for var, info in sorted(self.active.items())]

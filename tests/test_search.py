@@ -3188,19 +3188,38 @@ def test_plain_exposure_counts_for_all_three_elements_and_the_supports_by_their_
 
 
 def test_riven_armour_stops_armour_break_while_it_is_up():
-    """GEM1 / MECH69 (an OVERCOUNT): KeywordPopups RivenArmour "Enemies with Riven Armour cannot get their Armour Broken
-    further"; High Velocity Rounds consumes each Full Break and inflicts it for 5 s (its ArmourBroken statset)."""
+    """GEM1 / GEM3 / MECH69 (an OVERCOUNT): KeywordPopups RivenArmour "Enemies with Riven Armour cannot get their Armour
+    Broken further"; 0.3.0: High Velocity Rounds no longer consumes the Full Break, it applies Riven Armour (5 s) to a
+    Fully Broken enemy, so only the Riven Armour outlasting the Full Break blocks the next Break."""
     from builder.search.conditions import _armour_broken, _riven_cycle
 
-    # 2 s of Breaking, HVR at 2 uses/s: Broken 0.25 s, then 5 s Riven: 0.25 / 7.25
-    up, how = _riven_cycle(2.0, 0.0, 12.0, 2.0)
-    assert up == pytest.approx(0.25 / 7.25) and "Riven Armour" in how
-    assert _riven_cycle(float("inf"), 0.0, 12.0, 2.0)[0] == 0.0
+    # 2 s of Breaking, HVR at 2/s: applied at 0.25, 5.5, 10.75 s (each 5 s, not renewed): 3.75 s past the 12 s Full Break
+    up, riven, how = _riven_cycle(2.0, 0.0, 12.0, 2.0)
+    assert up == pytest.approx(12 / 17.75) and riven == pytest.approx(15 / 17.75) and "Riven Armour" in how
+    assert _riven_cycle(float("inf"), 0.0, 12.0, 2.0)[:2] == (0.0, 0.0)
     stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 0, "PhysicalHitAverage": 1000, "_main_types": {"Attack"},
              "_enemy_armour": 2000}
     lines = ["Break Armour equal to 100% of Physical Damage dealt"]
     plain = _armour_broken(lines, stats)[0]  # 2,000 broken/s: 1 s to break, 12 s held: 12/13
-    riven = _armour_broken(lines, {**stats, "_riven_uses": 1.0})
+    hvr = {**stats, "_riven_uses": 1.0}  # applied at 0.5, 6, 11.5 s: 4.5 s past the Full Break
+    riven = _armour_broken(lines, hvr)
     assert plain == pytest.approx(12 / 13)
-    assert riven[0] == pytest.approx(0.5 / 6.5) and "High Velocity Rounds" in riven[1]
+    assert riven[0] == pytest.approx(12 / 17.5) and "High Velocity Rounds" in riven[1]
+    assert hvr["_riven_share"] == pytest.approx(15 / 17.5)
     assert _armour_broken(lines, {**stats, "_riven_uses": 0.0})[0] == pytest.approx(plain)  # HVR never used
+
+
+def test_a_shotgun_main_skill_stands_at_close_range():
+    """GEM2 / MECH69 (PLAY_GUIDE_SPEC 1a): a shotgun main skill's headline counts every projectile at point-blank, so its
+    natural distance (the defence checks' distance) is close range, 2 m, not the ranged 5 m."""
+    from builder.search import models
+    from builder.search.conditions import _boss_metres, distance_candidates, natural_distance
+
+    ranged = {"Attack", "Projectile"}
+    for name in models.SHOTGUN_SKILLS:
+        assert natural_distance(ranged, name) == 2.0
+        assert _boss_metres({"_main_types": ranged, "_main_skill": name}) == 2.0
+    assert natural_distance(ranged, "Rapid Shot") == 5.0 and natural_distance(ranged) == 5.0
+    assert _boss_metres({"_main_types": ranged, "_main_skill": "Incendiary Shot", "_distance_choice": (8.0, "")}) == 8.0
+    lines = ["Projectiles deal 20% increased Damage against Enemies further than 6m"]
+    assert distance_candidates(lines, ranged, skill="Incendiary Shot")[0] == 2.0

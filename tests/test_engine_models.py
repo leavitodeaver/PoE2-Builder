@@ -2270,3 +2270,19 @@ def test_plain_exposure_lines_and_the_exposure_supports_lower_the_bosss_resistan
     found = search.conditions.evidence()
     print("PROBE support", found.get("conditionEnemyLightningExposure"))
     assert "inflict_exposure_for_x_ms_on_ignite" in found["conditionEnemyLightningExposure"][1]
+
+
+def test_use_rates_give_a_groups_pre_mitigation_physical_hit(engine):
+    """MECH69 (for GEM3's models.riven_armour_model): the bridge's useRates gives PoB's PhysicalStoredCombinedAvg, the
+    group's pre-mitigation Physical hit, crit-weighted (High Velocity Rounds' Riven Armour magnitude is 5% of it)."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = build.main_group()
+    rate = build.call("useRates", indices=[main["index"]])["rates"][0]
+    stored = build.call("stats", fields=["PhysicalStoredCombinedAvg"])["PhysicalStoredCombinedAvg"]
+    print("PROBE", rate.get("PhysicalStoredCombinedAvg"), rate.get("PhysicalStoredHitAvg"), stored)
+    assert rate["PhysicalStoredCombinedAvg"] > 0 and rate["PhysicalStoredHitAvg"] > 0
+    assert rate["PhysicalStoredCombinedAvg"] == pytest.approx(stored, rel=0.01)
