@@ -845,6 +845,96 @@ local function setLowLifeCap(env, output)
 	output.LowLifeRecoveryCap = found
 end
 
+-- "N% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below half" (MECHC22; COV26 section 3, the
+-- split-pool model the manager accepted 14 Nov). Stat hit_damage_bypass_energy_shield_%_when_below_half_energy_shield
+-- (checked: game 26476662 Stats by id keywords bypass + energy_shield + half / below; its users in Mods, PassiveSkills,
+-- GrantedEffectStatSets, SoulCoreStats: The Unleashed's UniqueHitDamageBypassesEnergyShieldWhileBelowHalfEnergyShield1
+-- (15-25)% and the Legacy rune's 25% (SoulCoreStats), the same stat, so they add; no passive or skill stat set holds
+-- it. Patch notes: The Unleashed new in 0.5.0, no later change found; 0.5.1 moved the Runemastered Revered Vestments'
+-- 10-15% to Energy Shield Recharge, and the current Mods hold no such implicit). PoB parses it with leftover text and so
+-- never applies it: its hit pools counted all the Energy Shield from full, an OVERCOUNT on low-Life / CI builds.
+-- Matched by its text on any equipped item line (rune lines too). From full, Energy Shield above half takes its share
+-- of each hit as before; below half, b more of each hit goes to Life (added to the type's own bypass, as PoB sums its
+-- EnergyShieldBypass). Damage to die (no Life recovery): ES/2 first, then the split, then Life alone; with no other
+-- bypass min(ES + L, ES/2 + L/b) (COV26). The {Type}TotalHitPool loses the difference (its Ward, Aegis, Guard and other
+-- additions are kept), and {Type}MaximumHitTaken is scaled by the same ratio, as models.with_darkness scales it (armour
+-- isn't linear in the hit: approximate). Whether a single hit from full is split mid-hit or only checked at its start is
+-- UNVERIFIED: the floors use the split pool, the build meeting the boss's big hit after earlier hits. Sets
+-- output.EsBypassBelowHalf (b, %) and output.EsBypassPoolLost (the Physical hit pool lost) for the build's notes.
+local ES_BYPASS_HALF_TEXT = "(%d+%.?%d*)%% of damage taken from hits bypasses energy shield if energy shield is below half"
+
+-- Damage taken before Life runs out: Energy Shield `above` (over half) at Life share s1, then `below` at share s2, then
+-- Life alone (each in damage units; s = the share of a hit Life takes)
+local function splitPoolDamage(above, below, life, s1, s2)
+	local done = 0
+	for _, phase in ipairs({ { above, s1 }, { below, s2 } }) do
+		local es, s = phase[1], phase[2]
+		if es > 0 then
+			if s >= 1 then
+				return done + life
+			end
+			local esLasts = es / (1 - s)
+			if s > 0 and life / s <= esLasts then
+				return done + life / s
+			end
+			done = done + esLasts
+			life = life - s * esLasts
+		end
+	end
+	return done + math.max(life, 0)
+end
+
+local function setEsBypassBelowHalf(env, output)
+	if not env or not env.player or not output then
+		return
+	end
+	local b = 0
+	for _, item in pairs(env.player.itemList or { }) do
+		if type(item) == "table" then
+			for _, list in ipairs({ item.implicitModLines, item.explicitModLines, item.enchantModLines,
+				item.runeModLines, item.crucibleModLines }) do
+				for _, line in ipairs(list or { }) do
+					if type(line) == "table" and type(line.line) == "string" then
+						local value = line.line:lower():match(ES_BYPASS_HALF_TEXT)
+						if value then
+							b = b + (tonumber(value) or 0)
+						end
+					end
+				end
+			end
+		end
+	end
+	output.EsBypassBelowHalf = b
+	output.EsBypassPoolLost = 0
+	local cap, maximum = output.EnergyShieldRecoveryCap or 0, output.EnergyShield or 0
+	if b <= 0 or cap <= 0 or maximum <= 0 or env.player.modDB:Flag(nil, "EternalLife") then
+		return
+	end
+	for _, damageType in ipairs({ "Physical", "Lightning", "Cold", "Fire", "Chaos" }) do
+		local e = (output[damageType.."EnergyShieldBypass"] or 0) / 100
+		local life = output[damageType.."MoMHitPool"]
+		local pool = output[damageType.."TotalHitPool"]
+		if e < 1 and life and pool and pool > 0 then
+			local doubled = damageType == "Chaos" and not env.player.modDB:Flag(nil, "ChaosNotDoubleESDamage") and 2 or 1
+			local above = math.max(cap - maximum / 2, 0) / doubled
+			local below = math.min(cap, maximum / 2) / doubled
+			local lost = splitPoolDamage(above, below, life, e, e)
+				- splitPoolDamage(above, below, life, e, math.min(e + b / 100, 1))
+			if lost > 0 then
+				local newPool = math.max(pool - lost, 0)
+				local hit = output[damageType.."MaximumHitTaken"]
+				if type(hit) == "number" and hit == hit and hit < math.huge then
+					output[damageType.."MaximumHitTaken"] = hit * newPool / pool
+				end
+				output[damageType.."TotalHitPool"] = newPool
+				if damageType == "Physical" then
+					output.EsBypassPoolLost = lost
+				end
+			end
+		end
+	end
+end
+
 -- Indigon's "Mana Recovery other than Regeneration cannot Recover Mana" (MECHC14; COV17, an OVERCOUNT): PoB parses it to no
 -- mod (ModCache: {nil, "<the whole line>"}), so its Mana leech, Mana on Hit / Kill / Block and Mana Recoup outputs stayed
 -- in the sustain and recovery floors. Zeroed here after PoB's calculation; regeneration stays. Mana flasks: chargeGain's
@@ -1216,6 +1306,7 @@ local function installDerived()
 		setNoCritReroll(env)
 		local function finish(...)
 			setLowLifeCap(env, env and env.player and env.player.output)
+			setEsBypassBelowHalf(env, env and env.player and env.player.output)
 			setLifeRecharge(env)
 			setManaRegenOnly(env)
 			markShowAverage(env)

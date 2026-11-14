@@ -62,6 +62,8 @@ MODEL_FIELDS = sorted({
     "PhysicalHitAverage",
     # Sanguine Tides: Life spent per second
     "LifePerSecondCost",
+    # The Unleashed / the Legacy rune: hit damage bypassing Energy Shield below half (the bridge's setEsBypassBelowHalf)
+    "EsBypassBelowHalf", "EsBypassPoolLost",
 })
 
 
@@ -2401,6 +2403,25 @@ def low_life_cap_note(stats: dict) -> dict | None:
                      f"{LOW_LIFE_SHARE:.0%} of your {life:,.0f} Life, not all of it (PoB parses the line to nothing)",
             "play": "a Life Flask can still fill Life: right after one, you take bigger hits; the floor checks use Low Life",
             "confidence": "datamined rule; LOW for how much of a fight a flask keeps Life higher (not counted)"}
+
+
+def es_bypass_note(stats: dict) -> dict | None:
+    """The Unleashed's / the Legacy rune's "N% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below
+    half", for the build's notes (MECHC22; the bridge's setEsBypassBelowHalf takes it out of the hit pools)."""
+    share = number(stats.get("EsBypassBelowHalf"))
+    if share <= 0:
+        return None
+    lost = number(stats.get("EsBypassPoolLost"))
+    return {"label": "Hit damage bypasses Energy Shield below half (The Unleashed / Legacy rune)",
+            "value": f"{share:g}%: {lost:,.0f} less Physical hit pool",
+            "basis": f"once Energy Shield is below half, {share:g}% of each hit goes to Life: the hit pools count Energy "
+                     "Shield's first half, then the split, then Life alone (from full with no other bypass: "
+                     "min(ES + Life, ES/2 + Life/b)); it bites when Energy Shield is over ~6x Life (low-Life and Chaos "
+                     "Inoculation builds); maximum hit taken scales with the pool. PoB parses the line with leftover "
+                     "text and applies nothing",
+            "play": "keep Energy Shield above half (recharge between the boss's hits) and Life takes nothing extra",
+            "confidence": "datamined rule; whether one hit from full is split mid-hit is UNVERIFIED (the floors assume "
+                          "it is, as after earlier hits)"}
 
 
 # Jiquani's Thesis (MECHC9, AUDIT12 A12-2; research 18w): the boots Soul Core's "Increases and Reductions to Movement

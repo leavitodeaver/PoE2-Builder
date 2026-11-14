@@ -2137,3 +2137,74 @@ def test_lightning_warps_shocked_ground_reads_its_secondary_duration_and_the_bui
     print("PROBE", before, after)
     assert before >= 8000 and after > before * 1.2, (before, after)
 
+
+
+def _split_pool(above: float, below: float, life: float, s1: float, s2: float) -> float:
+    """The bridge's splitPoolDamage, mirrored: damage taken before Life runs out."""
+    done = 0.0
+    for es, share in ((above, s1), (below, s2)):
+        if es > 0:
+            if share >= 1:
+                return done + life
+            lasts = es / (1 - share)
+            if share > 0 and life / share <= lasts:
+                return done + life / share
+            done, life = done + lasts, life - share * lasts
+    return done + max(life, 0.0)
+
+
+def test_the_unleashed_takes_its_bypass_below_half_out_of_a_ci_builds_hit_pool(engine):
+    """MECHC22 (COV26 section 3, the manager's accepted split-pool model): PoB parses "N% of Damage taken from Hits
+    bypasses Energy Shield if Energy Shield is below half" with leftover text and applies nothing; the bridge takes it
+    out of the hit pools. On a Chaos Inoculation build (Life 1) the Physical hit pool from full is ES/2 + Life/b, not
+    ES + Life, and maximum hit taken scales with it; the Legacy rune's 25% is the same stat and adds."""
+    from builder.search import models
+
+    search = spark_with(engine, [])
+    build = search.build
+    fields = ["EsBypassBelowHalf", "EsBypassPoolLost", "Life", "EnergyShield", "EnergyShieldRecoveryCap",
+              "PhysicalMoMHitPool", "PhysicalEnergyShieldBypass", "PhysicalTotalHitPool", "PhysicalMaximumHitTaken",
+              "FireTotalHitPool"]
+    head = ["Rarity: Unique", "The Unleashed", "Revered Vestments", "Implicits: 0", "+3000 to maximum Energy Shield",
+            "Maximum Life becomes 1, Immune to Chaos Damage"]
+    bypass = "25% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below half"
+    build.call("equip", slot="Body Armour", raw="\n".join(head), fields=[])
+    plain = build.call("stats", fields=fields)
+    assert not plain.get("EsBypassBelowHalf") and plain["Life"] == 1
+    build.call("equip", slot="Body Armour", raw="\n".join([*head, bypass]), fields=[])
+    stats = build.call("stats", fields=fields)
+    assert stats["EsBypassBelowHalf"] == 25
+    es, cap, life = stats["EnergyShield"], stats["EnergyShieldRecoveryCap"], stats["PhysicalMoMHitPool"]
+    e = stats.get("PhysicalEnergyShieldBypass", 0) / 100
+    assert es == plain["EnergyShield"] and es > 6 * life
+    above, below = max(cap - es / 2, 0), min(cap, es / 2)
+    lost = _split_pool(above, below, life, e, e) - _split_pool(above, below, life, e, min(e + 0.25, 1))
+    assert lost > 0.4 * es  # Life 1: about ES/2 of the pool goes
+    assert stats["EsBypassPoolLost"] == pytest.approx(lost)
+    assert stats["PhysicalTotalHitPool"] == pytest.approx(plain["PhysicalTotalHitPool"] - lost)
+    assert stats["PhysicalMaximumHitTaken"] == pytest.approx(
+        plain["PhysicalMaximumHitTaken"] * stats["PhysicalTotalHitPool"] / plain["PhysicalTotalHitPool"])
+    assert stats["FireTotalHitPool"] < plain["FireTotalHitPool"]
+    note = models.es_bypass_note(stats)
+    assert note and "25%" in note["value"]
+    # a second 25% (the Legacy rune's, the same stat) adds: 50% of each hit below half goes to Life
+    build.call("equip", slot="Body Armour", raw="\n".join([*head, bypass, bypass.replace("25%", "20%")]), fields=[])
+    assert build.call("stats", fields=["EsBypassBelowHalf"])["EsBypassBelowHalf"] == 45
+
+
+def test_the_unleasheds_bypass_moves_nothing_while_energy_shield_is_under_six_times_life(engine):
+    """MECHC22: from full, the split only bites when ES/2 > Life (1 - b) / b (ES > 6x Life at 25%): a Life build keeps
+    PoB's hit pool."""
+    search = spark_with(engine, [])
+    build = search.build
+    fields = ["EsBypassBelowHalf", "EsBypassPoolLost", "Life", "EnergyShield", "PhysicalTotalHitPool"]
+    head = ["Rarity: Unique", "The Unleashed", "Revered Vestments", "Implicits: 0", "+2000 to maximum Life",
+            "+20 to maximum Energy Shield"]
+    build.call("equip", slot="Body Armour", raw="\n".join(head), fields=[])
+    plain = build.call("stats", fields=fields)
+    build.call("equip", slot="Body Armour", raw="\n".join(
+        [*head, "25% of Damage taken from Hits bypasses Energy Shield if Energy Shield is below half"]), fields=[])
+    stats = build.call("stats", fields=fields)
+    assert stats["EsBypassBelowHalf"] == 25 and stats["EnergyShield"] < 6 * stats["Life"]
+    assert stats["EsBypassPoolLost"] == 0
+    assert stats["PhysicalTotalHitPool"] == pytest.approx(plain["PhysicalTotalHitPool"])
