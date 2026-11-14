@@ -1,0 +1,53 @@
+# Gem stats PoB never reads that our own models already count (GEM5, 14 Nov 2026; MECHB25's list, checked against the
+# code before crediting). These entries move no build: they close the coverage audit's rows for stats a model already
+# counts, each scoped to the skill named (the same stat on other skills stays open).
+
+- id: model-gem5-artillery-totem
+  title: "Siege Ballista's Artillery: its clone, totem and range stats are the totem model's (no number of their own)"
+  kind: model
+  model: totems
+  stats: ["skill_disabled_unless_cloned", "siege_cascade_is_artillery_ballista", "base_skill_is_totemified",
+          "siege_cascade_fall_time_ms", "siege_cascade_visual_fall_time_delay_%", "projectile_minimum_range",
+          "main_hand_base_maximum_attack_distance", "action_required_target_facing_angle_tolerance_degrees",
+          "active_skill_ignores_crossbow_manager"]
+  skill: [Artillery]
+  confidence: datamined
+  notes: >-
+    Artillery is the skill Siege Ballista's totems use (skill_disabled_unless_cloned, siege_cascade_is_artillery_ballista,
+    base_skill_is_totemified: it exists only as the ballista's clone). PoB scores it as the damaging part beside the
+    totem-summoning skill, and models.totem_count_model (MECHB8) scales it by the totems up (the Totem Limit, shared),
+    "all in reach of the boss (MEDIUM: the player places them at the boss)": that is the reading of
+    projectile_minimum_range and main_hand_base_maximum_attack_distance (reach) and of
+    action_required_target_facing_angle_tolerance_degrees (aim). siege_cascade_fall_time_ms /
+    siege_cascade_visual_fall_time_delay_% delay each impact: no effect on sustained DPS (a delay, not a rate).
+    active_skill_ignores_crossbow_manager: PoB gives Artillery no CrossbowSkill type (its skillTypes in PoB's skill data:
+    Attack, RangedAttack, Projectile, UsedByTotem ... no CrossbowSkill), so CalcOffence's crossbow block (1274: "if
+    activeSkill.skillTypes[SkillType.CrossbowSkill]") applies no reload or bolt count to it, which is what the stat says.
+    (checked: models.py totem_count_model's comment (~6679) names Siege Ballista's Artillery; PoB SiegeBallistaProjectilePlayer
+    skillTypes and CalcOffence 1268-1280; MECHB25.report.md.) Scoped to Artillery: the same stats on Hailstorm Rounds,
+    Siege Cascade, Stormblast Bolts, Ballista Bolt and the others stay open.
+  sources: ["builder/search/models.py (totem_count_model and its comment, MECHB8)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (crossbow block, 1274)",
+            "scratch/manager/workers/MECHB25.report.md (Artillery)"]
+  test_in_game: "Not needed for the labels; the totems' reach is the totem model's own MEDIUM assumption."
+  status: proposed
+
+- id: model-gem5-quill-burst-thorns
+  title: "Quill Burst's trigger stats are the Thorns model's (0 on a lone boss: it cannot hit the target that triggered it)"
+  kind: model
+  model: thorns
+  stats: ["trigger_spiked_gauntlets_for_X_hits_after_thorns_trigger", "triggered_by_spiked_gauntlets_support_%",
+          "display_skill_deals_thorns_damage"]
+  skill: [Quill Burst]
+  confidence: datamined
+  notes: >-
+    models.thorns_model (MECHB23) counts Quill Burst: ActiveSkills triggered_spiked_gauntlets "Deal your Thorns Damage
+    in an Area. Cannot Hit the target this was Triggered from", so against a lone boss, the only enemy that triggers it,
+    it hits nothing: PoB's own Full DPS entry for it (probe POE2T1097: +5 DPS) is scaled to 0, as Barbs' is. The support's
+    trigger count (trigger_spiked_gauntlets_for_X_hits_after_thorns_trigger), the triggered skill's trigger chance and its
+    "deals Thorns damage" display flag change nothing in that 0. (checked: models.py's QUILL_BURST comment and
+    thorns_model; MECHB25.report.md.) Scoped to Quill Burst: display_skill_deals_thorns_damage on Runic Tempering stays
+    open.
+  sources: ["builder/search/models.py (QUILL_BURST, thorns_model; MECHB23)", "scratch/manager/workers/MECHB25.report.md (Quill Burst)"]
+  test_in_game: "Not needed: the game's own text (cannot hit the target it was triggered from)."
+  status: proposed
