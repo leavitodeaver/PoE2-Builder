@@ -4103,6 +4103,44 @@ def dazed_stats(build) -> dict:
             "_dazed_box": bool((build.call("getConfig").get("input") or {}).get("conditionEnemyDazed"))}
 
 
+# His Winnowing Flame's Grisly Pyres (MECH71; GEM5's verdict 14 Nov: The Unborn Lich is league-obtainable, an Abyss core
+# unique since 0.4.0). Game files (26476662) HisWinnowingFlamePlayer: never_ignite, unique_pillar_of_flame_consume_ignite_
+# to_create_X_pillars 1 (+3 on an Aggravated Ignite), at most 20 pillars a use; TriggeredHisWinnowingFlamePillarPlayer
+# (Grisly Pyre): unique_flame_pillar_fire_damage_equal_to_%_of_remaining_ignite_damage 30, radius 2 m, made within 1 m
+# of the consumed enemy (so each pillar hits that boss). Patch 0.5.0 (newest entry, grep_notes --history "Grisly Pyre"):
+# "deal 30% of the highest expected remaining Damage of the Consumed Ignites (previously 25%)", radius 2 m; PoB's data
+# holds the same. PoB holds no damage for Grisly Pyre (no damage stats, and nothing in its Modules reads the 30% stat:
+# probe scratch/mech71/probe_pyre.py). Each use of His Winnowing Flame that finds the boss Ignited (the Ignited share
+# after its own consumption, which conditions' consume model already takes off the Ignite) makes 1 pillar dealing 30% of
+# the Ignite's expected remaining damage: PoB's IgniteDPS (after the boss's Fire resistance, taken once for the pillar's
+# Fire hit: MEDIUM) x its remaining time. The remaining time follows the build's own reapplication: an Ignite applied
+# every T s (the main skill's hits x its Ignite chance) is on average min(T, D) / 2 old when the use lands (D: PoB's
+# IgniteDuration), so D - min(T, D) / 2 remains (MEDIUM: evenly spaced uses). The pillar isn't scaled again by your
+# damage modifiers (UNVERIFIED either way: the lower reading); Aggravated Ignite's 3 extra pillars aren't counted (0,
+# an UNDERCOUNT: plans' kw-aggravated-ignite, Saitha's Spear is a weapon too, so it needs a weapon swap, UNVERIFIED).
+GRISLY_PYRE_SHARE = 0.30
+GRISLY_PYRE_SKILL, GRISLY_PYRE_SOURCE = "Grisly Pyre", "His Winnowing Flame"
+
+
+def grisly_pyre_model(uses: float, ignited: float, ignite_dps: float, duration: float,
+                      applications: float) -> tuple[float, str]:
+    """(added DPS, how) of His Winnowing Flame's Grisly Pyres on the boss (see the note above): uses of the skill per
+    second, the share of the fight the boss is Ignited, PoB's IgniteDPS and IgniteDuration, Ignites applied per second."""
+    if uses <= 0:
+        return 0.0, "His Winnowing Flame isn't used (no use rate): no Grisly Pyres"
+    if ignite_dps <= 0 or duration <= 0 or applications <= 0 or ignited <= 0:
+        return 0.0, ("His Winnowing Flame never Ignites (never_ignite), and the build's main skill puts no Ignite on the "
+                     "boss for it to Consume: no Grisly Pyres (0; another skill's Ignite isn't read: an UNDERCOUNT if one "
+                     "Ignites)")
+    every = 1 / applications
+    remaining = duration - min(every, duration) / 2
+    pyre = GRISLY_PYRE_SHARE * ignite_dps * remaining
+    dps = uses * min(1.0, ignited) * pyre
+    return dps, (f"{uses:.2f} uses/s x {min(1.0, ignited):.0%} finding the boss Ignited x 1 Grisly Pyre of 30% of the "
+                 f"Ignite's remaining damage ({ignite_dps:,.0f}/s x {remaining:.2f} s left of {duration:.2f} s, an Ignite "
+                 f"every {every:.2f} s: {pyre:,.0f} each); Aggravated Ignite's 3 more pillars not counted")
+
+
 def repeat_every(t: float, times: float, window: float) -> float:
     """Seconds between one Heavy Stun / Freeze / Electrocute and the next when the bar fills in `t` s at the plain
     threshold and the threshold is x`times` for `window` s after each one: 6t if that ends inside the window, else the

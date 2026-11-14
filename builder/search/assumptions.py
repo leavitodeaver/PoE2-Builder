@@ -576,6 +576,38 @@ def broken_stance(build: Build, main: models.Skill | None) -> tuple[float, list[
     return models.broken_stance_model(vault_hit, vault_hits, dazed, hits, phys_taken, limit=int(limit),
                                       how="; ".join(part for part in (how, taken) if part))
 
+
+def grisly_pyre(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for His Winnowing Flame's Grisly Pyres (MECH71; models.grisly_pyre_model): the skill's uses
+    (the main skill's Speed, else its group's rate: conditions.skill_use_rate, the search's chosen press rate where
+    nothing else sets it, else 0), the boss's Ignited share (build.ailment_uptimes, after the consumption), and the main
+    skill's Ignite (PoB's IgniteDPS, IgniteDuration, its hits x IgniteChancePerHit)."""
+    skill = models.GRISLY_PYRE_SOURCE
+    uses = 0.0
+    if main is not None and main.name == skill:
+        uses = models.number(build.call("stats", fields=["Speed"]).get("Speed"))
+    else:
+        found = False
+        for each in build.groups():
+            if not each["enabled"]:
+                continue
+            for position, entry in enumerate(each["skills"], start=1):
+                if entry["name"] == skill:
+                    found = True
+                    row = next(iter(build.call("useRates", indices=[each["index"]], actives=[position])["rates"]), None)
+                    uses = max(uses, conditions_mod.skill_use_rate(row or {}, models.press_choices(build))[0])
+        if not found:
+            return 0.0, []
+    fields = list(dict.fromkeys([*models.MODEL_FIELDS, "IgniteDPS", "IgniteDuration", "IgniteChancePerHit"]))
+    stats = build.call("stats", fields=fields)
+    applications = models.hits_per_second(stats) * min(models.number(stats.get("IgniteChancePerHit")), 100) / 100
+    ignited = models.number((getattr(build, "ailment_uptimes", None) or {}).get("Ignited"))
+    dps, how = models.grisly_pyre_model(uses, ignited, models.number(stats.get("IgniteDPS")),
+                                        models.number(stats.get("IgniteDuration")), applications)
+    return dps, [{"label": f"{models.GRISLY_PYRE_SKILL} ({skill})*", "value": f"{dps:,.0f}", "basis": how,
+                  "confidence": "MEDIUM"}]
+
+
 def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str]) -> tuple[float, list[dict]]:
     """(added DPS, notes) for the build's Thorns hits on the boss (models.thorns_model, MECHB22): PoB's own Thorns
     group's hit (useRates), which no PoB DPS counts."""
@@ -920,8 +952,11 @@ class Assumptions:
         stance, stance_notes = broken_stance(build, main)  # (GEM5's model; MECH-A's build.dazed_up, 0 until published)
         hand_mods += [models.added_input("BrokenStance", stance)] if stance > 0 else []
         hand_notes += stance_notes
+        pyre, pyre_notes = grisly_pyre(build, main)  # (MECH71: His Winnowing Flame's Grisly Pyres, PoB holds no damage)
+        hand_mods += [models.added_input("GrislyPyre", pyre)] if pyre > 0 else []
+        hand_notes += pyre_notes
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
-                                   "Elemental Discharge": discharge, "Broken Stance": stance})
+                                   "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.
