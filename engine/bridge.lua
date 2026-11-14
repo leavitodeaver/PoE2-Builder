@@ -4634,8 +4634,20 @@ function bridge.chargeGain()
 	local lifeFlaskUnusable, lifeFlaskConstant, lifeFlaskLess, lifeEffectKept = false, false, 0, false
 	local lifeLossPerUse = 0
 	local manaRegenOnly = false
+	-- (MECHC23; AUDIT33 A33-1, an UNDERCOUNT) "Life Recovery from Flasks also applies to Energy Shield" (Shavronne's
+	-- Satchel, UniqueFlaskLifeRecoveryEnergyShield1), its "during Effect" form and "... applies to Energy Shield instead":
+	-- PoB reads its flag LifeFlaskAppliesToEnergyShield only for the flask tooltip (ItemsTab 4265), so flasks.py counts
+	-- the Life flask's recovery on Energy Shield at its own use rate; "instead" (PoB's LifeFlaskDoesNotApply) takes it
+	-- off Life. esRecoveryMod: PoB's EnergyShieldRecoveryRateMod, the tooltip's multiplier on that recovery
+	local lifeFlaskToEs, lifeFlaskEsInstead = false, false
 	for _, line in ipairs(bridge.sourceLines().lines) do
 		local text = line.text:lower()
+		if text:match("life recovery from flasks a?l?s?o? ?applies to energy shield") then
+			lifeFlaskToEs = true
+			if text:match("applies to energy shield instead") then
+				lifeFlaskEsInstead = true
+			end
+		end
 		if text:match("^%s*flasks do not recover life%s*$") then
 			lifeFlaskBlocked = true
 		end
@@ -4721,6 +4733,8 @@ function bridge.chargeGain()
 	end
 	return {
 		active = active, lifeFlaskBlocked = lifeFlaskBlocked, lifeFlaskUnusable = lifeFlaskUnusable,
+		lifeFlaskToEs = lifeFlaskToEs, lifeFlaskEsInstead = lifeFlaskEsInstead,
+		esRecoveryMod = output.EnergyShieldRecoveryRateMod or 1,
 		lifeFlaskConstant = lifeFlaskConstant, lifeFlaskLess = lifeFlaskLess, lifeEffectKept = lifeEffectKept,
 		-- what fills and drains Life and Mana in the fight (MECHC4, flasks.full_pool_cap: a Life / Mana flask's effect ends
 		-- when the pool is full)

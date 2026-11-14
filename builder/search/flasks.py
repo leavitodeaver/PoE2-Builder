@@ -138,6 +138,11 @@ class Charges:
     # boss's landed hits of that type at the "when hit" benefit pace (boss_hits_gain); before, every landed hit at the
     # defence pace (boss_hits), and on the worst case any type it pools (now the lowest real boss's: gain_floor)
     hit_gain: tuple = ()
+    # (MECHC23; AUDIT33 A33-1) "Life Recovery from Flasks also applies to Energy Shield" (or "... during Effect", or
+    # "applies to Energy Shield instead", which takes it off Life) and PoB's EnergyShieldRecoveryRateMod (bridge chargeGain)
+    life_flask_to_es: bool = False
+    life_flask_es_instead: bool = False
+    es_recovery_mod: float = 1.0
 
     @classmethod
     def of(cls, build) -> Charges:
@@ -215,6 +220,9 @@ class Charges:
                    flask_not_consume=float(data.get("flaskNotConsume") or 0.0),
                    mana_regen_only=bool(data.get("manaRegenOnly", False)), stuns=stuns, stuns_how=stuns_how,
                    add_kills=max(float(add_kills or 0.0), 0.0), ailments=ailments, hit_gain=hit_gain,
+                   life_flask_to_es=bool(data.get("lifeFlaskToEs", False)),
+                   life_flask_es_instead=bool(data.get("lifeFlaskEsInstead", False)),
+                   es_recovery_mod=float(data.get("esRecoveryMod") or 1.0),
                    **bloom_fields(data.get("blooms") or {}))
 
 
@@ -612,6 +620,8 @@ def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
     at a time: never faster than one per duration)."""
     if pool == "Life" and gain.life_flask_blocked:
         return 0.0  # "Flasks do not recover Life" (game stats base_/life_flasks_do_not_recover_life; PoB ignores it)
+    if pool == "Life" and gain.life_flask_es_instead:
+        return 0.0  # "Life Recovery from Flasks applies to Energy Shield instead" (es_recovery_per_second has it)
     if pool == "Mana" and gain.mana_regen_only:
         return 0.0  # "Mana Recovery other than Regeneration cannot Recover Mana" (Indigon; PoB parses it to no mod)
     total = info.get("lifeTotal" if pool == "Life" else "manaTotal") or 0
@@ -629,6 +639,82 @@ def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
     if length > 0:
         uses = min(uses, 1 / length)
     return total * (1 + inc / 100) * less * uses
+
+
+# Life flask recovery on Energy Shield (MECHC23; AUDIT33 A33-1, an UNDERCOUNT for Energy Shield builds): "Life Recovery
+# from Flasks also applies to Energy Shield" (Shavronne's Satchel, Mods UniqueFlaskLifeRecoveryEnergyShield1, stat
+# life_recovery_from_flasks_also_recovers_energy_shield; poe2db: current), its "during Effect" form (PoB's ModCache 8489,
+# Condition UsingFlask; the flask mod FlaskZealotsOathUnique__1's local_flask_life_recovery_from_flasks_also_recovers_
+# energy_shield) and "applies to Energy Shield instead" (PoB's ModParser 2603). PoB parses them to the flag
+# LifeFlaskAppliesToEnergyShield, which only the flask tooltip reads (ItemsTab 4265: the Life flask's recovery, over
+# its own duration, times EnergyShieldRecoveryRateMod in place of LifeRecoveryRateMod). (checked: every Stats.json id
+# holding flask with energy_shield, and their Mods / PassiveSkills / SoulCoreStats carriers: the two above; a third,
+# life_flasks_recover_energy_shield, has no carrier in those tables and no description in PoB; PoB's ModParser and
+# Uniques for "applies to energy shield": Shavronne's Satchel is PoB's only unique with it; patch notes: no hit for any
+# of the wordings, which isn't proof of no change.) The "during Effect" form counts in full: the Life flask recovers only
+# during its own effect, so its recovery always falls inside a flask's effect (MEDIUM). With "Flasks do not recover
+# Life" (Sanguine Tides) the Energy Shield share still counts: that line stops the Life only (UNVERIFIED in game, LOW;
+# the pair is a rare build). For SEARCH: recovery.FIELDS["EnergyShield"]'s EnergyShieldFlaskRecovery carries it.
+def es_recovery_per_second(info: dict | None, gain: Charges) -> float:
+    """Energy Shield a second from the Life flask (`info`, its flaskData) under the lines above: its recovery at the
+    rate its charges allow (recovery_per_second's Life), times PoB's EnergyShieldRecoveryRateMod; 0 without a line."""
+    if not info or not gain.life_flask_to_es:
+        return 0.0
+    from dataclasses import replace
+
+    life = recovery_per_second(info, replace(gain, life_flask_blocked=False, life_flask_es_instead=False), "Life")
+    return life * max(gain.es_recovery_mod, 0.0)
+
+
+# "Energy Shield Recharge starts ..." on a use (MECHC23): Bitterbloom's "Energy Shield Recharge starts when you use a
+# Mana Flask" (Mods UniqueRechargeOnManaFlask1, stat start_energy_shield_recharge_when_you_use_a_mana_flask) and Nascent
+# Hope's own "Energy Shield Recharge starts on use" (a Thawing Charm; UniqueCharmStartEnergyShieldRecharge1,
+# charm_energy_shield_recharge_starts_when_used). PoB parses neither (ModCache 7376 / 7378: leftover text, no mod).
+# (checked: Stats.json ids holding energy_shield_recharge with start / begin / instant / immediate / delay, and their
+# Mods / PassiveSkills / SoulCoreStats carriers. The others, not read here and named in the note: "... starts when you
+# are Stunned" (EnergyShieldRechargeStartsWhenStunnedUnique__1), "20% chance ... to start when you Block / Kill an
+# Enemy" (PoB's ModItemExclusive), on linking a target, on gaining an Infusion, when minions reform, after spending
+# 2000 Mana; patch notes: no hit, which isn't proof of no change.)
+# The play: hold the use until a boss hit has reset the recharge, then use it (a Mana Flask is pressed; Nascent Hope is
+# used when you become Frozen, which comes with a hit), so each start falls in its own gap between landed hits, up to
+# one a gap: recharge_start_wait (MEDIUM-LOW: a player who uses the flask the moment it fills gets less).
+ES_FROM_LIFE_FLASK = re.compile(r"life recovery from flasks (?:also )?applies to energy shield", re.I)
+ES_START_MANA_FLASK = re.compile(r"energy shield recharge starts when you use a mana flask", re.I)
+ES_START_ON_USE = re.compile(r"energy shield recharge starts on use", re.I)
+ES_STARTS_FIELD = "EnergyShieldRechargeStarts"  # (per second; for SEARCH: objective.recharge_share)
+ES_STARTS_UNREAD = {
+    "Energy Shield Recharge starts when you are Stunned": re.compile(
+        r"energy shield recharge starts when you are stunned", re.I),
+    "a chance for Energy Shield Recharge to start": re.compile(
+        r"chance (?:for energy shield recharge to start|to start energy shield recharge)", re.I),
+}
+
+
+def es_recharge_starts(texts: list[str], charms: list[tuple[str, str, float]], mana_uses: float) -> tuple[float, str]:
+    """(Energy Shield Recharge starts a second, how): `mana_uses` (the Mana flask's uses a second, uses_per_second) with
+    Bitterbloom's line, plus each charm (name, raw text, uses a second) carrying "Energy Shield Recharge starts on use"."""
+    total, parts = 0.0, []
+    if any(ES_START_MANA_FLASK.search(t) for t in texts):
+        total += max(mana_uses, 0.0)
+        parts.append(f"Mana Flask uses {max(mana_uses, 0.0):.3f}/s (Energy Shield Recharge starts when you use a Mana "
+                     "Flask)")
+    for name, raw, rate in charms:
+        if ES_START_ON_USE.search(raw):
+            total += max(rate, 0.0)
+            parts.append(f"{name}'s uses {max(rate, 0.0):.3f}/s (Energy Shield Recharge starts on use)")
+    return total, "; ".join(parts)
+
+
+def recharge_start_wait(total: float, delay: float, starts: float) -> float:
+    """E[e^(-L W)] for the wait W before recharge after a reset, with L = `total` resets a second and `starts` uses a
+    second that start it at once (the play above: one a gap, right after the reset): a share f = min(starts / L, 1) of
+    the gaps start at once (W = 0), the rest wait the `delay` (e^(-L delay)). With no starts, plain e^(-L delay), as
+    objective.recharge_share has it: for SEARCH, its math.exp(-total * x) terms become recharge_start_wait(total, x, s)."""
+    plain = math.exp(-total * delay)
+    if starts <= 0 or total <= 0:
+        return plain
+    share = min(starts / total, 1.0)
+    return share + (1 - share) * plain
 
 
 # Skills that spend flask charges per use (MECHC2, FIX_QUEUE's usage-rate cap; the manager's ruling 12 Nov 08:30). Game files

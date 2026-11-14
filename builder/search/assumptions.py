@@ -1611,10 +1611,62 @@ class Assumptions:
         if any(has(p) for p in recovery.HIT_LINES):
             # (MECHC16, AUDIT28 A28-1: the Life the sources above give a second refills Life between the boss's hits)
             recovery.hit_income(income, stats, texts, **self.hit_rates(main, stats, before=income.pool("Life")))
+        starts = self.es_flask_income(income, texts, lowered)
         recovery.restrict(income, texts)
-        income.unread = recovery.unread(texts)
-        build.recovery_sources = dict(income.rates)
+        income.unread = recovery.unread(texts) + [name for name, pattern in flasks.ES_STARTS_UNREAD.items()
+                                                  if any(pattern.search(t) for t in lowered)]
+        build.recovery_sources = {**income.rates, flasks.ES_STARTS_FIELD: starts}
         return recovery.note(income)
+
+    def es_flask_income(self, income, texts: list[str], lowered: list[str]) -> float:
+        """(MECHC23; AUDIT33 A33-1, an UNDERCOUNT for Energy Shield builds) Energy Shield from the Life flask under "Life
+        Recovery from Flasks also applies to Energy Shield" (flasks.es_recovery_per_second, at the flask's own use rate,
+        into recovery's EnergyShieldFlaskRecovery), and the Energy Shield Recharge starts a second from Bitterbloom's
+        Mana Flask line and Nascent Hope's own line (flasks.es_recharge_starts, at the flask's / charm's uses a second,
+        flasks.uses_per_second); returns the starts a second (0 without either line)."""
+        from builder.search import flasks
+
+        build = self.build
+        equipped = getattr(build, "equipped", {}) or {}
+        to_es = any(flasks.ES_FROM_LIFE_FLASK.search(t) for t in lowered)
+        on_mana = any(flasks.ES_START_MANA_FLASK.search(t) for t in lowered)
+        on_charm = [o for slot in flasks.CHARM_SLOTS if (o := equipped.get(slot)) is not None
+                    and flasks.ES_START_ON_USE.search(o.raw)]
+        if not (to_es or on_mana or on_charm):
+            return 0.0
+        gain = flasks.Charges.of(build)
+
+        def flask(pool: str):
+            slot = next(k for k, v in flasks.FLASK_SLOTS.items() if v == pool)
+            option = equipped.get(slot)
+            return option, (build.call("flaskData", raws=[option.raw])["results"][0] if option is not None else None)
+
+        if to_es:
+            option, info = flask("Life")
+            rate = flasks.es_recovery_per_second(info, gain)
+            how = "Life flask recovery applied to Energy Shield"
+            if rate > 0:
+                income.add("EnergyShieldFlaskRecovery", rate,
+                           f"{how} ({option.name}, as often as its charges allow, x {gain.es_recovery_mod:.2f} Energy "
+                           "Shield recovery rate; MEDIUM)")
+            else:
+                income.parts.append(f"{how}: 0, " + ("no Life flask equipped" if option is None
+                                                     else "its charges allow no use against the boss"))
+        mana_uses = 0.0
+        if on_mana:
+            option, info = flask("Mana")
+            if info:
+                mana_uses = flasks.uses_per_second(info, gain, option.raw, "Mana")[0]
+        charms = []
+        for option in on_charm:
+            info = build.call("flaskData", raws=[option.raw])["results"][0]
+            charms.append((option.name, option.raw, flasks.uses_per_second(info or {}, gain, option.raw, None)[0]))
+        if not (on_mana or on_charm):
+            return 0.0
+        starts, how = flasks.es_recharge_starts(texts, charms, mana_uses)
+        income.parts.append(f"Energy Shield Recharge starts {starts:.3f}/s ({how or 'no use'}; each held until a boss "
+                            f"hit resets the recharge, MEDIUM-LOW; field {flasks.ES_STARTS_FIELD})")
+        return starts
 
     def hit_rates(self, main: str | None, stats: dict, before: float = 0.0) -> dict:
         """The rates recovery.hit_income reads (MECHC14, A27-32), from the build and the request's boss: the boss's hits

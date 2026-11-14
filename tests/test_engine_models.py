@@ -2208,3 +2208,30 @@ def test_the_unleasheds_bypass_moves_nothing_while_energy_shield_is_under_six_ti
     assert stats["EsBypassBelowHalf"] == 25 and stats["EnergyShield"] < 6 * stats["Life"]
     assert stats["EsBypassPoolLost"] == 0
     assert stats["PhysicalTotalHitPool"] == pytest.approx(plain["PhysicalTotalHitPool"])
+
+
+def test_shavronnes_satchel_gives_energy_shield_the_life_flasks_recovery(engine):
+    """MECHC23 (AUDIT33 A33-1, an UNDERCOUNT): PoB reads LifeFlaskAppliesToEnergyShield only for the flask tooltip; the
+    bridge flags the line, and life_mana_income puts the Life flask's recovery on Energy Shield in recovery_sources'
+    EnergyShieldFlaskRecovery (for SEARCH's recovery floor), at the flask's own use rate."""
+    from types import SimpleNamespace
+
+    from builder.search import flasks
+    from builder.search.assumptions import Assumptions
+
+    build = spark_with(engine, []).build
+    assert flasks.Charges.of(build).life_flask_to_es is False
+    belt = chr(10).join(["Rarity: Rare", "Test Belt", "Fine Belt", "Item Level: 82", "Implicits: 0",
+                         "Life Recovery from Flasks also applies to Energy Shield", "Flasks gain 1 charges per Second"])
+    life = chr(10).join(["Rarity: Normal", "Ultimate Life Flask", "Item Level: 82", "Implicits: 0"])
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    build.call("equip", slot="Flask 1", raw=life, active=True, fields=[])
+    build.equipped["Flask 1"] = SimpleNamespace(name="Ultimate Life Flask", raw=life)
+    gain = flasks.Charges.of(build)
+    assert gain.life_flask_to_es is True and gain.life_flask_es_instead is False and gain.es_recovery_mod > 0
+    info = build.call("flaskData", raws=[life])["results"][0]
+    expected = flasks.es_recovery_per_second(info, gain)
+    assert expected == pytest.approx(flasks.recovery_per_second(info, gain, "Life") * gain.es_recovery_mod) and expected > 0
+    Assumptions(build).life_mana_income(build.call("activeSkills")["skills"], "Spark")
+    assert build.recovery_sources["EnergyShieldFlaskRecovery"] == pytest.approx(expected)
+    assert build.recovery_sources[flasks.ES_STARTS_FIELD] == 0.0

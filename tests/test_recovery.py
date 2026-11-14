@@ -761,3 +761,53 @@ def test_rune_of_reach_s_reduced_remnant_effect_lowers_remnant_recovery(engine):
     assert plain > 0 and plain_rate > 0
     assert reduced == pytest.approx(0.75 * plain, abs=1)  # (PoB floors the gain: 410 -> 307)
     assert reduced_rate == pytest.approx(plain_rate * reduced / plain, rel=1e-3)
+
+
+def test_life_flask_recovery_applies_to_energy_shield():
+    """MECHC23 (AUDIT33 A33-1, an UNDERCOUNT for Energy Shield builds): "Life Recovery from Flasks also applies to
+    Energy Shield" (Shavronne's Satchel) gives Energy Shield the Life flask's recovery at the flask's own use rate, times
+    PoB's EnergyShieldRecoveryRateMod; "... instead" takes it off Life; none without the line."""
+    from dataclasses import replace
+
+    from builder.search.flasks import Charges, es_recovery_per_second, recovery_per_second
+
+    life = {"kind": "Flask", "lifeTotal": 300, "chargesUsed": 10, "duration": 3}
+    gain = Charges(flask=1)
+    assert recovery_per_second(life, gain, "Life") == pytest.approx(30.0)
+    assert es_recovery_per_second(life, gain) == 0.0  # no line
+    shield = replace(gain, life_flask_to_es=True, es_recovery_mod=1.5)
+    assert es_recovery_per_second(life, shield) == pytest.approx(45.0)
+    assert recovery_per_second(life, shield, "Life") == pytest.approx(30.0)  # "also": Life keeps it
+    instead = replace(shield, life_flask_es_instead=True)
+    assert recovery_per_second(life, instead, "Life") == 0.0 and es_recovery_per_second(life, instead) == pytest.approx(45.0)
+    assert es_recovery_per_second(None, shield) == 0.0
+    assert es_recovery_per_second(life, replace(shield, life_flask_unusable=True)) == 0.0  # Reverie: no use
+    data = Charges.from_bridge({"lifeFlaskToEs": True, "lifeFlaskEsInstead": True, "esRecoveryMod": 1.2})
+    assert data.life_flask_to_es and data.life_flask_es_instead and data.es_recovery_mod == pytest.approx(1.2)
+    assert Charges.from_bridge({}).es_recovery_mod == 1.0 and not Charges.from_bridge({}).life_flask_to_es
+
+
+def test_energy_shield_recharge_starts_on_a_use_held_for_a_reset():
+    """MECHC23: Bitterbloom's "Energy Shield Recharge starts when you use a Mana Flask" and Nascent Hope's own "Energy
+    Shield Recharge starts on use" start recharge at the flask's / charm's uses a second; each use held until a boss hit
+    resets the recharge starts it at once in that gap (recharge_start_wait), up to one a gap."""
+    import math
+
+    from builder.search import recovery
+    from builder.search.flasks import ES_STARTS_FIELD, es_recharge_starts, recharge_start_wait
+
+    texts = ["Energy Shield Recharge starts when you use a Mana Flask"]
+    charm = ("Nascent Hope", "Used when you become Frozen" + chr(10) + "Energy Shield Recharge starts on use", 0.05)
+    other = ("Plain Charm", "Used when you become Frozen", 0.5)
+    assert es_recharge_starts([], [other], 0.4)[0] == 0.0
+    starts, how = es_recharge_starts(texts, [charm, other], 0.2)
+    assert starts == pytest.approx(0.25) and "Mana Flask" in how and "Nascent Hope" in how and "Plain" not in how
+    assert recharge_start_wait(0.5, 2.0, 0.0) == pytest.approx(math.exp(-1.0))
+    assert recharge_start_wait(0.5, 2.0, 0.25) == pytest.approx(0.5 + 0.5 * math.exp(-1.0))
+    assert recharge_start_wait(0.5, 2.0, 5.0) == pytest.approx(1.0)  # one start a gap at most
+    assert recharge_start_wait(0.0, 2.0, 1.0) == 1.0
+    assert "EnergyShieldFlaskRecovery" in recovery.FIELDS["EnergyShield"] and ES_STARTS_FIELD not in recovery.ALL_FIELDS
+    income = recovery.Income()
+    income.add("EnergyShieldFlaskRecovery", 40.0, "Life flask recovery applied to Energy Shield")
+    note = recovery.note(income)
+    assert note and "40.0 Energy Shield/s" in note[0]["value"]

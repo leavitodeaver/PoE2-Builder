@@ -66,7 +66,10 @@ FIELDS = {
              "ManaOnConsumeRecovery"),
     # (MECHC17) Energy Shield on events: "Regenerate N% of maximum Energy Shield over 1 second when Stunned" (hit_income).
     # For SEARCH: objective.RECOVERY_POOLS["EnergyShield"] doesn't read it yet
-    "EnergyShield": ("EnergyShieldOnEventRecovery", "EnergyShieldPreventedRecoup"),  # (MECHC21: Scarred Faith's)
+    "EnergyShield": ("EnergyShieldOnEventRecovery", "EnergyShieldPreventedRecoup",  # (MECHC21: Scarred Faith's)
+                     # (MECHC23, AUDIT33 A33-1) the Life flask's recovery applied to Energy Shield (Shavronne's Satchel:
+                     # flasks.es_recovery_per_second, at the flask's own use rate)
+                     "EnergyShieldFlaskRecovery"),
 }
 ALL_FIELDS = tuple(f for fields in FIELDS.values() for f in fields)
 
@@ -467,20 +470,23 @@ def unread(texts: list[str]) -> list[str]:
 
 def note(income: Income) -> list[dict]:
     """The assumption note: what each source adds, or nothing when the build has none."""
-    life, mana = income.pool("Life"), income.pool("Mana")
+    life, mana, shield = income.pool("Life"), income.pool("Mana"), income.pool("EnergyShield")
     missing = (f" Not counted (no rate reads them yet, so an undercount): {', '.join(income.unread)}."
                if income.unread else "")
-    if life <= 0 and mana <= 0 and not income.unread:
+    starts = any("Energy Shield Recharge starts" in p for p in income.parts)
+    if life <= 0 and mana <= 0 and shield <= 0 and not starts and not income.unread:
         return []
     sources = "; ".join(income.parts) or "none of these sources gives anything in this fight"
     return [{
         "label": "Life and Mana from kills, Remnants, charms and other events*",
-        "value": f"{life:,.1f} Life/s, {mana:,.1f} Mana/s",
+        "value": f"{life:,.1f} Life/s, {mana:,.1f} Mana/s" + (f", {shield:,.1f} Energy Shield/s" if shield > 0 else ""),
         "basis": f"{sources}. Rates from the build's own hits, kills (the boss preset's adds), charms and Warcries; "
                  f"amounts as written (recovery-rate modifiers not applied).{missing} Fields for the sustain and recovery "
                  f"floors: {', '.join(f for f in ALL_FIELDS if income.rates[f] > 0) or 'none above 0'}",
         "play": ("Walk onto each Remnant as it appears (it lasts 8 s); " if any("Remnant" in p for p in income.parts)
-                 else "") + "the recovery above comes with the play it names (without it: regeneration, leech and "
+                 else "") + ("hold the use that starts Energy Shield Recharge until a boss hit has reset it, then use it "
+                             "(with it: recharge from that moment; without it: only after the full delay); " if starts
+                             else "") + "the recovery above comes with the play it names (without it: regeneration, leech and "
                            "flasks only)",
         "confidence": "MEDIUM-LOW"}]
 
