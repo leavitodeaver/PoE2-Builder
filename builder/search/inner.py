@@ -32,6 +32,7 @@ from builder.search.gear import Gear, SlotSpec, extra_ring_passive
 from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
 from builder.search import flasks, play_guide
+from builder.search import gems as gems_module
 from builder.search.models import GLORY_SKILLS, MARK_CARRIERS, MODEL_FIELDS, PRESS_CHOICES, press_choices, press_use_rate
 from builder.search.objective import (
     CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SUSTAIN_FIELDS, Objective, main_dps, number, shortfall,
@@ -544,6 +545,7 @@ class Search:
         time: each rate scored for real (settle: the models, conditions and Full DPS read the choice; the main skill
         loses the presses' time), the best kept, ties to the lower rate. The DPS with and without it go to the play guide
         (press_guide_rows). True if the score rose."""
+        self.fit_buttons()
         if not PRESS_ROUND:
             return False
         build = self.build
@@ -579,6 +581,103 @@ class Search:
                 self._press(name, best)
             self.press_rows[name].update({"without": trials[PRESS_RATES[0]][1], "with": trials[best][1]})
         return build.score > before + EPSILON
+
+    def _rescore(self) -> float:
+        self.settle()
+        self.build.score = self.build.objective.score(self.build.stats)
+        return self.build.score
+
+    def fit_buttons(self) -> bool:
+        """THE USER (14 Nov, "Count it if used"): an item-granted skill the build presses counts toward the button cap; one
+        it never uses doesn't (AUDIT31 A31-4, AUDIT32 A32-1). The main skill, a damage skill in Full DPS and a chosen press
+        rate are pressed by definition (constraints.item_skill_used); an item skill outside them (a staff's Unleash, a
+        Sigil of Power, a wand's Mana Drain, an enabled Raise Shield) is pressed when the build's score uses it: each such
+        group is switched off once and the score compared (a drop over EPSILON: used, build.used_item_skills). Then, while
+        the build has more buttons than the cap, the cheapest way out is taken, each tried for real: Bastion of Light's
+        Raise Shield taps off (build.objective.raised_taps = False, MECHC21: its Blind goes to 0), a used item skill's
+        group off, or an item damage skill out of Full DPS. With the taps off and a button to spare, the taps are tried
+        back on and kept if the score rises. True if anything changed."""
+        from builder.request.constraints import presses
+
+        build = self.build
+        known = getattr(build.ctx, "any_gems", None) or {}
+        cap = getattr(getattr(build.ctx, "request", None), "max_buttons", None)
+        objective = build.objective
+        if not any(g.get("fromItem") for g in build.groups()):
+            return False  # (no item-granted group: nothing to probe or drop)
+        before = build.score
+        changed = False
+
+        def item_skills(group: dict) -> list[str]:
+            return [g["name"] for g in group.get("gems") or [] if g.get("enabled", True) and g["name"] in known
+                    and not known[g["name"]]["support"] and "Meta" not in known[g["name"]]["skillTypes"]
+                    and presses(known[g["name"]])]
+
+        # 1. which item skills the score uses (probe each candidate group once)
+        setattr(build, gems_module.USED_ITEM_SKILLS, set())
+        pressed = gems_module.pressed_item_skills(build)
+        candidates = [(g["index"], names) for g in build.groups()
+                      if g.get("fromItem") and g.get("enabled") is not False and not g.get("main") and not g.get("fullDPS")
+                      for names in [[n for n in item_skills(g) if n not in pressed]] if names]
+        used: set[str] = set()
+        if candidates:
+            base = build.score
+            for index, names in candidates:
+                build.set_group(index=index, enabled=False)
+                if self._rescore() < base - EPSILON:
+                    used |= set(names)
+                build.set_group(index=index, enabled=True)
+            setattr(build, gems_module.USED_ITEM_SKILLS, used)
+            self._rescore()
+        if cap is None:
+            return used != set() or abs(build.score - before) > EPSILON
+
+        # 2. over the cap: the cheapest way out, tried for real, until it fits or nothing is left to drop
+        def ways() -> list[tuple[str, Any, Any]]:
+            out = []
+            if getattr(objective, "raised_taps", True) is not False and "Raise Shield" in {
+                    n for n, e in (getattr(build, gems_module.ITEM_PRESSES, None) or {}).items()}:
+                out.append(("Raise Shield taps off", lambda: setattr(objective, "raised_taps", False),
+                            lambda: setattr(objective, "raised_taps", True)))
+            for g in build.groups():
+                if not g.get("fromItem") or g.get("enabled") is False or g.get("main"):
+                    continue
+                names = set(item_skills(g))
+                index = g["index"]
+                if names & set(getattr(build, gems_module.USED_ITEM_SKILLS, None) or ()):
+                    out.append((f"group {index} off", lambda i=index: build.set_group(index=i, enabled=False),
+                                lambda i=index: build.set_group(index=i, enabled=True)))
+                elif names and g.get("fullDPS"):
+                    out.append((f"group {index} out of Full DPS", lambda i=index: build.set_group(index=i, fullDPS=False),
+                                lambda i=index: build.set_group(index=i, fullDPS=True)))
+            return out
+
+        count = len(self.gems.buttons())
+        while count > cap:
+            best = None
+            for label, do, undo in ways():
+                do()
+                score = self._rescore()
+                fits = len(self.gems.buttons())
+                undo()
+                if best is None or (max(fits, cap), -score) < (max(best[1], cap), -best[2]):
+                    best = (do, fits, score, label)
+            if best is None or best[1] >= count:
+                self._rescore()
+                break
+            best[0]()
+            self._rescore()
+            count, changed = len(self.gems.buttons()), True
+        # 3. taps back on when a button is spare
+        if getattr(objective, "raised_taps", True) is False and len(self.gems.buttons()) < cap:
+            score = build.score
+            objective.raised_taps = True
+            if self._rescore() <= score + EPSILON or len(self.gems.buttons()) > cap:
+                objective.raised_taps = False
+                self._rescore()
+            else:
+                changed = True
+        return changed or used != set() or abs(build.score - before) > EPSILON
 
     def press_guide_rows(self) -> list[dict]:
         """The play guide's "without it / with it" row for each chosen press rate (CLAUDE.md's flat-rate rule: say how
@@ -1534,6 +1633,8 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     reloaded = build.call("facts", fields=RESULT_FIELDS)
     mismatched = [k for k in RESULT_FIELDS if facts["stats"].get(k) != reloaded["stats"].get(k)]
     facts["warnings"] = list(dict.fromkeys([*facts["warnings"], *reloaded["warnings"], *plain]))
+    # the item-granted skills the build presses, for the button cap (constraints.item_skill_used; Search.fit_buttons)
+    facts["pressedSkills"] = sorted(gems_module.pressed_item_skills(build))
     # Life / Mana recovery from kills, Remnants, charms and events (MECHC12), flask recovery, for the sustain and
     # recovery checks, and the request's boss (boss_hits.boss_name)
     facts["stats"].update(build.added_stats())

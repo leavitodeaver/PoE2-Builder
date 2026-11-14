@@ -112,6 +112,28 @@ REBUILD_DRAW = 6  # each task draws its REBUILD_SEEDS seeds from the sweep's bes
 DISCOVERY_TRIALS = 3  # supports tried for real per round because they could turn a condition on
 
 
+# The item-granted skills a probe found the build's score uses beyond the main skill, Full DPS and chosen press rates
+# (Search.fit_buttons sets it on the build: e.g. a staff's Unleash Empowering the main spell, a Sigil of Power): pressed
+# skills, so buttons (THE USER, 14 Nov: "Count it if used"; AUDIT32 A32-1)
+USED_ITEM_SKILLS = "used_item_skills"
+ITEM_PRESSES = "item_presses"  # (models.ITEM_PRESSES, MECHC21: {skill: (uses a second, how)}, set by Assumptions)
+
+
+def pressed_item_skills(build) -> set[str]:
+    """The skills the build presses for their effect, by name, for the button cap's item-granted skills
+    (constraints.item_skill_used): the search's chosen press rates above 0, build.item_presses' rates above 0 (Bastion of
+    Light's Raise Shield taps while objective.raised_taps is on, MECHC21) and the item skills Search.fit_buttons' probe
+    found the score uses."""
+    from builder.search.models import press_choices
+
+    names = {name for name, rate in press_choices(build).items() if rate > 0}
+    for name, entry in (getattr(build, ITEM_PRESSES, None) or {}).items():
+        rate = entry[0] if isinstance(entry, (tuple, list)) else entry
+        if isinstance(rate, (int, float)) and rate > 0:
+            names.add(name)
+    return names | set(getattr(build, USED_ITEM_SKILLS, None) or ())
+
+
 class Gems:
     def __init__(self, build: Build) -> None:
         self.build = build
@@ -1603,9 +1625,10 @@ class Gems:
         """The skills the build makes the player press (constraints.player_buttons' rule on the current groups): not
         persistent, meta-triggered, triggered or item-granted; an Invocation is one, and so is a pressed meta a passive
         or item grants (Hollow Form)."""
-        from builder.request.constraints import presses
+        from builder.request.constraints import item_skill_used, presses
 
         names: list[str] = []
+        pressed = pressed_item_skills(self.build)  # (an item-granted skill the build uses is one: item_skill_used)
         for group in self.build.groups():
             if not group["enabled"]:
                 continue
@@ -1614,7 +1637,7 @@ class Gems:
             by_meta = any("Meta" in g["skillTypes"] for g in gems if not g["support"])
             used = len([g for g in gems if not g["support"]]) > 1  # (a granted meta with nothing in it isn't pressed)
             for gem in gems:
-                if group["fromItem"] and not ("Meta" in gem["skillTypes"] and used):
+                if group["fromItem"] and not item_skill_used(group, gem, used, pressed):
                     continue
                 if presses(gem) and not (by_meta and "Meta" not in gem["skillTypes"]) and gem["name"] not in names:
                     names.append(gem["name"])

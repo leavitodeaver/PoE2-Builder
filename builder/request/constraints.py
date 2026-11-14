@@ -135,10 +135,24 @@ def meta_socketed(names: list[str], gems: dict[str, dict]) -> set[str]:
     return {n for n in names if "Meta" not in types(n) and {"Spell", "Triggerable"} <= types(n)}
 
 
-def player_buttons(facts: dict) -> list[str]:
-    """Skills the player presses: Invocations, and active skills that aren't persistent, meta,
-    triggered (also by a meta skill in their group) or granted by an item. A pressed meta a passive or item grants
-    (Hollow Form, channelled) is one."""
+def item_skill_used(group: dict, gem: dict, used: bool, pressed: set[str] | frozenset[str]) -> bool:
+    """Does the build press this item-granted skill (THE USER, 14 Nov: "Count it if used": an item-granted skill the build
+    actually presses counts toward the button cap; one it never uses, an idle shield's Raise Shield, doesn't)? Yes when
+    it is the main skill, a damage skill counted in Full DPS (its damage is counted at a use rate, so it is pressed), a
+    skill the build presses for its effect (`pressed`: the search's chosen press rates, build.item_presses' rates such as
+    Bastion of Light's Raise Shield taps, and the item skills a probe found the build's score uses: gems.pressed_item_skills,
+    passed in the facts as "pressedSkills"), or a granted meta with a skill in it (as before)."""
+    if "Meta" in gem["skillTypes"]:
+        return used
+    return bool(group.get("main")) or bool(group.get("fullDPS")) or gem["name"] in pressed
+
+
+def player_buttons(facts: dict, pressed: set[str] | None = None) -> list[str]:
+    """Skills the player presses: Invocations, and active skills that aren't persistent, meta or
+    triggered (also by a meta skill in their group). An item-granted skill is one when the build uses it
+    (item_skill_used; `pressed` defaults to the facts' "pressedSkills", which the search fills); a pressed meta a
+    passive or item grants (Hollow Form, channelled) is one."""
+    pressed = set(facts.get("pressedSkills") or ()) if pressed is None else set(pressed)
     names: list[str] = []
     for group in facts["skillGroups"]:
         if not group["enabled"]:
@@ -149,7 +163,7 @@ def player_buttons(facts: dict) -> list[str]:
         for gem in gems:
             if not presses(gem) or (triggered_by_meta and "Meta" not in gem["skillTypes"]):
                 continue
-            if group["fromItem"] and not ("Meta" in gem["skillTypes"] and used):
+            if group["fromItem"] and not item_skill_used(group, gem, used, pressed):
                 continue
             if gem["name"] not in names:
                 names.append(gem["name"])
@@ -389,7 +403,8 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
         checks.append(lambda f: CheckResult(
             "Buttons", f"at most {request.max_buttons}", f"{len(player_buttons(f))} ({listing(player_buttons(f))})",
             len(player_buttons(f)) <= request.max_buttons,
-            "counts skills you press, Invocations included; other persistent, meta and triggered skills excluded"))
+            "counts skills you press, Invocations and item-granted skills the build uses included; other persistent, "
+            "meta and triggered skills excluded"))
 
     def presence_check(label: str, names: list[str], present: Callable[[dict], set[str]], want: bool) -> None:
         if not names:
