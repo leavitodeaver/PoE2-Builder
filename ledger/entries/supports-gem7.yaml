@@ -1,0 +1,54 @@
+# Support-gem stats PoB never reads, counted from the build's own numbers (GEM7, 14 Nov 2026).
+
+- id: support-vruuns-inevitability-area
+  title: Vruun's Inevitability, 6% increased Area of Effect per Combo expended (the Combo the build's other melee Strikes build between uses, cap 10)
+  kind: gem_stat
+  support: true
+  share: vruun_combo
+  skill: [Vruun's Inevitability]
+  support_stats: ['area_of_effect_+%_per_combo_stack']
+  share_stats: ['skill_maximum_number_of_combo_stacks']
+  match: '^area_of_effect_\+%_per_combo_stack$'
+  replace: ['1% increased Area of Effect']
+  confidence: theory
+  notes: >-
+    "Supported Skills gain Combo when you successfully Strike Enemies with other Melee Attacks. Supported Skills expend
+    their Combo when used, gaining more area of effect the higher Combo they had" (GemEffects VruunsInevitabilitySupport);
+    the stat: "Supported Skills have 6% increased area of effect per Combo expended" (SupportVruunsInevitability,
+    GrantedEffectStatSets: area_of_effect_+%_per_combo_stack 6, skill_maximum_number_of_combo_stacks 10,
+    base_combo_stacks_decay_delay_ms 6000). PoB never reads the area stat (checked: SkillStatMap.lua and Modules/*.lua,
+    grep per_combo_stack, only Culmination's damage stat is mapped; nothing sets PoB's multiplierCombo): an UNDERCOUNT of
+    the supported skill's area. Counted on the supported skill (models.vruun_combo_share) at the Combo a use expends: the
+    build's other melee Strikes' hits per second (Attack + Melee, not Slam; their PoB use rate x hit chance x the press
+    model's share, 1 where it has none: an overcount, said) over the supported skill's uses per second, cap 10; one Combo
+    per Strike hit (Martial Adept and combo-chance lines not counted, an undercount); the same weapon set assumed; 0 with a
+    note without another Strike (no flat rate). LOW. Area moves a lone-boss number only through area-reading lines and
+    models (grounds, area conditions); it is not claimed to move none.
+  sources: ["SupportVruunsInevitability, GrantedEffectStatSets (build 26476662)", "GemEffects VruunsInevitabilitySupport",
+            "gem_stat_descriptions area_of_effect_+%_per_combo_stack", "KeywordPopups Strike / Combo"]
+  test_in_game: "Strike 5 times with another melee attack, then use the Vruun's skill: its area should be 30% larger than with no Strikes first."
+  status: proposed
+
+- id: model-gem7-doedre-toads
+  title: "Doedre's Undoing's Witchtoad spawning is the toad model's (Dark Consequences' rate from the curse area's share)"
+  kind: model
+  model: toads
+  stats: ["spawn_doedre_toads_on_cursed_ground"]
+  skill: [Doedre's Undoing]
+  confidence: theory
+  notes: >-
+    models.toad_model (MECH-B, MECHB8; wired in assumptions.py beside the curse uses): Dark Consequences triggered at one
+    Witchtoad explosion per doedre_cursed_ground_toad_spawn_interval_ms (250 ms; PoB maps that one, ToadSpawnInterval) x
+    the share of the fight the boss stands in the cursed area (the curse's own share from curse_uses), each a Witchtoad
+    dying for the minion-death rate. PoB alone rates Dark Consequences at 4 a second whether or not an area is up. Not
+    closed here, on purpose: max_toads_per_doedre_cursed_ground (4; the model doesn't apply it, the toads' leap time not
+    being in the files, so a leap slower than 1 s would make its 4 a second an OVERCOUNT), maximum_curse_zones_allowed
+    (2; the second area not counted, an undercount) and curse_apply_as_curse_zone (the boss assumed to stay in the area)
+    stay open. Game files: GemEffects DoedresUndoingSupport ("spawns Witchtoads in that area. Witchtoads leap at enemies
+    that get close ... Dark Consequences will be Triggered when they hit enemies with their leap"); patch 0.5.0 (the
+    newest in the archive's --history "Doedre's Undoing"): "No longer causes Cursed Ground ... to become Hazards. Now
+    causes Cursed Ground ... to spawn Witchtoads on an interval which seek out enemies and explode, dealing Chaos damage".
+  sources: ["SupportDoedresUndoingPlayer, GrantedEffectStatSets (build 26476662)", "GemEffects DoedresUndoingSupport",
+            "builder/search/models.py (toad_model, MECHB8)", "patch notes 0.5.0 Support Changes"]
+  test_in_game: "Curse a dummy with Doedre's Undoing and stand still: count the toad explosions over 10 s (the model: 40)."
+  status: proposed

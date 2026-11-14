@@ -3274,7 +3274,7 @@ def heavy_stun_buff_share(skill: Skill, stats: dict, main: Skill | None = None,
 # that skill's own group (`stats["_groups"][group]`: the bridge's useRates entry, the group calculated as if it were the
 # main one, which gem_stat_model is given as `groups`), at the share of its nonstop uses the press model gives it
 # (`_press`: objective.press_scales, the same rate whose time the main skill loses, so nothing is counted twice).
-GROUP_SHARES = {"heavy_stun_buff"}  # (share functions that read a non-main skill's own group)
+GROUP_SHARES = {"heavy_stun_buff", "vruun_combo"}  # (share functions that read a non-main skill's own group)
 HEAVY_STUN_GROUP_FIELDS = ("HeavyStunBuildupAvg", "HitChance", "CritChance",
                            *(f"{t}{k}Average" for t in DAMAGE_TYPES for k in ("Hit", "Crit")))
 
@@ -3573,9 +3573,91 @@ def shotgun_fragment_count_share(skill: Skill, stats: dict, main: Skill | None =
                    f"it: x1 (one fragment)"), SHOTGUN_PLAY + "."
 
 
+# `share: vruun_combo` (GEM7, 14 Nov 2026; GEM6's design): Vruun's Inevitability, "Supported Skills gain Combo when you
+# successfully Strike Enemies with other Melee Attacks. Supported Skills expend their Combo when used, gaining more area
+# of effect the higher Combo they had" (GemEffects VruunsInevitabilitySupport); its stat reads "Supported Skills have 6%
+# increased area of effect per Combo expended" (gem_stat_descriptions area_of_effect_+%_per_combo_stack;
+# SupportVruunsInevitability: 6, skill_maximum_number_of_combo_stacks 10, base_combo_stacks_decay_delay_ms 6000). PoB
+# never reads the area stat (checked: SkillStatMap.lua and Modules/*.lua, grep per_combo_stack: only Culmination's
+# damage stat is mapped; nothing in builder/ or engine/ sets multiplierCombo, pob-gaps-boss.yaml's note): an UNDERCOUNT
+# of area. The Combo a use expends is what the build's other melee Strikes built since the last use, from the build's own
+# rates (no flat rate): sum over the other groups' Strike skills (Attack + Melee, not Slam: KeywordPopups Strike, "Slam
+# attacks do not count as Strikes") of their uses/s x hit chance x the press model's share (`_press`; 1 when it has
+# none: Full DPS counts that group at PoB's rate, an OVERCOUNT of Combo where the player can't really use both at that
+# rate) over the supported skill's own uses/s (its PoB Speed x its `_press`), capped at 10. One Combo per hitting use
+# (Martial Adept's +1 and "chance to build an additional Combo" lines not counted: an undercount; usage.Usage.combo_chance
+# has them but needs the build), the weapon set assumed shared (Combo builds only on the same weapon set: an overcount
+# where it isn't), the 6 s decay never reached (a use at least every 6 s, said where it isn't). No Strike group: 0 with a
+# note. LOW. Area moves a lone-boss number only through area-reading lines and models (grounds, AreaOfEffect
+# conditions): not claimed to move none.
+VRUUN_MAX_COMBO = 10.0  # (skill_maximum_number_of_combo_stacks; the share reads the gem's own value where given)
+VRUUN_DECAY_SECONDS = 6.0  # (base_combo_stacks_decay_delay_ms 6000)
+VRUUN_PLAY = ("Strike the boss with another melee attack between uses of the Vruun's skill: each Strike gives it a Combo "
+              "(up to 10), and its next use spends them for more area")
+
+
+def _strike_skill(skill: Skill) -> bool:
+    """A melee Strike that builds Combo (KeywordPopups Strike: a Melee attack, not a Slam)."""
+    return skill.attack and skill.melee and not skill.triggered and "Slam" not in set(_skill_types().get(skill.name, ()))
+
+
+def vruun_builder_groups(skills: list[Skill], skill: Skill) -> list[int]:
+    """Groups other than `skill`'s holding a Strike that builds its Combo."""
+    return sorted({s.group for s in skills if s.group is not None and s.group != skill.group and _strike_skill(s)})
+
+
+def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    groups = stats.get("_groups") or {}
+    skills = stats.get("_skills") or []
+    is_main = main is not None and main.name == skill.name and main.group == skill.group
+    cap = number(skill.support_stats.get("skill_maximum_number_of_combo_stacks")) or VRUUN_MAX_COMBO
+    if is_main:
+        uses = number(stats.get("Speed"))
+    else:
+        own = groups.get(skill.group) or {}
+        uses = number(own.get("speed")) * number(own.get("_press") if own.get("_press") is not None else 1.0)
+    if uses <= 0:
+        return 0.0, "the supported skill isn't used at a rate PoB gives: no Combo expended (0)", VRUUN_PLAY + "."
+    builders = vruun_builder_groups(skills, skill)
+    if not builders:
+        return 0.0, ("no other melee Strike in the build to build its Combo (Combo comes from Strikes with other melee "
+                     "attacks): 0 (no flat rate)"), VRUUN_PLAY + ". Without one it gets no area."
+    hits, parts, unpressed = 0.0, [], []
+    for index in builders:
+        if main is not None and index == main.group:
+            rate = number(stats.get("Speed")) * min(number(stats.get("HitChance", 100) or 100), 100.0) / 100
+            name, press = main.name, 1.0
+        else:
+            row = groups.get(index)
+            if row is None:
+                continue
+            press = row.get("_press")
+            if press is None:
+                unpressed.append(str(row.get("name")))
+            chance = min(number(row.get("HitChance", 100) or 100), 100.0) / 100
+            rate = number(row.get("speed")) * chance * number(press if press is not None else 1.0)
+            name = str(row.get("name"))
+        if rate > 0:
+            hits += rate
+            parts.append(f"{name} {rate:.2f} hits/s")
+    if hits <= 0:
+        return 0.0, "the build's other Strikes hit at no rate PoB gives: 0", VRUUN_PLAY + "."
+    combo = min(cap, hits / uses)
+    why = (f"{combo:.1f} Combo expended a use ({' + '.join(parts)} over its {uses:.2f} uses/s, cap {cap:g}): "
+           f"+{combo * number(skill.support_stats.get('area_of_effect_+%_per_combo_stack')):.0f}% area (LOW: one Combo "
+           f"per Strike hit, Martial Adept and combo-chance lines not counted; same weapon set assumed")
+    if unpressed:
+        why += (f"; {', '.join(unpressed)} read at PoB's own rate, its time not taken from the supported skill (an "
+                f"overcount of Combo)")
+    if 1.0 / uses > VRUUN_DECAY_SECONDS:
+        why += f"; a use only every {1 / uses:.1f} s, past the {VRUUN_DECAY_SECONDS:g} s Combo decay (an overcount)"
+    return combo, why + ")", VRUUN_PLAY + (f". Headline: {combo:.1f} Combo a use. Without the other Strikes: no added "
+                                           f"area; with them: +{combo:.1f} Combo's worth.")
+
+
 CONFIG_SHARES = {"near_boss"}  # (share functions that read PoB's config: gem_stat_model passes `_config`)
 
-SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use"}  # (read the build's skills: `_skills`)
+SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use", "vruun_combo"}  # (read the build's skills: `_skills`)
 
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
@@ -3583,7 +3665,8 @@ SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_s
           "near_boss": near_boss_share, "corpse_consumed": corpse_consumed_share,
           "corpses_per_use": corpses_per_use_share, "stun_bar": stun_bar_share,
           "seal_echo": seal_echo_share, "shotgun_fragments": shotgun_fragments_share,
-          "shotgun_fragment_count": shotgun_fragment_count_share}
+          "shotgun_fragment_count": shotgun_fragment_count_share,
+          "vruun_combo": vruun_combo_share}
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
@@ -3599,6 +3682,9 @@ def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
             if skill.group is not None and (main is None or skill.group != main.group) and any(
                     entry.pattern.search(stat) and number(v) for stat, v in skill.support_stats.items()):
                 found.add(skill.group)
+            if entry.raw["share"] == "vruun_combo" and any(  # (and the groups whose Strikes build its Combo)
+                    entry.pattern.search(stat) and number(v) for stat, v in skill.support_stats.items()):
+                found.update(g for g in vruun_builder_groups(skills, skill) if main is None or g != main.group)
     return sorted(found)
 
 
