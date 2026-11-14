@@ -7,13 +7,15 @@ Energy Shield, resistances (capped at 75%) and physical maximum hit. The target 
 reference's boss DPS with every floor met, within the time limit. Both sides are measured with
 the same objective (on-death damage left out).
 
-Usage: uv run python benchmarks/gate4.py [name-filter ...] [--seconds 600] [--workers N] [--events FILE] [--cpu]
+Usage: uv run python benchmarks/gate4.py [name-filter ...] [--seconds 600] [--workers N] [--events FILE] [--cpu] [--seed-base N]
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from datetime import datetime
 
@@ -84,6 +86,15 @@ def reference_request(name: str, facts: dict, keystones: list[str]) -> BuildRequ
     )
 
 
+def commit() -> str | None:
+    """The checkout's commit, so gate_median.py can group a set of runs."""
+    try:
+        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True,
+                              check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("names", nargs="*")
@@ -93,7 +104,15 @@ def main() -> None:
     parser.add_argument("--cpu", action="store_true",
                         help="compare code, not PC load: --seconds is each worker's processor time (Run's cpu_clock, "
                              "SEARCH19); the wall time grows on a busy PC. Every row reports its evaluations either way")
+    parser.add_argument("--seed-base", type=int, default=None,
+                        help="take draw set N (SEARCH20): every task seed moves by run.SEED_STRIDE x N, and the run "
+                             "and its workers hash strings with PYTHONHASHSEED=N, so the same N on two commits takes "
+                             "the same draws on the Python side; gate_median.py reads a set of such runs")
     args = parser.parse_args()
+    if args.seed_base is not None and os.environ.get("PYTHONHASHSEED") != str(args.seed_base):
+        # (Python fixes its string hashing at start-up: run again with the hash seed set; the workers inherit it)
+        env = {**os.environ, "PYTHONHASHSEED": str(args.seed_base)}
+        sys.exit(subprocess.run([sys.executable, *sys.argv], env=env).returncode)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -134,7 +153,7 @@ def main() -> None:
                     with open(args.events, "a", encoding="utf-8") as log:
                         log.write(json.dumps({"build": name, **event}) + "\n")
         result = optimize(request, prices=prices, workers=args.workers, seconds=args.seconds, on_event=on_event,
-                          cpu_clock=args.cpu)
+                          cpu_clock=args.cpu, seed_base=args.seed_base or 0)
         dps = (result.get("dps") or {}).get("full", 0.0)
         failing = [c["label"] for c in result.get("checks", []) if c["ok"] is False]
         passed = result.get("feasible", False) and dps >= reference_dps
@@ -151,7 +170,8 @@ def main() -> None:
               + (" (processor-time clock)" if args.cpu else ""), flush=True)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     out = RESULT_DIR / f"gate4-{datetime.now():%Y%m%d-%H%M%S}.json"
-    out.write_text(json.dumps({"seconds": args.seconds, "cpu_clock": args.cpu, "boss": BOSS, "rows": rows}, indent=1), encoding="utf-8")
+    out.write_text(json.dumps({"seconds": args.seconds, "cpu_clock": args.cpu, "seed_base": args.seed_base,
+                               "hash_seed": os.environ.get("PYTHONHASHSEED"), "commit": commit(), "boss": BOSS, "rows": rows}, indent=1), encoding="utf-8")
     print(f"gate 4: {sum(r['passed'] for r in rows)}/{len(rows)} pass; wrote {out.relative_to(ROOT)}")
 
 

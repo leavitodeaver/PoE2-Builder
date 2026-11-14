@@ -126,10 +126,14 @@ def floors_at_full_uptime(checks: list[dict], penalties: list, stats: dict, floo
                 break
 
 
+SEED_STRIDE = 1_000_003  # (Run.seed_base: well past every task seed a run makes on its own)
+
+
 class Run:
     def __init__(self, request: BuildRequest, prices: Any = None, workers: int | None = None,
                  seconds: float | None = None, on_event: Callable[[dict], None] | None = None,
-                 should_cancel: Callable[[], bool] | None = None, cpu_clock: bool = False) -> None:
+                 should_cancel: Callable[[], bool] | None = None, cpu_clock: bool = False,
+                 seed_base: int = 0) -> None:
         self.request = request
         self.price_table = prices
         self.payload = make_payload(request, prices)
@@ -139,6 +143,10 @@ class Run:
         # wall time grows instead. The result says so (cpu_clock, wall_seconds).
         self.cpu_clock = cpu_clock
         self.handed_out = 0.0
+        # Which draws the run's tasks take (SEARCH20; gate4 --seed-base): every task seed moves by SEED_STRIDE x seed_base,
+        # so a gate repeated on seed bases 0, 1, 2 takes three independent sets of draws, and the same bases on two commits
+        # take the same ones (0: the seeds the search has always used)
+        self.seed_base = seed_base
         if cpu_clock:
             self.payload["cpu_clock"] = True  # (inner.CPU_CLOCK)
         self.ctx = Context(self.payload)
@@ -153,6 +161,10 @@ class Run:
         self.evals_done = 0
         self.seed_start: dict | None = None  # the PoB code's own numbers under this request
         self.best: dict | None = None
+
+    def task_seed(self, seed: int) -> int:
+        """A task's seed in this run's draw set (seed_base)."""
+        return seed + SEED_STRIDE * getattr(self, "seed_base", 0)
 
     # Events ------------------------------------------------------------------------------------
 
@@ -450,7 +462,8 @@ class Run:
                                             + self.boss_share(goals))
                 tasks = [("builder.search.inner:optimize_task", {
                     "payload": self.payload, "skeleton": s.as_dict(), "seconds": probe,
-                    "seed": round_index * 1000 + 31 * r + i, "state": self.line_state(lines, states, s.label, r, goals[r]),
+                    "seed": self.task_seed(round_index * 1000 + 31 * r + i),
+                    "state": self.line_state(lines, states, s.label, r, goals[r]),
                     "goal": goals[r]})
                     for i, s in enumerate(alive) for r in range(replicas)]
                 best_of: dict[str, dict] = {}
@@ -486,7 +499,7 @@ class Run:
                         break
                     tasks = [("builder.search.inner:optimize_task", {
                         "payload": self.payload, "skeleton": s.as_dict(), "seconds": seconds,
-                        "seed": 7919 * (r + 1) + i + 104729 * focus_round,
+                        "seed": self.task_seed(7919 * (r + 1) + i + 104729 * focus_round),
                         "state": self.line_state(lines, states, s.label, r, goals[r]), "goal": goals[r],
                         "full": FOCUS_FULL_DPS})
                         for i, s in enumerate(alive) for r in range(replicas)]
