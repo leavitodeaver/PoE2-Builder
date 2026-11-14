@@ -781,9 +781,10 @@ def test_life_flask_recovery_applies_to_energy_shield():
     instead = replace(shield, life_flask_es_instead=True)
     assert recovery_per_second(life, instead, "Life") == 0.0 and es_recovery_per_second(life, instead) == pytest.approx(45.0)
     assert es_recovery_per_second(None, shield) == 0.0
-    # (MECHC24, COV27) a flask whose effect is kept at full Life: PoB counts its recovery itself, so 0 here
-    kept = "Effect is not removed when Unreserved Life is Filled"
-    assert es_recovery_per_second(life, shield, kept) == 0.0
+    # (MECHC24, COV27) Enduring Elixirs' global form: PoB counts its recovery itself, so 0 here. (MECHC25, AUDIT34 A34-20)
+    # the flask's OWN kept line (Blood of the Warrior, Opportunity) parses to nothing in PoB: ours counts it
+    kept = "Blood of the Warrior\nGargantuan Life Flask\nEffect is not removed when Unreserved Life is Filled"
+    assert es_recovery_per_second(life, shield, kept) == pytest.approx(45.0)
     assert es_recovery_per_second(life, replace(shield, life_effect_kept=True)) == 0.0  # Enduring Elixirs
     assert es_recovery_per_second(life, shield, "Recovers 300 Life over 3 Seconds") == pytest.approx(45.0)
     assert es_recovery_per_second(life, replace(shield, life_flask_unusable=True)) == 0.0  # Reverie: no use

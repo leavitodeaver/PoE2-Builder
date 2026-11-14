@@ -2246,6 +2246,19 @@ def test_shavronnes_satchel_gives_energy_shield_the_life_flasks_recovery(engine)
     assert gain.life_effect_kept and flasks.es_recovery_per_second(info, gain, life) == 0.0
     Assumptions(build).life_mana_income(build.call("activeSkills")["skills"], "Spark")
     assert not build.recovery_sources.get("EnergyShieldFlaskRecovery")
+    # (MECHC25, AUDIT34 A34-20) the Life flask's OWN kept line (Blood of the Warrior, Opportunity) parses to nothing in
+    # PoB: its Energy Shield regeneration doesn't move, so ours counts the flask
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    plain = engine.call("recalc", fields=["EnergyShieldRegenRecovery"])["stats"].get("EnergyShieldRegenRecovery") or 0
+    own = life + chr(10) + "Effect is not removed when Unreserved Life is Filled"
+    build.call("equip", slot="Flask 1", raw=own, active=True, fields=[])
+    build.equipped["Flask 1"] = SimpleNamespace(name="Ultimate Life Flask", raw=own)
+    assert (engine.call("recalc", fields=["EnergyShieldRegenRecovery"])["stats"].get("EnergyShieldRegenRecovery")
+            or 0) == pytest.approx(plain)
+    gain = flasks.Charges.of(build)
+    assert not gain.life_effect_kept and flasks.es_recovery_per_second(info, gain, own) > 0
+    Assumptions(build).life_mana_income(build.call("activeSkills")["skills"], "Spark")
+    assert build.recovery_sources["EnergyShieldFlaskRecovery"] == pytest.approx(flasks.es_recovery_per_second(info, gain, own))
 
 
 def test_plain_exposure_lines_and_the_exposure_supports_lower_the_bosss_resistances(engine):

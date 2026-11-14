@@ -706,9 +706,14 @@ def recovery_per_second(info: dict, gain: Charges, pool: str, raw: str = "", own
 # duration to EnergyShieldRecovery, which CalcDefence folds into EnergyShieldRegenRecovery (read by objective's
 # RECOVERY_POOLS). So such a flask gives 0 here, never twice. PoB's figure has no charge limit (the whole duration, end to
 # end, while the slot is on): a possible overcount there when charges run short, named, not corrected (LOW).
+# (MECHC25, AUDIT34 A34-20, an UNDERCOUNT in MECHC24's version) Only the global form counts in PoB: the Life flask's OWN
+# line "Effect is not removed when Unreserved Life is Filled" (Blood of the Warrior, Opportunity) parses to no mod
+# (ModCache 7237 {nil, ...}; probe POE2T1700: LifeRegenRecovery stays 0 with it), so lifeEffectNotRemoved is never set and
+# PoB counts nothing for it: ours counts it (the Mana form does parse, ModParser 5571, but has no Energy Shield line).
 def pob_counts_flask_recovery(gain: Charges, raw: str = "") -> bool:
-    """Does PoB add this Life flask's recovery to its own regeneration totals (the effect kept at full Life)?"""
-    return gain.life_effect_kept or KEPT_AT_FULL["Life"] in (raw or "").lower()
+    """Does PoB add this Life flask's recovery to its own regeneration totals (Enduring Elixirs' global form; `raw`, the
+    flask's text, is no longer read: its own kept line parses to nothing in PoB)?"""
+    return gain.life_effect_kept
 
 
 # The Life and Mana side of the same (MECHC25; MECHC24's lead, an OVERCOUNT): calcFlaskRecovery also adds the flask's
