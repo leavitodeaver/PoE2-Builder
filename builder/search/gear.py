@@ -54,6 +54,7 @@ GRANTS_META = re.compile(r"Grants Skill: (?:Level \S+ )?(?:%s)\s*$" % "|".join(r
 BASES_PER_SUBTYPE = 3  # normal armour/jewellery bases kept per sub-type, highest level first
 SHORTLIST = 6  # options per slot rescored between full rounds
 ANOINT_KEEP = 8  # notables per anoint the node screen passes to real item what-ifs (anointed)
+TRIAL_SHARE = 0.5  # of a fresh full round's time the source-item trials may take (SEARCH21: they took all of it)
 REQUIREMENT_FIT_SECONDS = 30.0  # tree re-routing a granted-meta unique's trial may take (fit_requirements)
 # On since 11 Nov (the user: "Turn on, fix the search"; the variants are real items, so the search offers them). Off from
 # 8 Nov (MECH15) to 11 Nov: then every 2b75b gate run kept Cast on Dodge with 2-3 supports left in its main group,
@@ -150,6 +151,7 @@ class Gear:
         self.pools = AffixPools(self.ctx)
         self.runes = RuneCatalog(self.ctx, self.ctx.augment_prices)
         self.rares: dict[str, ItemOption] = {}  # the last rare built for each slot
+        self.rare_tried: set[str] = set()  # empty slots a partial round built a rare for since the last full round
         self.variant_failed: dict[tuple[str, str, str], float] = {}  # (slot, base, variant line) -> score its trial failed at
         self.lam = 0.0  # budget weight: score per divine
         self.magic_pools = {kind: AffixPools(self.ctx, kind) for kind in ("Flask", "Charm")}
@@ -691,7 +693,14 @@ class Gear:
         slots = list(self.slots)
         if full:  # a full round that ran out of time last task goes on from the slot it stopped at
             self._anoint_screen = None
-            improved = self.assumption_trials(deadline)
+            self.rare_tried.clear()
+            # The source-item trials run when a full round starts, not again when a cut round goes on (they ran then),
+            # and take at most TRIAL_SHARE of its time: each trial settles the build and may re-route the tree for up
+            # to REQUIREMENT_FIT_SECONDS, and on 2b75d they took the whole share, so the slot loop never reached a
+            # slot and six slots stayed empty through round 2 (SEARCH21)
+            if self.resume is None:
+                now = clock.now()
+                improved = self.assumption_trials(min(deadline, now + TRIAL_SHARE * max(0.0, deadline - now)))
             start = slots.index(self.resume) if self.resume in slots else 0
             slots = slots[start:] + slots[:start]
             self.resume = None
@@ -712,7 +721,11 @@ class Gear:
             if not full and slot in self.shortlist:
                 shortlisted = set(self.shortlist[slot])
                 options = [o for o in options if o.name in shortlisted]
-            if full:
+            if full or (slot not in self.rares and slot not in self.rare_tried and build.equipped.get(slot) is None
+                        and not is_flask_slot(slot) and slot not in CHARM_SLOTS):
+                # (a partial round builds one for an empty gear slot no full round has reached yet: it rescored only
+                # uniques and plain bases there, and gained 0 in all five round-2 lines of 2b75d, SEARCH21)
+                self.rare_tried.add(slot)
                 rare = self.build_rare(slot, deadline)
                 if rare is not None:
                     self.rares[slot] = rare

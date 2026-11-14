@@ -1516,3 +1516,68 @@ def test_fireflower_self_damage_reaches_pob_as_fire_damage_taken(engine):
     assert note["confidence"] == "MEDIUM"
     degen = models.number(build.call("stats", fields=["TotalBuildDegen"]).get("TotalBuildDegen"))
     assert degen > 0, degen  # (CalcDefence 3876-3884: the build's own damage-type Degen, after resistances)
+
+
+def _quiet_gear_round(monkeypatch, built: list, trials: list) -> None:
+    """Gear.gear_round with its item work stubbed: records build_rare's slots and assumption_trials' deadlines."""
+    monkeypatch.setattr(Gear, "assumption_trials", lambda self, deadline: trials.append(deadline) or False)
+    monkeypatch.setattr(Gear, "build_rare", lambda self, slot, deadline, *a, **k: built.append(slot))
+    monkeypatch.setattr(Gear, "candidates", lambda self, slot: [])
+    monkeypatch.setattr(Gear, "deltas", lambda self, slot, raws: [])
+    for name in ("socketed", "anointed", "shard_trial"):
+        monkeypatch.setattr(Gear, name, lambda self, slot, option, deadline: option)
+    monkeypatch.setattr(Gear, "commit_anoints", lambda self, slot, option, deadline: False)
+    monkeypatch.setattr(Gear, "granted_meta_trials", lambda self, deadline: False)
+
+
+def test_a_full_gear_rounds_source_item_trials_leave_its_slots_time_and_run_once_per_round(engine, monkeypatch):
+    """The source-item trials (Gear.assumption_trials) ran first in every full gear round with the round's whole
+    deadline: on gate 4's 2b75d they took all of each full round's share (23.5 s of 23.1 s in the probe, 13.7 of
+    12.5 s in the next, POE2T2277), the slot loop never reached a slot and six slots stayed empty (SEARCH21). A fresh
+    full round now gives them at most TRIAL_SHARE of its time, and a round going on from where the last one stopped
+    doesn't run them again."""
+    from builder.search import gear as gear_module
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Explosive Spear")
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    built, trials = [], []
+    _quiet_gear_round(monkeypatch, built, trials)
+    gear = search.gear
+    gear.resume = None
+    start = clock.now()
+    gear.gear_round(start + 100.0, full=True)
+    assert len(trials) == 1 and trials[0] <= clock.now() + gear_module.TRIAL_SHARE * 100.0
+    assert trials[0] < start + 100.0 and gear.resume is None and built  # (the slot loop ran)
+    gear.gear_round(clock.now() - 1.0, full=True)  # a fresh round out of time: trials (none left), stopped at slot one
+    assert len(trials) == 2 and gear.resume == list(gear.slots)[0]
+    gear.gear_round(clock.now() + 100.0, full=True)  # goes on from there: no trials this time
+    assert len(trials) == 2 and gear.resume is None
+
+
+def test_a_partial_gear_round_builds_a_rare_once_for_an_empty_slot_no_full_round_reached(engine, monkeypatch):
+    """A partial gear round offered an empty slot only uniques and plain bases unless a full round had built a rare
+    for it: 2b75d's six empty slots gained 0 in all five round-2 lines of POE2T2267 (SEARCH21). It now builds one,
+    once per empty gear slot (not flasks or charms) between full rounds."""
+    from builder.search.flasks import CHARM_SLOTS, is_flask_slot
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    ctx = context(main_skill="Explosive Spear")
+    skeleton = enumerate_skeletons(ctx, ["Explosive Spear"])[0][0].as_dict()
+    search = Search(engine, None, make_payload(ctx.request), skeleton, 0)
+    search.setup(quests=False)
+    built, trials = [], []
+    _quiet_gear_round(monkeypatch, built, trials)
+    gear, build = search.gear, search.build
+    empty = {s for s in gear.slots if build.equipped.get(s) is None and not is_flask_slot(s) and s not in CHARM_SLOTS
+             and s not in build.locked_slots}
+    assert empty
+    gear.rares.clear()
+    gear.gear_round(clock.now() + 100.0, full=False)
+    assert set(built) == empty and not trials
+    gear.gear_round(clock.now() + 100.0, full=False)  # (tried once: build_rare found none here)
+    assert set(built) == empty and len(built) == len(empty)
