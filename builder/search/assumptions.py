@@ -1777,7 +1777,8 @@ class Assumptions:
                             attacks *= 1 + number(mod.get("value")) / 100
             extra = getattr(build, "extra_stats", None) or {}
             recovery = sum(number(stats.get(k)) for k in ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate")) \
-                + number(extra.get(flasks.RECOVERY_FIELDS["Life"]))
+                + number(extra.get(flasks.RECOVERY_FIELDS["Life"])) \
+                - flasks.pob_part_time_share(build, flasks.Charges.of(build))[0]  # (MECHC25, A35-20: never twice)
             out.update(attacks=attacks, life=number(stats.get("Life")), life_recovery=recovery)
         return out
 
@@ -1959,15 +1960,20 @@ class Assumptions:
         # (MECHC16, A28-1) the net Life refilled a second between the boss's hits: the build's other Life recovery less
         # its Life costs and its own damage over time on Life (TotalBuildDegen at the Life share, LOW)
         extra = getattr(build, "extra_stats", None) or {}
+        # (MECHC25, AUDIT35 A35-20) a part-time Enduring Elixirs Life flask with its slot on: PoB's regeneration holds its
+        # whole recovery and "Life flasks" ours, so PoB's share comes off (flasks.pob_part_time_share): never twice
+        doubled, doubled_how = flasks.pob_part_time_share(build, flasks.Charges.of(build))
         gains = {"regeneration, leech and on-hit (PoB)": sum(number(hit.get(k)) for k in
-                                                             ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate")),
+                                                             ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate"))
+                 - doubled,
                  "Life flasks": number(extra.get(flasks.RECOVERY_FIELDS["Life"])),
                  "recoup and Life on Block": objective.recoup(hit, taken, "Life") + objective.on_block(hit, "Life", every),
                  "kills, Remnants, charms, events and spending": max(before, 0.0)}
         costs = number(hit.get("LifePerSecondCost")) + max(number(hit.get(objective.BUILD_DEGEN)), 0.0) * share
         refill = max(sum(gains.values()) - costs, 0.0)
         refill_how = (", ".join(f"{k} {v:,.1f}" for k, v in gains.items() if v > 0) or "no other Life recovery") + (
-            f", less {costs:,.1f} Life costs and own damage over time" if costs > 0 else "")
+            f", less {costs:,.1f} Life costs and own damage over time" if costs > 0 else "") + (
+            f" ({doubled_how})" if doubled_how else "")
         out = {"landed": landed, "life_per_hit": per_hit, "blocked": blocked, "casts": casts, "cast_how": how,
                "stunned": stunned, "stunned_how": stunned_how, "refill": refill, "refill_how": refill_how}
         texts = [line["text"].strip() for line in build.call("sourceLines")["lines"]]

@@ -1348,7 +1348,6 @@ def test_shocked_ground_reads_the_builds_shock_magnitude_but_not_crit_only_lines
     assert after["inc"] - before["inc"] == 30 and after["max"] >= 20, (before, after)
 
 
-
 def test_return_model_lines_parse_in_pob(engine):
     """MECHB1: the bridge stops a search on an assumption line PoB can't parse; the return model's two lines."""
     texts = ["1% more Damage", "1% more Damage against Enemies with Fully Broken Armour"]
@@ -1643,7 +1642,6 @@ def test_jiquanis_thesis_line_reaches_pobs_own_flag_and_its_socketed_halves_dont
     build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
 
 
-
 def test_critical_hit_chance_that_cannot_be_rerolled_drops_lucky_crit(engine):
     """MECH53 (an OVERCOUNT): "Your Critical Hit Chance cannot be Rerolled" (Maligaro's Virtuosity) stops anything making
     Critical Hit Chance Lucky, Unlucky, Bifurcated or Inevitable (KeywordPopups RerollCrit). PoB leaves the line unparsed and
@@ -1720,7 +1718,6 @@ def test_unbound_buff_lines_parse_and_count_only_while_unbound(engine):
         assert on["ShockChancePerHit"] == pytest.approx(off["ShockChancePerHit"] * 1.8, rel=0.02)
     build.set_config({"Unbound": False})
     build.call("setAssumptions", mods=search.assumptions.mods, fields=[])
-
 
 
 def test_a_one_totem_support_holds_pobs_ailment_stacks_to_one_totem(engine):
@@ -1815,8 +1812,6 @@ def test_the_chill_able_hit_counts_every_type_allowed_to_chill(engine):
     assert cold["PhysicalHitAverage"] > 0 and cold["ChillHitDamage"] == pytest.approx(cold["ColdHitAverage"])
     both = wear([added, "Your Physical Damage can Chill"])
     assert both["ChillHitDamage"] == pytest.approx(both["ColdHitAverage"] + both["PhysicalHitAverage"])
-
-
 
 
 def test_explosive_transmutations_trigger_assumption_keeps_the_explosions_runic_ward_cost(engine):
@@ -2066,7 +2061,6 @@ def test_murderous_intents_cull_is_flagged_empower_only(engine):
     assert "Murderous Intent" in names
 
 
-
 def test_active_skills_flag_what_another_skill_can_empower(engine):
     """MECH65 (AUDIT29 A29-3/4): bridge.activeSkills flags a Repeatable skill (Multicastable, not Instant, Channelling or
     Triggered: KeywordPopups Repeat) for Unleash, a Slam for Seismic Cry; Assumptions.empowered_uses reads them."""
@@ -2136,7 +2130,6 @@ def test_lightning_warps_shocked_ground_reads_its_secondary_duration_and_the_bui
     after = ground()
     print("PROBE", before, after)
     assert before >= 8000 and after > before * 1.2, (before, after)
-
 
 
 def _split_pool(above: float, below: float, life: float, s1: float, s2: float) -> float:
@@ -2407,3 +2400,33 @@ def test_which_skills_beside_the_main_one_hit_when_used_for_daze(engine):
     assert hit["Seismic Cry"] and hit["Iron Ward"] and hit["Plague Bearer"] and hit["Fireball"]
     assert len(flags["Iron Ward"]) == 2 and not all(flags["Iron Ward"])  # (the store doesn't hit, the nova does)
     assert not hit["Fortifying Cry"] and not hit["Herald of Ice"] and not hit["Flame Wall"] and not hit["Contagion"]
+
+
+def test_a_part_time_elixirs_life_flask_is_taken_out_of_pobs_regeneration_once(engine):
+    """MECHC25 (AUDIT35 A35-20): with a part-time Enduring Elixirs Life flask's slot on, PoB's LifeRegenRecovery holds the
+    flask's whole recovery (no charge limit) and our FlaskLifeRecoveryRate its charge-limited share; the readers that
+    sum both (the Ward sacrifice's Life recovery, the refill between the boss's hits) take PoB's share off, measured by
+    flasks.pob_part_time_share. A flask up the whole fight (ours 0) or no Elixirs: nothing to take off."""
+    from types import SimpleNamespace
+
+    from builder.search import flasks
+
+    build = spark_with(engine, []).build
+    elixirs = "Life Flask Effects are not removed when Unreserved Life is Filled"
+    belt = chr(10).join(["Rarity: Rare", "Test Belt", "Fine Belt", "Item Level: 82", "Implicits: 0",
+                         "Flasks gain 1 charges per Second"])
+    life = chr(10).join(["Rarity: Normal", "Ultimate Life Flask", "Item Level: 82", "Implicits: 0"])
+    build.call("equip", slot="Flask 1", raw=life, active=True, fields=[])
+    build.equipped["Flask 1"] = SimpleNamespace(name="Ultimate Life Flask", raw=life)
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    assert flasks.pob_part_time_share(build, flasks.Charges.of(build))[0] == 0.0  # no Elixirs: PoB counts nothing
+    build.call("equip", slot="Belt", raw=belt + chr(10) + elixirs, fields=[])
+    gain = flasks.Charges.of(build)
+    share, how = flasks.pob_part_time_share(build, gain)
+    assert share == pytest.approx(920 / 3, rel=0.02) and "taken off" in how  # 30% up: PoB's whole 306.7 comes off
+    info = build.call("flaskData", raws=[life])["results"][0]
+    assert flasks.recovery_per_second(info, gain, "Life") == pytest.approx(92.0, rel=0.02)  # ours stays
+    whole = belt.replace("Flasks gain 1 charges", "Flasks gain 4 charges") + chr(10) + elixirs
+    build.call("equip", slot="Belt", raw=whole, fields=[])
+    gain = flasks.Charges.of(build)
+    assert flasks.pob_part_time_share(build, gain)[0] == 0.0 and flasks.recovery_per_second(info, gain, "Life") == 0.0
