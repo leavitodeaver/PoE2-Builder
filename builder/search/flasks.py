@@ -121,6 +121,10 @@ class Charges:
     # Ignites, Shocks, Freezes, Bleeds and Poisons on you a second and how: ((ailment, rate, how), ...) from
     # boss_hits.ailment_rate at the "when hit" benefit cadence (bosses.benefit_skill_time, as bosses.self_ignite_uptime)
     ailments: tuple = ()
+    # (MECHC19, AUDIT29 A29-1) charms "Used when you take <Type> damage from a Hit": ((type, per second, how), ...), the
+    # boss's landed hits of that type at the "when hit" benefit pace (boss_hits_gain); before, every landed hit at the
+    # defence pace (boss_hits), and on the worst case any type it pools (now the lowest real boss's: gain_floor)
+    hit_gain: tuple = ()
 
     @classmethod
     def of(cls, build) -> Charges:
@@ -163,6 +167,7 @@ class Charges:
                "DeflectEffect": float(data.get("deflectEffect") or 0.0)}
         stuns, stuns_how = boss_stuns(hit) if every > 0 else (0.0, "no boss hit lands")
         ailments = boss_ailments(hit, data) if every > 0 else ()
+        hit_gain = boss_hits_gain(hit) if every > 0 else ()
         return cls(data.get("flask", 0), data.get("lifeFlask", 0), data.get("manaFlask", 0), data.get("flaskGainInc", 0),
                    data.get("charm", 0), data.get("charmGainInc", 0), data.get("flaskDurationInc", 0),
                    data.get("charmDurationInc", 0), data.get("lifeRecoveryInc", 0), data.get("manaRecoveryInc", 0),
@@ -182,8 +187,26 @@ class Charges:
                    life_loss_per_use=float(data.get("lifeLossPerUse") or 0.0), main_rate=float(data.get("mainRate") or 0.0),
                    flask_not_consume=float(data.get("flaskNotConsume") or 0.0),
                    mana_regen_only=bool(data.get("manaRegenOnly", False)), stuns=stuns, stuns_how=stuns_how,
-                   add_kills=max(float(add_kills or 0.0), 0.0), ailments=ailments,
+                   add_kills=max(float(add_kills or 0.0), 0.0), ailments=ailments, hit_gain=hit_gain,
                    **bloom_fields(data.get("blooms") or {}))
+
+
+def boss_hits_gain(hit: dict) -> tuple:
+    """((type, per second, how), ...): the boss's landed hits that deal each type, as a "when hit" gain reads them (the
+    benefit pace, bosses.benefit_skill_time; the worst case's lowest real boss: boss_hits.gain_floor). Every hit of a
+    boss's that deals any of the type counts (its skills' type mix isn't split per hit: as before)."""
+    from builder.search import bosses, boss_hits
+
+    def took(kind: str):
+        def one(read: dict) -> tuple[float, str]:
+            name = boss_hits.boss_name(read)
+            if not boss_hits.hit_table(name)[1].get(kind):
+                return 0.0, f"{name} deals no {kind} damage"
+            land = boss_hits.landing_hits({**read, "enemySkillTime": bosses.benefit_skill_time(read)})
+            return land, f"the boss's hits that land at the \"when hit\" pace, {land:.2f}/s ({kind} among its damage)"
+        return one
+
+    return tuple((t, *boss_hits.gain_floor(hit, took(t))) for t in boss_hits.TYPES)
 
 
 def boss_ailments(hit: dict, data: dict) -> tuple:
@@ -192,10 +215,30 @@ def boss_ailments(hit: dict, data: dict) -> tuple:
 
     stats = {**hit, "AilmentThreshold": float(data.get("ailmentThreshold") or 0.0), "Life": float(data.get("life") or 0.0),
              **{f"{a}AvoidChance": float(v or 0.0) for a, v in (data.get("ailmentAvoid") or {}).items()}}  # (+ Chill)
-    stats["enemySkillTime"] = bosses.benefit_skill_time(stats)
-    land = boss_hits.landing_hits(stats)
-    rows = tuple((a, *boss_hits.ailment_rate(stats, a, land)) for a in ("Ignite", "Shock", "Freeze", "Bleed", "Poison"))
-    slow, how = boss_hits.slow_rate(stats, land)  # (MECHC18) None: the boss has no Slow the data gives
+
+    def paced(read: dict) -> tuple[dict, float]:
+        read = {**read, "enemySkillTime": bosses.benefit_skill_time(read)}
+        return read, boss_hits.landing_hits(read)
+
+    def ailment(a: str):
+        def one(read: dict) -> tuple[float, str]:
+            read, land = paced(read)
+            return boss_hits.ailment_rate(read, a, land)
+        return one
+
+    def slowed(read: dict) -> tuple[float, str]:
+        read, land = paced(read)
+        slow, how = boss_hits.slow_rate(read, land)  # (MECHC18) None: the boss has no Slow the data gives
+        if slow is not None:
+            return slow, how
+        return min(1 / BOSS_AILMENT_EVERY, land), f"{how}: once per {BOSS_AILMENT_EVERY:g} s assumed (LOW)"
+
+    # (MECHC19, AUDIT29 A29-1: gains) the worst-case pinnacle reads the lowest real boss's rate of each (gain_floor)
+    rows = tuple((a, *boss_hits.gain_floor(stats, ailment(a))) for a in ("Ignite", "Shock", "Freeze", "Bleed", "Poison"))
+    if boss_hits.boss_name(stats) == bosses.WORST:
+        return rows + (("Slow", *boss_hits.gain_floor(stats, slowed)),)
+    read, land = paced(stats)
+    slow, how = boss_hits.slow_rate(read, land)  # (MECHC18) None: the boss has no Slow the data gives
     return rows + ((("Slow", slow, how),) if slow is not None else ())
 
 
@@ -238,6 +281,9 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
     text = trigger.lower()
     if m := re.search(r"used when you take (fire|cold|lightning|chaos|physical) damage from a hit", text):
         kind = m.group(1).capitalize()
+        found = {t: (r, h) for t, r, h in gain.hit_gain}
+        if kind in found:  # (MECHC19) the "when hit" pace; the worst case's lowest real boss
+            return found[kind]
         if kind not in gain.boss_types:
             return 0.0, f"the boss deals no {kind} damage"
         return gain.boss_hits, f"the boss's hits that land, {gain.boss_hits:.2f}/s ({kind} among its damage)"

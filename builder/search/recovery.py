@@ -159,10 +159,14 @@ def boss_stuns(hit: dict) -> tuple[float, str]:
     the "when Stunned" recovery line and charms "Used when you become Stunned")."""
     from builder.search import boss_hits, objective  # (objective imports this module)
 
-    _, _, deflect = objective.boss_taken(hit)
-    landed = boss_hits.land_share(hit) / objective.benefit_every(hit)
-    sizes = {t: max(_num(hit.get(f"{t}TakenHit")), 0.0) * deflect for t in objective.RECOVERY_DAMAGE_TYPES}
-    return stuns_taken(hit, sizes, boss_hits.type_shares(boss_hits.boss_name(hit)), landed)
+    def one(read: dict) -> tuple[float, str]:
+        _, _, deflect = objective.boss_taken(read)
+        landed = boss_hits.land_share(read) / objective.benefit_every(read)
+        sizes = {t: max(_num(read.get(f"{t}TakenHit")), 0.0) * deflect for t in objective.RECOVERY_DAMAGE_TYPES}
+        return stuns_taken(read, sizes, boss_hits.type_shares(boss_hits.boss_name(read)), landed)
+
+    # (MECHC19, AUDIT29 A29-1: a gain) the worst-case pinnacle reads the lowest real boss's Stuns (boss_hits.gain_floor)
+    return boss_hits.gain_floor(hit, one)
 
 
 NO_LIFE = re.compile(r"cannot recover life other than from leech", re.I)

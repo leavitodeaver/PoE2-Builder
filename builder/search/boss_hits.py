@@ -622,3 +622,48 @@ def slow_rate(stats: dict, land: float) -> tuple[float | None, str]:
         chill_how = f"Chill: a {taken:,.0f} Cold hit is {dealt:.0%} of your Ailment Threshold ({tail})"
     rate = onsets + skills
     return rate, "; ".join([chill_how, *parts]) + f": {rate * 60:.1f} Slows a minute"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Gains the boss's own actions trigger, on the worst-case pinnacle (MECHC19; AUDIT29 A29-1, an OVERCOUNT): charms "Used
+# when you become Ignited / Shocked / Frozen / Stunned", "start Bleeding", "are affected by a Slow" or "take <Type> damage
+# from a Hit", and Life / Energy Shield "when Stunned". The worst case's tables take the HIGHEST real preset's factor or
+# share (_factor, _bleed_share, _slow_skills, hit_sizes, the pooled types), which is right for a defence but an overcount
+# for a gain: before, Bleed charms read Olroth's rate though 11 of the 12 real presets never Bleed you (research #60 /
+# #67), Shock charms the Arbiter of Divinity's x6, Freeze charms Olroth's x3. The user's hit-rate ruling (MECHD4: defences
+# at the fast rate, "when hit" benefits at the slow one) gives the rule: a gain on the worst case reads the LOWEST real
+# preset's rate. real_readings re-reads the build's stats as each real preset would give them:
+# - its own boss name (its hit types, factors, red-flash shares, Slow skills, cadence);
+# - PoB's scored enemySkillTime (the worst case's, the build's Slows on the boss in it) rescaled from the worst case's
+#   defence cadence to that preset's (bosses.defence_hit_every), so each consumer's benefit pace is that preset's own;
+# - each {Type}TakenHit scaled by that preset's hit of the type over the worst case's (0 for a type it doesn't deal):
+#   linear, so Armour against a smaller Physical hit is understated (LOW-MEDIUM; only Stun and nothing ailment-related
+#   reads Physical taken).
+def real_readings(stats: dict) -> list[tuple[str, dict]]:
+    from builder.search import bosses
+
+    worst = _worst()
+    sizes = hit_sizes(worst)
+    scored = number(stats.get("enemySkillTime")) or bosses.defence_hit_every(worst)
+    out = []
+    for name in bosses.REAL:
+        own = hit_sizes(name)
+        read = {**stats, "_boss": name,
+                "enemySkillTime": scored * bosses.defence_hit_every(name) / bosses.defence_hit_every(worst)}
+        for t in TYPES:
+            if f"{t}TakenHit" in stats:
+                read[f"{t}TakenHit"] = number(stats[f"{t}TakenHit"]) * own[t] / sizes[t] if sizes[t] > 0 else 0.0
+        out.append((name, read))
+    return out
+
+
+def gain_floor(stats: dict, read) -> tuple[float, str]:
+    """(rate, how) of a gain the boss triggers: read(stats) on a named boss; on the worst-case pinnacle the lowest of
+    read(each real preset's stats) (real_readings), naming that preset and the highest."""
+    if _worst() is None or boss_name(stats) != _worst():
+        return read(stats)
+    rows = [(name, *read(s)) for name, s in real_readings(stats)]
+    low = min(rows, key=lambda r: r[1])
+    high = max(rows, key=lambda r: r[1])
+    return low[1], (f"worst case: a gain counts the lowest real boss's rate (AUDIT29 A29-1), {low[0]}'s: {low[2]} "
+                    f"(the highest, {high[0]}'s: {high[1] * 60:.1f} a minute, not counted)")

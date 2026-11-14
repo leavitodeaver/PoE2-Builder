@@ -550,14 +550,15 @@ def test_charms_used_when_stunned_fire_at_the_bosss_light_stuns():
 
     data = {"enemySkillTime": 1.0, "takenByType": {"Physical": 3000, "Fire": 0, "Cold": 0, "Lightning": 0, "Chaos": 0},
             "stunThreshold": 4000, "bossDamage": {"Physical": 1}}
-    gain = Charges.from_bridge(data)
+    boss = "Olroth, Origin of the Fall"  # (MECHC19: a named boss; the worst case reads the lowest real boss's Stuns)
+    gain = Charges.from_bridge(data, 0, boss)
     hit = {"enemySkillTime": 1.0, "EvadeChance": 0.0, "EffectiveBlockChance": 0.0, "PhysicalTakenHit": 3000,
-           "StunThreshold": 4000}
+           "StunThreshold": 4000, "_boss": boss}
     expected, _ = recovery.boss_stuns(hit)
     assert gain.stuns == pytest.approx(expected) and 0 < expected < 1
     rate, how = trigger_rate("Used when you become Stunned", gain)
     assert rate == pytest.approx(expected) and "Light Stun" in how
-    immune = Charges.from_bridge({**data, "stunAvoid": 100})
+    immune = Charges.from_bridge({**data, "stunAvoid": 100}, 0, boss)
     rate, how = trigger_rate("Used when you become Stunned", immune)
     assert rate == 0.0 and "can't be Stunned" in how
     # (MECHC17) the other ailments read the boss's own rate (Charges.ailments); Slow keeps its labelled rate
@@ -602,8 +603,11 @@ def test_ailment_charms_fire_at_the_bosss_own_ailment_rate():
     assert rate(olroth, "Used when you start Bleeding")[0] > 0
     for boss in (ash, divinity, olroth, None):
         assert rate(boss, "Used when you become Poisoned")[0] == 0.0
-    # the worst-case pinnacle takes the highest real preset's factors and Olroth's Bleeding
-    assert rate(None, "Used when you start Bleeding")[0] > 0 and rate(None, "Used when you become Shocked")[0] > 0
+    # (MECHC19, AUDIT29 A29-1) the worst-case pinnacle reads the LOWEST real boss's rate of a gain: 0 Bleeds (11 of 12
+    # never Bleed you), 0 Shocks (the Arbiter of Ash deals no Lightning)
+    for trigger in ("Used when you start Bleeding", "Used when you become Shocked"):
+        low, how = rate(None, trigger)
+        assert low == 0.0 and "lowest real boss" in how, how
 
 
 
@@ -641,9 +645,10 @@ def test_slow_charms_read_the_bosss_chills_and_slow_skills():
     # neither a Cold hit nor a Slow skill (the Arbiter of Ash): the labelled flat rate stays
     ash, how = rate("Arbiter of Ash")
     assert ash == pytest.approx(0.1) and "LOW" in how
-    # the worst-case pinnacle reads its pooled Cold hits and the highest real preset's Slow skills
+    # (MECHC19, AUDIT29 A29-1) the worst-case pinnacle reads the lowest real boss's Slows, naming it
     from builder.search import bosses
-    assert rate(bosses.WORST)[0] > 0
+    worst, how = rate(bosses.WORST)
+    assert 0 <= worst <= olroth and "lowest real boss" in how
 
 
 def test_life_when_a_minion_is_revived_reads_the_builds_minion_deaths():
@@ -674,3 +679,41 @@ def test_indigon_keeps_the_corpse_lines_mana_regeneration():
     recovery.restrict(income, ["Mana Recovery other than Regeneration cannot Recover Mana"])
     assert income.pool("Mana") == pytest.approx(0.04 * 1000 * 0.5)
     assert "Regeneration, which the line allows" in income.parts[-1]
+
+
+def test_worst_case_boss_counts_the_lowest_real_bosss_rate_of_a_gain():
+    """MECHC19 (AUDIT29 A29-1, an OVERCOUNT on the default boss): the worst-case pinnacle's tables take the HIGHEST real
+    preset's factors and shares, so charms that fire when the boss Bleeds, Shocks, Freezes, Stuns or Slows you, or hits
+    you with a type, read Olroth's Bleeding though 11 of 12 bosses never Bleed you, the Arbiter of Divinity's x6 Shock
+    and Olroth's x3 Freeze. They are gains: like the "when hit" benefits (MECHD4), the worst case reads the LOWEST real
+    boss's rate (boss_hits.gain_floor over real_readings: each preset's own hits, types, cadence and red-flash share)."""
+    from builder.search import boss_hits, bosses
+    from builder.search.flasks import Charges, trigger_rate
+
+    sizes = boss_hits.hit_sizes(bosses.WORST)
+    data = {"enemySkillTime": 0.51, "takenByType": {t: v * 0.6 for t, v in sizes.items()},
+            "bossDamage": {t: 1 for t in sizes}, "ailmentThreshold": 3000, "stunThreshold": 3000, "life": 6000,
+            "ailmentAvoid": {"Ignite": 0, "Shock": 0, "Freeze": 0, "Bleed": 0, "Poison": 0, "Chill": 0}}
+    worst = Charges.from_bridge(data)  # no boss named: the worst case
+    olroth = Charges.from_bridge(data, 0, "Olroth, Origin of the Fall")
+    for trigger in ("Used when you start Bleeding", "Used when you become Frozen", "Used when you become Shocked",
+                    "Used when you become Ignited", "Used when you take Cold damage from a Hit"):
+        low, how = trigger_rate(trigger, worst)
+        assert low == 0.0 and "lowest real boss" in how, (trigger, how)
+    assert trigger_rate("Used when you start Bleeding", olroth)[0] > 0  # a named boss keeps its own rate
+    assert trigger_rate("Used when you become Frozen", olroth)[0] > 0
+    # every boss deals Physical: the worst case reads the slowest real boss's landed hits, never more than any named one
+    phys = "Used when you take Physical damage from a Hit"
+    low, how = trigger_rate(phys, worst)
+    named = [trigger_rate(phys, Charges.from_bridge(data, 0, n))[0] for n in bosses.REAL]
+    assert 0 < low <= min(named) + 1e-9 and "lowest real boss" in how
+    # and at the "when hit" benefit pace, below the defence pace's landed hits (boss_hits)
+    assert trigger_rate(phys, olroth)[0] < olroth.boss_hits
+    # Stuns ("Used when you become Stunned", Life / Energy Shield when Stunned): the lowest real boss's too
+    rows = [recovery.boss_stuns(s)[0] for _, s in boss_hits.real_readings(
+        {"enemySkillTime": 0.51, "EvadeChance": 0.0, "EffectiveBlockChance": 0.0, "StunThreshold": 3000,
+         **{f"{t}TakenHit": v * 0.6 for t, v in sizes.items()}})]
+    assert worst.stuns == pytest.approx(min(rows)) and "lowest real boss" in worst.stuns_how
+    # Slow: no higher than the lowest real boss (four keep the labelled once per 10 s, the user's choice 13 Nov)
+    slow, how = trigger_rate("Used when you are affected by a Slow", worst)
+    assert slow <= 0.1 + 1e-9 and "lowest real boss" in how

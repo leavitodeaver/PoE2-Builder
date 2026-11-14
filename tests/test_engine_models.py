@@ -140,7 +140,9 @@ def test_a_switched_off_charm_gives_the_models_no_lines(engine):
     rates = {a: r for a, r, _ in gain.ailments}
     # (MECHC18) plus a "Slow" row where the boss has a Cold hit or a Slow skill (boss_hits.slow_rate)
     assert set(rates) - {"Slow"} == {"Ignite", "Shock", "Freeze", "Bleed", "Poison"} and rates["Poison"] == 0.0
-    assert rates["Ignite"] > 0 and rates.get("Slow", 0.0) >= 0.0
+    # (MECHC19, AUDIT29 A29-1) on the default worst case each is the lowest real boss's: the Arbiter of Divinity deals no Fire
+    hows = {a: h for a, _, h in gain.ailments}
+    assert rates["Ignite"] == 0.0 and "lowest real boss" in hows["Ignite"] and rates.get("Slow", 0.0) >= 0.0
 
 
 def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):
