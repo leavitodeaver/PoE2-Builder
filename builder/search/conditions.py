@@ -1600,14 +1600,27 @@ DAZE_LINE = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to (?:inflict )?daze(?: ene
 DAZE_SKILL_STATS = ("base_chance_to_daze_%", "cannot_daze", "spell_daze_on_critical_hit_dealing_physical_damage",
                     "daze_on_hit_vs_enemies_at_full_life")
 DAZE_WORD = re.compile(r"\bdaz(?:e|es|ed|ing)\b", re.I)
+# (MECH71) A skill beside the main one whose uses hit the boss, for _daze_others: an Attack, or a Spell with the Damage
+# type (PoB's gem data), not a minion-making skill (its minions' hits aren't yours), a Wall (Flame Wall burns, no hit),
+# a damage-over-time-only spell or a Persistent one. MEDIUM: read from skill types, not a hit flag.
+DAZE_NOT_HITS = {"CreatesMinion", "Wall", "DegenOnlySpellDamage", "Persistent"}
 
 
-def _daze_source(text: str, lines: list[str], stats: dict) -> tuple[float, float, str] | None:
-    """(chance per event, events per second, how) of one Daze line on the main skill's hits, or None if it isn't one."""
+def daze_hitter(gem: dict | None) -> bool:
+    """Whether a gem beside the main skill hits the boss when used (DAZE_NOT_HITS's note)."""
+    types = set((gem or {}).get("skillTypes") or ())
+    return bool(gem) and not gem.get("support") and not types & DAZE_NOT_HITS and (
+        "Attack" in types or {"Spell", "Damage"} <= types)
+
+
+def _daze_source(text: str, lines: list[str], stats: dict, types: set | None = None,
+                 hits: float | None = None) -> tuple[float, float, str] | None:
+    """(chance per event, events per second, how) of one Daze line on the main skill's hits (or another skill's: its
+    types and hits per second, MECH71), or None if it isn't one."""
     m = DAZE_LINE.match(text.strip())
     if not m:
         return None
-    main_types = stats.get("_main_types") or set()
+    main_types = (stats.get("_main_types") or set()) if types is None else types
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     rest = (m.group(2) or "").lower()
     if text in (stats.get("_daze_weapon_lines") or ()) and "Attack" not in main_types:
@@ -1620,7 +1633,29 @@ def _daze_source(text: str, lines: list[str], stats: dict) -> tuple[float, float
             return 0.0, 0.0, f"projectiles past 6 m, the boss {metres:g} m away: 0"
     elif rest.strip():
         return 0.0, 0.0, f"'{rest.strip()[:30]}': its rate isn't modelled (0, labelled)"
-    return chance, models.hits_per_second(stats), "hits"
+    return chance, models.hits_per_second(stats) if hits is None else hits, "hits"
+
+
+def _daze_others(lines: list[str], stats: dict) -> list[tuple[str, tuple[float, float, str]]]:
+    """(MECH71) Daze from the build's other hitting skills (stats["_daze_others"], Conditions.evidence): each at its
+    group's use rate, one hit on the boss per use (MEDIUM: a use that hits more than once is an UNDERCOUNT, one that
+    misses the boss an OVERCOUNT), with the global Daze lines (_daze_source with that skill's types: a weapon's own line
+    only for an Attack) and its own base_chance_to_daze_% (its level / quality stats and supports: Wind Blast, Siphoning
+    Strike's quality). A skill with cannot_daze applies none; Concussive Spells and Opening Move on another skill aren't
+    counted (0, an UNDERCOUNT: its crits aren't rated here; one opening hit)."""
+    found = []
+    for other in stats.get("_daze_others") or []:
+        if other.get("cannot") or number(other.get("uses")) <= 0:
+            continue
+        name, uses, types = other["name"], number(other["uses"]), set(other.get("types") or ())
+        for text in lines:
+            r = _daze_source(text, lines, stats, types=types, hits=uses)
+            if r is not None and r[1] > 0:
+                found.append((f"{name}: {text}", (r[0], r[1], f"{name} hits")))
+        if other.get("chance"):
+            found.append((f"{name}'s own {other['chance']:g}% chance to Daze",
+                          (min(other["chance"], 100) / 100, uses, f"{name} hits")))
+    return found
 
 
 def _dazed(lines: list[str], stats: dict) -> tuple[object, str]:
@@ -1639,12 +1674,16 @@ def _dazed(lines: list[str], stats: dict) -> tuple[object, str]:
     if own.get("opening"):
         found.append(("Opening Move: Daze on hits against a boss at full Life",
                       (0.0, 0.0, "only the fight's opening hit, not counted (an UNDERCOUNT, 8 s of the fight)")))
-    if not found:
+    others = _daze_others(lines, stats)
+    if not found and not others:
         return 0.0, ""
     duration = DAZE_SECONDS * models.duration_scale(lines, "Daze")
     if own.get("cannot"):
-        return False, ("Dazed 0% of the fight: the main skill can't Daze (cannot_daze), and other skills' Daze isn't "
-                       "counted; sources: " + "; ".join(t[:50] for t, _ in found[:3]))
+        if not others:
+            return False, ("Dazed 0% of the fight: the main skill can't Daze (cannot_daze), and no other skill of the "
+                           "build Dazes; sources: " + "; ".join(t[:50] for t, _ in found[:3]))
+        found = []  # (the main skill's hits apply none; the other skills' still Daze the boss)
+    found = found + others
     down, how = 1.0, []
     for text, (chance, events, what) in found:
         n = events * duration
@@ -1653,7 +1692,8 @@ def _dazed(lines: list[str], stats: dict) -> tuple[object, str]:
         how.append(f"{text[:60]} ({chance:.0%} x {events:.2f} {what}/s, {duration:g} s: {up:.0%} up)" if events > 0
                    else f"{text[:60]} ({what})")
     up = 1 - down
-    return _box(up, f"Dazed {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:3]))
+    return _box(up, f"Dazed {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:4])
+                + (" (the main skill can't Daze: cannot_daze)" if own.get("cannot") else ""))
 
 
 # Armour Broken (MECH28, 9 Nov 2026; before, any line that Breaks Armour turned the box on, partial breaks too). The game
@@ -3679,17 +3719,31 @@ class Conditions:
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
             metres = (stats.get("_distance_choice") or (natural_distance(main_types, self.main_skill), ""))[0]
             stats["_raised_plan"] = models.raised_plan(found, texts, metres, models.raised_taps_on(self.build))
-        if any(DAZE_WORD.search(t) for t in texts):  # (MECH70: the main skill's own Daze stats, _dazed)
-            raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=list(DAZE_SKILL_STATS))
-            main = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
-            got = {stat: number(value) for part in ("levelStats", "supportStats")
-                   for stat, value in (main.get(part) or {}).items() if stat in DAZE_SKILL_STATS and value}
-            stats["_daze"] = {"chance": got.get("base_chance_to_daze_%", 0.0), "cannot": bool(got.get("cannot_daze")),
-                              "concussive": bool(got.get("spell_daze_on_critical_hit_dealing_physical_damage")),
-                              "opening": bool(got.get("daze_on_hit_vs_enemies_at_full_life"))}
-            stats["_daze_weapon_lines"] = {line["text"] for line in lines if line["source"].startswith("item:Weapon")}
-            stats["_dazed_share"] = number((_dazed(texts, stats) + (0.0,))[2])
-            stats["_dazed_box"] = "conditionEnemyDazed" in self.active  # (PoB's box as it is now: heavy_stun_rate)
+        # (MECH70: the main skill's own Daze stats, _dazed. MECH71: read for every build, not only when a line names
+        # Daze: a skill's own chance (Wind Blast, Siphoning Strike's quality) has no line, and the share also feeds
+        # heavy_stun_rate and GEM5's build.dazed_up; plus the build's other hitting skills, _daze_others)
+        groups_now = self.build.call("groups")["groups"]
+        gems = self.build.ctx.gems
+        hitters = {n["name"] for g in groups_now if g.get("enabled") is not False for n in g.get("gems") or []
+                   if n.get("enabled", True) and n["name"] != self.main_skill and daze_hitter(gems.get(n["name"]))}
+        raw = self.build.call("activeSkills", levelStats=[self.main_skill, *sorted(hitters)],
+                              supportStats=list(DAZE_SKILL_STATS))
+        dazing = {s["name"]: {stat: number(value) for part in ("levelStats", "supportStats")
+                              for stat, value in (s.get(part) or {}).items() if stat in DAZE_SKILL_STATS and value}
+                  for s in raw["skills"] if not s.get("disabled") and (s["name"] == self.main_skill or s["name"] in hitters)}
+        got = dazing.get(self.main_skill) or {}
+        stats["_daze"] = {"chance": got.get("base_chance_to_daze_%", 0.0), "cannot": bool(got.get("cannot_daze")),
+                          "concussive": bool(got.get("spell_daze_on_critical_hit_dealing_physical_damage")),
+                          "opening": bool(got.get("daze_on_hit_vs_enemies_at_full_life"))}
+        stats["_daze_weapon_lines"] = {line["text"] for line in lines if line["source"].startswith("item:Weapon")}
+        uses = self._group_uses(groups_now, hitters) if hitters else {}
+        stats["_daze_others"] = [
+            {"name": name, "types": sorted(gems[name].get("skillTypes") or []),
+             "uses": uses.get(name, self._chosen_use(name)), "chance": d.get("base_chance_to_daze_%", 0.0),
+             "cannot": bool(d.get("cannot_daze"))}
+            for name, d in sorted(dazing.items()) if name in hitters]
+        stats["_dazed_share"] = number((_dazed(texts, stats) + (0.0,))[2])
+        stats["_dazed_box"] = "conditionEnemyDazed" in self.active  # (PoB's box as it is now: heavy_stun_rate)
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate
         self.riven_share = 0.0  # (share of the fight Riven Armour is up: _riven_cycle)
         self.riven_how = ""
