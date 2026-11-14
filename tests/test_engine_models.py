@@ -138,7 +138,9 @@ def test_a_switched_off_charm_gives_the_models_no_lines(engine):
     data = build.call("chargeGain")
     assert data["ailmentThreshold"] > 0 and set(data["ailmentAvoid"]) == {"Ignite", "Shock", "Freeze", "Bleed", "Poison", "Chill"}
     rates = {a: r for a, r, _ in gain.ailments}
-    assert set(rates) == {"Ignite", "Shock", "Freeze", "Bleed", "Poison"} and rates["Poison"] == 0.0 and rates["Ignite"] > 0
+    # (MECHC18) plus a "Slow" row where the boss has a Cold hit or a Slow skill (boss_hits.slow_rate)
+    assert set(rates) - {"Slow"} == {"Ignite", "Shock", "Freeze", "Bleed", "Poison"} and rates["Poison"] == 0.0
+    assert rates["Ignite"] > 0 and rates.get("Slow", 0.0) >= 0.0
 
 
 def test_meta_round_keeps_no_group_whose_spell_never_fires(engine):
