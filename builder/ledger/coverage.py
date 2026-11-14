@@ -625,7 +625,8 @@ def resolver_condition(line: str):
             # Presence, your curses, Full Breaks; any other wording it rates 0, so the line stays open here)
             if not re.search(r"\bkill|heavy stun|immobilis|shapeshift|burning|socketed|\bfrozen by\b", when) and                     re.search(r"presence|you curse|fully (?:armour )?break|block|hit you|critical|on hit", when):
                 return condition
-        elif var.endswith("Exposure") and (m := c.EXPOSURE_SOURCE.search(rolled)) and                 m.group(2).lower() in ("elemental", var[len("conditionEnemy"):-len("Exposure")].lower()):
+        elif var.endswith("Exposure") and (m := c.EXPOSURE_SOURCE.search(rolled)) and                 m.group(2).lower() in ("elemental", "", var[len("conditionEnemy"):-len("Exposure")].lower()):
+            # (COV29: plain "Exposure" is all three elements, as conditions._exposure_uptime reads it since MECH69)
             return condition
         elif var == "buffArcaneSurge" and c.ARCANE_SURGE_SOURCE.search(rolled) and not c.ARCANE_SURGE_NOT_SOURCE.search(rolled):
             return condition
@@ -876,8 +877,17 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
         add("skill-zero", skill["name"], "active gem", skill["name"], skill["status"], skill.get("entry"), skill["reason"],
             SOURCE_WEIGHT["active gem"], mechanic="damage")
 
+    # (COV29; PERF23's item 2) coverage.json's lists come in an order that changes from one PoB process to the next, and
+    # a ranked row's example is the first record met, as are the catalog's lines: sorted, two regenerations give the
+    # same text. The totals never depended on it (PERF23: summarize equal across two dumps).
+    records.sort(key=record_order)
     return {"data_dir": str(data_dir), "bridge_part": bool(raw), "records": records,
             "summary": summarize(records), "ranking": rank(records)}
+
+
+def record_order(record: dict) -> tuple[str, ...]:
+    """A fixed order for the audit's records, independent of the order PoB's dump lists them in."""
+    return tuple(str(record.get(k, "")) for k in ("category", "template", "line", "source", "status", "entry", "reason"))
 
 
 # Skills our own models give damage, or an assumption gives a trigger rate (builder/search/models.py, assumptions.py)
@@ -1078,6 +1088,7 @@ def _build_index(data_dir: str) -> dict:
                     entry = gems.setdefault(gem, [])
                     if (name, reason) not in entry:
                         entry.append((name, reason))
+    gems = {gem: sorted(stats) for gem, stats in sorted(gems.items())}  # (COV29: the dump's order varies; PERF23)
     return {"noops": noops, "gems": gems, "mods": mods, "setters": parse_audit.Setters(raw)}
 
 

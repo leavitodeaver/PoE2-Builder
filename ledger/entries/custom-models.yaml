@@ -184,8 +184,11 @@
   title: Meta Skills gain reduced Energy (Energy model input)
   kind: pob_gap
   model: energy
-  match: '^Meta Skills gain (\d+)% reduced Energy$'
+  match: '^Meta Skills gain (-?\d+)% reduced Energy$'
   replace: ['mult:MetaEnergy {g1*-1}']
+  notes: >-
+    A negative roll is an increase (COV29: Snakepit's Cultivated outcome "Meta Skills gain (-30-30)% reduced Energy",
+    UniqueMutatedVaalEnergyGeneration; at the middle roll it's 0).
   confidence: datamined
   sources: ["https://poe2db.tw/us/Cast_on_Critical"]
   status: approved

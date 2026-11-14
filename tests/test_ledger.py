@@ -187,8 +187,12 @@ def test_recovery_lines_the_audit_counts_are_the_lines_the_recovery_model_reads(
         assert ignored_line_status(line, False)[0] == "model", line
     # the item's ranged form reaches the audit; the bridge gives the model the rolled one
     assert ignored_line_status("Recover (3-5)% of your maximum Mana when an Enemy dies in your Presence", False)[0] == "model"
-    for line in ("Recover 5% of maximum Life for each Endurance Charge consumed", "Recover all Mana when Used",
-                 "Recover 2% of maximum Mana when you consume a Power Charge"):
+    # (COV29) the Power and Endurance Charge lines are read since MECHC13 (recovery.POWER_SPENT at build.charge_flow's Power consumed,
+    # assumptions.py): items-cultivated-cov29.yaml's cultivated-mana-on-power-charge-consumed names the reader
+    assert recovery.POWER_SPENT.search("Recover 2% of maximum Mana when you consume a Power Charge")
+    assert model_entry("Recover 2% of maximum Mana when you consume a Power Charge").raw["model"] == "recovery"
+    assert model_entry("Recover 5% of maximum Life for each Endurance Charge consumed").raw["model"] == "recovery"
+    for line in ("Recover all Mana when Used",):
         assert model_entry(line) is None, line
     # (COV21) Indigon's restriction counts since MECHC14: the bridge zeroes PoB's Mana leech / on-hit / recoup outputs
     # and flasks.mana_regen_only its Mana flasks (models-read-cov21.yaml)

@@ -3977,10 +3977,12 @@ def test_call_upon_the_deep_and_thrill_of_the_fight_count_from_the_builds_own_gl
 
     # one use per 10 s: 0.6 uses in the past 6 s on average (60% of the 20% penetration), Thrill up 60% of the fight
     shares, found, notes = run("Hammer of the Gods", 0.1)
-    assert shares == {"GloryUsesPast6s": 60, "GloryBuff6s": 60} and found == {"GloryUsesPast6s", "GloryBuff6s"}
+    # (COV29: GloryBuff20s, Hateforge's Cultivated Rage line: min(1, 20 s x 0.1 uses/s) = 100%)
+    assert shares == {"GloryUsesPast6s": 60, "GloryBuff6s": 60, "GloryBuff20s": 100}
+    assert found == {"GloryUsesPast6s", "GloryBuff6s", "GloryBuff20s"}
     assert len(notes) == 1 and "one per 10.0 s" == notes[0]["value"]  # only Call Upon the Deep's line is in this build
     # one per 2 s: Call Upon the Deep uncapped (3 uses: 60% penetration), Thrill capped at always up
-    assert run("Hammer of the Gods", 0.5)[0] == {"GloryUsesPast6s": 300, "GloryBuff6s": 100}
+    assert run("Hammer of the Gods", 0.5)[0] == {"GloryUsesPast6s": 300, "GloryBuff6s": 100, "GloryBuff20s": 100}
     # no Glory made: 0, nothing switched on (before: neither, but at one use per 6 s a full 20% / 30%)
     assert run("Hammer of the Gods", 0.0)[:2] == ({}, set())
     # a skill that doesn't spend Glory: the conditions stay off whatever the rate

@@ -1,0 +1,124 @@
+# Cultivated (Vaal Cultivation Orb) outcome lines PoB doesn't parse whole (CULT1.report.md's list of 30; COV29). An
+# outcome reaches the search through cultivated.outcome_lines, which offers it once ledger.translate stands in for
+# each line PoB doesn't read (an empty `replace` is a stand-in that adds nothing: right only where a model reads the
+# line, or where PoB's own reading needs nothing more). The patterns are the line's meaning, not the unique's name: the
+# same text on any other item gets the same reading.
+#
+# Not here, with why (each stays unoffered and open in the audit, routed in COV29.report.md):
+# - The Adorned's "(0-75)% increased Effect of Jewel Socket Passive Skills" / "containing Corrupted Rare Jewels" and
+#   Rise of the Phoenix's "... chance to Explode, dealing a" / "tenth of their maximum Life as Fire Damage": PoB joins a
+#   line it can't parse with the next one (Classes/Item.lua 1240-1251) and parses both joined forms whole (ModCache:
+#   "38% increased Effect of Jewel Socket Passive Skills containing Corrupted Rare Jewels" -> JewelData
+#   corruptedRareJewelIncEffect; "Burning Enemies you kill have a 5% chance to Explode, dealing a tenth of their
+#   maximum Life as Fire Damage" -> ExplodeMod). cultivated.json marks them unread line by line: CULT's data (a code
+#   reading, not a probe: needs a real-engine check before it's offered).
+# - Lines no model reads yet (checked: each line's key words grepped over builder/search, builder/ledger, engine/bridge.lua
+#   and ledger/entries, and coverage.ignored_line_status, which also tries the condition resolver, says "none" for each;
+#   an empty stand-in would claim "no effect", which nobody has checked): Idle Hands' Energy
+#   while on Full Mana; Seed of Cataclysm's Volatility on Critical Hit and 8 projectiles in a circle; Zerphi's
+#   Genesis's Remove Bleeding on Life Flask use; Dream Fragments' Volatility Physical taken as Cold; Snakebite's Poison
+#   duration after consuming a Frenzy Charge and Life per Poison on kill; Serpent's Egg's and Snakepit's chance to not
+#   remove Charges / Elemental Infusions (assumptions.KEEP_INFUSION reads another wording, "N% chance to not remove an
+#   Infusion ..."); Quatl's Molt's Deflected-hit recoup; Zerphi's Serape's Eat a Soul; Atziri's Contempt's Fork chance;
+#   Redflare Conduit's Power Charge every second; Hateforge's Rage-on-Hit fill (PoB parses it as +N MaximumRage with
+#   leftover text, so never applies it); Flesh Crucible's random keystone ("(1-33)", an index: CULT's).
+
+- id: cultivated-exposure-on-hit
+  title: N% chance to inflict Exposure on Hit (Saitha's Spear's Cultivated outcome), Exposure uptime model
+  kind: pob_gap
+  model: exposure
+  match: '^(\(\d+-\d+\)|\d+)% chance to inflict Exposure on Hit$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB parses it only in part (ModCache "38% chance to inflict Exposure on Hit": {}, leftover " to inflict Exposure"),
+    so never applies it. MECH-A's model reads it (MECH69; AUDIT31 A31-26): conditions._exposure_uptime rates plain
+    "Exposure" as all three elements at the main skill's hit rate x the chance, for 4 s (EXPOSURE_DURATION, labelled),
+    and exposure_source_flags gives PoB the CanApply flags so its -20% box applies at that uptime. Plain Exposure is one
+    debuff on all three elements in today's game (KeywordPopups; conditions.py's notes, from AUDIT31's check of
+    poe2db's keyword page and the 0.3.0 notes). The game's mod id says Fire (UniqueMutatedVaalFireExposureOnHit) but
+    its text is plain "Exposure" (stat_descriptions, as PoB's ModItemExclusive writes it): the text is read, both
+    written down.
+  sources: ["builder/search/conditions.py (EXPOSURE_SOURCE, _exposure_uptime, exposure_source_flags)",
+            "https://poe2db.tw/us/Saithas_Spear", "scratch/manager/workers/CULT1.report.md"]
+  test_in_game: "Hit a boss with the spear: Exposure (-20% to its elemental resistances) appears on about the stated share of hits, for 4 s."
+  status: proposed
+
+- id: cultivated-global-blind-on-hit
+  title: N% Global chance to Blind Enemies on Hit (Plaguefinger's Cultivated outcome), Blind uptime model
+  kind: pob_gap
+  model: debuff_uptimes
+  match: '^(\(\d+-\d+\)|\d+)% Global chance to Blind Enemies on Hit$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB parses it with leftover text (ModCache "10% Global chance to Blind Enemies on Hit": BlindChance, leftover
+    "% chance"), so never applies it. The condition resolver rates it as a Blinded source at the build's hit rate
+    (Conditions.could_source; the audit's resolver_condition already counted the line as a model's). This entry only
+    lets the outcome be offered (cultivated.outcome_lines goes through ledger.translate); it adds nothing to PoB, so
+    there's no second count of the same Blind.
+  sources: ["builder/search/conditions.py (DEBUFFS, _debuff_source)", "https://poe2db.tw/us/Plaguefinger"]
+  test_in_game: "Not needed: the chance is per hit, as the line says."
+  status: proposed
+
+- id: cultivated-mana-on-power-charge-consumed
+  title: Recover N% of maximum Mana when you consume a Power Charge (Redflare Conduit's Cultivated outcome), recovery model
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\(\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|\d+(?:\.\d+)?)% of maximum Mana when you consume a Power Charge$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB doesn't parse it (ModCache "Recover 2% of maximum Mana when you consume a Power Charge": nil). recovery.py reads
+    it (POWER_SPENT, MECHC21) at the Power Charges the build's skills consume per second; no consumer, no Mana (0, with
+    a note). The audit had it open: no entry named the reader.
+  sources: ["builder/search/recovery.py (POWER_SPENT)", "https://poe2db.tw/us/Redflare_Conduit"]
+  test_in_game: "Consume a Power Charge at low Mana: the stated % of maximum Mana returns at once."
+  status: proposed
+
+- id: GloryBuff20s
+  title: Up for 20 seconds after using a skill that requires Glory
+  kind: condition
+  skill_text: '\bGlory\b'
+  usage_stat: active_skill_requires_X_glory
+  # A share: min(1, 20 s x the build's Glory skill uses per second, models.glory_uses), each use renewing the 20 s (as
+  # GloryBuff6s, pob-gaps-boss.yaml: the same machinery in Assumptions, glory_window)
+  glory_window: 20
+  shown_for: "Requires Glory in the past 20 seconds"
+  confidence: theory
+  sources: ["https://poe2db.tw/us/Hateforge", "https://poe2db.tw/Glory"]
+  status: proposed
+
+- id: cultivated-max-rage-after-glory-skill
+  title: +N maximum Rage if you've used a Skill that Requires Glory in the past 20 seconds (Hateforge's Cultivated outcome)
+  kind: pob_gap
+  match: "^\\+(\\(\\d+-\\d+\\)|\\d+) maximum Rage if you've used a Skill that Requires Glory in the past 20 seconds$"
+  replace: ['share:GloryBuff20s +{1} to Maximum Rage']
+  confidence: theory
+  notes: >-
+    PoB parses it with leftover text (ModCache "+9 maximum Rage if you've used a Skill that Requires Glory in the past
+    20 seconds": MaximumRage BASE 9, leftover "if you've used ..."), so never applies it. Stands in as "+N to Maximum
+    Rage" (PoB: MaximumRage BASE, parsed whole) x the share of the fight within 20 s of a Glory skill use
+    (GloryBuff20s: the build's own Glory skill uses, models.glory_uses; no Glory skill the build uses: 0). The Rage
+    model reads PoB's MaximumRage (conditions.rage_held), so a higher cap counts only where the build's Rage gains
+    reach it. A share of a cap is the cap averaged over the fight (LOW: the Rage held above the base cap is lost when
+    the 20 s lapse). The value: +8-10 (game files Mods UniqueMutatedVaalMaximumRagePerGlorySkillUsed; the 0.5.0 notes'
+    "+16-30" disagrees: A33-15 settled +8-10 from the game files, poe2db, the wiki and a 3 Jun forum report).
+  sources: ["https://poe2db.tw/us/Hateforge", "builder/search/conditions.py (rage_held)", "RULE_AUDIT.md A33-15"]
+  test_in_game: "Use a Glory skill, then check the Rage bar's maximum: +8-10 for 20 s."
+  status: proposed
+
+- id: model-life-per-endurance-charge-consumed
+  title: Recover N% of maximum Life for each Endurance Charge consumed, recovery model
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\(\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|\d+(?:\.\d+)?)% of maximum Life for each Endurance Charge consumed$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Not a Cultivated line: the Power Charge entry's twin (COV29). recovery.ENDURANCE_SPENT reads it (MECHC13) at the
+    Endurance Charges the build's consumers spend a second (build.charge_flow); none consumed: 0, with a note. The
+    audit had it open (tests/test_ledger.py asserted it unread, written before MECHC13).
+  sources: ["builder/search/recovery.py (ENDURANCE_SPENT)", "builder/search/assumptions.py (charge_flow rows)"]
+  test_in_game: "Consume an Endurance Charge below full Life: the stated % returns at once."
+  status: proposed
