@@ -42,3 +42,29 @@ def test_life_per_rage_consumed():
     assert abs(income.pool("Life") - 60.0) < 1e-6  # 1% of 1,000 x 6 Rage/s
     assert "Life on Rage consumed when Shapeshifting" not in recovery.unread([HATE])
     assert recovery.RAGE_SHIFT in recovery.SPENT_LINES and recovery.MINION_REVIVED in recovery.SPENT_LINES
+
+
+def test_rage_above_the_human_cap_while_shapeshifted_is_consumed_too():
+    """MECHC24: '+N to maximum Rage while Shapeshifted' with a Human-form main skill: in the form until the main skill's
+    next use (1 / Speed s), Rage climbs above the Human cap and the shift back consumes it; PoB's MaximumRage holds the
+    line itself when the main skill is a form, so nothing is added then."""
+    shifted = "+3 to maximum Rage while Shapeshifted"
+    human = {"Speed": 2.0, "HitChance": 100, "MaximumRage": 30, "_main_types": {"Attack", "Melee"},
+             "_human_shifts": (0.1, "one shift every 10 s")}
+    plain = dict(human)
+    c.rage_held([GAIN, HATE], plain)
+    assert abs(plain["_charge_flow"]["Rage"][0] - 3.0) < 1e-9  # 30 a shift
+    more = dict(human)
+    held, _ = c.rage_held([GAIN, HATE, shifted, "+12 to maximum Rage while Shapeshifted"], more)
+    # 6 Rage/s: 30 at the Human cap, then 0.5 s in the form: +3 more (under the +15), 33 a shift
+    assert abs(more["_charge_flow"]["Rage"][0] - 3.3) < 1e-9 and "above the Human cap" in more["_charge_flow"]["Rage"][1]
+    assert held == c.rage_held([GAIN, HATE], dict(human))[0]  # the Human-form main skill holds no more
+    bear = dict(STATS, MaximumRage=30, _human_shifts=(0.1, "one shift every 10 s"))
+    c.rage_held([GAIN, HATE, shifted], bear)
+    assert abs(bear["_charge_flow"]["Rage"][0] - 3.0) < 1e-9  # a form main skill: PoB's MaximumRage holds it
+
+
+def test_rageforged_two_spends_its_rage_on_seven_uses_in_ten():
+    """MECHC24: Rageforged II's rage_skip_consume_chance_% 30 ('Supported Skills have 30% chance to gain the benefits of
+    this Support without spending additional Rage'): 7 Rage a use on average; Rageforged I spends 10."""
+    assert abs(c.RAGE_PER_USE["Rageforged II"] - 7) < 1e-9 and c.RAGE_PER_USE["Rageforged I"] == 10

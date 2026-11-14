@@ -878,7 +878,17 @@ RAGE_NOT_SOURCE = re.compile(r"cannot gain|instead|\ballies\b|companions|benefit
 # support_rageforged_consumes_X_rage_to_enrage_skill_use 10; Fury of the Mountain's own amount isn't in its stat set: 10
 # assumed like the others) and per second while channelled (CostAmounts: Rampage 300, Flame Breath 360 Rage a minute;
 # both "skill_cannot_gain_rage_during_use", so the main skill's own hits gain none while it's one of them).
-RAGE_PER_USE = {"Molten Crash": 10, "Furious Slam": 10, "Fury of the Mountain": 10, "Rageforged I": 10, "Rageforged II": 10}
+# (MECHC24) Rageforged II also holds rage_skip_consume_chance_% 30 (GrantedEffectStatSets SupportRageforgedPlayerTwo;
+# gem_stat_descriptions: "Supported Skills have 30% chance to gain the benefits of this Support without spending
+# additional Rage"; poe2db Rageforged II: the same line, not marked deprecated): its own 10 Rage is spent on 70% of uses,
+# 7 a use on average. The line's scope is the Support's own spend, so a supported Molten Crash's or Furious Slam's own
+# spend isn't lowered. Its only carrier (checked: every table row whose stat columns hold the stat's Stats.json row,
+# 22272: Mods, PassiveSkills, SoulCoreStats, GrantedEffectStatSets and the per-level tables; one hit, this support;
+# the patch-notes archive has no line naming the chance, only 0.4.0's "Enraged Warcry and Rageforged Supports are now
+# treated as spending Rage", which no hit doesn't prove absent).
+RAGE_SKIP_CHANCE = {"Rageforged II": 0.30}
+RAGE_PER_USE = {"Molten Crash": 10, "Furious Slam": 10, "Fury of the Mountain": 10, "Rageforged I": 10,
+                "Rageforged II": 10 * (1 - RAGE_SKIP_CHANCE["Rageforged II"])}
 RAGE_PER_SECOND = {"Rampage": 5.0, "Flame Breath": 6.0}
 
 
@@ -958,10 +968,12 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
 # neither Shapeshift nor UsableWhileShapeshifted; a human main skill (not UsableWhileShapeshifted) on its next use after
 # each Shapeshift skill's. Each shift consumes the Rage built since the last (rage_held). A change from one animal form to
 # another isn't counted as reaching Human form (UNVERIFIED: a lower reading); Demon Form (a Shapeshift whose form keeps
-# spells) isn't read as a form here (UNVERIFIED, 0); "chance to not consume Rage" (rage_skip_consume_chance_%) and
-# "+N maximum Rage while Shapeshifted" aren't read (labelled).
+# spells) isn't read as a form here (UNVERIFIED, 0). (MECHC24) "+N maximum Rage while Shapeshifted": in rage_held below.
+# "chance to not consume Rage" (rage_skip_consume_chance_%) isn't Invigorating Hate's: it is Rageforged II's
+# (RAGE_SKIP_CHANCE).
 INVIGORATING_HATE = re.compile(r"\bconsume all rage when shapeshifting to human form\b", re.I)
 ANIMAL_FORMS = ("Bear", "Wolf", "Wyvern")
+SHIFTED_RAGE = re.compile(r"\+(\d+) to maximum Rage while Shapeshifted\b", re.I)
 
 
 def human_shifts(main_types: set[str], others: dict[str, tuple[set[str], float]], speed: float) -> tuple[float, str]:
@@ -990,16 +1002,22 @@ def human_shifts(main_types: set[str], others: dict[str, tuple[set[str], float]]
                   f" shifts you into its form, and the main skill's next use back to Human form: {rate:.2f}/s")
 
 
-def rage_on_shift(held: float, net: float, shifts: float) -> tuple[float, float]:
+def rage_on_shift(held: float, net: float, shifts: float, bonus: float = 0.0, shifted: float = 0.0
+                  ) -> tuple[float, float]:
     """(Rage held on average, Rage consumed a second) when every shift back to Human form consumes all Rage: it builds
     again at `net` Rage a second from 0, at most the steady reading `held` (MEDIUM: the loss is taken as no faster than
-    in that reading)."""
+    in that reading). `bonus`: the build's "+N to maximum Rage while Shapeshifted" when its main skill is used in Human
+    form (MECHC24): in the last `shifted` s before each shift back (the build is in its form) Rage climbs on above the
+    Human cap, up to `bonus` more, and that is consumed too; the average held for the Human-form main skill is not
+    raised."""
     if shifts <= 0 or held <= 0 or net <= 0:
         return held, 0.0
     gap = 1 / shifts
     top = min(net * gap, held)
     fill = top / net
-    return min(held, top * (gap - fill / 2) / gap), top * shifts
+    shifted = min(max(shifted, 0.0), gap)
+    spent = min(min(net * (gap - shifted), held) + net * shifted, held + bonus) if bonus > 0 else top
+    return min(held, top * (gap - fill / 2) / gap), spent * shifts
 
 
 def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
@@ -1087,9 +1105,22 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     if any(INVIGORATING_HATE.search(t) for t in lines):  # (MECHC21: each shift back to Human form consumes all Rage)
         shifts, shift_how = stats.get("_human_shifts") or (0.0, "the build's shifts weren't read, 0")
         before = held
-        held, consumed = rage_on_shift(held, net, shifts)
+        # (MECHC24) "+N to maximum Rage while Shapeshifted" (PassiveSkills rage23 / rage29 +3, rage25 Primal Rage +12;
+        # PoB: MaximumRage under Condition Shapeshifted, set only when the main skill is a Bear / Wolf / Wyvern form,
+        # CalcPerform 398-412, so `most` holds it then: probe POE2T1690). For a Human-form main skill the build is in
+        # its form from each Shapeshift skill's use to the main skill's next use (1 / Speed s, MEDIUM) and Rage climbs
+        # above the Human cap there; the shift back consumes it at the form's cap (UNVERIFIED: whether the cap falls
+        # before the consume; the higher reading, its share named in the line).
+        bonus = sum(float(m.group(1)) for t in lines for m in SHIFTED_RAGE.finditer(t)) if not any(
+            f in main_types for f in ANIMAL_FORMS) else 0.0
+        speed = number(stats.get("Speed"))
+        held, consumed = rage_on_shift(held, net, shifts, bonus, 1 / speed if speed > 0 else 0.0)
+        plain = rage_on_shift(before, net, shifts)[1] if bonus > 0 else consumed
         stats.setdefault("_charge_flow", {})["Rage"] = (consumed, shift_how + (
-            f": {consumed / shifts:.0f} Rage consumed a shift" if consumed > 0 else ""))
+            f": {consumed / shifts:.0f} Rage consumed a shift" if consumed > 0 else "") + (
+            f" ({(consumed - plain) / shifts:.1f} of it above the Human cap, from +{bonus:g} maximum Rage while "
+            "Shapeshifted, in the form until the main skill's next use; consumed at the form's cap, UNVERIFIED)"
+            if consumed > plain else ""))
         if consumed > 0:
             basis += (f"; all Rage consumed on each shift back to Human form ({shift_how}): it builds from 0 again, "
                       f"{held:.1f} held on average (was {before:.1f})")
