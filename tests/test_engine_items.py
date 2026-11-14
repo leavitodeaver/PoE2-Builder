@@ -426,11 +426,13 @@ def test_a_whole_run_fits_the_time_it_was_given(engine, monkeypatch):
     planned on the pool the run got, a skeleton's extra searches never make a batch need another wave of the pool, and
     the search seconds the batches were given, wave by wave, fit the run's time less finalize's share. The run's real
     seconds are still measured against the user's limit (13 Nov: 45 s x 1.1 + 5 s for the engines' start + 20 s for a
-    shared, busy PC), and a run over it still fails (the manager, 13 Nov: the limit is the user's decision; PERF9's
-    proposal to make it a warning, since a sound plan took 55-65 s and more on a busy PC, is with the user)."""
+    shared, busy PC), but a run over it is a warning in the suite's summary, not a failure (the user, 13 Nov ~19:25:
+    "Make it a warning"): on a busy PC a run with a sound plan took 55-65 s and more, and the plan checks above catch
+    the faults the limit was for."""
     import json
     import math
     import time
+    import warnings
 
     from builder.pob import slots
     from builder.search import run as run_module
@@ -464,9 +466,10 @@ def test_a_whole_run_fits_the_time_it_was_given(engine, monkeypatch):
     assert planned <= 45 - finalize + 1e-6, (planned, batches)
     # 5 s for the two engines' start, and 20 s for a shared, busy PC (the user, 13 Nov: "can it not just add 20
     # seconds"; under load it took 55-65 s against the old 54.5 s in five lanes' runs)
-    assert took < 45 * 1.1 + 25, (f"a 45 s run took {took:.1f} s (limit {45 * 1.1 + 25:.1f} s); its plan fits its time "
-                                  f"({planned:.1f} s of searches in {len(batches)} batch(es) on {batches[0]['pool']} workers), so "
-                                  "the PC was busy or a stage ran past its own seconds: rerun it alone on a quiet PC to tell")
+    if took >= 45 * 1.1 + 25:
+        warnings.warn(f"test_a_whole_run_fits_the_time_it_was_given: a 45 s run took {took:.1f} s (limit {45 * 1.1 + 25:.1f} s); "
+                      f"its plan fits its time ({planned:.1f} s of searches in {len(batches)} batch(es) on {batches[0]['pool']} "
+                      "workers), so the PC was busy or a stage ran past its own seconds: rerun it alone on a quiet PC to tell")
 
 
 def test_a_lines_requirement_raises_go_on_with_its_state(engine):
