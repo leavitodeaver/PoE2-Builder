@@ -23,7 +23,7 @@ from builder.data.rules import rules as game_rules
 from builder.ledger import gap_list, item_lines, translate, wrong
 from builder.request.constraints import PRESSED_PERSISTENT, CompiledRequest, compile_request
 from builder.request.schema import BuildRequest, DefenceStyle, GearTier
-from builder.search import anoints, granted_rolls
+from builder.search import anoints, cultivated, granted_rolls
 
 # Most a single unique may cost at each gear tier (divine), on top of the request's divine cap
 TIER_UNIQUE_CAP = {GearTier.LEAGUE_START: 1.0, GearTier.MID: 20.0, GearTier.ENDGAME: 300.0, GearTier.MIRROR: math.inf}
@@ -695,6 +695,7 @@ def make_payload(request: BuildRequest, prices=None) -> dict:
         "rare_model": rare_prices.RarePriceModel.load(league).payload(),
         "craft_prices": craft_prices(prices),
         "unique_versions": version_prices(league),
+        "cultivation_prices": cultivated.payload_prices(prices),  # CULT: Vaal Cultivation Orb crafts (cultivated.py)
     }
 
 

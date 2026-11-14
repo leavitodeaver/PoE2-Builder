@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder import clock
-from builder.search import anoints
+from builder.search import anoints, cultivated
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption, implicit_variant, implicit_variants
 from builder.search.flasks import (
     CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
@@ -746,6 +746,10 @@ class Gear:
                     shard = self.shard_trial(slot, target, deadline)
                     if shard is not target:
                         choice = shard
+                    target = choice or current  # CULT: a Vaal Cultivation Orb craft of this unique (cultivated.trial)
+                    grown = cultivated.trial(self, slot, target, deadline)
+                    if grown is not target:
+                        choice = grown
             if choice is None:
                 continue
             before, previous = build.score, current
