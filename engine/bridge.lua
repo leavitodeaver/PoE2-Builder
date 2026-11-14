@@ -1086,6 +1086,40 @@ local function installCannotChill()
 	end
 end
 
+-- The game's is_area_damage on a stat set (GEM2, 14 Nov 2026; an UNDERCOUNT): PoB maps no is_area_damage (checked: grep
+-- of SkillStatMap.lua and Modules/*.lua finds none) and gives a set ModFlag.Area only from its baseFlags.area
+-- (CalcActiveSkill 601; CalcOffence 581 sets skillFlags.area later from a radius, after the mod flags are built), so
+-- "increased Area Damage" missed sets the game marks area damage: GEM1's probe POE2T2016 read x1.0 with 100% increased
+-- Area Damage on Voltaic Barrier, Herald of Blood's Explosion, Bitter Dead's Explosion and Core, Catalysing Discharge's
+-- Fire / Lightning / Cold, Midnight Zenith's Crystal, Falling Thunder's Projectile, Tempest Flurry's Third / Fourth Strike.
+-- Every PoB stat set carrying the stat (in its stats or a non-zero constantStats entry) gets baseFlags.area: the game's own
+-- marking, nothing else changed (scratch/gem2/area_scan.py lists the 91 sets without the flag, 64 of them spectres').
+local function installAreaDamageFlag()
+	if not (data and data.skills) or data.ledgerAreaDamageFlag then
+		return
+	end
+	data.ledgerAreaDamageFlag = true
+	for _, effect in pairs(data.skills) do
+		for _, set in pairs(type(effect) == "table" and effect.statSets or { }) do
+			local area = false
+			for _, stat in ipairs(set.stats or { }) do
+				if stat == "is_area_damage" then
+					area = true
+				end
+			end
+			for _, stat in ipairs(set.constantStats or { }) do
+				if stat[1] == "is_area_damage" then
+					area = (stat[2] or 0) ~= 0
+				end
+			end
+			if area then
+				set.baseFlags = set.baseFlags or { }
+				set.baseFlags.area = true
+			end
+		end
+	end
+end
+
 -- The ledger's stand-ins for a socketed rune's / Idol's Bonded line PoB can't parse (COV13; builder/ledger/items.py):
 -- the item text carries each as "LedgerBonded:<augment type> <line>", which PoB can't parse; before PoB builds the
 -- item's modifiers, a copy of it goes in the item's rune lines as a Bonded line of that augment type, so PoB's own
@@ -1292,6 +1326,7 @@ local function installDerived()
 	installLedgerShare()
 	installSpiritVessel()
 	installCannotChill()
+	installAreaDamageFlag()
 	installBossSlow()
 	installNoCritReroll()
 	installGrantedLevel()
