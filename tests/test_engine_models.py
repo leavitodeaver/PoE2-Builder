@@ -2235,6 +2235,17 @@ def test_shavronnes_satchel_gives_energy_shield_the_life_flasks_recovery(engine)
     Assumptions(build).life_mana_income(build.call("activeSkills")["skills"], "Spark")
     assert build.recovery_sources["EnergyShieldFlaskRecovery"] == pytest.approx(expected)
     assert build.recovery_sources[flasks.ES_STARTS_FIELD] == 0.0
+    # (MECHC24; COV27's probe) a Life flask whose effect is kept at full Life: PoB counts its recovery on Energy Shield
+    # itself (calcFlaskRecovery into EnergyShieldRegenRecovery), so ours adds nothing: never counted twice
+    before = engine.call("recalc", fields=["EnergyShieldRegenRecovery"])["stats"].get("EnergyShieldRegenRecovery") or 0
+    kept = belt + chr(10) + "Life Flask Effects are not removed when Unreserved Life is Filled"
+    build.call("equip", slot="Belt", raw=kept, fields=[])
+    after = engine.call("recalc", fields=["EnergyShieldRegenRecovery"])["stats"].get("EnergyShieldRegenRecovery") or 0
+    assert after > before  # PoB's own count
+    gain = flasks.Charges.of(build)
+    assert gain.life_effect_kept and flasks.es_recovery_per_second(info, gain, life) == 0.0
+    Assumptions(build).life_mana_income(build.call("activeSkills")["skills"], "Spark")
+    assert not build.recovery_sources.get("EnergyShieldFlaskRecovery")
 
 
 def test_plain_exposure_lines_and_the_exposure_supports_lower_the_bosss_resistances(engine):

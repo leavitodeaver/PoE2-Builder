@@ -1691,9 +1691,12 @@ class Assumptions:
 
         if to_es:
             option, info = flask("Life")
-            rate = flasks.es_recovery_per_second(info, gain)
+            rate = flasks.es_recovery_per_second(info, gain, option.raw if option is not None else "")
             how = "Life flask recovery applied to Energy Shield"
-            if rate > 0:
+            if option is not None and info and flasks.pob_counts_flask_recovery(gain, option.raw):
+                income.parts.append(f"{how}: in PoB's Energy Shield regeneration already ({option.name}'s effect is kept "
+                                    "at full Life, so PoB counts it over its whole duration; not added twice)")
+            elif rate > 0:
                 income.add("EnergyShieldFlaskRecovery", rate,
                            f"{how} ({option.name}, as often as its charges allow, x {gain.es_recovery_mod:.2f} Energy "
                            "Shield recovery rate; MEDIUM)")

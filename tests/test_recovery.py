@@ -781,6 +781,11 @@ def test_life_flask_recovery_applies_to_energy_shield():
     instead = replace(shield, life_flask_es_instead=True)
     assert recovery_per_second(life, instead, "Life") == 0.0 and es_recovery_per_second(life, instead) == pytest.approx(45.0)
     assert es_recovery_per_second(None, shield) == 0.0
+    # (MECHC24, COV27) a flask whose effect is kept at full Life: PoB counts its recovery itself, so 0 here
+    kept = "Effect is not removed when Unreserved Life is Filled"
+    assert es_recovery_per_second(life, shield, kept) == 0.0
+    assert es_recovery_per_second(life, replace(shield, life_effect_kept=True)) == 0.0  # Enduring Elixirs
+    assert es_recovery_per_second(life, shield, "Recovers 300 Life over 3 Seconds") == pytest.approx(45.0)
     assert es_recovery_per_second(life, replace(shield, life_flask_unusable=True)) == 0.0  # Reverie: no use
     data = Charges.from_bridge({"lifeFlaskToEs": True, "lifeFlaskEsInstead": True, "esRecoveryMod": 1.2})
     assert data.life_flask_to_es and data.life_flask_es_instead and data.es_recovery_mod == pytest.approx(1.2)

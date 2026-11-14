@@ -655,10 +655,23 @@ def recovery_per_second(info: dict, gain: Charges, pool: str) -> float:
 # during its own effect, so its recovery always falls inside a flask's effect (MEDIUM). With "Flasks do not recover
 # Life" (Sanguine Tides) the Energy Shield share still counts: that line stops the Life only (UNVERIFIED in game, LOW;
 # the pair is a rare build). For SEARCH: recovery.FIELDS["EnergyShield"]'s EnergyShieldFlaskRecovery carries it.
-def es_recovery_per_second(info: dict | None, gain: Charges) -> float:
-    """Energy Shield a second from the Life flask (`info`, its flaskData) under the lines above: its recovery at the
-    rate its charges allow (recovery_per_second's Life), times PoB's EnergyShieldRecoveryRateMod; 0 without a line."""
-    if not info or not gain.life_flask_to_es:
+# (MECHC24; COV27's probe, 14 Nov: an ordinary Life flask gives 0 Energy Shield in PoB, one whose effect isn't removed
+# at full Life 306.7) PoB does count it for a Life flask whose effect is kept at full Life: calcFlaskRecovery
+# (CalcPerform 1605-1648) runs only for item.flaskData.lifeEffectNotRemoved (the flask's own line) or the
+# LifeFlaskEffectNotRemoved flag (Enduring Elixirs: Charges.life_effect_kept), and adds the flask's total over its
+# duration to EnergyShieldRecovery, which CalcDefence folds into EnergyShieldRegenRecovery (read by objective's
+# RECOVERY_POOLS). So such a flask gives 0 here, never twice. PoB's figure has no charge limit (the whole duration, end to
+# end, while the slot is on): a possible overcount there when charges run short, named, not corrected (LOW).
+def pob_counts_flask_recovery(gain: Charges, raw: str = "") -> bool:
+    """Does PoB add this Life flask's recovery to its own regeneration totals (the effect kept at full Life)?"""
+    return gain.life_effect_kept or KEPT_AT_FULL["Life"] in (raw or "").lower()
+
+
+def es_recovery_per_second(info: dict | None, gain: Charges, raw: str = "") -> float:
+    """Energy Shield a second from the Life flask (`info`, its flaskData; `raw`, its text) under the lines above: its
+    recovery at the rate its charges allow (recovery_per_second's Life), times PoB's EnergyShieldRecoveryRateMod; 0
+    without a line, and 0 when PoB counts it already (pob_counts_flask_recovery)."""
+    if not info or not gain.life_flask_to_es or pob_counts_flask_recovery(gain, raw):
         return 0.0
     from dataclasses import replace
 
