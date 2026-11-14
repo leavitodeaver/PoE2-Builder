@@ -2083,3 +2083,27 @@ def test_charge_gain_sends_charm_charges_used(engine):
     build.call("equip", slot="Belt", raw=belt, fields=[])
     assert Charges.from_bridge(build.call("chargeGain")).charm_used_inc == pytest.approx(-20.0)
 
+
+def test_lightning_warps_shocked_ground_reads_its_secondary_duration_and_the_builds_duration_lines(engine):
+    """MECH68 (an UNDERCOUNT): PoB's skill data has none of the old shocked-ground duration stats, so the main skill's
+    ground read 0; the game's description names base_secondary_skill_effect_duration (8 s) as Lightning Warp's ground,
+    and the build's Skill Effect Duration lines lengthen it."""
+    payload = make_payload(BuildRequest(main_skill="Lightning Warp", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Lightning Warp"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build, conditions = search.build, search.conditions
+
+    def ground() -> float:
+        raw = build.call("activeSkills", levelStats=["Lightning Warp"])
+        main = next(s for s in raw["skills"] if s["name"] == "Lightning Warp" and not s.get("disabled"))
+        return conditions.ground_ms(main.get("levelStats") or {})
+
+    before = ground()
+    amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                           "50% increased Skill Effect Duration"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    after = ground()
+    print("PROBE", before, after)
+    assert before >= 8000 and after > before * 1.2, (before, after)
+
