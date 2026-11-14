@@ -488,9 +488,11 @@ def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str
                     used = next(iter(build.call("useRates", indices=[each["index"]], actives=[spot])["rates"]), None) if spot else None
                     if own is not None and used:
                         share = number(press.get(own.name, 1.0))
+                        chance = number(used.get("HitChance"))  # (PoB may give none for a side attack: 100% taken, labelled)
                         side = {"skill": own.name, "melee_attack": own.attack and own.melee and not own.triggered,
-                                "hits": number(used.get("speed")) * number(used.get("HitChance")) / 100 * share,
+                                "hits": number(used.get("speed")) * min(chance or 100.0, 100.0) / 100 * share,
                                 "basis": "its group's use rate x hit chance"
+                                         + ("" if chance else " (PoB gave none: 100% taken, UNVERIFIED)")
                                          + (f" x {share:.3g}, the press model's share" if share != 1.0 else "")}
                 barbs.append((skill["name"], row or {}, on_main, side))
     return models.thorns_model(rates[0], texts, {**stats, **build.call("stats", fields=models.THORNS_FIELDS)}, main,

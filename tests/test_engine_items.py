@@ -1435,4 +1435,6 @@ def test_barbs_on_a_side_melee_group_reads_that_skills_own_hits(engine, monkeypa
     side = next(b for b in seen["barbs"] if b[0] == "Barbs I" and b[3] and b[3]["skill"] == "Mace Strike")
     used = next(r for r in build.call("useRates", indices=[idx], actives=[1])["rates"])
     assert side[2] is False and side[3]["melee_attack"] is True
-    assert side[3]["hits"] == pytest.approx(used["speed"] * used["HitChance"] / 100 * 0.5) and side[3]["hits"] > 0
+    chance = used.get("HitChance") or 100.0  # (POE2T1106: real PoB gave this row no HitChance; 100% taken, labelled)
+    assert side[3]["hits"] == pytest.approx(used["speed"] * chance / 100 * 0.5) and side[3]["hits"] > 0
+    assert ("100% taken" in side[3]["basis"]) == ("HitChance" not in used)
