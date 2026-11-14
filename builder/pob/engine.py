@@ -64,6 +64,15 @@ READ_CACHE_VARIABLE = "POE2_READ_CACHE"
 # equipped items' lines and the enabled gems; groups describes the socket groups; getConfig copies the Configuration
 # tab's input; stats picks fields from the last calculation's output). None of them calculates or writes anything.
 CACHED_READS = frozenset({"sourceLines", "groups", "getConfig", "stats"})
+# Bridge methods that leave those four answers as they were (PERF14), so the kept answers outlive them. Their own
+# answers are not kept (they rarely repeat: POE2T2709). What each does in engine/bridge.lua: activeSkills, cullSplit
+# query the last calculation's environment; attributeNodes, allocatedNodes, conqueredNodes, frontier, pointBudget
+# read the passive spec; equipped reads the items' text; useRates calculates each asked group in an environment of
+# its own (calcs.initEnv "CALCULATOR", which sets no group's displaySkillList or mainActiveSkill: CalcSetup 2393-2432
+# write those in "MAIN" / "CALCS" only) and puts build.mainSocketGroup and the group's mainActiveSkill back.
+# The proof is POE2_READ_CACHE=check on a whole real suite and the gate builds, not the reading alone.
+PASSING_READS = frozenset({"activeSkills", "useRates", "attributeNodes", "equipped", "allocatedNodes", "conqueredNodes",
+                           "frontier", "pointBudget", "cullSplit"})
 
 
 def read_cache() -> str:
@@ -74,9 +83,10 @@ def read_cache() -> str:
     Why: the custom models each ask PoB for the build's lines and groups themselves. In one timed gate search (2b75b,
     400 s, 4 workers, POE2T2707) sourceLines was asked 27,790 times (1.4 GB of JSON written by PoB) and groups 62,382
     times; 91 % and 95 % of those repeated a question already answered since the build last changed (POE2T2709).
-    What is cached: the answer's bytes for (method, arguments) of the CACHED_READS, dropped at ANY other call
-    (commits, what-ifs, every method not listed, and anything run through engine.lua directly), so an answer is only
-    reused while nothing else has touched PoB. Each caller still gets its own decoded copy."""
+    What is cached: the answer's bytes for (method, arguments) of the CACHED_READS, dropped at any other call
+    (commits, what-ifs, every method not listed, and anything run through engine.lua directly) except the
+    PASSING_READS, so an answer is only reused while nothing that could change it has touched PoB. Each caller still
+    gets its own decoded copy."""
     text = os.environ.get(READ_CACHE_VARIABLE, "").strip().lower()
     if text in ("", "1", "on"):
         return "on"
@@ -107,14 +117,17 @@ class PobEngine:
 
     def call(self, method: str, **args: Any) -> Any:
         """Call bridge.<method>(args) and return its decoded JSON result. A repeated read (CACHED_READS) with nothing
-        else called in between is answered from the last answer's bytes (read_cache)."""
+        but reads (CACHED_READS, PASSING_READS) called in between is answered from the last answer's bytes (read_cache)."""
         text = json.dumps(args)
         if self._read_cache == "off":
             return json.loads(self._dispatch(method, text))
-        if method not in CACHED_READS or self.lua.calls != self._reads_at:
+        if self.lua.calls != self._reads_at or (method not in CACHED_READS and method not in PASSING_READS):
             self._reads.clear()
         if method not in CACHED_READS:
-            return json.loads(self._dispatch(method, text))
+            payload = self._dispatch(method, text)  # (a failed call leaves _reads_at behind: the next call drops)
+            if method in PASSING_READS:
+                self._reads_at = self.lua.calls
+            return json.loads(payload)
         payload = self._reads.get((method, text))
         if payload is None:
             payload = self._reads[(method, text)] = self._dispatch(method, text)

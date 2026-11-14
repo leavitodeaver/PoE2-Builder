@@ -6,7 +6,7 @@ import json
 import pytest
 
 from builder.pob import engine as engine_module
-from builder.pob.engine import CACHED_READS, PobError
+from builder.pob.engine import CACHED_READS, PASSING_READS, PobError
 from builder.pob.lua import LuaState
 
 
@@ -71,15 +71,53 @@ def test_the_arguments_are_part_of_the_question(monkeypatch):
     assert len(engine.lua.asked) == 2
 
 
-@pytest.mark.parametrize("other", ["setConfig", "equip", "nodeDeltas", "itemDeltas", "gemDeltas", "loadXml", "useRates",
-                                   "exportXml", "activeSkills", "anythingNotListed"])
+@pytest.mark.parametrize("other", ["setConfig", "equip", "nodeDeltas", "itemDeltas", "gemDeltas", "loadXml", "setGroup",
+                                   "exportXml", "setRates", "minionSkillHit", "chargeGain", "anythingNotListed"])
 def test_any_other_call_drops_the_answers(monkeypatch, other):
-    assert other not in CACHED_READS
+    assert other not in CACHED_READS and other not in PASSING_READS
     engine = make(monkeypatch)
     before = engine.call("groups")
     engine.call(other)
     after = engine.call("groups")
     assert before["n"] == 1 and after["n"] == 3 and engine.read_hits == 0
+
+
+@pytest.mark.parametrize("passing", sorted(PASSING_READS))
+def test_a_passing_read_keeps_the_answers_and_is_itself_asked_every_time(monkeypatch, passing):
+    assert passing not in CACHED_READS
+    engine = make(monkeypatch)
+    before = engine.call("groups")
+    first = engine.call(passing)
+    second = engine.call(passing)
+    after = engine.call("groups")
+    assert before == after and before["n"] == 1 and engine.read_hits == 1
+    assert (first["n"], second["n"]) == (2, 3)  # its own answer is never kept
+    engine.call("equip")
+    assert engine.call("groups")["n"] == 5  # a commit still drops them
+
+
+def test_lua_run_between_passing_reads_drops_the_answers(monkeypatch):
+    engine = make(monkeypatch)
+    assert engine.call("groups")["n"] == 1
+    engine.call("activeSkills")
+    engine.lua.run("build.mainSocketGroup = 2", "poke")
+    engine.call("activeSkills")
+    assert engine.call("groups")["n"] == 4 and engine.read_hits == 0
+
+
+def test_a_failed_passing_read_drops_the_answers(monkeypatch):
+    engine = make(monkeypatch)
+    assert engine.call("groups")["n"] == 1
+    real = engine.lua.call
+
+    def failing(*a):
+        engine.lua.calls += 1
+        return [b"false", b"boom"]
+    engine.lua.call = failing
+    with pytest.raises(PobError, match="boom"):
+        engine.call("useRates")
+    engine.lua.call = real
+    assert engine.call("groups")["n"] == 2 and engine.read_hits == 0
 
 
 def test_lua_run_directly_drops_the_answers(monkeypatch):
