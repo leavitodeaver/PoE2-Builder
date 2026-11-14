@@ -744,7 +744,7 @@ class Search:
                if grp.get("enabled", True) for g in grp["gems"]):
             lines.append("Blasphemy: Curse Auras on enemies in your Presence (models.curse_uses)")
         lines += support_distance_lines(self.build.groups())
-        candidates = distance_candidates(lines, conditions.main_types, skill=conditions.main_skill)
+        candidates = distance_candidates(lines, conditions.main_types, skill=getattr(conditions, "main_skill", ""))
         before = conditions.distance
         if not candidates:
             conditions.distance = None
