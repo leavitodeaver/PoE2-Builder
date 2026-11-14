@@ -252,6 +252,22 @@ def test_a_reordered_source_lines_answer_is_the_same_answer_and_nothing_else_is(
     assert not same_answer("call:sourceLines", one, {"PobError": "x"})
 
 
+def test_the_audits_lists_in_another_order_are_the_same_answer_and_nothing_else_is():
+    """bridge.auditCoverage fills its lists in pairs() order (PERF21): their order alone, at any depth, is no mismatch."""
+    from builder.pob.replay import same_answer
+
+    one = {"ok": {"affixes": [{"line": "a", "supported": True}, {"line": "b", "supported": False}],
+                  "skills": [{"id": "x", "sets": [{"baseFlags": ["hit", "area"]}]}, {"id": "y", "sets": []}]}}
+    moved = {"ok": {"affixes": list(reversed(one["ok"]["affixes"])),
+                    "skills": [{"id": "y", "sets": []}, {"id": "x", "sets": [{"baseFlags": ["area", "hit"]}]}]}}
+    assert same_answer("call:auditCoverage", one, moved)
+    assert not same_answer("call:groups", one, moved)
+    changed = {"ok": {"affixes": [{"line": "a", "supported": True}, {"line": "b", "supported": True}], "skills": one["ok"]["skills"]}}
+    assert not same_answer("call:auditCoverage", one, changed)
+    assert not same_answer("call:auditCoverage", one, {"ok": {"affixes": one["ok"]["affixes"][:1], "skills": one["ok"]["skills"]}})
+    assert not same_answer("call:auditCoverage", one, {"PobError": "x"})
+
+
 def test_an_export_with_an_items_bases_in_another_order_is_the_same_answer_and_nothing_else_is():
     """PoB writes an item's alternative bases in a per-process order (Item.lua 2034 / 2064); only that may differ."""
     from builder.pob.replay import difference, same_answer

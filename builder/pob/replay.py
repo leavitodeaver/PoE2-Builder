@@ -150,6 +150,26 @@ def unordered(value: Any) -> str:
 # of 120 builds (PERF6, POE2T2621) and for 11 of 13 (PERF7, POE2T2635 / 2636), and never another line or value.
 ORDER_FREE = {"call:sourceLines": ("ok", "lines"), "call:unsupportedInBuild": ("ok", "lines")}
 
+# auditCoverage's answer (PERF20 / PERF21) is compared with every list in it sorted, at any depth. bridge.auditCoverage
+# fills "affixes" inside `pairs(build.data.itemMods)` / `pairs(mods)`, text-keyed tables (PERF20 read that loop), so
+# two Lua states list the same entries in another order; "uniques", "skills" and lists inside a skill's entry move
+# the same way (seen, below; their loops not read). Seen: the real suite under POE2_CALCS_PASS=check (POE2T2808 and POE2T2860,
+# test_engine_item_lines: "affixes: the same 10938 items in another order") and two untouched PoBs in one process
+# (POE2T2861: "affixes" and "uniques" the same items in another order, "skills" in another order with lists inside
+# its entries too; POE2T2862: equal once every list is sorted). The call is the coverage audit's alone
+# (builder/data/__init__.py coverage()); its readers loop over the lists (builder/ledger), so their order can move
+# the order of the audit's own lists and no build's number. A changed, missing or added entry is still a mismatch.
+ORDER_FREE_DEEP = {"call:auditCoverage"}
+
+
+def _lists_sorted(value: Any) -> Any:
+    """`value` with every list in it sorted (by its items' JSON), at any depth."""
+    if isinstance(value, dict):
+        return {key: _lists_sorted(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return sorted((_lists_sorted(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))
+    return value
+
 
 # exportXml's answer is one text, the build's XML, and PoB writes some of its lines by walking a text-keyed table, so
 # those lines come out in another order in another process, as above. Listed here: what was SEEN to move between two
@@ -206,6 +226,8 @@ def same_answer(kind: str, stored: Any, real: Any) -> bool:
         return True
     if kind == "call:exportXml":
         return _same_export(stored, real)
+    if kind in ORDER_FREE_DEEP:
+        return _lists_sorted(stored) == _lists_sorted(real)
     path = ORDER_FREE.get(kind)
     if path is None:
         return False

@@ -113,6 +113,7 @@ def test_what_if_agrees_with_commit(engine, name):
     assert abs(what_if - committed) <= TOLERANCE * max(abs(committed), 1.0), (name, what_if, committed)
 
 
+@pytest.mark.own_pob_engine  # its last assert compares two stopwatch readings of PoB's work: real PoB only (PERF20 / PERF21)
 def test_rescoring_cost(engine):
     """The cost of the model inputs: item what-ifs per second on a build with a model on its own numbers (Mana Tempest's
     uptime), worked out in the bridge (today), against the real trials it needed before (models_on_stats); and the

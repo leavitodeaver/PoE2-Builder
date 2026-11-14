@@ -1321,7 +1321,136 @@ local function installGrantedLevel()
 	end
 end
 
+-- One stat set, two stats, one skillData slot (PERF21). PoB merges a stat set's stats in `pairs(stats)`
+-- (CalcActiveSkill.lua mergeStatSet, line 87), a text-keyed table whose order LuaJIT picks anew in each Lua state, and
+-- skillData keeps the LAST SkillData mod of a key (CalcActiveSkill.lua 919-920). So where two stats of one set map to
+-- the same key with different values, the same build reads one value in one PoB process and the other in the next.
+-- bridge.statSetSlots (below) finds every such set in PoB's data: two of 1,617 (POE2T2847, gem levels 1..40, quality
+-- 0 and 20), both on "radius"; no OVERRIDE mod and no other keyed list is written twice by one set. Each entry here
+-- leaves the slot one writer, the game's ("drop": the stat's own map goes and it falls back to PoB's global map,
+-- Data/SkillStatMap.lua through data.skillStatMapMeta; "mute": the stat maps to nothing in this set):
+-- - Earthquake's Aftershock (set 2): PoB's own map sends active_skill_base_tertiary_area_of_effect_radius (18) to
+--   "radius", where the global map already sends active_skill_base_area_of_effect_radius (18 from the Impact set's
+--   constants + 6..12 of the set's own at gem levels 1..20). Seen: AreaOfEffectRadius 18 in 6 PoB processes, 30 in 2
+--   (PERF20, POE2T2830-2837). The game: the base stat is "Aftershock radius is {0} metres" and the tertiary one
+--   "Jagged Ground radius is {0} metres" (statdescriptions/specific_skill_stat_descriptions/earthquake/statset_1.csd);
+--   GrantedEffectStatSetsPerLevel adds 6..12 for EarthquakeAftershockPlayer to EarthquakePlayer's constant 18; patch
+--   notes 0.3.0: Aftershock "has a radius of 2.4-3 metres at Gem levels 1-20", "Jagged Ground's radius is now 1.8
+--   metres" (poe2db lists the set's own addition alone, "(0.6-1.2) metres"). Dropped: the tertiary stat is PoB's
+--   radiusTertiary (the Jagged Ground, 18) and radius is 30 at gem level 20 in every process.
+-- - Acidic Concoction's Acidic Burst (set 2), with quality on the gem: PoB adds the gem's quality stat
+--   (active_skill_base_area_of_effect_radius, 0.2 per 1% quality) to every set (CalcTools.lua buildSkillInstanceStats
+--   163-169), so the Burst's radius is its own 15 (active_skill_base_secondary_area_of_effect_radius, the set's map)
+--   or the quality's 4 by the state's order. Not seen in a run; found by the scan. The game: the quality stat applies
+--   to stat set 0, the Flask (GrantedEffectQualityStats ApplyToStatSets [0]), the Burst's set ignores the base radius
+--   stat (GrantedEffectStatSets AcidicConcoctionPoisonBurstPlayer IgnoredStats), and "Burst radius is {0} metres" is
+--   the secondary stat (acidic_concoction.csd); poe2db: "Burst radius is 1.5 metres", quality "Explosion radius is
+--   (0-0.4) metres". Muted: the Burst's radius is 15 in every process.
+-- tests/test_stat_set_slots.py fails on a set with this pattern that is not handled here (a PoB upgrade's).
+local STAT_SET_SLOT_FIXES = {
+	EarthquakePlayer = { [2] = { drop = { "active_skill_base_tertiary_area_of_effect_radius" } } },
+	AcidicConcoctionPlayer = { [2] = { mute = { "active_skill_base_area_of_effect_radius" } } },
+}
+local statSetSlotsInstalled = false
+local function installStatSetSlots()
+	if statSetSlotsInstalled or not (data and data.skills and data.skillStatMapMeta) then
+		return
+	end
+	statSetSlotsInstalled = true
+	for id, sets in pairs(STAT_SET_SLOT_FIXES) do  -- (each entry stands alone: this order changes nothing)
+		local effect = data.skills[id]
+		for index, fix in pairs(sets) do
+			local set = effect and effect.statSets and effect.statSets[index]
+			if set then
+				for _, stat in ipairs(fix.drop or { }) do
+					rawset(set.statMap, stat, nil)
+				end
+				for _, stat in ipairs(fix.mute or { }) do
+					rawset(set.statMap, stat, { })
+				end
+			end
+		end
+	end
+end
+
+-- Every stat set in PoB's data (skills and supports) in which two stats write one last-one-wins slot with different
+-- values through the set's stat map, at any gem level the set has, at quality 0 or 20: a skillData key, an OVERRIDE
+-- mod's name, or a keyed list entry (alone or inside a MinionModifier-style wrapper). Sums and products are left out:
+-- their order picks no winner. After installStatSetSlots, so a healthy PoB answers no slots.
+function bridge.statSetSlots()
+	installStatSetSlots()
+	local function slotOf(mod)
+		if mod.name == "SkillData" and type(mod.value) == "table" then
+			return "SkillData:" .. tostring(mod.value.key)
+		elseif mod.type == "OVERRIDE" then
+			return "OVERRIDE:" .. tostring(mod.name)
+		elseif mod.type == "LIST" and type(mod.value) == "table" then
+			local inner = mod.value.mod
+			if inner and (inner.type == "LIST" or inner.type == "OVERRIDE") then
+				local key = type(inner.value) == "table" and inner.value.key
+				return "LIST:" .. tostring(mod.name) .. ":" .. tostring(inner.name) .. ":" .. inner.type .. (key and (":" .. tostring(key)) or "")
+			elseif not inner and mod.value.key then
+				return "LIST:" .. tostring(mod.name) .. ":" .. tostring(mod.value.key)
+			end
+		end
+	end
+	local ids, found, sets = { }, { }, 0
+	for id in pairs(data.skills) do
+		ids[#ids + 1] = id
+	end
+	table.sort(ids)
+	for _, id in ipairs(ids) do
+		local effect = data.skills[id]
+		for setIndex, set in ipairs(effect.statSets or { }) do
+			sets = sets + 1
+			local levels, slots = { }, { }  -- slots: slot -> stat -> "level/quality" -> value
+			for level in pairs(set.levels or { }) do
+				levels[#levels + 1] = level
+			end
+			levels[1] = levels[1] or 1
+			for _, level in ipairs(levels) do
+				for _, quality in ipairs({ 0, 20 }) do
+					local stats = calcLib.buildSkillInstanceStats({ level = level, quality = quality, grantedEffect = effect, actorLevel = 100 }, effect, set, true)
+					for stat, statValue in pairs(stats) do
+						for _, modOrGroup in ipairs(set.statMap[stat] or { }) do
+							local holder = modOrGroup.name and set.statMap[stat] or modOrGroup
+							for _, mod in ipairs(modOrGroup.name and { modOrGroup } or modOrGroup) do
+								local slot = slotOf(mod)
+								if slot then
+									slots[slot] = slots[slot] or { }
+									slots[slot][stat] = slots[slot][stat] or { }
+									slots[slot][stat][level .. "/" .. quality] = holder.value or statValue * (holder.mult or 1) / (holder.div or 1) + (holder.base or 0)
+								end
+							end
+						end
+					end
+				end
+			end
+			for slot, byStat in pairs(slots) do
+				local stats, differ = { }, false
+				for stat in pairs(byStat) do
+					stats[#stats + 1] = stat
+				end
+				table.sort(stats)
+				for i = 2, #stats do
+					for at, value in pairs(byStat[stats[i]]) do
+						differ = differ or (byStat[stats[1]][at] ~= nil and byStat[stats[1]][at] ~= value)
+					end
+				end
+				if differ then
+					found[#found + 1] = { skill = id, set = setIndex, slot = slot, stats = stats }
+				end
+			end
+		end
+	end
+	table.sort(found, function(a, b)
+		return a.skill .. a.set .. a.slot < b.skill .. b.set .. b.slot
+	end)
+	return { sets = sets, slots = found }
+end
+
 local function installDerived()
+	installStatSetSlots()
 	installLedgerBonded()
 	installLedgerShare()
 	installSpiritVessel()
