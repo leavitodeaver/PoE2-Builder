@@ -102,3 +102,19 @@ def test_bastions_parried_rides_the_taps_and_waits_for_the_ledger(monkeypatch):
     assert len(models.raised_model([SHIELD, spell], texts, 2.0, spell)[0]) == 1  # Attacks only: just the tap cost
     parry = models.Skill("Parry", attack=True)
     assert len(models.raised_model([SHIELD, parry, STRIKE], texts, 2.0, STRIKE)[0]) == 1  # one Parried debuff
+
+
+FLASH = "Blind Enemies when they Stun you"
+
+
+def test_blinding_flash_blinds_at_the_bosss_stuns_on_you():
+    """MECHC25 (plans/term-blind-enemies.md G3; 0 before, an UNDERCOUNT): Blinding Flash Blinds the boss each time it
+    Light Stuns you (flasks.Charges.stuns, set in evidence as _stuns_you); each Blind lasts 4 s."""
+    up, how = _debuff_source(FLASH, "conditionEnemyBlinded", [FLASH], {"_stuns_you": (0.1, "test")})
+    assert abs(up - 0.4) < 1e-9 and "Stuns you 0.100/s" in how
+    assert _debuff_source(FLASH, "conditionEnemyBlinded", [FLASH], {"_stuns_you": (1.0, "test")})[0] == 1.0
+    none, how = _debuff_source(FLASH, "conditionEnemyBlinded", [FLASH], {"_stuns_you": (0.0, "no Stun data")})
+    assert none == 0.0 and "never Stuns you" in how
+    longer = _debuff_source(FLASH, "conditionEnemyBlinded", [FLASH, "50% increased Blind Duration"],
+                            {"_stuns_you": (0.1, "test")})[0]
+    assert abs(longer - 0.6) < 1e-9

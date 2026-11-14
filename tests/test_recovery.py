@@ -785,7 +785,10 @@ def test_life_flask_recovery_applies_to_energy_shield():
     # the flask's OWN kept line (Blood of the Warrior, Opportunity) parses to nothing in PoB: ours counts it
     kept = "Blood of the Warrior\nGargantuan Life Flask\nEffect is not removed when Unreserved Life is Filled"
     assert es_recovery_per_second(life, shield, kept) == pytest.approx(45.0)
-    assert es_recovery_per_second(life, replace(shield, life_effect_kept=True)) == 0.0  # Enduring Elixirs
+    # Enduring Elixirs: 0 only with the flask up the whole fight (its slot on in the floors' stats: PoB has it); part-time
+    # (here 1 charge a second, 0.1 uses x 3 s = 30%), the floors see the slot off and PoB adds nothing: ours counts
+    assert es_recovery_per_second(life, replace(shield, life_effect_kept=True, flask=4)) == 0.0
+    assert es_recovery_per_second(life, replace(shield, life_effect_kept=True)) == pytest.approx(45.0)
     assert es_recovery_per_second(life, shield, "Recovers 300 Life over 3 Seconds") == pytest.approx(45.0)
     assert es_recovery_per_second(life, replace(shield, life_flask_unusable=True)) == 0.0  # Reverie: no use
     data = Charges.from_bridge({"lifeFlaskToEs": True, "lifeFlaskEsInstead": True, "esRecoveryMod": 1.2})

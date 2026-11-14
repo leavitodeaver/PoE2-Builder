@@ -752,8 +752,10 @@ def pob_counts_whole(info: dict, gain: Charges, pool: str, raw: str = "") -> boo
 def es_recovery_per_second(info: dict | None, gain: Charges, raw: str = "") -> float:
     """Energy Shield a second from the Life flask (`info`, its flaskData; `raw`, its text) under the lines above: its
     recovery at the rate its charges allow (recovery_per_second's Life), times PoB's EnergyShieldRecoveryRateMod; 0
-    without a line, and 0 when PoB counts it already (pob_counts_flask_recovery)."""
-    if not info or not gain.life_flask_to_es or pob_counts_flask_recovery(gain, raw):
+    without a line, and 0 when PoB counts it already: Enduring Elixirs' flag (pob_counts_flask_recovery) with the flask up
+    the whole fight (pob_counts_whole). (MECHC25: part-time, the floors are checked with its slot off, where PoB adds
+    nothing, so ours counts there; before, 0 there too, an UNDERCOUNT in the Energy Shield floor)"""
+    if not info or not gain.life_flask_to_es or pob_counts_whole(info, gain, "Life", raw):
         return 0.0
     from dataclasses import replace
 

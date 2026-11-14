@@ -1357,6 +1357,9 @@ def _debuff_pattern(var: str) -> re.Pattern:
 WHEN_YOU_AILMENT = re.compile(r"\bwhen you (poison|ignite|shock)\b", re.I)
 
 
+STUNS_YOU = re.compile(r"when they stun you", re.I)
+
+
 def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
     """(uptime, how) of one line for this debuff, or None if it isn't a source of it."""
     m = _debuff_pattern(var).search(text)
@@ -1379,6 +1382,14 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         if plan is None:
             return 0.0, "the build's shield taps weren't read (0, labelled)"
         return plan.blind, plan.how
+    if "stun you" in when:
+        # (MECHC25; plans/term-blind-enemies.md G3) Blinding Flash's "Blind Enemies when they Stun you"
+        # (blind_enemies_when_they_stun_you): at the boss's hits that Light Stun you, flasks.Charges.stuns (recovery's
+        # stun model, as the "Used when you become Stunned" charms read it; set in evidence as _stuns_you). No Stuns: 0
+        stuns, how = stats.get("_stuns_you") or (0.0, "the boss's Stuns on you weren't read")
+        up = min(1.0, stuns * duration) if chance >= 1 else 1 - (1 - chance) ** (stuns * duration)
+        return up, (f"the boss Stuns you {stuns:.3f}/s ({how}), each Blind {duration:g} s: {up:.0%} up" if stuns > 0 else
+                    f"the boss never Stuns you ({how}): 0")
     if "fully armour break" in when or "fully break" in when:  # (armour_broken's Full Breaks, as Exposure's)
         events = number(stats.get("_full_break_rate"))
         up = 1 - (1 - min(chance, 1.0)) ** (events * duration) if chance < 1 else min(1.0, events * duration)
@@ -3714,6 +3725,11 @@ class Conditions:
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
             stats["_parry_plan"] = self.parry_plan = models.parry_plan(
                 found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS))
+        if any(STUNS_YOU.search(t) for t in texts):  # (Blinding Flash, MECHC25: the boss's Light Stuns on you)
+            from builder.search import flasks
+
+            gain = flasks.Charges.of(self.build)
+            stats["_stuns_you"] = (gain.stuns, gain.stuns_how)
         if any(models.RAISED_BLIND.search(t) for t in texts):  # (Bastion of Light's shield taps, MECHC21)
             raw = self.build.call("activeSkills")
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]

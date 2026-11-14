@@ -2238,7 +2238,9 @@ def test_shavronnes_satchel_gives_energy_shield_the_life_flasks_recovery(engine)
     # (MECHC24; COV27's probe) a Life flask whose effect is kept at full Life: PoB counts its recovery on Energy Shield
     # itself (calcFlaskRecovery into EnergyShieldRegenRecovery), so ours adds nothing: never counted twice
     before = engine.call("recalc", fields=["EnergyShieldRegenRecovery"])["stats"].get("EnergyShieldRegenRecovery") or 0
-    kept = belt + chr(10) + "Life Flask Effects are not removed when Unreserved Life is Filled"
+    # (MECHC25) with the flask up the whole fight (4 charges a second: 0.4 uses x 3 s): the slot is on in the floors too
+    elixirs = "Life Flask Effects are not removed when Unreserved Life is Filled"
+    kept = belt.replace("Flasks gain 1 charges", "Flasks gain 4 charges") + chr(10) + elixirs
     build.call("equip", slot="Belt", raw=kept, fields=[])
     after = engine.call("recalc", fields=["EnergyShieldRegenRecovery"])["stats"].get("EnergyShieldRegenRecovery") or 0
     assert after > before  # PoB's own count
@@ -2246,6 +2248,11 @@ def test_shavronnes_satchel_gives_energy_shield_the_life_flasks_recovery(engine)
     assert gain.life_effect_kept and flasks.es_recovery_per_second(info, gain, life) == 0.0
     Assumptions(build).life_mana_income(build.call("activeSkills")["skills"], "Spark")
     assert not build.recovery_sources.get("EnergyShieldFlaskRecovery")
+    # (MECHC25) part-time (1 charge a second: 30%): the floors are checked with the slot off, where PoB adds nothing, so
+    # ours counts (before, 0: an UNDERCOUNT in the Energy Shield floor)
+    build.call("equip", slot="Belt", raw=belt + chr(10) + elixirs, fields=[])
+    gain = flasks.Charges.of(build)
+    assert gain.life_effect_kept and flasks.es_recovery_per_second(info, gain, life) > 0
     # (MECHC25, AUDIT34 A34-20) the Life flask's OWN kept line (Blood of the Warrior, Opportunity) parses to nothing in
     # PoB: its Energy Shield regeneration doesn't move, so ours counts the flask
     build.call("equip", slot="Belt", raw=belt, fields=[])
