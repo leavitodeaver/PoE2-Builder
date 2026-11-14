@@ -368,3 +368,12 @@ def test_a_keystone_craft_over_the_budget_is_never_offered():
     plain = ItemOption("Flesh Crucible", "Diamond", "Jewel", None, raw, True, 1.0, "high", 60)
     gear = _Gear(_Ctx({"orb": 6.0}), worth={"Chaos Inoculation": 0.10}, cost={})  # cap and budget 1,000 div
     assert cultivated.trial(gear, "Jewel", plain, deadline=float("inf")) is plain
+
+
+def test_the_trial_logs_its_what_ifs_when_asked(tmp_path, monkeypatch):
+    log = tmp_path / "cultivated.jsonl"
+    monkeypatch.setenv("POE2_CULTIVATED_LOG", str(log))
+    gear = _Gear(_Ctx({"orb": 6.0}), worth={"(5-10)% increased maximum Life": 0.10}, cost=ACUITY_COSTS)
+    cultivated.trial(gear, "Gloves", _acuity_option(), deadline=float("inf"))
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert [r["unique"] for r in rows] == ["Atziri's Acuity"] * gear.calls and all(r["whatifs"] > 0 for r in rows)

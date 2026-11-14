@@ -314,6 +314,15 @@ def label(add: list[dict], dropped: list[str]) -> str:
     return f"{LABEL}: {outcomes_text} (replaces: {' / '.join(dropped)})"
 
 
+def _log(slot: str, name: str, whatifs: int) -> None:
+    """With POE2_CULTIVATED_LOG set to a path, one JSON line per what-if batch the trial asks for (slot, unique,
+    what-ifs, process): what the trial costs a run, counted (CULT7). Off by default."""
+    path = os.environ.get("POE2_CULTIVATED_LOG")
+    if path:
+        with open(path, "a", encoding="utf-8") as f:
+            print(json.dumps({"slot": slot, "unique": name, "whatifs": whatifs, "pid": os.getpid()}), file=f)
+
+
 # The search's trial ------------------------------------------------------------------------------------------------
 
 def trial(gear, slot: str, target, deadline: float):
@@ -347,6 +356,7 @@ def trial(gear, slot: str, target, deadline: float):
     raws = [target.raw] + [edited(target.raw, [], [o]) for o in offered]
     raws += [edited(target.raw, list(at), []) for at, _ in lines]
     scored = [s for s, _ in gear.deltas(slot, raws)]
+    _log(slot, target.name, len(raws))
     base = scored[0]
     gains = sorted(((s - base, o) for s, o in zip(scored[1:1 + len(offered)], offered) if s - base > EPSILON),
                    key=lambda x: -x[0])
@@ -377,6 +387,7 @@ def trial(gear, slot: str, target, deadline: float):
         failed[key] = build.score
         return target
     rescored = gear.deltas(slot, [o.raw for o in options])
+    _log(slot, target.name, len(options))
     best_value, best = max(((gear.adjusted(s, o), o) for (s, _), o in zip(rescored, options)), key=lambda x: x[0])
     if best_value > gear.adjusted(base, target) + EPSILON:
         return best
