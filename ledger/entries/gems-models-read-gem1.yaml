@@ -1,0 +1,367 @@
+# Gem stats PoB never reads that our own models already read (GEM1, 14 Nov 2026). Each reader was read on 922f138
+# (train 41) before crediting: the file and line of the read are in each entry's sources. These entries move no build:
+# they close the coverage audit's rows for stats a model already counts. `skill` limits each entry to the skills whose
+# stat the model reads; the same stat on other skills stays open (e.g. Salvo's Seals, Feral Invocation's Energy).
+# A stat whose model counts only part of its effect (an ailment consumed but not what the consume pays for) is NOT
+# here: those stay open, listed in scratch/manager/workers/GEM1.report.md.
+
+- id: model-gem1-invocation-max-energy
+  title: An Invocation stores at most 500 Energy (Energy model, a spell costing more is never triggered)
+  kind: model
+  model: energy
+  stats: ["generic_ongoing_trigger_maximum_energy"]
+  skill: [Barrier Invocation, Spellslinger, "Reaper's Invocation", Elemental Invocation]
+  confidence: datamined
+  notes: >-
+    models.INVOCATION_MAX_ENERGY = 500 (the stat's value on every Invocation, game files 26476662); energy_triggers puts a
+    socketed spell whose Energy cost is over it at 0 triggers with a note. Read as a constant, not from the gem: the value
+    is 500 at every level in the game files. Feral Invocation carries it too but is in models.NOT_MODELED_YET (its clone
+    uses Attacks), so it stays open.
+  sources: ["builder/search/models.py (INVOCATION_MAX_ENERGY, META_GEMS invocation: True, the too_big branch)"]
+  test_in_game: "Not needed: the cap is the game's data."
+  status: proposed
+
+- id: model-gem1-reapers-invocation-energy
+  title: "Reaper's Invocation's Energy from melee kills and from its level (Energy model)"
+  kind: model
+  model: energy
+  stats: ["energy_generated_+%", "melee_kill_invocation_gain_X_centienergy_per_monster_power_on_melee_kill"]
+  skill: ["Reaper's Invocation"]
+  confidence: datamined
+  notes: >-
+    models.META_GEMS "Reaper's Invocation": per_level 3.0 (energy_generated_+% 3 a level above 1), gain "melee kill",
+    per 30.0 (the 3000 centienergy per monster Power), at the boss preset's add kills (MECHB9). The existing
+    model-stats-energy-gain entry lists the other meta skills, not this one.
+  sources: ["builder/search/models.py (META_GEMS, gem_energy)"]
+  test_in_game: "Not needed for the shape; an add's Power of 1 is the model's labelled LOW."
+  status: proposed
+
+- id: model-gem1-midnight-zenith-no-energy
+  title: Midnight Zenith's use cannot make a meta skill gain Energy (Energy model)
+  kind: model
+  model: energy
+  stats: ["base_skill_cannot_generate_energy"]
+  skill: [Midnight Zenith]
+  confidence: datamined
+  notes: >-
+    models.py reads it (MECH47): the gains a main skill carrying base_skill_cannot_generate_energy makes with its own use
+    are zeroed with a note ("This Skill cannot cause Meta Skills to generate Energy").
+  sources: ["builder/search/models.py (the base_skill_cannot_generate_energy block after NO_ENERGY_ON_A_BOSS)"]
+  test_in_game: "Not needed: the game's own text."
+  status: proposed
+
+- id: no-effect-gem1-removed-meta-gems
+  title: "Curse on Block, Cast on Melee Kill, Cast on Melee Stun: removed from the game (models.DEPRECATED); their stats change nothing"
+  kind: gem_stat
+  match: '.*'
+  replace: []
+  skill: [Curse on Block, Cast on Melee Kill, Cast on Melee Stun, SupportMetaCastCurseOnBlockPlayer,
+          SupportMetaCastOnMeleeKillPlayer, SupportMetaCastOnMeleeStunPlayer]
+  confidence: datamined
+  notes: >-
+    The three are in models.DEPRECATED: never picked, and a PoB code that has one gets no triggers from it, said in the
+    guide. (checked, by the lane that set DEPRECATED: data/game-*/live.json reaches them by no uncut tier, base item,
+    passive or collection unique; poe2db shows them with no tier or source; the user found no Curse on Block in game on 7
+    Nov.) The Support* names are each meta gem's own hidden support (the triggered spells' side). Scoped to these six
+    skills only: the same stat ids on live meta gems stay open.
+  sources: ["builder/search/models.py (DEPRECATED)", "https://poe2db.tw/us/Curse_on_Block",
+            "https://poe2db.tw/us/Cast_on_Melee_Kill", "https://poe2db.tw/us/Cast_on_Melee_Stun"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem1-freezing-salvo-seals
+  title: Freezing Salvo's Seals, gained every 0.75 s and broken for one Repeat each, with its projectiles as Repeats
+  kind: model
+  model: freezing_salvo_seals
+  stats: ["base_skill_seal_gain_interval_ms", "skill_rapid_fire_repeats_per_broken_seal",
+          "base_modifiers_to_number_of_projectiles_instead_apply_to_repeats"]
+  skill: [Freezing Salvo]
+  confidence: datamined
+  notes: >-
+    MECHB18's model (models.SEAL_INTERVAL_STAT, SEAL_REPEATS_STAT, SEAL_MAX_STAT): each use breaks
+    s = min(max Seals, gain x use time x (1 + 0.05 (s + e))) Seals and deals 1 + s + e hits. The Salvo support's Seal
+    stats and Zarokh's Revolt's / Unleash's Repeats per Seal stay open (not read for them).
+  sources: ["builder/search/models.py (Freezing Salvo's Seals section)"]
+  test_in_game: "Not needed for the shape; Seals gained during the use is the model's labelled UNVERIFIED."
+  status: proposed
+
+- id: model-gem1-heat
+  title: "Rapid Shot's maximum Heat, and the Heat grenades and Incendiary Shot spend (Heat model)"
+  kind: model
+  model: heat
+  stats: ["maximum_number_of_crossbow_heat_stacks", "consume_X_heat_on_skill_use"]
+  skill: [Rapid Shot, Cluster Grenade, Explosive Grenade, Incendiary Shot]
+  confidence: datamined
+  notes: >-
+    MECHB4's Heat model: the maximum read from Rapid Shot's level (maximum_number_of_crossbow_heat_stacks, 45 at 20), the
+    spenders' 15 Heat per use (models.HEAT_SPENDERS) taken off Rapid Shot's gain, so the 10 s lockout comes later or
+    never. What a spender gains from consuming Heat is another stat (active_skill_all_damage_%_as_fire_if_heat_is_consumed),
+    not closed here.
+  sources: ["builder/search/models.py (Rapid Shot's Heat section: HEAT_SPENDERS, the maximum_number_of_crossbow_heat_stacks read)"]
+  test_in_game: "Not needed for the shape: the model's own confidence labels."
+  status: proposed
+
+- id: model-gem1-ferocious-roar
+  title: "Ferocious Roar's Rage per enemy Power and Armour Break per hit (Ferocious Roar model)"
+  kind: model
+  model: ferocious_roar
+  stats: ["bear_warcry_gain_X_centirage_per_enemy_power", "warcry_grant_break_X_armour_on_hit"]
+  skill: [Ferocious Roar]
+  confidence: datamined
+  notes: >-
+    Both read from the gem's level stats (skill.level_stats) in the Ferocious Roar model: Rage per Power from the boss's
+    Power, Armour broken per Empowered hit.
+  sources: ["builder/search/models.py (the Ferocious Roar section: per_power, per_hit reads)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-wolves
+  title: "Summon Wolf's wolf limit (Cross Slash wolves model)"
+  kind: model
+  model: wolves
+  stats: ["number_of_wolves_allowed"]
+  skill: [Summon Wolf]
+  confidence: datamined
+  notes: >-
+    Read from Summon Wolf's level stats (wolf.level_stats number_of_wolves_allowed, WOLVES_ALLOWED_AT_LEVEL_1 when the
+    bridge lacks it). The wolves-if-Rare / if-Unique and no_minion_duration stats on the same gem are described in the
+    model's comments but not closed here (not read as stats).
+  sources: ["builder/search/models.py (the wolves read: number_of_wolves_allowed)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-lunar-blessing
+  title: "Lunar Blessing's buff extended per Rage (Lunar Blessing model)"
+  kind: model
+  model: lunar_blessing
+  stats: ["skill_lunar_blessing_extend_buff_by_X_ms_per_rage"]
+  skill: [Lunar Blessing]
+  confidence: datamined
+  notes: Read from the gem's level stats (models.py, per_rage), 0.2 s per Rage if the bridge lacks it.
+  sources: ["builder/search/models.py (Lunar Blessing: skill_lunar_blessing_extend_buff_by_X_ms_per_rage)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-thrill-of-the-kill
+  title: "Thrill of the Kill's buff duration (Thrill of the Kill model)"
+  kind: model
+  model: thrill_of_the_kill
+  stats: ["support_thrill_of_the_kill_buff_base_duration_ms"]
+  skill: [Thrill of the Kill, Thrill of the Kill II]
+  confidence: datamined
+  notes: Read from the support's stats (skill.support_stats), 8 s if the bridge lacks it.
+  sources: ["builder/search/models.py (support_thrill_of_the_kill_buff_base_duration_ms read)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-profanity
+  title: "Profanity's corpses consumed per use (Profanity model)"
+  kind: model
+  model: profanity
+  stats: ["skill_consume_up_to_X_corpses_on_use"]
+  skill: [Profanity I, Profanity II]
+  confidence: datamined
+  notes: Read from the support's stats as the cap on corpses per use (models.py, cap); the corpses come from the build's own corpse supply.
+  sources: ["builder/search/models.py (Profanity: skill_consume_up_to_X_corpses_on_use)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-remnants-of-kalguur
+  title: "Remnants of Kalguur's Ward per Remnant, on-kill and on-Stun chances and Stun cooldown (Ward income model)"
+  kind: model
+  model: ward_income
+  stats: ["ward_remnants_gain_per_globe", "ward_remnants_chance_to_spawn_orb_on_killing_enemy_%",
+          "ward_remnants_chance_to_spawn_remnant_on_stun_%", "ward_remnants_spawn_remnant_on_stun_cooldown_ms"]
+  skill: [Remnants of Kalguur]
+  confidence: datamined
+  notes: All four read from the gem's stats (models.py, the kalguur.get reads) into the Ward income model.
+  sources: ["builder/search/models.py (Remnants of Kalguur: gain, on_kill, chance, cooldown)", "builder/search/assumptions.py (KALGUUR_KILL_STAT)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-life-mana-remnants
+  title: "Life Remnants' and Mana Remnants' on-kill chances (recovery model)"
+  kind: model
+  model: recovery
+  stats: ["life_remnants_chance_to_spawn_orb_on_killing_enemy_%",
+          "mana_remnants_chance_to_spawn_orb_on_killing_enemy_with_elemental_ailment_%"]
+  skill: [Life Remnants, Mana Remnants]
+  confidence: datamined
+  notes: recovery.LIFE_ON_KILL / MANA_ON_KILL, read at the boss preset's kills (the adds).
+  sources: ["builder/search/recovery.py (LIFE_ON_KILL, MANA_ON_KILL)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-wildwoods-gifts
+  title: "Wildwood's Gifts: Blooms per second and the charges each kind restores (flask and charm charges)"
+  kind: model
+  model: flasks
+  stats: ["breach_flame_spawn_rate_ms", "ancient_gifts_life_flask_charges_restored",
+          "ancient_gifts_mana_flask_charges_restored", "ancient_gifts_charm_charges_restored"]
+  skill: ["Wildwood's Gifts"]
+  confidence: datamined
+  notes: >-
+    engine/bridge.lua (MECHC7) reads the four from the skill's stats at its level (blooms.life / mana / charm and the
+    spawn rate) for flasks.py's charge income. breach_flame_spawn_rate_ms on Into the Breach is not closed here.
+  sources: ["engine/bridge.lua (Wildwood's Gifts blooms)", "builder/search/flasks.py"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-tornado-shot
+  title: "Tornado Shot's hits allowed and its tornado's less damage (Tornado Shot model)"
+  kind: model
+  model: tornado_shot
+  stats: ["tornado_shot_number_of_hits_allowed", "tornado_shot_projectile_damage_+%_final"]
+  skill: [Tornado Shot]
+  confidence: datamined
+  notes: models.TORNADO_HITS_STAT / TORNADO_DAMAGE_STAT, read from the gem at its level.
+  sources: ["builder/search/models.py (Tornado Shot section)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-apocalypse
+  title: "Apocalypse's trigger interval and frequency (Apocalypse model)"
+  kind: model
+  model: apocalypse
+  stats: ["unleash_the_elements_base_trigger_frequency_ms", "unleash_the_elements_trigger_frequency_+%"]
+  skill: [Apocalypse]
+  confidence: datamined
+  notes: >-
+    models.APOCALYPSE_INTERVAL 0.75 s (the base 750 ms, game files) and APOCALYPSE_FREQUENCY read from the gem's quality
+    into apocalypse_model's frequency.
+  sources: ["builder/search/models.py (APOCALYPSE_INTERVAL, APOCALYPSE_FREQUENCY, apocalypse_model)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-hazard-early
+  title: "Hazards' arming time, Controlled Hazard's and Delayed Reaction's delays, and Ice Crystals by type (early-hazard model)"
+  kind: model
+  model: hazard_early
+  stats: ["permafrost_shard_arming_time_ms", "briarpatches_arming_time_ms", "hazards_cant_trigger_x_seconds_after_creation",
+          "hazards_trigger_at_end_of_duration_instead", "is_ice_crystal_explosion"]
+  skill: [Ice Shards, Brambles, Controlled Hazard, Delayed Reaction, Frozen Locus, Midnight Zenith]
+  confidence: datamined
+  notes: >-
+    engine/bridge.lua's early-hazard reader: HAZARD_ARMING (the two arming times), the supports' first stat set
+    (hazards_cant_trigger_x_seconds_after_creation adds to the delay; hazards_trigger_at_end_of_duration_instead sets
+    atEnd), and Ice Crystals by is_ice_crystal_explosion, for the "first 500 ms" more damage lines.
+  sources: ["engine/bridge.lua (EARLY_HAZARD, HAZARD_ARMING, the support stat loop)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-toxic-pustules
+  title: "Pustules' more explosion damage from stored Poison and Toxic Growth's pustule limit (pustule model)"
+  kind: model
+  model: pustules
+  stats: ["toxic_pustule_max_burst_damage_+%_final_from_stored_poison", "number_of_poisonbloom_arrow_bloom_allowed"]
+  skill: [Poison Spores, Toxic Domain, Toxic Growth]
+  confidence: datamined
+  notes: engine/bridge.lua reads both from the skill's stats (storedPoisonMaxMore; the pustule limit with quality) for models.py's pustule model.
+  sources: ["engine/bridge.lua (storedPoisonMaxMore, number_of_poisonbloom_arrow_bloom_allowed)", "builder/search/models.py (pustules)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-persistent-minion-count
+  title: "A persistent minion gem's own count (minion limit read by the bridge)"
+  kind: model
+  model: minions
+  stats: ["skill_desired_initial_amount"]
+  skill: ["Companion: {0}", Skeletal Warrior Minion]
+  confidence: datamined
+  notes: >-
+    engine/bridge.lua gives a minion with no limit stat its skill_desired_initial_amount (2 on Skeletal Warrior) as the
+    count the Sacrifice / minion-death models read (probe POE2T1072 gave 0 before).
+  sources: ["engine/bridge.lua (minion limit: skill_desired_initial_amount)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-talisman-and-spirit-vessel
+  title: "Talisman form freedom (Feral Invocation, Spirit Vessel) and Spirit Vessel's unusable socketed skills (usage model)"
+  kind: model
+  model: usage
+  stats: ["ignore_talisman_inherent_form_restriction", "ignore_shapeshift_talisman_requirement", "skill_unusable"]
+  skill: [SupportFeralInvocationPlayer, SpiritVesselSupport]
+  confidence: datamined
+  notes: >-
+    engine/bridge.lua talismanStat sets socketedFormFree for usage.py (AUDIT7 A7-3); Spirit Vessel's hidden support's
+    skill_unusable is applied by the bridge's Spirit Vessel block (the socketed skills are not usable for you).
+  sources: ["engine/bridge.lua (talismanStat; the Spirit Vessel block)", "builder/search/usage.py"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-usage-travel-combo
+  title: "Hit and Run / Echoing Cry's distance before each use, and Practiced Combo's extra Combo (usage model)"
+  kind: model
+  model: usage
+  stats: ["skill_unusable_until_moved_X_distance", "additional_combo_gain_chance_%"]
+  skill: [Hit and Run, Echoing Cry, Practiced Combo]
+  confidence: datamined
+  notes: usage.MOVED (a "travel" requirement) and the bridge's additional_combo_gain_chance_% read for the Combo per use.
+  sources: ["builder/search/usage.py (MOVED)", "engine/bridge.lua (additional_combo_gain_chance_%)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-support-flags
+  title: "Support stats a model reads: Splinter Totem, Minion Pact, Eternal Mark, Ferocity, Blindside, Prototype Seventeen, Armour Demolisher"
+  kind: model
+  model: support_flags
+  stats: ["support_splinter_totem_X_times", "support_minion_pact_user_life_%_removed_from_nearby_minion",
+          "marks_avoid_consumption_when_first_activated", "skill_cannot_generate_frenzy_charges", "cannot_inflict_blind",
+          "lose_%_of_maximum_rage_on_dealing_critical_strike",
+          "support_increased_armour_break_armour_break_amount_+%_final"]
+  skill: [Splinter Totem I, Splinter Totem II, Minion Pact I, Minion Pact II, Eternal Mark, Ferocity, Blindside,
+          Prototype Seventeen, "Uruk's Smelting", Armour Demolisher I, Armour Demolisher II]
+  confidence: datamined
+  notes: >-
+    Each read through bridge.lua's modelSupportStats (support stats the models always get) or the support's stat list:
+    models.TOTEM_SPLINTER_STAT (totem splinters), MINION_PACT_STAT, ETERNAL_MARK_STAT (MECH63); conditions.NO_FRENZY_STAT
+    (the main skill makes no Frenzy Charges), NO_BLIND_STAT (no Blind of its own), RAGE_LOST_ON_CRIT_STAT (Rage lost on
+    crit), BREAK_MORE_STAT (MECH66: more Armour per Break on the main skill).
+  sources: ["builder/search/models.py (TOTEM_SPLINTER_STAT, MINION_PACT_STAT, ETERNAL_MARK_STAT)",
+            "builder/search/conditions.py (NO_FRENZY_STAT, NO_BLIND_STAT, RAGE_LOST_ON_CRIT_STAT, BREAK_MORE_STAT)",
+            "engine/bridge.lua (modelSupportStats)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
+
+- id: model-gem1-icestorm-no-chill
+  title: "Icestorm's cold damage cannot Chill (bridge maps it to ColdCannotChill)"
+  kind: model
+  model: bridge_stat_map
+  stats: ["cold_damage_cannot_chill"]
+  skill: [Icestorm]
+  confidence: datamined
+  notes: engine/bridge.lua adds a skillStatMap entry (MECH54, an OVERCOUNT before) so PoB gives the skill ColdCannotChill.
+  sources: ["engine/bridge.lua (cold_damage_cannot_chill skillStatMap entry)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem1-jagged-ground
+  title: "Jagged Ground from Earthquake, Stampede, Furious Slam and Jagged Ground I / II, 4 s each (Jagged Ground model)"
+  kind: model
+  model: jagged_ground
+  stats: ["can_create_jagged_ground", "skill_jagged_ground_base_duration_ms", "bear_slam_spend_X_rage_for_stronger_slam"]
+  skill: [Stampede, Earthquake, Furious Slam, Jagged Ground I, Jagged Ground II]
+  confidence: datamined
+  notes: >-
+    MECH51's model (conditions.JAGGED_GROUND_SECONDS 4, FURIOUS_SLAM_RAGE 10 from bear_slam_spend_X_rage_for_stronger_slam,
+    also in the Rage spenders): each source's patches by how it makes them, each taken to be on the boss (LOW, labelled).
+  sources: ["builder/search/conditions.py (Jagged Ground section)"]
+  test_in_game: "The boss staying in the patch is the model's LOW."
+  status: proposed
+
+- id: model-gem1-consume-on-hit
+  title: "Primal Strikes', Siphoning Strike's and Fragmentation Rounds' hits consume Shock / Freeze (consumed-ailment uptime)"
+  kind: model
+  model: consumed_ailments
+  stats: ["base_consume_enemy_shock_on_hit", "base_consume_enemy_freeze_on_hit"]
+  skill: [Primal Strikes, Siphoning Strike, Fragmentation Rounds]
+  confidence: datamined
+  notes: >-
+    conditions.CONSUME_STATS (MECH51, AUDIT22): consumed, the ailment ends on the main skill's next hit with 1 s of
+    immunity (models.CONSUME_IMMUNE). These two stats do nothing but consume; what the skill gains from it is in its own
+    stat sets (Fragmentation Rounds' Vs Frozen set, PoB's). The consume stats with a payoff of their own (Elemental
+    Discharge, Shocking Rift, Flame Pillar, Morrigan's ward, Lightning Conduit's strikes, Icestorm's bolts, Biting Frost
+    II's Chill) are not closed here: only the consume side is modelled.
+  sources: ["builder/search/conditions.py (CONSUME_STATS)"]
+  test_in_game: "Not needed for the shape."
+  status: proposed
