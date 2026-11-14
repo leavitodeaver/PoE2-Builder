@@ -1716,7 +1716,7 @@ def armour_broken_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
 # CanApply flags through the assumptions, so the box applies; the box itself still follows the uptime.
 EXPOSURE_DURATION = 4.0
 EXPOSURE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?(?<!cannot )(?<!not )\b(?:inflict|apply|cause)s? "
-                             r"(?:(fire|cold|lightning|elemental) )?exposure\b(.*)$", re.I)
+                             r"(fire|cold|lightning|elemental|)\s?exposure\b(.*)$", re.I)  # (group 2: "" for plain)
 EXPOSURE_ELEMENTS = ("Fire", "Cold", "Lightning")
 EXPOSURE_WORD = re.compile(r"\bExposure\b")
 # (stat -> what fires it) the Exposure supports' stats on the main skill (game files: GrantedEffectStatSets
