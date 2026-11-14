@@ -627,6 +627,12 @@ class Assumptions:
                 texts, stats, main, set(gem.get("skillTypes") or []), group["gems"] if group else [],
                 set(gem.get("weaponTypes") or []))
             hand_mods, hand_notes = hand_mods + back_mods, hand_notes + back_notes
+            if any(models.CADIRO_ARROWS.search(t.strip()) for t in texts):  # (MECHB22: Cadiro's Gambit's Diamond Arrows)
+                cadiro_mods, cadiro_notes = models.cadiro_model(
+                    texts, {**stats, **build.call("stats", fields=models.CADIRO_FIELDS)}, main,
+                    set(gem.get("skillTypes") or []), set(gem.get("weaponTypes") or []),
+                    sum(m["scale"] for m in back_mods if m.get("line") == "1% more Damage"))
+                hand_mods, hand_notes = hand_mods + cadiro_mods, hand_notes + cadiro_notes
             # (MECH-B: Aftershock chances summed and capped, and their ailment applications; models.aftershock_model)
             shock_mods, shock_notes = models.aftershock_model(
                 texts, stats, main, set(gem.get("skillTypes") or []), group["gems"] if group else [],

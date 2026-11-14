@@ -4465,3 +4465,32 @@ def test_thorns_model_counts_retaliation_at_the_melee_share_and_the_main_skills_
     # legacy and not-yet-modelled sources are named as undercounts, not counted
     note = models.thorns_model(hit, ["Deal your Thorns Damage to Enemies you Stun with Melee Attacks"], stats, melee)[1][0]
     assert "legacy Prized Pain" in note["basis"]
+
+
+def test_cadiro_diamond_arrows_crit_one_arrow_in_six_and_the_other_kinds_add_nothing_on_a_boss():
+    """(MECHB22; COV20) PoB doesn't read Cadiro's Gambit's line: its Diamond Arrows (1 in 6, always a Critical Hit) count
+    as the crit average on that share; Crescendo / Splinter / Covetous add nothing on a lone boss, Blunt is named."""
+    line = "Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow"
+    bow = Skill("Lightning Arrow", group=1, attack=True)
+    stats = {"MainHand.PhysicalHitAverage": 60.0, "MainHand.LightningHitAverage": 40.0,
+             "MainHand.PhysicalCritAverage": 120.0, "MainHand.LightningCritAverage": 80.0, "CritChance": 20.0}
+    mods, notes = models.cadiro_model([line], stats, bow, {"Attack", "Projectile"}, {"Bow"})
+    average = 100 * 0.8 + 200 * 0.2
+    factor = 5 / 6 + (1 / 6) * 200 / average
+    assert [m["scale"] for m in mods] == [pytest.approx(100 * (factor - 1), abs=0.01)]
+    assert notes[0]["confidence"] == "LOW" and "Crescendo" in notes[0]["basis"] and "Blunt" in notes[0]["basis"]
+    # top-level averages win over MainHand's when PoB gives them
+    top = {**stats, "PhysicalHitAverage": 100.0, "PhysicalCritAverage": 300.0}
+    assert models.cadiro_model([line], top, bow, {"Attack", "Projectile"}, {"Bow"})[0][0]["scale"] == pytest.approx(
+        100 * (5 / 6 + (1 / 6) * 300 / (100 * 0.8 + 300 * 0.2) - 1), abs=0.01)
+    # not a bow projectile attack, or no Cadiro's line: nothing
+    assert models.cadiro_model([line], stats, Skill("Spark", spell=True), {"Spell", "Projectile"}, set()) == ([], [])
+    assert models.cadiro_model([line], stats, bow, {"Attack", "Projectile"}, {"Crossbow"}) == ([], [])
+    assert models.cadiro_model([], stats, bow, {"Attack", "Projectile"}, {"Bow"}) == ([], [])
+    # with the Reversing Arrows' return line, the shares add: 1 + d + r, not (1 + d)(1 + r)
+    d = 100 * (factor - 1)
+    shared = models.cadiro_model([line], stats, bow, {"Attack", "Projectile"}, {"Bow"}, returned=10.0)[0][0]["scale"]
+    assert (1 + shared / 100) * 1.10 == pytest.approx(1 + d / 100 + 0.10, abs=1e-4)
+    # no crit average above the average: a note, no line
+    mods, notes = models.cadiro_model([line], {"MainHand.PhysicalHitAverage": 50.0}, bow, {"Attack", "Projectile"}, {"Bow"})
+    assert mods == [] and notes[0]["value"] == 0

@@ -5220,6 +5220,66 @@ def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: 
     return mods, notes
 
 
+# Cadiro's Gambit's other five arrow kinds (MECHB22; COV20's note: only the Reversing Arrow was read). PoB doesn't
+# parse the line at all (ModCache 7232: no mod, the whole text left over), so none of the six counted. KeywordPopups
+# (build 26476662), each 1 arrow in 6 (the six assumed equally likely, UNVERIFIED, as CADIRO_REVERSING_SHARE):
+#   - UniqueArrowModifierCrit, "All Hits with Diamond Arrows are Critical Hits with 60% increased Critical Damage
+#     Bonus": counted (an UNDERCOUNT before): a Diamond arrow's hit is PoB's crit average, the rest keep PoB's average
+#     hit at its crit chance, so the main skill's damage x (5/6 + 1/6 x crit average / average hit). The 60% increased
+#     Critical Damage Bonus isn't added (its size needs the build's other increases: a lower bound, labelled); effects
+#     that need a Critical Hit (on-crit lines) aren't raised by it either (an undercount).
+#   - UniqueArrowModifierChain, Crescendo: "Chain 6 additional times and deal 60% increased Damage for each time they
+#     have Chained": 0 on a lone boss (KeywordPopups Chain: "Enemies cannot be targeted more than once in the same
+#     Chain"; its first hit has Chained 0 times).
+#   - UniqueArrowModifierSplit, Splinter: "Split towards 6 targets": 0 more hits on a lone boss (KeywordPopups Split:
+#     the copies "aim at different targets ... If there aren't enough targets, the rest will be aimed in random
+#     directions"; LOW: a random copy reaching the boss isn't counted).
+#   - UniqueArrowModifierStun, Blunt: "600% increased Stun Buildup": not counted here (Heavy Stun on the boss is MECH-A's
+#     / MECH-D's; named in the note as an undercount).
+#   - UniqueArrowModifierRarity, Covetous: item rarity on kill, no damage.
+#   - UniqueArrowModifierPierceReturn, Reversing: return_model.
+CADIRO_DIAMOND_SHARE = 1 / 6
+CADIRO_FIELDS = [*(f"MainHand.{t}HitAverage" for t in DAMAGE_TYPES), *(f"MainHand.{t}CritAverage" for t in DAMAGE_TYPES),
+                 "MainHand.CritChance"]
+
+
+def cadiro_model(texts: list[str], stats: dict, main: Skill | None, main_types: set[str],
+                 weapon_types: set[str], returned: float = 0.0) -> tuple[list[dict], list[dict]]:
+    """Cadiro's Gambit's Diamond Arrows (see above) as "1% more Damage" on a main bow attack's projectiles, and a note for
+    the kinds that add nothing on a lone boss. `stats`: the main skill's per-type hit and crit averages and crit chance
+    (top level, else MainHand.). `returned`: the Reversing Arrows' own "% more Damage" (return_model's line): one arrow
+    is never both, so the two shares add (1 + d + r) rather than multiply, and this line is d / (1 + r)."""
+    if main is None or not main.attack or "Bow" not in weapon_types or "Projectile" not in main_types \
+            or not any(CADIRO_ARROWS.search(t.strip()) for t in texts):
+        return [], []
+
+    def read(field: str) -> float:
+        return sum(number(stats.get(f"{t}{field}")) for t in DAMAGE_TYPES) \
+            or sum(number(stats.get(f"MainHand.{t}{field}")) for t in DAMAGE_TYPES)
+
+    hit, crit = read("HitAverage"), read("CritAverage")
+    chance = min(max(number(stats.get("CritChance")) or number(stats.get("MainHand.CritChance")), 0.0), 100.0) / 100
+    average = hit * (1 - chance) + crit * chance
+    others = ("Crescendo (its chains need other enemies: none on a lone boss), Splinter (its splits aim at other "
+              "targets, else random directions: none counted, LOW), Covetous (rarity only); Blunt's 600% increased Stun "
+              "Buildup isn't counted (an undercount); Reversing: the returning-projectile note")
+    if average <= 0 or crit <= average:
+        return [], [{"label": "Cadiro's Gambit's arrow kinds", "value": 0, "confidence": "LOW",
+                     "basis": "PoB gave no crit average above the average hit for the main skill, so the Diamond "
+                              f"Arrows add nothing here; {others}"}]
+    factor = 1 - CADIRO_DIAMOND_SHARE + CADIRO_DIAMOND_SHARE * crit / average
+    more = 100.0 * (factor - 1) / (1 + max(returned, 0.0) / 100)
+    return [line("1% more Damage", more, skill=main.name)], [{
+        "label": "Cadiro's Gambit: Diamond Arrows always Critically Hit*", "value": round(more, 1),
+        "confidence": "LOW",
+        "basis": f"1 arrow in 6 is a Diamond Arrow (the six kinds assumed equally likely, UNVERIFIED), which always "
+                 f"Critically Hits: its hit {crit:.4g} (PoB's crit average) against the average {average:.4g} at "
+                 f"{chance:.0%} crit chance, x{factor:.3f}"
+                 + (f" (added to the Reversing Arrows' +{returned:.3g}%, not multiplied: {more:.3g}%)" if returned > 0 else "")
+                 + f"; its 60% increased Critical Damage Bonus isn't added (a lower "
+                 f"bound) and on-crit effects aren't raised; PoB doesn't read the line at all. {others}"}]
+
+
 # Hazards set off in their first half second (MECHB2, 12 Nov 2026; FIX_QUEUE, COVC2's finding). Seven player stat sets
 # carry "-80% ... damage if destroyed within 0.5 seconds by something other than you" (stat description; checked: every
 # Stats.json id with "first_500_ms" (3: hazard_, ice_crystals_, shield_wall_damage_+%_final_for_first_500_ms_when_not_
