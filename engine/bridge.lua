@@ -2203,6 +2203,52 @@ function bridge.groups()
 	return { groups = groups, mainSocketGroup = build.mainSocketGroup }
 end
 
+-- (PERF14, setGroup's check) A copy of a table's plain values (numbers, strings, booleans, tables of them), and
+-- where two such copies first differ (nil when they are equal)
+local function plainCopy(value, seen)
+	if type(value) ~= "table" then
+		return (type(value) == "number" or type(value) == "string" or type(value) == "boolean") and value or nil
+	end
+	seen = seen or { }
+	if seen[value] then
+		return seen[value]
+	end
+	local copy = { }
+	seen[value] = copy
+	for key, item in pairs(value) do
+		if type(key) == "string" or type(key) == "number" then
+			copy[key] = plainCopy(item, seen)
+		end
+	end
+	return copy
+end
+
+local function firstDifference(a, b, path, seen)
+	if type(a) == "table" and type(b) == "table" then
+		seen = seen or { }
+		if seen[a] then
+			return nil
+		end
+		seen[a] = true
+		for key, item in pairs(a) do
+			local where = firstDifference(item, b[key], path .. "." .. tostring(key), seen)
+			if where then
+				return where
+			end
+		end
+		for key, item in pairs(b) do
+			if a[key] == nil then
+				return path .. "." .. tostring(key) .. ": only in the second"
+			end
+		end
+		return nil
+	end
+	if a ~= b and not (a ~= a and b ~= b) then
+		return path .. ": " .. tostring(a) .. " ~= " .. tostring(b)
+	end
+	return nil
+end
+
 -- Create (no `index`) or rewrite a socket group from gem names, then recalculate fully.
 -- gems: { {name=, level=, quality=, enabled=} }; main/fullDPS/enabled as flags.
 function bridge.setGroup(args)
@@ -2263,24 +2309,72 @@ function bridge.setGroup(args)
 		group.mainActiveSkill = args.mainActiveSkill
 		group.mainActiveSkillCalcs = args.mainActiveSkill
 	end
-	recalc()
-	if args.skillPart or args.statSet then
+	-- The skill part and stat set live on the gem instance of the group's chosen active skill, which the group's
+	-- displaySkillList (from a calculation) names.
+	local function target()
 		local activeSkill = group.displaySkillList and group.displaySkillList[group.mainActiveSkill or 1]
 		local instance = activeSkill and activeSkill.activeEffect.srcInstance
-		if instance then
-			if args.skillPart then
-				instance.skillPart = args.skillPart
-				instance.skillPartCalcs = args.skillPart
+		return instance, instance and activeSkill.activeEffect.grantedEffect.id
+	end
+	-- Writes them; gives back what was there
+	local function write(instance, id)
+		local was = { skillPart = instance.skillPart, skillPartCalcs = instance.skillPartCalcs,
+			hadSet = instance.statSet ~= nil, hadSetCalcs = instance.statSetCalcs ~= nil,
+			set = instance.statSet and instance.statSet[id], setCalcs = instance.statSetCalcs and instance.statSetCalcs[id] }
+		if args.skillPart then
+			instance.skillPart = args.skillPart
+			instance.skillPartCalcs = args.skillPart
+		end
+		if args.statSet then
+			-- Which of the skill's stat sets PoB calculates (e.g. the Fire, Cold or Lightning storm)
+			instance.statSet = instance.statSet or { }
+			instance.statSetCalcs = instance.statSetCalcs or { }
+			instance.statSet[id] = args.statSet
+			instance.statSetCalcs[id] = args.statSet
+		end
+		return was
+	end
+	local function unwrite(instance, id, was)
+		instance.skillPart, instance.skillPartCalcs = was.skillPart, was.skillPartCalcs
+		if was.hadSet then instance.statSet[id] = was.set else instance.statSet = nil end
+		if was.hadSetCalcs then instance.statSetCalcs[id] = was.setCalcs else instance.statSetCalcs = nil end
+	end
+	local wanted = args.skillPart or args.statSet
+	-- (PERF14) One recalculation instead of two: with no new gems the list from the last calculation already names
+	-- the instance, so the part / stat set is written before the calculation. After it the list is read again: if
+	-- it names another instance or skill (or none), the old values go back and the two-step path below runs, so
+	-- what is written is the same either way. BRIDGE_SETGROUP = "two" always takes the two-step path; "check" takes
+	-- both and raises when PoB's output differs (POE2_SETGROUP, builder/pob/engine.py).
+	local early, earlyId, was
+	if wanted and not args.gems and BRIDGE_SETGROUP ~= "two" then
+		early, earlyId = target()
+		if early then
+			was = write(early, earlyId)
+		end
+	end
+	recalc()
+	if wanted then
+		local instance, id = target()
+		if early and (instance ~= early or id ~= earlyId) then
+			unwrite(early, earlyId, was)
+			early = nil
+			if not instance then
+				recalc()
 			end
-			if args.statSet then
-				-- Which of the skill's stat sets PoB calculates (e.g. the Fire, Cold or Lightning storm)
-				local id = activeSkill.activeEffect.grantedEffect.id
-				instance.statSet = instance.statSet or { }
-				instance.statSetCalcs = instance.statSetCalcs or { }
-				instance.statSet[id] = args.statSet
-				instance.statSetCalcs[id] = args.statSet
-			end
+		end
+		if instance and not early then
+			write(instance, id)
 			recalc()
+		elseif instance and BRIDGE_SETGROUP == "check" then
+			local one = plainCopy(build.calcsTab.mainOutput)
+			unwrite(instance, id, was)
+			recalc()
+			write(instance, id)
+			recalc()
+			local where = firstDifference(one, plainCopy(build.calcsTab.mainOutput), "output")
+			if where then
+				error("setGroup: one recalculation and two give different outputs (BRIDGE_SETGROUP=check): " .. where, 0)
+			end
 		end
 	end
 	return { group = describeGroup(args.index, group), stats = pickStats(build.calcsTab.mainOutput, args.fields) }

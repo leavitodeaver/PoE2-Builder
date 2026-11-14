@@ -97,6 +97,22 @@ def read_cache() -> str:
     raise PobError(f"{READ_CACHE_VARIABLE}={text!r}: unset or 1 (on), 0 (off) or check")
 
 
+SETGROUP_VARIABLE = "POE2_SETGROUP"
+
+
+def setgroup_mode() -> str:
+    """How bridge.setGroup recalculates when a skill part or stat set is given (PERF14, 13 Nov 2026): "one" (the
+    default: the part is written before the one recalculation), "two" (POE2_SETGROUP=two: recalculate, write,
+    recalculate again, as before) or "check" (POE2_SETGROUP=check: one, then the two-step way, and PobError when
+    PoB's whole output differs: the equality check for this shortcut)."""
+    text = os.environ.get(SETGROUP_VARIABLE, "").strip().lower()
+    if text in ("", "1", "one"):
+        return "one"
+    if text in ("2", "two", "check"):
+        return "two" if text == "2" else text
+    raise PobError(f"{SETGROUP_VARIABLE}={text!r}: unset or one, two or check")
+
+
 class PobEngine:
     def __init__(self, pob_dir: Path = POB_DIR) -> None:
         slots.take()  # inside the PC queue: one of PoE2's 6 LuaJIT slots for this process, or PoolFull
@@ -109,6 +125,9 @@ class PobEngine:
         self._run_file(ENGINE_DIR / "bridge.lua")
         # after boot: Launch.lua sets PoB's own 400 while it loads
         self.lua.run(f'collectgarbage("setpause", {gc_pause()})', "gc_pause")
+        mode = setgroup_mode()
+        if mode != "one":
+            self.lua.run(f'BRIDGE_SETGROUP = "{mode}"', "setgroup_mode")
         self.boot_seconds = time.perf_counter() - started
         self._read_cache = read_cache()
         self._reads: dict[tuple[str, str], bytes] = {}  # (method, arguments) -> PoB's answer since the last other call
