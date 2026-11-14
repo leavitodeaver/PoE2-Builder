@@ -1,7 +1,7 @@
 # Gem stats PoB never reads (GEM4, 14 Nov 2026).
 
 - id: gem4-electromagnetism-rift-no-boss-trigger
-  title: "Electromagnetism's Shocking Rift: 0 against every boss preset (it needs 3 Shocked enemies within 4 m)"
+  title: "Electromagnetism's Shocking Rift: 0 on the lone worst-case boss, and 0 on the presets whose adds have no known rate (no source, labelled), not because they have no adds (it needs 3 Shocked enemies within 4 m)"
   kind: gem_stat
   match: '^(shocking_rift_.*|number_of_shocking_rifts_allowed|triggered_by_shocking_rift_support_%)$'
   replace: []
@@ -12,10 +12,15 @@
     limit 3, Hinder 0.9 s) is triggered only "On Shocking an enemy where there are at least 3 Shocked enemies within 4
     metres that are not already in a Shocking Rift" (the support's stats try_consuming_shock_to_trigger_shocking_rift_in_radius_on_shocking_enemy
     40 and consume_shock_of_X_enemies_to_trigger_shocking_rift 3, gem_stat_descriptions; GemEffects: "When Supported
-    Skills Shock an enemy that is nearby other Shocked enemies, trigger Electromagnetism"). The search scores a boss fight:
-    the presets have no adds except the King's totems (one every 25 s, first form) and Atziri's acolytes (one every 45 s),
-    killed as they come (bosses.py Kills), so at most the boss and one add: under 3 Shocked enemies, and the rift is not
-    triggered. Its own stats therefore move no boss number. (checked: the support's two stat descriptions and GemEffects
+    Skills Shock an enemy that is nearby other Shocked enemies, trigger Electromagnetism"). The search scores a boss fight.
+    The default boss is the worst case, a lone boss: 1 enemy, so the rift is never triggered. Of the presets, only the
+    King's totems (one every 25 s, first form) and Atziri's acolytes (one every 45 s; the wave size is UNVERIFIED, so its
+    lower bound of 1) have adds at a known rate, killed as they come (bosses.py Kills): at most the boss and one add,
+    under 3 Shocked enemies. Kulemak (Pinnacle Abyssal fodder), Olroth (skeletons, Knights) and the Raven (Delirium
+    minions) DO have adds, but at no known rate (bosses.py's comment under PRESETS): 0 there because nothing gives a
+    source (the user's rule: no source means 0, with a note), not because they fight alone; a known add rate there (or a
+    larger Atziri wave) could reach 3 Shocked enemies and must reopen this entry (AUDIT34 A34-1). Its own stats
+    therefore move no boss number today. (checked: the support's two stat descriptions and GemEffects
     text, game 26476662 and PoB's gem_stat_descriptions.lua; bosses.py's Kills rows, the only adds the presets model;
     poe2db Electromagnetism, current, 14 Nov: the same "at least 3 Shocked enemies within 4 metres"; the patch-notes archive
     has no entry for Electromagnetism or Shocking Rift (no hit is not proof of no change).) Scoped to the triggered rift's
@@ -25,5 +30,5 @@
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/gem_stat_descriptions.lua (consume_shock_of_X_enemies_to_trigger_shocking_rift)",
             "data/game-26476662/tables/GemEffects.json (Electromagnetism)", "builder/search/bosses.py (Kills)",
             "https://poe2db.tw/us/Electromagnetism"]
-  test_in_game: "Not needed against a lone boss: the trigger needs 3 Shocked enemies within 4 m."
+  test_in_game: "Not needed against a lone boss: the trigger needs 3 Shocked enemies within 4 m. Kulemak's, Olroth's and the Raven's adds: their rate and how many stand within 4 m of the boss are unknown (an open question, not a zero)."
   status: proposed
