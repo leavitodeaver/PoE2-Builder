@@ -1746,6 +1746,9 @@ def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
                 continue
             down *= 1 - r[0]
             how.append(f"{text[:60]} ({r[1]})")
+        if extra := (stats.get("_debuff_extra") or {}).get(var):  # (MECH76: a skill's own debuff, e.g. Shattering Roar)
+            down *= 1 - min(max(extra[0], 0.0), 1.0)
+            how.append(extra[1])
         if not how:
             return 0.0, ""
         up = 1 - down
@@ -2968,6 +2971,7 @@ SHOCK_MAKES_GROUND = re.compile(r"(\d+)% chance on shocking enemies to creat\w* 
 GROUND_WHILE_MOVING = re.compile(r"drops? shocked ground while moving, lasting (\d+) seconds", re.I)
 ON_SHOCKED_GROUND = re.compile(r"\bon shocked ground\b", re.I)
 CHARGED_MARK = "Charged Mark"
+SKELETAL_BRUTE = "Skeletal Brute"  # (MECH76: its minions' Shattering Roar Intimidates, Conditions.shattering_roar)
 DEATH_STORM_SUMMON = "Skeletal Storm Mage"  # its minions' Death Storm (DeathStormSkeletonStormMageMinion) makes ground
 DEATH_STORM_MELEE = ("Skeletal Warrior", "Skeletal Reaver", "Skeletal Brute")  # (MECH65: Conditions.death_storm)
 CHARGED_MARK_SECONDS = 6.0  # TriggeredChargedMarkPlayer base_skill_effect_duration 6000 (research/ground-radii.md, HIGH)
@@ -2983,6 +2987,56 @@ def charged_mark_radius(level: int) -> float:
 
 
 SHOCKED_GROUND_MAGNITUDE = 20  # the base Shock (PoB's BaseShockMagnitude); the strongest Shock applies (PoB: the max)
+
+
+# Chilled Ground under the boss (MECH76, for COV-A's "Enemies standing on Chilled Ground take 25% increased Fire Damage",
+# the Delirium anoint Desert's Scorn: enemies_in_chilled_ground_take_+%_fire_damage, which PoB leaves unparsed; nothing
+# set PoB's conditionEnemyOnChilledGround before). KeywordPopups ChilledGround: "Chilled Ground Chills those standing in
+# it, and lasts 6 seconds by default". Sources counted, each at the boss's Freezes a second (models.buildup_rate, the
+# main skill's buildup), the frozen boss taken to stay in the patch for its duration (the boss-still headline, the
+# manager's FIX_QUEUE 442 ruling; MEDIUM), combined as independent (_covered):
+#   - Frost Nexus on the main skill ("create patches of Chilled Ground around Frozen enemies";
+#     chilling_ice_create_chilled_ground_on_freeze_base_duration_ms 8000);
+#   - "On Freezing Enemies create Chilled Ground" (Invoker's I am the Blizzard..., create_chilling_ground_on_freeze; no
+#     duration in its stats: the 6 s default, MEDIUM);
+#   - "X% chance to create Chilled Ground when you Freeze an Enemy" (chilled_ground_on_freeze_%_chance_for_3_seconds:
+#     3 s; its Mod SpreadChilledGroundOnFreezeUnique__1 has no carrier in PoB's uniques: UNVERIFIED that one drops).
+# Not counted (labelled, an UNDERCOUNT where they reach the boss): skills' own ground (Ice Nova near a Frostbolt, the
+# Frost Wolf howl, Ice Crystal supports), the flask's "Creates Chilled Ground on Use" and "when Hit with an Attack"
+# (both at your feet: MECH-C's flask rates, the boss's hits), Freezes from other skills. Duration modifiers not read.
+# (checked: Stats ids holding chilled_ground / chill + ground and their Mods / PassiveSkills / GrantedEffectStatSets
+# users; PoB ModCache's Chilled Ground lines; poe2db not checked: UNVERIFIED there)
+CHILLED_GROUND_SECONDS = 6.0  # (KeywordPopups ChilledGround's default)
+FROST_NEXUS = "Frost Nexus"
+FROST_NEXUS_SECONDS = 8.0  # (chilling_ice_create_chilled_ground_on_freeze_base_duration_ms 8000)
+CHILLED_ON_FREEZE = re.compile(r"^On Freezing Enemies create Chilled Ground$", re.I)
+CHILLED_CHANCE_ON_FREEZE = re.compile(r"^(\d+)% chance to create Chilled Ground when you Freeze an Enemy$", re.I)
+CHILLED_CHANCE_SECONDS = 3.0  # (the stat id: "_for_3_seconds")
+
+
+def chilled_ground(stats: dict, texts: list[str], main_gems: set[str]) -> tuple[float, str]:
+    """(share of the fight the boss stands on your Chilled Ground, how); see the note above. (0.0, "") with no source."""
+    sources = []
+    if FROST_NEXUS in main_gems:
+        sources.append((1.0, FROST_NEXUS_SECONDS, f"{FROST_NEXUS} on the main skill ({FROST_NEXUS_SECONDS:g} s a Freeze)"))
+    for text in texts:
+        if CHILLED_ON_FREEZE.match(text.strip()):
+            sources.append((1.0, CHILLED_GROUND_SECONDS, f"'{text.strip()}' ({CHILLED_GROUND_SECONDS:g} s by default)"))
+        elif m := CHILLED_CHANCE_ON_FREEZE.match(text.strip()):
+            sources.append((int(m.group(1)) / 100, CHILLED_CHANCE_SECONDS,
+                            f"{m.group(1)}% a Freeze ({CHILLED_CHANCE_SECONDS:g} s)"))
+    if not sources:
+        return 0.0, ""
+    freezes = models.buildup_rate(stats, "Freeze")
+    off, parts = 1.0, []
+    for chance, seconds, how in sources:
+        up = _covered(freezes, chance, seconds)
+        off *= 1 - up
+        parts.append(f"{how}: {up:.0%}")
+    share = 1 - off
+    return share, (f"the boss Frozen {freezes:.3f}/s by the main skill; " + "; ".join(parts)
+                   + f": on Chilled Ground {share:.0%} of the fight (the frozen boss taken to stay in the patch, MEDIUM; "
+                   "skills' own ground and other skills' Freezes not counted)")
 
 
 def _covered(uses: float, chance: float, duration: float) -> float:
@@ -3707,6 +3761,31 @@ class Conditions:
         """Your minions Killed per second against a boss and how (models.minion_deaths, from the build's skills; MECHC7)."""
         return models.minion_deaths(*self._minion_inputs())
 
+    def minion_ignite(self, names: set[str]) -> tuple[float, str]:
+        """(MECH76) (share of the fight the boss is Ignited by your minions' Infernal Legion, how), from MECH-B's
+        models.infernal_legion_ignited(skills, main, stats) -> (share, how) (MECHB30's H1-7: the boss Ignited while a
+        supported melee minion stands at it and lives); it joins Radiant Grief's aura as a ground-like source of the
+        Ignited share (ailment_uptime's _ailment_ground: every Ignited reader). (0.0, "") until that model is on the
+        branch or without an Infernal Legion gem."""
+        model = getattr(models, "infernal_legion_ignited", None)
+        if model is None or not any(n.startswith("Infernal Legion") for n in names):
+            return 0.0, ""
+        found, main, stats = self._minion_inputs()
+        share, how = model(found, main, stats)
+        return min(max(float(share), 0.0), 1.0), (f"Infernal Legion's minions ({how})" if how else "")
+
+    def shattering_roar(self, texts: list[str]) -> tuple[float, str] | None:
+        """(MECH76) (share of the fight the boss is Intimidated by the Skeletal Brutes' Shattering Roar, how), from
+        MECHB30's models.shattering_roar (its note: one Roar a cooldown, pressed as a Command, 4 s x the Intimidate
+        Duration lines, less the time every Brute is fallen); debuff_uptime combines it with the line sources as
+        independent. None until that model is on the branch (it lands with train 56)."""
+        roar = getattr(models, "shattering_roar", None)
+        if roar is None:
+            return None
+        found, main, stats = self._minion_inputs()
+        up, how = roar(found, main, stats, texts)
+        return float(up), f"Shattering Roar ({how})"
+
     def death_storm(self) -> tuple[float, float, str]:
         """(MECH65) Death Storm's ground: (Commands per second, the chance a Command strikes at least one fallen
         Skeleton at the boss, how), for shocked_ground. models.death_storm (MECHB20) gives the presses and the mean
@@ -4104,12 +4183,20 @@ class Conditions:
                                     * (1 + ground_inc / 100))
         stats["_sg_charged_mark"] = self.charged_mark(stats) if CHARGED_MARK in names else None
         stats["_sg_death_storm"] = self.death_storm() if DEATH_STORM_SUMMON in names else None
+        # (MECH76: MECHB30's Shattering Roar, routed) the Skeletal Brutes' Intimidate, one more Intimidated source
+        roar = self.shattering_roar(texts) if any(SKELETAL_BRUTE in n for n in names) else None
+        stats["_debuff_extra"] = {"conditionEnemyIntimidated": roar} if roar and roar[0] > 0 else {}
         stats["_stationary"] = not self.stationary_off and any(STATIONARY_LINE.search(t) for t in texts)
         # (MECH67) the boss's Power with the build's Power lines (models.boss_power): Glory, the roar's Empowers
         stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types,
                                                  self.main_skill)
         stats["_shocked_ground"] = shocked_ground(stats, texts)
-        if (aura := presence_ignite(texts, stats))[1]:  # (MECH75: Radiant Grief)
+        stats["_chilled_ground"] = chilled_ground(stats, texts, main_gems)  # (MECH76, for COV-A's Desert's Scorn)
+        aura = presence_ignite(texts, stats)  # (MECH75: Radiant Grief)
+        legion = self.minion_ignite(names)  # (MECH76: MECHB30's Infernal Legion, routed)
+        if aura[1] or legion[1]:
+            share = 1 - (1 - aura[0]) * (1 - legion[0])  # (independent sources)
+            aura = (share, "; ".join(filter(None, [aura[1], legion[1]])))
             stats["_ailment_ground"] = {"Ignite": aura}
             if aura[0] > 0:
                 said = stats.setdefault("_ailment_others_how", {})
@@ -4283,6 +4370,8 @@ class Conditions:
         # (MECH75: the other groups' Ignites, for readers that fetch the main skill's stats afresh: assumptions.snap_stats)
         self.build.ailment_others = dict(stats.get("_ailment_others") or {})
         self.build.ailment_ground = dict(stats.get("_ailment_ground") or {})  # (MECH75: Radiant Grief's aura)
+        # (MECH76, for COV-A: "Enemies standing on Chilled Ground take ..."; (share, how), (0.0, "") without a source)
+        self.build.chilled_ground_up = stats.get("_chilled_ground") or (0.0, "")
         # (MECH70, for GEM5's Vaulting Impact Broken Stance model: the share of the fight the boss is Dazed and its basis,
         # read whether or not the box is on; (0.0, "") without a Daze source. With no consumer of Daze (_dazed's note),
         # it is also the share of any later hit that finds the boss Dazed.)

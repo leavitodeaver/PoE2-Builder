@@ -862,6 +862,40 @@ def blood_hunt(build: Build, main: models.Skill | None, texts: list[str]) -> tup
                   "basis": how, "confidence": "MEDIUM"}]
 
 
+def impale(build: Build, main: models.Skill | None, texts: list[str]) -> tuple[float, float, list[dict], list[dict]]:
+    """(the main skill's own Impale DPS, the other groups' Impale DPS, mods, notes) (MECH76; models.impale_model's note:
+    PoB forces Impale to 0). The main skill's own goes in as a derived input the bridge works out again per what-if
+    (DERIVED.impale); the other groups' Impales and Extractions (every enabled group's useRates row at its use rate:
+    PoB's trigger rate, else conditions.skill_use_rate) as a fixed added source. mods: the hand wraps' two lines PoB
+    leaves unparsed (models.impale_mods)."""
+    mods = models.impale_mods(texts)
+    row = build.call("stats", fields=models.IMPALE_FIELDS)
+    own, how = models.impale_model(row)
+    main_index = (build.main_group() or {}).get("index")
+    choices = models.press_choices(build)
+    others = []
+    groups = [g for g in build.groups() if g["enabled"] and g["index"] != main_index]
+    # (another group's rows only where something Impales: the main skill, a line naming Impale, or an Impaling gem)
+    wanted = (models.impale_parts(row)["inflict"] > 0 or any("impale" in t.lower() for t in texts)
+              or any(n.get("name") in models.IMPALE_GEMS for g in build.groups() if g["enabled"] for n in g.get("gems") or []))
+    indices = [g["index"] for g in groups] if wanted else []
+    for rate in (build.call("useRates", indices=indices)["rates"] if indices else []):
+        if number(rate.get("LedgerImpaleChance")) <= 0 and number(rate.get("LedgerImpaleChanceCrit")) <= 0                 and number(rate.get("LedgerImpaleExtract")) <= 0:
+            continue
+        uses = number(rate.get("speed")) if rate.get("triggered") else conditions_mod.skill_use_rate(rate, choices)[0]
+        others.append((str(rate.get("name") or "another skill"), uses, rate))
+    other, other_how = models.impale_others(row, others) if others else (0.0, "")
+    notes = []
+    if how or other_how:
+        notes.append({"label": "Impale: Extracted by Attack hits (PoB counts none)*",
+                      "value": f"{own + other:,.0f} DPS",
+                      "basis": "; ".join(part for part in (how, other_how) if part),
+                      "confidence": "MEDIUM"})
+    if own > 0:
+        mods.append(models.derived("AddedImpale", "impale", own * 100, base=models.IMPALE_STORED))
+    return own, other, mods, notes
+
+
 def grisly_pyre(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for His Winnowing Flame's Grisly Pyres (MECH71; models.grisly_pyre_model): the skill's uses
     (the main skill's Speed, else its group's rate: conditions.skill_use_rate, the search's chosen press rate where
@@ -1316,6 +1350,9 @@ class Assumptions:
         blood, blood_notes = blood_hunt(build, main, [e["text"] for e in source_lines])  # (MECH75: Blood Loss explosions)
         hand_mods += [models.added_input("BloodHunt", blood)] if blood > 0 else []
         hand_notes += blood_notes
+        impaled, impaled_others, impale_mods, impale_notes = impale(build, main, [e["text"] for e in source_lines])  # (MECH76)
+        hand_mods += impale_mods + ([models.added_input("ImpaleOthers", impaled_others)] if impaled_others > 0 else [])
+        hand_notes += impale_notes
         spirits, spirit_notes = ancestral_spirits(build, main)  # (MECHB29: Warbringer's Ancestral Spirits, PoB 0 / one)
         hand_mods += [models.added_input("AncestralSpirits", spirits)] if spirits > 0 else []
         hand_notes += spirit_notes
@@ -1336,7 +1373,7 @@ class Assumptions:
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
                                    "Battershout": shout, "Blood Hunt": blood, "Ancestral Spirits": spirits,
-                                   "Inevitable Agony": agony})
+                                   "Inevitable Agony": agony, "Impale": impaled + impaled_others})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.

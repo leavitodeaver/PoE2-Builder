@@ -4915,7 +4915,7 @@ def maelstrom_inputs(lines: list[dict], dps: float, enemy_chaos_resist: float = 
 # unchanged until the next resolve (a real trial only with BUILDER_RESCORE_MODELS=1: Assumptions.models_on_stats), so an
 # item that moves the source is valued without that move until then (labelled where a source is fixed).
 ADDED_FN = "added"
-ADDED_FNS = {ADDED_FN, "maelstrom"}
+ADDED_FNS = {ADDED_FN, "maelstrom", "impale"}  # (MECH76: the main skill's own Impales, bridge DERIVED.impale)
 
 
 def added_input(name: str, dps: float, field: str | None = None, factor: float = 1.0) -> dict:
@@ -5310,6 +5310,136 @@ def blood_hunt_model(pct: float, bleed_dps: float, bleed_scale: float, phys_hit_
     parts += [f"{hit_share:.0%} of {phys_hit_dps:,.0f} Physical hit DPS"] if hits else []
     return dps, (f"Blood Loss {loss:,.0f}/s ({'; '.join(parts)}); each hit that finds it explodes for {pct:g}% as Life "
                  f"Loss: {dps:,.0f}/s (Life Loss taken to bypass mitigation: MEDIUM, UNVERIFIED in game)")
+
+
+
+# Impale (MECH76; an UNDERCOUNT for every Impale build before). PoB-PoE2 forces output.ImpaleChance = 0 on every pass
+# ("Legacy PoE1 ailments (to be removed later)", CalcOffence.lua 4983-4984), so it scores no Impale (MECH75's probe
+# POE2T3087). The game (KeywordPopups Impale, game 26476662): "a Debuff inflicted by Hits, which stores 30% of the
+# Pre-mitigation Physical Hit damage of the Impaling hit as its Magnitude. Subsequent Attack Hits against Impaled targets
+# will Extract the Impale debuff. When this occurs, the Magnitude of the Impale is added to the Pre-mitigation Physical
+# damage of that attack hit. A maximum of 60 Impale Debuffs can be present on a target at once. If multiple Impales are
+# present on a target, each Attack's Hit only Extracts and benefits from the strongest one of them." Patch notes
+# (--history "Impale", newest wins): 0.2.0 made it a general mechanic (30%); 0.2.0g "Impale inflicted on players now
+# lasts 4 seconds ... Impale inflicted on non-players is not affected" (they never expire on the boss); 0.5.0 His Vile
+# Intrusion 100% increased Impale Magnitude, 2 Impales at gem level 20, 3 at 25.
+# The bridge publishes the main skill's numbers on every calculation (bridge.setImpale's Ledger fields; the gem stats
+# PoB doesn't map are read there) and DERIVED.impale works the main skill's own Impales out per what-if; impale_model
+# below is the same sum for the resolve. Per hit: min(Impales inflicted a hit, the hit's Extracting share) Impales of
+# 30% x the magnitude modifier x the Impaling hit's Physical damage, at the main skill's hit rate. They never expire on
+# the boss, so while the inflow is at most the extractions every Impale is Extracted. Where the stack would build
+# (inflow above the extractions) each hit takes the strongest; taken here as the average (an UNDERCOUNT there,
+# labelled). The added Physical is taken by the boss at the hit's own Physical after / before mitigation (PoE2 Armour
+# reduces a bigger hit by less: a small UNDERCOUNT against an armoured boss, labelled).
+# Other groups (impale_others): every enabled group's Impales a second (its use rate: PoB's trigger rate, else
+# conditions.skill_use_rate: cooldown, duration, else the search's press rate, else 0) and every Attack group's spare
+# Extractions, strongest Impales first; an added source fixed at the resolve (as Thorns).
+# Carriers in 0.5 (checked: Stats.json ids holding "impale" (68) and their uses in Mods Stat1-6, PassiveSkills,
+# GrantedEffectStatSets and their PerLevel rows; PoB's ModCache and SkillStatMap): chance: the Impale support
+# (impale_on_hit_%_chance 100, with cannot_consume_impale), the jewel mod ImpaleChanceForJewel_ (Attacks 6%), the tree's
+# physical7 / physical8 / oracle_duration_physical7 (Spells), Bonestorm and Vile Disruption (Spells), Crystalline Shards
+# (its Ice Crystal explosions: NOT modelled, an UNDERCOUNT for it, labelled), the hand wraps' "Critical Hits inflict
+# Impale" (UniqueImpaleOnCriticalHit1, beside "Critical Hits cannot Extract Impale"); magnitude: the tree's physical31
+# and the Genesis rings (Spells), Bonestorm's 200% more, Vile Disruption's 100%. Spells Impale but only Attack hits
+# Extract (KeywordPopups), so a Spell's Impales need an Attack group beside it. (poe2db not checked: UNVERIFIED there.)
+IMPALE_STORED = 0.30  # (KeywordPopups Impale: "stores 30%")
+IMPALE_FIELDS = ["LedgerImpaleChance", "LedgerImpaleChanceCrit", "LedgerImpaleEffect", "LedgerImpaleCount",
+                 "LedgerImpaleExtract", "AverageHit", "TotalDPS", "CritChance", "PhysicalHitAverage",
+                 "PhysicalCritAverage", "MainHand.CritChance", "MainHand.PhysicalHitAverage",
+                 "MainHand.PhysicalCritAverage", "MainHand.AverageHit", "Speed", "LedgerImpaleNoExtractGem"]
+IMPALE_ON_CRIT = re.compile(r"^Critical Hits inflict Impale$", re.I)
+IMPALE_NO_CRIT_EXTRACT = re.compile(r"^Critical Hits cannot Extract Impale$", re.I)
+IMPALE_NO_CRIT_FLAG = "LedgerImpaleNoCritExtract"
+# (the gems that Impale, from the carriers above: a build without one of them or a line naming Impale skips the other
+# groups' rows)
+IMPALE_GEMS = {"Impale", "Bonestorm", "His Vile Intrusion", "Crystalline Shards"}
+
+
+def impale_mods(texts: list[str]) -> list[dict]:
+    """The two hand-wrap lines PoB leaves unparsed (ModCache: nil), as modifiers the bridge's setImpale reads:
+    "Critical Hits inflict Impale" (ImpaleChance 100 on a critical hit) and "Critical Hits cannot Extract Impale"."""
+    mods = []
+    if any(IMPALE_ON_CRIT.match(t.strip()) for t in texts):
+        mods.append(raw_mod("ImpaleChance", "BASE", 100, condition="CriticalStrike"))
+    if any(IMPALE_NO_CRIT_EXTRACT.match(t.strip()) for t in texts):
+        mods.append(raw_mod(IMPALE_NO_CRIT_FLAG, "FLAG", 1))
+    return mods
+
+
+def _impale_field(row: dict, name: str) -> float:
+    value = row.get(name)
+    return number(value if value is not None else row.get(f"MainHand.{name}"))
+
+
+def impale_parts(row: dict) -> dict:
+    """One skill's Impale numbers from a stats / useRates row (bridge.setImpale's fields): hits a second at PoB's rate,
+    Impales a hit, the Extracting share, and one Impale's added Physical damage after the boss's mitigation."""
+    average = _impale_field(row, "AverageHit")
+    hits = number(row.get("TotalDPS")) / average if average > 0 else 0.0
+    c = min(_impale_field(row, "CritChance"), 100.0) / 100
+    pn, pc = number(row.get("LedgerImpaleChance")) / 100, number(row.get("LedgerImpaleChanceCrit")) / 100
+    p = pn * (1 - c) + pc * c
+    stored = ((pn * (1 - c) * _impale_field(row, "PhysicalHitAverage") + pc * c * _impale_field(row, "PhysicalCritAverage"))
+              / p if p > 0 else 0.0)
+    count = number(row.get("LedgerImpaleCount"))
+    return {"hits": hits, "inflict": p * count, "chance": p, "count": count,
+            "extract": number(row.get("LedgerImpaleExtract")),
+            "magnitude": IMPALE_STORED * number(row.get("LedgerImpaleEffect")) * stored}
+
+
+def impale_model(row: dict) -> tuple[float, str]:
+    """(DPS, how) of the main skill's own Impales Extracted by its own hits: the same sum as bridge DERIVED.impale."""
+    part = impale_parts(row)
+    if part["inflict"] <= 0:
+        return 0.0, ""
+    if part["extract"] <= 0:
+        gem = row.get("LedgerImpaleNoExtractGem")
+        why = f"its {gem} gem: 'cannot Extract Impale'" if gem else "not an Attack, or a gem with 'cannot Extract Impale'"
+        return 0.0, (f"the main skill Impales ({part['chance']:.0%} a hit) but can't Extract ({why}): its Impales "
+                     "count only where an Attack beside it Extracts them")
+    taken = min(part["inflict"], part["extract"])
+    dps = part["hits"] * taken * part["magnitude"]
+    return dps, (f"{part['chance']:.0%} Impale chance a hit x {part['count']:g} Impale(s), {part['extract']:.0%} of hits "
+                 f"Extract: {taken:.2f} Impales Extracted a hit, each {part['magnitude']:,.0f} Physical after mitigation "
+                 f"(30% x{number(row.get('LedgerImpaleEffect')):.2f} magnitude), at {part['hits']:.2f} hits/s: "
+                 f"{dps:,.0f} DPS (never expiring on the boss; the strongest-first pick taken as the average where the "
+                 "stack builds; Armour taken at the hit's own ratio: MEDIUM)")
+
+
+def impale_others(main_row: dict | None, others: list[tuple[str, float, dict]]) -> tuple[float, str]:
+    """(DPS beyond impale_model's, how): every group's Impales (`others`: (name, uses a second, useRates row); the main
+    skill's from main_row at its own rate) Extracted by every Attack group's hits, strongest Impales first, less the
+    main skill's own self-Extraction, which impale_model (and the bridge, per what-if) counts."""
+    sources, capacity, parts, own = [], 0.0, [], 0.0
+    if main_row:
+        m = impale_parts(main_row)
+        if m["inflict"] > 0:
+            sources.append(("the main skill", m["hits"] * m["inflict"], m["magnitude"]))
+        capacity += m["hits"] * m["extract"]
+        own = m["hits"] * min(m["inflict"], m["extract"]) * m["magnitude"] if m["extract"] > 0 else 0.0
+    for name, uses, row in others:
+        o = impale_parts(row)
+        speed = number(row.get("speed"))
+        hits = uses * (o["hits"] / speed if speed > 0 and o["hits"] > 0
+                       else min(number(row.get("HitChance")) or 100.0, 100.0) / 100)
+        if hits <= 0:
+            continue
+        if o["inflict"] > 0:
+            sources.append((name, hits * o["inflict"], o["magnitude"]))
+            parts.append(f"{name} Impales {hits * o['inflict']:.2f}/s, each {o['magnitude']:,.0f}")
+        if o["extract"] > 0:
+            capacity += hits * o["extract"]
+            parts.append(f"{name} Extracts {hits * o['extract']:.2f}/s")
+    if not parts:
+        return 0.0, ""
+    total, left = 0.0, capacity
+    for _, rate, magnitude in sorted(sources, key=lambda s: -s[2]):
+        took = min(rate, left)
+        total, left = total + took * magnitude, left - took
+    extra = max(total - own, 0.0)
+    return extra, ("; ".join(parts) + f"; Extractions {capacity:.2f}/s, strongest Impales first: {extra:,.0f} DPS beyond "
+                   "the main skill's own (each group as PoB scores it as the main skill, at its use rate; each "
+                   "Impale taken by the boss at its Impaling skill's own mitigation: MEDIUM)")
 
 
 

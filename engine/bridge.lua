@@ -444,10 +444,37 @@ end
 -- a.field x a.factor from the what-if's own output, else the resolve's fixed a.fixed. Every function in ADDED_DPS is
 -- summed into LedgerAddedDPS, which the objective adds to the boss DPS. No modifier reads them (their Ledger<name>
 -- multipliers are set but unused), so a moved value never calculates the what-if a second time.
-local ADDED_DPS = { maelstrom = true, added = true }
+local ADDED_DPS = { maelstrom = true, added = true, impale = true }  -- (MECH76: impale)
 function DERIVED.added(out, a)
 	local base = a.field and num(out[a.field]) * (a.factor or 1) or (a.fixed or 0)
 	return math.floor(base * 100 + 0.5)
+end
+
+-- Impale's added damage (MECH76: models.impale_model is the same sum, its note the rules), in hundredths of DPS, from the
+-- what-if's own output (setImpale's Ledger fields): the main skill's hits a second (TotalDPS / AverageHit: PoB's rate,
+-- hit chance, DPS and quantity multipliers), each Extracting min(Impales inflicted a hit, its Extracting share) Impales
+-- of 30% x LedgerImpaleEffect of the Impaling hit's Physical damage (crit-weighted by which hits Impale), taken by the
+-- boss at the main skill's own Physical after / before mitigation (PhysicalHitAverage / PhysicalCritAverage are after).
+-- a.base: the stored share (KeywordPopups Impale "stores 30%").
+function DERIVED.impale(out, a)
+	local hand = type(out.MainHand) == "table" and out.MainHand or { }
+	local function field(name)
+		return num(out[name] ~= nil and out[name] or hand[name])
+	end
+	local average = num(out.AverageHit ~= nil and out.AverageHit or hand.AverageHit)
+	local extract, count = num(out.LedgerImpaleExtract), num(out.LedgerImpaleCount)
+	if average <= 0 or extract <= 0 or count <= 0 then
+		return 0
+	end
+	local c = math.min(field("CritChance"), 100) / 100
+	local pn, pc = num(out.LedgerImpaleChance) / 100, num(out.LedgerImpaleChanceCrit) / 100
+	local p = pn * (1 - c) + pc * c
+	if p <= 0 then
+		return 0
+	end
+	local stored = (pn * (1 - c) * field("PhysicalHitAverage") + pc * c * field("PhysicalCritAverage")) / p
+	local per = math.min(p * count, extract) * (a.base or 0.3) * num(out.LedgerImpaleEffect) * stored
+	return math.floor(num(out.TotalDPS) / average * per * 100 + 0.5)
 end
 
 -- No Mercy (builder/search/passive_models.py no_mercy_more, COV-B): its average more Damage % x DERIVED_UNIT over a
@@ -1065,6 +1092,83 @@ local function setChillDamage(env)
 	output.ChillHitDamage, output.ChillCritDamage = hit, crit
 end
 
+-- Impale (MECH76; an UNDERCOUNT for every Impale build before): PoB-PoE2 sets output.ImpaleChance = 0 on every pass
+-- ("Legacy PoE1 ailments (to be removed later)", CalcOffence.lua 4983-4984; its only assignment), so it scores no Impale
+-- at all (MECH75's probe POE2T3087: a 100% Impale ring on Boneshatter gave 0 at any stack count). Published here for
+-- the main skill of every calculation, from its own modifier list, for DERIVED.impale and models.impale_model:
+--   LedgerImpaleChance / LedgerImpaleChanceCrit: % on a non-critical / critical hit (PoB's ImpaleChance BASE sums, the
+--     second under Condition:CriticalStrike: SkillStatMap's spell_impale_on_crit, and models.raw_mod's
+--     "Critical Hits inflict Impale", a line PoB leaves unparsed);
+--   LedgerImpaleEffect: x on the stored 30% (ImpaleEffect INC / MORE, plus the active gem's impale_magnitude_+% and
+--     active_skill_impale_magnitude_+%_final, which SkillStatMap doesn't map: His Vile Intrusion's 100%, Bonestorm's
+--     200% more);
+--   LedgerImpaleCount: Impales a hit inflicts (1 + number_of_additional_impaled_debuffs_to_apply, unmapped: His Vile
+--     Intrusion 2 at gem level 20, 3 at 25, patch 0.5.0);
+--   LedgerImpaleExtract: the share of the skill's hits that Extract: 0 unless an Attack (KeywordPopups Impale:
+--     "Subsequent Attack Hits against Impaled targets will Extract"), 0 with a cannot_consume_impale gem on it (the
+--     Impale and Crystalline Shards supports), the non-crit share with LedgerImpaleNoCritExtract ("Critical Hits cannot
+--     Extract Impale", unparsed by PoB: models.raw_mod).
+local IMPALE_NO_EXTRACT = "cannot_consume_impale"
+local function effectCarries(granted, stat)
+	for _, set in ipairs(granted and granted.statSets or { }) do
+		for _, name in ipairs(set.stats or { }) do
+			if name == stat then
+				return true
+			end
+		end
+		for _, pair in ipairs(set.constantStats or { }) do
+			if pair[1] == stat then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function setImpale(env)
+	local skill = env and env.player and env.player.mainSkill
+	local output = env and env.player and env.player.output
+	if not skill or not output or not skill.skillModList then
+		return
+	end
+	local mods, cfg = skill.skillModList, skill.skillCfg
+	local critCfg = copyTable(cfg or { }, true)
+	critCfg.skillCond = copyTable((cfg and cfg.skillCond) or { }, true)
+	critCfg.skillCond.CriticalStrike = true
+	local chance = math.min(100, math.max(0, mods:Sum("BASE", cfg, "ImpaleChance")))
+	local crit = math.min(100, math.max(0, mods:Sum("BASE", critCfg, "ImpaleChance")))
+	output.LedgerImpaleChance, output.LedgerImpaleChanceCrit = chance, crit
+	-- (the Extracting share is published for every Attack, Impaling or not: it Extracts other skills' Impales)
+	local attack = (skill.skillFlags and skill.skillFlags.attack) or (skill.skillTypes and skill.skillTypes[SkillType.Attack])
+	local extract = attack and 1 or 0
+	output.LedgerImpaleNoExtractGem = nil
+	for _, effect in ipairs(skill.effectList or { }) do
+		if extract > 0 and effectCarries(effect.grantedEffect, IMPALE_NO_EXTRACT) then
+			extract = 0
+			output.LedgerImpaleNoExtractGem = effect.grantedEffect.name  -- (which gem stops it, for the note)
+		end
+	end
+	if extract > 0 and mods:Flag(cfg, "LedgerImpaleNoCritExtract") then
+		extract = 1 - math.min(num(output.CritChance or (type(output.MainHand) == "table" and output.MainHand.CritChance)), 100) / 100
+	end
+	output.LedgerImpaleExtract = extract
+	if chance <= 0 and crit <= 0 then
+		output.LedgerImpaleEffect, output.LedgerImpaleCount = 0, 0
+		return
+	end
+	local gem = { }
+	local set = skill.activeEffect and skill.activeEffect.statSet
+	set = set and (set.statSet or set)
+	if set and (set.constantStats or set.stats) then
+		local ok, built = pcall(calcLib.buildSkillInstanceStats, skill.activeEffect, skill.activeEffect.grantedEffect, set)
+		gem = ok and built or { }
+	end
+	local inc = mods:Sum("INC", cfg, "ImpaleEffect") + num(gem["impale_magnitude_+%"])
+	local more = mods:More(cfg, "ImpaleEffect") * (1 + num(gem["active_skill_impale_magnitude_+%_final"]) / 100)
+	output.LedgerImpaleEffect = math.max(0, (1 + inc / 100) * more)
+	output.LedgerImpaleCount = 1 + num(gem["number_of_additional_impaled_debuffs_to_apply"])
+end
+
 local function markShowAverage(env)
 	for _, actor in ipairs({ env.player, env.minion }) do
 		local skill = actor and actor.mainSkill
@@ -1551,6 +1655,7 @@ local function installDerived()
 			setManaRegenOnly(env)
 			markShowAverage(env)
 			setChillDamage(env)
+			setImpale(env)
 			setPointsOver(env)
 			setCostShort(env)
 			return ...
@@ -3279,9 +3384,11 @@ function bridge.useRates(args)
 			-- (MECH74: IgniteDPS / IgniteChancePerHit, the group's own Ignite: His Winnowing Flame's Grisly Pyres Consume
 			-- another group's Ignite, assumptions.grisly_pyre)
 			-- (MECH75: ShockChancePerHit, the group's Shocks: Overcharge reflects them back to you, conditions._self_shocked)
+			-- (MECH76: the Ledger Impale fields, setImpale's, with AverageHit / TotalDPS: another group's Impales, models.impale_model)
 			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance", "IgniteDuration",
 					"PhysicalStoredCombinedAvg", "PhysicalStoredHitAvg", "IgniteDPS", "IgniteChancePerHit",
-					"ShockChancePerHit" }) do
+					"ShockChancePerHit", "LedgerImpaleChance", "LedgerImpaleChanceCrit", "LedgerImpaleEffect",
+					"LedgerImpaleCount", "LedgerImpaleExtract", "AverageHit", "TotalDPS" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end

@@ -2873,3 +2873,44 @@ def test_leylines_count_at_the_users_seventy_five_percent_with_inside_and_outsid
     print("PROBE leylines row", row)
     assert row is not None and row["dps_without"] < headline < row["dps_with"]
     assert "inside them" in row["play"] and "outside" in row["play"]
+
+
+def test_impale_counts_the_main_skills_own_extractions(engine):
+    """MECH76 (an UNDERCOUNT before: PoB forces ImpaleChance 0, MECH75's probe): a 100% Impale ring on Boneshatter. The
+    bridge publishes the chance from the mod list; each hit Extracts the last hit's Impale, 30% of its Physical hit;
+    the bridge's DERIVED.impale gives the same per what-if. With the Impale support ("cannot Extract") it gains 0."""
+    from builder.search import assumptions as amod
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                         "100% chance to Impale Enemies on Hit with Attacks"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    row = build.call("stats", fields=models.IMPALE_FIELDS)
+    print("PROBE impale row", row)
+    assert row["LedgerImpaleChance"] == pytest.approx(100) and row["LedgerImpaleExtract"] == pytest.approx(1)
+    assert row["LedgerImpaleEffect"] == pytest.approx(1) and row["LedgerImpaleCount"] == pytest.approx(1)
+    skill = models.Skill.of({"name": "Boneshatter"})
+    own, other, mods, notes = amod.impale(build, skill, [])
+    print("PROBE impale", own, other, notes)
+    part = models.impale_parts(row)
+    assert own > 0 and own == pytest.approx(part["hits"] * part["magnitude"]) and other == 0
+    crit = min(number_of(row.get("CritChance") or row.get("MainHand.CritChance")), 100) / 100
+    phys = (number_of(row.get("PhysicalHitAverage") or row.get("MainHand.PhysicalHitAverage")) * (1 - crit)
+            + number_of(row.get("PhysicalCritAverage") or row.get("MainHand.PhysicalCritAverage")) * crit)
+    assert part["magnitude"] == pytest.approx(0.3 * phys)
+    build.call("setAssumptions", mods=mods, fields=["CombinedDPS"])
+    stats = build.call("nodeDeltas", cases=[{}], fields=["LedgerAddedDPS", "CombinedDPS"])["results"][0]  # (a what-if)
+    print("PROBE impale bridge", stats)
+    assert number_of(stats.get("LedgerAddedDPS")) == pytest.approx(own, rel=0.01)
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
+    build.set_group(index=main["index"], gems=[*old, {"name": "Impale", "level": 1, "quality": 0}])
+    row = build.call("stats", fields=models.IMPALE_FIELDS)
+    own, other, mods, notes = amod.impale(build, skill, [])
+    print("PROBE impale support", row.get("LedgerImpaleExtract"), own, notes)
+    assert row["LedgerImpaleExtract"] == 0 and own == 0 and "can't Extract" in notes[0]["basis"]
+    assert row.get("LedgerImpaleNoExtractGem") == "Impale"
