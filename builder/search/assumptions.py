@@ -38,6 +38,8 @@ from builder.search.state import Build
 # Revelry's 2000 ms, Snap's 4 s and Frost Bomb's 6 s cooldowns, Orb of Storms' 12 s duration, Lingering Illusion's
 # 76% chance of an additional Remnant, Remnants of Kalguur's 50% on Stun. The kill-only sources (Rip, Runic Extraction)
 # make none on a lone boss. Where the files give no cadence on a boss, the rate is a labelled assumption.
+ORB_OF_STORMS = "Orb of Storms"
+ORB_PRESSES = "orb_presses"  # (MECHC25) build attribute for MECH-B's press_model: {skill: (Orbs a second, how)}
 REMNANT_SOURCES = {
     "Into the Breach": (0.82645, "Acolyte of Chayula: Flames of Chayula in your Breach"),
     "Wildwood's Gifts": (0.82645, "The Hollow Mask: Ancient Blooms"),
@@ -52,7 +54,8 @@ REMNANT_SOURCES = {
                     "(living_bomb_rate, from the build's own damage)"),
     "Grim Feast": (0.0, "a Grim Remnant when one of your Reviving minions dies in your Presence (100%, game files), at "
                         "the rate the build kills them (models.minion_deaths; no flat rate, the user 11 Nov)"),
-    "Orb of Storms": (0.0833, "one Orb kept up: a Remnant when each 12 s Orb expires"),
+    "Orb of Storms": (0.0, "a Lightning Infusion Remnant per Orb, when its bolts run out or it expires, at the build's "
+                          "own Orbs a second (orb_remnants; MECHC25: was a flat one per 12 s)"),
     "Remnants of Kalguur": (0.0, "50% per Stun, at most one per 3 s: the boss's Heavy and Light Stuns (models.stun_rate, "
                                  "from the build's own buildup and hit size; MECHB13), and 25% per kill at the enemies "
                                  "the build kills (the request's boss preset's adds; 0 on a lone boss; MECHB16)"),
@@ -275,8 +278,31 @@ GRANTED_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")  # (contex
 INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
 
 
+def orb_remnants(build, skill: dict) -> tuple[float, str]:
+    """(Orbs of Storms a second, how): each Orb leaves one Lightning Infusion Remnant when its bolts run out or it
+    expires (MECHC25; the manager, 14 Nov 18:54, from MECHB28: before, a flat one per 12 s, against CLAUDE.md's
+    no-flat-rates rule). MECH-B's side-Orb cycle (models.orb_cycle: an Orb fed by the main Spell's casts ends at its
+    maximum hits, sooner) when press_model exposes it on the build (ORB_PRESSES: {skill: (Orbs/s, how)}); until then
+    the Orb's own cycle with timer bolts only: PoB's Duration for it (its duration modifiers included) plus its cast
+    time, recast as each one ends (the play: keep one up; an undercount where the main Spell is cast near it)."""
+    found = (getattr(build, ORB_PRESSES, None) or {}).get(ORB_OF_STORMS)
+    if found is not None:
+        return found[0], f"one Remnant per Orb, {found[0]:.3f} Orbs/s ({found[1]})"
+    group = models.Skill.of(skill).group
+    rows = build.call("useRates", indices=[group])["rates"] if group is not None else []
+    row = rows[0] if rows else {}
+    duration, cast = number(row.get("duration")), number(row.get("castTime"))
+    if duration <= 0:
+        return 0.0, "PoB gave the Orb no duration (or its group wasn't read): no source, 0"
+    rate = 1 / (duration + cast)
+    return rate, (f"one Remnant per Orb, recast as each ends: its {duration:.2f} s duration + {cast:.2f} s cast = "
+                  f"{rate:.3f} Orbs/s (timer bolts only: casting the main Spell near it ends each Orb sooner, MECH-B's "
+                  "orb_cycle, which isn't exposed to this yet: an undercount there)")
+
+
 def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[str] | dict[str, float],
-                    siphon: tuple[float, str] = (0.0, ""), bomb: tuple[float, str] = (0.0, "")) -> tuple[dict[str, float], list[str]]:
+                    siphon: tuple[float, str] = (0.0, ""), bomb: tuple[float, str] = (0.0, ""),
+                    orb: tuple[float, str] = (0.0, "")) -> tuple[dict[str, float], list[str]]:
     """Elemental Infusions per second by element ("Any": Verisium Infusions, usable as any element), and what makes them.
     `present`: the build's enabled skills by name; `lines`: its modifier lines; `ailments`: the resolver's active
     condition vars (which ailment Snap consumes), a set (each always up) or each var's share of the fight; `siphon`: Siphon Elements' Cold Remnants per second and how
@@ -292,6 +318,8 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
         rate = REMNANT_SOURCES[name][0] * ((skill.get("cooldownRecovery") or 1.0) if name in COOLDOWN_SOURCES else 1.0)
         if name == LIVING_BOMB:  # (living_bomb_rate, from the caller)
             rate = bomb[0]
+        if name == ORB_OF_STORMS:  # (MECHC25: orb_remnants, from the caller; was a flat one per 12 s)
+            rate = orb[0]
         if element is None:  # Snap: the element of the ailment it consumes, from those on the boss at their uptimes
             # (MECH36: each ailment at its real share of the fight, not on only from 90%: Snap finds one when any is up,
             # 1 - the product of each one's absence, taken as independent; the element split by uptime, even when all
@@ -1462,6 +1490,8 @@ class Assumptions:
                 # (build.kills[0], models.kill_rate; 0 on the default lone boss). Own minions aren't enemies.
                 rate, condition = kalguur_kill_rate(rate, condition, skill.get("levelStats") or {},
                                                     getattr(self.build, "kills", None))
+            elif name == ORB_OF_STORMS:
+                rate, condition = self.orb_remnants(skill)
             elif name == SIPHON:
                 rate, condition = siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS))
             elif name == LIVING_BOMB:
@@ -1476,6 +1506,10 @@ class Assumptions:
             supply += rate
             used.append(f"{name} {rate:.2f}/s ({condition})")
         return supply, used
+
+    def orb_remnants(self, skill: dict) -> tuple[float, str]:
+        """(Orbs of Storms a second, how): orb_remnants for this build."""
+        return orb_remnants(self.build, skill)
 
     def heat_spenders(self, found: list) -> list[tuple[str, float, str]]:
         """The build's Heat spenders (models.HEAT_SPENDERS) other than the main skill, at their pressed use rate
@@ -2402,7 +2436,8 @@ class Assumptions:
         siphon = siphon_freezes(build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present else (0.0, "")
         bomb = living_bomb_rate(build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
                                 present[LIVING_BOMB].get("castTime") or 0.0) if LIVING_BOMB in present else (0.0, "")
-        supply, used = infusion_supply(present, lines, ailments, siphon, bomb)
+        orb = orb_remnants(build, present[ORB_OF_STORMS]) if ORB_OF_STORMS in present else (0.0, "")
+        supply, used = infusion_supply(present, lines, ailments, siphon, bomb, orb)
         keep = min(1.0, sum(float(m.group(1)) for t in lines if (m := KEEP_INFUSION.search(t.strip()))) / 100.0)
         uses = float(build.call("stats", fields=["Speed"]).get("Speed") or 0.0)
         # (MECH46: the main skill's casts net of the time pressing Snap / Frost Bomb takes, whether or not that press

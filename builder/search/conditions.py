@@ -3477,7 +3477,10 @@ class Conditions:
         present = {s["name"]: s for s in raw if not s["disabled"]}
         siphon = (siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present
                   else (0.0, ""))
-        supply, made = infusion_supply(present, [line["text"] for line in lines], self.found_uptimes, siphon)
+        from builder.search.assumptions import ORB_OF_STORMS, orb_remnants
+
+        orb = orb_remnants(self.build, present[ORB_OF_STORMS]) if ORB_OF_STORMS in present else (0.0, "")
+        supply, made = infusion_supply(present, [line["text"] for line in lines], self.found_uptimes, siphon, orb=orb)
         elements = {e for each in consumers.values() for e in each}
         have = sum(supply[e] for e in elements) + supply["Any"]
         cast = sum(uses.values())

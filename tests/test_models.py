@@ -1519,9 +1519,9 @@ def test_infusion_supply_counts_each_element_from_the_build_s_sources():
     extra Infusion Remnants and Infusions, another different Infusion, and timed Verisium Infusions (any element)."""
     from builder.search.assumptions import REMNANT_SOURCES, infusion_supply
 
-    bomb, orb, snap = REMNANT_SOURCES["Frost Bomb"][0], REMNANT_SOURCES["Orb of Storms"][0], REMNANT_SOURCES["Snap"][0]
+    bomb, orb, snap = REMNANT_SOURCES["Frost Bomb"][0], 0.08, REMNANT_SOURCES["Snap"][0]  # (MECHC25: the Orb's, passed in)
     present = {"Frost Bomb": {"cooldownRecovery": 1.5}, "Orb of Storms": {}, "Snap": {}, "Siphon Elements": {}}
-    supply, used = infusion_supply(present, [], {"conditionEnemyIgnited", "conditionEnemyShocked"})
+    supply, used = infusion_supply(present, [], {"conditionEnemyIgnited", "conditionEnemyShocked"}, orb=(orb, "test"))
     assert supply["Cold"] == pytest.approx(bomb * 1.5)
     assert supply["Lightning"] == pytest.approx(orb + snap / 2) and supply["Fire"] == pytest.approx(snap / 2)
     assert any("Siphon Elements" in u and "undercount" in u for u in used)
@@ -1560,8 +1560,8 @@ def test_remnant_rates_from_freezes_stuns_and_doubled_pickups(monkeypatch):
     assert supply["Cold"] == pytest.approx(0.2) and any("Fire and Lightning" in u for u in used)
     assert infusion_supply({}, [], set(), (rate, how))[0]["Cold"] == 0.0  # only with the skill
     lines = ["20% chance for Remnants you pick up to count as picking up an additional"]  # (PoB's line, split)
-    supply, _ = infusion_supply({"Orb of Storms": {}}, lines, set())
-    assert supply["Lightning"] == pytest.approx(REMNANT_SOURCES["Orb of Storms"][0] * 1.2)
+    supply, _ = infusion_supply({"Orb of Storms": {}}, lines, set(), orb=(0.08, "test"))
+    assert supply["Lightning"] == pytest.approx(0.08 * 1.2)
 
     class Build:
         def call(self, method, **kw):
@@ -4785,3 +4785,30 @@ def test_fiery_reclamation_gets_pobs_corpse_explosion_settings_and_the_corpse_ra
     assert data["explodeCorpse"] is True and data["corpseExplosionLifeMultiplier"] == 0.06
     assert data["corpseExplosionDamageType"] == "Fire" and data["triggerRate"] == 0
     assert models.corpse_explosion_mods([Skill("Spark")]) == []
+
+
+def test_orb_of_storms_leaves_a_remnant_per_orb_at_the_builds_own_orb_rate():
+    """MECHC25 (the manager, 14 Nov 18:54, from MECHB28; CLAUDE.md's no-flat-rates rule): each Orb of Storms leaves a
+    Lightning Infusion Remnant when its bolts run out or it expires. Before, a flat one per 12 s. Now MECH-B's side-Orb
+    rate when press_model exposes it (build.orb_presses), else the Orb's own cycle: PoB's Duration plus its cast time."""
+    from builder.search.assumptions import ORB_PRESSES, REMNANT_SOURCES, orb_remnants
+
+    assert REMNANT_SOURCES["Orb of Storms"][0] == 0.0  # no flat rate left in the table
+
+    class Build:
+        def __init__(self, duration):
+            self.duration = duration
+
+        def call(self, method, **kw):
+            assert method == "useRates" and kw["indices"] == [3]
+            return {"rates": [{"index": 3, "duration": self.duration, "castTime": 0.6}]}
+
+    skill = {"name": "Orb of Storms", "group": 3}
+    rate, how = orb_remnants(Build(12.0), skill)
+    assert rate == pytest.approx(1 / 12.6) and "timer bolts only" in how
+    assert orb_remnants(Build(18.0), skill)[0] == pytest.approx(1 / 18.6)  # its duration modifiers count
+    assert orb_remnants(Build(0.0), skill)[0] == 0.0
+    fed = Build(12.0)
+    setattr(fed, ORB_PRESSES, {"Orb of Storms": (0.23, "orb_cycle: Spark cast near it")})
+    rate, how = orb_remnants(fed, skill)
+    assert rate == 0.23 and "orb_cycle" in how
