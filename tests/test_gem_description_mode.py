@@ -175,3 +175,75 @@ def test_no_muster_override_without_muster_socketed():
     warriors = Skill("Skeletal Warrior Minion", 1, summon={"persistent": True, "limit": 2, "reviveSpeed": 1.0})
     mods, _ = models.gem_stat_model([warriors], stats={}, main=warriors)
     assert not [m for m in mods if m.get("name") == models.MUSTER_MULTIPLIER]
+
+
+INEXORABLE = {models.INEXORABLE_STAT: 10, models.INEXORABLE_CAP_STAT: 100}
+
+
+@pytest.mark.parametrize("speed, crit, seconds", [
+    (5.0, 0.0, 10.0),   # never crits: the cap, as PoB's default
+    (1.0, 100.0, 1.0),  # crits every hit, one a second: one whole second at each hit
+    (2.0, 50.0, sum(0.5 * 0.5 ** (k - 1) * min(k // 2, 10) for k in range(1, 40))),
+])
+def test_inexorable_criticals_count_follows_the_builds_hits_and_crits(speed, crit, seconds):
+    spark = Skill("Spark", 1, spell=True, support_stats=INEXORABLE)
+    mods, notes = models.gem_stat_model([spark], stats={"Speed": speed, "CritChance": crit}, main=spark)
+    whole = [m["value"] for m in mods if m.get("name") == models.INEXORABLE_MULTIPLIER]
+    extra = sum(m["value"] for m in mods if m.get("name") == "CritChance" and m.get("skill") == "Spark")
+    assert len(whole) == 1 and whole[0] == int(whole[0])  # (PoB floors the multiplier: whole seconds, the rest as INC)
+    assert whole[0] + extra / 10 == pytest.approx(seconds, abs=1e-3)
+    assert any(n["entry"] == models.INEXORABLE_ENTRY and "play" in n for n in notes)
+
+
+def test_inexorable_critical_off_the_main_skill_sets_nothing():
+    spark = Skill("Spark", 1, spell=True)
+    side = Skill("Arc", 2, spell=True, support_stats=INEXORABLE)
+    mods, notes = models.gem_stat_model([spark, side], stats={"Speed": 2.0, "CritChance": 10}, main=spark)
+    assert not [m for m in mods if m.get("name") == models.INEXORABLE_MULTIPLIER]
+    assert any(n["entry"] == models.INEXORABLE_ENTRY and "Arc" in n["basis"] for n in notes)
+
+
+@pytest.mark.parametrize("speed, press, stages", [
+    (0.25, None, 0.25),   # a warcry every 4 s: 1.25 stacks on average (stage multiplier stacks - 1)
+    (0.25, 0.5, -0.375),  # pressed half the time: 0.625 stacks, so less than one stack's damage
+    (3.0, None, 9.0),     # spammed: capped at 10 stacks, PoB's placeholder
+])
+def test_corrupting_crys_stacks_follow_the_warcrys_use_rate(speed, press, stages):
+    spark, cry, cc = Skill("Spark", 1, spell=True), Skill("Infernal Cry", 2), Skill("Corrupted Cry", 2, triggered=True)
+    mods, notes = models.gem_stat_model([spark, cry, cc], stats={"Speed": 1.4}, main=spark,
+                                        groups={2: {"speed": speed, "_press": press, "name": "Infernal Cry"}})
+    assert [m["value"] for m in mods if m.get("name") == models.CRY_MULTIPLIER] == [0]  # (one stack: PoB floors it)
+    assert [m["value"] for m in mods if m.get("name") == "Damage" and m.get("skill") == "Corrupted Cry"] == [
+        pytest.approx(100 * stages)]
+    assert models.gem_stat_side_groups([spark, cry, cc], spark) == [2]
+
+
+@pytest.mark.parametrize("uses, less", [
+    ([], 100.0),  # no curse to detonate
+    ([models.CurseUse("Despair", 1.0, "cast by hand", True, 7.4)], 100 * (1 - 1 / (0.6 + 1.5 + 3.7))),
+    ([models.CurseUse("Despair", 1.0, "cast by hand once: 'Curses you inflict have infinite Duration' (no recasts)")],
+     100.0),  # an infinite curse is never half expired (0.2.0)
+])
+def test_hexblast_detonates_only_what_its_curses_allow(uses, less):
+    hexblast, despair = Skill("Hexblast", 1, spell=True), Skill("Despair", 2, spell=True, cast_time=0.6)
+    mods, notes = models.hexblast_model([hexblast, despair], uses, {"Speed": 1.0}, hexblast)
+    assert [m["scale"] for m in mods if m["line"] == "1% less Damage"] == [pytest.approx(less, rel=1e-3)]
+    assert notes and notes[0]["entry"] == models.HEXBLAST_ENTRY
+
+
+def test_hexblast_casting_slower_than_its_curses_allow_keeps_pobs_rate():
+    hexblast = Skill("Hexblast", 1, spell=True)
+    uses = [models.CurseUse("Despair", 1.0, "an Aura (Blasphemy)", False, 2.0)]  # a detonation per 2.5 s
+    mods, notes = models.hexblast_model([hexblast], uses, {"Speed": 0.3}, hexblast)
+    assert not mods and notes[0]["value"] == "as PoB"
+
+
+def test_burgeon_averages_over_the_channels_the_dodge_rhythm_allows():
+    assert models.burgeon_average(10, 40, 10.0) == pytest.approx(30.0)  # 0, 10, 20, 30, then 40 for 6 s
+    sup = {models.BURGEON_STAT: 20, models.BURGEON_CAP_STAT: 40}
+    skill = Skill("Incinerate", 1, spell=True, support_stats=sup)
+    mods, notes = models.gem_stat_model([skill], stats={}, main=skill)
+    channel = models.DODGE_EVERY - models.DODGE_ROLL_SECONDS  # 1.25 s: 0% for 1 s, 20% for 0.25 s
+    assert [m["value"] for m in mods if m.get("name") == "Damage" and m.get("skill") == "Incinerate"] == [
+        pytest.approx(models.burgeon_average(20, 40, channel))]
+    assert any(n["entry"] == models.BURGEON_ENTRY and "play" in n for n in notes)

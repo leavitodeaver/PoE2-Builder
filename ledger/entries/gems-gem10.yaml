@@ -172,3 +172,83 @@
             "patch notes 0.3.0, 0.3.0 Hotfix 13", "scratch/manager/PATCH_CHECK.md K5-1"]
   test_in_game: "Muster on Skeletal Warriors with Raging Spirits and Sacrifice also active: the Warriors' damage shouldn't rise when those two are turned on."
   status: proposed
+
+- id: model-gem10-inexorable-critical-renewal
+  title: "Inexorable Critical: the crit chance bonus resets on each crit (PoB's default keeps it at its cap)"
+  kind: model
+  model: inexorable_critical
+  stats: ["support_inevitable_criticals_critical_strike_chance_+%_per_second",
+          "support_inevitable_criticals_critical_strike_chance_+%_cap"]
+  skill: [Inexorable Critical I, Inexorable Critical II]
+  confidence: theory
+  notes: >-
+    PATCH_CHECK S2-2 (NOTES2). gem_stat_descriptions.csd: "Supported Skills gain {0}% increased Critical Hit Chance each
+    second, up to {1}%. This Critical Hit Chance is lost whenever a skill supported by Inexorable Critical Critically
+    Hits". PoB reads the seconds from a config box whose default is 10 (ConfigOptions.lua 458), so every build has the
+    full bonus: an OVERCOUNT. models.inexorable_model sets PoB's Multiplier:SecondsSinceInevitableCrit (OVERRIDE) to the
+    hit-weighted average whole seconds since the last crit, from the main skill's own hit rate and PoB's CritChance (a
+    geometric renewal; LOW: crit chance flat between crits, the bonus stepping once a second). Main skill only.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua 458-459",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (SupportInevitableCriticalsPlayer / Two)",
+            "scratch/manager/PATCH_CHECK.md S2-2"]
+  test_in_game: "A low-crit skill with Inexorable Critical I on a dummy: the crit chance shown should drop back after each crit."
+  status: proposed
+
+- id: model-gem10-corrupting-cry-stacks
+  title: "Corrupting Cry: one 5 s Corrupted Blood stack per warcry (PoB's placeholder scores 10)"
+  kind: model
+  model: corrupting_cry
+  stats: ["warcry_triggers_corrupting_cry", "add_buff_to_target_skill_number_of_corrupted_blood_debuffs_to_inflict"]
+  skill: [Corrupting Cry I, Corrupting Cry II, Corrupted Cry]
+  confidence: theory
+  notes: >-
+    PATCH_CHECK S2-3 (NOTES2). PoB scores Corrupted Cry's Corrupted Blood at its config placeholder of 10 stacks
+    (ConfigOptions.lua 338-341, stage multiplier 9); probe POE2T2077: 2,869.5 of Full DPS from it beside Spark's 97, so it
+    reaches the score: an OVERCOUNT up to x10. The game: one stack per warcry (add_buff_to_target_skill_number_of_
+    corrupted_blood_debuffs_to_inflict 1), 5 s each. models.corrupting_cry_model overrides the stage multiplier with
+    n - 1, n = min(10, the warcries' uses a second x 5 s) from the bridge's useRates and the search's press share (damage
+    is linear in the stacks, so this is the average). Not counted (labelled): Skill Effect Duration on the 5 s.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua 338-341",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_str.lua (Corrupting Cry I / II, Corrupted Cry)",
+            "scratch/gem10/probe_s2.json (POE2T2077)", "scratch/manager/PATCH_CHECK.md S2-3"]
+  test_in_game: "Warcry once on a dummy with Corrupting Cry: one Corrupted Blood stack for 5 s; twice within 5 s: two."
+  status: proposed
+
+- id: model-gem10-hexblast-curse-cycle
+  title: "Hexblast: one detonation per curse, only once half its duration has passed, and the curse is removed"
+  kind: model
+  model: hexblast
+  stats: ["show_curse_hexblastable"]
+  skill: [Hexblast]
+  confidence: theory
+  notes: >-
+    PATCH_CHECK L2-2 (NOTES2). Patch 0.2.0 (history read to 0.4.0, the newest): "Hexblast can now only detonate Curses
+    for which at least 50% of the duration has expired. This means it can never explode Curses that have an infinite
+    duration"; 0.1.0d: "it only detonates a single Curse per Enemy". PoB scores it at its cast rate with no curse in it
+    (probe POE2T2077: Speed 1, FullDPS 831.4): an OVERCOUNT where it's the main skill. models.hexblast_model caps its
+    rate at the detonations the build's curses allow (curse_uses: each curse's duration and how it's applied): one per
+    cycle of (by-hand cast time +) the 1.5 s curse delay + half the duration; an infinite curse never. LOW: each curse
+    put back at once. Not counted: the quality's more damage per second of remaining duration (an undercount).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (HexblastPlayer)", "patch notes 0.1.0d, 0.2.0, 0.3.0, 0.4.0",
+            "scratch/gem10/probe_s2.json (POE2T2077)", "scratch/manager/PATCH_CHECK.md L2-2"]
+  test_in_game: "Curse a boss with Despair and Hexblast it at once: nothing; after half the duration: one explosion, and the curse is gone."
+  status: proposed
+
+- id: model-gem10-burgeon-channel-time
+  title: "Burgeon: more damage per second channelled, over the channels the build's dodge rhythm allows"
+  kind: model
+  model: burgeon
+  stats: ["support_chanelling_damage_+%_final_per_second_channelling", "support_channelling_damage_cap"]
+  skill: [Burgeon I, Burgeon II]
+  confidence: theory
+  notes: >-
+    PATCH_CHECK mirror sweep MB-7 (NOTES2): PoB reads the channelled time from a config box with no default, which
+    nothing sets, so Burgeon counts 0 (an UNDERCOUNT). models.burgeon_model: a channel lasts DODGE_EVERY -
+    DODGE_ROLL_SECONDS (2 s between rolls, the user's default, less the 0.75 s roll: 1.25 s), the bonus stepping once a
+    whole second (as PoB's count; UNVERIFIED), averaged over the channel and given as "more Damage" on the main skill
+    (PoB floors its Multiplier tag). The play guide gives the uninterrupted channel. Main skill only.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (Burgeon I / II)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua (multiplierChannelling)",
+            "builder/search/models.py DODGE_EVERY (the user's 7 Nov default)", "scratch/manager/PATCH_CHECK.md MB-7"]
+  test_in_game: "Channel a Burgeon II skill on a dummy: its hits should be 20% higher after 1 s, 40% after 2 s."
+  status: proposed

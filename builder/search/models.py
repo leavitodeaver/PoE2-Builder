@@ -3127,7 +3127,8 @@ def gem_stat_support_stats() -> list[str]:
 
     return sorted({stat for e in gem_stat_entries() if e.raw.get("support") and e.replace
                    for stat in [*(e.raw.get("support_stats") or ()), *(e.raw.get("share_stats") or ())]}
-                  | set(LIFE_LOSS_STATS) | {MUSTER_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
+                  | set(LIFE_LOSS_STATS) | {MUSTER_STAT, INEXORABLE_STAT, INEXORABLE_CAP_STAT, BURGEON_STAT,
+                                         BURGEON_CAP_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
 
 
 def _skill_names(entry) -> list[str]:
@@ -3250,6 +3251,12 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + loss_mods, notes + loss_notes
     muster_mods, muster_notes = muster_kinds_model(skills, forbidden)
     mods, notes = mods + muster_mods, notes + muster_notes
+    crit_mods, crit_notes = inexorable_model(skills, stats or {}, main, forbidden)
+    mods, notes = mods + crit_mods, notes + crit_notes
+    cry_mods, cry_notes = corrupting_cry_model(skills, stats or {}, main, groups or {}, forbidden)
+    mods, notes = mods + cry_mods, notes + cry_notes
+    burgeon_mods, burgeon_notes = burgeon_model(skills, main, forbidden)
+    mods, notes = mods + burgeon_mods, notes + burgeon_notes
     return mods, notes
 
 
@@ -4170,6 +4177,240 @@ def muster_kinds_model(skills: list[Skill], forbidden: set[str] = frozenset()) -
         "confidence": "datamined", "entry": MUSTER_ENTRY}]
 
 
+# Inexorable Critical's seconds since the last crit (GEM10; PATCH_CHECK S2-2, an OVERCOUNT). gem_stat_descriptions.csd:
+# "Supported Skills gain {0}% increased Critical Hit Chance each second, up to {1}%. This Critical Hit Chance is lost
+# whenever a skill supported by Inexorable Critical Critically Hits" (I: 10% a second up to 100%; II: 40% up to 200%, and
+# its crit damage penalty per second, up to its cap, on the same count). PoB reads the count from a config box
+# (ConfigOptions.lua 458, "# of seconds since Inevitable Crit", defaultState 10: Multiplier:SecondsSinceInevitableCrit),
+# so every build sits at the cap. The build decides the real count (the user's no-flat-rates rule): the main skill hits
+# the boss once every D = 1 / (Speed x hit chance) seconds and each hit crits with p = PoB's CritChance; at a hit, the
+# hits since the last crit k are geometric (P(k) = p (1 - p)^(k - 1), hit-weighted), so the average count at a hit is
+# sum_k P(k) min(floor(k D), cap / per second): whole seconds, as PoB's count box (ASSUMPTION, UNVERIFIED: the bonus
+# steps once a second). Set as an OVERRIDE of PoB's multiplier (GetMultiplier takes it first). Damage is linear in the
+# bonus below 100% crit chance, so scoring at the average count gives the average damage (II's crit damage penalty
+# makes it a product: an approximation, labelled). p is read at the count last set, so it settles over the search's
+# resolves (a mean field: p is taken as flat between crits, while it really rises with the count; labelled). Main skill
+# only; a supported side skill keeps PoB's count (an overcount left, said).
+INEXORABLE_STAT = "support_inevitable_criticals_critical_strike_chance_+%_per_second"
+INEXORABLE_CAP_STAT = "support_inevitable_criticals_critical_strike_chance_+%_cap"
+INEXORABLE_MULTIPLIER = "Multiplier:SecondsSinceInevitableCrit"
+INEXORABLE_ENTRY = "model-gem10-inexorable-critical-renewal"
+
+
+def inexorable_seconds(per_second: float, cap: float, interval: float, crit: float) -> float:
+    """The hit-weighted average whole seconds since the last crit (see above)."""
+    most = cap / per_second if per_second > 0 else 0.0
+    if interval <= 0 or most <= 0:
+        return 0.0
+    if crit <= 0:
+        return most
+    total, survive, k = 0.0, 1.0, 1
+    while survive > 1e-6 and k * interval < most + interval:
+        total += crit * survive * min(math.floor(k * interval), most)
+        survive *= 1 - crit
+        k += 1
+    return total + survive * most  # (the rest of the tail sits at the cap)
+
+
+def inexorable_model(skills: list[Skill], stats: dict, main: Skill | None,
+                     forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The OVERRIDE of PoB's seconds since the last crit for the main skill, and its note."""
+    if INEXORABLE_ENTRY in forbidden or main is None:
+        return [], []
+    own = next((s for s in skills if s.name == main.name and s.group == main.group), None)
+    per = number((own.support_stats if own else {}).get(INEXORABLE_STAT))
+    cap = number((own.support_stats if own else {}).get(INEXORABLE_CAP_STAT))
+    side = sorted({s.name for s in skills if number(s.support_stats.get(INEXORABLE_STAT)) and s is not own})
+    note_side = (f"; {', '.join(side)} keep PoB's count (side skills' crits aren't read: an overcount)" if side else "")
+    if per <= 0 or cap <= 0:
+        return [], ([{"label": "Inexorable Critical: seconds since the last crit", "value": "PoB's 10",
+                      "basis": "not on the main skill" + note_side, "confidence": "theory",
+                      "entry": INEXORABLE_ENTRY}] if side else [])
+    chance = number(stats.get("HitChance")) if stats.get("HitChance") is not None else 100.0  # (a spell may give none)
+    hits = number(stats.get("Speed")) * min(chance, 100.0) / 100
+    crit = min(max(number(stats.get("CritChance")) / 100, 0.0), 1.0)
+    if hits <= 0:
+        return [], [{"label": "Inexorable Critical: seconds since the last crit", "value": "PoB's 10",
+                     "basis": f"{main.name}: no hit rate read" + note_side, "confidence": "theory",
+                     "entry": INEXORABLE_ENTRY}]
+    seconds = inexorable_seconds(per, cap, 1 / hits, crit)
+    # (PoB floors a Multiplier tag, ModStore.lua 530: the whole seconds go in the override and the fraction's crit chance
+    # as one more "increased" line on the skill; II's crit damage penalty takes the whole seconds only, labelled)
+    whole = math.floor(seconds + 1e-9)
+    more = [raw_mod("CritChance", "INC", per * (seconds - whole), main.name)] if seconds - whole > 1e-6 else []
+    return [raw_mod(INEXORABLE_MULTIPLIER, "OVERRIDE", whole), *more], [{
+        "label": "Inexorable Critical: seconds since the last crit", "value": f"{seconds:.2f} s",
+        "basis": (f"{main.name} hits {hits:.3g} times a second and crits {crit:.1%} of them, so at a hit it has been "
+                  f"{seconds:.2f} whole seconds on average since the last crit: +{min(per * seconds, cap):.0f}% "
+                  f"Critical Hit Chance of the {cap:g}% cap PoB's 10 s default gives (LOW: the crit chance taken as flat "
+                  f"between crits, the bonus stepping once a second)" + note_side),
+        "confidence": "theory", "entry": INEXORABLE_ENTRY,
+        "play": (f"Inexorable Critical's bonus resets on every crit: at this crit rate it averages "
+                 f"+{min(per * seconds, cap):.0f}%, not the full {cap:g}%. Without the reset (PoB): +{cap:g}%; with it: "
+                 f"+{min(per * seconds, cap):.0f}%.")}]
+
+
+# Corrupting Cry's Corrupted Blood stacks (GEM10; PATCH_CHECK S2-3, an OVERCOUNT up to x10). Corrupting Cry I / II
+# trigger Corrupted Cry on each warcry: "add_buff_to_target_skill_number_of_corrupted_blood_debuffs_to_inflict" 1, for
+# base_skill_effect_duration 5000 (sup_str.lua TriggeredCorruptingCryPlayer / TwoPlayer). PoB multiplies its damage by
+# the stacks through a config box with a placeholder of 10 (ConfigOptions.lua 338-341: Multiplier:
+# CorruptingCryStageAfterFirst = stacks - 1; MORE 100% per stage after the first, limit 9), and the placeholder is used
+# when the box is empty. Probe POE2T2077 (real PoB, our models on): the stage multiplier read 9 and Corrupted Cry's
+# Corrupted Blood added 2,869.5 to Full DPS beside Spark's 97 (scratch/gem10/probe_s2.json): it reaches the score.
+# The game: one stack per warcry use, each 5 s. Damage is linear in the stacks, so the average damage is PoB's at the
+# average stacks, n = min(10, warcry uses a second x 5 s), counting the time with no stack too (n < 1): the stage
+# multiplier is overridden with n - 1 (PoB's GetMultiplier takes the OVERRIDE first). The rate: each Corrupted Cry
+# group's warcry, the bridge's useRates for it times the share the search presses it (PoB's own rate when no share is
+# chosen, said). Not counted (labelled): the build's Skill Effect Duration modifiers on the 5 s, Paquate's Pact's own
+# Twisted Pact (another skill).
+CORRUPTED_CRY = "Corrupted Cry"
+CRY_MULTIPLIER = "Multiplier:CorruptingCryStageAfterFirst"
+CRY_ENTRY = "model-gem10-corrupting-cry-stacks"
+CRY_SECONDS, CRY_MAX = 5.0, 10.0
+
+
+def corrupting_cry_model(skills: list[Skill], stats: dict, main: Skill | None, groups: dict,
+                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The OVERRIDE of PoB's Corrupted Blood stages with the stacks the build's warcries keep up, and its note."""
+    if CRY_ENTRY in forbidden:
+        return [], []
+    cries = sorted({s.group for s in skills if s.name == CORRUPTED_CRY and s.group is not None})
+    if not cries:
+        return [], []
+    rate, parts = 0.0, []
+    for index in cries:
+        if main is not None and main.group == index:
+            r, where = number(stats.get("Speed")), f"{main.name} (main) at PoB's Speed"
+        else:
+            row = groups.get(index) or {}
+            press = row.get("_press")
+            r = number(row.get("speed")) * number(press if press is not None else 1.0)
+            where = (f"{row.get('name', 'its warcry')}" + (f" pressed {number(press):.0%}" if press is not None
+                                                            else " at PoB's rate (no press share chosen)"))
+        rate += max(r, 0.0)
+        parts.append(f"{where}: {max(r, 0.0):.3g}/s")
+    stacks = min(CRY_MAX, rate * CRY_SECONDS)
+    # (PoB floors a Multiplier tag, ModStore.lua 530: a fractional n - 1 would round down, and n < 1 to 100% less; so
+    # the stages are held at one stack and the rest goes on as one "more" on Corrupted Cry: probe POE2T2078)
+    return [raw_mod(CRY_MULTIPLIER, "OVERRIDE", 0), raw_mod("Damage", "MORE", 100 * (stacks - 1), CORRUPTED_CRY)], [{
+        "label": "Corrupting Cry: Corrupted Blood stacks on the boss", "value": f"{stacks:.2f}",
+        "basis": (f"one 5 s stack per warcry ({'; '.join(parts)}): {stacks:.2f} on average, against PoB's 10 (its "
+                  "config placeholder); Corrupted Blood scored at that"),
+        "confidence": "theory", "entry": CRY_ENTRY,
+        "play": (f"Corrupted Blood stacks once per warcry for 5 s: to keep n stacks up, warcry n times every 5 s. "
+                 f"Without that (PoB): 10 stacks; with this build's warcries: {stacks:.2f}.")}]
+
+
+# Hexblast's detonations (GEM10; PATCH_CHECK L2-2, an OVERCOUNT). The game (ActiveSkills hexblast; PoB's description):
+# "Detonate a Curse on every enemy in an area, causing explosions of Chaos damage but removing the Curse. Can only
+# detonate Curses for which at least half of the duration has expired." Patch 0.2.0 (grep_notes.py --history
+# "Hexblast"): "can now only detonate Curses for which at least 50% of the duration has expired. This means it can never
+# explode Curses that have an infinite duration". PoB scores HexblastPlayer's hit at its cast rate with no curse in it
+# (probe POE2T2077: Speed 1, FullDPS 831.4). On one boss each of the build's curses (curse_uses: its duration and how it's
+# applied) gives one detonation a cycle: the curse removed, put back, landing CURSE_DELAY (1.5 s) after it's applied,
+# then half its duration until it can be detonated: by hand, cycle = its cast time + 1.5 s + d / 2; reapplied on its own
+# (Blasphemy's aura, a meta's trigger, Curse on Hit): 1.5 s + d / 2 (ASSUMPTION, LOW: the aura / trigger / hit puts it
+# back at once; a meta's own trigger interval isn't added); "infinite Duration": never (0). Hexblast is scored at
+# min(PoB's Speed, the detonations a second over all its curses) as "less Damage" by the shortfall. Not counted
+# (labelled): the quality bonus per second of remaining duration (an undercount: hexblast_damage_+%_final_per_second_
+# remaining_curse_duration), the casting time of the by-hand recasts (curse_model already takes it from the main skill).
+# The main skill only.
+HEXBLAST = "Hexblast"
+HEXBLAST_ENTRY = "model-gem10-hexblast-curse-cycle"
+
+
+def hexblast_model(skills: list[Skill], uses: list, stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+    """Hexblast's "less Damage" line for the detonations its curses allow (see above), and its note."""
+    if main is None or main.name != HEXBLAST:
+        return [], []
+    speed = number(stats.get("Speed"))
+    if speed <= 0:
+        return [], []
+    by_name = {s.name: s for s in skills}
+    label = "Hexblast: detonations its curses allow"
+    play = ("Hexblast can only detonate a curse at least half expired, and removes it: re-curse the boss, wait half the "
+            "curse's duration, then Hexblast.")
+    rate, parts = 0.0, []
+    for use in uses:
+        if use.share <= 0:
+            parts.append(f"{use.name}: not on the boss ({use.how})")
+            continue
+        if "infinite Duration" in use.how:
+            parts.append(f"{use.name}: infinite duration, so never detonated (0.2.0)")
+            continue
+        cast = (by_name[use.name].cast_time or 0.7) if use.by_hand and use.name in by_name else 0.0
+        cycle = cast + CURSE_DELAY + use.duration / 2
+        rate += use.share / cycle
+        parts.append(f"{use.name}: one detonation per {cycle:.3g} s (" + (f"{cast:.2g} s cast + " if cast else "")
+                     + f"{CURSE_DELAY:g} s delay + half of {use.duration:.3g} s)")
+    if not uses:
+        parts.append("no curse in the build")
+    ratio = min(1.0, rate / speed)
+    less = (1.0 - ratio) * 100
+    how = (f"{rate:.3g} detonations/s against PoB's {speed:.3g} casts/s: {'; '.join(parts)} (LOW: each curse put back at "
+           "once; the per-second-remaining quality bonus not counted)")
+    if less <= 0.05:
+        return [], [{"label": label, "value": "as PoB", "basis": how, "confidence": "theory", "entry": HEXBLAST_ENTRY,
+                     "play": play}]
+    return [line("1% less Damage", less, skill=HEXBLAST)], [{
+        "label": label, "value": f"{less:.3g}% less", "basis": how, "confidence": "theory", "entry": HEXBLAST_ENTRY,
+        "play": play + f" Without curses to detonate: 0; with this build's: {rate:.3g} a second."}]
+
+
+# Burgeon's channelling time (GEM10; PATCH_CHECK mirror sweep MB-7, an UNDERCOUNT). Burgeon I / II (sup_int.lua): "Supports
+# Channelling Skills you use yourself, causing them to deal more damage the longer they have been Channelled":
+# support_chanelling_damage_+%_final_per_second_channelling 10 / 20, support_channelling_damage_cap 40. PoB reads the
+# time from a config box with no default ("Channeling for # seconds", ConfigOptions.lua ~1176: Multiplier:
+# ChannellingTime), which nothing sets, so Burgeon counts 0. The build decides how long a channel lasts: against a boss
+# the player dodge rolls every DODGE_EVERY seconds (the user's default, 7 Nov 2026) and a roll ends the channel, so a
+# channel lasts DODGE_EVERY - DODGE_ROLL_SECONDS (1.25 s). The bonus steps once per whole second channelled, as PoB's
+# count box (ASSUMPTION, UNVERIFIED: the game may ramp it smoothly); the hits are spread evenly through the channel, so the
+# average more Damage is (1 / L) x the integral of min(per second x floor(t), cap) over the channel. Given as one "more
+# Damage" on the main skill (PoB floors its Multiplier tag, so the average can't go in the box). The play guide gives
+# the uninterrupted channel too. Main skill only.
+BURGEON_STAT = "support_chanelling_damage_+%_final_per_second_channelling"
+BURGEON_CAP_STAT = "support_channelling_damage_cap"
+BURGEON_ENTRY = "model-gem10-burgeon-channel-time"
+
+
+def burgeon_average(per_second: float, cap: float, seconds: float) -> float:
+    """The time-weighted average more Damage (%) over a channel of `seconds`, stepping once a whole second."""
+    if seconds <= 0 or per_second <= 0:
+        return 0.0
+    total, t = 0.0, 0
+    while t < seconds:
+        span = min(1.0, seconds - t)
+        total += min(per_second * t, cap) * span
+        t += 1
+    return total / seconds
+
+
+def burgeon_model(skills: list[Skill], main: Skill | None, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The main skill's average Burgeon bonus over the channels the build's dodge rhythm allows, and its note."""
+    if BURGEON_ENTRY in forbidden or main is None:
+        return [], []
+    own = next((s for s in skills if s.name == main.name and s.group == main.group), None)
+    per = number((own.support_stats if own else {}).get(BURGEON_STAT))
+    cap = number((own.support_stats if own else {}).get(BURGEON_CAP_STAT))
+    if per <= 0 or cap <= 0:
+        return [], []
+    channel = max(0.0, DODGE_EVERY - DODGE_ROLL_SECONDS)
+    more = burgeon_average(per, cap, channel)
+    full = cap / per  # (seconds to reach the cap channelling without a break)
+    note = {"label": "Burgeon: more Damage for the time channelled", "value": f"{more:.3g}% more",
+            "basis": (f"{main.name} channelled {channel:g} s at a time (a dodge roll every {DODGE_EVERY:g} s, the user's "
+                      f"default, ends the channel; the roll takes {DODGE_ROLL_SECONDS:g} s): {per:g}% more per whole "
+                      f"second, up to {cap:g}%, averages {more:.3g}% (PoB's channelling box is empty: 0; LOW: the bonus "
+                      "taken to step once a second)"),
+            "confidence": "theory", "entry": BURGEON_ENTRY,
+            "play": (f"Burgeon grows {per:g}% a second while you keep channelling, up to {cap:g}% after {full:g} s: "
+                     f"rolling every {DODGE_EVERY:g} s it averages {more:.3g}%; channelling {full:g} s or more between "
+                     f"rolls gets close to {cap:g}%.")}
+    if more <= 0:
+        return [], [note]
+    return [raw_mod("Damage", "MORE", more, main.name)], [note]
+
+
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
           "cull_buff": cull_buff_share, "revived_recently": revived_recently_share,
@@ -4201,6 +4442,9 @@ def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
             if entry.raw["share"] == "vruun_combo" and any(  # (and the groups whose Strikes build its Combo)
                     entry.pattern.search(stat) and number(v) for stat, v in skill.support_stats.items()):
                 found.update(g for g in vruun_builder_groups(skills, skill) if main is None or g != main.group)
+    for skill in skills:  # (a warcry's triggered Corrupted Cry: corrupting_cry_model reads the warcry's rate)
+        if skill.name == CORRUPTED_CRY and skill.group is not None and (main is None or skill.group != main.group):
+            found.add(skill.group)
     for skill in skills:  # (a side skill whose support makes you lose Life per use: gem_stat_life_loss reads its rate)
         if skill.group is not None and (main is None or skill.group != main.group) and any(
                 number(skill.support_stats.get(stat)) for stat in LIFE_LOSS_STATS):

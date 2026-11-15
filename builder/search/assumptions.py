@@ -1057,6 +1057,8 @@ class Assumptions:
         # conditions' readers: build.minion_died, (per second, how))
         toad_mods, toad_notes, toad_groups, toads = models.toad_model(found, curses)
         hand_mods, hand_notes = hand_mods + toad_mods, hand_notes + toad_notes
+        hex_mods, hex_notes = models.hexblast_model(found, curses, stats, main)  # (GEM10: L2-2, the curse cycle)
+        hand_mods, hand_notes = hand_mods + hex_mods, hand_notes + hex_notes
         doom_mods, doom_notes, doom_groups = models.doom_blast_model(found, curses)  # (MECHB12: Impending Doom's expiries)
         hand_mods, hand_notes = hand_mods + doom_mods, hand_notes + doom_notes
         # (MECHB29: Hayoxi's Fulmination's Annihilation, one per Cursed Ground area that persists 7 s)
