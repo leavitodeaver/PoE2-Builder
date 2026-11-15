@@ -3194,7 +3194,7 @@ def gem_stat_support_stats() -> list[str]:
                   | set(LIFE_LOSS_STATS) | {MUSTER_STAT, INEXORABLE_STAT, INEXORABLE_CAP_STAT, BURGEON_STAT,
                                          BURGEON_CAP_STAT, SALVO_PROJECTILE_STAT, SALVO_INTERVAL_STAT, SALVO_MAX_STAT,
                                          VOLT_PER_METRE_STAT, VOLT_MAX_STAT, VOLT_GAIN_STAT, RATHA_DODGE_STAT,
-                                         BHATAIR_STAT, TRICKSTER_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
+                                         BHATAIR_STAT, TRICKSTER_STAT, OLROTH_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
 
 
 def _skill_names(entry) -> list[str]:
@@ -3334,6 +3334,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + bhatair_mods, notes + bhatair_notes
     trick_mods, trick_notes = trickster_model(skills, stats or {}, main, forbidden)
     mods, notes = mods + trick_mods, notes + trick_notes
+    olroth_mods, olroth_notes = olroth_model(skills, forbidden)
+    mods, notes = mods + olroth_mods, notes + olroth_notes
     return mods, notes
 
 
@@ -4805,6 +4807,111 @@ def trickster_model(skills: list[Skill], stats: dict, main: Skill | None,
         return [], notes + [note]
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], notes + [note]
 
+
+
+# Combo strikes: one stat set per step of the combo (GEM11 turn 2; GEM7's open animation / combo rows). The game picks a
+# step's stat set by statset_index_for_{second,third,fourth,fifth,final}_animation_combo_index (0-based; a step not named
+# uses set 0); PoB maps none of them (checked: SkillStatMap.lua and Modules/*.lua for "animation_combo": no reader) and
+# scores the one stat set the search keeps (gems.py choose_active_skill: the best scoring), as if every use were that
+# step: an OVERCOUNT where it keeps the finisher, an undercount where it keeps the plain strikes. The sequences, from
+# each skill's own stats and description (PoB act_int.lua / other.lua):
+# - Ice Strike: final = set 1 ("Third Strike"); "Using this Attack three times in quick succession causes a final strike
+#   that is slower and more powerful": Normal, Normal, Third Strike.
+# - Tempest Flurry: third = 1, final = 2; "the third use Strikes three times, and the fourth use performs a Final
+#   Strike": Normal, Normal, Third Strike, Fourth Strike (the third use's three Strikes as PoB's Third Strike set counts
+#   them: LOW).
+# - Shred (Werewolf): third / fourth / fifth = 1 ("Fast Strikes"), final = 2 ("Final Strike", "the final Attack Strikes
+#   twice"): Normal, Normal, Fast x3, Final (the final step taken as the sixth: LOW; its two Strikes as PoB's set counts).
+# - Primal Strikes is left open: its second step is the "Spirits" set (a spirit conjured only on a Shocked enemy) and
+#   what that set's number holds isn't settled (said in the report).
+# The combo's average: each step's hit (the set's TotalDPS / Speed, PoB's per-use damage) over each step's time (1 /
+# the set's Speed): sum of hits / sum of times, against the scored set's TotalDPS, as DPS "more" on the main skill. LOW:
+# the combo taken as never broken (used in quick succession against the boss; a dodge roll between steps may reset it,
+# UNVERIFIED).
+COMBO_SEQUENCES: dict[str, tuple[str, ...]] = {
+    "Ice Strike": ("Normal Strikes", "Normal Strikes", "Third Strike"),
+    "Tempest Flurry": ("Normal Strikes", "Normal Strikes", "Third Strike", "Fourth Strike"),
+    "Shred": ("Normal Strikes", "Normal Strikes", "Fast Strikes", "Fast Strikes", "Fast Strikes", "Final Strike"),
+}
+COMBO_ENTRY = "model-gem11-combo-strike-sequence"
+# Steps that Strike more than once in one use, by the skills' own descriptions (ActiveSkills, build 26476662): Tempest
+# Flurry "the third use [Strike|Strikes] three times"; Shred "the final [Attack] [Strike|Strikes] twice". PoB's sets carry
+# no stat for it (checked: the two sets' constant stats and flags in act_int.lua / other.lua), so the set's per-use
+# damage is taken as one Strike's (UNVERIFIED) and multiplied.
+COMBO_STRIKES: dict[tuple[str, str], int] = {("Tempest Flurry", "Third Strike"): 3, ("Shred", "Final Strike"): 2}
+
+
+def combo_sequence_model(main: str | None, scored: str | None, sets: list[dict],
+                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """A combo skill's average DPS over its whole combo (COMBO_SEQUENCES) against the one stat set PoB scores. `sets`:
+    the bridge's setRates for the main group's skill (label, TotalDPS, Speed per set)."""
+    steps = COMBO_SEQUENCES.get(main or "")
+    if not steps or COMBO_ENTRY in forbidden:
+        return [], []
+    rows = {s.get("label"): (number(s.get("TotalDPS")), number(s.get("Speed"))) for s in sets}
+    if scored not in rows or rows[scored][0] <= 0 or any(rows.get(label, (0, 0))[1] <= 0 for label in steps):
+        return [], [{"label": f"{main}: its combo's stat sets", "value": "not counted", "confidence": "theory",
+                     "entry": COMBO_ENTRY, "basis": "a combo step's set has no speed or damage from PoB: PoB's one set kept"}]
+    strikes = {label: COMBO_STRIKES.get((main, label), 1) for label in steps}
+    damage = sum(rows[label][0] / rows[label][1] * strikes[label] for label in steps)
+    seconds = sum(1 / rows[label][1] for label in steps)
+    average = damage / seconds
+    factor = average / rows[scored][0]
+    parts = ", ".join(f"{label} {rows[label][0] / rows[label][1]:,.0f}"
+                      + (f" x{strikes[label]} Strikes" if strikes[label] > 1 else "") + f" in {1 / rows[label][1]:.2f} s"
+                      for label in steps)
+    note = {"label": f"{main}: the whole combo, not one stat set*", "value": f"x{factor:.3f}", "confidence": "LOW",
+            "entry": COMBO_ENTRY,
+            "basis": (f"one combo is {parts}: {average:,.0f} DPS against PoB's {scored} set alone "
+                      f"({rows[scored][0]:,.0f}). LOW: the combo taken as never broken; a step's extra Strikes (game "
+                      "text) taken at the set's per-use damage each (UNVERIFIED)"),
+            "play": (f"Keep using {main} so its combo runs to the end. PoB's {scored} set alone: x1.000; the full "
+                     f"combo: x{factor:.3f}.")}
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main)], [note]
+
+
+# Olroth's Conviction's extra Empowered skill uses (GEM11 turn 2; PATCH_CHECK H1-10, an UNDERCOUNT). Olroth's Conviction
+# (other.lua SupportOlrothsConvictionPlayer; "Supports skills that can Empower a specific number of other skills,
+# causing them to apply to more skill uses"; requireSkillTypes EmpowersOtherSkill, not IndeterminateEmpowermentAmount):
+# support_empowers_x_additional_other_skills 2, and its use costs Runic Ward (base_skill_ward_cost_as_%_of_life_and_mana_
+# cost 100, which PoB maps). PoB maps the Empower stat to nothing (checked: SkillStatMap.lua and Modules/*.lua for
+# "support_empowers_x_additional"). The skills it can support (PoB's act_*.lua skillTypes with EmpowersOtherSkill and
+# not IndeterminateEmpowermentAmount): Infernal Cry, Seismic Cry, Fortifying Cry, Ancestral Cry, Barrage, Ice-Tipped
+# Arrows, Mantra of Destruction, Unleash, and Ancestral Warrior Totem's support part. For a Warcry, PoB counts its
+# Empowered Attacks per use as Num<Name>Empowers (CalcPerform ~2196-2215: its Power over the boss's, plus the BASE mods
+# named <Name>EmpoweredAttacks, Name the warcry's name less " Cry", "'s" and spaces), which Infernal Cry's uptime
+# (CalcOffence ~3487) and Assumptions.empowered_uses (bridge useRates warcryEmpowers) read: so the 2 go to PoB as
+# <Name>EmpoweredAttacks BASE, scoped by its name to that one warcry. The other Empowering skills (Barrage's one
+# Empowered attack, Unleash's next spell, Mantra, Ice-Tipped Arrows, the totem) are counted by MECH-B's models, not
+# here: said in the note (an undercount until they read it).
+OLROTH_STAT = "support_empowers_x_additional_other_skills"
+OLROTH_ENTRY = "model-gem11-olroth-extra-empowers"
+
+
+def olroth_model(skills: list[Skill], forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Olroth's Conviction: its extra Empowered uses on each Warcry it supports, as PoB's <Name>EmpoweredAttacks."""
+    if OLROTH_ENTRY in forbidden:
+        return [], []
+    mods, notes, done = [], [], set()
+    label = "Olroth's Conviction: more skill uses Empowered*"
+    for s in skills:
+        extra = number(s.support_stats.get(OLROTH_STAT))
+        if extra <= 0 or s.name in done:
+            continue
+        done.add(s.name)
+        if s.name.endswith(" Cry"):
+            name = s.name.replace(" Cry", "").replace("'s", "").replace(" ", "")
+            mods.append(raw_mod(f"{name}EmpoweredAttacks", "BASE", extra))
+            notes.append({"label": label, "value": f"+{extra:g} Empowered Attacks a use", "confidence": "theory",
+                          "entry": OLROTH_ENTRY,
+                          "basis": f"{s.name} Empowers {extra:g} more Attacks each use (PoB's Num{name}Empowers, which "
+                                   "PoB's Infernal Cry uptime and the tool's Empowered-use count read)",
+                          "play": f"Each {s.name} now Empowers {extra:g} more Attacks: use them before the next cry."})
+        else:
+            notes.append({"label": label, "value": 0, "confidence": "theory", "entry": OLROTH_ENTRY,
+                          "basis": f"{s.name}'s {extra:g} extra Empowered uses aren't counted yet (its Empower is counted "
+                                   "by MECH-B's models, which don't read the support: an undercount, said)"})
+    return mods, notes
 
 
 # `share: cooldown_skills` (GEM11; PATCH_CHECK H1-10, an UNDERCOUNT): Uhtred's Constellation (sup_int.lua

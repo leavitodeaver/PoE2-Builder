@@ -1490,6 +1490,10 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             slam_mods, slam_notes = models.multi_set_model(main.name, main.stat_set, sets)
             hand_mods, hand_notes = hand_mods + slam_mods, hand_notes + slam_notes
+        if main is not None and group and main.name in models.COMBO_SEQUENCES:  # (GEM11: a combo's step sets)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            combo_mods, combo_notes = models.combo_sequence_model(main.name, main.stat_set, sets, forbidden)
+            hand_mods, hand_notes = hand_mods + combo_mods, hand_notes + combo_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)

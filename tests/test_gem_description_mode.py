@@ -331,3 +331,32 @@ def test_tricksters_shard_needs_four_casts_within_a_mimics_five_seconds():
     mods, notes = models.gem_stat_model([spark], stats={"Speed": 0.5}, main=spark)
     assert not [m for m in mods if m.get("name") == "DPS"]
     assert any(n["entry"] == models.TRICKSTER_ENTRY and n["value"] == "x1.000" for n in notes)
+
+
+def test_olroths_conviction_adds_its_empowers_to_the_warcry_by_name_only():
+    cry = Skill("Infernal Cry", 2, support_stats={models.OLROTH_STAT: 2})
+    barrage = Skill("Barrage", 3, support_stats={models.OLROTH_STAT: 2})
+    mods, notes = models.gem_stat_model([cry, barrage])
+    assert [(m["name"], m["value"]) for m in mods if m.get("name", "").endswith("EmpoweredAttacks")] == [
+        ("InfernalEmpoweredAttacks", 2)]
+    assert any(n["entry"] == models.OLROTH_ENTRY and "Barrage" in n["basis"] for n in notes)
+
+
+def test_a_combo_skill_is_scored_over_its_whole_combo_not_the_set_pob_keeps():
+    sets = [{"label": "Normal Strikes", "TotalDPS": 100.0, "Speed": 2.0},  # 50 a hit in 0.5 s
+            {"label": "Third Strike", "TotalDPS": 150.0, "Speed": 1.0}]  # 150 a hit in 1 s
+    average = (50 + 50 + 150) / (0.5 + 0.5 + 1.0)  # 125
+    mods, notes = models.combo_sequence_model("Ice Strike", "Third Strike", sets)
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (average / 150 - 1), abs=0.01)]  # an overcount cut
+    mods, _ = models.combo_sequence_model("Ice Strike", "Normal Strikes", sets)
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (average / 100 - 1), abs=0.01)]
+    assert models.combo_sequence_model("Primal Strikes", "Normal Strikes", sets) == ([], [])
+
+
+def test_tempest_flurrys_third_use_strikes_three_times_in_its_combo():
+    sets = [{"label": "Normal Strikes", "TotalDPS": 100.0, "Speed": 2.0}, {"label": "Third Strike", "TotalDPS": 40.0, "Speed": 1.0},
+            {"label": "Fourth Strike", "TotalDPS": 200.0, "Speed": 1.0}]
+    average = (50 + 50 + 3 * 40 + 200) / (0.5 + 0.5 + 1 + 1)
+    mods, notes = models.combo_sequence_model("Tempest Flurry", "Fourth Strike", sets)
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (average / 200 - 1), abs=0.01)]
+    assert "x3 Strikes" in notes[0]["basis"]

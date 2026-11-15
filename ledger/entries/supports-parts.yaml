@@ -61,8 +61,9 @@
   notes: >-
     "Supported Spells deal 50% less Damage when cast by Fractured Mimics" (constant -50 on SupportTrickstersShardPlayer).
     Your own casts are at full damage. The Mimics (the spell "Triggers Fragment Self, creating a Fractured Mimic which will
-    cast that Spell if you get enough of them") aren't counted by PoB (it maps neither stat) or the tool, so this has
-    nothing to act on until MECH-B counts the Mimics' casts: then each is 0.5x the spell's hit.
+    cast that Spell if you get enough of them") aren't counted by PoB (it maps neither stat). Since GEM11,
+    models.trickster_model (gems-gem11.yaml model-gem11-trickster-fractured-mimics) counts them on the main spell and
+    reads this entry's scale (support_part_scale "mimic"): each Mimic cast is 0.5x the spell's hit.
   sources: ["SupportTrickstersShardPlayer, GrantedEffectStatSets (build 26476662)", "https://poe2db.tw/us/Tricksters_Shard"]
   test_in_game: "Cast the supported spell until a Mimic casts it: the Mimic's hit against yours (0.5x)."
   status: proposed

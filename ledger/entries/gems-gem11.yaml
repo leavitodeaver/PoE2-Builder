@@ -124,3 +124,64 @@
             "data/game-26476662/files/data/statdescriptions/gem_stat_descriptions.csd"]
   test_in_game: "Cast a Trickster's Shard spell 4 times within 5 s at a dummy: the 4 mimics should each cast it at half damage."
   status: proposed
+
+- id: model-gem11-olroth-extra-empowers
+  title: "Olroth's Conviction: the supported skill Empowers 2 more skill uses (counted on Warcries)"
+  kind: model
+  model: olroth
+  stats: ["support_empowers_x_additional_other_skills"]
+  skill: [Olroth's Conviction]
+  confidence: theory
+  notes: >-
+    PATCH_CHECK H1-10. PoB maps it to nothing (checked: SkillStatMap.lua and Modules/*.lua). models.olroth_model: on a
+    Warcry, +2 as PoB's <Name>EmpoweredAttacks BASE (CalcPerform's Num<Name>Empowers, read by Infernal Cry's uptime and
+    Assumptions.empowered_uses). Probe POE2T2091 (real PoB, scratch/gem11/probe_olroth.json): Infernal Cry's
+    warcryEmpowers 2 -> 4 with it, Boneshatter's Full DPS 425.6 -> 469.3. On Barrage, Unleash, Mantra of Destruction,
+    Ice-Tipped Arrows and Ancestral Warrior Totem it's not counted yet (MECH-B's models count their Empower; said in
+    the note).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (SupportOlrothsConvictionPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua (~2196-2215, Num<Warcry>Empowers)"]
+  test_in_game: "Use Infernal Cry with Olroth's Conviction: it should Empower 2 more Attacks than without."
+  status: proposed
+
+- id: model-gem11-combo-strike-sequence
+  title: "Combo strikes (Ice Strike, Tempest Flurry, Shred): each combo step's own stat set, averaged over the combo"
+  kind: model
+  model: combo_sequence
+  stats: ["statset_index_for_second_animation_combo_index", "statset_index_for_third_animation_combo_index",
+          "statset_index_for_fourth_animation_combo_index", "statset_index_for_fifth_animation_combo_index",
+          "statset_index_for_final_animation_combo_index"]
+  skill: [Ice Strike, Tempest Flurry, Shred]
+  confidence: LOW
+  notes: >-
+    GEM7's open combo rows. PoB maps none of the combo-index stats (checked: SkillStatMap.lua and Modules/*.lua for
+    "animation_combo") and scores the one stat set the search keeps. models.combo_sequence_model: the combo's sum of
+    step hits (each set's TotalDPS / Speed from the bridge's setRates) over the sum of step times, against the scored
+    set, as DPS more / less on the main skill. Sequences in models.COMBO_SEQUENCES with their sources; Tempest Flurry's
+    third use x3 Strikes and Shred's final x2 (their game descriptions; PoB's sets carry no stat for it). Probes
+    POE2T2093-2096 (real PoB, scratch/gem11/probe209N.log): PoB's DpsMultiplier carries the factor (Ice Strike x1.04,
+    Tempest Flurry x2.89 on the Third Strike set the search kept); raw sets Normal 94.7, Third 39.8, Fourth 200.6 DPS,
+    so keeping the Fourth Strike set alone overcounted the combo about 1.75x (before the x3 Strikes). LOW: the combo
+    never broken. Primal Strikes left open (its "Spirits" step).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (IceStrikePlayer, TempestFlurryPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (WolfShredPlayer)"]
+  test_in_game: "Use Ice Strike continuously on a dummy for 10 s: the damage should match two Normal Strikes and one Third Strike per cycle."
+  status: proposed
+
+- id: no-effect-gem11-convalescence-cooldown
+  title: "Convalescence's description mode 30 is its 30-second Cooldown: PoB has the same Cooldown"
+  kind: gem_stat
+  match: '^skill_specific_stat_description_mode$'
+  replace: []
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Convalescence]
+  confidence: datamined
+  notes: >-
+    The mode's value 30 selects "Cooldown is {0} seconds" (GEM10's reading of convalescence.csd). PoB's level data has
+    cooldown = 30 at every level (act_int.lua ConvalescenceActivePlayer). Probe POE2T2093 (real PoB,
+    scratch/gem11/probe2093.log): activeSkills gives Convalescence cooldown 30, Cooldown Recovery ~1.0, cast time
+    0.5 s (PoB's useRates gives it no use rate: a buff). Same number: nothing to add.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (ConvalescenceActivePlayer)",
+            "scratch/gem11/probe2093.log"]
+  test_in_game: "Use Convalescence: its cooldown should read 30 s."
+  status: proposed
