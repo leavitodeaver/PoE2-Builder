@@ -639,7 +639,14 @@ def resisted_leech(build: Build) -> dict[str, float]:
 def pressed_group(group: dict, gems: dict[str, dict]) -> bool:
     """A non-main group in Full DPS whose damage comes from a skill the player presses now and then: not triggered by a
     meta skill (Cast on X), not a totem or an Invocation (they use their skills on their own), not a Mark carrier
-    (Pounce: the Mark model rates it), not granted by an item."""
+    (Pounce: the Mark model rates it), not granted by an item. (MECH-B, MECHB32) Except Untether: The Master's Reach
+    grants it, it is a cast Spell (ActiveSkills abyssal_living_bomb: Spell, no Persistent / Meta / Triggered type), so
+    a build counting it in Full DPS presses it (THE USER, 14 Nov: "Count it if used"), and its seeds' cap
+    (Assumptions.untether_cap) must hold PoB's explosion-every-cast count; it isn't in Context's gem list yet
+    (COV34 adds it at bridge load only), so it is named here."""
+    if (group["enabled"] and group["fullDPS"]
+            and any(g["enabled"] and not g["support"] and g["name"] == models.UNTETHER for g in group["gems"])):
+        return True
     if not group["enabled"] or not group["fullDPS"] or group["fromItem"]:
         return False
     active = [{**gems[g["name"]], "name": g["name"]} for g in group["gems"]

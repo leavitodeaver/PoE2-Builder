@@ -1786,6 +1786,9 @@ def test_pressed_group_tells_pressed_from_triggered_totem_and_mark_carrier_group
     assert not pressed_group(group("Spell Totem", "Frost Bomb"), gems)
     assert not pressed_group(group("Pounce"), gems)
     assert not pressed_group(group("Herald of Ice"), gems)
+    # (MECHB32) Untether, item-granted (The Master's Reach) and not in Context's gem list, is pressed when in Full DPS
+    assert pressed_group(group("Untether", item=True), gems)
+    assert not pressed_group(group("Untether", item=True, full=False), gems)
 
 
 def test_press_model_takes_the_uncapped_use_time_and_scales_ailments_by_the_stacks_the_presses_keep_up():
