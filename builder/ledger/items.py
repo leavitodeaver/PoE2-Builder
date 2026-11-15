@@ -183,8 +183,15 @@ def corrected_item(raw: str, directory: Path | None = None) -> str:
                 if fixed[1] is not None:
                     added.append(fixed[1])
         for augment, line in bonded_rune_lines(runes, base, directory):
-            if template(line) in unparsed and (translated := translate(line)) and not translated[0].conditional:
-                added += [f"{BONDED}{augment} {standin}" for standin in translated[1]]
+            if template(line) in unparsed:
+                if (translated := translate(line)) and not translated[0].conditional:
+                    added += [f"{BONDED}{augment} {standin}" for standin in translated[1]]
+                elif translated and translated[0].on_items:  # (COV32: a `share:` stand-in, LedgerShare's item form)
+                    added += [f"{BONDED}{augment} {standin}" for standin in item_lines(translated[1])]
+            elif (fixed := wrong(line)) and fixed[0].raw.get("bonded_add") and fixed[1] is not None:
+                # (COV32) a Bonded line PoB parses under a condition nothing sets (its own parse counts 0): the
+                # entry's stand-in goes beside it as a Bonded line (Warding Rune of Armature's "while missing Runic Ward")
+                added.append(f"{BONDED}{augment} {fixed[1]}")
     if off:
         at = next((i for i, l in enumerate(lines) if l.startswith("Implicits:")), None)
         if at is None:  # after the header and socket lines, as anoints.with_anoints places implicits

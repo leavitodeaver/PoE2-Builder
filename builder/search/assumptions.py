@@ -3129,6 +3129,21 @@ class Assumptions:
                 notes.append({"label": condition["title"], "value": f"{share:.0%}", "basis": how,
                               "confidence": "MEDIUM (the flask's charge gain; LOW where the boss's adds are counted)"})
                 continue
+            if condition.get("ward_state"):
+                # (COV32, NOTES3 DEAD-1 / DEAD-2) the share of the fight on Low / missing / full Runic Ward, from what the
+                # build spends its Ward on (MECH-C's ward_shares); its lines are `share:` lines (items-runes-cov32.yaml)
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                share, how = self.ward_state_share(condition["ward_state"])
+                percent = round(100 * min(max(share, 0.0), 1.0))
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                notes.append({"label": condition["title"], "value": f"{share:.0%}", "basis": how,
+                              "play": "Spend Runic Ward (its Ward-cost skills) to be on Low / missing Ward; don't, to "
+                                      "stay full: these lines count only for that part of the fight",
+                              "confidence": "MEDIUM-LOW (MECH-C's Ward spending; spends taken one at a time)"})
+                continue
             if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
                 share, how = self.jagged_ground_share(main, main_types, main_group)
                 # its ledger lines are `share:JaggedGround` (COV11): each counts its full value x this share (bridge
@@ -3317,6 +3332,26 @@ class Assumptions:
         return share, (f"{how}: {paid:.3f} attacks a second paid ({per_use:g} charges each, 10% of "
                        f"{number(flask.get('chargesMax')):g}) of {main}'s {speed:.2f}: {share:.1%} of its attacks deal "
                        "the added damage")
+
+    def ward_state_share(self, state: str) -> tuple[float, str]:
+        """(share of the fight on Low / missing / full Runic Ward, how) for the `ward_state` conditions (COV32, NOTES3
+        DEAD-1 / DEAD-2). From MECH-C's ward_shares(build) -> (Low share, Missing share, how), worked out from what the
+        build spends its Ward on (0, 0 when nothing does); full = 1 - Missing with a Runic Ward pool, 0 without one
+        (whether an empty pool counts as full is UNVERIFIED). Until MECH-C's function is on this base: 0, an UNDERCOUNT
+        kept, as before."""
+        shares = globals().get("ward_shares")  # (MECHC26's, in this module once its branch lands)
+        if shares is None:
+            return 0.0, ("not counted yet: the Runic Ward share (MECH-C's ward_shares) isn't in this build of the tool, so "
+                         "these lines count 0 as before (an UNDERCOUNT)")
+        low, missing, how = shares(self.build)
+        if state == "low":
+            return low, f"on Low Runic Ward (35% or less) {low:.0%} of the fight: {how}"
+        if state == "missing":
+            return missing, f"missing Runic Ward {missing:.0%} of the fight: {how}"
+        pool = number(self.build.call("stats", fields=["Ward"]).get("Ward"))
+        if pool <= 0:
+            return 0.0, "no Runic Ward pool: not counted as full (UNVERIFIED in game), 0"
+        return 1.0 - missing, f"on full Runic Ward {1.0 - missing:.0%} of the fight (missing it {missing:.0%}): {how}"
 
     def spell_crits_recently(self, window: float, main_types: set[str]) -> tuple[float, str]:
         """(Critical Hits dealt with Spells in the past `window` seconds, how), on average over the fight (COV17): the main

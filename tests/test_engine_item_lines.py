@@ -241,6 +241,32 @@ def test_a_bonded_stand_in_counts_only_under_pobs_own_bonded_switch(engine):
     assert charms in life(idols)[1] and charms not in life()[1]
 
 
+def test_a_bonded_share_stand_in_counts_at_its_share(engine):
+    """COV32: a Bonded stand-in may be a `share:` line ("LedgerBonded:<type> LedgerShare:<Name> <line>": Warding Rune
+    of Hollowing's full-Ward line, Armature's missing-Ward one): it counts its line x the share, under PoB's own Bonded
+    switch, as installLedgerShare counts an item's share line."""
+    from builder.ledger.items import BONDED, _bases
+    from builder.search import models
+
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    coat = next(n for n, b in _bases().items() if b["type"] == "Body Armour" and not b.get("hidden"))
+    idols = "Idols socketed in this item gain the benefits of their Bonded modifiers"
+    stand_in = "{custom}" + BONDED + "Idol LedgerShare:ProbeShare +50 to maximum Life"
+
+    def life(share, *lines):
+        engine.call("setAssumptions", mods=[models.raw_mod("Multiplier:LedgerShareProbeShare", "BASE", share)])
+        engine.call("equip", slot="Body Armour", fields=[],
+                    raw="\n".join(["Rarity: Rare", "Test Coat", coat, "Implicits: 0", *lines]))
+        return engine.call("stats", fields=["Life"])["Life"]
+
+    flagged = life(100, idols)
+    assert life(100, stand_in) == life(100) < flagged + 1  # (no Bonded source: nothing)
+    full, half, none = life(100, idols, stand_in), life(50, idols, stand_in), life(0, idols, stand_in)
+    assert none == flagged and full > half > none
+    assert half - none == pytest.approx((full - none) / 2, rel=0.05)
+
+
 def test_cov16_chance_lines_parse_to_the_ailment_chance_pob_reads(engine):
     """COV16: "N% increased chance to Poison / to inflict Bleeding" left the word "chance" over in PoB's parse, so PoB
     applied nothing; the ledger's lines are PoB's INC PoisonChance / BleedChance (CalcOffence's base * (1 + inc)).

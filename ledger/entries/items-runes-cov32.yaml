@@ -1,0 +1,183 @@
+# Lines that hold only while on Low / missing / full Runic Ward (COV32, 15 Nov 2026; PATCH_CHECK NOTES3 DEAD-1 / DEAD-2
+# and its "full Runic Ward" side line). PoB parses "while on Low Runic Ward" to Condition:LowRunicWard and "while
+# (you are) missing Runic Ward" to Condition:MissingRunicWard (ModParser.lua 1793-1796), which only its config boxes
+# conditionLowRunicWard (161, sets both) and conditionMissingRunicWard (165) set, and nothing in the tool sets them
+# (checked: git grep of LowRunicWard / MissingRunicWard / conditionLowRunicWard over builder/ and engine/: 0 hits;
+# NOTES3's DEAD-1 / DEAD-2 on poe2db's Runic_Ward page and the game's SoulCoreStats 394 / 396 / 402 / 406): so each
+# line counted 0, an UNDERCOUNT. Each now counts at the share of the fight the build spends in that state, from what
+# the build itself spends its Ward on (MECH-C's assumptions.ward_shares: 0 when nothing spends Ward, no flat rate),
+# through the conditions below (Assumptions.ward_state_share). Low Runic Ward: "35% of maximum Runic Ward or less"
+# (KeywordPopups LowWard; ledger/mechanics/keywords_poe2db.json "Low Runic Ward").
+#
+# Probe POE2T2527 (scratch/cov32/probe_ward.py): every stand-in below parses whole in PoB with no condition tag; the
+# originals parse whole with the condition tag, except Hollowing's "while on full Runic Ward" (leftover text, so PoB
+# drops the whole line) and Bodyguards' "Minions in your Presence have Onslaught while you are on Low Runic Ward"
+# (no PoB parse at all, nor of "Minions have Onslaught": not counted here, see the report).
+
+- id: RunicWardLow
+  title: The share of the fight on Low Runic Ward (35% of maximum or less), from what the build spends its Ward on
+  kind: condition
+  # Assumptions.ward_state_share("low"): MECH-C's ward_shares(build) Low share; 0 when nothing spends Ward
+  ward_state: low
+  shown_for: '(?:on Low Runic Ward|LedgerShare:RunicWardLow )'
+  confidence: theory
+  sources: ["ledger/mechanics/keywords_poe2db.json (Low Runic Ward)", "https://poe2db.tw/us/Runic_Ward"]
+  status: proposed
+
+- id: RunicWardMissing
+  title: The share of the fight missing Runic Ward (below its maximum), from what the build spends its Ward on
+  kind: condition
+  # Assumptions.ward_state_share("missing"): MECH-C's ward_shares(build) Missing share; 0 when nothing spends Ward
+  ward_state: missing
+  shown_for: '(?:missing Runic Ward|LedgerShare:RunicWardMissing )'
+  confidence: theory
+  sources: ["https://poe2db.tw/us/Runic_Ward"]
+  status: proposed
+
+- id: RunicWardFull
+  title: The share of the fight on full Runic Ward, from what the build spends its Ward on
+  kind: condition
+  # Assumptions.ward_state_share("full"): 1 - MECH-C's Missing share, with a Runic Ward pool; 0 with none
+  ward_state: full
+  shown_for: '(?:on full Runic Ward|LedgerShare:RunicWardFull )'
+  confidence: theory
+  sources: ["https://poe2db.tw/us/Warding_Rune_of_Hollowing"]
+  status: proposed
+
+- id: wrong-low-runic-ward-spell-penetration
+  title: Warding Rune of Desperation (wand / staff), Spell elemental penetration while on Low Runic Ward, at the build's Low Runic Ward share
+  kind: pob_wrong
+  match: '^Spell damage Penetrates (\d+)% of enemy Elemental Resistances while on Low Runic Ward$'
+  replace: ['share:RunicWardLow Spell damage Penetrates {1}% of enemy Elemental Resistances']
+  confidence: theory
+  notes: >-
+    Game: SoulCoreStats 394 spells_penetrates_elemental_resist_%_while_on_low_ward 25 (PoB ModRunes.lua 6040 / 6056, wand
+    and staff). PoB parses it to ElementalPenetration BASE 25 for Spells under Condition:LowRunicWard, which nothing sets
+    (file header): 0 before. The stand-in is the same line without the condition, counted at RunicWardLow's share. A
+    build whose Ward is never spent is never on Low Runic Ward: 0, as before.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua:6040", "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:1796",
+            "https://poe2db.tw/us/Warding_Rune_of_Desperation"]
+  test_in_game: "Spend Runic Ward below 35% with a Spell and compare its damage against a resistant enemy with Ward full and with Ward low."
+  status: proposed
+
+- id: wrong-low-runic-ward-armour-evasion
+  title: Warding Rune of Courage (helmet), increased Armour and Evasion while on Low Runic Ward, at the build's Low Runic Ward share
+  kind: pob_wrong
+  match: '^(\d+)% increased Armour and Evasion Rating while on Low Runic Ward$'
+  replace: ['share:RunicWardLow {1}% increased Armour and Evasion Rating']
+  confidence: theory
+  notes: >-
+    Game: SoulCoreStats 396 armour_and_evasion_rating_+%_while_on_low_ward 25 (PoB ModRunes.lua 6093). PoB parses it to
+    ArmourAndEvasion INC 25 under Condition:LowRunicWard, which nothing sets: 0 before. Counted at RunicWardLow's share
+    (a time average of a defence: the floors see the average, not the low-Ward moments).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua:6093", "https://poe2db.tw/us/Warding_Rune_of_Courage"]
+  test_in_game: "Spend Runic Ward below 35% and compare the character sheet's Armour and Evasion with Ward full."
+  status: proposed
+
+- id: wrong-missing-runic-ward-attack-speed
+  title: Attack Speed while missing Runic Ward (Warding Rune of Armature's Bonded line; the Alloy gloves line), at the build's Missing Runic Ward share
+  kind: pob_wrong
+  match: '^(\(\d+-\d+\)|\d+)% increased Attack Speed while missing Runic Ward$'
+  replace: ['share:RunicWardMissing {1}% increased Attack Speed']
+  # (a Bonded rune line PoB parses with a condition nothing sets, so its own parse counts 0: the stand-in is added as a
+  # Bonded line beside it, builder/ledger/items.py; if PoB's MissingRunicWard box is ever set, switch the line off too)
+  bonded_add: true
+  confidence: theory
+  notes: >-
+    Warding Rune of Armature, Bonded, Martial Weapon: "5% increased Attack Speed while missing Runic Ward" (SoulCoreStats
+    402; PoB ModRunes.lua 6225); Alloy gloves suffix AlloyAttackSpeedIfMissingWardRecently1 "(10-15)% increased Attack
+    Speed while missing Runic Ward" (PoB ModItem.lua 1779, weightVal 0: only the Alloy currency adds it, so on imported
+    items only: the search never offers it, SEARCH's). PoB parses Speed INC (Attack) under Condition:MissingRunicWard,
+    which nothing sets: 0 before. Counted at RunicWardMissing's share.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua:6225", "vendor/PathOfBuilding-PoE2/src/Data/ModItem.lua:1779",
+            "https://poe2db.tw/us/Runic_Ward"]
+  test_in_game: "With Ward below full, compare the attack's speed with Ward full."
+  status: proposed
+
+- id: wrong-missing-runic-ward-damage-as-extra-fire
+  title: Alloy weapon prefixes, Damage as Extra Fire while missing Runic Ward, at the build's Missing Runic Ward share
+  kind: pob_wrong
+  match: '^Gain (\(\d+-\d+\)|\d+)% of Damage as Extra Fire Damage while you are missing Runic Ward$'
+  replace: ['share:RunicWardMissing Gain {1}% of Damage as Extra Fire Damage']
+  confidence: theory
+  notes: >-
+    The 8 Alloy prefixes AlloyDamageAsExtraFire(TwoHand)WhileMissingRunicWard1 and ConvertedAlloyDamageAsExtra
+    Cold / Lightning / Chaos (TwoHand)WhileMissingRunicWard1 (PoB ModItem.lua 1777-1778, 2420-2425; 21-26% one-handed,
+    42-52% two-handed; weightVal 0: only the Alloy currency adds them, 0.5.0's 13 Alloys, core since 0.5.5's Verisium
+    Anvil, NOTES3 DEAD-2). PoB parses DamageGainAs<Element> BASE under Condition:MissingRunicWard, which nothing sets: 0
+    before, the largest of these (up to 52% of damage as extra) on an imported Alloy item. Counted at RunicWardMissing's
+    share. The search never offers Alloy mods (SEARCH's item).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModItem.lua:1777", "vendor/PathOfBuilding-PoE2/src/Data/ModItem.lua:2420",
+            "https://poe2db.tw/us/Runic_Ward"]
+  test_in_game: "With the Alloy weapon, spend some Ward and compare a hit's damage with Ward full."
+  status: proposed
+
+- id: wrong-missing-runic-ward-damage-as-extra-cold
+  title: Alloy weapon prefixes, Damage as Extra Cold while missing Runic Ward, at the build's Missing Runic Ward share
+  kind: pob_wrong
+  match: '^Gain (\(\d+-\d+\)|\d+)% of Damage as Extra Cold Damage while you are missing Runic Ward$'
+  replace: ['share:RunicWardMissing Gain {1}% of Damage as Extra Cold Damage']
+  confidence: theory
+  notes: >-
+    The 8 Alloy prefixes AlloyDamageAsExtraFire(TwoHand)WhileMissingRunicWard1 and ConvertedAlloyDamageAsExtra
+    Cold / Lightning / Chaos (TwoHand)WhileMissingRunicWard1 (PoB ModItem.lua 1777-1778, 2420-2425; 21-26% one-handed,
+    42-52% two-handed; weightVal 0: only the Alloy currency adds them, 0.5.0's 13 Alloys, core since 0.5.5's Verisium
+    Anvil, NOTES3 DEAD-2). PoB parses DamageGainAs<Element> BASE under Condition:MissingRunicWard, which nothing sets: 0
+    before, the largest of these (up to 52% of damage as extra) on an imported Alloy item. Counted at RunicWardMissing's
+    share. The search never offers Alloy mods (SEARCH's item).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModItem.lua:1777", "vendor/PathOfBuilding-PoE2/src/Data/ModItem.lua:2420",
+            "https://poe2db.tw/us/Runic_Ward"]
+  test_in_game: "With the Alloy weapon, spend some Ward and compare a hit's damage with Ward full."
+  status: proposed
+
+- id: wrong-missing-runic-ward-damage-as-extra-lightning
+  title: Alloy weapon prefixes, Damage as Extra Lightning while missing Runic Ward, at the build's Missing Runic Ward share
+  kind: pob_wrong
+  match: '^Gain (\(\d+-\d+\)|\d+)% of Damage as Extra Lightning Damage while you are missing Runic Ward$'
+  replace: ['share:RunicWardMissing Gain {1}% of Damage as Extra Lightning Damage']
+  confidence: theory
+  notes: >-
+    The 8 Alloy prefixes AlloyDamageAsExtraFire(TwoHand)WhileMissingRunicWard1 and ConvertedAlloyDamageAsExtra
+    Cold / Lightning / Chaos (TwoHand)WhileMissingRunicWard1 (PoB ModItem.lua 1777-1778, 2420-2425; 21-26% one-handed,
+    42-52% two-handed; weightVal 0: only the Alloy currency adds them, 0.5.0's 13 Alloys, core since 0.5.5's Verisium
+    Anvil, NOTES3 DEAD-2). PoB parses DamageGainAs<Element> BASE under Condition:MissingRunicWard, which nothing sets: 0
+    before, the largest of these (up to 52% of damage as extra) on an imported Alloy item. Counted at RunicWardMissing's
+    share. The search never offers Alloy mods (SEARCH's item).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModItem.lua:1777", "vendor/PathOfBuilding-PoE2/src/Data/ModItem.lua:2420",
+            "https://poe2db.tw/us/Runic_Ward"]
+  test_in_game: "With the Alloy weapon, spend some Ward and compare a hit's damage with Ward full."
+  status: proposed
+
+- id: wrong-missing-runic-ward-damage-as-extra-chaos
+  title: Alloy weapon prefixes, Damage as Extra Chaos while missing Runic Ward, at the build's Missing Runic Ward share
+  kind: pob_wrong
+  match: '^Gain (\(\d+-\d+\)|\d+)% of Damage as Extra Chaos Damage while you are missing Runic Ward$'
+  replace: ['share:RunicWardMissing Gain {1}% of Damage as Extra Chaos Damage']
+  confidence: theory
+  notes: >-
+    The 8 Alloy prefixes AlloyDamageAsExtraFire(TwoHand)WhileMissingRunicWard1 and ConvertedAlloyDamageAsExtra
+    Cold / Lightning / Chaos (TwoHand)WhileMissingRunicWard1 (PoB ModItem.lua 1777-1778, 2420-2425; 21-26% one-handed,
+    42-52% two-handed; weightVal 0: only the Alloy currency adds them, 0.5.0's 13 Alloys, core since 0.5.5's Verisium
+    Anvil, NOTES3 DEAD-2). PoB parses DamageGainAs<Element> BASE under Condition:MissingRunicWard, which nothing sets: 0
+    before, the largest of these (up to 52% of damage as extra) on an imported Alloy item. Counted at RunicWardMissing's
+    share. The search never offers Alloy mods (SEARCH's item).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModItem.lua:1777", "vendor/PathOfBuilding-PoE2/src/Data/ModItem.lua:2420",
+            "https://poe2db.tw/us/Runic_Ward"]
+  test_in_game: "With the Alloy weapon, spend some Ward and compare a hit's damage with Ward full."
+  status: proposed
+
+- id: items-full-runic-ward-max-elemental-resistances
+  title: Warding Rune of Hollowing (Bonded), +1% to all Maximum Elemental Resistances while on full Runic Ward, at the build's full Runic Ward share
+  kind: pob_gap
+  match: '^\+(\d+)% to all Maximum Elemental Resistances while on full Runic Ward$'
+  replace: ['share:RunicWardFull +{1}% to all Maximum Elemental Resistances']
+  confidence: theory
+  notes: >-
+    PoB ModRunes.lua 6323 (Hollowing's Bonded line). PoB has no "while on full Runic Ward" pattern (`grep -i "full runic
+    ward" ModParser.lua`: 0; probe POE2T2527: leftover text, so PoB drops the line): 0 before. The stand-in parses whole
+    (ElementalResistMax BASE 1), counted at RunicWardFull's share: 1 minus the Missing share for a build with a Runic
+    Ward pool, all fight for one that never spends it. With no Ward pool: 0 (whether an empty pool is "full" is
+    UNVERIFIED). A time average of a maximum resistance: the floors see the average.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua:6323", "https://poe2db.tw/us/Warding_Rune_of_Hollowing"]
+  test_in_game: "With the rune Bonded, compare the maximum resistances on the character sheet with Ward full and after spending some."
+  status: proposed

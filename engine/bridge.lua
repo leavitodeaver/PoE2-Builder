@@ -1246,6 +1246,26 @@ local function installCorpseExplosionHits()
 	end
 end
 
+-- A `share:` line's parsed modifiers counted at the share (COV17; COV32 made it shared by installLedgerShare and
+-- installLedgerBonded): each at value / 100 x Multiplier:LedgerShare<share>, the share in whole percent.
+local function ledgerShareMods(list, share)
+	local tagged = { }
+	for _, parsed in ipairs(list) do
+		local copy = copyTable(parsed)
+		if type(copy.value) == "number" then
+			copy.value = copy.value / 100
+		elseif type(copy.value) == "table" and type(copy.value.mod) == "table"
+				and type(copy.value.mod.value) == "number" then
+			copy.value.mod.value = copy.value.mod.value / 100  -- (a LIST of one nested mod)
+		end
+		-- (COV31) the share first: PoB evaluates tags in order and a PercentStat tag rounds its product
+		-- up (ModStore m_ceil), so a share after it would round 1/100 of the value up (The Lethal Draw: 100 for 92)
+		table.insert(copy, 1, { type = "Multiplier", var = "LedgerShare" .. share })
+		tagged[#tagged + 1] = copy
+	end
+	return tagged
+end
+
 -- The ledger's stand-ins for a socketed rune's / Idol's Bonded line PoB can't parse (COV13; builder/ledger/items.py):
 -- the item text carries each as "LedgerBonded:<augment type> <line>", which PoB can't parse; before PoB builds the
 -- item's modifiers, a copy of it goes in the item's rune lines as a Bonded line of that augment type, so PoB's own
@@ -1270,7 +1290,12 @@ local function installLedgerBonded()
 			for _, modLine in ipairs(explicit) do
 				local augment, rest = tostring(modLine.line or ""):match("^LedgerBonded:(%a+)%s+(.+)$")
 				if augment then
-					local list, extra = modLib.parseMod(rest)
+					-- (COV32) a `share:` stand-in ("LedgerShare:<Name> <line>"): <line>'s modifiers at the share
+					local share, inner = rest:match("^LedgerShare:(%w+)%s+(.+)$")
+					local list, extra = modLib.parseMod(inner or rest)
+					if list and not extra and share then
+						list = ledgerShareMods(list, share)
+					end
 					if list and not extra then
 						runeLines[#runeLines + 1] = { line = "Bonded: " .. rest, order = math.huge, modList = list,
 							rune = true, enchant = true, bonded = true, augmentType = augment, ledgerBonded = true }
@@ -1307,21 +1332,7 @@ local function installLedgerShare()
 					end
 					local list, extra = modLib.parseMod(rest)
 					if list and not extra then
-						local tagged = { }
-						for _, parsed in ipairs(list) do
-							local copy = copyTable(parsed)
-							if type(copy.value) == "number" then
-								copy.value = copy.value / 100
-							elseif type(copy.value) == "table" and type(copy.value.mod) == "table"
-									and type(copy.value.mod.value) == "number" then
-								copy.value.mod.value = copy.value.mod.value / 100  -- (a LIST of one nested mod)
-							end
-							-- (COV31) the share first: PoB evaluates tags in order and a PercentStat tag rounds its product
-							-- up (ModStore m_ceil), so a share after it would round 1/100 of the value up (The Lethal Draw: 100 for 92)
-							table.insert(copy, 1, { type = "Multiplier", var = "LedgerShare" .. share })
-							tagged[#tagged + 1] = copy
-						end
-						modLine.modList, modLine.extra, modLine.ledgerShare = tagged, nil, share
+						modLine.modList, modLine.extra, modLine.ledgerShare = ledgerShareMods(list, share), nil, share
 					end
 				end
 			end
@@ -3051,6 +3062,13 @@ end
 local BOSS_DEFAULT = { enemyFireResist = 45, enemyColdResist = 45, enemyLightningResist = 45, enemyChaosResist = 25,
 	enemySpeed = 510, cullingStrikeUniqueThreshold = 4.6086, enemyPhysicalDamage = 1223, enemyFireDamage = 4138,
 	enemyColdDamage = 4892, enemyLightningDamage = 4892, enemyChaosDamage = 2069 }
+-- Broken boss faces (Facebreaker's "+3 to +4 per Boss's Face Broken"; COV32, PATCH_CHECK MB-5 / R5): a count the
+-- character builds over its campaign and keeps (KeywordPopups 868: each World Screen "Boss Encounter" icon beaten), not
+-- a per-fight rate. PoB's box has no default, so it counted 0. 56 for a finished campaign + Interludes: the lower of the
+-- sources' two counts (56: Mobalytics / aoeah / u4gm's "176-236"; 60: poe2db's wiki note's "188-252"; the game files
+-- have no world-area table to count them). MEDIUM that the count is 56-60, LOW for 56 exactly. A loaded code's own
+-- count (the character's tracker) is kept, as its quest choices are. builder/search/assumptions.py facebreaker_notes.
+local BOSS_FACES_BROKEN = 56
 -- PoB's own Unique Culling Strike threshold (Data/Misc.lua: 5%). The boss's `cullingStrikeUniqueThreshold` (MECHD4,
 -- bosses.cull_threshold: 5% x Life / (Life + Energy Shield), so CullMultiplier is the gain over the whole pool) replaces
 -- it in data.gameConstants, which CalcOffence reads (4071 / 4075); every resetConfig puts PoB's back first.
@@ -3062,13 +3080,6 @@ local BOSS_HITS_DEFAULT = { enemyPhysicalDamage = 1034, enemyFireDamage = 4138, 
 -- A loaded code's configuration isn't evidence (PLAN.md §5.4): the active config set goes back
 -- to what a new build has (PoB's own new-set defaults, the boss preset included), with no custom
 -- modifiers, and the boss's resistances (args.boss, else BOSS_DEFAULT). Only the campaign quest
--- Broken boss faces (Facebreaker's "+3 to +4 per Boss's Face Broken"; COV32, PATCH_CHECK MB-5 / R5): a count the
--- character builds over its campaign and keeps (KeywordPopups 868: each World Screen "Boss Encounter" icon beaten), not
--- a per-fight rate. PoB's box has no default, so it counted 0. 56 for a finished campaign + Interludes: the lower of the
--- sources' two counts (56: Mobalytics / aoeah / u4gm's "176-236"; 60: poe2db's wiki note's "188-252"; the game files
--- have no world-area table to count them). MEDIUM that the count is 56-60, LOW for 56 exactly. A loaded code's own
--- count (the character's tracker) is kept, as its quest choices are. builder/search/assumptions.py facebreaker_notes.
-local BOSS_FACES_BROKEN = 56
 -- choices stay; they're free picks, not conditions. So does the broken-face count (campaign progress, BOSS_FACES_BROKEN).
 function bridge.resetConfig(args)
 	local configTab = build.configTab
@@ -3080,6 +3091,7 @@ function bridge.resetConfig(args)
 			fresh.input[var] = value
 		end
 	end
+	fresh.input.configBossFaceBroken = fresh.input.configBossFaceBroken or BOSS_FACES_BROKEN
 	POB_CULL_UNIQUE = POB_CULL_UNIQUE or data.gameConstants["CullingStrikeUniqueThreshold"]
 	data.gameConstants["CullingStrikeUniqueThreshold"] = POB_CULL_UNIQUE
 	-- The boss's hits per damage type (MECHC6, builder/search/boss_hits.py config_vars: the game's monster tables, not
@@ -3091,7 +3103,6 @@ function bridge.resetConfig(args)
 	for var, value in pairs((args and args.boss) or BOSS_DEFAULT) do
 		fresh.input[var] = value
 		if var == "cullingStrikeUniqueThreshold" then
-	fresh.input.configBossFaceBroken = fresh.input.configBossFaceBroken or BOSS_FACES_BROKEN
 			data.gameConstants["CullingStrikeUniqueThreshold"] = value
 		end
 	end
