@@ -1223,6 +1223,8 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + puppet_mods, hand_notes + puppet_notes
         barrage_mods, barrage_notes = barrage(build, main, found)  # (MECHB30: PoB's +2% for one empowered attack a cooldown)
         hand_mods, hand_notes = hand_mods + barrage_mods, hand_notes + barrage_notes
+        eldritch_mods, eldritch_notes = models.eldritch_empowerment_model([e["text"] for e in source_lines], stats, main)
+        hand_mods, hand_notes = hand_mods + eldritch_mods, hand_notes + eldritch_notes  # (MECHB30, MB-1: PoB's box unset)
         agony, agony_rate, agony_mods, agony_notes = inevitable_agony(build, main)  # (MECHB30: PoB scores it 0)
         hand_mods, hand_notes = hand_mods + agony_mods, hand_notes + agony_notes
         if agony_rate > 0:  # (a press: the button cap counts it, as Bastion of Light's taps: models.ITEM_PRESSES)

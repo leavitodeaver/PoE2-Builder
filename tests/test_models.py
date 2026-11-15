@@ -4615,6 +4615,29 @@ def test_barrage_empowers_one_attack_per_cooldown_not_every_attack():
     assert loss == 1.0 and "not pressed" in how
 
 
+def test_eldritch_empowerment_counts_30_percent_more_at_the_share_of_casts_its_es_pays_for():
+    """MECHB30 (PATCH_CHECK MB-1): the Lich's "Sacrifice 5% of maximum Energy Shield when you Cast a Spell" / "Spells for
+    which this Sacrifice was fully made deal 30% more Damage": the share of the main Spell's casts the ES coming back
+    covers (regeneration, recharge between the boss's landed hits past the delay, less what the hits take), x 30%."""
+    texts = ["Sacrificing Energy Shield does not interrupt Recharge", "Sacrifice 5% of maximum Energy Shield when you Cast a Spell",
+             "Spells for which this Sacrifice was fully made deal 30% more Damage"]
+    spark = models.Skill("Spark", group=1, spell=True)
+    stats = {"Speed": 2.0, "EnergyShield": 1000.0, "EnergyShieldRegenRecovery": 50.0, "EnergyShieldRecharge": 0.0,
+             "EnergyShieldRechargeDelay": 2.0}
+    mods, notes = models.eldritch_empowerment_model(texts, stats, spark)
+    hits = models.boss_hits.land_share(stats) / models.bosses.benefit_skill_time(stats)
+    taken = hits * min(models.boss_hits.type_taken(stats), 1000.0)
+    share = min(1.0, max(0.0, 50.0 - taken) / 100.0)
+    assert notes[0]["value"] == pytest.approx(30 * share, abs=0.01)
+    rich = {**stats, "EnergyShieldRegenRecovery": 10000.0}
+    mods, notes = models.eldritch_empowerment_model(texts, rich, spark)
+    assert mods[0]["line"] == "1% more Spell Damage" and mods[0]["scale"] == pytest.approx(30.0)
+    assert models.eldritch_empowerment_model([], rich, spark) == ([], [])
+    bow = models.Skill("Ice Shot", group=1, attack=True)
+    assert models.eldritch_empowerment_model(texts, rich, bow)[0] == []
+    assert models.eldritch_empowerment_model(texts, {**rich, "EnergyShield": 0}, spark)[0] == []
+
+
 def test_added_sources_sum_and_eternal_hunt_counts_five_wolves_net_of_its_presses():
     """MECHB20: the added-damage slot sums several sources (Melting Maelstrom's pulses and models.added_input's) for the
     bridge's LedgerAddedDPS; Eternal Hunt adds 5 wolves' hits per cooldown (the user's play experience; 1 / all-7 rows), less the main

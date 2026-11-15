@@ -4585,6 +4585,56 @@ def inevitable_agony_model(hit_dps: float, player_dps: float, duration: float = 
 # time) over Barrage's Cooldown Recovery, at most 30 s. Readings (labelled): the repeats take no extra attack time, as
 # PoB's (UNVERIFIED); every projectile of the sequence at the less damage, as PoB reads "with repeated projectiles";
 # Frenzy Charges consumed per use counted at PoB's held count (whether they come back each cycle is MECH-C's charges).
+EMPOWERMENT_LINE = re.compile(r"sacrifice (\d+(?:\.\d+)?)% of maximum energy shield when you cast a spell", re.I)
+EMPOWERMENT_MORE = re.compile(r"spells for which this sacrifice was fully made deal (\d+(?:\.\d+)?)% more damage", re.I)
+
+
+# Eldritch Empowerment (MECHB30, PATCH_CHECK MB-1), the Lich notable (PoB tree 0_5): "Sacrificing Energy Shield does
+# not interrupt Recharge" / "Sacrifice 5% of maximum Energy Shield when you Cast a Spell" / "Spells for which this
+# Sacrifice was fully made deal 30% more Damage". PoB gives the 30% only with its eldritchEmpowermentSacrifice box,
+# which nothing sets: 0 before (an UNDERCOUNT). Here: each cast of the main Spell spends 5% of maximum ES; casts are
+# fully made at the share of that spend the ES coming back covers (min(1, back / spent), the pool drained to the cost
+# otherwise): PoB's EnergyShieldRegenRecovery, plus EnergyShieldRecharge over the part of each gap between the boss's
+# landed hits past the recharge delay (the sacrifice doesn't interrupt it), less the ES those hits take (an average
+# landed hit, boss_hits.type_taken, at most the pool). Handed to PoB as "N% more Spell Damage" at 30% x the share.
+# Not counted (labelled): other spells' casts (theirs spend ES too: an overcount of the share where other spells are
+# cast, and their own bonus an undercount), triggered spells (whether a trigger is "Cast" here: UNVERIFIED, left out),
+# and the ES the sacrifice keeps off your defences (the floors read PoB's full pool: an OVERCOUNT of defence, MECH-C's).
+def eldritch_empowerment_model(texts: list[str], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the main Spell's 30% more damage at the share of its casts the build's ES pays for."""
+    cost = next((float(m.group(1)) for t in texts if (m := EMPOWERMENT_LINE.search(t))), 0.0)
+    more = next((float(m.group(1)) for t in texts if (m := EMPOWERMENT_MORE.search(t))), 0.0)
+    if cost <= 0 or more <= 0:
+        return [], []
+    label = "Eldritch Empowerment (30% more Spell damage when the ES sacrifice is fully made)"
+    if main is None or not main.spell or main.triggered:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
+                     "basis": "the main skill isn't a Spell you cast: no Sacrifice, no bonus counted"}]
+    pool = number(stats.get("EnergyShield"))
+    casts = number(stats.get("Speed"))
+    spent = casts * pool * cost / 100
+    if pool <= 0 or spent <= 0:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM", "basis": "no Energy Shield to sacrifice: 0"}]
+    hits = boss_hits.land_share(stats) / bosses.benefit_skill_time(stats)
+    regen, recharge = number(stats.get("EnergyShieldRegenRecovery")), number(stats.get("EnergyShieldRecharge"))
+    delay = number(stats.get("EnergyShieldRechargeDelay"))
+    if hits > 0:
+        gap = 1 / hits
+        recharging = recharge * max(0.0, gap - delay) / gap
+        taken = hits * min(boss_hits.type_taken(stats), pool)
+    else:
+        recharging, taken = recharge, 0.0
+    back = max(0.0, regen + recharging - taken)
+    share = min(1.0, back / spent)
+    value = more * share
+    basis = (f"{casts:.2f} casts/s x {cost:g}% of {pool:,.0f} ES = {spent:,.0f} ES/s spent; back {back:,.0f}/s "
+             f"({regen:,.0f} regenerated + {recharging:,.0f} recharge between the boss's landed hits, {hits:.2f}/s past "
+             f"the {delay:g} s delay, - {taken:,.0f} the hits take): {share:.0%} of casts fully made, so {value:.1f}% more "
+             "Spell damage. Not counted: other spells' casts, triggered spells (UNVERIFIED), the ES kept off your defences")
+    note = {"label": label, "value": round(value, 2), "basis": basis, "confidence": "MEDIUM"}
+    return ([line("1% more Spell Damage", value)] if value > 0 else []), [note]
+
+
 BARRAGE = "Barrage"
 BARRAGE_COOLDOWN = 2.0  # s (its level cooldown)
 BARRAGE_MAX_COOLDOWN = 30.0  # s (empowered_barrage_maximum_cooldown_ms 30000)
