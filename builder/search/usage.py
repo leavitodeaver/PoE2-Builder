@@ -178,6 +178,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder.search.conditions import UPTIME
+from builder.search.context import gem_of
 from builder.search.flasks import THROW_CHARGES, THROW_POOL
 from builder.search.models import DODGE_ROLL_SECONDS
 from builder.search.objective import number
@@ -370,7 +371,7 @@ class Usage:
             if not group["enabled"] or group in mine or not any(group.get(f"set{s}", True) for s in sets):
                 continue
             for gem in group["gems"]:
-                types = set(self.gem(gem["name"]).get("skillTypes") or [])
+                types = set(self.gem(gem["name"], gem.get("skillId")).get("skillTypes") or [])
                 builds = "Attack" in types if master else {"Attack", "Melee"} <= types and "Slam" not in types
                 if not gem["support"] and builds:
                     found.append((group.get("index"), gem["name"]))
@@ -528,9 +529,10 @@ class Usage:
         rolled = travel_rotation(need.amount, movement, speed, cooldown, rolls=True)[0]
         return uses, share, walking, rolled
 
-    def gem(self, name: str) -> dict:
+    def gem(self, name: str, skill_id: str | None = None) -> dict:
+        """The gem's data: by its granted effect id when the caller has it (a group's gem: COV31), else by name."""
         ctx = self.build.ctx
-        return (getattr(ctx, "all_gems", None) or {}).get(name) or ctx.gems.get(name) or {}
+        return gem_of(ctx, name, skill_id) or ctx.gems.get(name) or {}
 
     def form_free(self, name: str) -> bool:
         """Can this skill be used while a Talisman Shapeshifts the player (module docstring)?"""
@@ -558,7 +560,7 @@ class Usage:
         for other in group["gems"]:
             if other["name"] == name:
                 continue
-            types = set(self.gem(other["name"]).get("skillTypes") or [])
+            types = set(self.gem(other["name"], other.get("skillId")).get("skillTypes") or [])
             if not other["support"] and "Meta" in types and self.form_free(other["name"]):
                 return True
             # (usable_with_talisman only; socketedFormFree frees socketed Shapeshift skills, which are form-free anyway)

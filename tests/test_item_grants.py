@@ -108,3 +108,32 @@ def test_a_keystone_an_item_grants_carries_the_ledgers_translations(setup):
     build.call("equip", slot="Amulet", fields=[])
     assert before["EnergyShield"] > 0 and before["EnergyShieldRegenRecovery"] > 0
     assert after["EnergyShieldRegenRecovery"] == 0
+
+
+def test_an_item_granted_skill_scores_at_the_level_the_character_meets(setup):
+    """COV31 (COV30's level lead): PoB scores an item-granted skill at the highest level up to the line's whose level
+    and attribute requirements the character meets (CalcSetup 2170, getGrantedSkillLevel with env.modDB), the game's
+    rule since 0.5.4 ("Unique Items that grant Skills now use the lowest level of the Skill that you meet the
+    requirements of when equipped, scaling up to the maximum described level on the item as you meet the Skill
+    requirements"). COV30's level-3 Lightning Bolt was the test character's 15 Intelligence, not a lost level:
+    probe POE2T2504 (scratch/cov31/probe_level.py), character 90: Int 15 -> 3, 75 -> 11, 165 -> 20; character 60,
+    Int 165 -> 14 (level 15 needs character level 61 or more)."""
+    ctx, build = setup
+
+    def level(character: int, intelligence: int) -> int:
+        build.call("setLevel", level=character)
+        raw = "\n".join(["Rarity: Rare", "Test Staff", "Voltaic Staff", "Item Level: 82", "Implicits: 1",
+                         "Grants Skill: Level 20 Lightning Bolt", f"+{intelligence} to Intelligence"])
+        build.call("equip", slot="Weapon 1", raw=raw, fields=[])
+        found = [gem.get("level") for group in build.call("groups")["groups"] if group.get("fromItem")
+                 for gem in group.get("gems") or [] if gem.get("name") == "Lightning Bolt"]
+        build.call("equip", slot="Weapon 1", fields=[])
+        assert len(found) == 1, found
+        return found[0]
+
+    try:
+        assert level(90, 150) == 20  # the line's level once the character meets it (Int 157 at level 20)
+        assert level(90, 60) == 11  # Int short: the highest level the Int meets
+        assert level(60, 150) == 14  # character level short: the highest level the character meets
+    finally:
+        build.call("setLevel", level=ctx.level)

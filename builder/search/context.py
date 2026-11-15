@@ -253,6 +253,14 @@ def normal_item(base: dict) -> str:
                                       *lines]))
 
 
+
+def gem_of(ctx, name: str | None, skill_id: str | None = None) -> dict:
+    """Context.gem_for for any context-like object (a test's stand-in may carry all_gems only): by the granted effect
+    id first (gems_by_skill_id), else by name (all_gems); {} when neither finds one (COV31)."""
+    by_id = getattr(ctx, "gems_by_skill_id", None) or {}
+    by_name = getattr(ctx, "all_gems", None) or {}
+    return (skill_id and by_id.get(skill_id)) or (name and by_name.get(name)) or {}
+
 class Context:
     def __init__(self, payload: dict) -> None:
         self.payload = payload
@@ -349,6 +357,17 @@ class Context:
             if alias and "{" not in alias:
                 gems.setdefault(alias, gem)
         return gems
+
+    @cached_property
+    def gems_by_skill_id(self) -> dict[str, dict]:
+        """Every gem by its granted effect id (gems.json's grantedEffectId, one gem each): four names are shared by two
+        gems (Lightning Bolt, Mace Strike, Spear Stab, Unleash: COV30), so a by-name read can find the wrong one."""
+        return {gem["grantedEffectId"]: gem for gem in self.data.gems if gem.get("grantedEffectId")}
+
+    def gem_for(self, name: str | None, skill_id: str | None = None) -> dict:
+        """The gem of a skill: by its granted effect id when the caller has it (a group's gem, an active skill: the
+        bridge's skillId), else by name (all_gems); {} when neither finds one."""
+        return gem_of(self, name, skill_id)
 
     @cached_property
     def granted_by(self) -> dict[str, list[tuple[str, str, str | None]]]:

@@ -26,6 +26,7 @@ import re
 from builder.ledger import conditions
 from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
 from builder.search import conditions as conditions_mod, models, passive_models
+from builder.search.context import gem_of
 from builder.search.conditions import (CHILL_FIELDS, INFUSED_SET, ailment_uptime, chill_share, curse_uses, natural_distance,
                                        shock_share)
 from builder.search.objective import number, per_second
@@ -2629,9 +2630,11 @@ class Assumptions:
         actives = [s["name"] for s in skills if not s["disabled"]]
         names = actives + [gem["name"] for group in self.build.groups() for gem in group["gems"]
                            if gem.get("enabled", True)]
-        texts = [(self.build.ctx.all_gems.get(name) or {}).get("description") or "" for name in actives]
+        ctx = self.build.ctx
+        texts = [gem_of(ctx, s["name"], s.get("skillId")).get("description") or "" for s in skills if not s["disabled"]]
         main = self.main_skill()
-        main_types = set((self.build.ctx.all_gems.get(main) or {}).get("skillTypes") or []) if main else set()
+        main_id = next((s.get("skillId") for s in skills if s["name"] == main and not s["disabled"]), None)
+        main_types = set(gem_of(ctx, main, main_id).get("skillTypes") or []) if main else set()
         main_group = self.build.main_group()
         main_info = next((s for s in skills if s["name"] == main and main_group and s.get("group") == main_group["index"]),
                          next((s for s in skills if s["name"] == main), {}))
@@ -2838,10 +2841,10 @@ class Assumptions:
         """(different Warcries used Recently on average, how): each different Warcry in the build's enabled groups is up
         min(1, 4 s x its uses per second) of the fight, its uses from the bridge's useRates (conditions.skill_use_rate:
         its cooldown, else its duration, else the search's press choice, else 0); none in the build: 0."""
-        gems = getattr(self.build.ctx, "all_gems", {}) or {}
+        ctx = self.build.ctx
         found = {g["index"]: n["name"] for g in self.build.groups() if g.get("enabled") is not False
                  for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")
-                 and "Warcry" in ((gems.get(n["name"]) or {}).get("skillTypes") or [])}
+                 and "Warcry" in (gem_of(ctx, n["name"], n.get("skillId")).get("skillTypes") or [])}
         if not found:
             return 0.0, "no Warcry in the build's enabled groups: 0"
         shares: dict[str, tuple[float, str]] = {}
@@ -2873,10 +2876,10 @@ class Assumptions:
         """(Warcry uses per second, how): every Warcry in the build's enabled groups at its own use rate
         (conditions.skill_use_rate: its cooldown, else its duration, else the search's press choice, else 0) (MECHB18:
         Kaom's Blessing boosts one Fire Spell per Warcry use)."""
-        gems = getattr(self.build.ctx, "all_gems", {}) or {}
+        ctx = self.build.ctx
         found = {g["index"]: n["name"] for g in self.build.groups() if g.get("enabled") is not False
                  for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")
-                 and "Warcry" in ((gems.get(n["name"]) or {}).get("skillTypes") or [])}
+                 and "Warcry" in (gem_of(ctx, n["name"], n.get("skillId")).get("skillTypes") or [])}
         if not found:
             return 0.0, "no Warcry in the build's enabled groups"
         total, parts = 0.0, []

@@ -62,3 +62,35 @@ def test_the_settled_names_are_the_ones_pob_ships_today():
     assert _settled() == {"Lightning Bolt": "UniqueBreachLightningBoltPlayer", "Mace Strike": "Melee2HMacePlayer",
                           "Spear Stab": "MeleeSpearPlayer"}
     assert shared["Unleash"] == {"UnleashPlayer", "SupportUnleashPlayer"}
+
+
+def test_a_group_gems_skill_id_picks_its_own_gem_where_a_name_is_shared():
+    """COV31: the Python side reads a group's gem (or an active skill) by its granted effect id (the bridge's skillId),
+    so the Voltaic Staff's Lightning Bolt never reads as Choir of the Storm's triggered one (a Cooldown skill): the
+    Warcry, consume and Glory checks read skill types and descriptions through gem_of. A stand-in context with
+    only all_gems (the tests' SimpleNamespace ones) still reads by name."""
+    from types import SimpleNamespace
+
+    from builder.search.context import gem_of
+
+    castable = {"grantedEffectId": "LightningBoltPlayer", "skillTypes": ["Spell"]}
+    triggered = {"grantedEffectId": "UniqueBreachLightningBoltPlayer", "skillTypes": ["Spell", "Cooldown"]}
+    ctx = SimpleNamespace(all_gems={"Lightning Bolt": triggered},
+                          gems_by_skill_id={"LightningBoltPlayer": castable, "UniqueBreachLightningBoltPlayer": triggered})
+    assert gem_of(ctx, "Lightning Bolt", "LightningBoltPlayer") is castable
+    assert gem_of(ctx, "Lightning Bolt", "UniqueBreachLightningBoltPlayer") is triggered
+    assert gem_of(ctx, "Lightning Bolt") is triggered  # no id: by name, as before
+    assert gem_of(ctx, "Lightning Bolt", "NoSuchSkill") is triggered  # an id the data lacks: by name
+    assert gem_of(SimpleNamespace(all_gems={"Spark": castable}), "Spark", "SparkPlayer") is castable
+    assert gem_of(SimpleNamespace(), "Spark") == {}
+    # The real data: one gem per granted effect id, and each shared name's ids find their own gems
+    from builder.data import GameData
+
+    gems = GameData().gems
+    by_id = {g["grantedEffectId"]: g for g in gems}
+    assert len(by_id) == len(gems)
+    for name, ids in _gems().items():
+        if len(ids) > 1:
+            for effect in ids:
+                if effect in by_id:
+                    assert by_id[effect]["name"] == name

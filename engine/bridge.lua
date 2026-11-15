@@ -3646,6 +3646,7 @@ function bridge.activeSkills(args)
 		local types = activeSkill.skillTypes
 		skills[#skills + 1] = {
 			name = effect.name,
+			skillId = effect.id,  -- (COV31) the granted effect: four names are shared by two gems
 			cooldown = activeSkill.skillData.cooldown,
 			cooldownRecovery = calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "CooldownRecovery"),
 			generatesRemnants = types[SkillType.GeneratesRemnants] and true or false,

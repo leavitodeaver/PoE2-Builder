@@ -19,6 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from builder.search import boss_hits, bosses, models
+from builder.search.context import gem_of
 from builder.search.objective import number
 from builder.search.state import EPSILON, Build
 
@@ -2390,10 +2391,10 @@ def side_consumes(build, main_skill: str, groups: dict | None = None,
     groups = groups or build.call("groups")
     choices = models.press_choices(build)  # (the search's chosen press rates, MECH55)
     main_index = groups.get("mainSocketGroup")
-    gems = build.ctx.all_gems
+    ctx = build.ctx
     candidates = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")]
                   for g in groups["groups"] if g.get("enabled") is not False and g["index"] != main_index
-                  and any(n.get("enabled", True) and CONSUME_TEXT.search((gems.get(n["name"]) or {}).get("description") or "")
+                  and any(n.get("enabled", True) and CONSUME_TEXT.search(gem_of(ctx, n["name"], n.get("skillId")).get("description") or "")
                           for n in g.get("gems") or [])}
     names = sorted({n for found in candidates.values() for n in found if n != main_skill})
     if not names:
