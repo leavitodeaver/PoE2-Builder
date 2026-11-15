@@ -19,7 +19,7 @@ def test_eye_of_winter_takes_every_ground_and_orb_at_its_share():
     out = conditions.element_gain_shares("Eye of Winter", stats, [], {"Lightning": (0.6, "Orb of Storms up 60%")})
     assert out["Lightning"][0] == pytest.approx(1 - 0.5 * 0.4)  # (ground or Orb, independent)
     assert out["Cold"][0] == pytest.approx(0.2)
-    assert out["Fire"][0] == 0.0 and "isn't modelled" in out["Fire"][1]
+    assert out["Fire"][0] == 0.0  # (no Ignited Ground: MECH79's conditions.ignited_ground gives the Fire)
     # nothing in its path: 0 for every element (no source, 0)
     assert all(v[0] == 0.0 for v in conditions.element_gain_shares("Eye of Winter", {}, [], {}).values())
     # the ring lines are for wind skills only

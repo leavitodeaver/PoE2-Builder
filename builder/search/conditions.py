@@ -3445,8 +3445,8 @@ def _drain_ailments(lines: list[str], stats: dict) -> tuple[object, str]:
 #     OVERCOUNT), so the tool sets only the gain's PoB condition (bridge: "bridgeCondition<Name>" config inputs).
 # Elemental Ground = Shocked, Chilled and Ignited Ground (KeywordPopups ElementalGround). Each element's share is the
 # share of the fight the build's own ground of it is at the boss (conditions.shocked_ground / chilled_ground: the
-# ground made at the boss, so a skill aimed at the boss passes over it; MEDIUM). Ignited Ground: the tool has no model of
-# it yet, so Fire comes only from an Orb or a ring line (an UNDERCOUNT where the build makes Ignited Ground). Eye of
+# ground made at the boss, so a skill aimed at the boss passes over it; MEDIUM). Ignited Ground: conditions.ignited_ground
+# (MECH79; before, Fire came only from an Orb or a ring line). Eye of
 # Winter's Orbs: each enabled Orb skill beside it (skill type Orb, by its element types; Hydrosphere's two taken as both,
 # UNVERIFIED) at min(1, its uses/s x its duration) (the play: keep one up and fire the Eye through it; MEDIUM). Flame
 # Wall's added Fire is MECH-B's (MA-12). Wind skills (Twister, the Whirlwinds; ActiveSkillType Wind, 0.4.0) also count
@@ -3481,7 +3481,7 @@ def element_gain_shares(skill: str, stats: dict, texts: list[str], orbs: dict[st
     ringed = {GROUND_OF[g] for m in WIND_GROUND_BOOST.finditer(joined)
               for g in re.findall(r"Ignited|Shocked|Chilled", m.group(1), re.I)} if skill != EYE_OF_WINTER else set()
     grounds = {"Lightning": stats.get("_shocked_ground") or (0.0, ""), "Cold": stats.get("_chilled_ground") or (0.0, ""),
-               "Fire": (0.0, "Ignited Ground isn't modelled yet (an UNDERCOUNT where the build makes it)")}
+               "Fire": stats.get("_ignited_ground") or (0.0, "")}  # (MECH79: conditions.ignited_ground)
     out: dict[str, tuple[float, str]] = {}
     for element in GROUND_ELEMENTS:
         ground, ground_how = grounds[element]
@@ -3777,6 +3777,68 @@ def chilled_ground(stats: dict, texts: list[str], main_gems: set[str]) -> tuple[
     return share, (f"the boss Frozen {freezes:.3f}/s by the main skill; " + "; ".join(parts)
                    + f": on Chilled Ground {share:.0%} of the fight (the frozen boss taken to stay in the patch, MEDIUM; "
                    "skills' own ground and other skills' Freezes not counted)")
+
+
+# Ignited Ground under the boss (MECH79; plans/kw-ignited-ground.md item 1). KeywordPopups IgnitedGround: "repeatedly
+# inflicts Flammability on enemies as long as they are standing on it, Igniting them when it reaches 50%. By default,
+# Ignited Ground lasts for 4 seconds and has a radius of 2 metres". The player's sources (checked: the 58 Stats ids
+# holding ignit/burning + ground and their users in Mods, PassiveSkills, GrantedEffectStatSets and PerLevel, game
+# 26476662; the skills' ActiveSkills texts; poe2db not checked):
+#   - counted: Incinerate and Ball Lightning, each on the casts that consume a Fire Infusion ("Consumes a Fire Infusion
+#     if possible to also create Ignited Ground" / "... create Ignited Ground as it travels"), the build's Fire (and
+#     any-element) Infusions shared over its Fire consumers by uses; the ground made at the boss (Incinerate's cone and
+#     Ball Lightning's path through it; LOW, as Shocked Ground), lasting IncinerateGroundPlayer's 8 s /
+#     BallLightningIgnitedGround's 4 s (base_skill_effect_duration; duration modifiers not read);
+#   - counted: Beira's Anguish (UniqueCharmIgniteEnemiesInPresence1, "Creates Ignited Ground for 4 seconds when used")
+#     at the charm's uses (flasks.uses_per_second), at your feet: only when you fight within its 2 m (the default);
+#   - counted: Birth of Fury (UniqueBurningGroundWhileMovingMaximumLife1, "Drop Ignited Ground while moving, which
+#     lasts 8 seconds"): a play style, as Shocked Ground's trail (walk or roll through the boss's spot every 8 s), only
+#     when you fight within 2 m and don't stand still;
+#   - NOT counted yet (an UNDERCOUNT, labelled in the row): Explosive Spear's Frenzy-Charged explosion, Spear of
+#     Solaris's skybeam ground, Burning Inscription (the support's runes).
+IGNITED_GROUND_RADIUS = 2.0  # m (KeywordPopups IgnitedGround's default)
+IGNITED_GROUND_MAKERS = {"Incinerate": 8.0, "Ball Lightning": 4.0}  # s, the Fire-Infused casts' ground
+IGNITED_ON_USE = re.compile(r"Creates Ignited Ground for (\d+) seconds when used", re.I)
+IGNITED_WHILE_MOVING = re.compile(r"Drop Ignited Ground while moving, which lasts (\d+) seconds", re.I)
+IGNITED_NOT_COUNTED = "Explosive Spear's, Spear of Solaris's and Burning Inscription's ground not counted yet"
+
+
+def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats: dict,
+                   charms: dict[str, tuple[float, str]] | None = None) -> tuple[float, str]:
+    """(share of the fight the boss stands in your Ignited Ground, how); see the note above. `makers`: {skill: (its
+    Fire-Infused casts per second, how)}; `charms`: {line text: (the charm's uses per second, how)}. (0.0, "") with no
+    source."""
+    parts, notes, off = [], [], 1.0
+    for name, (rate, how) in makers.items():
+        seconds = IGNITED_GROUND_MAKERS[name]
+        up = _covered(rate, 1.0, seconds)
+        parts.append(f"{name}'s ground on its Fire-Infused casts ({how}; {seconds:g} s, made at the boss, LOW): {up:.0%}")
+        off *= 1 - up
+    near = _boss_metres(stats) <= IGNITED_GROUND_RADIUS
+    for text, (uses, how) in (charms or {}).items():
+        if m := IGNITED_ON_USE.search(text.strip()):
+            if not near:
+                notes.append(f"the charm's ground at your feet (you fight {_boss_metres(stats):g} m from the boss: not "
+                             "counted)")
+                continue
+            up = _covered(uses, 1.0, int(m.group(1)))
+            parts.append(f"the charm's ground at your feet ({how}; {m.group(1)} s, {IGNITED_GROUND_RADIUS:g} m): {up:.0%}")
+            off *= 1 - up
+    for text in texts:
+        if m := IGNITED_WHILE_MOVING.search(text):
+            if stats.get("_stationary") and not number(stats.get("_rolling")):
+                notes.append("the trail while moving (the build stands still and doesn't roll: not counted)")
+            elif not near:
+                notes.append(f"the trail while moving (you fight {_boss_metres(stats):g} m from the boss: not counted)")
+            else:
+                parts.append(f"the trail while moving ({m.group(1)} s): walk or roll through the boss's spot at least "
+                             f"every {m.group(1)} s (a way to play the build; without it, the trail adds nothing): 100%")
+                off = 0.0
+            break
+    if not parts and not notes:
+        return 0.0, ""
+    share = 1 - off
+    return share, "; ".join(parts + notes + [f"on Ignited Ground {share:.0%} of the fight ({IGNITED_NOT_COUNTED})"])
 
 
 def _covered(uses: float, chance: float, duration: float) -> float:
@@ -4852,6 +4914,49 @@ class Conditions:
         return per, (f"{EMBER_FUSILLADE}: {k} casts at {casts:.2f}/s ({n} Embers, cap {cap}) then {wait:.2f} s: one "
                      f"Fusillade (one Infusion) every {1 / per:.2f} s (GEM12's rhythm)")
 
+    def _ignited_makers(self, lines: list[dict], stats: dict) -> dict[str, tuple[float, str]]:
+        """{Incinerate / Ball Lightning: (its Fire-Infused casts per second, how)} (MECH79, ignited_ground): the build's
+        Fire and any-element Infusions shared over its Fire consumers (INFUSION_CONSUMERS) by uses, as
+        Assumptions.infusion_share shares them; each maker gets at most its own uses."""
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)} | {self.main_skill}
+        if not names & set(IGNITED_GROUND_MAKERS):
+            return {}
+        fire = {n for n in names if "Fire" in INFUSION_CONSUMERS.get(n, ())}
+        others = self._group_uses(groups, fire - {self.main_skill})
+        uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
+                for n in fire}
+        supply, made = self._infusion_supply(lines)
+        have = supply["Fire"] + supply["Any"]
+        total = sum(uses.values())
+        out = {}
+        for name in sorted(names & set(IGNITED_GROUND_MAKERS)):
+            rate = min(uses[name], have * uses[name] / total) if total > 0 else 0.0
+            out[name] = (rate, f"{rate:.2f} of its {uses[name]:.2f} casts/s Fire-Infused: {have:.2f} Fire Infusions/s "
+                               f"from {', '.join(made) or 'nothing'}"
+                               + (f", shared with {', '.join(sorted(fire - {name}))}" if fire - {name} else ""))
+        return out
+
+    def _ignited_charms(self, lines: list[dict]) -> dict[str, tuple[float, str]]:
+        """{charm line making Ignited Ground: (the charm's uses per second, how)} (MECH79; Beira's Anguish's line doesn't
+        end "on use", so _item_uses doesn't read it)."""
+        from builder.search.flasks import CHARM_SLOTS, Charges, slot_pool, uses_per_second
+
+        found = {line["text"]: line["source"][5:] for line in lines
+                 if line["source"].startswith("item:Charm") and IGNITED_ON_USE.search(line["text"].strip())}
+        if not found:
+            return {}
+        gain = Charges.of(self.build)
+        out = {}
+        for text, slot in found.items():
+            option = self.build.equipped.get(slot)
+            if option is None or slot not in CHARM_SLOTS[:gain.charm_limit]:
+                out[text] = (0.0, f"{slot} not in use: 0")
+                continue
+            info = self.build.call("flaskData", raws=[option.raw])["results"][0]
+            out[text] = uses_per_second(info, gain, option.raw, slot_pool(slot))
+        return out
+
     def _item_uses(self, lines: list[dict], events: dict) -> dict[str, tuple[float, str]]:
         """{line text: (uses per second, how)} for the equipped flasks' and charms' own "on use" lines, and the flask
         events (Flask, LifeFlask, ManaFlask) added to `events`: each item at flasks.uses_per_second."""
@@ -5236,6 +5341,10 @@ class Conditions:
                                                  self.main_skill)
         stats["_shocked_ground"] = shocked_ground(stats, texts)
         stats["_chilled_ground"] = chilled_ground(stats, texts, main_gems)  # (MECH76, for COV-A's Desert's Scorn)
+        # (MECH79) the build's Ignited Ground at the boss: the ground gains' Fire, COV-A's Desert's Scorn cold half
+        stats["_ignited_ground"] = ignited_ground(
+            self._ignited_makers(lines, stats) if (set(gem_types) | {self.main_skill}) & set(IGNITED_GROUND_MAKERS)
+            else {}, texts, stats, self._ignited_charms(lines))
         if self.main_skill in ELEMENT_GAIN_VARS:  # (MECH78, MA-2 / MA-6 / MA-7: its element from the grounds in its path)
             orbs = self._orb_uptimes() if self.main_skill == EYE_OF_WINTER else None
             stats["_element_gain"] = element_gain_shares(self.main_skill, stats, texts, orbs)
@@ -5429,6 +5538,8 @@ class Conditions:
         self.build.ailment_ground = dict(stats.get("_ailment_ground") or {})  # (MECH75: Radiant Grief's aura)
         # (MECH76, for COV-A: "Enemies standing on Chilled Ground take ..."; (share, how), (0.0, "") without a source)
         self.build.chilled_ground_up = stats.get("_chilled_ground") or (0.0, "")
+        # (MECH79, for COV-A: Desert's Scorn's "Enemies standing on Ignited Ground take 25% increased Cold Damage")
+        self.build.ignited_ground_up = stats.get("_ignited_ground") or (0.0, "")
         # (MECH78, MC-1; for COV-A's OpenWeakness ledger condition, the manager 12:43: one share for both) the share of
         # the fight's TIME the boss has an Open Weakness: open_weakness_up(build)
         self.build.open_weakness_up = stats.get("_open_weakness") or (0.0, "")
