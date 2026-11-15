@@ -55,6 +55,7 @@ EVIDENCE_FIELDS = [
     "ColdHitAverage", "MainHand.ColdHitAverage",  # (the Cold Exposure support's crits with Cold Damage; MECH69)
     "PhysicalCritAverage",  # (Concussive Spells' crits with Physical damage, _dazed; MECH70)
     "ShockAvoidChance",  # (Overcharge's reflected Shocks, _self_shocked; MECH75)
+    "LifeUnreserved",  # (Clash: the most Life % you fight at, _clash; MECH76)
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -1565,6 +1566,17 @@ def chill_effect(stats: dict) -> tuple[float, float, str]:
     return 100.0 * hit / threshold * mod, 100.0 * crit / threshold * mod, basis
 
 
+def _chill_per_hit(stats: dict) -> float:
+    """The chance a main-skill hit Chills the boss (chill_share's rule: PoB's ChillChanceOnHit, the game's 30% floor)."""
+    if number(stats.get("ChillChanceOnHit")) <= 0:
+        return 0.0
+    if number(stats.get("EnemyAilmentThreshold")) > 0:
+        normal, critical, _ = chill_effect(stats)
+        crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100.0
+        return (1.0 - crit) * (normal >= CHILL_FLOOR) + crit * (critical >= CHILL_FLOOR)
+    return min(number(stats.get("ChillChanceOnHit")) / 100.0, 1.0)
+
+
 def chill_share(stats: dict) -> float:
     """Share of the fight the boss is Chilled by the main skill's hits. PoB's ChillChanceOnHit must be on (0 when the
     skill can't Chill, Icestorm's never_chill -> CannotChill, or the hit is under a 1% Chill: CalcOffence 5550-5558).
@@ -2917,6 +2929,79 @@ def shared(up: float) -> str:
     return "counted at that share" if up >= MIN_UPTIME else "off"
 
 
+# "if you've Frozen / Chilled / Ignited / Shocked an Enemy Recently" (MECH76; PATCH_CHECK MC-6, an UNDERCOUNT: nothing set
+# PoB's conditionFrozenEnemyRecently / ChilledEnemyRecently / IgnitedEnemyRecently / ShockedEnemyRecently boxes,
+# ConfigOptions 1241-1256, so every such line counted 0: Ice Bite, the Echoing Frost / Flames / Thunder notables, "60%
+# increased Damage if you've Frozen an Enemy Recently", ...). "Recently" is the past 4 seconds (RECENTLY). The share of
+# the fight with at least one application in the past 4 s, from the per-hit chances the boss's ailment shares use: the
+# main skill's hits x its IgniteChancePerHit / ShockChancePerHit / Chill chance (_chill_per_hit), the other groups'
+# Ignites (stats["_ailment_others"]), an aura that keeps Igniting it (stats["_ailment_ground"]: Radiant Grief),
+# applications independent: 1 - prod (1 - c)^(hits x 4 s). Freeze: the boss's Freezes a second (models.buildup_rate),
+# 1 - e^(-4 r). Consumption doesn't matter (the event is the application). Only the boss is counted (adds aren't
+# modelled: an UNDERCOUNT in a fight with adds).
+APPLIED_RECENTLY = {"conditionFrozenEnemyRecently": "Freeze", "conditionChilledEnemyRecently": "Chill",
+                    "conditionIgnitedEnemyRecently": "Ignite", "conditionShockedEnemyRecently": "Shock"}
+PAST_TENSE = {"Freeze": "Froze", "Chill": "Chilled", "Ignite": "Ignited", "Shock": "Shocked"}
+APPLIED_RECENTLY_FIELDS = tuple(dict.fromkeys(("IgniteChancePerHit", "ShockChancePerHit", *CHILL_FIELDS,
+                                               *models.IMMOBILISE_FIELDS)))
+
+
+def applied_recently(stats: dict, ailment: str) -> tuple[float, str]:
+    """(share of the fight you applied `ailment` to the boss in the past 4 s, how); see the note above."""
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+    if ailment == "Freeze":
+        rate = models.buildup_rate(stats, "Freeze")
+        share = 1.0 - math.exp(-rate * RECENTLY) if rate > 0 else 0.0
+        return share, f"the boss Frozen {rate:.3f}/s by the main skill's buildup"
+    chance = _chill_per_hit(stats) if ailment == "Chill" else min(number(stats.get(f"{ailment}ChancePerHit")) / 100, 1.0)
+    absent = (1.0 - chance) ** (hits * RECENTLY) if chance > 0 and hits > 0 else 1.0
+    parts = [f"the main skill's {hits:.2f} hits/s x {chance:.0%}"] if chance > 0 and hits > 0 else []
+    for name, h, c, _ in (stats.get("_ailment_others") or {}).get(ailment) or ():
+        if h > 0 and c > 0:
+            absent *= (1.0 - min(c, 1.0)) ** (h * RECENTLY)
+            parts.append(f"{name}'s {h:.2f} hits/s x {c:.0%}")
+    ground = min(1.0, max(0.0, number(((stats.get("_ailment_ground") or {}).get(ailment) or (0.0,))[0])))
+    if ground > 0:
+        absent *= 1.0 - ground
+        parts.append(f"an aura keeping it on the boss {ground:.0%} of the fight")
+    return 1.0 - absent, "; ".join(parts)
+
+
+def _applied_recently(var: str):
+    ailment = APPLIED_RECENTLY[var]
+    verb = PAST_TENSE[ailment]
+
+    def value(lines: list[str], stats: dict) -> tuple[object, str]:
+        share, how = applied_recently(stats, ailment)
+        if share <= 0:
+            return 0.0, ""
+        return _box(share, f"You {verb.lower()} the boss in the past {RECENTLY:g} s {share:.0%} of the fight ({shared(share)}): "
+                           f"{how} (MECH76: each application taken as independent)")
+    return value
+
+
+# Clash (MECH76; PATCH_CHECK MA-13): "Supported Skills deal more Damage while you have a lower percentage of your Life
+# remaining than the target struck, but less Damage when the reverse is true" (SupportClashPlayer:
+# support_melee_damage_+%_final_vs_higher_percent_life_target 40, ..._vs_lower_percent_life_target -20). PoB's box
+# (clashCondition, Condition:EnemyHigherLifePercent) was never set, so it counted the 20% less all fight. Over the fight
+# the boss's Life % runs from 100% to 0% (evenly at a steady DPS), so it is above yours for 1 - (your Life %) of the
+# fight. Your Life % taken as your unreserved share of Life (PoB's LifeUnreserved / Life: a Low Life build with Life
+# reserved fights there; a full-Life build gets ~0, PoB's reading). Labelled: the boss's hits lower your Life now and
+# then (an UNDERCOUNT of the 40% more), and the boss's own Low Life weighting isn't applied here (MEDIUM). Only with the
+# Clash gem in the build.
+CLASH = "Clash"
+
+
+def _clash(lines: list[str], stats: dict) -> tuple[object, str]:
+    if CLASH not in (stats.get("_gem_names") or set()):
+        return 0.0, ""
+    life = number(stats.get("Life"))
+    mine = min(max(number(stats.get("LifeUnreserved")) / life, 0.0), 1.0) if life > 0 else 1.0
+    share = 1.0 - mine
+    return _box(share, f"the boss's Life % above yours {share:.0%} of the fight ({shared(share)}): you fight at "
+                       f"{mine:.0%} of your Life (unreserved), the boss's Life % runs from 100% to 0% (MEDIUM)")
+
+
 def _box(up: float, basis: str) -> tuple[bool, str, float]:
     """(box on, basis, uptime) for an effect the build keeps up at a rate: on from MIN_UPTIME, weighed by its uptime."""
     return up >= MIN_UPTIME, basis, up
@@ -3565,6 +3650,10 @@ CONDITIONS: list[Condition] = [
     Condition("conditionEnemyChilled", "Chilled", stat=lambda s: chill_share(s) >= MIN_UPTIME, uptime_fn=chill_share,
               fields=CHILL_FIELDS),
     Condition("parryActive", "Parried", value_fn=_parried, fields=("enemySkillTime", "Ward")),
+    Condition("clashCondition", "The boss's Life % above yours (Clash)", value_fn=_clash,
+              fields=("Life", "LifeUnreserved")),  # (MECH76)
+    *(Condition(var, f"You {PAST_TENSE[APPLIED_RECENTLY[var]].lower()} an enemy Recently",
+                value_fn=_applied_recently(var), fields=APPLIED_RECENTLY_FIELDS) for var in APPLIED_RECENTLY),  # (MECH76)
     Condition("conditionEnemyFrozen", "Frozen", value_fn=_immobilised("Freeze", "Frozen"),
               fields=(*models.IMMOBILISE_FIELDS, "FreezeDurationMod")),
     Condition("conditionEnemyElectrocuted", "Electrocuted", value_fn=_immobilised("Electrocute", "Electrocuted"),

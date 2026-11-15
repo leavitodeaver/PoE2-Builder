@@ -111,3 +111,36 @@ def test_each_boss_preset_has_a_melee_share_and_the_worst_case_takes_the_highest
     worst, how = bosses.melee_share({"_boss": bosses.WORST})
     assert worst == max(share for share, _ in bosses.MELEE_SHARE.values()) and "worst case" in how
     assert bosses.melee_share({"_boss": "Zarokh, the Temporal"})[0] == 0.0
+
+
+def test_ailments_applied_recently_from_the_hits_in_the_past_four_seconds(monkeypatch):
+    """MECH76 (PATCH_CHECK MC-6): "if you've Frozen / Chilled / Ignited / Shocked an Enemy Recently" boxes: the share of
+    the fight with an application in the past 4 s; other groups' Ignites and an Igniting aura count; 0 with no source."""
+    import math
+
+    from builder.search import conditions
+
+    stats = {"Speed": 2.0, "HitChance": 100.0, "IgniteChancePerHit": 25.0, "ShockChancePerHit": 0.0}
+    share, _ = conditions.applied_recently(stats, "Ignite")
+    assert share == pytest.approx(1 - 0.75 ** 8)
+    assert conditions.applied_recently(stats, "Shock")[0] == 0.0
+    others = {**stats, "_ailment_others": {"Ignite": [("Fireball", 1.0, 0.5, 4.0)]}}
+    assert conditions.applied_recently(others, "Ignite")[0] == pytest.approx(1 - 0.75 ** 8 * 0.5 ** 4)
+    aura = {"Speed": 0.0, "_ailment_ground": {"Ignite": (0.6, "Radiant Grief")}}
+    assert conditions.applied_recently(aura, "Ignite")[0] == pytest.approx(0.6)
+    monkeypatch.setattr(models, "buildup_rate", lambda s, a: 0.1)
+    assert conditions.applied_recently({}, "Freeze")[0] == pytest.approx(1 - math.exp(-0.4))
+    on, basis, up = conditions._applied_recently("conditionIgnitedEnemyRecently")([], stats)
+    assert on and up == pytest.approx(share) and "past 4 s" in basis
+    assert {c.var for c in conditions.CONDITIONS} >= set(conditions.APPLIED_RECENTLY)
+
+
+def test_clash_counts_the_share_of_the_fight_the_boss_has_more_life_than_you():
+    """MECH76 (PATCH_CHECK MA-13): a full-Life build gets ~0 (PoB's 20% less), a build at 35% unreserved Life 65%."""
+    from builder.search import conditions
+
+    names = {"_gem_names": {"Clash"}}
+    assert conditions._clash([], {**names, "Life": 1000.0, "LifeUnreserved": 1000.0})[2] == pytest.approx(0.0)
+    on, basis, up = conditions._clash([], {**names, "Life": 1000.0, "LifeUnreserved": 350.0})
+    assert on and up == pytest.approx(0.65) and "35%" in basis
+    assert conditions._clash([], {"Life": 1000.0, "LifeUnreserved": 350.0}) == (0.0, "")
