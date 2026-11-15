@@ -1725,7 +1725,20 @@ def _dazed(lines: list[str], stats: dict) -> tuple[object, str]:
         how.append(f"{text[:60]} ({chance:.0%} x {events:.2f} {what}/s, {duration:g} s: {up:.0%} up)" if events > 0
                    else f"{text[:60]} ({what})")
     up = 1 - down
-    return _box(up, f"Dazed {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:4])
+    stance = ""
+    if (broke := stats.get("_broken_stance")) and up > 0:
+        # (MECH74, AUDIT35 A35-3: "Enemies with Broken Stance cannot be Dazed again", KeywordPopups BrokenStance. One
+        # second pass: Broken Stance's window from this share (models.broken_stance_window), and the share of the fight
+        # it blocks a new Daze taken off at the share the boss would have been Dazed then, up x (1 - blocked): MEDIUM,
+        # the sources taken as independent of the window; not iterated further)
+        _, over, _, window, _ = models.broken_stance_window(number(broke.get("vault_hits")), up,
+                                                             number(broke.get("hits")), int(number(broke.get("limit"))
+                                                                                            or models.STANCE_HITS))
+        if over > 0:
+            first, up = up, up * (1 - over)
+            stance = (f"; Vaulting Impact's Broken Stance ({window:.1f} s windows) blocks a new Daze {over:.0%} of the "
+                      f"fight: {first:.0%} -> {up:.0%}")
+    return _box(up, f"Dazed {up:.0%} of the fight ({shared(up)}): " + "; ".join(how[:4]) + stance
                 + (" (the main skill can't Daze: cannot_daze)" if own.get("cannot") else ""))
 
 
@@ -3858,6 +3871,16 @@ class Conditions:
              "uses": uses.get(name, self._chosen_use(name)), "chance": d.get("base_chance_to_daze_%", 0.0),
              "cannot": bool(d.get("cannot_daze"))}
             for name, d in sorted(dazing.items()) if name in hitters]
+        # (MECH74: Vaulting Impact's Broken Stance, for _dazed's second pass: its hits on the boss a second, the main
+        # skill's hits that gain it, its hit limit at the gem's level and quality)
+        stance = next((s for s in raw["skills"] if s["name"] == models.STANCE_SKILL and not s.get("disabled")), None)
+        if stance is not None:
+            main_hits = models.hits_per_second(stats)
+            vault = main_hits if self.main_skill == models.STANCE_SKILL else number(
+                next((o["uses"] for o in stats["_daze_others"] if o["name"] == models.STANCE_SKILL),
+                     uses.get(models.STANCE_SKILL, self._chosen_use(models.STANCE_SKILL))))
+            stats["_broken_stance"] = {"vault_hits": vault, "hits": main_hits,
+                                       "limit": number((stance.get("levelStats") or {}).get("broken_stance_hit_limit"))}
         stats["_dazed_share"] = number((_dazed(texts, stats) + (0.0,))[2])
         stats["_dazed_box"] = "conditionEnemyDazed" in self.active  # (PoB's box as it is now: heavy_stun_rate)
         broken = None  # Armour Broken first: Exposure on a Full Break reads its rate

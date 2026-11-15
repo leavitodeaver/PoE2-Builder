@@ -3968,6 +3968,23 @@ STANCE_HITS = 10  # (broken_stance_hit_limit; quality raises it)
 STANCE_DAZE_SECONDS = 8.0  # (conditions.DAZE_SECONDS, KeywordPopups Daze: kept here so models needn't import conditions)
 
 
+def broken_stance_window(vault_hits: float, dazed: float, hits: float,
+                         limit: int = STANCE_HITS) -> tuple[float, float, float, float, float]:
+    """(share of the fight Broken Stance is up, share of the fight it blocks a new Daze, hits that gain it, its window in
+    s, the cycle in s) for Vaulting Impact hitting the boss `vault_hits` a second while it's Dazed `dazed` of the fight,
+    and `hits` later hits a second (MECH74: shared by broken_stance_model and conditions._dazed's second pass). The
+    boss can't be Dazed again while it's up (KeywordPopups BrokenStance: "Enemies with Broken Stance cannot be Dazed
+    again"); a Daze already on it runs on STANCE_DAZE_SECONDS into the window, so the rest of the window is blocked."""
+    dazed = min(1.0, max(0.0, dazed))
+    if vault_hits <= 0 or dazed <= 0 or hits <= 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+    gained = min(float(limit), STANCE_SECONDS * hits)  # (hits that gain it before the 10 hits or 60 s end it)
+    window = gained / hits
+    cycle = 1.0 / (vault_hits * dazed) + window
+    up = window / cycle
+    return up, up * max(0.0, window - STANCE_DAZE_SECONDS) / window, gained, window, cycle
+
+
 def broken_stance_model(vault_hit: float, vault_hits: float, dazed: float, hits: float, phys_taken: float,
                         limit: int = STANCE_HITS, how: str = "") -> tuple[float, list[dict]]:
     """(added DPS, notes) for Broken Stance (see above). `vault_hit`: Vaulting Impact's pre-mitigation Physical hit
@@ -3982,19 +3999,15 @@ def broken_stance_model(vault_hit: float, vault_hits: float, dazed: float, hits:
                if dazed <= 0 else "no Vaulting Impact hit on the boss or no later hits to gain it")
         return 0.0, [{"label": label, "value": "0", "basis": f"{STANCE_SKILL}: {why}" + (f"; {how}" if how else ""),
                       "confidence": conf}]
-    gained = min(float(limit), STANCE_SECONDS * hits)  # (hits that gain it before the 10 hits or 60 s end it)
-    cycle = 1.0 / (vault_hits * dazed) + gained / hits
+    up, over, gained, window, cycle = broken_stance_window(vault_hits, dazed, hits, limit)
     dps = magnitude * gained / cycle * max(phys_taken, 0.0)
     basis = (f"{STANCE_PERCENT:g}% of {STANCE_SKILL}'s pre-mitigation Physical hit ({vault_hit:,.0f}) = {magnitude:,.0f} "
              f"on each of the next {gained:g} hits; a new one every {cycle:.1f} s (the wait for a {STANCE_SKILL} hit on "
              f"the boss while it's Dazed {dazed:.0%} of the fight, then {gained:g} hits at {hits:.2f}/s), x{phys_taken:.2f} "
              "the boss's Physical mitigation" + (f"; {how}" if how else ""))
-    window = gained / hits
-    up = window / cycle
-    over = up * max(0.0, window - STANCE_DAZE_SECONDS) / window
-    basis += (f"; while Broken Stance is up ({up:.0%} of the fight, {window:.1f} s each) the boss can't be Dazed again: the "
-              f"Dazed share is overstated by {over:.1%} of the fight (a Daze runs on {STANCE_DAZE_SECONDS:g} s into each "
-              "window; not taken off the share, an OVERCOUNT of 'against Dazed' lines and the Stun Buildup share, labelled)")
+    basis += (f"; while Broken Stance is up ({up:.0%} of the fight, {window:.1f} s each) the boss can't be Dazed again "
+              f"(a Daze runs on {STANCE_DAZE_SECONDS:g} s into each window): it blocks {over:.1%} of the fight, taken off "
+              "the Dazed share by conditions._dazed (MECH74, one second pass)")
     play = (f"Daze the boss with another skill or line, then hit it with {STANCE_SKILL}'s shockwave (without it: 0; "
             f"with it: {dps:,.0f} DPS)")
     return dps, [{"label": label, "value": f"{dps:,.0f} DPS", "basis": basis, "confidence": conf, "play": play}]
@@ -4348,9 +4361,8 @@ def grisly_pyre_model(uses: float, ignited: float, ignite_dps: float, duration: 
     if uses <= 0:
         return 0.0, "His Winnowing Flame isn't used (no use rate): no Grisly Pyres"
     if ignite_dps <= 0 or duration <= 0 or applications <= 0 or ignited <= 0:
-        return 0.0, ("His Winnowing Flame never Ignites (never_ignite), and the build's main skill puts no Ignite on the "
-                     "boss for it to Consume: no Grisly Pyres (0; another skill's Ignite isn't read: an UNDERCOUNT if one "
-                     "Ignites)")
+        return 0.0, ("His Winnowing Flame never Ignites (never_ignite), and no skill of the build puts an Ignite on the "
+                     "boss for it to Consume: no Grisly Pyres")
     every = 1 / applications
     remaining = duration - min(every, duration) / 2
     pyre = GRISLY_PYRE_SHARE * ignite_dps * remaining
@@ -4358,6 +4370,33 @@ def grisly_pyre_model(uses: float, ignited: float, ignite_dps: float, duration: 
     return dps, (f"{uses:.2f} uses/s x {min(1.0, ignited):.0%} finding the boss Ignited x 1 Grisly Pyre of 30% of the "
                  f"Ignite's remaining damage ({ignite_dps:,.0f}/s x {remaining:.2f} s left of {duration:.2f} s, an Ignite "
                  f"every {every:.2f} s: {pyre:,.0f} each); Aggravated Ignite's 3 more pillars not counted")
+
+
+# Grisly Pyre's Ignite from another group (MECH74; AUDIT35, an UNDERCOUNT: with His Winnowing Flame as the main skill,
+# or a main skill that doesn't Ignite, the Pyre read the main skill's Ignite, 0). The Ignite to Consume comes from the
+# build's other skill group that Ignites, scored as PoB scores it as the main skill (bridge.useRates' IgniteDPS,
+# IgniteDuration, IgniteChancePerHit, HitChance) at its own use rate (conditions.skill_use_rate: its cooldown, duration,
+# or the search's chosen press rate, else 0). Where several do, the one with the most IgniteDPS x applications counts
+# (PoB counts the strongest Ignite; the others' Ignites between its applications aren't added: a lower reading, MEDIUM).
+# The boss is Ignited 1 - (1 - c)^(h x D) of the fight from that skill (conditions.ailment_uptime's formula), cut by His
+# Winnowing Flame Consuming it u times a second (conditions.side_consumed's formula: share / (1 + share x u x (1 s
+# immune + 1 / (h x c) to Ignite again))). Labelled: the main skill's Speed is taken as its whole use rate while the
+# igniting skill is also pressed (the presses' time isn't taken off His Winnowing Flame's uses here, as MECH37 takes
+# it off the main skill in Full DPS: an OVERCOUNT of the Pyres where both are pressed, small beside a cooldown skill).
+
+
+def grisly_pyre_other_ignite(uses: float, hits: float, chance: float, duration: float) -> tuple[float, str]:
+    """(the boss's Ignited share, how) from another skill's Ignite (hits per second x chance per hit, each lasting
+    `duration` s) that His Winnowing Flame Consumes `uses` times a second (see the note above)."""
+    if hits <= 0 or chance <= 0 or duration <= 0:
+        return 0.0, "the skill doesn't Ignite the boss"
+    chance = min(chance, 1.0)
+    alone = 1.0 - (1.0 - chance) ** (hits * duration)
+    wait = 1.0 / (hits * chance)
+    share = alone / (1.0 + alone * max(uses, 0.0) * (CONSUME_IMMUNE + wait))
+    return share, (f"Ignited {alone:.0%} of the fight by it alone ({hits:.2f} hits/s x {chance:.0%}, {duration:.2f} s "
+                   f"each), {share:.0%} once His Winnowing Flame Consumes it {uses:.2f} times/s (then immune "
+                   f"{CONSUME_IMMUNE:g} s, {wait:.2f} s to Ignite again)")
 
 
 # Battershout's explosions (MECH72; conditions._battershout_cycle's note gives the game files and patch notes): each

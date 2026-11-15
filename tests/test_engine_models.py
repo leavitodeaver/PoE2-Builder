@@ -2436,3 +2436,19 @@ def test_a_part_time_elixirs_life_flask_is_taken_out_of_pobs_regeneration_once(e
     build.call("equip", slot="Belt", raw=whole, fields=[])
     gain = flasks.Charges.of(build)
     assert flasks.pob_part_time_share(build, gain)[0] == 0.0 and flasks.recovery_per_second(info, gain, "Life") == 0.0
+
+
+def test_use_rates_give_each_groups_ignite_for_grisly_pyre(engine):
+    """MECH74: bridge.useRates gives each group's own IgniteDPS and IgniteChancePerHit (scored as the main skill), which
+    assumptions.grisly_pyre reads for His Winnowing Flame's Pyres when the main skill doesn't Ignite."""
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.set_group(gems=[{"name": "Fireball", "level": 20, "quality": 0}], label="fire", fullDPS=True)
+    fire = next(g for g in build.groups() if any(s["name"] == "Fireball" for s in g["skills"]))
+    row = build.call("useRates", indices=[fire["index"]], actives=[1])["rates"][0]
+    print("fire row", row)
+    assert row["active"] == 1
+    assert row["IgniteDPS"] > 0 and row["IgniteChancePerHit"] > 0 and row["IgniteDuration"] > 0

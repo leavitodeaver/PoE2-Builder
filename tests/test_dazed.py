@@ -126,10 +126,30 @@ def test_which_skills_hit_for_daze():
 def test_broken_stance_labels_the_dazed_share_it_blocks():
     """MECH73 (AUDIT35 A35-3): "Enemies with Broken Stance cannot be Dazed again" (KeywordPopups BrokenStance). With 10
     gained hits at 0.5/s the window is 20 s, up 20 / 22 of the fight; a Daze runs 8 s into it, so the boss is un-Dazed
-    12 s of each window: the share is overstated by 20/22 x 12/20 = 54.5% (labelled, not taken off)."""
+    12 s of each window: Broken Stance blocks 20/22 x 12/20 = 54.5% of the fight (MECH74: taken off by _dazed)."""
     from builder.search import models
 
     _, notes = models.broken_stance_model(10_000.0, 1.0, 0.5, 0.5, 1.0)
-    assert "overstated by 54.5%" in notes[0]["basis"]
+    assert "blocks 54.5% of the fight" in notes[0]["basis"]
     _, fast = models.broken_stance_model(10_000.0, 1.0, 0.5, 5.0, 1.0)  # (a 2 s window: the Daze outlasts it)
-    assert "overstated by 0.0%" in fast[0]["basis"]
+    assert "blocks 0.0% of the fight" in fast[0]["basis"]
+    up, over, gained, window, cycle = models.broken_stance_window(1.0, 0.5, 0.5)
+    assert (gained, window, cycle) == pytest.approx((10.0, 20.0, 22.0)) and over == pytest.approx(20 / 22 * 12 / 20)
+
+
+def test_broken_stance_takes_its_blocked_share_off_the_dazed_share():
+    """MECH74 (A35-3): _dazed's second pass: Broken Stance's window from the first share, the share it blocks taken off
+    at the share the boss would have been Dazed then: up x (1 - blocked)."""
+    from builder.search import models
+
+    lines = ["5% chance to Daze on Hit"]
+    first = _dazed(lines, HITS)[2]
+    slow = {**HITS, "_broken_stance": {"vault_hits": 1.0, "hits": 0.5, "limit": 10}}
+    on, basis, up = _dazed(lines, slow)
+    over = models.broken_stance_window(1.0, first, 0.5, 10)[1]
+    assert over > 0 and up == pytest.approx(first * (1 - over)) and "Broken Stance" in basis
+    # a window shorter than the Daze blocks nothing: the share stands
+    fast = {**HITS, "_broken_stance": {"vault_hits": 1.0, "hits": 5.0, "limit": 10}}
+    assert _dazed(lines, fast)[2] == pytest.approx(first)
+    # no Vaulting Impact hits: nothing taken off
+    assert _dazed(lines, {**HITS, "_broken_stance": {"vault_hits": 0.0, "hits": 0.5, "limit": 10}})[2] == pytest.approx(first)

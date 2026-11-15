@@ -609,29 +609,57 @@ def grisly_pyre(build: Build, main: models.Skill | None) -> tuple[float, list[di
     """(added DPS, notes) for His Winnowing Flame's Grisly Pyres (MECH71; models.grisly_pyre_model): the skill's uses
     (the main skill's Speed, else its group's rate: conditions.skill_use_rate, the search's chosen press rate where
     nothing else sets it, else 0), the boss's Ignited share (build.ailment_uptimes, after the consumption), and the main
-    skill's Ignite (PoB's IgniteDPS, IgniteDuration, its hits x IgniteChancePerHit)."""
+    skill's Ignite (PoB's IgniteDPS, IgniteDuration, its hits x IgniteChancePerHit). Where the main skill doesn't Ignite
+    (His Winnowing Flame itself never does), another group's Ignite (MECH74: models.grisly_pyre_other_ignite)."""
     skill = models.GRISLY_PYRE_SOURCE
+    choices = models.press_choices(build)
     uses = 0.0
-    if main is not None and main.name == skill:
+    pairs = [(each["index"], position, entry["name"]) for each in build.groups() if each["enabled"]
+             for position, entry in enumerate(each["skills"], start=1)]
+    is_main = main is not None and main.name == skill
+    if is_main:
         uses = models.number(build.call("stats", fields=["Speed"]).get("Speed"))
-    else:
-        found = False
-        for each in build.groups():
-            if not each["enabled"]:
-                continue
-            for position, entry in enumerate(each["skills"], start=1):
-                if entry["name"] == skill:
-                    found = True
-                    row = next(iter(build.call("useRates", indices=[each["index"]], actives=[position])["rates"]), None)
-                    uses = max(uses, conditions_mod.skill_use_rate(row or {}, models.press_choices(build))[0])
-        if not found:
-            return 0.0, []
+    elif not any(name == skill for _, _, name in pairs):
+        return 0.0, []
     fields = list(dict.fromkeys([*models.MODEL_FIELDS, "IgniteDPS", "IgniteDuration", "IgniteChancePerHit"]))
     stats = build.call("stats", fields=fields)
-    applications = models.hits_per_second(stats) * min(models.number(stats.get("IgniteChancePerHit")), 100) / 100
-    ignited = models.number((getattr(build, "ailment_uptimes", None) or {}).get("Ignited"))
-    dps, how = models.grisly_pyre_model(uses, ignited, models.number(stats.get("IgniteDPS")),
-                                        models.number(stats.get("IgniteDuration")), applications)
+    own = not is_main and models.number(stats.get("IgniteDPS")) > 0 and models.number(stats.get("IgniteChancePerHit")) > 0
+    # (each group rated as the main skill: His Winnowing Flame's for its uses, the others only where the main skill
+    # doesn't Ignite, for their Ignite)
+    rated = [pair for pair in pairs if pair[2] == skill or not own]
+    raw = build.call("useRates", indices=[i for i, _, _ in rated], actives=[p for _, p, _ in rated])["rates"] if rated else []
+    by = {(r.get("index"), r.get("active")): r for r in raw}
+    rows = [(name, by.get((i, p)) or by.get((i, None)) or {}) for i, p, name in rated]
+    for name, row in rows:
+        if name == skill:
+            uses = max(uses, conditions_mod.skill_use_rate(row, choices)[0])
+    if own:
+        applications = models.hits_per_second(stats) * min(models.number(stats.get("IgniteChancePerHit")), 100) / 100
+        ignited = models.number((getattr(build, "ailment_uptimes", None) or {}).get("Ignited"))
+        dps, how = models.grisly_pyre_model(uses, ignited, models.number(stats.get("IgniteDPS")),
+                                            models.number(stats.get("IgniteDuration")), applications)
+    else:
+        # (MECH74) the strongest other group's Ignite, scored as PoB scores it as the main skill, at its own use rate
+        best = (0.0, None)
+        for name, row in rows:
+            if name == skill or models.number(row.get("IgniteDPS")) <= 0:
+                continue
+            rate, why, _ = conditions_mod.skill_use_rate(row, choices)
+            hits = rate * (models.number(row.get("HitChance")) or 100.0) / 100
+            chance = min(models.number(row.get("IgniteChancePerHit")), 100) / 100
+            weight = models.number(row.get("IgniteDPS")) * hits * chance
+            if weight > best[0]:
+                best = (weight, (name, row, hits, chance, why))
+        if best[1] is None:
+            dps, how = models.grisly_pyre_model(uses, 0.0, 0.0, 0.0, 0.0)
+        else:
+            name, row, hits, chance, why = best[1]
+            duration = models.number(row.get("IgniteDuration"))
+            ignited, share_how = models.grisly_pyre_other_ignite(uses, hits, chance, duration)
+            dps, how = models.grisly_pyre_model(uses, ignited, models.number(row.get("IgniteDPS")), duration,
+                                                hits * chance)
+            how = (f"{name}'s Ignite ({why}; PoB's {models.number(row.get('IgniteDPS')):,.0f} Ignite DPS for it as the "
+                   f"main skill): {share_how}; {how}; the time split between the two skills not taken off*")
     return dps, [{"label": f"{models.GRISLY_PYRE_SKILL} ({skill})*", "value": f"{dps:,.0f}", "basis": how,
                   "confidence": "MEDIUM"}]
 

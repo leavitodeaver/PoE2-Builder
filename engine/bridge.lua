@@ -3271,8 +3271,10 @@ function bridge.useRates(args)
 			-- (MECHB14: IgniteDuration, how long an Ignite of the group lasts: Frostflame Nova's ice per cast, models.frostflame_plan)
 			-- (MECH69: PhysicalStoredCombinedAvg / PhysicalStoredHitAvg, the group's pre-mitigation Physical hit, crit-weighted /
 			-- not: High Velocity Rounds' Riven Armour magnitude, GEM3's models.riven_armour_model)
+			-- (MECH74: IgniteDPS / IgniteChancePerHit, the group's own Ignite: His Winnowing Flame's Grisly Pyres Consume
+			-- another group's Ignite, assumptions.grisly_pyre)
 			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance", "IgniteDuration",
-					"PhysicalStoredCombinedAvg", "PhysicalStoredHitAvg" }) do
+					"PhysicalStoredCombinedAvg", "PhysicalStoredHitAvg", "IgniteDPS", "IgniteChancePerHit" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end
