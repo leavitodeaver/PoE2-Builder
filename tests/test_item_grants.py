@@ -115,7 +115,9 @@ def test_an_item_granted_skill_scores_at_the_level_the_character_meets(setup):
     and attribute requirements the character meets (CalcSetup 2170, getGrantedSkillLevel with env.modDB), the game's
     rule since 0.5.4 ("Unique Items that grant Skills now use the lowest level of the Skill that you meet the
     requirements of when equipped, scaling up to the maximum described level on the item as you meet the Skill
-    requirements"). COV30's level-3 Lightning Bolt was the test character's 15 Intelligence, not a lost level:
+    requirements"). The note names Unique Items only; a RARE Voltaic Staff's granted Lightning Bolt follows the same
+    rule (the user, 14 Nov 2026, in-game: "Yes, same as uniques"; AUDIT36 A36-13), as PoB applies it to every item.
+    COV30's level-3 Lightning Bolt was the test character's 15 Intelligence, not a lost level:
     probe POE2T2504 (scratch/cov31/probe_level.py), character 90: Int 15 -> 3, 75 -> 11, 165 -> 20; character 60,
     Int 165 -> 14 (level 15 needs character level 61 or more)."""
     ctx, build = setup

@@ -1,0 +1,57 @@
+# COV31 (14 Nov 2026): passive-tree lines from the patch-notes cross-check (scratch/manager/PATCH_CHECK.md), routed to
+# COV-A by the manager.
+
+- id: passives-phased-form-delayed-hit-damage
+  title: Phased Form, 30% of each Hit's damage taken again 4 seconds later
+  kind: pob_gap
+  match: '^4 seconds after being Damaged by an Enemy Hit, take Damage equal to (\d+)% of that Hit''s Damage$'
+  replace: ['43% more Damage taken from Hits']
+  confidence: theory
+  notes: >-
+    Chronomancer notable Phased Form (tree node 28153; PassiveSkills AscendancySorceress2Notable4, stats
+    chronomancer_damage_taken_+%_final -30 and chronomancer_take_%_of_hit_damage_4_seconds_after_being_hit 30): "Take
+    30% less Damage" / "4 seconds after being Damaged by an Enemy Hit, take Damage equal to 30% of that Hit's Damage".
+    Patch 0.5.0 added it, and it is the one entry in the patch-notes archive (--history "Phased Form"; no later hit is
+    not proof of no change). PoB applies the first line in full (ModCache 9578, DamageTaken MORE -30) and drops the
+    second (ModCache 4018, leftover text), so every Hit counted 30% smaller with nothing coming back: an OVERCOUNT of
+    defence (PATCH_CHECK H1-1). The stand-in "43% more Damage taken from Hits" (DamageTakenWhenHit MORE 43; the one
+    wording of four PoB parses whole, probe POE2T2512: decimals and "Take N% more Damage from Hits" leave leftover
+    text) puts a Hit back at 0.7 x 1.43 = 1.001 of its damage; Damage over Time keeps the 30% less, as the game text
+    says (the delayed part comes from Hits only). Probe POE2T2513 (a level-90 Chronomancer, scratch/cov31/
+    probe_phased.py): Physical maximum hit 1,187 without the node, 1,696 with it as PoB has it, 1,186 with the stand-in;
+    TotalEHP 872.1 / 1,245.9 / 871.3.
+    READING, UNVERIFIED: "that Hit's Damage" read as the Hit's damage before Phased Form's 30% less, so the node only
+    spreads a Hit's damage over 4 s (the symmetric 30 / 30 the text has). If it is the damage after the 30% less, a
+    Hit totals 0.7 + 0.21 = 0.91 and the stand-in should be 30% more (a 9% UNDERCOUNT of Hit defence until then).
+    LABELLED UNDERCOUNTS: (a) the 4 s delay itself: a single Hit up to 1 / 0.7 of your pool is survivable if you
+    recover the delayed 30% in time, and PoB's maximum hit no longer shows that; (b) Temporal Rift (Footprints in the
+    Sand, the next notable) "now also removes delayed damage from Phased Form" (patch 0.5.0): a build that uses it
+    loses some of the delayed damage, which needs a use-rate model (MECH-C's, from Temporal Rift's own cooldown).
+  sources: ["data/game-26476662/tables/PassiveSkills.json (AscendancySorceress2Notable4)", "data/game-26476662/tables/Stats.json (25155, 25156)", "patch notes 0.5.0 Ascendancy Changes > Chronomancer", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua 4018, 9578", "scratch/cov31/probe_phased.py (POE2T2512 / POE2T2513)"]
+  test_in_game: "As a Chronomancer with Phased Form, stand in a boss's hit with a known size and watch Life: the hit takes 70% at once; 4 s later a second loss of 30% of the hit (the full hit's damage) or 21% (the reduced hit's) settles the reading."
+  status: proposed
+
+- id: passives-sands-of-time-cycle-average
+  title: Quicksand Hourglass, Sands of Time at its fight average (30% Skill Speed and 30% Area of Effect)
+  kind: pob_gap
+  match: '^Grants Sands of Time$'
+  replace: ['30% increased Skill Speed', '30% increased Area of Effect']
+  confidence: theory
+  notes: >-
+    Chronomancer notable Quicksand Hourglass: "Grants Sands of Time", which PoB doesn't parse (ModCache 7960, the whole
+    line left over), so it counted nothing: an UNDERCOUNT (PATCH_CHECK H1-5). The game: "Sands of Time grants 60%
+    increased Skill Speed, scaling down to 1% over 10 seconds, at which point it will then scale back up to 60%. It
+    also grants 1% increased Area of Effect, scaling up to 60% over 10 seconds, at which point it will then scale
+    back down to 1%" (KeywordPopups Chronobuff, 26476662). Patch history (--history "Sands of Time"): 0.3.0 made it
+    (Cast Speed then); 0.5.0, the newest entry, changed it to Skill Speed. Both values follow one 20 s triangle
+    wave, so over a fight each averages (60 + 1) / 2 = 30.5% increased, taken as 30 (the lower round). Not a flat
+    rate the build decides: the game sets the cycle, and the boss fight is long against 20 s. MEDIUM on the
+    average: an increase added to the build's other increases is linear, so its time average is exact for damage
+    per second; where speed and area multiply (a skill whose hits grow with its area), the two run opposite, so
+    the product's time average is 1.674 against the stand-in's 1.30 x 1.30 = 1.69 (an OVERCOUNT there of about 1%,
+    with no other increases; less with them); and a skill timed to the peak (pressing at 60% speed) is not modelled (an UNDERCOUNT for it). The
+    stand-in wordings are ones PoB parses whole (ModCache: "N% increased Skill Speed" = Speed, WarcrySpeed and
+    TotemPlacementSpeed INC; "N% increased Area of Effect" = AreaOfEffect INC).
+  sources: ["data/game-26476662/tables/KeywordPopups.json (Chronobuff)", "patch notes 0.3.0 and 0.5.0 Ascendancy Changes > Chronomancer", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua 7960"]
+  test_in_game: "Watch Sands of Time's buff tooltip over 20 s: Skill Speed from 60% down to 1% and back, Area of Effect the other way."
+  status: proposed

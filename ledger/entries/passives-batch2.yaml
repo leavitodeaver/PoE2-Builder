@@ -64,11 +64,18 @@
   replace: []
   confidence: datamined
   notes: >-
-    Ailments and Maim the boss inflicts on you aren't modelled: no condition in builder/search/conditions.py sets you
-    Bleeding or Maimed from the boss's hits ("Armour while Bleeding" is a never-on line in the audit: nothing switches
-    PoB's Condition:Bleeding on), and no checked number reads them. Only Deflected hits are named, so the line can't
-    touch a self-inflicted ailment either. Recheck when the boss's ailments on you are modelled.
-  sources: ["builder/search/conditions.py (no setter for your Bleeding / Maimed)", "coverage audit: never-on Condition:Bleeding"]
+    Nothing switches PoB's Bleeding or Maimed condition on for you (checked, COV31 14 Nov: conditionBleeding /
+    conditionMaimed / Condition:Bleeding / Condition:Maimed over builder/ and engine/, the enemy ones aside: 0 hits;
+    "Armour while Bleeding" is a never-on line in the audit), so no PoB number reads the line. But the boss's Bleed and
+    Maim on you ARE modelled now (PATCH_CHECK H4-5; the note before said they weren't): boss_hits.ailment_rate gives
+    Olroth's Bleeds (BLEED_SKILLS, ThrowBack, LOW) and boss_hits.slow_rate counts the Maims as Slows (Olroth's ThrowOut
+    and Dash, Atziri's Blood Spear), and flasks.py uses both for the "Used when you start Bleeding" / Slowed charm and
+    flask triggers. Neither takes this line off: with it, the Bleeds and Maims from Deflected hits don't happen, so
+    those triggers are counted a little too often for a build that holds it (an OVERCOUNT of charm uses against
+    Olroth and Atziri, small: the Deflected share of those hits). The fix is a model (the rates x (1 - the Deflected
+    share) when the build holds the line), MECH-C's flasks code; until then this entry adds nothing. Only Deflected
+    hits are named, so the line can't touch a self-inflicted ailment.
+  sources: ["builder/search/boss_hits.py ailment_rate / slow_rate (the boss's Bleeds and Maims on you)", "builder/search/flasks.py (their only reader)", "coverage audit: never-on Condition:Bleeding"]
   test_in_game: "Not needed."
   status: proposed
 

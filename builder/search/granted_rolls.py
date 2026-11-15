@@ -22,6 +22,15 @@ typical endgame drop level" in place of the middle roll): item level ~80 copies 
 above). MEDIUM confidence, with an asterisk; the price meanwhile is poe.ninja's cheapest copy of any level. SSF keeps
 PoB's middle roll (11 for 1-20): the level of a copy you find yourself isn't known, and nothing is priced there.
 
+A level the character can't use isn't counted: PoB scores an item-granted skill at the highest level, up to the
+item's, whose character-level and attribute requirements the character meets (CalcSetup 2166-2178,
+getGrantedSkillLevel), the game's rule since 0.5.4 ("Unique Items that grant Skills now use the lowest level of the
+Skill that you meet the requirements of when equipped, scaling up to the maximum described level on the item"), and
+for every item, rares too (the user, 14 Nov 2026, in-game: "Yes, same as uniques"). Probe POE2T2504 (COV31): a
+"Level 20" line scores at 14 on a level-60 character with 165 Int. So a priced level 19 or 20 copy only scores above an
+18 for a character that meets it (level 84 / 90, gem levels 19 / 20); below that it costs more for the same score.
+Whether attributes count is PoB's reading (the note's example is character level only; UNVERIFIED).
+
 A unique granting two skills at rolled levels (Dusk Vigil's Firebolt and Ember Fusillade, Earthbound) is priced by its
 first one's level; the others are ASSUMED to follow the same item level, so they get the same level.
 """
