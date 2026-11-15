@@ -102,10 +102,45 @@ WITHER_DEFAULT_DURATION = 2.0
 WITHER_WASTING = re.compile(r"^(\d+)% chance to inflict Withered with Hits against targets affected by Abyssal Wasting$",
                             re.I)
 WITHER_MINIONS = re.compile(r"^Minions have (\d+)% chance to inflict Withered on Hit$", re.I)
+# Withering Hex (MECH75; the notable chaos40, stat non_cursed_enemies_you_curse_gain_x_withered_stacks 5, stat_descriptions:
+# "Non-Cursed enemies you Curse have {0} Withered stacks inflicted on them"; no duration in the text, so each stack lasts
+# WITHER_DEFAULT_DURATION, 2 s, LOW, as the minions' line). It fires only when a curse lands on a boss that carries none of
+# your curses: each curse application from models.curse_uses that finds the boss uncursed. A curse cast by hand is recast
+# before it runs out (curse_uses' play), and an Aura, infinite-duration or curse-on-hit curse keeps the boss cursed: after
+# the fight's first curse, none finds it uncursed (0, counted so; the first isn't counted). A triggered curse up part of
+# the fight (curse_uses' share = rate x duration < 1) finds it uncursed at every trigger: share / duration applications a
+# second (the triggers taken as evenly spaced, MEDIUM), each x the share the build's other curses are off. Not offered:
+# letting a hand-cast curse lapse on purpose (5 stacks every duration + CURSE_DELAY, the curse off the delay each time).
+WITHER_HEX = re.compile(r"^Non-Cursed enemies you Curse have (\d+) Withered stacks inflicted on them$", re.I)
 # Lines that inflict Withered but aren't counted (labelled in the basis): on entering your Presence (once on a lone boss),
 # on curse
 WITHER_UNCOUNTED = re.compile(r"withered .*when they enter your presence|minions have .*withered|abyssal wasting.*|"
                               r"withered with hits against|curse .*withered|withered .*curse", re.I)
+
+
+def withering_hex_rate(uses: list) -> tuple[float, str]:
+    """(curse applications a second that find the boss carrying none of your curses, how) for Withering Hex (WITHER_HEX's
+    note), from models.curse_uses."""
+    total, parts = 0.0, []
+    for use in uses:
+        if use.by_hand or not 0 < use.share < 1 or use.duration <= 0:
+            continue
+        rest = 1.0
+        for other in uses:
+            if other is not use:
+                rest *= 1.0 - min(1.0, max(0.0, other.share))
+        each = use.share / use.duration * rest
+        if each > 0:
+            total += each
+            parts.append(f"{use.name} lands on the uncursed boss {each:.2f} times/s (triggered, {use.share:.0%} of the "
+                         f"fight, {use.duration:.3g} s each; triggers taken as evenly spaced, MEDIUM)")
+    if total > 0:
+        return total, "; ".join(parts)
+    if not uses:
+        return 0.0, "no curse in the build"
+    return 0.0, ("the boss stays cursed: a hand-cast curse is recast before it runs out, an Aura, infinite or on-hit "
+                 "curse never lapses; after the first curse none finds it uncursed (letting a hand-cast curse lapse on "
+                 "purpose isn't offered)")
 
 
 def _withered_stacks(lines: list[str], stats: dict) -> tuple:
@@ -150,6 +185,14 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
             stacks += float(m.group(1)) / 100 * minion_rate * WITHER_DEFAULT_DURATION
             sources.append(f"{text} (one minion's {minion_rate:.2f} hits/s, the others not counted; "
                            f"{WITHER_DEFAULT_DURATION:g} s each, no duration in the game data: the shortest stated one, LOW)")
+        elif m := WITHER_HEX.match(text):  # (MECH75)
+            each, why = withering_hex_rate(stats.get("_curse_uses") or [])
+            if each <= 0:
+                idle.append(f"{text} ({why})")
+                continue
+            stacks += float(m.group(1)) * each * WITHER_DEFAULT_DURATION
+            sources.append(f"{text} ({why}; {WITHER_DEFAULT_DURATION:g} s each, no duration in the game data: the "
+                           "shortest stated one, LOW)")
         elif WITHER_UNCOUNTED.search(text) and not models.WASTING_ON_HIT.match(text):
             idle.append(text)
     name, own = stats.get("_wither_main") or ("", {})
@@ -2083,7 +2126,9 @@ def exposure_source_flags(texts: list[str], main_types: set[str]) -> list[dict]:
 def wither_source_flags(texts: list[str], main_types: set[str]) -> list[dict]:
     """PoB's Condition:CanWither for the main skill's counted Withered chance lines (see the note above)."""
     spell = "Spell" in main_types
-    if any(WITHER_CHANCE.search(t) and (spell or not WITHER_SPELLS.search(t))
+    # (MECH75: Withering Hex's line too; PoB doesn't parse it (checked: ModCache.lua and ModParser.lua for its words,
+    # no hit; the patch notes have no Withering Hex entry), so its stacks need the flag)
+    if any((WITHER_CHANCE.search(t) and (spell or not WITHER_SPELLS.search(t))) or WITHER_HEX.match(t.strip())
            for t in texts):
         return [models.raw_mod("Condition:CanWither", "FLAG", 1)]
     return []
@@ -2140,15 +2185,24 @@ def _uptime(stats: dict, chance_field: str) -> bool:
 
 def ailment_uptime(stats: dict, ailment: str) -> float:
     """Share of the fight the boss has the ailment: the chance that at least one hit applied it within its own duration
-    (hits that land: uses per second x hit chance). A main skill that consumes it: consumed_share."""
+    (hits that land: uses per second x hit chance). A main skill that consumes it: consumed_share. The build's other
+    groups' applications (stats["_ailment_others"], MECH75: Ignite, ignite_others) are added, each source taken as
+    independent; a consumer then waits for the next application from any of them."""
     chance = min(number(stats.get(f"{ailment}ChancePerHit")) / 100.0, 1.0)
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
     duration = number(stats.get(f"{ailment}Duration")) or AILMENT_DURATION[ailment]
-    if chance <= 0 or hits <= 0:
+    others = [o for o in (stats.get("_ailment_others") or {}).get(ailment) or () if o[1] > 0 and o[2] > 0 and o[3] > 0]
+    own = chance > 0 and hits > 0
+    if not own and not others:
         return 0.0
+    extra = sum(h * c for _, h, c, _ in others)  # (the other groups' applications a second)
     if ailment in (stats.get("_consumes") or {}):
-        return consumed_share(hits, chance)
-    return side_consumed(1.0 - (1.0 - chance) ** (hits * duration), stats, ailment, hits, chance)
+        return consumed_share(hits, chance, extra=extra)
+    absent = (1.0 - chance) ** (hits * duration) if own else 1.0
+    for _, h, c, d in others:
+        absent *= (1.0 - c) ** (h * d)
+    # (side_consumed's wait to reapply, 1 / (hits x chance), over every source's applications)
+    return side_consumed(1.0 - absent, stats, ailment, hits * chance + extra, 1.0)
 
 
 # Ailments the main skill consumes on hit (MECH51; FIX_QUEUE RESEARCH18 #92, HIGH): the stats of its own stat sets or its
@@ -2224,15 +2278,15 @@ def _minion_consumes(skill: dict) -> set[str]:
     return {a for a, on in (skill.get("minionConsumes") or {}).items() if a != "skill" and on is True}
 
 
-def consumed_share(hits: float, chance: float, ground: float = 0.0) -> float:
+def consumed_share(hits: float, chance: float, ground: float = 0.0, extra: float = 0.0) -> float:
     """Share of the fight the boss carries an ailment the main skill consumes: it lasts until the next hit (1 / hits), then
-    the boss is immune for 1 s, then it waits to be reapplied: (1 - ground) / (hits x chance) (a ground reapplies it at
-    once the share of the time the boss stands in it)."""
+    the boss is immune for 1 s, then it waits to be reapplied: (1 - ground) / (hits x chance + extra) (a ground reapplies
+    it at once the share of the time the boss stands in it; `extra`, other groups' applications a second, MECH75)."""
     if hits <= 0:
         return 0.0
     last = 1.0 / hits
-    if chance > 0:
-        return last / (last + models.CONSUME_IMMUNE + (1.0 - ground) / (hits * chance))
+    if chance > 0 or extra > 0:
+        return last / (last + models.CONSUME_IMMUNE + (1.0 - ground) / (hits * max(chance, 0.0) + extra))
     return ground * last / (last + models.CONSUME_IMMUNE)
 
 
@@ -2351,6 +2405,49 @@ def side_consumes(build, main_skill: str, groups: dict | None = None,
         if total > 0:
             out[ailment] = (total, "; ".join(parts), confidence)
     return out
+
+
+# The boss Ignited by the build's other groups (MECH75; MECH74's follow-up, an UNDERCOUNT: the Ignited share,
+# build.ailment_uptimes["Ignited"] and every reader of ailment_uptime(stats, "Ignite") (the Ignited box, "against
+# Ignited" lines, Withered kept on the Ignited boss, Mana Remnants, Snap, Elemental Discharge) read the main skill's
+# own Ignites only, 0 where it doesn't Ignite). Each other enabled group that hits (daze_hitter, as Conditions.evidence
+# rates them for Daze, so no extra engine call) and Ignites as PoB scores it as the main skill (bridge.useRates'
+# IgniteDPS > 0, IgniteChancePerHit, IgniteDuration, HitChance; MECH74's Grisly Pyre reads the same) adds hits x
+# chance applications a second at its own use rate: a triggered skill at PoB's trigger rate (as side_consumes), a
+# pressed one at skill_use_rate's (its cooldown, its duration, else the search's chosen press rate, else 0: no source,
+# 0). Labelled: one hit per use landing (HitChance; a use's extra projectiles / repeats beyond PoB's Repeats not added,
+# a lower reading), and the sources taken as independent. Skills daze_hitter says don't hit on use (the bridge's
+# hitsOnUse, else DAZE_NOT_HITS: minion-making, Wall, degen-only and persistent skills) are left out, as is a skill in
+# the main skill's own group: their Ignites aren't added (an UNDERCOUNT if one Ignites the boss, not modelled).
+
+
+def ignite_others(rows: dict, groups: list[dict], hitters: set[str], main_index,
+                  choices: dict[str, float] | None = None) -> tuple[list[tuple[str, float, float, float]], str]:
+    """([(name, hits per second, chance per hit, Ignite duration in s)], how) for the build's other groups that Ignite
+    the boss (see the note above). `rows`: {group index: the bridge's useRates row} for the hitters' groups."""
+    names = {g["index"]: [n["name"] for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in hitters]
+             for g in groups if g.get("enabled") is not False}
+    out, parts = [], []
+    for index, row in sorted(rows.items(), key=lambda kv: str(kv[0])):
+        if index == main_index or not names.get(index):
+            continue
+        chance = min(number(row.get("IgniteChancePerHit")), 100.0) / 100.0
+        if number(row.get("IgniteDPS")) <= 0 or chance <= 0:
+            continue
+        if row.get("triggered"):
+            uses, why = number(row.get("speed")), "PoB's trigger rate"
+        else:
+            uses, why, _ = skill_use_rate(row, choices)
+        hits = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+        if hits <= 0:
+            continue
+        duration = number(row.get("IgniteDuration")) or AILMENT_DURATION["Ignite"]
+        name = row.get("name") or names[index][0]
+        out.append((name, hits, chance, duration))
+        parts.append(f"{name}'s Ignites ({hits:.2f} hits/s at {why}, {chance:.0%} a hit, {duration:.1f} s each)")
+    how = ("; ".join(parts) + " (MECH75: each as PoB scores it as the main skill, the sources taken as independent; "
+           "one hit per use)") if parts else ""
+    return out, how
 
 
 def side_consumed_ignite_scale(potential: float, hits: float, chance: float, own: bool, rate: float) -> tuple[float, str]:
@@ -3361,17 +3458,20 @@ class Conditions:
         self.found_uptimes: dict[str, float] = {}  # var -> share of the fight, from the last evidence
         self.uptimes: dict[str, float] = {}  # the active ones up for only part of it (Search.weigh_uptimes)
 
-    def _group_uses(self, groups: list[dict], names: set[str]) -> dict[str, float]:
+    def _group_uses(self, groups: list[dict], names: set[str], rows: dict | None = None) -> dict[str, float]:
         """{gem name: uses per second} for skills beside the main one, each at its enabled group's rate
         (skill_use_rate, at the search's chosen rate where nothing else sets it); a name in no enabled group is left
-        out (the caller then reads _chosen_use: the chosen rate, else 0)."""
+        out (the caller then reads _chosen_use: the chosen rate, else 0). `rows`, if given, gets {group index: the
+        bridge's useRates row} (MECH75: the same rows give the other groups' Ignites, ignite_others)."""
         where = {n["name"]: g["index"] for g in groups if g.get("enabled") is not False
                  for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in names}
         if not where:
             return {}
         choices = models.press_choices(self.build)
-        by_index = {r.get("index"): skill_use_rate(r, choices)[0]
-                    for r in self.build.call("useRates", indices=sorted(set(where.values())))["rates"]}
+        raw = self.build.call("useRates", indices=sorted(set(where.values())))["rates"]
+        if rows is not None:
+            rows.update({r.get("index"): r for r in raw})
+        by_index = {r.get("index"): skill_use_rate(r, choices)[0] for r in raw}
         return {n: by_index[i] for n, i in where.items() if i in by_index}
 
     def battershout_uses(self, gems: dict) -> float:
@@ -3845,7 +3945,8 @@ class Conditions:
         # (MECH70: the main skill's own Daze stats, _dazed. MECH71: read for every build, not only when a line names
         # Daze: a skill's own chance (Wind Blast, Siphoning Strike's quality) has no line, and the share also feeds
         # heavy_stun_rate and GEM5's build.dazed_up; plus the build's other hitting skills, _daze_others)
-        groups_now = self.build.call("groups")["groups"]
+        groups_all = self.build.call("groups")
+        groups_now = groups_all["groups"]
         gems = self.build.ctx.gems
         beside = {n["name"] for g in groups_now if g.get("enabled") is not False for n in g.get("gems") or []
                   if n.get("enabled", True) and n["name"] != self.main_skill
@@ -3865,7 +3966,14 @@ class Conditions:
                           "concussive": bool(got.get("spell_daze_on_critical_hit_dealing_physical_damage")),
                           "opening": bool(got.get("daze_on_hit_vs_enemies_at_full_life"))}
         stats["_daze_weapon_lines"] = {line["text"] for line in lines if line["source"].startswith("item:Weapon")}
-        uses = self._group_uses(groups_now, hitters) if hitters else {}
+        group_rows: dict = {}
+        uses = self._group_uses(groups_now, hitters, group_rows) if hitters else {}
+        # (MECH75) the other groups' Ignites on the boss, from the same rows: ailment_uptime adds them to the main skill's
+        others, others_how = ignite_others(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
+                                           models.press_choices(self.build))
+        if others:
+            stats["_ailment_others"] = {"Ignite": others}
+            stats["_ailment_others_how"] = {"Ignite": others_how}
         stats["_daze_others"] = [
             {"name": name, "types": sorted(gems[name].get("skillTypes") or []),
              "uses": uses.get(name, self._chosen_use(name)), "chance": d.get("base_chance_to_daze_%", 0.0),
@@ -3935,6 +4043,8 @@ class Conditions:
                     reason += f"; up {up:.0%} of the fight ({shared(up)})"
                     if side := (stats.get("_side_consumes") or {}).get(SIDE_CONSUMED_BOXES.get(condition.var, "")):
                         reason += f"; consumed by {side[1]} ({side[2]}): each takes it off, then immune 1 s"
+                    if beside := (stats.get("_ailment_others_how") or {}).get(SIDE_CONSUMED_BOXES.get(condition.var, "")):
+                        reason += f"; with {beside}"
             if condition.value_fn is not None:
                 value, basis, *share = condition.value_fn([line["text"] for line in lines], stats)
                 if value > 0 or basis:  # (a basis with 0: the build has sources, none of which a boss fight feeds)
@@ -3973,6 +4083,8 @@ class Conditions:
         # or not a box is on; Frozen from its resolver share, 0 without a Freeze source)
         self.build.ailment_uptimes = {"Ignited": _ailment_share("Ignite")(stats), "Shocked": shock_share(stats),
                                       "Frozen": number(uptimes.get("conditionEnemyFrozen"))}
+        # (MECH75: the other groups' Ignites, for readers that fetch the main skill's stats afresh: assumptions.snap_stats)
+        self.build.ailment_others = dict(stats.get("_ailment_others") or {})
         # (MECH70, for GEM5's Vaulting Impact Broken Stance model: the share of the fight the boss is Dazed and its basis,
         # read whether or not the box is on; (0.0, "") without a Daze source. With no consumer of Daze (_dazed's note),
         # it is also the share of any later hit that finds the boss Dazed.)

@@ -198,6 +198,15 @@ def snap_found(stats: dict) -> tuple[float, str]:
     return 1.0 - absent, named
 
 
+def snap_stats(build) -> dict:
+    """The main skill's stats for snap_found, with the other groups' Ignites Conditions.evidence found
+    (build.ailment_others, MECH75; none before evidence() has run)."""
+    stats = build.call("stats", fields=list(HIT_REMNANT_FIELDS))
+    if others := getattr(build, "ailment_others", None):
+        stats = {**stats, "_ailment_others": others}
+    return stats
+
+
 def kalguur_rate(stuns: float) -> float:
     """Remnants of Kalguur per second from `stuns` Stuns per second: one per KALGUUR_COOLDOWN + the expected wait for
     the next Stun that makes one (KALGUUR_CHANCE each)."""
@@ -1528,7 +1537,7 @@ class Assumptions:
             elif name in HIT_REMNANTS:
                 rate, condition = hit_remnant_rate(name, self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
             elif name == "Snap":  # (MECH46: it needs an ailment on the boss to Consume)
-                found, how = snap_found(self.build.call("stats", fields=list(HIT_REMNANT_FIELDS)))
+                found, how = snap_found(snap_stats(self.build))
                 rate *= found
                 condition = f"on its cooldown, when it finds an ailment to Consume ({found:.0%}: {how})"
             supply += rate
@@ -2251,7 +2260,7 @@ class Assumptions:
             if name == LIVING_BOMB:
                 rate = living_bomb_rate(build.call("stats", fields=list(LIVING_BOMB_FIELDS)), skill.get("castTime") or 0.0)[0]
             if name == "Snap":
-                rate *= snap_found(build.call("stats", fields=list(HIT_REMNANT_FIELDS)))[0]
+                rate *= snap_found(snap_stats(build))[0]
             took = rate * (skill.get("castTime") or 0.0)
             if took > 0:
                 busy += took

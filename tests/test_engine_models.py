@@ -2452,3 +2452,30 @@ def test_use_rates_give_each_groups_ignite_for_grisly_pyre(engine):
     print("fire row", row)
     assert row["active"] == 1
     assert row["IgniteDPS"] > 0 and row["IgniteChancePerHit"] > 0 and row["IgniteDuration"] > 0
+
+
+def test_the_boss_is_ignited_by_another_groups_ignite(engine):
+    """MECH75: with a main skill that doesn't Ignite, another group's Ignite (Fireball, at the search's chosen press
+    rate) puts the boss's Ignited share above the main skill's own (build.ailment_uptimes, the Ignited box's basis)."""
+    from types import SimpleNamespace
+
+    from builder.search import conditions as cmod
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.set_group(gems=[{"name": "Fireball", "level": 20, "quality": 0}], label="fire", fullDPS=True)
+    if getattr(build, "objective", None) is None:
+        build.objective = SimpleNamespace(press_choices={})
+    setattr(build.objective, models.PRESS_CHOICES, {"Fireball": 1.0})
+    own = cmod.ailment_uptime(build.call("stats", fields=["Speed", "HitChance", "IgniteChancePerHit", "IgniteDuration"]),
+                              "Ignite")
+    found = search.conditions.evidence()
+    print("PROBE own", own, "shares", build.ailment_uptimes, "others", build.ailment_others,
+          found.get("conditionEnemyIgnited"))
+    assert build.ailment_others.get("Ignite") and build.ailment_others["Ignite"][0][0].startswith("Fireball")
+    assert build.ailment_uptimes["Ignited"] > own
+    if "conditionEnemyIgnited" in found:
+        assert "Fireball" in found["conditionEnemyIgnited"][1]
