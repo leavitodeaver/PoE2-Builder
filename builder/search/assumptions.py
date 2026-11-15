@@ -204,6 +204,8 @@ def snap_stats(build) -> dict:
     stats = build.call("stats", fields=list(HIT_REMNANT_FIELDS))
     if others := getattr(build, "ailment_others", None):
         stats = {**stats, "_ailment_others": others}
+    if ground := getattr(build, "ailment_ground", None):  # (Radiant Grief's Presence Ignite)
+        stats = {**stats, "_ailment_ground": ground}
     return stats
 
 
@@ -612,6 +614,29 @@ def broken_stance(build: Build, main: models.Skill | None) -> tuple[float, list[
                  if s["name"] == models.STANCE_SKILL), default=0.0) or models.STANCE_HITS
     return models.broken_stance_model(vault_hit, vault_hits, dazed, hits, phys_taken, limit=int(limit),
                                       how="; ".join(part for part in (how, taken) if part))
+
+
+def blood_hunt(build: Build, main: models.Skill | None, texts: list[str]) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Blood Hunt's explosions as the main skill (MECH75; models.blood_hunt_model's note): its
+    level stats' explosion %, the other skills' Bleed PoB counts (Best Bleed DPS among the Full DPS skills: Blood Hunt
+    never Bleeds itself) kept to the share Blood Hunt's Consume leaves (consumed_ignite_scale for another skill's
+    Bleed, as consume_ignite scales that entry), and the build's "causes Blood Loss" lines on its Physical hits."""
+    if main is None or main.name != models.BLOOD_HUNT:
+        return 0.0, []
+    stats = build.call("stats", fields=["Speed", "HitChance", "PhysicalHitAverage", "MainHand.PhysicalHitAverage"])
+    hits = models.number(stats.get("Speed")) * (models.number(stats.get("HitChance")) or 100.0) / 100.0
+    bleed = max((models.number(e.get("dps")) for e in (build.stats or {}).get("SkillDPS") or []
+                 if e.get("name") == "Best Bleed DPS"), default=0.0)
+    scale, _ = conditions_mod.consumed_ignite_scale(1.0, hits, 0.0, conditions_mod.AILMENT_DURATION["Bleed"], False)
+    raw = build.call("activeSkills", levelStats=[models.BLOOD_HUNT])
+    got = next((s.get("levelStats") or {} for s in raw["skills"] if s["name"] == models.BLOOD_HUNT
+                and models.BLOOD_HUNT_STAT in (s.get("levelStats") or {})), {})
+    pct = models.number(got.get(models.BLOOD_HUNT_STAT)) or models.BLOOD_HUNT_PCT
+    share = sum(float(m.group(1)) / 100 for t in texts if (m := models.HIT_BLOOD_LOSS.match(t.strip())))
+    physical = models.number(stats.get("PhysicalHitAverage")) or models.number(stats.get("MainHand.PhysicalHitAverage"))
+    dps, how = models.blood_hunt_model(pct, bleed, scale, physical * hits, share)
+    return dps, [{"label": "Blood Hunt's explosions (Blood Loss as Life Loss)*", "value": f"{dps:,.0f} DPS",
+                  "basis": how, "confidence": "MEDIUM"}]
 
 
 def grisly_pyre(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
@@ -1036,9 +1061,12 @@ class Assumptions:
         shout, shout_notes = battershout(build)  # (MECH72: Battershout's explosions, PoB holds no damage)
         hand_mods += [models.added_input("Battershout", shout)] if shout > 0 else []
         hand_notes += shout_notes
+        blood, blood_notes = blood_hunt(build, main, [e["text"] for e in source_lines])  # (MECH75: Blood Loss explosions)
+        hand_mods += [models.added_input("BloodHunt", blood)] if blood > 0 else []
+        hand_notes += blood_notes
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
-                                   "Battershout": shout})
+                                   "Battershout": shout, "Blood Hunt": blood})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.
@@ -1307,38 +1335,52 @@ class Assumptions:
         build = self.build
         main = self.main_skill()
         group = next((g for g in groups["groups"] if g["index"] == groups["mainSocketGroup"]), None)
-        entries = [e for e in (build.stats or {}).get("SkillDPS") or [] if e.get("name") == "Best Ignite DPS"]
-        if main is None or group is None or not entries:
+        # (MECH75: Bleeding too, PoB's Best Bleed DPS, consumed by Blood Hunt / Haemocrystals: CONSUME_STATS' note; the
+        # same formula, a Bleed lasting its BleedDuration)
+        kinds = [(ailment, [e for e in (build.stats or {}).get("SkillDPS") or [] if e.get("name") == f"Best {ailment} DPS"])
+                 for ailment in ("Ignite", "Bleed")]
+        kinds = [(a, found) for a, found in kinds if found]
+        if main is None or group is None or not kinds:
             return []
         gems = {g["name"] for g in group["gems"] if g.get("enabled", True)}
-        consumer = conditions_mod.main_consumes(build, main, gems).get("Ignite")
-        side = None if consumer is not None else conditions_mod.side_consumes(build, main, groups).get("Ignite")
-        if consumer is None and side is None:
-            return []
-        stats = build.call("stats", fields=list(conditions_mod.CONSUME_IGNITE_FIELDS))
-        hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
-        chance = min(number(stats.get("IgniteChancePerHit")) / 100.0, 1.0)
+        mains = conditions_mod.main_consumes(build, main, gems)
+        sides = None
         notes = []
-        for entry in entries:
-            source = entry.get("source") or ""
-            own = source == main
-            rate = next((r for r in rates if r.get("name") == source), None)
-            potential = (number(stats.get("IgniteStackPotential")) if own
-                         else number(((rate or {}).get("stackPotential") or {}).get("Ignite")))
-            if side is not None:  # (MECH53: a skill beside the main one consumes it)
-                scale, how = conditions_mod.side_consumed_ignite_scale(potential, hits, chance, own, side[0])
-                by, why, confidence = side[1], f"{side[1]} consumes Ignite (KeywordPopups Consume: then immune 1 s)", side[2]
-            else:
-                scale, how = conditions_mod.consumed_ignite_scale(potential, hits, chance,
-                                                                  number(stats.get("IgniteDuration")), own)
-                why = f"{main} consumes Ignite on hit (KeywordPopups Consume: then immune 1 s)"
-                by, confidence = consumer, "MEDIUM"
-            if scale >= 1.0:
+        for ailment, entries in kinds:
+            consumer = mains.get(ailment)
+            if consumer is None and sides is None:
+                sides = conditions_mod.side_consumes(build, main, groups)
+            side = None if consumer is not None else sides.get(ailment)
+            if consumer is None and side is None:
                 continue
-            key = models.press_key("Best Ignite DPS", source or None)
-            build.objective.press_scales[key] = build.objective.press_scales.get(key, 1.0) * scale
-            notes.append({"label": f"Ignite from {source or 'the build'}: consumed by {by}*", "value": f"x{scale:.3f}",
-                          "basis": f"{why}; {how}", "confidence": confidence})
+            fields = ["Speed", "HitChance", f"{ailment}ChancePerHit", f"{ailment}Duration", f"{ailment}StackPotential"]
+            stats = build.call("stats", fields=fields)
+            hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+            chance = min(number(stats.get(f"{ailment}ChancePerHit")) / 100.0, 1.0)
+            for entry in entries:
+                source = entry.get("source") or ""
+                own = source == main
+                rate = next((r for r in rates if r.get("name") == source), None)
+                potential = (number(stats.get(f"{ailment}StackPotential")) if own
+                             else number(((rate or {}).get("stackPotential") or {}).get(ailment)))
+                if side is not None:  # (MECH53: a skill beside the main one consumes it)
+                    scale, how = conditions_mod.side_consumed_ignite_scale(potential, hits, chance, own, side[0])
+                    by, why, confidence = (side[1], f"{side[1]} consumes {ailment} (KeywordPopups Consume: then immune 1 s)",
+                                           side[2])
+                else:
+                    scale, how = conditions_mod.consumed_ignite_scale(potential, hits, chance,
+                                                                      number(stats.get(f"{ailment}Duration")), own)
+                    why = f"{main} consumes {ailment} on hit (KeywordPopups Consume: then immune 1 s)"
+                    by, confidence = consumer, "MEDIUM"
+                if scale >= 1.0:
+                    continue
+                if ailment == "Bleed":
+                    how = how.replace("to Ignite again", "to Bleed again").replace("Ignited", "Bleeding").replace(
+                        "another skill's Ignite", "another skill's Bleed")
+                key = models.press_key(f"Best {ailment} DPS", source or None)
+                build.objective.press_scales[key] = build.objective.press_scales.get(key, 1.0) * scale
+                notes.append({"label": f"{ailment} from {source or 'the build'}: consumed by {by}*", "value": f"x{scale:.3f}",
+                              "basis": f"{why}; {how}", "confidence": confidence})
         return notes
 
     def press_caps(self, groups: list[dict], indices: set[int]) -> dict[int, "models.PressCap"]:

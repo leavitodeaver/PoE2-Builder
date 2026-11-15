@@ -1947,7 +1947,7 @@ def test_the_bosss_fire_hits_ignite_you_by_flammability_against_your_ailment_thr
              "AilmentThreshold": 5000, "FireTakenHit": 1000, "Life": 10000}
     land = 7 / 20
     per_hit = 1000 / 5000 * 0.2 * (1 + 20 / 17 / 100)
-    chance = per_hit * (1 + land * 17 / 24 * 8)
+    chance = per_hit * (1 + land * 17 / 24 * 4)  # (Flammability on players: 4 s, patch 0.3.0; MECH75)
     assert boss_hits.ignite_chance(stats, land)[0] == pytest.approx(chance)
     p = 17 / 24 * chance
     wait = ((1 - p) * math.exp(land * 4.0) + p * math.exp(land * 8.0) - 1) / land

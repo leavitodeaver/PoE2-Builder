@@ -2479,3 +2479,69 @@ def test_the_boss_is_ignited_by_another_groups_ignite(engine):
     assert build.ailment_uptimes["Ignited"] > own
     if "conditionEnemyIgnited" in found:
         assert "Fireball" in found["conditionEnemyIgnited"][1]
+
+
+def test_black_powder_blitz_counts_as_a_hitter_beside_the_main_skill(engine):
+    """MECH75 (AUDIT35 A35-2): Shankgonne's item-granted Black Powder Blitz explodes on its cooldown (Damage, Area): the
+    Daze and Ignite readers of the other skills now look it up in every gem, not only the socketed ones."""
+    from builder.search import conditions as cmod
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    boots = chr(10).join(["Rarity: Unique", "Shankgonne", "Covered Sabatons", "Implicits: 1",
+                          "Grants Skill: Level 20 Black Powder Blitz", "100% increased Armour and Evasion",
+                          "You cannot Sprint"])
+    build.call("equip", slot="Boots", raw=boots, fields=[])
+    groups = build.call("groups")["groups"]
+    names = [n["name"] for g in groups for n in g.get("gems") or []]
+    raw = build.call("activeSkills")
+    blitz = [s for s in raw["skills"] if s["name"] == "Black Powder Blitz"]
+    print("PROBE groups", names, "blitz", [{k: s.get(k) for k in ("group", "hitsOnUse", "fromItem", "disabled")}
+                                           for s in blitz])
+    assert "Black Powder Blitz" in build.ctx.all_gems
+    assert any(s.get("hitsOnUse") for s in blitz)
+    assert cmod.daze_hitter(build.ctx.all_gems["Black Powder Blitz"], blitz)
+    search.conditions.evidence()
+    print("PROBE others", build.ailment_others, "dazed", build.dazed_up)
+    # (its explosion Ignites: 100% a hit in the probe of 14 Nov, at one use per its 3.5 s cooldown)
+    blitz_ignites = [o for o in build.ailment_others.get("Ignite") or () if o[0] == "Black Powder Blitz"]
+    assert blitz_ignites and blitz_ignites[0][1] == pytest.approx(1 / 3.5, rel=0.05)
+
+
+def test_blood_hunt_consumes_bleeding_and_explodes_its_blood_loss(engine):
+    """MECH75: Blood Hunt consumes Bleeding by its skill type (the bridge's consumes.Bleed), and its explosions add pct of
+    the Blood Loss (another skill's Bleed + Atziri's Acuity's 10% of Physical hits) as Life Loss."""
+    from builder.search import assumptions as amod
+    from builder.search import conditions as cmod
+
+    payload = make_payload(BuildRequest(main_skill="Blood Hunt", ascendancies=["Amazon"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Blood Hunt"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    ring = chr(10).join(["Rarity: Rare", "Test Ring", "Ruby Ring", "Item Level: 82", "Implicits: 0",
+                         "100% chance to inflict Bleeding on Hit"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    main = models.Skill.of({"name": "Blood Hunt"})
+    raw = build.call("activeSkills")
+    hunt = [s for s in raw["skills"] if s["name"] == "Blood Hunt"]
+    print("PROBE consumes", [s.get("consumes") for s in hunt])
+    assert any((s.get("consumes") or {}).get("Bleed") for s in hunt)
+    group = build.main_group()
+    gems = {g["name"] for g in group["gems"] if g.get("enabled", True)}
+    assert cmod.main_consumes(build, "Blood Hunt", gems).get("Bleed") == "Blood Hunt"
+    plain, notes = amod.blood_hunt(build, main, [])
+    gloves = chr(10).join(["Rarity: Unique", "Atziri's Acuity", "Vaal Gauntlets", "Implicits: 0",
+                           "10% of Physical damage dealt by your Hits causes Blood Loss"])
+    build.call("equip", slot="Gloves", raw=gloves, fields=[])
+    texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+    acuity, acuity_notes = amod.blood_hunt(build, main, texts)
+    print("PROBE blood hunt", plain, notes, acuity, acuity_notes)
+    # Blood Hunt's own hit never Bleeds (BloodHuntPlayer: cannot_cause_bleeding), even with the ring: no Blood Loss
+    # without another skill's Bleed; Atziri's Acuity makes Blood Loss from its Physical hits
+    assert plain == 0.0 and "no Blood Loss" in notes[0]["basis"]
+    assert acuity > 0 and "Physical hit DPS" in acuity_notes[0]["basis"]
+    assert amod.blood_hunt(build, models.Skill.of({"name": "Fireball"}), texts) == (0.0, [])

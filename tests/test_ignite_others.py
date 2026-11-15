@@ -96,3 +96,68 @@ def test_withering_hex_counts_only_curses_that_find_the_boss_uncursed():
     assert c._withered_stacks([HEX], {**base, "_curse_uses": [hand]})[0] == 0.0
     # PoB doesn't parse the line: its stacks need CanWither
     assert c.wither_source_flags([HEX], set())
+
+
+def test_a_hand_cast_curse_let_run_out_feeds_withering_hex():
+    """MECH75 (AUDIT36 A36-2): the search may play a hand-cast curse to run out before each recast (models.CURSE_LAPSE):
+    up D / (D + gap) of the fight, and every cast finds the boss uncursed, 1 / (D + gap) a second."""
+    groups = [{"index": 1, "gems": [{"name": "Despair"}]}]
+    gems = {"Despair": {"skillTypes": ["AppliesCurse", "Spell"]}}
+    kept = models.curse_uses(groups, gems, {}, 2.0)
+    assert kept[0].share == 1.0 and kept[0].by_hand and not kept[0].lapse
+    assert c.withering_hex_rate(kept)[0] == 0.0
+    lapsed = models.curse_uses(groups, gems, {"_curse_lapse": {"Despair"}}, 2.0)
+    d, gap = models.CURSE_DURATION, models.CURSE_LAPSE_GAP
+    assert lapsed[0].lapse and lapsed[0].share == pytest.approx(d / (d + gap))
+    each, how = c.withering_hex_rate(lapsed)
+    assert each == pytest.approx(1 / (d + gap)) and "let run out" in how
+    stacks = c._withered_stacks([HEX], {"Speed": 1.0, "HitChance": 100.0, "_curse_uses": lapsed})
+    assert stacks[0] == float(int(5 / (d + gap) * c.WITHER_DEFAULT_DURATION))
+
+
+GRIEF = "Enemies in your Presence are Ignited as though dealt 200 Base Fire Damage"
+
+
+def test_radiant_griefs_presence_ignite_keeps_the_boss_ignited_inside_your_presence():
+    """MECH75 (PATCH_CHECK H2-2): the boss Ignited all the fight inside your Presence, 0 outside; it combines with the
+    other sources, and a consumer finds it reapplied after the 1 s immunity, as a ground."""
+    near = {"PresenceRadius": 40, "_distance_choice": (2.0, "chosen")}
+    far = {"PresenceRadius": 40, "_distance_choice": (6.0, "chosen")}
+    assert c.presence_ignite([GRIEF], near)[0] == 1.0 and "inside" in c.presence_ignite([GRIEF], near)[1]
+    assert c.presence_ignite([GRIEF], far)[0] == 0.0 and "outside" in c.presence_ignite([GRIEF], far)[1]
+    assert c.presence_ignite([], near) == (0.0, "")
+    aura = {"Ignite": (1.0, "aura")}
+    assert c.ailment_uptime({**NONE, "_ailment_ground": aura}, "Ignite") == pytest.approx(1.0)
+    half = {"Ignite": (0.5, "aura")}
+    own = c.ailment_uptime(MAIN, "Ignite")
+    assert c.ailment_uptime({**MAIN, "_ailment_ground": half}, "Ignite") == pytest.approx(1 - (1 - own) * 0.5)
+    consumed = {**MAIN, "_consumes": {"Ignite": "x"}, "_ailment_ground": aura}
+    last = 1 / 2.0
+    assert c.ailment_uptime(consumed, "Ignite") == pytest.approx(last / (last + models.CONSUME_IMMUNE))
+
+
+def test_bleed_consumers_are_read_by_their_text_and_stats():
+    """MECH75: Blood Hunt (by type) and the Haemocrystals support (consume_bleed_to_create_X_haemocrystals) consume
+    Bleeding; the Heralds that explode on a kill name no Consume."""
+    hunt = ("Lunge at a target and skewers them. Hitting an enemy that has suffered Blood Loss will cause a blood explosion "
+            "and also Consume Bleeding. This skill cannot be Ancestrally Boosted.")
+    haemo = ("Supports Attack Skills you use yourself which can cause Damaging Hits. Supported Skills Consume Bleeding on "
+             "Hit to create explosive blood-filled crystals, but cannot themselves inflict Bleeding.")
+    herald = "While active, killing an enemy with Blood Loss will cause a bloody explosion that deals Physical Attack damage"
+    assert c.CONSUME_TEXT.search(hunt) and c.CONSUME_TEXT.search(haemo) and not c.CONSUME_TEXT.search(herald)
+    assert "consume_bleed_to_create_X_haemocrystals" in c.CONSUME_STATS["Bleed"]
+    assert c.SIDE_CONSUMED_BOXES["conditionEnemyBleeding"] == "Bleed"
+    bleed = {"Speed": 2.0, "HitChance": 100.0, "BleedChancePerHit": 50.0, "BleedDuration": 5.0}
+    last = 1 / 2.0
+    assert c.ailment_uptime({**bleed, "_consumes": {"Bleed": "Blood Hunt"}}, "Bleed") == pytest.approx(
+        last / (last + models.CONSUME_IMMUNE + 1 / (2.0 * 0.5)))
+    scale, how = c.consumed_ignite_scale(1.0, 2.0, 0.5, 5.0, True)
+    assert scale == pytest.approx(last / (last + models.CONSUME_IMMUNE + 1.0))
+
+
+def test_blood_hunt_model_takes_pct_of_the_blood_loss():
+    """MECH75: pct x (another skill's Bleed x the consumed share + the Blood Loss lines' share of Physical hits)."""
+    dps, how = models.blood_hunt_model(25.0, 1000.0, 0.5, 2000.0, 0.1)
+    assert dps == pytest.approx(0.25 * (500 + 200)) and "Life Loss" in how
+    assert models.blood_hunt_model(25.0, 0.0, 1.0, 2000.0, 0.0)[0] == 0.0
+    assert models.HIT_BLOOD_LOSS.match("10% of Physical damage dealt by your Hits causes Blood Loss")

@@ -123,24 +123,37 @@ def withering_hex_rate(uses: list) -> tuple[float, str]:
     note), from models.curse_uses."""
     total, parts = 0.0, []
     for use in uses:
-        if use.by_hand or not 0 < use.share < 1 or use.duration <= 0:
+        if (use.by_hand and not use.lapse) or not 0 < use.share < 1 or use.duration <= 0:
             continue
         rest = 1.0
         for other in uses:
             if other is not use:
                 rest *= 1.0 - min(1.0, max(0.0, other.share))
-        each = use.share / use.duration * rest
+        if use.lapse:  # (MECH75: let run out, one cast per duration + the gap, models.CURSE_LAPSE)
+            each = rest / (use.duration + models.CURSE_LAPSE_GAP)
+            kind = f"cast by hand and let run out, recast {models.CURSE_LAPSE_GAP:g} s after (LOW: the player's timing)"
+        else:
+            each = use.share / use.duration * rest
+            kind = f"triggered, {use.share:.0%} of the fight; triggers taken as evenly spaced, MEDIUM"
         if each > 0:
             total += each
-            parts.append(f"{use.name} lands on the uncursed boss {each:.2f} times/s (triggered, {use.share:.0%} of the "
-                         f"fight, {use.duration:.3g} s each; triggers taken as evenly spaced, MEDIUM)")
+            parts.append(f"{use.name} lands on the uncursed boss {each:.2f} times/s ({kind}, {use.duration:.3g} s each)")
     if total > 0:
         return total, "; ".join(parts)
     if not uses:
         return 0.0, "no curse in the build"
     return 0.0, ("the boss stays cursed: a hand-cast curse is recast before it runs out, an Aura, infinite or on-hit "
-                 "curse never lapses; after the first curse none finds it uncursed (letting a hand-cast curse lapse on "
-                 "purpose isn't offered)")
+                 "curse never lapses; after the first curse none finds it uncursed (letting a hand-cast curse run out "
+                 "on purpose is a search choice, models.CURSE_LAPSE, not taken here)")
+
+
+def curse_lapse_candidates(build, texts: list[str]) -> list[str]:
+    """The hand-cast curses the search may play to run out before each recast (models.CURSE_LAPSE), for Withering Hex:
+    none without its line. For SEARCH's toggle (each tried on and off, the higher score kept, as Raise Shield's taps)."""
+    if not any(WITHER_HEX.match(t.strip()) for t in texts):
+        return []
+    stats = {"PresenceRadius": 0.0}
+    return sorted({u.name for u in curse_uses(build, stats, [], 0.0) if u.by_hand})
 
 
 def _withered_stacks(lines: list[str], stats: dict) -> tuple:
@@ -1386,6 +1399,8 @@ def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None
     if metres is None:
         metres = number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(set())
     stats = {"_curse_durations": getattr(build, "curse_durations", {}), **stats}  # (MECHB12, A25-41: Assumptions.models')
+    # (MECH75) the hand-cast curses the search chose to let run out before each recast (models.CURSE_LAPSE)
+    stats["_curse_lapse"] = set(getattr(getattr(build, "objective", None), models.CURSE_LAPSE, None) or ())
     return models.curse_uses(build.groups(), build.ctx.gems, stats, metres, texts, getattr(build, "trigger_rates", None))
 
 
@@ -1670,8 +1685,16 @@ DAZE_WORD = re.compile(r"\bdaz(?:e|es|ed|ing)\b", re.I)
 # - Arctic Armour: Persistent; its burst hits the attacker when a Melee Attack hits you: 0 here (the boss's melee hits on
 #   you aren't read for it; an UNDERCOUNT, labelled);
 # - Briarpatch: Persistent; its Thorny Ground hurts moving enemies: 0 (an UNDERCOUNT if it hits, UNVERIFIED);
-# - Black Powder Blitz and Crackling Palm: item-granted (fromItem), not among the gems the search sockets; their dodge-roll
-#   explosion / bolts on unarmed hits aren't rated (0, an UNDERCOUNT where an item grants them).
+# - Black Powder Blitz (Shankgonne's "Grants Skill"): item-granted. Its reservation effect is Persistent, but its explosion,
+#   BlackPowderBlitzPlayer, has the Damage and Area types and a cooldown (PoB act_str.lua 1686-1694: 4.5 s at level 1,
+#   3.5 s at 20), so it hits on use. MECH75 (AUDIT35 A35-2): the hitters are looked up in every gem (ctx.all_gems), not
+#   only the gems the search sockets, so an item- or tree-granted skill counts, at its group's rate (its cooldown: a dodge
+#   roll used on cooldown, MEDIUM). Before, 0 (an UNDERCOUNT). Its Ignites reach ignite_others the same way. Labelled: its
+#   explosion is taken to reach the boss (it hits "the area you escape from": you roll from beside the boss; a build
+#   that keeps its distance would roll out of reach, an OVERCOUNT there), and the roll's own time isn't taken off the
+#   main skill (a small OVERCOUNT).
+# - Crackling Palm (Thunderfist): item-granted too, now looked up the same way; its bolts fire on unarmed melee hits
+#   (Triggered), so it counts only if PoB's activeSkills says it hits on use and its row gives a rate (UNVERIFIED here).
 # Without hitsOnUse (an old recording or a test's fake) the MECH71 rule stands: an Attack, or a Spell with the Damage type,
 # and not one of DAZE_NOT_HITS.
 DAZE_NOT_HITS = {"CreatesMinion", "Wall", "DegenOnlySpellDamage", "Persistent"}
@@ -2192,17 +2215,19 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
     duration = number(stats.get(f"{ailment}Duration")) or AILMENT_DURATION[ailment]
     others = [o for o in (stats.get("_ailment_others") or {}).get(ailment) or () if o[1] > 0 and o[2] > 0 and o[3] > 0]
+    # (MECH75: an aura that keeps it on the boss the share of the fight it stands in it: Radiant Grief, presence_ignite)
+    ground = min(1.0, max(0.0, number(((stats.get("_ailment_ground") or {}).get(ailment) or (0.0,))[0])))
     own = chance > 0 and hits > 0
-    if not own and not others:
+    if not own and not others and ground <= 0:
         return 0.0
     extra = sum(h * c for _, h, c, _ in others)  # (the other groups' applications a second)
     if ailment in (stats.get("_consumes") or {}):
-        return consumed_share(hits, chance, extra=extra)
-    absent = (1.0 - chance) ** (hits * duration) if own else 1.0
+        return consumed_share(hits, chance, ground, extra=extra)
+    absent = ((1.0 - chance) ** (hits * duration) if own else 1.0) * (1.0 - ground)
     for _, h, c, d in others:
         absent *= (1.0 - c) ** (h * d)
     # (side_consumed's wait to reapply, 1 / (hits x chance), over every source's applications)
-    return side_consumed(1.0 - absent, stats, ailment, hits * chance + extra, 1.0)
+    return side_consumed(1.0 - absent, stats, ailment, hits * chance + extra, 1.0, ground)
 
 
 # Ailments the main skill consumes on hit (MECH51; FIX_QUEUE RESEARCH18 #92, HIGH): the stats of its own stat sets or its
@@ -2244,9 +2269,21 @@ CONSUME_STATS = {
     # "consum" (Icestorm only; Ice Nova, Fangs of Frost and Glacial Lance consume other things); poe2db beyond
     # Icestorm's page not searched, so other Chill consumers stay (UNVERIFIED) and are not modelled.)
     "Chill": ("firestorm_improved_bolts_per_chill_consumed",),
+    # Bleeding (MECH75, an OVERCOUNT before: PoB keeps a consumed Bleed whole). KeywordPopups Consume: "Consuming a
+    # [Debuff] on an enemy causes the enemy to be immune to that [Debuff] for 1 seconds" (Bleeding is an Ailment, a
+    # Debuff). Consumers (checked: Stats.json ids holding "consum" with "bleed" / "blood" (15 ids: the rest consume
+    # Bloodstained, Incision, flask charges, Pinned or Blood Loss itself); PoB's skill data with SkillConsumesBleeding:
+    # Blood Hunt, Herald of Blood, Herald of the Royal Queen; poe2db not checked, so others stay UNVERIFIED): the
+    # Haemocrystals support ("Supported Skills Consume Bleeding on Hit ... but cannot themselves inflict Bleeding",
+    # consume_bleed_to_create_X_haemocrystals), and by type Blood Hunt ("Hitting an enemy that has suffered Blood Loss
+    # will cause a blood explosion and also Consume Bleeding": its own hit never Bleeds (BloodHuntPlayer's
+    # cannot_cause_bleeding), so it Consumes another skill's Bleed once it has ticked Blood Loss; each hit taken to find
+    # it, MEDIUM). Herald of Blood explodes on a kill ("killing an enemy with Blood
+    # Loss", 0 against a lone boss) and its description names no Consume, so it isn't a candidate (CONSUME_TEXT).
+    "Bleed": ("consume_bleed_to_create_X_haemocrystals",),
 }
-CONSUME_TEXT = re.compile(r"\bconsum\w*\b[^.]*\b(?:freez|frozen|shock|ignit|chill|elemental ailment)|"
-                          r"\b(?:chill|freeze|shock|ignite)\b[^.]*\bconsumed\b", re.I)  # (Icestorm: "... Freeze ... are Consumed")
+CONSUME_TEXT = re.compile(r"\bconsum\w*\b[^.]*\b(?:freez|frozen|shock|ignit|chill|elemental ailment|bleed)|"
+                          r"\b(?:chill|freeze|shock|ignite|bleeding)\b[^.]*\bconsumed\b", re.I)  # (Icestorm: "... Freeze ... are Consumed")
 # Skills that consume an ailment by their skill types alone, no CONSUME_STATS stat (Snap, Elemental Sundering, Snipe,
 # Shockchain Arrow, Icestorm: SkillConsumesFreeze / Shock / Ignite; the bridge's activeSkills "consumes"; MECH55, an
 # OVERCOUNT before: a Snap pressed beside the main skill left the boss's Freeze / Shock / Ignite uptime whole). Snipe
@@ -2421,6 +2458,33 @@ def side_consumes(build, main_skill: str, groups: dict | None = None,
 # the main skill's own group: their Ignites aren't added (an UNDERCOUNT if one Ignites the boss, not modelled).
 
 
+# Radiant Grief (MECH75; PATCH_CHECK H2-2, an UNDERCOUNT: PoB doesn't parse the line, and nothing here read it): "Enemies
+# in your Presence are Ignited as though dealt 200 Base Fire Damage" (PoB Uniques/helmet.lua, the Current variant; patch
+# 0.5.0, 2026-05-29: "now has ... 200 Base Fire Damage (previously 100)", the newest entry, checked with grep_notes.py
+# --history "Radiant Grief"). Since 0.4.0 an igniting aura applies regular Ignites "with standard duration, and will
+# reapply them after they expire the next time the aura applies flammability" (patch 0.4.0, 2025-12-12): the boss is
+# taken as Ignited the whole time it stands in your Presence (the aura's reapply tick taken as at once, MEDIUM), 0 outside
+# (the boss's distance: _boss_distance, the search's chosen distance where it chose one; your PresenceRadius). A consumer
+# finds it reapplied after its 1 s immunity, as a ground (consumed_share's `ground`). Its own Ignite damage (20% of 200 Fire
+# a second, scaled) isn't added: only the strongest Ignite deals damage, and a build's own hits' Ignite is usually far
+# stronger (an UNDERCOUNT only where the build has no Ignite of its own, labelled).
+PRESENCE_IGNITE = re.compile(r"^Enemies in your Presence are Ignited as though dealt (\d+) Base Fire Damage$", re.I)
+
+
+def presence_ignite(texts: list[str], stats: dict) -> tuple[float, str]:
+    """(share of the fight the boss stands Ignited in your Presence, how) from Radiant Grief's line (see the note above)."""
+    line = next((t for t in texts if PRESENCE_IGNITE.match(t.strip())), None)
+    if line is None:
+        return 0.0, ""
+    metres = _boss_distance(texts, stats)[0] / 10
+    radius = number(stats.get("PresenceRadius")) / 10
+    if radius >= metres:
+        return 1.0, (f"'{line}': the boss {metres:g} m away, inside your {radius:.1f} m Presence: Ignited all the "
+                     "fight (the aura reapplies it at once, MEDIUM)")
+    return 0.0, (f"'{line}': the boss {metres:g} m away, outside your {radius:.1f} m Presence: 0 (standing closer is "
+                 "the search's distance choice)")
+
+
 def ignite_others(rows: dict, groups: list[dict], hitters: set[str], main_index,
                   choices: dict[str, float] | None = None) -> tuple[list[tuple[str, float, float, float]], str]:
     """([(name, hits per second, chance per hit, Ignite duration in s)], how) for the build's other groups that Ignite
@@ -2463,7 +2527,8 @@ def side_consumed_ignite_scale(potential: float, hits: float, chance: float, own
     return scale, how
 
 
-SIDE_CONSUMED_BOXES = {"conditionEnemyShocked": "Shock", "conditionEnemyIgnited": "Ignite"}
+SIDE_CONSUMED_BOXES = {"conditionEnemyShocked": "Shock", "conditionEnemyIgnited": "Ignite",
+                       "conditionEnemyBleeding": "Bleed"}  # (MECH75: Bleed consumers)
 
 
 def side_consumed(share: float, stats: dict, ailment: str, hits: float, chance: float, ground: float = 0.0) -> float:
@@ -3924,6 +3989,11 @@ class Conditions:
         stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types,
                                                  self.main_skill)
         stats["_shocked_ground"] = shocked_ground(stats, texts)
+        if (aura := presence_ignite(texts, stats))[1]:  # (MECH75: Radiant Grief)
+            stats["_ailment_ground"] = {"Ignite": aura}
+            if aura[0] > 0:
+                said = stats.setdefault("_ailment_others_how", {})
+                said["Ignite"] = "; ".join(filter(None, [said.get("Ignite"), aura[1]]))
         if stats["_shocked_ground"][0] >= MIN_UPTIME:  # its Shock's magnitude (ground_shock_magnitude)
             stats["_sg_magnitude"] = self.build.call("shockMagnitude")
         self.parry_plan = None
@@ -3948,16 +4018,18 @@ class Conditions:
         groups_all = self.build.call("groups")
         groups_now = groups_all["groups"]
         gems = self.build.ctx.gems
+        # (MECH75, AUDIT35 A35-2: every gem, item- and tree-granted skills too: Black Powder Blitz's explosion)
+        every = self.build.ctx.all_gems
         beside = {n["name"] for g in groups_now if g.get("enabled") is not False for n in g.get("gems") or []
                   if n.get("enabled", True) and n["name"] != self.main_skill
-                  and not (gems.get(n["name"]) or {"support": True}).get("support")}
+                  and not (every.get(n["name"]) or {"support": True}).get("support")}
         raw = self.build.call("activeSkills", levelStats=[self.main_skill, *sorted(beside)],
                               supportStats=list(DAZE_SKILL_STATS))
         effects: dict[str, list[dict]] = {}
         for entry in raw["skills"]:
             if not entry.get("disabled"):
                 effects.setdefault(entry["name"], []).append(entry)
-        hitters = {name for name in beside if daze_hitter(gems.get(name), effects.get(name))}
+        hitters = {name for name in beside if daze_hitter(every.get(name), effects.get(name))}
         dazing = {s["name"]: {stat: number(value) for part in ("levelStats", "supportStats")
                               for stat, value in (s.get(part) or {}).items() if stat in DAZE_SKILL_STATS and value}
                   for s in raw["skills"] if not s.get("disabled") and (s["name"] == self.main_skill or s["name"] in hitters)}
@@ -3973,9 +4045,10 @@ class Conditions:
                                            models.press_choices(self.build))
         if others:
             stats["_ailment_others"] = {"Ignite": others}
-            stats["_ailment_others_how"] = {"Ignite": others_how}
+            said = stats.setdefault("_ailment_others_how", {})  # (Radiant Grief's aura may be said already)
+            said["Ignite"] = "; ".join(filter(None, [others_how, said.get("Ignite")]))
         stats["_daze_others"] = [
-            {"name": name, "types": sorted(gems[name].get("skillTypes") or []),
+            {"name": name, "types": sorted(every[name].get("skillTypes") or []),
              "uses": uses.get(name, self._chosen_use(name)), "chance": d.get("base_chance_to_daze_%", 0.0),
              "cannot": bool(d.get("cannot_daze"))}
             for name, d in sorted(dazing.items()) if name in hitters]
@@ -4085,6 +4158,7 @@ class Conditions:
                                       "Frozen": number(uptimes.get("conditionEnemyFrozen"))}
         # (MECH75: the other groups' Ignites, for readers that fetch the main skill's stats afresh: assumptions.snap_stats)
         self.build.ailment_others = dict(stats.get("_ailment_others") or {})
+        self.build.ailment_ground = dict(stats.get("_ailment_ground") or {})  # (MECH75: Radiant Grief's aura)
         # (MECH70, for GEM5's Vaulting Impact Broken Stance model: the share of the fight the boss is Dazed and its basis,
         # read whether or not the box is on; (0.0, "") without a Daze source. With no consumer of Daze (_dazed's note),
         # it is also the share of any later hit that finds the boss Dazed.)

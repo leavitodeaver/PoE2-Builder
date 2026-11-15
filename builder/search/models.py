@@ -2031,6 +2031,15 @@ def mark_activations(mark: Skill, skills: list[Skill], stats: dict, disabled: li
 # - "Curse ... with X on Hit" item lines: up while the main skill hits.
 CURSE_DURATION = 7.4
 CURSE_DELAY = 1.5
+# Letting a hand-cast curse run out on purpose (MECH75; AUDIT36 A36-2): Withering Hex ("Non-Cursed enemies you Curse have
+# 5 Withered stacks inflicted on them") fires only when a curse lands on a boss carrying none of your curses, so a player
+# who takes it can let the curse run out and recast it to land just after. The search picks it per curse (the build's
+# objective attribute CURSE_LAPSE: the set of curse names played so; SEARCH's toggle, curse_lapse_candidates), never by
+# default. Played so, each cast lands CURSE_LAPSE_GAP s after the last ran out: the curse is up D / (D + gap) of the fight
+# and every cast finds the boss uncursed, 1 / (D + gap) a second. CURSE_LAPSE_GAP = 0.5 s: the player's timing, which no
+# game data gives (LOW, a named flat number; the manager asks the user).
+CURSE_LAPSE = "curse_lapse"
+CURSE_LAPSE_GAP = 0.5
 # "Curses you inflict have infinite Duration" (RULE_AUDIT #1, MECH42): a curse cast by hand is cast once and never recast,
 # so it costs the main skill no time (the first cast and its 1.5 s delay at the fight's start aren't counted). Before, the
 # ledger dropped the line as "PoB already counts a curse as always applied", which no longer held once recasts cost time.
@@ -2069,6 +2078,7 @@ class CurseUse:
     # stats' "_curse_durations"; AUDIT25 A25-41, MECHB12), else the level-20 base CURSE_DURATION
     duration: float = CURSE_DURATION
     zone: str = ""  # the support that makes it a cursed area on the ground (CURSE_ZONE_SUPPORTS), else ""
+    lapse: bool = False  # cast by hand and let run out before each recast (CURSE_LAPSE, MECH75: Withering Hex)
 
 
 def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
@@ -2110,6 +2120,12 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
             elif forever:
                 uses.append(CurseUse(name, 1.0, "cast by hand once: 'Curses you inflict have infinite Duration' (no "
                                                 "recasts; the first cast at the fight's start isn't counted)"))
+            elif name in (stats.get("_curse_lapse") or ()):  # (MECH75: let run out before each recast, CURSE_LAPSE)
+                up = duration / (duration + CURSE_LAPSE_GAP)
+                uses.append(CurseUse(name, up, f"cast by hand, let run out ({lasts}) and recast to land "
+                                               f"{CURSE_LAPSE_GAP:g} s after (LOW: the player's timing), so each cast "
+                                               f"finds the boss uncursed (Withering Hex): {up:.0%} of the fight",
+                                     True, duration, lapse=True))
             else:
                 uses.append(CurseUse(name, 1.0, f"cast by hand every {lasts} (its duration; recast "
                                                 f"{CURSE_DELAY:g} s before it runs out, the curse delay)", True, duration))
@@ -4397,6 +4413,46 @@ def grisly_pyre_other_ignite(uses: float, hits: float, chance: float, duration: 
     return share, (f"Ignited {alone:.0%} of the fight by it alone ({hits:.2f} hits/s x {chance:.0%}, {duration:.2f} s "
                    f"each), {share:.0%} once His Winnowing Flame Consumes it {uses:.2f} times/s (then immune "
                    f"{CONSUME_IMMUNE:g} s, {wait:.2f} s to Ignite again)")
+
+# Blood Hunt's explosion (MECH75; PATCH_CHECK H2-5's reader, an UNDERCOUNT: neither PoB nor the tool read Blood Loss).
+# KeywordPopups BloodLoss: "All [Physical] damage over time taken by a target (including [Bleeding]) is accumulated as Blood
+# Loss." Blood Hunt (PoB act_dex.lua): "Hitting an enemy that has suffered Blood Loss will cause a blood explosion and also
+# Consume Bleeding"; its Explosion set: blood_hunt_explosion_%_blood_loss_to_deal_as_life_loss 25 (+0.2 a quality on its
+# alternate quality), blood_hunt_X_blood_loss_consumed_to_explode 1. The readers of Blood Loss (checked: Stats.json ids
+# holding blood_loss (10), their carriers in GrantedEffectStatSets, Mods and PassiveSkills): Blood Hunt's two sets, Herald
+# of Blood's on-kill explosion (0 against a lone boss) and the one line that adds Blood Loss from hits, Atziri's Acuity's
+# PercentOfPhysicalHitDamageAsAdditionalBloodLoss, "10% of Physical damage dealt by your Hits causes Blood Loss" (patch
+# 0.5.0's rework). Blood Hunt's own hit never Bleeds (its Dash set BloodHuntPlayer holds cannot_cause_bleeding: game files
+# GrantedEffectStatSets and PoB act_dex.lua agree), so the Bleed it Consumes is another skill's: PoB's Best Bleed DPS
+# (the strongest Bleed among the Full DPS skills, Calcs.lua 442). As the main skill, every hit that finds Blood Loss
+# explodes, so all the Blood Loss is consumed in turn: the explosions deal pct x (that Bleed DPS, kept to the share Blood
+# Hunt's Consume leaves (consumed_ignite_scale for another skill's Bleed: an upper bound) + the "causes Blood Loss" lines'
+# share of Blood Hunt's Physical hit DPS) as Life Loss a second. Labelled: Life Loss taken to bypass the boss's mitigation
+# and to count against its Life (MEDIUM, UNVERIFIED in game); a Bleed from a skill outside Full DPS and other skills'
+# hits for the Acuity line not read (lower readings); Blood Hunt beside the main skill not modelled (0, an UNDERCOUNT).
+BLOOD_HUNT = "Blood Hunt"
+BLOOD_HUNT_STAT = "blood_hunt_explosion_%_blood_loss_to_deal_as_life_loss"
+BLOOD_HUNT_PCT = 25.0  # (its Explosion set's constant; the level stats give it with quality where the bridge reads them)
+HIT_BLOOD_LOSS = re.compile(r"^(\d+(?:\.\d+)?)% of Physical damage dealt by your Hits causes Blood Loss$", re.I)
+
+
+def blood_hunt_model(pct: float, bleed_dps: float, bleed_scale: float, phys_hit_dps: float,
+                     hit_share: float) -> tuple[float, str]:
+    """(Life Loss a second from Blood Hunt's explosions, how): pct of the Blood Loss the boss accumulates, from the Bleed it
+    takes (another skill's: PoB's Best Bleed DPS x the consumed share's scale) and hit_share of the Physical hit DPS
+    (Atziri's Acuity)."""
+    bleed = max(bleed_dps, 0.0) * min(max(bleed_scale, 0.0), 1.0)
+    hits = max(phys_hit_dps, 0.0) * max(hit_share, 0.0)
+    loss = bleed + hits
+    if loss <= 0 or pct <= 0:
+        return 0.0, "no Blood Loss on the boss (no Bleed, no line making Blood Loss from hits): no explosions"
+    dps = pct / 100 * loss
+    parts = [f"Bleeding {bleed:,.0f}/s (another skill's: PoB's Best Bleed DPS {bleed_dps:,.0f} x{bleed_scale:.2f}, kept to "
+             "what Blood Hunt's Consume leaves)"] if bleed else []
+    parts += [f"{hit_share:.0%} of {phys_hit_dps:,.0f} Physical hit DPS"] if hits else []
+    return dps, (f"Blood Loss {loss:,.0f}/s ({'; '.join(parts)}); each hit that finds it explodes for {pct:g}% as Life "
+                 f"Loss: {dps:,.0f}/s (Life Loss taken to bypass mitigation: MEDIUM, UNVERIFIED in game)")
+
 
 
 # Battershout's explosions (MECH72; conditions._battershout_cycle's note gives the game files and patch notes): each

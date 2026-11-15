@@ -3632,11 +3632,14 @@ function bridge.activeSkills(args)
 				* calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "Duration", "PrimaryDuration")) or nil,
 			-- the ailments it consumes by its skill types alone (Snap, Elemental Sundering, Snipe, Shockchain Arrow,
 			-- Icestorm carry no consume stat; conditions.main_consumes / side_consumes, MECH55)
+			-- (MECH75: and Bleeding, SkillConsumesBleeding: Blood Hunt; the Heralds of Blood / the Royal Queen carry it
+			-- too, but explode only on a kill and name no Consume, so the Python side never takes them as consumers)
 			consumes = (types[SkillType.SkillConsumesFreeze] or types[SkillType.SkillConsumesShock]
-				or types[SkillType.SkillConsumesIgnite]) and {
+				or types[SkillType.SkillConsumesIgnite] or types[SkillType.SkillConsumesBleeding]) and {
 					Freeze = types[SkillType.SkillConsumesFreeze] and true or nil,
 					Shock = types[SkillType.SkillConsumesShock] and true or nil,
 					Ignite = types[SkillType.SkillConsumesIgnite] and true or nil,
+					Bleed = types[SkillType.SkillConsumesBleeding] and true or nil,
 				} or nil,
 			-- the ailments its minion's counted skill (PoB's minion.mainSkill, the one Full DPS counts) consumes by its
 			-- skill types: the Skeletal Brute's Shattering Roar consumes Freeze (MECH57, AUDIT25's small overcount;

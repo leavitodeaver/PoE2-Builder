@@ -334,7 +334,7 @@ CADENCE_NOTE = ("the boss's hits: for defences and recovery one every PoB's enem
 #   ... lasting 8 seconds by default"; "modifiers which increase the chance to inflict Ailments will increase the
 #   Magnitude of Flammability" (HIGH). The player's threshold is PoB's AilmentThreshold (CalcDefence.lua 1999; half of
 #   Life by default, KeywordPopups AilmentThreshold); the Fire dealt is PoB's FireTakenHit (the boss's full Fire hit,
-#   config_vars, after your mitigation). The Flammability of the boss's other landed Fire hits in the last 8 s counts at
+#   config_vars, after your mitigation). The Flammability of the boss's other landed Fire hits in the last 4 s counts at
 #   its mean (MEDIUM-LOW: whether an Ignite clears the Flammability on you is UNVERIFIED; if it does, the chance is
 #   lower). The bosses' "increased Ignite chance" stats (IGNITE_INCREASE) are averaged over their Fire skills (LOW: each
 #   skill's share of the Fire hits). Less your Ignite avoidance (PoB's IgniteAvoidChance). 4 s base (KeywordPopups
@@ -346,7 +346,15 @@ CADENCE_NOTE = ("the boss's hits: for defences and recovery one every PoB's enem
 # ---------------------------------------------------------------------------------------------------------------------
 IGNITE_SECONDS = 4.0  # KeywordPopups Ignite: Fire damage over time for 4 s by default (HIGH)
 FLAMMABILITY_PER_THRESHOLD = 0.2  # KeywordPopups Flammability: 1% Ignite chance per 5% of the Ailment Threshold (HIGH)
-FLAMMABILITY_SECONDS = 8.0  # KeywordPopups Flammability: each instance lasts 8 s by default (HIGH)
+# Flammability on the PLAYER lasts 4 s (MECH75, Q-C2 of PATCH_CHECK.md, an OVERCOUNT of the boss Igniting you before,
+# about 2x the stacked chance): patch 0.3.0 (2025-08-29, the body and the 28-08 update): "Flammability is a debuff that
+# lasts for 8 seconds on Monsters ... Flammability lasts for 4 seconds on Players"; no later note changes it (checked:
+# grep_notes.py --history "Flammability", the newest entry wins; no hit is not proof of no silent change). The game files
+# give one default with no player / monster split: KeywordPopups Flammability "lasting 8 seconds by default"; its buff
+# row (BuffDefinitions flammability_ignite_chance_buildup, RESEARCH14's export) has no duration field (the duration is in
+# its Implementation, code). Both written down; 4 s taken for you (MEDIUM: the patch note over the keyword text), the
+# monster side stays 8 s wherever the tool reads it.
+FLAMMABILITY_SECONDS = 4.0
 # The bosses' Fire skills with an "ignite_chance_+%" stat (GrantedEffectStatSets, read 12 Nov 2026 by
 # scratch/mechc7/ignitechance.py): Arbiter of Ash's MASDemonClawBossFire +20 (one of its 17 Fire skills; RESEARCH21 #126
 # names the same); Atziri's fire melee MeleeAtAnimationSpeedFire +80 (that Atziri uses it: RESEARCH21's monster scan
@@ -359,7 +367,7 @@ GROUNDS_NOTE = ("the boss's damaging grounds aren't counted: step out of them (8
 
 def ignite_chance(stats: dict, land: float = 0.0) -> tuple[float, str]:
     """Chance a landed Fire hit of the boss Ignites you (before your Ignite avoidance), and how it was worked out.
-    `land` is the boss's landed hits per second (their Fire share stacks Flammability over 8 s)."""
+    `land` is the boss's landed hits per second (their Fire share stacks Flammability over FLAMMABILITY_SECONDS)."""
     name = boss_name(stats)
     fire = type_shares(name)["Fire"]  # (adds the worst case's IGNITE_INCREASE row: _worst)
     taken = number(stats.get("FireTakenHit")) if "FireTakenHit" in stats else hit_sizes(name)["Fire"]
@@ -373,7 +381,8 @@ def ignite_chance(stats: dict, land: float = 0.0) -> tuple[float, str]:
     chance = min(1.0, per_hit * (1 + others))
     return chance, (f"a {taken:,.0f} Fire hit against your {threshold:,.0f} Ailment Threshold gives {per_hit:.1%} "
                     f"Flammability (+{increase:.1f}% increased from the boss's skills), plus that of the "
-                    f"{others:.1f} other Fire hits landed in the last 8 s: {chance:.0%} to Ignite (MEDIUM-LOW)")
+                    f"{others:.1f} other Fire hits landed in the last {FLAMMABILITY_SECONDS:g} s (Flammability on players, patch "
+                    f"0.3.0): {chance:.0%} to Ignite (MEDIUM-LOW)")
 
 
 def es_dot(stats: dict, ignite: bool = True, land: float = 0.0) -> list[tuple[float, float, str]]:
