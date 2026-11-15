@@ -996,6 +996,33 @@ def battershout(build: Build) -> tuple[float, list[dict]]:
     return dps, [{"label": "Battershout explosions*", "value": f"{dps:,.0f}", "basis": basis, "confidence": "MEDIUM"}]
 
 
+def crackling_palm(build: Build) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Crackling Palm's bolts (MECH77; Thunderfist's skill): PoB works out the Bolt set's hit
+    (setRates: AverageDamage, hit chance included; probe POE2T3109, Killing Palm unarmed with Hollow Palm Technique:
+    102.5 a bolt) but scores it 0 DPS (a Persistent skill: Speed 0, Full DPS adds nothing). The bolts land at
+    conditions.crackling_palm_rate (one per Unarmed Melee hit of the main skill, at most 10 a second); each taken to hit
+    the boss (it strikes around you, in melee range: MEDIUM)."""
+    from builder.search.conditions import CRACKLING_PALM, crackling_palm_rate
+
+    spot = next(((g["index"], position) for g in build.groups() if g["enabled"]
+                 for position, skill in enumerate(g["skills"], start=1) if skill["name"] == CRACKLING_PALM), None)
+    if spot is None:
+        return 0.0, []
+    stats = build.call("stats", fields=["Speed", "HitChance", "LedgerUnarmedMelee"])
+    rate, how = crackling_palm_rate(stats, stats)
+    if rate <= 0:
+        return 0.0, [{"label": "Crackling Palm bolts*", "value": "0", "basis": how, "confidence": "MEDIUM"}]
+    sets = build.call("setRates", index=spot[0], active=spot[1]).get("sets") or []
+    bolt = next((s for s in sets if s.get("label") == "Bolt"), None)
+    if bolt is None or number(bolt.get("TotalDPS")) > 0:  # (none, or PoB scores it itself: nothing to add)
+        return 0.0, []
+    hit = number(bolt.get("AverageDamage"))
+    dps = rate * hit
+    return dps, [{"label": "Crackling Palm bolts*", "value": f"{dps:,.0f}",
+                  "basis": f"{rate:.2f} bolts/s ({how}) x {hit:,.1f} a bolt (PoB's Bolt set, hit chance in; PoB scores "
+                           f"it 0); each bolt taken to hit the boss (MEDIUM)", "confidence": "MEDIUM"}]
+
+
 def thorns(build: Build, main: models.Skill | None, stats: dict, texts: list[str]) -> tuple[float, list[dict]]:
     """(added DPS, notes) for the build's Thorns hits on the boss (models.thorns_model, MECHB22): PoB's own Thorns
     group's hit (useRates), which no PoB DPS counts."""
@@ -1377,6 +1404,9 @@ class Assumptions:
         shout, shout_notes = battershout(build)  # (MECH72: Battershout's explosions, PoB holds no damage)
         hand_mods += [models.added_input("Battershout", shout)] if shout > 0 else []
         hand_notes += shout_notes
+        palm, palm_notes = crackling_palm(build)  # (MECH77: Crackling Palm's bolts, PoB scores them 0)
+        hand_mods += [models.added_input("CracklingPalm", palm)] if palm > 0 else []
+        hand_notes += palm_notes
         blood, blood_notes = blood_hunt(build, main, [e["text"] for e in source_lines])  # (MECH75: Blood Loss explosions)
         hand_mods += [models.added_input("BloodHunt", blood)] if blood > 0 else []
         hand_notes += blood_notes
@@ -1407,7 +1437,7 @@ class Assumptions:
                 presses[models.INEVITABLE_AGONY] = (agony_rate, agony_notes[0]["play"])
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
-                                   "Battershout": shout, "Blood Hunt": blood, "Ancestral Spirits": spirits,
+                                   "Battershout": shout, "Crackling Palm": palm, "Blood Hunt": blood, "Ancestral Spirits": spirits,
                                    "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge

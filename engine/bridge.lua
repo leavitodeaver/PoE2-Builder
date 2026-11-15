@@ -1695,7 +1695,10 @@ local function installDerived()
 				-- (MECH76: whether the main skill hits with Unarmed Melee damage, for Crackling Palm's bolts,
 				-- conditions.crackling_palm_rate: a Melee Attack with the Unarmed flag or no main-hand weapon)
 				local main = env.player.mainSkill
-				local flags = main and main.skillFlags or { }
+				-- (MECH77: current PoB keeps the flags on the stat set, as activeSkills' "disabled" reads them; the
+				-- top-level skillFlags alone read 0 for every skill, Killing Palm with Hollow Palm Technique included,
+				-- probe POE2T3109)
+				local flags = main and (main.skillFlags or (main.activeEffect and main.activeEffect.statSet or { }).skillFlags) or { }
 				local unarmed = flags.unarmed or not (env.player.itemList and env.player.itemList["Weapon 1"])
 				env.player.output.LedgerUnarmedMelee = (flags.attack and flags.melee and unarmed) and 1 or 0
 			end

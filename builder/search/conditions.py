@@ -2482,16 +2482,22 @@ def consumed_share(hits: float, chance: float, ground: float = 0.0, extra: float
 def main_consumes(build, main_skill: str, main_gems: set[str]) -> dict[str, str]:
     """{ailment: what consumes it} for the ailments the main skill consumes on hit (CONSUME_STATS in its own stat sets
     or its supports'); looked up only when a gem of its group says it consumes."""
-    if not any(CONSUME_TEXT.search((build.ctx.all_gems.get(n) or {}).get("description") or "") for n in main_gems):
+    drain = DRAIN_AILMENTS in main_gems  # (MECH77: its text names no ailment CONSUME_TEXT knows; DRAIN_CONSUMES)
+    if not drain and not any(CONSUME_TEXT.search((build.ctx.all_gems.get(n) or {}).get("description") or "")
+                             for n in main_gems):
         return {}
     every = [stat for ids in CONSUME_STATS.values() for stat in ids]
     raw = build.call("activeSkills", levelStats=[main_skill], supportStats=every)
     main = next((s for s in raw["skills"] if s["name"] == main_skill and not s.get("disabled")), {})
     own, sup = main.get("levelStats") or {}, main.get("supportStats") or {}
     typed = _type_consumes(main)
-    return {ailment: (main_skill if ailment in typed or any(number(own.get(i)) for i in ids) else "a support of it")
-            for ailment, ids in CONSUME_STATS.items()
-            if ailment in typed or any(number(own.get(i)) or number(sup.get(i)) for i in ids)}
+    found = {ailment: (main_skill if ailment in typed or any(number(own.get(i)) for i in ids) else "a support of it")
+             for ailment, ids in CONSUME_STATS.items()
+             if ailment in typed or any(number(own.get(i)) or number(sup.get(i)) for i in ids)}
+    if drain and main:  # (MECH77: Drain Ailments' consumed types, Bleeding and Poison too; the bridge's types lack Poison)
+        for ailment in DRAIN_CONSUMES:
+            found.setdefault(ailment, DRAIN_AILMENTS)
+    return found
 
 
 # PoB's Best Ignite DPS when the main skill consumes Ignite (MECH52; MECH51's follow-up, an OVERCOUNT). PoB counts
@@ -3000,6 +3006,70 @@ def _clash(lines: list[str], stats: dict) -> tuple[object, str]:
     share = 1.0 - mine
     return _box(share, f"the boss's Life % above yours {share:.0%} of the fight ({shared(share)}): you fight at "
                        f"{mine:.0%} of your Life (unreserved), the boss's Life % runs from 100% to 0% (MEDIUM)")
+
+
+# Arc's Lightning Infusion (PATCH_CHECK MA-1; MECH77): "Consumes a Lightning Infusion if possible to deal more damage and
+# Chain further" (ArcPlayer: arc_damage_+%_final_from_infusion_consumption 200, arc_chains_gained_from_infusion_consumption
+# 6; game 26476662, GrantedEffectStatSets; patch 0.3.0 added it, 0.5.0 fixed Arc getting it without spending one).
+# PoB gates both on its "Lightning Infused?" box (arcLightningInfused, Condition:ArcLightningInfused), which nothing set,
+# so a fed Arc counted 0 of its 200% more: an UNDERCOUNT. The box now carries the share of Arc's casts the build's own
+# Lightning Infusions cover (Conditions._arc_infused, stats["_arc_infused"]); 0 with no source. The extra chains don't
+# matter against a lone boss.
+ARC = "Arc"
+
+
+def _arc_infused(lines: list[str], stats: dict) -> tuple[object, str]:
+    if ARC not in (stats.get("_gem_names") or set()):
+        return 0.0, ""
+    share, how = stats.get("_arc_infused") or (0.0, "the build's Infusions weren't read")
+    return _box(share, f"{ARC}'s casts consuming a Lightning Infusion {share:.0%} ({how})")
+
+
+# Drain Ailments (PATCH_CHECK MA-10; MECH77): "Supported Skills Consume all Ailments of a random type on the target when
+# inflicting damage over time Debuffs, causing the Debuff to deal 35% more damage if any Ailments were consumed"
+# (gem_stat_descriptions, support_drained_ailment_damage_over_time_+%_final_if_ailment_consumed 35, game 26476662; patch
+# 0.2.0f: it now grants the 1 s immunity and consumes every copy). PoB gates the 35% on its "Consumed an Ailment?" box
+# (conditionAilmentConsumed), which nothing set: an UNDERCOUNT for a fed Drain build. The box now carries the share of
+# the main skill's casts that find an Ailment it consumes (Freeze, Shock, Ignite, Bleeding, Poison: the support's added
+# SkillConsumes types, PoB's and the game's GrantedEffects AddedActiveSkillTypes): 1 - prod(1 - each one's share of
+# casts finding it). Each consumed ailment's own share is consumed_share (it ends at the next cast, then 1 s immune, then
+# waits for the build's next application of it), and main_consumes now lists them for Drain Ailments, so the ailments'
+# own boxes count the loss (before, the gem's text matched no CONSUME_TEXT word: they counted as never consumed, an
+# OVERCOUNT). Freeze: the main skill's Freezes a second over its casts. Labelled: one random type a cast is taken as all
+# of them (each ailment's share an UNDERCOUNT where several are up), the types taken as independent (MEDIUM); Drain on a
+# skill beside the main one: its 35% not counted (an UNDERCOUNT; its consumption is, through side_consumes' types).
+DRAIN_AILMENTS = "Drain Ailments"
+DRAIN_CONSUMES = ("Freeze", "Shock", "Ignite", "Bleed", "Poison")
+
+
+def drain_share(stats: dict) -> tuple[float, str]:
+    """(share of the main skill's casts that consume an Ailment, how), for a main skill supported by Drain Ailments."""
+    consumes = stats.get("_consumes") or {}
+    if consumes.get("Poison") != DRAIN_AILMENTS:
+        return 0.0, f"{DRAIN_AILMENTS} doesn't support the main skill"
+    casts = number(stats.get("Speed"))
+    missing, parts = 1.0, []
+    for ailment in DRAIN_CONSUMES:
+        if ailment == "Freeze":
+            rate = models.buildup_rate(stats, "Freeze")
+            share = min(1.0, rate / casts) if casts > 0 and rate > 0 else 0.0
+        elif ailment == "Shock":
+            share = shock_share(stats)
+        else:
+            share = ailment_uptime(stats, ailment)
+        if share > 0:
+            missing *= 1.0 - min(share, 1.0)
+            parts.append(f"{ailment} {share:.0%}")
+    found = 1.0 - missing
+    return found, (f"casts finding an Ailment {found:.0%} ({', '.join(parts)}; each consumed at the next cast, then 1 s "
+                   f"immune; MEDIUM)" if parts else "the build applies no Ailment it consumes: 0")
+
+
+def _drain_ailments(lines: list[str], stats: dict) -> tuple[object, str]:
+    if DRAIN_AILMENTS not in (stats.get("_gem_names") or set()):
+        return 0.0, ""
+    share, how = drain_share(stats)
+    return _box(share, f"{DRAIN_AILMENTS}: {how}")
 
 
 def _box(up: float, basis: str) -> tuple[bool, str, float]:
@@ -3652,6 +3722,9 @@ CONDITIONS: list[Condition] = [
     Condition("parryActive", "Parried", value_fn=_parried, fields=("enemySkillTime", "Ward")),
     Condition("clashCondition", "The boss's Life % above yours (Clash)", value_fn=_clash,
               fields=("Life", "LifeUnreserved")),  # (MECH76)
+    Condition("arcLightningInfused", "Arc Lightning-Infused", value_fn=_arc_infused),  # (MECH77, MA-1)
+    Condition("conditionAilmentConsumed", "Consumed an Ailment (Drain Ailments)", value_fn=_drain_ailments,
+              fields=("Speed", "HitChance", *models.IMMOBILISE_FIELDS)),  # (MECH77, MA-10)
     *(Condition(var, f"You {PAST_TENSE[APPLIED_RECENTLY[var]].lower()} an enemy Recently",
                 value_fn=_applied_recently(var), fields=APPLIED_RECENTLY_FIELDS) for var in APPLIED_RECENTLY),  # (MECH76)
     Condition("conditionEnemyFrozen", "Frozen", value_fn=_immobilised("Freeze", "Frozen"),
@@ -3947,10 +4020,52 @@ class Conditions:
         return up, (f"a placed banner stands {up:.0%} of the fight: {how} (you stand in its 6 m area, a play note; "
                     "Valour not counted, an undercount)")
 
+    def _infusion_supply(self, lines: list[dict], bomb: bool = False) -> tuple[dict[str, float], list[str]]:
+        """assumptions.infusion_supply for the build as it stands: Infusions per second by element and what makes them
+        (with Living Bomb's when `bomb`, as Assumptions.infusion_share counts them)."""
+        from builder.search.assumptions import (LIVING_BOMB, LIVING_BOMB_FIELDS, ORB_OF_STORMS, SIPHON, infusion_supply,
+                                                living_bomb_rate, orb_remnants, siphon_freezes)
+
+        raw = self.build.call("activeSkills")["skills"]
+        present = {s["name"]: s for s in raw if not s["disabled"]}
+        siphon = (siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present
+                  else (0.0, ""))
+        orb = orb_remnants(self.build, present[ORB_OF_STORMS]) if ORB_OF_STORMS in present else (0.0, "")
+        living = (living_bomb_rate(self.build.call("stats", fields=list(LIVING_BOMB_FIELDS)),
+                                   present[LIVING_BOMB].get("castTime") or 0.0)
+                  if bomb and LIVING_BOMB in present else (0.0, ""))
+        return infusion_supply(present, [line["text"] for line in lines], self.found_uptimes, siphon, living, orb)
+
+    def _arc_infused(self, lines: list[dict], stats: dict) -> tuple[float, str]:
+        """(share of Arc's casts that consume a Lightning Infusion, how): ARC_INFUSED. The Lightning (and Verisium)
+        Infusions the build makes, shared among its Lightning consumers by their uses, over Arc's casts less those that
+        keep the Infusion (as Assumptions.infusion_share does for "-infused" stat sets)."""
+        from builder.search.assumptions import KEEP_INFUSION
+
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)} | {self.main_skill}
+        users = {n for n in names if "Lightning" in INFUSION_CONSUMERS.get(n, ())}
+        others = self._group_uses(groups, users - {self.main_skill})
+        uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
+                for n in users}
+        arc = uses.get(ARC, 0.0)
+        if arc <= 0:
+            return 0.0, f"{ARC} isn't cast (no use rate): 0"
+        supply, made = self._infusion_supply(lines, bomb=True)
+        have = supply["Lightning"] + supply["Any"]
+        texts = [line["text"].strip() for line in lines]
+        keep = min(1.0, sum(float(m.group(1)) for t in texts if (m := KEEP_INFUSION.search(t))) / 100.0)
+        total = sum(uses.values())
+        mine = have * arc / total if total > 0 else 0.0
+        needed = arc * (1.0 - keep)
+        share = min(1.0, mine / needed) if needed > 0 else float(have > 0)
+        return share, (f"{have:.2f} Lightning Infusions/s from {', '.join(made) or 'nothing'}"
+                       + (f", shared with {', '.join(sorted(users - {ARC}))}" if users - {ARC} else "")
+                       + f": {mine:.2f}/s for {ARC}'s {arc:.2f} casts/s"
+                       + (f" ({keep:.0%} keeping theirs)" if keep else ""))
+
     def _infusion_consumed(self, lines: list[dict], stats: dict) -> tuple[float, str]:
         """(Infusions consumed per second, how): the build's consumers (INFUSION_CONSUMERS) take what it makes."""
-        from builder.search.assumptions import SIPHON, infusion_supply, siphon_freezes
-
         groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
         names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)}
         consumers = {n: INFUSION_CONSUMERS[n] for n in names | {self.main_skill} if n in INFUSION_CONSUMERS}
@@ -3959,14 +4074,7 @@ class Conditions:
         others = self._group_uses(groups, set(consumers) - {self.main_skill})
         uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
                 for n in consumers}
-        raw = self.build.call("activeSkills")["skills"]
-        present = {s["name"]: s for s in raw if not s["disabled"]}
-        siphon = (siphon_freezes(self.build.call("stats", fields=models.IMMOBILISE_FIELDS)) if SIPHON in present
-                  else (0.0, ""))
-        from builder.search.assumptions import ORB_OF_STORMS, orb_remnants
-
-        orb = orb_remnants(self.build, present[ORB_OF_STORMS]) if ORB_OF_STORMS in present else (0.0, "")
-        supply, made = infusion_supply(present, [line["text"] for line in lines], self.found_uptimes, siphon, orb=orb)
+        supply, made = self._infusion_supply(lines)
         elements = {e for each in consumers.values() for e in each}
         have = sum(supply[e] for e in elements) + supply["Any"]
         cast = sum(uses.values())
@@ -4182,7 +4290,9 @@ class Conditions:
             stats["_banner"] = self._banner_share(banners)
         if any(INFUSION_CONSUMED.search(t) for t in texts):
             stats["_infusion_consumed"] = self._infusion_consumed(lines, stats)
-        events = event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),
+        if ARC in gem_types:  # (MECH77, MA-1: the share of Arc's casts the build's Lightning Infusions cover)
+            stats["_arc_infused"] = self._arc_infused(lines, stats)
+        events =event_rates(groups_now, self.build.ctx.gems, self.main_skill, main_types, number(stats.get("Speed")),
                              lambda idx: self.build.call("useRates", indices=idx)["rates"], texts,
                              models.press_choices(self.build)) if groups_now else {}
         item_uses = self._item_uses(lines, events) if any(
