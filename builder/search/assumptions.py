@@ -429,6 +429,22 @@ def enemy_level(build: Build) -> int:
     return int(min(recovery_mod.MAX_ENEMY_LEVEL, level or recovery_mod.MAX_ENEMY_LEVEL))
 
 
+# Purple Flames of Chayula (MECHC26, G1-1): "for 8 seconds, and stacks up to 10 times" (KeywordPopups FlamesOfChayula)
+PURPLE_SECONDS, PURPLE_MAX = 8.0, 10
+
+
+def purple_stacks(rate: float, seconds: float = PURPLE_SECONDS, most: int = PURPLE_MAX) -> float:
+    """Average stacks of a buff gained `rate` times a second, each stack lasting `seconds`, at most `most` (a gain at the
+    maximum adds nothing): the Erlang loss system's mean occupancy a(1 - B(most, a)), a = rate x seconds."""
+    load = max(rate, 0.0) * seconds
+    if load <= 0:
+        return 0.0
+    blocked = 1.0
+    for k in range(1, most + 1):
+        blocked = load * blocked / (k + load * blocked)
+    return load * (1 - blocked)
+
+
 def resisted_leech(build: Build) -> dict[str, float]:
     """{pool: leech a second PoB counts that the boss resists} (recovery.leech_resisted at enemy_level; MECHC26, H2-1),
     for the readers that sum PoB's {pool}LeechRate themselves."""
@@ -1953,6 +1969,9 @@ class Assumptions:
         mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
         notes += ward_notes
         notes += self.life_mana_income(skills, main)  # (MECH-C: Life / Mana from kills, Remnants, charms, events; MECHC12)
+        purple_mods, purple_notes = self.purple_flames(skills)  # (MECH-C: Into the Breach's Purple Flame stacks, MECHC26)
+        mods += purple_mods
+        notes += purple_notes
         frost_mods, frost_notes = self.frostflame(main, skills)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
         mods, notes = mods + frost_mods, notes + frost_notes
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
@@ -2215,6 +2234,37 @@ class Assumptions:
                                   "one per 1.21 s" + (f", {multiplier_how}" if multiplier_how else ""))
         build.recovery_sources = {**income.rates, flasks.ES_STARTS_FIELD: starts}
         return recovery.note(income) + leech
+
+    def purple_flames(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Into the Breach's Purple Flame stacks (MECHC26; PATCH_CHECK G1-1, the largest OVERCOUNT found: nothing set
+        PoB's purpleFlameStacks, whose default is 10, ConfigOptions 474, so every Into the Breach build had 10 stacks of
+        7% x Remnant effect damage as extra Chaos). The build's own stacks: flames at REMNANT_SOURCES' 1 per 1.21 s x the
+        Remnant multiplier lines, the Purple share (recovery.flame_shares: a third, or all / none with a Choice notable),
+        each stack 8 s (KeywordPopups FlamesOfChayula: "7% of damage as extra Chaos damage for 8 seconds, and stacks up
+        to 10 times"; 0.4.0: 8 s, was 5), at most 10 (purple_stacks). PoB's Multiplier:PurpleFlamesCount is moved from
+        its config value to ours by a BASE line. No Into the Breach: nothing."""
+        from builder.search import recovery
+
+        present = {s["name"]: s for s in skills if not s.get("disabled")}
+        if BREACH not in present:
+            return [], []
+        build = self.build
+        texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+        multiplier, multiplier_how = remnant_multiplier(texts)
+        shares, colour = recovery.flame_shares(texts)
+        rate = REMNANT_SOURCES[BREACH][0] * multiplier * shares["purple"]
+        stacks = purple_stacks(rate)
+        configured = (build.call("getConfig").get("input") or {}).get("purpleFlameStacks")
+        pob = min(number(configured), PURPLE_MAX) if configured is not None else float(PURPLE_MAX)
+        mods = [models.raw_mod("Multiplier:PurpleFlamesCount", "BASE", stacks - pob)] if abs(stacks - pob) > 1e-9 else []
+        return mods, [{
+            "label": "Into the Breach: Purple Flame stacks*", "value": f"{stacks:.2f} of {PURPLE_MAX} (PoB's default {pob:g})",
+            "basis": (f"{rate:.3f} Purple Flames collected a second (one flame per 1.21 s"
+                      + (f", {multiplier_how}" if multiplier_how else "") + f"; {colour}), each stack {PURPLE_SECONDS:g} s, "
+                      f"at most {PURPLE_MAX}: the average stacks of that loss system (Erlang B), each giving PoB's 7% x "
+                      "Remnant effect of damage as extra Chaos"),
+            "play": "walk onto each Purple Flame as it appears (with them: the stacks above; without: none)",
+            "confidence": "MEDIUM (the colour weights UNVERIFIED without a Choice notable, LOW; every flame taken as collected)"}]
 
     def es_flask_income(self, income, texts: list[str], lowered: list[str]) -> float:
         """(MECHC23; AUDIT33 A33-1, an UNDERCOUNT for Energy Shield builds) Energy Shield from the Life flask under "Life

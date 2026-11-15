@@ -1496,7 +1496,7 @@ def test_explosive_transmutation_counts_every_remnant_source_the_build_has():
     breach, illusion = REMNANT_SOURCES["Into the Breach"][0], REMNANT_SOURCES["Lingering Illusion"][0]
     rate, notes = run([explosion, skill("Into the Breach"), skill("Lingering Illusion")])
     assert rate == pytest.approx(breach + illusion)
-    assert "Lingering Illusion" in notes[-1]["basis"]
+    assert any("Lingering Illusion" in n["basis"] for n in notes)  # (MECHC26: the Purple Flame note may follow it)
     rate, _ = run([explosion, skill("Grim Feast")])
     assert rate == 0.0  # no minions: no deaths to make Remnants
     zombies = skill("Raise Zombie", minions=True, summon={"limit": 6, "duration": 0, "persistent": True, "undead": True})
@@ -1508,7 +1508,7 @@ def test_explosive_transmutation_counts_every_remnant_source_the_build_has():
     assert rate == pytest.approx(8 * (1 / 3) / (8 + 7.5 / 3))
     rate, notes = run([explosion, skill("Into the Breach")],
                       ["Remnants you create reappear once, 1 second after being collected"])
-    assert rate == pytest.approx(2 * breach) and "twice" in notes[-1]["basis"]
+    assert rate == pytest.approx(2 * breach) and any("twice" in n["basis"] for n in notes)  # (MECHC26: by content)
     assert assumptions.REMNANT_SOURCES["Siphon Elements"][0] == 0.0  # listed, labelled, not counted yet
     # the user's rate (9 Nov): a dodge-roll copy destroyed every 5 s, 1.76 Power Charge Remnants each
     assert REMNANT_SOURCES["Lingering Illusion"][0] == pytest.approx(1.76 / 5)
@@ -5118,3 +5118,14 @@ def test_red_and_blue_flames_of_chayula_leech_on_collection_under_the_leech_cap(
     purple = recovery.Income()
     recovery.flame_income(purple, stats, 0.82645, gain, ["All Flames of Chayula that you manifest are Purple"], "x")
     assert purple.pool("Life") == 0 and purple.pool("Mana") == 0
+
+
+def test_purple_flame_stacks_come_from_the_flames_the_build_collects():
+    """MECHC26 (PATCH_CHECK G1-1): each stack lasts 8 s, at most 10; a stack gained at 10 adds nothing (Erlang loss)."""
+    from builder.search.assumptions import purple_stacks
+
+    assert purple_stacks(0.0) == 0.0
+    assert purple_stacks(0.01) == pytest.approx(0.08, rel=1e-3)  # rarely near the cap: rate x 8 s
+    third = purple_stacks(0.82645 / 3)  # a third of one flame per 1.21 s: 2.2 stacks, PoB's default was 10
+    assert 2.1 < third < 2.21
+    assert 6.0 < purple_stacks(0.82645) < 6.61 and purple_stacks(100.0) < 10 < purple_stacks(100.0) + 0.02

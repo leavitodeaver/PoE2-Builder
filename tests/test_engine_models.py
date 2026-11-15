@@ -2775,3 +2775,26 @@ def test_into_the_breach_reports_its_flames_leech_and_the_build_counts_it(engine
     assert got == pytest.approx(min(0.82645 / 3 * breach["remnantGain"]["FlameLife"] / 100 * life,
                                     build.call("stats", fields=["MaxLifeLeechRate"])["MaxLifeLeechRate"]), rel=0.05)
     assert "LifeFlameLeechRecovery" in recovery.FIELDS["Life"]
+
+
+def test_into_the_breach_purple_flames_count_the_builds_own_stacks_not_pobs_default_ten(engine):
+    """MECHC26 (PATCH_CHECK G1-1, the largest OVERCOUNT found): PoB's purpleFlameStacks defaults to 10 (100% of damage as
+    extra Chaos at level 20); the build's own stacks (a third of one flame per 1.21 s, 8 s each: 2.2) replace it, whatever
+    the config holds."""
+    from builder.search import assumptions
+
+    search = spark_with(engine, [])
+    build = search.build
+    bare = build.call("stats", fields=["CombinedDPS"])["CombinedDPS"]
+    build.call("addSkillGroup", text="Into the Breach 20/0 1")
+    pob_default = build.call("stats", fields=["CombinedDPS"])["CombinedDPS"]  # (PoB's 10 stacks, no model yet)
+    search.settle()
+    note = next(n for n in search.assumptions.active if n["label"] == "Into the Breach: Purple Flame stacks*")
+    ours = build.call("stats", fields=["CombinedDPS"])["CombinedDPS"]
+    print("PROBE purple", bare, pob_default, ours, note["value"])
+    assert note["value"].startswith(f"{assumptions.purple_stacks(0.82645 / 3):.2f} of 10")
+    assert bare < ours < pob_default
+    for value in (0, 10, 4):  # (the line moves PoB's count from whatever the config holds to ours)
+        build.set_config({"purpleFlameStacks": value})
+        search.settle()
+        assert build.call("stats", fields=["CombinedDPS"])["CombinedDPS"] == pytest.approx(ours, rel=1e-6)
