@@ -72,5 +72,8 @@ def test_the_share_comes_from_mech_cs_ward_spending(monkeypatch):
     assert Assumptions.ward_state_share(me, "full")[0] == pytest.approx(0.4)
     monkeypatch.setattr(assumptions, "ward_shares", lambda build: (0.0, 0.0, "nothing spends Ward"), raising=False)
     assert Assumptions.ward_state_share(me, "low")[0] == 0 and Assumptions.ward_state_share(me, "full")[0] == 1
-    ward["Ward"] = 0.0
-    assert Assumptions.ward_state_share(me, "full")[0] == 0  # (no pool: not counted as full, UNVERIFIED)
+    ward["Ward"] = 0.0  # (no pool: every state 0, even if MECH-C's shares said otherwise; the other reading named)
+    monkeypatch.setattr(assumptions, "ward_shares", lambda build: (1.0, 1.0, "x"), raising=False)
+    for state in ("low", "missing", "full"):
+        share, how = Assumptions.ward_state_share(me, state)
+        assert share == 0 and "no Runic Ward pool" in how and "UNVERIFIED" in how

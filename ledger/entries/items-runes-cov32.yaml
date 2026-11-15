@@ -18,6 +18,7 @@
   title: The share of the fight on Low Runic Ward (35% of maximum or less), from what the build spends its Ward on
   kind: condition
   # Assumptions.ward_state_share("low"): MECH-C's ward_shares(build) Low share; 0 when nothing spends Ward
+  # (no Runic Ward pool: 0, UNVERIFIED; an empty pool read as Low would count all fight: named in the note, not scored)
   ward_state: low
   shown_for: '(?:on Low Runic Ward|^LedgerShare:RunicWardLow$)'
   confidence: theory

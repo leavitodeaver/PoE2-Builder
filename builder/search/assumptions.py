@@ -3354,21 +3354,28 @@ class Assumptions:
     def ward_state_share(self, state: str) -> tuple[float, str]:
         """(share of the fight on Low / missing / full Runic Ward, how) for the `ward_state` conditions (COV32, NOTES3
         DEAD-1 / DEAD-2). From MECH-C's ward_shares(build) -> (Low share, Missing share, how), worked out from what the
-        build spends its Ward on (0, 0 when nothing does); full = 1 - Missing with a Runic Ward pool, 0 without one
-        (whether an empty pool counts as full is UNVERIFIED). Until MECH-C's function is on this base: 0, an UNDERCOUNT
+        build spends its Ward on (0, 0 when nothing does); full = 1 - Missing. With no Runic Ward pool every state is 0
+        (UNVERIFIED; the other reading, an empty pool on Low Runic Ward, is named in the note). Until MECH-C's function is on this base: 0, an UNDERCOUNT
         kept, as before."""
         shares = globals().get("ward_shares")  # (MECHC26's, in this module once its branch lands)
         if shares is None:
             return 0.0, ("not counted yet: the Runic Ward share (MECH-C's ward_shares) isn't in this build of the tool, so "
                          "these lines count 0 as before (an UNDERCOUNT)")
+        pool = number(self.build.call("stats", fields=["Ward"]).get("Ward"))
+        if pool <= 0:
+            # (the manager, 15 Nov 03:52: decide the no-pool case) With no maximum Runic Ward every state counts 0.
+            # "Missing" is false with 0 of 0; "Low" ("35% of your maximum Runic Ward or less", KeywordPopups LowWard)
+            # read literally with a maximum of 0 would hold all fight, but nothing says the game reads it so (poe2db,
+            # the rune pages, a search: UNVERIFIED), and PoB's "no Runic Ward" box (which sets Low and Missing) is for
+            # current Ward 0 with a pool. That reading would make Desperation's 25% penetration free with no Ward: an
+            # exploit if real, so it is named here, not scored. Full: not counted with no pool either.
+            return 0.0, ("no Runic Ward pool: counted 0 (UNVERIFIED: if the game counts an empty pool as Low Runic "
+                         "Ward, its Low lines would count all fight; Full and Missing would not)")
         low, missing, how = shares(self.build)
         if state == "low":
             return low, f"on Low Runic Ward (35% or less) {low:.0%} of the fight: {how}"
         if state == "missing":
             return missing, f"missing Runic Ward {missing:.0%} of the fight: {how}"
-        pool = number(self.build.call("stats", fields=["Ward"]).get("Ward"))
-        if pool <= 0:
-            return 0.0, "no Runic Ward pool: not counted as full (UNVERIFIED in game), 0"
         return 1.0 - missing, f"on full Runic Ward {1.0 - missing:.0%} of the fight (missing it {missing:.0%}): {how}"
 
     def spell_crits_recently(self, window: float, main_types: set[str]) -> tuple[float, str]:
