@@ -434,15 +434,37 @@ PURPLE_SECONDS, PURPLE_MAX = 8.0, 10
 
 
 def purple_stacks(rate: float, seconds: float = PURPLE_SECONDS, most: int = PURPLE_MAX) -> float:
-    """Average stacks of a buff gained `rate` times a second, each stack lasting `seconds`, at most `most` (a gain at the
-    maximum adds nothing): the Erlang loss system's mean occupancy a(1 - B(most, a)), a = rate x seconds."""
-    load = max(rate, 0.0) * seconds
-    if load <= 0:
-        return 0.0
-    blocked = 1.0
-    for k in range(1, most + 1):
-        blocked = load * blocked / (k + load * blocked)
-    return load * (1 - blocked)
+    """Average stacks of a buff gained `rate` times a second, each stack lasting `seconds`, at most `most`: min(most,
+    rate x seconds) (NOTES2's R3, MEDIUM; the manager, 15 Nov 01:01). Below the cap it is exact for any arrival pattern
+    (Little's law: average stacks = arrivals x stay); near the cap random arrivals hold a little less (the previous
+    Erlang-loss average undercounted regular arrivals: 6.19 against 6.61 for one Purple flame per 1.21 s)."""
+    return min(float(most), max(rate, 0.0) * seconds)
+
+
+# Zenith I / II (MECHC26, MC-3): "Supported Skills deal more damage while you are above 90% of your Maximum Mana"
+ZENITH, ZENITH_STAT, ZENITH_ABOVE = "Zenith", "support_spell_damage_+%_final_while_above_90%_maximum_mana", 0.9
+
+
+def zenith_share(stats: dict) -> tuple[float, str]:
+    """(share of the fight above 90% of maximum Mana, how) for a build casting its main skill at `Speed` a second, each
+    cast costing `ManaCost`, regenerating `ManaRegenRecovery` a second. Spending at least what it regenerates
+    (ManaPerSecondCost >= regeneration), it never stays at the top: 0. Otherwise each cast drops it from (near) full by
+    its cost, and it's below 90% for (cost - 10% of maximum) / regeneration seconds of each cast's 1 / Speed (refilled
+    before the next cast, as cost x Speed < regeneration)."""
+    mana, cost = number(stats.get("Mana")), number(stats.get("ManaCost"))
+    speed, regen = number(stats.get("Speed")), number(stats.get("ManaRegenRecovery"))
+    spend = number(stats.get("ManaPerSecondCost")) or cost * speed
+    if mana <= 0:
+        return 0.0, "no Mana pool"
+    if spend <= 0:
+        return 1.0, "the main skill costs no Mana: always at the top"
+    if regen <= spend:
+        return 0.0, (f"spends {spend:,.1f} Mana/s against {regen:,.1f} regenerated: never held above 90% (Mana flasks "
+                     "and leech not counted)")
+    below = max(cost - (1 - ZENITH_ABOVE) * mana, 0.0) / regen
+    share = max(0.0, 1.0 - below * speed) if speed > 0 else 1.0
+    return share, (f"each {cost:,.1f}-Mana cast from near full ({mana:,.0f}) leaves it below 90% for {below:.2f} s of its "
+                   f"{1 / speed if speed > 0 else 0:.2f} s, refilled at {regen:,.1f}/s")
 
 
 def resisted_leech(build: Build) -> dict[str, float]:
@@ -1969,6 +1991,9 @@ class Assumptions:
         mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
         notes += ward_notes
         notes += self.life_mana_income(skills, main)  # (MECH-C: Life / Mana from kills, Remnants, charms, events; MECHC12)
+        zenith_mods, zenith_notes = self.zenith(skills, main)  # (MECH-C: Zenith's "above 90% of maximum Mana", MECHC26)
+        mods += zenith_mods
+        notes += zenith_notes
         purple_mods, purple_notes = self.purple_flames(skills)  # (MECH-C: Into the Breach's Purple Flame stacks, MECHC26)
         mods += purple_mods
         notes += purple_notes
@@ -2222,6 +2247,14 @@ class Assumptions:
         recovery.restrict(income, texts)
         income.unread = recovery.unread(texts) + [name for name, pattern in flasks.ES_STARTS_UNREAD.items()
                                                   if any(pattern.search(t) for t in lowered)]
+        drain, drain_how = 0.0, ""
+        if any(o is not None and any(flasks.NO_WARD_DRAIN.match(t.strip()) for t in (o.raw or "").splitlines())
+               for o in ((getattr(build, "equipped", None) or {}).get(slot) for slot in flasks.FLASK_SLOTS)):
+            drain, drain_how = flasks.flask_life_drain(build, flasks.Charges.of(build), number(stats.get("Life")),
+                                                       number(build.call("stats", fields=["Ward"]).get("Ward")))
+        if drain > 0:  # (MECHC26: Uhtred's Chalice's "Lose 5% Life per second while you have no Runic Ward")
+            income.rates["LifeFlaskDrain"] = -drain
+            income.parts.append(f"lost to flasks: {drain_how}")
         leech_stats = build.call("stats", fields=list(recovery.LEECH_FIELDS))
         leech = recovery.leech_income(income, leech_stats, enemy_level(build))
         breach = present.get(BREACH)
@@ -2235,13 +2268,38 @@ class Assumptions:
         build.recovery_sources = {**income.rates, flasks.ES_STARTS_FIELD: starts}
         return recovery.note(income) + leech
 
+    def zenith(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
+        """Zenith I / II on the main skill (MECHC26; PATCH_CHECK mirror sweep MC-3, an UNDERCOUNT before: PoB maps
+        support_spell_damage_+%_final_while_above_90%_maximum_mana to Condition:FullMana, SkillStatMap 2323, which nothing
+        sets, so it counted 0): N% more Spell damage x the share of the fight above 90% of maximum Mana (zenith_share,
+        from the build's own pool, cost per cast and regeneration). Other skills it supports: not counted (an undercount)."""
+        present = {s["name"]: s for s in skills if not s.get("disabled")}
+        group = self.build.main_group()
+        if main not in present or group is None or not any(
+                g.get("support") and g.get("enabled", True) and g["name"].startswith(ZENITH)
+                for g in group.get("gems") or []):
+            return [], []
+        found = next((s for s in self.build.call("activeSkills", supportStats=[ZENITH_STAT])["skills"]
+                      if s["name"] == main and s.get("group") == group["index"] and not s.get("disabled")), None)
+        more = number(((found or {}).get("supportStats") or {}).get(ZENITH_STAT))
+        if more <= 0 or not (found or {}).get("spell"):
+            return [], []
+        stats = self.build.call("stats", fields=["Mana", "ManaCost", "Speed", "ManaRegenRecovery", "ManaPerSecondCost"])
+        share, how = zenith_share(stats)
+        mods = [models.line("1% more Spell Damage", more * share, skill=main)] if share > 0 else []
+        return mods, [{"label": "Zenith: above 90% of maximum Mana*", "value": f"{share:.0%} of the fight ({more:g}% more "
+                       f"Spell damage then)", "basis": how + ". PoB's FullMana condition is never set, so before this its "
+                       "share was 0", "play": "keep Mana near the top: cast when above 90% (with it: the share above; "
+                       "without it: none)", "confidence": "MEDIUM (main skill's costs only; Mana flasks and leech not "
+                       "counted)"}]
+
     def purple_flames(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
         """Into the Breach's Purple Flame stacks (MECHC26; PATCH_CHECK G1-1, the largest OVERCOUNT found: nothing set
         PoB's purpleFlameStacks, whose default is 10, ConfigOptions 474, so every Into the Breach build had 10 stacks of
         7% x Remnant effect damage as extra Chaos). The build's own stacks: flames at REMNANT_SOURCES' 1 per 1.21 s x the
         Remnant multiplier lines, the Purple share (recovery.flame_shares: a third, or all / none with a Choice notable),
         each stack 8 s (KeywordPopups FlamesOfChayula: "7% of damage as extra Chaos damage for 8 seconds, and stacks up
-        to 10 times"; 0.4.0: 8 s, was 5), at most 10 (purple_stacks). PoB's Multiplier:PurpleFlamesCount is moved from
+        to 10 times"; 0.4.0: 8 s, was 5), at most 10 (purple_stacks, min(10, 8 s x the rate)). PoB's Multiplier:PurpleFlamesCount is moved from
         its config value to ours by a BASE line. No Into the Breach: nothing."""
         from builder.search import recovery
 
@@ -2261,8 +2319,8 @@ class Assumptions:
             "label": "Into the Breach: Purple Flame stacks*", "value": f"{stacks:.2f} of {PURPLE_MAX} (PoB's default {pob:g})",
             "basis": (f"{rate:.3f} Purple Flames collected a second (one flame per 1.21 s"
                       + (f", {multiplier_how}" if multiplier_how else "") + f"; {colour}), each stack {PURPLE_SECONDS:g} s, "
-                      f"at most {PURPLE_MAX}: the average stacks of that loss system (Erlang B), each giving PoB's 7% x "
-                      "Remnant effect of damage as extra Chaos"),
+                      f"at most {PURPLE_MAX}: min({PURPLE_MAX}, {PURPLE_SECONDS:g} s x the rate), each giving PoB's 7% x Remnant "
+                      "effect of damage as extra Chaos (with Choice of Power every flame is Purple: HIGH, PoB's flag)"),
             "play": "walk onto each Purple Flame as it appears (with them: the stacks above; without: none)",
             "confidence": "MEDIUM (the colour weights UNVERIFIED without a Choice notable, LOW; every flame taken as collected)"}]
 

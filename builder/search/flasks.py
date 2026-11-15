@@ -955,3 +955,35 @@ def shared_flag_factor(ups: list[float], ratios: list[float], none_ratio: float)
             f"(staggered uses: up to {min(1.0, sum(ups)):.0%}), not 100% (DPS with every one of them off x"
             f"{none_ratio:.3f}, the singles' product x{ratio_product:.3f})")
     return exact / product, note
+
+
+# Uhtred's Chalice (MECHC26; PATCH_CHECK's mirror sweep, an OVERCOUNT before): "Lose 5% Life per second while you have
+# no Runic Ward during Effect". PoB parses it (ModCache 8530: LifeDegenPercent 5 on Conditions NoRunicWard AND
+# UsingFlask) but nothing sets NoRunicWard, so it never applied. Counted at the flask's own uptime (uptime: its charges
+# and its effect's end), for a build with no Runic Ward pool (PoB's Ward 0: always none); a build with Runic Ward is taken
+# to keep some up during the effect (0; LOW: its Ward spent to 0 isn't followed).
+NO_WARD_DRAIN = re.compile(r"^lose (\d+(?:\.\d+)?)% life per second while you have no runic ward during effect$", re.I)
+
+
+def flask_life_drain(build, gain: Charges, life: float, ward: float) -> tuple[float, str]:
+    """(Life lost a second, how) from equipped flasks' "Lose N% Life per second while you have no Runic Ward during
+    Effect", at each flask's uptime; (0, "") with none."""
+    total, parts = 0.0, []
+    for slot, pool in FLASK_SLOTS.items():
+        option = (getattr(build, "equipped", None) or {}).get(slot)
+        if option is None:
+            continue
+        found = [float(m.group(1)) for line in (option.raw or "").splitlines() if (m := NO_WARD_DRAIN.match(line.strip()))]
+        if not found:
+            continue
+        info = build.call("flaskData", raws=[option.raw])["results"][0] or {}
+        up = uptime(info, gain, pool)
+        if ward > 0:
+            parts.append(f"{option.name}: none (the build has {ward:,.0f} Runic Ward, taken as kept above 0 during the "
+                         "effect, LOW)")
+            continue
+        lost = sum(found) / 100 * life * up
+        total += lost
+        parts.append(f"{option.name}: {sum(found):g}% of {life:,.0f} Life a second while its effect is up ({up:.0%} of "
+                     f"the fight, no Runic Ward): {lost:,.1f}/s")
+    return total, "; ".join(parts)

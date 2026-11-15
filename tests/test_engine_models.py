@@ -2798,3 +2798,56 @@ def test_into_the_breach_purple_flames_count_the_builds_own_stacks_not_pobs_defa
         build.set_config({"purpleFlameStacks": value})
         search.settle()
         assert build.call("stats", fields=["CombinedDPS"])["CombinedDPS"] == pytest.approx(ours, rel=1e-6)
+
+
+def test_uhtreds_chalice_drains_life_during_its_effect_without_runic_ward(engine):
+    """MECHC26 (PATCH_CHECK mirror sweep, an OVERCOUNT before): "Lose 5% Life per second while you have no Runic Ward
+    during Effect" (PoB: LifeDegenPercent on NoRunicWard, which nothing sets) counts at the flask's own uptime as a
+    negative Life recovery field, for a build with no Runic Ward."""
+    from builder.search import flasks
+    from builder.search.context import ItemOption
+
+    search = spark_with(engine, [])
+    build = search.build
+    raw = chr(10).join(["Rarity: Unique", "Uhtred's Chalice", "Transcendent Mana Flask", "Item Level: 82", "Implicits: 0",
+                        "250% increased Amount Recovered", "70% reduced Recovery rate", "55% reduced Charges",
+                        "Lose 5% Life per second while you have no Runic Ward during Effect",
+                        "Mana Recovery from Flasks can Overflow maximum Mana during Effect"])
+    belt = chr(10).join(["Rarity: Rare", "Test Belt", "Heavy Belt", "Item Level: 82", "Implicits: 0",
+                         "Flasks gain 1 charges per Second"])
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    build.call("equip", slot="Flask 2", raw=raw, active=True, fields=[])
+    build.equipped["Flask 2"] = ItemOption("Uhtred's Chalice", "Transcendent Mana Flask", "Flask", None, raw, True, None,
+                                           "found", 82)
+    search.settle()
+    stats = build.call("stats", fields=["Life", "Ward"])
+    info = build.call("flaskData", raws=[raw])["results"][0]
+    up = flasks.uptime(info, flasks.Charges.of(build), "Mana")
+    print("PROBE uhtred", stats, up, build.recovery_sources.get("LifeFlaskDrain"))
+    assert stats.get("Ward", 0) <= 0 and 0 < up
+    assert build.recovery_sources["LifeFlaskDrain"] == pytest.approx(-0.05 * stats["Life"] * up, rel=1e-6)
+
+
+def test_zenith_on_the_main_spell_counts_at_its_share_above_ninety_percent_mana(engine):
+    """MECHC26 (PATCH_CHECK MC-3): PoB gates Zenith on FullMana, which nothing sets (0 before); the support's 30% more
+    Spell damage counts x the share above 90% of maximum Mana: none on a bare build that can't hold its Mana, more with a
+    large pool and regeneration."""
+    from builder.search.assumptions import ZENITH_STAT
+
+    search = spark_with(engine, [])
+    build = search.build
+    main = build.main_group()
+    build.set_group(index=main["index"], gems=[{"name": "Spark", "level": 20}, {"name": "Zenith I", "level": 1}],
+                    main=True)
+    skill = next(s for s in build.call("activeSkills")["skills"] if s["name"] == "Spark" and s.get("group") == main["index"])
+    print("PROBE zenith stats", {k: v for k, v in (skill.get("supportStats") or {}).items() if "mana" in k})
+    amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                           "+1000 to maximum Mana", "Regenerate 400 Mana per second"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    search.settle()
+    note = next((n for n in search.assumptions.active if n["label"] == "Zenith: above 90% of maximum Mana*"), None)
+    print("PROBE zenith", note)
+    assert note is not None and not note["value"].startswith("0%")
+    mod = next(m for m in search.assumptions.mods if m.get("line") == "1% more Spell Damage" and m.get("skill") == "Spark")
+    assert 0 < mod["scale"] <= 30
+    assert ZENITH_STAT

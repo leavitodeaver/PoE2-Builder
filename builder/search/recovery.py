@@ -61,7 +61,8 @@ from dataclasses import dataclass, field
 # The fields, per second (for SEARCH: objective.SUSTAIN_POOLS / RECOVERY_POOLS read them from the build's stats)
 FIELDS = {
     "Life": ("LifeOnKillRecovery", "LifeRemnantRecovery", "CharmLifeRecoveryRate", "LifeOnEventRecovery",
-             "LifeOnConsumeRecovery", "LifePreventedRecoup", "LifeFlameLeechRecovery"),
+             "LifeOnConsumeRecovery", "LifePreventedRecoup", "LifeFlameLeechRecovery",
+             "LifeFlaskDrain"),  # (MECHC26: Uhtred's Chalice's Life loss, NEGATIVE: flasks.flask_life_drain)
     "Mana": ("ManaOnKillRecovery", "ManaRemnantRecovery", "CharmManaRecoveryRate", "ManaOnEventRecovery",
              "ManaOnConsumeRecovery", "ManaFlameLeechRecovery"),
     # (MECHC17) Energy Shield on events: "Regenerate N% of maximum Energy Shield over 1 second when Stunned" (hit_income).
@@ -75,6 +76,7 @@ FIELDS = {
 # NEGATIVE field per pool: what PoB's {pool}LeechRate holds that the boss resists (leech_resisted). In FIELDS, so the
 # sustain and recovery floors (objective's ADDED_RECOVERY) take it off once; Income.pool leaves it out (its sums are the
 # event sources, and PoB's leech isn't one of them).
+NEGATIVE_FIELDS = {"LifeFlaskDrain"}  # (losses, not event income: Income.pool leaves them out)
 LEECH_RESISTED = {"Life": "LifeLeechResisted", "Mana": "ManaLeechResisted", "EnergyShield": "EnergyShieldLeechResisted"}
 for _pool, _field in LEECH_RESISTED.items():
     FIELDS[_pool] = (*FIELDS[_pool], _field)
@@ -159,10 +161,15 @@ HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNE
 # The game's Light Stun rule (KeywordPopups LightStun, build 26476662): "up to 100% base chance for Hits that deal 100%
 # of the target's maximum Life" (StunThreshold: "A Hit that deals damage equal to or greater than your Stun Threshold
 # is guaranteed to Stun you, and the chance scales down linearly"), "Chances lower than 15% are treated as 0%" (the
-# StunThreshold popup says 10%: the higher floor taken, a lower bound), "Physical damage, and player (but not monster)
-# Melee Damage, each have 50% more Light Stun chance" (a boss's Melee gets nothing). PoB's own SelfStunChance uses other
-# constants (Data.lua StunBaseMult 200, MinStunChanceNeeded 20) on its all-types-at-once enemy hit: not read
-LIGHT_STUN_FLOOR, PHYSICAL_STUN_MORE = 0.15, 1.5
+# StunThreshold popup says 10%: the higher floor taken, a lower bound). The game's two definitions disagree on the bonus
+# (PATCH_CHECK K1-o1 / R4): KeywordPopups LightStun says "Physical damage, and player (but not monster) Melee Damage,
+# each have 50% more Light Stun chance"; KeywordPopups Stun says "Monster Physical damage and Melee Damage have 100% more
+# and 33% more Light Stun chance and Heavy Stun buildup respectively. These bonuses are multiplicative with each other",
+# as 0.3.0's note does. Two sources against one (the manager, 15 Nov 01:01: HIGH): a boss's Physical hit x2 (MECHC26;
+# was x1.5, an UNDERCOUNT of the Stuns on you). Its Melee 33% more is NOT applied: the boss data has no melee share per
+# damage type (an UNDERCOUNT, asked of MECH-D). PoB's own SelfStunChance uses other constants (Data.lua StunBaseMult 200,
+# MinStunChanceNeeded 20) on its all-types-at-once enemy hit: not read
+LIGHT_STUN_FLOOR, PHYSICAL_STUN_MORE, MONSTER_MELEE_STUN_MORE = 0.15, 2.0, 1.33
 
 
 def stuns_taken(stats: dict, sizes: dict[str, float], weights: dict[str, float], landed: float) -> tuple[float, str]:
@@ -182,7 +189,8 @@ def stuns_taken(stats: dict, sizes: dict[str, float], weights: dict[str, float],
             parts.append(f"{t} {w:.0%} of hits, {each:.0%}")
     rate = landed * chance * (1 - avoid)
     return rate, (f"{landed:.3f} boss hits landing/s x {chance:.1%} Light Stun chance ({'; '.join(parts)}: hit size "
-                  f"after mitigation / Stun Threshold {threshold:,.0f}, Physical 50% more, under 15% none)"
+                  f"after mitigation / Stun Threshold {threshold:,.0f}, a monster's Physical 100% more (its Melee 33% more not "
+                  "applied: no melee share of the boss's hits), under 15% none)"
                   + (f" x {1 - avoid:.0%} not avoided" if avoid > 0 else "") + "; each hit at its type's full size (LOW)")
 
 
@@ -242,7 +250,7 @@ class Income:
             self.parts.append(f"{how}: {amount:,.1f}/s")
 
     def pool(self, pool: str) -> float:
-        return sum(self.rates[f] for f in FIELDS[pool] if f != LEECH_RESISTED.get(pool))
+        return sum(self.rates[f] for f in FIELDS[pool] if f != LEECH_RESISTED.get(pool) and f not in NEGATIVE_FIELDS)
 
 
 def on_kill(income: Income, stats: dict, texts: list[str], enemies: float) -> None:

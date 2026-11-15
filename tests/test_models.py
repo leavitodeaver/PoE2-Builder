@@ -5121,11 +5121,22 @@ def test_red_and_blue_flames_of_chayula_leech_on_collection_under_the_leech_cap(
 
 
 def test_purple_flame_stacks_come_from_the_flames_the_build_collects():
-    """MECHC26 (PATCH_CHECK G1-1): each stack lasts 8 s, at most 10; a stack gained at 10 adds nothing (Erlang loss)."""
+    """MECHC26 (PATCH_CHECK G1-1; NOTES2's R3): each stack lasts 8 s, at most 10: min(10, 8 s x Purple Flames a second)."""
     from builder.search.assumptions import purple_stacks
 
     assert purple_stacks(0.0) == 0.0
-    assert purple_stacks(0.01) == pytest.approx(0.08, rel=1e-3)  # rarely near the cap: rate x 8 s
-    third = purple_stacks(0.82645 / 3)  # a third of one flame per 1.21 s: 2.2 stacks, PoB's default was 10
-    assert 2.1 < third < 2.21
-    assert 6.0 < purple_stacks(0.82645) < 6.61 and purple_stacks(100.0) < 10 < purple_stacks(100.0) + 0.02
+    assert purple_stacks(0.82645 / 3) == pytest.approx(8 * 0.82645 / 3)  # a third of the flames: 2.2 (PoB's default 10)
+    assert purple_stacks(0.82645) == pytest.approx(8 / 1.21, rel=1e-3)  # Choice of Power: every flame, 6.6
+    assert purple_stacks(100.0) == 10.0
+
+def test_zenith_counts_the_share_of_the_fight_above_ninety_percent_mana():
+    """MECHC26 (PATCH_CHECK MC-3): from the build's pool, cost per cast and regeneration; 0 when it spends what it
+    regenerates, 1 when a cast never takes it below 90%."""
+    from builder.search.assumptions import zenith_share
+
+    base = {"Mana": 1000.0, "ManaCost": 50.0, "Speed": 2.0, "ManaRegenRecovery": 200.0, "ManaPerSecondCost": 100.0}
+    assert zenith_share(base)[0] == 1.0  # 50 per cast, under the top 100
+    big = {**base, "ManaCost": 150.0, "ManaPerSecondCost": 300.0, "ManaRegenRecovery": 400.0}
+    assert zenith_share(big)[0] == pytest.approx(1 - (150 - 100) / 400 * 2.0)  # below 90% for 0.125 s of each 0.5 s
+    assert zenith_share({**base, "ManaRegenRecovery": 90.0})[0] == 0.0  # spends more than it regenerates
+    assert zenith_share({**base, "ManaCost": 0.0, "ManaPerSecondCost": 0.0})[0] == 1.0

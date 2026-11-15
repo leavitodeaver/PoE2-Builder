@@ -475,13 +475,14 @@ def test_ward_damaged_recently_share_needs_runic_reprieve_and_ward_to_pay():
 
 def test_life_when_stunned_counts_the_bosss_hits_that_light_stun_you():
     """MECHC15 (AUDIT27 A27-32): "Regenerate N% of maximum Life over 1 second when Stunned" at the boss's landed hits x
-    the game's Light Stun chance per damage type (hit / Stun Threshold, Physical 50% more, under 15% none), less the
+    the game's Light Stun chance per damage type (hit / Stun Threshold, a monster's Physical 100% more since MECHC26 (R4:
+    KeywordPopups Stun and 0.3.0; was 50%), under 15% none), less the
     build's Stun avoidance; nothing for a build that can't be Stunned."""
     stats = {"StunThreshold": 2000.0, "StunAvoidChance": 0.0, "Life": 4000.0}
     weights = {"Physical": 0.5, "Fire": 0.5}
-    sizes = {"Physical": 1000.0, "Fire": 200.0}  # Physical 1000 x 1.5 / 2000 = 75%; Fire 10%: under 15%, none
+    sizes = {"Physical": 600.0, "Fire": 200.0}  # Physical 600 x 2 / 2000 = 60%; Fire 10%: under 15%, none
     rate, how = recovery.stuns_taken(stats, sizes, weights, 2.0)
-    assert rate == pytest.approx(2.0 * 0.5 * 0.75) and "Physical 50% more" in how
+    assert rate == pytest.approx(2.0 * 0.5 * 0.6) and "Physical 100% more" in how
     half, _ = recovery.stuns_taken({**stats, "StunAvoidChance": 50.0}, sizes, weights, 2.0)
     assert half == pytest.approx(rate / 2)
     assert recovery.stuns_taken({**stats, "StunAvoidChance": 100.0}, sizes, weights, 2.0)[0] == 0.0
