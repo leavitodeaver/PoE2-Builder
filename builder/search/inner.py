@@ -1681,11 +1681,16 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     trace.append(["press rates", round(build.score, 4)])
     search.weigh_uptimes()  # exact for the finished build
     trace.append(["uptimes", round(build.score, 4)])
+    # (the user, 14 Nov: an empty slot gets the cheapest item that adds defence or movement speed, score, floors and
+    # budget no worse: Gear.fill_empty)
+    if search.gear.fill_empty(search.weigh_uptimes):
+        trace.append(["fillers", round(build.score, 4)])
 
     search.gear.sync_flasks()
     search.gems.meta_candidates()  # the Meta gems the search can't propose yet, with why, for the result
     play = play_guide.guide(search)  # "How to play it": the DPS without each condition the player or fight decides
     play += search.press_guide_rows()  # (and each chosen press rate, without it / with it)
+    play += search.gear.filler_rows()  # (and each filler: no item raised the score in its slot)
     facts = build.call("facts", fields=RESULT_FIELDS)
     xml = build.call("exportXml")["xml"]
     code = codes.encode(xml)

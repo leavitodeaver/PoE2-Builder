@@ -789,6 +789,61 @@ class Gear:
             self.update_lambda()
         return improved
 
+    # The user's answer (14 Nov ~20:03, SEARCH22 item 3: "Fill with cheapest useful"): a slot no item raised the score in
+    # stays empty (2b75d's Boots: every boots item scored exactly the empty slot's score once the floors were met, probes
+    # POE2T2290-2291), which no player would wear. A last pass puts in each empty gear slot the cheapest item that adds
+    # defence or movement speed (FILLER_GAINS), kept only if the score, every floor and the budget are no worse.
+    # Flask and charm slots aren't filled (their uptime and charges change other slots' effects: not a free choice).
+    FILLER_GAINS = ("EnergyShield", "Armour", "Evasion", "Life", "EffectiveMovementSpeedMod")
+
+    def fill_empty(self, reweigh: Callable[[], None] | None = None) -> list[dict]:
+        """The filler pass: returns {slot, name, price} for each slot filled (play_guide's filler rows, filler_rows).
+        `reweigh` refreshes the part-time weighing after a put (Search.weigh_uptimes), so the check reads the exact score."""
+        from builder.search.objective import number
+
+        build, objective = self.build, self.build.objective
+        filled = []
+        for slot in self.slots:
+            if build.equipped.get(slot) is not None or slot in build.locked_slots or is_flask_slot(slot):
+                continue
+            options = [o for o in self.candidates(slot) if self.allowed(slot, o)]
+            if not options:
+                continue
+            base_stats, before, spent = dict(build.stats), build.score, build.spent()
+            weight = objective._weight(objective.deficits(base_stats))
+            useful = []
+            for option, (score, stats) in zip(options, self.deltas(slot, [o.raw for o in options])):
+                gains = [number(stats.get(f)) - number(base_stats.get(f)) for f in self.FILLER_GAINS]
+                if score >= before - EPSILON and any(g > 1e-9 for g in gains)                         and objective._weight(objective.deficits(stats)) <= weight + 1e-12:
+                    useful.append(((option.price or 0.0), -sum(g > 1e-9 for g in gains), option.name, option))
+            for *_, option in sorted(useful, key=lambda u: u[:3]):
+                self.put(slot, option)
+                self.settle()
+                if reweigh is not None:
+                    reweigh()
+                if (build.score >= before - EPSILON and build.spent() <= max(self.ctx.budget, spent) + 1e-9
+                        and objective._weight(objective.deficits(build.stats)) <= weight + 1e-12):
+                    filled.append({"slot": slot, "name": option.name, "price": option.price or 0.0})
+                    break
+                self.put(slot, None)  # (worse once committed: the next cheapest)
+                self.settle()
+                if reweigh is not None:
+                    reweigh()
+        self.fillers = filled
+        return filled
+
+    def filler_rows(self) -> list[dict]:
+        """The play guide's row for each filler (fill_empty): no item raised the score in its slot."""
+        from builder.search import play_guide
+
+        dps = max(self.build.objective.dps(self.build.stats), 0.0)  # (a filler moves no DPS: the same both ways)
+        return [{"var": f"filler:{f['slot']}", "label": f"{f['slot']}: {f['name']} is a filler", "kind": play_guide.BUILD,
+                 "counted": False,
+                 "play": (f"no item raised the score here; {f['name']} is the cheapest item ({f['price']:g} divine) that "
+                          f"adds defence or movement speed, put in only because the score, every floor and the budget "
+                          f"stay as they are: swap it for anything you like"),
+                 "dps_with": dps, "dps_without": dps, "change": 0.0, "confidence": "theory"} for f in getattr(self, "fillers", [])]
+
     def assumption_trials(self, deadline: float) -> bool:
         """A unique (or a rare on a base whose implicit grants it: source_bases) granting a skill an assumption counts (Assumptions.relevant: a Remnant source while Explosive
         Transmutation's explosion is in the build, e.g. The Hollow Mask's Wildwood's Gifts) is tried for real: equipped,

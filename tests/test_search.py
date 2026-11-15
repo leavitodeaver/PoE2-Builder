@@ -3283,3 +3283,71 @@ def test_electromagnetism_does_not_consume_a_lone_bosss_shock_on_every_hit():
             return {"skills": [{"name": "Spark", "levelStats": {}, "supportStats": dict(rift), "skillTypes": []}]}
 
     assert main_consumes(FakeBuild(), "Spark", {"Electromagnetism"}) == {}
+
+
+def test_an_empty_slot_gets_the_cheapest_useful_filler_and_nothing_gets_worse():
+    """The user's answer (14 Nov, SEARCH22 item 3): a slot left empty gets the cheapest item that adds defence or
+    movement speed; the score, every floor and the budget must never get worse, and the play guide calls it a filler."""
+    import types
+
+    from builder.search.gear import Gear
+
+    class Objective:
+        def deficits(self, stats):
+            return [("Fire resistance", 0.1, False)] if stats.get("FireResist", 75) < 75 else []
+
+        def _weight(self, deficits):
+            return sum(a for _, a, _ in deficits)
+
+    options = {  # name -> (price, score delta, stats change)
+        "Cheap Plain": (0.0, 0.0, {}),  # adds nothing: not useful
+        "Cheap ES": (0.5, 0.0, {"EnergyShield": 300}),
+        "Dear ES": (2.0, 0.0, {"EnergyShield": 500}),
+        "Lowers Res": (0.1, 0.0, {"EnergyShield": 100, "FireResist": 70}),  # a floor gets worse: refused
+        "Costs Score": (0.2, -0.01, {"Armour": 100}),  # the score gets worse: refused
+        "Over Budget": (0.01, 0.0, {"Evasion": 50}),
+    }
+    base = {"EnergyShield": 3000, "Armour": 0, "Evasion": 0, "FireResist": 75}
+
+    Objective.dps = lambda self, stats: 1000.0
+
+    class Build:
+        objective = Objective()
+        locked_slots: set = set()
+
+        def __init__(self):
+            self.equipped, self.score = {"Helmet": types.SimpleNamespace(name="Hat", price=1.0)}, 5.0
+            self.stats = dict(base)
+
+        def spent(self):
+            return sum(o.price or 0.0 for o in self.equipped.values())
+
+    build = Build()
+    gear = Gear.__new__(Gear)
+    gear.build = build
+    gear.slots = {"Helmet": None, "Boots": None, "Flask 1": None}
+    gear.ctx = types.SimpleNamespace(budget=3.0)
+    opts = [types.SimpleNamespace(name=n, raw=n, price=p) for n, (p, _, _) in options.items()]
+    gear.candidates = lambda slot: [o for o in opts if not (o.name == "Over Budget")]  # (candidates() keeps the budget)
+    gear.allowed = lambda slot, option: True
+    gear.deltas = lambda slot, raws: [(build.score + options[r][1], {**base, **{k: base.get(k, 0) + v if k != "FireResist"
+                                                                              else v for k, v in options[r][2].items()}})
+                                      for r in raws]
+
+    def put(slot, option):
+        if option is None:
+            build.equipped.pop(slot, None)
+            build.stats, build.score = dict(base), 5.0
+        else:
+            build.equipped[slot] = option
+            price, delta, change = options[option.name]
+            build.stats = {**base, **{k: base.get(k, 0) + v if k != "FireResist" else v for k, v in change.items()}}
+            build.score = 5.0 + delta
+
+    gear.put, gear.settle = put, lambda: None
+    filled = gear.fill_empty()
+    assert filled == [{"slot": "Boots", "name": "Cheap ES", "price": 0.5}]  # not Flask 1, not the filled Helmet
+    assert build.score == 5.0 and build.spent() <= 3.0 and not build.objective.deficits(build.stats)
+    rows = gear.filler_rows()
+    assert rows[0]["var"] == "filler:Boots" and "no item raised the score here" in rows[0]["play"]
+    assert rows[0]["dps_with"] == rows[0]["dps_without"] == 1000.0 and rows[0]["change"] == 0.0  # (every row's fields)
