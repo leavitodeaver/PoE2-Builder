@@ -1,0 +1,5364 @@
+{
+ "source": "poe2db.tw/us/Runeforging, fetched 2026-11-15: 'Unique Runeforging /309' (a unique + Verisium / Exceptional Verisium + one Kalguuran Crest) and 'Runeforging /409' (a base + Verisium or Exceptional Verisium). Recipes with no materials (Starlit Ores, the Shattered Triskelion: they make a unique, not upgrade one) are left out.",
+ "unique_recipes": [
+  {
+   "unique": "Brynhand's Mark",
+   "from": "Wooden Club",
+   "to": "Runeforged Wooden Club",
+   "materials": {
+    "Verisium": 205,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Brynhand's Mark",
+   "from": "Runeforged Wooden Club",
+   "to": "Runemastered Wooden Club",
+   "materials": {
+    "Verisium": 460,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Frostbreath",
+   "from": "Slim Mace",
+   "to": "Runeforged Slim Mace",
+   "materials": {
+    "Verisium": 430,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Trenchtimbre",
+   "from": "Spiked Club",
+   "to": "Runeforged Spiked Club",
+   "materials": {
+    "Verisium": 550,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Sculpted Suffering",
+   "from": "Warpick",
+   "to": "Runeforged Warpick",
+   "materials": {
+    "Verisium": 250,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Brutus' Lead Sprinkler",
+   "from": "Morning Star",
+   "to": "Runeforged Morning Star",
+   "materials": {
+    "Exceptional Verisium": 3,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Serle's Grit",
+   "from": "Kalguuran Forgehammer",
+   "to": "Runeforged Kalguuran Forgehammer",
+   "materials": {
+    "Verisium": 1500,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Hoghunt",
+   "from": "Felled Greatclub",
+   "to": "Runeforged Felled Greatclub",
+   "materials": {
+    "Verisium": 210,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Hoghunt",
+   "from": "Runeforged Felled Greatclub",
+   "to": "Runemastered Felled Greatclub",
+   "materials": {
+    "Verisium": 805,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Hrimnor's Hymn",
+   "from": "Oak Greathammer",
+   "to": "Runeforged Oak Greathammer",
+   "materials": {
+    "Verisium": 215,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Hrimnor's Hymn",
+   "from": "Runeforged Oak Greathammer",
+   "to": "Runemastered Oak Greathammer",
+   "materials": {
+    "Verisium": 955,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Trephina",
+   "from": "Forge Maul",
+   "to": "Runeforged Forge Maul",
+   "materials": {
+    "Verisium": 475,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Brain Rattler",
+   "from": "Studded Greatclub",
+   "to": "Runeforged Studded Greatclub",
+   "materials": {
+    "Verisium": 245,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Brain Rattler",
+   "from": "Runeforged Studded Greatclub",
+   "to": "Runemastered Studded Greatclub",
+   "materials": {
+    "Verisium": 1835,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "The Empty Roar",
+   "from": "Cultist Greathammer",
+   "to": "Runeforged Cultist Greathammer",
+   "materials": {
+    "Verisium": 295,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Shyaba",
+   "from": "Temple Maul",
+   "to": "Runeforged Temple Maul",
+   "materials": {
+    "Verisium": 1600,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Chober Chaber",
+   "from": "Leaden Greathammer",
+   "to": "Runeforged Leaden Greathammer",
+   "materials": {
+    "Verisium": 485,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Quecholli",
+   "from": "Crumbling Maul",
+   "to": "Runeforged Crumbling Maul",
+   "materials": {
+    "Verisium": 435,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Tidebreaker",
+   "from": "Pointed Maul",
+   "to": "Runeforged Pointed Maul",
+   "materials": {
+    "Verisium": 5000,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Splinter of Lorrata",
+   "from": "Hardwood Spear",
+   "to": "Runeforged Hardwood Spear",
+   "materials": {
+    "Exceptional Verisium": 35,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Tyranny's Grip",
+   "from": "Ironhead Spear",
+   "to": "Runeforged Ironhead Spear",
+   "materials": {
+    "Verisium": 225,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Tyranny's Grip",
+   "from": "Runeforged Ironhead Spear",
+   "to": "Runemastered Ironhead Spear",
+   "materials": {
+    "Verisium": 860,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Chainsting",
+   "from": "Hunting Spear",
+   "to": "Runeforged Hunting Spear",
+   "materials": {
+    "Verisium": 220,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Skysliver",
+   "from": "Winged Spear",
+   "to": "Runeforged Winged Spear",
+   "materials": {
+    "Verisium": 395,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Daevata's Wind",
+   "from": "War Spear",
+   "to": "Runeforged War Spear",
+   "materials": {
+    "Verisium": 295,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Tangletongue",
+   "from": "Forked Spear",
+   "to": "Runeforged Forked Spear",
+   "materials": {
+    "Exceptional Verisium": 30,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Saitha's Spear",
+   "from": "Barbed Spear",
+   "to": "Runeforged Barbed Spear",
+   "materials": {
+    "Verisium": 1600,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "The Blood Thorn",
+   "from": "Wrapped Quarterstaff",
+   "to": "Runeforged Wrapped Quarterstaff",
+   "materials": {
+    "Verisium": 225,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Pillar of the Caged God",
+   "from": "Long Quarterstaff",
+   "to": "Runeforged Long Quarterstaff",
+   "materials": {
+    "Verisium": 425,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Pillar of the Caged God",
+   "from": "Runeforged Long Quarterstaff",
+   "to": "Runemastered Long Quarterstaff",
+   "materials": {
+    "Exceptional Verisium": 10,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "The Sentry",
+   "from": "Gothic Quarterstaff",
+   "to": "Runeforged Gothic Quarterstaff",
+   "materials": {
+    "Verisium": 200,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Sentry",
+   "from": "Runeforged Gothic Quarterstaff",
+   "to": "Runemastered Gothic Quarterstaff",
+   "materials": {
+    "Verisium": 3500,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Matsya",
+   "from": "Crescent Quarterstaff",
+   "to": "Runeforged Crescent Quarterstaff",
+   "materials": {
+    "Verisium": 920,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Nazir's Judgement",
+   "from": "Steelpoint Quarterstaff",
+   "to": "Runeforged Steelpoint Quarterstaff",
+   "materials": {
+    "Verisium": 320,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Widowhail",
+   "from": "Crude Bow",
+   "to": "Runeforged Crude Bow",
+   "materials": {
+    "Exceptional Verisium": 15,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Quill Rain",
+   "from": "Shortbow",
+   "to": "Runeforged Shortbow",
+   "materials": {
+    "Verisium": 200,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Quill Rain",
+   "from": "Runeforged Shortbow",
+   "to": "Runeforged Shortbow",
+   "materials": {
+    "Exceptional Verisium": 5,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Ironbound",
+   "from": "Warden Bow",
+   "to": "Runeforged Warden Bow",
+   "materials": {
+    "Verisium": 245,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Splinterheart",
+   "from": "Recurve Bow",
+   "to": "Runeforged Recurve Bow",
+   "materials": {
+    "Verisium": 205,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Doomfletch",
+   "from": "Composite Bow",
+   "to": "Runeforged Composite Bow",
+   "materials": {
+    "Exceptional Verisium": 20,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Death's Harp",
+   "from": "Dualstring Bow",
+   "to": "Runeforged Dualstring Bow",
+   "materials": {
+    "Verisium": 570,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Slivertongue",
+   "from": "Zealot Bow",
+   "to": "Runeforged Zealot Bow",
+   "materials": {
+    "Verisium": 775,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Mist Whisper",
+   "from": "Makeshift Crossbow",
+   "to": "Runeforged Makeshift Crossbow",
+   "materials": {
+    "Verisium": 210,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Rampart Raptor",
+   "from": "Tense Crossbow",
+   "to": "Runeforged Tense Crossbow",
+   "materials": {
+    "Verisium": 285,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Rampart Raptor",
+   "from": "Runeforged Tense Crossbow",
+   "to": "Runemastered Tense Crossbow",
+   "materials": {
+    "Verisium": 1845,
+    "Exceptional Verisium": 5,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Gatecrasher",
+   "from": "Sturdy Crossbow",
+   "to": "Runeforged Sturdy Crossbow",
+   "materials": {
+    "Verisium": 360,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Double Vision",
+   "from": "Dyad Crossbow",
+   "to": "Runeforged Dyad Crossbow",
+   "materials": {
+    "Verisium": 605,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Double Vision",
+   "from": "Runeforged Dyad Crossbow",
+   "to": "Runemastered Dyad Crossbow",
+   "materials": {
+    "Verisium": 2000,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Amor Mandragora",
+   "from": "Changeling Talisman",
+   "to": "Runeforged Changeling Talisman",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Spiteful Floret",
+   "from": "Nettle Talisman",
+   "to": "Runeforged Nettle Talisman",
+   "materials": {
+    "Verisium": 210,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Spiteful Floret",
+   "from": "Runeforged Nettle Talisman",
+   "to": "Runemastered Nettle Talisman",
+   "materials": {
+    "Verisium": 1960,
+    "Exceptional Verisium": 9,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Hysseg's Claw",
+   "from": "Familial Talisman",
+   "to": "Runeforged Familial Talisman",
+   "materials": {
+    "Verisium": 225,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Hysseg's Claw",
+   "from": "Runeforged Familial Talisman",
+   "to": "Runemastered Familial Talisman",
+   "materials": {
+    "Verisium": 1550,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "The Flesh Poppet",
+   "from": "Vicious Talisman",
+   "to": "Runeforged Vicious Talisman",
+   "materials": {
+    "Exceptional Verisium": 25,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Bramblejack",
+   "from": "Rusted Cuirass",
+   "to": "Runemastered Rusted Cuirass",
+   "materials": {
+    "Verisium": 230,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Blackbraid",
+   "from": "Fur Plate",
+   "to": "Runeforged Fur Plate",
+   "materials": {
+    "Verisium": 400,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Edyrn's Tusks",
+   "from": "Iron Cuirass",
+   "to": "Runemastered Iron Cuirass",
+   "materials": {
+    "Verisium": 230,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Road Warrior",
+   "from": "Raider Plate",
+   "to": "Runemastered Raider Plate",
+   "materials": {
+    "Verisium": 250,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Titanrot Cataphract",
+   "from": "Maraketh Cuirass",
+   "to": "Runemastered Maraketh Cuirass",
+   "materials": {
+    "Verisium": 250,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Wandering Reliquary",
+   "from": "Steel Plate",
+   "to": "Runemastered Steel Plate",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Kingsguard",
+   "from": "Full Plate",
+   "to": "Runemastered Full Plate",
+   "materials": {
+    "Verisium": 320,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Greed's Embrace",
+   "from": "Vaal Cuirass",
+   "to": "Runemastered Vaal Cuirass",
+   "materials": {
+    "Verisium": 820,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Bristleboar",
+   "from": "Leather Vest",
+   "to": "Runemastered Leather Vest",
+   "materials": {
+    "Verisium": 230,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Foxshade",
+   "from": "Quilted Vest",
+   "to": "Runemastered Quilted Vest",
+   "materials": {
+    "Verisium": 230,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Ashrend",
+   "from": "Pathfinder Coat",
+   "to": "Runemastered Pathfinder Coat",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Sands of Silk",
+   "from": "Shrouded Vest",
+   "to": "Runemastered Shrouded Vest",
+   "materials": {
+    "Verisium": 450,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Briskwrap",
+   "from": "Rhoahide Coat",
+   "to": "Runemastered Rhoahide Coat",
+   "materials": {
+    "Verisium": 450,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Dustbloom",
+   "from": "Studded Vest",
+   "to": "Runemastered Studded Vest",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Rat Cage",
+   "from": "Scout's Vest",
+   "to": "Runemastered Scout's Vest",
+   "materials": {
+    "Verisium": 460,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Quatl's Molt",
+   "from": "Serpentscale Coat",
+   "to": "Runemastered Serpentscale Coat",
+   "materials": {
+    "Verisium": 3730,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Queen of the Forest",
+   "from": "Smuggler Coat",
+   "to": "Runemastered Smuggler Coat",
+   "materials": {
+    "Verisium": 5000,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Yriel's Fostering",
+   "from": "Strider Vest",
+   "to": "Runemastered Strider Vest",
+   "materials": {
+    "Verisium": 9200,
+    "Exceptional Verisium": 12,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "The Auspex",
+   "from": "Exquisite Vest",
+   "to": "Runemastered Exquisite Vest",
+   "materials": {
+    "Verisium": 1300,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Hyrri's Ire",
+   "from": "Armoured Vest",
+   "to": "Runemastered Armoured Vest",
+   "materials": {
+    "Verisium": 6760,
+    "Exceptional Verisium": 5,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Ghostwrithe",
+   "from": "Tattered Robe",
+   "to": "Runemastered Tattered Robe",
+   "materials": {
+    "Verisium": 1810,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Bitterbloom",
+   "from": "Feathered Robe",
+   "to": "Runemastered Feathered Robe",
+   "materials": {
+    "Verisium": 430,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "The Black Doubt",
+   "from": "Hexer's Robe",
+   "to": "Runemastered Hexer's Robe",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Necromantle",
+   "from": "Bone Raiment",
+   "to": "Runemastered Bone Raiment",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Cloak of Flame",
+   "from": "Silk Robe",
+   "to": "Runemastered Silk Robe",
+   "materials": {
+    "Verisium": 1820,
+    "Exceptional Verisium": 1,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Temporalis",
+   "from": "Silk Robe",
+   "to": "Runemastered Silk Robe",
+   "materials": {
+    "Verisium": 2500,
+    "Exceptional Verisium": 1,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Prayers for Rain",
+   "from": "Keth Raiment",
+   "to": "Runemastered Keth Raiment",
+   "materials": {
+    "Verisium": 250,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Tetzlapokal's Desire",
+   "from": "Votive Raiment",
+   "to": "Runemastered Votive Raiment",
+   "materials": {
+    "Verisium": 460,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Covenant",
+   "from": "Altar Robe",
+   "to": "Runemastered Altar Robe",
+   "materials": {
+    "Verisium": 3830,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Gloamgown",
+   "from": "Elementalist Robe",
+   "to": "Runemastered Elementalist Robe",
+   "materials": {
+    "Verisium": 300,
+    "Exceptional Verisium": 1,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Vis Mortis",
+   "from": "Plated Raiment",
+   "to": "Runemastered Plated Raiment",
+   "materials": {
+    "Verisium": 1150,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Cloak of Defiance",
+   "from": "Havoc Raiment",
+   "to": "Runemastered Havoc Raiment",
+   "materials": {
+    "Verisium": 6140,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Silks of Veneration",
+   "from": "Enlightened Robe",
+   "to": "Runemastered Enlightened Robe",
+   "materials": {
+    "Exceptional Verisium": 55,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Coat of Red",
+   "from": "Chain Mail",
+   "to": "Runemastered Chain Mail",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Barrow Dweller",
+   "from": "Rogue Armour",
+   "to": "Runemastered Rogue Armour",
+   "materials": {
+    "Verisium": 250,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Irongrasp",
+   "from": "Vagabond Armour",
+   "to": "Runemastered Vagabond Armour",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Pariah's Embrace",
+   "from": "Cloaked Mail",
+   "to": "Runemastered Cloaked Mail",
+   "materials": {
+    "Verisium": 250,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Belly of the Beast",
+   "from": "Explorer Armour",
+   "to": "Runemastered Explorer Armour",
+   "materials": {
+    "Verisium": 810,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Pragmatism",
+   "from": "Explorer Armour",
+   "to": "Runemastered Explorer Armour",
+   "materials": {
+    "Verisium": 2500,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Doryani's Prototype",
+   "from": "Scale Mail",
+   "to": "Runemastered Scale Mail",
+   "materials": {
+    "Verisium": 830,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Widow's Reign",
+   "from": "Knight Armour",
+   "to": "Runemastered Knight Armour",
+   "materials": {
+    "Verisium": 830,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Perfidy",
+   "from": "Knight Armour",
+   "to": "Runemastered Knight Armour",
+   "materials": {
+    "Verisium": 750,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "The Sunken Vessel",
+   "from": "Knight Armour",
+   "to": "Runemastered Knight Armour",
+   "materials": {
+    "Verisium": 600,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Lightning Coil",
+   "from": "Ancestral Mail",
+   "to": "Runemastered Ancestral Mail",
+   "materials": {
+    "Verisium": 1140,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "The Coming Calamity",
+   "from": "Heroic Armour",
+   "to": "Runemastered Heroic Armour",
+   "materials": {
+    "Verisium": 4920,
+    "Exceptional Verisium": 1,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Enfolding Dawn",
+   "from": "Pilgrim Vestments",
+   "to": "Runemastered Pilgrim Vestments",
+   "materials": {
+    "Verisium": 230,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Icetomb",
+   "from": "Mail Vestments",
+   "to": "Runemastered Mail Vestments",
+   "materials": {
+    "Verisium": 250,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Reverie",
+   "from": "Shaman Mantle",
+   "to": "Runemastered Shaman Mantle",
+   "materials": {
+    "Verisium": 440,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Voll's Protector",
+   "from": "Plated Vestments",
+   "to": "Runemastered Ironclad Vestments",
+   "materials": {
+    "Verisium": 820,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Soul Mantle",
+   "from": "Sacrificial Mantle",
+   "to": "Runemastered Sacrificial Mantle",
+   "materials": {
+    "Verisium": 460,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Mutable Star",
+   "from": "Cleric Vestments",
+   "to": "Runemastered Cleric Vestments",
+   "materials": {
+    "Verisium": 470,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Waveshaper",
+   "from": "Tideseer Mantle",
+   "to": "Runemastered Tideseer Mantle",
+   "materials": {
+    "Verisium": 1160,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Couture of Crimson",
+   "from": "Gilded Vestments",
+   "to": "Runemastered Gilded Vestments",
+   "materials": {
+    "Verisium": 5360,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Geofri's Sanctuary",
+   "from": "Runemastered Revered Vestments",
+   "to": "Runemastered Revered Vestments",
+   "materials": {
+    "Verisium": 7150,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Sacrosanctum",
+   "from": "Corvus Mantle",
+   "to": "Runemastered Corvus Mantle",
+   "materials": {
+    "Exceptional Verisium": 24,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Loreweave",
+   "from": "Ornate Ringmail",
+   "to": "Runemastered Ornate Ringmail",
+   "materials": {
+    "Verisium": 3740,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Decree of Loyalty",
+   "from": "Ancient Mail",
+   "to": "Runemastered Ancient Mail",
+   "materials": {
+    "Verisium": 1300,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Apron of Emiran",
+   "from": "Hermit Garb",
+   "to": "Runemastered Hermit Garb",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Gloomform",
+   "from": "Waxed Jacket",
+   "to": "Runemastered Waxed Jacket",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Sierran Inheritance",
+   "from": "Marabout Garb",
+   "to": "Runemastered Marabout Garb",
+   "materials": {
+    "Verisium": 450,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "The Dancing Mirage",
+   "from": "Wayfarer Jacket",
+   "to": "Runemastered Wayfarer Jacket",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Redflare Conduit",
+   "from": "Anchorite Garb",
+   "to": "Runemastered Anchorite Garb",
+   "materials": {
+    "Verisium": 460,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Zerphi's Serape",
+   "from": "Scalper's Jacket",
+   "to": "Runemastered Scalper's Jacket",
+   "materials": {
+    "Verisium": 3770,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Cospri's Will",
+   "from": "Assassin Garb",
+   "to": "Runemastered Assassin Garb",
+   "materials": {
+    "Exceptional Verisium": 28,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Forgotten Warden",
+   "from": "Primal Markings",
+   "to": "Runemastered Primal Markings",
+   "materials": {
+    "Verisium": 7500,
+    "Exceptional Verisium": 3,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Tabula Rasa",
+   "from": "Garment",
+   "to": "Runeforged Garment",
+   "materials": {
+    "Verisium": 50000,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Skin of the Loyal",
+   "from": "Garment",
+   "to": "Runeforged Garment",
+   "materials": {
+    "Verisium": 25000,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Morior Invictus",
+   "from": "Grand Regalia",
+   "to": "Runemastered Grand Regalia",
+   "materials": {
+    "Verisium": 580,
+    "Exceptional Verisium": 2,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Atziri's Splendour",
+   "from": "Sacrificial Regalia",
+   "to": "Runemastered Sacrificial Regalia",
+   "materials": {
+    "Verisium": 560,
+    "Exceptional Verisium": 2,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Horns of Bynden",
+   "from": "Rusted Greathelm",
+   "to": "Runemastered Rusted Greathelm",
+   "materials": {
+    "Verisium": 160,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Wings of Caelyn",
+   "from": "Rusted Greathelm",
+   "to": "Runemastered Rusted Greathelm",
+   "materials": {
+    "Verisium": 170,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Ezomyte Peak",
+   "from": "Soldier Greathelm",
+   "to": "Runemastered Soldier Greathelm",
+   "materials": {
+    "Verisium": 180,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Black Sun Crest",
+   "from": "Wrapped Greathelm",
+   "to": "Runemastered Wrapped Greathelm",
+   "materials": {
+    "Verisium": 180,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Thrillsteel",
+   "from": "Spired Greathelm",
+   "to": "Runemastered Spired Greathelm",
+   "materials": {
+    "Verisium": 1110,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Deidbell",
+   "from": "Elite Greathelm",
+   "to": "Runemastered Elite Greathelm",
+   "materials": {
+    "Verisium": 330,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Corona of the Red Sun",
+   "from": "Warrior Greathelm",
+   "to": "Runemastered Warrior Greathelm",
+   "materials": {
+    "Verisium": 320,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Blood Price",
+   "from": "Fierce Greathelm",
+   "to": "Runemastered Fierce Greathelm",
+   "materials": {
+    "Verisium": 170,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Innsmouth",
+   "from": "Shabby Hood",
+   "to": "Runemastered Shabby Hood",
+   "materials": {
+    "Verisium": 180,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Goldrim",
+   "from": "Felt Cap",
+   "to": "Runemastered Felt Cap",
+   "materials": {
+    "Verisium": 320,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Radiant Grief",
+   "from": "Lace Hood",
+   "to": "Runeforged Lace Hood",
+   "materials": {
+    "Verisium": 590,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Elevore",
+   "from": "Hunter Hood",
+   "to": "Runemastered Hunter Hood",
+   "materials": {
+    "Verisium": 330,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Constricting Command",
+   "from": "Viper Cap",
+   "to": "Runemastered Viper Cap",
+   "materials": {
+    "Verisium": 3710,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "The Black Insignia",
+   "from": "Corsair Cap",
+   "to": "Runemastered Corsair Cap",
+   "materials": {
+    "Verisium": 3760,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Starkonja's Head",
+   "from": "Leatherbound Hood",
+   "to": "Runemastered Leatherbound Hood",
+   "materials": {
+    "Verisium": 2760,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Heatshiver",
+   "from": "Velvet Cap",
+   "to": "Runemastered Velvet Cap",
+   "materials": {
+    "Verisium": 3860,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Myris Uxor",
+   "from": "Covert Hood",
+   "to": "Runemastered Covert Hood",
+   "materials": {
+    "Verisium": 600,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Alpha's Howl",
+   "from": "Armoured Cap",
+   "to": "Runemastered Armoured Cap",
+   "materials": {
+    "Verisium": 3710,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Crown of Thorns",
+   "from": "Twig Circlet",
+   "to": "Runemastered Twig Circlet",
+   "materials": {
+    "Verisium": 190,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Devouring Diadem",
+   "from": "Wicker Tiara",
+   "to": "Runemastered Wicker Tiara",
+   "materials": {
+    "Verisium": 180,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Visage of Ayah",
+   "from": "Beaded Circlet",
+   "to": "Runemastered Beaded Circlet",
+   "materials": {
+    "Verisium": 180,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Sandstorm Visage",
+   "from": "Chain Tiara",
+   "to": "Runemastered Chain Tiara",
+   "materials": {
+    "Verisium": 1450,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Mask of the Stitched Demon",
+   "from": "Feathered Tiara",
+   "to": "Runemastered Feathered Tiara",
+   "materials": {
+    "Verisium": 330,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Atziri's Disdain",
+   "from": "Gold Circlet",
+   "to": "Runemastered Gold Circlet",
+   "materials": {
+    "Verisium": 3860,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Crown of Eyes",
+   "from": "Vermeil Circlet",
+   "to": "Runemastered Vermeil Circlet",
+   "materials": {
+    "Verisium": 840,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Scold's Bridle",
+   "from": "Jade Tiara",
+   "to": "Runemastered Jade Tiara",
+   "materials": {
+    "Verisium": 620,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Heretic's Veil",
+   "from": "Twilight Tiara",
+   "to": "Runemastered Twilight Tiara",
+   "materials": {
+    "Verisium": 1250,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Indigon",
+   "from": "Magus Tiara",
+   "to": "Runemastered Magus Tiara",
+   "materials": {
+    "Verisium": 1180,
+    "Exceptional Verisium": 1,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Greymake",
+   "from": "Brimmed Helm",
+   "to": "Runemastered Brimmed Helm",
+   "materials": {
+    "Verisium": 180,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Erian's Cobble",
+   "from": "Guarded Helm",
+   "to": "Runemastered Guarded Helm",
+   "materials": {
+    "Verisium": 180,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Ironride",
+   "from": "Visored Helm",
+   "to": "Runemastered Visored Helm",
+   "materials": {
+    "Verisium": 320,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Smiling Knight",
+   "from": "Cowled Helm",
+   "to": "Runemastered Cowled Helm",
+   "materials": {
+    "Verisium": 530,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "The Vile Knight",
+   "from": "Shielded Helm",
+   "to": "Runemastered Shielded Helm",
+   "materials": {
+    "Verisium": 450,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Bringer of Rain",
+   "from": "Decorated Helm",
+   "to": "Runemastered Decorated Helm",
+   "materials": {
+    "Verisium": 4890,
+    "Exceptional Verisium": 10,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Decree of Acuity",
+   "from": "Ancient Visor",
+   "to": "Runemastered Ancient Visor",
+   "materials": {
+    "Verisium": 300,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Solus Ipse",
+   "from": "Grand Visage",
+   "to": "Runemastered Grand Visage",
+   "materials": {
+    "Verisium": 310,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Crown of the Victor",
+   "from": "Iron Crown",
+   "to": "Runemastered Iron Crown",
+   "materials": {
+    "Verisium": 330,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Bronzebeard",
+   "from": "Horned Crown",
+   "to": "Runemastered Horned Crown",
+   "materials": {
+    "Verisium": 180,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Crown of the Pale King",
+   "from": "Cultist Crown",
+   "to": "Runemastered Cultist Crown",
+   "materials": {
+    "Verisium": 310,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Veil of the Night",
+   "from": "Martyr Crown",
+   "to": "Runemastered Martyr Crown",
+   "materials": {
+    "Verisium": 830,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Cornathaum",
+   "from": "Heavy Crown",
+   "to": "Runemastered Heavy Crown",
+   "materials": {
+    "Verisium": 440,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Vestige of Darkness",
+   "from": "Tenebrous Crown",
+   "to": "Runemastered Tenebrous Crown",
+   "materials": {
+    "Verisium": 300,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Hollow Mask",
+   "from": "Hewn Mask",
+   "to": "Runemastered Hewn Mask",
+   "materials": {
+    "Verisium": 330,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Mask of the Sanguimancer",
+   "from": "Face Mask",
+   "to": "Runemastered Face Mask",
+   "materials": {
+    "Verisium": 170,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Leer Cast",
+   "from": "Hooded Mask",
+   "to": "Runemastered Hooded Mask",
+   "materials": {
+    "Verisium": 170,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Atsak's Sight",
+   "from": "Veiled Mask",
+   "to": "Runemastered Veiled Mask",
+   "materials": {
+    "Verisium": 180,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Vertex",
+   "from": "Tribal Mask",
+   "to": "Runemastered Tribal Mask",
+   "materials": {
+    "Verisium": 590,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Glimpse of Chaos",
+   "from": "Tribal Mask",
+   "to": "Runemastered Tribal Mask",
+   "materials": {
+    "Verisium": 590,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "The Three Dragons",
+   "from": "Solid Mask",
+   "to": "Runemastered Solid Mask",
+   "materials": {
+    "Verisium": 590,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Mind of the Council",
+   "from": "Death Mask",
+   "to": "Runemastered Death Mask",
+   "materials": {
+    "Verisium": 3370,
+    "Exceptional Verisium": 3,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Facebreaker",
+   "from": "Stocky Mitts",
+   "to": "Runemastered Stocky Mitts",
+   "materials": {
+    "Verisium": 240,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Treefingers",
+   "from": "Riveted Mitts",
+   "to": "Runemastered Riveted Mitts",
+   "materials": {
+    "Verisium": 250,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Lochtonial Caress",
+   "from": "Tempered Mitts",
+   "to": "Runemastered Tempered Mitts",
+   "materials": {
+    "Verisium": 150,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Dreadfist",
+   "from": "Bolstered Mitts",
+   "to": "Runemastered Bolstered Mitts",
+   "materials": {
+    "Verisium": 150,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Atziri's Acuity",
+   "from": "Moulded Mitts",
+   "to": "Runemastered Moulded Mitts",
+   "materials": {
+    "Verisium": 400,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Hateforge",
+   "from": "Moulded Mitts",
+   "to": "Runemastered Moulded Mitts",
+   "materials": {
+    "Verisium": 400,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Empire's Grasp",
+   "from": "Titan Mitts",
+   "to": "Runemastered Titan Mitts",
+   "materials": {
+    "Verisium": 400,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Northpaw",
+   "from": "Suede Bracers",
+   "to": "Runemastered Suede Bracers",
+   "materials": {
+    "Verisium": 420,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Grip of Winter",
+   "from": "Firm Bracers",
+   "to": "Runemastered Firm Bracers",
+   "materials": {
+    "Verisium": 140,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Idle Hands",
+   "from": "Sectioned Bracers",
+   "to": "Runemastered Sectioned Bracers",
+   "materials": {
+    "Verisium": 150,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Snakebite",
+   "from": "Spined Bracers",
+   "to": "Runemastered Spined Bracers",
+   "materials": {
+    "Verisium": 490,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Maligaro's Virtuosity",
+   "from": "Fine Bracers",
+   "to": "Runemastered Fine Bracers",
+   "materials": {
+    "Verisium": 1740,
+    "Exceptional Verisium": 2,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Horror's Flight",
+   "from": "Runeforged Engraved Bracers",
+   "to": "Runeforged Engraved Bracers",
+   "materials": {
+    "Verisium": 330,
+    "Exceptional Verisium": 1,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Painter's Servant",
+   "from": "Torn Gloves",
+   "to": "Runemastered Torn Gloves",
+   "materials": {
+    "Verisium": 240,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Candlemaker",
+   "from": "Sombre Gloves",
+   "to": "Runemastered Sombre Gloves",
+   "materials": {
+    "Verisium": 140,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Doedre's Tenure",
+   "from": "Stitched Gloves",
+   "to": "Runemastered Stitched Gloves",
+   "materials": {
+    "Verisium": 150,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Kitoko's Current",
+   "from": "Jewelled Gloves",
+   "to": "Runemastered Jewelled Gloves",
+   "materials": {
+    "Verisium": 140,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Demon Stitcher",
+   "from": "Intricate Gloves",
+   "to": "Runemastered Intricate Gloves",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Nightscale",
+   "from": "Pauascale Gloves",
+   "to": "Runemastered Pauascale Gloves",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Leopold's Applause",
+   "from": "Embroidered Gloves",
+   "to": "Runemastered Embroidered Gloves",
+   "materials": {
+    "Verisium": 1900,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Jarngreipr",
+   "from": "Ringmail Gauntlets",
+   "to": "Runemastered Ringmail Gauntlets",
+   "materials": {
+    "Verisium": 140,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Aurseize",
+   "from": "Layered Gauntlets",
+   "to": "Runemastered Layered Gauntlets",
+   "materials": {
+    "Verisium": 140,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Deathblow",
+   "from": "Doubled Gauntlets",
+   "to": "Runemastered Doubled Gauntlets",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Valako's Vice",
+   "from": "Plate Gauntlets",
+   "to": "Runemastered Plate Gauntlets",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Aerisvane's Wings",
+   "from": "Burnished Gauntlets",
+   "to": "Runemastered Burnished Gauntlets",
+   "materials": {
+    "Verisium": 230,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Gravebind",
+   "from": "Rope Cuffs",
+   "to": "Runemastered Rope Cuffs",
+   "materials": {
+    "Verisium": 130,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Shackles of the Wretched",
+   "from": "Aged Cuffs",
+   "to": "Runemastered Aged Cuffs",
+   "materials": {
+    "Verisium": 150,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Blueflame Bracers",
+   "from": "Goldcast Cuffs",
+   "to": "Runemastered Goldcast Cuffs",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Prisoner's Manacles",
+   "from": "Kalguuran Cuffs",
+   "to": "Runemastered Verisium Cuffs",
+   "materials": {
+    "Verisium": 260,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Plaguefinger",
+   "from": "Gauze Wraps",
+   "to": "Runemastered Gauze Wraps",
+   "materials": {
+    "Verisium": 230,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Killjoy",
+   "from": "Linen Wraps",
+   "to": "Runemastered Linen Wraps",
+   "materials": {
+    "Verisium": 150,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Hand of Wisdom and Action",
+   "from": "Spiral Wraps",
+   "to": "Runemastered Spiral Wraps",
+   "materials": {
+    "Verisium": 500,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Essentia Sanguis",
+   "from": "Furtive Wraps",
+   "to": "Runemastered Furtive Wraps",
+   "materials": {
+    "Verisium": 1960,
+    "Exceptional Verisium": 1,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Thunderfist",
+   "from": "Utility Wraps",
+   "to": "Runemastered Utility Wraps",
+   "materials": {
+    "Verisium": 2750,
+    "Exceptional Verisium": 1,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Sine Aequo",
+   "from": "Grand Manchettes",
+   "to": "Runemastered Grand Manchettes",
+   "materials": {
+    "Verisium": 640,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Legionstride",
+   "from": "Rough Greaves",
+   "to": "Runemastered Rough Greaves",
+   "materials": {
+    "Verisium": 360,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Corpsewade",
+   "from": "Iron Greaves",
+   "to": "Runemastered Iron Greaves",
+   "materials": {
+    "Verisium": 370,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "The Infinite Pursuit",
+   "from": "Bronze Greaves",
+   "to": "Runemastered Bronze Greaves",
+   "materials": {
+    "Verisium": 220,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Trampletoe",
+   "from": "Trimmed Greaves",
+   "to": "Runemastered Trimmed Greaves",
+   "materials": {
+    "Verisium": 5600,
+    "Exceptional Verisium": 20,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Birth of Fury",
+   "from": "Stone Greaves",
+   "to": "Runemastered Stone Greaves",
+   "materials": {
+    "Verisium": 400,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Briarpatch",
+   "from": "Laced Boots",
+   "to": "Runemastered Laced Boots",
+   "materials": {
+    "Verisium": 710,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Gamblesprint",
+   "from": "Embossed Boots",
+   "to": "Runemastered Embossed Boots",
+   "materials": {
+    "Verisium": 720,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Bushwhack",
+   "from": "Lizardscale Boots",
+   "to": "Runemastered Lizardscale Boots",
+   "materials": {
+    "Verisium": 220,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Atziri's Step",
+   "from": "Cinched Boots",
+   "to": "Runemastered Cinched Boots",
+   "materials": {
+    "Verisium": 530,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Luminous Pace",
+   "from": "Straw Sandals",
+   "to": "Runemastered Straw Sandals",
+   "materials": {
+    "Verisium": 200,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Wanderlust",
+   "from": "Wrapped Sandals",
+   "to": "Runemastered Wrapped Sandals",
+   "materials": {
+    "Verisium": 370,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Bones of Ullr",
+   "from": "Lattice Sandals",
+   "to": "Runemastered Lattice Sandals",
+   "materials": {
+    "Verisium": 1690,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Wondertrap",
+   "from": "Silk Slippers",
+   "to": "Runemastered Silk Slippers",
+   "materials": {
+    "Verisium": 220,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Windscream",
+   "from": "Feathered Sandals",
+   "to": "Runemastered Feathered Sandals",
+   "materials": {
+    "Verisium": 220,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Knight-errant",
+   "from": "Mail Sabatons",
+   "to": "Runemastered Mail Sabatons",
+   "materials": {
+    "Verisium": 200,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Darkray Vectors",
+   "from": "Braced Sabatons",
+   "to": "Runemastered Braced Sabatons",
+   "materials": {
+    "Verisium": 370,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Obern's Bastion",
+   "from": "Stacked Sabatons",
+   "to": "Runemastered Stacked Sabatons",
+   "materials": {
+    "Verisium": 390,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Shankgonne",
+   "from": "Covered Sabatons",
+   "to": "Runemastered Covered Sabatons",
+   "materials": {
+    "Verisium": 700,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Wake of Destruction",
+   "from": "Secured Leggings",
+   "to": "Runemastered Secured Leggings",
+   "materials": {
+    "Verisium": 1680,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Decree of Flight",
+   "from": "Ancient Leggings",
+   "to": "Runemastered Ancient Leggings",
+   "materials": {
+    "Verisium": 960,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Ghostmarch",
+   "from": "Threaded Shoes",
+   "to": "Runemastered Threaded Shoes",
+   "materials": {
+    "Verisium": 220,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Powertread",
+   "from": "Hunting Shoes",
+   "to": "Runemastered Hunting Shoes",
+   "materials": {
+    "Verisium": 220,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Beetlebite",
+   "from": "Velour Shoes",
+   "to": "Runemastered Velour Shoes",
+   "materials": {
+    "Verisium": 520,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Ab Aeterno",
+   "from": "Grand Cuisses",
+   "to": "Runemastered Grand Cuisses",
+   "materials": {
+    "Verisium": 540,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Dionadair",
+   "from": "Splintered Tower Shield",
+   "to": "Runemastered Splintered Tower Shield",
+   "materials": {
+    "Verisium": 220,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Wulfsbane",
+   "from": "Painted Tower Shield",
+   "to": "Runemastered Painted Tower Shield",
+   "materials": {
+    "Verisium": 230,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Doomgate",
+   "from": "Braced Tower Shield",
+   "to": "Runemastered Braced Tower Shield",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Window to Paradise",
+   "from": "Barricade Tower Shield",
+   "to": "Runemastered Barricade Tower Shield",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Wailing Wall",
+   "from": "Effigial Tower Shield",
+   "to": "Runemastered Effigial Tower Shield",
+   "materials": {
+    "Verisium": 250,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Lycosidae",
+   "from": "Rampart Tower Shield",
+   "to": "Runemastered Rampart Tower Shield",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Redblade Banner",
+   "from": "Heraldric Tower Shield",
+   "to": "Runemastered Heraldric Tower Shield",
+   "materials": {
+    "Verisium": 800,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Nightfall",
+   "from": "Glacial Fortress",
+   "to": "Runemastered Glacial Fortress",
+   "materials": {
+    "Verisium": 5500,
+    "Exceptional Verisium": 2,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "The Surrender",
+   "from": "Vaal Tower Shield",
+   "to": "Runemastered Vaal Tower Shield",
+   "materials": {
+    "Verisium": 6500,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Chernobog's Pillar",
+   "from": "Blacksteel Tower Shield",
+   "to": "Runemastered Blacksteel Tower Shield",
+   "materials": {
+    "Verisium": 5000,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Arvil's Wheel",
+   "from": "Hardwood Targe",
+   "to": "Runemastered Hardwood Targe",
+   "materials": {
+    "Verisium": 220,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Feathered Fortress",
+   "from": "Crescent Targe",
+   "to": "Runemastered Crescent Targe",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Alkem Eira",
+   "from": "Blazon Crest Shield",
+   "to": "Runemastered Blazon Crest Shield",
+   "materials": {
+    "Verisium": 380,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Oaksworn",
+   "from": "Sigil Crest Shield",
+   "to": "Runemastered Sigil Crest Shield",
+   "materials": {
+    "Verisium": 230,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Saffell's Frame",
+   "from": "Emblem Crest Shield",
+   "to": "Runemastered Emblem Crest Shield",
+   "materials": {
+    "Verisium": 420,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Crest of Ardura",
+   "from": "Jingling Crest Shield",
+   "to": "Runemastered Jingling Crest Shield",
+   "materials": {
+    "Verisium": 250,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Prism Guardian",
+   "from": "Intricate Crest Shield",
+   "to": "Runemastered Intricate Crest Shield",
+   "materials": {
+    "Verisium": 3500,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Rise of the Phoenix",
+   "from": "Omen Crest Shield",
+   "to": "Runemastered Omen Crest Shield",
+   "materials": {
+    "Verisium": 220,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Dunkelhalt",
+   "from": "Leather Buckler",
+   "to": "Runemastered Leather Buckler",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Nocturne",
+   "from": "Wooden Buckler",
+   "to": "Runemastered Wooden Buckler",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Rondel de Ezo",
+   "from": "Plated Buckler",
+   "to": "Runemastered Plated Buckler",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Bloodbarrier",
+   "from": "Iron Buckler",
+   "to": "Runemastered Iron Buckler",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Kaltenhalt",
+   "from": "Ridged Buckler",
+   "to": "Runemastered Ridged Buckler",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Silverthorne",
+   "from": "Spiked Buckler",
+   "to": "Runemastered Spiked Buckler",
+   "materials": {
+    "Verisium": 430,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Calgyra's Arc",
+   "from": "Ornate Buckler",
+   "to": "Runemastered Ornate Buckler",
+   "materials": {
+    "Verisium": 1000,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Sunsplinter",
+   "from": "Array Buckler",
+   "to": "Runemastered Array Buckler",
+   "materials": {
+    "Verisium": 1500,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Deathrattle",
+   "from": "Twig Focus",
+   "to": "Runemastered Twig Focus",
+   "materials": {
+    "Verisium": 220,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Threaded Light",
+   "from": "Woven Focus",
+   "to": "Runemastered Woven Focus",
+   "materials": {
+    "Verisium": 400,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Effigy of Cruelty",
+   "from": "Antler Focus",
+   "to": "Runemastered Antler Focus",
+   "materials": {
+    "Verisium": 790,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Carrion Call",
+   "from": "Engraved Focus",
+   "to": "Runemastered Engraved Focus",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Serpent's Lesson",
+   "from": "Tonal Focus",
+   "to": "Runemastered Tonal Focus",
+   "materials": {
+    "Verisium": 250,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "The Eternal Spark",
+   "from": "Crystal Focus",
+   "to": "Runemastered Crystal Focus",
+   "materials": {
+    "Verisium": 240,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Apep's Supremacy",
+   "from": "Voodoo Focus",
+   "to": "Runemastered Voodoo Focus",
+   "materials": {
+    "Verisium": 420,
+    "Medved's Crest of the Circle": 1
+   }
+  },
+  {
+   "unique": "Rathpith Globe",
+   "from": "Sacred Focus",
+   "to": "Runemastered Plumed Focus",
+   "materials": {
+    "Verisium": 2500,
+    "Exceptional Verisium": 10,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "The Brass Dome",
+   "from": "Champion Cuirass",
+   "to": "Runeforged Champion Cuirass",
+   "materials": {
+    "Exceptional Verisium": 39,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Kaom's Heart",
+   "from": "Conqueror Plate",
+   "to": "Runeforged Conqueror Plate",
+   "materials": {
+    "Verisium": 759,
+    "Vorana's Crest of the Scythe": 1
+   }
+  },
+  {
+   "unique": "Svalinn",
+   "from": "Crucible Tower Shield",
+   "to": "Runemastered Crucible Tower Shield",
+   "materials": {
+    "Exceptional Verisium": 25,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Keeper of the Arc",
+   "from": "Spiritbone Crown",
+   "to": "Runemastered Spiritbone Crown",
+   "materials": {
+    "Exceptional Verisium": 25,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Olrovasara",
+   "from": "Torment Club",
+   "to": "Runemastered Torment Club",
+   "materials": {
+    "Exceptional Verisium": 15,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Waistgate",
+   "from": "Heavy Belt",
+   "to": "Runemastered Heavy Belt",
+   "materials": {
+    "Exceptional Verisium": 25,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Seeing Stars",
+   "from": "Marching Mace",
+   "to": "Runeforged Marching Mace",
+   "materials": {
+    "Verisium": 1140,
+    "Exceptional Verisium": 5,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "Mjolner",
+   "from": "Torment Club",
+   "to": "Runemastered Torment Club",
+   "materials": {
+    "Exceptional Verisium": 30,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Twisted Empyrean",
+   "from": "Aberrant Sledge",
+   "to": "Runemastered Aberrant Sledge",
+   "materials": {
+    "Exceptional Verisium": 40,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Eyes of the Runefather",
+   "from": "Venerable Defender",
+   "to": "Runemastered Venerable Defender",
+   "materials": {
+    "Verisium": 1800,
+    "Exceptional Verisium": 1,
+    "Uhtred's Crest of the Chalice": 1
+   }
+  },
+  {
+   "unique": "The Unleashed",
+   "from": "Revered Vestments",
+   "to": "Runemastered Revered Vestments",
+   "materials": {
+    "Exceptional Verisium": 30,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Eventide Petals",
+   "from": "Veridical Chain",
+   "to": "Runemastered Veridical Chain",
+   "materials": {
+    "Exceptional Verisium": 40,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Duality",
+   "from": "Warding Quarterstaff",
+   "to": "Runemastered Warding Quarterstaff",
+   "materials": {
+    "Exceptional Verisium": 20,
+    "Olroth's Crest of the Sun": 1
+   }
+  },
+  {
+   "unique": "Runeseeker's Call",
+   "from": "Runic Fork",
+   "to": "Runemastered Runic Fork",
+   "materials": {
+    "Exceptional Verisium": 50,
+    "Olroth's Crest of the Sun": 1
+   }
+  }
+ ],
+ "base_recipes": [
+  {
+   "from": "Rusted Cuirass",
+   "to": "Runeforged Rusted Cuirass",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Fur Plate",
+   "to": "Runeforged Fur Plate",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Iron Cuirass",
+   "to": "Runeforged Iron Cuirass",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Raider Plate",
+   "to": "Runeforged Raider Plate",
+   "materials": {
+    "Verisium": 45
+   }
+  },
+  {
+   "from": "Maraketh Cuirass",
+   "to": "Runeforged Maraketh Cuirass",
+   "materials": {
+    "Verisium": 50
+   }
+  },
+  {
+   "from": "Steel Plate",
+   "to": "Runeforged Steel Plate",
+   "materials": {
+    "Verisium": 75
+   }
+  },
+  {
+   "from": "Full Plate",
+   "to": "Runeforged Full Plate",
+   "materials": {
+    "Verisium": 105
+   }
+  },
+  {
+   "from": "Vaal Cuirass",
+   "to": "Runeforged Vaal Cuirass",
+   "materials": {
+    "Verisium": 130
+   }
+  },
+  {
+   "from": "Juggernaut Plate",
+   "to": "Runeforged Juggernaut Plate",
+   "materials": {
+    "Verisium": 180
+   }
+  },
+  {
+   "from": "Chieftain Cuirass",
+   "to": "Runeforged Chieftain Cuirass",
+   "materials": {
+    "Verisium": 220
+   }
+  },
+  {
+   "from": "Leather Vest",
+   "to": "Runeforged Leather Vest",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Quilted Vest",
+   "to": "Runeforged Quilted Vest",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Pathfinder Coat",
+   "to": "Runeforged Pathfinder Coat",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Shrouded Vest",
+   "to": "Runeforged Shrouded Vest",
+   "materials": {
+    "Verisium": 45
+   }
+  },
+  {
+   "from": "Rhoahide Coat",
+   "to": "Runeforged Rhoahide Coat",
+   "materials": {
+    "Verisium": 50
+   }
+  },
+  {
+   "from": "Studded Vest",
+   "to": "Runeforged Studded Vest",
+   "materials": {
+    "Verisium": 70
+   }
+  },
+  {
+   "from": "Scout's Vest",
+   "to": "Runeforged Scout's Vest",
+   "materials": {
+    "Verisium": 105
+   }
+  },
+  {
+   "from": "Serpentscale Coat",
+   "to": "Runeforged Serpentscale Coat",
+   "materials": {
+    "Verisium": 120
+   }
+  },
+  {
+   "from": "Corsair Vest",
+   "to": "Runeforged Corsair Vest",
+   "materials": {
+    "Verisium": 180
+   }
+  },
+  {
+   "from": "Smuggler Coat",
+   "to": "Runeforged Smuggler Coat",
+   "materials": {
+    "Verisium": 230
+   }
+  },
+  {
+   "from": "Tattered Robe",
+   "to": "Runeforged Tattered Robe",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Feathered Robe",
+   "to": "Runeforged Feathered Robe",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Hexer's Robe",
+   "to": "Runeforged Hexer's Robe",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Bone Raiment",
+   "to": "Runeforged Bone Raiment",
+   "materials": {
+    "Verisium": 45
+   }
+  },
+  {
+   "from": "Silk Robe",
+   "to": "Runeforged Silk Robe",
+   "materials": {
+    "Verisium": 50
+   }
+  },
+  {
+   "from": "Keth Raiment",
+   "to": "Runeforged Keth Raiment",
+   "materials": {
+    "Verisium": 80
+   }
+  },
+  {
+   "from": "Votive Raiment",
+   "to": "Runeforged Votive Raiment",
+   "materials": {
+    "Verisium": 105
+   }
+  },
+  {
+   "from": "Altar Robe",
+   "to": "Runeforged Altar Robe",
+   "materials": {
+    "Verisium": 145
+   }
+  },
+  {
+   "from": "Elementalist Robe",
+   "to": "Runeforged Elementalist Robe",
+   "materials": {
+    "Verisium": 180
+   }
+  },
+  {
+   "from": "Mystic Raiment",
+   "to": "Runeforged Mystic Raiment",
+   "materials": {
+    "Verisium": 215
+   }
+  },
+  {
+   "from": "Chain Mail",
+   "to": "Runeforged Chain Mail",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Rogue Armour",
+   "to": "Runeforged Rogue Armour",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Vagabond Armour",
+   "to": "Runeforged Vagabond Armour",
+   "materials": {
+    "Verisium": 45
+   }
+  },
+  {
+   "from": "Cloaked Mail",
+   "to": "Runeforged Cloaked Mail",
+   "materials": {
+    "Verisium": 70
+   }
+  },
+  {
+   "from": "Explorer Armour",
+   "to": "Runeforged Explorer Armour",
+   "materials": {
+    "Verisium": 105
+   }
+  },
+  {
+   "from": "Scale Mail",
+   "to": "Runeforged Scale Mail",
+   "materials": {
+    "Verisium": 130
+   }
+  },
+  {
+   "from": "Knight Armour",
+   "to": "Runeforged Knight Armour",
+   "materials": {
+    "Verisium": 180
+   }
+  },
+  {
+   "from": "Ancestral Mail",
+   "to": "Runeforged Ancestral Mail",
+   "materials": {
+    "Verisium": 220
+   }
+  },
+  {
+   "from": "Pilgrim Vestments",
+   "to": "Runeforged Pilgrim Vestments",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Pelt Mantle",
+   "to": "Runeforged Pelt Mantle",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Mail Vestments",
+   "to": "Runeforged Mail Vestments",
+   "materials": {
+    "Verisium": 45
+   }
+  },
+  {
+   "from": "Shaman Mantle",
+   "to": "Runeforged Shaman Mantle",
+   "materials": {
+    "Verisium": 80
+   }
+  },
+  {
+   "from": "Ironclad Vestments",
+   "to": "Runeforged Ironclad Vestments",
+   "materials": {
+    "Verisium": 105
+   }
+  },
+  {
+   "from": "Sacrificial Mantle",
+   "to": "Runeforged Sacrificial Mantle",
+   "materials": {
+    "Verisium": 120
+   }
+  },
+  {
+   "from": "Cleric Vestments",
+   "to": "Runeforged Cleric Vestments",
+   "materials": {
+    "Verisium": 180
+   }
+  },
+  {
+   "from": "Tideseer Mantle",
+   "to": "Runeforged Tideseer Mantle",
+   "materials": {
+    "Verisium": 230
+   }
+  },
+  {
+   "from": "Hermit Garb",
+   "to": "Runeforged Hermit Garb",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Waxed Jacket",
+   "to": "Runeforged Waxed Jacket",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Marabout Garb",
+   "to": "Runeforged Marabout Garb",
+   "materials": {
+    "Verisium": 45
+   }
+  },
+  {
+   "from": "Wayfarer Jacket",
+   "to": "Runeforged Wayfarer Jacket",
+   "materials": {
+    "Verisium": 80
+   }
+  },
+  {
+   "from": "Anchorite Garb",
+   "to": "Runeforged Anchorite Garb",
+   "materials": {
+    "Verisium": 105
+   }
+  },
+  {
+   "from": "Scalper's Jacket",
+   "to": "Runeforged Scalper's Jacket",
+   "materials": {
+    "Verisium": 140
+   }
+  },
+  {
+   "from": "Scoundrel Jacket",
+   "to": "Runeforged Scoundrel Jacket",
+   "materials": {
+    "Verisium": 180
+   }
+  },
+  {
+   "from": "Ascetic Garb",
+   "to": "Runeforged Ascetic Garb",
+   "materials": {
+    "Verisium": 230
+   }
+  },
+  {
+   "from": "Elegant Plate",
+   "to": "Runeforged Elegant Plate",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Heavy Plate",
+   "to": "Runeforged Heavy Plate",
+   "materials": {
+    "Verisium": 300
+   }
+  },
+  {
+   "from": "Stone Cuirass",
+   "to": "Runeforged Stone Cuirass",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "Layered Vest",
+   "to": "Runeforged Layered Vest",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Runner Vest",
+   "to": "Runeforged Runner Vest",
+   "materials": {
+    "Verisium": 300
+   }
+  },
+  {
+   "from": "Lizardscale Coat",
+   "to": "Runeforged Lizardscale Coat",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "River Raiment",
+   "to": "Runeforged River Raiment",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Adherent's Raiment",
+   "to": "Runeforged Adherent's Raiment",
+   "materials": {
+    "Verisium": 300
+   }
+  },
+  {
+   "from": "Ceremonial Robe",
+   "to": "Runeforged Ceremonial Robe",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "Mantled Mail",
+   "to": "Runeforged Mantled Mail",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Trailblazer Armour",
+   "to": "Runeforged Trailblazer Armour",
+   "materials": {
+    "Verisium": 300
+   }
+  },
+  {
+   "from": "Golden Mail",
+   "to": "Runeforged Golden Mail",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "Occultist Mantle",
+   "to": "Runeforged Occultist Mantle",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Plated Vestments",
+   "to": "Runeforged Plated Vestments",
+   "materials": {
+    "Verisium": 300
+   }
+  },
+  {
+   "from": "Heartcarver Mantle",
+   "to": "Runeforged Heartcarver Mantle",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "Itinerant Jacket",
+   "to": "Runeforged Itinerant Jacket",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Hatungo Garb",
+   "to": "Runeforged Hatungo Garb",
+   "materials": {
+    "Verisium": 300
+   }
+  },
+  {
+   "from": "Hawker's Jacket",
+   "to": "Runeforged Hawker's Jacket",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "Rusted Greathelm",
+   "to": "Runeforged Rusted Greathelm",
+   "materials": {
+    "Verisium": 15
+   }
+  },
+  {
+   "from": "Soldier Greathelm",
+   "to": "Runeforged Soldier Greathelm",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Wrapped Greathelm",
+   "to": "Runeforged Wrapped Greathelm",
+   "materials": {
+    "Verisium": 35
+   }
+  },
+  {
+   "from": "Spired Greathelm",
+   "to": "Runeforged Spired Greathelm",
+   "materials": {
+    "Verisium": 65
+   }
+  },
+  {
+   "from": "Elite Greathelm",
+   "to": "Runeforged Elite Greathelm",
+   "materials": {
+    "Verisium": 90
+   }
+  },
+  {
+   "from": "Warrior Greathelm",
+   "to": "Runeforged Warrior Greathelm",
+   "materials": {
+    "Verisium": 100
+   }
+  },
+  {
+   "from": "Commander Greathelm",
+   "to": "Runeforged Commander Greathelm",
+   "materials": {
+    "Verisium": 150
+   }
+  },
+  {
+   "from": "Fierce Greathelm",
+   "to": "Runeforged Fierce Greathelm",
+   "materials": {
+    "Verisium": 195
+   }
+  },
+  {
+   "from": "Shabby Hood",
+   "to": "Runeforged Shabby Hood",
+   "materials": {
+    "Verisium": 15
+   }
+  },
+  {
+   "from": "Felt Cap",
+   "to": "Runeforged Felt Cap",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Lace Hood",
+   "to": "Runeforged Lace Hood",
+   "materials": {
+    "Verisium": 35
+   }
+  },
+  {
+   "from": "Swathed Cap",
+   "to": "Runeforged Swathed Cap",
+   "materials": {
+    "Verisium": 60
+   }
+  },
+  {
+   "from": "Hunter Hood",
+   "to": "Runeforged Hunter Hood",
+   "materials": {
+    "Verisium": 90
+   }
+  },
+  {
+   "from": "Viper Cap",
+   "to": "Runeforged Viper Cap",
+   "materials": {
+    "Verisium": 115
+   }
+  },
+  {
+   "from": "Corsair Cap",
+   "to": "Runeforged Corsair Cap",
+   "materials": {
+    "Verisium": 150
+   }
+  },
+  {
+   "from": "Leatherbound Hood",
+   "to": "Runeforged Leatherbound Hood",
+   "materials": {
+    "Verisium": 185
+   }
+  },
+  {
+   "from": "Twig Circlet",
+   "to": "Runeforged Twig Circlet",
+   "materials": {
+    "Verisium": 15
+   }
+  },
+  {
+   "from": "Wicker Tiara",
+   "to": "Runeforged Wicker Tiara",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Beaded Circlet",
+   "to": "Runeforged Beaded Circlet",
+   "materials": {
+    "Verisium": 35
+   }
+  },
+  {
+   "from": "Chain Tiara",
+   "to": "Runeforged Chain Tiara",
+   "materials": {
+    "Verisium": 55
+   }
+  },
+  {
+   "from": "Feathered Tiara",
+   "to": "Runeforged Feathered Tiara",
+   "materials": {
+    "Verisium": 90
+   }
+  },
+  {
+   "from": "Gold Circlet",
+   "to": "Runeforged Gold Circlet",
+   "materials": {
+    "Verisium": 125
+   }
+  },
+  {
+   "from": "Vermeil Circlet",
+   "to": "Runeforged Vermeil Circlet",
+   "materials": {
+    "Verisium": 155
+   }
+  },
+  {
+   "from": "Jade Tiara",
+   "to": "Runeforged Jade Tiara",
+   "materials": {
+    "Verisium": 190
+   }
+  },
+  {
+   "from": "Brimmed Helm",
+   "to": "Runeforged Brimmed Helm",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Guarded Helm",
+   "to": "Runeforged Guarded Helm",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Visored Helm",
+   "to": "Runeforged Visored Helm",
+   "materials": {
+    "Verisium": 35
+   }
+  },
+  {
+   "from": "Cowled Helm",
+   "to": "Runeforged Cowled Helm",
+   "materials": {
+    "Verisium": 60
+   }
+  },
+  {
+   "from": "Shielded Helm",
+   "to": "Runeforged Shielded Helm",
+   "materials": {
+    "Verisium": 90
+   }
+  },
+  {
+   "from": "Closed Helm",
+   "to": "Runeforged Closed Helm",
+   "materials": {
+    "Verisium": 155
+   }
+  },
+  {
+   "from": "Iron Crown",
+   "to": "Runeforged Iron Crown",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Horned Crown",
+   "to": "Runeforged Horned Crown",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Cultist Crown",
+   "to": "Runeforged Cultist Crown",
+   "materials": {
+    "Verisium": 35
+   }
+  },
+  {
+   "from": "Martyr Crown",
+   "to": "Runeforged Martyr Crown",
+   "materials": {
+    "Verisium": 65
+   }
+  },
+  {
+   "from": "Heavy Crown",
+   "to": "Runeforged Heavy Crown",
+   "materials": {
+    "Verisium": 85
+   }
+  },
+  {
+   "from": "Spiritbone Crown",
+   "to": "Runeforged Spiritbone Crown",
+   "materials": {
+    "Verisium": 160
+   }
+  },
+  {
+   "from": "Hewn Mask",
+   "to": "Runeforged Hewn Mask",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Face Mask",
+   "to": "Runeforged Face Mask",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Hooded Mask",
+   "to": "Runeforged Hooded Mask",
+   "materials": {
+    "Verisium": 35
+   }
+  },
+  {
+   "from": "Veiled Mask",
+   "to": "Runeforged Veiled Mask",
+   "materials": {
+    "Verisium": 65
+   }
+  },
+  {
+   "from": "Tribal Mask",
+   "to": "Runeforged Tribal Mask",
+   "materials": {
+    "Verisium": 90
+   }
+  },
+  {
+   "from": "Solid Mask",
+   "to": "Runeforged Solid Mask",
+   "materials": {
+    "Verisium": 160
+   }
+  },
+  {
+   "from": "Elegant Greathelm",
+   "to": "Runeforged Elegant Greathelm",
+   "materials": {
+    "Verisium": 220
+   }
+  },
+  {
+   "from": "Noble Greathelm",
+   "to": "Runeforged Noble Greathelm",
+   "materials": {
+    "Verisium": 245
+   }
+  },
+  {
+   "from": "Wrapped Cap",
+   "to": "Runeforged Wrapped Cap",
+   "materials": {
+    "Verisium": 215
+   }
+  },
+  {
+   "from": "Deerstalker Hood",
+   "to": "Runeforged Deerstalker Hood",
+   "materials": {
+    "Verisium": 260
+   }
+  },
+  {
+   "from": "Sandsworn Tiara",
+   "to": "Runeforged Sandsworn Tiara",
+   "materials": {
+    "Verisium": 215
+   }
+  },
+  {
+   "from": "Jungle Tiara",
+   "to": "Runeforged Jungle Tiara",
+   "materials": {
+    "Verisium": 250
+   }
+  },
+  {
+   "from": "Cabalist Helm",
+   "to": "Runeforged Cabalist Helm",
+   "materials": {
+    "Verisium": 220
+   }
+  },
+  {
+   "from": "Cassis Helm",
+   "to": "Runeforged Gladiatorial Helm",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Hallowed Crown",
+   "to": "Runeforged Hallowed Crown",
+   "materials": {
+    "Verisium": 205
+   }
+  },
+  {
+   "from": "Inquisitor Crown",
+   "to": "Runeforged Inquisitor Crown",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Pariah Mask",
+   "to": "Runeforged Pariah Mask",
+   "materials": {
+    "Verisium": 215
+   }
+  },
+  {
+   "from": "Avian Mask",
+   "to": "Runeforged Avian Mask",
+   "materials": {
+    "Verisium": 245
+   }
+  },
+  {
+   "from": "Stocky Mitts",
+   "to": "Runeforged Stocky Mitts",
+   "materials": {
+    "Verisium": 10
+   }
+  },
+  {
+   "from": "Riveted Mitts",
+   "to": "Runeforged Riveted Mitts",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Tempered Mitts",
+   "to": "Runeforged Tempered Mitts",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Bolstered Mitts",
+   "to": "Runeforged Bolstered Mitts",
+   "materials": {
+    "Verisium": 40
+   }
+  },
+  {
+   "from": "Moulded Mitts",
+   "to": "Runeforged Moulded Mitts",
+   "materials": {
+    "Verisium": 55
+   }
+  },
+  {
+   "from": "Detailed Mitts",
+   "to": "Runeforged Detailed Mitts",
+   "materials": {
+    "Verisium": 105
+   }
+  },
+  {
+   "from": "Suede Bracers",
+   "to": "Runeforged Suede Bracers",
+   "materials": {
+    "Verisium": 10
+   }
+  },
+  {
+   "from": "Firm Bracers",
+   "to": "Runeforged Firm Bracers",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Bound Bracers",
+   "to": "Runeforged Bound Bracers",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Sectioned Bracers",
+   "to": "Runeforged Sectioned Bracers",
+   "materials": {
+    "Verisium": 40
+   }
+  },
+  {
+   "from": "Spined Bracers",
+   "to": "Runeforged Spined Bracers",
+   "materials": {
+    "Verisium": 60
+   }
+  },
+  {
+   "from": "Fine Bracers",
+   "to": "Runeforged Fine Bracers",
+   "materials": {
+    "Verisium": 95
+   }
+  },
+  {
+   "from": "Torn Gloves",
+   "to": "Runeforged Torn Gloves",
+   "materials": {
+    "Verisium": 10
+   }
+  },
+  {
+   "from": "Sombre Gloves",
+   "to": "Runeforged Sombre Gloves",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Stitched Gloves",
+   "to": "Runeforged Stitched Gloves",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Jewelled Gloves",
+   "to": "Runeforged Jewelled Gloves",
+   "materials": {
+    "Verisium": 40
+   }
+  },
+  {
+   "from": "Intricate Gloves",
+   "to": "Runeforged Intricate Gloves",
+   "materials": {
+    "Verisium": 60
+   }
+  },
+  {
+   "from": "Pauascale Gloves",
+   "to": "Runeforged Pauascale Gloves",
+   "materials": {
+    "Verisium": 95
+   }
+  },
+  {
+   "from": "Ringmail Gauntlets",
+   "to": "Runeforged Ringmail Gauntlets",
+   "materials": {
+    "Verisium": 15
+   }
+  },
+  {
+   "from": "Layered Gauntlets",
+   "to": "Runeforged Layered Gauntlets",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Doubled Gauntlets",
+   "to": "Runeforged Doubled Gauntlets",
+   "materials": {
+    "Verisium": 55
+   }
+  },
+  {
+   "from": "Plate Gauntlets",
+   "to": "Runeforged Plate Gauntlets",
+   "materials": {
+    "Verisium": 100
+   }
+  },
+  {
+   "from": "Rope Cuffs",
+   "to": "Runeforged Rope Cuffs",
+   "materials": {
+    "Verisium": 15
+   }
+  },
+  {
+   "from": "Aged Cuffs",
+   "to": "Runeforged Aged Cuffs",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Goldcast Cuffs",
+   "to": "Runeforged Goldcast Cuffs",
+   "materials": {
+    "Verisium": 55
+   }
+  },
+  {
+   "from": "Kalguuran Cuffs",
+   "to": "Runeforged Kalguuran Cuffs",
+   "materials": {
+    "Verisium": 105
+   }
+  },
+  {
+   "from": "Gauze Wraps",
+   "to": "Runeforged Gauze Wraps",
+   "materials": {
+    "Verisium": 15
+   }
+  },
+  {
+   "from": "Linen Wraps",
+   "to": "Runeforged Linen Wraps",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Spiral Wraps",
+   "to": "Runeforged Spiral Wraps",
+   "materials": {
+    "Verisium": 60
+   }
+  },
+  {
+   "from": "Buckled Wraps",
+   "to": "Runeforged Buckled Wraps",
+   "materials": {
+    "Verisium": 95
+   }
+  },
+  {
+   "from": "Ancient Mitts",
+   "to": "Runeforged Ancient Mitts",
+   "materials": {
+    "Verisium": 140
+   }
+  },
+  {
+   "from": "Feathered Mitts",
+   "to": "Runeforged Feathered Mitts",
+   "materials": {
+    "Verisium": 170
+   }
+  },
+  {
+   "from": "Refined Bracers",
+   "to": "Runeforged Refined Bracers",
+   "materials": {
+    "Verisium": 145
+   }
+  },
+  {
+   "from": "Spiked Bracers",
+   "to": "Runeforged Spiked Bracers",
+   "materials": {
+    "Verisium": 155
+   }
+  },
+  {
+   "from": "Baroque Gloves",
+   "to": "Runeforged Baroque Gloves",
+   "materials": {
+    "Verisium": 135
+   }
+  },
+  {
+   "from": "Gold Gloves",
+   "to": "Runeforged Gold Gloves",
+   "materials": {
+    "Verisium": 165
+   }
+  },
+  {
+   "from": "Zealot Gauntlets",
+   "to": "Runeforged Zealot Gauntlets",
+   "materials": {
+    "Verisium": 160
+   }
+  },
+  {
+   "from": "Ornate Cuffs",
+   "to": "Runeforged Ornate Cuffs",
+   "materials": {
+    "Verisium": 160
+   }
+  },
+  {
+   "from": "Adorned Wraps",
+   "to": "Runeforged Adorned Wraps",
+   "materials": {
+    "Verisium": 160
+   }
+  },
+  {
+   "from": "Rough Greaves",
+   "to": "Runeforged Rough Greaves",
+   "materials": {
+    "Verisium": 15
+   }
+  },
+  {
+   "from": "Iron Greaves",
+   "to": "Runeforged Iron Greaves",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Bronze Greaves",
+   "to": "Runeforged Bronze Greaves",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Trimmed Greaves",
+   "to": "Runeforged Trimmed Greaves",
+   "materials": {
+    "Verisium": 50
+   }
+  },
+  {
+   "from": "Stone Greaves",
+   "to": "Runeforged Stone Greaves",
+   "materials": {
+    "Verisium": 70
+   }
+  },
+  {
+   "from": "Reefsteel Greaves",
+   "to": "Runeforged Reefsteel Greaves",
+   "materials": {
+    "Verisium": 135
+   }
+  },
+  {
+   "from": "Rawhide Boots",
+   "to": "Runeforged Rawhide Boots",
+   "materials": {
+    "Verisium": 15
+   }
+  },
+  {
+   "from": "Laced Boots",
+   "to": "Runeforged Laced Boots",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Embossed Boots",
+   "to": "Runeforged Embossed Boots",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Steeltoe Boots",
+   "to": "Runeforged Steeltoe Boots",
+   "materials": {
+    "Verisium": 55
+   }
+  },
+  {
+   "from": "Lizardscale Boots",
+   "to": "Runeforged Lizardscale Boots",
+   "materials": {
+    "Verisium": 70
+   }
+  },
+  {
+   "from": "Flared Boots",
+   "to": "Runeforged Flared Boots",
+   "materials": {
+    "Verisium": 125
+   }
+  },
+  {
+   "from": "Straw Sandals",
+   "to": "Runeforged Straw Sandals",
+   "materials": {
+    "Verisium": 15
+   }
+  },
+  {
+   "from": "Wrapped Sandals",
+   "to": "Runeforged Wrapped Sandals",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Lattice Sandals",
+   "to": "Runeforged Lattice Sandals",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Silk Slippers",
+   "to": "Runeforged Silk Slippers",
+   "materials": {
+    "Verisium": 50
+   }
+  },
+  {
+   "from": "Feathered Sandals",
+   "to": "Runeforged Feathered Sandals",
+   "materials": {
+    "Verisium": 75
+   }
+  },
+  {
+   "from": "Flax Sandals",
+   "to": "Runeforged Flax Sandals",
+   "materials": {
+    "Verisium": 125
+   }
+  },
+  {
+   "from": "Mail Sabatons",
+   "to": "Runeforged Mail Sabatons",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Braced Sabatons",
+   "to": "Runeforged Braced Sabatons",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Stacked Sabatons",
+   "to": "Runeforged Stacked Sabatons",
+   "materials": {
+    "Verisium": 70
+   }
+  },
+  {
+   "from": "Covered Sabatons",
+   "to": "Runeforged Covered Sabatons",
+   "materials": {
+    "Verisium": 130
+   }
+  },
+  {
+   "from": "Padded Leggings",
+   "to": "Runeforged Padded Leggings",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Secured Leggings",
+   "to": "Runeforged Secured Leggings",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Pelt Leggings",
+   "to": "Runeforged Pelt Leggings",
+   "materials": {
+    "Verisium": 75
+   }
+  },
+  {
+   "from": "Weaver Leggings",
+   "to": "Runeforged Weaver Leggings",
+   "materials": {
+    "Verisium": 125
+   }
+  },
+  {
+   "from": "Frayed Shoes",
+   "to": "Runeforged Frayed Shoes",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Threaded Shoes",
+   "to": "Runeforged Threaded Shoes",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Hunting Shoes",
+   "to": "Runeforged Hunting Shoes",
+   "materials": {
+    "Verisium": 70
+   }
+  },
+  {
+   "from": "Steelpoint Shoes",
+   "to": "Runeforged Steelpoint Shoes",
+   "materials": {
+    "Verisium": 130
+   }
+  },
+  {
+   "from": "Elegant Greaves",
+   "to": "Runeforged Elegant Greaves",
+   "materials": {
+    "Verisium": 170
+   }
+  },
+  {
+   "from": "Carved Greaves",
+   "to": "Runeforged Carved Greaves",
+   "materials": {
+    "Verisium": 215
+   }
+  },
+  {
+   "from": "Studded Boots",
+   "to": "Runeforged Studded Boots",
+   "materials": {
+    "Verisium": 175
+   }
+  },
+  {
+   "from": "Serpentscale Boots",
+   "to": "Runeforged Serpentscale Boots",
+   "materials": {
+    "Verisium": 200
+   }
+  },
+  {
+   "from": "Elegant Slippers",
+   "to": "Runeforged Elegant Slippers",
+   "materials": {
+    "Verisium": 180
+   }
+  },
+  {
+   "from": "Dunerunner Sandals",
+   "to": "Runeforged Dunerunner Sandals",
+   "materials": {
+    "Verisium": 210
+   }
+  },
+  {
+   "from": "Bastion Sabatons",
+   "to": "Runeforged Bastion Sabatons",
+   "materials": {
+    "Verisium": 215
+   }
+  },
+  {
+   "from": "Shamanistic Leggings",
+   "to": "Runeforged Shamanistic Leggings",
+   "materials": {
+    "Verisium": 200
+   }
+  },
+  {
+   "from": "Treerunner Shoes",
+   "to": "Runeforged Treerunner Shoes",
+   "materials": {
+    "Verisium": 205
+   }
+  },
+  {
+   "from": "Splintered Tower Shield",
+   "to": "Runeforged Splintered Tower Shield",
+   "materials": {
+    "Verisium": 15
+   }
+  },
+  {
+   "from": "Painted Tower Shield",
+   "to": "Runeforged Painted Tower Shield",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Braced Tower Shield",
+   "to": "Runeforged Braced Tower Shield",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Barricade Tower Shield",
+   "to": "Runeforged Barricade Tower Shield",
+   "materials": {
+    "Verisium": 40
+   }
+  },
+  {
+   "from": "Effigial Tower Shield",
+   "to": "Runeforged Effigial Tower Shield",
+   "materials": {
+    "Verisium": 45
+   }
+  },
+  {
+   "from": "Rampart Tower Shield",
+   "to": "Runeforged Rampart Tower Shield",
+   "materials": {
+    "Verisium": 70
+   }
+  },
+  {
+   "from": "Heraldric Tower Shield",
+   "to": "Runeforged Heraldric Tower Shield",
+   "materials": {
+    "Verisium": 95
+   }
+  },
+  {
+   "from": "Stone Tower Shield",
+   "to": "Runeforged Stone Tower Shield",
+   "materials": {
+    "Verisium": 110
+   }
+  },
+  {
+   "from": "Crucible Tower Shield",
+   "to": "Runeforged Crucible Tower Shield",
+   "materials": {
+    "Verisium": 155
+   }
+  },
+  {
+   "from": "Ancestor Tower Shield",
+   "to": "Runeforged Ancestor Tower Shield",
+   "materials": {
+    "Verisium": 195
+   }
+  },
+  {
+   "from": "Hardwood Targe",
+   "to": "Runeforged Hardwood Targe",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Pelage Targe",
+   "to": "Runeforged Pelage Targe",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Studded Targe",
+   "to": "Runeforged Studded Targe",
+   "materials": {
+    "Verisium": 40
+   }
+  },
+  {
+   "from": "Crescent Targe",
+   "to": "Runeforged Crescent Targe",
+   "materials": {
+    "Verisium": 60
+   }
+  },
+  {
+   "from": "Chiseled Targe",
+   "to": "Runeforged Chiseled Targe",
+   "materials": {
+    "Verisium": 95
+   }
+  },
+  {
+   "from": "Feathered Targe",
+   "to": "Runeforged Feathered Targe",
+   "materials": {
+    "Verisium": 120
+   }
+  },
+  {
+   "from": "Stratified Targe",
+   "to": "Runeforged Stratified Targe",
+   "materials": {
+    "Verisium": 170
+   }
+  },
+  {
+   "from": "Carved Targe",
+   "to": "Runeforged Carved Targe",
+   "materials": {
+    "Verisium": 200
+   }
+  },
+  {
+   "from": "Blazon Crest Shield",
+   "to": "Runeforged Blazon Crest Shield",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Sigil Crest Shield",
+   "to": "Runeforged Sigil Crest Shield",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Emblem Crest Shield",
+   "to": "Runeforged Emblem Crest Shield",
+   "materials": {
+    "Verisium": 40
+   }
+  },
+  {
+   "from": "Jingling Crest Shield",
+   "to": "Runeforged Jingling Crest Shield",
+   "materials": {
+    "Verisium": 70
+   }
+  },
+  {
+   "from": "Sectarian Crest Shield",
+   "to": "Runeforged Sectarian Crest Shield",
+   "materials": {
+    "Verisium": 95
+   }
+  },
+  {
+   "from": "Omen Crest Shield",
+   "to": "Runeforged Omen Crest Shield",
+   "materials": {
+    "Verisium": 105
+   }
+  },
+  {
+   "from": "Wayward Crest Shield",
+   "to": "Runeforged Wayward Crest Shield",
+   "materials": {
+    "Verisium": 155
+   }
+  },
+  {
+   "from": "Seer Crest Shield",
+   "to": "Runeforged Seer Crest Shield",
+   "materials": {
+    "Verisium": 190
+   }
+  },
+  {
+   "from": "Leather Buckler",
+   "to": "Runeforged Leather Buckler",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Wooden Buckler",
+   "to": "Runeforged Wooden Buckler",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Plated Buckler",
+   "to": "Runeforged Plated Buckler",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Iron Buckler",
+   "to": "Runeforged Iron Buckler",
+   "materials": {
+    "Verisium": 40
+   }
+  },
+  {
+   "from": "Ridged Buckler",
+   "to": "Runeforged Ridged Buckler",
+   "materials": {
+    "Verisium": 45
+   }
+  },
+  {
+   "from": "Spiked Buckler",
+   "to": "Runeforged Spiked Buckler",
+   "materials": {
+    "Verisium": 65
+   }
+  },
+  {
+   "from": "Ringed Buckler",
+   "to": "Runeforged Ringed Buckler",
+   "materials": {
+    "Verisium": 95
+   }
+  },
+  {
+   "from": "Edged Buckler",
+   "to": "Runeforged Edged Buckler",
+   "materials": {
+    "Verisium": 125
+   }
+  },
+  {
+   "from": "Laminate Buckler",
+   "to": "Runeforged Laminate Buckler",
+   "materials": {
+    "Verisium": 160
+   }
+  },
+  {
+   "from": "Pearl Buckler",
+   "to": "Runeforged Pearl Buckler",
+   "materials": {
+    "Verisium": 195
+   }
+  },
+  {
+   "from": "Bulwark Tower Shield",
+   "to": "Runeforged Bulwark Tower Shield",
+   "materials": {
+    "Verisium": 230
+   }
+  },
+  {
+   "from": "Noble Tower Shield",
+   "to": "Runeforged Noble Tower Shield",
+   "materials": {
+    "Verisium": 270
+   }
+  },
+  {
+   "from": "Goldworked Tower Shield",
+   "to": "Runeforged Goldworked Tower Shield",
+   "materials": {
+    "Verisium": 280
+   }
+  },
+  {
+   "from": "Polished Targe",
+   "to": "Runeforged Polished Targe",
+   "materials": {
+    "Verisium": 225
+   }
+  },
+  {
+   "from": "Stone Targe",
+   "to": "Runeforged Stone Targe",
+   "materials": {
+    "Verisium": 265
+   }
+  },
+  {
+   "from": "Avian Targe",
+   "to": "Runeforged Avian Targe",
+   "materials": {
+    "Verisium": 305
+   }
+  },
+  {
+   "from": "Dekharan Crest Shield",
+   "to": "Runeforged Dekharan Crest Shield",
+   "materials": {
+    "Verisium": 230
+   }
+  },
+  {
+   "from": "Quartered Crest Shield",
+   "to": "Runeforged Quartered Crest Shield",
+   "materials": {
+    "Verisium": 275
+   }
+  },
+  {
+   "from": "Glowering Crest Shield",
+   "to": "Runeforged Glowering Crest Shield",
+   "materials": {
+    "Verisium": 285
+   }
+  },
+  {
+   "from": "Spikeward Buckler",
+   "to": "Runeforged Spikeward Buckler",
+   "materials": {
+    "Verisium": 230
+   }
+  },
+  {
+   "from": "Jingling Buckler",
+   "to": "Runeforged Jingling Buckler",
+   "materials": {
+    "Verisium": 275
+   }
+  },
+  {
+   "from": "Bladeguard Buckler",
+   "to": "Runeforged Bladeguard Buckler",
+   "materials": {
+    "Verisium": 285
+   }
+  },
+  {
+   "from": "Twig Focus",
+   "to": "Runeforged Twig Focus",
+   "materials": {
+    "Verisium": 20
+   }
+  },
+  {
+   "from": "Woven Focus",
+   "to": "Runeforged Woven Focus",
+   "materials": {
+    "Verisium": 25
+   }
+  },
+  {
+   "from": "Antler Focus",
+   "to": "Runeforged Antler Focus",
+   "materials": {
+    "Verisium": 30
+   }
+  },
+  {
+   "from": "Engraved Focus",
+   "to": "Runeforged Engraved Focus",
+   "materials": {
+    "Verisium": 40
+   }
+  },
+  {
+   "from": "Tonal Focus",
+   "to": "Runeforged Tonal Focus",
+   "materials": {
+    "Verisium": 45
+   }
+  },
+  {
+   "from": "Crystal Focus",
+   "to": "Runeforged Crystal Focus",
+   "materials": {
+    "Verisium": 60
+   }
+  },
+  {
+   "from": "Voodoo Focus",
+   "to": "Runeforged Voodoo Focus",
+   "materials": {
+    "Verisium": 95
+   }
+  },
+  {
+   "from": "Plumed Focus",
+   "to": "Runeforged Plumed Focus",
+   "materials": {
+    "Verisium": 115
+   }
+  },
+  {
+   "from": "Runed Focus",
+   "to": "Runeforged Runed Focus",
+   "materials": {
+    "Verisium": 160
+   }
+  },
+  {
+   "from": "Whorl Focus",
+   "to": "Runeforged Whorl Focus",
+   "materials": {
+    "Verisium": 210
+   }
+  },
+  {
+   "from": "Arrayed Focus",
+   "to": "Runeforged Arrayed Focus",
+   "materials": {
+    "Verisium": 235
+   }
+  },
+  {
+   "from": "Cultist Focus",
+   "to": "Runeforged Cultist Focus",
+   "materials": {
+    "Verisium": 265
+   }
+  },
+  {
+   "from": "Hallowed Focus",
+   "to": "Runeforged Hallowed Focus",
+   "materials": {
+    "Verisium": 290
+   }
+  },
+  {
+   "from": "Soldier Cuirass",
+   "to": "Runeforged Soldier Cuirass",
+   "materials": {
+    "Verisium": 405
+   }
+  },
+  {
+   "from": "Ornate Plate",
+   "to": "Runeforged Ornate Plate",
+   "materials": {
+    "Verisium": 480
+   }
+  },
+  {
+   "from": "Utzaal Cuirass",
+   "to": "Runeforged Utzaal Cuirass",
+   "materials": {
+    "Verisium": 460
+   }
+  },
+  {
+   "from": "Warlord Cuirass",
+   "to": "Runeforged Warlord Cuirass",
+   "materials": {
+    "Verisium": 465
+   }
+  },
+  {
+   "from": "Swiftstalker Coat",
+   "to": "Runeforged Swiftstalker Coat",
+   "materials": {
+    "Verisium": 405
+   }
+  },
+  {
+   "from": "Slipstrike Vest",
+   "to": "Runeforged Slipstrike Vest",
+   "materials": {
+    "Verisium": 475
+   }
+  },
+  {
+   "from": "Wyrmscale Coat",
+   "to": "Runeforged Wyrmscale Coat",
+   "materials": {
+    "Verisium": 485
+   }
+  },
+  {
+   "from": "Corsair Coat",
+   "to": "Runeforged Corsair Coat",
+   "materials": {
+    "Verisium": 470
+   }
+  },
+  {
+   "from": "Vile Robe",
+   "to": "Runeforged Vile Robe",
+   "materials": {
+    "Verisium": 390
+   }
+  },
+  {
+   "from": "Flowing Raiment",
+   "to": "Runeforged Flowing Raiment",
+   "materials": {
+    "Verisium": 490
+   }
+  },
+  {
+   "from": "Sacramental Robe",
+   "to": "Runeforged Sacramental Robe",
+   "materials": {
+    "Verisium": 485
+   }
+  },
+  {
+   "from": "Feathered Raiment",
+   "to": "Runeforged Feathered Raiment",
+   "materials": {
+    "Verisium": 480
+   }
+  },
+  {
+   "from": "Dastard Armour",
+   "to": "Runeforged Dastard Armour",
+   "materials": {
+    "Verisium": 390
+   }
+  },
+  {
+   "from": "Shrouded Mail",
+   "to": "Runeforged Shrouded Mail",
+   "materials": {
+    "Verisium": 465
+   }
+  },
+  {
+   "from": "Shrouded Mail",
+   "to": "Runeforged Shrouded Mail",
+   "materials": {
+    "Verisium": 480
+   }
+  },
+  {
+   "from": "Shrouded Mail",
+   "to": "Runeforged Shrouded Mail",
+   "materials": {
+    "Verisium": 475
+   }
+  },
+  {
+   "from": "Death Mail",
+   "to": "Runeforged Death Mail",
+   "materials": {
+    "Verisium": 485
+   }
+  },
+  {
+   "from": "Thane Mail",
+   "to": "Runeforged Thane Mail",
+   "materials": {
+    "Verisium": 475
+   }
+  },
+  {
+   "from": "Wolfskin Mantle",
+   "to": "Runeforged Wolfskin Mantle",
+   "materials": {
+    "Verisium": 390
+   }
+  },
+  {
+   "from": "Conjurer Mantle",
+   "to": "Runeforged Conjurer Mantle",
+   "materials": {
+    "Verisium": 475
+   }
+  },
+  {
+   "from": "Death Mantle",
+   "to": "Runeforged Death Mantle",
+   "materials": {
+    "Verisium": 465
+   }
+  },
+  {
+   "from": "Seastorm Mantle",
+   "to": "Runeforged Seastorm Mantle",
+   "materials": {
+    "Verisium": 470
+   }
+  },
+  {
+   "from": "Sleek Jacket",
+   "to": "Runeforged Sleek Jacket",
+   "materials": {
+    "Verisium": 390
+   }
+  },
+  {
+   "from": "Rambler Jacket",
+   "to": "Runeforged Rambler Jacket",
+   "materials": {
+    "Verisium": 470
+   }
+  },
+  {
+   "from": "Falconer's Jacket",
+   "to": "Runeforged Falconer's Jacket",
+   "materials": {
+    "Verisium": 475
+   }
+  },
+  {
+   "from": "Austere Garb",
+   "to": "Runeforged Austere Garb",
+   "materials": {
+    "Verisium": 470
+   }
+  },
+  {
+   "from": "Warmonger Greathelm",
+   "to": "Runeforged Warmonger Greathelm",
+   "materials": {
+    "Verisium": 315
+   }
+  },
+  {
+   "from": "Masked Greathelm",
+   "to": "Runeforged Masked Greathelm",
+   "materials": {
+    "Verisium": 380
+   }
+  },
+  {
+   "from": "Paragon Greathelm",
+   "to": "Runeforged Paragon Greathelm",
+   "materials": {
+    "Verisium": 420
+   }
+  },
+  {
+   "from": "Imperial Greathelm",
+   "to": "Runeforged Imperial Greathelm",
+   "materials": {
+    "Verisium": 460
+   }
+  },
+  {
+   "from": "Woven Cap",
+   "to": "Runeforged Woven Cap",
+   "materials": {
+    "Verisium": 290
+   }
+  },
+  {
+   "from": "Desert Cap",
+   "to": "Runeforged Desert Cap",
+   "materials": {
+    "Verisium": 375
+   }
+  },
+  {
+   "from": "Trapper Hood",
+   "to": "Runeforged Trapper Hood",
+   "materials": {
+    "Verisium": 410
+   }
+  },
+  {
+   "from": "Freebooter Cap",
+   "to": "Runeforged Freebooter Cap",
+   "materials": {
+    "Verisium": 470
+   }
+  },
+  {
+   "from": "Skycrown Tiara",
+   "to": "Runeforged Skycrown Tiara",
+   "materials": {
+    "Verisium": 300
+   }
+  },
+  {
+   "from": "Sorcerous Tiara",
+   "to": "Runeforged Sorcerous Tiara",
+   "materials": {
+    "Verisium": 375
+   }
+  },
+  {
+   "from": "Kamasan Tiara",
+   "to": "Runeforged Kamasan Tiara",
+   "materials": {
+    "Verisium": 410
+   }
+  },
+  {
+   "from": "Ancestral Tiara",
+   "to": "Runeforged Ancestral Tiara",
+   "materials": {
+    "Verisium": 495
+   }
+  },
+  {
+   "from": "Warded Helm",
+   "to": "Runeforged Warded Helm",
+   "materials": {
+    "Verisium": 295
+   }
+  },
+  {
+   "from": "Cryptic Helm",
+   "to": "Runeforged Cryptic Helm",
+   "materials": {
+    "Verisium": 365
+   }
+  },
+  {
+   "from": "Champion Helm",
+   "to": "Runeforged Champion Helm",
+   "materials": {
+    "Verisium": 415
+   }
+  },
+  {
+   "from": "Gladiatorial Helm",
+   "to": "Runeforged Gladiatorial Helm",
+   "materials": {
+    "Verisium": 470
+   }
+  },
+  {
+   "from": "Druidic Crown",
+   "to": "Runeforged Druidic Crown",
+   "materials": {
+    "Verisium": 295
+   }
+  },
+  {
+   "from": "Saintly Crown",
+   "to": "Runeforged Saintly Crown",
+   "materials": {
+    "Verisium": 380
+   }
+  },
+  {
+   "from": "Divine Crown",
+   "to": "Runeforged Divine Crown",
+   "materials": {
+    "Verisium": 415
+   }
+  },
+  {
+   "from": "Cryptic Crown",
+   "to": "Runeforged Cryptic Crown",
+   "materials": {
+    "Verisium": 465
+   }
+  },
+  {
+   "from": "Brigand Mask",
+   "to": "Runeforged Brigand Mask",
+   "materials": {
+    "Verisium": 305
+   }
+  },
+  {
+   "from": "Faridun Mask",
+   "to": "Runeforged Faridun Mask",
+   "materials": {
+    "Verisium": 380
+   }
+  },
+  {
+   "from": "Soaring Mask",
+   "to": "Runeforged Soaring Mask",
+   "materials": {
+    "Verisium": 425
+   }
+  },
+  {
+   "from": "Grinning Mask",
+   "to": "Runeforged Grinning Mask",
+   "materials": {
+    "Verisium": 480
+   }
+  },
+  {
+   "from": "Knightly Mitts",
+   "to": "Runeforged Knightly Mitts",
+   "materials": {
+    "Verisium": 215
+   }
+  },
+  {
+   "from": "Ornate Mitts",
+   "to": "Runeforged Ornate Mitts",
+   "materials": {
+    "Verisium": 250
+   }
+  },
+  {
+   "from": "Vaal Mitts",
+   "to": "Runeforged Vaal Mitts",
+   "materials": {
+    "Verisium": 290
+   }
+  },
+  {
+   "from": "Massive Mitts",
+   "to": "Runeforged Massive Mitts",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "Stalking Bracers",
+   "to": "Runeforged Stalking Bracers",
+   "materials": {
+    "Verisium": 220
+   }
+  },
+  {
+   "from": "Grand Bracers",
+   "to": "Runeforged Grand Bracers",
+   "materials": {
+    "Verisium": 275
+   }
+  },
+  {
+   "from": "Barbed Bracers",
+   "to": "Runeforged Barbed Bracers",
+   "materials": {
+    "Verisium": 295
+   }
+  },
+  {
+   "from": "Polished Bracers",
+   "to": "Runeforged Polished Bracers",
+   "materials": {
+    "Verisium": 335
+   }
+  },
+  {
+   "from": "Grim Gloves",
+   "to": "Runeforged Grim Gloves",
+   "materials": {
+    "Verisium": 225
+   }
+  },
+  {
+   "from": "Opulent Gloves",
+   "to": "Runeforged Opulent Gloves",
+   "materials": {
+    "Verisium": 265
+   }
+  },
+  {
+   "from": "Vaal Gloves",
+   "to": "Runeforged Vaal Gloves",
+   "materials": {
+    "Verisium": 305
+   }
+  },
+  {
+   "from": "Sirenscale Gloves",
+   "to": "Runeforged Sirenscale Gloves",
+   "materials": {
+    "Verisium": 335
+   }
+  },
+  {
+   "from": "Steelmail Gauntlets",
+   "to": "Runeforged Steelmail Gauntlets",
+   "materials": {
+    "Verisium": 205
+   }
+  },
+  {
+   "from": "Commander Gauntlets",
+   "to": "Runeforged Commander Gauntlets",
+   "materials": {
+    "Verisium": 280
+   }
+  },
+  {
+   "from": "Cultist Gauntlets",
+   "to": "Runeforged Cultist Gauntlets",
+   "materials": {
+    "Verisium": 295
+   }
+  },
+  {
+   "from": "Blacksteel Gauntlets",
+   "to": "Runeforged Blacksteel Gauntlets",
+   "materials": {
+    "Verisium": 355
+   }
+  },
+  {
+   "from": "Bound Cuffs",
+   "to": "Runeforged Bound Cuffs",
+   "materials": {
+    "Verisium": 215
+   }
+  },
+  {
+   "from": "Ancient Cuffs",
+   "to": "Runeforged Ancient Cuffs",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Gleaming Cuffs",
+   "to": "Runeforged Gleaming Cuffs",
+   "materials": {
+    "Verisium": 295
+   }
+  },
+  {
+   "from": "Adherent Cuffs",
+   "to": "Runeforged Adherent Cuffs",
+   "materials": {
+    "Verisium": 350
+   }
+  },
+  {
+   "from": "War Wraps",
+   "to": "Runeforged War Wraps",
+   "materials": {
+    "Verisium": 210
+   }
+  },
+  {
+   "from": "Elegant Wraps",
+   "to": "Runeforged Elegant Wraps",
+   "materials": {
+    "Verisium": 275
+   }
+  },
+  {
+   "from": "Vaal Wraps",
+   "to": "Runeforged Vaal Wraps",
+   "materials": {
+    "Verisium": 310
+   }
+  },
+  {
+   "from": "Secured Wraps",
+   "to": "Runeforged Secured Wraps",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "Bulwark Greaves",
+   "to": "Runeforged Bulwark Greaves",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Ornate Greaves",
+   "to": "Runeforged Ornate Greaves",
+   "materials": {
+    "Verisium": 325
+   }
+  },
+  {
+   "from": "Vaal Greaves",
+   "to": "Runeforged Vaal Greaves",
+   "materials": {
+    "Verisium": 365
+   }
+  },
+  {
+   "from": "Tasalian Greaves",
+   "to": "Runeforged Tasalian Greaves",
+   "materials": {
+    "Verisium": 430
+   }
+  },
+  {
+   "from": "Cinched Boots",
+   "to": "Runeforged Cinched Boots",
+   "materials": {
+    "Verisium": 270
+   }
+  },
+  {
+   "from": "Cavalry Boots",
+   "to": "Runeforged Cavalry Boots",
+   "materials": {
+    "Verisium": 335
+   }
+  },
+  {
+   "from": "Dragonscale Boots",
+   "to": "Runeforged Dragonscale Boots",
+   "materials": {
+    "Verisium": 375
+   }
+  },
+  {
+   "from": "Drakeskin Boots",
+   "to": "Runeforged Drakeskin Boots",
+   "materials": {
+    "Verisium": 415
+   }
+  },
+  {
+   "from": "Bound Sandals",
+   "to": "Runeforged Bound Sandals",
+   "materials": {
+    "Verisium": 265
+   }
+  },
+  {
+   "from": "Luxurious Slippers",
+   "to": "Runeforged Luxurious Slippers",
+   "materials": {
+    "Verisium": 325
+   }
+  },
+  {
+   "from": "Sandsworn Sandals",
+   "to": "Runeforged Sandsworn Sandals",
+   "materials": {
+    "Verisium": 390
+   }
+  },
+  {
+   "from": "Sekhema Sandals",
+   "to": "Runeforged Sekhema Sandals",
+   "materials": {
+    "Verisium": 430
+   }
+  },
+  {
+   "from": "Veteran Sabatons",
+   "to": "Runeforged Veteran Sabatons",
+   "materials": {
+    "Verisium": 265
+   }
+  },
+  {
+   "from": "Noble Sabatons",
+   "to": "Runeforged Noble Sabatons",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "Fortress Sabatons",
+   "to": "Runeforged Fortress Sabatons",
+   "materials": {
+    "Verisium": 370
+   }
+  },
+  {
+   "from": "Blacksteel Sabatons",
+   "to": "Runeforged Blacksteel Sabatons",
+   "materials": {
+    "Verisium": 405
+   }
+  },
+  {
+   "from": "Faithful Leggings",
+   "to": "Runeforged Faithful Leggings",
+   "materials": {
+    "Verisium": 280
+   }
+  },
+  {
+   "from": "Apostle Leggings",
+   "to": "Runeforged Apostle Leggings",
+   "materials": {
+    "Verisium": 315
+   }
+  },
+  {
+   "from": "Warlock Leggings",
+   "to": "Runeforged Warlock Leggings",
+   "materials": {
+    "Verisium": 385
+   }
+  },
+  {
+   "from": "Cryptic Leggings",
+   "to": "Runeforged Cryptic Leggings",
+   "materials": {
+    "Verisium": 405
+   }
+  },
+  {
+   "from": "Wanderer Shoes",
+   "to": "Runeforged Wanderer Shoes",
+   "materials": {
+    "Verisium": 255
+   }
+  },
+  {
+   "from": "Charmed Shoes",
+   "to": "Runeforged Charmed Shoes",
+   "materials": {
+    "Verisium": 325
+   }
+  },
+  {
+   "from": "Quickslip Shoes",
+   "to": "Runeforged Quickslip Shoes",
+   "materials": {
+    "Verisium": 365
+   }
+  },
+  {
+   "from": "Daggerfoot Shoes",
+   "to": "Runeforged Daggerfoot Shoes",
+   "materials": {
+    "Verisium": 435
+   }
+  },
+  {
+   "from": "Royal Tower Shield",
+   "to": "Runeforged Royal Tower Shield",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "Fortress Tower Shield",
+   "to": "Runeforged Fortress Tower Shield",
+   "materials": {
+    "Verisium": 365
+   }
+  },
+  {
+   "from": "Vaal Tower Shield",
+   "to": "Runeforged Vaal Tower Shield",
+   "materials": {
+    "Verisium": 435
+   }
+  },
+  {
+   "from": "Tawhoan Tower Shield",
+   "to": "Runeforged Tawhoan Tower Shield",
+   "materials": {
+    "Verisium": 465
+   }
+  },
+  {
+   "from": "Mammoth Targe",
+   "to": "Runeforged Mammoth Targe",
+   "materials": {
+    "Verisium": 330
+   }
+  },
+  {
+   "from": "Baroque Targe",
+   "to": "Runeforged Baroque Targe",
+   "materials": {
+    "Verisium": 360
+   }
+  },
+  {
+   "from": "Soaring Targe",
+   "to": "Runeforged Soaring Targe",
+   "materials": {
+    "Verisium": 425
+   }
+  },
+  {
+   "from": "Golden Targe",
+   "to": "Runeforged Golden Targe",
+   "materials": {
+    "Verisium": 480
+   }
+  },
+  {
+   "from": "Intricate Crest Shield",
+   "to": "Runeforged Intricate Crest Shield",
+   "materials": {
+    "Verisium": 335
+   }
+  },
+  {
+   "from": "Sekheman Crest Shield",
+   "to": "Runeforged Sekheman Crest Shield",
+   "materials": {
+    "Verisium": 355
+   }
+  },
+  {
+   "from": "Vaal Crest Shield",
+   "to": "Runeforged Vaal Crest Shield",
+   "materials": {
+    "Verisium": 420
+   }
+  },
+  {
+   "from": "Blacksteel Crest Shield",
+   "to": "Runeforged Blacksteel Crest Shield",
+   "materials": {
+    "Verisium": 475
+   }
+  },
+  {
+   "from": "Ornate Buckler",
+   "to": "Runeforged Ornate Buckler",
+   "materials": {
+    "Verisium": 325
+   }
+  },
+  {
+   "from": "Gutspike Buckler",
+   "to": "Runeforged Gutspike Buckler",
+   "materials": {
+    "Verisium": 380
+   }
+  },
+  {
+   "from": "Ancient Buckler",
+   "to": "Runeforged Ancient Buckler",
+   "materials": {
+    "Verisium": 415
+   }
+  },
+  {
+   "from": "Desert Buckler",
+   "to": "Runeforged Desert Buckler",
+   "materials": {
+    "Verisium": 490
+   }
+  },
+  {
+   "from": "Druidic Focus",
+   "to": "Runeforged Druidic Focus",
+   "materials": {
+    "Verisium": 335
+   }
+  },
+  {
+   "from": "Leyline Focus",
+   "to": "Runeforged Leyline Focus",
+   "materials": {
+    "Verisium": 360
+   }
+  },
+  {
+   "from": "Sacred Focus",
+   "to": "Runeforged Sacred Focus",
+   "materials": {
+    "Verisium": 410
+   }
+  },
+  {
+   "from": "Tasalian Focus",
+   "to": "Runeforged Tasalian Focus",
+   "materials": {
+    "Verisium": 475
+   }
+  },
+  {
+   "from": "Sacrificial Regalia",
+   "to": "Runeforged Sacrificial Regalia",
+   "materials": {
+    "Exceptional Verisium": 20
+   }
+  },
+  {
+   "from": "Sacrificial Regalia",
+   "to": "Runeforged Sacrificial Regalia",
+   "materials": {
+    "Exceptional Verisium": 20
+   }
+  },
+  {
+   "from": "Sacrificial Regalia",
+   "to": "Runeforged Sacrificial Regalia",
+   "materials": {
+    "Exceptional Verisium": 20
+   }
+  },
+  {
+   "from": "Sacrificial Regalia",
+   "to": "Runeforged Sacrificial Regalia",
+   "materials": {
+    "Exceptional Verisium": 20
+   }
+  },
+  {
+   "from": "Grasping Mail",
+   "to": "Runeforged Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 5
+   }
+  },
+  {
+   "from": "Grasping Mail",
+   "to": "Runeforged Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 5
+   }
+  },
+  {
+   "from": "Grasping Mail",
+   "to": "Runeforged Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 5
+   }
+  },
+  {
+   "from": "Grasping Mail",
+   "to": "Runeforged Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 5
+   }
+  },
+  {
+   "from": "Runeforged Grasping Mail",
+   "to": "Runemastered Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 10
+   }
+  },
+  {
+   "from": "Runeforged Grasping Mail",
+   "to": "Runemastered Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 10
+   }
+  },
+  {
+   "from": "Runeforged Grasping Mail",
+   "to": "Runemastered Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 10
+   }
+  },
+  {
+   "from": "Runeforged Grasping Mail",
+   "to": "Runemastered Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 10
+   }
+  },
+  {
+   "from": "Runeforged Grasping Mail",
+   "to": "Runemastered Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 10
+   }
+  },
+  {
+   "from": "Runeforged Grasping Mail",
+   "to": "Runemastered Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 10
+   }
+  },
+  {
+   "from": "Runeforged Grasping Mail",
+   "to": "Runemastered Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 10
+   }
+  },
+  {
+   "from": "Runeforged Grasping Mail",
+   "to": "Runemastered Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 10
+   }
+  },
+  {
+   "from": "Runeforged Grasping Mail",
+   "to": "Runemastered Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 10
+   }
+  },
+  {
+   "from": "Runeforged Grasping Mail",
+   "to": "Runemastered Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 10
+   }
+  },
+  {
+   "from": "Runemastered Grasping Mail",
+   "to": "Runefather's Grasping Mail",
+   "materials": {
+    "Exceptional Verisium": 20
+   }
+  }
+ ]
+}
