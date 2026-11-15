@@ -89,3 +89,25 @@ def test_chilled_ground_under_the_boss_from_its_freezes(monkeypatch):
                                               "15% chance to create Chilled Ground when you Freeze an Enemy"], set())
     assert share == pytest.approx(1 - (1 - 0.05 * 6.0) * (1 - 0.05 * 3.0 * 0.15))
     assert conditions.chilled_ground({}, ["10% increased Damage"], set()) == (0.0, "")
+
+
+def test_crackling_palm_bolts_follow_the_main_skills_unarmed_melee_hits():
+    """MECH76 (AUDIT35 A35-2 / AUDIT36): a bolt per Unarmed Melee hit, at most 5 every 0.5 s; 0 when not unarmed."""
+    from builder.search import conditions
+
+    stats = {"Speed": 4.0, "HitChance": 100.0}
+    assert conditions.crackling_palm_rate(stats, {"LedgerUnarmedMelee": 1})[0] == pytest.approx(4.0)
+    assert conditions.crackling_palm_rate({"Speed": 20.0, "HitChance": 100.0},
+                                          {"LedgerUnarmedMelee": 1})[0] == pytest.approx(10.0)
+    assert conditions.crackling_palm_rate(stats, {"LedgerUnarmedMelee": 0})[0] == 0.0
+
+
+def test_each_boss_preset_has_a_melee_share_and_the_worst_case_takes_the_highest():
+    """MECH76 (the manager 03:52, for MECH-C's Stuns on you: monster Melee 33% more)."""
+    from builder.search import bosses
+
+    real = [name for name in bosses.PRESETS if name != bosses.WORST]
+    assert set(real) <= set(bosses.MELEE_SHARE)
+    worst, how = bosses.melee_share({"_boss": bosses.WORST})
+    assert worst == max(share for share, _ in bosses.MELEE_SHARE.values()) and "worst case" in how
+    assert bosses.melee_share({"_boss": "Zarokh, the Temporal"})[0] == 0.0

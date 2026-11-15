@@ -1813,11 +1813,31 @@ DAZE_WORD = re.compile(r"\bdaz(?:e|es|ed|ing)\b", re.I)
 #   explosion is taken to reach the boss (it hits "the area you escape from": you roll from beside the boss; a build
 #   that keeps its distance would roll out of reach, an OVERCOUNT there), and the roll's own time isn't taken off the
 #   main skill (a small OVERCOUNT).
-# - Crackling Palm (Thunderfist): item-granted too, now looked up the same way; its bolts fire on unarmed melee hits
-#   (Triggered), so it counts only if PoB's activeSkills says it hits on use and its row gives a rate (UNVERIFIED here).
+# - Crackling Palm (Thunderfist): item-granted too, now looked up the same way; its bolts fire on unarmed melee hits, at
+#   the rate crackling_palm_rate gives (MECH76; before, 0: Persistent).
 # Without hitsOnUse (an old recording or a test's fake) the MECH71 rule stands: an Attack, or a Spell with the Damage type,
 # and not one of DAZE_NOT_HITS.
 DAZE_NOT_HITS = {"CreatesMinion", "Wall", "DegenOnlySpellDamage", "Persistent"}
+
+# Crackling Palm (MECH76; AUDIT35 A35-2, AUDIT36: a Persistent skill, so the hit rule gave its bolts 0). Its Bolt set's
+# text (crackling_palm/statset_1.csd, game 26476662): "Creates a bolt of lightning when you Hit with Unarmed Melee
+# damage, no more than {0} times every {1} seconds" (thunderfist_number_of_bolts_delays 5, thunderfist_bolt_delay_ms
+# 500: at most 10 a second). Patch notes --history "Crackling Palm": 0.4.0 (15% crit, 40% more Lightning; newest).
+# The bolts land at the main skill's hits a second (models.hits_per_second) when it is a Melee Attack hitting Unarmed
+# (the bridge's LedgerUnarmedMelee), capped at 10 a second; 0 otherwise (another group's unarmed hits aren't read: an
+# UNDERCOUNT where a side skill is the unarmed one). Each bolt taken to hit the boss (it strikes around you: melee range).
+CRACKLING_PALM = "Crackling Palm"
+CRACKLING_PALM_CAP = 5 / 0.5  # bolts a second (5 every 0.5 s)
+
+
+def crackling_palm_rate(stats: dict, unarmed: dict) -> tuple[float, str]:
+    """(Crackling Palm's bolts a second, how): see the note above."""
+    if not number((unarmed or {}).get("LedgerUnarmedMelee")):
+        return 0.0, "the main skill doesn't hit with Unarmed Melee damage: no bolts (0)"
+    hits = models.hits_per_second(stats)
+    rate = min(hits, CRACKLING_PALM_CAP)
+    return rate, (f"a bolt per Unarmed Melee hit of the main skill ({hits:.2f}/s), at most {CRACKLING_PALM_CAP:g}/s: "
+                  f"{rate:.2f}/s")
 
 
 def daze_hitter(gem: dict | None, effects: list[dict] | None = None) -> bool:
@@ -4237,6 +4257,9 @@ class Conditions:
             if not entry.get("disabled"):
                 effects.setdefault(entry["name"], []).append(entry)
         hitters = {name for name in beside if daze_hitter(every.get(name), effects.get(name))}
+        palm = crackling_palm_rate(stats, self.build.call("stats", fields=["LedgerUnarmedMelee"]))  # (MECH76)
+        if CRACKLING_PALM in beside:
+            hitters.add(CRACKLING_PALM)
         dazing = {s["name"]: {stat: number(value) for part in ("levelStats", "supportStats")
                               for stat, value in (s.get(part) or {}).items() if stat in DAZE_SKILL_STATS and value}
                   for s in raw["skills"] if not s.get("disabled") and (s["name"] == self.main_skill or s["name"] in hitters)}
@@ -4247,6 +4270,11 @@ class Conditions:
         stats["_daze_weapon_lines"] = {line["text"] for line in lines if line["source"].startswith("item:Weapon")}
         group_rows: dict = {}
         uses = self._group_uses(groups_now, hitters, group_rows) if hitters else {}
+        if CRACKLING_PALM in hitters:  # (its bolts at the main skill's Unarmed Melee hits, for every reader of the rows)
+            uses[CRACKLING_PALM] = palm[0]
+            for row in group_rows.values():
+                if str(row.get("name") or "").startswith(CRACKLING_PALM):
+                    row["speed"], row["triggered"], row["how"] = palm[0], True, palm[1]
         # (MECH75: Overcharge's reflected Shocks, _self_shocked: the supported groups' Shocks, from the same rows)
         if any(n["name"] == OVERCHARGE for g in groups_now for n in g.get("gems") or []):
             stats["_overcharge"] = overcharge_sources(groups_all, self.main_skill, stats, group_rows,

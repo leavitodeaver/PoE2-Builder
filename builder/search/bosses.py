@@ -241,6 +241,44 @@ HITS_EVERY: dict[str, float] = {
     "Atziri, the Red Queen": 0.51,  # 0.55 s before the strikes
     "Atziri, the Fell Serpent": 1.13,  # 1.38 s before the strikes
 }
+# The boss's Melee share (MECH76; the manager 15 Nov 03:52, for MECH-C's Stuns on you: KeywordPopups Stun, game
+# 26476662: "Monster Physical damage and Melee Damage have 100% more and 33% more Light Stun chance and Heavy Stun
+# buildup respectively"; patch 0.3.0 says the same, "purely a description change", no later entry, --history "Light
+# Stun"). The share of each preset's damaging skills that carry the Melee type (RESEARCH9's boss-presets-0-5.md
+# melee_lo_pct, from poe2db's monster rows: MEDIUM as a share of skills, LOW as a share of hits, the AI's choice and
+# MECHD5's multi-strike melee uses not weighted in). Its melee_hi_pct also counts slams / slashes that aren't
+# Melee-typed (the other reading, in the note); the bonus names Melee Damage, so the Melee type is read. The King in the
+# Mists: its two forms' 17% / 12% weighted 43 / 57 by time (HIT_EVERY's note). WORST: the highest real preset's (the
+# Fell Serpent's 38%), as WORST takes each stat at its worst for the player.
+MELEE_SHARE: dict[str, tuple[float, float]] = {  # (Melee-typed share, the slams / slashes reading)
+    "Arbiter of Ash": (0.12, 0.53),
+    "Arbiter of Divinity": (0.12, 0.62),
+    "Xesht, We That Are One": (0.08, 0.33),
+    "The King in the Mists": (0.43 * 0.17 + 0.57 * 0.12, 0.43 * 0.67 + 0.57 * 0.25),
+    "Zarokh, the Temporal": (0.0, 0.14),
+    "The Raven Trickster": (0.03, 0.33),
+    "The Bodach": (0.17, 0.54),
+    "Olroth, Origin of the Fall": (0.29, 0.67),
+    "The Aberration": (0.19, 0.52),
+    "Vessel of Kulemak": (0.20, 0.40),
+    "Atziri, the Red Queen": (0.19, 0.30),
+    "Atziri, the Fell Serpent": (0.38, 0.56),
+}
+
+
+def melee_share(stats: dict | None = None) -> tuple[float, str]:
+    """(the share of the boss's hits that are Melee, how) for the boss `stats` names (MELEE_SHARE's note; LOW)."""
+    b = of(stats)
+    if b.name in MELEE_SHARE:
+        share, wide = MELEE_SHARE[b.name]
+        where = b.name
+    else:  # (WORST and any preset without a row: the highest real preset's)
+        where, (share, wide) = max(MELEE_SHARE.items(), key=lambda kv: kv[1][0])
+        where = f"the worst case: {where}'s"
+    return share, (f"{share:.0%} of the boss's damaging skills are Melee ({where}; {wide:.0%} counting its slams and "
+                   "slashes that aren't Melee-typed): a share of skills, not weighted by use (LOW)")
+
+
 POB_HIT_EVERY = 0.7  # PoB's enemySpeed placeholder, ConfigOptions.lua 2279 (no source)
 
 

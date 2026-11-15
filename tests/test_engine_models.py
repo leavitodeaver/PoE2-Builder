@@ -2749,6 +2749,10 @@ def test_the_boss_resists_a_real_builds_leech(engine):
           build.recovery_sources.get("LifeLeechResisted"))
     rate = stats["LifeLeechRate"]
     assert rate > 0 and 1 <= level <= recovery.MAX_ENEMY_LEVEL
+    # (MECH76: the level PoB scored at, from the bridge; the Guardian / Pinnacle default's placeholder is 82, as the
+    # boss presets say, whatever the character's level)
+    print("PROBE enemy level", build.call("stats", fields=["LedgerEnemyLevel"]), build.call("summary").get("level"))
+    assert level == 82
     instant, uncapped = stats.get("LifeLeechInstantRate") or 0.0, stats["LifeLeechInstances"] * stats["LifeLeechInstanceRate"]
     assert instant + min(uncapped, stats["MaxLifeLeechRate"]) * (stats.get("LifeRecoveryRateMod") or 1) == pytest.approx(rate)
     lost = recovery.leech_resisted(stats, recovery.leech_resistance(level))["Life"]

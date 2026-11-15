@@ -417,8 +417,16 @@ def charm_stats(build: Build) -> dict:
 
 
 def enemy_level(build: Build) -> int:
-    """The monster level PoB scores the boss at (MECHC26, for recovery.leech_resistance): the config's Enemy Level, else
-    min(PoB's MaxEnemyLevel 85, the character's level), as CalcSetup 875 has it."""
+    """The monster level PoB scores the boss at (MECHC26, for recovery.leech_resistance): the level PoB used
+    (MECH76: the bridge's LedgerEnemyLevel, CalcSetup 875's env.enemyLevel, which takes the boss type's placeholder,
+    82 for the Guardian / Pinnacle default, before min(85, character level)); else the config's Enemy Level, else
+    min(PoB's MaxEnemyLevel 85, the character's level)."""
+    try:
+        scored = number(build.call("stats", fields=["LedgerEnemyLevel"]).get("LedgerEnemyLevel"))
+    except (KeyError, AttributeError, TypeError):
+        scored = 0.0
+    if scored > 0:
+        return int(scored)
     try:  # (a stand-in build in the unit tests answers neither call: the context's level, else PoB's maximum)
         configured = number((build.call("getConfig").get("input") or {}).get("enemyLevel"))
         level = number(build.call("summary").get("level"))

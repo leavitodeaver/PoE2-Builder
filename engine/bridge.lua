@@ -1656,6 +1656,18 @@ local function installDerived()
 			markShowAverage(env)
 			setChillDamage(env)
 			setImpale(env)
+			-- (MECH76: the monster level PoB scored the enemy at, CalcSetup 875's env.enemyLevel: the config's Enemy Level,
+			-- else the boss type's placeholder (82 for the Guardian / Pinnacle default), else min(85, character level);
+			-- assumptions.enemy_level reads it instead of guessing)
+			if env and env.player and env.player.output then
+				env.player.output.LedgerEnemyLevel = env.enemyLevel
+				-- (MECH76: whether the main skill hits with Unarmed Melee damage, for Crackling Palm's bolts,
+				-- conditions.crackling_palm_rate: a Melee Attack with the Unarmed flag or no main-hand weapon)
+				local main = env.player.mainSkill
+				local flags = main and main.skillFlags or { }
+				local unarmed = flags.unarmed or not (env.player.itemList and env.player.itemList["Weapon 1"])
+				env.player.output.LedgerUnarmedMelee = (flags.attack and flags.melee and unarmed) and 1 or 0
+			end
 			setPointsOver(env)
 			setCostShort(env)
 			return ...
