@@ -474,3 +474,14 @@ def test_meteors_fall_at_the_games_rate_with_every_15th_large_and_walking_calami
     # (no Glory source counted for Walking Calamity: PoB's number kept, never a zero on an uncounted source)
     mods, notes = models.meteor_rate_model(meteors, sets, 0.0, "no source counted")
     assert mods == [] and notes[0]["value"] == "PoB's kept"
+
+
+def test_rake_steps_back_for_its_dash_only_when_that_beats_staying_close():
+    rake = Skill("Rake", 1, attack=True, melee=True, level_stats={models.RAKE_STAT: 100})
+    walk = models.VOLT_WALK_SPEED
+    slow = {"Speed": 0.5, "MovementSpeedMod": 1.0}  # 2 s a use: 5 m back costs ~1.3 s, doubling the hit pays
+    far = 2 / (2 + 5 / walk) / 0.5
+    mods, notes = models.rake_distance_model(rake, slow)
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (far - 1), abs=0.01)] and far > 1
+    mods, notes = models.rake_distance_model(rake, {"Speed": 2.0, "MovementSpeedMod": 1.0})  # fast: stay close
+    assert mods == [] and notes[0]["value"] == "x1.000" and notes[0]["entry"] == models.RAKE_ENTRY

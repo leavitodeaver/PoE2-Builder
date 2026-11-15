@@ -146,3 +146,44 @@
             "ActiveSkills the_stars_answer, walking_calamity", "probe POE2T2102"]
   test_in_game: "Stand by a lone boss with The Stars Answer up for 9 s: about 30 stars should fall on it, 2 of them large."
   status: proposed
+
+- id: model-gem12-rake-dash-distance
+  title: "Rake: up to 100% more damage the farther it dashes (5 m), at the better of stepping back first or staying close"
+  kind: model
+  model: rake_distance
+  stats: ["base_additional_damage_from_distance_+%_final"]
+  skill: [Rake]
+  confidence: LOW
+  notes: >-
+    PoB's RakePlayer statMap keys a DistanceRamp {{0, 0}, {50, 1}} on "base_dash_additional_damage_from_distance_+%_final",
+    but the gem's stat is base_additional_damage_from_distance_+%_final, so PoB never applies it (checked: act_dex.lua
+    RakePlayer's statMap, SkillStatMap.lua). models.rake_distance_model: per use (1 + more x d / 5 m) over 1 / Speed +
+    d / walking speed (VOLT_WALK_SPEED x MovementSpeedMod, A9-4 LOW), the better of d = 5 m (step back before each
+    use) and d = 0 (PoB's number). The ramp's shape is PoB's reading (UNVERIFIED against the game text: game files were
+    off-limits during the 26579160 download). Shield Charge's same stat is left open (its charge distance / knockback
+    aren't modelled).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (RakePlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Classes/ModStore.lua (DistanceRamp)"]
+  test_in_game: "Rake a dummy from 5 m away and from melee range: the far dash should hit about twice as hard."
+  status: proposed
+
+- id: no-effect-gem12-charged-shots-every-third
+  title: "Charged Shots: 'every third shot' is PoB's own div 3 on the gain (the average over the shots)"
+  kind: gem_stat
+  match: '^support_charged_shots_applies_every_X_shots$'
+  replace: []
+  stats: ["support_charged_shots_applies_every_X_shots"]
+  skill: [Charged Shots I, Charged Shots II]
+  support: true
+  confidence: datamined
+  notes: >-
+    The stat is 3 on both gems; PoB's statMap maps support_charged_shots_%_damage_to_gain_as_lightning to
+    DamageGainAsLightning BASE with div = 3 (sup_dex.lua SupportChargedShotsPlayer / PlayerTwo), the average over every
+    shot of a gain on every third. Probe POE2T2105 (real PoB, scratch/gem12/probe3.py, probe2105.log): Lightning Arrow's
+    DamageGainAsLightning 0 -> 20 with Charged Shots II (60 / 3), Full DPS 136.7 -> 160.6. Same number as the game's
+    average: nothing to add. (A modifier changing X would need the model; none found in PoB's ModCache for
+    "charged_shots" / "every third shot": UNVERIFIED that none exists in the game, game files off-limits this turn.)
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua (SupportChargedShotsPlayer, SupportChargedShotsPlayerTwo)",
+            "scratch/gem12/probe2105.log"]
+  test_in_game: "Not needed: the average over shots is what PoB uses."
+  status: proposed

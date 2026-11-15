@@ -3343,6 +3343,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + rite_mods, notes + rite_notes
     ember_mods, ember_notes = ember_fusillade_model(main, stats or {}, forbidden)
     mods, notes = mods + ember_mods, notes + ember_notes
+    rake_mods, rake_notes = rake_distance_model(main, stats or {}, forbidden)
+    mods, notes = mods + rake_mods, notes + rake_notes
     return mods, notes
 
 
@@ -5305,6 +5307,51 @@ def meteor_rate_model(main: Skill | None, sets: list[dict], uptime: float | None
                      f"PoB's {scored} set: x1.000; the game's meteor mix" + (" and uptime" if uptime is not None else "")
                      + f": x{factor:.3f}.")}
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [note]
+
+
+# Rake's dash distance (GEM12 turn 2; an UNDERCOUNT where the build plays for it). Rake (act_dex.lua RakePlayer; "Dash
+# towards an enemy and perform a lacerating slash"): base_additional_damage_from_distance_+%_final 100 (+1.5 a quality),
+# base_melee_dash_range 50 (5 m). PoB means to read it as a DistanceRamp {{0, 0}, {50, 1}} on the dash distance, but its
+# statMap key is "base_dash_additional_damage_from_distance_+%_final", not the gem's stat id, so it never applies (checked:
+# RakePlayer's statMap in act_dex.lua and SkillStatMap.lua: no entry for base_additional_damage_from_distance_+%_final).
+# The ramp (0% at 0 m to the full value at the 5 m dash) is PoB's reading: UNVERIFIED against the game text (the game
+# files are off-limits during the 26579160 download; to recheck). Against one boss the dash ends next to it, so a dash
+# from range needs the player to step back first: per use, (1 + more x d / 5 m) for 1 / Speed + d / walking speed. The
+# better end is taken (the ratio is monotone in d): d = 5 m (step back each use: the play that feeds it) or d = 0 (PoB's
+# number), walking at VOLT_WALK_SPEED x the build's MovementSpeedMod (A9-4's base run speed, LOW). A dodge roll back
+# isn't used (its cooldown-free distance: an undercount at most). Shield Charge's own stat is left open (its charge
+# distance and knockback aren't modelled).
+RAKE_SKILL = "Rake"
+RAKE_ENTRY = "model-gem12-rake-dash-distance"
+RAKE_STAT = "base_additional_damage_from_distance_+%_final"
+RAKE_MORE, RAKE_RANGE = 100.0, 5.0  # the base value (used when the gem's own isn't read); metres: base_melee_dash_range 50
+
+
+def rake_distance_model(main: Skill | None, stats: dict,
+                        forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Rake's more damage by dash distance, at the better of dashing from 5 m (stepping back first) or from melee range."""
+    if main is None or main.name != RAKE_SKILL or RAKE_ENTRY in forbidden:
+        return [], []
+    speed = number(stats.get("Speed"))
+    if speed <= 0:
+        return [], []
+    more = number(main.level_stats.get(RAKE_STAT)) or RAKE_MORE
+    walk = VOLT_WALK_SPEED * (number(stats.get("MovementSpeedMod")) or 1.0)
+    far = (1 + more / 100) / (1 / speed + RAKE_RANGE / walk) / speed  # against PoB's 1 a use at Speed
+    factor = max(1.0, far)
+    stepped = far > 1.0
+    note = {"label": "Rake: more damage the farther it dashes*", "value": f"x{factor:.3f}", "confidence": "LOW",
+            "entry": RAKE_ENTRY,
+            "basis": (f"{more:g}% more at a {RAKE_RANGE:g} m dash (PoB's own 0-to-{RAKE_RANGE:g} m ramp, never applied: "
+                      f"its statMap key doesn't match the stat; UNVERIFIED shape). Stepping back {RAKE_RANGE:g} m before "
+                      f"each use at {walk:.2f} m/s: x{far:.3f} of PoB's {speed:.2f} uses/s; dashing from melee range: "
+                      f"x1.000. " + ("Stepping back is better here" if stepped else "Staying close is better here")
+                      + " (walking speed LOW, A9-4)"),
+            "play": (f"Step {RAKE_RANGE:g} m back before each Rake so it dashes its full range: x{far:.3f}; "
+                     "using it from melee range: x1.000.")}
+    if not stepped:
+        return [], [note]
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), RAKE_SKILL)], [note]
 
 
 # `share: cooldown_skills` (GEM11; PATCH_CHECK H1-10, an UNDERCOUNT): Uhtred's Constellation (sup_int.lua
