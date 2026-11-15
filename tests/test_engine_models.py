@@ -2988,3 +2988,34 @@ def test_mark_of_siphoning_leeches_at_the_bosss_marked_share(engine):
         assert {m["line"] for m in lines} == {"Leech 1% of Physical Attack Damage as Mana",
                                               "Leech 1% of Physical Attack Damage as Life"}
         assert all(0 < m["scale"] <= 8 for m in lines)
+
+
+def test_trinity_affinity_reaches_pob_from_the_main_skills_hits(engine):
+    """MECHC29 (PATCH_CHECK MA-5, an UNDERCOUNT before): PoB's "Total Resonance Count" for Trinity was never set (its
+    more Elemental damage per 30 Affinity counted 0). Spark's hits are Lightning only: about 100 Lightning Affinity."""
+    search = spark_with(engine, [])
+    build = search.build
+    before = build.objective.dps(build.stats)
+    build.call("addSkillGroup", text="Trinity 20/0 1")
+    search.settle()
+    got = search.conditions.active.get("configResonanceCount")
+    print("PROBE trinity", got, before, build.objective.dps(build.stats))
+    assert got is not None and 90 <= got["value"] <= 100 and "Lightning highest on 100%" in got["evidence"]
+    assert build.objective.dps(build.stats) > before
+
+
+def test_second_wind_three_recovers_life_per_second_of_its_skills_cooldown(engine):
+    """MECHC29 (PATCH_CHECK G4-6, an UNDERCOUNT before: PoB never reads restore_%_life_on_skill_use_per_1000_ms_cooldown):
+    Second Wind III on a cooldown skill used on cooldown recovers 1% of Life per second of cooldown per use: at most 1%
+    of Life a second."""
+    from builder.search.assumptions import Assumptions
+
+    search = spark_with(engine, [])
+    build = search.build
+    hook = Assumptions(build)
+    life = build.call("stats", fields=["Life"])["Life"]
+    assert hook.second_wind_life(life, "Spark", 1.0)[0] == 0  # (no Second Wind group: second_wind_life finds none)
+    build.call("addSkillGroup", text="Frost Bomb 20/0 1\nSecond Wind III 1/0 1")
+    got, how = hook.second_wind_life(life, "Spark", 1.0)
+    print("PROBE second wind", got, how, life)
+    assert 0 < got <= 0.01 * life + 1e-6 and "Second Wind III" in how and "cooldown" in how

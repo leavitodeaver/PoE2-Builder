@@ -296,6 +296,7 @@ OTHER_INFUSION = re.compile(r"(\d+(?:\.\d+)?)% chance when collecting an Element
 KEEP_INFUSION = re.compile(r"^(\d+(?:\.\d+)?)% chance to not remove an Infusion but still count as consuming", re.I)
 VERISIUM_EVERY = re.compile(r"Every (?:(\d+(?:\.\d+)?) )?seconds?, gain an? Verisium Infusion", re.I)
 GRANTED_SKILL = re.compile(r"Grants Skill: (?:Level \S+ )?(.+?)\s*$")  # (context.granted_by's pattern)
+SECOND_WIND, SECOND_WIND_PCT = "Second Wind III", 1.0  # (MECHC29, G4-6: restore_%_life_on_skill_use_per_1000_ms_cooldown)
 INFUSED_ELEMENT = re.compile(r"\b(fire|cold|lightning)-infused\b", re.I)
 
 
@@ -2635,6 +2636,38 @@ class Assumptions:
             out.update(attacks=attacks, life=number(stats.get("Life")), life_recovery=recovery)
         return out
 
+    def second_wind_life(self, life: float, main: str | None, speed: float) -> tuple[float, str]:
+        """(Life a second, how) from Second Wind III (MECHC29; PATCH_CHECK G4-6, an UNDERCOUNT before: PoB's statMap has no
+        entry for restore_%_life_on_skill_use_per_1000_ms_cooldown). The game (gem_stat_descriptions.csd): "When a
+        Supported Skill is used and goes on cooldown, recover {0}% of maximum Life per second of cooldown", 1 at every
+        level (0.4.0: "now has Restore 1% ... (previously 2%)", the newest change to the number; grep_notes --history).
+        Each supported skill's uses a second (the main skill at its speed, any other at its group's rate:
+        conditions.skill_use_rate, never past one per cooldown) x its cooldown (PoB's, after the build's Cooldown
+        Recovery) x 1% of Life. Uses by totems or clones (which 0.5.1 lets it support) aren't counted (an undercount,
+        labelled)."""
+        build = self.build
+        choices = models.press_choices(build)
+        groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False and any(
+            n["name"] == SECOND_WIND and n.get("enabled", True) for n in g.get("gems") or [])]
+        rows = build.call("useRates", indices=[g["index"] for g in groups])["rates"] if groups else []
+        main_index = (build.main_group() or {}).get("index")
+        total, parts = 0.0, []
+        for row in rows:
+            cooldown = number(row.get("cooldown"))
+            if cooldown <= 0:
+                continue
+            if row.get("index") == main_index and main:
+                uses, why = min(speed, 1 / cooldown), "the main skill"
+            else:
+                uses, why, _ = conditions_mod.skill_use_rate(row, choices)
+                uses = min(uses, 1 / cooldown)
+            each = uses * cooldown * SECOND_WIND_PCT / 100 * life
+            if each > 0:
+                total += each
+                parts.append(f"group {row.get('index')}: {uses:.3f} uses/s ({why}) x {cooldown:.2f} s cooldown x "
+                             f"{SECOND_WIND_PCT:g}% of {life:,.0f} Life = {each:.1f}/s")
+        return total, "Second Wind III: " + ("; ".join(parts) or "no supported skill with a cooldown")
+
     def life_mana_income(self, skills: list[dict], main: str | None) -> list[dict]:
         """Life and Mana a second from the sources PoB gives per event or not at all (recovery.py; MECHC12, the user's rule
         of 12 Nov: every recovery source counts): kills, Remnants, charms, Warcries, Heavy Stuns, Ignites and Shocks, at
@@ -2721,6 +2754,11 @@ class Assumptions:
         if any(has(p) for p in recovery.HIT_LINES):
             # (MECHC16, AUDIT28 A28-1: the Life the sources above give a second refills Life between the boss's hits)
             recovery.hit_income(income, stats, texts, **self.hit_rates(main, stats, before=income.pool("Life")))
+        if any(g.get("name") == SECOND_WIND and g.get("enabled", True) for grp in (build.groups() if hasattr(build, "groups") else [])
+               for g in grp.get("gems") or []):  # (MECHC29, PATCH_CHECK G4-6) Second Wind III's Life per use
+            life_s, wind_how = self.second_wind_life(number(stats.get("Life")), main, number(stats.get("Speed")))
+            if life_s > 0:
+                income.add("LifeOnEventRecovery", life_s, wind_how)
         if recovery.GHOST_DANCE in present:  # (MECHC27) Ghost Dance's ES regeneration while a Shroud was lost recently
             from builder.search import boss_hits
 

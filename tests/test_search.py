@@ -2143,7 +2143,7 @@ def test_a_placed_banner_stands_its_glory_share_of_the_fight():
     cond.build, cond.main_skill = build, "Mace Strike"
     up, how = cond._banner_share(["War Banner"])
     glory = 2.0 * 20  # 2 hits/s x 20 Glory: one every 0.5 s, so each one gains (MECHC11: uses come regularly)
-    assert up == pytest.approx(min(1.0, glory / 200 * 9.8)) and "Valour not counted" in how
+    assert up == pytest.approx(min(1.0, glory / 200 * 9.8)) and "no Valour since 0.3.0" in how
     planted = next(c for c in CONDITIONS if c.var == "bannerPlanted")
     on, basis, share = planted.value_fn([], {"_banner": (up, how)})
     assert on and share == pytest.approx(up)
@@ -3498,3 +3498,98 @@ def test_untether_as_the_main_skill_is_cut_to_its_explosions():
     rate = 5 * 2000 / (10000 - 5 * 200)
     assert mods[0]["scale"] == pytest.approx(-100 * (1 - rate / 2.0), rel=1e-3) and "Untether" in notes[0]["label"]
     assert run(full=400.0 + 50000.0)[0] == []  # (fills faster than it's cast: PoB's casts kept)
+
+
+def test_extra_charge_chances_roll_on_the_kind_before_resonance():
+    """PATCH_CHECK G4-2 (MECHC29), patch 0.4.0: "Chances to gain additional charges now only rolls before effects that
+    change the type of charge gained (such as Resonance keystone)". A Frenzy source turned into Power by Resonance takes
+    the Frenzy extra-charge chance, not the Power one."""
+    from builder.search.conditions import _charges_held
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 5, "PowerChargesMax": 3, "PowerChargesDuration": 15,
+             "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15}
+    base = ["Gain a Frenzy Charge on Critical Hit", "Gain Power Charges instead of Frenzy Charges"]
+    plain = _charges_held("Power")(base, stats)[0]
+    power_extra = _charges_held("Power")([*base, "Gain an additional Power Charge when you gain a Power Charge"], stats)
+    frenzy_extra = _charges_held("Power")([*base, "Gain an additional Frenzy Charge when you gain a Frenzy Charge"], stats)
+    assert power_extra[0] == plain  # (rolled as Frenzy: the Power line doesn't apply)
+    assert frenzy_extra[0] > plain and "before Resonance" in frenzy_extra[1]
+
+
+def test_trinity_affinity_from_the_highest_element_of_each_hit():
+    """PATCH_CHECK MA-5 (MECHC29): Trinity's Affinity (the game's text: +grant of the highest Elemental type a hit, -3 of
+    the others, at most 100 each). One element always highest holds 100 of it; a random element a hit holds most of all
+    three at a grant of 10 (+10 a third of hits beats -3 two thirds), little at 5."""
+    from builder.search.conditions import affinity_steady, highest_element_shares, trinity_affinity
+
+    assert affinity_steady(1.0, 10) == 100
+    assert affinity_steady(1 / 3, 10) > 80 and affinity_steady(1 / 3, 5) < 30
+    one = highest_element_shares([{"FireHitAverage": 5, "ColdHitAverage": 2, "LightningHitAverage": 90}])
+    assert one == {"Fire": 0.0, "Cold": 0.0, "Lightning": 1.0}
+    mixed = highest_element_shares([{"FireHitAverage": 50}, {"ColdHitAverage": 50}, {"LightningHitAverage": 50}])
+    assert all(abs(v - 1 / 3) < 1e-9 for v in mixed.values())
+    assert trinity_affinity(one, 2.0, 10)[0] == 100
+    assert trinity_affinity(mixed, 2.0, 10)[0] > 240
+    assert trinity_affinity(one, 0.0, 10)[0] == 0
+
+
+def test_scavenged_plating_holds_ten_stacks_for_its_duration_after_each_full_break():
+    """PATCH_CHECK M1-1 (MECHC29): a Unique's Full Break grants 10 Scavenged Plating stacks for the skill's duration. 12 s
+    to Break and 12 s Broken: one Full Break per 24 s, 8 s of stacks = a third of the fight, 3.33 stacks on average."""
+    from builder.search.conditions import scavenged_plating_stacks
+
+    line = "Break 100 Armour on Hit"
+    stats = {"Speed": 1.0, "HitChance": 100, "CritChance": 0, "_main_types": {"Attack"}, "_enemy_armour": 1200}
+    assert scavenged_plating_stacks([line], dict(stats)) == (0.0, "")  # (the skill not in the build)
+    stacks, how = scavenged_plating_stacks([line], {**stats, "_plating_duration": 8.0})
+    assert stacks == pytest.approx(10 * 8 / 24) and "Full Break" in how
+    assert scavenged_plating_stacks([line], {**stats, "_plating_duration": 30.0})[0] == 10  # (at most always)
+    assert scavenged_plating_stacks([], {**stats, "_plating_duration": 8.0})[0] == 0  # (nothing Breaks: 0)
+
+
+def test_wind_dancer_stages_from_its_interval_against_the_boss_landed_hits(monkeypatch):
+    """PATCH_CHECK L2-3 (MECHC29): a stage every T s, at most 3, all lost on each landed boss hit (random, rate L): the
+    average is e^(-LT) + e^(-2LT) + e^(-3LT)."""
+    import math
+
+    from builder.search import boss_hits, bosses, conditions
+
+    monkeypatch.setattr(boss_hits, "land_share", lambda stats: 0.5)
+    monkeypatch.setattr(bosses, "benefit_skill_time", lambda stats: 2.0)  # (0.25 landed hits/s)
+    assert conditions.wind_dancer_stages([], {}) == (0.0, "")
+    stages, how = conditions.wind_dancer_stages([], {"_wind_dancer": 1.2})
+    assert stages == pytest.approx(sum(math.exp(-0.25 * k * 1.2) for k in (1, 2, 3))) and "0.25 landed hits/s" in how
+    monkeypatch.setattr(boss_hits, "land_share", lambda stats: 0.0)
+    assert conditions.wind_dancer_stages([], {"_wind_dancer": 1.2})[0] == pytest.approx(3.0)
+
+
+def test_sigil_of_power_stages_from_the_mana_the_build_spends():
+    """MECHC29: PoB's placeholder 1 stage for every Sigil build. A stage per 50% of maximum Mana spent (poe2db), at least
+    1 s apart, at most 4, lost with each Sigil; x 75% of the fight standing in it (the Leylines share, LOW)."""
+    from builder.search.conditions import LEYLINE_UPTIME, sigil_stages
+
+    assert sigil_stages([], {}) == (0.0, "")
+    fast, how = sigil_stages([], {"_sigil": (10.0, 1000.0, 1000.0)})  # (a stage a second: 9 + 8 + 7 + 6 = 30 s of 10)
+    assert fast == pytest.approx(3.0 * LEYLINE_UPTIME) and "50% of 1,000" in how
+    assert sigil_stages([], {"_sigil": (10.0, 1000.0, 100.0)})[0] == pytest.approx(0.5 * LEYLINE_UPTIME)
+    assert sigil_stages([], {"_sigil": (10.0, 1000.0, 0.0)})[0] == 0
+
+
+def test_ember_fusillade_consumes_one_infusion_a_fusillade():
+    """PATCH_CHECK K2-11 (MECHC29): "Consumes a Lightning Infusion if possible to cause the entire Fusillade to create
+    beams": one a Fusillade, at GEM12's rhythm (k casts up to the Ember cap, then the duration with no recast)."""
+    from types import SimpleNamespace
+
+    from builder.search.conditions import EMBER_MAX_STAT, Conditions
+
+    def call(name, **kw):
+        if name == "stats":
+            return {"ProjectileCount": 1}
+        return {"skills": [{"name": "Ember Fusillade", "levelStats": {EMBER_MAX_STAT: 5}}]}
+
+    stub = SimpleNamespace(build=SimpleNamespace(call=call), _skill_duration=lambda name: 1.3,
+                           main_skill="Ember Fusillade")
+    rate, how = Conditions._fusillades(stub, 4.0)
+    # (5 Embers at 4 casts/s: 5 x 1.1 / (1.25 + 1.3) beats fewer casts, so a Fusillade every 2.55 s)
+    assert rate == pytest.approx(1 / (5 / 4.0 + 1.3)) and "one Infusion" in how
+    assert rate < 4.0 / 3  # (fewer Infusions than one a cast)

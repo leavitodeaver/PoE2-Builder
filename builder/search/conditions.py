@@ -13,6 +13,7 @@ stats every character picks, so they're chosen here too, by score.
 from __future__ import annotations
 
 from functools import lru_cache
+import functools
 import math
 import re
 from collections.abc import Callable
@@ -783,6 +784,29 @@ def _extra_charges(lines: list[str], kind: str) -> tuple[float, float, list[str]
     return min(extra, 1.0), fill, how
 
 
+def _extra_charges_before_resonance(lines: list[str], kind: str, by_kind: dict, gains: float) -> tuple[float, float, list[str]]:
+    """_extra_charges for `kind`'s gains when Resonance feeds it from other kinds (PATCH_CHECK G4-2, MECHC29). Patch 0.4.0
+    (bug fixes): "Chances to gain additional charges now only rolls before effects that change the type of charge gained
+    (such as Resonance keystone) - previously could roll twice". So a gain's extra-charge chance is its source's ORIGINAL
+    kind's ("additional Frenzy Charge" for a Frenzy source Resonance turns into Power), not the final kind's: each
+    original kind's chance weighted by its share of the gains. Before, the final kind's lines were read for every gain:
+    an OVERCOUNT where only the final kind has extras, an UNDERCOUNT where only the original has. The "fill to the
+    maximum" lines ("if you would gain <K> Charges, you instead gain up to your maximum") aren't "additional charges":
+    still read for the final kind (UNVERIFIED which kind they key on under Resonance; the note names only extras)."""
+    extra, fill, how = _extra_charges(lines, kind)
+    moved = {k: g for k, g in by_kind.items() if k != kind and g > 0}
+    if not moved or gains <= 0:
+        return extra, fill, how
+    total, how = 0.0, []
+    for k, g in by_kind.items():
+        e, _, h = _extra_charges(lines, k)
+        total += g / gains * e
+        if h:
+            how.append(f"{k} sources {g / gains:.0%} of gains: {', '.join(h)}"
+                       + (" (rolled as {0} before Resonance, patch 0.4.0)".format(k) if k != kind else ""))
+    return min(total, 1.0), fill, how
+
+
 def charges_with_refresh(gains: float, duration: float, most: float, extra: float = 0.0, fill: float = 0.0) -> float:
     """Charges held on average, from gains per second (MECH44, 11 Nov 2026).
 
@@ -877,12 +901,15 @@ def _charges_held(kind: str):
             sourced = any(_charge_rate(t, k, stats) is not None for t in lines for k in {*kinds, kind})
             return 0.0, (f"'{allies}': allies in your Presence gain the {kind} Charges instead (Conduit)" if sourced else "")
         gains, bonus, how = 0.0, 0.0, []
+        by_kind = {}  # (G4-2: gains per the kind its source names, before Resonance moves it)
         profusion = stats.get("_profusion") or {}  # gem description -> (chance of one more, of a random one)
         for text in lines:
-            if (r := next((x for k in kinds if (x := _charge_rate(text, k, stats)) is not None), None)) is not None:
+            if (hit := next(((k, x) for k in kinds if (x := _charge_rate(text, k, stats)) is not None), None)) is not None:
+                source, r = hit
                 more = profusion.get(text)
                 plus = (more[0] + more[1] / 3) if more else 0.0
                 gains += r[0]
+                by_kind[source] = by_kind.get(source, 0.0) + r[0]
                 bonus += r[0] * plus
                 how.append(f"{text[:60]} ({r[1]}" + (f"; Charge Profusion +{plus:.0%} per gain" if more else "") + ")")
         steal = next((t for t in lines if STEAL_CHARGES.search(t)), None)
@@ -893,7 +920,7 @@ def _charges_held(kind: str):
             if steal is not None and not own:
                 return 0.0, f"'{steal[:60]}': 0 {kind} Charges, {STEAL_NOTE}"
             return 0.0, (redirected if own else "")
-        extra, fill, extra_how = _extra_charges(lines, kind)
+        extra, fill, extra_how = _extra_charges_before_resonance(lines, kind, by_kind, gains)
         if bonus:
             extra_how.append(f"Charge Profusion {bonus / gains:.0%} of gains")
         extra = min(1.0, extra + (bonus / gains if gains else 0.0))
@@ -1362,6 +1389,80 @@ def demon_form_uptime(lines: list[str], stats: dict) -> tuple[object, str, float
     if share < SWITCH_ON:
         return False, f"Demon Form kept up {share:.0%} of the fight: {how}"
     return True, f"in Demon Form {share:.0%} of the fight: {how}", share
+
+
+# Trinity's Affinity (MECHC29; PATCH_CHECK MA-5, an UNDERCOUNT before: PoB's "Total Resonance Count" (configResonanceCount,
+# ConfigOptions 689, Multiplier:ResonanceCount, at most 300) was never set, so Trinity's more Elemental damage counted 0).
+# The game (stat_descriptions.csd, build 26476662): "{0}% more Elemental Damage per 30 Affinity of any type" (the stat id
+# says per_50, the text per 30: PoB's div = 30 follows the text, so PATCH_CHECK's "x1.67 overcount" is the id's name only);
+# "On dealing Elemental Damage with a Hit, gain {0} Affinity of the highest Elemental Damage type and lose {1} Affinity of
+# the other types" (trinity_resonance_to_grant by level, trinity_loss_per_hit 3); KeywordPopups Affinity: "a maximum of
+# 100 of each type ... You lose 10 Affinity per second of specific types if you haven't gained Affinity of that type in
+# the past 8 seconds". (No patch-note line for Trinity or Affinity: grep_notes --history; not proof of no change.)
+# Model: the main skill's hits (others' hits not counted, either way: labelled); the share of hits whose highest type is
+# each element from PoB's per-type hit averages, read under each "Random element mode" (physMode FIRE / COLD / LIGHTNING:
+# a random-element conversion, e.g. Trinity's own, picks one element per hit, a third each); each type a random walk on
+# 0..100, +grant at that share, -3 otherwise, its steady average (affinity_steady). A type gaining under once per 8 s is
+# taken to decay to 0. The count is the three types' sum (PoB floors it per 30).
+TRINITY, TRINITY_GRANT, TRINITY_LOSS, AFFINITY_MAX, AFFINITY_DECAY_WAIT = "Trinity", "trinity_resonance_to_grant", 3, 100, 8.0
+ELEMENTS = ("Fire", "Cold", "Lightning")
+
+
+@functools.lru_cache(maxsize=256)
+def affinity_steady(share: float, grant: int, loss: int = TRINITY_LOSS, top: int = AFFINITY_MAX) -> float:
+    """The average Affinity of one type, held between 0 and `top`, when each hit adds `grant` at chance `share` and
+    takes `loss` otherwise (the walk's steady state, by iteration)."""
+    if share <= 0 or grant <= 0:
+        return 0.0
+    if share >= 1:
+        return float(top)
+    dist = [0.0] * (top + 1)
+    dist[top if grant * share > loss * (1 - share) else 0] = 1.0
+    for _ in range(20000):
+        nxt = [0.0] * (top + 1)
+        for a, w in enumerate(dist):
+            if w:
+                nxt[min(top, a + grant)] += w * share
+                nxt[max(0, a - loss)] += w * (1 - share)
+        if sum(abs(x - y) for x, y in zip(nxt, dist)) < 1e-10:
+            dist = nxt
+            break
+        dist = nxt
+    return sum(a * w for a, w in enumerate(dist))
+
+
+def highest_element_shares(reads: list[dict]) -> dict[str, float]:
+    """{element: share of hits whose highest Elemental type it is}, from PoB's per-type hit averages under each random
+    element mode (one read without random elements; ties go to the first of Fire, Cold, Lightning)."""
+    out = {e: 0.0 for e in ELEMENTS}
+    for got in reads:
+        hits = {e: number(got.get(f"{e}HitAverage")) for e in ELEMENTS}
+        if max(hits.values()) > 0:
+            out[max(ELEMENTS, key=lambda e: hits[e])] += 1 / len(reads)
+    return out
+
+
+def trinity_affinity(shares: dict[str, float], hits: float, grant: int) -> tuple[float, str]:
+    """(Affinity of all types summed, how) for hits a second whose highest type follows `shares`."""
+    if hits <= 0 or grant <= 0 or not any(shares.values()):
+        return 0.0, f"the main skill deals no Elemental Hit damage ({hits:.2f} hits/s): no Affinity"
+    total, parts = 0.0, []
+    for e in ELEMENTS:
+        share = shares[e]
+        held = affinity_steady(round(share, 3), grant) if share * hits * AFFINITY_DECAY_WAIT >= 1 else 0.0
+        total += held
+        if share > 0:
+            parts.append(f"{e} highest on {share:.0%} of hits: {held:.0f}")
+    return total, (f"{hits:.2f} hits/s with Elemental damage, +{grant} Affinity of the highest type and -{TRINITY_LOSS} of "
+                   f"the others a hit, at most {AFFINITY_MAX} each: {'; '.join(parts)}; {total:.0f} Affinity in all "
+                   f"(the main skill's hits only; PoB counts whole 30s)")
+
+
+def trinity_count(lines: list[str], stats: dict) -> tuple[float, str]:
+    got = stats.get("_trinity")
+    if not got:
+        return 0.0, ""
+    return got
 
 
 # Dodge Rolled Recently (MECHC27; PATCH_CHECK MC-7; MECH75: the box is safe to set now that Stoicism no longer reads it):
@@ -2319,6 +2420,92 @@ def _battershout_cycle(to_break: float, full: float, held: float, uses: float) -
 def armour_broken_share(lines: list[str], stats: dict) -> float:
     """Share of the fight the boss's Armour is Fully Broken (one Full Break per 12 s of it)."""
     return _armour_broken(lines, stats)[0]
+
+
+# Scavenged Plating (MECHC29; PATCH_CHECK M1-1, an UNDERCOUNT before: PoB's "# of Scavenged Plating Stacks"
+# (scavengedPlatingStacks, ConfigOptions 591, a count with no default) was never set, so the skill's 4% more Armour per
+# stack and its Thorns counted 0). The game (ActiveSkills scavenged_plating): "Fully Breaking an enemy's Armour grants you
+# stacks of Scavenged Plating for a duration ... Unique enemies grant 10 stacks"; the skill's stat set: base_skill_effect_
+# duration 8000, scavenged_plating_maximum_stacks_display 10 (PoB act_str.lua). So against the boss: 10 stacks for the
+# skill's duration (PoB's, with the build's modifiers) after each Full Break. Full Breaks a second from _armour_broken's
+# share (its Fully Broken share / the Full Break's own duration: one Full Break per Broken stint; Riven Armour and
+# Battershout cycles taken as that same ratio, labelled); the stacks at most always. PoB's Multiplier is linear in
+# stacks (MORE Armour and Thorns per stack), so the average count is set. No break source = 0.
+PLATING, PLATING_STACKS, PLATING_SECONDS = "Scavenged Plating", 10, 8.0
+
+
+def scavenged_plating_stacks(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(average Scavenged Plating stacks, how) for a build with the skill; (0, "") without it."""
+    if "_plating_duration" not in stats:  # (set by Conditions.evidence with the skill enabled)
+        return 0.0, ""
+    up, how = _armour_broken(lines, stats)
+    if not how or up <= 0:
+        return 0.0, f"{PLATING}: nothing Fully Breaks the boss's Armour, 0 stacks" + (f" ({how})" if how else "")
+    held = models.full_break_duration(lines)
+    duration = number(stats.get("_plating_duration")) or PLATING_SECONDS
+    breaks = up / held if held > 0 else 0.0
+    share = min(1.0, breaks * duration)
+    return PLATING_STACKS * share, (f"{PLATING}: {PLATING_STACKS} stacks (a Unique's) for {duration:.1f} s after each Full "
+                                   f"Break, {breaks:.3f} Full Breaks/s: {share:.0%} of the fight ({how})")
+
+
+# Wind Dancer (MECHC29; PATCH_CHECK L2-3, an UNDERCOUNT before: PoB's "# of Wind Dancer Stacks" (windDancerStacks,
+# ConfigOptions 749, no default) was never set, so its more Evasion counted 0). The game (ActiveSkills): "While active,
+# periodically grants stages of a buff that gives you more Evasion per stage. Being Hit by an Enemy while you have this
+# buff consumes all stages to damage and Knock Back enemies around you"; its stat set: a stage every
+# wind_dancer_stages_gained_every_x_ms (1.5 s at level 1, by level), at most wind_dancer_maximum_number_of_stages 3, 10%
+# more Evasion each (PoB act_dex.lua). The boss's landed hits (boss_hits.land_share over its skill time, the worst case's
+# own rate, not the gain floor: a hit here is a loss) taken as random arrivals at rate L: the time since the last one is
+# exponential, so stage k is held with chance e^(-L k T) and the average is the sum over k = 1..3. PoB's multiplier is
+# linear in stages, so the average is set. The stages' damage burst on being hit isn't counted (PoB has no number for
+# it; an undercount, labelled). More Evasion lands fewer hits: the settle's next round reads that.
+WIND_DANCER, WIND_DANCER_STAT, WIND_DANCER_STAGES = "Wind Dancer", "wind_dancer_stages_gained_every_x_ms", 3
+
+
+def wind_dancer_stages(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(average Wind Dancer stages, how) for a build with the skill; (0, "") without it."""
+    every = number(stats.get("_wind_dancer"))
+    if every <= 0:
+        return 0.0, ""
+    landed = boss_hits.land_share(stats) / bosses.benefit_skill_time(stats)
+    stages = sum(math.exp(-landed * k * every) for k in range(1, WIND_DANCER_STAGES + 1))
+    return stages, (f"{WIND_DANCER}: a stage every {every:.2f} s (at most {WIND_DANCER_STAGES}), all lost on each of the "
+                    f"boss's {landed:.2f} landed hits/s (taken as random): {stages:.2f} stages on average (the burst on "
+                    f"being hit not counted)")
+
+
+# Sigil of Power (MECHC29; PATCH_CHECK's ConfigOptions list (sigilOfPowerStages :599) and PLANS kw-power item 6: PoB's
+# "Stages" box has a placeholder of 1, which PoB applies while it's unset, so every Sigil build counted 1 stage whatever its
+# Mana spending: an OVERCOUNT where it spends little, an UNDERCOUNT where it spends a lot). The game (ActiveSkills
+# sigil_of_power): "The Buff becomes more powerful the more mana you spend while standing in the Sigil"; its stats
+# (skill_stat_descriptions.csd): "Gains a Stage when you Spend a total of {0} Mana while in Area" (the base stat
+# base_circle_of_power_mana_%_spend_per_upgrade 50: poe2db Sigil_of_Power: "Gains a Stage when you Spend a total of 50% of your Maximum Mana while in Area", every level),
+# "Minimum 1 second between gaining Stages", circle_of_power_max_stages 4, base_skill_effect_duration ~10-12 s (PoB
+# act_int.lua). Stages start at 0 on each Sigil and are lost with it; the Sigil is recast as it ends (the search presses
+# it). Mana spent: the main skill's (PoB's ManaPerSecondCost; other skills' spending not counted, an undercount). Stage
+# k comes k x max(1 s, Mana per stage / spend) after placing; the average over the Sigil's duration. Standing in it: as
+# the user's Leylines ruling (15 Nov: "assume you're trying to stand in them if you take the ability, so 75%"), 75% of
+# the fight, applied by analogy (LOW: the manager to confirm for a self-placed Sigil), which scales the stages held.
+SIGIL, SIGIL_STAGES, SIGIL_MANA_SHARE, SIGIL_GAP, SIGIL_SECONDS = "Sigil of Power", 4, 0.50, 1.0, 10.0
+
+
+def sigil_stages(lines: list[str], stats: dict) -> tuple[float, str]:
+    """(average Sigil of Power stages, how) for a build with it; (0, "") without it."""
+    got = stats.get("_sigil")
+    if not got:
+        return 0.0, ""
+    duration, mana, spend = got
+    duration = duration or SIGIL_SECONDS
+    per = SIGIL_MANA_SHARE * mana
+    if spend <= 0 or per <= 0:
+        return 0.0, f"{SIGIL}: the main skill spends no Mana, 0 stages (PoB's own placeholder is 1)"
+    step = max(SIGIL_GAP, per / spend)
+    held = sum(max(0.0, duration - k * step) for k in range(1, SIGIL_STAGES + 1)) / duration
+    stages = held * LEYLINE_UPTIME
+    return stages, (f"{SIGIL}: {spend:.1f} Mana/s spent against {per:,.0f} a stage (50% of {mana:,.0f} maximum Mana), a "
+                    f"stage every {step:.2f} s (at least {SIGIL_GAP:g} s), at most {SIGIL_STAGES}, over its {duration:.1f} "
+                    f"s: {held:.2f} on average while in it, x {LEYLINE_UPTIME:.0%} of the fight standing in it (the user's "
+                    f"Leylines share, applied by analogy: LOW) = {stages:.2f}")
 
 
 def armour_broken_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
@@ -3905,6 +4092,8 @@ INFUSION_CONSUMERS = {
     "Comet": ("Fire",), "Frost Darts": ("Cold",), "Spark": ("Cold",), "Skyfall": (), "Fireball": ("Fire",),
     "Ember Fusillade": ("Lightning",),
 }
+EMBER_FUSILLADE, EMBER_MAX_STAT, EMBER_SECONDS = ("Ember Fusillade", "blazing_cluster_maximum_number_of_projectiles_allowed",
+                                                 1.3)  # (MECHC29, K2-11: Conditions._fusillades)
 INFUSION_CONSUMED = re.compile(r"consumed an elemental infusion recently", re.I)
 
 
@@ -3952,7 +4141,13 @@ def _minion_died_recently(lines: list[str], stats: dict) -> tuple[object, str]:
 # 9.8 s at 20, game files; PoB's own duration with the build's modifiers, from useRates): the box at min(1, uses x
 # duration). The player is taken to stand in its 6 m area (active_skill_base_area_of_effect_radius 60) by the boss (a
 # play note). With two or more banners, the lowest share (each banner's buff sits behind the one box: the lower reading).
-# Valour (bannerValour) stays PoB's 0 (an undercount, labelled: not modelled yet).
+# Valour (bannerValour) stays PoB's 0, and that is right (PATCH_CHECK K2-12, MECHC29): 0.3.0 "Banners no longer gain
+# Valour (or have any other Valour related stats), but instead generate Glory" (grep_notes --history Valour: 0.3.0 the
+# newest). (checked: no player or monster skill stat set in GrantedEffectStatSets / ...PerLevel holds a Valour stat; the
+# four Stats ids named valour are banners_always_have_max_valour (a mod's) and three Tempered Valour stats on Refraction
+# I-III, which are Armour / Deflection / Exposure stats, not Valour; the leftover Valour mods JewelBannerValourGained,
+# UniqueMaximumValour1, UniqueValourAlwaysMaximum1 feed nothing a Banner reads. KeywordPopups still holds the pre-0.3.0
+# Valour definition: the game text and the patch note disagree, both written here; the note and the stat sets win.)
 BANNERS = ("War Banner", "Defiance Banner", "Dread Banner")
 BANNER_SECONDS = 9.8  # base_skill_effect_duration at level 20 (game files), when PoB gives no duration
 # (MECHC27; PATCH_CHECK K2-4, an OVERCOUNT for 2+ banners) 0.3.0: "Banners now have a global limit of 1 allowed to be
@@ -4100,6 +4295,14 @@ CONDITIONS: list[Condition] = [
     Condition("minionbuffUnholyMight", "Minions' Unholy Might (Kurgal's Leash)",
               value_fn=lambda lines, stats: unholy_might_uptime(lines, stats), fields=()),
     Condition("inDemonForm", "In Demon Form", value_fn=lambda lines, stats: demon_form_uptime(lines, stats), fields=()),
+    Condition("scavengedPlatingStacks", "Scavenged Plating stacks",
+              value_fn=lambda lines, stats: scavenged_plating_stacks(lines, stats), fields=()),
+    Condition("windDancerStacks", "Wind Dancer stages", value_fn=lambda lines, stats: wind_dancer_stages(lines, stats),
+              fields=()),
+    Condition("sigilOfPowerStages", "Sigil of Power stages", value_fn=lambda lines, stats: sigil_stages(lines, stats),
+              fields=()),
+    Condition("configResonanceCount", "Trinity's Affinity", value_fn=lambda lines, stats: trinity_count(lines, stats),
+              fields=()),
     Condition("conditionDodgeRolledRecently", "Dodge Rolled recently",
               value_fn=lambda lines, stats: dodge_rolled_recently(lines, stats), fields=()),
     Condition("buffArcaneSurge", "Arcane Surge", value_fn=lambda lines, stats: arcane_surge_uptime(lines, stats),
@@ -4446,7 +4649,32 @@ class Conditions:
             how += (f"; {len(banners)} banners and {limit_how}: only {limit} stands at a time, so the box (every "
                     f"banner's buff at once) counts {limit}/{len(banners)} of that (LOW)")
         return up, (f"a placed banner stands {up:.0%} of the fight: {how} (you stand in its 6 m area, a play note; "
-                    "Valour not counted, an undercount)")
+                    "Banners have no Valour since 0.3.0)")
+
+    def _skill_duration(self, name: str) -> float:
+        """PoB's duration for the enabled skill `name` (its group's useRates row), 0 when not found."""
+        where = [g["index"] for g in self.build.call("groups")["groups"] if g.get("enabled") is not False
+                 and any(n["name"] == name and n.get("enabled", True) for n in g.get("gems") or [])]
+        rows = self.build.call("useRates", indices=where[:1])["rates"] if where else []
+        return number((rows[0] if rows else {}).get("duration"))
+
+    def _trinity(self, stats: dict) -> tuple[float, str]:
+        """(Affinity summed, how) for Trinity (trinity_affinity): PoB's per-type hit averages under each random element
+        mode, put back after."""
+        fields = [f"{e}HitAverage" for e in ELEMENTS]
+        skills = self.build.call("activeSkills", levelStats=[TRINITY])["skills"]
+        grant = int(max((number((s.get("levelStats") or {}).get(TRINITY_GRANT)) for s in skills if s["name"] == TRINITY
+                         and not s.get("disabled")), default=0))
+        before = self.build.call("getConfig")["input"].get("physMode")
+        reads = []
+        try:
+            for mode in ("FIRE", "COLD", "LIGHTNING"):
+                reads.append(self.build.call("setConfig", vars={"physMode": mode}, fields=fields)["stats"])
+        finally:
+            self.build.call("setConfig", vars={"physMode": before if before is not None else "AVERAGE"}, fields=[])
+        if all(highest_element_shares([r]) == highest_element_shares(reads[:1]) for r in reads):
+            reads = reads[:1]  # (no random element: one read)
+        return trinity_affinity(highest_element_shares(reads), models.hits_per_second(stats), grant)
 
     def _infusion_supply(self, lines: list[dict], bomb: bool = False) -> tuple[dict[str, float], list[str]]:
         """assumptions.infusion_supply for the build as it stands: Infusions per second by element and what makes them
@@ -4559,13 +4787,42 @@ class Conditions:
         others = self._group_uses(groups, set(consumers) - {self.main_skill})
         uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
                 for n in consumers}
+        volley_how = ""
+        if EMBER_FUSILLADE in uses and uses[EMBER_FUSILLADE] > 0:  # (MECHC29, K2-11: one Infusion per Fusillade)
+            uses[EMBER_FUSILLADE], volley_how = self._fusillades(uses[EMBER_FUSILLADE])
         supply, made = self._infusion_supply(lines)
         elements = {e for each in consumers.values() for e in each}
         have = sum(supply[e] for e in elements) + supply["Any"]
         cast = sum(uses.values())
         rate = min(have, cast)
         return rate, (f"{rate:.2f}/s: {have:.2f} {'/'.join(sorted(elements)) or 'Verisium'} Infusions/s from "
-                      f"{', '.join(made) or 'nothing'}, for {', '.join(f'{n} {u:.2f}/s' for n, u in uses.items())}")
+                      f"{', '.join(made) or 'nothing'}, for {', '.join(f'{n} {u:.2f}/s' for n, u in uses.items())}"
+                      + (f" ({volley_how})" if volley_how else ""))
+
+    def _fusillades(self, casts: float) -> tuple[float, str]:
+        """(Fusillades a second, how) for Ember Fusillade cast at `casts` a second (MECHC29; PATCH_CHECK K2-11). The game
+        (ActiveSkills ember_fusillade): "Consumes a Lightning Infusion if possible to cause the entire Fusillade to create
+        beams": one Infusion a Fusillade, not a cast. The rhythm is GEM12's (models.ember_fusillade_model, the main skill's
+        damage): k casts, adding ProjectileCount Embers each up to the level's cap
+        (blazing_cluster_maximum_number_of_projectiles_allowed), then PoB's duration with no recast, the k giving the most
+        damage a second; so a Fusillade every k / casts + duration s. A pressed non-main Ember Fusillade is taken at the
+        same rhythm with its use rate as its cast rate (LOW)."""
+        skill = next((s for s in self.build.call("activeSkills", levelStats=[EMBER_FUSILLADE])["skills"]
+                      if s["name"] == EMBER_FUSILLADE and not s.get("disabled")), {})
+        cap = int(number((skill.get("levelStats") or {}).get(EMBER_MAX_STAT)) or models.EMBER_CAP)
+        more = number((skill.get("levelStats") or {}).get(models.EMBER_MORE_STAT)) or models.EMBER_MORE
+        wait = self._skill_duration(EMBER_FUSILLADE) or EMBER_SECONDS
+        each = max(1, int(number(self.build.call("stats", fields=["ProjectileCount"]).get("ProjectileCount")) or 1))             if self.main_skill == EMBER_FUSILLADE else 1
+        best = None
+        for k in range(1, -(-cap // each) + 1):
+            n = min(cap, k * each)
+            rate = n * (1 + more / 100 * (n - 1) / 2) / (k / casts + wait)
+            if best is None or rate > best[0]:
+                best = (rate, k, n)
+        _, k, n = best
+        per = 1 / (k / casts + wait)
+        return per, (f"{EMBER_FUSILLADE}: {k} casts at {casts:.2f}/s ({n} Embers, cap {cap}) then {wait:.2f} s: one "
+                     f"Fusillade (one Infusion) every {1 / per:.2f} s (GEM12's rhythm)")
 
     def _item_uses(self, lines: list[dict], events: dict) -> dict[str, tuple[float, str]]:
         """{line text: (uses per second, how)} for the equipped flasks' and charms' own "on use" lines, and the flask
@@ -4803,6 +5060,21 @@ class Conditions:
 
             state = demon_form_state(self.build, self.build.call("activeSkills")["skills"], self.main_skill)
             stats["_demon_form"] = (state["share"], state["how"]) if state is not None else None
+        if any(g.get("name") == TRINITY and g.get("enabled", True) for grp in self.build.call("groups")["groups"]
+               for g in grp.get("gems") or []):  # (MECHC29, MA-5: Trinity's Affinity from the main skill's hits)
+            stats["_trinity"] = self._trinity(stats)
+        if any(g.get("name") == PLATING and g.get("enabled", True) for grp in self.build.call("groups")["groups"]
+               for g in grp.get("gems") or []):  # (MECHC29, M1-1: the stacks' duration, PoB's with the build's modifiers)
+            stats["_plating_duration"] = self._skill_duration(PLATING)
+        if any(g.get("name") == WIND_DANCER and g.get("enabled", True) for grp in self.build.call("groups")["groups"]
+               for g in grp.get("gems") or []):  # (MECHC29, L2-3: its stage interval, the gem's level stat)
+            found = [s for s in self.build.call("activeSkills", levelStats=[WIND_DANCER])["skills"]
+                     if s["name"] == WIND_DANCER and not s.get("disabled")]
+            stats["_wind_dancer"] = number((found[0].get("levelStats") or {}).get(WIND_DANCER_STAT)) / 1000 if found else 0.0
+        if any(g.get("name") == SIGIL and g.get("enabled", True) for grp in self.build.call("groups")["groups"]
+               for g in grp.get("gems") or []):  # (MECHC29: Sigil of Power's duration, the Mana and the main skill's spend)
+            pool = self.build.call("stats", fields=["Mana", "ManaPerSecondCost"])
+            stats["_sigil"] = (self._skill_duration(SIGIL), number(pool.get("Mana")), number(pool.get("ManaPerSecondCost")))
         if any(FULL_LIFE_LINE.search(t) for t in texts):  # (MECHC27: the share on Full Life, recovery.full_life_share)
             stats["_full_life"] = self._full_life()
         if any(FULL_ES_LINE.search(t) for t in texts) or any(m in gem_types for m in MYSTICISM):  # (MECHC27, MC-5)
