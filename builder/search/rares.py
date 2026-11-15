@@ -402,6 +402,21 @@ def rune_categories(base: dict) -> set[str]:
     return {"weapon", name, "martial weapon wand or staff"}
 
 
+# Augments that can't go into a Corrupted or Sanctified item (H5-1, PATCH_CHECK; SEARCH22): the game files' SoulCores
+# rows with CanSocketInCorruptedSanctified false (build 26476662: these 15 of 313 rows). Second source: patch 0.5.4
+# (2026-06-25, no later line): "The following Augments can no longer be socketed into Augment Sockets on Corrupted or
+# Sanctified items ...", naming nine of them (Astrid's, Katla's, Kolr's, Medved's, the Raven-Touched Shard, Serle's,
+# Thrud's, Uhtred's, Vorana's); the game files add Cadigan's Epiphany and the five Aldur augments (both written down: the
+# game files are taken). Before, a cultivated unique (Corrupted, cultivated.py) could get one in a socket (an OVERCOUNT).
+# Only filling a socket of an item already sealed is blocked: one socketed before the Vaal Orb stays (the note's wording,
+# "can no longer be socketed into"); the search doesn't try that order (socket, then corrupt and cultivate): LOW.
+NOT_IN_SEALED = frozenset({
+    "Raven-Touched Shard", "Passion of Aldur", "Breath of Aldur", "Ire of Aldur", "Betrayal of Aldur", "Serle's Triumph",
+    "Cadigan's Epiphany", "Astrid's Creativity", "Uhtred's Sidereus", "Kolr's Hunt", "Vorana's Carnage", "Thrud's Might",
+    "Medved's Tending", "Katla's Gloom", "Aldur's Legacy"})
+SEALED_ITEM = re.compile(r"^(?:Corrupted|Sanctified)\s*$", re.M)
+
+
 class RuneCatalog:
     def __init__(self, ctx: Context, prices: dict[str, float]) -> None:
         self.ctx = ctx
@@ -434,9 +449,10 @@ class RuneCatalog:
         categories = {"armour", override} if override else rune_categories(base)
         only = only_augment(raw)  # "Only Runes / Soul Cores can be Socketed in this item"
         jewellery = base["type"] in ("Ring", "Amulet", "Belt")
+        sealed = bool(raw and SEALED_ITEM.search(raw))  # (Corrupted or Sanctified: NOT_IN_SEALED stay out)
         names = []
         for rune in self.ctx.data.runes:
-            if rune["name"] in self.ctx.compiled.filters.forbidden_augments:
+            if rune["name"] in self.ctx.compiled.filters.forbidden_augments or (sealed and rune["name"] in NOT_IN_SEALED):
                 continue
             slots = rune["slots"]
             entries = [slots[c] for c in categories if c in slots]

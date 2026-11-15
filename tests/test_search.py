@@ -3351,3 +3351,24 @@ def test_an_empty_slot_gets_the_cheapest_useful_filler_and_nothing_gets_worse():
     rows = gear.filler_rows()
     assert rows[0]["var"] == "filler:Boots" and "no item raised the score here" in rows[0]["play"]
     assert rows[0]["dps_with"] == rows[0]["dps_without"] == 1000.0 and rows[0]["change"] == 0.0  # (every row's fields)
+
+
+def test_augments_the_game_keeps_out_of_corrupted_items_stay_out_of_them():
+    """H5-1 (PATCH_CHECK; SEARCH22): 0.5.4 and the game files' SoulCores.CanSocketInCorruptedSanctified keep 15 augments
+    out of Corrupted / Sanctified items; a cultivated unique is Corrupted, so its sockets never get one."""
+    import types
+
+    from builder.search.rares import NOT_IN_SEALED, RuneCatalog
+
+    runes = [{"name": n, "slots": {"armour": {"type": "Rune", "canSocketInUniqueItems": True}}}
+             for n in ("Kolr's Hunt", "Breath of Aldur", "Desert Rune")]
+    ctx = types.SimpleNamespace(data=types.SimpleNamespace(runes=runes), level=90, ssf=False, price_cap=float("inf"),
+                                compiled=types.SimpleNamespace(filters=types.SimpleNamespace(forbidden_augments=set())))
+    catalog = RuneCatalog(ctx, {n["name"]: 1.0 for n in runes})
+    base = {"type": "Body Armour"}
+    assert catalog.candidates(base, True, "Rarity: UNIQUE\nSome Unique\nSome Base\n+10 to Strength") == \
+        ["Kolr's Hunt", "Breath of Aldur", "Desert Rune"]
+    for seal in ("Corrupted", "Sanctified"):
+        assert catalog.candidates(base, True, f"Rarity: UNIQUE\nSome Unique\nSome Base\n+10 to Strength\n{seal}") == \
+            ["Desert Rune"]
+    assert len(NOT_IN_SEALED) == 15 and "Raven-Touched Shard" in NOT_IN_SEALED
