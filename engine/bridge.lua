@@ -4401,30 +4401,30 @@ function bridge.auditSkills(args)
 	bridge.setLevel({ level = 90 })
 	local fields = args.fields or { "CombinedDPS", "TotalDPS", "TotalDotDPS", "FullDPS", "AverageDamage" }
 	local out, index = { }, nil
-	local names = { }
-	for _, gem in pairs(build.data.gems) do
-		local effect = gem.grantedEffect
-		if effect and not effect.support and not names[gem.name] then
-			names[gem.name] = true
-		end
+	-- (COV32; COV31's finding) every active skill id once, not one gem per name: since PERF24 a by-name "Lightning Bolt"
+	-- is Choir of the Storm's triggered bolt, so the castable one, the one-handed Mace Strike and the off-hand Spear Stab
+	-- were never swept on their own. Each row carries its skillId (the gem's grantedEffectId). args.only (names) limits
+	-- the sweep (tests)
+	local only
+	for _, name in ipairs(args.only or { }) do
+		only = only or { }
+		only[name] = true
 	end
-	-- (COV30) a name whose by-name gem is a support (gemByName prefers the socketable gem: "Unleash" is the support
-	-- SupportUnleashPlayer and the skill UnleashPlayer) is swept as its first active gem in gemsInOrder, by id; every
-	-- other name stays gemByName's gem, as before
-	local sweptId = { }
+	local sweep = { }
 	for _, entry in ipairs(gemsInOrder()) do
 		local effect = entry.gem.grantedEffect
-		local name = entry.gem.name
-		if effect and not effect.support and names[name] and sweptId[name] == nil then
-			local byName = gemByName(name).grantedEffect
-			sweptId[name] = byName and byName.support and entry.gem.grantedEffectId or false
+		local id = entry.gem.grantedEffectId
+		if effect and not effect.support and id and not sweep[id] and (not only or only[entry.gem.name]) then
+			sweep[id] = true
+			sweep[#sweep + 1] = { name = entry.gem.name, skillId = id, effect = effect }
 		end
 	end
-	local sorted = { }
-	for name in pairs(names) do
-		sorted[#sorted + 1] = name
-	end
-	table.sort(sorted)
+	table.sort(sweep, function(a, b)
+		if a.name ~= b.name then
+			return a.name < b.name
+		end
+		return a.skillId < b.skillId
+	end)
 	-- an attack gets a plain weapon of the first kind it allows (Normal rarity, the highest base of that kind)
 	local weaponFor = { }
 	for baseName, base in pairs(build.data.itemBases) do
@@ -4435,9 +4435,9 @@ function bridge.auditSkills(args)
 			end
 		end
 	end
-	for _, name in ipairs(sorted) do
-		local skillId = sweptId[name] or nil
-		local effect = (skillId and gemBySkillId(skillId) or gemByName(name)).grantedEffect
+	for _, row in ipairs(sweep) do
+		local name, skillId = row.name, row.skillId
+		local effect = row.effect
 		local kinds = { }
 		for kind in pairs(effect.weaponTypes or { }) do
 			kinds[#kinds + 1] = kind
@@ -4463,9 +4463,9 @@ function bridge.auditSkills(args)
 					end
 				end
 			end
-			out[#out + 1] = { name = name, stats = result.stats, types = types }
+			out[#out + 1] = { name = name, skillId = skillId, stats = result.stats, types = types }
 		else
-			out[#out + 1] = { name = name, error = tostring(result) }
+			out[#out + 1] = { name = name, skillId = skillId, error = tostring(result) }
 		end
 	end
 	return { skills = out }

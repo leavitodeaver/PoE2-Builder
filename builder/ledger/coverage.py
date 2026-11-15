@@ -905,10 +905,15 @@ def zero_skills(data_dir: Path) -> list[dict]:
     if not path.exists():
         return []
     sweep = json.loads(path.read_text(encoding="utf-8")).get("skill_sweep") or []
+    # (COV32) one row per active skill id (bridge auditSkills): a name two ids share (Lightning Bolt, Mace Strike, Spear
+    # Stab, Unleash) is told apart by its id
+    shared = Counter(skill["name"] for skill in sweep)
     found = []
     for skill in sweep:
+        name = skill["name"] if shared[skill["name"]] < 2 or not skill.get("skillId")             else f"{skill['name']} ({skill['skillId']})"
         if skill.get("error"):
-            found.append({"name": skill["name"], "status": "none", "reason": "PoB failed to calculate it: " + skill["error"][:120]})
+            found.append({"name": name, "skillId": skill.get("skillId"), "status": "none",
+                          "reason": "PoB failed to calculate it: " + skill["error"][:120]})
             continue
         stats, types = skill.get("stats") or {}, set(skill.get("types") or [])
         if any((stats.get(k) or 0) > 0 for k in (*DAMAGE_STATS, "MinionDPS")):
@@ -920,10 +925,10 @@ def zero_skills(data_dir: Path) -> list[dict]:
                                            "SummonsAttackTotem", "Attack"}):
             continue
         if entry := MODELED_SKILLS.get(skill["name"]):
-            found.append({"name": skill["name"], "status": "model", "entry": entry,
+            found.append({"name": name, "skillId": skill.get("skillId"), "status": "model", "entry": entry,
                           "reason": "0 in PoB alone; a custom model or assumption gives it damage"})
         else:
-            found.append({"name": skill["name"], "status": "none",
+            found.append({"name": name, "skillId": skill.get("skillId"), "status": "none",
                           "reason": "a damaging skill that calculates 0 on its own in PoB (types: %s)" % ", ".join(sorted(types)[:8])})
     return found
 
