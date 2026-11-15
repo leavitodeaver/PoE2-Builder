@@ -1,0 +1,18 @@
+{
+ "_about": "Uniques the game drops that PoB's unique list lacks (COV34; H5-3 part 2). GameData.uniques adds each one whose name PoB doesn't list, in PoB's raw item text, so the search, required uniques, prices and the coverage audit see it. Each entry names its sources.",
+ "uniques": [
+  {
+   "base": "Tethering Bands",
+   "key": "The Master's Reach, Tethering Bands",
+   "name": "The Master's Reach",
+   "raw": "The Master's Reach\nTethering Bands\nImplicits: 1\nGrants Skill: Level 15 Untether\n(200-300)% increased Armour and Energy Shield\n+(75-125) to maximum Life\n+(15-25) to Intelligence\nReveal Weaknesses against Rare and Unique enemies\nEat a Soul when you Hit an enemy with an Open Weakness\n(80-100)% of damage taken from enemies with an Open Weakness Recouped as Life\n",
+   "type": "Gloves",
+   "sources": [
+    "game files build 26476662: Words 807 'The Master's Reach'; BaseItemTypes Metadata/Items/Armours/Gloves/FourGlovesStrIntUnique1 'Tethering Bands' (drop level 65; PoB Data/Bases/gloves.lua 1698, hidden); Mods UniqueAbyssalLivingBomb1 (the grant, GenerationType 3), UniqueRevealWeakness1, UniqueSoulEaterOpenWeakness1, UniqueRecoupLifeOpenWeakness1 [80, 100]",
+    "poe2db https://poe2db.tw/us/The_Masters_Reach (fetched 15 Nov 2026): implicit 'Grants Skill: Level 15 Untether'; explicit (200-300)% increased Armour and Energy Shield, +(75-125) to maximum Life, +(15-25) to Intelligence, the three Open Weakness lines; dropped by Vessel of Kulemak (0.5.4)",
+    "poe.ninja lists it (Tethering Bands; COV33: 0.022 div, 1,459 listed): obtainable in the league",
+    "not in the game's unique collection layout (UniqueStashLayout has no row for Words 807), so live.json's unique rule doesn't list it"
+   ]
+  }
+ ]
+}

@@ -134,6 +134,166 @@ do
 	end
 end
 
+-- Untether, the skill The Master's Reach grants (COV34; H5-3 part 1): PoB has no skill for it (only the trade site's
+-- "Grants Skill: Level # Untether"), so the line parsed to nothing and the gloves granted no skill. It is added here as
+-- AbyssalLivingBomb, from the game's own rows (build 26476662): ActiveSkills 826 abyssal_living_bomb ("Untether"; types
+-- Spell, Damage, Area, Trappable, Totemable, Mineable, AreaSpell, Limit, Physical, UsableWhileMoving, Duration,
+-- Triggerable), GrantedEffects 7733 (cast time 600 ms; GrantedEffectsPerLevel: cost 0 at every level),
+-- GrantedEffectStatSets 7538 (base effectiveness 4; duration 6000 ms, radius 21, 5 seeds allowed, explodes at 100% of
+-- the Ailment Threshold) and GrantedEffectStatSetsPerLevel (13% crit, spell physical damage per level, resolved values
+-- as PoB writes Living Bomb's); quality: +0.2 radius per 1% (GrantedEffectQualityStats 158). poe2db's Untether page
+-- gives the same (12-601 to 19-902 Physical, 2.1 m, 6 s, Limit 5, 100%). Shaped like PoB's LivingBombPlayer
+-- (act_int.lua 14704), its regular sibling. PoB scores the explosion as a hit when cast; how often seeds explode (the
+-- threshold, the 5-seed limit) is MECH-B's model, not PoB's (PoB reads no living_bomb_* stat for Living Bomb either).
+-- "Grants Skill: Level N Untether" grants it (ModParser's gemIdLookup is built from data.gems when ModParser loads,
+-- before this runs, so the line is matched here).
+do
+	local base = data.skills.LivingBombPlayer
+	if base and not data.skills.AbyssalLivingBomb then
+		local levels = { }
+		for level = 1, 40 do
+			local from = base.levels[level] or { }
+			levels[level] = { critChance = 13, levelRequirement = from.levelRequirement or 0, cost = { } }
+		end
+		local skill = {
+			name = "Untether",
+			baseTypeName = "Untether",
+			icon = "Art/2DArt/SkillIcons/AbyssalLivingBomb.dds",
+			fromItem = true,
+			color = 3,
+			description = "Plant a seed of Abyssal Energy on the enemy's heart. Dealing enough damage to the enemy, or killing it outright, causes their heart to explode, dealing Physical damage in an area.",
+			skillTypes = { [SkillType.Spell] = true, [SkillType.Damage] = true, [SkillType.Area] = true, [SkillType.Trappable] = true,
+				[SkillType.Totemable] = true, [SkillType.Mineable] = true, [SkillType.AreaSpell] = true, [SkillType.Limit] = true,
+				[SkillType.Physical] = true, [SkillType.UsableWhileMoving] = true, [SkillType.Duration] = true, [SkillType.Triggerable] = true, },
+			castTime = 0.6,
+			qualityStats = {
+				{ "active_skill_base_area_of_effect_radius", 0.2, {  } },
+			},
+			levels = levels,
+			statSets = {
+				[1] = {
+					label = "Untether",
+					baseEffectiveness = 4,
+					incrementalEffectiveness = 0.17000000178814,
+					damageIncrementalEffectiveness = 0.010599999688566,
+					statDescriptionScope = "living_bomb_player",
+					baseFlags = { spell = true, area = true, duration = true, },
+					constantStats = {
+						{ "base_skill_effect_duration", 6000 },
+						{ "active_skill_base_area_of_effect_radius", 21 },
+						{ "living_bomb_base_number_of_bombs_allowed", 5 },
+						{ "movement_speed_+%_final_while_performing_action", -70 },
+						{ "movement_speed_acceleration_+%_per_second_while_performing_action", 160 },
+						{ "movement_speed_while_performing_action_locked_duration_%", 50 },
+						{ "living_bomb_damage_threshold_%_of_ailment_threshold", 100 },
+					},
+					stats = {
+						"spell_minimum_base_physical_damage",
+						"spell_maximum_base_physical_damage",
+						"base_skill_show_average_damage_instead_of_dps",
+						"is_area_damage",
+						"can_perform_skill_while_moving",
+					},
+					notMinionStat = {
+						"spell_minimum_base_physical_damage",
+						"spell_maximum_base_physical_damage",
+					},
+					levels = {
+			[1] = { 12, 19, actorLevel = 1 },
+			[2] = { 18, 27, actorLevel = 3.451999903 },
+			[3] = { 26, 39, actorLevel = 6.767000198 },
+			[4] = { 35, 53, actorLevel = 10.30799961 },
+			[5] = { 46, 69, actorLevel = 14.07499981 },
+			[6] = { 58, 87, actorLevel = 18.06800079 },
+			[7] = { 72, 108, actorLevel = 22.28700066 },
+			[8] = { 88, 131, actorLevel = 26.73200035 },
+			[9] = { 106, 159, actorLevel = 31.40299988 },
+			[10] = { 126, 189, actorLevel = 36.29999924 },
+			[11] = { 150, 225, actorLevel = 41.42300034 },
+			[12] = { 177, 265, actorLevel = 46.77199936 },
+			[13] = { 208, 312, actorLevel = 52.34700012 },
+			[14] = { 243, 365, actorLevel = 58.14799881 },
+			[15] = { 284, 426, actorLevel = 64.17500305 },
+			[16] = { 331, 496, actorLevel = 70.4280014 },
+			[17] = { 385, 577, actorLevel = 76.90699768 },
+			[18] = { 447, 670, actorLevel = 83.61199951 },
+			[19] = { 518, 778, actorLevel = 90.54299927 },
+			[20] = { 601, 902, actorLevel = 97.69999695 },
+			[21] = { 696, 1045, actorLevel = 105.0830002 },
+			[22] = { 807, 1210, actorLevel = 112.6920013 },
+			[23] = { 935, 1402, actorLevel = 120.5270004 },
+			[24] = { 1083, 1625, actorLevel = 128.5879974 },
+			[25] = { 1255, 1883, actorLevel = 136.875 },
+			[26] = { 1456, 2184, actorLevel = 145.3880005 },
+			[27] = { 1689, 2534, actorLevel = 154.1269989 },
+			[28] = { 1961, 2942, actorLevel = 163.0919952 },
+			[29] = { 2279, 3419, actorLevel = 172.2830048 },
+			[30] = { 2651, 3976, actorLevel = 181.6999969 },
+			[31] = { 3086, 4629, actorLevel = 191.3430023 },
+			[32] = { 3597, 5395, actorLevel = 201.2120056 },
+			[33] = { 4197, 6295, actorLevel = 211.3070068 },
+			[34] = { 4903, 7354, actorLevel = 221.628006 },
+			[35] = { 5734, 8602, actorLevel = 232.1750031 },
+			[36] = { 6716, 10074, actorLevel = 242.947998 },
+			[37] = { 7877, 11815, actorLevel = 253.9470062 },
+			[38] = { 9251, 13876, actorLevel = 265.1719971 },
+			[39] = { 10881, 16321, actorLevel = 276.6229858 },
+			[40] = { 12817, 19225, actorLevel = 288.2999878 },
+					},
+				},
+			},
+		}
+		for level, row in pairs(skill.statSets[1].levels) do
+			row.statInterpolation = { 1, 1, }
+		end
+		-- as Data.lua 929-965 sets up every skill it loads (none of these statSets carries mods to source)
+		skill.id = "AbyssalLivingBomb"
+		skill.modSource = "Skill:AbyssalLivingBomb"
+		for _, statSet in pairs(tableConcat({ skill }, skill.statSets)) do
+			statSet.statMap = statSet.statMap or { }
+			setmetatable(statSet.statMap, data.skillStatMapMeta)
+			statSet.statMap._grantedEffect = skill
+		end
+		data.skills.AbyssalLivingBomb = skill
+		-- Its gem row, as the game has one (SkillGems: BaseItemType Metadata/Items/Gem/SkillGemAbyssalLivingBomb,
+		-- "Untether", Intelligence 100%, as Living Bomb's), set up as Data.lua's setupGem does, so PoB scores the
+		-- granted skill at the highest level up to 15 whose level and Intelligence requirements the character meets
+		-- (CalcSetup getGrantedSkillLevel reads the gem's reqInt; without a gem row it stayed at 15 whatever the
+		-- character). Tier 0 and fromItem: no gem list the search offers takes it (Context.gems offers a fromItem skill
+		-- only from ITEM_SKILL_GEMS; gems.json is PoB's own dump).
+		local gemId = "Metadata/Items/Gems/SkillGemAbyssalLivingBomb"
+		if not data.gems[gemId] then
+			local gem = {
+				name = "Untether", baseTypeName = "Untether", gameId = "Metadata/Items/Gem/SkillGemAbyssalLivingBomb",
+				variantId = "AbyssalLivingBomb", grantedEffectId = "AbyssalLivingBomb",
+				tags = { intelligence = true, grants_active_skill = true, spell = true, area = true, physical = true, duration = true, },
+				gemType = "Spell", tagString = "AoE, Physical, Duration", reqStr = 0, reqDex = 0, reqInt = 100, Tier = 0,
+				naturalMaxLevel = 20,
+			}
+			gem.id = gemId
+			gem.grantedEffect = skill
+			gem.additionalGrantedEffects = { }
+			gem.grantedEffectList = { skill }
+			data.gems[gemId] = gem
+			data.gemForSkill[skill] = gemId
+			data.gemsByGameId[gem.gameId] = data.gemsByGameId[gem.gameId] or { }
+			data.gemsByGameId[gem.gameId][gem.variantId] = gem
+			data.gemNameForModSource[skill.modSource] = gem.name
+			data.gemForBaseName["untether"] = gemId
+		end
+	end
+	local parseBefore = modLib.parseMod
+	modLib.parseMod = function(line, ...)
+		if type(line) == "string" and data.skills.AbyssalLivingBomb then
+			local level = line:match("^[Gg]rants [Ss]kill: [Ll]evel (%d+) [Uu]ntether$")
+			if level then
+				return { modLib.createMod("ExtraSkill", "LIST", { skillId = "AbyssalLivingBomb", level = tonumber(level) }) }, nil
+			end
+		end
+		return parseBefore(line, ...)
+	end
+end
+
 local DEFAULT_FIELDS = {
 	"FullDPS", "CombinedDPS", "TotalDPS", "TotalDotDPS", "Life", "EnergyShield", "Mana",
 	"TotalEHP", "Armour", "Evasion", "FireResist", "ColdResist", "LightningResist", "ChaosResist",

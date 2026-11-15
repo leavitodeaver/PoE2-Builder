@@ -139,3 +139,43 @@ def test_an_item_granted_skill_scores_at_the_level_the_character_meets(setup):
         assert level(60, 150) == 14  # character level short: the highest level the character meets
     finally:
         build.call("setLevel", level=ctx.level)
+
+
+def test_the_masters_reach_grants_untether_from_the_games_rows(setup):
+    """COV34 (H5-3 parts 1-2): PoB has no Untether skill, so "Grants Skill: Level 15 Untether" parsed to nothing and
+    the gloves granted no skill. The bridge adds AbyssalLivingBomb from the game's rows (GrantedEffectStatSets 7538,
+    GrantedEffectStatSetsPerLevel: level 15 = 284-426 spell Physical, 13% crit) with its gem row (Int 100%), and The
+    Master's Reach comes from builder/data/tool_uniques.json (PoB's unique list lacks it)."""
+    ctx, build = setup
+    parsed = build.call("parseLines", lines=["Grants Skill: Level 15 Untether"])["results"][0]
+    assert parsed["supported"] and [m["name"] for m in parsed["parsed"]] == ["ExtraSkill"]
+    name = "The Master's Reach"
+    raw = ctx.corrected_raw(name, next(u["raw"] for u in ctx.data.uniques if u["name"] == name))
+    assert ctx.granted_by.get("Untether") == [("unique", "The Master's Reach", None)]
+    main = build.call("groups")["mainSocketGroup"]
+    build.call("setLevel", level=90)
+    try:
+        def untether() -> list[dict]:
+            return [g for g in build.call("groups")["groups"] if g.get("fromItem")
+                    and any(gem.get("skillId") == "AbyssalLivingBomb" for gem in g.get("gems") or [])]
+
+        # The gem row's Int requirement applies 0.5.4's level rule: the test character's 15 Int + the gloves' 20 meets
+        # level 6 only (probe POE2T2557, scratch/cov34/probe_level.py: Int 35 -> 6, Int 185 -> 15)
+        build.call("equip", slot="Gloves", raw=raw, fields=[])
+        assert 1 <= untether()[0]["gems"][0]["level"] < 15
+        build.call("equip", slot="Amulet", raw="\n".join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82",
+                                                         "Implicits: 0", "+150 to Intelligence"]), fields=[])
+        groups = untether()
+        assert len(groups) == 1, groups
+        gem = groups[0]["gems"][0]
+        assert gem["name"] == "Untether" and gem["level"] == 15
+        stats = build.call("setGroup", index=groups[0]["index"], main=True,
+                           fields=["PhysicalMinBase", "PhysicalMaxBase", "FireMaxBase", "CritChance", "AverageHit"])["stats"]
+        # (probe POE2T2559: these, and AverageHit 137.6 after the boss preset's armour)
+        assert (stats["PhysicalMinBase"], stats["PhysicalMaxBase"], stats["FireMaxBase"]) == (284, 426, 0)
+        assert stats["CritChance"] == 13 and stats["AverageHit"] > 0
+    finally:
+        build.call("setGroup", index=main, main=True, fields=[])
+        build.call("equip", slot="Gloves", fields=[])
+        build.call("equip", slot="Amulet", fields=[])
+        build.call("setLevel", level=ctx.level)

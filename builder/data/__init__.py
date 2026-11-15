@@ -27,6 +27,11 @@ WEAPON_TYPES = {
 OFFHAND_TYPES = {"Shield", "Focus", "Quiver"}
 
 
+def tool_uniques() -> list[dict]:
+    """The uniques the tool adds where PoB's list has none (builder/data/tool_uniques.json, with their sources)"""
+    return json.loads(Path(__file__).with_name("tool_uniques.json").read_text(encoding="utf-8"))["uniques"]
+
+
 def pin() -> dict:
     return json.loads((ENGINE_DIR / "pob-pin.json").read_text(encoding="utf-8"))
 
@@ -157,7 +162,14 @@ class GameData:
 
     @cached_property
     def uniques(self) -> list[dict]:
-        return self._part("uniques")["uniques"]
+        """PoB's uniques, then the ones the game drops that PoB's list lacks (tool_uniques.json: The Master's Reach),
+        each only while PoB has no unique of that name."""
+        uniques = list(self._part("uniques")["uniques"])
+        names = {u["name"] for u in uniques}
+        for extra in tool_uniques():
+            if extra["name"] not in names:
+                uniques.append({key: extra[key] for key in ("base", "key", "name", "raw", "type")})
+        return uniques
 
     @cached_property
     def runes(self) -> list[dict]:
