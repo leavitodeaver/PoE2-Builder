@@ -3379,7 +3379,12 @@ def _poisons_recently(lines: list[str], stats: dict) -> tuple[object, str]:
 # box also needs the boss in your Presence (the build's distance vs its Presence radius). Labelled: the two boxes
 # weighed as independent (a ~2% undercount at most); a Culling Strike ending the fight inside or outside a segment
 # isn't modelled (MEDIUM).
-REVEAL_WEAKNESS = re.compile(r"^Reveal Weaknesses against Rare and Unique enemies$", re.I)
+# One share for every reader (the manager, 12:43): COV33 (train 58) counts The Master's Reach's recoup line and
+# Predatory Instinct's 50% more as ledger `share:OpenWeakness` stand-ins (its pob_wrong entry drops PoB's parse of the
+# 50% line, so this box no longer moves that line: no line counts twice). Those stand-ins read the share through
+# open_weakness_up(build) once COV-A switches them (COV34), and the probe puts the stand-in's MORE back into the DPS
+# inside (Conditions._open_weakness), so the share stays the time share either way.
+REVEAL_WEAKNESS =re.compile(r"^Reveal Weaknesses against Rare and Unique enemies$", re.I)
 OPEN_WEAKNESS_LIFE = 0.45  # (KeywordPopups RevealWeakness)
 OPEN_WEAKNESS_VARS = ("conditionEnemyHasOpenWeakness", "conditionOpenWeaknessEnemyPresence")
 
@@ -3389,6 +3394,17 @@ def open_weakness_share(ratio: float) -> float:
     ratio = min(max(ratio, 0.0), 1.0)
     inside = OPEN_WEAKNESS_LIFE * ratio
     return inside / (inside + 1.0 - OPEN_WEAKNESS_LIFE) if inside > 0 else 0.0
+
+
+OPEN_WEAKNESS_MORE = re.compile(r"^(\d+(?:\.\d+)?)% more damage against enemies with an Open Weakness$", re.I)
+
+
+def open_weakness_up(build) -> tuple[float, str]:
+    """(share of the fight's time the boss has an Open Weakness, how) for other readers (COV-A's OpenWeakness ledger
+    condition: its `share:` stand-ins read this, the manager 12:43): Conditions.evidence's probe (_open_weakness), set
+    on the build each conditions round; (0.0, "") before the first round or with nothing revealing weaknesses."""
+    share, how = getattr(build, "open_weakness_up", None) or (0.0, "")
+    return min(max(number(share), 0.0), 1.0), how or "nothing reveals the boss's weaknesses: 0"
 
 
 def _open_weakness(presence: bool) -> Callable[[list[str], dict], tuple[object, str]]:
@@ -4448,14 +4464,20 @@ class Conditions:
                   if bomb and LIVING_BOMB in present else (0.0, ""))
         return infusion_supply(present, [line["text"] for line in lines], self.found_uptimes, siphon, living, orb)
 
-    def _open_weakness(self) -> tuple[float, str]:
+    def _open_weakness(self, texts: list[str]) -> tuple[float, str]:
         """(share of the fight's time the boss has an Open Weakness, how): open_weakness_share of PoB's Full DPS with
-        both Open Weakness boxes off over on (probed, the boxes put back after)."""
+        both Open Weakness boxes off over on (probed, the boxes put back after). Where a ledger stand-in counts the
+        "N% more damage against enemies with an Open Weakness" line instead of PoB's parse (COV33's pob_wrong entry drops
+        the parse and adds the MORE at this share), the box doesn't move it, so its N% is put back into the DPS inside:
+        PoB counting it is told by a third probe, the damage box alone off (the line is the box's only reader)."""
         before = self.build.call("getConfig")["input"]
         saved = {var: before.get(var) for var in OPEN_WEAKNESS_VARS}
+        more = sum(float(m.group(1)) for t in texts if (m := OPEN_WEAKNESS_MORE.match(t.strip()))) / 100.0
         try:
             on = number(self.build.call("setConfig", vars=dict.fromkeys(OPEN_WEAKNESS_VARS, True),
                                         fields=["FullDPS"])["stats"].get("FullDPS"))
+            bare = number(self.build.call("setConfig", vars={OPEN_WEAKNESS_VARS[0]: False}, fields=["FullDPS"])[
+                "stats"].get("FullDPS")) if more > 0 else on
             off = number(self.build.call("setConfig", vars=dict.fromkeys(OPEN_WEAKNESS_VARS, False),
                                          fields=["FullDPS"])["stats"].get("FullDPS"))
         finally:
@@ -4464,9 +4486,13 @@ class Conditions:
         if on <= 0:
             return 0.0, "no DPS read: 0"
         ratio = min(off / on, 1.0)
+        stand_in = more > 0 and bare > 0 and on / bare < 1.0 + more / 2.0
+        if stand_in:
+            ratio /= 1.0 + more
         share = open_weakness_share(ratio)
-        return share, (f"its Open Weakness segments are {OPEN_WEAKNESS_LIFE:.0%} of its Life; Full DPS {on:,.0f} in them, "
-                       f"{off:,.0f} outside, so {share:.0%} of the fight's time")
+        return share, (f"its Open Weakness segments are {OPEN_WEAKNESS_LIFE:.0%} of its Life; Full DPS {on:,.0f} in them"
+                       + (f" x {1 + more:g} (the {more:.0%} more a ledger stand-in counts)" if stand_in else "")
+                       + f", {off:,.0f} outside, so {share:.0%} of the fight's time")
 
     def _orb_uptimes(self) -> dict[str, tuple[float, str]]:
         """{element: (share of the fight one of the build's Orbs of it is up, how)} for Eye of Winter (MECH78, MA-2):
@@ -4914,7 +4940,7 @@ class Conditions:
             orbs = self._orb_uptimes() if self.main_skill == EYE_OF_WINTER else None
             stats["_element_gain"] = element_gain_shares(self.main_skill, stats, texts, orbs)
         if any(REVEAL_WEAKNESS.match(t.strip()) for t in texts):  # (MECH78, MC-1: its share of the fight's time)
-            stats["_open_weakness"] = self._open_weakness()
+            stats["_open_weakness"] = self._open_weakness(texts)
         aura = presence_ignite(texts, stats)  # (MECH75: Radiant Grief)
         legion = self.minion_ignite(names)  # (MECH76: MECHB30's Infernal Legion, routed)
         if aura[1] or legion[1]:
@@ -5103,6 +5129,9 @@ class Conditions:
         self.build.ailment_ground = dict(stats.get("_ailment_ground") or {})  # (MECH75: Radiant Grief's aura)
         # (MECH76, for COV-A: "Enemies standing on Chilled Ground take ..."; (share, how), (0.0, "") without a source)
         self.build.chilled_ground_up = stats.get("_chilled_ground") or (0.0, "")
+        # (MECH78, MC-1; for COV-A's OpenWeakness ledger condition, the manager 12:43: one share for both) the share of
+        # the fight's TIME the boss has an Open Weakness: open_weakness_up(build)
+        self.build.open_weakness_up = stats.get("_open_weakness") or (0.0, "")
         # (MECH70, for GEM5's Vaulting Impact Broken Stance model: the share of the fight the boss is Dazed and its basis,
         # read whether or not the box is on; (0.0, "") without a Daze source. With no consumer of Daze (_dazed's note),
         # it is also the share of any later hit that finds the boss Dazed.)

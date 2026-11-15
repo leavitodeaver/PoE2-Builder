@@ -183,3 +183,13 @@ def test_warcries_debilitate_the_boss_for_a_second_per_warcry():
     assert conditions.debuff_uptime("conditionEnemyDebilitated")(["Warcries Debilitate Enemies"],
                                                                  {"_main_types": {"Attack"}})[2] == 0.0
     assert "conditionEnemyDebilitated" in {c.var for c in conditions.CONDITIONS}
+
+
+def test_other_readers_get_the_open_weakness_time_share_from_the_build():
+    """The manager, 12:43: COV-A's OpenWeakness stand-ins read the same share (conditions.open_weakness_up)."""
+    from types import SimpleNamespace
+
+    assert conditions.open_weakness_up(SimpleNamespace())[0] == 0.0
+    share, how = conditions.open_weakness_up(SimpleNamespace(open_weakness_up=(0.35, "62 in, 40 out")))
+    assert share == pytest.approx(0.35) and "62" in how
+    assert conditions.OPEN_WEAKNESS_MORE.match("50% more damage against enemies with an Open Weakness").group(1) == "50"
