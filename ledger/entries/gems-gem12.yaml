@@ -1,0 +1,148 @@
+# GEM12 (15 Nov 2026): PATCH_CHECK H1-10's rest (0.5.0 Lineage supports PoB never reads) and Primal Strikes' combo.
+
+- id: model-gem12-vruun-aftermath-empowers
+  title: "Vruun's Aftermath: the Warcry Empowers 3 more Attacks when it destroys at least 5 of your Ice Crystals / Ice Fragments"
+  kind: model
+  model: vruun_aftermath
+  stats: ["support_warcries_empower_x_additional_per_5_total_ice_crystals_or_fragments_destroyed",
+          "support_warcries_explode_ice_crystals", "support_warcries_detonate_your_ice_fragments"]
+  skill: [Vruun's Aftermath]
+  confidence: LOW
+  notes: >-
+    PATCH_CHECK H1-10. PoB maps none of the three stats (checked: SkillStatMap.lua and Modules/*.lua for "ice_crystal",
+    "ice_fragments", "warcries_empower": no reader). The game text: "Supported Warcries Empower {0} additional Attacks
+    if they destroy at least 5 total Ice Crystals and Ice Fragments" (the stat id says "per 5"; the text's "at least 5"
+    is taken: the lower reading, the other printed in the note). models.vruun_aftermath_model: +3 as PoB's
+    <Name>EmpoweredAttacks BASE (CalcPerform 2206-2211 sums it unfloored into Num<Name>Empowers, as Olroth's) x the share
+    of the Warcry's uses that find 5, from the build's own makers (VRUUN_MAKERS: Frost Wall, Glacial Bolt, Frozen Locus,
+    Escape Shot, Ice-Tipped Arrows, Fragments of the Past; their per-use counts, lifetimes and limits from PoB's skill
+    data) at their own use rates against the Warcry's interval; a maker of 5+ at once counts min(1, its uses per
+    Warcry) (the Warcry used after it: the play that feeds it, LOW). No maker: 0 with a note. Not counted (named in the
+    note, an UNDERCOUNT): Shred's fragments (Frozen enemies), Frozen Spite's (kills), Midnight Zenith's crystals (rate
+    is MECH-B's). The explosions: PoB scores them on the maker (Frost Wall's explosion part); the Warcry only sets them
+    off (not added). LOW: a wall taken as at least 5 crystals (no crystal count in the game's stats); all inside the
+    Warcry's area.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (SupportVruunsAftermath)",
+            "data/game-26476662/files/data/statdescriptions/gem_stat_descriptions.csd (the three stats)",
+            "KeywordPopups IceCrystals, IceFragment", "patch notes 0.5.0 (New Lineage Support: Vruun's Aftermath; no numbers)",
+            "scratch/manager/plans/kw-ice-crystals.md item 3"]
+  test_in_game: "Cast Frost Wall, then Infernal Cry with Vruun's Aftermath next to it: the cry should Empower 3 more Attacks than with no wall."
+  status: proposed
+
+- id: model-gem12-uhtred-rite-overflowing-chalice
+  title: "Uhtred's Rite: Overflowing Chalice for 1 s per 1 s of the skill's cooldown (Life and Mana Flasks gain 2 charges a second, 30% increased recovery)"
+  kind: model
+  model: uhtred_rite
+  stats: ["support_uhtreds_chalice_buff_on_skill_use_duration_ms_per_1000_ms_cooldown"]
+  skill: [Uhtred's Rite]
+  confidence: MEDIUM
+  notes: >-
+    PATCH_CHECK H1-10. PoB reads the support's two "during Flask" stats (statMap) but maps the Overflowing Chalice stat
+    to nothing (checked: SkillStatMap.lua, Modules/*.lua for "uhtreds_chalice" / "OverflowingChalice"; ModCache's
+    "Overflowing Chalice Flask" is a unique flask's line). KeywordPopups OverflowingChalice: "Life and Mana Flasks gain
+    2 charges per second and provide 30% increased recovery". models.uhtred_rite_model: uptime = min(1, the supported
+    skills' uses a second x the stat x their cooldown after Cooldown Recovery: the lower reading), as
+    LifeFlaskChargesGenerated / ManaFlaskChargesGenerated BASE 2 and FlaskRecovery INC 30 x uptime, which the bridge's
+    chargeGain hands to flasks.py (so the flask uptimes, and the support's own 20% more during a Life Flask, follow).
+    LOW parts: Skill Effect Duration on the buff not read; supported skills' uptimes added (overlaps).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (SupportUhtredsRitePlayer)",
+            "data/game-26476662/files/data/statdescriptions/gem_stat_descriptions.csd",
+            "KeywordPopups OverflowingChalice", "patch notes 0.5.0 (New Lineage Support: Uhtred's Rite; no numbers)"]
+  test_in_game: "Use a Cooldown skill with Uhtred's Rite: your Life Flask should gain 2 charges a second for as long as the skill's cooldown."
+  status: proposed
+
+- id: model-gem12-primal-strikes-spirits
+  title: "Primal Strikes: its spirits (1 a hit on a Shocked boss for the first two attacks; the Final Strike's stampede of 6 at 50% more)"
+  kind: model
+  model: combo_sequence
+  stats: ["primal_strikes_number_of_stags", "primal_strikes_stag_stampede_damage_+%_final",
+          "primal_strikes_stag_volley_spacing", "primal_strikes_stag_volley_delay_ms"]
+  skill: [Primal Strikes]
+  confidence: LOW
+  notes: >-
+    GEM11's open Primal Strikes rows. The game's stat sets (GrantedEffectStatSets 530-532, 7931): first stab, second
+    stab (only +1 m reach), Final Strike, and the spirits' wave; PoB keeps "Normal Strikes", "Spirits" (the wave) and
+    "Final Strike", and reads neither spirit stat (checked: SkillStatMap.lua, Modules/*.lua for "primal_strikes").
+    models.combo_sequence_model: Normal, Normal, Final Strike, plus the spirits a combo at the boss's Shock share (the
+    skill never Shocks: other skills' Shock, MECH-A's uptimes after the consume cut): 2 x 1 spirit and the stampede's
+    6 at +50%, of which (2 x 1.5 m boss radius + 1.8 m wave width) / 1.6 m volley spacing = 3 reach the boss (LOW: the
+    spacing read as side by side; along one line all 6), each at PoB's Spirits set per-use hit. volley_delay (150 ms
+    between spirits of a volley) moves timing within a combo, not hits a combo. Not counted: the first two attacks'
+    Shock refresh (MECH-A's Shock uptime), area modifiers widening the wave (primal_strikes_stag_is_scaled_with_area_
+    of_effect; an undercount).
+  sources: ["data/game-26476662/tables/GrantedEffectStatSets.json (530-532, 7931)", "ActiveSkills primal_strikes (description)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (PrimalStrikesPlayer)"]
+  test_in_game: "Shock a dummy with another skill, then run Primal Strikes' three-hit combo: each of the first two hits should send one spirit, the third a stampede."
+  status: proposed
+
+- id: model-gem12-ember-fusillade-fusillade
+  title: "Ember Fusillade: Embers fire as a Fusillade once you stop casting (cap 10 at level 20), each 5% more than the one before"
+  kind: model
+  model: ember_fusillade
+  stats: ["ember_fusillade_damage_+%_final_per_ember_fired", "blazing_cluster_maximum_number_of_projectiles_allowed"]
+  skill: [Ember Fusillade]
+  confidence: LOW
+  notes: >-
+    PoB reads neither stat (checked: SkillStatMap.lua, Modules/*.lua for "blazing_cluster" / "ember_fusillade") and
+    scores one Ember a cast fired at the cast rate. The game (ActiveSkills ember_fusillade): "Recasting this spell
+    resets the duration for all active Embers"; 0.1.1f: extra projectiles add Embers; "{0}% more Damage for each previous
+    Ember fired in sequence". models.ember_fusillade_model: k casts (ProjectileCount Embers each, up to the cap), the
+    Ember duration (PoB's Duration, base 1.3 s) with no recast, then n Embers at 1 + 5% x (i - 1); the best k; against
+    PoB's Speed x 1: an OVERCOUNT for fast casters with one Ember a cast (Speed 2.5: x0.92; 5: x0.74), a gain with
+    extra projectiles. LOW: launch spacing (100 ms) not counted as time; every Ember hits the lone boss; Lightning
+    Infusion beams unchanged; other skills during the wait not counted.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (EmberFusilladePlayer)",
+            "data/game-26476662/files/data/statdescriptions/skill_stat_descriptions.csd (ember_fusillade_damage_+%_final_per_ember_fired)",
+            "ActiveSkills ember_fusillade", "patch notes 0.1.1f (additional projectiles add Embers), --history newest 0.4.0c (Spell Totem)"]
+  test_in_game: "Cast Ember Fusillade 10 times quickly, then stop: the Embers fire about 1.3 s after the last cast, later ones hitting harder."
+  status: proposed
+
+- id: model-gem12-whirlwind-stages
+  title: "Whirling Slash / Whirlwind Lance: uses over one Whirlwind add stages (max 3), and its collapse deals 150% more per stage after the first"
+  kind: model
+  model: whirlwind_stage
+  stats: ["sandstorm_swipe_max_stages", "sandstorm_swipe_storm_damage_+%_final_per_stage"]
+  skill: [Whirling Slash, Whirlwind Lance]
+  confidence: LOW
+  notes: >-
+    PoB maps the per-stage more on its config count whirlwindStages (Multiplier:WhirlwindStageAfterFirst, ConfigOptions
+    730-734), which nothing sets (checked: grep "whirlwindStages" / "WhirlwindStage" in builder/ and engine/: none; no
+    defaultState), so it scores a stage-1 collapse at every use, or the slash / spear alone. KeywordPopups Whirlwind:
+    a use overlapping an existing Whirlwind grants it a stage; crossing its edge collapses it. models.whirlwind_stage_
+    model: k = max stages uses (each use's own hit: the Melee / Spear set) then one collapse at stage k (x(1 + 1.5 x
+    (k - 1))), over k uses' time, against the kept set's TotalDPS (an UNDERCOUNT mostly; an OVERCOUNT of a collapse
+    every use where PoB kept the Whirlwind set with a large collapse). LOW: crossing the edge costs no time; the boss
+    inside; Whirlwind Lance's Frenzy Charge stage not counted (MECH-C's charges). The per-stage more: 150 + the quality part the bridge reads off the first stat set (probe POE2T2102: 40 at 20 quality). The radius per stage isn't needed
+    against one boss.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (WhirlingSlashPlayer, WhirlwindLancePlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua (whirlwindStages)", "KeywordPopups Whirlwind",
+            "data/game-26476662/files/data/statdescriptions/skill_stat_descriptions.csd (sandstorm_swipe_storm_damage_+%_final_per_stage)",
+            "patch notes --history Whirling Slash (newest 0.5.4b, a monster's), Whirlwind Lance (newest 0.4.0)"]
+  test_in_game: "Use Whirling Slash three times in place, then step out: the collapse should hit about 4 times as hard as after one slash."
+  status: proposed
+
+- id: model-gem12-meteor-rates
+  title: "The Stars Answer / Walking Calamity: a meteor every 0.3 s / 0.15 s, every 15th large (frequency per extra enemy: none on a lone boss)"
+  kind: model
+  model: meteor_rate
+  stats: ["walking_calamity_spawn_meteor_every_ms", "walking_calamity_large_meteor_every",
+          "walking_calamity_large_meteor_same_target_prevention_duration_ms",
+          "walking_calamity_meteor_frequency_+%_per_enemy_in_walking_calamity_radius",
+          "walking_calamity_meteor_frequency_+%_cap", "walking_calamity_ignore_first_x_enemies_for_frequency_increase"]
+  skill: [The Stars Answer, Walking Calamity]
+  confidence: LOW
+  notes: >-
+    PoB reads none of the walking_calamity_* stats (checked: SkillStatMap.lua and Modules/*.lua for "walking_calamity").
+    Probe POE2T2102 (real PoB, scratch/gem12/probe_gem12.json): Starfall's Small Star at hitTimeOverride 0.3, Large Star
+    at 2 (the same-target limit, not its rate); Walking Calamity's Meteors at the attack rate (1.25/s), the search keeping
+    the Large Meteor set. models.meteor_rate_model: r = 1 / spawn interval, 14 of 15 small and 1 large (the 2 s limit
+    never binds at 4.5 s / 2.25 s), hits = each set's AverageDamage, x Walking Calamity's uptime (its Glory-paid uses a
+    second, models.glory_plan via Assumptions.glory_caps, x 10 s: PoB counted it always on), against the kept set. When the Glory plan counts no source for it (its own, Rage gained at maximum Rage, isn't counted yet: MECH-C), PoB's number is kept and the note says so (probe POE2T2103: the plan gave 0 uses; a zero there isn't verified).
+    The frequency per extra enemy ignores the first (a lone boss: +0). LOW: every meteor hits the boss (Walking
+    Calamity's text names no target); Skill Effect Duration not read; The Stars Answer's buff duration UNVERIFIED (kept
+    always up, as PoB; usage.py).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (TheStarsAnswerPlayer, TheStarsAnswerCometPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (WalkingCalamityPlayer, WalkingCalamityMeteorPlayer)",
+            "ActiveSkills the_stars_answer, walking_calamity", "probe POE2T2102"]
+  test_in_game: "Stand by a lone boss with The Stars Answer up for 9 s: about 30 stars should fall on it, 2 of them large."
+  status: proposed

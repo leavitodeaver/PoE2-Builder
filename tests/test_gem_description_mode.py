@@ -350,7 +350,6 @@ def test_a_combo_skill_is_scored_over_its_whole_combo_not_the_set_pob_keeps():
     assert [m["value"] for m in mods] == [pytest.approx(100 * (average / 150 - 1), abs=0.01)]  # an overcount cut
     mods, _ = models.combo_sequence_model("Ice Strike", "Normal Strikes", sets)
     assert [m["value"] for m in mods] == [pytest.approx(100 * (average / 100 - 1), abs=0.01)]
-    assert models.combo_sequence_model("Primal Strikes", "Normal Strikes", sets) == ([], [])
 
 
 def test_tempest_flurrys_third_use_strikes_three_times_in_its_combo():
@@ -360,3 +359,118 @@ def test_tempest_flurrys_third_use_strikes_three_times_in_its_combo():
     mods, notes = models.combo_sequence_model("Tempest Flurry", "Fourth Strike", sets)
     assert [m["value"] for m in mods] == [pytest.approx(100 * (average / 200 - 1), abs=0.01)]
     assert "x3 Strikes" in notes[0]["basis"]
+
+
+def _named(mods: list[dict], suffix: str) -> list[tuple[str, float]]:
+    return [(m["name"], m["value"]) for m in mods if m.get("name", "").endswith(suffix)]
+
+
+def test_vruuns_aftermath_empowers_3_more_on_the_warcries_that_find_a_wall():
+    cry = Skill("Infernal Cry", 2, support_stats={models.VRUUN_STAT: 3})
+    wall = Skill("Frost Wall", 3, spell=True)
+    # (the cry once every 4 s, the wall once every 8 s: half the cries come after a fresh wall)
+    groups = {2: {"name": "Infernal Cry", "speed": 0.25}, 3: {"name": "Frost Wall", "speed": 0.125}}
+    mods, notes = models.vruun_aftermath_model([cry, wall], {}, None, groups)
+    assert _named(mods, "EmpoweredAttacks") == [("InfernalEmpoweredAttacks", pytest.approx(1.5))]
+    assert notes[0]["entry"] == models.VRUUN_ENTRY and "50%" in notes[0]["basis"]
+    # (a wall every 2 s: every cry finds one)
+    groups[3]["speed"] = 0.5
+    assert _named(models.vruun_aftermath_model([cry, wall], {}, None, groups)[0], "EmpoweredAttacks") == [
+        ("InfernalEmpoweredAttacks", 3)]
+
+
+def test_vruuns_aftermath_counts_nothing_without_a_crystal_or_fragment_maker_and_names_the_uncounted_ones():
+    cry = Skill("Seismic Cry", 2, support_stats={models.VRUUN_STAT: 3})
+    shred = Skill("Shred", 4, attack=True)
+    mods, notes = models.vruun_aftermath_model([cry, shred], {}, None, {2: {"name": "Seismic Cry", "speed": 0.2}})
+    assert mods == [] and notes[0]["value"] == 0 and "Shred" in notes[0]["basis"]
+
+
+def test_vruuns_aftermath_a_small_maker_builds_up_to_its_limit():
+    cry = Skill("Infernal Cry", 2, support_stats={models.VRUUN_STAT: 3})
+    locus = Skill("Frozen Locus", 3, spell=True)  # one crystal, one allowed: never 5 alone
+    groups = {2: {"name": "Infernal Cry", "speed": 0.25}, 3: {"name": "Frozen Locus", "speed": 1.0}}
+    mods, _ = models.vruun_aftermath_model([cry, locus], {}, None, groups)
+    assert _named(mods, "EmpoweredAttacks") == [("InfernalEmpoweredAttacks", pytest.approx(3 * 1 / 5))]
+
+
+def test_uhtreds_rite_gives_overflowing_chalice_at_its_uptime():
+    skill = Skill("Shield Wall", 2, cooldown=4.0, cooldown_recovery=1.0,
+                  support_stats={models.UHTRED_RITE_STAT: 1000})
+    # (used once every 8 s, 4 s of Chalice a use: up half the fight)
+    mods, notes = models.uhtred_rite_model([skill], {}, None, {2: {"name": "Shield Wall", "speed": 0.125}})
+    got = {(m["name"], m["type"]): m["value"] for m in mods}
+    assert got == {("LifeFlaskChargesGenerated", "BASE"): pytest.approx(1.0),
+                   ("ManaFlaskChargesGenerated", "BASE"): pytest.approx(1.0), ("FlaskRecovery", "INC"): pytest.approx(15.0)}
+    assert notes[0]["entry"] == models.UHTRED_RITE_ENTRY and notes[0]["value"] == "50% uptime"
+    # (on cooldown: always up, capped at 100%)
+    mods, _ = models.uhtred_rite_model([skill], {}, None, {2: {"name": "Shield Wall", "speed": 0.3}})
+    assert {m["name"]: m["value"] for m in mods}["LifeFlaskChargesGenerated"] == pytest.approx(2.0)
+
+
+def test_primal_strikes_combo_adds_its_spirits_on_a_shocked_boss_only():
+    sets = [{"label": "Normal Strikes", "TotalDPS": 100.0, "Speed": 2.0},  # 50 a hit in 0.5 s
+            {"label": "Spirits", "TotalDPS": 40.0, "Speed": 2.0},  # 20 a spirit
+            {"label": "Final Strike", "TotalDPS": 120.0, "Speed": 1.0}]  # 120 in 1 s
+    plain = (50 + 50 + 120) / 2.0
+    mods, notes = models.combo_sequence_model("Primal Strikes", "Normal Strikes", sets)
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (plain / 100 - 1), abs=0.01)]
+    assert "spirits not counted" in notes[0]["basis"]
+    reach = (2 * models.SALVO_BOSS_RADIUS + models.PRIMAL_WIDTH) / models.PRIMAL_SPACING
+    spirits = 0.5 * (2 + reach * 1.5) * 20
+    mods, notes = models.combo_sequence_model("Primal Strikes", "Spirits", sets, shocked=0.5)
+    assert [m["value"] for m in mods] == [pytest.approx(100 * ((plain + spirits / 2.0) / 40 - 1), abs=0.01)]
+
+
+def test_ember_fusillade_fires_as_a_fusillade_after_the_casts_not_one_ember_a_cast():
+    ember = Skill("Ember Fusillade", 1, spell=True,
+                  level_stats={models.EMBER_CAP_STAT: 10, models.EMBER_MORE_STAT: 5})
+    stats = {"Speed": 2.5, "Duration": 1.3, "ProjectileCount": 1}
+    best = 10 * (1 + 0.05 * 9 / 2) / (10 / 2.5 + 1.3)  # ten casts, then the wait
+    mods, notes = models.ember_fusillade_model(ember, stats)
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (best / 2.5 - 1), abs=0.01)]  # an overcount cut
+    assert notes[0]["entry"] == models.EMBER_ENTRY and "10 casts" in notes[0]["basis"]
+    # (three Embers a cast: four casts reach the cap, more than PoB's one a cast)
+    mods, _ = models.ember_fusillade_model(ember, {**stats, "ProjectileCount": 3})
+    assert mods[0]["value"] > 0
+    assert models.ember_fusillade_model(Skill("Spark", 1), stats) == ([], [])
+
+
+def test_whirling_slash_builds_three_stages_then_collapses_once():
+    sets = [{"label": "Melee", "TotalDPS": 200.0, "Speed": 2.0},  # 100 a slash
+            {"label": "Whirlwind", "TotalDPS": 120.0, "Speed": 2.0}]  # 60 a stage-1 collapse
+    slash = Skill("Whirling Slash", 1, attack=True, melee=True, stat_set="Whirlwind")
+    average = (3 * 100 + 60 * (1 + 1.5 * 2)) / (3 / 2.0)  # 360 DPS
+    mods, notes = models.whirlwind_stage_model(slash, sets)
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (average / 120 - 1), abs=0.01)]
+    assert notes[0]["entry"] == models.WHIRL_ENTRY
+    assert models.whirlwind_stage_model(Skill("Ice Strike", 1, stat_set="Melee"), sets) == ([], [])
+
+
+def test_whirlwind_stage_more_read_as_quality_on_top_of_the_whirlwind_sets_150():
+    sets = [{"label": "Melee", "TotalDPS": 200.0, "Speed": 2.0}, {"label": "Whirlwind", "TotalDPS": 120.0, "Speed": 2.0}]
+    slash = Skill("Whirling Slash", 1, attack=True, melee=True, stat_set="Whirlwind",
+                  level_stats={models.WHIRL_MORE_STAT: 40})  # (the first set's levelStats: the quality part only)
+    average = (3 * 100 + 60 * (1 + 1.9 * 2)) / (3 / 2.0)
+    mods, _ = models.whirlwind_stage_model(slash, sets)
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (average / 120 - 1), abs=0.01)]
+
+
+def test_meteors_fall_at_the_games_rate_with_every_15th_large_and_walking_calamitys_uptime():
+    sets = [{"label": "Small Meteor", "TotalDPS": 125.0, "AverageDamage": 100.0},
+            {"label": "Large Meteor", "TotalDPS": 375.0, "AverageDamage": 300.0}]  # (PoB at 1.25/s)
+    meteors = Skill("Meteors", 1, attack=True, triggered=True, stat_set="Large Meteor")
+    active = 100 / 0.15 * 14 / 15 + 300 / 0.15 / 15
+    mods, notes = models.meteor_rate_model(meteors, sets, 0.5, "half")
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (active * 0.5 / 375 - 1), abs=0.01)]
+    assert notes[0]["entry"] == models.METEOR_ENTRY and "50%" in notes[0]["basis"]
+    stars = [{"label": "Small Star", "TotalDPS": 1000.0, "AverageDamage": 300.0},
+             {"label": "Large Star", "TotalDPS": 450.0, "AverageDamage": 900.0}]
+    starfall = Skill("Starfall", 1, spell=True, triggered=True, stat_set="Small Star")
+    mods, notes = models.meteor_rate_model(starfall, stars)  # (its buff's duration unknown: always up, as PoB)
+    expected = 300 / 0.3 * 14 / 15 + 900 / 0.3 / 15
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (expected / 1000 - 1), abs=0.01)]
+    assert "UNVERIFIED" in notes[0]["basis"]
+    # (no Glory source counted for Walking Calamity: PoB's number kept, never a zero on an uncounted source)
+    mods, notes = models.meteor_rate_model(meteors, sets, 0.0, "no source counted")
+    assert mods == [] and notes[0]["value"] == "PoB's kept"

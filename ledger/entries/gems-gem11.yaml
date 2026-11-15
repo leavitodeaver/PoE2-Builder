@@ -151,7 +151,7 @@
   stats: ["statset_index_for_second_animation_combo_index", "statset_index_for_third_animation_combo_index",
           "statset_index_for_fourth_animation_combo_index", "statset_index_for_fifth_animation_combo_index",
           "statset_index_for_final_animation_combo_index"]
-  skill: [Ice Strike, Tempest Flurry, Shred]
+  skill: [Ice Strike, Tempest Flurry, Shred, Primal Strikes]
   confidence: LOW
   notes: >-
     GEM7's open combo rows. PoB maps none of the combo-index stats (checked: SkillStatMap.lua and Modules/*.lua for
@@ -162,7 +162,7 @@
     POE2T2093-2096 (real PoB, scratch/gem11/probe209N.log): PoB's DpsMultiplier carries the factor (Ice Strike x1.04,
     Tempest Flurry x2.89 on the Third Strike set the search kept); raw sets Normal 94.7, Third 39.8, Fourth 200.6 DPS,
     so keeping the Fourth Strike set alone overcounted the combo about 1.75x (before the x3 Strikes). LOW: the combo
-    never broken. Primal Strikes left open (its "Spirits" step).
+    never broken. Primal Strikes added by GEM12 (model-gem12-primal-strikes-spirits: PoB's "Spirits" set is the spirit wave, not a step).
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (IceStrikePlayer, TempestFlurryPlayer)",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (WolfShredPlayer)"]
   test_in_game: "Use Ice Strike continuously on a dummy for 10 s: the damage should match two Normal Strikes and one Third Strike per cycle."

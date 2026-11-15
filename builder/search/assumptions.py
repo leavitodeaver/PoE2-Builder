@@ -1492,8 +1492,23 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + slam_mods, hand_notes + slam_notes
         if main is not None and group and main.name in models.COMBO_SEQUENCES:  # (GEM11: a combo's step sets)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
-            combo_mods, combo_notes = models.combo_sequence_model(main.name, main.stat_set, sets, forbidden)
+            up, up_how = models.ailment_up_of(build)  # (GEM12: Primal Strikes' spirits need a Shocked boss)
+            combo_mods, combo_notes = models.combo_sequence_model(main.name, main.stat_set, sets, forbidden,
+                                                                  up.get("Shock") if up else None, up_how)
             hand_mods, hand_notes = hand_mods + combo_mods, hand_notes + combo_notes
+        if main is not None and group and main.name in models.WHIRL_SKILLS:  # (GEM12: Whirlwind stages, then collapse)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            whirl_mods, whirl_notes = models.whirlwind_stage_model(main, sets, forbidden)
+            hand_mods, hand_notes = hand_mods + whirl_mods, hand_notes + whirl_notes
+        if main is not None and group and main.name in models.METEOR_SKILLS:  # (GEM12: the meteors' rate and mix)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            buff, up, up_how = models.METEOR_BUFF.get(main.name), None, ""
+            if buff is not None:  # (its uses a second from its Glory, as press_caps reads it for a side group)
+                uses, up_how = self.glory_caps().get(buff, (0.0, f"{buff}: its Glory wasn't read"))
+                up = uses * models.GLORY_INSTANCE.get(buff, 0.0)
+                up_how = f"{uses:.3f} uses a second x its {models.GLORY_INSTANCE.get(buff, 0.0):g} s; {up_how}"
+            meteor_mods, meteor_notes = models.meteor_rate_model(main, sets, up, up_how, forbidden)
+            hand_mods, hand_notes = hand_mods + meteor_mods, hand_notes + meteor_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)

@@ -3194,7 +3194,8 @@ def gem_stat_support_stats() -> list[str]:
                   | set(LIFE_LOSS_STATS) | {MUSTER_STAT, INEXORABLE_STAT, INEXORABLE_CAP_STAT, BURGEON_STAT,
                                          BURGEON_CAP_STAT, SALVO_PROJECTILE_STAT, SALVO_INTERVAL_STAT, SALVO_MAX_STAT,
                                          VOLT_PER_METRE_STAT, VOLT_MAX_STAT, VOLT_GAIN_STAT, RATHA_DODGE_STAT,
-                                         BHATAIR_STAT, TRICKSTER_STAT, OLROTH_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
+                                         BHATAIR_STAT, TRICKSTER_STAT, OLROTH_STAT, VRUUN_STAT,
+                                         UHTRED_RITE_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
 
 
 def _skill_names(entry) -> list[str]:
@@ -3336,6 +3337,12 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + trick_mods, notes + trick_notes
     olroth_mods, olroth_notes = olroth_model(skills, forbidden)
     mods, notes = mods + olroth_mods, notes + olroth_notes
+    vruun_mods, vruun_notes = vruun_aftermath_model(skills, stats or {}, main, groups or {}, forbidden)
+    mods, notes = mods + vruun_mods, notes + vruun_notes
+    rite_mods, rite_notes = uhtred_rite_model(skills, stats or {}, main, groups or {}, forbidden)
+    mods, notes = mods + rite_mods, notes + rite_notes
+    ember_mods, ember_notes = ember_fusillade_model(main, stats or {}, forbidden)
+    mods, notes = mods + ember_mods, notes + ember_notes
     return mods, notes
 
 
@@ -4822,8 +4829,21 @@ def trickster_model(skills: list[Skill], stats: dict, main: Skill | None,
 #   them: LOW).
 # - Shred (Werewolf): third / fourth / fifth = 1 ("Fast Strikes"), final = 2 ("Final Strike", "the final Attack Strikes
 #   twice"): Normal, Normal, Fast x3, Final (the final step taken as the sixth: LOW; its two Strikes as PoB's set counts).
-# - Primal Strikes is left open: its second step is the "Spirits" set (a spirit conjured only on a Shocked enemy) and
-#   what that set's number holds isn't settled (said in the report).
+# - Primal Strikes (GEM12): the game's four stat sets (GrantedEffectStatSets 530-532, 7931): PrimalStrikesPlayer (the
+#   first stab), PrimalStrikesSecondPlayer (only melee_range_+ 10), PrimalStrikesFinalPlayer (final = 2) and
+#   PrimalStrikesStagWavePlayer (the spirits' charge: 8.6 m long, 1.8 m wide). PoB keeps three, "Normal Strikes",
+#   "Spirits" (the stag wave, at the game's index 1, so PoB's second set is NOT the second strike) and "Final Strike":
+#   Normal, Normal, Final Strike (the second stab as the first: its set differs only in reach). Its description
+#   (ActiveSkills primal_strikes): "The first two attacks conjure a charging Wildwood spirit if they Hit a Shocked enemy
+#   and refresh Shock duration. The third attack ... can Consume Shock to conjure a stampede of spirits"; the skill
+#   never Shocks (never_shock), so the boss's Shock comes from the build's other hits (MECH-A's uptimes after the
+#   consume cut, ailment_up_of). Spirits a combo: Shock share x (2 x primal_strikes_number_of_stags 1 + the stampede's
+#   6 x primal_strikes_stag_stampede_damage_+%_final 50%), each at the Spirits set's per-use hit (one spirit: PoB reads
+#   neither stat, checked: SkillStatMap.lua / Modules for "primal_strikes": none). The stampede's 6 spirits fly
+#   primal_strikes_stag_volley_spacing 16 (1.6 m) apart: those that reach the boss = min(6, (2 x the boss's radius
+#   SALVO_BOSS_RADIUS 1.5 m + the wave's 1.8 m width) / 1.6 m) = 3 (LOW, UNVERIFIED: the spacing read as side by side;
+#   along one line all 6 hit: printed in the note). The +50% taken as the stampede's only (its id; no game text found
+#   for it: UNVERIFIED). Shock at the third attack taken as the fight's Shock share (LOW).
 # The combo's average: each step's hit (the set's TotalDPS / Speed, PoB's per-use damage) over each step's time (1 /
 # the set's Speed): sum of hits / sum of times, against the scored set's TotalDPS, as DPS "more" on the main skill. LOW:
 # the combo taken as never broken (used in quick succession against the boss; a dodge roll between steps may reset it,
@@ -4832,7 +4852,13 @@ COMBO_SEQUENCES: dict[str, tuple[str, ...]] = {
     "Ice Strike": ("Normal Strikes", "Normal Strikes", "Third Strike"),
     "Tempest Flurry": ("Normal Strikes", "Normal Strikes", "Third Strike", "Fourth Strike"),
     "Shred": ("Normal Strikes", "Normal Strikes", "Fast Strikes", "Fast Strikes", "Fast Strikes", "Final Strike"),
+    "Primal Strikes": ("Normal Strikes", "Normal Strikes", "Final Strike"),
 }
+PRIMAL_SPIRITS_SET = "Spirits"  # (PoB's label for the game's PrimalStrikesStagWavePlayer)
+PRIMAL_SPIRITS_EACH = 1  # primal_strikes_number_of_stags on the first two attacks
+PRIMAL_STAMPEDE = 6  # primal_strikes_number_of_stags on the Final Strike
+PRIMAL_STAMPEDE_MORE = 50.0  # primal_strikes_stag_stampede_damage_+%_final
+PRIMAL_SPACING, PRIMAL_WIDTH = 1.6, 1.8  # metres: primal_strikes_stag_volley_spacing 16; the wave's secondary radius 18
 COMBO_ENTRY = "model-gem11-combo-strike-sequence"
 # Steps that Strike more than once in one use, by the skills' own descriptions (ActiveSkills, build 26476662): Tempest
 # Flurry "the third use [Strike|Strikes] three times"; Shred "the final [Attack] [Strike|Strikes] twice". PoB's sets carry
@@ -4842,9 +4868,11 @@ COMBO_STRIKES: dict[tuple[str, str], int] = {("Tempest Flurry", "Third Strike"):
 
 
 def combo_sequence_model(main: str | None, scored: str | None, sets: list[dict],
-                         forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                         forbidden: set[str] = frozenset(), shocked: float | None = None,
+                         shock_how: str = "") -> tuple[list[dict], list[dict]]:
     """A combo skill's average DPS over its whole combo (COMBO_SEQUENCES) against the one stat set PoB scores. `sets`:
-    the bridge's setRates for the main group's skill (label, TotalDPS, Speed per set)."""
+    the bridge's setRates for the main group's skill (label, TotalDPS, Speed per set). `shocked`: the boss's Shock share
+    (Primal Strikes' spirits; None: not known, the spirits count 0)."""
     steps = COMBO_SEQUENCES.get(main or "")
     if not steps or COMBO_ENTRY in forbidden:
         return [], []
@@ -4855,6 +4883,10 @@ def combo_sequence_model(main: str | None, scored: str | None, sets: list[dict],
     strikes = {label: COMBO_STRIKES.get((main, label), 1) for label in steps}
     damage = sum(rows[label][0] / rows[label][1] * strikes[label] for label in steps)
     seconds = sum(1 / rows[label][1] for label in steps)
+    spirits_how = ""
+    if main == "Primal Strikes":
+        extra, spirits_how = primal_spirits(rows, shocked, shock_how)
+        damage += extra
     average = damage / seconds
     factor = average / rows[scored][0]
     parts = ", ".join(f"{label} {rows[label][0] / rows[label][1]:,.0f}"
@@ -4863,11 +4895,28 @@ def combo_sequence_model(main: str | None, scored: str | None, sets: list[dict],
     note = {"label": f"{main}: the whole combo, not one stat set*", "value": f"x{factor:.3f}", "confidence": "LOW",
             "entry": COMBO_ENTRY,
             "basis": (f"one combo is {parts}: {average:,.0f} DPS against PoB's {scored} set alone "
-                      f"({rows[scored][0]:,.0f}). LOW: the combo taken as never broken; a step's extra Strikes (game "
+                      f"({rows[scored][0]:,.0f}){spirits_how}. LOW: the combo taken as never broken; a step's extra Strikes "
+                      "(game "
                       "text) taken at the set's per-use damage each (UNVERIFIED)"),
             "play": (f"Keep using {main} so its combo runs to the end. PoB's {scored} set alone: x1.000; the full "
                      f"combo: x{factor:.3f}.")}
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main)], [note]
+
+
+def primal_spirits(rows: dict, shocked: float | None, how: str = "") -> tuple[float, str]:
+    """(Primal Strikes' spirits' damage a combo, how): see COMBO_SEQUENCES' comment."""
+    total, speed = rows.get(PRIMAL_SPIRITS_SET, (0.0, 0.0))
+    if shocked is None or total <= 0 or speed <= 0:
+        why = "the boss's Shock share isn't known" if shocked is None else "PoB gives its Spirits set no damage"
+        return 0.0, f"; its spirits not counted ({why})"
+    hit = total / speed
+    reach = min(PRIMAL_STAMPEDE, (2 * SALVO_BOSS_RADIUS + PRIMAL_WIDTH) / PRIMAL_SPACING)
+    per = shocked * (2 * PRIMAL_SPIRITS_EACH + reach * (1 + PRIMAL_STAMPEDE_MORE / 100))
+    return per * hit, (f"; plus its spirits on a Shocked boss ({shocked:.0%} of the time{': ' + how if how else ''}; "
+                       f"Primal Strikes never Shocks itself): {2 * PRIMAL_SPIRITS_EACH} spirits and the stampede's "
+                       f"{reach:.1f} of {PRIMAL_STAMPEDE} that reach a {SALVO_BOSS_RADIUS:g} m boss (LOW; all "
+                       f"{PRIMAL_STAMPEDE} if they fly in one line) at +{PRIMAL_STAMPEDE_MORE:g}%, {hit:,.0f} a spirit "
+                       f"(PoB's Spirits set): {per * hit:,.0f} a combo")
 
 
 # Olroth's Conviction's extra Empowered skill uses (GEM11 turn 2; PATCH_CHECK H1-10, an UNDERCOUNT). Olroth's Conviction
@@ -4912,6 +4961,350 @@ def olroth_model(skills: list[Skill], forbidden: set[str] = frozenset()) -> tupl
                           "basis": f"{s.name}'s {extra:g} extra Empowered uses aren't counted yet (its Empower is counted "
                                    "by MECH-B's models, which don't read the support: an undercount, said)"})
     return mods, notes
+
+
+# Vruun's Aftermath (GEM12; PATCH_CHECK H1-10, an UNDERCOUNT): other.lua SupportVruunsAftermath (Warcries only), three
+# stats, all mapped to nothing by PoB (checked: SkillStatMap.lua and Modules/*.lua for "ice_crystal" / "ice_fragments" /
+# "warcries_empower": no reader). The game (gem_stat_descriptions.csd): "Supported Warcries Empower {0} additional Attacks
+# if they destroy at least 5 total Ice Crystals and Ice Fragments" (support_warcries_empower_x_additional_per_5_total_ice_
+# crystals_or_fragments_destroyed 3: the id says "per 5", the text "if at least 5": the text is taken, the lower reading;
+# the id's reading is printed in the note), "Supported Warcries cause Ice Crystals to explode", "Supported Warcries
+# Detonate your Ice Fragments". 0.5.0 added it (--history: one entry, no numbers). PoB's Num<Name>Empowers isn't floored
+# (CalcPerform 2206-2211), so the +3 goes on as <Name>EmpoweredAttacks BASE 3 x the share of the Warcry's uses that find
+# at least 5 (the same route as olroth_model: Infernal Cry's uptime and Assumptions.empowered_uses read it).
+# The share, from the build's own crystal and fragment makers (VRUUN_MAKERS: per use, lifetime, cap), each at its own use
+# rate (PoB's useRates, x the press share; the main skill at PoB's Speed), against the Warcry's interval T:
+# - a maker that leaves at least 5 at once (a wall, Escape Shot's 7 fragments): the Warcry is used after one of its uses
+#   (the play that feeds it: LOW), so min(1, its uses per T) of the Warcries find 5;
+# - a smaller maker: what it builds up before the Warcry, min(cap, per use x rate x min(T, lifetime)) / 5;
+# - summed over the makers, at most 1 (LOW: makers mixed in one Warcry are added).
+# Not counted (named in the note, an UNDERCOUNT): Ice Fragments a trigger makes on Frozen enemies (Shred) or on killing
+# Frozen enemies (Frozen Spite: no kills on a lone boss), Midnight Zenith's crystals (its trigger rate is MECH-B's,
+# kw-ice-crystals.md item 2), Ice-Tipped Arrows past one fragment burst a use. The crystals' and fragments' own explosion
+# damage isn't added: PoB scores it as the maker's own part (Frost Wall's explosion) where that is a scored skill; the
+# Warcry only sets it off. A Frost Wall / Glacial Bolt wall taken as at least 5 crystals (UNVERIFIED: no crystal count in
+# the game's stats, wall_maximum_length only; LOW). Every crystal and fragment taken as inside the Warcry's area (LOW).
+VRUUN_STAT = "support_warcries_empower_x_additional_per_5_total_ice_crystals_or_fragments_destroyed"
+VRUUN_ENTRY = "model-gem12-vruun-aftermath-empowers"
+VRUUN_NEED = 5  # the stat text's "at least 5 total Ice Crystals and Ice Fragments"
+# name: (crystals / fragments a use, seconds each lasts, most there at once or None, what the numbers are)
+VRUUN_MAKERS = {
+    "Frost Wall": (5, 8.0, None, "a wall of Ice Crystals (at least 5: LOW), 8 s (base_skill_effect_duration)"),
+    "Glacial Bolt": (10, 8.0, None, "two walls of Ice Crystals (at least 5 each: LOW), 8 s"),
+    "Frozen Locus": (1, 10.0, 1, "one Ice Crystal, 10 s, 1 allowed (base_number_of_frozen_locus_allowed)"),
+    "Escape Shot": (7, 2.5, None, "7 Ice Fragments (EscapeShotIceFragmentPlayer), 2.5 s to Detonate"),
+    "Ice-Tipped Arrows": (5, 2.5, None, "5 Ice Fragments from an Empowered hit (one burst a use counted: LOW), 2.5 s"),
+    "Fragments of the Past": (10, 2.5, 10, "its volcano's 2 Ice Fragments every 0.5 s for 8 s, 2.5 s each: about 10 at "
+                                           "once while it stands"),
+}
+VRUUN_UNCOUNTED = {"Shred": "its Ice Fragments need a Frozen enemy", "Midnight Zenith": "its crystal rate is MECH-B's",
+                   "Frozen Spite": "its Ice Fragments need kills of Frozen enemies (none on a lone boss)"}
+
+
+def _skill_rate(skill: Skill, stats: dict, main: Skill | None, groups: dict) -> tuple[float, str]:
+    """(uses a second, how) of a skill: PoB's Speed if it's the main skill, else its group's useRates x the press share."""
+    if main is not None and skill.group is not None and skill.group == main.group:
+        return max(number(stats.get("Speed")), 0.0), f"{main.name} (main) at PoB's Speed"
+    row = groups.get(skill.group) or {}
+    press = row.get("_press")
+    rate = max(number(row.get("speed")) * number(press if press is not None else 1.0), 0.0)
+    return rate, (f"{row.get('name') or skill.name}" + (f" pressed {number(press):.0%}" if press is not None
+                                                         else " at PoB's rate"))
+
+
+def vruun_aftermath_model(skills: list[Skill], stats: dict, main: Skill | None, groups: dict,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Vruun's Aftermath: +3 Empowered Attacks on the share of its Warcry's uses that destroy at least 5 Ice Crystals
+    and Ice Fragments the build makes (comment above)."""
+    if VRUUN_ENTRY in forbidden:
+        return [], []
+    mods, notes, done = [], [], set()
+    label = "Vruun's Aftermath: more Attacks Empowered when the Warcry breaks your Ice Crystals / Fragments*"
+    for cry in skills:
+        extra = number(cry.support_stats.get(VRUUN_STAT))
+        if extra <= 0 or cry.name in done:
+            continue
+        done.add(cry.name)
+        cry_rate, cry_how = _skill_rate(cry, stats, main, groups)
+        every = 1 / cry_rate if cry_rate > 0 else 0.0
+        share, parts, skipped = 0.0, [], []
+        for maker in {s.name: s for s in skills if s.name in VRUUN_MAKERS and not s.triggered}.values():
+            each, life, cap, what = VRUUN_MAKERS[maker.name]
+            rate, how = _skill_rate(maker, stats, main, groups)
+            if every <= 0 or rate <= 0:
+                continue
+            if each >= VRUUN_NEED:
+                part = min(1.0, rate * every)
+                parts.append(f"{maker.name} ({what}) {how} {rate:.3g}/s: {rate * every:.2f} uses a Warcry, "
+                             f"{part:.0%} of them find {VRUUN_NEED}")
+            else:
+                there = min(cap if cap is not None else float("inf"), each * rate * min(every, life))
+                part = min(1.0, there / VRUUN_NEED)
+                parts.append(f"{maker.name} ({what}) {how} {rate:.3g}/s: {there:.2f} there at a Warcry ({part:.0%})")
+            share += part
+        skipped = [f"{n} ({why})" for n, why in VRUUN_UNCOUNTED.items() if any(s.name == n for s in skills)]
+        share = min(1.0, share)
+        name = cry.name.replace(" Cry", "").replace("'s", "").replace(" ", "")  # (PoB's warcryName, CalcPerform 2205)
+        basis = (f"{cry.name} ({cry_how}: one every {every:.2f} s)" if every > 0 else f"{cry.name} (no use rate read)")
+        basis += (": " + "; ".join(parts) if parts else ": no Ice Crystal or Ice Fragment maker in the build")
+        basis += (f"; not counted: {', '.join(skipped)} (an undercount)" if skipped else "")
+        basis += (f". +{extra:g} Empowered Attacks x {share:.0%} of its uses (the game text's 'if at least 5'; the "
+                  f"stat id's 'per 5' would give more with more crystals). The crystals' explosions aren't added (PoB "
+                  f"scores them on the maker); all taken as inside the Warcry's area (LOW)")
+        play = (f"Use {cry.name} right after your Ice Crystals / Ice Fragments are out (at least {VRUUN_NEED}): it "
+                f"Empowers {extra:g} more Attacks. Without them: +0; with them: +{extra:g} a Warcry "
+                f"({share:.0%} of this build's Warcries now).")
+        if share <= 0:
+            notes.append({"label": label, "value": 0, "confidence": "LOW", "entry": VRUUN_ENTRY,
+                          "basis": basis, "play": play})
+            continue
+        mods.append(raw_mod(f"{name}EmpoweredAttacks", "BASE", round(extra * share, 3)))
+        notes.append({"label": label, "value": f"+{extra * share:.2f} Empowered Attacks a use", "confidence": "LOW",
+                      "entry": VRUUN_ENTRY, "basis": basis, "play": play})
+    return mods, notes
+
+
+def vruun_aftermath_groups(skills: list[Skill]) -> set[int]:
+    """The groups vruun_aftermath_model reads a use rate from: the supported Warcries and the makers."""
+    if not any(number(s.support_stats.get(VRUUN_STAT)) > 0 for s in skills):
+        return set()
+    return {s.group for s in skills if s.group is not None
+            and (number(s.support_stats.get(VRUUN_STAT)) > 0 or (s.name in VRUUN_MAKERS and not s.triggered))}
+
+
+# Uhtred's Rite's Overflowing Chalice (GEM12; PATCH_CHECK H1-10, an UNDERCOUNT): other.lua SupportUhtredsRitePlayer
+# (Cooldown skills). PoB reads its two "during Flask" stats (statMap: Damage MORE on UsingLifeFlask, ManaCostEfficiency INC
+# on UsingManaFlask) but maps support_uhtreds_chalice_buff_on_skill_use_duration_ms_per_1000_ms_cooldown (1000) to nothing
+# (checked: SkillStatMap.lua, Modules/*.lua for "uhtreds_chalice" / "OverflowingChalice": no reader; ModCache's "Overflowing
+# Chalice Flask" line is a unique flask's, a different thing). The game: "Supported Skills grant Overflowing Chalice when
+# used, for {0} second per 1 second of their cooldown" (gem_stat_descriptions.csd); KeywordPopups OverflowingChalice:
+# "a buff that causes Life and Mana Flasks to gain 2 charges per second and provide 30% increased recovery". 0.5.0 added
+# the support (--history "Uhtred's Rite": one entry, no numbers; "Overflowing Chalice": no hit; no hit is not proof).
+# Counted as the buff's uptime u x (LifeFlaskChargesGenerated / ManaFlaskChargesGenerated BASE 2, FlaskRecovery INC 30),
+# which the bridge's chargeGain hands to flasks.py (MECH-C's flask uptimes, so the support's own 20% more during a Life
+# Flask follows). u = min(1, sum over the supported skills of uses a second x the buff's seconds), the buff's seconds =
+# the stat x the skill's cooldown after Cooldown Recovery (PoB's base cooldown / the bridge's cooldownRecovery: the lower
+# reading; on the base cooldown it lasts longer. Used on cooldown, both give 100%). Its uses a second: PoB's Speed if it's
+# the main skill, else its group's useRates x the press share. Skill Effect Duration on the buff not read (LOW, an
+# undercount at most). One buff: the supported skills' uptimes are added, at most 100% (LOW: overlaps).
+UHTRED_RITE_STAT = "support_uhtreds_chalice_buff_on_skill_use_duration_ms_per_1000_ms_cooldown"
+UHTRED_RITE_ENTRY = "model-gem12-uhtred-rite-overflowing-chalice"
+UHTRED_RITE_CHARGES = 2.0  # KeywordPopups OverflowingChalice: "gain 2 charges per second"
+UHTRED_RITE_RECOVERY = 30.0  # "and provide 30% increased recovery"
+
+
+def uhtred_rite_model(skills: list[Skill], stats: dict, main: Skill | None, groups: dict,
+                      forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Uhtred's Rite: Overflowing Chalice's flask charges and recovery at the buff's uptime (comment above)."""
+    if UHTRED_RITE_ENTRY in forbidden:
+        return [], []
+    uptime, parts, done = 0.0, [], set()
+    for s in skills:
+        per = number(s.support_stats.get(UHTRED_RITE_STAT)) / 1000
+        if per <= 0 or s.name in done:
+            continue
+        done.add(s.name)
+        cooldown = number(s.cooldown) / (s.cooldown_recovery or 1.0)
+        rate, how = _skill_rate(s, stats, main, groups)
+        seconds = per * cooldown
+        uptime += rate * seconds
+        parts.append(f"{s.name} ({how} {rate:.3g}/s, {cooldown:.2f} s cooldown: the buff {seconds:.2f} s a use)")
+    if not parts:
+        return [], []
+    uptime = min(1.0, uptime)
+    label = "Uhtred's Rite: Overflowing Chalice (flasks gain 2 charges a second, 30% increased recovery)*"
+    basis = ("; ".join(parts) + f": up {uptime:.0%} of the fight. Life and Mana Flasks gain {UHTRED_RITE_CHARGES:g} "
+             f"charges a second and {UHTRED_RITE_RECOVERY:g}% increased recovery for that share (the buff's seconds "
+             "from the cooldown after Cooldown Recovery: the lower reading; Skill Effect Duration not read, LOW)")
+    play = ("Use the Uhtred's Rite skill on cooldown: Overflowing Chalice then stays up and your flasks keep charging. "
+            f"Without it: +0 charges; with it: +{UHTRED_RITE_CHARGES * uptime:.2f} charges a second to each.")
+    if uptime <= 0:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM", "entry": UHTRED_RITE_ENTRY,
+                     "basis": basis + "; the supported skill isn't used", "play": play}]
+    mods = [raw_mod("LifeFlaskChargesGenerated", "BASE", round(UHTRED_RITE_CHARGES * uptime, 3)),
+            raw_mod("ManaFlaskChargesGenerated", "BASE", round(UHTRED_RITE_CHARGES * uptime, 3)),
+            raw_mod("FlaskRecovery", "INC", round(UHTRED_RITE_RECOVERY * uptime, 3))]
+    return mods, [{"label": label, "value": f"{uptime:.0%} uptime", "confidence": "MEDIUM", "entry": UHTRED_RITE_ENTRY,
+                   "basis": basis, "play": play}]
+
+
+def uhtred_rite_groups(skills: list[Skill]) -> set[int]:
+    """The groups uhtred_rite_model reads a use rate from."""
+    return {s.group for s in skills if s.group is not None and number(s.support_stats.get(UHTRED_RITE_STAT)) > 0}
+
+
+# Whirlwind stages (GEM12; Whirling Slash, Whirlwind Lance). KeywordPopups Whirlwind: "If their creator crosses the edge of
+# the Whirlwind it collapses ... Trying to create a Whirlwind that would overlap with an existing Whirlwind instead moves
+# the existing Whirlwind and grants it a stage, making it larger and more damaging"; sandstorm_swipe_max_stages 3,
+# sandstorm_swipe_storm_damage_+%_final_per_stage 150 (+2 a quality): "Collapse deals {0}% more damage per additional
+# stage" (skill_stat_descriptions.csd); Whirlwind Lance "Consumes a Frenzy Charge if possible to create the Whirlwind with
+# one more than its normal maximum number of stages" (ActiveSkills). PoB maps the per-stage more on its config count
+# whirlwindStages (Multiplier:WhirlwindStageAfterFirst, ConfigOptions 730-734), which nothing sets (checked: grep
+# "whirlwindStages" / "WhirlwindStage" in builder/ and engine/: none; no defaultState), and scores the set the search keeps
+# at every use: a stage-1 collapse each use (or the slash / spear alone). In the game a player who plays for it uses
+# the skill k times over one Whirlwind (each use's own hit lands: PoB's first set) and then collapses it once, at stage
+# k: per cycle k x first-set hit + the collapse's hit x (1 + more x (k - 1)), over k uses' time, against the kept set's
+# TotalDPS, as DPS "more" / "less" on the skill. k = the maximum stages (3; Whirlwind Lance's Frenzy Charge stage not
+# counted: Frenzy Charges are MECH-C's, an undercount said). LOW: crossing the edge taken to cost no time (Whirling Slash
+# moves you with the slash; Whirlwind Lance needs a step into it); the boss inside the Whirlwind.
+WHIRL_SKILLS = {"Whirling Slash": "Melee", "Whirlwind Lance": "Spear"}  # skill: its own hit's set (PoB's labels)
+WHIRL_SET = "Whirlwind"
+WHIRL_ENTRY = "model-gem12-whirlwind-stages"
+WHIRL_MORE_STAT, WHIRL_STAGES_STAT = "sandstorm_swipe_storm_damage_+%_final_per_stage", "sandstorm_swipe_max_stages"
+WHIRL_MORE, WHIRL_STAGES = 150.0, 3  # the base values (used when the gem's own aren't read)
+
+
+def whirlwind_stage_model(main: Skill | None, sets: list[dict],
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Whirling Slash / Whirlwind Lance as k uses then one collapse at stage k (comment above). `sets`: setRates."""
+    if main is None or main.name not in WHIRL_SKILLS or WHIRL_ENTRY in forbidden:
+        return [], []
+    rows = {s.get("label"): (number(s.get("TotalDPS")), number(s.get("Speed"))) for s in sets}
+    own, scored = WHIRL_SKILLS[main.name], main.stat_set
+    if any(rows.get(label, (0, 0))[1] <= 0 for label in (own, WHIRL_SET)) or rows.get(scored, (0, 0))[0] <= 0:
+        return [], []
+    # (the bridge's levelStats are the first stat set's: Melee / Spear carry no per-stage constant, so what's read there
+    # is the quality part alone, 2 a quality: probe POE2T2102 read 40 at 20 quality; the Whirlwind set's 150 is added)
+    read = number(main.level_stats.get(WHIRL_MORE_STAT))
+    more = read if read >= WHIRL_MORE else WHIRL_MORE + read
+    stages = int(number(main.level_stats.get(WHIRL_STAGES_STAT)) or WHIRL_STAGES)
+    hit, speed = rows[own][0] / rows[own][1], rows[own][1]
+    collapse = rows[WHIRL_SET][0] / rows[WHIRL_SET][1]
+    cycle = stages * hit + collapse * (1 + more / 100 * (stages - 1))
+    average = cycle / (stages / speed)
+    factor = average / rows[scored][0]
+    note = {"label": f"{main.name}: {stages} stages, then the Whirlwind collapses*", "value": f"x{factor:.3f}",
+            "confidence": "LOW", "entry": WHIRL_ENTRY,
+            "basis": (f"{stages} uses ({own} {hit:,.0f} each at {speed:.2f}/s) over one Whirlwind, then its collapse at "
+                      f"stage {stages}: {collapse:,.0f} x{1 + more / 100 * (stages - 1):.2f} ({more:g}% more a stage after "
+                      f"the first): {average:,.0f} DPS against PoB's {scored} set at every use ({rows[scored][0]:,.0f}; "
+                      "PoB's whirlwindStages is never set). LOW: crossing the edge costs no time; the boss inside it"
+                      + ("; the Frenzy Charge's extra stage not counted" if main.name == "Whirlwind Lance" else "")),
+            "play": (f"Use {main.name} {stages} times on the same Whirlwind, then cross its edge to collapse it. "
+                     f"Collapsing every use: x{(hit + collapse) / rows[scored][0]:.3f}; {stages} stages first: x{factor:.3f}.")}
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [note]
+
+
+# Ember Fusillade's Fusillade (GEM12; an OVERCOUNT for fast casters, an undercount with extra projectiles). act_int.lua
+# EmberFusilladePlayer; ActiveSkills ember_fusillade: "Conjure a blazing Ember that hovers above you. After a short
+# duration, the Ember launches ... Recasting this spell resets the duration for all active Embers"; 0.1.1f: "additional
+# projectiles affect the number of Embers accumulated"; stats: base_skill_effect_duration 1300,
+# blazing_cluster_maximum_number_of_projectiles_allowed (6 at level 1, 10 at 20), ember_fusillade_damage_+%_final_per_
+# ember_fired 5 (+0.1 a quality): "{0}% more Damage for each previous Ember fired in sequence" (skill_stat_descriptions).
+# PoB reads neither the cap nor the per-Ember more (checked: SkillStatMap.lua, Modules/*.lua for "blazing_cluster" and
+# "ember_fusillade": none) and scores one Ember a cast at the cast rate, as if each cast fired at once. In the game a cast
+# only adds Embers (ProjectileCount each, up to the cap) and resets the wait, so a Fusillade is k casts, then the Ember
+# duration D with no recast, then n = min(cap, k x projectiles) Embers fire, the i-th at (1 + 5% x (i - 1)). The model
+# takes the k that gives the most damage a second (the play: cast to the cap, then let them fly):
+#   n x (1 + m (n - 1) / 2) / (k / Speed + D), against PoB's Speed x 1 Ember,
+# as DPS "more" / "less" on Ember Fusillade. LOW parts: the Embers' 100 ms between launches not counted as time (the next
+# Fusillade's casts taken to start while they fly); D = PoB's Duration for the skill (its modifiers), else 1.3 s; every
+# Ember hits the lone boss ("Multiple Embers ... attempt to target different enemies": one enemy); the Lightning
+# Infusion's beams (another stat set) not changed. The other skills a player could use during the wait aren't counted.
+EMBER_SKILL = "Ember Fusillade"
+EMBER_ENTRY = "model-gem12-ember-fusillade-fusillade"
+EMBER_CAP_STAT = "blazing_cluster_maximum_number_of_projectiles_allowed"
+EMBER_MORE_STAT = "ember_fusillade_damage_+%_final_per_ember_fired"
+EMBER_DURATION = 1.3  # s: base_skill_effect_duration 1300
+EMBER_CAP, EMBER_MORE = 10, 5.0  # level 20's cap; the base more per previous Ember (used when the gem's own isn't read)
+MODEL_FIELDS.extend(f for f in ("Duration",) if f not in MODEL_FIELDS)  # (ember_fusillade_model)
+
+
+def ember_fusillade_model(main: Skill | None, stats: dict,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Ember Fusillade as Fusillades (comment above): (mods, notes)."""
+    if main is None or main.name != EMBER_SKILL or EMBER_ENTRY in forbidden:
+        return [], []
+    speed = number(stats.get("Speed"))
+    if speed <= 0:
+        return [], []
+    cap = int(number(main.level_stats.get(EMBER_CAP_STAT)) or EMBER_CAP)
+    more = number(main.level_stats.get(EMBER_MORE_STAT)) or EMBER_MORE
+    wait = number(stats.get("Duration")) or EMBER_DURATION
+    each = max(1, int(number(stats.get("ProjectileCount")) or 1))
+    best = None
+    for casts in range(1, -(-cap // each) + 1):
+        n = min(cap, casts * each)
+        rate = n * (1 + more / 100 * (n - 1) / 2) / (casts / speed + wait)
+        if best is None or rate > best[0]:
+            best = (rate, casts, n)
+    rate, casts, n = best
+    factor = rate / speed
+    note = {"label": f"{EMBER_SKILL}: Embers fire as a Fusillade after you stop casting*", "value": f"x{factor:.3f}",
+            "confidence": "LOW", "entry": EMBER_ENTRY,
+            "basis": (f"{casts} casts at {speed:.2f}/s ({each} Ember{'s' if each > 1 else ''} a cast, cap {cap}) then "
+                      f"{wait:.2f} s with no recast: {n} Embers, each {more:g}% more than the one before (x"
+                      f"{1 + more / 100 * (n - 1) / 2:.3f} on average), {rate:.2f} Embers' worth a second against PoB's "
+                      f"{speed:.2f} (one Ember a cast, fired at once). LOW: the Embers' launch spacing not counted as time; "
+                      "every Ember hits the lone boss"),
+            "play": (f"Cast {EMBER_SKILL} {casts} times, then stop for {wait:.1f} s so the Fusillade fires (recasting "
+                     f"resets the wait). Casting without pause: no Embers fire; this rhythm: x{factor:.3f} of PoB's number.")}
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), EMBER_SKILL)], [note]
+
+
+# Meteors of The Stars Answer (Starfall) and Walking Calamity (GEM12). The game's stats (TheStarsAnswerPlayer /
+# WalkingCalamityPlayer): walking_calamity_spawn_meteor_every_ms 300 / 150, walking_calamity_large_meteor_every 15,
+# walking_calamity_large_meteor_same_target_prevention_duration_ms 2000, +50% meteor frequency per enemy in the radius
+# past the first (walking_calamity_ignore_first_x_enemies_for_frequency_increase 1: a lone boss gives +0), cap 200%.
+# PoB reads none of the walking_calamity_* stats (checked: SkillStatMap.lua and Modules/*.lua for "walking_calamity":
+# none). Probe POE2T2102 (real PoB): Starfall's Small Star is timed at hitTimeOverride 0.3 and its Large Star at 2 (the
+# 2 s same-target limit, not its rate); Walking Calamity's Meteors at the attack rate (1.25/s in the probe), the search
+# keeping the Large Meteor set. On one boss every 15th meteor is large (one per 4.5 s / 2.25 s: the 2 s limit never
+# binds), 14 of 15 small. Starfall targets "an enemy in an area around you" (ActiveSkills the_stars_answer); Walking
+# Calamity's "meteors rain down around you" names no target, but its large meteors' same-target limit implies they aim
+# at enemies: every meteor taken to hit the boss (LOW for Walking Calamity). Model: meteors a second r = 1 / the spawn
+# interval; DPS = small hit x r x 14/15 + large hit x r / 15 (hits: each set's AverageDamage), x the buff's uptime, as
+# DPS more / less on the triggered skill against the set PoB scores (TotalDPS). Walking Calamity's uptime: its uses a
+# second from the build's Glory (models.glory_plan, as Assumptions.glory_caps) x its 10 s (GLORY_INSTANCE; Skill Effect
+# Duration not read, LOW): PoB counts the meteors always on (a main-group Glory skill isn't held to its Glory: press_caps
+# covers side groups only). The Stars Answer's buff duration is in neither the game's stat sets nor poe2db (usage.py,
+# UNVERIFIED): PoB's always-on kept, said in the note.
+METEOR_SKILLS = {"Starfall": ("Small Star", "Large Star", 0.3), "Meteors": ("Small Meteor", "Large Meteor", 0.15)}
+METEOR_EVERY = 15  # walking_calamity_large_meteor_every
+METEOR_BUFF = {"Meteors": "Walking Calamity"}  # the triggered skill: the buff skill whose uptime it falls in
+METEOR_ENTRY = "model-gem12-meteor-rates"
+
+
+def meteor_rate_model(main: Skill | None, sets: list[dict], uptime: float | None = None, uptime_how: str = "",
+                      forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Starfall / Walking Calamity's Meteors at the game's meteor rate and large-meteor share (comment above). `sets`:
+    setRates of the main group's skill; `uptime`: the buff's share of the fight (None: PoB's always-on kept)."""
+    if main is None or main.name not in METEOR_SKILLS or METEOR_ENTRY in forbidden:
+        return [], []
+    small, large, every = METEOR_SKILLS[main.name]
+    rows = {s.get("label"): (number(s.get("TotalDPS")), number(s.get("AverageDamage"))) for s in sets}
+    scored = main.stat_set
+    if any(rows.get(label, (0, 0))[1] <= 0 for label in (small, large)) or rows.get(scored, (0, 0))[0] <= 0:
+        return [], []
+    rate = 1 / every
+    small_hit, large_hit = rows[small][1], rows[large][1]
+    active = small_hit * rate * (METEOR_EVERY - 1) / METEOR_EVERY + large_hit * rate / METEOR_EVERY
+    buff = METEOR_BUFF.get(main.name, "The Stars Answer")
+    if uptime is not None and uptime <= 0:  # (no Glory source counted: Walking Calamity's own, Rage gained at maximum
+        # Rage, is one glory_plan doesn't count (its comment: an undercount, labelled), so 0 isn't a verified zero
+        # (CLAUDE.md): PoB's number is left as it is, the rate change waits on that uptime, said in the note)
+        return [], [{"label": f"{main.name}: the game's meteor rate not applied yet*", "value": "PoB's kept",
+                     "confidence": "LOW", "entry": METEOR_ENTRY,
+                     "basis": (f"while {buff} is up its meteors would give {active:,.0f} DPS ({rate:.2f} a second, 1 in "
+                               f"{METEOR_EVERY} large) against PoB's {scored} set ({rows[scored][0]:,.0f}), but its uptime "
+                               f"isn't known: {uptime_how}. Its own Glory source (Rage gained at maximum Rage) isn't "
+                               "counted yet (MECH-C), so PoB's always-on number is kept: an OVERCOUNT of its uptime and "
+                               "an undercount of its rate, both open")}]
+    up = 1.0 if uptime is None else min(1.0, uptime)
+    dps = active * up
+    factor = dps / rows[scored][0]
+    note = {"label": f"{main.name}: one meteor every {every:g} s, every {METEOR_EVERY}th large*", "value": f"x{factor:.3f}",
+            "confidence": "MEDIUM" if uptime is None else "LOW", "entry": METEOR_ENTRY,
+            "basis": (f"{rate:.2f} meteors a second on the lone boss (no extra frequency: the first enemy is ignored), "
+                      f"{METEOR_EVERY - 1} of {METEOR_EVERY} {small} ({small_hit:,.0f}) and 1 {large} ({large_hit:,.0f}): "
+                      f"{active:,.0f} DPS while {buff} is up"
+                      + (f", up {up:.0%} of the fight ({uptime_how})" if uptime is not None
+                         else f"; {buff}'s duration isn't known (UNVERIFIED): taken as always up, as PoB")
+                      + f": {dps:,.0f} DPS against PoB's {scored} set at its own timing ({rows[scored][0]:,.0f})"),
+            "play": (f"Keep {buff} up: its meteors fall {rate:.1f} times a second on the boss. "
+                     f"PoB's {scored} set: x1.000; the game's meteor mix" + (" and uptime" if uptime is not None else "")
+                     + f": x{factor:.3f}.")}
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [note]
 
 
 # `share: cooldown_skills` (GEM11; PATCH_CHECK H1-10, an UNDERCOUNT): Uhtred's Constellation (sup_int.lua
@@ -4983,6 +5376,8 @@ def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
     for skill in skills:  # (a warcry's triggered Corrupted Cry: corrupting_cry_model reads the warcry's rate)
         if skill.name == CORRUPTED_CRY and skill.group is not None and (main is None or skill.group != main.group):
             found.add(skill.group)
+    # (GEM12: Vruun's Aftermath's Warcries and crystal makers, Uhtred's Rite's skills: their use rates)
+    found.update(g for g in vruun_aftermath_groups(skills) | uhtred_rite_groups(skills) if main is None or g != main.group)
     for skill in skills:  # (a side skill whose support makes you lose Life per use: gem_stat_life_loss reads its rate)
         if skill.group is not None and (main is None or skill.group != main.group) and any(
                 number(skill.support_stats.get(stat)) for stat in LIFE_LOSS_STATS):
