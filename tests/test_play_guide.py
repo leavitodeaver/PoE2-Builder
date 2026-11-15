@@ -448,3 +448,31 @@ def test_boss_moving_row_takes_a_melee_skills_dps_at_mech_ds_ceiling():
     assert play_guide.boss_moving_row(search(olroth, {"Spell", "Projectile"}), 1000.0) is None
     still = next(n for n, v in bosses.MOVING_CEILING.items() if v == 0)
     assert play_guide.boss_moving_row(search(still, {"Attack", "Melee"}), 1000.0) is None
+
+
+def test_a_curse_laid_as_an_area_gets_mech73s_play_row(monkeypatch):
+    """MECHC25 (the manager, 14 Nov 20:03; MECH73's wording): a curse laid as Cursed Ground's / Doedre's Undoing's /
+    Hayoxi's Fulmination's area gets a row saying the numbers keep the boss in it; an ordinary curse gets none."""
+    from builder.search import conditions, play_guide
+
+    class Build:
+        ctx = SimpleNamespace(gems={})
+        stats = {}
+
+        def groups(self):
+            return [{"gems": [{"name": "Temporal Chains"}, {"name": "Cursed Ground", "support": True}]}]
+
+        def call(self, method, **kwargs):
+            assert method == "sourceLines"
+            return {"lines": []}
+
+    uses = [SimpleNamespace(name="Temporal Chains", zone="Cursed Ground"), SimpleNamespace(name="Vulnerability", zone="")]
+    monkeypatch.setattr(conditions, "curse_uses", lambda build, stats, texts, metres=None: uses)
+    rows = play_guide.curse_zone_rows(SimpleNamespace(build=Build()), 1000.0)
+    assert [r["var"] for r in rows] == ["curse-zone:Temporal Chains"] and rows[0]["change"] == 0.0
+    assert rows[0]["play"] == ("Lay Temporal Chains as Cursed Ground's cursed area under the boss and fight it there: the "
+                               "numbers assume the boss stays inside the area the whole time; whenever it walks out, the "
+                               "curse (and what it gives) is off.")
+    plain = Build()
+    plain.groups = lambda: [{"gems": [{"name": "Temporal Chains"}]}]
+    assert play_guide.curse_zone_rows(SimpleNamespace(build=plain), 1000.0) == []  # no zone support: no PoB call

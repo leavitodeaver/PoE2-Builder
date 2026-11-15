@@ -171,6 +171,7 @@ def guide(search: Any) -> list[dict]:
     if row := raised_row(search, headline):
         rows.append(row)
     rows += kept_flask_rows(search, headline)
+    rows += curse_zone_rows(search, headline)
     after, base = build.objective.dps(build.stats), headline
     if abs(after - base) > 1e-6 * base:  # the switches must leave the build as it was; say so if they didn't
         rows.append({"var": "", "label": "(restore check)", "kind": BUILD, "counted": False, "play": "",
@@ -266,6 +267,40 @@ def boss_moving_row(search: Any, headline: float) -> dict | None:
                      f"{headline:,.0f} with the boss in reach (the headline). Close the gap at once after each dash"),
             "dps_with": headline, "dps_without": moving, "change": (headline - moving) / moving if moving else 0.0,
             "confidence": "theory (an upper bound on the loss; the travel time UNVERIFIED, MECH-D's LOW)"}
+
+
+# (as models.CURSE_ZONE_SUPPORTS, MECH73: the supports holding curse_apply_as_curse_zone; kept here so the row's precheck
+# runs before MECH73's commit lands)
+CURSE_ZONE_SUPPORTS = ("Cursed Ground", "Doedre's Undoing", "Hayoxi's Fulmination")
+CURSE_ZONE_PLAY = ("Lay {curse} as {zone}'s cursed area under the boss and fight it there: the numbers assume the boss "
+                   "stays inside the area the whole time; whenever it walks out, the curse (and what it gives) is off.")
+
+
+def curse_zone_rows(search: Any, headline: float) -> list[dict]:
+    """A curse the build lays as an area on the ground (Cursed Ground, Doedre's Undoing, Hayoxi's Fulmination: MECH73's
+    CurseUse.zone, models.CURSE_ZONE_SUPPORTS; the manager, 14 Nov 20:03, MECH73's wording): one row per such curse,
+    saying the headline keeps the boss in the area all fight (MEDIUM, an OVERCOUNT wherever it walks out). No trial: the
+    headline counts the curse as on (counted)."""
+    from builder.search import conditions
+
+    build = search.build
+    if not callable(getattr(build, "groups", None)) or getattr(build, "ctx", None) is None:
+        return []  # (a stand-in build without gem groups: no curses to read)
+    if not any(g.get("support") and g.get("name") in CURSE_ZONE_SUPPORTS and g.get("enabled", True)
+               for group in build.groups() if group.get("enabled") is not False for g in group.get("gems") or []):
+        return []  # (no curse-zone support socketed: nothing to read, no extra PoB calls)
+    texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+    rows, seen = [], set()
+    for use in conditions.curse_uses(build, dict(getattr(build, "stats", None) or {}), texts):
+        zone = getattr(use, "zone", "")
+        if not zone or use.name in seen:
+            continue
+        seen.add(use.name)
+        rows.append({"var": f"curse-zone:{use.name}", "label": f"{use.name}: laid as {zone}'s cursed area*",
+                     "kind": PLAYER, "counted": True, "play": CURSE_ZONE_PLAY.format(curse=use.name, zone=zone),
+                     "dps_with": headline, "dps_without": headline, "change": 0.0,
+                     "confidence": "MEDIUM (no boss-movement data: an OVERCOUNT wherever the boss leaves the area)"})
+    return rows
 
 
 def kept_flask_rows(search: Any, headline: float) -> list[dict]:
