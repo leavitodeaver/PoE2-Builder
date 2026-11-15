@@ -79,3 +79,35 @@
   sources: ["builder/search/models.py (infernal_legion_model, infernal_legion_ignited)", "engine/bridge.lua 4003-4004"]
   test_in_game: "Not needed here: the model's own tests cover it."
   status: proposed
+
+- id: model-gem13-battershout-explosion-read
+  title: "Battershout's explosion: Physical damage equal to 40% of the boss's Broken Armour (MECH72's Battershout model, at the stat's value)"
+  kind: model
+  model: battershout
+  stats: ["support_battershout_physical_damage_equal_to_%_of_broken_armour"]
+  skill: [Battershout]
+  confidence: MEDIUM
+  notes: >-
+    models.battershout_model / Assumptions' battershout (bridge battershoutHit with base = BATTERSHOUT_ARMOUR_SHARE 0.40
+    x the boss's Armour at each Full Break Consumed): the stat's value (40) as a constant, not read per gem level (the
+    support has one level). MECH72's comment gives the game files and the lower readings.
+  sources: ["builder/search/models.py (BATTERSHOUT_ARMOUR_SHARE, battershout_model)",
+            "builder/search/assumptions.py (battershout)"]
+  test_in_game: "Not needed here: the model's own tests cover it."
+  status: proposed
+
+- id: model-gem13-inevitable-agony-read
+  title: "Inevitable Agony: 25% of the recorded damage dealt again (its model, at the stat's value)"
+  kind: model
+  model: inevitable_agony
+  stats: ["curse_pain_synchronisation_base_recorded_damage_%_to_apply"]
+  skill: [Inevitable Agony]
+  confidence: MEDIUM
+  notes: >-
+    models.inevitable_agony_model / Assumptions' inevitable_agony: AGONY_SHARE 0.25 (the stat's 25, a constant: the
+    same at every gem level in PoB's InevitableAgonyPlayer) of the main skill's hit DPS, kept up by one press per
+    expiry. The model's comment gives the game files, poe2db and the labelled undercounts.
+  sources: ["builder/search/models.py (AGONY_SHARE, inevitable_agony_model)",
+            "builder/search/assumptions.py (inevitable_agony)"]
+  test_in_game: "Not needed here: the model's own tests cover it."
+  status: proposed
