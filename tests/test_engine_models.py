@@ -2426,6 +2426,12 @@ def test_a_part_time_elixirs_life_flask_is_taken_out_of_pobs_regeneration_once(e
     assert share == pytest.approx(920 / 3, rel=0.02) and "taken off" in how  # 30% up: PoB's whole 306.7 comes off
     info = build.call("flaskData", raws=[life])["results"][0]
     assert flasks.recovery_per_second(info, gain, "Life") == pytest.approx(92.0, rel=0.02)  # ours stays
+    # (MECHC25, the manager 16:45) the play guide's row: up = PoB alone, down = 0, time-weighted = ours alone
+    from builder.search import play_guide
+
+    rows = play_guide.kept_flask_rows(SimpleNamespace(build=build), 1000.0)
+    assert len(rows) == 1 and rows[0]["var"] == "flask:Flask 1" and rows[0]["change"] == 0.0
+    assert "306.7/s while it's up" in rows[0]["play"] and "92.0/s time-weighted" in rows[0]["play"], rows[0]["play"]
     whole = belt.replace("Flasks gain 1 charges", "Flasks gain 4 charges") + chr(10) + elixirs
     build.call("equip", slot="Belt", raw=whole, fields=[])
     gain = flasks.Charges.of(build)

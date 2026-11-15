@@ -170,6 +170,7 @@ def guide(search: Any) -> list[dict]:
         rows.append(row)
     if row := raised_row(search, headline):
         rows.append(row)
+    rows += kept_flask_rows(search, headline)
     after, base = build.objective.dps(build.stats), headline
     if abs(after - base) > 1e-6 * base:  # the switches must leave the build as it was; say so if they didn't
         rows.append({"var": "", "label": "(restore check)", "kind": BUILD, "counted": False, "play": "",
@@ -265,6 +266,46 @@ def boss_moving_row(search: Any, headline: float) -> dict | None:
                      f"{headline:,.0f} with the boss in reach (the headline). Close the gap at once after each dash"),
             "dps_with": headline, "dps_without": moving, "change": (headline - moving) / moving if moving else 0.0,
             "confidence": "theory (an upper bound on the loss; the travel time UNVERIFIED, MECH-D's LOW)"}
+
+
+def kept_flask_rows(search: Any, headline: float) -> list[dict]:
+    """A flask PoB counts kept at full (a Life flask under Enduring Elixirs; a Mana flask with its own kept line) up only
+    part of the fight (MECHC25; the manager, 14 Nov 16:45): PoB's stats with its slot on hold the flask's whole recovery
+    (no charge limit) and ours its charge-limited average, so "with it" mixes both. The rows the user reads: while it's
+    up, PoB's rate alone; while it's down, 0 from the flask; time-weighted, ours alone (flasks.pob_part_time_share,
+    recovery_per_second). Defence numbers only: the DPS doesn't move."""
+    from builder.search import flasks
+    from builder.search.conditions import FULL_UPTIME, SWITCH_ON
+
+    build = search.build
+    equipped = getattr(build, "equipped", None) or {}
+    if not any(equipped.get(slot) is not None for slot in flasks.FLASK_SLOTS):
+        return []
+    gain = flasks.Charges.of(build)
+    rows = []
+    for slot, pool in flasks.FLASK_SLOTS.items():
+        option = equipped.get(slot)
+        if option is None:
+            continue
+        info = build.call("flaskData", raws=[option.raw])["results"][0] or {}
+        up = flasks.uptime(info, gain, pool)
+        if not SWITCH_ON <= up < FULL_UPTIME:
+            continue
+        parts = []
+        targets = [(pool, f"{pool}RegenRecovery", flasks.recovery_per_second(info, gain, pool, option.raw, own=True))]
+        if pool == "Life" and gain.life_flask_to_es:
+            targets.append(("Energy Shield", "EnergyShieldRegenRecovery", flasks.es_recovery_per_second(info, gain, option.raw)))
+        for name, field, ours in targets:
+            pob = flasks.pob_part_time_share(build, gain, field, pool)[0]
+            if pob > 0:
+                parts.append(f"{name}: {pob:,.1f}/s while it's up (PoB's rate, the flask's whole recovery over its "
+                             f"duration), 0 while it's down, {ours:,.1f}/s time-weighted (the rate its charges allow, "
+                             "counted in the floors)")
+        if parts:
+            rows.append({"var": f"flask:{slot}", "label": f"{option.name}: kept at full {pool}, up {up:.0%} of the fight",
+                         "kind": BUILD, "counted": True, "uptime": up, "play": "; ".join(parts),
+                         "dps_with": headline, "dps_without": headline, "change": 0.0, "confidence": "modelled"})
+    return rows
 
 
 def raised_row(search: Any, headline: float) -> dict | None:

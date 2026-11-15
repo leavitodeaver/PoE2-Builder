@@ -732,23 +732,27 @@ def pob_counts_flask_recovery(gain: Charges, raw: str = "") -> bool:
 # the floors are checked with the slot off (inner.weigh_uptimes' floor_without), where PoB adds nothing and ours is the
 # only count. So ours gives 0 only for a flask up the whole fight that PoB counts: never twice. (Between 7% and 99.5%
 # the time-weighted rows outside the floors still see both: named, LOW, not corrected here.)
-def pob_part_time_share(build, gain: Charges, field: str = "LifeRegenRecovery") -> tuple[float, str]:
-    """(PoB's own share of `field`, how) from a part-time Life flask it counts kept at full Life (Enduring Elixirs), with
-    its slot on: the stats with the slot on hold PoB's whole flask (no charge limit) while our FlaskLifeRecoveryRate adds
-    its charge-limited average, so a reader that sums both takes this off (MECHC25, AUDIT35 A35-20). Measured: one
-    what-if with the slot off (bridge.itemDeltas' `active`). 0 when the flask counts whole (ours is 0 then) or isn't on."""
-    slot = next(s for s, p in FLASK_SLOTS.items() if p == "Life")
+def pob_part_time_share(build, gain: Charges, field: str = "LifeRegenRecovery", pool: str = "Life") -> tuple[float, str]:
+    """(PoB's own share of `field`, how) from a part-time flask it counts kept at full (a Life flask under Enduring
+    Elixirs; a Mana flask with its own kept line, Melting Maelstrom), with its slot on: the stats with the slot on hold
+    PoB's whole flask (no charge limit) while our Flask{pool}RecoveryRate adds its charge-limited average, so a reader
+    that sums both takes this off (MECHC25, AUDIT35 A35-20). Measured: one what-if with the slot off (bridge.itemDeltas'
+    `active`). 0 when the flask counts whole (ours is 0 then), isn't kept at full or isn't on."""
+    slot = next(s for s, p in FLASK_SLOTS.items() if p == pool)
     option = (getattr(build, "equipped", None) or {}).get(slot)
-    if option is None or not gain.life_effect_kept:
+    if option is None:
+        return 0.0, ""
+    kept = gain.life_effect_kept if pool == "Life" else KEPT_AT_FULL["Mana"] in (option.raw or "").lower()
+    if not kept:
         return 0.0, ""
     info = build.call("flaskData", raws=[option.raw])["results"][0] or {}
-    if pob_counts_whole(info, gain, "Life", option.raw) or not (build.call("chargeGain").get("active") or {}).get(slot):
+    if pob_counts_whole(info, gain, pool, option.raw) or not (build.call("chargeGain").get("active") or {}).get(slot):
         return 0.0, ""
     on = float(build.call("stats", fields=[field]).get(field) or 0.0)
     off = float(build.call("itemDeltas", cases=[{"slot": slot, "raw": option.raw, "active": False}],
                            fields=[field])["results"][0].get(field) or 0.0)
     share = max(on - off, 0.0)
-    return share, (f"PoB's {field} holds {share:,.1f}/s of {option.name} (kept at full Life, its slot on, no charge "
+    return share, (f"PoB's {field} holds {share:,.1f}/s of {option.name} (kept at full {pool}, its slot on, no charge "
                    "limit), taken off: ours counts its charge-limited share" if share > 0 else "")
 
 
