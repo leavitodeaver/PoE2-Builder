@@ -738,8 +738,10 @@ def barrage(build: Build, main: models.Skill | None, found: list[models.Skill]) 
     barrage = next((s for s in found if s.name == models.BARRAGE), None)
     if barrage is None or "Barrageable" not in types:
         return [], []
-    raw = build.call("activeSkills", levelStats=[models.BARRAGE])["skills"]
+    raw = build.call("activeSkills", levelStats=[models.BARRAGE], supportStats=[models.OLROTH_EMPOWERS])["skills"]
     level = next((s.get("levelStats") or {} for s in raw if s["name"] == models.BARRAGE and s.get("levelStats")), {})
+    extra = max((number((s.get("supportStats") or {}).get(models.OLROTH_EMPOWERS)) for s in raw
+                 if s["name"] == models.BARRAGE), default=0.0)  # (MECHB32: Olroth's Conviction on Barrage)
     stats = build.call("stats", fields=["Speed", "FrenzyCharges"])
     repeats = (number(level.get("empower_barrage_base_number_of_barrage_repeats"))
                + number(level.get("empower_barrage_number_of_barrage_repeats_per_frenzy_charge"))
@@ -747,7 +749,7 @@ def barrage(build: Build, main: models.Skill | None, found: list[models.Skill]) 
     factor, pob, how = models.barrage_model(number(stats.get("Speed")), repeats,
                                             number(level.get("empower_barrage_damage_-%_final_with_repeated_projectiles")),
                                             number(level.get("empower_barrage_cooldown_%_of_attack_time")),
-                                            barrage.cooldown_recovery, barrage.cast_time or models.BARRAGE_CAST)
+                                            barrage.cooldown_recovery, barrage.cast_time or models.BARRAGE_CAST, extra)
     # PoB's own factor, measured: the main skill's TotalDPS with Barrage's group on over off (probe POE2T1174: x1.020,
     # where its level stats rebuild x1.016: PoB's repeats or repeat damage differ a little from the stats read here)
     if barrage.group is not None:
@@ -756,7 +758,9 @@ def barrage(build: Build, main: models.Skill | None, found: list[models.Skill]) 
         if off > 0 and on > 0:
             pob = on / off
             how += f" (PoB's own x{pob:.3f} measured: the main skill with Barrage's group on over off)"
-    note = {"label": "Barrage (one empowered attack per cooldown)", "value": round(factor, 3), "basis": how,
+    note = {"label": ("Barrage (one empowered attack per cooldown)" if extra <= 0 else
+                      f"Barrage ({1 + extra:g} empowered attacks per cooldown, Olroth's Conviction)"),
+            "value": round(factor, 3), "basis": how,
             "confidence": "MEDIUM", "play": (f"Press Barrage each time it's up: x{factor:.3f} of {main.name}'s damage"
                                              if factor > 1 else "Barrage costs more than it gives here: not pressed")}
     return [models.raw_mod("DPS", "MORE", (factor / pob - 1) * 100, skill=main.name)], [note]
@@ -1787,7 +1791,7 @@ class Assumptions:
             else g.get("index") != main.get("index"))]
         if not groups or uses <= 0:
             return 0.0, f"no skill {support or 'of the build'} supports Empowers the main skill"
-        raw = build.call("activeSkills")["skills"]
+        raw = build.call("activeSkills", supportStats=[models.OLROTH_EMPOWERS])["skills"]
         mains = [s for s in raw if s.get("group") == main.get("index") and not s.get("disabled")]
         spell, cooled = any(s.get("spell") for s in mains), any(s.get("cooldown") for s in mains)
         repeatable = spell and any(s.get("repeatable") for s in mains)
@@ -1810,6 +1814,10 @@ class Assumptions:
                 parts.append(f"{skill['name']} is triggered by {listed[0]['name']} (Meta), at its use rate (MEDIUM)")
             name, rate = skill["name"], rates.get(group["index"]) or {}
             per = number(rate.get("speed"))
+            # (MECHB32: Olroth's Conviction, models.OLROTH_EMPOWERS: each use Empowers that many more skill uses. A
+            # Warcry's are in PoB's count already, GEM11's olroth_model; Mana Tempest is Indeterminate, so it can't)
+            more = 1 + max(0.0, number((skill.get("supportStats") or {}).get(models.OLROTH_EMPOWERS)))
+            olroth = f" x {more:g} (Olroth's Conviction)" if more > 1 else ""
             if name == "Mana Tempest":
                 if not spell:
                     parts.append("Mana Tempest Empowers Spells only, and the main skill isn't one")
@@ -1822,8 +1830,8 @@ class Assumptions:
                 # (MECH65, AUDIT29 A29-3: "Empowering the next Repeatable Spell you cast ... Cannot Empower Skills with
                 # a Cooldown", ActiveSkills unleash; Incinerate, Bonestorm, Solar Orb, Frost Darts aren't Repeatable)
                 ok = repeatable and not cooled
-                total += per if ok else 0.0
-                parts.append(f"Unleash Empowers the next Repeatable Spell, one per use: {per:.3f}/s" if ok else
+                total += per * more if ok else 0.0
+                parts.append(f"Unleash Empowers the next Repeatable Spell, one per use{olroth}: {per * more:.3f}/s" if ok else
                              "Unleash Empowers only a Repeatable Spell without a Cooldown, and the main skill isn't one")
             elif not skill.get("empowers"):  # (MECH64: Murderous Intent "Supports skills that can Empower skills other
                 # than themselves", requireSkillTypes EmpowersOtherSkill: on any other skill it does nothing. MECH65:
@@ -1842,9 +1850,9 @@ class Assumptions:
                 parts.append(f"{name}: {n:g} Empowered {what} per use (PoB's count from its Power) x {per:.3f} uses/s"
                              + (f" x {share:.0%} ({why})" if share < 1.0 else ""))
             else:
-                total += per
-                parts.append(f"{name}: one Empowered use per use of it, {per:.3f}/s (LOW, UNVERIFIED: its own count "
-                             "isn't read)")
+                total += per * more
+                parts.append(f"{name}: one Empowered use per use of it{olroth}, {per * more:.3f}/s (LOW, UNVERIFIED: its "
+                             "own count isn't read)")
         total = min(max(total, 0.0), uses)
         return total, "; ".join(parts) + f"; {total:.3f} Empowered uses/s of the main skill's {uses:.2f}"
 

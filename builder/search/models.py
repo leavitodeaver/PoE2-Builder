@@ -5952,23 +5952,44 @@ BARRAGE_COOLDOWN = 2.0  # s (its level cooldown)
 BARRAGE_MAX_COOLDOWN = 30.0  # s (empowered_barrage_maximum_cooldown_ms 30000)
 BARRAGE_CAST = 0.7  # s
 BARRAGE_REPEAT_TIME = 0.05  # KeywordPopups Repeat: "5% longer to perform for each time they Repeat"
+# Olroth's Conviction on MECH-B's Empowering skills (MECHB32; GEM11's olroth_model counts it on Warcries). The gem (0.5.0,
+# patch notes --history: added 0.5.0, two 0.5.0b bug fixes, no change to what it does; PoB other.lua
+# SupportOlrothsConvictionPlayer): "Supports skills that can Empower a specific number of other skills, causing them to
+# apply to more skill uses", support_empowers_x_additional_other_skills 2; AllowedActiveSkillTypes [EmpowersOtherSkill],
+# Excluded [IndeterminateEmpowermentAmount]. The skills it can support (checked: ActiveSkills.json rows with type
+# EmpowersOtherSkill and not IndeterminateEmpowermentAmount, and GrantedEffects.json for any support adding the type:
+# none adds it; build 26476662; PoB's act_*.lua / other.lua skillTypes agree but lack His Dark Horizon): Barrage, Unleash,
+# Mantra of Destruction, Ice-Tipped Arrows, Infernal / Seismic / Ancestral / Fortifying Cry, Arctic Howl, Align Fate,
+# Temper Weapon, Primal Bounty, Triskelion Cascade, His Dark Horizon. NOT Ancestral Warrior Totem (neither its active
+# skill nor its hidden support part has or adds EmpowersOtherSkill, so the gem can't support it). Counted here:
+# Barrage's empowered attacks a use 1 -> 1 + the stat (each with Barrage's repeats: MEDIUM, the text gives the
+# Empowerment to more uses), and Assumptions.empowered_uses' Empowered uses for Unleash and the other non-Warcry
+# Empowerers x (1 + the stat). Mantra of Destruction's and Ice-Tipped Arrows' Empowered damage isn't counted at all
+# (PoB maps none of mantra_of_destruction_* / shearing_bolts_*: SkillStatMap.lua, Modules/*.lua), so there's nothing
+# of theirs to raise yet: an undercount, said.
+OLROTH_EMPOWERS = "support_empowers_x_additional_other_skills"
 
 
 def barrage_model(speed: float, repeats: float, less: float, cooldown_pct: float, recovery: float = 1.0,
-                  cast: float = BARRAGE_CAST) -> tuple[float, float, str]:
+                  cast: float = BARRAGE_CAST, extra: float = 0.0) -> tuple[float, float, str]:
     """(the main skill's damage over the fight with Barrage, as a factor of its damage without, PoB's own factor, how).
-    `speed`: the main skill's attacks a second; `repeats`: Barrage's repeats; `less`: its % less damage."""
+    `speed`: the main skill's attacks a second; `repeats`: Barrage's repeats; `less`: its % less damage; `extra`: more
+    attacks each Barrage Empowers (Olroth's Conviction, OLROTH_EMPOWERS; MECHB32)."""
     pob = 1 + (1 + repeats) * (1 - less / 100) / 100  # (PoB's DPS MORE, read as a percent: probe POE2T1173)
     if speed <= 0:
         return 1.0, pob, "the main skill attacks 0 times a second: Barrage gives nothing"
     t = 1.0 / speed
     cooldown = min((BARRAGE_COOLDOWN + cooldown_pct / 100 * t) / (recovery or 1.0), BARRAGE_MAX_COOLDOWN)
     longer = t * (1 + BARRAGE_REPEAT_TIME * repeats)  # (the empowered use: 5% longer per repeat)
-    period = max(cooldown, cast + longer)
-    normal = max(0.0, (period - cast - longer) / t)
+    k = 1 + max(0.0, extra)  # (Empowered attacks a Barrage: 1, or 1 + Olroth's Conviction's)
+    period = max(cooldown, cast + k * longer)
+    normal = max(0.0, (period - cast - k * longer) / t)
     empowered = (1 + repeats) * (1 - less / 100)
-    factor = t * (empowered + normal) / period
-    how = (f"Barrage pressed each time it's up: one empowered attack ({1 + repeats:g} sequences x {1 - less / 100:.0%} "
+    factor = t * (k * empowered + normal) / period
+    how = (f"Barrage pressed each time it's up: "
+           + (f"{k:g} empowered attacks (Olroth's Conviction's +{extra:g}; each with the repeats, MEDIUM) "
+              if k > 1 else "one empowered attack ")
+           + f"({1 + repeats:g} sequences x {1 - less / 100:.0%} "
            f"damage = x{empowered:.2f}) every {period:.2f} s (its cooldown {cooldown:.2f} s: 2 s + {cooldown_pct:g}% of "
            f"the {t:.2f} s attack, over Cooldown Recovery; at most 30 s), {normal:.1f} normal attacks between, its "
            f"{cast:g} s cast in the cycle, the empowered use {BARRAGE_REPEAT_TIME:.0%} longer per repeat: x{factor:.3f} of "

@@ -2956,6 +2956,31 @@ def test_empowered_uses_come_from_the_skills_murderous_intent_supports():
         assert run("Seismic Cry", {**stab, "slam": True}, {"speed": 0.125, "warcryEmpowers": 4})[0] == pytest.approx(0.25)
     finally:
         models.immobilised_share, models.heavy_stunned_share = orig
+    # (MECHB32: Olroth's Conviction on a non-Warcry Empowerer: 1 + 2 Empowered uses a use)
+    olroth = {"supportStats": {models.OLROTH_EMPOWERS: 2}}
+
+    def run2(empowerer, main, rate, extra):
+        class FakeBuild:
+            def groups(self):
+                return [{"index": 1, "gems": [{"name": main["name"]}]},
+                        {"index": 2, "gems": [{"name": empowerer}, {"name": "Murderous Intent"}]}]
+
+            def main_group(self):
+                return {"index": 1}
+
+            def call(self, what, **_):
+                if what == "activeSkills":
+                    return {"skills": [{**main, "group": 1}, {"name": empowerer, "group": 2, "empowers": True, **extra}]}
+                return {"rates": [{"index": 2, **rate}]}
+
+        a = Assumptions.__new__(Assumptions)
+        a.build = FakeBuild()
+        return a.empowered_uses({"Speed": 2.0})
+
+    rate, how = run2("Unleash", spark, {"speed": 0.25}, olroth)
+    assert rate == pytest.approx(0.75) and "Olroth" in how
+    assert run2("Temper Weapon", spear, {"speed": 0.25}, olroth)[0] == pytest.approx(0.75)
+    assert run2("Temper Weapon", spear, {"speed": 0.25}, {})[0] == pytest.approx(0.25)
 
 
 def test_death_storms_ground_counts_only_skeletons_fallen_at_the_boss(monkeypatch):

@@ -4803,6 +4803,19 @@ def test_barrage_empowers_one_attack_per_cooldown_not_every_attack():
     assert loss == 1.0 and "not pressed" in how
 
 
+def test_olroths_conviction_on_barrage_empowers_more_attacks_a_cooldown():
+    """MECHB32 (the manager, from GEM11): Olroth's Conviction (support_empowers_x_additional_other_skills 2) makes each
+    Barrage Empower 1 + 2 attacks, each with the repeats; the cycle is max(cooldown, cast + those attacks)."""
+    assert models.OLROTH_EMPOWERS == "support_empowers_x_additional_other_skills"
+    base, _, _ = models.barrage_model(speed=1.0, repeats=4, less=45, cooldown_pct=410)
+    factor, _, how = models.barrage_model(speed=1.0, repeats=4, less=45, cooldown_pct=410, extra=2)
+    period = 2 + 4.1  # (3 empowered uses of 1.2 s: 0.7 + 3.6 = 4.3 s, inside the 6.1 s cooldown)
+    assert factor == pytest.approx((3 * 5 * 0.55 + (period - 0.7 - 3.6)) / period) and factor > base
+    assert "3 empowered attacks" in how and "Olroth" in how
+    fast, _, _ = models.barrage_model(speed=0.25, repeats=4, less=45, cooldown_pct=0, extra=2)  # (attacks fill the cycle)
+    assert fast == pytest.approx(4 * 3 * 5 * 0.55 / (0.7 + 3 * 4 * 1.2))
+
+
 def test_eldritch_empowerment_counts_30_percent_more_at_the_share_of_casts_its_es_pays_for():
     """MECHB30 (PATCH_CHECK MB-1): the Lich's "Sacrifice 5% of maximum Energy Shield when you Cast a Spell" / "Spells for
     which this Sacrifice was fully made deal 30% more Damage": the share of the main Spell's casts the ES coming back
