@@ -915,6 +915,9 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + toad_mods, hand_notes + toad_notes
         doom_mods, doom_notes, doom_groups = models.doom_blast_model(found, curses)  # (MECHB12: Impending Doom's expiries)
         hand_mods, hand_notes = hand_mods + doom_mods, hand_notes + doom_notes
+        # (MECHB29: Hayoxi's Fulmination's Annihilation, one per Cursed Ground area that persists 7 s)
+        annihilation_mods, annihilation_notes, annihilation_groups = models.annihilation_model(found, curses, main)
+        hand_mods, hand_notes = hand_mods + annihilation_mods, hand_notes + annihilation_notes
         build.minion_died = models.minion_died_rate(found, main, stats, supports, toads, build.trigger_rates)
         # (MECHB9: the build's kills, enemies and own minions Killed (the ruling on A17-4), for on-Kill readers:
         # build.kills = (enemies/s, all/s, how); Heartbound Loop's damage taken at the minion-death rate: build.self_damage)
@@ -976,7 +979,10 @@ class Assumptions:
         early_mods, early_notes = models.hazard_early_model(found, stats, forbidden)  # (MECH-B: hazards set off early)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
         hand_notes = hand_notes + models.channel_windup_note(main)  # (MECH-B: a channel's wind-up, labelled, not counted)
-        hand_notes = hand_notes + models.orb_of_storms_note(main, stats)  # (MECH-B: Orb of Storms' recast bolt, labelled)
+        if main is not None and main.name == models.ORB_OF_STORMS and main.group is not None:  # (MECH-B: its recast
+            # bolt, labelled; MECHB29: its bolts, frequency and duration from its own useRates row)
+            orb_rows = build.call("useRates", indices=[main.group])["rates"]
+            hand_notes = hand_notes + models.orb_of_storms_note(main, stats, orb_rows[0] if orb_rows else None)
         hand_notes = hand_notes + models.coursing_current_note(found)  # (MECH-B: 0 on a lone boss, as PoB scores it)
         danse_mods, danse_notes = models.danse_macabre_model(found, supports)  # (MECH-B: Danse Macabre's second skeleton)
         hand_mods, hand_notes = hand_mods + danse_mods, hand_notes + danse_notes
@@ -1097,7 +1103,8 @@ class Assumptions:
             notes.append(note)
         notes += self.rate_presses()
         vessel_groups = models.spirit_vessel_groups(skills)  # (its companion's damage is in Full DPS only)
-        return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups},
+        return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups
+                                                    | annihilation_groups},
                              **expression_groups}
 
     def rate_presses(self) -> list[dict]:
@@ -1113,6 +1120,18 @@ class Assumptions:
             build.objective.press_scales = {}
             return self.consume_ignite(groups, []) + self.cull_window()
         rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
+        # (MECHB29, probe POE2T1148) a curse's group in Full DPS (for its Doom Blast, Witchtoads or Annihilation) whose
+        # rated skill is the curse: curse_model already charges its casts (and annihilation_model the extra ones), so
+        # press_model doesn't charge them again. Before, it did: Despair once per duration (a double charge, an
+        # UNDERCOUNT), and under Hayoxi's Fulmination's 2 s cooldown at 0.5 casts/s of 2 s each: the main skill at 0
+        curses = {r["index"] for r in rates if r["index"] != main
+                  and "AppliesCurse" in ((build.ctx.gems.get(str(r.get("name"))) or {}).get("skillTypes") or [])}
+        if curses:
+            pressed -= curses
+            rates = [r for r in rates if r["index"] not in curses]
+        if not pressed:
+            build.objective.press_scales = {}
+            return self.consume_ignite(groups, rates) + self.cull_window()
         paced = {g["index"]: models.CADENCE_PACE for g in groups["groups"] if g["index"] in pressed
                  and any(x["enabled"] and x["name"] in models.CADENCE_SUPPORTS for x in g["gems"])}
         caps = self.press_caps(groups["groups"], pressed)

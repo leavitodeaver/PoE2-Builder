@@ -1524,6 +1524,28 @@ def test_doedres_witchtoads_count_in_full_dps_at_their_curse_areas_share(engine)
     assert half["HitTime"] == pytest.approx(0.5)  # 2 explosions a second at half the share
 
 
+def test_hayoxis_annihilation_counts_in_full_dps_and_its_curse_isnt_charged_as_a_press(engine):
+    """MECHB29 (probes POE2T1146-1148): PoB gives Annihilation no rate (0); the model's trigger rate (2 eruptions per 7 s,
+    6 hits each) gives PoB that many hits; its curse's group in Full DPS isn't charged again by press_model (before, a
+    second pass charged Despair at its 2 s cooldown, 2 s a cast, and Spark fell to 0)."""
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("addSkillGroup", text="Despair 20/0 1\nHayoxi's Fulmination 1/0 1")
+    group = build.groups()[-1]["index"]
+    search.assumptions.apply()
+    search.assumptions.apply()  # (the second pass sees the group in Full DPS)
+    assert group in search.assumptions.extra_groups
+    assert "Despair" not in build.objective.press_scales and "Spark" not in build.objective.press_scales
+    stats = build.call("stats", fields=["FullDPS", "SkillDPS"])
+    dps = {e["name"]: e["dps"] for e in stats["SkillDPS"]}
+    assert dps["Annihilation"] > 0 and dps["Spark"] > 0
+    rate = next(m for m in search.assumptions.mods if m.get("skill") == models.ANNIHILATION and m.get("key") == "triggerRate")
+    assert rate["value"] == pytest.approx(2 / 7 * 6, abs=1e-3)
+
+
 def test_a_second_dark_effigy_doubles_vile_effusions_damage(engine):
     """MECHB8 (engine probe POE2T1018): Vile Effusion carries no ActiveTotemLimit; the bridge reports Dark Effigy's, and
     the totem count model counts each totem placed."""

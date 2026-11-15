@@ -5926,6 +5926,47 @@ def press_action(rate: dict) -> float:
     return min(1 / speed, uncapped) if capped else 1 / speed
 
 
+def side_orbs(rates: list[dict], main_index: int | None, pressed: set[int],
+              paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None,
+              choices: dict[str, float] | None = None) -> dict[int, tuple[float, float, dict]]:
+    """{group: (presses/s, bolts/s, note)} for each pressed side Orb of Storms (orb_cycle), from the same inputs as
+    press_model: the main skill's casts near it are what it's left after the other presses (MECHB28)."""
+    main_rate = next((r for r in rates if r["index"] == main_index), None)
+    orbs = {r["index"]: r for r in rates if r["index"] in pressed and r["index"] != main_index
+            and r.get("name") == ORB_OF_STORMS and number(r.get("orbMaxHits")) > 0 and number(r.get("speed")) > 0}
+    if not orbs:
+        return {}
+
+    def press_rate(rate: dict) -> float:  # (its presses a second, as press_model counts them)
+        cap = (caps or {}).get(rate["index"])
+        return press_group_rate(rate, (paced or {}).get(rate["index"]), cap, press_choice(rate, choices))[0]
+
+    def press_time(rate: dict) -> float:  # (the main skill's time each other press takes, as press_model counts it)
+        cap = (caps or {}).get(rate["index"])
+        return press_rate(rate) * (press_action(rate) + (cap.moving if cap is not None else 0.0))
+    side = [r for r in rates if r["index"] in pressed and r["index"] != main_index and r["index"] not in orbs
+            and number(r.get("speed")) > 0]
+    others = sum(press_time(r) for r in side)
+    # (MECHB29) the other pressed Spells the player casts fire bolts too ("when you cast a Spell near the Orb")
+    spells = {str(r.get("name")): press_rate(r) for r in side if r.get("spell") and not r.get("triggered")
+              and not r.get("channel")}
+    return {index: orb_cycle(orb, main_rate, others, (paced or {}).get(index), (caps or {}).get(index), spells)
+            for index, orb in orbs.items()}
+
+
+def orbs_per_second(rates: list[dict], main_index: int | None, pressed: set[int],
+                    paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None,
+                    choices: dict[str, float] | None = None) -> dict[int, float]:
+    """(MECHB29, for MECH-C's Remnant supply) {group: Orbs of Storms cast a second} for each pressed side Orb, at the
+    rate press_model scores it: each Orb lasts its duration, or less once the main Spell's casts near it and its timer
+    bolts reach its maximum hits (orb_cycle), and is recast at once, so each Orb cast is one Orb that expires. Takes the
+    same inputs as press_model (Assumptions.rate_presses builds them: the bridge's useRates rows, the main group's index,
+    the pressed groups, Cadence's pace, the press caps, press_choices). The main skill's own Orb isn't here (its recasts
+    replace a live Orb: PoB's Speed, orb_of_storms_note)."""
+    return {index: presses for index, (presses, _, _) in
+            side_orbs(rates, main_index, pressed, paced, caps, choices).items()}
+
+
 def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
                 paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None,
                 choices: dict[str, float] | None = None) -> tuple[dict[str, float], list[dict]]:
@@ -5939,20 +5980,10 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
     notes: list[dict] = []
     busy, users = 0.0, []
     main_rate = next((r for r in rates if r["index"] == main_index), None)
-    orbs = {r["index"]: r for r in rates if r["index"] in pressed and r["index"] != main_index
-            and r.get("name") == ORB_OF_STORMS and number(r.get("orbMaxHits")) > 0 and number(r.get("speed")) > 0}
     orb_rates: dict[int, tuple[float, float]] = {}  # (MECHB28) {group: (presses/s, bolts/s)}, orb_cycle
-    if orbs:
-        def press_time(rate: dict) -> float:  # (the main skill's time each other press takes, as below)
-            cap = (caps or {}).get(rate["index"])
-            real = press_group_rate(rate, (paced or {}).get(rate["index"]), cap, press_choice(rate, choices))[0]
-            return real * (press_action(rate) + (cap.moving if cap is not None else 0.0))
-        others = sum(press_time(r) for r in rates if r["index"] in pressed and r["index"] != main_index
-                     and r["index"] not in orbs and number(r.get("speed")) > 0)
-        for index, orb in orbs.items():
-            presses, bolts, orb_note = orb_cycle(orb, main_rate, others, (paced or {}).get(index), (caps or {}).get(index))
-            orb_rates[index] = (presses, bolts)
-            notes.append(orb_note)
+    for index, (presses, bolts, orb_note) in side_orbs(rates, main_index, pressed, paced, caps, choices).items():
+        orb_rates[index] = (presses, bolts)
+        notes.append(orb_note)
     for rate in rates:
         if rate["index"] not in pressed or rate["index"] == main_index:
             continue
@@ -6934,22 +6965,30 @@ ORB_OF_STORMS = "Orb of Storms"
 ORB_BOLT_EVERY, ORB_DURATION, ORB_MAX_BOLTS = 4.0, 12.0, 6
 
 
-def orb_of_storms_note(main: Skill | None, stats: dict) -> list[dict]:
-    """A labelled note on Orb of Storms as the main skill: PoB's one bolt per cast holds only if recasting fires a bolt."""
+def orb_of_storms_note(main: Skill | None, stats: dict, orb: dict | None = None) -> list[dict]:
+    """A labelled note on Orb of Storms as the main skill: PoB's one bolt per cast holds only if recasting fires a bolt.
+    `orb`: the main group's bridge `useRates` row (MECHB29: its orbMaxHits, orbBoltFrequency and duration as PoB builds
+    them, as orb_cycle reads them); without one, the game files' base 6 bolts, 4 s and 12 s."""
     if main is None or main.name != ORB_OF_STORMS:
         return []
     casts = number(stats.get("Speed"))
     if casts <= 0:
         return []
-    timer_bolts = min(ORB_MAX_BOLTS, int(ORB_DURATION // ORB_BOLT_EVERY))
-    without = timer_bolts / (ORB_DURATION + 1 / casts)
+    hits = number((orb or {}).get("orbMaxHits")) or ORB_MAX_BOLTS
+    every = number((orb or {}).get("orbBoltFrequency")) / 1000 or ORB_BOLT_EVERY
+    duration = number((orb or {}).get("duration")) or ORB_DURATION
+    read = "as PoB builds them, with the build's modifiers" if orb and number(orb.get("orbMaxHits")) > 0 else (
+        "the game files' base values: no useRates row read")
+    timer_bolts = min(hits, math.floor(duration / every + 1e-9))
+    without = timer_bolts / (duration + 1 / casts)
     return [{"label": "Orb of Storms: bolts per second (one per cast, as PoB counts)*",
              "value": f"{casts:.2f}/s (without a bolt on recast: {without:.2f}/s, {without / casts:.0%} of the DPS)",
-             "basis": "the Orb fires a bolt every 4 s and when you cast a Spell near it, one Orb at a time, 12 s, at most "
-                      "6 bolts (game files; poe2db). Kept: each recast fires one bolt from the Orb it replaces (UNVERIFIED: "
-                      f"no source says whether a recast counts as a Spell cast near the old Orb). Without it, {timer_bolts} "
-                      f"timer bolts per {ORB_DURATION:g} s Orb plus the recast: {without:.2f} bolts/s. Bolts fed by other "
-                      "spells cast near the Orb aren't counted (an undercount when it's a side skill)",
+             "basis": f"the Orb fires a bolt every {every:g} s and when you cast a Spell near it, one Orb at a time, "
+                      f"{duration:.3g} s, at most {hits:g} bolts ({read}; game files; poe2db). Kept: each recast fires "
+                      "one bolt from the Orb it replaces (UNVERIFIED: no source says whether a recast counts as a Spell "
+                      f"cast near the old Orb). Without it, {timer_bolts} timer bolts per {duration:.3g} s Orb plus the "
+                      f"recast: {without:.2f} bolts/s. Bolts fed by other spells cast near the Orb aren't counted (an "
+                      "undercount when it's a side skill)",
              "confidence": "UNVERIFIED"}]
 
 
@@ -6974,22 +7013,26 @@ def orb_of_storms_note(main: Skill | None, stats: dict) -> list[dict]:
 # spell's target, is not in the game text: UNVERIFIED); only a Spell the player casts counts: a triggered main Spell and a
 # channelled one get timer bolts only (whether a triggered spell is "cast", and how a channelled one feeds the
 # channelling bolt frequency stats, which the player set doesn't hold: UNVERIFIED, left uncounted, said in the note);
-# other side Spells cast near it aren't counted (an undercount, said). The main skill's casts while an Orb is up are its
+# the other pressed Spells the player casts (not triggered, not channelled) are cast near it too, at their press rates
+# (MECHB29; the same 'near' assumption). The main skill's casts while an Orb is up are its
 # Speed x (1 - the other presses' share): the Orb's own recast is between lives. An Orb fires its timer bolts at 4, 8 and
 # 12 s (floor(duration / frequency): the one at 12 s at the edge counted, UNVERIFIED), and the casts' bolts on top;
 # when the two reach the maximum before the duration ends, the Orb expires at max hits / (casts/s + 1/frequency) (bolts
 # taken as spread evenly, MEDIUM) and is recast at once; each cycle is its life plus one cast of the Orb.
 def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = None,
-              cap: "PressCap | None" = None) -> tuple[float, float, dict]:
+              cap: "PressCap | None" = None, spells: dict[str, float] | None = None) -> tuple[float, float, dict]:
     """A pressed side Orb of Storms' (presses/s, bolts/s, note), from its `useRates` row (orbMaxHits, orbBoltFrequency,
     duration, speed), the main skill's row (its Speed, spell / triggered / channel) and `others`, the share of the
-    fight the other presses take from the main skill. Held to Cadence's `pace` and the `cap` as press_group_rate is."""
+    fight the other presses take from the main skill. Held to Cadence's `pace` and the `cap` as press_group_rate is.
+    `spells` (MECHB29): {name: presses/s} of the other pressed Spells the player casts, near the Orb too."""
     hits = number(orb.get("orbMaxHits"))
     every = number(orb.get("orbBoltFrequency")) / 1000 or ORB_BOLT_EVERY
     duration = number(orb.get("duration")) or ORB_DURATION
     action = press_action(orb)
     casting = bool(main) and main.get("spell") and not main.get("triggered") and not main.get("channel")
-    casts = number(main.get("speed")) * max(0.0, 1.0 - others) if casting else 0.0
+    own = number(main.get("speed")) * max(0.0, 1.0 - others) if casting else 0.0
+    beside = sum(number(v) for v in (spells or {}).values())
+    casts = own + beside
     timer = math.floor(duration / every + 1e-9)
 
     def cycle(rate: float) -> tuple[float, float, float]:  # (life, bolts an Orb, presses/s)
@@ -7010,23 +7053,28 @@ def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = 
             alone_presses = min(alone_presses, limit)
     bolts, without = presses * per, alone_presses * alone
     name = main.get("name") if main else None
+    besides = (f" and the other pressed Spells' {beside:.2f} casts/s ("
+               + ", ".join(f"{k} {number(v):.2f}" for k, v in (spells or {}).items() if number(v) > 0) + ")"
+               if beside > 0 else "")
     if casting:
-        how = (f"{name}'s {casts:.2f} casts/s near the Orb (a play strategy: cast it where the Orb is*) plus "
+        how = (f"{name}'s {own:.2f} casts/s{besides} near the Orb (a play strategy: cast them where the Orb is*) plus "
                f"{timer} timer bolts: {per:.2g} bolts an Orb, which lasts {life:.2f} s")
     else:
         why = ("a triggered Spell (whether it counts as cast near the Orb: UNVERIFIED, not counted)" if main and
                main.get("triggered") else "a channelled Spell (how it feeds the Orb: UNVERIFIED, not counted)" if main
                and main.get("channel") else "not a Spell (only casting a Spell fires a bolt)")
-        how = f"timer bolts only: {timer} an Orb in its {duration:.2f} s; the main skill {name or '(none)'} is {why}"
+        lead = besides[len(" and "):] + " near the Orb plus " if beside > 0 else "timer bolts only: "
+        how = f"{lead}{timer} timer bolts an Orb in its {duration:.2f} s; the main skill {name or '(none)'} is {why}"
     note = {"label": "Orb of Storms: bolts per second beside the main skill*",
             "value": f"{bolts:.2f}/s ({presses:.3f} Orbs/s); without casting near it {without:.2f}/s",
             "basis": (f"{how}{held}; at most {hits:g} bolts an Orb (game files, quality as PoB builds it), a bolt every "
                       f"{every:g} s and when you cast a Spell near it, {duration:.2f} s, recast at once ({action:.2f} s "
-                      "each). Replaces PoB's one bolt per Orb cast. Every main-Spell cast is taken as near the Orb "
-                      "(what 'near' covers: UNVERIFIED); other side Spells' casts aren't counted (an undercount). "
+                      "each). Replaces PoB's one bolt per Orb cast. Every cast of the main Spell and of the other "
+                      "pressed Spells is taken as near the Orb (what 'near' covers: UNVERIFIED); a triggered or "
+                      "channelled side Spell isn't counted (UNVERIFIED whether it feeds the Orb). "
                       f"Without it / with it: {without:.2f} / {bolts:.2f} bolts a second"),
-            "confidence": "MEDIUM" if casting else "UNVERIFIED" if main and (main.get("triggered") or main.get("channel"))
-            else "MEDIUM"}
+            "confidence": "MEDIUM" if casting or beside > 0 else "UNVERIFIED" if main and (
+                main.get("triggered") or main.get("channel")) else "MEDIUM"}
     return presses, bolts, note
 
 
@@ -7264,6 +7312,107 @@ def doom_blast_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[
                                "cast speed",
                       "play": "Let the curse run out on the boss before recasting it: each expiry triggers one Doom Blast.",
                       "confidence": "MEDIUM" if rate > 0 else "HIGH"})
+    return mods, notes, groups
+
+
+# Hayoxi's Fulmination's Annihilation (MECHB29; GEM7's item, MECHB28's findings: an UNDERCOUNT) ---------------------------
+# The support (game files SupportHayoxisBindingPlayer, GrantedEffectStatSets; gem_stat_descriptions.csd): "Supported
+# Skills create Cursed Ground" (curse_apply_as_curse_zone), "Limit 2 areas of Cursed Ground" (maximum_curse_zones_allowed
+# 2), "Trigger Annihilation when Cursed Ground from Supported Skills have persisted for 7 seconds"
+# (trigger_from_hayhoxis_binding_after_x_ms 7000); it gives the curse a 2 s cooldown, 1 stored use (GrantedEffectsPerLevel)
+# and supports no Triggered, Channelling, Attack, totem, trap or mine curse (its excluded skill types; PoB sup_int.lua
+# 5398). Annihilation (SupportTriggeredAnnihilationPlayer): "Hits a total of 6 times over 2 seconds"
+# (annihilation_hit_intervals 6, annihilation_blast_duration_ms 2000), radius 17 (1.7 m). None of these varies: the
+# support has one level, and no item, passive, rune or jewel line grants any of them (checked: the Stat fields of every
+# game table for the 10 curse-zone / Hayoxi / annihilation stat ids: only the Cursed Ground, Doedre's Undoing and Hayoxi
+# supports' sets, two monster Temporal Chains sets and Annihilation's own; PoB's ModCache holds no Cursed Ground line;
+# poe2db not checked: UNVERIFIED). Patch notes --history "Hayoxi": 0.5.0 only a bug fix (it could support non-curses);
+# "Cursed Ground": 0.5.0 only Doedre's Undoing's rework.
+# PoB (MECHB29's probes POE2T1146-1147, Spark Stormweaver + Despair / Hayoxi's Fulmination): nothing reads the trigger or
+# the hit count (castTime 0, Triggered, InbuiltTrigger), so with no rate it scores 0 (Speed 0; Full DPS 97.2, Spark
+# alone, with or without its group in Full DPS: an UNDERCOUNT); a triggerRate r gives Speed r and r x one hit (688.4 at
+# r = 1/7: 98.3; at 0.5: 344.2): its hit is one of the 6. It doesn't apply the support's "100% of Physical Damage
+# Converted to other Damage Types matching the Supported Curse Gem's Tags" (annihilation.csd): PhysicalHitAverage 604 of
+# 688 under Despair (Chaos): not modelled here (MECH-B's open item, said in the note).
+# The model, one Annihilation per area that lasts 7 s:
+#   - an area erupts once, when it has persisted 7 s (the text names one trigger; a second at 14 s: UNVERIFIED, not
+#     counted, moot under the play below); an area replaced at the Limit before 7 s doesn't erupt (it hasn't persisted
+#     7 s; KeywordPopups Limit: "the oldest effect will dissapear");
+#   - an area lasts the curse's duration (CurseUse.duration: PoB's, with the build's modifiers). UNVERIFIED: no source
+#     gives Cursed Ground's own duration (checked: no stat id in the game files names one; KeywordPopups has no Cursed
+#     Ground entry; PoB has no Cursed Ground handling). Under 7 s it never erupts under that reading: 0, labelled LOW and
+#     held for the user (if areas outlast the curse, 2 per 7 s);
+#   - the play (a player who takes it plays to feed it: CLAUDE.md): two areas under the boss, a new one cast every 3.5 s
+#     (7 s / 2 areas, or the curse's cooldown if that is longer), so each area reaches 7 s, erupts and is replaced by the
+#     next cast: 2 eruptions per 7 s. Without it (the curse recast each duration, as curse_uses counts it): 1 per duration;
+#   - the play's extra casts (its rate minus curse_model's one a duration) take their cast time from the main skill:
+#     charged here, as less Cast Speed on it, so that with curse_model's line the main skill loses both casts' share;
+#   - each eruption: 6 hits on the boss (it stands in the cursed area; that it stays in the 1.7 m column all 2 s: LOW):
+#     its trigger rate is eruptions x 6 (PoB's hit is one of the 6: probe);
+#   - a curse not cast by hand: a meta can't trigger a supported curse (the support excludes Triggered); a Blasphemy
+#     Aura's or an item's curse: whether it makes Cursed Ground is UNVERIFIED: left as PoB has it, said in the note.
+HAYOXI = "Hayoxi's Fulmination"
+ANNIHILATION = "Annihilation"
+HAYOXI_DELAY = 7.0  # trigger_from_hayhoxis_binding_after_x_ms 7000
+HAYOXI_COOLDOWN = 2.0  # the support's Cooldown 2000 ms on the curse
+ANNIHILATION_HITS = 6  # annihilation_hit_intervals
+
+
+def annihilation_model(skills: list[Skill], curses: list[CurseUse],
+                       main: Skill | None) -> tuple[list[dict], list[dict], set[int]]:
+    """Hayoxi's Fulmination's Annihilation from its curse's Cursed Ground areas (see above): (lines, notes, groups to
+    count in Full DPS)."""
+    blasts = [s for s in skills if s.name == ANNIHILATION and s.group is not None]
+    mods: list[dict] = []
+    notes: list[dict] = []
+    groups: set[int] = set()
+    shares = {c.name: c for c in curses}
+    for blast in blasts:
+        cast = next((s for s in skills if s.group == blast.group and s.name in shares), None)
+        curse = shares[cast.name] if cast is not None else None
+        rate, without, confidence, play = 0.0, 0.0, "LOW", ""
+        if curse is None:
+            how = "no curse in its group is applied (0)"
+        elif not curse.by_hand:
+            how = (f"{curse.name} is {curse.how.split(':')[0]}: whether a curse not cast by hand makes Cursed Ground is "
+                   "UNVERIFIED (a meta can't trigger it: the support excludes Triggered skills); left as PoB has it")
+        elif curse.duration < HAYOXI_DELAY - 1e-9:
+            how = (f"{curse.name}'s areas last its {curse.duration:.3g} s duration (UNVERIFIED that Cursed Ground lasts "
+                   f"the curse's duration), under the {HAYOXI_DELAY:g} s an area must persist: none erupts (0; if areas "
+                   f"outlast the curse, {CURSE_AREAS} per {HAYOXI_DELAY:g} s)")
+        else:
+            cooldown = (cast.cooldown or HAYOXI_COOLDOWN) / (cast.cooldown_recovery or 1.0)
+            every = max(HAYOXI_DELAY / CURSE_AREAS, cooldown)
+            rate, without = 1 / every, 1 / curse.duration
+            extra = max(0.0, rate - without)
+            confidence = "MEDIUM"
+            how = (f"{curse.name} cast every {every:.3g} s ({HAYOXI_DELAY:g} s / {CURSE_AREAS} areas, its "
+                   f"{cooldown:.3g} s cooldown allowing), so each area persists {HAYOXI_DELAY:g} s, erupts and is "
+                   f"replaced by the next cast: {rate:.3f} eruptions/s (a play strategy*; recast only each "
+                   f"{curse.duration:.3g} s duration: {without:.3f}/s); areas taken to last the curse's duration "
+                   "(UNVERIFIED)")
+            play = (f"Cast {curse.name} under the boss every {every:.3g} s, keeping {CURSE_AREAS} areas: each erupts "
+                    f"after {HAYOXI_DELAY:g} s. Without it (recast each {curse.duration:.3g} s): {without:.3f} "
+                    f"Annihilations/s; with it: {rate:.3f}/s")
+            took = cast.cast_time or 0.7
+            if main is not None and cast is not main and extra > 0:
+                first = min(1.0, took / curse.duration)  # (curse_model's line for the cast each duration)
+                lost = min(1.0 - first, took * extra)
+                if first < 1.0 and lost > 0:
+                    mods.append(line("1% more Attack and Cast Speed", -100 * lost / (1.0 - first), skill=main.name))
+                    how += (f"; the {extra:.3f} extra casts/s take {lost:.1%} of {main.name}'s time ({took:.2f} s "
+                            "each)")
+        mods += trigger_rate(ANNIHILATION, rate * ANNIHILATION_HITS)
+        if rate > 0:
+            groups.add(blast.group)
+        notes.append({"label": "Annihilation (Hayoxi's Fulmination) per second*", "value": round(rate, 3),
+                      "basis": (f"one each time a Cursed Ground area has persisted {HAYOXI_DELAY:g} s: {how}; "
+                                f"{ANNIHILATION_HITS} hits each over 2 s, all taken to land on the boss in the area (LOW: "
+                                "that it stays in the 1.7 m column all 2 s); PoB alone gives it no rate (0). PoB keeps "
+                                "its damage Physical: the conversion to the curse's damage types isn't applied (an "
+                                "error either way, not modelled)"),
+                      **({"play": play} if play else {}),
+                      "confidence": confidence if rate > 0 else "LOW"})
     return mods, notes, groups
 
 

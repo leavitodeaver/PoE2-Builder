@@ -2804,6 +2804,10 @@ def test_orb_of_storms_keeps_one_bolt_per_cast_and_says_the_rate_without_a_recas
     note = models.orb_of_storms_note(Skill("Orb of Storms", spell=True), {"Speed": 2.0})[0]
     assert note["confidence"] == "UNVERIFIED" and "2.00/s" in note["value"]
     assert f"{3 / 12.5:.2f}/s" in note["value"]
+    # MECHB29: its bolts, frequency and duration from its own useRates row (a longer duration: 4 timer bolts)
+    row = {"orbMaxHits": 6, "orbBoltFrequency": 4000, "duration": 16.0}
+    note = models.orb_of_storms_note(Skill("Orb of Storms", spell=True), {"Speed": 2.0}, row)[0]
+    assert f"{4 / 16.5:.2f}/s" in note["value"] and "as PoB builds them" in note["basis"]
 
 
 def test_a_side_orb_of_storms_fires_a_bolt_for_each_main_spell_cast_up_to_its_maximum_hits():
@@ -2831,6 +2835,24 @@ def test_a_side_orb_of_storms_fires_a_bolt_for_each_main_spell_cast_up_to_its_ma
     assert scales["Orb of Storms"] == pytest.approx(6 / (life + 0.8) / 1.25)
     assert scales["Spark"] == pytest.approx(1 - 0.8 / (life + 0.8))
     assert any(n["label"].startswith("Orb of Storms: bolts") for n in notes)
+    # MECHB29: orbs_per_second (MECH-C's Remnant supply) gives the Orbs cast a second press_model scores
+    assert models.orbs_per_second([orb, fast], 1, {2}) == {2: pytest.approx(1 / (life + 0.8))}
+    assert models.orbs_per_second([orb, fast], 2, {2}) == {}
+    # MECHB29: another pressed Spell's casts (Frost Bomb on its 6 s cooldown) fire bolts too; a triggered one doesn't
+    bomb = {"index": 3, "name": "Frost Bomb", "speed": 1.0, "cooldown": 6.0, "castTime": 0.5, "spell": True}
+    others = (1 / 6) * 0.5
+    presses, bolts, note = models.orb_cycle(orb, slow, others, spells={"Frost Bomb": 1 / 6})
+    casts = 0.2 * (1 - others) + 1 / 6
+    assert casts * 12 + 3 > 6  # (the Orb reaches its 6 bolts before 12 s)
+    assert bolts == pytest.approx(6 / (6 / (casts + 0.25) + 0.8)) and "Frost Bomb 0.17" in note["basis"]
+    scales, _ = models.press_model([orb, slow, bomb], 1, {2, 3})
+    assert scales["Orb of Storms"] == pytest.approx(bolts / 1.25)
+    trig = {**bomb, "triggered": True}
+    assert models.press_model([orb, slow, trig], 1, {2, 3})[0]["Orb of Storms"] == pytest.approx(
+        models.orb_cycle(orb, slow, others)[1] / 1.25)
+    # a non-Spell main skill: the side Spell's casts alone feed it
+    _, bolts, note = models.orb_cycle(orb, {**slow, "spell": None}, others, spells={"Frost Bomb": 1 / 6})
+    assert bolts == pytest.approx((2 + 3) / 12.8) and note["confidence"] == "MEDIUM"
     # without orbMaxHits (no Orb row from the bridge) the old count stands: one per duration
     old = {k: v for k, v in orb.items() if k != "orbMaxHits"}
     assert models.press_model([old, fast], 1, {2})[0]["Orb of Storms"] == pytest.approx(1 / 12 / 1.25)
@@ -3626,6 +3648,38 @@ def test_doom_blast_fires_once_each_time_its_curse_expires():
     mods, notes, groups = models.doom_blast_model([despair, blast], [meta])
     assert next(m for m in mods if m["key"] == "triggerRate")["value"] == 0 and "excludes Triggered" in notes[0]["basis"]
     assert models.doom_blast_model([despair], [by_hand]) == ([], [], set())
+
+
+def test_hayoxis_fulmination_erupts_once_per_cursed_ground_area_that_persists_seven_seconds():
+    """MECHB29 (GEM7, MECHB28's findings): Annihilation triggers when a Cursed Ground area has persisted 7 s; with 2
+    areas a curse cast every 3.5 s (the play) erupts 2 per 7 s, 6 hits each; its extra casts over one a duration cost the
+    main skill their cast time; an area shorter than 7 s (taken to last the curse's duration) never erupts."""
+    despair = Skill("Despair", group=4, spell=True, cast_time=0.5, cooldown=2.0)
+    blast = Skill(models.ANNIHILATION, group=4, spell=True, triggered=True)
+    main = Skill("Spark", group=1, spell=True)
+    by_hand = models.CurseUse("Despair", 1.0, "cast by hand every 8 s", True, 8.0)
+    mods, notes, groups = models.annihilation_model([despair, blast, main], [by_hand], main)
+    rate = next(m for m in mods if m.get("key") == "triggerRate")
+    assert rate["skill"] == models.ANNIHILATION and rate["value"] == pytest.approx(2 / 7 * 6, abs=1e-3)
+    assert groups == {4} and notes[0]["value"] == pytest.approx(2 / 7, abs=1e-3) and notes[0]["confidence"] == "MEDIUM"
+    assert "0.125" in notes[0]["play"] and "0.286" in notes[0]["play"]  # (without / with the play)
+    # the extra casts: 0.5 s x (2/7 - 1/8) of Spark's time, on top of curse_model's 0.5 / 8
+    speed = next(m for m in mods if m.get("line") == "1% more Attack and Cast Speed")
+    first, lost = 0.5 / 8, 0.5 * (2 / 7 - 1 / 8)
+    assert speed["skill"] == "Spark" and speed["scale"] == pytest.approx(-100 * lost / (1 - first), abs=1e-3)
+    assert (1 - first) * (1 + speed["scale"] / 100) == pytest.approx(1 - 0.5 * 2 / 7, abs=1e-5)
+    # a slower cooldown sets the pace: one eruption a cast
+    slow = replace(despair, cooldown=2.0, cooldown_recovery=0.4)  # (5 s)
+    assert models.annihilation_model([slow, blast, main], [by_hand], main)[1][0]["value"] == pytest.approx(0.2)
+    # areas under 7 s never erupt (labelled), a curse not cast by hand is left as PoB has it, no Annihilation: nothing
+    short = models.CurseUse("Despair", 1.0, "cast by hand every 6 s", True, 6.0)
+    mods, notes, groups = models.annihilation_model([despair, blast, main], [short], main)
+    assert next(m for m in mods if m.get("key") == "triggerRate")["value"] == 0 and groups == set()
+    assert notes[0]["confidence"] == "LOW" and "UNVERIFIED" in notes[0]["basis"]
+    aura = models.CurseUse("Despair", 1.0, "an Aura (Blasphemy) on enemies nearby: inside it")
+    mods, notes, groups = models.annihilation_model([despair, blast, main], [aura], main)
+    assert groups == set() and "left as PoB has it" in notes[0]["basis"]
+    assert models.annihilation_model([despair, main], [by_hand], main) == ([], [], set())
 
 
 def test_a_curses_own_duration_sets_its_uptime_recast_time_and_doom_blasts():

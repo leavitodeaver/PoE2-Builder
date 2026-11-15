@@ -352,10 +352,25 @@
   game_source: https://poe2db.tw/us/Orb_of_Storms
   pob: partial
   pob_check: "PoB scores one bolt per Orb cast at the Orb's own Speed (probe MECHB28, POE2T1139: 103.6 DPS = 82.9 a bolt x 1.25 casts/s); nothing reads the timer, the near-cast bolts or the maximum hits."
-  handling: "models.orb_cycle (MECH-B, MECHB28): a pressed side Orb fires its timer bolts plus one per main-Spell cast while it is up (a play strategy: cast where the Orb is), capped at its maximum hits; it expires early at max hits / (casts/s + 1/4) and is recast at once (its cast time taken from the main skill); press_model's ratio for it is bolts/s over PoB's Speed (replacing, not adding). A triggered, channelled or non-Spell main skill gets timer bolts only (UNVERIFIED either way). What 'near' covers: UNVERIFIED. Other side Spells' casts aren't counted (an undercount). As the main skill: models.orb_of_storms_note (one bolt per cast kept, UNVERIFIED)."
-  plan: {approach: custom model, how: "Done for the main Spell; other side Spells' casts and the Orb's Remnant rate (MECH-C) left.", inputs: [useRates orbMaxHits / orbBoltFrequency / duration, the main skill's Speed and types, the other presses]}
+  handling: "models.orb_cycle (MECH-B, MECHB28): a pressed side Orb fires its timer bolts plus one per main-Spell cast while it is up (a play strategy: cast where the Orb is), capped at its maximum hits; it expires early at max hits / (casts/s + 1/4) and is recast at once (its cast time taken from the main skill); press_model's ratio for it is bolts/s over PoB's Speed (replacing, not adding). A triggered, channelled or non-Spell main skill gets timer bolts only (UNVERIFIED either way). What 'near' covers: UNVERIFIED. The other pressed Spells the player casts (not triggered or channelled) fire bolts too, at their press rates (MECHB29). models.orbs_per_second gives the Orbs cast a second (MECH-C's Remnant supply). As the main skill: models.orb_of_storms_note (one bolt per cast kept, UNVERIFIED), its bolts, frequency and duration from its own useRates row (MECHB29)."
+  plan: {approach: custom model, how: "Done for the main Spell and the other pressed Spells; the Orb's Remnant rate is MECH-C's (orbs_per_second).", inputs: [useRates orbMaxHits / orbBoltFrequency / duration, the main skill's Speed and types, the other presses]}
   what_if: visible
   guide_note: "Cast your main Spell near the Orb: each cast fires a bolt, 6 an Orb; recast it when the bolts run out."
+  impact: 2
+  effort: S
+
+- id: hayoxi-annihilation
+  name: Hayoxi's Fulmination's Annihilation
+  terms: [Hayoxi's Fulmination, Annihilation, Cursed Ground]
+  category: damage sources
+  game: "Supported curses create Cursed Ground, Limit 2 areas, and get a 2 s cooldown; Annihilation triggers when an area has persisted 7 s and hits 6 times over 2 s (SupportHayoxisBindingPlayer, SupportTriggeredAnnihilationPlayer; its physical damage converted to the curse's damage types)."
+  game_source: "data/game-26476662 GrantedEffectStatSets SupportHayoxisBindingPlayer, SupportTriggeredAnnihilationPlayer; gem_stat_descriptions, annihilation.csd"
+  pob: none
+  pob_check: "PoB gives Annihilation no rate: 0 in Full DPS (probe MECHB29, POE2T1146); a trigger rate r gives r x one hit (688.4 at r = 1/7: 98.3). It doesn't apply the conversion to the curse's damage types."
+  handling: "models.annihilation_model (MECH-B, MECHB29): one eruption per area that persists 7 s; the play: 2 areas, a new cast every max(3.5 s, the curse's cooldown), 2 per 7 s (without it, one per curse duration); trigger rate = eruptions x 6 hits (all on the boss: LOW); the extra casts charged to the main skill. Areas taken to last the curse's duration (UNVERIFIED; under 7 s: 0, LOW). The curse's group in Full DPS isn't charged again as a press (rate_presses). Not modelled: the damage conversion."
+  plan: {approach: custom model, how: "Done; the conversion to the curse's damage types and whether areas outlast the curse are open.", inputs: [the curse's duration, cooldown and cast time, curse_uses]}
+  what_if: visible
+  guide_note: "Cast the curse under the boss every 3.5 s, keeping two areas: each erupts after 7 s."
   impact: 2
   effort: S
 
