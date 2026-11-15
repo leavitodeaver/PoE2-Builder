@@ -3681,6 +3681,53 @@ CONFIG_SHARES = {"near_boss"}  # (share functions that read PoB's config: gem_st
 
 SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use", "vruun_combo"}  # (read the build's skills: `_skills`)
 
+# `share: rain_landing` (GEM9; an OVERCOUNT PoB can't see): Rain of Arrows' "Modifiers to Projectile speed apply to arrow
+# landing frequency" (rain_of_arrows_new.csd, skill_specific_stat_description_mode 1). The game: "One arrow lands every
+# 0.08 seconds" (rain_of_arrows_delay_per_arrow 80) and "Can Hit each enemy only once every 0.12 seconds"
+# (rain_hit_delay_ms 120); poe2db's Rain of Arrows page (14 Nov 2026) shows both lines; patch 0.2.0: "Rain of Arrows' arrow
+# landing frequency is now affected by projectile speed modifiers, meaning that (for example) increased projectile speed
+# causes the same number of arrows to land in a shorter total time"; 0.1.0d added the per-enemy limit. PoB maps the two
+# stats to hitTimeOverride / maxHitRatePerEnemy and scores HitTime = max(0.08, 0.12) (CalcOffence 3133-3140), with no
+# projectile speed in it. Against one boss: the arrow interval is i = 0.08 / m (m: PoB's ProjectileSpeedMod for the
+# skill); the boss is hit once per max(i, 0.12) while a rain lasts, and a rain lasts N x i (N: PoB's ProjectileCount, the
+# arrows). "Maximum 1 arrow rains" (base_number_of_arrow_rains_allowed 1): a new rain is taken to replace the old, so the
+# hits run on while the player attacks at least once per rain, and fall to Speed x N x i of the time when the rains are
+# shorter than the time between attacks. Rate = (1 / max(i, 0.12)) x min(1, Speed x N x i), against PoB's
+# 1 / max(0.08, 0.12): scored as "less Damage" by the shortfall. Faster projectiles change nothing on a boss (the 0.12 s
+# cap already binds), so this never adds. Player sources that slow projectiles (checked: Stats ids holding
+# projectile_speed with values under 0 in Mods and PassiveSkills, build 26476662; PoB sup_dex.lua / sup_int.lua):
+# Projectile Deceleration I / II (25% / 30% less; one "Projectile Speed" gem family, so one at a time), Short Shot
+# (-10%), the "Reduced Projectile Speed" small passives (-6%), Ixchel's Torment's random 40% less on the skills it
+# triggers. Deceleration II alone (x0.7: 0.114 s) still sits under the cap; with Short Shot and a -6% node (x0.588:
+# 0.136 s) the boss takes 12% fewer hits. Not modelled: how many of the arrows, landing over a 3.6 m rain, reach the boss
+# (PoB's; this counts every arrow as covering it, as PoB does); whether a new rain really replaces the old one or ends
+# first (UNVERIFIED; either way the boss is hit at the capped rate while rains keep coming). The main skill only (its
+# Speed and projectile numbers are read from the stats); another group's Rain of Arrows keeps PoB's rate (an overcount
+# left, said in the note).
+RAIN_SKILL, RAIN_DELAY, RAIN_CAP = "Rain of Arrows", 0.08, 0.12  # (the game's 80 ms and 120 ms, when the stats aren't read)
+
+
+def rain_landing_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    """Percent less hit rate on the boss than PoB's fixed one (see above), and how."""
+    delay = number(skill.level_stats.get("rain_of_arrows_delay_per_arrow")) / 1000 or RAIN_DELAY
+    cap = number(skill.level_stats.get("rain_hit_delay_ms")) / 1000 or RAIN_CAP
+    play = ("Keep the arrows falling at least every 0.12 seconds: don't slow the skill's projectiles (Projectile "
+            "Deceleration with Short Shot or reduced Projectile Speed passives) past 33% slower, and attack again "
+            "before the rain runs out.")
+    if main is None or main.name != skill.name or main.group != skill.group:
+        return 0.0, "0: not the main skill, so its projectile speed isn't read; PoB's hit rate stands (an overcount if slowed)", play
+    m = number(stats.get("ProjectileSpeedMod")) or 1.0
+    arrows, speed = number(stats.get("ProjectileCount")), number(stats.get("Speed"))
+    interval = delay / m
+    covered = min(1.0, speed * arrows * interval) if arrows > 0 and speed > 0 else 1.0
+    ratio = min(1.0, max(delay, cap) / max(interval, cap) * covered)
+    less = (1.0 - ratio) * 100
+    how = (f"projectile speed x{m:.3g}: an arrow every {interval:.3g} s against the {cap:g} s per-enemy limit"
+           + (f", rains of {arrows:g} arrows ({arrows * interval:.2g} s) cover {covered:.0%} of the time at {speed:.3g} "
+              f"attacks/s" if covered < 1 else "") + f": {ratio:.0%} of PoB's {1 / max(delay, cap):.3g} hits/s")
+    return (less, f"{less:.3g}% less: {how}", play) if less > 0.05 else (0.0, f"0: {how}", play)
+
+
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
           "cull_buff": cull_buff_share, "revived_recently": revived_recently_share,
@@ -3688,7 +3735,8 @@ SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_s
           "corpses_per_use": corpses_per_use_share, "stun_bar": stun_bar_share,
           "seal_echo": seal_echo_share, "shotgun_fragments": shotgun_fragments_share,
           "shotgun_fragment_count": shotgun_fragment_count_share,
-          "vruun_combo": vruun_combo_share}
+          "vruun_combo": vruun_combo_share, "rain_landing": rain_landing_share}
+MODEL_FIELDS.extend(f for f in ("ProjectileSpeedMod",) if f not in MODEL_FIELDS)  # (rain_landing_share)
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:

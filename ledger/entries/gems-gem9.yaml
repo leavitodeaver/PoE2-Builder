@@ -1,0 +1,72 @@
+# GEM9 (14 Nov 2026): skill_specific_stat_description_mode on more skills (GEM8's list, item 1). The stat's value only
+# picks which text the game shows; each text describes a real effect, so each skill is checked against what PoB counts,
+# by probe (scratch/gem9/probe_mode.py, POE2T2062, real PoB). Each entry is scoped to the skills named: the same stat on
+# other skills stays open.
+
+- id: model-gem9-rain-landing
+  title: "Rain of Arrows: projectile speed sets how often its arrows land (slowed past the 0.12 s limit, fewer hits)"
+  kind: gem_stat
+  match: '^skill_specific_stat_description_mode$'
+  replace: ["1% less Damage"]
+  share: rain_landing
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Rain of Arrows]
+  confidence: datamined
+  notes: >-
+    RainOfArrowsPlayer carries skill_specific_stat_description_mode 1, whose only text in rain_of_arrows_new.lua is
+    "Modifiers to Projectile speed apply to arrow landing frequency". PoB scores the hit rate as 1 / max(0.08, 0.12)
+    (rain_of_arrows_delay_per_arrow -> hitTimeOverride, rain_hit_delay_ms -> maxHitRatePerEnemy, CalcOffence
+    3133-3140) with no projectile speed in it. The game's arrows land every 0.08 s / projectile speed and hit each enemy
+    once per 0.12 s at most, so faster projectiles move nothing on a boss and projectiles slowed below x0.667 land too
+    seldom to reach the limit: PoB OVERCOUNTS those builds (models.rain_landing_share, from the build's own
+    ProjectileSpeedMod, ProjectileCount and attack Speed). Second source: poe2db Rain of Arrows (14 Nov 2026) "Can Hit
+    each enemy only once every 0.12 seconds", "One arrow lands every 0.08 seconds"; patch 0.2.0 "Rain of Arrows' arrow
+    landing frequency is now affected by projectile speed modifiers". Counted on the main skill only.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/Specific_Skill_Stat_Descriptions/rain_of_arrows_new.lua",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (RainOfArrowsPlayer statMap)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 3133-3140",
+            "poe2db.tw/us/Rain_of_Arrows (14 Nov 2026)", "patch notes 0.2.0, 0.1.0d",
+            "scratch/gem9/probe_mode.json (POE2T2062)"]
+  test_in_game: "Rain of Arrows on a big boss with Projectile Deceleration II and Short Shot, then without them: count the hits in the combat log over 5 s (about 42 at 0.12 s; 12% fewer when slowed to x0.59)."
+  status: proposed
+
+- id: model-gem9-toxic-domain-pustules
+  title: "Toxic Domain's one Pustule per enemy and stored Poison: the pustule model's"
+  kind: model
+  model: pustules
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Toxic Domain, Poison Spores, Toxic Growth]
+  confidence: datamined
+  notes: >-
+    Toxic Domain's Toxic Bloom set: "Each enemy can have up to 1 Pustule attached"; its Pustule Explosion set:
+    "Pustules store expected damage of Poisons inflicted on them" (toxic_domain_statset_0 / statset_1 .lua, the blocks
+    holding this stat; Poison Spores' two sets and Toxic Growth's set 1 carry the same texts). MECH-B's pustule model
+    already counts both (models.py PUSTULE_SKILLS: the one-Pustule cap at 1 / fuse a second, MECHB10, AUDIT23 A23-1;
+    pustule_stored: the stored-Poison "more" as a with-it row, not scored while whether the boss's Poisons reach the
+    Pustule is UNVERIFIED, MECHB15). This entry only records that the stat is that model's. Poisonbloom Arrow has the
+    stored-Poison text in PoB's description files but no skill (checked: no PoisonbloomArrow / poisonbloom row in the
+    game's GrantedEffectStatSets, GrantedEffects or ActiveSkills, build 26476662; no skill in PoB's Data/Skills using
+    its scope): nothing to count.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/Specific_Skill_Stat_Descriptions/toxic_domain_statset_0.lua",
+            "vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/Specific_Skill_Stat_Descriptions/toxic_domain_statset_1.lua",
+            "builder/search/models.py (pustule_cap, pustule_stored)"]
+  test_in_game: "Not needed for the shape (the pustule model's own test_in_game)."
+  status: proposed
+
+- id: model-gem9-unearth-one-construct-per-death
+  title: "Unearth: a Reviving minion's death makes one Bone Construct (the corpse model's count)"
+  kind: model
+  model: minions
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Unearth]
+  confidence: datamined
+  notes: >-
+    UnearthPlayer carries skill_specific_stat_description_mode 1, whose only text in unearth.lua is "Reviving Minions
+    can only create one Bone Construct per death" (bone_cone.lua has the same text; the game has no player Bone Cone
+    stat set: checked GrantedEffectStatSets for this stat, only UnearthPlayer and the monster UnearthRogueExileWitch1).
+    MECH-B's models.unearth_constructs already counts one construct per dead Reviving minion used as a corpse (its
+    comment calls that LOW: this game text confirms it). This entry only records that the stat is that model's.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/Specific_Skill_Stat_Descriptions/unearth.lua",
+            "builder/search/models.py (unearth_constructs)"]
+  test_in_game: "Not needed: the game text states it."
+  status: proposed
