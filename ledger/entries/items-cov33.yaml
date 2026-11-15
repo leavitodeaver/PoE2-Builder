@@ -1,0 +1,56 @@
+# Open Weakness on the boss (COV33, 15 Nov 2026; H5-3 part 3, The Master's Reach's lines through PoB's parser).
+# KeywordPopups RevealWeakness: "Revealed Weaknesses are highlighted on enemy Life bars, and occupy a total of 45% of their
+# maximum Life (but in random segments). While the enemy's current Life is within a highlighted segment, they are
+# considered to have an Open Weakness."
+# Sources that reveal (checked: every Stats id with "weakness" and "open" / "reveal", and their carriers in Mods,
+# PassiveSkills and the skill stat sets; poe2db The Master's Reach): Mods UniqueRevealWeakness1 (The Master's Reach; Fists
+# of Stone, a Martial Artist hand-wraps version) and the Huntress's Predatory Instinct (bloodlust_reveal_weakness), whose
+# tree text is the same "Reveal Weaknesses against Rare and Unique enemies".
+# PoB: "Reveal Weaknesses ..." unparsed (ModCache 9319); "Eat a Soul when you Hit an enemy with an Open Weakness"
+# unparsed (7235); "N% of damage taken from enemies with an Open Weakness Recouped as Life" part-parsed (5278: leftover
+# text, so PoB applies nothing); "50% more damage against enemies with an Open Weakness" parsed under
+# Condition:EnemyHasOpenWeakness (ModCache 4644), which only PoB's config box sets and the tool never does (checked: git
+# grep "OpenWeakness" over builder/ and engine/: 0 hits). So every Open Weakness line counted 0.
+
+- id: OpenWeakness
+  title: The share of the fight the boss has an Open Weakness (45% of its Life, when the build reveals weaknesses)
+  kind: condition
+  # Assumptions.ledger_conditions -> open_weakness_share: 0.45 with a "Reveal Weaknesses against Rare and Unique
+  # enemies" line (item or passive), else 0
+  open_weakness: true
+  shown_for: "(?:Open Weakness|^Reveal Weaknesses against Rare and Unique enemies$)"
+  confidence: theory
+  sources: ["data/game-26476662/tables/KeywordPopups.json RevealWeakness", "https://poe2db.tw/us/The_Masters_Reach"]
+  status: proposed
+
+- id: items-recoup-life-open-weakness
+  title: The Master's Reach, N% of damage taken from enemies with an Open Weakness Recouped as Life, at the boss's Open Weakness share
+  kind: pob_gap
+  match: '^(\d+)% of damage taken from enemies with an Open Weakness Recouped as Life$'
+  replace: ['share:OpenWeakness {1}% of Damage taken Recouped as Life']
+  confidence: theory
+  notes: >-
+    PoB part-parses the line (ModCache 5278: DamageTaken BASE with the leftover " from enemies with an Open Weakness
+    Recouped as Life"), so it applies nothing. The stand-in "N% of Damage taken Recouped as Life" is PoB's LifeRecoup
+    (ModCache 1725), counted at OpenWeakness's share: the boss is the only enemy, and it has an Open Weakness 45% of the
+    fight when the build reveals weaknesses (the gloves do themselves). Fists of Stone's "(55-65)% ... Recouped as Life
+    and Energy Shield" is a hand-wraps version for Martial Artist (not offered): not covered here.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:5278", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:1725"]
+  test_in_game: "Wear The Master's Reach against a boss and compare Life recouped from its hits inside and outside the highlighted segments."
+  status: proposed
+
+- id: passives-predatory-instinct-open-weakness-more
+  title: Predatory Instinct, 50% more damage against enemies with an Open Weakness, at the boss's Open Weakness share
+  kind: pob_wrong
+  match: '^(\d+)% more damage against enemies with an Open Weakness$'
+  replace: ['share:OpenWeakness {1}% more Damage']
+  confidence: theory
+  notes: >-
+    PoB parses the line under Condition:EnemyHasOpenWeakness, which the tool never sets, so it counted 0 (an UNDERCOUNT
+    for every Huntress with Predatory Instinct). A pob_wrong entry (a pob_gap isn't applied to a line PoB parses): on the
+    tree node the bridge drops PoB's parse (applyPassiveCorrections, passive_models.wrong_tree_lines) and adds the
+    stand-in, the same MORE at OpenWeakness's share, the fight's average multiplier (1 + 0.45 x 50%). Predatory Instinct reveals
+    weaknesses itself (the same tree line), so the share is 45% whenever it's allocated.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:4644", "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua:1920"]
+  test_in_game: "A Huntress with Predatory Instinct: compare a hit's damage on a boss inside and outside a highlighted Life segment."
+  status: proposed

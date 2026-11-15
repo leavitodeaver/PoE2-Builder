@@ -3366,6 +3366,22 @@ class Assumptions:
                               "play": "Keep the boss on your Chilled Ground: off it, these lines add nothing",
                               "confidence": "MEDIUM-LOW (MECH-A's Chilled Ground share)"})
                 continue
+            if condition.get("open_weakness"):
+                # (COV33, H5-3) the share of the fight the boss has an Open Weakness: 45% when the build reveals
+                # weaknesses (open_weakness_share), 0 without a source; The Master's Reach's recoup line is a `share:` line
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                share, how = self.open_weakness_share()
+                percent = round(100 * share)
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                notes.append({"label": condition["title"], "value": f"{share:.0%}", "basis": how,
+                              "play": "Nothing to do: the boss's Life bar shows the weak segments; they last until its "
+                                      "Life passes them",
+                              "confidence": "MEDIUM (the game's 45% of the boss's Life, taken as 45% of the fight at a "
+                                            "steady damage rate)"})
+                continue
             if condition.get("ward_state"):
                 # (COV32, NOTES3 DEAD-1 / DEAD-2) the share of the fight on Low / missing / full Runic Ward, from what the
                 # build spends its Ward on (MECH-C's ward_shares); its lines are `share:` lines (items-runes-cov32.yaml)
@@ -3576,6 +3592,25 @@ class Assumptions:
         share, how = getattr(self.build, "chilled_ground_up", None) or (0.0, "")
         share = min(max(number(share), 0.0), 1.0)
         return share, how or "no Chilled Ground source under the boss: 0"
+
+    # Sources that reveal weaknesses on a boss (COV33): the Mods / passive stats that do (checked: every Stats id holding
+    # "weakness" with "open" or "reveal" and its carriers in Mods, PassiveSkills and the skill stat sets: Mods
+    # UniqueRevealWeakness1 (The Master's Reach, Fists of Stone) and PassiveSkills AscendancyHuntress1Notable3 Predatory
+    # Instinct (bloodlust_reveal_weakness); reveal_weakness_for_%_of_max_health has no carrier; poe2db's The Master's
+    # Reach agrees). Only the item line is read here: Predatory Instinct is a tree line (for COV-B / MECH-A, named).
+    REVEAL_WEAKNESS = r"^Reveal Weaknesses against Rare and Unique enemies$"
+    OPEN_WEAKNESS_SHARE = 0.45  # KeywordPopups RevealWeakness: "occupy a total of 45% of their maximum Life"
+
+    def open_weakness_share(self) -> tuple[float, str]:
+        """(share of the fight the boss has an Open Weakness, how) for the OpenWeakness condition (COV33, H5-3).
+        KeywordPopups RevealWeakness: "Revealed Weaknesses ... occupy a total of 45% of their maximum Life (but in random
+        segments). While the enemy's current Life is within a highlighted segment, they are considered to have an Open
+        Weakness." A boss is Unique, so a build that reveals weaknesses spends the fight's Life passing 45% of it in
+        segments: 45% of the fight at a steady damage rate (the game's number, not a flat guess). No source: 0."""
+        if self.has_line(self.REVEAL_WEAKNESS):
+            return self.OPEN_WEAKNESS_SHARE, ("Reveal Weaknesses: the weak segments are 45% of the boss's Life (the game's "
+                                              "definition), so 45% of the fight at a steady damage rate")
+        return 0.0, "nothing reveals the boss's weaknesses: 0"
 
     def ward_state_share(self, state: str) -> tuple[float, str]:
         """(share of the fight on Low / missing / full Runic Ward, how) for the `ward_state` conditions (COV32, NOTES3
