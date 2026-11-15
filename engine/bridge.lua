@@ -434,6 +434,26 @@ function DERIVED.harmony(out)
 	return num(out.ManaUnreserved) > num(out.Life) and 1 or 0
 end
 
+-- Mana spent Recently (COV32, PATCH_CHECK MB-4: Indigon's "for each 200 total Mana (you have) Spent Recently" lines,
+-- builder/search/assumptions.py mana_spent_stacks; must give what it gives): the average whole a.per's of Mana the main
+-- skill spent in the past 4 s, x100 (a ledger share in whole percent, read as Multiplier:LedgerShare<name>). 4 s x the
+-- Mana it spends a second, no more than regeneration pays (Indigon: no other Mana recovery); the 4 s sum moves by one
+-- use's cost, so the whole a.per's are averaged over that spread. From the what-if's own output, so the cost line's own
+-- rise feeds back (derivedCalc's second run)
+local MANA_SPENT_SAMPLES = 20
+function DERIVED.manaSpent(out, a)
+	local per, spend, regen, cost = a.per or 200, num(out.ManaPerSecondCost), num(out.ManaRegenRecovery), num(out.ManaCost)
+	local spent = 4 * math.min(spend, regen)
+	if per <= 0 or spent <= 0 then
+		return 0
+	end
+	local total = 0
+	for i = 1, MANA_SPENT_SAMPLES do
+		total = total + math.floor(math.max(0, spent + cost * ((i - 0.5) / MANA_SPENT_SAMPLES - 0.5)) / per)
+	end
+	return math.floor(100 * total / MANA_SPENT_SAMPLES + 0.5)
+end
+
 -- Melting Maelstrom (models.maelstrom_model): added boss DPS, not a modifier (reported as
 -- LedgerAddedDPS, which the objective adds)
 function DERIVED.maelstrom(out, a)
@@ -4653,7 +4673,7 @@ end
 -- source of Onslaught, Frenzy Charges, Shock, ...): allocated passives, equipped item lines and
 -- the descriptions of enabled gems
 function bridge.sourceLines()
-	local lines = { }
+	local lines, shares = { }, { }
 	local function add(source, text)
 		if type(text) == "string" and text ~= "" then
 			lines[#lines + 1] = { source = source, text = text }
@@ -4698,6 +4718,14 @@ function bridge.sourceLines()
 					-- read numbers, so give them the rolled line, as PoB's own getRangedModList does (Item.lua 2726-2735;
 					-- COVD1: nearly every custom model missed ranged unique lines)
 					local text = modLine.line
+					-- (COV32) an item `share:` stand-in that replaced its line in place (a unique's or rare's pob_wrong line:
+					-- The Lethal Draw, Indigon, the Alloy lines) is listed by name in `shares`, not in `lines`, so a
+					-- condition's shown_for still finds it (Assumptions.has_line; before, the line was gone from here and
+					-- its share condition never switched on) and no model reads the bare line or a marker as a line
+					local shareName = type(text) == "string" and not modLine.ledgerBonded and text:match("^LedgerShare:(%w+)")
+					if shareName then
+						shares[#shares + 1] = "LedgerShare:" .. shareName
+					end
 					-- a Bonded rune line only while PoB applies it, without its "Bonded: " prefix, so the models and the
 					-- condition resolver read it as the line it is (COV13: before, an inactive one reached the resolver's
 					-- unanchored patterns, and an active one no anchored model input); a ledger stand-in's text never
@@ -4727,7 +4755,7 @@ function bridge.sourceLines()
 			end
 		end
 	end
-	return { lines = lines }
+	return { lines = lines, shares = shares }
 end
 
 -- Passive points available at the build's level, as PoB counts them (level - 1 plus every

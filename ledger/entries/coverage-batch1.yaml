@@ -662,7 +662,8 @@
   # From the build's own Life Flask charge gain against the main Bow Attack's rate (Assumptions.lethal_draw_share,
   # COV31; flasks.charge_use_rate, MECH-C's): no Bow Attack main skill, no Life Flask or no gain: 0
   lethal_draw: true
-  shown_for: 'Bow Attacks consume \d+% of your maximum Life Flask Charges'
+  # (or its in-place stand-in's marker in bridge.sourceLines, COV32: the replaced line is gone from there)
+  shown_for: '(?:Bow Attacks consume \d+% of your maximum Life Flask Charges|^LedgerShare:LethalDrawCharged$)'
   confidence: theory
   sources: ["patch notes 0.4.0 (The Lethal Draw)", "https://poe2db.tw/us/The_Lethal_Draw"]
   status: proposed

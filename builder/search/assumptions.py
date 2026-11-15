@@ -2068,6 +2068,7 @@ class Assumptions:
         mods += [{"kind": "Condition", "name": name} for name in found]
         mods += [models.raw_mod(f"Multiplier:LedgerShare{name}", "BASE", percent)
                  for name, percent in sorted(self.ledger_shares.items())]
+        mods += getattr(self, "ledger_derived", [])  # (COV32: shares the bridge works out again per calculation)
         mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
         notes += ward_notes
         notes += self.life_mana_income(skills, main)  # (MECH-C: Life / Mana from kills, Remnants, charms, events; MECHC12)
@@ -3007,6 +3008,7 @@ class Assumptions:
         glory = None  # (models.glory_uses' answer, once for every glory_window condition)
         if not hasattr(self, "ledger_shares"):  # (set by wanted(); a unit test may call this alone)
             self.ledger_shares = {}
+        self.ledger_derived = []  # (COV32: derived shares, models.derived; the bridge re-works them per calculation)
         # ledger conditions up for part of the fight (condition -> share): counted 0 in PoB, for the search to weigh
         self.ledger_part_time: dict[str, float] = {}
         from builder.search import boss_hits, bosses  # (COV12: the damage types the scored boss deals)
@@ -3128,6 +3130,22 @@ class Assumptions:
                     found.append(condition["id"])
                 notes.append({"label": condition["title"], "value": f"{share:.0%}", "basis": how,
                               "confidence": "MEDIUM (the flask's charge gain; LOW where the boss's adds are counted)"})
+                continue
+            if condition.get("mana_spent_recently"):
+                # (COV32, PATCH_CHECK MB-4: Indigon) a count: the average whole N's of Mana the main skill spent in the
+                # past 4 s (mana_spent_stacks), in whole percent; its lines are `share:` lines. A derived input
+                # (bridge DERIVED.manaSpent), so a what-if's own Mana cost (the cost line's rise) feeds back
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                per = float(condition["mana_spent_recently"])
+                stats = self.build.call("stats", fields=["ManaPerSecondCost", "ManaRegenRecovery", "ManaCost"])
+                stacks, how = mana_spent_stacks(number(stats.get("ManaPerSecondCost")),
+                                                number(stats.get("ManaRegenRecovery")), number(stats.get("ManaCost")), per)
+                self.ledger_derived.append(models.derived("Share" + condition["id"], "manaSpent", 100 * stacks, per=per))
+                notes.append({"label": condition["title"], "value": round(stacks, 2), "basis": how,
+                              "play": "Keep casting the main skill: the stacks are the Mana it spent in the past 4 s",
+                              "confidence": "MEDIUM-LOW (the main skill's own spending only: other skills' costs not "
+                                            "counted, an undercount; steady casting from the fight's start)"})
                 continue
             if condition.get("ward_state"):
                 # (COV32, NOTES3 DEAD-1 / DEAD-2) the share of the fight on Low / missing / full Runic Ward, from what the
@@ -3388,9 +3406,13 @@ class Assumptions:
         return total, "; ".join(parts) or "no use rate: 0"
 
     def has_line(self, pattern: str) -> bool:
-        """Whether any of the build's source lines (passives and items, bridge sourceLines) matches `pattern`."""
+        """Whether any of the build's source lines (passives and items, bridge sourceLines) matches `pattern`, or an
+        item `share:` stand-in that replaced its line in place, as "LedgerShare:<Name>" (sourceLines' shares, COV32)."""
         call = getattr(self.build, "call", None)  # (a stand-in build in a unit test may have none)
-        return bool(call) and any(re.search(pattern, line["text"]) for line in call("sourceLines")["lines"])
+        if not call:
+            return False
+        found = call("sourceLines")
+        return any(re.search(pattern, line["text"]) for line in found["lines"])             or any(re.search(pattern, share) for share in found.get("shares") or ())
 
     def ward_damaged_share(self, skills: list[dict]) -> tuple[float, str]:
         """(share of the fight your Runic Ward has been damaged Recently (4 s), how) (MECHC15; AUDIT26 A26-1, COV18).
@@ -3642,3 +3664,26 @@ def facebreaker_notes(texts: list[str], faces: float | None) -> list[dict]:
                          + "In game: the World Screen's face tracker shows the real count",
                 "confidence": "theory" if n == 56 else "reported"})
     return notes
+
+
+# Mana spent Recently (COV32, PATCH_CHECK MB-4): Indigon's "(5-10)% increased Cost of Skills for each 200 total Mana Spent
+# Recently" and "(10-15)% increased Spell damage for each 200 total Mana you have Spent Recently" read PoB's
+# Multiplier:ManaSpentRecently, which only its config box (ConfigOptions 1274, no default) sets: 0 before, an UNDERCOUNT
+# of the damage (and of the cost). Recently = the past 4 s (KeywordPopups Recently). Must equal bridge DERIVED.manaSpent.
+MANA_SPENT_SAMPLES = 20
+RECENTLY = 4.0
+
+
+def mana_spent_stacks(spend: float, regen: float, cost: float, per: float = 200.0) -> tuple[float, str]:
+    """(average whole `per`s of Mana spent in the past 4 s, how): 4 s x the main skill's Mana a second (PoB's
+    ManaPerSecondCost), no more than its regeneration pays (Indigon's "Mana Recovery other than Regeneration cannot
+    Recover Mana"; a pool that runs dry spends only what comes back); the 4 s sum moves by one use's cost, so the whole
+    `per`s are averaged over that spread (PoB counts whole ones)."""
+    spent = RECENTLY * min(spend, regen)
+    if per <= 0 or spent <= 0:
+        return 0.0, ("the main skill spends no Mana" if spend <= 0 else "no Mana regeneration to pay for it") + ": 0"
+    stacks = sum(math.floor(max(0.0, spent + cost * ((i + 0.5) / MANA_SPENT_SAMPLES - 0.5)) / per)
+                 for i in range(MANA_SPENT_SAMPLES)) / MANA_SPENT_SAMPLES
+    capped = " (capped by Mana regeneration)" if regen < spend else ""
+    return stacks, (f"{spent:.0f} Mana spent in 4 s ({min(spend, regen):.1f} a second{capped}; {cost:.0f} a use): "
+                    f"{stacks:.2f} x {per:g} on average")

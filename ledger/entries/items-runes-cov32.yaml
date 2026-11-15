@@ -19,7 +19,7 @@
   kind: condition
   # Assumptions.ward_state_share("low"): MECH-C's ward_shares(build) Low share; 0 when nothing spends Ward
   ward_state: low
-  shown_for: '(?:on Low Runic Ward|LedgerShare:RunicWardLow )'
+  shown_for: '(?:on Low Runic Ward|^LedgerShare:RunicWardLow$)'
   confidence: theory
   sources: ["ledger/mechanics/keywords_poe2db.json (Low Runic Ward)", "https://poe2db.tw/us/Runic_Ward"]
   status: proposed
@@ -29,7 +29,7 @@
   kind: condition
   # Assumptions.ward_state_share("missing"): MECH-C's ward_shares(build) Missing share; 0 when nothing spends Ward
   ward_state: missing
-  shown_for: '(?:missing Runic Ward|LedgerShare:RunicWardMissing )'
+  shown_for: '(?:missing Runic Ward|^LedgerShare:RunicWardMissing$)'
   confidence: theory
   sources: ["https://poe2db.tw/us/Runic_Ward"]
   status: proposed
@@ -39,7 +39,7 @@
   kind: condition
   # Assumptions.ward_state_share("full"): 1 - MECH-C's Missing share, with a Runic Ward pool; 0 with none
   ward_state: full
-  shown_for: '(?:on full Runic Ward|LedgerShare:RunicWardFull )'
+  shown_for: '(?:on full Runic Ward|^LedgerShare:RunicWardFull$)'
   confidence: theory
   sources: ["https://poe2db.tw/us/Warding_Rune_of_Hollowing"]
   status: proposed

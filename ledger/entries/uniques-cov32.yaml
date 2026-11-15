@@ -1,0 +1,49 @@
+# Indigon's Mana-spent lines (COV32, 15 Nov 2026; PATCH_CHECK mirror sweep MB-4, box 1274). PoB parses both lines whole
+# with a Multiplier:ManaSpentRecently tag, div 200 (ModParser.lua 1561), which only its config box multiplierManaSpentRecently
+# (ConfigOptions.lua 1274, no default) sets and nothing in the tool sets (checked: git grep of ManaSpentRecently /
+# multiplierManaSpentRecently over builder/ and engine/: 0 hits): both counted 0, an UNDERCOUNT of Indigon's Spell
+# damage (and of its cost). The box isn't set directly: PoB's "Gain Arcane Surge ... after Spending a total of N Mana"
+# lines read the same multiplier as a threshold (ModParser 2046 / 2048 / 4444) and MECH-C already weighs those by an
+# uptime (conditions.py arcane surge), so a global multiplier would count them twice. Each Indigon line is a `share:`
+# line instead, counted at ManaSpentPer200: the average whole 200s of Mana the main skill spent in the past 4 s
+# (Assumptions mana_spent_stacks; the bridge's DERIVED.manaSpent works it out again from each what-if's own Mana cost,
+# so the cost line's rise feeds back).
+
+- id: ManaSpentPer200
+  title: Indigon, 200s of Mana spent in the past 4 s (the main skill's spending, no more than regeneration pays)
+  kind: condition
+  mana_spent_recently: 200
+  shown_for: '(?:for each 200 total Mana (?:you have )?Spent Recently|^LedgerShare:ManaSpentPer200$)'
+  confidence: theory
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:1561", "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua:1274",
+            "https://poe2db.tw/us/Indigon"]
+  status: proposed
+
+- id: wrong-indigon-cost-per-mana-spent
+  title: Indigon, increased Cost of Skills for each 200 total Mana Spent Recently, at the build's own Mana spent
+  kind: pob_wrong
+  match: '^(\(\d+-\d+\)|\d+)% increased Cost of Skills for each 200 total Mana Spent Recently$'
+  replace: ['share:ManaSpentPer200 {1}% increased Cost of Skills']
+  confidence: theory
+  notes: >-
+    Indigon (PoB Data/Uniques/helmet.lua 223-235; current variant 5-10%, its Cultivated copy 50-60%). Counted once per
+    200 Mana the main skill spent in the past 4 s (ManaSpentPer200). Other skills' Mana spent is not counted (an
+    UNDERCOUNT of the cost and of the damage line alike for a build that presses others).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Uniques/helmet.lua:232", "https://poe2db.tw/us/Indigon"]
+  test_in_game: "Cast a Mana-costing Spell steadily with Indigon and watch its cost on the skill bar rise with the Mana spent."
+  status: proposed
+
+- id: wrong-indigon-spell-damage-per-mana-spent
+  title: Indigon, increased Spell damage for each 200 total Mana you have Spent Recently, at the build's own Mana spent
+  kind: pob_wrong
+  match: '^(\(\d+-\d+\)|\d+)% increased Spell damage for each 200 total Mana you have Spent Recently$'
+  replace: ['share:ManaSpentPer200 {1}% increased Spell damage']
+  confidence: theory
+  notes: >-
+    Indigon (PoB helmet.lua 234; current variant 10-15%, its Cultivated copy 20-25%). Counted once per 200 Mana the main
+    skill spent in the past 4 s (ManaSpentPer200): 4 s x its Mana a second (PoB ManaPerSecondCost), no more than its
+    Mana regeneration pays (Indigon allows no other Mana recovery), whole 200s averaged over the one-use spread of the
+    4 s sum. Steady casting from the fight's start (the first 4 s ramp not counted).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Uniques/helmet.lua:234", "https://poe2db.tw/us/Indigon"]
+  test_in_game: "Cast steadily for 4 s with Indigon, then compare a cast's damage against the first cast's."
+  status: proposed
