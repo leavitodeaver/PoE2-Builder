@@ -3733,6 +3733,90 @@ def test_a_curses_own_duration_sets_its_uptime_recast_time_and_doom_blasts():
     assert base.duration == models.CURSE_DURATION and "level-20 base" in base.how
 
 
+def test_a_curse_hexblast_detonates_is_recast_once_a_cycle_not_once_a_duration():
+    """MECHB31 (MECHB30's turn-4 finding, beside GEM10's hexblast_model): with Hexblast the main skill, a hand-cast curse
+    is detonated once half has run out and recast, so its cast is charged once per cast + 1.5 s delay + half its
+    duration (GEM10's cycle), not once per duration; the main skill's own explosions keep the curse (share 1); a build
+    whose main skill isn't Hexblast, an infinite curse, or a curse put back by an Aura is as before."""
+    gems = {"Despair": {"skillTypes": ["Spell", "AppliesCurse"]}, "Hexblast": {"skillTypes": ["Spell"]},
+            "Blasphemy": {"skillTypes": ["Aura"]}}
+    durations = {"_curse_durations": {"Despair": 8.0}}
+    hexblast = {"enabled": True, "main": True, "gems": [{"name": "Hexblast", "support": False}]}
+    curse = {"enabled": True, "gems": [{"name": "Despair", "support": False}]}
+    (use,) = models.curse_uses([hexblast, curse], gems, durations, 8.0)
+    assert use.hexblast and use.by_hand and use.share == 1.0 and use.duration == 8.0
+    despair = Skill("Despair", group=2, spell=True, cast_time=0.5)
+    main = Skill("Hexblast", group=1, spell=True)
+    assert models.hexblast_cycle(use, 0.5) == pytest.approx(0.5 + 1.5 + 4.0)
+    mods, notes = models.curse_model([use], [despair, main], main)
+    speed = {m["line"]: m["scale"] for m in mods}["1% more Attack and Cast Speed"]
+    assert speed == pytest.approx(-100 * 0.5 / 6.0, rel=1e-3)  # once a 6 s cycle (once per 8 s before)
+    assert "1% more Effect of your Curses" not in {m["line"] for m in mods}  # its explosions land while it's on
+    assert "every 6 s" in notes[0]["basis"] and "uncursed 33%" in notes[0]["basis"]
+    # not the main skill: as before, once per duration
+    (plain,) = models.curse_uses([{**hexblast, "main": False}, curse], gems, durations, 8.0)
+    assert not plain.hexblast and models.hexblast_cycle(plain, 0.5) == 0.0
+    mods, _ = models.curse_model([plain], [despair, main], main)
+    assert {m["line"]: m["scale"] for m in mods}["1% more Attack and Cast Speed"] == pytest.approx(-100 * 0.5 / 8.0)
+    # an infinite curse is never detonated (0.2.0); an Aura's curse isn't cast
+    (once,) = models.curse_uses([hexblast, curse], gems, durations, 8.0, ["Curses you inflict have infinite Duration"])
+    assert not once.hexblast and not once.by_hand
+    aura = {"enabled": True, "gems": [{"name": "Despair", "support": False}, {"name": "Blasphemy", "support": True}]}
+    (put_back,) = models.curse_uses([hexblast, aura], gems, {"PresenceRadius": 40}, 2.0)
+    assert not put_back.hexblast and not put_back.by_hand
+
+
+def test_triggered_a_skill_recently_lines_count_at_the_share_the_builds_triggers_give():
+    """MECHB31 (PATCH_CHECK MB-2): PoB's "Triggered a Skill Recently" box is never set (0 before); Dynamism's 40% and
+    Evocational Practitioner's 25% count at 1 - e^(-4 s x the build's trigger rate), as unconditional lines."""
+    texts = ["40% increased Damage if you've Triggered a Skill Recently",
+             "25% increased Critical Hit Chance if you've Triggered a Skill Recently", "10% increased Damage"]
+    mods, notes = models.triggered_recently_model(texts, {"Ice Nova": 0.2, "Doom Blast": 0.05})
+    share = 1 - math.exp(-0.25 * 4)
+    by_line = {m["line"]: m["scale"] for m in mods}
+    assert by_line["1% increased Damage"] == pytest.approx(40 * share, rel=1e-3)
+    assert by_line["1% increased Critical Hit Chance"] == pytest.approx(25 * share, rel=1e-3)
+    assert notes[0]["value"] == pytest.approx(share, abs=1e-3) and "Ice Nova 0.20/s" in notes[0]["basis"]
+    mods, notes = models.triggered_recently_model(texts, {})
+    assert mods == [] and notes[0]["value"] == 0  # nothing triggered: 0, said
+    assert models.triggered_recently_model(["10% increased Damage"], {"Ice Nova": 1.0}) == ([], [])
+
+
+def test_reloaded_recently_ammunition_chance_counts_over_the_whole_clip():
+    """MECHB31 (PATCH_CHECK MB-6): PoB's "Reloaded Recently" box is never set (0 before; ticked alone, Rampart Raptor's
+    100% would be an endless clip). The chance holds for the 4 s after each reload; handed to PoB as the whole-clip chance
+    that fires the same bolts per reload."""
+    raptor = ["Bolts fired by Crossbow Attacks have 100% chance to not expend Ammunition if you've Reloaded Recently"]
+    stats = {"FiringRate": 2.0, "BoltCount": 4, "ChanceToNotConsumeAmmo": 0}
+    mods, notes = models.reloaded_recently_model(raptor, stats)
+    # 8 free bolts in the 4 s, then the 4-bolt clip: 12 a reload = a 2/3 chance on every bolt
+    assert mods[0]["scale"] == pytest.approx(100 * (1 - 4 / 12), rel=1e-3) and notes[0]["value"] > 0
+    reusable = ["Bolts fired by Crossbow Attacks have 30% chance to not expend Ammunition if you've Reloaded Recently"]
+    mods, _ = models.reloaded_recently_model(reusable, {**stats, "ChanceToNotConsumeAmmo": 15})
+    # 8 bolts at 45% spend 4.4 > 4: the clip runs dry inside the window, every bolt at 45%: +30
+    assert mods[0]["scale"] == pytest.approx(30.0, rel=1e-3)
+    mods, _ = models.reloaded_recently_model(reusable, {**stats, "BoltCount": 20})
+    # 8 bolts at 30% spend 5.6, the other 14.4 at 0%: 22.4 a reload
+    assert mods[0]["scale"] == pytest.approx(100 * (1 - 20 / 22.4), rel=1e-3)
+    assert models.reloaded_recently_model(raptor, {"Speed": 2.0})[0] == []  # not a crossbow skill: nothing
+    split = ["Bolts fired by Crossbow Attacks have 30% chance to not", "expend Ammunition if you've Reloaded Recently"]
+    assert models.reloaded_recently_model(split, {**stats, "BoltCount": 20})[0] == mods  # PoB's tree splits the line
+    assert models.reloaded_recently_model(["10% increased Damage"], stats) == ([], [])
+
+
+def test_attack_damage_while_an_ally_is_in_your_presence_counts_with_a_persistent_minion_or_totem():
+    """MECHB31 (PATCH_CHECK MB-9): PoB's ally count is never set (0 before); minions and totems are Allies."""
+    texts = ["16% increased Attack Damage while you have an Ally in your Presence"]
+    wolf = Skill("Summon Spectral Wolf", group=2, summon={"limit": 1, "duration": 0, "persistent": True})
+    totem = Skill("Ancestral Warrior Totem", group=3, totem_limit=1)
+    mods, notes = models.ally_in_presence_model(texts, [Skill("Boneshatter", group=1, attack=True), wolf])
+    assert mods == [models.line("1% increased Attack Damage", 16)] and notes[0]["value"] == 1
+    assert models.ally_in_presence_model(texts, [totem])[0] == [models.line("1% increased Attack Damage", 16)]
+    mods, notes = models.ally_in_presence_model(texts, [Skill("Boneshatter", group=1, attack=True)])
+    assert mods == [] and notes[0]["value"] == 0
+    assert models.ally_in_presence_model(["10% increased Damage"], [wolf]) == ([], [])
+
+
 
 def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_with(monkeypatch):
     """COV12 (an OVERCOUNT before): Adaptive Skin's "+N% to Maximum Resistances of each Elemental Damage Type you have

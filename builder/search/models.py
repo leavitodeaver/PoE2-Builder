@@ -2214,6 +2214,35 @@ CURSED_UNSCALED = re.compile(r"against cursed enemies|hitting cursed enemies|poi
 CURSE_ZONE_SUPPORTS = ("Cursed Ground", "Doedre's Undoing", "Hayoxi's Fulmination")
 CURSE_ZONE_NOTE = ("; as a cursed area on the ground ({0}): the boss is assumed to stay in it the whole time (MEDIUM: no "
                    "boss-movement data; an OVERCOUNT wherever the boss walks out of it)")
+# Hexblast as the main skill (MECHB31; MECHB30's turn-4 finding beside GEM10's hexblast_model, PATCH_CHECK L2-2). The game
+# (ActiveSkills hexblast; patch 0.2.0, the newest entry on it, grep_notes.py --history "Hexblast"): it "can only detonate
+# Curses for which at least 50% of the duration has expired" and removes the curse. Played for its damage, each hand-cast
+# curse is recast once a cycle: its cast + CURSE_DELAY (1.5 s to land) + half its duration, GEM10's cycle; before, it was
+# charged one cast per full duration (an UNDERCOUNT of the recast cost). The boss is uncursed from each detonation to the
+# next landing: (cast + delay) / cycle of the fight. Hexblast's own explosions land while the curse is on (MEDIUM: taken as
+# the hit counting the curse it removes; UNVERIFIED for PoE2), so `share` stays 1 for the main skill and the Cursed box;
+# what else deals damage in the gap (minions, damage over time ticking past a detonation, added sources) keeps the curse
+# PoB gives it: an OVERCOUNT of that much, labelled in the note, not modelled. Not changed: curses an Aura, a meta, a
+# cursed area or a Curse on Hit line puts back (no recast to charge); infinite ones (never detonated, 0.2.0) and those
+# the search lets run out (CURSE_LAPSE).
+HEXBLAST_MAIN = "Hexblast"
+HEXBLAST_CURSE_NOTE = ("; Hexblast is the main skill: it detonates the curse once half has run out and removes it, so it's "
+                       "recast every {0:.3g} s ({1:.2g} s cast + {2:g} s delay + half of {3:.3g} s) and the boss is "
+                       "uncursed {4:.0%} of the fight (Hexblast's own explosions land while it's on, MEDIUM; other damage "
+                       "in the gap keeps PoB's curse: an OVERCOUNT of that share, not modelled)")
+
+
+def hexblast_cycle(use, cast_time: float) -> float:
+    """Seconds between one detonation of a hand-cast curse and the next (its cast + CURSE_DELAY + half its duration),
+    GEM10's cycle; 0 when Hexblast doesn't detonate it."""
+    return (cast_time or 0.7) + CURSE_DELAY + use.duration / 2 if use.hexblast else 0.0
+
+
+def hexblast_main(groups: list[dict]) -> bool:
+    """Whether the main group's skill is Hexblast (the bridge's group flag `main`)."""
+    return any(group.get("main") and group.get("enabled") is not False and any(
+        g["name"] == HEXBLAST_MAIN and not g.get("support") and g.get("enabled", True) for g in group["gems"])
+        for group in groups)
 
 
 @dataclass(frozen=True)
@@ -2227,6 +2256,10 @@ class CurseUse:
     duration: float = CURSE_DURATION
     zone: str = ""  # the support that makes it a cursed area on the ground (CURSE_ZONE_SUPPORTS), else ""
     lapse: bool = False  # cast by hand and let run out before each recast (CURSE_LAPSE, MECH75: Withering Hex)
+    # detonated by Hexblast, the main skill (HEXBLAST_CURSE_NOTE): recast once a hexblast_cycle, not once a duration. The
+    # boss carries it for half the duration of each cycle; `share` stays the main skill's view (its explosions land while
+    # the curse is on)
+    hexblast: bool = False
 
 
 def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
@@ -2236,6 +2269,7 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
     uses = []
     radius = number(stats.get("PresenceRadius")) / 10
     forever = any(CURSE_FOREVER.search(text) for text in lines)
+    hexblast = hexblast_main(groups)
     for group in groups:
         if group.get("enabled") is False:
             continue
@@ -2274,6 +2308,9 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                                                f"{CURSE_LAPSE_GAP:g} s after (the user, 15 Nov: player timing), so each cast "
                                                f"finds the boss uncursed (Withering Hex): {up:.0%} of the fight",
                                      True, duration, lapse=True))
+            elif hexblast:  # (MECHB31: detonated and recast each cycle; curse_model charges it, HEXBLAST_CURSE_NOTE)
+                uses.append(CurseUse(name, 1.0, f"cast by hand ({lasts}), detonated by Hexblast once half has run out",
+                                     True, duration, hexblast=True))
             else:
                 uses.append(CurseUse(name, 1.0, f"cast by hand every {lasts} (its duration; recast "
                                                 f"{CURSE_DELAY:g} s before it runs out, the curse delay)", True, duration))
@@ -2311,9 +2348,12 @@ def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
         cast = by_name.get(use.name)
         if use.by_hand and main is not None and cast is not None and cast is not main:
             took = cast.cast_time or 0.7
-            lost = min(1.0, took / use.duration)
+            every = hexblast_cycle(use, took) or use.duration  # (MECHB31: once a cycle when Hexblast detonates it)
+            if use.hexblast:
+                basis += HEXBLAST_CURSE_NOTE.format(every, took, CURSE_DELAY, use.duration, 1 - use.duration / 2 / every)
+            lost = min(1.0, took / every)
             mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
-            basis += f"; casting it ({took:.2f} s every {use.duration:.3g} s) takes {lost:.0%} of {main.name}'s time"
+            basis += f"; casting it ({took:.2f} s every {every:.3g} s) takes {lost:.0%} of {main.name}'s time"
         notes.append({"label": f"{use.name}: share of the fight on the boss", "value": round(use.share, 2),
                       "basis": basis + " (PoB counts every curse always up)", "confidence": "theory"})
     share, how = curse_share(uses)
@@ -5220,6 +5260,129 @@ def eldritch_empowerment_model(texts: list[str], stats: dict, main: Skill | None
              "Spell damage. Not counted: other spells' casts, triggered spells (UNVERIFIED), the ES kept off your defences")
     note = {"label": label, "value": round(value, 2), "basis": basis, "confidence": "MEDIUM"}
     return ([line("1% more Spell Damage", value)] if value > 0 else []), [note]
+
+
+# "if you've Triggered a Skill Recently" (MECHB31, PATCH_CHECK MB-2, an UNDERCOUNT): PoB's conditionTriggeredSkillRecently
+# box (ConfigOptions 1533) is never set, so these lines count 0. Every source (checked: Stats ids holding "triggered" and
+# "recently": damage_+%_if_triggered_skill_recently, critical_strike_chance_+%_if_triggered_skill_recently; their uses in
+# PassiveSkills, Mods and GrantedEffectStatSets: the notables Dynamism (triggers18, 40% Damage), Power of the Storm
+# (oracle_energy_gain3, 50% Damage) and Evocational Practitioner (monkelemental6, 25% Critical Hit Chance), no Mods row;
+# PoB's ModCache holds the same three lines, ModParser 1935 the condition): the line counts at the share of the fight a
+# skill was Triggered in the past 4 s, 1 - e^(-4 s x the build's trigger rate) (triggers taken as evenly random: the lower
+# reading, MEDIUM; evenly spaced would give min(1, 4 x rate)). The rate: every triggered skill's uses a second the models
+# give (each triggerRate they hand PoB: metas' Energy, item and passive triggers, Doom Blast, ...), plus a triggered main
+# skill's own rate (PoB's Speed). An increased line scales linearly with its uptime (damage and crit chance are linear in
+# it), so it's handed to PoB as the same line without the condition, at line x share. Not counted: triggers no model rates
+# (a skill PoB alone triggers and we hand no rate: an undercount, listed by name when there are none).
+TRIGGERED_RECENTLY = re.compile(r"^(\d+(?:\.\d+)?)% increased (Damage|Critical Hit Chance) if you've Triggered a Skill "
+                                r"Recently$", re.I)
+
+
+def triggered_recently_model(texts: list[str], rates: dict[str, float]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the "if you've Triggered a Skill Recently" lines at the share of the fight the build triggered a
+    skill in the past 4 s, from `rates` (triggered skill -> uses a second)."""
+    found: dict[str, float] = {}
+    for text in texts:
+        if m := TRIGGERED_RECENTLY.search(text.strip()):
+            found[m.group(2).title()] = found.get(m.group(2).title(), 0.0) + float(m.group(1))
+    if not found:
+        return [], []
+    total = sum(max(0.0, number(r)) for r in rates.values())
+    share = 1 - math.exp(-total * RECENTLY)
+    parts = ", ".join(f"{name} {number(r):.2f}/s" for name, r in sorted(rates.items()) if number(r) > 0)
+    basis = (f"a skill Triggered {total:.2f} times/s ({parts or 'no triggered skill the models rate'}): one in the past "
+             f"{RECENTLY:g} s {share:.0%} of the fight (triggers taken as evenly random, MEDIUM: the lower reading); "
+             + "; ".join(f"{v:g}% increased {k} counts as {v * share:.3g}%" for k, v in found.items())
+             + " (PoB's box is never set: 0 before)")
+    mods = [line(f"1% increased {kind}", value * share) for kind, value in found.items() if value * share > 0]
+    return mods, [{"label": "Triggered a Skill Recently: share of the fight", "value": round(share, 3), "basis": basis,
+                   "confidence": "MEDIUM"}]
+
+
+# "if you've Reloaded Recently" (MECHB31, PATCH_CHECK MB-6, an UNDERCOUNT; ticking PoB's box alone would be an OVERCOUNT: at
+# 100% an endless clip). PoB's conditionReloadedRecently box (ConfigOptions 1561) is never set. Every source (checked: the
+# 35 Stats ids holding "reload"; the one with "recently" used as a modifier, crossbow_attack_%_chance_to_not_consume_ammo_
+# if_reloaded_recently, in PassiveSkills / Mods / GrantedEffectStatSets: Reusable Ammunition (crossbow14), Well Maintained
+# Tools (crossbow25), UniqueChanceForNoBoltReload1 (Rampart Raptor, 100%); PoB's ModCache holds the 30% and 100% lines,
+# ModParser 2008 the condition). From PoB's own clip cycle (CalcOffence 3019-3037: FiringRate r, BoltCount N, its
+# ChanceToNotConsumeAmmo p0): for 4 s after each reload the chance is p1 = p0 + the lines (at most 100%), then p0 until
+# the clip is spent. Bolts fired per clip: k = N / (1 - p1) if the clip runs dry inside the 4 s, else 4r + (N - 4r (1 -
+# p1)) / (1 - p0). Handed to PoB as the unconditional chance that gives the same k: 1 - N / k, less p0. The window is taken
+# to start as the reload ends (MEDIUM). PoB's 0.5 tree holds Reusable Ammunition's line split in two (tree.lua 36927-36928),
+# which PoB parses as nothing (ModCache: "... have 30% chance to not" with leftover text), so it counts here only. Reloading early to stay in the window fires fewer bolts per reload, so it isn't
+# the better play (checked by the formula: 4r per reload against k > 4r).
+RELOADED_RECENTLY = re.compile(r"^Bolts fired by Crossbow Attacks have (\d+(?:\.\d+)?)% chance to not expend Ammunition "
+                               r"if you've Reloaded Recently$", re.I)
+RELOAD_FIELDS = ("FiringRate", "BoltCount", "ChanceToNotConsumeAmmo")
+MODEL_FIELDS.extend(f for f in RELOAD_FIELDS if f not in MODEL_FIELDS)
+
+
+def reloaded_recently_model(texts: list[str], stats: dict) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the "if you've Reloaded Recently" chance not to expend ammunition as the whole-clip chance it
+    averages to (see above)."""
+    # (PoB's 0.5 tree splits Reusable Ammunition's line in two, "... have 30% chance to not" / "expend Ammunition if
+    # you've Reloaded Recently", and parses neither: each pair of neighbouring lines is read joined too)
+    texts = [t.strip() for t in texts]
+    joined = texts + [f"{x} {y}" for x, y in zip(texts, texts[1:])]
+    extra = sum(float(m.group(1)) for t in joined if (m := RELOADED_RECENTLY.search(t)))
+    if extra <= 0:
+        return [], []
+    label = "Reloaded Recently: chance not to expend ammunition, over the clip"
+    rate, bolts = number(stats.get("FiringRate")), number(stats.get("BoltCount"))
+    p0 = min(1.0, number(stats.get("ChanceToNotConsumeAmmo")) / 100)
+    if rate <= 0 or bolts <= 0:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
+                     "basis": "the main skill isn't a Crossbow ammunition skill that reloads: nothing counted"}]
+    if p0 >= 1:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
+                     "basis": "PoB already gives 100% without it: nothing to add"}]
+    p1 = min(1.0, p0 + extra / 100)
+    window = rate * RECENTLY
+    if (1 - p1) * window >= bolts:
+        k = bolts / (1 - p1)
+        how = f"the clip runs dry inside the {RECENTLY:g} s, so every bolt gets {p1:.0%}"
+    else:
+        k = window + (bolts - window * (1 - p1)) / (1 - p0)
+        how = (f"{window:.3g} bolts in the {RECENTLY:g} s after each reload at {p1:.0%}, the rest of the clip at "
+               f"{p0:.0%}")
+    added = max(0.0, (1 - bolts / k - p0) * 100)
+    basis = (f"{bolts:g} bolts a clip at {rate:.3g} a second: {how}: {k:.3g} bolts a reload, the same as a "
+             f"{p0 * 100 + added:.3g}% chance on every bolt (+{added:.3g}%; the window from the reload's end, MEDIUM; "
+             "PoB's box is never set: 0 before)")
+    return ([line("Bolts fired by Crossbow Attacks have 1% chance to not expend Ammunition", added)] if added > 0
+            else []), [{"label": label, "value": round(added, 2), "basis": basis, "confidence": "MEDIUM"}]
+
+
+# "while you have an Ally in your Presence" (MECHB31, PATCH_CHECK MB-9, an UNDERCOUNT): PoB reads it as Multiplier:NearbyAlly
+# >= 1 (ModParser 1839), which only its "# of Nearby Allies" box sets (ConfigOptions 1035), never set: 0 before. Every
+# source (checked: Stats ids holding ally / allies and presence / nearby with a damage term; attack_damage_+%_while_ally_
+# in_presence is the one "while an Ally" condition with player uses: PassiveSkills attack26, attack29 (Presence Present),
+# attack30, auras20, auras22, auras25; no Mods row; PoB's ModCache holds the 8 / 16 / 35% lines, the only lines reading
+# NearbyAlly besides Rallying's count). KeywordPopups Allies: "other players, Minions, and any other entity that fights
+# alongside you"; Totems: "Allies"; Minions "accompany and fight alongside you". So the line counts all fight with a
+# persistent minion (a Companion is one) or a totem skill in the build (MEDIUM: at least one of them inside your Presence,
+# the minions accompanying you and the totems placed by you; the time every minion lies dead is not taken off, an
+# OVERCOUNT there), else 0 (temporary minions aren't counted: an undercount, labelled). Handed to PoB as the line without
+# its condition (Multiplier:NearbyAlly isn't set, so Rallying's per-ally count stays PoB's).
+ALLY_IN_PRESENCE = re.compile(r"^(\d+(?:\.\d+)?)% increased Attack Damage while you have an Ally in your Presence$", re.I)
+
+
+def ally_in_presence_model(texts: list[str], skills: list[Skill]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): "while you have an Ally in your Presence" lines, all fight with a persistent minion or a totem."""
+    total = sum(float(m.group(1)) for t in texts if (m := ALLY_IN_PRESENCE.search(t.strip())))
+    if total <= 0:
+        return [], []
+    allies = sorted({s.name for s in skills if (s.summon and s.summon.get("persistent")) or s.totem_limit > 0})
+    label = "An Ally in your Presence"
+    if not allies:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
+                     "basis": f"no persistent minion or totem in the build: {total:g}% increased Attack Damage counts 0 "
+                              "(temporary minions not counted)"}]
+    return [line("1% increased Attack Damage", total)], [{
+        "label": label, "value": 1, "confidence": "MEDIUM",
+        "basis": f"{', '.join(allies[:4])} fight beside you all fight (Allies: minions and totems, KeywordPopups): "
+                 f"{total:g}% increased Attack Damage counts (MEDIUM: one of them inside your Presence; time with every "
+                 "minion dead not taken off; PoB's ally count is never set: 0 before)"}]
 
 
 BARRAGE = "Barrage"

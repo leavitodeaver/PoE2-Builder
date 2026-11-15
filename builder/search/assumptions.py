@@ -1417,6 +1417,18 @@ class Assumptions:
         mods += energy_mods + expression_mods + ward_mods + stat_mods + harmony_mods + ring_mods + hand_mods + exposure_flags
         notes += energy_notes + expression_notes + ward_notes + stat_notes + harmony_notes + ring_notes + hand_notes + pulse_notes
         mods, corpse_notes = models.corpse_model(found, mods, stats, main)  # last: it overrides the trigger rates above (MECHB11: the adds' corpses)
+        # (MECHB31, MB-2: "if you've Triggered a Skill Recently" from every trigger rate handed PoB above, and a triggered
+        # main skill's own rate)
+        triggered = {m["skill"]: models.number(m.get("value")) for m in mods
+                     if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"}
+        if main is not None and main.triggered and main.name not in triggered:
+            triggered[main.name] = models.number(stats.get("Speed"))
+        recent_mods, recent_notes = models.triggered_recently_model([e["text"] for e in source_lines], triggered)
+        mods, notes = mods + recent_mods, notes + recent_notes
+        reload_mods, reload_notes = models.reloaded_recently_model([e["text"] for e in source_lines], stats)  # (MECHB31, MB-6)
+        mods, notes = mods + reload_mods, notes + reload_notes
+        ally_mods, ally_notes = models.ally_in_presence_model([e["text"] for e in source_lines], found)  # (MECHB31, MB-9)
+        mods, notes = mods + ally_mods, notes + ally_notes
         notes += corpse_notes + models.spirit_vessel_notes(skills)
         notes += models.granted_level_notes([(o.name, o.raw, o.granted_basis) for o in build.equipped.values() if o is not None and o.unique])
         if faced := [o.raw for o in build.equipped.values() if o is not None and FACEBREAKER_LINE.search(o.raw)]:

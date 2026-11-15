@@ -793,3 +793,48 @@
   guide_note: "Tailwind X stacks on average."
   impact: 2
   effort: S
+
+- id: triggered-recently
+  name: Triggered a Skill Recently
+  terms: [Triggered a Skill Recently]
+  category: your state
+  game: "Stats damage_+%_if_triggered_skill_recently (Dynamism 40%, Power of the Storm 50%) and critical_strike_chance_+%_if_triggered_skill_recently (Evocational Practitioner 25%); Recently = the past 4 s."
+  game_source: "data/game-26476662 Stats, PassiveSkills (triggers18, oracle_energy_gain3, monkelemental6); PoB ModCache / ModParser 1935"
+  pob: config-only
+  pob_check: "PoB applies Condition:TriggeredSkillRecently only from its conditionTriggeredSkillRecently box (ConfigOptions 1533), which nothing set."
+  handling: "models.triggered_recently_model (MECHB31): each line at 1 - e^(-4 s x the build's trigger rate), from every triggerRate the models hand PoB plus a triggered main skill's own rate."
+  plan: {approach: custom model, how: "Done; triggers no model rates are an undercount.", inputs: [triggerRate mods, Speed]}
+  what_if: invisible
+  guide_note: "Triggered a skill in the past 4 s X% of the fight."
+  impact: 2
+  effort: S
+
+- id: reloaded-recently
+  name: Reloaded Recently (ammunition not expended)
+  terms: [Reloaded Recently]
+  category: your state
+  game: "Stat crossbow_attack_%_chance_to_not_consume_ammo_if_reloaded_recently: Reusable Ammunition (crossbow14, 30%), Well Maintained Tools (crossbow25), Rampart Raptor (UniqueChanceForNoBoltReload1, 100%); Recently = the past 4 s."
+  game_source: "data/game-26476662 Stats, PassiveSkills, Mods; PoB ModCache / ModParser 2008; PoB tree 0_5 36927-36928 (the passive's line split in two)"
+  pob: config-only
+  pob_check: "PoB applies Condition:ReloadedRecently only from its conditionReloadedRecently box (ConfigOptions 1561), which nothing set; the tree's split line parses as nothing."
+  handling: "models.reloaded_recently_model (MECHB31): from PoB's clip cycle (FiringRate, BoltCount, ChanceToNotConsumeAmmo), the chance for the 4 s after each reload, as the whole-clip chance that fires the same bolts per reload."
+  plan: {approach: custom model, how: "Done.", inputs: [FiringRate, BoltCount, ChanceToNotConsumeAmmo]}
+  what_if: invisible
+  guide_note: "Bolts not expended: X% over the clip."
+  impact: 2
+  effort: S
+
+- id: ally-in-presence
+  name: An Ally in your Presence
+  terms: [Ally in your Presence]
+  category: your state
+  game: "Stat attack_damage_+%_while_ally_in_presence (passives attack26, attack29, attack30, auras20, auras22, auras25). KeywordPopups Allies: other players, Minions and other entities fighting alongside you; Totems are Allies."
+  game_source: "data/game-26476662 Stats, PassiveSkills, KeywordPopups; PoB ModParser 1839, ConfigOptions 1035"
+  pob: config-only
+  pob_check: "PoB reads the line as Multiplier:NearbyAlly >= 1, set only by its '# of Nearby Allies' box, which nothing set."
+  handling: "models.ally_in_presence_model (MECHB31): the line counts all fight with a persistent minion or a totem skill in the build, else 0; handed to PoB without its condition."
+  plan: {approach: custom model, how: "Done; time with every minion dead not taken off (an overcount); temporary minions not counted.", inputs: [skills' summon / totemLimit]}
+  what_if: invisible
+  guide_note: "An Ally (minion or totem) in your Presence all fight."
+  impact: 1
+  effort: S
