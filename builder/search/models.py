@@ -6993,8 +6993,14 @@ def apocalypse_model(uses: float, basis: str, frequency: float = 0.0,
 #   - explosions per second = (1 / spawn interval) x the share of the fight the boss stands in one area: the curse's
 #     own share (curse_uses: a meta's rate x its duration, else recast by hand each duration). A trigger rate r gives PoB
 #     4r hits a second (its hit time is the use time x 0.25), so r = that share;
-#   - every toad spawned leaps at the boss and explodes (MEDIUM: "leap at enemies that get close"; a boss is close while
-#     it stands in the area; the toad's leap time isn't in the files, so its spawns aren't held to the limit of 4);
+#   - every toad spawned leaps at the boss and explodes ("leap at enemies that get close"; a boss is close while it
+#     stands in the area). The Limit of 4 live toads an area (max_toads_per_doedre_cursed_ground; poe2db 14 Nov: "a
+#     Witchtoad every 0.25 seconds, up to a Limit of 4") caps explosions at 4 / (a toad's seconds from spawn to
+#     explosion): below 4 a second whenever that takes over 1 s. No source gives that time (checked, MECHB28: every game
+#     table naming toad / Witchtoad / frog holds no Witchtoad monster or leap skill, only the support's stats and Dark
+#     Consequences' set GSDoedreToadExplosion; PoB marks the limit "Display Only", sup_int.lua 3110; poe2db's page names
+#     no leap time, speed or toad lifetime; patch notes --history "Doedre's Undoing": 0.5.0's rework names none), so 4 a
+#     second is kept and labelled LOW: an OVERCOUNT if the toads take over 1 s (2 s: half). Held for the user;
 #   - a second area (the support allows 2) isn't counted: an undercount, labelled, since keeping both on the boss costs a
 #     second cast each duration and whether toads from both reach it is UNVERIFIED;
 #   - each explosion is a Witchtoad dying ("died", minion_died_rate; KeywordPopups MinionDeath).
@@ -7028,14 +7034,16 @@ def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict],
         notes.append({"label": "Dark Consequences (Doedre's Undoing's Witchtoads) explosions per second*",
                       "value": round(per_second, 3),
                       "basis": (f"a Witchtoad every {TOAD_SPAWN_SECONDS:g} s in the cursed area while the boss stands in it: "
-                                f"{share:.0%} of the fight ({how}); every toad leaps at the boss and explodes (MEDIUM: the "
-                                f"toads 'leap at enemies that get close'; their leap time isn't in the game files, so the "
-                                f"{TOADS_PER_AREA}-toad limit isn't applied); a second area (the support allows "
+                                f"{share:.0%} of the fight ({how}); every toad leaps at the boss and explodes (the toads "
+                                f"'leap at enemies that get close'). LOW: the Limit of {TOADS_PER_AREA} live toads caps "
+                                f"this at {TOADS_PER_AREA} / a toad's seconds from spawn to explosion, and no source gives "
+                                f"that time (game files, PoB, poe2db, patch notes): kept at one per spawn, an OVERCOUNT if a "
+                                f"toad takes over {TOADS_PER_AREA * TOAD_SPAWN_SECONDS:g} s (2 s: half); a second area (the support allows "
                                 f"{CURSE_AREAS}) isn't counted, an undercount (UNVERIFIED whether both areas' toads reach "
                                 "the boss); PoB alone counts 4 a second whether or not an area is up"),
                       "play": (f"Keep the cursed area under the boss: recast the curse as it runs out. Casting it twice "
                                f"each duration keeps {CURSE_AREAS} areas up: up to {CURSE_AREAS}x the toads (not counted)."),
-                      "confidence": "MEDIUM"})
+                      "confidence": "LOW"})
     return mods, notes, groups, died
 
 

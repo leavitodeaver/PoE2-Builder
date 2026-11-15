@@ -3019,6 +3019,8 @@ def test_witchtoads_explode_at_their_curse_areas_share_and_count_as_minions_dyin
     rate = next(m for m in mods if m["key"] == "triggerRate")
     assert rate["skill"] == models.DARK_CONSEQUENCES and rate["value"] == pytest.approx(1.0)
     assert groups == {4} and died == pytest.approx(4.0) and notes[0]["value"] == pytest.approx(4.0)
+    # (MECHB28, GEM7: the Limit of 4 live toads would cap this below 4/s if a toad takes over 1 s; no source gives the time)
+    assert notes[0]["confidence"] == "LOW" and "Limit of 4" in notes[0]["basis"] and "OVERCOUNT" in notes[0]["basis"]
     meta = models.CurseUse("Despair", 0.25, "triggered")
     mods, _, groups, died = models.toad_model([despair, toad], [meta])
     assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(0.25) and died == pytest.approx(1.0)
