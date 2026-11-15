@@ -2737,6 +2737,20 @@ class Assumptions:
                 notes.append({"label": condition["title"], "value": "yes" if ok else "no", "basis": how,
                               "confidence": "MEDIUM"})
                 continue
+            if condition.get("missing_mana_tens"):
+                # (COV31, PATCH_CHECK L1-F) a count: the average tens of Mana missing, from the build's own drain and
+                # regeneration (missing_mana_tens), in whole percent of a ten; its lines are `share:` lines
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                tens, how = self.mana_missing_tens()
+                percent = round(100 * tens)
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                notes.append({"label": condition["title"], "value": round(tens, 2), "basis": how,
+                              "confidence": "MEDIUM-LOW (Mana flasks, leech and recoup not counted: an overcount; other "
+                                            "skills' costs not counted: an undercount)"})
+                continue
             if condition.get("lethal_draw"):
                 # (COV31, PATCH_CHECK G4-1) the share of the main skill's Bow Attacks that find 10% of the Life Flask's
                 # maximum charges to consume, from that flask's own charge gain (flasks.charge_use_rate, MECH-C's)
@@ -2883,6 +2897,30 @@ class Assumptions:
             if share >= shares.get(name, (-1.0, ""))[0]:  # (the same Warcry twice is one "different" Warcry)
                 shares[name] = (share, f"{name} on {why}: used Recently {share:.0%} of the fight" + (" (LOW)" if low else ""))
         return sum(s for s, _ in shares.values()), "; ".join(h for _, h in shares.values()) or "no use rate: 0"
+
+    def mana_missing_tens(self) -> tuple[float, str]:
+        """(average tens of Mana missing, how) for Force of Will (COV31; see missing_mana_tens): the main skill's Mana
+        spends and the boss's landed hits' share taken from Mana, against Mana regeneration."""
+        from builder.search import objective
+
+        stats = self.build.call("stats", fields=list(dict.fromkeys([
+            *objective.RECOVERY_INPUTS, "ManaPerSecondCost", "ManaCost", "ManaRegenRecovery", "ManaUnreserved", "Mana"])))
+        pool = number(stats.get("ManaUnreserved")) or number(stats.get("Mana"))
+        spends: list[tuple[float, float]] = []
+        cost, per_second = number(stats.get("ManaCost")), number(stats.get("ManaPerSecondCost"))
+        if cost > 0 and per_second > 0:
+            spends.append((per_second / cost, cost))
+        lines = self.build.call("sourceLines")["lines"]
+        from_mana = sum(float(m.group(1)) for line in lines if (m := MANA_BEFORE_LIFE.match(line["text"].strip())))
+        hit_part = ""
+        if from_mana > 0:
+            taken, landed, _ = objective.boss_taken(stats)
+            if landed > 0 and sum(taken.values()) > 0:
+                spends.append((landed, sum(taken.values()) / landed * from_mana / 100))
+                hit_part = (f"; {landed:.2f} boss hits/s land, {from_mana:g}% of each taken from Mana "
+                            f"({spends[-1][1]:.0f} Mana a hit)")
+        tens, how = missing_mana_tens(pool, number(stats.get("ManaRegenRecovery")), spends)
+        return tens, how + hit_part
 
     def lethal_draw_share(self, main: str | None, main_types: set[str]) -> tuple[float, str]:
         """(share of the main skill's Bow Attacks that pay The Lethal Draw's cost, how) (COV31, PATCH_CHECK G4-1): "Bow
@@ -3128,3 +3166,42 @@ def mountain_splitter_slam(main: str | None, main_types: set[str], main_info: di
         return False, f"{main} is used by a totem, not yourself: 0"
     return True, (f"{main}: a Slam you use yourself that creates no Fissures, so every third use causes the 3 "
                   "Aftershocks")
+
+
+# Force of Will (COV31, PATCH_CHECK L1-F): "20% increased Effect of Arcane Surge on you per ten percent missing Mana"
+# (Stormweaver notable AscendancySorceress1Notable2, beside "20% of Damage is taken from Mana before Life"; patch 0.3.0,
+# the newest entry). Before, the ledger took 25% of Mana missing all fight (2.5 tens): a flat rate the build decides.
+# Now the tens come from the build's own Mana: what drains it (the main skill's Mana per second, PoB's ManaPerSecondCost
+# at ManaCost a use; the share of each landed boss hit taken from Mana, objective.boss_taken x the build's "N% of
+# Damage is taken from Mana before Life" lines) against what refills it (PoB's ManaRegenRecovery).
+#   - Drain below regeneration: each spend or hit of x Mana is a dip that refills over x / R s; while it refills, Mana is
+#     missing k tens for (x - k M / 10) / R s (M the unreserved pool). The dips are taken one at a time (no overlap: an
+#     UNDERCOUNT as the drain nears R), so a build whose spends and hits are each under a tenth of its pool gets 0.
+#   - Drain at or above regeneration: the pool runs dry and stays between empty and one use's cost (the time it takes
+#     to drain not counted: an OVERCOUNT at a fight's start), averaged over that range.
+# Labelled: Mana flasks, leech and recoup refilling faster aren't counted (an OVERCOUNT of missing Mana: MECH-C's
+# recovery model could give a fuller refill rate); other skills' Mana costs aren't counted (an UNDERCOUNT); reserved Mana
+# taken as not missing (UNVERIFIED either way); a hit's share from Mana taken as the lines' sum, uncapped at 100%.
+MANA_BEFORE_LIFE = re.compile(r"^(\d+(?:\.\d+)?)% of Damage is taken from Mana before Life$", re.I)
+
+
+def missing_mana_tens(pool: float, regen: float, spends: list[tuple[float, float]]) -> tuple[float, str]:
+    """(average tens of Mana missing, 0-10, how): `spends` (rate a second, Mana each) are what drains the pool."""
+    drain = sum(rate * size for rate, size in spends if rate > 0 and size > 0)
+    if pool <= 0:
+        return 0.0, "no unreserved Mana pool: 0"
+    if drain <= 0:
+        return 0.0, "nothing drains Mana (no Mana cost on the main skill, no hit taken from Mana): full Mana, 0 tens"
+    if regen <= drain:
+        low = min(max((pool - max(size for _, size in spends)) / pool, 0.0), 1.0)  # missing from 1 - cost / M ...
+        steps = 400
+        tens = sum(min(10.0, math.floor(10 * (low + (1 - low) * (i + 0.5) / steps))) for i in range(steps)) / steps
+        return tens, (f"{drain:.1f} Mana/s drained against {regen:.1f} regenerated: the pool runs dry and stays within "
+                      f"one use of empty, {tens:.2f} tens missing on average (the drain's first seconds not counted)")
+    tens = 0.0
+    for rate, size in spends:
+        if rate > 0 and size > 0:
+            tens += rate * sum(max(0.0, size - k * pool / 10) for k in range(1, 11)) / regen
+    tens = min(tens, 10.0)
+    return tens, (f"{drain:.1f} Mana/s drained against {regen:.1f} regenerated, each dip refilling at once after: "
+                  f"{tens:.2f} tens missing on average (dips under a tenth of the {pool:.0f} pool count 0)")

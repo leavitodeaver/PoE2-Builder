@@ -421,17 +421,36 @@
 
 # Area A of the coverage audit: keystones and ascendancy passives (7 Nov 2026) ----------------------------------------------
 
+- id: ForceOfWillTens
+  title: Tens of Mana missing on average (Force of Will)
+  kind: condition
+  # A count, not on / off (COV31, PATCH_CHECK L1-F): the average tens of Mana missing from the build's own drain (the
+  # main skill's Mana per second; the boss's landed hits' share taken from Mana) against its Mana regeneration
+  # (Assumptions.mana_missing_tens, missing_mana_tens), in whole percent of a ten; nothing drains Mana: 0
+  missing_mana_tens: true
+  shown_for: 'increased Effect of Arcane Surge on you per ten percent missing Mana'
+  confidence: theory
+  sources: ["patch notes 0.3.0 Ascendancy Changes > Stormweaver"]
+  status: proposed
+
 - id: force-of-will
   title: Force of Will, Arcane Surge effect per ten percent missing Mana
   kind: pob_gap
   match: '^(\d+)% increased Effect of Arcane Surge on you per ten percent missing Mana$'
-  replace: ['{g1*2.5}% increased effect of Arcane Surge on you']
+  replace: ['share:ForceOfWillTens {1}% increased effect of Arcane Surge on you']
   confidence: theory
   notes: >-
-    Reasonable play: in a boss fight a caster runs between full and about half Mana, so 25% of it missing on average (2.5
-    tens). A build that sits at full Mana gets nothing, one that runs dry gets up to five tens. Counted only with Arcane
-    Surge up (PoB's own condition for it).
-  sources: ["https://poe2db.tw/us/Stormweaver"]
+    Stormweaver notable (AscendancySorceress1Notable2): "20% of Damage is taken from Mana before Life" and "20% increased
+    Effect of Arcane Surge on you per ten percent missing Mana" (patch 0.3.0, the newest entry; PoB's tree has both
+    lines, and its parser leaves the second unread). Before COV31 this entry took 25% of Mana missing all fight (2.5
+    tens): a flat rate where the build decides the rate (PATCH_CHECK L1-F). Now the line counts once per ten at
+    ForceOfWillTens' count: the build's own Mana drain (the main skill's spends; the boss's landed hits x the build's
+    "taken from Mana before Life" share, objective.boss_taken) against its Mana regeneration (PoB's ManaRegenRecovery).
+    Below regeneration, each spend or hit is a dip that refills; dips under a tenth of the pool count 0. At or above
+    it, the pool runs dry and the build sits within one use of empty (8-9 tens). Labelled: Mana flasks, leech and recoup
+    not counted (an OVERCOUNT of missing Mana), other skills' costs not counted (an UNDERCOUNT), reserved Mana taken as
+    not missing (UNVERIFIED), the time to drain not counted. Counted only with Arcane Surge up (PoB's own condition).
+  sources: ["https://poe2db.tw/us/Stormweaver", "patch notes 0.3.0 Ascendancy Changes > Stormweaver", "vendor/PathOfBuilding-PoE2/src/TreeData/0_5/tree.lua (Force of Will)"]
   test_in_game: "Watch the Arcane Surge buff's effect in the tooltip at full Mana and at half Mana."
   status: proposed
 
