@@ -2679,3 +2679,26 @@ def test_stoicism_on_the_main_skill_adds_its_averaged_ramp(engine):
     mods, notes = amod.stoicism(build, models.Skill.of({"name": "Boneshatter"}), types, [])
     print("PROBE stoicism", mods, notes)
     assert mods and mods[0]["value"] == pytest.approx(5.0) and "every 5 s" in notes[0]["basis"]
+
+
+def test_a_curse_laid_as_cursed_ground_gets_its_play_guide_row_on_a_real_build(engine):
+    """MECHC26 (MECHC25's Handover 1): with train 54's CurseUse.zone live, Despair socketed with Cursed Ground gives
+    play_guide.curse_zone_rows one "curse-zone:Despair" row (counted, no trial: the DPS doesn't move); a curse cast
+    plainly beside it gets none."""
+    from types import SimpleNamespace
+
+    from builder.search import play_guide
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    assert play_guide.curse_zone_rows(SimpleNamespace(build=build), 1000.0) == []  # no curse yet
+    build.call("addSkillGroup", text="Despair 20/0 1\nCursed Ground 20/0 1")
+    build.call("addSkillGroup", text="Enfeeble 20/0 1")
+    rows = play_guide.curse_zone_rows(SimpleNamespace(build=build), 1000.0)
+    print("PROBE curse-zone rows", rows)
+    assert [row["var"] for row in rows] == ["curse-zone:Despair"]
+    assert rows[0]["counted"] and rows[0]["dps_with"] == rows[0]["dps_without"] == 1000.0
+    assert "Cursed Ground" in rows[0]["play"] and "MEDIUM" in rows[0]["confidence"]
