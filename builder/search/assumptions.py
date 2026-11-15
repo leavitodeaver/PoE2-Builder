@@ -508,6 +508,33 @@ def ward_shares(build: Build) -> tuple[float, float, str]:
     return ward_low_shares(getattr(build, "ward_sustain", None) or {}, number(build.call("stats", fields=["Ward"]).get("Ward")))
 
 
+# Temporal Rift and Phased Form (MECHC27; COV31's H1-1 note, a defence item for MECH-C): 0.5.0 "The Temporal Rift Skill
+# granted by the Footprints in the Sand Notable Passive Skill ... now also removes delayed damage from Phased Form" (the
+# newest entry, grep_notes --history "Temporal Rift"); its text (PoB other.lua 18441): "Removes any upcoming damage delayed
+# by Phased Form on use". Phased Form delays 30% of each Hit for 4 s (COV31's stand-in "43% more Damage taken from Hits"
+# puts it back in full). A use clears what the past 4 s of Hits had delayed, so used u times a second it clears
+# min(1, 4 s x u) of the delayed damage (Poisson-free: uses on its cooldown are periodic). Uses: its group's rate (on its
+# cooldown, ~5 s at level 20, else the search's chosen press rate, else 0: a button the player presses; the teleport and
+# the reset of Life / Mana / ES to the afterimage's values are not modelled). phased_form_kept is the share of the delayed
+# damage that still lands, for COV-A's stand-in (a "share:" form at this share: COV-A's to wire).
+TEMPORAL_RIFT, PHASED_DELAY = "Temporal Rift", 4.0
+
+
+def phased_form_kept(build: Build) -> tuple[float, str]:
+    """(share of Phased Form's delayed damage that still lands, how): 1 without Temporal Rift."""
+    groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
+    index = next((g["index"] for g in groups for n in g.get("gems") or []
+                  if n["name"] == TEMPORAL_RIFT and n.get("enabled", True)), None)
+    if index is None:
+        return 1.0, "no Temporal Rift: all of the delayed damage lands"
+    choices = models.press_choices(build)
+    rate = next((r for r in build.call("useRates", indices=[index])["rates"]), {})
+    uses, how, _ = models.press_use_rate(rate, models.press_choice(rate, choices))
+    cleared = min(1.0, PHASED_DELAY * uses)
+    return 1 - cleared, (f"Temporal Rift {how}: each use removes the past {PHASED_DELAY:g} s of Phased Form's delayed "
+                         f"damage, {cleared:.0%} of it (MEDIUM)")
+
+
 def resisted_leech(build: Build) -> dict[str, float]:
     """{pool: leech a second PoB counts that the boss resists} (recovery.leech_resisted at enemy_level; MECHC26, H2-1),
     for the readers that sum PoB's {pool}LeechRate themselves."""
@@ -2403,6 +2430,21 @@ class Assumptions:
         if any(has(p) for p in recovery.HIT_LINES):
             # (MECHC16, AUDIT28 A28-1: the Life the sources above give a second refills Life between the boss's hits)
             recovery.hit_income(income, stats, texts, **self.hit_rates(main, stats, before=income.pool("Life")))
+        if recovery.GHOST_DANCE in present:  # (MECHC27) Ghost Dance's ES regeneration while a Shroud was lost recently
+            from builder.search import boss_hits
+
+            ghost = next((s for s in build.call("activeSkills", levelStats=[recovery.GHOST_DANCE])["skills"]
+                          if s["name"] == recovery.GHOST_DANCE and not s.get("disabled")), {})
+            seen = {**stats, **build.call("stats", fields=["Evasion", "EvadeChance", "EffectiveBlockChance",
+                                                           "enemySkillTime"]), "_boss": boss}
+            landed, landed_how = boss_hits.gain_hits(seen)
+            recovery.ghost_dance_income(income, ghost.get("levelStats") or {}, number(seen.get("Evasion")), landed,
+                                        f"the boss's landed hits {landed_how}")
+        if has(recovery.SACRIFICE_ES):  # (MECHC27) Eldritch Empowerment's ES sacrificed per Spell cast
+            spell = main and "Spell" in set((build.ctx.gems.get(main) or {}).get("skillTypes") or [])
+            casts = number(stats.get("Speed")) if spell else 0.0
+            recovery.sacrifice_income(income, texts, casts, number(stats.get("EnergyShield")),
+                                      f"{casts:.2f} casts/s of {main}" if spell else "the main skill isn't a Spell (0)")
         starts = self.es_flask_income(income, texts, lowered)
         recovery.restrict(income, texts)
         income.unread = recovery.unread(texts) + [name for name, pattern in flasks.ES_STARTS_UNREAD.items()

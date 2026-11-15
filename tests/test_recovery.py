@@ -482,9 +482,11 @@ def test_life_when_stunned_counts_the_bosss_hits_that_light_stun_you():
     weights = {"Physical": 0.5, "Fire": 0.5}
     sizes = {"Physical": 600.0, "Fire": 200.0}  # Physical 600 x 2 / 2000 = 60%; Fire 10%: under 15%, none
     rate, how = recovery.stuns_taken(stats, sizes, weights, 2.0)
-    assert rate == pytest.approx(2.0 * 0.5 * 0.6) and "Physical 100% more" in how
+    # (MECHC27, L1-1: 50% more threshold per Stun in the past 4 s) s = 2 x 0.5 x 0.6 / (1 + 0.5 x 4 s), so 2s^2 + s - 0.6 = 0
+    assert rate == pytest.approx((-1 + math.sqrt(1 + 8 * 0.6)) / 4, rel=1e-6) and "Physical 100% more" in how
+    assert "past 4 s" in how and "36.0 a minute without it" in how
     half, _ = recovery.stuns_taken({**stats, "StunAvoidChance": 50.0}, sizes, weights, 2.0)
-    assert half == pytest.approx(rate / 2)
+    assert half == pytest.approx((-1 + math.sqrt(1 + 8 * 0.3)) / 4, rel=1e-6)
     assert recovery.stuns_taken({**stats, "StunAvoidChance": 100.0}, sizes, weights, 2.0)[0] == 0.0
     income = Income()
     recovery.hit_income(income, stats, ["Regenerate 3% of maximum Life over 1 second when Stunned"], stunned=rate,
@@ -908,3 +910,247 @@ def test_charms_use_no_charges_fire_at_their_trigger():
     assert uses_per_second(info, no_fire, hit, None)[0] == 0.0 and uptime(info, no_fire, None, hit) == 0.0
     assert uptime(info, free, None, "Gold Charm\nUsed when you kill a Rare or Unique enemy") == 0.0
     assert charm_charges_used([(info, hit)], free)[0] == 0.0 and charm_charges_used([(info, hit)], gain)[0] > 0
+
+
+def test_staunch_deflection_takes_the_deflected_share_off_the_bosss_bleeds_and_maims_on_you():
+    """MECHC27 (COV31's H4-5, an OVERCOUNT of charm uses for a build holding the lines): "Deflected Hits cannot inflict
+    Bleeding on you" / "Deflected Hits cannot inflict Maim on you" (Staunch Deflection; PoB leaves both unparsed). A
+    Deflected Hit still lands, so the boss's Bleeds and Maims on you lose PoB's DeflectChance share; its Chills don't."""
+    from builder.search.flasks import Charges, deflect_stops, trigger_rate
+
+    lines = ["Deflected Hits cannot inflict Maim on you", "Deflected Hits cannot inflict Bleeding on you"]
+    assert deflect_stops(lines) == ("Bleed", "Maim") and deflect_stops(lines[:1]) == ("Maim",) and deflect_stops([]) == ()
+    data = {"enemySkillTime": 0.7, "takenByType": {"Physical": 3000, "Cold": 1500}, "bossDamage": {"Physical": 1, "Cold": 1},
+            "ailmentThreshold": 3000, "ailmentAvoid": {"Bleed": 0, "Chill": 0}, "deflect": 40, "deflectEffect": 40}
+    olroth = "Olroth, Origin of the Fall"
+
+    def rate(trigger, stops=(), **over):
+        return trigger_rate(trigger, Charges.from_bridge({**data, **over}, 0, olroth, deflect_stops=stops))
+
+    bleed = "Used when you start Bleeding"
+    plain, kept = rate(bleed)[0], rate(bleed, ("Bleed", "Maim"))
+    assert plain > 0 and kept[0] == pytest.approx(plain * 0.6) and "not Deflected" in kept[1]
+    assert rate(bleed, ("Maim",))[0] == pytest.approx(plain)  # the Maim line alone leaves Bleeds alone
+    # Slows: only the Maim part loses the share; with no Chill (a Cold hit under 30% of the threshold) all of it does
+    small = {"takenByType": {"Physical": 3000, "Cold": 600}}
+    slow = "Used when you are affected by a Slow"
+    maims, kept = rate(slow, **small)[0], rate(slow, ("Maim",), **small)
+    assert maims > 0 and kept[0] == pytest.approx(maims * 0.6) and "cannot inflict Maim" in kept[1]
+    full, cut = rate(slow)[0], rate(slow, ("Maim",))[0]
+    assert cut == pytest.approx(full - maims * 0.4)
+
+
+def test_full_life_share_is_one_less_the_dips_over_the_refill():
+    """MECHC27 (PATCH_CHECK MC-4; MECH75's Full-Life penalties): PoB's Full Life box is never set, so "on Full Life"
+    lines counted never and "not on Full Life" ones all fight. recovery.full_life_share: below full for (Life a second
+    the boss's landed hits and the Life costs take) / (the recovery left after a steady loss) of the fight."""
+    from builder.search import objective
+    from builder.search.recovery import full_life_share
+
+    stats = {"enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0, "PhysicalTakenHit": 200,
+             "Life": 2000, "LifeRegenRecovery": 300.0}
+    taken = sum(objective.boss_taken(stats)[0].values())
+    share, how = full_life_share(stats)
+    assert taken > 0 and share == pytest.approx(1 - taken / 300.0) and "MEDIUM" in how
+    # a Life cost adds its dips; a steady loss below the regeneration comes off the refill instead
+    assert full_life_share({**stats, "LifePerSecondCost": 10.0})[0] == pytest.approx(1 - (taken + 10) / 300.0)
+    assert full_life_share({**stats, "PhysicalBuildDegen": 20.0})[0] == pytest.approx(1 - taken / 280.0)
+    assert full_life_share({**stats, "PhysicalBuildDegen": 350.0})[0] == 0.0
+    # no recovery: never back on full; nothing taking Life: on Full Life all fight; Chaos Inoculation: always
+    assert full_life_share({**stats, "LifeRegenRecovery": 0.0})[0] == 0.0
+    assert full_life_share({**stats, "PhysicalTakenHit": 0})[0] == 1.0
+    assert full_life_share({**stats, "LifeRegenRecovery": 0.0, "ChaosInoculation": True})[0] == 1.0
+    # Energy Shield takes the hits first; what its own recovery doesn't refill spills onto Life; Mind over Matter's share
+    # of Life's part goes to Mana
+    shielded = {**stats, "EnergyShield": 1000, "EnergyShieldRegenRecovery": taken}
+    assert full_life_share(shielded)[0] == 1.0
+    assert full_life_share({**shielded, "EnergyShieldRegenRecovery": taken / 2})[0] == pytest.approx(1 - taken / 2 / 300)
+    assert full_life_share({**stats, "sharedMindOverMatter": 50})[0] == pytest.approx(1 - taken / 2 / 300)
+
+
+def test_the_full_life_box_follows_the_builds_full_life_lines():
+    """MECHC27: conditionFullLife is set only for a build with a "while / when (not) on Full Life" line (or Zealot's
+    Oath's excess-regeneration line), at full_life_share's share; never on Full Life leaves it off with the reason."""
+    from builder.search.conditions import FULL_LIFE_LINE, full_life_uptime
+
+    assert FULL_LIFE_LINE.search("30% less Critical Damage Bonus when on Full Life")
+    assert FULL_LIFE_LINE.search("20% faster start of Energy Shield Recharge when not on Full Life")
+    assert FULL_LIFE_LINE.search("Excess Life Recovery from Regeneration is applied to Energy Shield")
+    assert not FULL_LIFE_LINE.search("20% increased Damage with Hits against Enemies that are on Full Life")
+    assert full_life_uptime([], {}) == (0.0, "")
+    value, how, share = full_life_uptime([], {"_full_life": (0.4, "x")})
+    assert value is True and share == 0.4 and "40%" in how
+    assert full_life_uptime([], {"_full_life": (0.0, "y")})[0] == 0.0
+
+
+def test_dodge_rolled_recently_reads_the_builds_roll_cadence():
+    """MECHC27 (PATCH_CHECK MC-7): PoB's Dodge Rolled Recently box at the share of the fight a roll was in the past 4 s:
+    a roll every 2 s for a build that leans on rolling (MECH75's ROLL_RELIANT, which the line itself meets: all of it);
+    unset without a "Dodge Rolled Recently" line."""
+    from builder.search.conditions import dodge_rolled_recently
+
+    line = "50% increased Evasion Rating if you've Dodge Rolled Recently"
+    assert dodge_rolled_recently(["+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently"], {}) == (0.0, "")
+    value, how, share = dodge_rolled_recently([line], {})
+    # (MECH75's ROLL_RELIANT: a "Dodge Rolled Recently" line makes the build roll every 2 s, as Stoicism reads it)
+    assert value is True and share == 1.0 and "2 s" in how
+    assert dodge_rolled_recently([line], {"_gem_names": {"Cast on Dodge"}})[2] == 1.0
+    assert dodge_rolled_recently([line, "Gain Guard equal to 15% of missing Energy Shield for 4 seconds when you "
+                                        "Dodge Roll"], {})[2] == 1.0
+
+
+def test_refill_rate_sums_every_recovery_source_of_the_pool():
+    """MECHC27 (for COV-A's Force of Will: it read Mana regeneration alone): recovery.refill_rate sums the pool's
+    regeneration, leech (less the boss's Leech resistance), on-hit, flasks and the added sources, recoup and Block gains."""
+    from builder.search.recovery import refill_rate
+
+    stats = {"enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0, "PhysicalTakenHit": 0,
+             "ManaRegenRecovery": 50.0, "ManaLeechRate": 20.0, "ManaLeechResisted": -18.0, "FlaskManaRecoveryRate": 10.0}
+    rate, how = refill_rate(stats)
+    assert rate == pytest.approx(62.0) and "ManaRegenRecovery 50.0" in how
+    assert refill_rate({}, "Life")[0] == 0.0
+
+
+
+def test_kurgals_leash_grants_unholy_might_at_its_commands_rate():
+    """MECHC27 (PATCH_CHECK MD-1): Kurgal's Leash's 15 s of Unholy Might a Command (PoB reads neither stat: 0 before),
+    up min(1, 15 s x Commands a second); no Command rate, no Unholy Might (no flat rate)."""
+    from builder.search.conditions import unholy_might_uptime
+
+    assert unholy_might_uptime([], {}) == (0.0, "")
+    value, how, share = unholy_might_uptime([], {"_kurgal": (0.04, "Skeletal Arsonist Commanded 0.040/s")})
+    assert value is True and share == pytest.approx(0.6) and "Kurgal" in how
+    assert unholy_might_uptime([], {"_kurgal": (0.2, "x")})[2] == 1.0
+    off = unholy_might_uptime([], {"_kurgal": (0.0, "no rate")})
+    assert off[0] == 0.0 and "no source, 0" in off[1]
+
+
+
+def test_full_energy_shield_share_reads_es_dips_against_its_refill():
+    """MECHC27 (PATCH_CHECK MC-5): Mysticism and "while on Full Energy Shield" lines counted never (PoB's box unset).
+    recovery.full_es_share: below full for (the boss's landed hits ES takes) / (ES recovery) of the fight."""
+    from builder.search import objective
+    from builder.search.recovery import full_es_share
+
+    stats = {"enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0, "PhysicalTakenHit": 200,
+             "EnergyShield": 1000, "EnergyShieldRegenRecovery": 300.0}
+    taken = sum(objective.boss_taken(stats)[0].values())
+    assert full_es_share(stats)[0] == pytest.approx(1 - taken / 300.0)
+    assert full_es_share({**stats, "PhysicalEnergyShieldBypass": 100})[0] == 1.0  # (it all goes to Life)
+    assert full_es_share({**stats, "EnergyShieldRegenRecovery": 0.0})[0] == 0.0
+    assert full_es_share({**stats, "EnergyShield": 0})[0] == 0.0
+
+
+
+def test_ghost_dance_regenerates_es_while_a_shroud_was_lost_recently():
+    """MECHC27 (PATCH_CHECK H1-9): Ghost Dance's 2% of Evasion as ES a second while a Shroud was lost in the past 4 s
+    (PoB: none). Shrouds every 10.1 s; hits faster than that lose each new one at once (4 / 10.1 of the fight), slower
+    hits each find one waiting (1 - e^(-4h))."""
+    from builder.search.recovery import Income, ghost_dance_income, ghost_dance_share
+
+    assert ghost_dance_share(10.1, 1.5) == pytest.approx(4 / 10.1)
+    assert ghost_dance_share(10.1, 0.05) == pytest.approx(1 - math.exp(-0.2))
+    assert ghost_dance_share(10.1, 0.0) == 0.0
+    income = Income()
+    ghost_dance_income(income, {"base_cooldown_modifiable_repeat_interval_ms": 10100}, 10000, 1.5, "1.50/s")
+    assert income.rates["EnergyShieldGhostDanceRegen"] == pytest.approx(0.02 * 10000 * 4 / 10.1)
+    assert income.pool("EnergyShield") == pytest.approx(income.rates["EnergyShieldGhostDanceRegen"])
+
+
+
+@pytest.mark.usefixtures("arbiter_default")
+def test_charges_from_an_event_named_before_the_gain_read_that_event_not_one_per_4_s():
+    """MECHC27 (PATCH_CHECK K2-1 / K2-2 / K2-3 / K2-5 / K2-6, OVERCOUNTS): Killing Palm, Sniper's Mark, Profane Ritual
+    and Magma Barrier name their event before the gain, so they fell to the flat one-per-4-s fallback; Combat Frenzy's
+    "no more than once every N seconds" wasn't read."""
+    from builder.search.conditions import _charge_rate
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "enemySkillTime": 1.0, "EffectiveBlockChance": 30,
+             "_kills": (0.0, 0.0, "a lone boss")}
+    palm = ("Dash to an enemy and Strike them, Culling enemies if their life is low enough. Each enemy killed by this "
+            "strike grants a Power Charge, with higher Rarity monsters granting additional Charges.")
+    assert _charge_rate(palm, "Power", stats)[0] == 0.0
+    assert _charge_rate(palm, "Power", {**stats, "_kills": (0.1, 0.1, "adds")})[0] == pytest.approx(0.1)
+    sniper = ("Mark a target. The next Critical Hit the target receives Activates the Mark, Consuming it to deal extra "
+              "damage and grant you a Frenzy Charge.")
+    assert _charge_rate(sniper, "Frenzy", stats)[0] == 0.0  # (no Mark use rate: no re-applied Mark)
+    assert _charge_rate(sniper, "Frenzy", {**stats, "_mark_uses": 0.1})[0] == pytest.approx(0.1)
+    ritual = ("Mark a Corpse with a profane rune, dealing Chaos damage over time to nearby enemies. When the ritual is "
+              "complete the Corpse is consumed and you gain a Power Charge.")
+    assert _charge_rate(ritual, "Power", stats)[0] == 0.0
+    magma = ("While active, increases your Block Chance passively and imbues your Shield with lava over time. When fully "
+             "imbued, your next Block with your Shield raised will expend the lava to Trigger the Magma Spray skill and "
+             "grant you an Endurance Charge.")
+    rate, how = _charge_rate(magma, "Endurance", stats)
+    assert 0 < rate < 0.25 and "blocks/s" in how
+    frenzy = ("Gain a Frenzy Charge when you Freeze, Electrocute or Pin an enemy, no more than once every 6.1 seconds")
+    fast = {**stats, "Speed": 40.0, "FreezeBuildupAvg": 50.0, "ColdHitAverage": 100.0}
+    rate, how = _charge_rate(frenzy, "Frenzy", fast)
+    assert rate == pytest.approx(1 / 6.1) and "the line's cap" in how
+
+
+
+def test_banner_limit_reads_the_builds_lines():
+    """MECHC27 (PATCH_CHECK K2-4): 0.3.0's limit of 1 placed Banner, +N from "+N to maximum number of placed Banners",
+    none with Whoever Pays Best."""
+    import math as _m
+
+    from builder.search.conditions import banner_limit
+
+    assert banner_limit([])[0] == 1
+    assert banner_limit(["+1 to maximum number of placed Banners"])[0] == 2
+    assert banner_limit(["There is no Limit on the number of Banners you can place"])[0] == _m.inf
+
+
+
+def test_eldritch_empowerments_sacrifice_comes_off_energy_shields_recovery():
+    """MECHC27 (MECHB30's note: an OVERCOUNT of defence): "Sacrifice 5% of maximum Energy Shield when you Cast a Spell"
+    is a negative ES recovery field (casts x 5% x maximum ES a second) the recovery floor nets off; Income.pool leaves
+    it out."""
+    from builder.search.recovery import Income, sacrifice_income
+
+    income = Income()
+    sacrifice_income(income, ["Sacrifice 5% of maximum Energy Shield when you Cast a Spell"], 2.0, 1000.0, "2 casts/s")
+    assert income.rates["EnergyShieldSacrificed"] == pytest.approx(-100.0)
+    assert income.pool("EnergyShield") == 0.0
+    none = Income()
+    sacrifice_income(none, ["Sacrifice 5% of maximum Energy Shield when you Cast a Spell"], 0.0, 1000.0, "no Spell")
+    assert none.rates["EnergyShieldSacrificed"] == 0.0
+
+
+
+def test_temporal_rift_clears_phased_forms_delayed_damage_at_its_use_rate():
+    """MECHC27 (COV31 H1-1; 0.5.0: Temporal Rift "now also removes delayed damage from Phased Form"): each use clears the
+    past 4 s of delayed damage, so on its 5 s cooldown 80% of it; without Temporal Rift all of it lands."""
+    from builder.search.assumptions import phased_form_kept
+
+    class Stand:
+        def __init__(self, gems, rate):
+            self.gems, self.rate = gems, rate
+
+        def call(self, name, **kw):
+            if name == "groups":
+                return {"groups": [{"index": 1, "gems": [{"name": g} for g in self.gems]}]}
+            return {"rates": [self.rate]}
+
+    assert phased_form_kept(Stand(["Spark"], {}))[0] == 1.0
+    kept, how = phased_form_kept(Stand(["Temporal Rift"], {"name": "Temporal Rift", "cooldown": 5.0, "speed": 10.0}))
+    assert kept == pytest.approx(0.2) and "80%" in how
+
+
+
+def test_the_lethal_draws_charges_leave_the_life_flasks_drinking():
+    """MECHC27 (COV31 G4-1's note, a double credit): The Lethal Draw consumes 10% of the Life flask's maximum charges on
+    every Bow Attack "if possible", so the charges it takes aren't also drunk (flasks.drink_charges)."""
+    from dataclasses import replace
+
+    from builder.search.flasks import Charges, charges_per_second, drink_charges
+
+    info = {"kind": "Flask", "chargesMax": 60, "gainBase": 3.0}
+    gain = Charges()
+    made = charges_per_second(info, gain, "Life")
+    assert made > 0 and drink_charges(info, gain, "Life") == made
+    drawn = replace(gain, lethal_pct=10.0, bow_attacks=0.25)  # (0.25 x 6 = 1.5 charges/s taken)
+    assert drink_charges(info, drawn, "Life") == pytest.approx(max(made - 1.5, 0.0))
+    assert drink_charges(info, replace(gain, lethal_pct=10.0, bow_attacks=5.0), "Life") == 0.0
+    assert drink_charges(info, drawn, "Mana") == charges_per_second(info, drawn, "Mana")

@@ -510,8 +510,24 @@ NO_BLIND_STAT = "cannot_inflict_blind"  # Blindside (sup_dex.lua SupportBlindsid
 BLIND_LINE = re.compile(r"\bblind", re.I)
 
 
+# (MECHC27; PATCH_CHECK K2-3, an OVERCOUNT: Combat Frenzy's Frenzy Charge was read at the full Freeze / Electrocute / Pin
+# rate) a line's own cap: "no more than once per second" / "no more than once every N seconds" (combat_frenzy.csd's
+# skill_combat_frenzy_x_ms_cooldown wording; any line saying it is capped the same way)
+ONCE_EVERY = re.compile(r"no more than once (?:per second|every (\d+(?:\.\d+)?) seconds?)", re.I)
+
+
 def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     """(charges per second, how) from one line, or None if it isn't a source of that charge."""
+    got = _charge_rate_uncapped(text, kind, stats)
+    cap = ONCE_EVERY.search(text)
+    if got is None or cap is None:
+        return got
+    most = 1 / float(cap.group(1) or 1.0)
+    return (got[0], got[1]) if got[0] <= most else (most, f"{got[1]}; at most once every {1 / most:g} s (the line's cap)")
+
+
+def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
+    """_charge_rate before the line's own "no more than once every N seconds" cap."""
     m = re.search(CHARGE_SOURCE.format(kind=kind), text, re.I)
     if not m or re.search(r"\bcannot gain\b|instead|allies|when you gain|if you would gain|per \w+ charge|lose|at maximum \w+ charges", text, re.I):
         return None
@@ -562,6 +578,35 @@ def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
         return chance * ignites, f"{chance:.0%} x {ignites:.2f} Ignites/s (the main Attack's hits x its Ignite chance)"
     if reach := re.search(r"on reaching maximum (\w+) charges", when):
         return _reaching_maximum(reach.group(1).capitalize(), chance, stats)
+    # (MECHC27; PATCH_CHECK K2-1 / K2-2 / K2-5 / K2-6, OVERCOUNTS: these fell to the one-per-4-s fallback below) the
+    # event named BEFORE the gain in a skill's description: Killing Palm's "Each enemy killed by this strike grants a
+    # Power Charge" (the kills: the boss preset's adds, 0 on a lone boss), Sniper's Mark's "The next Critical Hit the
+    # target receives Activates the Mark, Consuming it to ... grant you a Frenzy Charge" (each activation needs a new Mark:
+    # the lower of the main skill's crits and the build's Mark uses, stats["_mark_uses"]), Profane Ritual's "Mark a Corpse
+    # ... the Corpse is consumed and you gain a Power Charge" (one corpse a gain: the preset's killed adds, one corpse each,
+    # LOW, as models.corpse_supply; Sacrifice's own corpses aren't read here: an undercount for such a build) and Magma
+    # Barrier's "your next Block with your Shield raised will expend the lava ... grant you an Endurance Charge" (the boss's
+    # blocked hits; the time the lava takes to fill isn't read: an overcount for a build that blocks faster, LOW)
+    before = text[:m.start()].lower()
+    full = text.lower()
+    if re.search(r"\bkill|\bcull", before):
+        rate, how = kill_events(before, stats)
+        return chance * rate, f"{chance:.0%} x {how}"
+    if "activates the mark" in full and "critical hit" in full:
+        marks = number(stats.get("_mark_uses"))
+        rate = min(crits, marks)
+        return chance * rate, (f"{chance:.0%} x {rate:.3f}/s: each Mark Activated by a crit (the main skill's {crits:.2f} "
+                               f"crits/s) and re-applied ({marks:.3f} Mark uses/s: its group's rate, else the chosen "
+                               f"press rate, else 0)")
+    if "corpse" in full:
+        kills = stats.get("_kills") or (0.0, 0.0, "")
+        corpses = max(number(kills[0]), 0.0)
+        return chance * corpses, (f"{chance:.0%} x {corpses:.3f} corpses/s (the boss preset's killed adds, one corpse "
+                                  f"each, LOW; your own corpse sources not read: none on a lone boss)")
+    if "block" in full:
+        block = boss_hits.block_share(stats, evaded_first=False)
+        return chance * boss * block, (f"{chance:.0%} x {boss * block:.2f} blocks/s (the time its lava takes to fill "
+                                       f"isn't read: LOW)")
     return chance / CHARGE_DEFAULT_EVERY, f"'{when.strip()[:40]}': rate not in the line, one per {CHARGE_DEFAULT_EVERY:g} s assumed (LOW)"
 
 
@@ -1265,6 +1310,98 @@ def leyline_uptime(lines: list[str], stats: dict) -> tuple[object, str, float]:
     if LEYLINES not in (stats.get("_gem_names") or set()):
         return 0.0, "", 0.0
     return True, LEYLINE_BASIS, LEYLINE_UPTIME
+
+
+# On Full Life (MECHC27; PATCH_CHECK MC-4, MECH75's Full-Life penalties): PoB's "Are you always on Full Life?" box at the
+# share of the fight you're on Full Life (recovery.full_life_share: the boss's landed hits and your Life costs against your
+# Life recovery), weighed by weigh_uptimes, for a build with a line PoB gates on it: "while / when (not) on Full Life" (not
+# the enemy's: "enemies ... on Full Life" is conditionEnemyFullLife) and Zealot's Oath's "Excess Life Recovery from
+# Regeneration is applied to Energy Shield" (ModParser 2421). Conditions.evidence puts the share in stats["_full_life"].
+FULL_LIFE_LINE = re.compile(r"\b(?:while|when) (?:you are )?(?:not )?on full life\b"
+                            r"|^excess life recovery from regeneration is applied to energy shield", re.I)
+# (MC-5) the same for Full Energy Shield: "while / when (not) on Full Energy Shield" lines and the Mysticism supports
+# (whose stat PoB gates on it: sup_int.lua 7166-7208); Conditions.evidence puts recovery.full_es_share in stats["_full_es"]
+FULL_ES_LINE = re.compile(r"\b(?:while|when) (?:you are )?(?:not )?on full energy shield\b", re.I)
+MYSTICISM = ("Mysticism I", "Mysticism II")
+FULL_LIFE_FIELDS = ("Life", "LifePerSecondCost", "ChaosInoculation", "EnergyShield")
+
+
+def full_es_uptime(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
+    """(True, how, share on Full Energy Shield) for a build with a Full Energy Shield line or Mysticism; (0, how) else."""
+    got = stats.get("_full_es")
+    if not got:
+        return 0.0, ""
+    share, how = got
+    if share <= 0:
+        return 0.0, f"never on Full Energy Shield: {how}"
+    return True, f"on Full Energy Shield {share:.0%} of the fight: {how}", share
+
+
+def full_life_uptime(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
+    """(True, how, share on Full Life) for a build with a Full Life line; (0, how) when it's never on Full Life."""
+    got = stats.get("_full_life")
+    if not got:
+        return 0.0, ""
+    share, how = got
+    if share <= 0:
+        return 0.0, f"never on Full Life: {how}"
+    return True, f"on Full Life {share:.0%} of the fight: {how}", share
+
+
+# Dodge Rolled Recently (MECHC27; PATCH_CHECK MC-7; MECH75: the box is safe to set now that Stoicism no longer reads it):
+# PoB's "Have you Dodge Rolled Recently?" (ModParser 2091: "if you've dodge rolled recently": Evasion lines) at the share
+# of the fight a roll was made in the past 4 s, from the rolls the build makes (the manager's ruling on PLANS2's
+# questions, FIX_QUEUE 12 Nov ~09:00: "a build with no roll-dependent source rolls once per telegraphed boss hit (every 5
+# s, the user's Parry cadence, 11 Nov); a build that relies on rolling, once every 2 s (the user's Cast on Dodge default,
+# 7 Nov); both labelled, 'dodge rolled recently' shares from them"). Relying on rolling: MECH75's rule for Stoicism
+# (assumptions.ROLL_RELIANT: Cast on Dodge, a "when you Dodge Roll" line, or a "Dodge Rolled Recently" line: a player who
+# takes one rolls to feed it), so the two read one cadence. Rolls at a steady cadence of T s: recently min(1, 4 / T) of
+# the fight (80% at 5 s, all of it at 2 s). The time the extra rolls take isn't charged here (nor in Stoicism's).
+DODGE_RECENTLY_LINE = re.compile(r"\bif you(?:'ve| have) dodge rolled recently\b", re.I)
+
+
+def dodge_rolled_recently(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
+    """(True, how, share of the fight a roll was in the past 4 s) for a build with a "Dodge Rolled Recently" line."""
+    if not any(DODGE_RECENTLY_LINE.search(t) for t in lines):
+        return 0.0, ""
+    from builder.search.assumptions import ROLL_RELIANT  # (MECH75's Stoicism reads the same rule: one cadence a build)
+
+    reliant = "Cast on Dodge" in (stats.get("_gem_names") or set()) or any(ROLL_RELIANT.search(t) for t in lines)
+    every = models.DODGE_EVERY if reliant else models.PARRY_EVERY
+    share = min(1.0, RECENTLY / every)
+    why = (f"a roll every {every:g} s (the build relies on rolling: the user's Cast on Dodge default)" if reliant else
+           f"a roll every {every:g} s, one per telegraphed boss hit (the manager's ruling on PLANS2; how often you "
+           f"roll is up to you: roll at least every 4 s for all of it)")
+    return True, f"Dodge Rolled in the past 4 s {share:.0%} of the fight: {why} (LOW)", share
+
+
+# Unholy Might from Kurgal's Leash (MECHC27; PATCH_CHECK MD-1): "Supports Commandable Minions causing you and the
+# Supported Minion to gain Unholy Might when you Command them" (gain_unholy_might_for_X_ms_on_command and
+# minion_gain_unholy_might_for_X_ms_on_command, 15000 each: GrantedEffectStatSets SupportKurgalsLeashPlayer; PoB's
+# sup_int.lua 6204-6229 carries both and no SkillStatMap entry reads them, so it scored 0). Unholy Might: "a Buff that
+# grants 30% of all damage as extra Chaos Damage" (KeywordPopups UnholyMight), PoB's buffUnholyMight / minionbuffUnholyMight
+# boxes (ConfigOptions 934-938; its magnitude lines apply through Multiplier:UnholyMightMagnitude). Up min(1, 15 s x the
+# supported minion's Commands a second): its group's use rate (skill_use_rate: cooldown, duration, else the search's chosen
+# press rate), 0 without one (no flat rate). The other sources PoB applies itself (checked: ModParser 3182 / 4274 / 4692 /
+# 4871 / 5505 and ModCache's 8 Unholy Might lines: "You have Unholy Might", Necromantic Conduit's "not on Low Mana" aura,
+# "while you have no Energy Shield", "on Block" through BlockedRecently, "during Flask Effect", "Minions have Unholy
+# Might"): the boxes add nothing on top of them. The minion box reaches every minion, not only the Supported one (an
+# OVERCOUNT for a build with other minions: LOW); buff duration modifiers on the 15 s aren't read (an undercount).
+MARK_ACTIVATED = re.compile(r"activates the mark", re.I)  # (MECHC27, K2-2: Sniper's Mark's Frenzy Charge)
+KURGAL, KURGAL_SECONDS = "Kurgal's Leash", 15.0
+
+
+def unholy_might_uptime(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
+    """(True, how, share) from Kurgal's Leash's Commands (stats["_kurgal"] = (Commands a second, how)), else (0, ...)."""
+    got = stats.get("_kurgal")
+    if not got:
+        return 0.0, ""
+    uses, how = got
+    if uses <= 0:
+        return 0.0, f"Kurgal's Leash: {how}, so no Command grants Unholy Might (no source, 0)"
+    share = min(1.0, KURGAL_SECONDS * uses)
+    return True, (f"Unholy Might {share:.0%} of the fight from Kurgal's Leash: {KURGAL_SECONDS:g} s a Command x {how} "
+                  f"(MEDIUM)"), share
 
 
 def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
@@ -3577,6 +3714,25 @@ def _minion_died_recently(lines: list[str], stats: dict) -> tuple[object, str]:
 # Valour (bannerValour) stays PoB's 0 (an undercount, labelled: not modelled yet).
 BANNERS = ("War Banner", "Defiance Banner", "Dread Banner")
 BANNER_SECONDS = 9.8  # base_skill_effect_duration at level 20 (game files), when PoB gives no duration
+# (MECHC27; PATCH_CHECK K2-4, an OVERCOUNT for 2+ banners) 0.3.0: "Banners now have a global limit of 1 allowed to be
+# placed, but there are ways on the Passive Tree or the Tactician Ascendancy to increase this" (grep_notes over banner /
+# limit / placed: no later change to the limit; 0.3.0 also gave Whoever Pays Best its no-limit line). Raised by "+N to maximum number of placed Banners" (number_of_additional_
+# banners_allowed: Reinforced Rallying) and lifted by "There is no Limit on the number of Banners you can place"
+# (unlimited_banners_allowed: Whoever Pays Best) (checked: PassiveSkills and Mods over number_of_banners_allowed,
+# number_of_additional_banners_allowed and unlimited_banners_allowed: those two passives; PoB ModCache leaves both lines
+# unparsed). The model reads the text, so any other carrier counts too.
+BANNER_MORE = re.compile(r"\+(\d+) to maximum number of placed banners", re.I)
+BANNER_UNLIMITED = re.compile(r"there is no limit on the number of banners you can place", re.I)
+
+
+def banner_limit(texts: list[str]) -> tuple[float, str]:
+    """(banners you can have placed at once, how)."""
+    if any(BANNER_UNLIMITED.search(t) for t in texts):
+        return math.inf, "no limit on placed Banners"
+    more = sum(int(m.group(1)) for t in texts for m in BANNER_MORE.finditer(t))
+    return 1 + more, f"a limit of {1 + more} placed (0.3.0's limit of 1" + (f" +{more}" if more else "") + ")"
+
+
 
 
 def _banner_planted(lines: list[str], stats: dict) -> tuple[object, str]:
@@ -3695,6 +3851,15 @@ CONDITIONS: list[Condition] = [
     Condition("buffOnslaught", "Onslaught", value_fn=lambda lines, stats: onslaught_uptime(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "enemySkillTime", "EvadeChance")),
     Condition("onLeyline", "On a Leyline", value_fn=lambda lines, stats: leyline_uptime(lines, stats)),
+    Condition("conditionFullEnergyShield", "On Full Energy Shield", value_fn=lambda lines, stats: full_es_uptime(lines, stats),
+              fields=()),
+    Condition("conditionFullLife", "On Full Life", value_fn=lambda lines, stats: full_life_uptime(lines, stats), fields=()),
+    Condition("buffUnholyMight", "Unholy Might (Kurgal's Leash)", value_fn=lambda lines, stats: unholy_might_uptime(lines, stats),
+              fields=()),
+    Condition("minionbuffUnholyMight", "Minions' Unholy Might (Kurgal's Leash)",
+              value_fn=lambda lines, stats: unholy_might_uptime(lines, stats), fields=()),
+    Condition("conditionDodgeRolledRecently", "Dodge Rolled recently",
+              value_fn=lambda lines, stats: dodge_rolled_recently(lines, stats), fields=()),
     Condition("buffArcaneSurge", "Arcane Surge", value_fn=lambda lines, stats: arcane_surge_uptime(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "Devotion")),
     Condition("multiplierRage", "Rage held", value_fn=lambda lines, stats: rage_held(lines, stats),
@@ -4017,6 +4182,11 @@ class Conditions:
             duration = number((rates.get(where.get(name)) or {}).get("duration")) or BANNER_SECONDS
             shares.append((min(1.0, uses * duration), f"{how}; it stands {duration:.1f} s"))
         up, how = min(shares)
+        limit, limit_how = banner_limit(texts)
+        if len(banners) > limit:  # (MECHC27, K2-4: PoB's one BannerPlanted box puts every banner's buff on at once)
+            up *= limit / len(banners)
+            how += (f"; {len(banners)} banners and {limit_how}: only {limit} stands at a time, so the box (every "
+                    f"banner's buff at once) counts {limit}/{len(banners)} of that (LOW)")
         return up, (f"a placed banner stands {up:.0%} of the fight: {how} (you stand in its 6 m area, a play note; "
                     "Valour not counted, an undercount)")
 
@@ -4223,6 +4393,29 @@ class Conditions:
             f"counts only if N <= {seconds}, though the real one lands at the end of the {fight:.0f} s fight: an "
             "undercount between the two)")
 
+    def _kurgal_commands(self) -> tuple[float, str]:
+        """(MECHC27) Commands a second of the minion skills Kurgal's Leash supports (each in an enabled group with it, at
+        that group's rate, else the search's chosen rate, else 0), and how."""
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        names = {n["name"] for g in groups if any(m["name"] == KURGAL and m.get("enabled", True) for m in g.get("gems") or [])
+                 for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support") and n["name"] != KURGAL}
+        if not names:
+            return 0.0, "it supports no minion skill"
+        uses = self._group_uses(groups, names)
+        rates = {n: uses.get(n, self._chosen_use(n)) for n in sorted(names)}
+        return sum(rates.values()), ", ".join(f"{n} Commanded {r:.3f}/s" for n, r in rates.items())
+
+    def _full_life(self, es: bool = False) -> tuple[float, str]:
+        """(MECHC27) recovery.full_life_share (full_es_share with `es`) on PoB's recovery outputs and the search's added
+        recovery stats."""
+        from builder.search import objective, recovery
+
+        fields = sorted(set(objective.RECOVERY_INPUTS) | set(FULL_LIFE_FIELDS))
+        added = getattr(self.build, "added_stats", None)
+        share = recovery.full_es_share if es else recovery.full_life_share
+        return share({**self.build.call("stats", fields=fields),
+                      **(added() if callable(added) else {})})
+
     def evidence(self) -> dict[str, tuple[object, str]]:
         """What the build can sustain now: var -> (value, evidence)."""
         lines = self.build.call("sourceLines")["lines"]
@@ -4282,6 +4475,16 @@ class Conditions:
             stats["_human_shifts"] = self._human_shifts(number(stats.get("Speed")))
         if any(MINION_DIES.search(t) for t in texts):  # (MECHC7: "when a Minion Dies" lines, from the build's own sources)
             stats["_minion_deaths"] = self._minion_deaths()
+        if any(MARK_ACTIVATED.search(t) for t in texts):  # (MECHC27, K2-2: a Mark's own charge on Activation)
+            marks = {n for n, types in gem_types.items() if "Mark" in types}
+            uses = self._group_uses(self.build.call("groups")["groups"], marks) if marks else {}
+            stats["_mark_uses"] = sum(uses.get(n, self._chosen_use(n)) for n in marks)
+        if KURGAL in gem_types:  # (MECHC27: Unholy Might on Command, unholy_might_uptime)
+            stats["_kurgal"] = self._kurgal_commands()
+        if any(FULL_LIFE_LINE.search(t) for t in texts):  # (MECHC27: the share on Full Life, recovery.full_life_share)
+            stats["_full_life"] = self._full_life()
+        if any(FULL_ES_LINE.search(t) for t in texts) or any(m in gem_types for m in MYSTICISM):  # (MECHC27, MC-5)
+            stats["_full_es"] = self._full_life(es=True)
         if any(KILL_LINE.search(t) for t in texts):  # (MECHC9, A23-4: on-kill lines at the build's kills)
             stats["_kills"] = self._kills()
         if banners := sorted({n["name"] for g in self.build.call("groups")["groups"] if g.get("enabled") is not False

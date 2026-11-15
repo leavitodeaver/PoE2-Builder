@@ -498,6 +498,23 @@ def _bleed_share(name: str) -> float:
     return skills / sum(hit_table(name)[1].values()) if skills else 0.0
 
 
+# (MECHC27; COV31's H4-5: an OVERCOUNT of charm uses against Olroth / Atziri for a build holding the lines) "Deflected Hits
+# cannot inflict Bleeding on you" / "Deflected Hits cannot inflict Maim on you" (Stats deflected_hits_cannot_inflict_
+# bleeding_on_self / deflected_hits_cannot_directly_inflict_maim_on_self; the carrier found: the Staunch Deflection notable
+# (checked: PassiveSkills and Mods over both stat ids; PoB leaves the lines unparsed, ModCache 7205-7207). The model reads
+# the text, so any carrier counts.) A Deflected Hit still lands (KeywordPopups Deflect: it prevents DeflectEffect% of the
+# hit's damage), so of the landed hits that could Bleed or Maim you, PoB's DeflectChance share can't. stats["_deflect_stops"]
+# holds the ailments the build's lines name (flasks.deflect_stops, read with the build's charms: only charm and flask
+# triggers read these rates). Deflection is kept against red-flash hits too, as the recovery check keeps it (#78, LOW).
+def deflect_kept(stats: dict, what: str) -> tuple[float, str]:
+    """(share of landed hits that can still inflict `what`, "Bleed" or "Maim", on you; the note) under the build's
+    "Deflected Hits cannot inflict ... on you" lines."""
+    if what not in (stats.get("_deflect_stops") or ()):
+        return 1.0, ""
+    chance = min(max(number(stats.get("DeflectChance")), 0.0), 100.0) / 100
+    return 1 - chance, f" x {1 - chance:.0%} not Deflected (Deflected Hits cannot inflict {what} on you)"
+
+
 def ailment_rate(stats: dict, ailment: str, land: float) -> tuple[float, str]:
     """Times per second the boss inflicts `ailment` (Ignite, Shock, Freeze, Bleed, Poison) on you, and how. `land`: the
     boss's landed hits per second; stats: PoB's <Type>TakenHit, AilmentThreshold, <Ailment>AvoidChance, Life, "_boss"."""
@@ -513,9 +530,10 @@ def ailment_rate(stats: dict, ailment: str, land: float) -> tuple[float, str]:
         if share <= 0:
             return 0.0, (f"{name} has no Bleeding chance (checked: research #60 / #67; Olroth's attacks are the one "
                          "pinnacle source): no source, 0")
-        rate = land * share * (1 - avoid)
+        kept, kept_how = deflect_kept(stats, "Bleed")
+        rate = land * share * (1 - avoid) * kept
         return rate, (f"{land:.2f} landed hits/s x {share:.1%} that Bleed (Olroth's ThrowBack, one of its skills: LOW) x "
-                      f"{1 - avoid:.0%} not avoided: {rate * 60:.1f} a minute")
+                      f"{1 - avoid:.0%} not avoided{kept_how}: {rate * 60:.1f} a minute")
     kind = AILMENT_TYPE[ailment]
     share = type_shares(name)[kind]
     if share <= 0:
@@ -589,17 +607,19 @@ SLOW_SKILLS = {
 }
 
 
-def _slow_skills(name: str, land: float) -> tuple[float, list[str]]:
-    """Slows a second from the boss's Slow skills and their descriptions (`land`: the share of its hits that land)."""
+def _slow_skills(name: str, land: float, maim_kept: float = 1.0, kept_how: str = "") -> tuple[float, list[str]]:
+    """Slows a second from the boss's Slow skills and their descriptions (`land`: the share of its hits that land;
+    `maim_kept`: the share of landed hits that can still Maim you, deflect_kept)."""
     if name == _worst():
         from builder.search import bosses
-        rows = [_slow_skills(n, land) for n in bosses.REAL if n in SLOW_SKILLS]
+        rows = [_slow_skills(n, land, maim_kept, kept_how) for n in bosses.REAL if n in SLOW_SKILLS]
         return max(rows, default=(0.0, []), key=lambda r: r[0])
     rate, parts = 0.0, []
     for cooldown, hit, what in SLOW_SKILLS.get(name, ()):
-        r = (land if hit else 1.0) / cooldown
+        maim = hit and "Maim" in what
+        r = (land * (maim_kept if maim else 1.0) if hit else 1.0) / cooldown
         rate += r
-        parts.append(f"{what}{f' x {land:.0%} landing' if hit else ''}: {r * 60:.1f} a minute")
+        parts.append(f"{what}{f' x {land:.0%} landing' if hit else ''}{kept_how if maim else ''}: {r * 60:.1f} a minute")
     return rate, parts
 
 
@@ -609,7 +629,7 @@ def slow_rate(stats: dict, land: float) -> tuple[float | None, str]:
     ailment_rate's, with ChillAvoidChance."""
     name = boss_name(stats)
     share = type_shares(name)["Cold"]
-    skills, parts = _slow_skills(name, land_share(stats))
+    skills, parts = _slow_skills(name, land_share(stats), *deflect_kept(stats, "Maim"))
     if share <= 0 and not parts:
         return None, f"{name} has no Cold hit and no Slow skill found (RESEARCH14 #67; its ground Slows aren't counted)"
     avoid = min(max(number(stats.get("ChillAvoidChance")), 0.0), 100.0) / 100

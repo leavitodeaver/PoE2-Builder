@@ -34,6 +34,12 @@ KINDS: dict[str, tuple[str, str]] = {
                             "every 5 s assumed), or cast Refutation on cooldown (how much you parry is up to you)"),
     "conditionBeenHitRecently": (FIGHT, "the boss lands a hit on you at least every 4 s (your evasion and block allow it)"),
     "conditionBlockedRecently": (FIGHT, "you block one of the boss's hits at least every 4 s"),
+    "conditionDodgeRolledRecently": (PLAYER, "dodge roll at least every 4 s (a build that leans on rolling rolls about "
+                                             "every 2 s, the user's default; MECHC27, LOW)"),
+    "conditionFullEnergyShield": (FIGHT, "you're on Full Energy Shield: the boss's landed hits take you off it, your Energy "
+                                         "Shield recovery and Recharge bring you back (MECHC27, MEDIUM)"),
+    "conditionFullLife": (FIGHT, "you're on Full Life: the boss's landed hits and your Life costs take you off it, your "
+                                 "Life recovery brings you back (MECHC27: the share from both, MEDIUM)"),
 }
 # PoB options the resolver never sets: the guide tries each switched on. (label, kind, play). Low Life: "A player or
 # monster is on Low Life if it has 35% of its Maximum Life or less" (game files, KeywordPopups).

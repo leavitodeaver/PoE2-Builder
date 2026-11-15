@@ -55,6 +55,7 @@ the bridge also zeroes PoB's own Mana leech, on-hit, on-kill, on-block and recou
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -70,13 +71,15 @@ FIELDS = {
     "EnergyShield": ("EnergyShieldOnEventRecovery", "EnergyShieldPreventedRecoup",  # (MECHC21: Scarred Faith's)
                      # (MECHC23, AUDIT33 A33-1) the Life flask's recovery applied to Energy Shield (Shavronne's Satchel:
                      # flasks.es_recovery_per_second, at the flask's own use rate)
-                     "EnergyShieldFlaskRecovery"),
+                     "EnergyShieldFlaskRecovery",
+                     "EnergyShieldGhostDanceRegen",  # (MECHC27: Ghost Dance's regeneration, ghost_dance_income)
+                     "EnergyShieldSacrificed"),  # (MECHC27, NEGATIVE: Eldritch Empowerment's sacrifice, sacrifice_income)
 }
 # The boss's Leech resistance (MECHC26; PATCH_CHECK H2-1, an OVERCOUNT before: neither PoB nor we applied any), a
 # NEGATIVE field per pool: what PoB's {pool}LeechRate holds that the boss resists (leech_resisted). In FIELDS, so the
 # sustain and recovery floors (objective's ADDED_RECOVERY) take it off once; Income.pool leaves it out (its sums are the
 # event sources, and PoB's leech isn't one of them).
-NEGATIVE_FIELDS = {"LifeFlaskDrain"}  # (losses, not event income: Income.pool leaves them out)
+NEGATIVE_FIELDS = {"LifeFlaskDrain", "EnergyShieldSacrificed"}  # (losses, not event income: Income.pool leaves them out)
 LEECH_RESISTED = {"Life": "LifeLeechResisted", "Mana": "ManaLeechResisted", "EnergyShield": "EnergyShieldLeechResisted"}
 for _pool, _field in LEECH_RESISTED.items():
     FIELDS[_pool] = (*FIELDS[_pool], _field)
@@ -170,6 +173,7 @@ HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNE
 # damage type (an UNDERCOUNT, asked of MECH-D). PoB's own SelfStunChance uses other constants (Data.lua StunBaseMult 200,
 # MinStunChanceNeeded 20) on its all-types-at-once enemy hit: not read
 LIGHT_STUN_FLOOR, PHYSICAL_STUN_MORE, MONSTER_MELEE_STUN_MORE = 0.15, 2.0, 1.33
+STUN_MORE_PER_RECENT, RECENT_STUN_SECONDS = 0.5, 4.0  # (MECHC27, L1-1: stuns_taken)
 
 
 def stuns_taken(stats: dict, sizes: dict[str, float], weights: dict[str, float], landed: float) -> tuple[float, str]:
@@ -180,18 +184,41 @@ def stuns_taken(stats: dict, sizes: dict[str, float], weights: dict[str, float],
     if threshold <= 0 or landed <= 0 or avoid >= 1:
         return 0.0, ("the build can't be Stunned" if avoid >= 1 else "no boss hit lands" if landed <= 0
                      else "no Stun Threshold")
-    chance, parts = 0.0, []
-    for t, w in weights.items():
-        each = min(1.0, max(sizes.get(t, 0.0), 0.0) * (PHYSICAL_STUN_MORE if t == "Physical" else 1.0) / threshold)
-        each = each if each >= LIGHT_STUN_FLOOR else 0.0
-        chance += w * each
-        if w > 0:
-            parts.append(f"{t} {w:.0%} of hits, {each:.0%}")
-    rate = landed * chance * (1 - avoid)
+    def chance_at(scale: float) -> tuple[float, list[str]]:
+        total, parts = 0.0, []
+        for t, w in weights.items():
+            each = min(1.0, max(sizes.get(t, 0.0), 0.0) * (PHYSICAL_STUN_MORE if t == "Physical" else 1.0)
+                       / (threshold * scale))
+            each = each if each >= LIGHT_STUN_FLOOR else 0.0
+            total += w * each
+            if w > 0:
+                parts.append(f"{t} {w:.0%} of hits, {each:.0%}")
+        return total, parts
+
+    # (MECHC27; PATCH_CHECK L1-1, a small OVERCOUNT before) 0.2.0: "Players have 50% more Light Stun Threshold per time
+    # stunned in past 4 seconds" (PoB Data/Misc.lua 222: light_stun_threshold_+%_final_per_number_of_times_stunned_in_past_
+    # duration_from_ot 50; no PoB module reads it; no later note changes it). The Stuns a second s solve s = landed x
+    # chance(threshold x (1 + 50% x 4 s x s)) (bisection): the expected count in the past 4 s, not each moment's own
+    # count, and "more per time" taken as 1 + 50% per Stun (MEDIUM: the average of a nonlinear rule)
+    first, _ = chance_at(1.0)
+    raw = landed * first * (1 - avoid)
+    low, high = 0.0, raw
+    for _ in range(40):
+        mid = (low + high) / 2
+        if landed * chance_at(1 + STUN_MORE_PER_RECENT * RECENT_STUN_SECONDS * mid)[0] * (1 - avoid) > mid:
+            low = mid
+        else:
+            high = mid
+    rate = (low + high) / 2
+    scale = 1 + STUN_MORE_PER_RECENT * RECENT_STUN_SECONDS * rate
+    chance, parts = chance_at(scale)
     return rate, (f"{landed:.3f} boss hits landing/s x {chance:.1%} Light Stun chance ({'; '.join(parts)}: hit size "
                   f"after mitigation / Stun Threshold {threshold:,.0f}, a monster's Physical 100% more (its Melee 33% more not "
                   "applied: no melee share of the boss's hits), under 15% none)"
-                  + (f" x {1 - avoid:.0%} not avoided" if avoid > 0 else "") + "; each hit at its type's full size (LOW)")
+                  + (f" x {1 - avoid:.0%} not avoided" if avoid > 0 else "")
+                  + (f"; your threshold {scale - 1:.0%} higher from the Stuns of the past 4 s (50% more per Stun; "
+                     f"{raw * 60:.1f} a minute without it)" if rate > 0 else "")
+                  + "; each hit at its type's full size (LOW)")
 
 
 def boss_stuns(hit: dict) -> tuple[float, str]:
@@ -647,3 +674,172 @@ def flame_income(income: Income, stats: dict, flames: float, gain: dict, texts: 
             income.add(name, amount, f"{hue.title()} Flames of Chayula ({flames:.2f} flames/s, {how}; {colour}), Leech "
                                      f"{pct:g}% of maximum {pool} each" + (f", held to the {cap:,.0f}/s leech cap less "
                                                                             f"{kept:,.1f}/s hit leech" if amount < want else ""))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# On Full Life (MECHC27; PATCH_CHECK MC-4 and MECH75's Full-Life penalties). PoB's "Are you always on Full Life?" box
+# (conditionFullLife, ConfigOptions 136) is never set, so "while / when on Full Life" lines (Initiative, Killer Instinct,
+# High Alert, Foxshade, Pain Attunement's 30% less Critical Damage Bonus, Zealot's Oath's "Excess Life Recovery from
+# Regeneration is applied to Energy Shield": ModParser 1801 / 2421) counted never and "while not on Full Life" lines (the
+# faster Energy Shield Recharge starts, ModParser 1803) all fight. PoB sets FullLife itself only for Chaos Inoculation
+# (CalcDefence 124-126: Life becomes 1).
+# The share of the fight you're NOT on Full Life, from the build: Life comes off in dips (the boss's landed hits on Life,
+# the main skill's Life costs) and the recovery left after any steady loss (PoB's regeneration, leech, on-hit; recoup and
+# gains on Block; the search's flasks and recovery.FIELDS' sources; Life Recharge at its share) refills them. With dips
+# of D Life a second refilled at R a second, Life is below full D / R of the time, whatever the dips' timing (the busy
+# share of a refill that runs only while Life is missing: work in = work out). A steady loss below R (a degen you
+# regenerate through) leaves you on Full Life, so it comes off R instead; at or above R you're never on Full Life again.
+# Energy Shield takes the boss's hits first but for PoB's EnergyShieldBypass share; what ES's own recovery (regeneration,
+# leech, on-hit, recoup, recharge at its share) doesn't refill spills onto Life. Mind over Matter's share of what reaches
+# Life goes to Mana (sharedMindOverMatter). The boss's hits at PoB's scored cadence (enemySkillTime, the defence pace;
+# objective.boss_taken: after evade, block and Deflection). MEDIUM: dips are taken as refilled at the average rate (a
+# hit bigger than the ES left spills at once: a lower reading of Life's dips); "considered on Full Life at N% Life"
+# (FullLifePercentage under 100) isn't read (each dip smaller than the slack would count as Full Life: a lower reading).
+def full_life_share(stats: dict) -> tuple[float, str]:
+    """(share of the fight on Full Life, how). `stats`: PoB's outputs objective.RECOVERY_INPUTS names, Life,
+    LifePerSecondCost, ChaosInoculation, with the search's added recovery fields."""
+    from builder.search import objective
+
+    if stats.get("ChaosInoculation") and _num(stats.get("ChaosInoculation")) > 0:
+        return 1.0, "Chaos Inoculation: maximum Life 1, so PoB counts you on Full Life all fight"
+    taken, hits, _ = objective.boss_taken(stats)
+    es = _num(stats.get("EnergyShield")) > 0
+    to_es = to_life = 0.0
+    for t, value in taken.items():
+        bypass = min(max(_num(stats.get(f"{t}EnergyShieldBypass")), 0.0), 100.0) / 100 if es else 1.0
+        to_es += value * (1 - bypass)
+        to_life += value * bypass
+    es_fields, _ = objective.RECOVERY_POOLS["EnergyShield"]
+    es_back = (sum(_num(stats.get(f)) for f in es_fields) + objective.recoup(stats, taken, "EnergyShield")
+               + objective.es_recharge(stats, hits)[0]) if to_es > 0 else 0.0
+    spill = max(to_es - es_back, 0.0)
+    mom = min(max(_num(stats.get("sharedMindOverMatter")), 0.0), 100.0) / 100
+    hit_life = (to_life + spill) * (1 - mom)
+    cost = max(_num(stats.get("LifePerSecondCost")), 0.0)
+    steady = objective.own_loss(stats)["Life"]
+    life_fields, _ = objective.RECOVERY_POOLS["Life"]
+    back = (sum(_num(stats.get(f)) for f in life_fields) + objective.recoup(stats, taken, "Life")
+            + objective.on_block(stats, "Life") + objective.life_recharge(stats, hits)[0])
+    dips = hit_life + cost
+    parts = [f"{hit_life:,.1f} Life/s from the boss's landed hits"
+             + (f" (after Energy Shield: {spill:,.1f}/s it doesn't refill spills over)" if es else "")
+             + (f", {mom:.0%} of it to Mana (Mind over Matter)" if mom > 0 else ""),
+             *([f"{cost:,.1f}/s of Life costs"] if cost > 0 else [])]
+    if dips <= 0 and steady <= 0:
+        return 1.0, "nothing takes Life off: no landed boss hit reaches Life, no Life cost or loss (on Full Life all fight)"
+    net = back - steady
+    if net <= 0:
+        return 0.0, (f"{'; '.join(parts)}; your Life recovery ({back:,.1f}/s) doesn't outpace your own steady loss "
+                     f"({steady:,.1f}/s): never back on Full Life")
+    below = min(1.0, dips / net)
+    return 1 - below, (f"{'; '.join(parts)}, refilled at {net:,.1f} Life/s"
+                       + (f" (your {back:,.1f}/s recovery less {steady:,.1f}/s of your own steady loss)" if steady > 0
+                          else "") + f": below full {below:.0%} of the fight, so on Full Life {1 - below:.0%} (MEDIUM)")
+
+
+# A pool's whole refill rate (MECHC27; for COV-A's Force of Will, COV31's mana_missing_tens, which read PoB's
+# ManaRegenRecovery alone: an OVERCOUNT of missing Mana for a build with Mana flasks, leech or recoup): what the recovery
+# floor counts for the pool (objective.RECOVERY_POOLS: regeneration, leech after the boss's Leech resistance, on-hit, the
+# search's flasks and recovery.FIELDS' sources), its recoup of the boss's landed hits and its gains on Block. Costs are
+# not taken off (the caller counts its own spending). Energy Shield Recharge isn't in it (it waits for a delay: objective.
+# es_recharge). `stats` as full_life_share's, with the search's added recovery fields (Build.added_stats).
+def refill_rate(stats: dict, pool: str = "Mana") -> tuple[float, str]:
+    """(the pool's recovery a second, how) for "Life", "Mana" or "EnergyShield"."""
+    from builder.search import objective
+
+    fields, _ = objective.RECOVERY_POOLS[pool]
+    taken = objective.boss_taken(stats)[0]
+    parts = {f: _num(stats.get(f)) for f in fields if _num(stats.get(f))}
+    back, block = objective.recoup(stats, taken, pool), objective.on_block(stats, pool)
+    total = sum(parts.values()) + back + block
+    named = [f"{f} {v:,.1f}" for f, v in parts.items()] + ([f"recoup {back:,.1f}"] if back else []) + (
+        [f"on Block {block:,.1f}"] if block else [])
+    return total, f"{pool} refilled at {total:,.1f}/s ({', '.join(named) or 'no source'})"
+
+
+# On Full Energy Shield (MECHC27; PATCH_CHECK MC-5): PoB's "Are you always on Full Energy Shield?" box
+# (conditionFullEnergyShield, ConfigOptions 148) is never set, so Mysticism I / II's 30% / 40% increased Spell damage
+# (sup_int.lua 7166-7208), "increased Spell Damage while on Full Energy Shield" and Dreamcatcher's lines counted never,
+# and "increased Damage taken while on Full Energy Shield" never either. The share the same way as Full Life's: the boss's
+# landed hits Energy Shield takes (all but PoB's EnergyShieldBypass share) as dips, refilled at ES's own recovery
+# (regeneration, leech, on-hit, recoup, the added sources and Recharge at the share of the fight it runs between the
+# boss's hits: objective.es_recharge), after any steady own loss on ES (objective.own_loss). No Energy Shield: the box
+# stays off, as PoB has it (whether 0 of 0 counts as full in game: UNVERIFIED). MEDIUM.
+def full_es_share(stats: dict) -> tuple[float, str]:
+    """(share of the fight on Full Energy Shield, how); stats as full_life_share's."""
+    from builder.search import objective
+
+    if _num(stats.get("EnergyShield")) <= 0:
+        return 0.0, "no Energy Shield: the box stays off, as PoB has it (UNVERIFIED whether 0 of 0 counts as full)"
+    taken, hits, _ = objective.boss_taken(stats)
+    dips = sum(v * (1 - min(max(_num(stats.get(f"{t}EnergyShieldBypass")), 0.0), 100.0) / 100) for t, v in taken.items())
+    fields, _ = objective.RECOVERY_POOLS["EnergyShield"]
+    recharged = objective.es_recharge(stats, hits)[0]
+    back = sum(_num(stats.get(f)) for f in fields) + objective.recoup(stats, taken, "EnergyShield") + recharged
+    steady = objective.own_loss(stats)["EnergyShield"]
+    if dips <= 0 and steady <= 0:
+        return 1.0, "no landed boss hit reaches Energy Shield and nothing of yours drains it: on Full Energy Shield all fight"
+    net = back - steady
+    if net <= 0:
+        return 0.0, (f"{dips:,.1f} Energy Shield/s from the boss's landed hits; its recovery ({back:,.1f}/s, Recharge "
+                     f"{recharged:,.1f}/s of it) doesn't outpace your own steady loss ({steady:,.1f}/s): never full again")
+    below = min(1.0, dips / net)
+    return 1 - below, (f"{dips:,.1f} Energy Shield/s from the boss's landed hits, refilled at {net:,.1f}/s (Recharge "
+                       f"{recharged:,.1f}/s of it, at the share of the fight it runs between hits): below full {below:.0%} "
+                       f"of the fight, so on Full Energy Shield {1 - below:.0%} (MEDIUM)")
+
+
+# Ghost Dance (MECHC27; PATCH_CHECK H1-9's rest): "Regenerate Energy Shield equal to 2% of your Evasion Rating per second
+# if you have lost a Ghost Shroud Recently" (GhostDancePlayer: skill_base_ghost_dance_grants_%_evasion_as_es_regeneration_
+# per_minute_if_have_lost_ghost_dance_shroud_recently 120; patch 0.5.0, the newest entry: "When Hit, lose a Ghost Shroud",
+# a Shroud every 11.7-10.1 s at gem levels 4-20, at most 3, "Modifiers to Cooldown Recovery Rate also apply"). PoB has
+# only its "Do you use Ghost Shrouds?" box and no regeneration (ConfigOptions 854; CalcPerform 978): an UNDERCOUNT
+# before. Shrouds are lost to the boss's landed hits at the "when hit" benefit pace (boss_hits.gain_hits, h a second):
+# with hits at least as fast as Shrouds come (g = 1 / interval), each new Shroud is lost at the next hit, so a loss every
+# 1 / g s and "Recently" (4 s) covers min(1, 4 g) of the fight; with slower hits a Shroud is always waiting, so every hit
+# is a loss and the share is 1 - e^(-4 h) (Poisson hits). ES a second = 2% x Evasion x that share. MEDIUM; not read: the
+# build's Cooldown Recovery Rate on the interval (an undercount), regeneration-rate modifiers on the amount (taken as
+# written, as the other sources here).
+GHOST_DANCE = "Ghost Dance"
+GHOST_INTERVAL_STAT = "base_cooldown_modifiable_repeat_interval_ms"
+GHOST_REGEN_STAT = "skill_base_ghost_dance_grants_%_evasion_as_es_regeneration_per_minute_if_have_lost_ghost_dance_shroud_recently"
+
+
+def ghost_dance_share(interval: float, hits: float, recently: float = 4.0) -> float:
+    """Share of the fight you've lost a Ghost Shroud in the past `recently` s: a Shroud every `interval` s, landed hits
+    `hits` a second."""
+    if interval <= 0 or hits <= 0:
+        return 0.0
+    gain = 1 / interval
+    return min(1.0, recently * gain) if hits >= gain else 1 - math.exp(-recently * hits)
+
+
+def ghost_dance_income(income: Income, level_stats: dict, evasion: float, hits: float, hits_how: str) -> None:
+    """Ghost Dance's Energy Shield regeneration a second into EnergyShieldGhostDanceRegen."""
+    interval = _num(level_stats.get(GHOST_INTERVAL_STAT)) / 1000
+    pct = _num(level_stats.get(GHOST_REGEN_STAT)) / 60 or 2.0
+    share = ghost_dance_share(interval, hits)
+    income.add("EnergyShieldGhostDanceRegen", pct / 100 * max(evasion, 0.0) * share,
+               f"Ghost Dance: {pct:g}% of {evasion:,.0f} Evasion as Energy Shield a second while a Shroud was lost in the "
+               f"past 4 s, {share:.0%} of the fight (a Shroud every {interval:.1f} s; {hits_how}; MEDIUM)")
+
+
+# Eldritch Empowerment's sacrifice (MECHC27; MECHB30's 7622977 models its 30% more Spell damage and left this for MECH-C:
+# an OVERCOUNT of defence): "Sacrifice 5% of maximum Energy Shield when you Cast a Spell" (the Lich notable, PoB tree 0_5
+# node 58932; "Sacrificing Energy Shield does not interrupt Recharge") takes casts x 5% x maximum ES a second off the ES
+# pool, whether or not the sacrifice is fully made (a partial one takes what's there). A NEGATIVE recovery field
+# (EnergyShieldSacrificed) the recovery floor nets off ES's recovery (objective.boss_recovery clamps each pool at 0).
+# Casts: the main skill's when it is a Spell (as MECHB30's model counts them; other spells' and triggered casts aren't:
+# an undercount of the drain, the trigger question UNVERIFIED as there). The pool's average level below its maximum (the
+# EHP / maximum-hit floors read PoB's full pool) is SEARCH's objective: said in the report.
+SACRIFICE_ES = re.compile(r"sacrifice (\d+(?:\.\d+)?)% of maximum energy shield when you cast a spell", re.I)
+
+
+def sacrifice_income(income: Income, texts: list[str], casts: float, energy_shield: float, how: str) -> None:
+    """Eldritch Empowerment's ES sacrificed a second into EnergyShieldSacrificed (negative)."""
+    pct = sum(float(m.group(1)) for t in texts for m in SACRIFICE_ES.finditer(t))
+    drain = pct / 100 * max(energy_shield, 0.0) * max(casts, 0.0)
+    if drain > 0:
+        income.rates["EnergyShieldSacrificed"] = -drain
+        income.parts.append(f"Energy Shield sacrificed: {pct:g}% of {energy_shield:,.0f} a cast x {how}: "
+                            f"-{drain:,.1f}/s (Eldritch Empowerment)")

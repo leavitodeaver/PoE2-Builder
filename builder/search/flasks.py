@@ -141,6 +141,11 @@ class Charges:
     hit_gain: tuple = ()
     # (MECHC23; AUDIT33 A33-1) "Life Recovery from Flasks also applies to Energy Shield" (or "... during Effect", or
     # "applies to Energy Shield instead", which takes it off Life) and PoB's EnergyShieldRecoveryRateMod (bridge chargeGain)
+    # (MECHC27; COV31's G4-1 note) The Lethal Draw's "Bow Attacks consume N% of your maximum Life Flask Charges if
+    # possible": the main Bow Attack's attacks a second and N, so the charges it takes leave the Life flask's drinking
+    # (drink_charges)
+    lethal_pct: float = 0.0
+    bow_attacks: float = 0.0
     life_flask_to_es: bool = False
     life_flask_es_instead: bool = False
     es_recovery_mod: float = 1.0
@@ -152,12 +157,27 @@ class Charges:
 
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         data = build.call("chargeGain")
-        gain = cls.from_bridge(data, bosses.kill_stats(boss).get(bosses.KILLS_STAT) or 0.0, boss)
+        texts = None
         if data.get("charm"):  # (MECHC21: only a build with charms reads its lines for the charm line)
-            from dataclasses import replace
-
             cached = getattr(build, "_build_texts", None)  # (state.Build's per-commit cache of the same lines)
             texts = cached() if callable(cached) else [line["text"] for line in build.call("sourceLines")["lines"]]
+        gain = cls.from_bridge(data, bosses.kill_stats(boss).get(bosses.KILLS_STAT) or 0.0, boss,
+                               deflect_stops=deflect_stops(texts or []))
+        life_slot = next((k for k, v in FLASK_SLOTS.items() if v == "Life"), None)
+        drunk = (getattr(build, "equipped", None) or {}).get(life_slot) is not None
+        texts_now = (texts if texts is not None else _texts(build)) if drunk else []
+        lethal = [line for line in texts_now if LETHAL_DRAW.search(line)]
+        if lethal:  # (MECHC27) The Lethal Draw's charges, taken before the Life flask is drunk
+            from dataclasses import replace
+
+            types = set((getattr(getattr(build, "ctx", None), "gems", {}).get(gain.main_skill) or {}).get("skillTypes")
+                        or [])
+            if {"Bow", "Attack"} <= types:
+                gain = replace(gain, lethal_pct=max(float(LETHAL_DRAW.search(t).group(1)) for t in lethal),
+                               bow_attacks=gain.main_rate)
+        if data.get("charm"):
+            from dataclasses import replace
+
             gain = replace(gain, charm_not_consume=charm_not_consume(texts),
                            charms_free=any(CHARMS_FREE.search(t) for t in texts))
             another = sum(float(m.group(1)) for t in texts for m in CHARM_ANOTHER.finditer(t))
@@ -182,7 +202,8 @@ class Charges:
         return gain
 
     @classmethod
-    def from_bridge(cls, data: dict, add_kills: float = 0.0, boss: str | None = None) -> Charges:
+    def from_bridge(cls, data: dict, add_kills: float = 0.0, boss: str | None = None,
+                    deflect_stops: tuple = ()) -> Charges:
         every = float(data.get("enemySkillTime") or 0.0)
         # (red-flash hits land whatever the evade and block: builder/search/boss_hits.py, MECHC5). `boss`: the request's
         # (MECHC13, an over- or undercount for a named boss: before, the shares and the per-type weights in taken_per_hit
@@ -198,6 +219,8 @@ class Charges:
                "enemySkillTime": every, "StunThreshold": float(data.get("stunThreshold") or 0.0),
                "StunAvoidChance": float(data.get("stunAvoid") or 0.0), "DeflectChance": float(data.get("deflect") or 0.0),
                "DeflectEffect": float(data.get("deflectEffect") or 0.0)}
+        if deflect_stops:  # (MECHC27) "Deflected Hits cannot inflict Bleeding / Maim on you": boss_hits.deflect_kept
+            hit["_deflect_stops"] = tuple(deflect_stops)
         stuns, stuns_how = boss_stuns(hit) if every > 0 else (0.0, "no boss hit lands")
         ailments = boss_ailments(hit, data) if every > 0 else ()
         hit_gain = boss_hits_gain(hit) if every > 0 else ()
@@ -226,6 +249,18 @@ class Charges:
                    life_flask_es_instead=bool(data.get("lifeFlaskEsInstead", False)),
                    es_recovery_mod=float(data.get("esRecoveryMod") or 1.0),
                    **bloom_fields(data.get("blooms") or {}))
+
+
+# (MECHC27; COV31 H4-5) "Deflected Hits cannot inflict Bleeding on you" / "... Maim on you" (Staunch Deflection's lines;
+# boss_hits.deflect_kept takes PoB's DeflectChance share off the boss's Bleeds and Maims on you, which only the charm
+# triggers read)
+DEFLECT_STOPS = re.compile(r"Deflected Hits cannot (?:directly )?inflict (Bleeding|Maim) on you", re.I)
+
+
+def deflect_stops(texts: list[str]) -> tuple:
+    """("Bleed", "Maim") as far as the build's lines say a Deflected Hit can't inflict them on you."""
+    found = {m.group(1).lower() for t in texts for m in DEFLECT_STOPS.finditer(t)}
+    return tuple(name for name, word in (("Bleed", "bleeding"), ("Maim", "maim")) if word in found)
 
 
 def boss_hits_gain(hit: dict) -> tuple:
@@ -418,6 +453,25 @@ def kill_charges(gain: Charges) -> float:
     return gain.add_kills * KILL_CHARGES_NORMAL * ADD_POWER
 
 
+LETHAL_DRAW = re.compile(r"bow attacks consume (\d+(?:\.\d+)?)% of your maximum life flask charges if possible", re.I)
+
+
+def _texts(build) -> list[str]:
+    cached = getattr(build, "_build_texts", None)  # (state.Build's per-commit cache)
+    return cached() if callable(cached) else [line["text"] for line in build.call("sourceLines")["lines"]]
+
+
+def drink_charges(info: dict, gain: Charges, pool: str | None) -> float:
+    """Charges a second left for drinking the flask: charges_per_second less what The Lethal Draw's Bow Attacks consume
+    from the Life flask first (MECHC27; COV31's G4-1: its damage, assumptions.lethal_draw_share, and drinking the flask
+    both counted the same charges, a double credit). It consumes "if possible" on every Bow Attack, so it takes the
+    charges as they come: min(made, attacks x N% x the flask's maximum charges)."""
+    made = charges_per_second(info, gain, pool)
+    if pool != "Life" or gain.lethal_pct <= 0 or gain.bow_attacks <= 0:
+        return made
+    return max(made - gain.bow_attacks * gain.lethal_pct / 100 * float(info.get("chargesMax") or 0.0), 0.0)
+
+
 def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
     """Charges an item gains per second: generated, and from the boss's adds killed (kill_charges)."""
     kills = kill_charges(gain) if gain.add_kills > 0 else 0.0
@@ -532,7 +586,7 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
             share = 1 - (1 - share) * math.exp(-extra * duration(info, gain))
         return share
     used = charges_per_use(info, gain)
-    rate = charges_per_second(info, gain, pool)
+    rate = drink_charges(info, gain, pool)
     if used <= 0:
         return 1.0
     uses = rate / used
@@ -640,7 +694,7 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
         return 0.0, "Life Flasks can't be used (Cannot use Life Flasks)"
     if thrown(gain, pool):
         return 0.0, f"its charges are thrown by {gain.main_skill}"
-    made = charges_per_second(info, gain, pool)
+    made = drink_charges(info, gain, pool)
     uses, how = made / used, f"{made:.2f} charges/s / {used:g} per use"
     if pool not in ("Life", "Mana") and (length := duration(info, gain)) > 0 and uses > 1 / length:
         uses, how = 1 / length, how + f", at most once per its {length:.1f} s effect"
@@ -678,7 +732,7 @@ def recovery_per_second(info: dict, gain: Charges, pool: str, raw: str = "", own
         return total * (1 + inc / 100) * less / length if length > 0 else 0.0
     if total <= 0 or used <= 0 or thrown(gain, pool) or (pool == "Life" and gain.life_flask_unusable):
         return 0.0
-    uses = charges_per_second(info, gain, pool) / used
+    uses = drink_charges(info, gain, pool) / used
     length = info.get("duration") or 0
     if length > 0:
         uses = min(uses, 1 / length)
