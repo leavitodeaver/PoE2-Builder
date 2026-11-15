@@ -1840,6 +1840,22 @@ def test_freezes_give_the_elemental_ailment_metas_energy():
     assert models.energy_gain("Cast on Elemental Ailment", {**stats, "FreezeBuildupAvg": 0}, "Frostbolt")[0] == 0
 
 
+def test_an_ignite_gives_energy_at_its_share_of_the_bosss_ailment_threshold():
+    """MECHB30 (PATCH_CHECK M2-1, an OVERCOUNT before): "Gains {0} Energy per Power of enemies you Ignite ..., modified by
+    the percentage of the enemy's Ailment Threshold the Ignite will deal": an Ignite gives Power x (IgniteDPS x
+    IgniteDuration / threshold), capped at 100% (UNVERIFIED); a Shock keeps the whole Power."""
+    base = {"Speed": 2.0, "HitChance": 100, "CritChance": 0, "EnemyAilmentThreshold": 10000.0}
+    ignite = {**base, "IgniteChanceOnHit": 100, "IgniteDPS": 500.0, "IgniteDuration": 4.0}
+    for meta in ("Cast on Elemental Ailment", "Elemental Invocation"):
+        gain, how = models.energy_gain(meta, ignite, "Fireball")
+        assert gain == pytest.approx(2.0 * 0.2 * models.BOSS_POWER) and "20%" in how
+    big = {**ignite, "IgniteDPS": 50000.0}
+    assert models.energy_gain("Cast on Elemental Ailment", big, "Fireball")[0] == pytest.approx(2.0 * models.BOSS_POWER)
+    shock = {**base, "ShockChanceOnHit": 100}
+    assert models.energy_gain("Cast on Elemental Ailment", shock, "Spark")[0] == pytest.approx(2.0 * models.BOSS_POWER)
+    assert models.ignite_energy_share({"IgniteDPS": 1.0, "IgniteDuration": 1.0})[0] == 1.0  # (no threshold read: labelled)
+
+
 def test_run_and_gun_counts_for_shotgun_and_sequence_fired_skills_while_moving():
     """KeywordPopups Projectile: one projectile in the group hits each target unless otherwise specified; the
     exceptions from GrantedEffectStatSets (projectiles_can_shotgun, projectiles_crossbow_barrage, projectiles_barrage)."""
@@ -4580,6 +4596,23 @@ def test_inevitable_agony_adds_a_quarter_of_the_main_skills_hits_less_its_casts(
     assert models.inevitable_agony_model(1000.0, 0.0, duration=1.0)[1] == pytest.approx(1 / 2)  # (the cooldown's floor)
     assert models.inevitable_agony_model(100.0, 10000.0)[:3] == (0.0, 0.0, [])  # (a net loss isn't pressed)
     assert models.inevitable_agony_model(0.0, 0.0)[0] == 0.0
+
+
+def test_barrage_empowers_one_attack_per_cooldown_not_every_attack():
+    """MECHB30 (PATCH_CHECK L2-1): one empowered attack ((1 + repeats) x (1 - less)) per cycle of max(cooldown, cast +
+    one attack), the cooldown 2 s + its % of the attack time over Cooldown Recovery (at most 30 s), normal attacks
+    between; PoB's own factor read as its percent DPS MORE (probe POE2T1173: x1.020 for 2 repeats at 33% less); a net
+    loss isn't pressed (x1)."""
+    factor, pob, how = models.barrage_model(speed=1.0, repeats=4, less=45, cooldown_pct=410)
+    period = 2 + 4.1  # (t = 1 s)
+    assert factor == pytest.approx((5 * 0.55 + (period - 0.7 - 1)) / period) and factor > 1
+    assert pob == pytest.approx(1 + 5 * 0.55 / 100) and "PoB counts" in how
+    slow, _, _ = models.barrage_model(speed=0.1, repeats=4, less=45, cooldown_pct=600)  # (the 30 s cap holds)
+    assert slow == pytest.approx(10 * (5 * 0.55 + (30 - 0.7 - 10) / 10) / 30)
+    fast, _, _ = models.barrage_model(speed=1.0, repeats=4, less=45, cooldown_pct=410, recovery=2.0)
+    assert fast > factor  # (a shorter cooldown: more empowered attacks)
+    loss, _, how = models.barrage_model(speed=1.08, repeats=2, less=45, cooldown_pct=410)
+    assert loss == 1.0 and "not pressed" in how
 
 
 def test_added_sources_sum_and_eternal_hunt_counts_five_wolves_net_of_its_presses():

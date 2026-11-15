@@ -35,6 +35,7 @@ MODEL_FIELDS = sorted({
     "IgniteAvoidChance", "SelfIgniteDuration", "AilmentThreshold",
     "EnergyShieldRegenRecovery", "EnergyShieldRecharge", "PresenceRadius", "MovementSpeedMod",
     "EnemyAilmentThreshold", "ShockChanceOnHit", "ShockChanceOnCrit", "IgniteChanceOnHit", "IgniteChanceOnCrit",
+    "IgniteDPS", "IgniteDuration",  # (an Ignite's Energy share of the Ailment Threshold: ignite_energy_share, MECHB30)
     "FreezeBuildupAvg", "ElectrocuteBuildupAvg", "HeavyStunBuildupAvg",
     "Darkness", "Str", "Dex", "Int", *(f"{t}CritAverage" for t in DAMAGE_TYPES), *(f"{t}HitAverage" for t in DAMAGE_TYPES),
     *(f"MainHand.{t}CritAverage" for t in DAMAGE_TYPES),
@@ -2349,6 +2350,25 @@ ENERGY_INPUTS = ("MetaEnergy", "MetaEnergyCrit", "MetaEnergyMore", "EnergyRefund
 RECENTLY = 4.0  # seconds
 
 
+# An Ignite's Energy (MECHB30, PATCH_CHECK M2-1, an OVERCOUNT before: full Power per Ignite, as a Shock). The game's text
+# for cast_on_ignite_gain_X_centienergy_per_monster_power_on_ignite and elemental_invocation_gain_X_centienergy_per_monster_
+# power_on_ignite (skill_stat_descriptions.csd, read by NOTES2): "Gains {0} Energy per Power of enemies you Ignite with
+# Hits from Skills, modified by the percentage of the enemy's Ailment Threshold the Ignite will deal" (0.1.0d made Ignite
+# Energy "dependent on the strength of the ignite"; no later note undid it). The Shock and Freeze texts carry no such
+# clause. The damage an Ignite will deal: PoB's IgniteDPS (one Ignite, crits weighted in) x IgniteDuration, against
+# PoB's EnemyAilmentThreshold. Capped at 100% as the Cast on Critical branch is (the text states no cap: UNVERIFIED).
+def ignite_energy_share(stats: dict) -> tuple[float, str]:
+    """(the share of the boss's Power an Ignite gives, how)."""
+    total = number(stats.get("IgniteDPS")) * number(stats.get("IgniteDuration"))
+    threshold = number(stats.get("EnemyAilmentThreshold"))
+    if threshold <= 0:
+        return 1.0, "the boss's Ailment Threshold wasn't read: the whole Power (labelled)"
+    share = min(1.0, total / threshold)
+    return share, (f"Power x {share:.0%}: an Ignite dealing {total:,.0f} against the boss's {threshold:,.0f} Ailment "
+                   "Threshold, the game's 'modified by the percentage of the enemy's Ailment Threshold the Ignite will "
+                   "deal'; capped at 100%, UNVERIFIED")
+
+
 def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -> tuple[float, str]:
     """Energy per second the main skill (or the boss's hits) earns a meta skill against a boss, before Energy modifiers."""
     kind, per = META_GEMS[meta]["gain"], META_GEMS[meta].get("per", 0.0)
@@ -2445,9 +2465,13 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
                              "Ailment Threshold)")
     shock = (number(stats.get("ShockChanceOnHit")) * (1 - crit) + number(stats.get("ShockChanceOnCrit")) * crit) / 100
     ignite = (number(stats.get("IgniteChanceOnHit")) * (1 - crit) + number(stats.get("IgniteChanceOnCrit")) * crit) / 100
-    events = hits_per_second(stats) * (min(shock, 1.0) + min(ignite, 1.0))
+    hits = hits_per_second(stats)
+    share, share_how = ignite_energy_share(stats)
+    shocks, ignites = hits * min(shock, 1.0), hits * min(ignite, 1.0)
+    events = shocks + ignites * share
     freezes = buildup_rate(stats, "Freeze")  # (RULE_AUDIT #2, MECH41: before, Freezes gave none on a boss)
-    how = f"{main} shocks or ignites {events:.2f} times per second (one hit per use) for {power:g} Energy each (the boss's Power)"
+    how = (f"{main} shocks {shocks:.2f} times per second for {power:g} Energy each (the boss's Power) and ignites "
+           f"{ignites:.2f} times per second for {power * share:.2f} each ({share_how})")
     if freezes > 0:
         how += (f", and freezes the boss {freezes:.3f} times per second for {FREEZE_ENERGY * power:g} Energy each "
                 f"({FREEZE_ENERGY:g} per Power; models.buildup_rate: the main skill's buildup only, other skills' Freezes "
@@ -4544,6 +4568,50 @@ def inevitable_agony_model(hit_dps: float, player_dps: float, duration: float = 
     note = {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "MEDIUM",
             "play": f"Cast Inevitable Agony each time it expires (every {period:.3g} s): with it +{dps:,.1f} DPS, without it +0"}
     return dps, 1.0 / period, [added_input("InevitableAgony", dps)], [note]
+
+
+# Barrage (MECHB30, PATCH_CHECK L2-1). The game (ActiveSkills / GrantedEffects BarragePlayer, 26476662): "Ready a volley
+# of arrows or spears, Empowering your next Repeatable Bow or Projectile Spear Attack to Repeat multiple times. Consumes
+# your Frenzy Charges on use to add additional repeats"; empower_barrage_base_number_of_barrage_repeats 2,
+# ..._per_frenzy_charge 1, empower_barrage_damage_-%_final_with_repeated_projectiles 50 (less with quality),
+# empower_barrage_cooldown_%_of_attack_time 600 at level 1 to 410 at 20 on top of its 2 s cooldown,
+# empowered_barrage_maximum_cooldown_ms 30000, cast 0.7 s. PoB (CalcOffence 1114-1118) adds DPS MORE (1 + repeats) x
+# the repeat damage to EVERY attack of a Barrageable main skill while the group is on, but as a percent: probe POE2T1173,
+# Ice Shot 184.93 -> 188.63 DPS (x1.020 for 3 x 0.667 = "2% more"), and its cooldown lines are commented out
+# (act_dex.lua 208-212). So PoB's +2% isn't NOTES2's "every attack empowered" OVERCOUNT: it's a small number either way.
+# Counted here instead of PoB's: one empowered attack (1 + repeats) x (1 - less) per cycle of max(cooldown, Barrage's
+# cast + one attack), the rest of the cycle normal attacks, Barrage's cast taking main-skill time (a play strategy:
+# Barrage pressed each time it's up, shown with and without it). Cooldown = (2 s + its % of the main skill's attack
+# time) over Barrage's Cooldown Recovery, at most 30 s. Readings (labelled): the repeats take no extra attack time, as
+# PoB's (UNVERIFIED); every projectile of the sequence at the less damage, as PoB reads "with repeated projectiles";
+# Frenzy Charges consumed per use counted at PoB's held count (whether they come back each cycle is MECH-C's charges).
+BARRAGE = "Barrage"
+BARRAGE_COOLDOWN = 2.0  # s (its level cooldown)
+BARRAGE_MAX_COOLDOWN = 30.0  # s (empowered_barrage_maximum_cooldown_ms 30000)
+BARRAGE_CAST = 0.7  # s
+
+
+def barrage_model(speed: float, repeats: float, less: float, cooldown_pct: float, recovery: float = 1.0,
+                  cast: float = BARRAGE_CAST) -> tuple[float, float, str]:
+    """(the main skill's damage over the fight with Barrage, as a factor of its damage without, PoB's own factor, how).
+    `speed`: the main skill's attacks a second; `repeats`: Barrage's repeats; `less`: its % less damage."""
+    pob = 1 + (1 + repeats) * (1 - less / 100) / 100  # (PoB's DPS MORE, read as a percent: probe POE2T1173)
+    if speed <= 0:
+        return 1.0, pob, "the main skill attacks 0 times a second: Barrage gives nothing"
+    t = 1.0 / speed
+    cooldown = min((BARRAGE_COOLDOWN + cooldown_pct / 100 * t) / (recovery or 1.0), BARRAGE_MAX_COOLDOWN)
+    period = max(cooldown, cast + t)
+    normal = max(0.0, (period - cast - t) / t)
+    empowered = (1 + repeats) * (1 - less / 100)
+    factor = t * (empowered + normal) / period
+    how = (f"Barrage pressed each time it's up: one empowered attack ({1 + repeats:g} sequences x {1 - less / 100:.0%} "
+           f"damage = x{empowered:.2f}) every {period:.2f} s (its cooldown {cooldown:.2f} s: 2 s + {cooldown_pct:g}% of "
+           f"the {t:.2f} s attack, over Cooldown Recovery; at most 30 s), {normal:.1f} normal attacks between, its "
+           f"{cast:g} s cast in the cycle: x{factor:.3f} of the main skill's damage without it (PoB counts x{pob:.3f}). "
+           "Repeats taken to add no attack time (UNVERIFIED); Frenzy Charges at PoB's held count")
+    if factor < 1.0:  # (its cast costs more than its repeats give: not pressed)
+        return 1.0, pob, how + ": a net loss, so not pressed (x1.000)"
+    return factor, pob, how
 
 # Heavy Stuns of the boss (heavy_stun_rate) ------------------------------------------------------------------------------
 # The game's keyword text (KeywordPopups HeavyStun, Stun, Cold; build 26476662): hits build up the target's Stun bar by

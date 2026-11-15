@@ -499,6 +499,39 @@ def inevitable_agony(build: Build, main: models.Skill | None) -> tuple[float, fl
                                                  number(row.get("castTime")) or models.AGONY_CAST)
     return 0.0, 0.0, [], []
 
+
+def barrage(build: Build, main: models.Skill | None, found: list[models.Skill]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Barrage beside a Barrageable main attack (models.barrage_model, MECHB30): PoB's DPS MORE taken
+    back to the model's factor (a DPS MORE on the main skill), from Barrage's level stats and the main skill's Speed."""
+    if main is None or not main.attack:
+        return [], []
+    types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+    barrage = next((s for s in found if s.name == models.BARRAGE), None)
+    if barrage is None or "Barrageable" not in types:
+        return [], []
+    raw = build.call("activeSkills", levelStats=[models.BARRAGE])["skills"]
+    level = next((s.get("levelStats") or {} for s in raw if s["name"] == models.BARRAGE and s.get("levelStats")), {})
+    stats = build.call("stats", fields=["Speed", "FrenzyCharges"])
+    repeats = (number(level.get("empower_barrage_base_number_of_barrage_repeats"))
+               + number(level.get("empower_barrage_number_of_barrage_repeats_per_frenzy_charge"))
+               * number(stats.get("FrenzyCharges")))
+    factor, pob, how = models.barrage_model(number(stats.get("Speed")), repeats,
+                                            number(level.get("empower_barrage_damage_-%_final_with_repeated_projectiles")),
+                                            number(level.get("empower_barrage_cooldown_%_of_attack_time")),
+                                            barrage.cooldown_recovery, barrage.cast_time or models.BARRAGE_CAST)
+    # PoB's own factor, measured: the main skill's TotalDPS with Barrage's group on over off (probe POE2T1174: x1.020,
+    # where its level stats rebuild x1.016: PoB's repeats or repeat damage differ a little from the stats read here)
+    if barrage.group is not None:
+        off = number(build.call("setGroup", index=barrage.group, enabled=False, fields=["TotalDPS"])["stats"].get("TotalDPS"))
+        on = number(build.call("setGroup", index=barrage.group, enabled=True, fields=["TotalDPS"])["stats"].get("TotalDPS"))
+        if off > 0 and on > 0:
+            pob = on / off
+            how += f" (PoB's own x{pob:.3f} measured: the main skill with Barrage's group on over off)"
+    note = {"label": "Barrage (one empowered attack per cooldown)", "value": round(factor, 3), "basis": how,
+            "confidence": "MEDIUM", "play": (f"Press Barrage each time it's up: x{factor:.3f} of {main.name}'s damage"
+                                             if factor > 1 else "Barrage costs more than it gives here: not pressed")}
+    return [models.raw_mod("DPS", "MORE", (factor / pob - 1) * 100, skill=main.name)], [note]
+
 # What each Warcry Empowers, by its own game text (MECH65, AUDIT29 A29-4; ActiveSkills 26476662 descriptions):
 # KeywordPopups Warcry says Warcries "Empower your subsequent Melee Attacks", but the skills' own texts differ: Arctic
 # Howl "Empowers your attacks" (and Slams), but only "If an enemy is Frozen or a Frozen enemy is Hit"; Seismic Cry
@@ -1188,6 +1221,8 @@ class Assumptions:
             build.objective.entry_scales.update(note.get("full_dps") or {})
         puppet_mods, puppet_notes = models.puppet_master_model(found, [e["text"] for e in source_lines])  # (MECHB30)
         hand_mods, hand_notes = hand_mods + puppet_mods, hand_notes + puppet_notes
+        barrage_mods, barrage_notes = barrage(build, main, found)  # (MECHB30: PoB's +2% for one empowered attack a cooldown)
+        hand_mods, hand_notes = hand_mods + barrage_mods, hand_notes + barrage_notes
         agony, agony_rate, agony_mods, agony_notes = inevitable_agony(build, main)  # (MECHB30: PoB scores it 0)
         hand_mods, hand_notes = hand_mods + agony_mods, hand_notes + agony_notes
         if agony_rate > 0:  # (a press: the button cap counts it, as Bastion of Light's taps: models.ITEM_PRESSES)

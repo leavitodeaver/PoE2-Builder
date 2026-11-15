@@ -3619,6 +3619,17 @@ local modelSupportStats = {
 	["marks_avoid_consumption_when_first_activated"] = true,
 }
 
+-- (MECHB30, M1-2) PoB's computed cooldown of a skill with a base cooldown (calcSkillCooldown, global in CalcOffence),
+-- or nil (no base cooldown, or PoB's function unavailable)
+local function skillCooldown(activeSkill)
+	local base = activeSkill.skillData and activeSkill.skillData.cooldown
+	if not base or base <= 0 or type(calcSkillCooldown) ~= "function" then
+		return nil
+	end
+	local ok, cooldown = pcall(calcSkillCooldown, activeSkill.skillModList, activeSkill.skillCfg, activeSkill.skillData)
+	return (ok and type(cooldown) == "number" and cooldown > 0) and cooldown or nil
+end
+
 -- (MECH57) the ailments a summoning skill's counted minion skill consumes by its skill types, and its name
 local function minionConsumes(activeSkill)
 	local minionSkill = activeSkill.minion and activeSkill.minion.mainSkill
@@ -3651,11 +3662,18 @@ function bridge.activeSkills(args)
 	for _, activeSkill in ipairs(env and env.player.activeSkillList or { }) do
 		local effect = activeSkill.activeEffect.grantedEffect
 		local types = activeSkill.skillTypes
+		local computed = skillCooldown(activeSkill)
 		skills[#skills + 1] = {
 			name = effect.name,
 			skillId = effect.id,  -- (COV31) the granted effect: four names are shared by two gems
 			cooldown = activeSkill.skillData.cooldown,
-			cooldownRecovery = calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "CooldownRecovery"),
+			-- (MECHB30, PATCH_CHECK M1-2) PoB's own cooldown (CalcOffence calcSkillCooldown: the base plus added
+			-- cooldown and Temporalis's cut, over Cooldown Recovery, floored at 0.1 s with Temporalis, rounded to server
+			-- ticks), and the recovery that gives it from the base: the models divide the base by cooldownRecovery, so
+			-- they read PoB's cooldown (before: base / recovery alone, missing Temporalis and added cooldown)
+			computedCooldown = computed,
+			cooldownRecovery = computed and activeSkill.skillData.cooldown / computed
+				or calcLib.mod(activeSkill.skillModList, activeSkill.skillCfg, "CooldownRecovery"),
 			generatesRemnants = types[SkillType.GeneratesRemnants] and true or false,
 			-- it consumes or targets corpses (the game's skill types; models.corpse_model)
 			corpses = (types[SkillType.TargetsDestructibleCorpses] or types[SkillType.TargetsDestructibleRareCorpses]
