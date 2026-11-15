@@ -2724,6 +2724,32 @@ class Assumptions:
                               "confidence": "LOW (the main skill's hits only: other Spells' Critical Hits and a "
                                             "cast's extra hits are not counted, so the loss may be larger)"})
                 continue
+            if condition.get("mountain_splitter"):
+                # (COV31, PATCH_CHECK G1-2) on / off from the build's own main skill: a Slam Attack you use yourself
+                # (not triggered, not a totem's) that doesn't create Fissures (CreatesFissure, the game's skill type;
+                # nor Crater in its group, which makes a leap create them). Only for a build carrying the line.
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                ok, how = mountain_splitter_slam(main, main_types, main_info, skills, main_group)
+                if ok:
+                    self.ledger_shares[condition["id"]] = 100
+                    found.append(condition["id"])
+                notes.append({"label": condition["title"], "value": "yes" if ok else "no", "basis": how,
+                              "confidence": "MEDIUM"})
+                continue
+            if condition.get("lethal_draw"):
+                # (COV31, PATCH_CHECK G4-1) the share of the main skill's Bow Attacks that find 10% of the Life Flask's
+                # maximum charges to consume, from that flask's own charge gain (flasks.charge_use_rate, MECH-C's)
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                share, how = self.lethal_draw_share(main, main_types)
+                percent = round(100 * share)
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                notes.append({"label": condition["title"], "value": f"{share:.0%}", "basis": how,
+                              "confidence": "MEDIUM (the flask's charge gain; LOW where the boss's adds are counted)"})
+                continue
             if condition["id"] == "JaggedGround":  # (from the build's own sources, not names or text: MECH51)
                 share, how = self.jagged_ground_share(main, main_types, main_group)
                 # its ledger lines are `share:JaggedGround` (COV11): each counts its full value x this share (bridge
@@ -2857,6 +2883,37 @@ class Assumptions:
             if share >= shares.get(name, (-1.0, ""))[0]:  # (the same Warcry twice is one "different" Warcry)
                 shares[name] = (share, f"{name} on {why}: used Recently {share:.0%} of the fight" + (" (LOW)" if low else ""))
         return sum(s for s, _ in shares.values()), "; ".join(h for _, h in shares.values()) or "no use rate: 0"
+
+    def lethal_draw_share(self, main: str | None, main_types: set[str]) -> tuple[float, str]:
+        """(share of the main skill's Bow Attacks that pay The Lethal Draw's cost, how) (COV31, PATCH_CHECK G4-1): "Bow
+        Attacks consume 10% of your maximum Life Flask Charges if possible to deal added Physical damage equal to (5-10)%
+        of Flask's Life Recovery amount" (patch 0.4.0). PoB adds the damage to every Bow Attack and ignores the cost (an
+        OVERCOUNT). Here: the attacks a second the Life Flask's own charge gain pays for (flasks.charge_use_rate: its
+        generation and the boss's adds killed; the stock a fight starts with isn't counted, an undercount for a short
+        fight) over the main skill's attacks a second, at most 1. No Bow Attack main skill, no Life Flask or no charge
+        gain: 0. Labelled: the same charges may also be counted for drinking the flask (MECH-C's recovery model), an
+        OVERCOUNT where both are counted; "Flask Charges used" lines aren't applied to the cost (UNVERIFIED that they
+        apply); other Bow Attacks in Full DPS get the main skill's share."""
+        from builder.search.flasks import FLASK_SLOTS, Charges, charge_use_rate
+
+        if not main or "Bow" not in main_types or "Attack" not in main_types:
+            return 0.0, f"{main or 'no main skill'} is not a Bow Attack: its added damage counts 0"
+        slot = next(k for k, v in FLASK_SLOTS.items() if v == "Life")
+        item = self.build.equipped.get(slot)
+        if item is None:
+            return 0.0, "no Life Flask: nothing to consume, 0"
+        flask = self.build.call("flaskData", raws=[item.raw])["results"][0]
+        per_use = 0.1 * number(flask.get("chargesMax"))
+        if per_use <= 0:
+            return 0.0, "the Life Flask holds no charges: 0"
+        paid, how = charge_use_rate(flask, Charges.of(self.build), "Life", per_use)
+        speed = number(self.build.call("stats", fields=["Speed"]).get("Speed"))
+        if speed <= 0:
+            return 0.0, f"{main} has no attack rate: 0"
+        share = min(1.0, paid / speed)
+        return share, (f"{how}: {paid:.3f} attacks a second paid ({per_use:g} charges each, 10% of "
+                       f"{number(flask.get('chargesMax')):g}) of {main}'s {speed:.2f}: {share:.1%} of its attacks deal "
+                       "the added damage")
 
     def spell_crits_recently(self, window: float, main_types: set[str]) -> tuple[float, str]:
         """(Critical Hits dealt with Spells in the past `window` seconds, how), on average over the fight (COV17): the main
@@ -3038,3 +3095,36 @@ class Assumptions:
         text = (self.build.ctx.all_gems.get(gem_name) or {}).get("description") or ""
         return any((c.get("skills") and re.search(c["skills"], gem_name, re.I))
                    or (c.get("skill_text") and re.search(c["skill_text"], text, re.I)) for c in conditions())
+
+
+# Mountain Splitter (COV31, PATCH_CHECK G1-2): "Every Third Slam Skill that doesn't create Fissures which you use yourself
+# causes 3 additional Aftershocks ahead and to each side of the initial area" (Titan notable, PassiveSkills
+# AscendancyWarrior1Notable3, num_cascade_aftershocks_every_third_slam 3; patch 0.4.0, the one and newest entry). Which
+# slams create Fissures: the game's ActiveSkillType CreatesFissure (ActiveSkills, 26476662: Earthshatter, Forge Hammer,
+# Fury of the Mountain, Molten Crash, Starborn Onslaught, Sunder, Volcanic Fissure among the Slams; PoB's gem data gives
+# the same seven), and the Crater support ("causing them to create Fissures when you land"; SupportCraterPlayer's
+# triggered_by_fissure_on_landing / create_X_fissures_on_impact stats). (Checked: every game stat set holding a fissure
+# stat, base_number_of_fissures on Forge Hammer and Starborn Onslaught, additional-fissure supports only add to skills
+# that already create them; UNVERIFIED whether any other support or item makes a Slam create Fissures.)
+CRATER = "Crater"
+
+
+def mountain_splitter_slam(main: str | None, main_types: set[str], main_info: dict, skills: list[dict],
+                           main_group: dict | None) -> tuple[bool, str]:
+    """(is the main skill a Slam Mountain Splitter counts, why)."""
+    if not main:
+        return False, "no main skill: 0"
+    if "Slam" not in main_types or not main_info.get("attack", "Attack" in main_types):
+        return False, f"{main} is not a Slam Attack: 0"
+    if "CreatesFissure" in main_types:
+        return False, f"{main} creates Fissures (the game's CreatesFissure type): 0"
+    gems = (main_group or {}).get("gems") or []
+    if any(g.get("name") == CRATER and g.get("enabled", True) for g in gems):
+        return False, f"{main} is supported by Crater, so it creates Fissures when you land: 0"
+    if main_info.get("triggered"):
+        return False, f"{main} is triggered, not used yourself: 0"
+    group = main_info.get("group")
+    if group is not None and any(s.get("name") in models.TOTEM_METAS and s.get("group") == group for s in skills):
+        return False, f"{main} is used by a totem, not yourself: 0"
+    return True, (f"{main}: a Slam you use yourself that creates no Fissures, so every third use causes the 3 "
+                  "Aftershocks")

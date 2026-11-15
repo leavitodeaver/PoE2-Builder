@@ -72,3 +72,36 @@ def test_the_electrocution_lines_pob_misspells_count_only_through_their_ledger_r
     assert wrong("All damage with this Weapon causes Electrocution buildup")[1] == \
         "All damage with this Weapon causes Electrocute buildup"
 
+
+
+def test_a_share_line_with_a_percent_stat_counts_its_exact_share(engine):
+    """COV31 (PATCH_CHECK G4-1): The Lethal Draw's line, counted at LethalDrawCharged's share, adds what PoB's own parse
+    adds at share 100 and half at 50. PoB rounds a PercentStat tag's product up (ModStore m_ceil), so the share's
+    Multiplier tag must come first (bridge installLedgerShare): after it, 1/100 of the value rounded up to 1 and share
+    100 gave 100 added damage for PoB's 92 (probes POE2T2515 / POE2T2516, scratch/cov31/probe_lethal*.py)."""
+    from builder.ledger import wrong
+    from builder.search import models
+
+    line = ("Bow Attacks consume 10% of your maximum Life Flask Charges if possible to deal added Physical damage "
+            "equal to (5-10)% of Flask's Life Recovery amount")
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", fields=[],
+                raw="Rarity: Rare\nProbe Bow\nRecurve Bow\nItem Level: 80\n--------\nAdds 20 to 40 Physical Damage")
+    engine.call("equip", slot="Flask 1", fields=[], raw="Rarity: Normal\nUltimate Life Flask")
+    engine.call("addSkillGroup", text="Lightning Arrow 20/0 1", main=True)
+
+    def dps(text=None, share=None):
+        engine.call("equip", slot="Weapon 2", fields=[], raw=None if text is None else
+                    "Rarity: Unique\nThe Lethal Draw\nSacral Quiver\n--------\n{range:1}" + text)
+        engine.call("setAssumptions", mods=[] if share is None else
+                    [models.raw_mod("Multiplier:LedgerShareLethalDrawCharged", "BASE", share)])
+        return engine.call("stats", fields=["TotalDPS"])["TotalDPS"]  # (linear in the added damage here: probe POE2T2515)
+
+    none = dps()
+    own = dps(line) - none  # PoB's own parse: on every Bow Attack
+    fixed = wrong(line)[1]
+    assert own > 0
+    assert abs((dps(fixed, 100) - none) - own) < 1e-6 * own
+    assert abs((dps(fixed, 50) - none) - own / 2) <= 0.02 * own
+    assert abs(dps(fixed, 0) - none) < 1e-9

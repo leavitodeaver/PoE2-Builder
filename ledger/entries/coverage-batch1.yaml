@@ -54,18 +54,39 @@
   test_in_game: "Slam a training dummy 20 times with Earthbreaker: about 5 slams show a second impact in the same place, for the same damage."
   status: proposed
 
+- id: MountainSplitterSlam
+  title: The main skill is a Slam you use yourself that creates no Fissures (Mountain Splitter counts it)
+  kind: condition
+  # On / off from the build's own main skill (assumptions.mountain_splitter_slam, COV31): a Slam Attack, not
+  # triggered, not a totem's, not CreatesFissure (the game's skill type), no Crater in its group. Else 0.
+  mountain_splitter: true
+  shown_for: "Every Third Slam skill that doesn't create Fissures"
+  confidence: theory
+  sources: ["data/game-26476662/tables/ActiveSkills.json (ActiveSkillTypes CreatesFissure)", "patch notes 0.4.0 Ascendancy Changes > Titan"]
+  status: proposed
+
 - id: mountain-splitter
   title: Mountain Splitter, every third Slam causes 3 Aftershocks ahead and to the sides
   kind: pob_gap
   match: "^Every Third Slam skill that doesn't create Fissures which you use yourself causes (\\d+) additional Aftershocks"
-  replace: ['Slam Skills have 11% more DPS']
+  replace: ['share:MountainSplitterSlam Slam Skills have 33% more DPS']
   confidence: theory
   notes: >-
-    The Aftershocks land ahead and to each side of the slam's area, not on it; a large boss is
-    assumed to stand in one of the three, so every third slam adds one full hit (33% more per
-    third slam, 11% over all slams). Slams that create Fissures don't count; the build's main
-    slam is assumed not to.
-  sources: ["https://poe2db.tw/us/Titan", "https://poe2db.tw/us/Keywords (Aftershock)"]
+    Titan notable (PassiveSkills AscendancyWarrior1Notable3, num_cascade_aftershocks_every_third_slam 3). Patch 0.4.0,
+    the one and newest entry: "Every Third Slam Skill that doesn't create Fissures which you use yourself causes 3
+    additional Aftershocks ahead and to each side of the initial area". PoB doesn't parse it. Before COV31 this entry
+    gave every Slam "11% more DPS": a flat rate whatever the slam (PATCH_CHECK G1-2, against CLAUDE.md's rule), an
+    OVERCOUNT for Fissure slams and slams you don't use yourself, and its 11% was an arithmetic slip (one extra hit
+    every third slam is 4 hits per 3 slams: 33% more, not 11%; research mountain-splitter.md, #13, repeats the 11%
+    and calls 3 hits "+33%", which by the same count is +100%). Now: counted only while MountainSplitterSlam is on,
+    from the build's own main skill (a Slam Attack you use yourself, not CreatesFissure, no Crater; else 0).
+    The Aftershocks land "ahead and to each side" of the slam's area, not on it, so how many reach a boss standing in
+    the slam is geometry the game decides and no data gives: ASSUMED one of the three (LOW; 0 for a small boss, up to 3
+    for a huge one; research #13 agrees: "Keep 1 as a LOW flat assumption", the in-game test #29 open), so every third slam adds one hit of the slam's damage (KeywordPopups Aftershock: "the same damage
+    as the initial impact"): 33% more DPS. Labelled: "Slam Skills" also lifts other slams in Full DPS whether they
+    qualify or not; the extra hits' ailment applications aren't corrected as aftershock_model does for the main slam's
+    own Aftershocks; other slams in the rotation count toward "every third" (only the main skill here).
+  sources: ["data/game-26476662/tables/PassiveSkills.json (AscendancyWarrior1Notable3)", "patch notes 0.4.0 Ascendancy Changes > Titan", "https://poe2db.tw/us/Titan", "data/game-26476662/tables/KeywordPopups.json (Aftershock)"]
   test_in_game: "On a large boss, watch every third slam: count how many of the 3 extra Aftershocks hit it."
   status: proposed
 
@@ -614,4 +635,34 @@
   confidence: reported
   sources: ["https://poe2db.tw/us/Blood_of_the_Warrior"]
   test_in_game: "Drink it at full Life: the effect stays for its full duration."
+  status: proposed
+
+- id: LethalDrawCharged
+  title: The share of Bow Attacks that find 10% of the Life Flask's charges (The Lethal Draw)
+  kind: condition
+  # From the build's own Life Flask charge gain against the main Bow Attack's rate (Assumptions.lethal_draw_share,
+  # COV31; flasks.charge_use_rate, MECH-C's): no Bow Attack main skill, no Life Flask or no gain: 0
+  lethal_draw: true
+  shown_for: 'Bow Attacks consume \d+% of your maximum Life Flask Charges'
+  confidence: theory
+  sources: ["patch notes 0.4.0 (The Lethal Draw)", "https://poe2db.tw/us/The_Lethal_Draw"]
+  status: proposed
+
+- id: wrong-lethal-draw-flask-charge-cost
+  title: The Lethal Draw, added Physical damage only on the Bow Attacks whose Life Flask charges it can consume
+  kind: pob_wrong
+  match: '^Bow Attacks consume (\d+)% of your maximum Life Flask Charges if possible to deal added Physical damage equal to (\(\d+-\d+\)|\d+)% of Flask''s Life Recovery amount$'
+  replace: ['share:LethalDrawCharged Bow Attacks consume {1}% of your maximum Life Flask Charges if possible to deal added Physical damage equal to {2}% of Flask''s Life Recovery amount']
+  confidence: theory
+  notes: >-
+    PoB parses the whole line (ModCache 6766-6768: PhysicalMin / PhysicalMax BASE from 5-10% of LifeFlaskRecovery,
+    Bow Attacks) and adds the damage to every Bow Attack, ignoring "consume 10% of your maximum Life Flask Charges if
+    possible": an OVERCOUNT wherever the flask's charges can't pay for every attack (PATCH_CHECK G4-1). The same line,
+    now counted at LethalDrawCharged's share: the main Bow Attack's attacks a second the Life Flask's own charge gain
+    pays for (10% of its maximum charges each), at most all of them; no Life Flask or no gain: 0. Labelled: the
+    flask's starting charges aren't counted (an undercount for a short fight); drinking the same flask (MECH-C's
+    recovery model) may count its charges a second time (an OVERCOUNT where both are counted); "Flask Charges used"
+    lines aren't applied to the cost (UNVERIFIED); side Bow Attacks in Full DPS take the main skill's share.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua 6766-6768", "vendor/PathOfBuilding-PoE2/src/Data/Uniques/quiver.lua (The Lethal Draw)", "https://poe2db.tw/us/The_Lethal_Draw"]
+  test_in_game: "With an empty Life Flask, shoot a dummy: the added damage is gone; with a full one, every tenth of its charges pays one empowered shot."
   status: proposed

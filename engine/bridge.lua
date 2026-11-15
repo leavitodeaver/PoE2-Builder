@@ -1212,7 +1212,9 @@ local function installLedgerShare()
 									and type(copy.value.mod.value) == "number" then
 								copy.value.mod.value = copy.value.mod.value / 100  -- (a LIST of one nested mod)
 							end
-							copy[#copy + 1] = { type = "Multiplier", var = "LedgerShare" .. share }
+							-- (COV31) the share first: PoB evaluates tags in order and a PercentStat tag rounds its product
+							-- up (ModStore m_ceil), so a share after it would round 1/100 of the value up (The Lethal Draw: 100 for 92)
+							table.insert(copy, 1, { type = "Multiplier", var = "LedgerShare" .. share })
 							tagged[#tagged + 1] = copy
 						end
 						modLine.modList, modLine.extra, modLine.ledgerShare = tagged, nil, share
@@ -4413,7 +4415,7 @@ function bridge.applyPassiveCorrections(args)
 									and type(copy.value.mod.value) == "number" then
 								copy.value.mod.value = copy.value.mod.value / 100  -- (a LIST of one nested mod: EnemyModifier)
 							end
-							copy[#copy + 1] = { type = "Multiplier", var = "LedgerShare" .. share }
+							table.insert(copy, 1, { type = "Multiplier", var = "LedgerShare" .. share })  -- (COV31: first, as installLedgerShare)
 						end
 						modLib.setSource(copy, "Ledger:" .. correction.entry)
 						node.modList:AddMod(copy)

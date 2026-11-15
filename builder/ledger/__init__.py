@@ -224,6 +224,9 @@ def wrong(line: str, item: str | None = None) -> tuple[Entry, str | None] | None
     "Grants Skill: Level N Lightning Bolt" is the triggered bolt PoB grants; a Voltaic Staff's is not). `item` is the
     unique's name where the caller knows it (context.corrected_raw); rares and bases (items.corrected_item) pass None.
 
+    A `share:Name <line>` replacement (COV31: The Lethal Draw) comes back in its item form, "LedgerShare:Name <line>",
+    which the bridge's installLedgerShare counts at the condition's share.
+
     An entry with no replacement switches the item line off (None as the line: PoB's `{disabled}`; the line still
     reaches the models through bridge.sourceLines) ONLY if it says `item_off: true`, which it may say only when a model
     reads the ITEM line (COV7 for the Arcane Surge on Critical Hit affix, whose uptime model reads item lines). Without
@@ -235,6 +238,8 @@ def wrong(line: str, item: str | None = None) -> tuple[Entry, str | None] | None
             lines = entry.translate(line)
             if lines is None or (not lines and not entry.raw.get("item_off")):
                 continue
+            if lines and lines[0].startswith("share:"):  # (COV31) its item form, LedgerShare:Name <line> (item_lines)
+                return entry, item_lines(lines[:1])[0]
             return entry, (lines[0] if lines else None)
     return None
 
