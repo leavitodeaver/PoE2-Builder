@@ -94,7 +94,7 @@ def test_build_blind_spots_list_noops_and_unread_gem_stats():
         ["Mana Tempest", "Ember Fusillade"])
     kinds = {(b["kind"], b["line"]) for b in found}
     assert ("no-op", "10% reduced Trap Duration") in kinds
-    assert ("gem stat", "ember_fusillade_damage_+%_final_per_ember_fired") in kinds
+    assert ("gem stat", "blazing_cluster_subsequent_targeting_radius") in kinds
     assert not any(b["source"] == "gem: Mana Tempest" for b in found)  # its stats are counted now
     assert not any("maximum Life" in b["line"] for b in found)
 
