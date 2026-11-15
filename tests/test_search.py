@@ -3372,3 +3372,61 @@ def test_augments_the_game_keeps_out_of_corrupted_items_stay_out_of_them():
         assert catalog.candidates(base, True, f"Rarity: UNIQUE\nSome Unique\nSome Base\n+10 to Strength\n{seal}") == \
             ["Desert Rune"]
     assert len(NOT_IN_SEALED) == 15 and "Raven-Touched Shard" in NOT_IN_SEALED
+
+
+def test_the_gear_round_fills_character_rune_slots_within_level_budget_limits_and_bans():
+    """PATCH_CHECK H5-4 (SEARCH22): with Runic Meridians the full gear round picks each character rune slot's best rune
+    that raises the score, skipping runes over the level, over the budget, forbidden or past a per-character limit; and
+    without the passive a rune left in a slot comes out (PoB wouldn't count it, and it would cost)."""
+    import types
+
+    from builder.search.gear import Gear
+
+    gain = {"Good Rune": 0.3, "Better Rune": 0.5, "Too High": 0.9, "Too Dear": 0.9, "Banned": 0.9, "Limited": 0.9,
+            "Useless": 0.0}
+    prices = {"Good Rune": 0.1, "Better Rune": 0.2, "Too High": 0.1, "Too Dear": 50.0, "Banned": 0.1, "Limited": 0.1,
+              "Useless": 0.0}
+    levels = {"Too High": 95}
+
+    class Build:
+        def __init__(self, active):
+            self.active, self.score, self.equipped = active, 1.0, {
+                "Helmet": types.SimpleNamespace(runes=("Limited",))}
+            self.character_runes: dict = {"Gloves Rune #1": ("Good Rune", 0.1)} if not active else {}
+
+        def call(self, method):
+            runes = [{"name": n, "level": levels.get(n, 1)} for n in gain]
+            return {"active": self.active, "slots": [{"slot": s, "rune": self.character_runes.get(s, ("None",))[0],
+                                                      "runes": runes} for s in ("Boots Rune #1", "Gloves Rune #1")]}
+
+        def spent(self):
+            return sum(p for _, p in self.character_runes.values())
+
+        def character_rune_deltas(self, cases):
+            return [(self.score + gain[c["rune"]], {}) for c in cases]
+
+        def set_character_rune(self, slot, rune, price):
+            if rune == "None":
+                self.character_runes.pop(slot, None)
+            else:
+                self.character_runes[slot] = (rune, price)
+                self.score += gain[rune]
+            return self.score
+
+        def worse(self, before):
+            return self.score < before
+
+    def gear_for(build):
+        gear = Gear.__new__(Gear)
+        gear.build, gear.lam, gear.settle = build, 0.0, lambda: None
+        gear.ctx = types.SimpleNamespace(budget=1.0, level=90, compiled=types.SimpleNamespace(
+            filters=types.SimpleNamespace(forbidden_augments={"Banned"})))
+        gear.runes = types.SimpleNamespace(price=prices.get, limit=lambda n: ("lim", 1) if n == "Limited" else None)
+        return gear
+
+    build = Build(active=True)
+    assert gear_for(build).character_rune_round(float("inf"))
+    # the best allowed rune in each slot (Too High, Too Dear, Banned and Limited are skipped; Better Rune has no limit)
+    assert build.character_runes == {"Boots Rune #1": ("Better Rune", 0.2), "Gloves Rune #1": ("Better Rune", 0.2)}
+    gone = Build(active=False)
+    assert not gear_for(gone).character_rune_round(float("inf")) and gone.character_runes == {}

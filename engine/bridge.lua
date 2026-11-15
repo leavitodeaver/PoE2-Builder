@@ -2142,6 +2142,68 @@ function bridge.itemDeltas(args)
 	return { results = results, seconds = os.clock() - start }
 end
 
+-- Character rune sockets (SEARCH22; PATCH_CHECK H5-4): Martial Artist's Runic Meridians ("Can tattoo Runes onto your
+-- body, gaining additional Rune-only sockets: 1 Helmet socket, 2 Body Armour sockets, 1 Gloves socket, 1 Boots socket";
+-- PoB's flag SocketRunesOnCharacter, ModParser 6353). PoB adds the rune chosen in each ItemsTab rune slot's list
+-- (characterRuneSlotList: runes with canSocketInChakraSlots, not socket-bound, of the slot's type or "armour") to its
+-- item mods (CalcSetup 1195-1207); a what-if replaces one slot's rune (override repSlotName / repRune).
+local function runeSlotEntry(slot, name)
+	for _, rune in ipairs(slot.list or { }) do
+		if rune.name == name then
+			return rune
+		end
+	end
+end
+
+function bridge.characterRunes()
+	local env = build.calcsTab.mainEnv
+	local active = env and env.modDB:Flag(nil, "SocketRunesOnCharacter") or false
+	local slots = { }
+	for _, slotName in ipairs(build.itemsTab.runeSlotOrder or { }) do
+		local slot = build.itemsTab.runeSlots[slotName]
+		local names = { }
+		for _, rune in ipairs(slot.list or { }) do
+			if rune.name ~= "None" then
+				names[#names + 1] = { name = rune.name, limit = rune.limit, level = rune.req }
+			end
+		end
+		slots[#slots + 1] = { slot = slotName, rune = (slot:GetSelValue() or { }).name or "None", runes = names }
+	end
+	return { active = active, slots = slots }
+end
+
+-- What-if runes in character rune slots. Each case: { slot = "Boots Rune #1", rune = "<name>" or "None" }
+function bridge.characterRuneDeltas(args)
+	local calcFunc = calculator()
+	local useFullDPS = args.fullDPS ~= false
+	local results = { }
+	local start = os.clock()
+	for i, case in ipairs(args.cases) do
+		local slot = build.itemsTab.runeSlots[case.slot]
+		local rune = slot and runeSlotEntry(slot, case.rune or "None")
+		if rune then
+			results[i] = derivedCalc(function() return calcFunc({ repSlotName = case.slot, repRune = rune }, useFullDPS) end, args.fields)
+		else
+			results[i] = { error = "no such rune slot or rune: " .. tostring(case.slot) .. " / " .. tostring(case.rune) }
+		end
+	end
+	return { results = results, seconds = os.clock() - start }
+end
+
+-- Commit a rune into a character rune slot (saved in the item set: ItemsTab's RuneSlot elements), then recalculate
+function bridge.setCharacterRune(args)
+	local slot = build.itemsTab.runeSlots[args.slot]
+	local rune = slot and runeSlotEntry(slot, args.rune or "None")
+	if not rune then
+		error("no such rune slot or rune: " .. tostring(args.slot) .. " / " .. tostring(args.rune))
+	end
+	slot:SelByValue(rune.name, "name")
+	build.itemsTab.activeItemSet[args.slot] = { runeName = rune.name }
+	local start = os.clock()
+	recalc()
+	return { seconds = os.clock() - start, summary = bridge.summary(), stats = pickStats(build.calcsTab.mainOutput, args.fields) }
+end
+
 -- Commit passive changes: allocate each id with its path, deallocate each removal with its
 -- dependents, then recalculate fully. Attribute nodes on new paths take `attribute` (default 1).
 function bridge.allocate(args)

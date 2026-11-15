@@ -381,6 +381,7 @@ class Search:
             "extra_groups": [[k, v] for k, v in sorted(self.assumptions.extra_groups.items())],
             "required_names": sorted(self.tree.required_names), "sources": sorted(self.tree.sources),
             "extra_stats": dict(self.build.extra_stats), "recovery_sources": dict(self.build.recovery_sources),
+            "character_runes": [[k, list(v)] for k, v in sorted(self.build.character_runes.items())],
             "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
             "press_choices": press_choices(self.build), "press_rows": copy.deepcopy(self.press_rows),
@@ -431,6 +432,7 @@ class Search:
         self.build.objective.extra = bool(self.assumptions.extra_groups)
         self.build.extra_stats = dict(state.get("extra_stats") or {})
         self.build.recovery_sources = dict(state.get("recovery_sources") or {})
+        self.build.character_runes = {k: (v[0], v[1]) for k, v in state.get("character_runes") or []}  # (XML: the slots)
         self.assumptions.infused = state.get("infused")  # (the Infused set the XML calculates, at its share)
         self.assumptions.infused_skipped = dict(state.get("infused_skipped") or {})
         self.assumptions.reinstall()

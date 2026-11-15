@@ -783,10 +783,71 @@ class Gear:
                 self.settle()
                 continue
             improved = improved or build.score > before + EPSILON
+        if full:
+            improved = self.character_rune_round(deadline) or improved
         if full and self.fill_granted is not None:
             improved = self.granted_meta_trials(deadline) or improved
         if full:
             self.update_lambda()
+        return improved
+
+    # Martial Artist's Runic Meridians (PATCH_CHECK H5-4, an UNDERCOUNT; SEARCH22): "Can tattoo Runes onto your body,
+    # gaining additional Rune-only sockets: 1 Helmet socket, 2 Body Armour sockets, 1 Gloves socket, 1 Boots socket"
+    # (PoB tree 0_5 node 39552; flag SocketRunesOnCharacter). PoB calculates the runes in its five character rune slots,
+    # but nothing chose them, so they stayed empty. Each full round tries every rune PoB lists for a slot (its
+    # canSocketInChakraSlots runes of that slot's type or "armour": the game files' SoulCores.CanSocketInMartialArtistSlots,
+    # 199 of 313 rows) that the character's level allows, the request doesn't forbid, has a price within the budget and
+    # keeps per-character augment limits, and keeps the best that raises the score. Without the passive, a rune left
+    # in a slot is taken out (PoB doesn't count it, and it would cost).
+    def character_rune_round(self, deadline: float) -> bool:
+        build = self.build
+        if not hasattr(build, "character_runes"):
+            return False
+        info = build.call("characterRunes")
+        improved = False
+        if not info.get("active"):
+            for slot in list(build.character_runes):
+                build.set_character_rune(slot, "None", None)
+            return False
+        forbidden = self.ctx.compiled.filters.forbidden_augments
+        for entry in info.get("slots") or []:
+            if clock.now() > deadline:
+                break
+            slot, current = entry["slot"], entry.get("rune") or "None"
+            current_price = build.character_runes.get(slot, (None, 0.0))[1]
+            left = self.ctx.budget - build.spent() + current_price
+            used: dict[str, int] = {}  # per-character augment limits, across items and the other rune slots
+            for other in build.equipped.values():
+                for name in other.runes:
+                    if limit := self.runes.limit(name):
+                        used[limit[0]] = used.get(limit[0], 0) + 1
+            for other_slot, (name, _) in build.character_runes.items():
+                if other_slot != slot and (limit := self.runes.limit(name)):
+                    used[limit[0]] = used.get(limit[0], 0) + 1
+            names = []
+            for rune in entry.get("runes") or []:
+                name, price = rune["name"], self.runes.price(rune["name"])
+                limit = self.runes.limit(name)
+                if (name == current or name in forbidden or (rune.get("level") or 0) > self.ctx.level or price is None
+                        or price > left + 1e-9 or (limit and used.get(limit[0], 0) >= limit[1])):
+                    continue
+                names.append(name)
+            if not names:
+                continue
+            scored = build.character_rune_deltas([{"slot": slot, "rune": n} for n in names])
+            current_value = build.score - self.lam * current_price
+            best = max(((s - self.lam * (self.runes.price(n) or 0.0), n) for (s, _), n in zip(scored, names)),
+                       key=lambda x: (x[0], x[1]))
+            if best[0] <= current_value + EPSILON:
+                continue
+            before = build.score
+            build.set_character_rune(slot, best[1], self.runes.price(best[1]))
+            self.settle()
+            if build.worse(before):
+                build.set_character_rune(slot, current, current_price if current != "None" else None)
+                self.settle()
+                continue
+            improved = improved or build.score > before + EPSILON
         return improved
 
     # The user's answer (14 Nov ~20:03, SEARCH22 item 3: "Fill with cheapest useful"): a slot no item raised the score in

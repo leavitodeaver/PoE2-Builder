@@ -1586,3 +1586,33 @@ def test_a_partial_gear_round_builds_a_rare_once_for_an_empty_slot_no_full_round
     assert set(built) == empty and not trials
     gear.gear_round(clock.now() + 100.0, full=False)  # (tried once: build_rare found none here)
     assert set(built) == empty and len(built) == len(empty)
+
+
+def test_martial_artists_runic_meridians_rune_slots_are_listed_tried_and_kept(engine):
+    """PATCH_CHECK H5-4 (SEARCH22): Runic Meridians (node 39552, "Can tattoo Runes onto your body, gaining additional
+    Rune-only sockets: 1 Helmet socket, 2 Body Armour sockets, 1 Gloves socket, 1 Boots socket") gives five character
+    rune slots PoB calculates (SocketRunesOnCharacter) but nothing filled. The bridge lists them, scores a rune in one,
+    commits it, and the exported build keeps it."""
+    engine.call("newBuild")
+    engine.call("setClass", className="Monk", ascendancy="Martial Artist")
+    engine.call("setLevel", level=90)
+    assert not engine.call("characterRunes")["active"]
+    engine.call("allocate", add=[39552])
+    info = engine.call("characterRunes")
+    assert info["active"]
+    slots = {s["slot"]: s for s in info["slots"]}
+    assert set(slots) == {"Helmet Rune #1", "Body Armour Rune #1", "Body Armour Rune #2", "Gloves Rune #1",
+                          "Boots Rune #1"}
+    boots = {r["name"] for r in slots["Boots Rune #1"]["runes"]}
+    assert "Greater Desert Rune" in boots and slots["Boots Rune #1"]["rune"] == "None"
+    fields = ["FireResist"]
+    base = engine.call("stats", fields=fields)["FireResist"]
+    (case,) = engine.call("characterRuneDeltas", cases=[{"slot": "Boots Rune #1", "rune": "Greater Desert Rune"}],
+                          fields=fields)["results"]
+    assert case["FireResist"] > base
+    committed = engine.call("setCharacterRune", slot="Boots Rune #1", rune="Greater Desert Rune", fields=fields)
+    assert committed["stats"]["FireResist"] == case["FireResist"]
+    xml = engine.call("exportXml")["xml"]
+    assert 'slotName="Boots Rune #1"' in xml and 'runeName="Greater Desert Rune"' in xml
+    engine.call("loadXml", xml=xml)
+    assert {s["slot"]: s["rune"] for s in engine.call("characterRunes")["slots"]}["Boots Rune #1"] == "Greater Desert Rune"

@@ -62,6 +62,8 @@ class Build:
         # Stats PoB doesn't calculate, added to every result before scoring (flask recovery per
         # second, builder/search/flasks.py); what-if cases may override them with an "extra" entry
         self.extra_stats: dict = {}
+        # Runes in character rune slots (Martial Artist's Runic Meridians; bridge.characterRunes): slot -> (rune, price)
+        self.character_runes: dict[str, tuple[str, float]] = {}
         # The request's boss for models reading it from the stats ({"_boss": name}; inner.boss_stats), on every result
         self.boss_stats: dict = {}
         # Life / Mana recovery a second from the sources PoB gives per event or not at all (kills, Remnants, charms,
@@ -246,6 +248,19 @@ class Build:
             self.equipped[slot] = option
         return self._committed(result)
 
+    def character_rune_deltas(self, cases: list[dict]) -> list[tuple[float, dict]]:
+        """What-if runes in character rune slots: cases {slot, rune} (bridge.characterRuneDeltas)."""
+        return self._deltas("characterRuneDeltas", cases)
+
+    def set_character_rune(self, slot: str, rune: str, price: float | None) -> float:
+        """Commit a rune ("None" empties it) into a character rune slot (bridge.setCharacterRune)."""
+        result = self.call("setCharacterRune", slot=slot, rune=rune, fields=self.objective.fields)
+        if rune == "None":
+            self.character_runes.pop(slot, None)
+        else:
+            self.character_runes[slot] = (rune, price or 0.0)
+        return self._committed(result)
+
     def set_config(self, values: dict[str, Any]) -> float:
         return self._committed(self.call("setConfig", vars=values, fields=self.objective.fields))
 
@@ -270,7 +285,7 @@ class Build:
     def snapshot(self) -> dict:
         snap = {"xml": self.call("exportXml")["xml"], "equipped": dict(self.equipped), "score": self.score,
                 "stats": dict(self.stats), "extra_stats": dict(self.extra_stats),
-                "recovery_sources": dict(self.recovery_sources)}
+                "recovery_sources": dict(self.recovery_sources), "character_runes": dict(self.character_runes)}
         if self.snapshot_state is not None:
             snap["search"] = self.snapshot_state[0]()
         return snap
@@ -280,6 +295,7 @@ class Build:
         self.equipped = dict(snap["equipped"])
         self.extra_stats = dict(snap.get("extra_stats") or {})
         self.recovery_sources = dict(snap.get("recovery_sources") or {})
+        self.character_runes = dict(snap.get("character_runes") or {})  # (the XML carries the slots' runes)
         if self.snapshot_state is not None and "search" in snap:
             self.snapshot_state[1](snap["search"])
         for hook in self.after_load:
@@ -301,8 +317,9 @@ class Build:
         return result["groups"][index - 1] if 0 < index <= len(result["groups"]) else None
 
     def spent(self) -> float:
-        """Divines spent on items and priced gems."""
+        """Divines spent on items, runes in character rune slots and priced gems."""
         total = sum(option.price or 0.0 for option in self.equipped.values())
+        total += sum(price or 0.0 for _, price in self.character_runes.values())
         for group in self.groups():
             for gem in group["gems"]:
                 priced = self.ctx.gem_price(gem["name"]) if gem["support"] else None
