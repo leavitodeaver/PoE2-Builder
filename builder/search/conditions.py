@@ -1611,17 +1611,39 @@ DAZE_LINE = re.compile(r"^(?:(\d+(?:\.\d+)?)% chance to (?:inflict )?daze(?: ene
 DAZE_SKILL_STATS = ("base_chance_to_daze_%", "cannot_daze", "spell_daze_on_critical_hit_dealing_physical_damage",
                     "daze_on_hit_vs_enemies_at_full_life")
 DAZE_WORD = re.compile(r"\bdaz(?:e|es|ed|ing)\b", re.I)
-# (MECH71) A skill beside the main one whose uses hit the boss, for _daze_others: an Attack, or a Spell with the Damage
-# type (PoB's gem data), not a minion-making skill (its minions' hits aren't yours), a Wall (Flame Wall burns, no hit),
-# a damage-over-time-only spell or a Persistent one. MEDIUM: read from skill types, not a hit flag.
+# (MECH71; MECH73, AUDIT35 A35-2) A skill beside the main one whose uses hit the boss, for _daze_others: decided by the
+# skill's own hit, the bridge's hitsOnUse on each of the gem's active effects (PoB's hit rule, CalcActiveSkill 179:
+# baseFlags.hit or the Attack / Damage / Projectile type; not a Persistent buff, a minion maker, a Wall, a damage-over-
+# time-only spell, or a stat set the game marks display_statset_no_hit_damage). A gem counts if any of its effects hits
+# when used: Seismic Cry (baseFlags.hit), Iron Ward (its separate nova effect IronWardNovaPlayer, used by pressing it),
+# Plague Bearer (its nova effect: the Damage type, base_chance_to_poison_on_hit_%, a hit stun multiplier; game files
+# GrantedEffectStatSets PlagueBearerNovaPlayer). Checked one by one (PoB act_*.lua and GrantedEffectStatSets, 14 Nov):
+# - Fortifying Cry: its cry holds display_statset_no_hit_damage; its hit is Shield Wave (FortifyingCryShockwavePlayer),
+#   Triggered by the Shield Attacks after the cry: not counted (0, an UNDERCOUNT for a build Dazing with shield attacks
+#   after Fortifying Cry: the Shield Wave rate isn't modelled);
+# - Herald of Ice / Thunder / Blood: Persistent; they hit only after a Shatter / a kill of a Shocked enemy / a kill of a
+#   Bleeding one (their descriptions): 0 on a lone boss (the boss's death ends the fight; adds aren't modelled here);
+# - Combust: Infernal Cry's Triggered effect on an enemy's death, no gem of its own: 0 on a lone boss, as above;
+# - Arctic Armour: Persistent; its burst hits the attacker when a Melee Attack hits you: 0 here (the boss's melee hits on
+#   you aren't read for it; an UNDERCOUNT, labelled);
+# - Briarpatch: Persistent; its Thorny Ground hurts moving enemies: 0 (an UNDERCOUNT if it hits, UNVERIFIED);
+# - Black Powder Blitz and Crackling Palm: item-granted (fromItem), not among the gems the search sockets; their dodge-roll
+#   explosion / bolts on unarmed hits aren't rated (0, an UNDERCOUNT where an item grants them).
+# Without hitsOnUse (an old recording or a test's fake) the MECH71 rule stands: an Attack, or a Spell with the Damage type,
+# and not one of DAZE_NOT_HITS.
 DAZE_NOT_HITS = {"CreatesMinion", "Wall", "DegenOnlySpellDamage", "Persistent"}
 
 
-def daze_hitter(gem: dict | None) -> bool:
-    """Whether a gem beside the main skill hits the boss when used (DAZE_NOT_HITS's note)."""
-    types = set((gem or {}).get("skillTypes") or ())
-    return bool(gem) and not gem.get("support") and not types & DAZE_NOT_HITS and (
-        "Attack" in types or {"Spell", "Damage"} <= types)
+def daze_hitter(gem: dict | None, effects: list[dict] | None = None) -> bool:
+    """Whether a gem beside the main skill hits the boss when used (DAZE_NOT_HITS's note). `effects`: the bridge's
+    activeSkills entries with the gem's name (any with hitsOnUse decides it)."""
+    if not gem or gem.get("support"):
+        return False
+    flags = [e["hitsOnUse"] for e in effects or () if "hitsOnUse" in e]
+    if flags:
+        return any(flags)
+    types = set(gem.get("skillTypes") or ())
+    return not types & DAZE_NOT_HITS and ("Attack" in types or {"Spell", "Damage"} <= types)
 
 
 def _daze_source(text: str, lines: list[str], stats: dict, types: set | None = None,
@@ -3809,10 +3831,16 @@ class Conditions:
         # heavy_stun_rate and GEM5's build.dazed_up; plus the build's other hitting skills, _daze_others)
         groups_now = self.build.call("groups")["groups"]
         gems = self.build.ctx.gems
-        hitters = {n["name"] for g in groups_now if g.get("enabled") is not False for n in g.get("gems") or []
-                   if n.get("enabled", True) and n["name"] != self.main_skill and daze_hitter(gems.get(n["name"]))}
-        raw = self.build.call("activeSkills", levelStats=[self.main_skill, *sorted(hitters)],
+        beside = {n["name"] for g in groups_now if g.get("enabled") is not False for n in g.get("gems") or []
+                  if n.get("enabled", True) and n["name"] != self.main_skill
+                  and not (gems.get(n["name"]) or {"support": True}).get("support")}
+        raw = self.build.call("activeSkills", levelStats=[self.main_skill, *sorted(beside)],
                               supportStats=list(DAZE_SKILL_STATS))
+        effects: dict[str, list[dict]] = {}
+        for entry in raw["skills"]:
+            if not entry.get("disabled"):
+                effects.setdefault(entry["name"], []).append(entry)
+        hitters = {name for name in beside if daze_hitter(gems.get(name), effects.get(name))}
         dazing = {s["name"]: {stat: number(value) for part in ("levelStats", "supportStats")
                               for stat, value in (s.get(part) or {}).items() if stat in DAZE_SKILL_STATS and value}
                   for s in raw["skills"] if not s.get("disabled") and (s["name"] == self.main_skill or s["name"] in hitters)}

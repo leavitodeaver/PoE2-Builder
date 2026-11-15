@@ -1702,7 +1702,6 @@ def test_a_curse_is_up_by_how_the_build_applies_it():
     assert "triggered" in models.curse_uses(meta, gems, stats, 8.0)[0].how
     (hit,) = models.curse_uses([], gems, stats, 8.0, ["Curse Non-Cursed Enemies with Enfeeble on Hit"])
     assert hit.name == "Enfeeble" and hit.share == 1.0
-
     bow = models.Skill("Lightning Arrow", group=1, attack=True)
     weakness = models.Skill("Elemental Weakness", group=2, spell=True, cast_time=0.7)
     lines = [{"text": "Enemies you Curse take 10% increased Damage"}]
@@ -1723,6 +1722,20 @@ def test_a_curse_is_up_by_how_the_build_applies_it():
 
 
 # MECH37: a pressed non-main skill in Full DPS counts at its real use ------------------------------------------------
+
+
+def test_a_curse_laid_as_a_cursed_area_is_labelled_with_the_boss_assumed_to_stay_in_it():
+    """MECH73 (GEM7's item): Cursed Ground, Doedre's Undoing and Hayoxi's Fulmination (curse_apply_as_curse_zone) lay
+    the curse as an area; the share keeps the boss in it the whole time, labelled as an overcount where it leaves."""
+    gems = {"Enfeeble": {"skillTypes": ["Spell", "AppliesCurse"]}, "Cursed Ground": {"skillTypes": []}}
+    for support in models.CURSE_ZONE_SUPPORTS:
+        group = [{"gems": [{"name": "Enfeeble", "support": False}, {"name": support, "support": True}]}]
+        (use,) = models.curse_uses(group, {**gems, support: {"skillTypes": []}}, {}, 8.0)
+        assert use.zone == support and use.share == 1.0
+        assert "stay in it the whole time" in use.how and "OVERCOUNT" in use.how
+    (plain,) = models.curse_uses([{"gems": [{"name": "Enfeeble", "support": False}]}], gems, {}, 8.0)
+    assert plain.zone == "" and "OVERCOUNT" not in plain.how
+
 
 def test_press_model_counts_a_pressed_skill_at_its_cooldown_and_shrinks_the_main_skill():
     rates = [{"index": 1, "name": "Main", "speed": 2.0, "repeats": 1, "castTime": 1.0},

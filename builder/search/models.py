@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from builder.ledger import model_entry
 from builder.search import boss_hits, bosses
@@ -2047,6 +2047,16 @@ CURSED_LINES = (
 )
 # Chance lines against a cursed enemy: not scaled (a chance doesn't scale linearly), listed in the note
 CURSED_UNSCALED = re.compile(r"against cursed enemies|hitting cursed enemies|poison cursed enemies", re.I)
+# Supports that make a curse an area on the ground instead of a cast on enemies (curse_apply_as_curse_zone; MECH73, GEM7's
+# item): Cursed Ground, Doedre's Undoing and Hayoxi's Fulmination (checked: every game-table stat column for stat 11600
+# curse_apply_as_curse_zone: GrantedEffectStatSets SupportCursedGroundPlayer, SupportDoedresUndoingPlayer,
+# SupportHayoxisBindingPlayer = PoB Gems.lua's Hayoxi's Fulmination, plus two monster Temporal Chains; no Mods or
+# PassiveSkills row; patch notes: 0.5.0 Hayoxi's Fulmination limited to Curse skills, the newest entry). The curse is
+# taken as on the boss while the area lasts, i.e. the boss standing in it the whole time: we have no boss-movement data,
+# so this is an OVERCOUNT wherever the boss leaves the area (labelled MEDIUM).
+CURSE_ZONE_SUPPORTS = ("Cursed Ground", "Doedre's Undoing", "Hayoxi's Fulmination")
+CURSE_ZONE_NOTE = ("; as a cursed area on the ground ({0}): the boss is assumed to stay in it the whole time (MEDIUM: no "
+                   "boss-movement data; an OVERCOUNT wherever the boss walks out of it)")
 
 
 @dataclass(frozen=True)
@@ -2058,6 +2068,7 @@ class CurseUse:
     # its duration on the boss: PoB's, with the build's Curse Duration modifiers (bridge activeSkills curseDuration, the
     # stats' "_curse_durations"; AUDIT25 A25-41, MECHB12), else the level-20 base CURSE_DURATION
     duration: float = CURSE_DURATION
+    zone: str = ""  # the support that makes it a cursed area on the ground (CURSE_ZONE_SUPPORTS), else ""
 
 
 def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
@@ -2073,6 +2084,8 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
         present = [g for g in group["gems"] if g.get("enabled", True)]
         types = {g["name"]: set((gems.get(g["name"]) or {}).get("skillTypes") or []) for g in present}
         meta = next((n for n, t in types.items() if "Meta" in t), None)
+        zone = next((g["name"] for g in present if g.get("support") and g["name"] in CURSE_ZONE_SUPPORTS), "")
+        before = len(uses)
         for gem in present:
             name = gem["name"]
             if gem.get("support") or "AppliesCurse" not in types[name]:
@@ -2100,6 +2113,9 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
             else:
                 uses.append(CurseUse(name, 1.0, f"cast by hand every {lasts} (its duration; recast "
                                                 f"{CURSE_DELAY:g} s before it runs out, the curse delay)", True, duration))
+        if zone:  # (every curse this group applies is laid as the support's area, the Blasphemy aura excepted)
+            uses[before:] = [replace(u, how=u.how + CURSE_ZONE_NOTE.format(zone), zone=zone)
+                             if "Blasphemy" not in u.how else u for u in uses[before:]]
     hits = hits_per_second(stats) > 0
     for text in lines:
         if m := CURSE_ON_HIT.search(text):
@@ -3890,12 +3906,18 @@ def bone_shrapnel_model(kills: float, add_life: float | None, pinned: float | No
 # c08db85), 0 without a source, so the model gives 0 with that reason. The cycle: after a Broken Stance ends, the next
 # Vaulting Impact hit on a Dazed boss applies a new one (wait 1 / (its hits/s x dazed)); it lasts until `limit` of the
 # build's later hits or 60 s; each of those hits gains the magnitude x the boss's Physical mitigation. The "cannot be Dazed
-# again" while it's up isn't fed back into the Daze share (an OVERCOUNT where the Daze would lapse meanwhile: LOW).
+# again" while it's up isn't fed back into the Daze share (conditions sets the Dazed boxes before this cycle is known):
+# (MECH73, AUDIT35 A35-3) the note gives how much the share is overstated: Broken Stance is up s = window / cycle of the
+# fight (window = the gained hits / hits a second); a Daze on the boss when it lands runs on for at most its
+# conditions.DAZE_SECONDS, so the boss is un-Dazed for max(0, window - DAZE_SECONDS) of each window and the Dazed share
+# is overstated by s x that / window (an OVERCOUNT of the "against Dazed" lines and the 50% Stun Buildup share by that
+# much, labelled; the Daze's own duration modifiers aren't read here, the 8 s base).
 # "Unscaleable": no crit multiplier on it (UNVERIFIED, as Riven Armour's). Not wired: no number moves.
 STANCE_SKILL = "Vaulting Impact"
 STANCE_PERCENT = 10.0  # (VaultingImpactDazedPlayer; KeywordPopups BrokenStance)
 STANCE_SECONDS = 60.0  # (base_skill_effect_duration 60000)
 STANCE_HITS = 10  # (broken_stance_hit_limit; quality raises it)
+STANCE_DAZE_SECONDS = 8.0  # (conditions.DAZE_SECONDS, KeywordPopups Daze: kept here so models needn't import conditions)
 
 
 def broken_stance_model(vault_hit: float, vault_hits: float, dazed: float, hits: float, phys_taken: float,
@@ -3918,7 +3940,13 @@ def broken_stance_model(vault_hit: float, vault_hits: float, dazed: float, hits:
     basis = (f"{STANCE_PERCENT:g}% of {STANCE_SKILL}'s pre-mitigation Physical hit ({vault_hit:,.0f}) = {magnitude:,.0f} "
              f"on each of the next {gained:g} hits; a new one every {cycle:.1f} s (the wait for a {STANCE_SKILL} hit on "
              f"the boss while it's Dazed {dazed:.0%} of the fight, then {gained:g} hits at {hits:.2f}/s), x{phys_taken:.2f} "
-             "the boss's Physical mitigation; the Daze it blocks while up isn't fed back" + (f"; {how}" if how else ""))
+             "the boss's Physical mitigation" + (f"; {how}" if how else ""))
+    window = gained / hits
+    up = window / cycle
+    over = up * max(0.0, window - STANCE_DAZE_SECONDS) / window
+    basis += (f"; while Broken Stance is up ({up:.0%} of the fight, {window:.1f} s each) the boss can't be Dazed again: the "
+              f"Dazed share is overstated by {over:.1%} of the fight (a Daze runs on {STANCE_DAZE_SECONDS:g} s into each "
+              "window; not taken off the share, an OVERCOUNT of 'against Dazed' lines and the Stun Buildup share, labelled)")
     play = (f"Daze the boss with another skill or line, then hit it with {STANCE_SKILL}'s shockwave (without it: 0; "
             f"with it: {dps:,.0f} DPS)")
     return dps, [{"label": label, "value": f"{dps:,.0f} DPS", "basis": basis, "confidence": conf, "play": play}]

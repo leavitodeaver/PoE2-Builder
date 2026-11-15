@@ -2390,3 +2390,20 @@ def test_a_dazed_boss_takes_more_stun_buildup_at_its_share_not_pobs_full_box(eng
                                     "_dazed_box": True})[0]
     assert boxed == pytest.approx(half)  # (the box's full 50% taken back: the same rate at a 50% share)
     build.set_config({"conditionEnemyDazed": False})
+
+
+def test_which_skills_beside_the_main_one_hit_when_used_for_daze(engine):
+    """MECH73 (AUDIT35 A35-2): the bridge's hitsOnUse is PoB's hit rule on each active effect, minus Persistent buffs and
+    sets the game marks display_statset_no_hit_damage: Seismic Cry, Iron Ward's nova and Plague Bearer's nova hit when
+    used; Fortifying Cry (its hit is the Triggered Shield Wave), the Heralds' buffs, Flame Wall and Contagion don't."""
+    engine.call("newBuild")
+    for name in ("Seismic Cry", "Fortifying Cry", "Iron Ward", "Plague Bearer", "Herald of Ice", "Flame Wall",
+                 "Contagion", "Fireball"):
+        engine.call("addSkillGroup", text=f"{name} 20/0 1")
+    flags: dict[str, list[bool]] = {}
+    for entry in engine.call("activeSkills")["skills"]:
+        flags.setdefault(entry["name"], []).append(entry["hitsOnUse"])
+    hit = {name: any(v) for name, v in flags.items()}
+    assert hit["Seismic Cry"] and hit["Iron Ward"] and hit["Plague Bearer"] and hit["Fireball"]
+    assert len(flags["Iron Ward"]) == 2 and not all(flags["Iron Ward"])  # (the store doesn't hit, the nova does)
+    assert not hit["Fortifying Cry"] and not hit["Herald of Ice"] and not hit["Flame Wall"] and not hit["Contagion"]

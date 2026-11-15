@@ -3475,6 +3475,28 @@ local function energyFinal(activeSkill)
 	return nil
 end
 
+-- (MECH73, AUDIT35 A35-2) Whether using this active effect hits enemies: PoB's own hit rule (CalcActiveSkill 179:
+-- baseFlags.hit, or the Attack, Damage or Projectile type), minus effects whose use doesn't hit: a Persistent buff (a Herald,
+-- Iron Ward's store: its nova is a separate effect), a minion maker (the hits
+-- are its minions'), a Wall, a damage-over-time-only spell, and any stat set the game marks display_statset_no_hit_damage
+-- (Fortifying Cry: its Shield Wave is the hit). conditions.daze_hitter reads it.
+local function hitsOnUse(effect, types)
+	if types[SkillType.Persistent] or types[SkillType.CreatesMinion] or types[SkillType.Wall]
+		or types[SkillType.DegenOnlySpellDamage] then
+		return false
+	end
+	local hit = types[SkillType.Attack] or types[SkillType.Damage] or types[SkillType.Projectile]
+	for _, set in ipairs(effect.statSets or { }) do
+		for _, stat in ipairs(set.stats or { }) do
+			if stat == "display_statset_no_hit_damage" then
+				return false
+			end
+		end
+		hit = hit or (set.baseFlags or { }).hit
+	end
+	return hit and true or false
+end
+
 -- Active skills of the current build with what an assumption needs about them: base cooldown,
 -- cooldown recovery, and whether they generate Remnants. `levelStats = {names}` adds those skills'
 -- stats at their current level and quality (e.g. Iron Ward's store, which PoB doesn't read).
@@ -3529,6 +3551,7 @@ function bridge.activeSkills(args)
 			corpses = (types[SkillType.TargetsDestructibleCorpses] or types[SkillType.TargetsDestructibleRareCorpses]
 				or types[SkillType.CanTargetUnusableCorpse]) and true or nil,
 			triggered = types[SkillType.Triggered] and true or false,
+			hitsOnUse = hitsOnUse(effect, types),
 			-- (MECHB12, AUDIT25 A25-41) a curse's own duration with the build's modifiers ("curse duration" is Duration
 			-- with the Curse keyword, ModParser 483): base x Duration / PrimaryDuration, as PoB builds a skill's duration
 			curseDuration = types[SkillType.AppliesCurse] and activeSkill.skillData.duration and jsonNumber(

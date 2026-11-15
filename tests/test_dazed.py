@@ -114,3 +114,22 @@ def test_which_skills_hit_for_daze():
     assert not daze_hitter({"skillTypes": ["CreatesMinion", "Minion"]})
     assert not daze_hitter({"skillTypes": ["Buff", "Persistent"]}) and not daze_hitter(None)
     assert not daze_hitter({"skillTypes": ["Attack"], "support": True})
+    # (MECH73, A35-2) the bridge's hitsOnUse on the gem's effects decides it where present: Iron Ward's store doesn't hit,
+    # its nova does; a damaging Warcry hits; Fortifying Cry doesn't
+    ward = {"skillTypes": ["Buff", "Persistent"]}
+    assert daze_hitter(ward, [{"hitsOnUse": False}, {"hitsOnUse": True}])
+    assert daze_hitter({"skillTypes": ["Warcry", "Damage"]}, [{"hitsOnUse": True}])
+    assert not daze_hitter({"skillTypes": ["Warcry", "Damage"]}, [{"hitsOnUse": False}])
+    assert not daze_hitter({"skillTypes": ["Attack"], "support": True}, [{"hitsOnUse": True}])
+
+
+def test_broken_stance_labels_the_dazed_share_it_blocks():
+    """MECH73 (AUDIT35 A35-3): "Enemies with Broken Stance cannot be Dazed again" (KeywordPopups BrokenStance). With 10
+    gained hits at 0.5/s the window is 20 s, up 20 / 22 of the fight; a Daze runs 8 s into it, so the boss is un-Dazed
+    12 s of each window: the share is overstated by 20/22 x 12/20 = 54.5% (labelled, not taken off)."""
+    from builder.search import models
+
+    _, notes = models.broken_stance_model(10_000.0, 1.0, 0.5, 0.5, 1.0)
+    assert "overstated by 54.5%" in notes[0]["basis"]
+    _, fast = models.broken_stance_model(10_000.0, 1.0, 0.5, 5.0, 1.0)  # (a 2 s window: the Daze outlasts it)
+    assert "overstated by 0.0%" in fast[0]["basis"]
