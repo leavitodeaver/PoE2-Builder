@@ -217,8 +217,12 @@ def translate(line: str) -> tuple[Entry, list[str]] | None:
     return None
 
 
-def wrong(line: str) -> tuple[Entry, str | None] | None:
+def wrong(line: str, item: str | None = None) -> tuple[Entry, str | None] | None:
     """A `pob_wrong` entry for an item line PoB parses but calculates wrongly, with the one line that replaces it.
+
+    An entry's `not_on` (COV30) names uniques it doesn't apply to: the same text is right there (Choir of the Storm's
+    "Grants Skill: Level N Lightning Bolt" is the triggered bolt PoB grants; a Voltaic Staff's is not). `item` is the
+    unique's name where the caller knows it (context.corrected_raw); rares and bases (items.corrected_item) pass None.
 
     An entry with no replacement switches the item line off (None as the line: PoB's `{disabled}`; the line still
     reaches the models through bridge.sourceLines) ONLY if it says `item_off: true`, which it may say only when a model
@@ -227,7 +231,7 @@ def wrong(line: str) -> tuple[Entry, str | None] | None:
     item line off would zero it with nothing counting it, an undercount (COV8, the manager's ruling after train 13:
     COVB7's flask-used entries, whose flask_used_model reads tree lines only)."""
     for entry in entries():
-        if entry.kind == "pob_wrong":
+        if entry.kind == "pob_wrong" and not (item and item in (entry.raw.get("not_on") or ())):
             lines = entry.translate(line)
             if lines is None or (not lines and not entry.raw.get("item_off")):
                 continue

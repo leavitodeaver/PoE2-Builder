@@ -32,6 +32,9 @@ def replacement_lines() -> list[tuple[str, str]]:
             if m and m.group(1) in ("flag", "mult"):
                 continue
             text = m.group(3) if m else template
+            # an item line's own tags ("{tags:LedgerSkill_<id>}", COV30): PoB's item parser takes them off before it
+            # parses the line (Item.lua 982), so the parse is of the rest
+            text = re.sub(r"^(?:\{(?:tags|range):[^{}]*\})+", "", text)
             # numbers from the matched line: any value parses the same, so fill templates with 10
             found.append((entry.id, re.sub(r"\{[^{}]+\}", "10", text)))
     return found

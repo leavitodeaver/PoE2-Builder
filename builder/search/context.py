@@ -472,7 +472,7 @@ class Context:
             if text in ignored and (translated := translate(text)) and translated[0].on_items:
                 # (`share:` lines as their item stand-ins since COV17: ledger.item_lines)
                 added += [prefix + extra for extra in item_lines(translated[1])]
-            elif fixed := wrong(text):
+            elif fixed := wrong(text, name):
                 line = prefix + (fixed[1] if fixed[1] is not None else "{disabled}" + text)
             lines.append(line)
         return "\n".join(self._with_quality(name, lines) + added)

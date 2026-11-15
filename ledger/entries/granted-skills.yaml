@@ -20,3 +20,34 @@
             "https://poe2db.tw/us/Spear_Throw"]
   test_in_game: "Equip a rare spear: Spear Throw is on the skill bar."
   status: proposed
+
+- id: granted-voltaic-staff-lightning-bolt
+  title: '"Grants Skill: Level N Lightning Bolt" on a Voltaic Staff (rares, Earthbound): PoB grants Choir of the Storm''s triggered bolt'
+  kind: pob_wrong
+  match: '^Grants Skill: Level (\d+|\(\d+-\d+\)) Lightning Bolt$'
+  replace: ['{tags:LedgerSkill_LightningBoltPlayer}Grants Skill: Level {1} Lightning Bolt']
+  not_on: ["Choir of the Storm"]
+  confidence: datamined
+  notes: >-
+    (COV29's finding, COV30's fix.) The game gives the Voltaic Staff base the plain castable spell: ItemInherentSkills
+    row 16 (BaseItemType "Voltaic Staff") -> SkillGems 275 -> GemEffects "LightningBolt" -> GrantedEffect
+    LightningBoltPlayer. Choir of the Storm's mod UniqueTriggerLightningBoltOnCriticalStrike1 grants SkillGems 948 ->
+    UniqueBreachLightningBoltPlayer, the triggered one (a cooldown with stored uses). Both lines read "Grants Skill:
+    Level N Lightning Bolt", and PoB's ModParser maps a grant by lower-case name over sorted gem ids (gemIdLookup), so
+    "lightning bolt" ends on the later id, the breach one, for every carrier (ModCache "Grants Skill: Level 20 Lightning
+    Bolt": skillId UniqueBreachLightningBoltPlayer). Right for Choir, wrong for the staff. The replacement keeps the
+    text (the search's "Grants Skill" readers, granted_rolls' rolled levels on Earthbound, still see it) and tags the line;
+    engine/bridge.lua installLedgerSkill makes the ExtraSkill PoB parsed from it grant LightningBoltPlayer at the same
+    level. not_on keeps Choir's line as PoB has it. The two carriers: the Voltaic Staff base (so every rare one and
+    Earthbound, a Voltaic Staff) and Choir of the Storm (checked: every ItemInherentSkills and ModGrantedSkills row whose
+    skill is SkillGems 275 or 948, one each, COV29's scratch/cov29/lb.py; PoB's Data/Bases and Data/Uniques name Lightning
+    Bolt in staff.lua (the base), Uniques/staff.lua (Earthbound) and Uniques/amulet.lua (Choir) only; the patch notes'
+    Choir entries (0.3.0 "correctly typed as a Triggered Skill", 0.4.0 "5 Cooldown uses") name the triggered one as
+    Choir's). Probe: scratch/cov30/probe_lb.py.
+  sources: ["data/game-26476662/tables/ItemInherentSkills.json row 16; ModGrantedSkills; SkillGems 275 / 948; GemEffects 276 / 926",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua 2185-2205 (gemIdLookup, grantedExtraSkill)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Bases/staff.lua (Voltaic Staff implicit)",
+            "https://poe2db.tw/us/Voltaic_Staff (Grants Skill: Lightning Bolt, no cooldown); https://poe2db.tw/us/Choir_of_the_Storm",
+            "patch notes 0.3.0 (Choir's bolt typed Triggered), 0.4.0 (5 Cooldown uses)"]
+  test_in_game: "Equip a rare Voltaic Staff: its Lightning Bolt is cast from the skill bar with no cooldown."
+  status: proposed

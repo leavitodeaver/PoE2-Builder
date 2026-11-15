@@ -1225,6 +1225,56 @@ local function installLedgerShare()
 	ledgerShareInstalled = true
 end
 
+-- A granted skill under the id the ledger names (COV30; ledger `pob_wrong` entries with `skill_id`, ledger.wrong): an
+-- item line tagged "{tags:LedgerSkill_<id>}" keeps its own text ("Grants Skill: Level 20 Lightning Bolt", which PoB's
+-- ModParser maps by lower-case name to one gem id, gemIdLookup), and the skill the item grants from it is <id>
+-- instead, at the same level (item.grantedSkills, which CalcSetup reads; PoB's parsed mods stay as they are). The Voltaic Staff's castable Lightning Bolt is LightningBoltPlayer; PoB's
+-- lookup ends on Choir of the Storm's triggered UniqueBreachLightningBoltPlayer for every carrier. PoB keeps the tag on the line (Item.lua 991-994) and writes it back on export.
+local ledgerSkillInstalled = false
+local function installLedgerSkill()
+	local class = not ledgerSkillInstalled and common and common.classes and common.classes.Item
+	if not class or not class.BuildModList then
+		return
+	end
+	local buildModList = class.BuildModList
+	class.BuildModList = function(self, ...)
+		local result = buildModList(self, ...)
+		-- After PoB's build: a ranged line ("Level (1-20)") gets a fresh modList inside it (getRangedModList), so the
+		-- tagged lines' ExtraSkill values are read now, and the item's grantedSkills (built from baseModList's
+		-- ExtraSkill list in order, skipping "Unknown": Item.lua 2845-2858) take the ledger's id where they came from one
+		local wanted = { }
+		for _, kind in ipairs({ "explicitModLines", "implicitModLines", "enchantModLines" }) do
+			for _, modLine in ipairs(rawget(self, kind) or { }) do
+				local skillId
+				for _, tag in ipairs(modLine.modTags or { }) do
+					skillId = skillId or tag:match("^LedgerSkill_(%w+)$")
+				end
+				if skillId and data.skills[skillId] then
+					for _, parsed in ipairs(modLine.modList or { }) do
+						if parsed.name == "ExtraSkill" and type(parsed.value) == "table" then
+							wanted[parsed.value] = skillId
+						end
+					end
+				end
+			end
+		end
+		if next(wanted) and rawget(self, "baseModList") and rawget(self, "grantedSkills") then
+			local i = 0
+			for _, skill in ipairs(self.baseModList:List(nil, "ExtraSkill")) do
+				if skill.name ~= "Unknown" then
+					i = i + 1
+					local granted = self.grantedSkills[i]
+					if wanted[skill] and granted and granted.skillId == skill.skillId then
+						granted.skillId = wanted[skill]
+					end
+				end
+			end
+		end
+		return result
+	end
+	ledgerSkillInstalled = true
+end
+
 -- Whether PoB applies this rune line now: a Bonded line only under the item's current Bonded state, which
 -- GetActiveModListForSlotNum sets on each calculation ("all": CanUseBonded; "idol": an Idol's own lines only)
 local function runeLineApplies(item, modLine)
@@ -1475,6 +1525,7 @@ local function installDerived()
 	installStatSetSlots()
 	installLedgerBonded()
 	installLedgerShare()
+	installLedgerSkill()
 	installSpiritVessel()
 	installCannotChill()
 	installAreaDamageFlag()
@@ -2466,6 +2517,16 @@ local function gemByName(name)
 	return gemData
 end
 
+-- (COV30) The gem whose granted effect is `skillId`, in gemsInOrder's order; nil when PoB has none
+local function gemBySkillId(skillId)
+	for _, entry in ipairs(gemsInOrder()) do
+		if entry.gem.grantedEffectId == skillId then
+			return entry.gem
+		end
+	end
+	return nil
+end
+
 local function socketGroup(index)
 	local group = build.skillsTab.socketGroupList[index]
 	if not group then
@@ -2522,6 +2583,8 @@ local function describeGroup(index, group)
 		gems[#gems + 1] = {
 			name = gem.gemData and gem.gemData.name or (gem.nameSpec ~= "" and gem.nameSpec) or (gem.grantedEffect and gem.grantedEffect.name) or "", level = gem.level, quality = gem.quality,
 			support = effect and effect.support and true or false, enabled = gem.enabled ~= false,
+			-- the granted effect's id (COV30): which of two gems sharing a name ("Lightning Bolt") this is
+			skillId = effect and effect.id or nil,
 		}
 	end
 	local skills = { }
@@ -2625,7 +2688,9 @@ function bridge.setGroup(args)
 		end
 		group.gemList = { }
 		for _, spec in ipairs(args.gems) do
-			local instance = gemInstance(gemByName(spec.name), spec.level, spec.quality)
+			-- (COV30) `skillId` picks the gem of that granted effect where several share the name (the audit sweep's
+			-- Unleash: gemByName's socketable-first rule gives the support)
+			local instance = gemInstance(spec.skillId and gemBySkillId(spec.skillId) or gemByName(spec.name), spec.level, spec.quality)
 			instance.enabled = spec.enabled ~= false
 			for key, value in pairs(kept[spec.name] or { }) do
 				instance[key] = value
@@ -4113,6 +4178,18 @@ function bridge.auditSkills(args)
 			names[gem.name] = true
 		end
 	end
+	-- (COV30) a name whose by-name gem is a support (gemByName prefers the socketable gem: "Unleash" is the support
+	-- SupportUnleashPlayer and the skill UnleashPlayer) is swept as its first active gem in gemsInOrder, by id; every
+	-- other name stays gemByName's gem, as before
+	local sweptId = { }
+	for _, entry in ipairs(gemsInOrder()) do
+		local effect = entry.gem.grantedEffect
+		local name = entry.gem.name
+		if effect and not effect.support and names[name] and sweptId[name] == nil then
+			local byName = gemByName(name).grantedEffect
+			sweptId[name] = byName and byName.support and entry.gem.grantedEffectId or false
+		end
+	end
 	local sorted = { }
 	for name in pairs(names) do
 		sorted[#sorted + 1] = name
@@ -4129,7 +4206,8 @@ function bridge.auditSkills(args)
 		end
 	end
 	for _, name in ipairs(sorted) do
-		local effect = gemByName(name).grantedEffect
+		local skillId = sweptId[name] or nil
+		local effect = (skillId and gemBySkillId(skillId) or gemByName(name)).grantedEffect
 		local kinds = { }
 		for kind in pairs(effect.weaponTypes or { }) do
 			kinds[#kinds + 1] = kind
@@ -4140,15 +4218,14 @@ function bridge.auditSkills(args)
 		if #build.skillsTab.socketGroupList == 0 then
 			index = nil  -- (a skill's setup can drop the group: start a new one)
 		end
-		local ok, result = pcall(bridge.setGroup, { index = index, gems = { { name = name, level = 20, quality = 0 } }, main = true,
-			fields = fields })
+		local ok, result = pcall(bridge.setGroup, { index = index, gems = { { name = name, skillId = skillId, level = 20, quality = 0 } },
+			main = true, fields = fields })
 		if ok then
 			local minion = build.calcsTab.mainOutput and build.calcsTab.mainOutput.Minion
 			result.stats.MinionDPS = minion and (minion.CombinedDPS or minion.TotalDPS) or nil
 			result.stats.weapon = weapon and weapon.name or nil
 			index = 1
 			local types = { }
-			local effect = gemByName(name).grantedEffect
 			for skillType in pairs(effect.skillTypes or { }) do
 				for typeName, value in pairs(SkillType) do
 					if value == skillType then
@@ -4372,9 +4449,30 @@ function bridge.sourceLines()
 			lines[#lines + 1] = { source = source, text = text }
 		end
 	end
+	local keystones = { }
 	for _, node in pairs(build.spec.allocNodes) do
 		for _, line in ipairs(node.sd or { }) do
 			add("passive:" .. (node.dn or node.id), line)
+		end
+		if node.type == "Keystone" and node.dn then
+			keystones[node.dn] = true
+		end
+	end
+	-- (COV30, AUDIT35 A35-1) a keystone the build has without allocating it: an item's line names it (Flesh Crucible's
+	-- variants, "Grants keystone" lines) and PoB adds a Keystone LIST mod, which mergeKeystones (CalcPerform 147-157)
+	-- turns into the tree node's own modList, ledger corrections included (applyPassiveCorrections adds them to every
+	-- node, allocated or not; keystoneMap holds the same node tables, PassiveTree.lua 252). Its text came from no
+	-- allocated node, so the models (models.read_inputs) and the condition resolver never read it: Ritual Cadence from a
+	-- Flesh Crucible counted none of its model lines. Given as the keystone's passive lines, as if allocated.
+	local env = build.calcsTab and build.calcsTab.mainEnv
+	local keystoneMap = build.spec.tree.keystoneMap or { }
+	for _, name in ipairs(env and env.modDB and env.modDB:List(nil, "Keystone") or { }) do
+		local node = type(name) == "string" and keystoneMap[name]
+		if node and node.dn and not keystones[node.dn] then
+			keystones[node.dn] = true
+			for _, line in ipairs(node.sd or { }) do
+				add("passive:" .. node.dn, line)
+			end
 		end
 	end
 	for slotName, slot in pairs(build.itemsTab.slots) do
