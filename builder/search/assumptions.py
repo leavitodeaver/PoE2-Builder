@@ -1393,6 +1393,8 @@ class Assumptions:
         mods, corpse_notes = models.corpse_model(found, mods, stats, main)  # last: it overrides the trigger rates above (MECHB11: the adds' corpses)
         notes += corpse_notes + models.spirit_vessel_notes(skills)
         notes += models.granted_level_notes([(o.name, o.raw, o.granted_basis) for o in build.equipped.values() if o is not None and o.unique])
+        if faced := [o.raw for o in build.equipped.values() if o is not None and FACEBREAKER_LINE.search(o.raw)]:
+            notes += facebreaker_notes(faced, build.call("getConfig")["input"].get("configBossFaceBroken"))  # (COV32)
         chosen = [n for n in build.call("attributeNodes")["nodes"] if n["attribute"] >= 4]
         if chosen:
             kinds = {4: "Damage", 5: "Armour, Evasion and Energy Shield", 6: "Cost Efficiency"}
@@ -3568,3 +3570,40 @@ def missing_mana_tens(pool: float, regen: float, spends: list[tuple[float, float
     tens = min(tens, 10.0)
     return tens, (f"{drain:.1f} Mana/s drained against {regen:.1f} regenerated, each dip refilling at once after: "
                   f"{tens:.2f} tens missing on average (dips under a tenth of the {pool:.0f} pool count 0)")
+
+
+# Facebreaker (COV32, PATCH_CHECK MB-5 / R5): "Has 8 to 12 Physical damage, +3 to +4 per Boss's Face Broken" (its Fire
+# variant "9 to 14 Fire damage, +3 to +5"). A broken face is a campaign count, not a per-fight rate (KeywordPopups 868:
+# "Each "Boss Encounter" icon on the World Screen is a face which can be broken by beating the encounter"; the player
+# stat number_of_broken_faces). bridge.resetConfig sets PoB's configBossFaceBroken to 56 (BOSS_FACES_BROKEN) unless the
+# loaded code has its own count; this says which count was used and what poe2db's 60 would add.
+FACEBREAKER_LINE = re.compile(r"Has (\d+) to (\d+) (\w+) damage, \+(\d+) to \+(\d+) per Boss's Face Broken", re.I)
+FACES_SOURCES = 60  # (poe2db's Community Wiki note: "There are 60 world boss"; the other sources' "176-236" is 56)
+
+
+def facebreaker_notes(texts: list[str], faces: float | None) -> list[dict]:
+    """A labelled note per Facebreaker line among the equipped items' texts: the broken-face count the score used
+    (faces: PoB's configBossFaceBroken) and, as a row, the item's damage at 60 faces."""
+    notes = []
+    for text in texts:
+        for m in FACEBREAKER_LINE.finditer(text):
+            low, high, kind, per_low, per_high = int(m[1]), int(m[2]), m[3].capitalize(), int(m[4]), int(m[5])
+            n = faces or 0
+            at = (low + per_low * n, high + per_high * n)
+            more = FACES_SOURCES - n
+            row = (f"with {FACES_SOURCES} faces: {low + per_low * FACES_SOURCES}-{high + per_high * FACES_SOURCES} "
+                   f"(+{per_low * more}-{per_high * more} base damage, "
+                   f"{(per_low + per_high) * more / max(1, sum(at)):+.1%} of the item's damage)" if more > 0 else "")
+            notes.append({
+                "label": f"Facebreaker: {n:g} broken boss faces assumed*", "value": n,
+                "basis": f"the item's {kind} damage {at[0]}-{at[1]} at {n:g} faces ('+{per_low} to +{per_high} per "
+                         "Boss's Face Broken'). A face is a World Screen boss encounter beaten in the campaign (the game's "
+                         "own definition), a count the character keeps, not a per-fight number. "
+                         + ("56 is what a finished campaign + Interludes gives by the lower of the sources' counts (56, "
+                            "60); the game files don't list them: MEDIUM that the count is 56-60, LOW for 56 exactly. " if n == 56 else
+                            "The loaded build's own count. " if n else
+                            "0 faces: a character that hasn't beaten a campaign boss. ")
+                         + (row + ". " if row else "")
+                         + "In game: the World Screen's face tracker shows the real count",
+                "confidence": "theory" if n == 56 else "reported"})
+    return notes

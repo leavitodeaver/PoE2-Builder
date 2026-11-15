@@ -3062,14 +3062,21 @@ local BOSS_HITS_DEFAULT = { enemyPhysicalDamage = 1034, enemyFireDamage = 4138, 
 -- A loaded code's configuration isn't evidence (PLAN.md §5.4): the active config set goes back
 -- to what a new build has (PoB's own new-set defaults, the boss preset included), with no custom
 -- modifiers, and the boss's resistances (args.boss, else BOSS_DEFAULT). Only the campaign quest
--- choices stay; they're free picks, not conditions.
+-- Broken boss faces (Facebreaker's "+3 to +4 per Boss's Face Broken"; COV32, PATCH_CHECK MB-5 / R5): a count the
+-- character builds over its campaign and keeps (KeywordPopups 868: each World Screen "Boss Encounter" icon beaten), not
+-- a per-fight rate. PoB's box has no default, so it counted 0. 56 for a finished campaign + Interludes: the lower of the
+-- sources' two counts (56: Mobalytics / aoeah / u4gm's "176-236"; 60: poe2db's wiki note's "188-252"; the game files
+-- have no world-area table to count them). MEDIUM that the count is 56-60, LOW for 56 exactly. A loaded code's own
+-- count (the character's tracker) is kept, as its quest choices are. builder/search/assumptions.py facebreaker_notes.
+local BOSS_FACES_BROKEN = 56
+-- choices stay; they're free picks, not conditions. So does the broken-face count (campaign progress, BOSS_FACES_BROKEN).
 function bridge.resetConfig(args)
 	local configTab = build.configTab
 	local id = configTab.activeConfigSetId
 	local old = configTab.configSets[id]
 	local fresh = configTab:CreateConfigSet(id, old.title)
 	for var, value in pairs(old.input) do
-		if var:match("^quest") then
+		if var:match("^quest") or var == "configBossFaceBroken" then
 			fresh.input[var] = value
 		end
 	end
@@ -3084,6 +3091,7 @@ function bridge.resetConfig(args)
 	for var, value in pairs((args and args.boss) or BOSS_DEFAULT) do
 		fresh.input[var] = value
 		if var == "cullingStrikeUniqueThreshold" then
+	fresh.input.configBossFaceBroken = fresh.input.configBossFaceBroken or BOSS_FACES_BROKEN
 			data.gameConstants["CullingStrikeUniqueThreshold"] = value
 		end
 	end

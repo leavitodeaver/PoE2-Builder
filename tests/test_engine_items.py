@@ -189,7 +189,10 @@ def test_a_seeds_own_configuration_is_not_evidence(engine):
     from builder.search import boss_hits
     for var in boss_hits.config_vars():  # (MECHC6: the boss's hits per damage type; MECHD5: the default boss's own,
         assert config.get(var) == bosses.config_vars()[var], (var, config.get(var))  # carried by bosses.config_vars)
-    assert changed - set(bosses.config_vars()) - set(boss_hits.config_vars()) <= set(search.conditions.active)
+    # (COV32: the broken-face count is campaign progress, set to 56 when the code has none: bridge BOSS_FACES_BROKEN)
+    assert config["configBossFaceBroken"] == loaded.get("configBossFaceBroken", 56)
+    assert changed - set(bosses.config_vars()) - set(boss_hits.config_vars()) - {"configBossFaceBroken"} \
+        <= set(search.conditions.active)
 
 
 def test_a_loaded_build_never_reads_the_previous_builds_cached_skills(engine):
