@@ -5085,9 +5085,93 @@ def inevitable_agony_model(hit_dps: float, player_dps: float, duration: float = 
 # Counted here instead of PoB's: one empowered attack (1 + repeats) x (1 - less) per cycle of max(cooldown, Barrage's
 # cast + one attack), the rest of the cycle normal attacks, Barrage's cast taking main-skill time (a play strategy:
 # Barrage pressed each time it's up, shown with and without it). Cooldown = (2 s + its % of the main skill's attack
-# time) over Barrage's Cooldown Recovery, at most 30 s. Readings (labelled): the repeats take no extra attack time, as
-# PoB's (UNVERIFIED); every projectile of the sequence at the less damage, as PoB reads "with repeated projectiles";
+# time) over Barrage's Cooldown Recovery, at most 30 s. The empowered use takes 5% longer per repeat (KeywordPopups
+# Repeat: "Skills take 5% longer to perform for each time they Repeat", MECHB30.research2.md Q3, HIGH; the cooldown's
+# "attack time" taken as the plain one, MEDIUM). Readings (labelled): every projectile of the sequence at the less damage, as PoB reads "with repeated projectiles";
 # Frenzy Charges consumed per use counted at PoB's held count (whether they come back each cycle is MECH-C's charges).
+# Infernal Legion I / II (MECHB30, PATCH_CHECK H1-7; MECH75's routing): since 0.5.0 (PoB gem_stat_descriptions,
+# support_minions_ignite_for_%_max_life 10, infernal_legion_minion_burning_effect_radius 15): "Minions from Supported
+# Skills Ignite Enemies within a radius of 1.5 metres as though dealing Base Fire Damage equal to 10% of Minion's Maximum
+# Life"; the minions take 600% of their Life as Fire per minute (PoB applies that). PoB's statMap still reads the older
+# support_minion_instability_* stat, so nothing rates the boss's Ignite (0 before, an UNDERCOUNT). KeywordPopups Ignite:
+# "The base Magnitude of Ignite is Fire damage per second equal to 20% of the Fire damage dealt by the Hit". Counted:
+# 20% x 10% x the minion's Life per second, through the boss's Fire resistance, while a supported minion is within 1.5
+# m: melee minions stand at the boss (MEDIUM); ranged ones (by name: mages, snipers, arsonists, clerics) are taken to
+# keep away. Only the strongest Ignite counts on one target, so this adds only what it beats the build's own Ignite by
+# (PoB's IgniteDPS). Not counted (labelled): the minion's own damage and Ignite modifiers on that base (an
+# undercount), Catha's Brilliance's same effect (not mapped), the boss Ignited for MECH-A's "Ignited" lines (routed),
+# the minions' deaths from the burn feeding minion_deaths.
+INFERNAL_LEGION = ("Infernal Legion I", "Infernal Legion II")
+LEGION_LIFE_SHARE = 0.10  # support_minions_ignite_for_%_max_life 10
+IGNITE_BASE = 0.20  # KeywordPopups Ignite: 20% of the hit's Fire damage per second
+RANGED_MINIONS = ("Mage", "Sniper", "Arsonist", "Cleric", "Archer")
+
+
+def infernal_legion_model(minions: list[tuple[str, float]], fire_resist: float, own_ignite: float) -> tuple[float, dict]:
+    """(added DPS, note). `minions`: (minion skill, its minion's Life) for each Infernal Legion-supported skill;
+    `fire_resist`: the boss's Fire resistance %; `own_ignite`: the build's own Ignite DPS on the boss (PoB's IgniteDPS)."""
+    near = [(name, life) for name, life in minions if life > 0 and not any(r in name for r in RANGED_MINIONS)]
+    label = "Infernal Legion (supported minions Ignite the boss near them)"
+    if not near:
+        return 0.0, {"label": label, "value": 0, "confidence": "MEDIUM",
+                     "basis": "no supported melee minion with a Life PoB reports is near the boss: 0"}
+    name, life = max(near, key=lambda m: m[1])
+    ignite = IGNITE_BASE * LEGION_LIFE_SHARE * life * (1 - fire_resist / 100)
+    added = max(0.0, ignite - own_ignite)
+    basis = (f"{name}'s minions ({life:,.0f} Life) Ignite the boss for 20% x 10% of their Life a second through its "
+             f"{fire_resist:g}% Fire resistance = {ignite:,.1f} DPS; only the strongest Ignite counts, so "
+             f"+{added:,.1f} over the build's own {own_ignite:,.1f}. Melee minions taken to stand within the 1.5 m "
+             "(MEDIUM); the minion's own damage and Ignite modifiers not counted (an undercount)")
+    return added, {"label": label, "value": round(added, 1), "basis": basis, "confidence": "MEDIUM"}
+
+
+# Tailwind (MECHB30, PATCH_CHECK MB-3). KeywordPopups Tailwind: "a stacking Buff which grants 1% increased movement
+# speed, 2% increased Skill Speed, 10% increased Evasion Rating and prevent 1% of Damage from Deflected Hits per stack.
+# Maximum 10 stacks. Lose all Tailwind stacks when Hit." Sources (PoB tree 0_5 and uniques; PoB parses each to its
+# CanHaveTailwind flag only): Deadeye's Gathering Winds "Gain Tailwind on Skill use", The Black Insignia "Gain Tailwind
+# on Critical Hit, no more than once per second". PoB applies the stacks from its Multiplier:Tailwind (CalcSetup
+# 1013-1017), which only its unset count box sets: 0 before (an UNDERCOUNT). Here: stacks gained at the build's own rate
+# (the main skill's uses a second; crits a second, at most 1, for the helmet; other skills' uses not counted, an
+# undercount) and lost at each boss hit that reaches you (landed or Blocked: the user's 14 Nov reading that a Blocked hit
+# is a hit, for Thorns; Evaded hits don't hit). Between hits g s apart the stack count climbs one a gain to 10, so the
+# fight's mean is r g / 2 when r g <= 10, else 10 - 50 / (r g) (the gaps taken as even, MEDIUM). Handed to PoB as
+# Multiplier:Tailwind.
+TAILWIND_MAX = 10
+TAILWIND_ON_USE = re.compile(r"gain tailwind on skill use", re.I)
+TAILWIND_ON_CRIT = re.compile(r"gain tailwind on critical hit, no more than once per second", re.I)
+
+
+def tailwind_model(texts: list[str], stats: dict, main: Skill | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the mean Tailwind stacks over the fight, as PoB's Multiplier:Tailwind."""
+    on_use = any(TAILWIND_ON_USE.search(t) for t in texts)
+    on_crit = any(TAILWIND_ON_CRIT.search(t) for t in texts)
+    if not (on_use or on_crit):
+        return [], []
+    parts, rate = [], 0.0
+    if on_use and main is not None and not main.triggered:
+        uses = number(stats.get("Speed"))
+        rate += uses
+        parts.append(f"{uses:.2f} uses/s of {main.name}")
+    if on_crit:
+        crits = min(1.0, crits_per_second(stats))
+        rate += crits
+        parts.append(f"{crits:.2f} crits/s (at most 1)")
+    hits = (boss_hits.land_share(stats) + boss_hits.block_share(stats)) / bosses.benefit_skill_time(stats)
+    if rate <= 0:
+        stacks = 0.0
+    elif hits <= 0:
+        stacks = float(TAILWIND_MAX)
+    else:
+        climb = rate / hits
+        stacks = climb / 2 if climb <= TAILWIND_MAX else TAILWIND_MAX - TAILWIND_MAX ** 2 / (2 * climb)
+    basis = (f"gained at {rate:.2f}/s ({'; '.join(parts) or 'nothing'}), all lost at each of the boss's {hits:.2f} hits/s "
+             f"that land or are Blocked: {stacks:.1f} of {TAILWIND_MAX} stacks on average (even gaps, MEDIUM; other "
+             "skills' uses not counted)")
+    note = {"label": "Tailwind stacks (mean over the fight)", "value": round(stacks, 2), "basis": basis,
+            "confidence": "MEDIUM"}
+    return ([raw_mod("Multiplier:Tailwind", "BASE", stacks)] if stacks > 0 else []), [note]
+
+
 EMPOWERMENT_LINE = re.compile(r"sacrifice (\d+(?:\.\d+)?)% of maximum energy shield when you cast a spell", re.I)
 EMPOWERMENT_MORE = re.compile(r"spells for which this sacrifice was fully made deal (\d+(?:\.\d+)?)% more damage", re.I)
 
@@ -5142,6 +5226,7 @@ BARRAGE = "Barrage"
 BARRAGE_COOLDOWN = 2.0  # s (its level cooldown)
 BARRAGE_MAX_COOLDOWN = 30.0  # s (empowered_barrage_maximum_cooldown_ms 30000)
 BARRAGE_CAST = 0.7  # s
+BARRAGE_REPEAT_TIME = 0.05  # KeywordPopups Repeat: "5% longer to perform for each time they Repeat"
 
 
 def barrage_model(speed: float, repeats: float, less: float, cooldown_pct: float, recovery: float = 1.0,
@@ -5153,15 +5238,16 @@ def barrage_model(speed: float, repeats: float, less: float, cooldown_pct: float
         return 1.0, pob, "the main skill attacks 0 times a second: Barrage gives nothing"
     t = 1.0 / speed
     cooldown = min((BARRAGE_COOLDOWN + cooldown_pct / 100 * t) / (recovery or 1.0), BARRAGE_MAX_COOLDOWN)
-    period = max(cooldown, cast + t)
-    normal = max(0.0, (period - cast - t) / t)
+    longer = t * (1 + BARRAGE_REPEAT_TIME * repeats)  # (the empowered use: 5% longer per repeat)
+    period = max(cooldown, cast + longer)
+    normal = max(0.0, (period - cast - longer) / t)
     empowered = (1 + repeats) * (1 - less / 100)
     factor = t * (empowered + normal) / period
     how = (f"Barrage pressed each time it's up: one empowered attack ({1 + repeats:g} sequences x {1 - less / 100:.0%} "
            f"damage = x{empowered:.2f}) every {period:.2f} s (its cooldown {cooldown:.2f} s: 2 s + {cooldown_pct:g}% of "
            f"the {t:.2f} s attack, over Cooldown Recovery; at most 30 s), {normal:.1f} normal attacks between, its "
-           f"{cast:g} s cast in the cycle: x{factor:.3f} of the main skill's damage without it (PoB counts x{pob:.3f}). "
-           "Repeats taken to add no attack time (UNVERIFIED); Frenzy Charges at PoB's held count")
+           f"{cast:g} s cast in the cycle, the empowered use {BARRAGE_REPEAT_TIME:.0%} longer per repeat: x{factor:.3f} of "
+           f"the main skill's damage without it (PoB counts x{pob:.3f}). Frenzy Charges at PoB's held count")
     if factor < 1.0:  # (its cast costs more than its repeats give: not pressed)
         return 1.0, pob, how + ": a net loss, so not pressed (x1.000)"
     return factor, pob, how

@@ -4606,11 +4606,11 @@ def test_barrage_empowers_one_attack_per_cooldown_not_every_attack():
     between; PoB's own factor read as its percent DPS MORE (probe POE2T1173: x1.020 for 2 repeats at 33% less); a net
     loss isn't pressed (x1)."""
     factor, pob, how = models.barrage_model(speed=1.0, repeats=4, less=45, cooldown_pct=410)
-    period = 2 + 4.1  # (t = 1 s)
-    assert factor == pytest.approx((5 * 0.55 + (period - 0.7 - 1)) / period) and factor > 1
+    period = 2 + 4.1  # (t = 1 s; the empowered use 1.2 s: 5% longer for each of 4 repeats)
+    assert factor == pytest.approx((5 * 0.55 + (period - 0.7 - 1.2)) / period) and factor > 1
     assert pob == pytest.approx(1 + 5 * 0.55 / 100) and "PoB counts" in how
     slow, _, _ = models.barrage_model(speed=0.1, repeats=4, less=45, cooldown_pct=600)  # (the 30 s cap holds)
-    assert slow == pytest.approx(10 * (5 * 0.55 + (30 - 0.7 - 10) / 10) / 30)
+    assert slow == pytest.approx(10 * (5 * 0.55 + (30 - 0.7 - 12) / 10) / 30)
     fast, _, _ = models.barrage_model(speed=1.0, repeats=4, less=45, cooldown_pct=410, recovery=2.0)
     assert fast > factor  # (a shorter cooldown: more empowered attacks)
     loss, _, how = models.barrage_model(speed=1.08, repeats=2, less=45, cooldown_pct=410)
@@ -4638,6 +4638,36 @@ def test_eldritch_empowerment_counts_30_percent_more_at_the_share_of_casts_its_e
     bow = models.Skill("Ice Shot", group=1, attack=True)
     assert models.eldritch_empowerment_model(texts, rich, bow)[0] == []
     assert models.eldritch_empowerment_model(texts, {**rich, "EnergyShield": 0}, spark)[0] == []
+
+
+def test_infernal_legion_ignites_the_boss_for_20_percent_of_10_percent_of_minion_life():
+    """MECHB30 (PATCH_CHECK H1-7): "Ignite Enemies within a radius of 1.5 metres as though dealing Base Fire Damage equal
+    to 10% of Minion's Maximum Life", an Ignite's base 20% a second, through the boss's Fire resistance; melee minions
+    only (ranged ones keep away); only the strongest Ignite counts, so only what it beats the build's own by."""
+    added, note = models.infernal_legion_model([("Skeletal Brute Minion", 5000.0)], 30.0, 0.0)
+    assert added == pytest.approx(0.2 * 0.1 * 5000 * 0.7) and "MEDIUM" == note["confidence"]
+    assert models.infernal_legion_model([("Skeletal Brute Minion", 5000.0)], 30.0, 50.0)[0] == pytest.approx(20.0)
+    assert models.infernal_legion_model([("Skeletal Brute Minion", 5000.0)], 30.0, 500.0)[0] == 0.0
+    assert models.infernal_legion_model([("Skeletal Frost Mage Minion", 5000.0)], 30.0, 0.0)[0] == 0.0
+    assert models.infernal_legion_model([("Skeletal Warrior Minion", 1000.0), ("Skeletal Brute Minion", 4000.0)],
+                                        0.0, 0.0)[0] == pytest.approx(0.2 * 0.1 * 4000)
+
+
+def test_tailwind_stacks_climb_between_the_bosss_hits_and_reset_on_each():
+    """MECHB30 (PATCH_CHECK MB-3): one stack a skill use (Gathering Winds) or a crit at most once a second (The Black
+    Insignia), all lost at each boss hit that lands or is Blocked; the mean over a gap g: r g / 2 up to 10 stacks, else
+    10 - 50 / (r g); handed to PoB as Multiplier:Tailwind."""
+    spark = models.Skill("Spark", group=1, spell=True)
+    stats = {"Speed": 2.0, "CritChance": 0.0}
+    hits = (models.boss_hits.land_share(stats) + models.boss_hits.block_share(stats)) / models.bosses.benefit_skill_time(stats)
+    climb = 2.0 / hits
+    want = climb / 2 if climb <= 10 else 10 - 50 / climb
+    mods, notes = models.tailwind_model(["Gain Tailwind on Skill use", "Lose all Tailwind when Hit"], stats, spark)
+    assert notes[0]["value"] == pytest.approx(want, abs=0.01)
+    assert mods[0]["name"] == "Multiplier:Tailwind" and mods[0]["type"] == "BASE"
+    assert models.tailwind_model([], stats, spark) == ([], [])
+    nothing = models.tailwind_model(["Gain Tailwind on Critical Hit, no more than once per second"], stats, spark)
+    assert nothing[0] == [] and nothing[1][0]["value"] == 0  # (no crits: no stacks)
 
 
 def test_added_sources_sum_and_eternal_hunt_counts_five_wolves_net_of_its_presses():

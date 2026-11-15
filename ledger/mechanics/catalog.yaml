@@ -763,3 +763,33 @@
   guide_note: ""
   impact: 1
   effort: S
+
+- id: infernal-legion-ignite
+  name: Infernal Legion's minion Ignite on the boss
+  terms: [Infernal Legion]
+  category: damage sources
+  game: "Since 0.5.0: 'Minions from Supported Skills Ignite Enemies within a radius of 1.5 metres as though dealing Base Fire Damage equal to 10% of Minion's Maximum Life' (support_minions_ignite_for_%_max_life 10); KeywordPopups Ignite: 20% of the hit's Fire damage a second."
+  game_source: "PoB gem_stat_descriptions (game text); data/game-26476662 KeywordPopups Ignite; patch notes 0.5.0"
+  pob: none
+  pob_check: "PoB's statMap reads the older support_minion_instability_* stat; nothing rates the boss's Ignite (probe POE2T1183: Skeletal Brute Full DPS unchanged)."
+  handling: "models.infernal_legion_model (MECHB30), an added source: 20% x 10% x the minion's Life a second through the boss's Fire resistance, melee minions only (MEDIUM), less the build's own Ignite (only the strongest counts). Not counted: the minion's own Ignite modifiers, Catha's Brilliance, MECH-A's Ignited lines."
+  plan: {approach: custom model, how: "Done; the minion's damage modifiers on the base are open.", inputs: [useRates minionLife, enemyFireResist, IgniteDPS]}
+  what_if: invisible
+  guide_note: "Your burning minions Ignite the boss: +X DPS."
+  impact: 2
+  effort: S
+
+- id: tailwind-stacks
+  name: Tailwind stacks
+  terms: [Tailwind]
+  category: your state
+  game: "KeywordPopups Tailwind: per stack 1% movement, 2% Skill Speed, 10% Evasion, 1% Deflect prevention; max 10; all lost when Hit. Gathering Winds: on Skill use; The Black Insignia: on Critical Hit, at most once a second."
+  game_source: "data/game-26476662 KeywordPopups; PoB tree 0_5 Gathering Winds; PoB Uniques helmet.lua"
+  pob: config-only
+  pob_check: "PoB applies Multiplier:Tailwind (CalcSetup 1013-1017) only from its count box, which nothing set."
+  handling: "models.tailwind_model (MECHB30): the mean stacks between the boss's hits that land or are Blocked, gained at the main skill's uses (or crits, at most 1/s), as Multiplier:Tailwind."
+  plan: {approach: custom model, how: "Done; other skills' uses are an undercount.", inputs: [Speed, crits, boss_hits shares]}
+  what_if: invisible
+  guide_note: "Tailwind X stacks on average."
+  impact: 2
+  effort: S

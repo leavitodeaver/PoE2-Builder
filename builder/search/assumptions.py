@@ -640,6 +640,27 @@ def barrage(build: Build, main: models.Skill | None, found: list[models.Skill]) 
                                              if factor > 1 else "Barrage costs more than it gives here: not pressed")}
     return [models.raw_mod("DPS", "MORE", (factor / pob - 1) * 100, skill=main.name)], [note]
 
+
+def infernal_legion(build: Build, stats: dict) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Infernal Legion I / II (models.infernal_legion_model, MECHB30): each supported minion
+    skill's minion Life (PoB's useRates minionLife, as minion_lives reads it), the boss's Fire resistance (the config's
+    enemyFireResist) and the build's own Ignite (PoB's IgniteDPS)."""
+    indices, actives, names = [], [], []
+    for group in build.groups():
+        if not group["enabled"] or not any(g["name"] in models.INFERNAL_LEGION and g.get("enabled", True)
+                                           for g in group["gems"]):
+            continue
+        for n, skill in enumerate(group["skills"], 1):
+            if not skill.get("disabled"):
+                indices.append(group["index"]); actives.append(n); names.append(skill["name"])
+    if not indices:
+        return 0.0, []
+    rates = {(r["index"], r.get("active")): r for r in build.call("useRates", indices=indices, actives=actives)["rates"]}
+    minions = [(name, number((rates.get((i, a)) or {}).get("minionLife"))) for i, a, name in zip(indices, actives, names)]
+    resist = number(build.call("getConfig")["input"].get("enemyFireResist"))
+    added, note = models.infernal_legion_model(minions, resist, number(stats.get("IgniteDPS")))
+    return added, [note]
+
 # What each Warcry Empowers, by its own game text (MECH65, AUDIT29 A29-4; ActiveSkills 26476662 descriptions):
 # KeywordPopups Warcry says Warcries "Empower your subsequent Melee Attacks", but the skills' own texts differ: Arctic
 # Howl "Empowers your attacks" (and Slams), but only "If an enemy is Frozen or a Frozen enemy is Hit"; Seismic Cry
@@ -1370,6 +1391,11 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + puppet_mods, hand_notes + puppet_notes
         barrage_mods, barrage_notes = barrage(build, main, found)  # (MECHB30: PoB's +2% for one empowered attack a cooldown)
         hand_mods, hand_notes = hand_mods + barrage_mods, hand_notes + barrage_notes
+        legion, legion_notes = infernal_legion(build, stats)  # (MECHB30, H1-7: PoB rates no boss Ignite from it)
+        hand_mods += [models.added_input("InfernalLegion", legion)] if legion > 0 else []
+        hand_notes += legion_notes
+        tail_mods, tail_notes = models.tailwind_model([e["text"] for e in source_lines], stats, main)  # (MECHB30, MB-3)
+        hand_mods, hand_notes = hand_mods + tail_mods, hand_notes + tail_notes
         eldritch_mods, eldritch_notes = models.eldritch_empowerment_model([e["text"] for e in source_lines], stats, main)
         hand_mods, hand_notes = hand_mods + eldritch_mods, hand_notes + eldritch_notes  # (MECHB30, MB-1: PoB's box unset)
         agony, agony_rate, agony_mods, agony_notes = inevitable_agony(build, main)  # (MECHB30: PoB scores it 0)
@@ -1381,7 +1407,7 @@ class Assumptions:
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
                                    "Battershout": shout, "Blood Hunt": blood, "Ancestral Spirits": spirits,
-                                   "Inevitable Agony": agony, "Impale": impaled + impaled_others})
+                                   "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.
