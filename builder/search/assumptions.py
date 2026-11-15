@@ -449,6 +449,59 @@ def purple_stacks(rate: float, seconds: float = PURPLE_SECONDS, most: int = PURP
     return min(float(most), max(rate, 0.0) * seconds)
 
 
+# Mark of Siphoning I / II (MECHC28; PATCH_CHECK H1-9, an UNDERCOUNT of Mana / Life recovery): "Enemies Marked by
+# Supported Skills cause you to Leech Mana [I and II] / Life [II] equal to 8% of Physical Attack Damage" (0.5.0, the
+# newest entry: grep_notes --history "Mark of Siphoning"; game files GrantedEffectStatSets SupportMarkOfSiphoningPlayer /
+# PlayerTwo: marked_enemies_leech_physical_attack_damage_taken_as_{mana,life}_to_you_permyriad 800). PoB never reads
+# the two stats (checked: no "marked_enemies_leech" in PoB's SkillStatMap, Modules or ModCache, nor in builder/). The
+# leech counts at the share of the fight the boss carries the Mark (models.mark_model's own share, read through its
+# "Lines while the boss is Marked" note), as PoB's "Leech N% of Physical Attack Damage as Mana / Life" line (ModCache
+# 8401-8406: PhysicalDamageManaLeech / LifeLeech, Attack), so PoB's leech caps and the boss's Leech resistance
+# (recovery.leech_resisted) apply to it as to any leech. A share-scaled leech percentage is linear in the leech it
+# makes below the leech-rate cap (an approximation near the cap).
+# Demon Form (MECHC28; recovery.demon_form_cycle has the game text and sources; Assumptions.demon_form)
+DEMON_FORM, DEMON_LOSS_STAT = "Demon Form", "demon_form_life_loss_per_minute_per_stack"
+DEMON_MAX, DEMON_COOLDOWN = 10, 15.0  # (0.2.0: maximum 10, cooldown 15 s at every level; the cooldown read from useRates)
+DEMON_NO_MAX = re.compile(r"^demonflame has no maximum$", re.I)  # (Mastered Darkness; ModCache 7208)
+# a non-Spell skill the player doesn't press: kept up (Persistent), or used by something else (Triggered, Meta)
+NOT_PRESSED_TYPES = {"Persistent", "Triggered", "Meta"}
+
+SIPHONING = {"Mark of Siphoning": ("Mana",), "Mark of Siphoning II": ("Mana", "Life")}
+SIPHONING_PERCENT = 8.0
+SIPHON_PROBE_LINE = "Enemies you Mark take 1% increased Damage"  # (a MARKED_LINES text: mark_model notes its share)
+
+
+def siphoning_model(found: list, stats: dict, main, groups: list[dict], mark_args: tuple) -> tuple[list[dict], list[dict]]:
+    """Mark of Siphoning's leech lines at the boss's Marked share. `found`: the build's models.Skill list; `groups`: the
+    bridge's groups (the support sits in the Mark's group); `mark_args`: (metres, disabled, rates) as mark_model is
+    called with. The Mark on the boss is mark_model's first (one Mark on an enemy at a time)."""
+    marks = [s for s in found if s.name in (*models.MARKS, models.PREDATORS_MARK) and s is not main]
+    if not marks:
+        return [], []
+    mark = marks[0]
+    group = next((g for g in groups if g.get("index") == mark.group), None)
+    pools = {p for g in (group or {}).get("gems") or [] if g.get("enabled", True)
+             for p in SIPHONING.get(g.get("name"), ())}
+    if not pools:
+        return [], []
+    metres, disabled, rates = mark_args
+    _, probe = models.mark_model(found, stats, main, [{"text": SIPHON_PROBE_LINE}], metres, disabled, rates=rates)
+    share = next((float(n["value"]) for n in probe if n.get("label", "").startswith("Lines while the boss is Marked")),
+                 1.0)
+    how = next((n["basis"].split(": marked")[0] for n in probe
+                if n.get("label", "").startswith("Lines while the boss is Marked")), f"{mark.name} kept on the boss")
+    if share <= 0:
+        return [], [{"label": "Mark of Siphoning: leech while the boss is Marked*", "value": "0",
+                     "basis": f"the boss is never Marked ({how})", "confidence": "MEDIUM"}]
+    percent = SIPHONING_PERCENT * share
+    mods = [models.line(f"Leech 1% of Physical Attack Damage as {pool}", percent) for pool in sorted(pools)]
+    return mods, [{"label": "Mark of Siphoning: leech while the boss is Marked*",
+                   "value": f"{percent:.2f}% of Physical Attack Damage as {' and '.join(sorted(pools))}",
+                   "basis": (f"{SIPHONING_PERCENT:g}% (game files, 0.5.0) x the boss Marked {share:.0%} of the fight "
+                             f"({how}); PoB's leech rules and the boss's Leech resistance apply to it"),
+                   "confidence": "MEDIUM (the Marked share is mark_model's; linear below the leech-rate cap)"}]
+
+
 # Zenith I / II (MECHC26, MC-3): "Supported Skills deal more damage while you are above 90% of your Maximum Mana"
 ZENITH, ZENITH_STAT, ZENITH_ABOVE = "Zenith", "support_spell_damage_+%_final_while_above_90%_maximum_mana", 0.9
 
@@ -1265,6 +1318,12 @@ class Assumptions:
             found, stats, main, source_lines, metres, [models.Skill.of(s) for s in skills if s["disabled"]],
             rates=build.trigger_rates)
         hand_mods, hand_notes = hand_mods + mark_mods, hand_notes + mark_notes
+        if any(g.get("name") in SIPHONING for grp in build.groups() for g in grp.get("gems") or []):
+            # (MECH-C, MECHC28: Mark of Siphoning's leech at the boss's Marked share)
+            siphon_mods, siphon_notes = siphoning_model(
+                found, stats, main, build.groups(),
+                (metres, [models.Skill.of(s) for s in skills if s["disabled"]], build.trigger_rates))
+            hand_mods, hand_notes = hand_mods + siphon_mods, hand_notes + siphon_notes
         build.objective.entry_scales = {k: v for n in mark_notes for k, v in (n.get("full_dps") or {}).items()}
         curses = curse_uses(build, stats, [e["text"] for e in source_lines])
         if curses or any(models.CURSED_UNSCALED.search(e["text"]) or p.search(e["text"])
@@ -2180,6 +2239,9 @@ class Assumptions:
         purple_mods, purple_notes = self.purple_flames(skills)  # (MECH-C: Into the Breach's Purple Flame stacks, MECHC26)
         mods += purple_mods
         notes += purple_notes
+        demon_mods, demon_notes = self.demon_form(skills, main)  # (MECH-C: Demon Form's Demonflame and time, MECHC28)
+        mods += demon_mods
+        notes += demon_notes
         frost_mods, frost_notes = self.frostflame(main, skills)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
         mods, notes = mods + frost_mods, notes + frost_notes
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
@@ -2469,6 +2531,32 @@ class Assumptions:
                                   "one per 1.21 s" + (f", {multiplier_how}" if multiplier_how else ""))
         build.recovery_sources = {**income.rates, flasks.ES_STARTS_FIELD: starts}
         return recovery.note(income) + leech
+
+    def demon_form(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
+        """Demon Form's Demonflame and its share of the fight (MECHC28; PATCH_CHECK S2-4 / K1-o4: PoB keeps you in the form
+        all fight at its placeholder 10 Demonflame, never set by the tool): demon_form_state, PoB's
+        Multiplier:DemonFlameStacks moved to the average while in the form by a BASE line (build.demon_offset), and
+        build.demon_form = (share, how) for the record (conditions.Conditions.evidence computes its own, the same way,
+        for the inDemonForm box)."""
+        build = self.build
+        state = demon_form_state(build, skills, main)
+        if state is None:
+            build.demon_form, build.demon_offset = None, 0.0
+            return [], []
+        share, stacks, pob = state["share"], state["stacks"], state["pob"]
+        build.demon_form = (share, state["how"])
+        offset = (stacks - pob) if share > 0 else 0.0
+        build.demon_offset = offset
+        mods = [models.raw_mod("Multiplier:DemonFlameStacks", "BASE", offset)] if abs(offset) > 1e-9 else []
+        return mods, [{
+            "label": "Demon Form: Demonflame and time in the form*",
+            "value": f"{stacks:.1f} Demonflame, in the form {share:.0%} of the fight (PoB: {pob:g}, all fight)",
+            "basis": state["basis"],
+            "play": ("enter Demon Form as its cooldown ends and stay in it until it drops you at 1 Life (with it: the "
+                     "share above; without it: no Demonflame)") if share > 0 else "",
+            "confidence": ("MEDIUM (stints from the average Life flows, the boss's hits spread evenly; Life's dip isn't "
+                           "taken off the defence floors: an OVERCOUNT of survival while it's low; the fight's first "
+                           "10 s ramp isn't counted, as for every stack the tool holds steady)")}]
 
     def zenith(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Zenith I / II on the main skill (MECHC26; PATCH_CHECK mirror sweep MC-3, an UNDERCOUNT before: PoB maps
@@ -3832,3 +3920,90 @@ def mana_spent_stacks(spend: float, regen: float, cost: float, per: float = 200.
     capped = " (capped by Mana regeneration)" if regen < spend else ""
     return stacks, (f"{spent:.0f} Mana spent in 4 s ({min(spend, regen):.1f} a second{capped}; {cost:.0f} a use): "
                     f"{stacks:.2f} x {per:g} on average")
+
+
+def demon_form_state(build, skills: list[dict], main: str | None) -> dict | None:
+    """(MECHC28) Demon Form's steady cycle for `build` (None without the skill): {share, stacks (average while in the
+    form), pob (PoB's own Demonflame), how, basis}. recovery.demon_form_cycle from the build: its Life, its Life recovery
+    less the boss's landed hits, costs and own steady loss (recovery.life_flows; PoB's LifeRegenRecovery has the form's
+    own loss at PoB's current stacks netted in, added back here), the gem's Life loss per Demonflame (its level stat), the
+    maximum (10, none with "Demonflame has no maximum"), its cooldown (useRates, after Cooldown Recovery), and the
+    non-Spell skills the player presses (each reverts you: a stint fits between two presses, the cooldown taken in the
+    gap). A main skill that isn't a Spell reverts you at once: never in the form."""
+    present = {s["name"]: s for s in skills if not s.get("disabled")}
+    if DEMON_FORM not in present:
+        return None
+    raw = build.call("activeSkills", levelStats=[DEMON_FORM])["skills"]
+    demon = next((s for s in raw if s["name"] == DEMON_FORM and not s.get("disabled")), {})
+    per_stack = number((demon.get("levelStats") or {}).get(DEMON_LOSS_STAT)) / 60
+    config = build.call("getConfig")
+    inputs, placeholder = config.get("input") or {}, config.get("placeholder") or {}
+    pob = number(inputs.get("demonFormStacks")) or number(placeholder.get("demonFormStacks")) or float(DEMON_MAX)
+    texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+    cap = None if any(DEMON_NO_MAX.search(t) for t in texts) else float(DEMON_MAX)
+    pob = min(pob, cap) if cap is not None else pob
+    now = (pob + (getattr(build, "demon_offset", 0.0) or 0.0)) if inputs.get("inDemonForm") else 0.0  # (switched off: PoB drops the key)
+    from builder.search import objective
+
+    fields = sorted(set(objective.RECOVERY_INPUTS) | set(conditions_mod.FULL_LIFE_FIELDS))
+    added = getattr(build, "added_stats", None)
+    stats = {**build.call("stats", fields=fields), **(added() if callable(added) else {})}
+    back, hit_life, cost, steady, parts = recovery_mod.life_flows(stats)
+    net = back + per_stack * now - hit_life - cost - steady
+    rows = build.call("useRates", indices=[demon["group"]])["rates"] if demon.get("group") is not None else []
+    cooldown = number((rows[0] if rows else {}).get("cooldown")) or DEMON_COOLDOWN
+    main_entry = next((s for s in skills if s["name"] == main and not s.get("disabled")), None)
+    limit, interrupts = math.inf, ""
+    if main_entry is not None and not main_entry.get("spell"):
+        limit, interrupts = 0.0, f"your main skill ({main}) isn't a Spell: using it reverts you"
+    else:
+        presses_ns, named = non_spell_presses(build, skills, main)
+        if presses_ns > 0:
+            limit = max(1 / presses_ns - cooldown, 0.0)
+            interrupts = (f"non-Spell skills pressed {presses_ns:.3f} times a second ({named}): each reverts you, so "
+                          f"a stint fits between two presses less the {cooldown:g} s cooldown")
+    if limit <= 0:
+        share, stacks, stint, how = 0.0, 0.0, 0.0, interrupts
+    else:
+        share, stacks, stint, how = recovery_mod.demon_form_cycle(
+            number(stats.get("Life")), net, per_stack, cap, cooldown, limit)
+        if interrupts and stint < limit:
+            how += f" ({interrupts}, which a stint this short fits)"
+        elif interrupts:
+            how = f"{interrupts}; {how}"
+    basis = (f"{per_stack:,.1f} Life lost a second per Demonflame (the gem's level), "
+             f"{'no maximum' if cap is None else f'at most {cap:g}'}; {'; '.join(parts)}; "
+             f"Life recovery {back + per_stack * now:,.1f}/s before the form: {net:,.1f}/s out of the form. {how}")
+    return {"share": share, "stacks": stacks, "pob": pob, "how": how, "basis": basis}
+
+
+def non_spell_presses(build, skills: list[dict], main: str | None) -> tuple[float, str]:
+    """(presses a second, named) of the non-Spell skills the player uses beside the main skill (MECHC28, Demon Form:
+    "use a Skill that isn't a Spell" reverts you): enabled, not triggered, not Persistent / Meta (nor in a group holding
+    a triggered skill), not a support, each at its group's rate (conditions.skill_use_rate: cooldown, duration, else the
+    search's chosen rate, else 0)."""
+    ctx = getattr(build, "ctx", None)
+    groups: dict[int, list[str]] = {}
+    # (a group holding a triggered skill is a meta group, Spellslinger, Cast on X: it fires on its own, and an
+    # item-granted meta isn't in the gem table, so its types can't be read there)
+    metas = {s.get("group") for s in skills if s.get("triggered") and not s.get("disabled")}
+    for s in skills:
+        if (s.get("disabled") or s["name"] in (main, DEMON_FORM) or s.get("spell") or s.get("triggered")
+                or s.get("group") in metas):
+            continue
+        # (gem_of: by granted effect id, then any gem's name, so an item-granted meta such as a Dueling Wand's
+        # Spellslinger is typed too)
+        types = set(gem_of(ctx, s["name"], s.get("skillId")).get("skillTypes") or [])
+        if types & NOT_PRESSED_TYPES or s.get("group") is None:
+            continue
+        groups.setdefault(s["group"], []).append(s["name"])
+    if not groups:
+        return 0.0, ""
+    choices = models.press_choices(build)
+    total, named = 0.0, []
+    for row in build.call("useRates", indices=sorted(groups))["rates"]:
+        each, why, _ = conditions_mod.skill_use_rate(row, choices)
+        if each > 0:
+            total += each
+            named.append(f"{', '.join(groups.get(row.get('index'), []))} {each:.3f}/s, {why}")
+    return total, "; ".join(named)

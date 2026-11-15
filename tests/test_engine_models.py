@@ -2941,3 +2941,50 @@ def test_infernal_legion_marks_its_minion_skill_for_the_ignited_box_on_a_real_bu
     build.call("setGroup", index=group["index"], gems=gems, fields=[])
     share, how = ignited()
     assert share == 1.0 and "Skeletal Brute" in how
+
+
+def test_demon_form_counts_the_demonflame_and_time_in_the_form_the_build_sustains(engine):
+    """MECHC28 (PATCH_CHECK S2-4 / K1-o4, an OVERCOUNT before: PoB kept every Demon Form build in the form all fight at
+    its placeholder 10 Demonflame): Assumptions.demon_form moves PoB's Demonflame to the stint average from the build's
+    Life flows, and the "in Demon Form" box counts at its share of the fight (or is switched off)."""
+    search = spark_with(engine, [])
+    build = search.build
+    build.call("addSkillGroup", text="Demon Form 20/0 1")
+    search.settle()
+    note = next((n for n in search.assumptions.active if n["label"] == "Demon Form: Demonflame and time in the form*"),
+                None)
+    print("PROBE demon", note, search.conditions.active.get("inDemonForm"), search.conditions.uptimes.get("inDemonForm"),
+          getattr(build, "demon_form", None))
+    assert note is not None and "PoB: 10" in note["value"]
+    assert "Spellslinger" not in note["basis"]  # (a meta group fires on its own: not a non-Spell press)
+    share, how = build.demon_form
+    assert 0.0 <= share <= 1.0 and how
+    if share < 1.0:  # (a lower Demonflame average, or the form off part of the fight)
+        assert any(m.get("name") == "Multiplier:DemonFlameStacks" for m in search.assumptions.mods) or share == 0.0
+        if share >= 0.07:
+            assert search.conditions.uptimes.get("inDemonForm") == pytest.approx(share, abs=0.01)
+        else:  # (PoB's box is on by default: switched off explicitly)
+            assert search.conditions.active.get("inDemonForm") is None
+            assert not build.call("getConfig")["input"].get("inDemonForm")
+
+
+def test_mark_of_siphoning_leeches_at_the_bosss_marked_share(engine):
+    """MECHC28 (PATCH_CHECK H1-9, an UNDERCOUNT: PoB never reads marked_enemies_leech_physical_attack_damage_taken_as_
+    {mana,life}_to_you_permyriad): Mark of Siphoning II in a Mark's group adds PoB's "Leech N% of Physical Attack Damage
+    as Mana / Life" at 8% x the boss's Marked share (mark_model's)."""
+    search = spark_with(engine, [])
+    build = search.build
+    build.call("addSkillGroup", text="Sniper's Mark 20/0 1")
+    group = next(g for g in build.groups() if any(x["name"] == "Sniper's Mark" for x in g["gems"]))
+    build.set_group(index=group["index"], gems=[{"name": "Sniper's Mark", "level": 20},
+                                                {"name": "Mark of Siphoning II", "level": 1}])
+    search.settle()
+    note = next((n for n in search.assumptions.active if n["label"] == "Mark of Siphoning: leech while the boss is Marked*"),
+                None)
+    lines = [m for m in search.assumptions.mods if str(m.get("line", "")).startswith("Leech 1% of Physical Attack Damage")]
+    print("PROBE siphoning", note, lines)
+    assert note is not None
+    if note["value"] != "0":
+        assert {m["line"] for m in lines} == {"Leech 1% of Physical Attack Damage as Mana",
+                                              "Leech 1% of Physical Attack Damage as Life"}
+        assert all(0 < m["scale"] <= 8 for m in lines)

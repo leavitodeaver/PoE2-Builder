@@ -1348,6 +1348,22 @@ def full_life_uptime(lines: list[str], stats: dict) -> tuple[object, str, float]
     return True, f"on Full Life {share:.0%} of the fight: {how}", share
 
 
+# In Demon Form (MECHC28; PATCH_CHECK S2-4): PoB's "Are you in Demon Form?" (inDemonForm, ConfigOptions 356, on by
+# default) at the share of the fight the build stays in the form (assumptions.Assumptions.demon_form:
+# recovery.demon_form_cycle from its Life flows, the Demonflame's Life loss, its cooldown and its non-Spell presses),
+# weighed by weigh_uptimes. Under SWITCH_ON it is switched OFF explicitly (False), since PoB's default is on.
+def demon_form_uptime(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[object, str]:
+    """(True, how, share in the form) for a build with Demon Form; (False, why) when it can't stay in it; (0, "")
+    without Demon Form (or before the assumptions have rated it)."""
+    got = stats.get("_demon_form")
+    if not got:
+        return 0.0, ""
+    share, how = got
+    if share < SWITCH_ON:
+        return False, f"Demon Form kept up {share:.0%} of the fight: {how}"
+    return True, f"in Demon Form {share:.0%} of the fight: {how}", share
+
+
 # Dodge Rolled Recently (MECHC27; PATCH_CHECK MC-7; MECH75: the box is safe to set now that Stoicism no longer reads it):
 # PoB's "Have you Dodge Rolled Recently?" (ModParser 2091: "if you've dodge rolled recently": Evasion lines) at the share
 # of the fight a roll was made in the past 4 s, from the rolls the build makes (the manager's ruling on PLANS2's
@@ -3858,6 +3874,7 @@ CONDITIONS: list[Condition] = [
               fields=()),
     Condition("minionbuffUnholyMight", "Minions' Unholy Might (Kurgal's Leash)",
               value_fn=lambda lines, stats: unholy_might_uptime(lines, stats), fields=()),
+    Condition("inDemonForm", "In Demon Form", value_fn=lambda lines, stats: demon_form_uptime(lines, stats), fields=()),
     Condition("conditionDodgeRolledRecently", "Dodge Rolled recently",
               value_fn=lambda lines, stats: dodge_rolled_recently(lines, stats), fields=()),
     Condition("buffArcaneSurge", "Arcane Surge", value_fn=lambda lines, stats: arcane_surge_uptime(lines, stats),
@@ -4481,6 +4498,13 @@ class Conditions:
             stats["_mark_uses"] = sum(uses.get(n, self._chosen_use(n)) for n in marks)
         if KURGAL in gem_types:  # (MECHC27: Unholy Might on Command, unholy_might_uptime)
             stats["_kurgal"] = self._kurgal_commands()
+        if any(g.get("name") == "Demon Form" for grp in self.build.groups() for g in grp.get("gems") or []):
+            # (MECHC28: the share in Demon Form, computed here as the assumptions do: a settle resolves the conditions
+            # before the assumptions run, so their last result could be a round old)
+            from builder.search.assumptions import demon_form_state
+
+            state = demon_form_state(self.build, self.build.call("activeSkills")["skills"], self.main_skill)
+            stats["_demon_form"] = (state["share"], state["how"]) if state is not None else None
         if any(FULL_LIFE_LINE.search(t) for t in texts):  # (MECHC27: the share on Full Life, recovery.full_life_share)
             stats["_full_life"] = self._full_life()
         if any(FULL_ES_LINE.search(t) for t in texts) or any(m in gem_types for m in MYSTICISM):  # (MECHC27, MC-5)

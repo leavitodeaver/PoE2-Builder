@@ -708,13 +708,13 @@ def flame_income(income: Income, stats: dict, flames: float, gain: dict, texts: 
 # objective.boss_taken: after evade, block and Deflection). MEDIUM: dips are taken as refilled at the average rate (a
 # hit bigger than the ES left spills at once: a lower reading of Life's dips); "considered on Full Life at N% Life"
 # (FullLifePercentage under 100) isn't read (each dip smaller than the slack would count as Full Life: a lower reading).
-def full_life_share(stats: dict) -> tuple[float, str]:
-    """(share of the fight on Full Life, how). `stats`: PoB's outputs objective.RECOVERY_INPUTS names, Life,
-    LifePerSecondCost, ChaosInoculation, with the search's added recovery fields."""
+def life_flows(stats: dict) -> tuple[float, float, float, float, list[str]]:
+    """(MECHC28, out of full_life_share) (Life recovery a second, the boss's landed hits that reach Life a second, Life
+    costs a second, the build's own steady Life loss a second, how) from PoB's recovery outputs with the search's added
+    recovery fields. Recovery: the RECOVERY_POOLS Life fields (PoB's LifeRegenRecovery already nets its Life degens),
+    recoup, Block gains and Life Recharge."""
     from builder.search import objective
 
-    if stats.get("ChaosInoculation") and _num(stats.get("ChaosInoculation")) > 0:
-        return 1.0, "Chaos Inoculation: maximum Life 1, so PoB counts you on Full Life all fight"
     taken, hits, _ = objective.boss_taken(stats)
     es = _num(stats.get("EnergyShield")) > 0
     to_es = to_life = 0.0
@@ -733,11 +733,20 @@ def full_life_share(stats: dict) -> tuple[float, str]:
     life_fields, _ = objective.RECOVERY_POOLS["Life"]
     back = (sum(_num(stats.get(f)) for f in life_fields) + objective.recoup(stats, taken, "Life")
             + objective.on_block(stats, "Life") + objective.life_recharge(stats, hits)[0])
-    dips = hit_life + cost
     parts = [f"{hit_life:,.1f} Life/s from the boss's landed hits"
              + (f" (after Energy Shield: {spill:,.1f}/s it doesn't refill spills over)" if es else "")
              + (f", {mom:.0%} of it to Mana (Mind over Matter)" if mom > 0 else ""),
              *([f"{cost:,.1f}/s of Life costs"] if cost > 0 else [])]
+    return back, hit_life, cost, steady, parts
+
+
+def full_life_share(stats: dict) -> tuple[float, str]:
+    """(share of the fight on Full Life, how). `stats`: PoB's outputs objective.RECOVERY_INPUTS names, Life,
+    LifePerSecondCost, ChaosInoculation, with the search's added recovery fields."""
+    if stats.get("ChaosInoculation") and _num(stats.get("ChaosInoculation")) > 0:
+        return 1.0, "Chaos Inoculation: maximum Life 1, so PoB counts you on Full Life all fight"
+    back, hit_life, cost, steady, parts = life_flows(stats)
+    dips = hit_life + cost
     if dips <= 0 and steady <= 0:
         return 1.0, "nothing takes Life off: no landed boss hit reaches Life, no Life cost or loss (on Full Life all fight)"
     net = back - steady
@@ -856,3 +865,50 @@ def sacrifice_income(income: Income, texts: list[str], casts: float, energy_shie
         income.rates["EnergyShieldSacrificed"] = -drain
         income.parts.append(f"Energy Shield sacrificed: {pct:g}% of {energy_shield:,.0f} a cast x {how}: "
                             f"-{drain:,.1f}/s (Eldritch Empowerment)")
+
+
+# Demon Form (MECHC28; PATCH_CHECK S2-4 / K1-o4): "You gain Demonflame every second you remain in demon form, causing your
+# Life to be lost at an ever-increasing rate. Maximum 10 Demonflame. Revert to human form if you reach 1 Life, use a Skill
+# that isn't a Spell, or reactivate this Skill" (PoB other.lua DemonFormPlayer; 0.2.0: "a maximum Demonflame of 10
+# (previously uncapped). You now lose a flat amount of Life per second per Demonflame"; 0.3.0: "3% more Spell Damage per
+# Demonflame"; Mastered Darkness: "Demonflame has no maximum", 0.2.0; grep_notes --history "Demon Form", newest 0.4.0, a
+# Second Wind fix). Its cooldown doesn't tick in the form (demon_transformation_cooldown_does_not_tick), so a stint ends,
+# then the cooldown runs. PoB keeps you in the form all fight at its placeholder 10 Demonflame (ConfigOptions 356-361,
+# ConfigTab 1186) and nets the 10 stacks' Life loss into LifeRegenRecovery (CalcDefence 1746-1752).
+DEMON_STEP = 0.05  # (s: the integration step)
+DEMON_HORIZON = 900.0  # (s: a stint this long is taken as kept all fight)
+
+
+def demon_form_cycle(life: float, net: float, per_stack: float, cap: float | None, cooldown: float,
+                     limit: float = math.inf) -> tuple[float, float, float, str]:
+    """(share of the fight in the form, average Demonflame while in it, seconds a stint, how) for a pool of `life`
+    maximum Life gaining `net` Life a second out of the form (recovery less the boss's landed hits, costs and the
+    build's own steady loss), losing `per_stack` Life a second per Demonflame (one gained each whole second in the form,
+    at most `cap`; None: no maximum). A stint ends at 1 Life (the game reverts you) or at `limit` s (a non-Spell skill
+    pressed then); the cooldown then runs out of the form, Life refilling at `net` (capped at full), and you enter again
+    as it ends (the minimum of 2 Life to enter). The cycle repeats: the steady one is counted (entered at the Life the
+    cooldown refills), not the first from full Life."""
+    if life < 2 or per_stack <= 0:
+        return 0.0, 0.0, 0.0, "under 2 maximum Life: Demon Form can't be entered" if life < 2 else "no Life loss read"
+    if cap is not None and net >= per_stack * cap and limit == math.inf:
+        return 1.0, float(cap), math.inf, (f"your {net:,.1f} Life/s outpaces the {per_stack * cap:,.1f}/s the "
+                                           f"{cap:g} Demonflame take: kept in the form all fight")
+    entry = life if net * cooldown >= life - 1 else max(1.0, 1.0 + max(net, 0.0) * cooldown)
+    if entry < 2:
+        return 0.0, 0.0, 0.0, (f"Life doesn't refill between stints ({net:,.1f}/s out of the form): "
+                               "Demon Form can't be kept up")
+    held, t, area = entry, 0.0, 0.0
+    while held > 1 and t < min(limit, DEMON_HORIZON):
+        stacks = math.floor(t + 1e-9)
+        stacks = min(stacks, cap) if cap is not None else stacks
+        held = min(life, held + (net - per_stack * stacks) * DEMON_STEP)
+        area += stacks * DEMON_STEP
+        t += DEMON_STEP
+    if t >= DEMON_HORIZON:
+        return 1.0, area / t, math.inf, f"kept {DEMON_HORIZON:g} s or more: in the form all fight"
+    end = "you reach 1 Life and revert" if held <= 1 else f"a non-Spell skill pressed every {limit:.1f} s reverts you"
+    share = t / (t + cooldown)
+    return share, area / t if t else 0.0, t, (
+        f"a stint of {t:.1f} s from {entry:,.0f} Life ({end}), then the {cooldown:g} s cooldown out of the form "
+        f"(Life back at {net:,.1f}/s): in the form {share:.0%} of the fight at {area / t if t else 0:.1f} Demonflame on "
+        f"average")

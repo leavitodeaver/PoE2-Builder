@@ -1178,3 +1178,22 @@ def test_the_bosss_melee_hits_stun_you_a_third_more_at_its_melee_share(monkeypat
     capped, _ = recovery.stuns_taken(stats, big, weights, 0.001)
     monkeypatch.setattr(bosses, "melee_share", lambda stats=None: (0.0, "none"), raising=False)
     assert capped == pytest.approx(recovery.stuns_taken(stats, big, weights, 0.001)[0] * (0.6 + 0.4 / 0.9), rel=1e-3)
+
+
+def test_demon_form_cycle_keeps_the_form_only_where_recovery_outpaces_the_demonflame():
+    """MECHC28 (PATCH_CHECK S2-4 / K1-o4): Demonflame one a second, at most 10; a stint ends at 1 Life, then the cooldown
+    runs out of the form while Life refills; "Demonflame has no maximum" grows until Life runs out; a non-Spell press
+    caps a stint."""
+    per = 1112 / 60  # (gem level 20: 1112 Life a minute per Demonflame)
+    share, stacks, stint, how = recovery.demon_form_cycle(4000, 200, per, 10, 15)
+    assert (share, stacks, stint) == (1.0, 10.0, math.inf) and "all fight" in how
+    share, stacks, stint, how = recovery.demon_form_cycle(4000, 120, per, 10, 15)
+    # (entered at 1 + 120 x 15 Life; Life falls once 10 x 18.5 > 120, about 1,800 Life later)
+    assert 0.6 < share < 0.8 and 8 < stacks < 10 and 30 < stint < 60 and "1 Life" in how
+    share_none, stacks_none, _, _ = recovery.demon_form_cycle(4000, 200, per, None, 15)
+    assert stacks_none > 10 and share_none < 1.0
+    share_cut, _, stint_cut, how_cut = recovery.demon_form_cycle(4000, 200, per, 10, 15, limit=20)
+    assert stint_cut == pytest.approx(20, abs=0.1) and share_cut == pytest.approx(20 / 35, abs=0.01)
+    assert "non-Spell" in how_cut
+    assert recovery.demon_form_cycle(4000, -50, per, 10, 15)[0] == 0.0  # (Life never refills between stints)
+    assert recovery.demon_form_cycle(1, 200, per, 10, 15)[0] == 0.0  # (Chaos Inoculation: under 2 Life)
