@@ -1,0 +1,31 @@
+# Desert's Scorn (the Delirium anoint, PoB tree.lua; COV32, 15 Nov 2026; PATCH_CHECK mirror sweep, COV31 section 6):
+# "Enemies standing on Chilled Ground take 25% increased Fire Damage" (game stat enemies_in_chilled_ground_take_+%_fire_damage).
+# PoB leaves the line unparsed, so it counted 0 (an UNDERCOUNT for a build that makes Chilled Ground under the boss).
+# It now counts at the share of the fight the boss stands on the build's own Chilled Ground: MECH-A's
+# build.chilled_ground_up (MECH76, conditions.chilled_ground: (share, how), 0 without a Chilled Ground source).
+
+- id: BossOnChilledGround
+  title: The share of the fight the boss stands on your Chilled Ground (MECH-A's, from the build's own Chilled Ground)
+  kind: condition
+  # Assumptions.ledger_conditions reads build.chilled_ground_up (MECH76); 0 without a Chilled Ground source
+  chilled_ground: true
+  shown_for: "(?:Enemies standing on Chilled Ground take|^Allocates Desert's Scorn$)"
+  confidence: theory
+  sources: ["builder/search/conditions.py chilled_ground (MECH76)"]
+  status: proposed
+
+- id: passives-desert-scorn-chilled-ground-fire-taken
+  title: Desert's Scorn, Enemies standing on Chilled Ground take 25% increased Fire Damage, at the boss's share of the fight on your Chilled Ground
+  kind: pob_gap
+  match: '^Enemies standing on Chilled Ground take (\d+)% increased Fire Damage$'
+  replace: ['share:BossOnChilledGround Nearby Enemies take {1}% increased Fire Damage']
+  confidence: theory
+  notes: >-
+    PoB leaves the line unparsed (no "standing on chilled ground" pattern in ModParser; PoB's tree data has the text).
+    The stand-in "Nearby Enemies take N% increased Fire Damage" is PoB's own enemy modifier (ModParser 1399: modSuffix
+    Taken, applyToEnemy: FireDamageTaken INC on the enemy), counted at BossOnChilledGround's share, the time average of
+    the boss standing in the build's Chilled Ground (MECH-A's model; no source: 0, never a flat rate).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua:1399", "builder/search/conditions.py (chilled_ground, MECH76)",
+            "https://poe2db.tw/us/Desert%27s_Scorn"]
+  test_in_game: "Freeze or Chill the ground under a boss with Desert's Scorn anointed and compare a Fire hit's damage on and off the Chilled Ground."
+  status: proposed

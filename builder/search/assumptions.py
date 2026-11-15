@@ -3147,6 +3147,20 @@ class Assumptions:
                               "confidence": "MEDIUM-LOW (the main skill's own spending only: other skills' costs not "
                                             "counted, an undercount; steady casting from the fight's start)"})
                 continue
+            if condition.get("chilled_ground"):
+                # (COV32) the share of the fight the boss stands on the build's Chilled Ground: MECH-A's
+                # build.chilled_ground_up (MECH76; (0.0, "") without a source); Desert's Scorn's line is a `share:` line
+                if not self.has_line(condition.get("shown_for") or "$^"):
+                    continue
+                share, how = self.chilled_ground_share()
+                percent = round(100 * share)
+                if percent > 0:
+                    self.ledger_shares[condition["id"]] = percent
+                    found.append(condition["id"])
+                notes.append({"label": condition["title"], "value": f"{share:.0%}", "basis": how,
+                              "play": "Keep the boss on your Chilled Ground: off it, these lines add nothing",
+                              "confidence": "MEDIUM-LOW (MECH-A's Chilled Ground share)"})
+                continue
             if condition.get("ward_state"):
                 # (COV32, NOTES3 DEAD-1 / DEAD-2) the share of the fight on Low / missing / full Runic Ward, from what the
                 # build spends its Ward on (MECH-C's ward_shares); its lines are `share:` lines (items-runes-cov32.yaml)
@@ -3350,6 +3364,13 @@ class Assumptions:
         return share, (f"{how}: {paid:.3f} attacks a second paid ({per_use:g} charges each, 10% of "
                        f"{number(flask.get('chargesMax')):g}) of {main}'s {speed:.2f}: {share:.1%} of its attacks deal "
                        "the added damage")
+
+    def chilled_ground_share(self) -> tuple[float, str]:
+        """(share of the fight the boss stands on the build's Chilled Ground, how) for BossOnChilledGround (COV32):
+        MECH-A's build.chilled_ground_up (MECH76, conditions.chilled_ground), (0, ...) without a source or before it."""
+        share, how = getattr(self.build, "chilled_ground_up", None) or (0.0, "")
+        share = min(max(number(share), 0.0), 1.0)
+        return share, how or "no Chilled Ground source under the boss: 0"
 
     def ward_state_share(self, state: str) -> tuple[float, str]:
         """(share of the fight on Low / missing / full Runic Ward, how) for the `ward_state` conditions (COV32, NOTES3
