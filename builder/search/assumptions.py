@@ -911,6 +911,66 @@ def empowered_presses(build: Build, main: models.Skill | None) -> tuple[list[dic
     return mods, notes
 
 
+def ice_tipped(build: Build, main: models.Skill | None) -> tuple[float, list[dict], list[dict]]:
+    """(MECH-B, MECHB32) (the Ice Fragments' added DPS, mods, notes) for Ice-Tipped Arrows beside a Repeatable Bow or
+    Projectile Spear main attack (models.ice_tipped_cycle; PoB counts 0): its time share, its Physical-to-Cold
+    conversion on the Empowered share, and one Ice Fragment hit per Empowered hit (PoB's own fragment hit, read with
+    useRates on the gem's fragment skill)."""
+    if main is None or not main.attack:
+        return 0.0, [], []
+    gem = build.ctx.gems.get(main.name) or {}
+    types, weapons = set(gem.get("skillTypes") or []), set(gem.get("weaponTypes") or [])
+    if not ("Bow" in weapons or ("Spear" in weapons and "Projectile" in types)) or types & {"Channel", "Sustained"}:
+        return 0.0, [], []
+    ita = empower_skill(build, models.ICE_TIPPED)
+    if ita is None:
+        return 0.0, [], []
+    level = ita.get("levelStats") or {}
+    empowers = (number(level.get(models.ICE_TIPPED_EMPOWERS)) or 4.0) + number(
+        (ita.get("supportStats") or {}).get(models.OLROTH_EMPOWERS))
+    cooldown = (number(ita.get("cooldown")) or models.ICE_TIPPED_COOLDOWN) / (number(ita.get("cooldownRecovery")) or 1.0)
+    stats = build.call("stats", fields=list({"Speed", "HitChance", *LIVING_BOMB_FIELDS}))
+    speed, hit = number(stats.get("Speed")), min(number(stats.get("HitChance")) or 100.0, 100.0) / 100
+    time, share, empowered, how = models.ice_tipped_cycle(speed, empowers, cooldown,
+                                                           number(ita.get("castTime")) or models.ICE_TIPPED_CAST)
+    if share <= 0:
+        return 0.0, [], [{"label": "Ice-Tipped Arrows: Empowered attacks*", "value": "not counted", "basis": how,
+                          "confidence": "MEDIUM"}]
+    convert = number(level.get(models.ICE_TIPPED_CONVERT)) or 100.0
+    group = next((g for g in build.groups() if g["index"] == ita.get("group")), None)
+    active = next((i for i, x in enumerate((group or {}).get("skills") or [], start=1)
+                   if x["name"] == models.ICE_TIPPED_FRAGMENT), 0)
+    rows = build.call("useRates", indices=[group["index"]], actives=[active])["rates"] if active else []
+    # (a fragment use's damage, its own hit chance in: PoB's TotalDPS over its speed; the row has no AverageHit for
+    # this Triggered attack, probe POE2T3218)
+    fragment = (number(rows[0].get("TotalDPS")) / number(rows[0].get("speed"))
+                if rows and number(rows[0].get("speed")) > 0 else 0.0)
+    added = empowered * hit * fragment
+    lost = (1 - time) * per_second(stats)
+    if added < lost:  # (its cast costs more of the main attack than the fragments give: not pressed, as barrage_model)
+        return 0.0, [], [{"label": "Ice-Tipped Arrows: Empowered attacks*", "value": "not pressed",
+                          "basis": (f"{how}; its Ice Fragments ({added:,.1f} DPS) give less than its cast takes from the "
+                                    f"main attack ({lost:,.1f} DPS; the Cold conversion's change not weighed: MEDIUM)"),
+                          "confidence": "MEDIUM", "play": "Ice-Tipped Arrows costs more than it gives here: not pressed"}]
+    mods = [models.raw_mod("DPS", "MORE", (time - 1) * 100, skill=main.name),
+            models.line("1% of Physical Damage Converted to Cold Damage", convert * share, skill=main.name)]
+    note = {"label": "Ice-Tipped Arrows: Empowered attacks convert to Cold and Trigger Ice Fragments*",
+            "value": f"{convert * share:.0f}% of Physical converted on average, Ice Fragments {added:,.1f} DPS, "
+                     f"x{time:.3f} time",
+            "basis": (f"{how}; each Empowered attack converts {convert:g}% of its Physical to Cold (\"non-skill base\" "
+                      f"taken as all of it, MEDIUM) and its hit ({hit:.0%}) Triggers Ice Fragments: one fragment hit on "
+                      f"the boss ({fragment:,.1f} a use, its hit chance in: PoB's fragment skill; KeywordPopups: only one of a burst damages an "
+                      "enemy). PoB counts none of it. Its Frenzy-Charge cooldown bypass isn't counted (an undercount)"),
+            "confidence": "MEDIUM",
+            "play": (f"Press Ice-Tipped Arrows each time it's ready, then attack: without it x1.000 and no fragments; "
+                     f"with it {convert * share:.0f}% of Physical as Cold on average, +{added:,.1f} DPS of Ice Fragments")}
+    if group is not None and group.get("fullDPS"):
+        # (PoB's Full DPS would count the gem's fragment skill on its own at its at-will speed, 1.2/s in POE2T3218:
+        # its entry goes to 0, the fragments counted above instead)
+        note["full_dps"] = {models.ICE_TIPPED_FRAGMENT: 0.0}
+    return added, mods, [note]
+
+
 def infernal_legion(build: Build, stats: dict) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Infernal Legion I / II (models.infernal_legion_model, MECHB30): each supported minion
     skill's minion Life (PoB's useRates minionLife, as minion_lives reads it), the boss's Fire resistance (the config's
@@ -1728,6 +1788,11 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + barrage_mods, hand_notes + barrage_notes
         press_mods, press_notes = empowered_presses(build, main)  # (MECHB32: Mantra, Unleash; PoB 0)
         hand_mods, hand_notes = hand_mods + press_mods, hand_notes + press_notes
+        frost, ita_mods, ita_notes = ice_tipped(build, main)  # (MECHB32: Ice-Tipped Arrows' Empowered attacks; PoB 0)
+        hand_mods += ita_mods + ([models.added_input("IceTippedFragments", frost)] if frost > 0 else [])
+        hand_notes += ita_notes
+        for note in ita_notes:  # (PoB's own Ice Fragments entry, where its group is in Full DPS, out)
+            build.objective.entry_scales.update(note.get("full_dps") or {})
         legion, legion_notes = infernal_legion(build, stats)  # (MECHB30, H1-7: PoB rates no boss Ignite from it)
         hand_mods += [models.added_input("InfernalLegion", legion)] if legion > 0 else []
         hand_notes += legion_notes
@@ -1748,7 +1813,7 @@ class Assumptions:
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
                                    "Battershout": shout, "Crackling Palm": palm, "Blood Hunt": blood, "Ancestral Spirits": spirits,
                                    "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion,
-                                   "Briarpatch": briar})
+                                   "Briarpatch": briar, "Ice-Tipped Fragments": frost})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.

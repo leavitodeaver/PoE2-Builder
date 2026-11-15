@@ -5425,3 +5425,15 @@ def test_mantra_of_destruction_and_unleash_count_their_empowered_uses():
     assert more == pytest.approx(0.7 * (9 + (period - 0.75 - 3 * 0.77) / 0.7) / period) and more > factor
     assert models.unleash_factor(1.0 / 0.7, 0.1, 0)[0] == 1.0  # (its cast costs more than one tenth of a Repeat gives)
     assert models.unleash_factor(0.0, 2, 1010)[0] == 1.0
+
+
+def test_ice_tipped_arrows_empowers_its_attacks_in_its_own_cycle():
+    """MECHB32: PoB counts 0. Pressed each time it's ready: period = max(cooldown, cast + k attacks), k = 4 (+2 with
+    Olroth's Conviction); the main attack keeps (period - cast) / period of its time, k of its attacks a period are
+    Empowered."""
+    time, share, per_second, how = models.ice_tipped_cycle(2.0, 4, 12.0)
+    assert time == pytest.approx(11.3 / 12) and per_second == pytest.approx(4 / 12)
+    assert share == pytest.approx((4 / 12) / (11.3 / 12 * 2.0)) and "every 12.00 s" in how
+    time, share, per_second, _ = models.ice_tipped_cycle(0.25, 6, 12.0)  # (6 slow attacks fill more than the cooldown)
+    assert per_second == pytest.approx(6 / 24.7) and share == pytest.approx(1.0)
+    assert models.ice_tipped_cycle(0.0, 4, 12.0)[1] == 0.0

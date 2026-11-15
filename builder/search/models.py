@@ -6742,6 +6742,46 @@ def unleash_factor(speed: float, repeats: float, cooldown_pct: float, recovery: 
     return factor, how
 
 
+# Ice-Tipped Arrows' Empowered attacks (MECHB32; the third undercount found while wiring Olroth's Conviction: PoB maps no
+# shearing_bolts_* stat, checked SkillStatMap.lua / Modules / Classes, so it counts 0). PoB act_dex.lua
+# IceTippedArrowsPlayer (the game's text): "Ready your active Bow or Spear, Empowering your next Repeatable Bow or
+# Projectile Spear Attacks to Convert Physical Damage to Cold Damage and Trigger Ice Fragments on Hit. This Skill's
+# cooldown can be bypassed by expending a Frenzy Charge. Cannot Empower Sustained Skills";
+# shearing_bolts_number_of_empowered_attacks 4, shearing_bolts_non_skill_base_physical_damage_%_to_convert_to_cold 100,
+# cooldown 12 s, cast 0.7 s; its gem also grants IceTippedArrowsIceFragmentPlayer ("Ice Fragments", a Triggered
+# projectile attack, 100% Physical to Cold). KeywordPopups IceFragment: "If a Skill creates multiple Ice Fragments at
+# the same time, only one of them can damage a single enemy" (so one fragment hit per Empowered hit on the boss).
+# Counted as barrage_model's cycle (no damage group, so press_model doesn't charge its cast): period = max(cooldown over
+# Cooldown Recovery, cast + k attacks), k = 4 + Olroth's Conviction's extra; the main attack keeps (period - cast) /
+# period of its time; the share of its attacks Empowered converts 100% of Physical to Cold ("non-skill base" Physical
+# taken as all of the attack's: MEDIUM; conversion is linear in its %, so the average is exact); each Empowered hit adds
+# one Ice Fragment hit (PoB's own number for the fragment skill). Not counted (said): the Frenzy-Charge bypass (the
+# charges are MECH-C's; an undercount where the build has Frenzy Charges to spend).
+ICE_TIPPED = "Ice-Tipped Arrows"
+ICE_TIPPED_FRAGMENT = "Ice Fragments"
+ICE_TIPPED_EMPOWERS = "shearing_bolts_number_of_empowered_attacks"
+ICE_TIPPED_CONVERT = "shearing_bolts_non_skill_base_physical_damage_%_to_convert_to_cold"
+ICE_TIPPED_COOLDOWN = 12.0  # s (its level cooldown)
+ICE_TIPPED_CAST = 0.7  # s
+
+
+def ice_tipped_cycle(speed: float, empowers: float, cooldown: float, cast: float = ICE_TIPPED_CAST
+                     ) -> tuple[float, float, float, str]:
+    """(the main attack's time share, the share of its attacks Empowered, Empowered attacks a second, how) for
+    Ice-Tipped Arrows pressed each time it's ready (`cooldown` after Cooldown Recovery)."""
+    if speed <= 0 or empowers <= 0:
+        return 1.0, 0.0, 0.0, "the main attack isn't used, or no Empowered attack read: Ice-Tipped Arrows gives nothing"
+    t = 1.0 / speed
+    period = max(cooldown, cast + empowers * t)
+    time = (period - cast) / period
+    per_second = empowers / period
+    share = min(per_second / (time * speed), 1.0)
+    return time, share, per_second, (
+        f"Ice-Tipped Arrows pressed each time it's ready: every {period:.2f} s (its cooldown {cooldown:.2f} s), its "
+        f"{cast:g} s cast, then {empowers:g} Empowered attacks of the main attack's {(period - cast) * speed:.1f} a cycle "
+        f"({share:.1%}): the main attack keeps {time:.1%} of its time")
+
+
 # Heavy Stuns of the boss (heavy_stun_rate) ------------------------------------------------------------------------------
 # The game's keyword text (KeywordPopups HeavyStun, Stun, Cold; build 26476662): hits build up the target's Stun bar by
 # the damage they deal, a Heavy Stun when it fills; player Physical and Melee damage each build 50% more; "Cold hits ...
