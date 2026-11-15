@@ -13,10 +13,11 @@
 # grep "OpenWeakness" over builder/ and engine/: 0 hits). So every Open Weakness line counted 0.
 
 - id: OpenWeakness
-  title: The share of the fight the boss has an Open Weakness (45% of its Life, when the build reveals weaknesses)
+  title: The share of the fight's time the boss has an Open Weakness (MECH-A's conditions.open_weakness_up)
   kind: condition
-  # Assumptions.ledger_conditions -> open_weakness_share: 0.45 with a "Reveal Weaknesses against Rare and Unique
-  # enemies" line (item or passive), else 0
+  # Assumptions.ledger_conditions -> open_weakness_share -> conditions.open_weakness_up(build) (MECH78; COV34: one
+  # source of truth): the weak segments are 45% of the boss's Life, passed faster where the build deals more damage
+  # (probed from PoB's Full DPS inside / outside, these stand-ins applied); 0 with nothing revealing weaknesses
   open_weakness: true
   shown_for: "(?:Open Weakness|^Reveal Weaknesses against Rare and Unique enemies$)"
   confidence: theory
@@ -32,9 +33,10 @@
   notes: >-
     PoB part-parses the line (ModCache 5278: DamageTaken BASE with the leftover " from enemies with an Open Weakness
     Recouped as Life"), so it applies nothing. The stand-in "N% of Damage taken Recouped as Life" is PoB's LifeRecoup
-    (ModCache 1725), counted at OpenWeakness's share: the boss is the only enemy, and it has an Open Weakness 45% of the
-    fight when the build reveals weaknesses (the gloves do themselves). Fists of Stone's "(55-65)% ... Recouped as Life
-    and Energy Shield" is a hand-wraps version for Martial Artist (not offered): not covered here.
+    (ModCache 1725), counted at OpenWeakness's share: the boss is the only enemy, and it has an Open Weakness for MECH-A's
+    share of the fight's time when the build reveals weaknesses (the gloves do themselves). Fists of Stone's "(55-65)%
+    ... Recouped as Life and Energy Shield" is The Master's Reach under Way of the Stonefist (builder/search/stonefist.py):
+    a different text, not covered by this entry.
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:5278", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:1725"]
   test_in_game: "Wear The Master's Reach against a boss and compare Life recouped from its hits inside and outside the highlighted segments."
   status: proposed
@@ -49,8 +51,9 @@
     PoB parses the line under Condition:EnemyHasOpenWeakness, which the tool never sets, so it counted 0 (an UNDERCOUNT
     for every Huntress with Predatory Instinct). A pob_wrong entry (a pob_gap isn't applied to a line PoB parses): on the
     tree node the bridge drops PoB's parse (applyPassiveCorrections, passive_models.wrong_tree_lines) and adds the
-    stand-in, the same MORE at OpenWeakness's share, the fight's average multiplier (1 + 0.45 x 50%). Predatory Instinct reveals
-    weaknesses itself (the same tree line), so the share is 45% whenever it's allocated.
+    stand-in, the same MORE at OpenWeakness's share, the fight's average multiplier (1 + share x 50%; MECH-A's time share, 35% on
+    MECH78's probe). Predatory Instinct reveals weaknesses itself (the same tree line), so the share is non-zero
+    whenever it's allocated.
   sources: ["vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:4644", "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua:1920"]
   test_in_game: "A Huntress with Predatory Instinct: compare a hit's damage on a boss inside and outside a highlighted Life segment."
   status: proposed

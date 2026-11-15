@@ -3764,8 +3764,8 @@ class Assumptions:
                               "confidence": "MEDIUM-LOW (MECH-A's Chilled Ground share)"})
                 continue
             if condition.get("open_weakness"):
-                # (COV33, H5-3) the share of the fight the boss has an Open Weakness: 45% when the build reveals
-                # weaknesses (open_weakness_share), 0 without a source; The Master's Reach's recoup line is a `share:` line
+                # (COV33, H5-3; COV34) the share of the fight's time the boss has an Open Weakness: MECH-A's
+                # conditions.open_weakness_up (MECH78), 0 without a source; these lines are `share:` lines
                 if not self.has_line(condition.get("shown_for") or "$^"):
                     continue
                 share, how = self.open_weakness_share()
@@ -3776,8 +3776,8 @@ class Assumptions:
                 notes.append({"label": condition["title"], "value": f"{share:.0%}", "basis": how,
                               "play": "Nothing to do: the boss's Life bar shows the weak segments; they last until its "
                                       "Life passes them",
-                              "confidence": "MEDIUM (the game's 45% of the boss's Life, taken as 45% of the fight at a "
-                                            "steady damage rate)"})
+                              "confidence": "MEDIUM (MECH-A's share of the fight's time: the game's 45% of the boss's "
+                                            "Life, passed faster where the build deals more damage)"})
                 continue
             if condition.get("ward_state"):
                 # (COV32, NOTES3 DEAD-1 / DEAD-2) the share of the fight on Low / missing / full Runic Ward, from what the
@@ -3996,18 +3996,15 @@ class Assumptions:
     # Instinct (bloodlust_reveal_weakness); reveal_weakness_for_%_of_max_health has no carrier; poe2db's The Master's
     # Reach agrees). Only the item line is read here: Predatory Instinct is a tree line (for COV-B / MECH-A, named).
     REVEAL_WEAKNESS = r"^Reveal Weaknesses against Rare and Unique enemies$"
-    OPEN_WEAKNESS_SHARE = 0.45  # KeywordPopups RevealWeakness: "occupy a total of 45% of their maximum Life"
 
     def open_weakness_share(self) -> tuple[float, str]:
-        """(share of the fight the boss has an Open Weakness, how) for the OpenWeakness condition (COV33, H5-3).
-        KeywordPopups RevealWeakness: "Revealed Weaknesses ... occupy a total of 45% of their maximum Life (but in random
-        segments). While the enemy's current Life is within a highlighted segment, they are considered to have an Open
-        Weakness." A boss is Unique, so a build that reveals weaknesses spends the fight's Life passing 45% of it in
-        segments: 45% of the fight at a steady damage rate (the game's number, not a flat guess). No source: 0."""
-        if self.has_line(self.REVEAL_WEAKNESS):
-            return self.OPEN_WEAKNESS_SHARE, ("Reveal Weaknesses: the weak segments are 45% of the boss's Life (the game's "
-                                              "definition), so 45% of the fight at a steady damage rate")
-        return 0.0, "nothing reveals the boss's weaknesses: 0"
+        """(share of the fight the boss has an Open Weakness, how) for the OpenWeakness condition (COV33, H5-3; COV34:
+        one source of truth, the manager 12:43 / 13:14): MECH-A's conditions.open_weakness_up(build) (MECH78), the share
+        of the fight's TIME, worked out from the build: the weak segments are 45% of the boss's Life (KeywordPopups
+        RevealWeakness), gone through faster as the build deals more damage inside them (0.45 r / (0.45 r + 0.55), r =
+        PoB's Full DPS inside over outside, probed with these stand-ins applied: no line counts twice, MECH78's probe
+        POE2T3121). (0, ...) with nothing revealing weaknesses or before its first conditions round."""
+        return conditions_mod.open_weakness_up(self.build)
 
     def ward_state_share(self, state: str) -> tuple[float, str]:
         """(share of the fight on Low / missing / full Runic Ward, how) for the `ward_state` conditions (COV32, NOTES3

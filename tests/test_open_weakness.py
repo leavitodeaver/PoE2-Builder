@@ -1,5 +1,6 @@
-"""COV33 (H5-3 part 3): Open Weakness lines count at the boss's Open Weakness share: 45% of the fight when the build
-reveals weaknesses (KeywordPopups RevealWeakness: the segments are 45% of the enemy's Life), 0 without a source.
+"""COV33 (H5-3 part 3; COV34): Open Weakness lines count at the boss's Open Weakness share, MECH-A's
+conditions.open_weakness_up (MECH78: the share of the fight's time, from the game's 45% of the boss's Life and the
+build's damage inside and outside the segments), 0 without a source.
 The Master's Reach's recoup line (PoB part-parses it: nothing applied) and Predatory Instinct's 50% more (PoB's
 condition is never set) through `share:OpenWeakness` stand-ins (ledger/entries/items-cov33.yaml)."""
 
@@ -11,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from builder.ledger import item_lines, translate, wrong
+from builder.search import conditions
 from builder.search.assumptions import Assumptions
 
 RECOUP = "90% of damage taken from enemies with an Open Weakness Recouped as Life"
@@ -18,11 +20,14 @@ MORE = "50% more damage against enemies with an Open Weakness"
 REVEAL = "Reveal Weaknesses against Rare and Unique enemies"
 
 
-def _me(lines):
+def _me(lines, up=None):
     found = {"lines": [{"text": t} for t in lines], "shares": []}
-    me = SimpleNamespace(build=SimpleNamespace(call=lambda name, **_: found))
+    build = SimpleNamespace(call=lambda name, **_: found)
+    if up is not None:
+        build.open_weakness_up = up  # (what MECH-A's conditions round sets)
+    me = SimpleNamespace(build=build)
     me.has_line = lambda pattern: Assumptions.has_line(me, pattern)
-    me.REVEAL_WEAKNESS, me.OPEN_WEAKNESS_SHARE = Assumptions.REVEAL_WEAKNESS, Assumptions.OPEN_WEAKNESS_SHARE
+    me.REVEAL_WEAKNESS = Assumptions.REVEAL_WEAKNESS
     return me
 
 
@@ -30,10 +35,18 @@ def test_the_lines_stand_in_at_the_open_weakness_share():
     assert translate(RECOUP)[1] == ["share:OpenWeakness 90% of Damage taken Recouped as Life"]
     # a pob_wrong entry (PoB parses the line): on an item it comes back in its item form
     assert wrong(MORE)[1] == "LedgerShare:OpenWeakness 50% more Damage"
-    share, how = Assumptions.open_weakness_share(_me([RECOUP, REVEAL]))
-    assert share == 0.45 and "45%" in how
-    share, how = Assumptions.open_weakness_share(_me([RECOUP]))  # nothing reveals: 0
+    share, how = Assumptions.open_weakness_share(_me([RECOUP, REVEAL], up=(0.35, "probed: 35% of the fight")))
+    assert share == 0.35 and "35%" in how
+    share, how = Assumptions.open_weakness_share(_me([RECOUP]))  # nothing reveals (no round set it): 0
     assert share == 0 and "nothing reveals" in how
+
+
+def test_the_lines_read_the_same_share_as_the_conditions():
+    """One source of truth (the manager 12:43 / 13:14): the ledger's OpenWeakness share is MECH-A's number, as given,
+    clamped to 0-1 the same way."""
+    for up in [(0.35, "probe"), (0.0, ""), (1.4, "over"), None]:
+        me = _me([RECOUP, REVEAL], up=up)
+        assert Assumptions.open_weakness_share(me) == conditions.open_weakness_up(me.build)
 
 
 def test_predatory_instincts_parsed_line_is_replaced_on_the_tree_node():
