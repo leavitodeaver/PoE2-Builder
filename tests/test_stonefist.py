@@ -52,3 +52,71 @@ def test_a_unique_takes_poe2dbs_transformed_text(data):
     assert "(55-65)% of damage taken from enemies with an Open Weakness Recouped as Life and Energy Shield" in lines
     assert "(200-300)% increased Armour and Energy Shield" not in lines
     assert len(stonefist.unique_texts()) == 37
+
+
+class _Engine:
+    """Records the engine calls; 'facts' answers whether the notable is allocated."""
+
+    def __init__(self, allocated: bool):
+        self.allocated, self.calls = allocated, []
+
+    def call(self, method, **kwargs):
+        self.calls.append((method, kwargs))
+        if method == "facts":
+            passives = [{"name": stonefist.NOTABLE, "ascendancy": "Martial Artist"}] if self.allocated else []
+            return {"passives": passives}
+        if method == "allocate":
+            node = 39595
+            if node in kwargs.get("add", []):
+                self.allocated = True
+            if node in kwargs.get("remove", []):
+                self.allocated = False
+        return {"stats": {}, "results": []}
+
+
+def _build(data, allocated: bool):
+    from types import SimpleNamespace
+
+    from builder.search.state import Build
+
+    engine = _Engine(allocated)
+    return Build(engine, SimpleNamespace(data=data), objective=None), engine
+
+
+def _sent(engine, method):
+    return [kwargs for m, kwargs in engine.calls if m == method]
+
+
+def test_the_search_sends_transformed_gloves_only_with_the_notable(data):
+    """state.Build.call (the manager 15:45 allowed COV-A this hook in SEARCH's file): the Gloves item of an equip or a
+    what-if goes to PoB transformed when the tree has Way of the Stonefist; other slots and builds without it as is."""
+    from builder.search.context import ItemOption
+
+    plain = "\n".join(RARE)
+    build, engine = _build(data, allocated=True)
+    build.call("equip", slot="Gloves", raw=plain, fields=[])
+    build.call("equip", slot="Helmet", raw="x", fields=[])
+    build.call("itemDeltas", cases=[{"slot": "Gloves", "raw": plain}, {"slot": "Boots", "raw": "y"}], fields=[])
+    gloves, helmet = _sent(engine, "equip")
+    assert "Fists of Stone" in gloves["raw"] and helmet["raw"] == "x"
+    cases = _sent(engine, "itemDeltas")[0]["cases"]
+    assert "Fists of Stone" in cases[0]["raw"] and cases[1]["raw"] == "y"
+    assert len(_sent(engine, "facts")) == 1  # read once per tree change
+
+    build, engine = _build(data, allocated=False)
+    build.call("equip", slot="Gloves", raw=plain, fields=[])
+    assert _sent(engine, "equip")[0]["raw"] == plain
+    # allocating the notable re-equips the bought (plain) gloves, now transformed; removing it puts them back plain
+    build.equipped["Gloves"] = ItemOption(name="Optimizer Gloves", base="Gauze Wraps", type="Gloves", sub_type=None,
+                                          raw=plain, unique=False, price=0.0, confidence="high", level=1, rare=True)
+    build.call("allocate", add=[39595], remove=[], fields=[])
+    assert "Fists of Stone" in _sent(engine, "equip")[-1]["raw"]
+    build.call("allocate", add=[], remove=[39595], fields=[])
+    assert _sent(engine, "equip")[-1]["raw"] == plain
+    build.call("allocate", add=[123], remove=[], fields=[])  # another node: nothing re-equipped
+    assert len(_sent(engine, "equip")) == 3
+
+
+def test_an_already_transformed_item_is_never_transformed_twice(data):
+    once, _ = stonefist.transform("\n".join(RARE), data.mods)
+    assert stonefist.transform(once, data.mods) == (once, [])

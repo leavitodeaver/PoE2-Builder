@@ -139,6 +139,8 @@ def transform(raw: str, mod_pools: dict) -> tuple[str, list[str]]:
     # the base line: the line after the name for a rare / unique (PoB's raw order)
     base_at = rarity_at + 1 if len(head) > rarity_at + 1 else None
     if base_at is not None:
+        if head[base_at] == BASE:
+            return raw, []  # already transformed (a restored or re-equipped item): never twice
         head[base_at] = BASE
     granted = [line for line in implicits if line.startswith("Grants Skill:")]
     if unique is not None:
@@ -150,3 +152,21 @@ def transform(raw: str, mod_pools: dict) -> tuple[str, list[str]]:
         new_explicits, kept = transform_lines(explicits, mod_pools)
     text = head + [f"Implicits: {len(new_implicits)}", *new_implicits, *new_explicits]
     return "\n".join(text), kept
+
+
+def node_id(tree: dict) -> int | None:
+    """The notable's node id in the tool's tree data."""
+    return next((n["id"] for n in tree.get("nodes") or [] if n.get("name") == NOTABLE and n.get("ascendancy")), None)
+
+
+def item_kwargs(method: str, kwargs: dict, mod_pools: dict) -> dict:
+    """An engine call's arguments with the Gloves item transformed: "equip" (slot Gloves, a raw) and the what-if
+    methods' cases on Gloves. Other calls unchanged."""
+    if method == "equip" and kwargs.get("slot") == "Gloves" and kwargs.get("raw"):
+        return {**kwargs, "raw": transform(kwargs["raw"], mod_pools)[0]}
+    if method == "itemDeltas" and any(c.get("slot") == "Gloves" and c.get("raw") for c in kwargs.get("cases") or []):
+        cases = [{**c, "raw": transform(c["raw"], mod_pools)[0]} if c.get("slot") == "Gloves" and c.get("raw") else c
+                 for c in kwargs["cases"]]
+        return {**kwargs, "cases": cases}
+    return kwargs
+

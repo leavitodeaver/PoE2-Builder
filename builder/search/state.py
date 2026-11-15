@@ -38,6 +38,8 @@ class Build:
         self.stats: dict = {}
         self.score = -math.inf
         self.evals = 0
+        # (COV34, the manager 15:45) Way of the Stonefist: None = not read since the tree last changed (call)
+        self._stonefist: bool | None = None
         self.commits = 0
         self.started = clock.now()
         self.phase = "setup"
@@ -89,7 +91,42 @@ class Build:
     # Engine access -----------------------------------------------------------------------------
 
     def call(self, method: str, **kwargs: Any) -> Any:
-        return self.engine.call(method, **kwargs)
+        # Way of the Stonefist (COV34; the manager 15:45 allowed COV-A this hook): with the Martial Artist notable
+        # allocated, equipped gloves are Fists of Stone with transformed mods (builder/search/stonefist.py), so the
+        # Gloves item of an "equip" or "itemDeltas" call goes to PoB transformed; allocating or removing the notable
+        # re-equips the gloves the other way. The item bought stays the plain one (self.equipped keeps it).
+        if method in ("loadXml", "newBuild", "setClass"):
+            self._stonefist = None
+        if method in ("equip", "itemDeltas") and self._has_stonefist():
+            from builder.search import stonefist
+
+            kwargs = stonefist.item_kwargs(method, kwargs, self.ctx.data.mods)
+        result = self.engine.call(method, **kwargs)
+        if method == "allocate" and self._stonefist_toggled(kwargs):
+            gloves = self.equipped.get("Gloves") if hasattr(self, "equipped") else None
+            if gloves is not None and gloves.raw:
+                result = self.call("equip", slot="Gloves", raw=gloves.raw, fields=kwargs.get("fields") or [])
+        return result
+
+    def _has_stonefist(self) -> bool:
+        """Whether the tree has Way of the Stonefist allocated (read from PoB once per tree change)."""
+        if self._stonefist is None:
+            from builder.search import stonefist
+
+            passives = self.engine.call("facts", fields=[]).get("passives") or []
+            self._stonefist = any(p.get("name") == stonefist.NOTABLE and p.get("ascendancy") for p in passives)
+        return self._stonefist
+
+    def _stonefist_toggled(self, kwargs: dict) -> bool:
+        """An allocation that adds or removes the notable (then read again)."""
+        from builder.search import stonefist
+
+        node = stonefist.node_id(self.ctx.data.tree)
+        if node is None or node not in set(kwargs.get("add") or []) | set(kwargs.get("remove") or []):
+            return False
+        before = self._stonefist
+        self._stonefist = None
+        return before is None or before != self._has_stonefist()
 
     def _committed(self, result: dict) -> float:
         self.commits += 1
