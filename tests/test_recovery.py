@@ -473,11 +473,14 @@ def test_ward_damaged_recently_share_needs_runic_reprieve_and_ward_to_pay():
     assert hook.ward_damaged_share(skills)[0] == 0.0  # no Ward regenerated: no blocked hit is paid for
 
 
-def test_life_when_stunned_counts_the_bosss_hits_that_light_stun_you():
+def test_life_when_stunned_counts_the_bosss_hits_that_light_stun_you(monkeypatch):
     """MECHC15 (AUDIT27 A27-32): "Regenerate N% of maximum Life over 1 second when Stunned" at the boss's landed hits x
     the game's Light Stun chance per damage type (hit / Stun Threshold, a monster's Physical 100% more since MECHC26 (R4:
     KeywordPopups Stun and 0.3.0; was 50%), under 15% none), less the
     build's Stun avoidance; nothing for a build that can't be Stunned."""
+    from builder.search import bosses
+
+    monkeypatch.setattr(bosses, "melee_share", lambda stats=None: (0.0, "none (test)"), raising=False)
     stats = {"StunThreshold": 2000.0, "StunAvoidChance": 0.0, "Life": 4000.0}
     weights = {"Physical": 0.5, "Fire": 0.5}
     sizes = {"Physical": 600.0, "Fire": 200.0}  # Physical 600 x 2 / 2000 = 60%; Fire 10%: under 15%, none
@@ -1154,3 +1157,24 @@ def test_the_lethal_draws_charges_leave_the_life_flasks_drinking():
     assert drink_charges(info, drawn, "Life") == pytest.approx(max(made - 1.5, 0.0))
     assert drink_charges(info, replace(gain, lethal_pct=10.0, bow_attacks=5.0), "Life") == 0.0
     assert drink_charges(info, drawn, "Mana") == charges_per_second(info, drawn, "Mana")
+
+
+
+def test_the_bosss_melee_hits_stun_you_a_third_more_at_its_melee_share(monkeypatch):
+    """MECHC27 (the manager, 15 Nov 06:59; KeywordPopups Stun and 0.3.0: monster Melee damage has 33% more Light Stun
+    chance): x(1 + 0.33 x the boss's Melee share, MECH76's bosses.melee_share) where neither the 100% cap nor the 15% floor
+    binds; a Melee hit and a non-Melee hit each meet them on their own."""
+    from builder.search import bosses
+
+    stats = {"StunThreshold": 1e9, "StunAvoidChance": 0.0}  # (a threshold too high to matter for the 4 s rule)
+    weights, sizes = {"Physical": 1.0}, {"Physical": 0.15e9}  # (x2 Physical = 30% a hit)
+    monkeypatch.setattr(bosses, "melee_share", lambda stats=None: (0.0, "none"), raising=False)
+    plain, _ = recovery.stuns_taken(stats, sizes, weights, 0.001)
+    monkeypatch.setattr(bosses, "melee_share", lambda stats=None: (0.4, "40% (test)"), raising=False)
+    melee, how = recovery.stuns_taken(stats, sizes, weights, 0.001)
+    assert melee == pytest.approx(plain * (1 + 0.33 * 0.4), rel=1e-3) and "Melee 33% more on 40% of hits" in how
+    # near the cap: a Melee hit can't pass 100%
+    big = {"Physical": 0.45e9}  # (90% plain, 100% not 120% as Melee)
+    capped, _ = recovery.stuns_taken(stats, big, weights, 0.001)
+    monkeypatch.setattr(bosses, "melee_share", lambda stats=None: (0.0, "none"), raising=False)
+    assert capped == pytest.approx(recovery.stuns_taken(stats, big, weights, 0.001)[0] * (0.6 + 0.4 / 0.9), rel=1e-3)

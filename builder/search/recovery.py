@@ -169,8 +169,12 @@ HIT_LINES = (MISSING_BEFORE_HIT, ARMOUR_ON_BLOCK, CAST_REGEN, CAST_LEECH, STUNNE
 # each have 50% more Light Stun chance"; KeywordPopups Stun says "Monster Physical damage and Melee Damage have 100% more
 # and 33% more Light Stun chance and Heavy Stun buildup respectively. These bonuses are multiplicative with each other",
 # as 0.3.0's note does. Two sources against one (the manager, 15 Nov 01:01: HIGH): a boss's Physical hit x2 (MECHC26;
-# was x1.5, an UNDERCOUNT of the Stuns on you). Its Melee 33% more is NOT applied: the boss data has no melee share per
-# damage type (an UNDERCOUNT, asked of MECH-D). PoB's own SelfStunChance uses other constants (Data.lua StunBaseMult 200,
+# was x1.5, an UNDERCOUNT of the Stuns on you). Its Melee 33% more (MECHC27, the manager 15 Nov 06:59: "x(1 + 0.33 x
+# share)") applies to the share of the boss's hits that are Melee (MECH76's bosses.melee_share: a share of its damaging
+# skills, LOW as hits; the worst case reads the highest real preset's), split per hit (a Melee hit at 1.33x, the rest at
+# 1x, each under the 100% cap and the 15% floor: the manager's x(1 + 0.33 x share) wherever neither binds). Heavy Stun
+# buildup on you isn't modelled here (only Light Stuns). Without melee_share (a tool before train 57): no bonus, said.
+# PoB's own SelfStunChance uses other constants (Data.lua StunBaseMult 200,
 # MinStunChanceNeeded 20) on its all-types-at-once enemy hit: not read
 LIGHT_STUN_FLOOR, PHYSICAL_STUN_MORE, MONSTER_MELEE_STUN_MORE = 0.15, 2.0, 1.33
 STUN_MORE_PER_RECENT, RECENT_STUN_SECONDS = 0.5, 4.0  # (MECHC27, L1-1: stuns_taken)
@@ -184,12 +188,21 @@ def stuns_taken(stats: dict, sizes: dict[str, float], weights: dict[str, float],
     if threshold <= 0 or landed <= 0 or avoid >= 1:
         return 0.0, ("the build can't be Stunned" if avoid >= 1 else "no boss hit lands" if landed <= 0
                      else "no Stun Threshold")
+    from builder.search import bosses
+
+    melee_of = getattr(bosses, "melee_share", None)
+    melee, melee_how = melee_of(stats) if melee_of is not None else (0.0, "no melee share in this build of the tool")
+    melee = min(max(melee, 0.0), 1.0)
+
+    def one(size: float) -> float:
+        each = min(1.0, size)
+        return each if each >= LIGHT_STUN_FLOOR else 0.0
+
     def chance_at(scale: float) -> tuple[float, list[str]]:
         total, parts = 0.0, []
         for t, w in weights.items():
-            each = min(1.0, max(sizes.get(t, 0.0), 0.0) * (PHYSICAL_STUN_MORE if t == "Physical" else 1.0)
-                       / (threshold * scale))
-            each = each if each >= LIGHT_STUN_FLOOR else 0.0
+            base = max(sizes.get(t, 0.0), 0.0) * (PHYSICAL_STUN_MORE if t == "Physical" else 1.0) / (threshold * scale)
+            each = melee * one(base * MONSTER_MELEE_STUN_MORE) + (1 - melee) * one(base)
             total += w * each
             if w > 0:
                 parts.append(f"{t} {w:.0%} of hits, {each:.0%}")
@@ -213,8 +226,8 @@ def stuns_taken(stats: dict, sizes: dict[str, float], weights: dict[str, float],
     scale = 1 + STUN_MORE_PER_RECENT * RECENT_STUN_SECONDS * rate
     chance, parts = chance_at(scale)
     return rate, (f"{landed:.3f} boss hits landing/s x {chance:.1%} Light Stun chance ({'; '.join(parts)}: hit size "
-                  f"after mitigation / Stun Threshold {threshold:,.0f}, a monster's Physical 100% more (its Melee 33% more not "
-                  "applied: no melee share of the boss's hits), under 15% none)"
+                  f"after mitigation / Stun Threshold {threshold:,.0f}, a monster's Physical 100% more, its Melee 33% more on "
+                  f"{melee:.0%} of hits ({melee_how}), under 15% none)"
                   + (f" x {1 - avoid:.0%} not avoided" if avoid > 0 else "")
                   + (f"; your threshold {scale - 1:.0%} higher from the Stuns of the past 4 s (50% more per Stun; "
                      f"{raw * 60:.1f} a minute without it)" if rate > 0 else "")
