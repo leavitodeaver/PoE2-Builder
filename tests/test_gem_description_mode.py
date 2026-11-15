@@ -493,3 +493,35 @@ def test_leap_slams_quality_is_more_damage_against_fully_broken_armour():
     mods, notes = models.gem_stat_model([slam], main=slam)
     assert [(m["line"], m["scale"], m.get("skill")) for m in mods
             if "Fully Broken" in m["line"]] == [("1% more Damage against Enemies with Fully Broken Armour", 20, "Leap Slam")]
+
+
+def test_frost_bombs_exposure_stops_above_its_level_cap_and_follows_its_casts():
+    low = Skill("Frost Bomb", 2, spell=True, level_stats={models.FROST_BOMB_LEVEL_STAT: 78})
+    main = Skill("Frostbolt", 1, spell=True)
+    groups = {2: {"index": 2, "name": "Frost Bomb", "speed": 1 / 6, "_press": None}}
+    mods, notes = models.frost_bomb_exposure_model([main, low], {"Speed": 2.0}, main, groups, boss_level=82)
+    assert mods == [models.raw_mod("DebuffEffect", "MORE", -100, "Frost Bomb")] and notes[0]["value"] == "none"
+    high = Skill("Frost Bomb", 2, spell=True, level_stats={models.FROST_BOMB_LEVEL_STAT: 100})
+    mods, notes = models.frost_bomb_exposure_model([main, high], {"Speed": 2.0}, main, groups, boss_level=82)
+    assert mods == [] and notes[0]["value"] == "100% uptime"  # on its 6 s cooldown: 12 s a cast covers it
+    mods, notes = models.frost_bomb_exposure_model([main, low], {"Speed": 2.0}, main, groups, boss_level=75)
+    assert mods == []  # (a boss at or under the cap)
+    rare = {2: {**groups[2], "_press": 0.25}}  # pressed a quarter of its cooldowns: one cast / 24 s, up 12 / 24
+    mods, notes = models.frost_bomb_exposure_model([main, high], {"Speed": 2.0}, main, rare, boss_level=82)
+    assert [m["value"] for m in mods] == [pytest.approx(-50, abs=0.01)]
+    mods, notes = models.frost_bomb_exposure_model([main, high], {"Speed": 2.0}, main, {}, boss_level=82)
+    assert (mods, notes) == ([], [])  # (no rate read: PoB's number kept, never zeroed)
+    assert "Frost Bomb" in models.gem_stat_skills()  # (its level stats are read)
+    assert 2 in models.gem_stat_side_groups([main, high], main)
+
+
+def test_his_scattering_calamity_fires_its_wellsprites_as_a_fusillade_like_ember_fusillade():
+    hsc = Skill("His Scattering Calamity", 1, spell=True,
+                level_stats={models.EMBER_CAP_STAT: 8, models.EMBER_MORE_STAT: 10})
+    speed, wait = 2.5, 0.7
+    best = max((min(8, k) * (1 + 0.10 * (min(8, k) - 1) / 2) / (k / speed + wait), k) for k in range(1, 9))
+    mods, notes = models.ember_fusillade_model(hsc, {"Speed": speed, "Duration": wait, "ProjectileCount": 1})
+    assert [m["value"] for m in mods] == [pytest.approx(100 * (best[0] / speed - 1), abs=0.01)]
+    assert mods[0]["skill"] == "His Scattering Calamity" and "Wellsprites" in notes[0]["label"]
+    assert notes[0]["entry"] == "model-gem13-scattering-calamity-fusillade"
+    assert models.ember_fusillade_model(hsc, {"Speed": speed}, forbidden={notes[0]["entry"]}) == ([], [])

@@ -3206,8 +3206,8 @@ def _skill_names(entry) -> list[str]:
 def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats: dict | None = None,
                    main: Skill | None = None, previous: list[dict] | None = None,
                    config: dict | None = None, groups: dict | None = None,
-                   texts: list[str] | None = None) -> tuple[list[dict], list[dict]]:
-    """`texts`: the build's source lines (salvo_model's Seal gain lines). `previous`: the lines applied when `stats` was calculated (Assumptions.mods), so a `share:` entry whose own line
+                   texts: list[str] | None = None, boss_level: int = 0) -> tuple[list[dict], list[dict]]:
+    """`boss_level`: the level PoB scores the boss at (frost_bomb_exposure_model's level cap; 0: not read). `texts`: the build's source lines (salvo_model's Seal gain lines). `previous`: the lines applied when `stats` was calculated (Assumptions.mods), so a `share:` entry whose own line
     moves the stat it reads (Cadence's Attack Speed) can take its own last line back out (SHARES). `config`: PoB's config
     input (bridge getConfig), whose boxes an `additive:` entry counts (additive_value). `groups`: {group index: the
     bridge's useRates entry + `_press`} for gem_stat_side_groups, read by GROUP_SHARES (a non-main skill's own output)."""
@@ -3345,6 +3345,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + ember_mods, notes + ember_notes
     rake_mods, rake_notes = rake_distance_model(main, stats or {}, forbidden)
     mods, notes = mods + rake_mods, notes + rake_notes
+    bomb_mods, bomb_notes = frost_bomb_exposure_model(skills, stats or {}, main, groups or {}, boss_level, forbidden)
+    mods, notes = mods + bomb_mods, notes + bomb_notes
     return mods, notes
 
 
@@ -5210,19 +5212,32 @@ EMBER_MORE_STAT = "ember_fusillade_damage_+%_final_per_ember_fired"
 EMBER_DURATION = 1.3  # s: base_skill_effect_duration 1300
 EMBER_CAP, EMBER_MORE = 10, 5.0  # level 20's cap; the base more per previous Ember (used when the gem's own isn't read)
 MODEL_FIELDS.extend(f for f in ("Duration",) if f not in MODEL_FIELDS)  # (ember_fusillade_model)
+# (GEM13) His Scattering Calamity (act_int.lua ScatteringCalamityPlayer, the staff's "Grants Skill: Level (1-20) His
+# Scattering Calamity", Uniques/staff.lua variant 4): "Conjure a crackling Wellsprite that hovers above you. After a short
+# duration, the Wellsprite launches at an enemy ... Recasting this spell resets the duration for all active Wellsprites";
+# the same stats as Ember Fusillade (blazing_cluster_maximum_number_of_projectiles_allowed 8 at every level,
+# ember_fusillade_damage_+%_final_per_ember_fired 10 (+0.1 a quality), base_skill_effect_duration 700), which PoB reads
+# neither of (checked as above), so the same Fusillade model applies (its PoB scoring, one Wellsprite a cast at the cast
+# rate, as Ember Fusillade's in POE2T2102: UNVERIFIED for it; GEM13's probe POE2T2111 scored it 0 as a main skill: the
+# search doesn't set up the staff that grants it). Its 3 chains don't change a lone boss's count.
+# skill -> (entry, the defaults used when the gem's own aren't read: wait s, more % per previous, cap)
+EMBER_SKILLS = {EMBER_SKILL: (EMBER_ENTRY, EMBER_DURATION, EMBER_MORE, EMBER_CAP),
+                "His Scattering Calamity": ("model-gem13-scattering-calamity-fusillade", 0.7, 10.0, 8)}
 
 
 def ember_fusillade_model(main: Skill | None, stats: dict,
                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
-    """Ember Fusillade as Fusillades (comment above): (mods, notes)."""
-    if main is None or main.name != EMBER_SKILL or EMBER_ENTRY in forbidden:
+    """Ember Fusillade (or His Scattering Calamity) as Fusillades (comment above): (mods, notes)."""
+    if main is None or main.name not in EMBER_SKILLS or EMBER_SKILLS[main.name][0] in forbidden:
         return [], []
     speed = number(stats.get("Speed"))
     if speed <= 0:
         return [], []
-    cap = int(number(main.level_stats.get(EMBER_CAP_STAT)) or EMBER_CAP)
-    more = number(main.level_stats.get(EMBER_MORE_STAT)) or EMBER_MORE
-    wait = number(stats.get("Duration")) or EMBER_DURATION
+    entry, base_wait, base_more, base_cap = EMBER_SKILLS[main.name]
+    skill, unit = main.name, ("Wellsprite" if main.name != EMBER_SKILL else "Ember")
+    cap = int(number(main.level_stats.get(EMBER_CAP_STAT)) or base_cap)
+    more = number(main.level_stats.get(EMBER_MORE_STAT)) or base_more
+    wait = number(stats.get("Duration")) or base_wait
     each = max(1, int(number(stats.get("ProjectileCount")) or 1))
     best = None
     for casts in range(1, -(-cap // each) + 1):
@@ -5232,16 +5247,16 @@ def ember_fusillade_model(main: Skill | None, stats: dict,
             best = (rate, casts, n)
     rate, casts, n = best
     factor = rate / speed
-    note = {"label": f"{EMBER_SKILL}: Embers fire as a Fusillade after you stop casting*", "value": f"x{factor:.3f}",
-            "confidence": "LOW", "entry": EMBER_ENTRY,
-            "basis": (f"{casts} casts at {speed:.2f}/s ({each} Ember{'s' if each > 1 else ''} a cast, cap {cap}) then "
-                      f"{wait:.2f} s with no recast: {n} Embers, each {more:g}% more than the one before (x"
-                      f"{1 + more / 100 * (n - 1) / 2:.3f} on average), {rate:.2f} Embers' worth a second against PoB's "
-                      f"{speed:.2f} (one Ember a cast, fired at once). LOW: the Embers' launch spacing not counted as time; "
-                      "every Ember hits the lone boss"),
-            "play": (f"Cast {EMBER_SKILL} {casts} times, then stop for {wait:.1f} s so the Fusillade fires (recasting "
-                     f"resets the wait). Casting without pause: no Embers fire; this rhythm: x{factor:.3f} of PoB's number.")}
-    return [raw_mod("DPS", "MORE", 100 * (factor - 1), EMBER_SKILL)], [note]
+    note = {"label": f"{skill}: {unit}s fire as a Fusillade after you stop casting*", "value": f"x{factor:.3f}",
+            "confidence": "LOW", "entry": entry,
+            "basis": (f"{casts} casts at {speed:.2f}/s ({each} {unit}{'s' if each > 1 else ''} a cast, cap {cap}) then "
+                      f"{wait:.2f} s with no recast: {n} {unit}s, each {more:g}% more than the one before (x"
+                      f"{1 + more / 100 * (n - 1) / 2:.3f} on average), {rate:.2f} {unit}s' worth a second against PoB's "
+                      f"{speed:.2f} (one {unit} a cast, fired at once). LOW: the {unit}s' launch spacing not counted as "
+                      f"time; every {unit} hits the lone boss"),
+            "play": (f"Cast {skill} {casts} times, then stop for {wait:.1f} s so the Fusillade fires (recasting "
+                     f"resets the wait). Casting without pause: no {unit}s fire; this rhythm: x{factor:.3f} of PoB's number.")}
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), skill)], [note]
 
 
 # Meteors of The Stars Answer (Starfall) and Walking Calamity (GEM12). The game's stats (TheStarsAnswerPlayer /
@@ -5354,6 +5369,69 @@ def rake_distance_model(main: Skill | None, stats: dict,
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), RAKE_SKILL)], [note]
 
 
+# Frost Bomb's Elemental Exposure (GEM13; plans/term-elemental-exposure.md item D; an OVERCOUNT below gem level 18, and
+# where the build doesn't keep it pressed). PoB maps active_skill_all_elemental_exposure_magnitude 20 to Fire / Cold /
+# Lightning Exposure as a Debuff of Frost Bomb (SkillStatMap.lua 1770) and applies it whenever the skill is in an enabled
+# group: always on, at every gem level. Two things it misses:
+# 1. frost_bomb_exposure_does_not_apply_to_enemies_of_level_higher_than_X (PoB's stat text, frost_bomb.lua: "Cannot apply
+#    Exposure to enemies of level higher than {0}", shown up to 99): 20 ... 78 at gem levels 1-17, 100 from 18 (act_int.lua
+#    FrostBombPlayer; poe2db's Frost Bomb page, 15 Nov: 74 / 76 / 78 at 15-17, blank from 18). PoB never reads it
+#    (checked: grep of PoB's whole src for the stat id and "level higher than": only the skill data and its stat text;
+#    the patch notes have no hit, which isn't proof of no change). A boss above the cap gets none of Frost Bomb's
+#    Exposure: DebuffEffect MORE -100 on Frost Bomb (CalcPerform 2477-2482 scales the skill's Debuff by it; the Rod's
+#    route, rod_model). The boss's level: enemy_level (PoB's scored level, 82 for the presets).
+# 2. The uptime: each cast pulses until its 4 s Detonation (base_skill_detonation_time 4000) and each pulse's Exposure
+#    lasts 8 s (base_secondary_skill_effect_duration 8000; 0.2.0e "Exposure duration of 8 seconds"), so one cast keeps it
+#    up 12 s: up min(1, uses/s x 12) (the build's own rate: _skill_rate, its group's useRates x the press share; on its
+#    6 s cooldown that's 100%, PoB's number). Duration modifiers aren't read (they only lengthen it: an undercount at most).
+# Not counted (an UNDERCOUNT, labelled): the growth "Initially applies 20% Elemental Exposure and 2% Exposure per pulse, up
+# to a maximum of 50%" (+0.5 a quality to the cap; 0.3.0's notes say the same). The pulse interval isn't given (checked:
+# PoB's FrostBombPlayer stat set and stat text, poe2db's Frost Bomb page (no pulse stat, hidden stats included), the
+# patch notes' --history "Frost Bomb"; the game files not read during the 26579160 download: UNVERIFIED there), so PoB's
+# 20% stays (the plan: "Don't invent a pulse rate").
+FROST_BOMB = "Frost Bomb"
+FROST_BOMB_ENTRY = "model-gem13-frost-bomb-exposure"
+FROST_BOMB_LEVEL_STAT = "frost_bomb_exposure_does_not_apply_to_enemies_of_level_higher_than_X"
+FROST_BOMB_WINDOW = 4.0 + 8.0  # seconds of Exposure one cast gives: pulses to its Detonation, then each pulse's 8 s
+
+
+def frost_bomb_exposure_model(skills: list[Skill], stats: dict, main: Skill | None, groups: dict, boss_level: int = 0,
+                              forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Frost Bomb's Exposure on the boss: none above its gem level's level cap, else at its uptime from the build's
+    own casts (comment above)."""
+    bomb = next((s for s in skills if s.name == FROST_BOMB), None)
+    if bomb is None or FROST_BOMB_ENTRY in forbidden:
+        return [], []
+    label = "Frost Bomb: its Elemental Exposure on the boss*"
+    growth = ("The game's growth of 2% a pulse up to 50% isn't counted: its pulse interval isn't in PoB's data, "
+              "poe2db or the patch notes (UNVERIFIED in the game files; an undercount), so PoB's 20% stays")
+    cap = number(bomb.level_stats.get(FROST_BOMB_LEVEL_STAT))
+    if 0 < cap < 100 and boss_level > cap:
+        return [raw_mod("DebuffEffect", "MORE", -100, FROST_BOMB)], [{
+            "label": label, "value": "none", "confidence": "HIGH", "entry": FROST_BOMB_ENTRY,
+            "basis": (f"Frost Bomb at this gem level cannot apply Exposure to enemies above level {cap:g}; the boss is "
+                      f"level {boss_level} (PoB applies it at every level). Gem level 18 lifts the cap"),
+            "play": f"Level Frost Bomb to 18 or more: below it, its Exposure doesn't reach a level-{boss_level} boss."}]
+    if (main is None or bomb.group != main.group) and bomb.group not in (groups or {}):
+        return [], []  # (no use rate read for it: PoB's always-on number stays, never zeroed; gem_stat_side_groups asks)
+    rate, how = _skill_rate(bomb, stats, main, groups)
+    up = min(1.0, rate * FROST_BOMB_WINDOW)
+    basis = (f"{how} {rate:.3g}/s, {FROST_BOMB_WINDOW:g} s of Exposure a cast (pulses to its 4 s Detonation, then 8 s): "
+             f"up {up:.0%} of the fight (PoB: always). " + growth)
+    play = ("Cast Frost Bomb on cooldown near the boss: its Exposure (-20% to the boss's elemental resistances) then "
+            f"never drops. Without it: no Exposure from it; with it: up {up:.0%} now.")
+    note = {"label": label, "value": f"{up:.0%} uptime", "confidence": "MEDIUM", "entry": FROST_BOMB_ENTRY,
+            "basis": basis, "play": play}
+    if up >= 1.0:
+        return [], [note]
+    return [raw_mod("DebuffEffect", "MORE", -100 * (1 - up), FROST_BOMB)], [note]
+
+
+def frost_bomb_groups(skills: list[Skill]) -> set[int]:
+    """The groups frost_bomb_exposure_model reads a use rate from."""
+    return {s.group for s in skills if s.name == FROST_BOMB and s.group is not None}
+
+
 # `share: cooldown_skills` (GEM11; PATCH_CHECK H1-10, an UNDERCOUNT): Uhtred's Constellation (sup_int.lua
 # SupportUhtredsConstellation; gem_stat_descriptions.csd): "Supported Skills deal {0}% more Damage for each different Skill
 # with a Cooldown you have used in the last 8 seconds" (support_uhtred_damage_+%_final_per_different_cooldown_skill_in_
@@ -5424,7 +5502,8 @@ def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
         if skill.name == CORRUPTED_CRY and skill.group is not None and (main is None or skill.group != main.group):
             found.add(skill.group)
     # (GEM12: Vruun's Aftermath's Warcries and crystal makers, Uhtred's Rite's skills: their use rates)
-    found.update(g for g in vruun_aftermath_groups(skills) | uhtred_rite_groups(skills) if main is None or g != main.group)
+    found.update(g for g in vruun_aftermath_groups(skills) | uhtred_rite_groups(skills) | frost_bomb_groups(skills)
+                 if main is None or g != main.group)  # (GEM13: Frost Bomb's casts, frost_bomb_exposure_model)
     for skill in skills:  # (a side skill whose support makes you lose Life per use: gem_stat_life_loss reads its rate)
         if skill.group is not None and (main is None or skill.group != main.group) and any(
                 number(skill.support_stats.get(stat)) for stat in LIFE_LOSS_STATS):

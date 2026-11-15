@@ -1,0 +1,81 @@
+# GEM13 (GEM lane, 15 Nov 2026): gem stats PoB never reads.
+
+- id: model-gem13-frost-bomb-exposure
+  title: "Frost Bomb: its Elemental Exposure only on a boss at or under its gem level's level cap, at its uptime from the build's casts"
+  kind: model
+  model: frost_bomb_exposure
+  stats: ["frost_bomb_exposure_does_not_apply_to_enemies_of_level_higher_than_X"]
+  skill: [Frost Bomb]
+  confidence: HIGH
+  notes: >-
+    PoB maps active_skill_all_elemental_exposure_magnitude 20 to a Debuff of Frost Bomb (SkillStatMap.lua 1770) and
+    applies it at every gem level whenever the skill is in an enabled group. The stat "Cannot apply Exposure to enemies
+    of level higher than {0}" (PoB's frost_bomb.lua stat text) is 20-78 at gem levels 1-17 and 100 from 18 (act_int.lua
+    FrostBombPlayer; poe2db's Frost Bomb page agrees, 15 Nov). PoB never reads it (checked: grep of PoB's whole src for
+    the stat id and "level higher than": only the skill data and its stat text; no patch-note hit, which isn't proof
+    of no change). models.frost_bomb_exposure_model: above the cap, DebuffEffect MORE -100 on Frost Bomb (its Exposure
+    off); else up min(1, uses/s x 12 s) (4 s to Detonation, then each pulse's 8 s Exposure), the build's own casts.
+    Not counted (an undercount, labelled): the growth of 2% a pulse up to 50% (pulse interval UNVERIFIED: not in PoB's
+    data, poe2db or the patch notes; game files not read during the 26579160 download).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (FrostBombPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/Specific_Skill_Stat_Descriptions/frost_bomb.lua",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua 2477-2482",
+            "https://poe2db.tw/us/Frost_Bomb (15 Nov 2026)",
+            "scratch/manager/research/patchnotes 0.2.0e, 0.3.0"]
+  test_in_game: "Frost Bomb at gem level 15 against a level-80+ map boss: the boss's debuff bar should show no Exposure."
+  status: proposed
+
+- id: model-gem13-scattering-calamity-fusillade
+  title: "His Scattering Calamity: Wellsprites fire as a Fusillade after you stop casting, each 10% more than the one before (Ember Fusillade's model)"
+  kind: model
+  model: ember_fusillade
+  stats: ["ember_fusillade_damage_+%_final_per_ember_fired", "blazing_cluster_maximum_number_of_projectiles_allowed"]
+  skill: [His Scattering Calamity]
+  confidence: LOW
+  notes: >-
+    The staff-granted skill (Uniques/staff.lua variant 4) says "Recasting this spell resets the duration for all active
+    Wellsprites" and carries Ember Fusillade's stats: a cap of 8 Wellsprites, 10% more (+0.1 a quality) for each
+    previous one fired, a 0.7 s wait (base_skill_effect_duration 700). PoB reads neither stat (checked: SkillStatMap.lua
+    and Modules/*.lua for "blazing_cluster" / "ember_fusillade": none) and scores one Wellsprite a cast at the cast rate.
+    models.ember_fusillade_model (GEM12's Ember Fusillade model): the best k casts, then the wait, then n Wellsprites at
+    1 + 10% x (i - 1). An OVERCOUNT for fast casters, a gain for slow ones.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (ScatteringCalamityPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Uniques/staff.lua 215-229"]
+  test_in_game: "Cast it 8 times, wait 0.7 s, and compare the damage with casting nonstop at a dummy."
+  status: proposed
+
+- id: model-gem13-impale-gem-stats-read
+  title: "Impale gem stats the bridge reads for the skill it calculates: Bonestorm's more Impale Magnitude, His Vile Intrusion's increased Magnitude and extra Impales, the supports that can't Extract"
+  kind: model
+  model: impale
+  stats: ["active_skill_impale_magnitude_+%_final", "impale_magnitude_+%", "number_of_additional_impaled_debuffs_to_apply",
+          "cannot_consume_impale"]
+  skill: [Bonestorm, His Vile Intrusion, Impale, Crystalline Shards]
+  confidence: datamined
+  notes: >-
+    SkillStatMap doesn't map these, but the bridge's setImpale (engine/bridge.lua 1280-1349) reads them from the
+    calculated skill's own stat set: LedgerImpaleEffect = (1 + ImpaleEffect INC + impale_magnitude_+%) x ImpaleEffect
+    MORE x (1 + active_skill_impale_magnitude_+%_final / 100); LedgerImpaleCount = 1 + number_of_additional_impaled_
+    debuffs_to_apply; LedgerImpaleExtract 0 with a cannot_consume_impale gem on the skill. models.impale_model /
+    impale_others use them (the main skill and every other group). Probe POE2T2111 (GEM13, real PoB): Bonestorm's
+    LedgerImpaleEffect 3 (its 200% more), Impale chance 100, Extract 0 (a Spell).
+  sources: ["engine/bridge.lua (setImpale)", "builder/search/models.py (impale_model, impale_others)",
+            "scratch/gem13/probe2111.log (GEM13)"]
+  test_in_game: "Not needed here: the Impale model's own tests cover it."
+  status: proposed
+
+- id: model-gem13-infernal-legion-ignite-read
+  title: "Infernal Legion: its supported minions' Ignite on the boss (MECH-B's Infernal Legion model reads the stat)"
+  kind: model
+  model: infernal_legion
+  stats: ["support_minions_ignite_for_%_max_life"]
+  skill: [Infernal Legion I, Infernal Legion II]
+  confidence: MEDIUM
+  notes: >-
+    models.infernal_legion_model (20% x 10% of the minion's Life a second as the boss's Ignite, over the build's own)
+    and infernal_legion_ignited (the boss Ignited for MECH-A's box), from the support's stat on each skill
+    (bridge.lua modelSupportStats). Catha's Brilliance carries the same stat; the model's own comment says it isn't
+    mapped there, so this entry doesn't cover it (it stays open).
+  sources: ["builder/search/models.py (infernal_legion_model, infernal_legion_ignited)", "engine/bridge.lua 4003-4004"]
+  test_in_game: "Not needed here: the model's own tests cover it."
+  status: proposed
