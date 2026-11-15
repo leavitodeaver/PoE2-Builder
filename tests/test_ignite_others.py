@@ -2,6 +2,8 @@
 skill's alone (MECH74's follow-up, an UNDERCOUNT: 0 where the main skill doesn't Ignite)."""
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from builder.search import conditions as c
@@ -161,3 +163,23 @@ def test_blood_hunt_model_takes_pct_of_the_blood_loss():
     assert dps == pytest.approx(0.25 * (500 + 200)) and "Life Loss" in how
     assert models.blood_hunt_model(25.0, 0.0, 1.0, 2000.0, 0.0)[0] == 0.0
     assert models.HIT_BLOOD_LOSS.match("10% of Physical damage dealt by your Hits causes Blood Loss")
+
+
+def test_overcharge_reflects_the_supported_skills_shocks_onto_you():
+    """MECH75 (PATCH_CHECK L4-1): each Shock an Overcharge-supported skill inflicts Shocks you for 4 s, less your Shock
+    avoidance; the main skill's from its stats, another group's from its useRates row at its own rate."""
+    groups = {"mainSocketGroup": 1, "groups": [
+        {"index": 1, "gems": [{"name": "Spark"}, {"name": "Overcharge"}]},
+        {"index": 2, "gems": [{"name": "Lightning Bolt"}, {"name": "Overcharge"}]},
+        {"index": 3, "gems": [{"name": "Fireball"}]}]}
+    stats = {"Speed": 2.0, "HitChance": 100.0, "ShockChancePerHit": 25.0}
+    rows = {2: {"name": "Lightning Bolt", "cooldown": 2.0, "HitChance": 100.0, "ShockChancePerHit": 50.0},
+            3: {"name": "Fireball", "cooldown": 1.0, "ShockChancePerHit": 100.0}}
+    found = c.overcharge_sources(groups, "Spark", stats, rows)
+    assert found == [("Spark", pytest.approx(0.5)), ("Lightning Bolt", pytest.approx(0.25))]
+    on, how, up = c._self_shocked([], {"_overcharge": found})
+    assert up == pytest.approx(1 - math.exp(-0.75 * c.SELF_SHOCK_SECONDS)) and "Overcharge" in how
+    half = c._self_shocked([], {"_overcharge": found, "ShockAvoidChance": 50})[2]
+    assert half == pytest.approx(1 - math.exp(-0.375 * c.SELF_SHOCK_SECONDS))
+    assert c._self_shocked([], {"_overcharge": found, "ShockAvoidChance": 100})[0] == 0.0
+    assert c._self_shocked([], {}) == (0.0, "")

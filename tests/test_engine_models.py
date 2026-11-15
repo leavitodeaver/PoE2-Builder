@@ -2614,3 +2614,44 @@ def test_blood_hunt_consumes_bleeding_and_explodes_its_blood_loss(engine):
     assert plain == 0.0 and "no Blood Loss" in notes[0]["basis"]
     assert acuity > 0 and "Physical hit DPS" in acuity_notes[0]["basis"]
     assert amod.blood_hunt(build, models.Skill.of({"name": "Fireball"}), texts) == (0.0, [])
+
+
+def test_overcharge_shocks_you_and_raises_the_damage_you_take(engine):
+    """MECH75 (PATCH_CHECK L4-1): with Overcharge on a Shocking main skill, the "Are you Shocked?" box is on at the
+    reflected Shocks' share, and the damage taken while Shocked rises past PoB's own 15% (the reflected Shock's 20% x its
+    magnitude modifiers, Overcharge's 50% among them, as DamageTaken INC under Condition:Shocked)."""
+    from builder.search import conditions as cmod
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]
+           if g["name"] != "Overcharge"]
+    build.set_group(index=main["index"], gems=[*old, {"name": "Overcharge", "level": 1, "quality": 0}])
+    mods, how = cmod.overcharge_taken_mods(build, "Spark")
+    assert mods and mods[0]["condition"] == "Shocked" and mods[0]["value"] >= 15
+    found = search.conditions.evidence()
+    print("PROBE", found.get("conditionShocked"), how)
+    stats = build.call("stats", fields=["ShockChancePerHit"])
+    if number_of(stats.get("ShockChancePerHit")) > 0:
+        assert "conditionShocked" in found and "Overcharge" in found["conditionShocked"][1]
+
+    def taken(on: bool) -> float:
+        build.set_config({"conditionShocked": on})
+        return build.call("stats", fields=["PhysicalTakenHit"])["PhysicalTakenHit"]
+
+    pob_only = taken(True) / taken(False)
+    search.assumptions.apply()
+    with_mod = taken(True) / taken(False)
+    print("PROBE taken", pob_only, with_mod)
+    assert with_mod > pob_only * 1.1
+
+
+def number_of(value) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0

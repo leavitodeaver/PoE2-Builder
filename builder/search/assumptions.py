@@ -898,6 +898,12 @@ class Assumptions:
         # -20% comes from the condition box at the line's uptime (conditions._exposure_uptime)
         exposure_flags = conditions_mod.exposure_source_flags(texts, main_types)
         exposure_flags += conditions_mod.wither_source_flags(texts, main_types)  # (MECH72: partly parsed Withered lines)
+        if main is not None:  # (MECH75: Overcharge's reflected Shock over PoB's 15% "Are you Shocked?" box)
+            overcharge, overcharge_how = conditions_mod.overcharge_taken_mods(build, main.name)
+            exposure_flags += overcharge
+            if overcharge_how:
+                hand_notes.append({"label": "Overcharge: your Shocks reflected back to you*", "value": "damage taken",
+                                   "basis": overcharge_how, "confidence": "MEDIUM"})
         embodiment, kaom_busy = (0.0, ""), 0.0
         cry = next((s for s in found if s.name == models.ANCESTRAL_CRY and s.group is not None), None)
         boosted = main is not None and main.attack and ("Slam" in main_types or ("Strike" in main_types and main.melee))

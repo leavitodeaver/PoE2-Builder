@@ -3041,6 +3041,9 @@ local function installAssumptions()
 			local results = { original(self, ...) }
 			for _, mod in ipairs(assumedMods) do
 				local tags = mod.skill and { { type = "SkillName", skillName = mod.skill } } or { }
+				if mod.condition then  -- (MECH75: models.raw_mod's condition, e.g. "Shocked": only while you are)
+					tags[#tags + 1] = { type = "Condition", var = mod.condition }
+				end
 				if mod.kind == "SkillData" then
 					self.modList:NewMod("SkillData", "LIST", { key = mod.key, value = mod.value }, "Assumption", unpack(tags))
 				elseif mod.kind == "Condition" then  -- a ledger condition the build's skills switch on
@@ -3275,8 +3278,10 @@ function bridge.useRates(args)
 			-- not: High Velocity Rounds' Riven Armour magnitude, GEM3's models.riven_armour_model)
 			-- (MECH74: IgniteDPS / IgniteChancePerHit, the group's own Ignite: His Winnowing Flame's Grisly Pyres Consume
 			-- another group's Ignite, assumptions.grisly_pyre)
+			-- (MECH75: ShockChancePerHit, the group's Shocks: Overcharge reflects them back to you, conditions._self_shocked)
 			for _, field in ipairs({ "HeavyStunBuildupAvg", "HitChance", "CritChance", "IgniteDuration",
-					"PhysicalStoredCombinedAvg", "PhysicalStoredHitAvg", "IgniteDPS", "IgniteChancePerHit" }) do
+					"PhysicalStoredCombinedAvg", "PhysicalStoredHitAvg", "IgniteDPS", "IgniteChancePerHit",
+					"ShockChancePerHit" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
 				end

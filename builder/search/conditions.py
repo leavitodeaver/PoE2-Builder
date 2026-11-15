@@ -54,6 +54,7 @@ EVIDENCE_FIELDS = [
     "ChillDuration", "ChillEffectMod",  # (chill_share; MECH53, MECH54)
     "ColdHitAverage", "MainHand.ColdHitAverage",  # (the Cold Exposure support's crits with Cold Damage; MECH69)
     "PhysicalCritAverage",  # (Concussive Spells' crits with Physical damage, _dazed; MECH70)
+    "ShockAvoidChance",  # (Overcharge's reflected Shocks, _self_shocked; MECH75)
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -1619,6 +1620,95 @@ def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | 
     if grinning and boss > 0:
         parts.append(f"together (independent): {up:.0%}")
     return _box(up, "; ".join(parts))
+
+
+# Overcharge's reflected Shocks (MECH75; PATCH_CHECK L4-1, an OVERCOUNT of survival: neither PoB (SkillStatMap doesn't map
+# shocks_reflected_to_self) nor the tool counted it). The support (PoB sup_dex.lua, game 26476662's
+# SupportOverchargePlayer: shock_effect_+% 50 and shocks_reflected_to_self): "making its Shocks more effective but
+# reflecting them back to you as well"; patch 0.2.0: "It now has 'Shocks caused by Supported Skills are reflected back to
+# you'", the newest entry (grep_notes.py --history "Overcharge"). Each Shock a supported skill inflicts Shocks you too:
+# applications a second = its hits x ShockChancePerHit (the main skill's stats; another group's bridge.useRates row at
+# its own use rate: skill_use_rate, a triggered one at PoB's trigger rate), less your Shock avoidance (PoB's
+# ShockAvoidChance, 100 when immune), each lasting SELF_SHOCK_SECONDS (KeywordPopups Shock: "lasts 4 seconds on players";
+# your Shock-duration-on-you modifiers not read, LOW). PoB's "Are you Shocked?" box adds 15% increased damage taken
+# (ConfigOptions.lua 1100); the game's base is 20% (KeywordPopups Shock), and the reflected Shock is taken as the Shock
+# the skill inflicts: the base 20% x the main skill's Shock-magnitude modifiers with Overcharge's own 50% put back
+# (bridge.shockMagnitude leaves it out), or 20% x 1.5 for a supported skill beside the main one; capped at the Shock
+# maximum. The difference over PoB's 15 goes in as DamageTaken INC under Condition:Shocked (overcharge_taken_mods), so it
+# applies only while the box is on. Labelled MEDIUM: the reflected Shock's magnitude taken as the inflicted one, your own
+# "reduced effect of Shock on you" not read (a higher reading, the cautious side); the box is on at the share of the fight
+# (MIN_UPTIME), so the defence floors (the worse of on / off) see you Shocked. The boss's own Shocks on you aren't set here
+# (boss_hits.ailment_rate gives their rate; not wired into the box: a separate OVERCOUNT of survival for every build,
+# left for the boss-side lane).
+OVERCHARGE = "Overcharge"
+SELF_SHOCK_SECONDS = 4.0
+SHOCK_BASE = 20.0
+POB_SELF_SHOCK = 15.0
+OVERCHARGE_EFFECT = 50.0
+
+
+def overcharge_sources(groups: dict, main_skill: str, stats: dict, rows: dict,
+                       choices: dict[str, float] | None = None) -> list[tuple[str, float]]:
+    """[(skill, Shocks it inflicts a second)] for each enabled group Overcharge supports (see the note above). `rows`:
+    {group index: the bridge's useRates row}, for the groups beside the main one."""
+    out = []
+    main_index = groups.get("mainSocketGroup")
+    for group in groups["groups"]:
+        if group.get("enabled") is False or not any(
+                n.get("enabled", True) and n["name"] == OVERCHARGE for n in group.get("gems") or []):
+            continue
+        if group["index"] == main_index:
+            hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+            chance = min(number(stats.get("ShockChancePerHit")) / 100.0, 1.0)
+            out.append((main_skill, hits * chance))
+            continue
+        row = rows.get(group["index"])
+        if not row:
+            continue
+        uses = number(row.get("speed")) if row.get("triggered") else skill_use_rate(row, choices)[0]
+        hits = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+        chance = min(number(row.get("ShockChancePerHit")), 100.0) / 100.0
+        out.append((str(row.get("name") or "a supported skill"), hits * chance))
+    return out
+
+
+def _self_shocked(lines: list[str], stats: dict) -> tuple[object, str, float] | tuple[float, str]:
+    """PoB's "Are you Shocked?" box at the share of the fight Overcharge's reflected Shocks keep you Shocked."""
+    if not stats.get("_overcharge"):
+        return 0.0, ""
+    sources = [s for s in stats["_overcharge"] if s[1] > 0]
+    avoid = min(max(number(stats.get("ShockAvoidChance")), 0.0), 100.0) / 100.0
+    if avoid >= 1.0:
+        return 0.0, "Overcharge reflects your Shocks back to you, but you can't be Shocked (PoB's Shock avoidance 100%)"
+    rate = sum(r for _, r in sources) * (1.0 - avoid)
+    up = 1.0 - math.exp(-rate * SELF_SHOCK_SECONDS) if rate > 0 else 0.0
+    named = ", ".join(f"{n} {r:.2f}/s" for n, r in sources) or "no Shocks from the supported skills"
+    return _box(up, f"Overcharge reflects your Shocks back to you ({named}, {avoid:.0%} avoided, {SELF_SHOCK_SECONDS:g} s "
+                    f"each on players): Shocked {up:.0%} of the fight ({shared(up)}; MEDIUM)")
+
+
+def overcharge_taken_mods(build, main_skill: str) -> tuple[list[dict], str]:
+    """The reflected Shock's damage taken over PoB's 15% box, as DamageTaken INC while Shocked (see the note above)."""
+    groups = build.call("groups")
+    holding = [g for g in groups["groups"] if g.get("enabled") is not False and any(
+        n.get("enabled", True) and n["name"] == OVERCHARGE for n in g.get("gems") or [])]
+    if not holding:
+        return [], ""
+    if any(g["index"] == groups.get("mainSocketGroup") for g in holding):
+        mag = build.call("shockMagnitude") or {}
+        raw = SHOCK_BASE * (1 + (number(mag.get("inc")) + OVERCHARGE_EFFECT) / 100) * number(mag.get("more", 1))
+        top = number(mag.get("max")) or 100.0
+        how = f"the main skill's Shock modifiers with Overcharge's {OVERCHARGE_EFFECT:g}%"
+    else:
+        raw, top = SHOCK_BASE * (1 + OVERCHARGE_EFFECT / 100), 100.0
+        how = f"Overcharge's own {OVERCHARGE_EFFECT:g}% (the other modifiers of the skill beside the main one not read)"
+    value = max(0.0, min(raw, top))
+    extra = value - POB_SELF_SHOCK
+    if extra <= 0:
+        return [], ""
+    return ([models.raw_mod("DamageTaken", "INC", extra, condition="Shocked")],
+            f"the reflected Shock {value:g}% increased damage taken ({SHOCK_BASE:g}% x {how}), {extra:g}% over PoB's "
+            f"{POB_SELF_SHOCK:g}% box, applied only while you are Shocked")
 
 
 def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
@@ -3426,6 +3516,8 @@ CONDITIONS: list[Condition] = [
               fields=("Speed", "EffectiveBlockChance", "EnduranceChargesMax", "EnduranceChargesDuration", *CHARGE_EVENT_FIELDS, *models.IMMOBILISE_FIELDS)),
     Condition("multiplierWitheredStackCount", "Withered stacks on the boss", value_fn=_withered_stacks,
               fields=WITHER_FIELDS),
+    Condition("conditionShocked", "Shocked yourself (Overcharge reflects your Shocks back to you; MECH75)",
+              value_fn=_self_shocked, fields=("Speed", "HitChance", "ShockChancePerHit", "ShockAvoidChance")),
     Condition("conditionIgnited", "Ignited yourself (Grinning Immolation, on your critical hits; the boss's Fire hits)",
               value_fn=_self_ignited,
               fields=("CritChance", "Speed", "HitChance", "IgniteAvoidChance", "SelfIgniteDuration", "AilmentThreshold",
@@ -4041,6 +4133,10 @@ class Conditions:
         stats["_daze_weapon_lines"] = {line["text"] for line in lines if line["source"].startswith("item:Weapon")}
         group_rows: dict = {}
         uses = self._group_uses(groups_now, hitters, group_rows) if hitters else {}
+        # (MECH75: Overcharge's reflected Shocks, _self_shocked: the supported groups' Shocks, from the same rows)
+        if any(n["name"] == OVERCHARGE for g in groups_now for n in g.get("gems") or []):
+            stats["_overcharge"] = overcharge_sources(groups_all, self.main_skill, stats, group_rows,
+                                                      models.press_choices(self.build)) or [(OVERCHARGE, 0.0)]
         # (MECH75) the other groups' Ignites on the boss, from the same rows: ailment_uptime adds them to the main skill's
         others, others_how = ignite_others(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"),
                                            models.press_choices(self.build))
