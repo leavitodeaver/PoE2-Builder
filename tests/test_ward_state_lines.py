@@ -77,3 +77,64 @@ def test_the_share_comes_from_mech_cs_ward_spending(monkeypatch):
     for state in ("low", "missing", "full"):
         share, how = Assumptions.ward_state_share(me, state)
         assert share == 0 and "no Runic Ward pool" in how and "UNVERIFIED" in how
+
+
+@pytest.fixture(scope="module")
+def engine():
+    import faulthandler
+
+    from builder.pob.engine import PobEngine
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()  # LuaJIT's Lua errors are Windows exceptions PoB's pcall catches
+    yield PobEngine()
+    if enabled:
+        faulthandler.enable()
+
+
+def test_a_real_build_that_spends_its_ward_counts_the_missing_ward_lines(engine):
+    """COV32 after train 56 (MECH-C's ward_shares on main; the manager, 15 Nov 05:37): MECHB13's delivered 2b75b
+    (Explosive Transmutation, whose explosions cost Runic Ward), given a Ward pool and an Alloy ring line "Gain 25% of
+    Damage as Extra Fire Damage while you are missing Runic Ward": the explosions spend the Ward, so RunicWardMissing
+    switches on at MECH-C's share and the line adds damage; with no pool every state stays 0."""
+    import json
+    from pathlib import Path
+
+    from builder.pob import codes
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    row = json.loads((Path(__file__).parents[1] / "benchmarks/results/gate4-20261112-152004.json")
+                     .read_text(encoding="utf-8"))["rows"][0]
+    request = BuildRequest.model_validate(row["request"])
+    payload = make_payload(request)
+    skeleton = enumerate_skeletons(Context(payload), [request.main_skill])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("loadXml", xml=codes.decode(row["code"]))
+    line = "Gain 25% of Damage as Extra Fire Damage while you are missing Runic Ward"
+
+    def ring(*lines):
+        raw = "\n".join(["Rarity: Rare", "Ward Ring", "Gold Ring", "Item Level: 80", "Implicits: 0", *lines])
+        build.call("equip", slot="Ring 2", raw=ledger_items.corrected_item(raw), fields=[])
+        for _ in range(2):  # (ward_shares reads the Ward plan of the last pass: a second pass sees this item's)
+            search.assumptions.apply()
+        return build.call("stats", fields=["FullDPS", "Ward"]), dict(search.assumptions.ledger_shares)
+
+    pooled, shares = ring("+400 to maximum Runic Ward", line)
+    low, missing, how = assumptions.ward_shares(build)
+    print("pool", pooled, "shares", shares, "ward", (low, missing, how), build.ward_sustain)
+    assert pooled["Ward"] > 0 and missing > 0, how
+    assert shares.get("RunicWardMissing") == round(100 * missing)
+    assert any(n["label"].startswith("The share of the fight missing Runic Ward") for n in search.assumptions.active)
+    without, _ = ring("+400 to maximum Runic Ward")
+    assert pooled["FullDPS"] > without["FullDPS"]
+    # (no pool: the line counts 0, the other reading named in the note)
+    bare, shares = ring(line)
+    if bare["Ward"] <= 0:
+        assert "RunicWardMissing" not in shares
+        note = next(n for n in search.assumptions.active if n["label"].startswith("The share of the fight missing"))
+        assert "no Runic Ward pool" in note["basis"]
