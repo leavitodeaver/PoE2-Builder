@@ -187,3 +187,23 @@
             "scratch/gem12/probe2105.log"]
   test_in_game: "Not needed: the average over shots is what PoB uses."
   status: proposed
+
+- id: gem-gem12-leap-slam-vs-fully-broken-armour
+  title: "Leap Slam's quality: more Damage against Enemies with Fully Broken Armour"
+  kind: gem_stat
+  match: '^active_skill_damage_\+%_final_vs_fully_broken_armour$'
+  replace: ["1% more Damage against Enemies with Fully Broken Armour"]
+  stats: ["active_skill_damage_+%_final_vs_fully_broken_armour"]
+  skill: [Leap Slam]
+  confidence: theory
+  notes: >-
+    Leap Slam's quality stat (1 a quality, act_str.lua LeapSlamPlayer qualityStats); PoB maps it to nothing (checked:
+    SkillStatMap.lua, LeapSlamPlayer's statMap). Given as PoB's own parsed line: ModParser 2107 "against enemies with
+    fully broken armour" is the enemy's ArmourFullyBroken condition, which the conditions' Armour Broken box sets
+    (ConfigOptions 1687) and weighs by MECH-A's Fully Broken share (conditions.armour_broken_uptime): 0 with no
+    Armour Break source in the build. The stat's game text wasn't read (game files off-limits during the 26579160
+    download): the id's reading, UNVERIFIED, to recheck.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (LeapSlamPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ModParser.lua (2107)"]
+  test_in_game: "With 20% quality, Leap Slam on a Fully Armour Broken dummy should hit 20% harder than on an unbroken one."
+  status: proposed

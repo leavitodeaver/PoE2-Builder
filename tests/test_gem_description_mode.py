@@ -485,3 +485,11 @@ def test_rake_steps_back_for_its_dash_only_when_that_beats_staying_close():
     assert [m["value"] for m in mods] == [pytest.approx(100 * (far - 1), abs=0.01)] and far > 1
     mods, notes = models.rake_distance_model(rake, {"Speed": 2.0, "MovementSpeedMod": 1.0})  # fast: stay close
     assert mods == [] and notes[0]["value"] == "x1.000" and notes[0]["entry"] == models.RAKE_ENTRY
+
+
+def test_leap_slams_quality_is_more_damage_against_fully_broken_armour():
+    slam = Skill("Leap Slam", 1, attack=True, melee=True,
+                 level_stats={"active_skill_damage_+%_final_vs_fully_broken_armour": 20})
+    mods, notes = models.gem_stat_model([slam], main=slam)
+    assert [(m["line"], m["scale"], m.get("skill")) for m in mods
+            if "Fully Broken" in m["line"]] == [("1% more Damage against Enemies with Fully Broken Armour", 20, "Leap Slam")]
