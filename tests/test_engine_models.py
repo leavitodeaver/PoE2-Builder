@@ -1572,6 +1572,12 @@ def test_a_side_orb_of_storms_rate_is_published_on_the_build_for_its_remnants(en
     rate, how = build.orb_presses[models.ORB_OF_STORMS]
     assert rate > 1 / 12.8 and "orbs_per_second" in how  # (Spark's casts end each Orb before its 12 s)
     assert rate == pytest.approx(sum(models.orbs_per_second(rates, main, pressed).values()), rel=1e-6)
+    # (MECHB30, the manager 21:40's second half, now that MECHC25's orb_remnants is on main: it reads this rate, one
+    # Remnant per Orb, not its own timer-only cycle)
+    from builder.search.assumptions import orb_remnants
+    skill = next(s for s in build.call("activeSkills")["skills"] if s["name"] == models.ORB_OF_STORMS)
+    remnants, remnant_how = orb_remnants(build, skill)
+    assert remnants == pytest.approx(rate) and "orbs_per_second" in remnant_how
 
 
 def test_the_bridge_rates_each_ancestral_spirit_type_and_puts_pobs_choice_back(engine):
