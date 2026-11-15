@@ -3037,3 +3037,22 @@ def test_temporal_rift_gives_back_its_share_of_the_mana_the_build_cannot_pay(eng
     print("PROBE rift", uses, build.recovery_sources.get("ManaRiftRecovery"), notes[:1])
     assert uses is not None and uses[0] > 0
     assert build.recovery_sources["ManaRiftRecovery"] > 0
+
+
+def test_soul_eater_from_hits_on_the_unique_boss_reaches_pob_as_skill_speed(engine):
+    """MECHC29 (PATCH_CHECK H5-5): "Eat a Soul when you Hit a Unique Enemy, no more than once every 0.5 seconds" (PoB
+    parses nothing) gives souls from the main skill's hits; each is 1% increased Skill Speed (the game's rule), on PoB as
+    its own Skill Speed line, never PoB's stale 5% / 45 Soul Eater."""
+    from builder.search.assumptions import Assumptions
+
+    search = spark_with(engine, [])
+    build = search.build
+    hook = Assumptions(build)
+    assert hook.soul_eater() == ([], [])
+    ring = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                         "Eat a Soul when you Hit a Unique Enemy, no more than once every 0.5 seconds"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    mods, notes = hook.soul_eater()
+    print("PROBE souls", notes)
+    assert notes and "Skill Speed" in notes[0]["value"] and "not PoB's stale" in notes[0]["basis"]
+    assert mods and 0 < mods[0].get("scale", mods[0].get("value", 0)) <= 50

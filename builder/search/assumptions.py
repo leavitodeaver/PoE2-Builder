@@ -503,6 +503,60 @@ def siphoning_model(found: list, stats: dict, main, groups: list[dict], mark_arg
                    "confidence": "MEDIUM (the Marked share is mark_model's; linear below the leech-rate cap)"}]
 
 
+# Soul Eater (MECHC29; PATCH_CHECK H5-5, COV34's routed line; the manager 15:19). The game (KeywordPopups SoulEater,
+# build 26476662): "Each Soul grants 1% increased Skill Speed. You can have up to 50 eaten Souls, and lose a Soul every
+# 0.5 seconds if you have not eaten one in the past 4 seconds." PoB's own Soul Eater (CalcSetup 982-988: 5% Attack and 5%
+# Cast Speed a stack, SoulEaterMax 45) is the PoE1 rule, stale: never fed (my brief). Its sources PoB doesn't parse
+# (ModCache 7234-7235, {nil, ...}): "Eat a Soul when you Hit an enemy with an Open Weakness" (UniqueSoulEaterOpenWeakness1,
+# gain_soul_eater_when_hitting_a_rare_or_unique_enemy_that_has_open_weakness) and "Eat a Soul when you Hit a Unique Enemy,
+# no more than once every 0.5 seconds" (the Vaal-cultivated UniqueMutatedVaalGainSoulEaterStackOnHit,
+# gain_soul_eater_stack_on_hit_vs_unique_cooldown_ms 500). (No patch-note line for either: grep_notes --history "Soul
+# Eater|Eat a Soul|Open Weakness"; not proof of no change.) Simulated over the fight: the main skill's hits
+# (models.hits_per_second; other skills' hits not counted, an undercount) eat one each, the Unique line at most one per
+# its cooldown all fight, the Open Weakness line while the boss has one. The boss's Open Weakness (KeywordPopups
+# RevealWeakness: "45% of their maximum Life (but in random segments)"; poe2wiki Open Weakness: "45% of the target's life
+# bar, randomly distributed in 3-4 segments"): MECH78's time share conditions.open_weakness_up when it's in this build
+# (train 59), else COV33's 45% with a "Reveal Weaknesses" line; split into 3 and into 4 even segments (positions are
+# random in game: even spacing, MEDIUM) and the two averaged. The fight: the boss's Life / PoB's Full DPS, from 0 souls
+# (the ramp counts). "+N to maximum number of eaten souls" / "Maximum N eaten souls" change the 50. The souls go to PoB as
+# its own "1% increased Skill Speed" line x the average (Speed, Warcry Speed, Totem Placement Speed INC).
+SOUL_MAX, SOUL_WAIT, SOUL_LOSS_EVERY, SOUL_SEGMENTS = 50, 4.0, 0.5, (3, 4)
+SOUL_OPEN_WEAKNESS = re.compile(r"^Eat a Soul when you Hit an enemy with an Open Weakness$", re.I)
+SOUL_UNIQUE = re.compile(r"^Eat a Soul when you Hit a (?:Rare or )?Unique Enemy, no more than once every "
+                         r"(\d+(?:\.\d+)?) seconds?$", re.I)
+SOUL_MAX_PLUS = re.compile(r"^([+-]\d+) to maximum number of eaten souls$", re.I)
+SOUL_MAX_SET = re.compile(r"^maximum (\d+) eaten souls$", re.I)
+SOUL_REVEAL = re.compile(r"^Reveal Weaknesses against Rare and Unique enemies$", re.I)
+SOUL_LINE = "1% increased Skill Speed"
+
+
+def soul_eater_average(fight: float, segments: list[tuple[float, float]] | None, inside: float, outside: float,
+                       cap: int = SOUL_MAX, dt: float = 0.05) -> float:
+    """Average eaten souls over a `fight` of that many seconds from 0: eating `inside` souls a second within `segments`
+    (None: all fight) and `outside` a second elsewhere, at most `cap`; one lost every 0.5 s after 4 s without eating."""
+    if fight <= 0 or cap <= 0:
+        return 0.0
+    souls, eat, lose, last, total, t = 0, 0.0, 0.0, -SOUL_WAIT, 0.0, 0.0
+    while t < fight:
+        rate = inside if segments is None or any(a <= t < b for a, b in segments) else outside
+        eat += rate * dt
+        while eat >= 1:
+            souls, eat, last, lose = min(cap, souls + 1), eat - 1, t, 0.0
+        if t - last >= SOUL_WAIT and souls > 0:
+            lose += dt / SOUL_LOSS_EVERY
+            while lose >= 1 and souls > 0:
+                souls, lose = souls - 1, lose - 1
+        total += souls * dt
+        t += dt
+    return total / fight
+
+
+def even_segments(fight: float, share: float, count: int) -> list[tuple[float, float]]:
+    """`count` equal segments covering `share` of a `fight`, evenly spaced (the first after a gap)."""
+    length, gap = share * fight / count, (1 - share) * fight / (count + 1)
+    return [(gap * (i + 1) + length * i, gap * (i + 1) + length * (i + 1)) for i in range(count)]
+
+
 # Zenith I / II (MECHC26, MC-3): "Supported Skills deal more damage while you are above 90% of your Maximum Mana"
 ZENITH, ZENITH_STAT, ZENITH_ABOVE = "Zenith", "support_spell_damage_+%_final_while_above_90%_maximum_mana", 0.9
 
@@ -2482,6 +2536,8 @@ class Assumptions:
         demon_mods, demon_notes = self.demon_form(skills, main)  # (MECH-C: Demon Form's Demonflame and time, MECHC28)
         mods += demon_mods
         notes += demon_notes
+        soul_mods, soul_notes = self.soul_eater()  # (MECH-C: Soul Eater's souls from the build's hits, MECHC29)
+        mods, notes = mods + soul_mods, notes + soul_notes
         frost_mods, frost_notes = self.frostflame(main, skills)  # (MECH-B: Frostflame Nova's ice while Ignited, MECHB13)
         mods, notes = mods + frost_mods, notes + frost_notes
         # the boss the numbers are scored against (MECH50: bridge resetConfig sets its resistances; bosses.py)
@@ -2818,6 +2874,59 @@ class Assumptions:
             recovery.rift_income(income, seen, rift[0], rift[1])
         build.recovery_sources = {**income.rates, flasks.ES_STARTS_FIELD: starts}
         return recovery.note(income) + leech
+
+    def soul_eater(self) -> tuple[list[dict], list[dict]]:
+        """Soul Eater's average souls as "1% increased Skill Speed" x souls (the comment at SOUL_MAX)."""
+        build = self.build
+        texts = [line["text"].strip() for line in build.call("sourceLines")["lines"]]
+        weak = any(SOUL_OPEN_WEAKNESS.match(t) for t in texts)
+        unique = [float(m.group(1)) for t in texts if (m := SOUL_UNIQUE.match(t))]
+        if not weak and not unique:
+            return [], []
+        from builder.search import bosses, conditions as conditions_mod
+
+        cap = SOUL_MAX
+        for t in texts:
+            if m := SOUL_MAX_SET.match(t):
+                cap = int(m.group(1))
+        cap += sum(int(m.group(1)) for t in texts if (m := SOUL_MAX_PLUS.match(t)))
+        stats = build.call("stats", fields=["Speed", "HitChance", "FullDPS", "CombinedDPS"])
+        hits = models.hits_per_second(stats)
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        life = bosses.PRESETS.get(boss, bosses.PRESETS[bosses.DEFAULT]).life
+        dps = number(stats.get("FullDPS")) or number(stats.get("CombinedDPS"))
+        fight = min(life / dps, 1800.0) if dps > 0 else 0.0
+        every = min(unique) if unique else 0.0
+        always = min(hits, 1 / every) if every > 0 else 0.0
+        parts = []
+        if unique:
+            parts.append(f"a Unique hit eats one at most every {every:g} s: {always:.2f}/s all fight")
+        share, how = 0.0, ""
+        if weak:
+            reader = getattr(conditions_mod, "open_weakness_up", None)
+            if reader is not None:
+                share, how = reader(build)
+            elif any(SOUL_REVEAL.match(t) for t in texts):
+                share, how = 0.45, "COV33's 45% (the weak segments are 45% of the boss's Life)"
+            else:
+                how = "nothing reveals the boss's weaknesses"
+            parts.append(f"each hit on an Open Weakness eats one ({hits:.2f} hits/s) while the boss has one, "
+                         f"{share:.0%} of the fight ({how}), in 3 or 4 segments (poe2wiki; even spacing assumed)")
+        if weak and share > 0:
+            inside = max(hits, always)
+            souls = sum(soul_eater_average(fight, even_segments(fight, share, k), inside, always, cap)
+                        for k in SOUL_SEGMENTS) / len(SOUL_SEGMENTS)
+        else:
+            souls = soul_eater_average(fight, None, always, always, cap)
+        note = {"label": "Soul Eater: souls eaten from your hits*", "value": f"{souls:.1f} souls (+{souls:.1f}% Skill Speed)",
+                "confidence": "MEDIUM",
+                "basis": ("; ".join(parts) + f"; at most {cap}, one lost every 0.5 s after 4 s without one; over a "
+                          f"{fight:,.0f} s fight ({life:,} Life / {dps:,.0f} DPS) from 0: {souls:.1f} on average; 1% "
+                          "increased Skill Speed each (the game's rule, not PoB's stale 5% / 45). The main skill's hits "
+                          "only")}
+        if souls <= 0:
+            return [], [note]
+        return [models.line(SOUL_LINE, souls)], [note]
 
     def demon_form(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Demon Form's Demonflame and its share of the fight (MECHC28; PATCH_CHECK S2-4 / K1-o4: PoB keeps you in the form

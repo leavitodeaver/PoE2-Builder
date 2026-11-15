@@ -1219,3 +1219,19 @@ def test_temporal_rift_cancels_its_share_of_each_pools_net_drain(monkeypatch):
     income = recovery.Income()
     recovery.rift_income(income, {"ManaPerSecondCost": 50.0}, 0.0, "not used")
     assert sum(income.rates.values()) == 0
+
+
+def test_soul_eater_souls_from_hits_with_the_games_decay():
+    """MECHC29 (PATCH_CHECK H5-5): KeywordPopups SoulEater: 1% increased Skill Speed a Soul, at most 50, one lost every
+    0.5 s after 4 s without eating one. Eating 2 a second all fight holds 50 after the 25 s ramp; eating only inside 45%
+    of the fight in segments holds fewer; nothing eaten, none."""
+    from builder.search.assumptions import even_segments, soul_eater_average
+
+    always = soul_eater_average(300.0, None, 2.0, 2.0)
+    assert always == pytest.approx((300 - 12.5) / 300 * 50, rel=0.02)  # (the ramp's average is half of 50 over 25 s)
+    segs = even_segments(300.0, 0.45, 3)
+    assert len(segs) == 3 and sum(b - a for a, b in segs) == pytest.approx(135.0)
+    weak = soul_eater_average(300.0, segs, 3.0, 0.0)
+    assert 0 < weak < always
+    assert soul_eater_average(300.0, None, 0.0, 0.0) == 0
+    assert soul_eater_average(300.0, None, 2.0, 2.0, cap=10) == pytest.approx(10 * (300 - 2.5) / 300, rel=0.02)
