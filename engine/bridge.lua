@@ -3760,11 +3760,17 @@ function bridge.activeSkills(args)
 				local effectMod = calcLib.mod(list, cfg, "RemnantEffect")
 				local life = list:Sum("BASE", cfg, "LifeGainPerRemnant")
 				local mana = list:Sum("BASE", cfg, "ManaGainPerRemnant")
-				if life <= 0 and mana <= 0 then
+				-- (MECHC26, H1-9) Into the Breach's Red / Blue Flames of Chayula: % of maximum Life / Mana Leeched on
+				-- collection, as CalcOffence 1700-1718 builds BreachFlameLifeLeech / ManaLeech (floor(base x effect))
+				local flameLife = list:Sum("BASE", cfg, "BreachFlameLifeLeech")
+				local flameMana = list:Sum("BASE", cfg, "BreachFlameManaLeech")
+				if life <= 0 and mana <= 0 and flameLife <= 0 and flameMana <= 0 then
 					return nil
 				end
 				return { Life = life > 0 and jsonNumber(math.floor(life * effectMod)) or nil,
-					Mana = mana > 0 and jsonNumber(math.floor(mana * effectMod)) or nil }
+					Mana = mana > 0 and jsonNumber(math.floor(mana * effectMod)) or nil,
+					FlameLife = flameLife > 0 and jsonNumber(math.floor(flameLife * effectMod)) or nil,
+					FlameMana = flameMana > 0 and jsonNumber(math.floor(flameMana * effectMod)) or nil }
 			end)
 			skills[#skills].remnantGain = ok and gain or nil
 		end

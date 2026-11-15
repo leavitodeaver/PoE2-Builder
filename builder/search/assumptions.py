@@ -25,7 +25,7 @@ import re
 
 from builder.ledger import conditions
 from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
-from builder.search import conditions as conditions_mod, models, passive_models
+from builder.search import conditions as conditions_mod, models, passive_models, recovery as recovery_mod
 from builder.search.context import gem_of
 from builder.search.conditions import (CHILL_FIELDS, INFUSED_SET, ailment_uptime, chill_share, curse_uses, natural_distance,
                                        shock_share)
@@ -40,6 +40,7 @@ from builder.search.state import Build
 # 76% chance of an additional Remnant, Remnants of Kalguur's 50% on Stun. The kill-only sources (Rip, Runic Extraction)
 # make none on a lone boss. Where the files give no cadence on a boss, the rate is a labelled assumption.
 ORB_OF_STORMS = "Orb of Storms"
+BREACH = "Into the Breach"
 ORB_PRESSES = "orb_presses"  # (MECHC25) build attribute for MECH-B's press_model: {skill: (Orbs a second, how)}
 REMNANT_SOURCES = {
     "Into the Breach": (0.82645, "Acolyte of Chayula: Flames of Chayula in your Breach"),
@@ -76,10 +77,16 @@ SIPHON, SIPHON_FREEZE_PER_POWER = "Siphon Elements", 0.05
 # living_bomb_base_number_of_bombs_allowed 1, base_skill_effect_duration 15000 ("Seed duration"),
 # living_bomb_damage_threshold_%_of_ailment_threshold 200 ("Explodes after enemy is dealt damage equal to 200% of its
 # Ailment Threshold"). One seed planted (its cast) and exploding when the build's damage reaches the threshold: the main
-# skill's CombinedDPS (other skills' damage not counted: an undercount) against PoB's EnemyAilmentThreshold. Whether a
-# seed explodes when its 15 s run out first is UNVERIFIED (the game text names damage or a kill only); counted as
-# exploding then, labelled, rather than zeroed.
+# skill's CombinedDPS (other skills' damage not counted: an undercount) against PoB's EnemyAilmentThreshold. A seed
+# whose 15 s run out first doesn't explode (MECHC26; PATCH_CHECK Q-C1, an OVERCOUNT before: it was counted as exploding
+# then): 0.3.0's note "Living Bomb: No longer explodes at the end of its duration. Instead, it explodes upon dealing
+# sufficient damage to the enemy, or just killing it" (no later note changes it: grep_notes --history "Living Bomb",
+# newest 0.4.0d, a Prism of Belief fix) and ActiveSkills living_bomb_player's text ("Dealing enough damage to the enemy,
+# or killing it outright, causes the seed to explode"). The next seed starts from 0, so at a steady DPS too low for 15 s
+# none explodes (the damage's ups and downs within a fight aren't modelled: an undercount there).
 LIVING_BOMB, LIVING_BOMB_SHARE, LIVING_BOMB_DURATION = "Living Bomb", 2.0, 15.0
+LIVING_BOMB_NEVER = ("the seed's {:g} s run out first, and a seed that runs out doesn't explode (0.3.0: 'No longer "
+                     "explodes at the end of its duration'): no explosion")
 # (MECHB13; SEARCH7's routing: CombinedDPS is per use for a ShowAverage main skill (Sunder, Earthquake), so the main
 # skill's damage per second comes from objective.per_second and the fields it reads)
 LIVING_BOMB_FIELDS = ("EnemyAilmentThreshold", "CombinedDPS", "ShowAverage", "CullMultiplier", "ReservationDpsMultiplier",
@@ -93,14 +100,12 @@ def living_bomb_rate(stats: dict, cast_time: float) -> tuple[float, str]:
     if need <= 0 or dps <= 0:
         return 0.0, "no damage or no Ailment Threshold read: no seed explodes"
     wait = need / dps
-    late = wait > LIVING_BOMB_DURATION
-    period = cast_time + min(wait, LIVING_BOMB_DURATION)
     how = (f"a seed planted ({cast_time:g} s cast) explodes after {need:,.0f} damage (200% of the boss's Ailment "
-           f"Threshold) at {dps:,.0f} DPS, {wait:.1f} s: one per {period:.1f} s")
-    if late:
-        how += (f" (the {LIVING_BOMB_DURATION:g} s seed runs out first; counted as exploding then, UNVERIFIED: the game "
-                "text names damage or a kill only)")
-    return 1 / period, how
+           f"Threshold) at {dps:,.0f} DPS, {wait:.1f} s")
+    if wait > LIVING_BOMB_DURATION:
+        return 0.0, how + ": " + LIVING_BOMB_NEVER.format(LIVING_BOMB_DURATION)
+    period = cast_time + wait
+    return 1 / period, how + f": one per {period:.1f} s"
 
 
 # Living Bomb as the MAIN skill (MECHC22; COV26 section 2, its probe POE2T2465: PoB reads no living_bomb stat (COV26:
@@ -108,10 +113,13 @@ def living_bomb_rate(stats: dict, cast_time: float) -> tuple[float, str]:
 # DPS). In the game the one seed (living_bomb_base_number_of_bombs_allowed 1) explodes once the boss is dealt 200% of
 # its Ailment Threshold: cast, then wait for the build's OTHER damage (its other skills, Full DPS less Living Bomb's own
 # hits, the damage computed outside PoB, and Living Bomb's own damage over time from the last explosion, e.g. its
-# Ignite: whether damage over time counts toward "dealt damage" is UNVERIFIED, counted) to reach it, at most the seed's
-# 15 s (counted as exploding then, as living_bomb_rate does, UNVERIFIED). One explosion per 1/Speed + wait seconds, so
-# PoB's casts per second are cut by 1 / (1 + Speed x wait), as a "less Attack and Cast Speed" line on it (the explosion's
-# damage, and so its Ignite's, stays whole). Alone, with no other damage, it explodes once per 15 s + cast.
+# Ignite: whether damage over time counts toward "dealt damage" is UNVERIFIED, counted) to reach it within the seed's
+# 15 s (a seed that runs out doesn't explode, as living_bomb_rate; MECHC26, Q-C1). One explosion per 1/Speed + wait
+# seconds, so PoB's casts per second are cut by 1 / (1 + Speed x wait), as a "less Attack and Cast Speed" line on it (the
+# explosion's damage, and so its Ignite's, stays whole). Alone, with no other damage, or with too little, it never
+# explodes: the line is LIVING_BOMB_FLOOR of PoB's casts (0 in effect; not exactly 0, so the next pass can still read
+# the casts per second back from PoB's Speed with the line on).
+LIVING_BOMB_FLOOR = 1e-4
 LIVING_BOMB_MAIN_FIELDS = ("Speed", "FullDPS", "TotalDPS", "TotalDotDPS", "EnemyAilmentThreshold")
 
 
@@ -124,14 +132,15 @@ def living_bomb_main_speed(stats: dict, speed: float, added: float = 0.0) -> tup
     feed = others + dot + max(added, 0.0)
     if speed <= 0 or need <= 0:
         return 1.0, "no casts or no Ailment Threshold read: PoB's count kept"
-    wait = min(need / feed, LIVING_BOMB_DURATION) if feed > 0 else LIVING_BOMB_DURATION
-    share = 1.0 / (1.0 + speed * wait)
     how = (f"one seed at a time, exploding after {need:,.0f} damage (200% of the boss's Ailment Threshold) dealt by the "
            f"build's other damage, {feed:,.0f} DPS (other skills {others:,.0f}, its own damage over time {dot:,.0f}, "
-           f"computed outside PoB {max(added, 0.0):,.0f}): " + (f"{wait:.1f} s" if feed > 0 and wait < LIVING_BOMB_DURATION
-           else f"the seed's {LIVING_BOMB_DURATION:g} s run out first (counted as exploding then, UNVERIFIED)")
-           + f" after each {1 / speed:.2f} s cast: one explosion per {1 / speed + wait:.1f} s, not one per cast")
-    return share, how
+           f"computed outside PoB {max(added, 0.0):,.0f}): ")
+    if feed <= 0 or need / feed > LIVING_BOMB_DURATION:
+        return LIVING_BOMB_FLOOR, how + LIVING_BOMB_NEVER.format(LIVING_BOMB_DURATION)
+    wait = need / feed
+    return (1.0 / (1.0 + speed * wait),
+            how + f"{wait:.1f} s after each {1 / speed:.2f} s cast: one explosion per {1 / speed + wait:.1f} s, not one "
+                  "per cast")
 # created_remnants_have_%_chance_to_duplicate_pick_up_results (the Empowering Remnants passive, the "of Accumulation" to
 # "of Multiplication" item suffixes): "#% chance for Remnants you pick up to count as picking up an additional Remnant"
 # (stat_descriptions), "... you create to grant their effects twice" (passive_skill_stat_descriptions): one stat, both
@@ -405,6 +414,26 @@ def charm_stats(build: Build) -> dict:
     infos = build.call("flaskData", raws=raws)["results"] if raws else []
     spent, basis = charm_charges_used(list(zip(infos, raws)), gain)
     return {"_charm_charges": spent, "_charm_basis": basis}
+
+
+def enemy_level(build: Build) -> int:
+    """The monster level PoB scores the boss at (MECHC26, for recovery.leech_resistance): the config's Enemy Level, else
+    min(PoB's MaxEnemyLevel 85, the character's level), as CalcSetup 875 has it."""
+    try:  # (a stand-in build in the unit tests answers neither call: the context's level, else PoB's maximum)
+        configured = number((build.call("getConfig").get("input") or {}).get("enemyLevel"))
+        level = number(build.call("summary").get("level"))
+    except (KeyError, AttributeError, TypeError):
+        configured, level = 0.0, number(getattr(getattr(build, "ctx", None), "level", 0))
+    if configured > 0:
+        return int(configured)
+    return int(min(recovery_mod.MAX_ENEMY_LEVEL, level or recovery_mod.MAX_ENEMY_LEVEL))
+
+
+def resisted_leech(build: Build) -> dict[str, float]:
+    """{pool: leech a second PoB counts that the boss resists} (recovery.leech_resisted at enemy_level; MECHC26, H2-1),
+    for the readers that sum PoB's {pool}LeechRate themselves."""
+    return recovery_mod.leech_resisted(build.call("stats", fields=list(recovery_mod.LEECH_FIELDS)),
+                                       recovery_mod.leech_resistance(enemy_level(build)))
 
 
 def pressed_group(group: dict, gems: dict[str, dict]) -> bool:
@@ -1812,8 +1841,10 @@ class Assumptions:
         return ([models.line("1% more Attack and Cast Speed", -100 * (1 - share), skill=LIVING_BOMB)],
                 [{"label": "Living Bomb: one explosion per seed", "value": f"{share:.1%} of PoB's casts",
                   "basis": how + " (PoB counts an explosion every cast)",
-                  "play": "cast a new seed as the last one explodes; the build's other damage sets how fast it does",
-                  "confidence": "game files' rule; UNVERIFIED as labelled"}])
+                  "play": ("cast a new seed as the last one explodes; the build's other damage sets how fast it does"
+                           if share > LIVING_BOMB_FLOOR else "the build's other damage is too low for a seed to "
+                           "explode within its duration: Living Bomb deals nothing here"),
+                  "confidence": "game files' rule and 0.3.0's note; UNVERIFIED as labelled"}])
 
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
@@ -2082,7 +2113,7 @@ class Assumptions:
             extra = getattr(build, "extra_stats", None) or {}
             recovery = sum(number(stats.get(k)) for k in ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate")) \
                 + number(extra.get(flasks.RECOVERY_FIELDS["Life"])) \
-                - flasks.pob_part_time_share(build, flasks.Charges.of(build))[0]  # (MECHC25, A35-20: never twice)
+                - flasks.pob_part_time_share(build, flasks.Charges.of(build))[0]                 - resisted_leech(build).get("Life", 0.0)  # (MECHC25, A35-20: never twice; MECHC26, H2-1: the boss resists)
             out.update(attacks=attacks, life=number(stats.get("Life")), life_recovery=recovery)
         return out
 
@@ -2172,8 +2203,18 @@ class Assumptions:
         recovery.restrict(income, texts)
         income.unread = recovery.unread(texts) + [name for name, pattern in flasks.ES_STARTS_UNREAD.items()
                                                   if any(pattern.search(t) for t in lowered)]
+        leech_stats = build.call("stats", fields=list(recovery.LEECH_FIELDS))
+        leech = recovery.leech_income(income, leech_stats, enemy_level(build))
+        breach = present.get(BREACH)
+        if breach is not None and (breach.get("remnantGain") or {}).keys() & {"FlameLife", "FlameMana"}:
+            # (MECHC26, H1-9) Into the Breach's Red / Blue Flames of Chayula leech on collection: at its flame rate and
+            # the build's Remnant multiplier lines (remnant_multiplier, as the pickup lines read them)
+            multiplier, multiplier_how = remnant_multiplier(texts)
+            recovery.flame_income(income, {**stats, **leech_stats}, REMNANT_SOURCES[BREACH][0] * multiplier,
+                                  breach["remnantGain"], texts,
+                                  "one per 1.21 s" + (f", {multiplier_how}" if multiplier_how else ""))
         build.recovery_sources = {**income.rates, flasks.ES_STARTS_FIELD: starts}
-        return recovery.note(income)
+        return recovery.note(income) + leech
 
     def es_flask_income(self, income, texts: list[str], lowered: list[str]) -> float:
         """(MECHC23; AUDIT33 A33-1, an UNDERCOUNT for Energy Shield builds) Energy Shield from the Life flask under "Life
@@ -2269,7 +2310,7 @@ class Assumptions:
         doubled, doubled_how = flasks.pob_part_time_share(build, flasks.Charges.of(build))
         gains = {"regeneration, leech and on-hit (PoB)": sum(number(hit.get(k)) for k in
                                                              ("LifeRegenRecovery", "LifeLeechRate", "LifeOnHitRate"))
-                 - doubled,
+                 - doubled - resisted_leech(build).get("Life", 0.0),  # (MECHC26, H2-1: the boss's Leech resistance)
                  "Life flasks": number(extra.get(flasks.RECOVERY_FIELDS["Life"])),
                  "recoup and Life on Block": objective.recoup(hit, taken, "Life") + objective.on_block(hit, "Life", every),
                  "kills, Remnants, charms, events and spending": max(before, 0.0)}

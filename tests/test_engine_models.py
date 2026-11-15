@@ -2728,3 +2728,50 @@ def test_a_side_orb_of_storms_gets_its_cast_near_it_row_on_a_real_build(engine):
     print("PROBE orb row", row)
     assert row is not None and 0 < row["dps_without"] < 0.9 * headline  # (probe POE2T1731: 111 vs 193)
     assert build.objective.dps(build.stats) == pytest.approx(headline)  # (put back)
+
+
+def test_the_boss_resists_a_real_builds_leech(engine):
+    """MECHC26 (PATCH_CHECK H2-1): a Spark build leeching from its Lightning damage: PoB's LifeLeechRate is the sum
+    recovery.leech_resisted reads (its instances, instance rate, cap and instant part come from the bridge), and the
+    boss's Leech resistance at PoB's enemy level goes into the recovery sources as a negative field, with its note."""
+    from builder.search import assumptions, recovery
+
+    search = spark_with(engine, [])
+    build = search.build
+    amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
+                           "Leeches 10% of Physical Damage as Life",
+                           "Life Leech recovers based on your Lightning Damage as well as Physical Damage"])
+    build.call("equip", slot="Amulet", raw=amulet, fields=[])
+    search.settle()
+    stats = build.call("stats", fields=list(recovery.LEECH_FIELDS))
+    level = assumptions.enemy_level(build)
+    print("PROBE leech", level, {k: stats.get(k) for k in recovery.LEECH_FIELDS if k.startswith(("Life", "MaxLife"))},
+          build.recovery_sources.get("LifeLeechResisted"))
+    rate = stats["LifeLeechRate"]
+    assert rate > 0 and 1 <= level <= recovery.MAX_ENEMY_LEVEL
+    instant, uncapped = stats.get("LifeLeechInstantRate") or 0.0, stats["LifeLeechInstances"] * stats["LifeLeechInstanceRate"]
+    assert instant + min(uncapped, stats["MaxLifeLeechRate"]) * (stats.get("LifeRecoveryRateMod") or 1) == pytest.approx(rate)
+    lost = recovery.leech_resisted(stats, recovery.leech_resistance(level))["Life"]
+    assert build.recovery_sources["LifeLeechResisted"] == pytest.approx(-lost) and 0 < lost <= rate
+    assert any(n["label"] == "The boss's Leech resistance*" for n in search.assumptions.active)
+
+
+def test_into_the_breach_reports_its_flames_leech_and_the_build_counts_it(engine):
+    """MECHC26 (PATCH_CHECK H1-9): the bridge's remnantGain carries Into the Breach's Red / Blue Flame Leech (20% of
+    maximum Life / Mana, x Remnant effect, as PoB's CalcOffence builds BreachFlameLifeLeech), and the recovery sources
+    count it at the flame rate, a third each colour."""
+    from builder.search import recovery
+
+    search = spark_with(engine, [])
+    build = search.build
+    build.call("addSkillGroup", text="Into the Breach 20/0 1")
+    breach = next((s for s in build.call("activeSkills")["skills"] if s["name"] == "Into the Breach"), None)
+    print("PROBE breach", breach and {k: breach.get(k) for k in ("remnantGain", "generatesRemnants", "disabled")})
+    assert breach is not None and (breach.get("remnantGain") or {}).get("FlameLife", 0) >= 20
+    search.settle()
+    life = build.call("stats", fields=["Life"])["Life"]
+    got = build.recovery_sources.get("LifeFlameLeechRecovery", 0.0)
+    print("PROBE flame life/s", got, "life", life)
+    assert got == pytest.approx(min(0.82645 / 3 * breach["remnantGain"]["FlameLife"] / 100 * life,
+                                    build.call("stats", fields=["MaxLifeLeechRate"])["MaxLifeLeechRate"]), rel=0.05)
+    assert "LifeFlameLeechRecovery" in recovery.FIELDS["Life"]

@@ -61,9 +61,9 @@ from dataclasses import dataclass, field
 # The fields, per second (for SEARCH: objective.SUSTAIN_POOLS / RECOVERY_POOLS read them from the build's stats)
 FIELDS = {
     "Life": ("LifeOnKillRecovery", "LifeRemnantRecovery", "CharmLifeRecoveryRate", "LifeOnEventRecovery",
-             "LifeOnConsumeRecovery", "LifePreventedRecoup"),
+             "LifeOnConsumeRecovery", "LifePreventedRecoup", "LifeFlameLeechRecovery"),
     "Mana": ("ManaOnKillRecovery", "ManaRemnantRecovery", "CharmManaRecoveryRate", "ManaOnEventRecovery",
-             "ManaOnConsumeRecovery"),
+             "ManaOnConsumeRecovery", "ManaFlameLeechRecovery"),
     # (MECHC17) Energy Shield on events: "Regenerate N% of maximum Energy Shield over 1 second when Stunned" (hit_income).
     # For SEARCH: objective.RECOVERY_POOLS["EnergyShield"] doesn't read it yet
     "EnergyShield": ("EnergyShieldOnEventRecovery", "EnergyShieldPreventedRecoup",  # (MECHC21: Scarred Faith's)
@@ -71,6 +71,13 @@ FIELDS = {
                      # flasks.es_recovery_per_second, at the flask's own use rate)
                      "EnergyShieldFlaskRecovery"),
 }
+# The boss's Leech resistance (MECHC26; PATCH_CHECK H2-1, an OVERCOUNT before: neither PoB nor we applied any), a
+# NEGATIVE field per pool: what PoB's {pool}LeechRate holds that the boss resists (leech_resisted). In FIELDS, so the
+# sustain and recovery floors (objective's ADDED_RECOVERY) take it off once; Income.pool leaves it out (its sums are the
+# event sources, and PoB's leech isn't one of them).
+LEECH_RESISTED = {"Life": "LifeLeechResisted", "Mana": "ManaLeechResisted", "EnergyShield": "EnergyShieldLeechResisted"}
+for _pool, _field in LEECH_RESISTED.items():
+    FIELDS[_pool] = (*FIELDS[_pool], _field)
 ALL_FIELDS = tuple(f for fields in FIELDS.values() for f in fields)
 
 LIFE_REMNANTS, MANA_REMNANTS = "Life Remnants", "Mana Remnants"
@@ -235,7 +242,7 @@ class Income:
             self.parts.append(f"{how}: {amount:,.1f}/s")
 
     def pool(self, pool: str) -> float:
-        return sum(self.rates[f] for f in FIELDS[pool])
+        return sum(self.rates[f] for f in FIELDS[pool] if f != LEECH_RESISTED.get(pool))
 
 
 def on_kill(income: Income, stats: dict, texts: list[str], enemies: float) -> None:
@@ -506,3 +513,129 @@ def note(income: Income) -> list[dict]:
 
 def _num(value: object) -> float:
     return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+# Monster Leech resistance by monster level (MECHC26; PATCH_CHECK H2-1): DefaultMonsterStats.LeechResistance, levels
+# 1-100, permyriad (game files, Steam build 26476662, exported by MECHC26 with tools/datamine/export.mjs; the column
+# RareUniqueLeechResistance is the same at every level). KeywordPopups LifeLeech / ManaLeech / EnergyShieldLeech:
+# "Monsters have Leech Resistance that increases with monster level, reducing how much you recover from Leech from Hits
+# against them"; stats base_resist_life_leech_permyriad / _mana_ / _energy_shield_. The shape matches 0.5.0's note
+# (grep_notes "Leech Resist", its only hit): "Monster Leech resistance now starts at a later level, and values are
+# lower at every level. All monster rarities now have the same amount of Leech resistance" (0 up to level 30 here; one
+# column for every rarity). Second source: poe2db's Monster page shows the same table's Life / Damage by level (32,956 /
+# 353.67 at 82) but no Leech column, so the Leech figures have the game files alone (MEDIUM; an in-game check is the
+# user's: leech on a level-82+ boss against a low-level monster). PoB has no enemy Leech term (CalcOffence getBaseLeech).
+MONSTER_LEECH_RESISTANCE = (
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    248, 638, 987, 1416, 1835, 2246, 2634, 3013, 3384, 3742,
+    4077, 4405, 4717, 5022, 5307, 5453, 5601, 5749, 5892, 6038,
+    6178, 6314, 6453, 6586, 6718, 6848, 6973, 7097, 7218, 7336,
+    7453, 7565, 7674, 7781, 7884, 8003, 8119, 8227, 8332, 8432,
+    8528, 8619, 8706, 8789, 8867, 8942, 9013, 9080, 9144, 9204,
+    9262, 9316, 9367, 9415, 9460, 9502, 9542, 9579, 9613, 9645,
+    9675, 9703, 9729, 9752, 9775, 9795, 9814, 9831, 9847, 9861,
+)
+MAX_ENEMY_LEVEL = 85  # (PoB's data.misc.MaxEnemyLevel, Modules/Data.lua: its enemy level is min(this, character level))
+LEECH_POOLS = ("Life", "Mana", "EnergyShield")
+LEECH_FIELDS = tuple(f for pool in LEECH_POOLS for f in (
+    f"{pool}LeechRate", f"{pool}LeechInstantRate", f"{pool}LeechInstances", f"{pool}LeechInstanceRate",
+    f"Max{pool}LeechRate", f"{pool}RecoveryRateMod"))
+
+
+def leech_resistance(level: float) -> float:
+    """The monster level's Leech resistance, 0-1 (MONSTER_LEECH_RESISTANCE)."""
+    index = min(max(int(level), 1), len(MONSTER_LEECH_RESISTANCE)) - 1
+    return MONSTER_LEECH_RESISTANCE[index] / 10000
+
+
+def leech_resisted(stats: dict, resist: float) -> dict[str, float]:
+    """{pool: the leech a second PoB's {pool}LeechRate holds that a boss with `resist` Leech resistance takes off}.
+
+    PoB (CalcOffence 4908-4935): rate = instant rate + min(instances x instance rate, Max{pool}LeechRate) x
+    {pool}RecoveryRateMod, the instances from each hit's leech amount. The resistance cuts each hit's amount, so the
+    instant part and the instances scale by (1 - resist) and the rate cap holds as before. Where PoB's rate isn't that
+    sum (Immortal Ambition moving Life leech to Energy Shield; "Unaffected by non-instant Life Leech"), the rate itself
+    scales by (1 - resist). Whether the resistance applies before or after the per-hit cap ("Hits that deal more than
+    40,000 total damage are treated as though they only dealt 40,000") is UNVERIFIED: taken after, so a hit over the cap
+    loses the same share."""
+    keep = 1.0 - min(max(resist, 0.0), 1.0)
+    out = {}
+    for pool in LEECH_POOLS:
+        rate = _num(stats.get(f"{pool}LeechRate"))
+        if rate <= 0 or keep >= 1.0:
+            continue
+        instant = _num(stats.get(f"{pool}LeechInstantRate"))
+        uncapped = _num(stats.get(f"{pool}LeechInstances")) * _num(stats.get(f"{pool}LeechInstanceRate"))
+        cap, mod = _num(stats.get(f"Max{pool}LeechRate")), _num(stats.get(f"{pool}RecoveryRateMod")) or 1.0
+        if cap > 0 and abs(instant + min(uncapped, cap) * mod - rate) <= 1e-6 * max(rate, 1.0):
+            kept = instant * keep + min(uncapped * keep, cap) * mod
+        else:
+            kept = rate * keep
+        out[pool] = max(rate - kept, 0.0)
+    return out
+
+
+def leech_income(income: Income, stats: dict, level: float) -> list[dict]:
+    """The boss's Leech resistance as negative recovery (LEECH_RESISTED), at the enemy `level` PoB scores against; its
+    note, or [] when PoB gives the build no leech."""
+    resist = leech_resistance(level)
+    parts = []
+    for pool, lost in leech_resisted(stats, resist).items():
+        if lost > 0:
+            income.rates[LEECH_RESISTED[pool]] = -lost
+            parts.append(f"{pool} {_num(stats.get(f'{pool}LeechRate')):,.1f}/s in PoB, {lost:,.1f}/s resisted")
+    if not parts:
+        return []
+    return [{"label": "The boss's Leech resistance*",
+             "value": f"{resist:.1%} of each hit's leech (monster level {int(level)})",
+             "basis": ("; ".join(parts) + ". DefaultMonsterStats.LeechResistance (game files; the same for every "
+                       "rarity, 0 up to level 30, as 0.5.0's note describes); PoB applies none. The cut is on each hit's "
+                       "leech, so PoB's maximum leech rate still holds; taken off the sustain and recovery floors"),
+             "confidence": "MEDIUM (the table: game files alone; poe2db shows no Leech column)"}]
+
+
+# Into the Breach's Red / Blue Flames of Chayula (MECHC26; PATCH_CHECK H1-9, an UNDERCOUNT before: PoB only displays
+# BreachFlameLifeLeech / ManaLeech, CalcOffence 1700-1718). KeywordPopups RedFlamesOfChayula / BlueFlamesOfChayula:
+# "Leech 20% of your maximum Life / Mana to you when collected" (IntoTheBreachPlayer breach_flame_life_leech_% /
+# _mana_leech_% 20; 0.5.0: 20%, was 15% since 0.4.0, 7% before), x Remnant effect (the bridge's remnantGain FlameLife /
+# FlameMana, as PoB builds it). A flame every breach_flame_spawn_rate_ms 1210 (REMNANT_SOURCES), each collected (the
+# Remnant play note). Its colour: "All Flames of Chayula that you manifest are Red / Blue / Purple" (Choice of Life / Mana /
+# Power, Acolyte of Chayula) sets it; without one, a third each (UNVERIFIED: the game files give no weights; LOW). Not a
+# hit against the boss, so its Leech resistance doesn't apply ("Leech from Hits against them"). Held under PoB's maximum
+# leech rate less the hit leech the build keeps (one cap for all Leech, a lower reading: "You can only recover from a
+# single instance of Life Leech at a time" is UNVERIFIED against PoB's several).
+FLAME_COLOUR = re.compile(r"^all flames of chayula that you manifest are (red|blue|purple)$", re.I)
+FLAME_POOLS = {"Life": ("FlameLife", "red", "LifeFlameLeechRecovery"), "Mana": ("FlameMana", "blue", "ManaFlameLeechRecovery")}
+
+
+def flame_shares(texts: list[str]) -> tuple[dict[str, float], str]:
+    """({colour: share of the flames}, how)."""
+    chosen = {m.group(1).lower() for t in texts if (m := FLAME_COLOUR.match(t.strip()))}
+    if chosen:
+        return ({c: 1.0 / len(chosen) if c in chosen else 0.0 for c in ("red", "blue", "purple")},
+                "all " + " / ".join(sorted(chosen)) + " (the build's 'All Flames of Chayula ... are' line)")
+    return {c: 1 / 3 for c in ("red", "blue", "purple")}, "a third each colour (no weights in the game files: UNVERIFIED, LOW)"
+
+
+def flame_income(income: Income, stats: dict, flames: float, gain: dict, texts: list[str], how: str) -> None:
+    """Life / Mana a second from collecting Red / Blue Flames of Chayula: `flames` a second (after the build's Remnant
+    multiplier lines), `gain` the bridge's remnantGain for Into the Breach (FlameLife / FlameMana: % of maximum, x Remnant
+    effect). Call after leech_income (its resisted hit leech sets the room left under the cap)."""
+    if flames <= 0:
+        return
+    shares, colour = flame_shares(texts)
+    for pool, (key, hue, name) in FLAME_POOLS.items():
+        pct = _num((gain or {}).get(key))
+        if pct <= 0 or shares[hue] <= 0:
+            continue
+        want = flames * shares[hue] * pct / 100 * _num(stats.get(pool))
+        kept = _num(stats.get(f"{pool}LeechRate")) + income.rates.get(LEECH_RESISTED[pool], 0.0)
+        cap = _num(stats.get(f"Max{pool}LeechRate"))
+        room = max(cap - kept, 0.0) if cap > 0 else want
+        amount = min(want, room)
+        if amount > 0:
+            income.add(name, amount, f"{hue.title()} Flames of Chayula ({flames:.2f} flames/s, {how}; {colour}), Leech "
+                                     f"{pct:g}% of maximum {pool} each" + (f", held to the {cap:,.0f}/s leech cap less "
+                                                                            f"{kept:,.1f}/s hit leech" if amount < want else ""))

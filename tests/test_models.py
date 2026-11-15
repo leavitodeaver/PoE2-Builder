@@ -2266,13 +2266,15 @@ def test_a_granted_skill_pob_builds_nothing_for_is_noted_not_dropped():
 
 def test_living_bomb_explodes_when_the_build_deals_twice_the_boss_ailment_threshold():
     """MECHC1 (FLAT_RATES A11; before, one seed every 5 s for any build). LivingBombPlayer: one seed, 15 s, exploding at
-    200% of the Ailment Threshold; a seed that runs out first is counted as exploding then (UNVERIFIED), not zeroed."""
+    200% of the Ailment Threshold; a seed that runs out first doesn't explode (MECHC26, PATCH_CHECK Q-C1: 0.3.0 "No
+    longer explodes at the end of its duration"; before, counted as exploding then: an overcount)."""
     from builder.search.assumptions import living_bomb_rate
 
     rate, how = living_bomb_rate({"EnemyAilmentThreshold": 100000, "CombinedDPS": 50000}, 1.0)
     assert rate == pytest.approx(1 / 5) and "4.0 s" in how  # 1 s cast + 200,000 / 50,000
     slow, how = living_bomb_rate({"EnemyAilmentThreshold": 100000, "CombinedDPS": 5000}, 1.0)
-    assert slow == pytest.approx(1 / 16) and "UNVERIFIED" in how
+    assert slow == 0.0 and "doesn't explode" in how  # 40 s needed, 15 s to do it in
+    assert living_bomb_rate({"EnemyAilmentThreshold": 100000, "CombinedDPS": 200000 / 15}, 1.0)[0] == pytest.approx(1 / 16)
     assert living_bomb_rate({"EnemyAilmentThreshold": 100000, "CombinedDPS": 0}, 1.0)[0] == 0
 
 
@@ -3890,7 +3892,7 @@ def test_living_bomb_reads_a_showaverage_main_skills_damage_per_second():
     stats = {"EnemyAilmentThreshold": 100000, "ShowAverage": 1, "CombinedDPS": 10000, "AverageDamage": 10000,
              "TotalDPS": 50000, "CullMultiplier": 1, "ReservationDpsMultiplier": 1}
     rate, how = living_bomb_rate(stats, 1.0)
-    assert rate == pytest.approx(1 / 5) and "50,000 DPS" in how  # (per use, 10,000, would read one per 16 s)
+    assert rate == pytest.approx(1 / 5) and "50,000 DPS" in how  # (per use, 10,000, would read none: 20 s, past the seed's 15 s)
 
 
 def test_frostflame_nova_beside_the_main_skill_is_held_to_the_ignite_and_its_casts():
@@ -4962,14 +4964,15 @@ def test_runefathers_challenge_raises_the_bosss_power_at_the_builds_own_uptime()
 
 def test_living_bomb_as_the_main_skill_explodes_once_per_seed_from_the_builds_other_damage():
     """MECHC22 (COV26 section 2): PoB counts a Living Bomb explosion every cast; in the game the one seed explodes once
-    the boss is dealt 200% of its Ailment Threshold by the build's other damage (or its 15 s run out, UNVERIFIED), so
-    PoB's casts are cut to one per 1/Speed + wait."""
-    from builder.search.assumptions import living_bomb_main_speed
+    the boss is dealt 200% of its Ailment Threshold by the build's other damage within its 15 s (a seed that runs out
+    doesn't explode: MECHC26, Q-C1), so PoB's casts are cut to one per 1/Speed + wait."""
+    from builder.search.assumptions import LIVING_BOMB_FLOOR, living_bomb_main_speed
 
     alone = {"EnemyAilmentThreshold": 1000, "FullDPS": 0, "TotalDPS": 535.9, "TotalDotDPS": 0}
     share, how = living_bomb_main_speed(alone, 1.667)
-    assert share == pytest.approx(1 / (1 + 1.667 * 15))  # no other damage: the seed's 15 s
-    assert "UNVERIFIED" in how
+    assert share == LIVING_BOMB_FLOOR and "doesn't explode" in how  # no other damage: no explosion (0 in effect)
+    slow = {**alone, "FullDPS": 535.9 + 100}  # 2,000 damage at 100 DPS: 20 s, past the seed's 15 s
+    assert living_bomb_main_speed(slow, 1.667)[0] == LIVING_BOMB_FLOOR
     fed = {**alone, "FullDPS": 535.9 + 5000}  # other skills 5,000 DPS: 2,000 damage in 0.4 s
     assert living_bomb_main_speed(fed, 1.667)[0] == pytest.approx(1 / (1 + 1.667 * 0.4))
     # its own Ignite from the last explosion feeds the next seed; damage computed outside PoB too
@@ -5041,3 +5044,77 @@ def test_orb_of_storms_leaves_a_remnant_per_orb_at_the_builds_own_orb_rate():
     setattr(fed, ORB_PRESSES, {"Orb of Storms": (0.23, "orb_cycle: Spark cast near it")})
     rate, how = orb_remnants(fed, skill)
     assert rate == 0.23 and "orb_cycle" in how
+
+
+def test_the_boss_resists_leech_at_its_monster_levels_share_under_pobs_rate_cap():
+    """MECHC26 (PATCH_CHECK H2-1, an OVERCOUNT before): DefaultMonsterStats.LeechResistance (0 to level 30, 9,316
+    permyriad at 82, the same for every rarity) cuts each hit's leech; PoB's maximum leech rate still holds."""
+    from builder.search import recovery
+
+    assert recovery.leech_resistance(30) == 0.0 and recovery.leech_resistance(31) == pytest.approx(0.0248)
+    assert recovery.leech_resistance(82) == pytest.approx(0.9316) and recovery.leech_resistance(200) == 0.9861
+    assert len(recovery.MONSTER_LEECH_RESISTANCE) == 100
+    # uncapped: 4 instances x 50/s = 200/s plus 20/s instant, cap 500: everything x (1 - r)
+    stats = {"LifeLeechRate": 220.0, "LifeLeechInstantRate": 20.0, "LifeLeechInstances": 4.0,
+             "LifeLeechInstanceRate": 50.0, "MaxLifeLeechRate": 500.0, "LifeRecoveryRateMod": 1.0}
+    assert recovery.leech_resisted(stats, 0.9)["Life"] == pytest.approx(220 * 0.9)
+    # capped: 40 x 50 = 2,000/s held to 500/s; at 50% resistance 1,000/s, still over the cap: nothing lost but the instant
+    capped = {**stats, "LifeLeechInstances": 40.0, "LifeLeechRate": 520.0}
+    assert recovery.leech_resisted(capped, 0.5)["Life"] == pytest.approx(10.0)
+    # PoB's rate not that sum (Immortal Ambition): the rate itself scales
+    odd = {**stats, "LifeLeechRate": 100.0}
+    assert recovery.leech_resisted(odd, 0.5)["Life"] == pytest.approx(50.0)
+    assert recovery.leech_resisted({"LifeLeechRate": 0}, 0.9) == {} and recovery.leech_resisted(stats, 0.0) == {}
+    income = recovery.Income()
+    notes = recovery.leech_income(income, stats, 82)
+    assert income.rates["LifeLeechResisted"] == pytest.approx(-220 * 0.9316) and income.pool("Life") == 0.0
+    assert notes and "93.2%" in notes[0]["value"] and "MEDIUM" in notes[0]["confidence"]
+    from builder.search import objective
+    assert "LifeLeechResisted" in objective.ADDED_RECOVERY["Life"]  # (the floors take it off)
+
+
+def test_quipolatls_thesis_gives_a_glory_skill_half_its_glory_on_each_mark_activation():
+    """MECHC26 (PATCH_CHECK H3-4, an UNDERCOUNT before: labelled not counted): "A random Skill that requires Glory
+    generates 50% of its maximum Glory when your Marks Activate" (SoulCoreStats 50; 0.5.0: was 15%), at the build's own
+    Mark Activations (mark_activations), shared among the build's Glory skills."""
+    spark = models.Skill("Spark", group=1, spell=True)
+    mark = models.Skill("Sniper's Mark", group=2, cast_time=0.5, cooldown=6.0)
+    banner = models.Skill("War Banner", group=3)
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "LightningHitAverage": 1000}
+    line = ["A random Skill that requires Glory generates 50% of its maximum Glory when your Marks Activate"]
+    assert models.glory_lines(line)["mark"] == 0.5 and not models.glory_lines(line)["unread"]
+    assert models.glory_uses(["War Banner"], stats, spark, [spark, mark, banner], [])[0] == 0  # a spell: no attack hits
+    activations = models.mark_activations(mark, [spark, mark, banner], stats)[0]
+    uses, how = models.glory_uses(["War Banner"], stats, spark, [spark, mark, banner], line)
+    assert activations > 0 and uses > 0 and "Mark Activations" in how and "UNVERIFIED" in how
+    assert f"+{activations * 0.5 * 200:.2f}/s" in how  # 50% of War Banner's 200 Glory per Activation
+    hammer = models.Skill("Hammer of the Gods", group=4)
+    shared = models.glory_uses(["War Banner"], stats, spark, [spark, mark, banner, hammer], line)[1]
+    assert f"+{activations * 0.5 * 200 / 2:.2f}/s" in shared and "1 in 2" in shared  # the random pick: half each
+    assert models.glory_uses(["War Banner"], stats, spark, [spark, banner], line)[0] == 0  # no Mark: nothing
+
+
+def test_red_and_blue_flames_of_chayula_leech_on_collection_under_the_leech_cap():
+    """MECHC26 (PATCH_CHECK H1-9, an UNDERCOUNT before: PoB only displays it): a Red Flame leeches 20% of maximum Life
+    (a Blue one Mana) when collected, x Remnant effect; a third of the flames each colour unless a Choice notable sets
+    it; held under PoB's maximum leech rate less the hit leech the build keeps."""
+    from builder.search import recovery
+
+    stats = {"Life": 1000.0, "Mana": 500.0, "MaxLifeLeechRate": 250.0, "MaxManaLeechRate": 125.0, "LifeLeechRate": 0.0}
+    gain = {"FlameLife": 20, "FlameMana": 20}
+    income = recovery.Income()
+    recovery.flame_income(income, stats, 0.82645, gain, [], "one per 1.21 s")
+    assert income.rates["LifeFlameLeechRecovery"] == pytest.approx(0.82645 / 3 * 0.2 * 1000)
+    assert income.rates["ManaFlameLeechRecovery"] == pytest.approx(0.82645 / 3 * 0.2 * 500)
+    assert "UNVERIFIED" in income.parts[0]
+    red = recovery.Income()
+    recovery.flame_income(red, stats, 0.82645, gain, ["All Flames of Chayula that you manifest are Red"], "x")
+    assert red.rates["LifeFlameLeechRecovery"] == pytest.approx(0.82645 * 0.2 * 1000) and red.rates["ManaFlameLeechRecovery"] == 0
+    capped = recovery.Income()
+    capped.rates["LifeLeechResisted"] = -50.0  # 150/s hit leech in PoB, 100/s kept: 150/s of room under 250/s
+    recovery.flame_income(capped, {**stats, "LifeLeechRate": 150.0}, 0.82645, gain,
+                          ["All Flames of Chayula that you manifest are Red"], "x")
+    assert capped.rates["LifeFlameLeechRecovery"] == pytest.approx(150.0) and "leech cap" in capped.parts[0]
+    purple = recovery.Income()
+    recovery.flame_income(purple, stats, 0.82645, gain, ["All Flames of Chayula that you manifest are Purple"], "x")
+    assert purple.pool("Life") == 0 and purple.pool("Mana") == 0

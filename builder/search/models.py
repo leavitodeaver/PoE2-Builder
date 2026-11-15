@@ -6507,8 +6507,12 @@ def mana_flare(spell: dict, cooldown: float, recovery: float) -> tuple[float, fl
 # - "(Skills have a) N% chance to not consume Glory": a use consumes (1 - N%); "N% chance (for Skills) to retain 40% of Glory on use": a
 #   use consumes (1 - 0.4 x N%); "When a Banner expires, recover N% of the Glory required for that Banner": a Banner's
 #   next use needs N% less (each placed Banner taken to expire, LOW);
-# - "A random Skill that requires Glory generates N% of its maximum Glory when your Marks Activate": not counted (the
-#   random pick and the Mark rate aren't modelled; said).
+# - "A random Skill that requires Glory generates N% of its maximum Glory when your Marks Activate" (Quipolatl's Thesis
+#   in a Helmet, SoulCoreStats mark_grants_%_max_glory_to_random_skill_on_activate 50; 0.5.0: 50%, was 15%; MECHC26,
+#   PATCH_CHECK H3-4, an UNDERCOUNT before): at the build's own Mark Activations (mark_activations, the first Mark, as
+#   mark_model: one Mark on an enemy at a time), each going to one of the build's Glory skills at random (1 / k of them
+#   to each of k); a skill's "maximum Glory" taken as the Glory its use requires (UNVERIFIED); not scaled by "increased
+#   Glory generation" (the lower reading, as the flat gains).
 # A Glory skill with a cooldown is used at most once per cooldown (Skill.cooldown / cooldown_recovery; before, never read).
 GLORY_INC = re.compile(r"^(?:body armour grants )?(\d+(?:\.\d+)?)% (increased|reduced) glory generation"
                        r"( for banner skills| if you have at least 100 tribute)?$", re.I)
@@ -6520,14 +6524,14 @@ GLORY_NOT_CONSUME = re.compile(r"^(?:skills have an? )?(\d+(?:\.\d+)?)% chance t
 GLORY_RETAIN = re.compile(r"^(\d+(?:\.\d+)?)% chance (?:for skills )?to retain 40% of glory on use$", re.I)
 GLORY_BANNER_REFUND = re.compile(r"^when a banner expires, recover (\d+(?:\.\d+)?)% of the glory required for that banner$",
                                  re.I)
-GLORY_MARK = re.compile(r"generates \d+(?:\.\d+)?% of its maximum glory when your marks activate", re.I)
+GLORY_MARK = re.compile(r"generates (\d+(?:\.\d+)?)% of its maximum glory when your marks? activates?", re.I)
 
 
 def glory_lines(texts: list[str]) -> dict:
     """The build's Glory lines (above), summed: inc / banner_inc (%), flat (Glory a second a skill), presence (Glory a
     second from the boss in your Presence), not_consume / retain / refund (chances and shares, 0-1), and unread texts."""
     out = {"inc": 0.0, "banner_inc": 0.0, "flat": 0.0, "banner_flat": 0.0, "presence": 0.0, "not_consume": 0.0, "retain": 0.0, "refund": 0.0,
-           "unread": []}
+           "mark": 0.0, "unread": []}
     for raw in texts:
         t = raw.strip()
         if m := GLORY_INC.match(t):
@@ -6551,8 +6555,8 @@ def glory_lines(texts: list[str]) -> dict:
             out["retain"] = min(1.0, out["retain"] + float(m.group(1)) / 100)
         elif m := GLORY_BANNER_REFUND.match(t):
             out["refund"] = min(1.0, out["refund"] + float(m.group(1)) / 100)
-        elif GLORY_MARK.search(t):
-            out["unread"].append(f"'{t}' (a random Glory skill on Mark activations: not modelled)")
+        elif m := GLORY_MARK.search(t):
+            out["mark"] += float(m.group(1)) / 100
     return out
 
 
@@ -6580,6 +6584,8 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
     cooldowns = {s.name: s.cooldown / (s.cooldown_recovery or 1.0) for s in skills or [] if s.cooldown}
     power = power_of(stats, texts if texts is not None else None)
     plan, parts = {}, []
+    marked, marked_how = glory_mark_rate(skills or [], stats) if lines["mark"] else (0.0, "")
+    glory_kinds = len({s.name for s in skills or [] if s.name in GLORY_SKILLS or s.name in GLORY_FROM_LIFE}) or 1
     for name in dict.fromkeys(names):
         banner = name.endswith("Banner")
         extra = []
@@ -6613,6 +6619,12 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
         if lines["presence"]:
             glory += lines["presence"]
             extra.append(f"+{lines['presence']:g}/s from the boss in your Presence (kept in it: a play note, LOW)")
+        if marked > 0:  # (MECHC26, H3-4: Quipolatl's Thesis)
+            gain = marked / glory_kinds * lines["mark"] * cost
+            glory += gain
+            extra.append(f"+{gain:.2f}/s from Mark Activations ({marked_how}: {marked:.3f}/s, {lines['mark']:.0%} of its "
+                         f"{cost} Glory each" + (f", 1 in {glory_kinds} going to it" if glory_kinds > 1 else "")
+                         + "; maximum Glory taken as the Glory a use requires, UNVERIFIED)")
         if glory <= 0:
             parts.append(f"{name}: {how}, never")
             continue
@@ -6634,6 +6646,19 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
     if lines["unread"]:
         parts.append("not counted: " + ", ".join(lines["unread"]))
     return plan, "; ".join(parts) or "no Glory skill"
+
+
+def glory_mark_rate(skills: list[Skill], stats: dict) -> tuple[float, str]:
+    """(Mark Activations a second, which Mark) for "generates N% of its maximum Glory when your Marks Activate": the
+    first Mark as mark_model picks it (one Mark on an enemy at a time), at mark_activations' rate (Eternal Mark in its
+    group: up to twice an application); (0, "") with no Mark."""
+    marks = [s for s in skills if s.name in MARKS]
+    marks += [s for s in skills if s.name == PREDATORS_MARK and s.group not in {m.group for m in marks}]
+    if not marks:
+        return 0.0, ""
+    mark = marks[0]
+    eternal = number(mark.support_stats.get(ETERNAL_MARK_STAT)) > 0
+    return mark_activations(mark, skills, stats, None, None, eternal)[0], mark.name
 
 
 # Deadly Resolve (model: deadly_resolve) -----------------------------------------------------------------------------------
