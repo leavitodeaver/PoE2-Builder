@@ -2485,7 +2485,8 @@ def wind_dancer_stages(lines: list[str], stats: dict) -> tuple[float, str]:
 # it). Mana spent: the main skill's (PoB's ManaPerSecondCost; other skills' spending not counted, an undercount). Stage
 # k comes k x max(1 s, Mana per stage / spend) after placing; the average over the Sigil's duration. Standing in it: as
 # the user's Leylines ruling (15 Nov: "assume you're trying to stand in them if you take the ability, so 75%"), 75% of
-# the fight, applied by analogy (LOW: the manager to confirm for a self-placed Sigil), which scales the stages held.
+# the fight (the manager, 15 Nov 16:11: "yes by the same reasoning the user gave for Leylines", LOW, on the user's list),
+# which scales the stages held; the play guide's sigil_row gives the DPS inside and outside.
 SIGIL, SIGIL_STAGES, SIGIL_MANA_SHARE, SIGIL_GAP, SIGIL_SECONDS = "Sigil of Power", 4, 0.50, 1.0, 10.0
 
 
@@ -2505,7 +2506,7 @@ def sigil_stages(lines: list[str], stats: dict) -> tuple[float, str]:
     return stages, (f"{SIGIL}: {spend:.1f} Mana/s spent against {per:,.0f} a stage (50% of {mana:,.0f} maximum Mana), a "
                     f"stage every {step:.2f} s (at least {SIGIL_GAP:g} s), at most {SIGIL_STAGES}, over its {duration:.1f} "
                     f"s: {held:.2f} on average while in it, x {LEYLINE_UPTIME:.0%} of the fight standing in it (the user's "
-                    f"Leylines share, applied by analogy: LOW) = {stages:.2f}")
+                    f"Leylines reasoning, the manager 16:11: LOW) = {stages:.2f}")
 
 
 def armour_broken_uptime(lines: list[str], stats: dict) -> tuple[object, str]:

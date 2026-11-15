@@ -181,6 +181,8 @@ def guide(search: Any) -> list[dict]:
         rows.append(row)
     if row := alignment_row(search, headline):
         rows.append(row)
+    if row := sigil_row(search, headline):
+        rows.append(row)
     if row := boss_moving_row(search, headline):
         rows.append(row)
     if row := raised_row(search, headline):
@@ -262,6 +264,39 @@ def alignment_row(search: Any, headline: float) -> dict | None:
                                                   f"{still:,.0f} standing still",
             "dps_with": headline, "dps_without": still, "change": (headline - still) / still if still else 0.0,
             "confidence": "theory (the match interval LOW)"}
+
+
+def sigil_row(search: Any, headline: float) -> dict | None:
+    """Sigil of Power's inside / outside row (MECHC29; the manager 16:11, by the user's Leylines reasoning, 15 Nov:
+    "assume you're trying to stand in them if you take the ability, so 75% with a note in the build result showing dps
+    for both inside and outside"): the headline counts conditions.sigil_stages (its stages x 75% of the fight in it, LOW);
+    inside = the stages while standing in it, outside = 0 stages. Two recalculations, put back after."""
+    from builder.search.conditions import LEYLINE_UPTIME, SIGIL
+
+    info = search.conditions.active.get("sigilOfPowerStages")
+    if not info or number(info.get("value")) <= 0:
+        return None
+    build, held = search.build, number(info["value"])
+    inside_stages = held / LEYLINE_UPTIME
+    dps = {}
+    try:
+        for name, value in (("inside", inside_stages), ("outside", 0)):
+            build.set_config({"sigilOfPowerStages": value})
+            search.assumptions.apply()
+            dps[name] = build.objective.dps(build.stats)
+    finally:
+        build.set_config({"sigilOfPowerStages": held})
+        search.assumptions.apply()
+    inside, outside = dps["inside"], dps["outside"]
+    if outside <= 0 or abs(inside - outside) < MIN_CHANGE * outside:
+        return None
+    return {"var": "sigilOfPowerStages", "label": f"{SIGIL}: standing in it {LEYLINE_UPTIME:.0%} of the fight*",
+            "kind": PLAYER, "counted": True,
+            "play": (f"stand in your {SIGIL} while you cast: {inside:,.0f} DPS inside it ({inside_stages:.2f} stages on "
+                     f"average), {outside:,.0f} outside; the headline counts {LEYLINE_UPTIME:.0%} inside (the user's "
+                     "Leylines reasoning, applied by the manager, 15 Nov 16:11: LOW)"),
+            "dps_with": inside, "dps_without": outside, "change": (inside - outside) / outside,
+            "confidence": "the user's share (LOW: where you stand is the fight's)"}
 
 
 def boss_moving_row(search: Any, headline: float) -> dict | None:

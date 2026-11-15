@@ -3056,3 +3056,24 @@ def test_soul_eater_from_hits_on_the_unique_boss_reaches_pob_as_skill_speed(engi
     print("PROBE souls", notes)
     assert notes and "Skill Speed" in notes[0]["value"] and "not PoB's stale" in notes[0]["basis"]
     assert mods and 0 < mods[0].get("scale", mods[0].get("value", 0)) <= 50
+
+
+def test_sigil_of_power_stages_from_mana_spent_with_inside_and_outside_rows(engine):
+    """MECHC29 (the manager, 16:11: Sigil of Power at the user's Leylines 75%, LOW, with inside / outside rows): PoB's
+    placeholder 1 stage is replaced by conditions.sigil_stages (0 set explicitly when nothing is spent), and the play guide
+    gives the DPS standing in it and outside it."""
+    from builder.search import play_guide
+
+    search = spark_with(engine, [])
+    build = search.build
+    build.call("addSkillGroup", text="Sigil of Power 20/0 1")
+    search.settle()
+    got = search.conditions.active.get("sigilOfPowerStages")
+    print("PROBE sigil", got)
+    assert got is not None and "50% of" in got["evidence"] and "Leylines" in got["evidence"]
+    assert 0 <= got["value"] <= 4 * 0.75
+    if got["value"] > 0:
+        headline = build.objective.dps(build.stats)
+        row = next((r for r in play_guide.guide(search) if r["var"] == "sigilOfPowerStages"), None)
+        print("PROBE sigil row", row)
+        assert row is not None and row["dps_without"] <= headline <= row["dps_with"] and "inside" in row["play"]
