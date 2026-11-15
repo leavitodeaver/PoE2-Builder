@@ -5385,6 +5385,30 @@ def ally_in_presence_model(texts: list[str], skills: list[Skill]) -> tuple[list[
                  "minion dead not taken off; PoB's ally count is never set: 0 before)"}]
 
 
+# Warding Rune of Bodyguards (MECHB31; the manager 05:37, from COV32): "Minions in your Presence have Onslaught while you
+# are on Low Runic Ward" (PoB ModRunes 6293, a sceptre rune). PoB doesn't parse "Minions have Onslaught" (no ModCache
+# entry), so it counted 0. KeywordPopups Onslaught: "20% increased Skill Speed and 10% increased movement speed". Counted at
+# the share of the fight on Low Runic Ward (assumptions.ward_shares, MECH-C's / COV32's), as "Minions have N% increased
+# Skill Speed" at 20% x that share (PoB applies that line, MECHB30's probe POE2T1170; skill speed's increased sum is
+# linear in its uptime). Not counted (labelled): the minions' own Onslaught-effect modifiers, the movement speed (no boss
+# score reads it); minions taken as inside your Presence (MEDIUM, as ally_in_presence_model).
+BODYGUARDS = re.compile(r"^Minions in your Presence have Onslaught while you are on Low Runic Ward$", re.I)
+ONSLAUGHT_SKILL_SPEED = 20.0  # % (KeywordPopups Onslaught)
+
+
+def bodyguards_model(texts: list[str], low: float, how: str) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the rune's minion Onslaught at the share of the fight on Low Runic Ward (`low`, `how`)."""
+    if not any(BODYGUARDS.search(t.strip()) for t in texts):
+        return [], []
+    speed = ONSLAUGHT_SKILL_SPEED * max(0.0, min(1.0, low))
+    note = {"label": "Minions' Onslaught on Low Runic Ward (Warding Rune of Bodyguards)", "value": round(low, 3),
+            "confidence": "MEDIUM",
+            "basis": f"on Low Runic Ward {low:.0%} of the fight ({how}): Onslaught's {ONSLAUGHT_SKILL_SPEED:g}% Skill "
+                     f"Speed counts as {speed:.3g}% for your minions (taken as inside your Presence, MEDIUM; their own "
+                     "Onslaught-effect modifiers and the movement speed not counted; PoB doesn't parse the line: 0 before)"}
+    return ([line("Minions have 1% increased Skill Speed", speed)] if speed > 0 else []), [note]
+
+
 BARRAGE = "Barrage"
 BARRAGE_COOLDOWN = 2.0  # s (its level cooldown)
 BARRAGE_MAX_COOLDOWN = 30.0  # s (empowered_barrage_maximum_cooldown_ms 30000)

@@ -2110,6 +2110,11 @@ class Assumptions:
         mods += getattr(self, "ledger_derived", [])  # (COV32: shares the bridge works out again per calculation)
         mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
         notes += ward_notes
+        texts = [e["text"] for e in self.build.call("sourceLines")["lines"]]
+        if any(models.BODYGUARDS.search(t.strip()) for t in texts):  # (MECHB31: Warding Rune of Bodyguards, at the Low Ward share)
+            low, _, how = ward_shares(self.build)
+            guard_mods, guard_notes = models.bodyguards_model(texts, low, how)
+            mods, notes = mods + guard_mods, notes + guard_notes
         notes += self.life_mana_income(skills, main)  # (MECH-C: Life / Mana from kills, Remnants, charms, events; MECHC12)
         zenith_mods, zenith_notes = self.zenith(skills, main)  # (MECH-C: Zenith's "above 90% of maximum Mana", MECHC26)
         mods += zenith_mods

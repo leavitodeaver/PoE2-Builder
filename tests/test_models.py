@@ -3817,6 +3817,23 @@ def test_attack_damage_while_an_ally_is_in_your_presence_counts_with_a_persisten
     assert models.ally_in_presence_model(["10% increased Damage"], [wolf]) == ([], [])
 
 
+def test_warding_rune_of_bodyguards_gives_minions_onslaught_at_the_low_ward_share():
+    """MECHB31 (the manager 05:37, COV32): PoB doesn't parse "Minions have Onslaught" (0 before); Onslaught's 20% Skill
+    Speed counts at the share of the fight on Low Runic Ward (assumptions.ward_shares)."""
+    texts = ["Minions in your Presence have Onslaught while you are on Low Runic Ward"]
+    mods, notes = models.bodyguards_model(texts, 0.25, "test")
+    assert mods == [models.line("Minions have 1% increased Skill Speed", 5.0)] and notes[0]["value"] == 0.25
+    assert models.bodyguards_model(texts, 1.0, "held near empty")[0][0]["scale"] == pytest.approx(20.0)
+    mods, notes = models.bodyguards_model(texts, 0.0, "nothing spends it")
+    assert mods == [] and notes[0]["value"] == 0  # never on Low Ward: 0, said
+    assert models.bodyguards_model(["Minions have 10% increased Attack Speed"], 1.0, "") == ([], [])
+    from builder.search.assumptions import ward_low_shares
+    # a 1,000 Ward pool, 800 spent 0.5 times a second, 1,000 recovered: below 35% for (800 - 650) / 1,000 s per spend
+    low, missing, _ = ward_low_shares({"Iron Ward": (0.5, 0.5, 800.0), "WardRecoveryPerSecond": 1000.0}, 1000.0)
+    assert low == pytest.approx(0.075) and missing == pytest.approx(0.4)
+    assert models.bodyguards_model(texts, low, "")[0][0]["scale"] == pytest.approx(1.5)
+
+
 
 def test_adaptive_skin_raises_only_the_maximums_of_the_elements_the_boss_hits_with(monkeypatch):
     """COV12 (an OVERCOUNT before): Adaptive Skin's "+N% to Maximum Resistances of each Elemental Damage Type you have
