@@ -1473,11 +1473,12 @@ class Assumptions:
         paced = {g["index"]: models.CADENCE_PACE for g in groups["groups"] if g["index"] in pressed
                  and any(x["enabled"] and x["name"] in models.CADENCE_SUPPORTS for x in g["gems"])}
         caps = self.press_caps(groups["groups"], pressed)
+        near = getattr(build, models.ORB_NEAR, True) is not False  # (MECHB30: MECHC26's "without it" row switch)
         build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps,
-                                                                 models.press_choices(build))
+                                                                 models.press_choices(build), near)
         # (MECHB29, the manager 21:40: MECH-C's orb_remnants reads it) a pressed side Orb's Orbs a second, as press_model
         # scores it: each Orb ends at its maximum hits or its duration and is recast at once (models.orbs_per_second)
-        orbs = models.orbs_per_second(rates, main, pressed, paced, caps, models.press_choices(build))
+        orbs = models.orbs_per_second(rates, main, pressed, paced, caps, models.press_choices(build), near)
         if orbs:
             build.orb_presses = {models.ORB_OF_STORMS: (sum(orbs.values()), (
                 "MECH-B's side-Orb cycle, models.orbs_per_second: each Orb ends at its maximum hits, fed by the Spells "

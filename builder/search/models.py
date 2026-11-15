@@ -7074,9 +7074,15 @@ def press_action(rate: dict) -> float:
     return min(1 / speed, uncapped) if capped else 1 / speed
 
 
+# (MECHB30, for MECHC26's play-guide row) the switch for "the player casts Spells near the side Orb" (MECHB28's play
+# strategy): with it off (near=False, or build.orb_near = False: ORB_NEAR, read by Assumptions.rate_presses) the casts
+# beside the Orb fire no bolts and each Orb fires its timer bolts only, so the guide's "without it" row is the same code
+ORB_NEAR = "orb_near"
+
+
 def side_orbs(rates: list[dict], main_index: int | None, pressed: set[int],
               paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None,
-              choices: dict[str, float] | None = None) -> dict[int, tuple[float, float, dict]]:
+              choices: dict[str, float] | None = None, near: bool = True) -> dict[int, tuple[float, float, dict]]:
     """{group: (presses/s, bolts/s, note)} for each pressed side Orb of Storms (orb_cycle), from the same inputs as
     press_model: the main skill's casts near it are what it's left after the other presses (MECHB28)."""
     main_rate = next((r for r in rates if r["index"] == main_index), None)
@@ -7098,13 +7104,13 @@ def side_orbs(rates: list[dict], main_index: int | None, pressed: set[int],
     # (MECHB29) the other pressed Spells the player casts fire bolts too ("when you cast a Spell near the Orb")
     spells = {str(r.get("name")): press_rate(r) for r in side if r.get("spell") and not r.get("triggered")
               and not r.get("channel")}
-    return {index: orb_cycle(orb, main_rate, others, (paced or {}).get(index), (caps or {}).get(index), spells)
+    return {index: orb_cycle(orb, main_rate, others, (paced or {}).get(index), (caps or {}).get(index), spells, near)
             for index, orb in orbs.items()}
 
 
 def orbs_per_second(rates: list[dict], main_index: int | None, pressed: set[int],
                     paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None,
-                    choices: dict[str, float] | None = None) -> dict[int, float]:
+                    choices: dict[str, float] | None = None, near: bool = True) -> dict[int, float]:
     """(MECHB29, for MECH-C's Remnant supply) {group: Orbs of Storms cast a second} for each pressed side Orb, at the
     rate press_model scores it: each Orb lasts its duration, or less once the main Spell's casts near it and its timer
     bolts reach its maximum hits (orb_cycle), and is recast at once, so each Orb cast is one Orb that expires. Takes the
@@ -7112,12 +7118,12 @@ def orbs_per_second(rates: list[dict], main_index: int | None, pressed: set[int]
     the pressed groups, Cadence's pace, the press caps, press_choices). The main skill's own Orb isn't here (its recasts
     replace a live Orb: PoB's Speed, orb_of_storms_note)."""
     return {index: presses for index, (presses, _, _) in
-            side_orbs(rates, main_index, pressed, paced, caps, choices).items()}
+            side_orbs(rates, main_index, pressed, paced, caps, choices, near).items()}
 
 
 def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
                 paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None,
-                choices: dict[str, float] | None = None) -> tuple[dict[str, float], list[dict]]:
+                choices: dict[str, float] | None = None, near: bool = True) -> tuple[dict[str, float], list[dict]]:
     """Full DPS entry scales ({SkillDPS name: x}) and notes for the pressed non-main groups `pressed`, from the bridge's
     `useRates` (each group's skill as if it were the main one: its speed, capped by its cooldown as PoB does, its
     cooldown after recovery, repeats, duration and base cast time). `paced` ({group: most uses per second}): a group
@@ -7129,7 +7135,7 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
     busy, users = 0.0, []
     main_rate = next((r for r in rates if r["index"] == main_index), None)
     orb_rates: dict[int, tuple[float, float]] = {}  # (MECHB28) {group: (presses/s, bolts/s)}, orb_cycle
-    for index, (presses, bolts, orb_note) in side_orbs(rates, main_index, pressed, paced, caps, choices).items():
+    for index, (presses, bolts, orb_note) in side_orbs(rates, main_index, pressed, paced, caps, choices, near).items():
         orb_rates[index] = (presses, bolts)
         notes.append(orb_note)
     for rate in rates:
@@ -8168,7 +8174,8 @@ def orb_of_storms_note(main: Skill | None, stats: dict, orb: dict | None = None)
 # when the two reach the maximum before the duration ends, the Orb expires at max hits / (casts/s + 1/frequency) (bolts
 # taken as spread evenly, MEDIUM) and is recast at once; each cycle is its life plus one cast of the Orb.
 def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = None,
-              cap: "PressCap | None" = None, spells: dict[str, float] | None = None) -> tuple[float, float, dict]:
+              cap: "PressCap | None" = None, spells: dict[str, float] | None = None,
+              near: bool = True) -> tuple[float, float, dict]:
     """A pressed side Orb of Storms' (presses/s, bolts/s, note), from its `useRates` row (orbMaxHits, orbBoltFrequency,
     duration, speed), the main skill's row (its Speed, spell / triggered / channel) and `others`, the share of the
     fight the other presses take from the main skill. Held to Cadence's `pace` and the `cap` as press_group_rate is.
@@ -8177,9 +8184,9 @@ def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = 
     every = number(orb.get("orbBoltFrequency")) / 1000 or ORB_BOLT_EVERY
     duration = number(orb.get("duration")) or ORB_DURATION
     action = press_action(orb)
-    casting = bool(main) and main.get("spell") and not main.get("triggered") and not main.get("channel")
+    casting = near and bool(main) and main.get("spell") and not main.get("triggered") and not main.get("channel")
     own = number(main.get("speed")) * max(0.0, 1.0 - others) if casting else 0.0
-    beside = sum(number(v) for v in (spells or {}).values())
+    beside = sum(number(v) for v in (spells or {}).values()) if near else 0.0  # (MECHB30: ORB_NEAR off: none)
     casts = own + beside
     timer = math.floor(duration / every + 1e-9)
 
@@ -8208,7 +8215,8 @@ def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = 
         how = (f"{name}'s {own:.2f} casts/s{besides} near the Orb (a play strategy: cast them where the Orb is*) plus "
                f"{timer} timer bolts: {per:.2g} bolts an Orb, which lasts {life:.2f} s")
     else:
-        why = ("a triggered Spell (whether it counts as cast near the Orb: UNVERIFIED, not counted)" if main and
+        why = ("not cast near the Orb (the play-guide switch is off: ORB_NEAR)" if not near else
+               "a triggered Spell (whether it counts as cast near the Orb: UNVERIFIED, not counted)" if main and
                main.get("triggered") else "a channelled Spell (how it feeds the Orb: UNVERIFIED, not counted)" if main
                and main.get("channel") else "not a Spell (only casting a Spell fires a bolt)")
         lead = besides[len(" and "):] + " near the Orb plus " if beside > 0 else "timer bolts only: "

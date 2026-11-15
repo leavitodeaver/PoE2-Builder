@@ -2849,6 +2849,12 @@ def test_a_side_orb_of_storms_fires_a_bolt_for_each_main_spell_cast_up_to_its_ma
     for main in ({**fast, "triggered": True}, {**fast, "spell": None}, None):
         presses, bolts, note = models.orb_cycle(orb, main, 0.0)
         assert bolts == pytest.approx(3 / 12.8) and "timer bolts only" in note["basis"]
+    # (MECHB30, MECHC26's switch) near=False: the casts beside it fire nothing, timer bolts only, the same function
+    presses, bolts, note = models.orb_cycle(orb, fast, 0.0, spells={"Frost Bomb": 0.5}, near=False)
+    assert bolts == pytest.approx(3 / 12.8) and "timer bolts only" in note["basis"]
+    rates = [{**fast, "index": 1}, orb]
+    assert models.orbs_per_second(rates, 1, {2}, near=False)[2] == pytest.approx(1 / 12.8)
+    assert models.orbs_per_second(rates, 1, {2})[2] > 1 / 12.8
     # press_model: the Orb's entry counts its bolts over PoB's Speed (one bolt per cast), the main skill loses its recasts
     scales, notes = models.press_model([orb, {**fast, "speed": 2.0}], 1, {2})
     assert scales["Orb of Storms"] == pytest.approx(6 / (life + 0.8) / 1.25)
