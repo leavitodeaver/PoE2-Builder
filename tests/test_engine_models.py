@@ -2851,3 +2851,25 @@ def test_zenith_on_the_main_spell_counts_at_its_share_above_ninety_percent_mana(
     mod = next(m for m in search.assumptions.mods if m.get("line") == "1% more Spell Damage" and m.get("skill") == "Spark")
     assert 0 < mod["scale"] <= 30
     assert ZENITH_STAT
+
+
+def test_leylines_count_at_the_users_seventy_five_percent_with_inside_and_outside_rows(engine):
+    """MECHC26 (PATCH_CHECK MA-11; THE USER, 15 Nov: "assume you're trying to stand in them if you take the ability, so
+    75% with a note in the build result showing dps for both inside and outside"): the Leylines gem switches PoB's "on a
+    Leyline" box on at 75% of the fight (weigh_uptimes), and the play guide gives DPS inside (100%) and outside (0%)."""
+    from builder.search import play_guide
+
+    search = spark_with(engine, [])
+    build = search.build
+    assert "onLeyline" not in search.conditions.active
+    build.call("addSkillGroup", text="Leylines 20/0 1")
+    search.settle()
+    print("PROBE leylines", search.conditions.active.get("onLeyline"), search.conditions.uptimes.get("onLeyline"))
+    assert search.conditions.uptimes.get("onLeyline") == pytest.approx(0.75)
+    assert "the user, 15 Nov" in search.conditions.active["onLeyline"]["evidence"]
+    search.weigh_uptimes()
+    headline = build.objective.dps(build.stats)
+    row = next((r for r in play_guide.guide(search) if r["var"] == "onLeyline"), None)
+    print("PROBE leylines row", row)
+    assert row is not None and row["dps_without"] < headline < row["dps_with"]
+    assert "inside them" in row["play"] and "outside" in row["play"]

@@ -1249,6 +1249,23 @@ def _onslaught_source(text: str, lines: list[str], stats: dict) -> tuple[float, 
     return up, f"{chance:.0%} x {how}, {duration:g} s: {up:.0%} up"
 
 
+# Leylines (MECHC26; PATCH_CHECK MA-11): PoB's "Are you on a Leyline?" (Condition:OnLeyline: its 29% more Spell damage
+# at level 20 and its Ward drain, Data/Skills/other.lua 10124-10128). Where the leylines appear is the game's, and no
+# build data gives the share: THE USER, 15 Nov (via the manager, 01:15): "assume you're trying to stand in them if you
+# take the ability, so 75% with a note in the build result showing dps for both inside and outside". A labelled flat
+# share, the user's own; the play guide's onLeyline row gives the DPS inside (100%) and outside (0%).
+LEYLINES, LEYLINE_UPTIME = "Leylines", 0.75
+LEYLINE_BASIS = ("on a Leyline 75% of the fight (the user, 15 Nov: a player who takes Leylines stands in them; inside / "
+                 "outside DPS in the play guide)")
+
+
+def leyline_uptime(lines: list[str], stats: dict) -> tuple[object, str, float]:
+    """(True, how, 0.75) with the Leylines gem in the build, else (0, "", 0)."""
+    if LEYLINES not in (stats.get("_gem_names") or set()):
+        return 0.0, "", 0.0
+    return True, LEYLINE_BASIS, LEYLINE_UPTIME
+
+
 def onslaught_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     main_types = stats.get("_main_types") or set()
     down, how = 1.0, []
@@ -3448,6 +3465,7 @@ CONDITIONS: list[Condition] = [
     _charge("useEnduranceCharges", "endurance"),
     Condition("buffOnslaught", "Onslaught", value_fn=lambda lines, stats: onslaught_uptime(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "enemySkillTime", "EvadeChance")),
+    Condition("onLeyline", "On a Leyline", value_fn=lambda lines, stats: leyline_uptime(lines, stats)),
     Condition("buffArcaneSurge", "Arcane Surge", value_fn=lambda lines, stats: arcane_surge_uptime(lines, stats),
               fields=("Speed", "HitChance", "CritChance", "Mana", "ManaPerSecondCost", "Devotion")),
     Condition("multiplierRage", "Rage held", value_fn=lambda lines, stats: rage_held(lines, stats),
@@ -3983,7 +4001,7 @@ class Conditions:
             ON_USE.search(line["text"]) and line["source"].startswith(USED_SLOTS) for line in lines) or any(
             FLASK_EVENT.search(t) for t in texts) else {}
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
-        stats = {**stats, "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend,
+        stats = {**stats, "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_rage_spend": rage_spend,
                  "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],

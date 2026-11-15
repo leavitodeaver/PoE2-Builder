@@ -467,6 +467,39 @@ def zenith_share(stats: dict) -> tuple[float, str]:
                    f"{1 / speed if speed > 0 else 0:.2f} s, refilled at {regen:,.1f}/s")
 
 
+# Low / Missing Runic Ward (MECHC26; NOTES3 DEAD-1 / DEAD-2, the manager 15 Nov 01:25, for COV-A's rune lines):
+# KeywordPopups LowWard "You are on Low Runic Ward if you have 35% of your maximum Runic Ward or less"; Missing: below
+# its maximum. From what spends the Ward (build.ward_sustain: each Ward-cost skill's (planned, paid, cost) and the total
+# WardRecoveryPerSecond, Assumptions.ward_paid / models.ward_plan).
+LOW_WARD = 0.35
+
+
+def ward_low_shares(sustain: dict, pool: float) -> tuple[float, float, str]:
+    """(share of the fight on Low Runic Ward, share Missing Runic Ward, how). Nothing spends it: (0, 0) (it regenerates
+    to full and stays). Spending at least what it regenerates: (1, 1) (held near empty). Otherwise, each spend of c from
+    full is refilled at the regeneration R: below full min(1, spent / R) of the time (as models.not_full_mana_share);
+    at 35% or less, each use's (c - 65% of the pool) / R seconds, x its uses a second (spends taken one at a time from
+    full, a lower bound where they overlap)."""
+    income = number(sustain.get("WardRecoveryPerSecond"))
+    uses = [(paid, cost) for name, value in sustain.items() if not name.startswith("_") and name != "WardRecoveryPerSecond"
+            and isinstance(value, (tuple, list)) and len(value) == 3 for _, paid, cost in [value] if paid > 0 and cost > 0]
+    spent = sum(paid * cost for paid, cost in uses)
+    if spent <= 0:
+        return 0.0, 0.0, "nothing spends its Runic Ward: on full Ward all fight"
+    if pool <= 0 or income <= spent * (1 + 1e-9) and number(sustain.get("_share", 1.0)) < 1.0 or income <= 0:
+        return 1.0, 1.0, (f"spends {spent:,.1f} Ward/s against {income:,.1f} recovered: held near empty (Low and Missing "
+                          "all fight)")
+    missing = min(1.0, spent / income)
+    low = min(1.0, sum(paid * max(cost - (1 - LOW_WARD) * pool, 0.0) / income for paid, cost in uses))
+    return low, missing, (f"spends {spent:,.1f} Ward/s against {income:,.1f} recovered, {pool:,.0f} maximum: below full "
+                          f"{missing:.0%} of the fight, at 35% or less {low:.0%} (each spend from full)")
+
+
+def ward_shares(build: Build) -> tuple[float, float, str]:
+    """ward_low_shares for the committed build (its ward_sustain from the last Assumptions.apply and PoB's Ward)."""
+    return ward_low_shares(getattr(build, "ward_sustain", None) or {}, number(build.call("stats", fields=["Ward"]).get("Ward")))
+
+
 def resisted_leech(build: Build) -> dict[str, float]:
     """{pool: leech a second PoB counts that the boss resists} (recovery.leech_resisted at enemy_level; MECHC26, H2-1),
     for the readers that sum PoB's {pool}LeechRate themselves."""
@@ -2197,10 +2230,14 @@ class Assumptions:
                                "levelStats": found.get("levelStats") or {}}
             share, how = 0.0, "no Elemental Ailment on the boss"
             if recovery.MANA_REMNANTS in infos:
-                # (the share of the fight the boss carries at least one: the largest one alone, a lower bound: LOW)
+                # (the share of the fight the boss carries at least one: the largest one alone, a lower bound: LOW;
+                # MECHC26, from MECH75: with the other groups' Ignites and the ground's, build.ailment_others /
+                # ailment_ground, as snap_stats; before, the main skill's alone)
+                ailing = {**stats, **{k: v for k, v in (("_ailment_others", getattr(build, "ailment_others", None)),
+                                                        ("_ailment_ground", getattr(build, "ailment_ground", None))) if v}}
                 for word in ("chilled", "shocked", "ignited", "frozen", "electrocuted"):
                     try:
-                        each = conditions_mod.target_ailment_share(stats, word)
+                        each = conditions_mod.target_ailment_share(ailing, word)
                     except (KeyError, TypeError, ZeroDivisionError):
                         continue
                     if each > share:

@@ -510,3 +510,37 @@ def test_the_orb_row_scores_the_main_spell_cast_away_from_a_side_orb():
     timer_only = {**note, "basis": "timer bolts only: 3 an Orb in its 12.00 s; the main skill Spark is not a Spell"}
     assert play_guide.orb_near_row(SimpleNamespace(build=Build(), assumptions=SimpleNamespace(active=[timer_only]),
                                                    settle=lambda: None), 1000.0) is None
+
+
+def test_the_curse_lapse_row_scores_letting_a_curse_run_out_for_withering_hex(monkeypatch):
+    """MECHC26 (from MECH75's models.CURSE_LAPSE): one trial with the other choice, then put back; counted when the
+    search chose to let it lapse."""
+    from builder.search import conditions, models
+
+    monkeypatch.setattr(conditions, "curse_lapse_candidates", lambda build, texts: ["Despair"])
+
+    class Objective:
+        def dps(self, stats):
+            return 1200.0 if getattr(self, models.CURSE_LAPSE, None) else 1000.0
+
+    class Build:
+        ctx = object()
+        objective = Objective()
+        stats = {}
+
+        def call(self, method, **kwargs):
+            assert method == "sourceLines"
+            return {"lines": []}
+
+    build = Build()
+    search = SimpleNamespace(build=build, settle=lambda: None)
+    row = play_guide.curse_lapse_row(search, 1000.0)
+    assert not getattr(build.objective, models.CURSE_LAPSE)  # (put back: kept up)
+    assert row["counted"] is False and row["dps_with"] == 1200.0 and row["dps_without"] == 1000.0
+    assert "Despair" in row["label"] and "keeps it up" in row["play"]
+    setattr(build.objective, models.CURSE_LAPSE, {"Despair"})
+    row = play_guide.curse_lapse_row(search, 1200.0)
+    assert row["counted"] is True and row["dps_with"] == 1200.0 and row["dps_without"] == 1000.0
+    assert getattr(build.objective, models.CURSE_LAPSE) == {"Despair"}
+    monkeypatch.setattr(conditions, "curse_lapse_candidates", lambda build, texts: [])
+    assert play_guide.curse_lapse_row(search, 1000.0) is None

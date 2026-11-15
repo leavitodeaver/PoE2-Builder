@@ -5140,3 +5140,20 @@ def test_zenith_counts_the_share_of_the_fight_above_ninety_percent_mana():
     assert zenith_share(big)[0] == pytest.approx(1 - (150 - 100) / 400 * 2.0)  # below 90% for 0.125 s of each 0.5 s
     assert zenith_share({**base, "ManaRegenRecovery": 90.0})[0] == 0.0  # spends more than it regenerates
     assert zenith_share({**base, "ManaCost": 0.0, "ManaPerSecondCost": 0.0})[0] == 1.0
+
+
+def test_low_and_missing_runic_ward_shares_come_from_what_spends_the_ward():
+    """MECHC26 (NOTES3 DEAD-1 / DEAD-2, for COV-A's rune lines): 0 when nothing spends it; 1 when it spends what it
+    recovers; otherwise below full spent / recovered of the time, Low (35% or less) while a spend leaves it there."""
+    from builder.search.assumptions import ward_low_shares
+
+    assert ward_low_shares({}, 1000.0)[:2] == (0.0, 0.0)
+    assert ward_low_shares({"WardRecoveryPerSecond": 50.0, "_share": 1.0}, 1000.0)[:2] == (0.0, 0.0)
+    small = {"Explosion": (1.0, 1.0, 100.0), "WardRecoveryPerSecond": 400.0, "_share": 1.0}
+    low, missing, how = ward_low_shares(small, 1000.0)
+    assert missing == pytest.approx(0.25) and low == 0.0  # 100 a spend never takes 1,000 under 350
+    big = {"Explosion": (0.5, 0.5, 900.0), "WardRecoveryPerSecond": 1000.0, "_share": 1.0}
+    low, missing, _ = ward_low_shares(big, 1000.0)
+    assert missing == pytest.approx(0.45) and low == pytest.approx(0.5 * (900 - 650) / 1000)
+    starved = {"Explosion": (2.0, 1.0, 100.0), "WardRecoveryPerSecond": 100.0, "_share": 0.5}
+    assert ward_low_shares(starved, 1000.0)[:2] == (1.0, 1.0)

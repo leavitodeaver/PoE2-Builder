@@ -120,6 +120,15 @@ def guide(search: Any) -> list[dict]:
         always = headline / row["factor"] if row["factor"] > 0 else 0.0
         if never <= 0 or abs(headline - never) < MIN_CHANGE * never:
             continue
+        if row["var"] == "onLeyline":  # (MECHC26; the user, 15 Nov: "a note in the build result showing dps for both")
+            rows.append({"var": "onLeyline", "label": f"Leylines: on a Leyline {row['uptime']:.0%} of the fight*",
+                         "kind": PLAYER, "counted": True, "uptime": row["uptime"],
+                         "dps_share": (headline - never) / headline,
+                         "play": (f"stand in the Leylines: {always:,.0f} DPS inside them, {never:,.0f} outside; the headline "
+                                  f"counts {row['uptime']:.0%} inside (the user, 15 Nov: a player who takes it stands in them)"),
+                         "dps_with": always, "dps_without": never, "change": (always - never) / never,
+                         "confidence": "the user's share (LOW: where leylines appear is the game's)"})
+            continue
         if row["var"] == "parryActive":  # the user (11 Nov): "X dps when boss is parried, Y dps when not"
             plan = getattr(search.conditions, "parry_plan", None)
             lost = plan.lost if plan is not None else 0.0
@@ -171,6 +180,8 @@ def guide(search: Any) -> list[dict]:
     if row := raised_row(search, headline):
         rows.append(row)
     if row := orb_near_row(search, headline):
+        rows.append(row)
+    if row := curse_lapse_row(search, headline):
         rows.append(row)
     rows += kept_flask_rows(search, headline)
     rows += curse_zone_rows(search, headline)
@@ -417,6 +428,43 @@ def orb_near_row(search: Any, headline: float) -> dict | None:
             "dps_with": headline, "dps_without": without,
             "change": (headline - without) / without if without > 0 else 0.0,
             "confidence": "MEDIUM (what 'near' covers UNVERIFIED; the player stays by the Orb)"}
+
+
+def curse_lapse_row(search: Any, headline: float) -> dict | None:
+    """Letting a hand-cast curse run out for Withering Hex (MECHC26; MECH75's models.CURSE_LAPSE, the search's choice:
+    a curse cast just after the last ran out finds the boss uncursed, so Withering Hex inflicts its Withered stacks; the
+    curse is up D / (D + 0.5 s) of the fight, the gap the player's timing, LOW). One trial with the other choice
+    (the curses the build may play so if the headline keeps them up, none if it lets them lapse), then put back."""
+    from builder.search import conditions, models
+
+    build = search.build
+    if not callable(getattr(build, "call", None)) or getattr(build, "ctx", None) is None:
+        return None
+    texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+    candidates = conditions.curse_lapse_candidates(build, texts)
+    if not candidates:
+        return None  # (no Withering Hex, or no curse cast by hand)
+    objective = build.objective
+    current = set(getattr(objective, models.CURSE_LAPSE, None) or ())
+    other = set() if current else set(candidates)
+    setattr(objective, models.CURSE_LAPSE, other)
+    try:
+        search.settle()
+        trial = objective.dps(build.stats)
+    finally:
+        setattr(objective, models.CURSE_LAPSE, current)
+        search.settle()
+    lapsing, kept = (headline, trial) if current else (trial, headline)
+    names = ", ".join(sorted(current or other))
+    return {"var": "curse-lapse", "label": f"Let {names} run out for Withering Hex*", "kind": PLAYER,
+            "counted": bool(current),
+            "play": (f"let {names} run out and recast it about {models.CURSE_LAPSE_GAP:g} s later, so each cast lands on an "
+                     f"uncursed boss and Withering Hex inflicts its Withered stacks: {lapsing:,.0f} DPS letting it lapse, "
+                     f"{kept:,.0f} keeping it up; the headline "
+                     + ("lets it lapse (the search chose it)" if current else "keeps it up (the search's choice)")),
+            "dps_with": lapsing, "dps_without": kept,
+            "change": (lapsing - kept) / kept if kept > 0 else 0.0,
+            "confidence": "theory (the recast's timing LOW)"}
 
 
 __all__ = ["guide", "kind", "KINDS", "OFF_OPTIONS", "PLAYER", "BUILD", "FIGHT"]
