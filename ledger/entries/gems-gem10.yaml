@@ -56,3 +56,53 @@
             "scratch/gem10/probe_kelari.json (POE2T2066)"]
   test_in_game: "With a corpse source (Sacrifice and undead Reviving minions) against a boss: count the beetle explosions over 10 s (2 per corpse consumed, at most one consumption per 0.9 s)."
   status: proposed
+
+- id: no-effect-gem10-virtuous-barrier-mote-maximum
+  title: "Virtuous Barrier's maximum Motes per Attribute (3 + its skills, single-Attribute ones twice): PoB counts it"
+  kind: gem_stat
+  match: '^skill_specific_stat_description_mode$'
+  replace: []
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Virtuous Barrier]
+  confidence: datamined
+  notes: >-
+    virtuous_barrier.csd, mode 3: "Maximum of each Attribute of Mote is {0} plus the number of Skills you have which
+    require that Attribute / Single-Attribute Skills grant twice as many maximum Motes" ({0} is the mode's value, 3).
+    PoB (Modules/CalcSetup.lua 1839-2284, 2535-2538) starts each of StrengthMoteSkillCount / Dexterity / Intelligence at
+    3 and adds 2 per single-attribute skill gem, 1 per attribute of a multi-attribute one (item and tree skills not
+    counted). Probe POE2T2068 (real PoB, scratch/gem10/probe_barrier.json): Strength Motes 3 -> 5 -> 7 -> 9 as
+    Boneshatter, Infernal Cry and Sunder are added (Intelligence 5 = 3 + Spark's 2), Life 1,277 -> 1,323 -> 1,369 ->
+    1,415 (2% increased maximum Life per Strength Mote). Not closed here: PoB keeps every Mote at that maximum all fight,
+    while the game gains "a random Mote every second" (base_active_skill_buff_stack_gain_frequency_ms) and loses one when
+    you are Hit; that stat stays open.
+  sources: ["data/game-26476662/files/data/statdescriptions/specific_skill_stat_descriptions/virtuous_barrier.csd",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcSetup.lua 1839-2284, 2535-2538",
+            "scratch/gem10/probe_barrier.json (POE2T2068)"]
+  test_in_game: "Not needed: PoB matches the text on probe."
+  status: proposed
+
+- id: model-gem10-righteous-descent-fragments
+  title: "Righteous Descent: an Empowered leap per Fragment of Divinity (The Ordained: one every 4 s), off its cooldown"
+  kind: gem_stat
+  match: '^skill_specific_stat_description_mode$'
+  replace: ["1% more Damage"]
+  share: descent_fragments
+  stat_sets: {Righteous Descent: [Empowered]}
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Righteous Descent]
+  confidence: theory
+  notes: >-
+    Mode text "Will Consume a Fragment of Divinity within 3 metres of you or targeted location when you leap to become
+    Empowered"; ActiveSkills: "This skill does not use up its Cooldown when empowered"; poe2db (14 Nov 2026): "Does not
+    consume a Cooldown Use". Probe POE2T2069 (real PoB, our models on): both sets at Speed 0.0997 (one per 10.03 s
+    cooldown), the search calculating Empowered (183.6 vs 94.8). Fragments: The Ordained, "Create a Fragment of Divinity
+    in your Presence every 4 seconds", also the one grant of the skill found (checked: Stats ids holding divin +
+    fragment and their Mods / PassiveSkills carriers: UniqueDivineFragments1 only; PoB's uniques; poe2db's page lists no
+    other source). Counted on the Empowered set: 0.25 leaps/s against PoB's rate, about 2.5x (an UNDERCOUNT);
+    models.descent_fragments_share. LOW: the player reaches each fragment. Not counted (labelled): the Impact uses on
+    cooldown between fragments, the 10% Life / Mana recovered per consume, the leaps' time against other skills.
+  sources: ["data/game-26476662/tables/ActiveSkills.json (righteous_descent)", "data/game-26476662/tables/KeywordPopups.json (DivineFragment)",
+            "data/game-26476662/tables/Mods.json (UniqueDivineFragments1)", "vendor/PathOfBuilding-PoE2/src/Data/Uniques/spear.lua (The Ordained)",
+            "poe2db.tw/us/Righteous_Descent (14 Nov 2026)", "scratch/gem10/probe_descent.json (POE2T2069)"]
+  test_in_game: "With The Ordained against a boss, leap onto each Fragment of Divinity: count the Empowered leaps over 20 s (about 5, against 2 on cooldown)."
+  status: proposed

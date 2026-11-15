@@ -127,3 +127,16 @@ def test_kelaris_beetles_share_the_corpses_with_another_user():
     other = Skill("Detonate Dead", 2, spell=True, corpses=True)
     mods, _ = models.gem_stat_model([kelari, other], stats={models.ADD_KILLS_STAT: 0.5, "Minion.Speed": 1.0}, main=kelari)
     assert _minion(mods) == [pytest.approx(100 * (2 * 0.25 - 1), rel=1e-2)]
+
+
+DESCENT_ENTRY = "model-gem10-righteous-descent-fragments"
+
+
+def test_righteous_descents_empowered_leaps_follow_the_ordaineds_fragments():
+    empowered = Skill("Righteous Descent", 1, attack=True, stat_set="Empowered", level_stats=MODE)
+    mods, notes = models.gem_stat_model([empowered], stats={"Speed": 0.0997}, main=empowered)
+    assert [m["scale"] for m in mods if m.get("entry") == DESCENT_ENTRY] == [pytest.approx(100 * (0.25 / 0.0997 - 1), rel=1e-2)]
+    impact = Skill("Righteous Descent", 1, attack=True, stat_set="Impact", level_stats=MODE)
+    mods, notes = models.gem_stat_model([impact], stats={"Speed": 0.0997}, main=impact)
+    assert not [m for m in mods if m.get("entry") == DESCENT_ENTRY]
+    assert any(n["entry"] == DESCENT_ENTRY and n["value"] == "not counted" for n in notes)

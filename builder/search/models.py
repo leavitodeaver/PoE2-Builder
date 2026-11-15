@@ -4017,6 +4017,44 @@ def kelari_beetles_share(skill: Skill, stats: dict, main: Skill | None = None, p
         play + f" Without corpses: 0; with them: {per:g} beetles per corpse, up to {per / interval:.3g} explosions/s.")
 
 
+# `share: descent_fragments` (GEM10; an UNDERCOUNT): Righteous Descent's Empowered set. Its text (ActiveSkills
+# righteous_descent): "If there is a Fragment of Divinity near you or the targeted location, this attack will Consume it
+# when you leap to become Empowered ... This skill does not use up its Cooldown when empowered"; mode text "Will Consume a
+# Fragment of Divinity within 3 metres of you or targeted location when you leap to become Empowered". KeywordPopups
+# DivineFragment: "Divine Fragments last 10 seconds". PoB (probe POE2T2069, real PoB, our models on: scratch/gem10/
+# probe_descent.json) uses both sets once per cooldown (Speed 0.0997 = 1 / 10.03 s), and the search calculates the
+# Empowered set (FullDPS 183.6 vs Impact's 94.8). Fragment sources (checked: Stats ids holding divin + fragment, their Mods
+# and PassiveSkills carriers, build 26476662: one mod, UniqueDivineFragments1; PoB's uniques; second source poe2db's
+# Righteous Descent page, 14 Nov 2026): The Ordained, "Create a Fragment of Divinity in your Presence every 4 seconds",
+# which is also the one grant of Righteous Descent found (PoB uniques, poe2db "Skill granted by: The Ordained"). So a build
+# with the skill has that fragment rate: Empowered uses at 1 / 4 s, off the cooldown. Scored on the Empowered set as more
+# Damage by (0.25 / PoB's Speed - 1). The player leaps to each fragment as it appears (LOW: the play pattern). Not counted
+# (labelled): the Impact uses on cooldown between fragments (an undercount), the 10% Life / Mana recovered on each
+# consume (MECH-C's recovery), and the attack's own time against the main skill's (a leap every 4 s). The main skill only.
+DESCENT, DESCENT_FRAGMENT_SECONDS = "Righteous Descent", 4.0  # (The Ordained's "every 4 seconds")
+
+
+def descent_fragments_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    """The Empowered set's more Damage (a factor of the stat's value) from one Empowered leap per fragment, against PoB's
+    once-per-cooldown rate (see above), and how."""
+    value = number(skill.level_stats.get("skill_specific_stat_description_mode")) or 1.0
+    play = (f"Leap to each Fragment of Divinity The Ordained creates (one every {DESCENT_FRAGMENT_SECONDS:g} s, lasting "
+            "10 s): an Empowered Righteous Descent doesn't use its cooldown.")
+    if main is None or main.name != skill.name or main.group != skill.group:
+        return 0.0, "0: not the main skill, so its use rate isn't read; PoB's once per cooldown stands (an undercount)", play
+    speed = number(stats.get("Speed"))
+    if speed <= 0:
+        return 0.0, "0: PoB gives it no use rate", play
+    rate = 1.0 / DESCENT_FRAGMENT_SECONDS
+    more = (rate / speed - 1.0) * 100
+    how = (f"{rate:g} Empowered leaps/s (a fragment every {DESCENT_FRAGMENT_SECONDS:g} s from The Ordained, which grants "
+           f"the skill) against PoB's {speed:.3g}/s, its cooldown: {more:+.3g}% (LOW: each fragment reached; the Impact "
+           "uses between them not counted)")
+    if more <= 0.05:
+        return 0.0, f"0: {how}", play
+    return more / value, how, play + f" Without the fragments: once per cooldown; with them: {rate / speed:.2g}x the leaps."
+
+
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
           "cull_buff": cull_buff_share, "revived_recently": revived_recently_share,
@@ -4025,7 +4063,8 @@ SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_s
           "seal_echo": seal_echo_share, "shotgun_fragments": shotgun_fragments_share,
           "shotgun_fragment_count": shotgun_fragment_count_share,
           "vruun_combo": vruun_combo_share, "rain_landing": rain_landing_share,
-          "emergency_reload": emergency_reload_share, "kelari_beetles": kelari_beetles_share}
+          "emergency_reload": emergency_reload_share, "kelari_beetles": kelari_beetles_share,
+          "descent_fragments": descent_fragments_share}
 MODEL_FIELDS.extend(f for f in ("ProjectileSpeedMod",) if f not in MODEL_FIELDS)  # (rain_landing_share)
 MODEL_FIELDS.extend(f for f in ("BoltCount", "EffectiveBoltCount", "ChanceToNotConsumeAmmo", "FiringRate", "EffectiveReloadTime",
                                   "Minion.Speed") if f not in MODEL_FIELDS)  # (emergency_reload_share, kelari_beetles_share)
