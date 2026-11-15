@@ -3430,3 +3430,36 @@ def test_the_gear_round_fills_character_rune_slots_within_level_budget_limits_an
     assert build.character_runes == {"Boots Rune #1": ("Better Rune", 0.2), "Gloves Rune #1": ("Better Rune", 0.2)}
     gone = Build(active=False)
     assert not gear_for(gone).character_rune_round(float("inf")) and gone.character_runes == {}
+
+
+def test_a_curse_is_let_run_out_only_where_that_scores_higher(monkeypatch):
+    """The manager, 15 Nov 01:01 (MECH75's model): letting a hand-cast curse run out before each recast (Withering Hex's
+    stacks on an uncursed boss vs the curse's uptime) is a play strategy: each candidate is tried played so and kept up,
+    and the higher score kept; a curse no longer offered is dropped."""
+    import types
+
+    from builder.search import conditions, models
+    from builder.search.inner import Search
+
+    monkeypatch.setattr(models, "CURSE_LAPSE", "curse_lapse", raising=False)
+    offered = ["Despair", "Enfeeble"]
+    monkeypatch.setattr(conditions, "curse_lapse_candidates", lambda build, texts: list(offered), raising=False)
+    gains = {"Despair": 0.2, "Enfeeble": -0.1}  # letting Despair lapse pays; Enfeeble's uptime is worth more
+
+    objective = types.SimpleNamespace(dps=lambda stats: 1000.0 * (1 + stats["s"]))
+    build = types.SimpleNamespace(objective=objective, score=1.0, stats={"s": 0.0},
+                                  call=lambda method: {"lines": [{"text": "Non-Cursed enemies you Curse ..."}]})
+
+    def settle():
+        build.score = 1.0 + sum(gains[n] for n in getattr(objective, "curse_lapse", set()))
+        build.stats = {"s": build.score - 1.0}
+
+    search = Search.__new__(Search)
+    search.build, search.play_notes, search.settle = build, {}, settle
+    assert search.choose_curse_lapse()
+    assert objective.curse_lapse == {"Despair"} and build.score == pytest.approx(1.2)
+    assert "Despair" in search.play_notes["curse_lapse"]["label"] and "1,000 keeping the curse up" in \
+        search.play_notes["curse_lapse"]["basis"]
+    assert not search.choose_curse_lapse()  # (the same choice again: unchanged)
+    offered.clear()
+    assert search.choose_curse_lapse() and objective.curse_lapse == set() and "curse_lapse" not in search.play_notes

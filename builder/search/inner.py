@@ -382,6 +382,7 @@ class Search:
             "required_names": sorted(self.tree.required_names), "sources": sorted(self.tree.sources),
             "extra_stats": dict(self.build.extra_stats), "recovery_sources": dict(self.build.recovery_sources),
             "character_runes": [[k, list(v)] for k, v in sorted(self.build.character_runes.items())],
+            "curse_lapse": sorted(getattr(self.build.objective, "curse_lapse", None) or ()),  # (choose_curse_lapse)
             "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
             "press_choices": press_choices(self.build), "press_rows": copy.deepcopy(self.press_rows),
@@ -433,6 +434,8 @@ class Search:
         self.build.extra_stats = dict(state.get("extra_stats") or {})
         self.build.recovery_sources = dict(state.get("recovery_sources") or {})
         self.build.character_runes = {k: (v[0], v[1]) for k, v in state.get("character_runes") or []}  # (XML: the slots)
+        if state.get("curse_lapse"):  # (models.CURSE_LAPSE = "curse_lapse": choose_curse_lapse's choice)
+            self.build.objective.curse_lapse = set(state["curse_lapse"])
         self.assumptions.infused = state.get("infused")  # (the Infused set the XML calculates, at its share)
         self.assumptions.infused_skipped = dict(state.get("infused_skipped") or {})
         self.assumptions.reinstall()
@@ -905,8 +908,59 @@ class Search:
         """The play-style choices and fight weights (play_guide's spec): distance, standing still, Low Life."""
         changed = self.choose_distance()
         changed = self.choose_stationary() or changed
+        changed = self.choose_curse_lapse() or changed
         self.weigh_life()
         return changed
+
+    def choose_curse_lapse(self) -> bool:
+        """Letting a hand-cast curse run out before each recast is a play strategy (MECH75's model, models.CURSE_LAPSE;
+        the manager, 15 Nov 01:01): with Withering Hex ("Non-Cursed enemies you Curse have 5 Withered stacks inflicted on
+        them") each recast that finds the boss uncursed applies its stacks, against some of the curse's uptime. Each
+        curse conditions.curse_lapse_candidates offers (none without Withering Hex) is tried played so and kept up, one at
+        a time, and the higher full score kept (defence floors included); the play note says which and both DPS.
+        Returns True if the choice changed. (Before MECH75's model is on the branch: nothing to choose.)"""
+        from builder.search import conditions as conditions_module, models as models_module
+
+        candidates_of = getattr(conditions_module, "curse_lapse_candidates", None)
+        attr = getattr(models_module, "CURSE_LAPSE", None)
+        if candidates_of is None or attr is None:
+            return False
+        objective = self.build.objective
+        before = set(getattr(objective, attr, None) or ())
+        self.play_notes.pop("curse_lapse", None)
+        texts = [line["text"] for line in self.build.call("sourceLines")["lines"]]
+        names = candidates_of(self.build, texts)
+        chosen = before & set(names)
+        if chosen != before:  # (a curse no longer offered: Withering Hex or the curse is gone)
+            setattr(objective, attr, set(chosen))
+            self.settle()
+        if not names:
+            return chosen != before
+        for name in sorted(names):
+            kept = self.build.score
+            trial = chosen ^ {name}
+            setattr(objective, attr, set(trial))
+            self.settle()
+            if self.build.score > kept + EPSILON:
+                chosen = trial
+            else:
+                setattr(objective, attr, set(chosen))
+                self.settle()
+        if chosen:
+            played = objective.dps(self.build.stats)
+            setattr(objective, attr, set())
+            self.settle()
+            kept_up = objective.dps(self.build.stats)
+            setattr(objective, attr, set(chosen))
+            self.settle()
+            self.play_notes["curse_lapse"] = {
+                "label": f"Let {', '.join(sorted(chosen))} run out before each recast",
+                "value": f"{played:,.0f} DPS",
+                "basis": f"Withering Hex: each recast lands on an uncursed boss and applies its Withered stacks; "
+                         f"{played:,.0f} DPS played so, {kept_up:,.0f} keeping the curse up (the recast lands "
+                         f"{getattr(models_module, 'CURSE_LAPSE_GAP', 0.5):g} s after it runs out: LOW, the player's timing)",
+                "confidence": "theory"}
+        return chosen != before
 
     def conditions_round(self) -> None:
         """A conditions round (_conditions_round), then the partial uptimes weighed (weigh_uptimes)."""
