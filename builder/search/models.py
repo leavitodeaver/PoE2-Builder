@@ -2345,9 +2345,11 @@ def round_energy(meta: str, x: dict, cost: float) -> float:
 # Condition:HaveRitualCadence, ModCache 9326: the node's mods, not its text). The model reads the keystone's text lines
 # only, so a Flesh Crucible rolled to it gets neither the 2 s cadence nor the 50% less Energy (an error either way, LOW
 # reach: Flesh Crucible + Invocation builds): the general fix, reading an item-granted keystone's node lines, is COV29's.
-# The reading (MEDIUM: the game's words, how the triggering state times out is not in them): a press starts a triggering
-# state that releases one round every 2 s, at the reduced cost, until the store can't pay a round; no Energy is gained in
-# that state; the player presses again once the store has refilled. Each round then takes 2 s of triggering plus the time
+# The reading (HIGH since MECHB29: the user, 14 Nov, in-game experience, "Yes, that's how it works": one press keeps
+# triggering a stored spell every 2 s until its Energy runs out, no Energy gained meanwhile; before, MEDIUM from the
+# game's words): a press starts a triggering state that releases one round every 2 s, at the reduced cost, until the
+# store can't pay a round; no Energy is gained in that state; the player presses again once the store has refilled.
+# Whether its 50% less and Invocated Echoes' half stack stays UNVERIFIED (not answered). Each round then takes 2 s of triggering plus the time
 # the build needs to gain its Energy, so rounds per second = 1 / (2 + a round's Energy / Energy per second) =
 # fed / (1 + 2 x fed), whatever the number of rounds stored (each 2 s per round counted, the first one too: UNVERIFIED;
 # if the state ended at its last trigger, a full store would come slightly faster). Without the no-gain line the rounds
@@ -2550,7 +2552,9 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                           f"second, Ritual Cadence gives {rate:.3f} ("
                         + (f"1 / ({cadence:g} s + the {(1 / fed if fed > 0 else float('inf')):.2f} s a round's Energy "
                            "takes to gain)" if no_gain else f"at most one round each {cadence:g} s")
-                        + "); how the triggering state times out is UNVERIFIED, MEDIUM"
+                        + "); one press triggers a round every 2 s until the store runs out, no Energy gained "
+                          "meanwhile (the user, 14 Nov, in-game experience: HIGH); whether its 50% less stacks with "
+                          "Invocated Echoes' half: UNVERIFIED"
                         if cadence > 0 and info.get("invocation") else
                         f"; an Invocation: its store holds {cap:.0f} Energy{cap_basis}, {release_how}"
                         + (f"; the build's Energy would feed {fed:.3f} rounds a second, the presses release {most:.3f}: "
@@ -5266,8 +5270,9 @@ def boss_melee_share(boss: str, gain: bool = True) -> tuple[float, str]:
 # UNDERCOUNT, none an overcount. Counted here, as an added damage source (added_input, fixed at the resolve like
 # Eternal Hunt), at PoB's Thorns hit (its per-type averages at its crit chance, the boss's mitigation in them) x:
 #   - Retaliation (KeywordPopups Thorns: "you inherently Retaliate against [Melee] [Attack] [Hit|Hits]"): the boss's
-#     hits that land a second (bosses.benefit_skill_time, one hit per damaging use, LOW; boss_hits.land_share: evaded
-#     and Blocked hits don't count, whether a Blocked hit Retaliates is UNVERIFIED, so a possible undercount) x its
+#     hits that land or are Blocked a second (bosses.benefit_skill_time, one hit per damaging use, LOW;
+#     boss_hits.land_share + block_share: evaded hits don't count; a Blocked hit Retaliates, the user, 14 Nov, in-game
+#     experience: "Yes, blocked hits count" (MECHB29; before, Blocked hits were left out, an UNDERCOUNT)) x its
 #     melee share (boss_melee_share's lower bound: 0 on the worst-case preset, where Zarokh has no Melee-typed hits),
 #     or every landed hit with "Thorns can Retaliate against all Hits" (Crown of the Pale King, thorns_proc_off_any_hit).
 #   - "N% chance to deal your Thorns Damage to Enemies you Hit with Melee Attacks" (Prized Pain, Loreweave,
@@ -5347,7 +5352,9 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
     lower = [t.lower() for t in texts]
     boss = boss_hits.boss_name(stats)
     every = bosses.benefit_skill_time(stats)
-    land = boss_hits.land_share(stats)
+    # (MECHB29) a Blocked hit Retaliates too (the user, 14 Nov, in-game experience: "Yes, blocked hits count"): the
+    # boss's hits that land or are Blocked (boss_hits.block_share: the blockable ones after evasion x the block chance)
+    land = boss_hits.land_share(stats) + boss_hits.block_share(stats)
     landed = land / every if every > 0 else 0.0
     any_hit = any(THORNS_ANY_HIT in t for t in lower)
     if any_hit:
@@ -5404,8 +5411,8 @@ def thorns_model(rate: dict | None, texts: list[str], stats: dict, main: Skill |
                            + f", each PoB's Barbs hit {barb_hit:.4g}; {count} hits on the same boss a Retaliation: "
                            "AUDIT32 A32-11; PoB's own Barbs entry, scored at 1 use a second, taken out of Full DPS)")
     parts = [f"Retaliation {retaliations:.3g}/s ({boss}'s landed hits {landed:.3g}/s, one every {every:.2f} s at "
-             f"{land:.0%} landing (evaded and Blocked hits not counted; whether a Blocked hit Retaliates is "
-             f"UNVERIFIED), x {share:.0%}: {share_how}{non_how})"]
+             f"{land:.0%} landing or Blocked (a Blocked hit Retaliates: the user, 14 Nov, in-game experience; "
+             f"evaded hits not counted), x {share:.0%}: {share_how}{non_how})"]
     if chance > 0:
         parts.append(f"{chance:.0%} of the main skill's hits {on_hit:.3g}/s"
                      + ("" if melee_main else " (0: the main skill isn't a Melee Attack)"))

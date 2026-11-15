@@ -1317,8 +1317,10 @@ def test_pobs_thorns_group_counts_in_no_dps_and_thorns_adds_its_hits(engine):
     stats = {"_boss": "Arbiter of Ash"}
     dps, notes = thorns(build, None, stats, ["Thorns can Retaliate against all Hits"])
     full = {**stats, **build.call("stats", fields=models.THORNS_FIELDS)}
-    assert dps == pytest.approx(hit * boss_hits.land_share(full) / bosses.benefit_skill_time(full))
-    assert notes and notes[0]["confidence"] == "LOW"
+    # (MECHB29: Blocked hits Retaliate too, the user, 14 Nov: this Titan's shield blocks some)
+    retaliating = boss_hits.land_share(full) + boss_hits.block_share(full)
+    assert dps == pytest.approx(hit * retaliating / bosses.benefit_skill_time(full))
+    assert boss_hits.block_share(full) > 0 and notes and notes[0]["confidence"] == "LOW"
 def test_living_bomb_is_a_gem_pob_scores_socketed_at_one_explosion_a_cast(engine):
     """COV26: Living Bomb is a tier 3 gem since 0.3.0 (Context.ITEM_SKILL_GEMS); PoB marks it item-granted but scores it
     socketed as an ordinary gem. PoB has no rule for its seed (no living_bomb stat read in its Modules): it counts an

@@ -346,6 +346,7 @@ def test_ritual_cadence_triggers_one_round_each_2_seconds_at_half_cost_and_gains
     cadenced, notes = rate(keystone)
     assert cadenced == pytest.approx(fed / (1 + 2 * fed), rel=1e-3) and cadenced < 0.5
     assert any("Ritual Cadence" in n["basis"] for n in notes)
+    assert any("the user, 14 Nov, in-game experience" in n["basis"] for n in notes)  # (MECHB29: the cadence confirmed)
     # a slow chosen press rate doesn't cap it: one press a cycle
     assert rate(keystone, choices={"Elemental Invocation": plain / 10})[0] == pytest.approx(cadenced, rel=1e-3)
     # without the no-gain line: at most one round each 2 s
@@ -4665,6 +4666,13 @@ def test_thorns_model_counts_retaliation_at_the_melee_share_and_the_main_skills_
     # legacy and not-yet-modelled sources are named as undercounts, not counted
     note = models.thorns_model(hit, ["Deal your Thorns Damage to Enemies you Stun with Melee Attacks"], stats, melee)[1][0]
     assert "legacy Prized Pain" in note["basis"]
+    # MECHB29 (the user, 14 Nov: "Yes, blocked hits count"): Blocked hits Retaliate too, evaded ones don't
+    blocking = {**stats, "EffectiveBlockChance": 50.0}
+    assert boss_hits.land_share(blocking) < boss_hits.land_share(stats)
+    assert models.thorns_model(hit, [], blocking, None)[0] == pytest.approx(dps)
+    assert boss_hits.block_share(blocking) > 0 and "Blocked" in models.thorns_model(hit, [], blocking, None)[1][0]["basis"]
+    evading = {**stats, "EvadeChance": 50.0}
+    assert models.thorns_model(hit, [], evading, None)[0] < dps
 
 
 def test_barbs_counts_n_supported_hits_per_retaliation_and_takes_pobs_flat_entry_out():
