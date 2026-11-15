@@ -5386,3 +5386,39 @@ def test_low_and_missing_runic_ward_shares_come_from_what_spends_the_ward():
     assert missing == pytest.approx(0.45) and low == pytest.approx(0.5 * (900 - 650) / 1000)
     starved = {"Explosion": (2.0, 1.0, 100.0), "WardRecoveryPerSecond": 100.0, "_share": 0.5}
     assert ward_low_shares(starved, 1000.0)[:2] == (1.0, 1.0)
+
+
+def test_untether_explodes_as_the_builds_damage_fills_its_seeds():
+    """MECHB32 (the manager 09:04, from COV32 / COV34): Untether's seed explodes once the boss has been dealt 100% of its
+    Ailment Threshold, up to 5 seeds at once, 6 s each (a seed that runs out doesn't explode); the earlier seeds'
+    explosions count toward the later ones: E = min(casts, seeds x feed / (need - seeds x hit))."""
+    assert models.UNTETHER_DEFAULTS == (100.0, 5.0, 6.0)
+    rate, how = models.untether_rate(1000, 100, 50)
+    assert rate == 0.0 and "none" in how  # (10 s of other damage for a 6 s seed)
+    rate, how = models.untether_rate(1000, 200, 50)
+    assert rate == pytest.approx(5 * 200 / (1000 - 250)) and "5 seeds at once" in how
+    rate, how = models.untether_rate(1000, 200, 50, casts=1.0)
+    assert rate == 1.0 and "cast rate" in how
+    assert models.untether_rate(1000, 200, 0)[0] == pytest.approx(1.0)  # (no explosion damage: 5 x 200 / 1000)
+    assert models.untether_rate(1000, 200, 300, casts=2.0)[0] == 2.0  # (explosions alone refill the seeds)
+    assert models.untether_rate(1000, 200, 300)[0] == 0.0  # (and no cast rate read: not counted)
+    assert models.untether_rate(0, 200, 50)[0] == 0.0
+
+
+def test_mantra_of_destruction_and_unleash_count_their_empowered_uses():
+    """MECHB32: PoB counts 0 for both; each is pressed when ready in its own cycle. Mantra of Destruction: the main
+    Strike's N = Combo / (Combo a hit x hit chance) attacks, then Mantra's cast; k of them Empowered (1, or 3 with
+    Olroth's Conviction). Unleash: barrage_model's cycle with a 1 s + p% of the main Spell's cast time cooldown, each
+    Empowered cast 1 + r hits taking 5% longer per Repeat; below x1 not pressed."""
+    time, share, how = models.mantra_cycle(2.0, 1.0, 8, 1, 1, 0.5)
+    assert time == pytest.approx(4 / 4.5) and share == pytest.approx(1 / 8) and "8.0 main attacks" in how
+    assert models.mantra_cycle(2.0, 0.5, 8, 2, 3, 0.5)[1] == pytest.approx(3 / 8)  # (8 attacks at 2 a hit, half hit)
+    assert models.mantra_cycle(2.0, 1.0, 2, 1, 3, 0.5)[1] == 1.0  # (more Empowered than attacks a cycle: all)
+    assert models.mantra_cycle(0.0, 1.0, 8, 1, 1, 0.5)[1] == 0.0
+    factor, how = models.unleash_factor(1.0 / 0.7, 2, 1010)  # (Spark, 0.7 s casts; cooldown 1 + 7.07 s)
+    period = 1 + 10.1 * 0.7
+    assert factor == pytest.approx(0.7 * (3 + (period - 0.75 - 0.77) / 0.7) / period) and factor > 1
+    more, _ = models.unleash_factor(1.0 / 0.7, 2, 1010, empowers=3)
+    assert more == pytest.approx(0.7 * (9 + (period - 0.75 - 3 * 0.77) / 0.7) / period) and more > factor
+    assert models.unleash_factor(1.0 / 0.7, 0.1, 0)[0] == 1.0  # (its cast costs more than one tenth of a Repeat gives)
+    assert models.unleash_factor(0.0, 2, 1010)[0] == 1.0

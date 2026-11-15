@@ -3464,3 +3464,37 @@ def test_a_curse_is_let_run_out_only_where_that_scores_higher(monkeypatch):
     assert not search.choose_curse_lapse()  # (the same choice again: unchanged)
     offered.clear()
     assert search.choose_curse_lapse() and objective.curse_lapse == set() and "curse_lapse" not in search.play_notes
+
+
+def test_untether_as_the_main_skill_is_cut_to_its_explosions():
+    """MECHB32: Untether as the main skill: PoB's casts (an explosion each) cut to models.untether_rate's explosions,
+    fed by the build's other damage (Full DPS less Untether's hits) and its own explosions; Untether alone never explodes."""
+    from builder.search.assumptions import Assumptions
+
+    def run(full, speed=2.0, total=400.0):
+        class FakeBuild:
+            def main_group(self):
+                return {"index": 1}
+
+            def groups(self):
+                return [{"index": 1, "skills": [{"name": "Untether"}]}]
+
+            def call(self, what, **_):
+                if what == "activeSkills":
+                    return {"skills": [{"name": "Untether", "group": 1, "levelStats": {
+                        "living_bomb_damage_threshold_%_of_ailment_threshold": 100,
+                        "living_bomb_base_number_of_bombs_allowed": 5}}]}
+                if what == "useRates":
+                    return {"rates": [{"index": 1, "speed": speed, "duration": 6.0, "AverageHit": total / speed}]}
+                return {"EnemyAilmentThreshold": 10000, "Speed": speed, "FullDPS": full, "TotalDPS": total}
+
+        a = Assumptions.__new__(Assumptions)
+        a.build = FakeBuild()
+        return a.untether_main([{"name": "Untether", "disabled": False}], "Untether")
+
+    mods, notes = run(full=400.0)  # (no other damage)
+    assert mods and "deals nothing" in notes[0]["play"]
+    mods, notes = run(full=400.0 + 2000.0)  # (2,000/s of other damage, 200 an explosion)
+    rate = 5 * 2000 / (10000 - 5 * 200)
+    assert mods[0]["scale"] == pytest.approx(-100 * (1 - rate / 2.0), rel=1e-3) and "Untether" in notes[0]["label"]
+    assert run(full=400.0 + 50000.0)[0] == []  # (fills faster than it's cast: PoB's casts kept)

@@ -6547,6 +6547,122 @@ def barrage_model(speed: float, repeats: float, less: float, cooldown_pct: float
         return 1.0, pob, how + ": a net loss, so not pressed (x1.000)"
     return factor, pob, how
 
+
+# Untether (MECHB32; the manager 09:04 from COV32, COV34's bbc4da06 adds the skill to PoB from the game's rows). The game
+# (build 26476662; the manager, 15 Nov: build 26579160 is downloading, so these may change): ActiveSkills
+# abyssal_living_bomb, "Plant a seed of Abyssal Energy on the enemy's heart. Dealing enough damage to the enemy, or
+# killing it outright, causes their heart to explode, dealing Physical damage in an area"; GrantedEffectStatSets 7538
+# AbyssalLivingBomb: base_skill_effect_duration 6000, living_bomb_base_number_of_bombs_allowed 5,
+# living_bomb_damage_threshold_%_of_ailment_threshold 100 (Living Bomb's own: 15000, 1, 200). The Master's Reach grants
+# it (0.5.4; patch notes: no hit for "Untether" or "Master's Reach", not proof of no change). PoB scores an explosion
+# every cast (COV34: it reads no living_bomb_* stat). Counted here, the Living Bomb reading (0.3.0: it "explodes upon
+# dealing sufficient damage ... No longer explodes at the end of its duration", taken to hold for its Abyssal sibling,
+# MEDIUM): a seed explodes once the boss has been dealt `need` (100% of PoB's EnemyAilmentThreshold) after it was
+# planted, and not at all if its duration runs out first. Up to `seeds` at once on the one boss (UNVERIFIED: no source
+# says whether several seeds can sit on one enemy; taken as yes, the limit being 5). Damage dealt = the build's other
+# damage `feed` plus the earlier seeds' explosions (`hit` each; MEDIUM: an explosion is damage dealt to the boss), so
+# explosions/s E = min(casts/s, seeds x D / need) with D = feed + E x hit (a fixed point, rising to its bound). The first
+# seed has only `feed`: need / feed over the duration means none ever explodes (0).
+UNTETHER = "Untether"
+UNTETHER_STATS = ("living_bomb_damage_threshold_%_of_ailment_threshold", "living_bomb_base_number_of_bombs_allowed")
+UNTETHER_DEFAULTS = (100.0, 5.0, 6.0)  # (threshold %, seeds, seconds: the stat set's, build 26476662)
+
+
+def untether_rate(need: float, feed: float, hit: float, seeds: float = 5.0, duration: float = 6.0,
+                  casts: float = float("inf")) -> tuple[float, str]:
+    """(Untether explosions a second, how): `need` the damage a seed waits for, `feed` the build's other damage a
+    second, `hit` one explosion's damage, `casts` the most seeds a second the player plants (its cast rate)."""
+    if need <= 0 or seeds <= 0:
+        return 0.0, "no Ailment Threshold or no seed allowed read: no explosion counted"
+    if feed <= 0 or need / feed > duration:
+        return 0.0, (f"the build's other damage ({feed:,.0f}/s) doesn't deal a seed's {need:,.0f} (100% of the boss's "
+                     f"Ailment Threshold) within its {duration:g} s, and a seed that runs out doesn't explode: none")
+    hit = max(hit, 0.0)
+    # (the fixed point E = seeds x (feed + E x hit) / need: E = seeds x feed / (need - seeds x hit); when the seeds'
+    # own explosions alone refill them (seeds x hit >= need), only the cast rate holds it)
+    free = seeds * feed / (need - seeds * hit) if need > seeds * hit else float("inf")
+    rate = min(casts, free)
+    if rate == float("inf"):
+        return 0.0, "no cast rate read and the seeds' explosions alone refill them: not counted"
+    wait = need / (feed + rate * hit)
+    bound = "its cast rate" if rate >= casts - 1e-9 else f"{seeds:g} seeds at once"
+    return rate, (f"a seed explodes {wait:.2f} s after it's planted ({need:,.0f} damage, 100% of the boss's Ailment "
+                  f"Threshold, at {feed:,.0f}/s of other damage + the earlier seeds' explosions, {hit:,.0f} "
+                  f"each): {rate:.3f} explosions/s, held by {bound} (several seeds on the one boss UNVERIFIED)")
+
+
+# Mantra of Destruction's and Unleash's Empowered uses (MECHB32; found while wiring Olroth's Conviction: PoB counts 0 for
+# both, an UNDERCOUNT). PoB maps none of mantra_of_destruction_* / staff_unleash_* (checked: SkillStatMap.lua, Modules,
+# Classes); Unleash's buff gives PoB's "Empowered" flag, which only CalcActiveSkill's applyExtraEmpowerMods reads (other
+# supports' extra mods), not a Repeat. Neither group deals damage, so press_model doesn't charge its time: each cycle
+# below holds its own cast, as barrage_model does (a play strategy: pressed each time it's ready, with and without rows).
+# - Mantra of Destruction (PoB act_int.lua MantraOfDestructionPlayer; the game's text): "Build Combo by successfully
+#   Striking Enemies with other skills. After reaching maximum Combo, use this skill to Empower your next Quarterstaff
+#   Attack, causing it to deal additional Chaos damage"; skill_empowers_next_x_melee_attacks 1,
+#   mantra_of_destruction_grant_all_damage_%_to_gain_as_chaos_with_attacks (50 at level 1 to 69 at 20),
+#   active_skill_required_number_of_combo_stacks 8 (less with quality). Its Purple Flames come on kill: none on a lone
+#   boss. Counted where the main Quarterstaff attack is a Strike and builds the Combo itself: N = Combo needed / (Combo a
+#   hit x hit chance) main attacks, then Mantra's cast; the next k of them Empowered (k = 1 + Olroth's Conviction's
+#   extra, at most N). The main attack gets x N t / (N t + cast) of its damage (its time) and gains N% of Damage as
+#   extra Chaos x k / N (gain-as is linear in its %, so the average is exact). A Combo from another skill isn't counted
+#   (its Strikes' time would come off the main attack: an undercount where that trade pays, said).
+# - Unleash (act_int.lua UnleashPlayer; the game's text): "Empowering the next Repeatable Spell you cast to Repeat
+#   multiple times. Cannot Empower Skills with a Cooldown"; "Empowered Spell Repeats {0} additional times"
+#   (staff_unleash_number_of_seals_for_next_skill 2); cooldown 1 s + "{0}% of Empowered Skill's cast time is added to
+#   this Skill's cooldown" (staff_unleash_cooldown_%_of_cast_time 1200 at level 1 to 1010 at 20; PoB reads only the
+#   1 s: its 1.02 s cooldown in the probe POE2T3203 would have had Unleash pressed nearly every second); cast 0.75 s.
+#   KeywordPopups Repeat: "Skills take 5% longer to perform for each time they Repeat". Counted as barrage_model's
+#   cycle: period = max(cooldown, cast + k Empowered casts), each 1 + r hits (full damage: no less-damage stat on
+#   Unleash, MEDIUM) taking t (1 + 0.05 r), normal casts in the rest; the cooldown's "cast time" taken as the main
+#   Spell's own (1 / its casts a second, MEDIUM). Below x1, not pressed.
+MANTRA_OF_DESTRUCTION = "Mantra of Destruction"
+MANTRA_GAIN = "mantra_of_destruction_grant_all_damage_%_to_gain_as_chaos_with_attacks"
+MANTRA_EMPOWERS = "skill_empowers_next_x_melee_attacks"
+MANTRA_COMBO = "active_skill_required_number_of_combo_stacks"
+UNLEASH = "Unleash"
+UNLEASH_REPEATS = "staff_unleash_number_of_seals_for_next_skill"
+UNLEASH_COOLDOWN_PCT = "staff_unleash_cooldown_%_of_cast_time"
+UNLEASH_COOLDOWN = 1.0  # s (its level cooldown)
+UNLEASH_CAST = 0.75  # s
+
+
+def mantra_cycle(speed: float, hit: float, combo: float, per_hit: float, empowers: float,
+                 cast: float) -> tuple[float, float, str]:
+    """(the main attack's time share, the share of its attacks Empowered, how) for Mantra of Destruction pressed at
+    full Combo built by the main Strike itself: `speed` its attacks/s, `hit` its hit chance (0-1), `combo` the Combo
+    needed, `per_hit` Combo a hit, `empowers` attacks Empowered a use, `cast` Mantra's use time."""
+    if speed <= 0 or hit <= 0 or combo <= 0 or per_hit <= 0:
+        return 1.0, 0.0, "the main attack doesn't hit, or no Combo read: Mantra of Destruction isn't pressed"
+    attacks = combo / (per_hit * hit)
+    t = 1.0 / speed
+    time = attacks * t / (attacks * t + cast)
+    share = min(empowers, attacks) / attacks
+    return time, share, (f"{attacks:.1f} main attacks build its {combo:g} Combo ({per_hit:g} a hit, {hit:.0%} hit), then "
+                         f"its {cast:.2f} s cast: the main attack keeps {time:.1%} of its time, and {min(empowers, attacks):g} "
+                         f"of each {attacks:.1f} attacks are Empowered ({share:.1%})")
+
+
+def unleash_factor(speed: float, repeats: float, cooldown_pct: float, recovery: float = 1.0, empowers: float = 1.0,
+                   cast: float = UNLEASH_CAST) -> tuple[float, str]:
+    """(the main Spell's damage with Unleash pressed each time it's ready, as a factor, how)."""
+    if speed <= 0 or repeats <= 0:
+        return 1.0, "the main Spell isn't cast, or no Repeat read: Unleash gives nothing"
+    t = 1.0 / speed
+    cooldown = (UNLEASH_COOLDOWN + cooldown_pct / 100 * t) / (recovery or 1.0)
+    longer = t * (1 + BARRAGE_REPEAT_TIME * repeats)
+    k = max(empowers, 1.0)
+    period = max(cooldown, cast + k * longer)
+    normal = max(0.0, (period - cast - k * longer) / t)
+    factor = t * (k * (1 + repeats) + normal) / period
+    how = (f"Unleash pressed each time it's ready: every {period:.2f} s (its cooldown {cooldown:.2f} s: 1 s + "
+           f"{cooldown_pct:g}% of the {t:.2f} s cast, over Cooldown Recovery), its {cast:g} s cast, {k:g} Empowered "
+           f"cast(s) Repeating {repeats:g} more times ({BARRAGE_REPEAT_TIME:.0%} longer per Repeat, full damage, MEDIUM), "
+           f"{normal:.1f} normal casts between: x{factor:.3f} (PoB counts no Repeat)")
+    if factor < 1.0:
+        return 1.0, how + ": a net loss, so not pressed (x1.000)"
+    return factor, how
+
+
 # Heavy Stuns of the boss (heavy_stun_rate) ------------------------------------------------------------------------------
 # The game's keyword text (KeywordPopups HeavyStun, Stun, Cold; build 26476662): hits build up the target's Stun bar by
 # the damage they deal, a Heavy Stun when it fills; player Physical and Melee damage each build 50% more; "Cold hits ...

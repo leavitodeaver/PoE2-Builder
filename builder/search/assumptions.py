@@ -766,6 +766,79 @@ def barrage(build: Build, main: models.Skill | None, found: list[models.Skill]) 
     return [models.raw_mod("DPS", "MORE", (factor / pob - 1) * 100, skill=main.name)], [note]
 
 
+def empower_skill(build: Build, name: str) -> dict | None:
+    """(MECH-B, MECHB32) The activeSkills row (with its level stats and Olroth's Conviction's extra in supportStats) of
+    the skill `name` in an enabled group beside the main skill, or None (not the Unleash support gem: the name is
+    shared, engine/bridge.lua)."""
+    main = build.main_group() or {}
+    group = next((g for g in build.groups() if g.get("enabled") is not False and g["index"] != main.get("index")
+                  and any(x["name"] == name and x.get("enabled", True) and not x.get("support") for x in g["gems"])),
+                 None)
+    if group is None:
+        return None
+    raw = build.call("activeSkills", levelStats=[name], supportStats=[models.OLROTH_EMPOWERS])["skills"]
+    return next((s for s in raw if s["name"] == name and s.get("group") == group["index"] and not s.get("disabled")),
+                None)
+
+
+def empowered_presses(build: Build, main: models.Skill | None) -> tuple[list[dict], list[dict]]:
+    """(MECH-B, MECHB32) Mantra of Destruction's Chaos gain on the main Quarterstaff Strike and Unleash's Repeats on
+    the main Spell, each pressed when ready in its own cycle (models.mantra_cycle, models.unleash_factor; PoB counts 0
+    for both)."""
+    if main is None:
+        return [], []
+    mods, notes = [], []
+    gem = build.ctx.gems.get(main.name) or {}
+    stats = build.call("stats", fields=["Speed", "HitChance"])
+    speed = number(stats.get("Speed"))
+    raw_main = next((s for s in build.call("activeSkills")["skills"]
+                     if s["name"] == main.name and s.get("group") == main.group), {})
+    mantra = empower_skill(build, models.MANTRA_OF_DESTRUCTION) if main.attack and "Staff" in (
+        gem.get("weaponTypes") or []) else None
+    if mantra is not None:
+        level = mantra.get("levelStats") or {}
+        gain = number(level.get(models.MANTRA_GAIN))
+        empowers = (number(level.get(models.MANTRA_EMPOWERS)) or 1.0) + number(
+            (mantra.get("supportStats") or {}).get(models.OLROTH_EMPOWERS))
+        if main.melee and not raw_main.get("slam"):
+            from builder.search.usage import MARTIAL_ADEPT, Usage
+            usage = Usage(build, None)
+            per_hit = 1.0 + (1.0 if usage.has_passive(MARTIAL_ADEPT) else 0.0) + min(
+                usage.combo_chance() + usage.group_combo_chance(main.group), 100.0) / 100
+            time, share, how = models.mantra_cycle(speed, min(number(stats.get("HitChance")) or 100.0, 100.0) / 100,
+                                                   number(level.get(models.MANTRA_COMBO)) or 8.0, per_hit, empowers,
+                                                   number(mantra.get("castTime")) or 1.0)
+        else:
+            time, share, how = 1.0, 0.0, ("the main attack isn't a Strike, so it builds no Combo; a Combo from another "
+                                          "skill isn't counted (its Strikes' time would come off the main attack: an "
+                                          "undercount where that trade pays)")
+        if share > 0 and gain > 0:
+            mods.append(models.line("Gain 1% of Damage as Extra Chaos Damage", gain * share, skill=main.name))
+            mods.append(models.raw_mod("DPS", "MORE", (time - 1) * 100, skill=main.name))
+        notes.append({"label": "Mantra of Destruction: Empowered attacks gain Chaos*",
+                      "value": f"{gain * share:.1f}% of Damage as extra Chaos on average, x{time:.3f} time",
+                      "basis": f"{how}; each Empowered attack gains {gain:g}% of Damage as extra Chaos (PoB counts 0)",
+                      "confidence": "MEDIUM",
+                      "play": (f"Press Mantra of Destruction at full Combo, then attack: without it +0%; with it "
+                               f"+{gain * share:.1f}% of Damage as Chaos on average, {1 - time:.1%} of the time spent "
+                               "pressing it" if share > 0 else "Mantra of Destruction isn't fed here")})
+    unleash = empower_skill(build, models.UNLEASH) if main.spell and not main.cooldown else None
+    if unleash is not None and raw_main.get("repeatable"):
+        level = unleash.get("levelStats") or {}
+        factor, how = models.unleash_factor(
+            speed, number(level.get(models.UNLEASH_REPEATS)) or 2.0, number(level.get(models.UNLEASH_COOLDOWN_PCT)),
+            number(unleash.get("cooldownRecovery")) or 1.0,
+            1.0 + number((unleash.get("supportStats") or {}).get(models.OLROTH_EMPOWERS)),
+            number(unleash.get("castTime")) or models.UNLEASH_CAST)
+        if factor > 1.0:
+            mods.append(models.raw_mod("DPS", "MORE", (factor - 1) * 100, skill=main.name))
+        notes.append({"label": "Unleash: Empowered Spell Repeats*", "value": round(factor, 3), "basis": how,
+                      "confidence": "MEDIUM",
+                      "play": (f"Press Unleash each time it's ready, then cast {main.name}: without it x1.000; with "
+                               f"it x{factor:.3f}" if factor > 1 else "Unleash costs more than it gives here: not pressed")})
+    return mods, notes
+
+
 def infernal_legion(build: Build, stats: dict) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Infernal Legion I / II (models.infernal_legion_model, MECHB30): each supported minion
     skill's minion Life (PoB's useRates minionLife, as minion_lives reads it), the boss's Fire resistance (the config's
@@ -1233,6 +1306,7 @@ class Assumptions:
         self.infused: dict | None = None
         self.infused_skipped: dict[str, str] = {}
         self.press_busy = 0.0  # the share of the fight remnant_presses took from the main skill in the last wanted()
+        self.untether_speed = 1.0  # (MECH-B, MECHB32) Untether as the main skill: the share of PoB's casts that explode
         self.bomb_speed = 1.0  # Living Bomb as the main skill: the share of PoB's casts that explode, now on PoB's numbers
         self.ledger_shares: dict[str, int] = {}  # condition -> its share in whole percent, for the ledger's `share:` lines
 
@@ -1576,6 +1650,8 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + puppet_mods, hand_notes + puppet_notes
         barrage_mods, barrage_notes = barrage(build, main, found)  # (MECHB30: PoB's +2% for one empowered attack a cooldown)
         hand_mods, hand_notes = hand_mods + barrage_mods, hand_notes + barrage_notes
+        press_mods, press_notes = empowered_presses(build, main)  # (MECHB32: Mantra, Unleash; PoB 0)
+        hand_mods, hand_notes = hand_mods + press_mods, hand_notes + press_notes
         legion, legion_notes = infernal_legion(build, stats)  # (MECHB30, H1-7: PoB rates no boss Ignite from it)
         hand_mods += [models.added_input("InfernalLegion", legion)] if legion > 0 else []
         hand_notes += legion_notes
@@ -1989,6 +2065,9 @@ class Assumptions:
                     uses, how = glory.get(name, (0.0, f"{name}: its Glory wasn't read"))
                     found = models.PressCap(uses, f"Glory: {how}", 0.0, "MEDIUM")
                     cap = found if cap is None or found.uses < cap.uses else cap
+                if not gem["support"] and name == models.UNTETHER and not group.get("main"):
+                    found = self.untether_cap(group["index"])  # (MECH-B, MECHB32)
+                    cap = found if cap is None or found.uses < cap.uses else cap
                 for need in requirements(name, rules[name]) if rules.get(name) else []:
                     usage = usage or Usage(self.build, None)
                     if need.kind == "combo":
@@ -2018,6 +2097,16 @@ class Assumptions:
                     old = caps.get(group["index"])
                     caps[group["index"]] = cap if old is None or cap.uses < old.uses else old
         return caps
+
+    def untether_cap(self, index: int) -> "models.PressCap":
+        """(MECH-B, MECHB32) Untether pressed beside the main skill: at most the explosions the build's damage fills
+        (models.untether_rate) from the main skill's damage a second and the damage computed outside PoB (other side
+        skills not counted: an undercount), its own explosions, and PoB's cast rate for it."""
+        need, seeds, duration, hit, casts, _ = self.untether_inputs(index)
+        stats = self.build.call("stats", fields=list(LIVING_BOMB_FIELDS))
+        added = number(getattr(getattr(self.build, "objective", None), "added_dps", 0.0))
+        rate, how = models.untether_rate(need, per_second(stats) + max(added, 0.0), hit, seeds, duration, casts)
+        return models.PressCap(rate, f"Untether: {how}", 0.0, "MEDIUM")
 
     def glory_caps(self) -> dict[str, tuple[float, str]]:
         """{Glory skill: (uses per second its Glory pays for, how)} for press_caps: models.glory_plan for each Glory skill
@@ -2201,6 +2290,56 @@ class Assumptions:
                            "explode within its duration: Living Bomb deals nothing here"),
                   "confidence": "game files' rule and 0.3.0's note; UNVERIFIED as labelled"}])
 
+    def untether_inputs(self, index: int | None) -> tuple[float, float, float, float, float, float]:
+        """(MECH-B, MECHB32) Untether's (need, seeds, duration, hit, casts/s, PoB's TotalDPS) for its group `index`:
+        need = its threshold % of PoB's EnemyAilmentThreshold; seeds, threshold from its level stats (models.UNTETHER_STATS,
+        else the stat set's, UNTETHER_DEFAULTS); duration, hit (AverageHit), casts (speed) from useRates for the group."""
+        build = self.build
+        threshold, seeds, duration = models.UNTETHER_DEFAULTS
+        raw = build.call("activeSkills", levelStats=[models.UNTETHER])["skills"]
+        level = next((s.get("levelStats") or {} for s in raw if s["name"] == models.UNTETHER and s.get("levelStats")), {})
+        threshold = number(level.get(models.UNTETHER_STATS[0])) or threshold
+        seeds = number(level.get(models.UNTETHER_STATS[1])) or seeds
+        rate = {}
+        if index is not None:
+            group = next((g for g in build.groups() if g["index"] == index), None)
+            active = next((i for i, s in enumerate((group or {}).get("skills") or [], start=1)
+                           if s["name"] == models.UNTETHER), 0)
+            got = build.call("useRates", indices=[index], actives=[active])["rates"] if active else []
+            rate = got[0] if got else {}
+        need = threshold / 100 * number(build.call("stats", fields=["EnemyAilmentThreshold"]).get("EnemyAilmentThreshold"))
+        return (need, seeds, number(rate.get("duration")) or duration, number(rate.get("AverageHit")),
+                number(rate.get("speed")), number(rate.get("TotalDPS")))
+
+    def untether_main(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
+        """(MECH-B, MECHB32) Untether as the main skill: PoB's casts cut to its explosions (models.untether_rate), the
+        build's other damage (Full DPS less Untether's hits, plus the damage computed outside PoB) and the earlier seeds'
+        explosions filling each seed. As living_bomb_main, a "less Attack and Cast Speed" line on it."""
+        if main != models.UNTETHER or not any(s["name"] == models.UNTETHER and not s["disabled"] for s in skills):
+            self.untether_speed = 1.0
+            return [], []
+        group = self.build.main_group() or {}
+        need, seeds, duration, _, _, _ = self.untether_inputs(group.get("index"))
+        stats = self.build.call("stats", fields=["Speed", "FullDPS", "TotalDPS"])
+        prior = getattr(self, "untether_speed", 1.0) or 1.0
+        speed = number(stats.get("Speed")) / prior  # (without this line, which is on PoB's numbers)
+        hits = number(stats.get("TotalDPS"))
+        hit = hits / number(stats.get("Speed")) if number(stats.get("Speed")) > 0 else 0.0
+        added = number(getattr(getattr(self.build, "objective", None), "added_dps", 0.0))
+        feed = max(number(stats.get("FullDPS")) - hits, 0.0) + max(added, 0.0)
+        rate, how = models.untether_rate(need, feed, hit, seeds, duration, speed)
+        share = max(rate / speed, LIVING_BOMB_FLOOR) if speed > 0 else 1.0
+        self.untether_speed = share
+        if share >= 1.0:
+            return [], []
+        return ([models.line("1% more Attack and Cast Speed", -100 * (1 - share), skill=models.UNTETHER)],
+                [{"label": "Untether: one explosion per seed filled*", "value": f"{share:.1%} of PoB's casts",
+                  "basis": how + " (PoB counts an explosion every cast)",
+                  "play": ("plant seeds as fast as they explode (up to 5 at once); the build's other damage sets how fast "
+                           "they fill" if rate > 0 else "the build's other damage is too low for a seed to explode "
+                           "within its duration: Untether deals nothing here"),
+                  "confidence": "MEDIUM (game files' stats; several seeds on the one boss UNVERIFIED)"}])
+
     def wanted(self) -> tuple[list[dict], list[dict]]:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
@@ -2294,6 +2433,8 @@ class Assumptions:
             self.press_busy = press_notes[0]["value"] if press_notes else 0.0
         bomb_mods, bomb_notes = self.living_bomb_main(skills, main)
         mods, notes = mods + bomb_mods, notes + bomb_notes
+        tether_mods, tether_notes = self.untether_main(skills, main)  # (MECH-B, MECHB32)
+        mods, notes = mods + tether_mods, notes + tether_notes
         self.ledger_shares = {}  # (COV11; set again by ledger_conditions)
         found, condition_notes = self.ledger_conditions(skills)
         # (SEARCH10, the manager's ruling: a part-time ledger condition counts at its share, in PoB's stats; the search's
