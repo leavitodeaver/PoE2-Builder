@@ -404,6 +404,66 @@
   impact: 2
   effort: S
 
+- id: minion-damage-vs-rarity
+  name: Minions' level-based damage against unique and non-unique monsters
+  terms: [non-unique monsters, non-unique enemies]
+  category: damage sources
+  game: "Minions deal more damage with Hits and Ailments against non-unique monsters (0.3.0: 3% at skill level 3 to 50% by level 8); 0.5.0 fixed it ('approximately 20-25% more late-game minion damage against unique enemies', compared with the bugged 0.3-0.4 state) and took it out of displayed numbers. The game sets it by monster level: DefaultMonsterStats.MoreDamageAgainstNonUnique (0 to level 9, 8 at 10, 43 at 20, 50 from 25) and UniqueMonsterDamageTakenFromMinions (0 at every level 1-100) feed hit_damage_+%_final_for_player_minions_hitting_me_if_not_unique and damage_taken_+%_final_from_player_minion_hits_and_ailments_if_unique_rarity (no skill stat set or Mods row uses either: checked GrantedEffectStatSets(PerLevel), GrantedEffects, Mods, ModType for both stat indices)."
+  game_source: "data/game-26476662 DefaultMonsterStats (export scratch/research13/game-extra, identical to mech3's mechc26 export), Stats; patch notes 0.3.0 Gem Changes, 0.5.0 Bug Fixes (0.5.0.md:729)"
+  pob: full
+  pob_check: "Against a unique boss PoB's number is the game's: PoB's monsterAllyDamageTable (Data/Misc.lua, from DefaultMonsterStats.MinionDamage by Export/Scripts/miscdata.lua) equals the current export at all 100 levels (largest relative difference 4e-14, MECHB30), and the unique-side stat is 0 at every level. PoB reads neither stat (grep of vendor/PathOfBuilding-PoE2/src), so the 50% more against non-unique monsters is missing, which no boss score reads (every boss preset is Unique rarity, bosses.py MonsterUnique2)."
+  handling: "Nothing to change for a boss fight (MECHB30, H3-1): no number moves against a unique boss (checked: the export's two columns at every level, PoB's table against MinionDamage, the stats' uses in the game tables and PoB; second source the 0.3.0 / 0.5.0 notes, which name the bonus 'against non-unique'; poe2db's Monster Rarity page and stat search don't show it, so not a second source). The 0.5.0 note's 20-25% is the fix compared with the old bug, which PoB never had. Recheck after the pending game update (26476662 -> 26579160): a nonzero UniqueMonsterDamageTakenFromMinions would need a model. Not counted: the 50% against non-unique adds (no boss score uses minion damage against adds)."
+  plan: {approach: labelled assumption, how: "Recheck DefaultMonsterStats after each game update; model the unique-side column if it ever becomes nonzero.", inputs: [DefaultMonsterStats]}
+  what_if: n/a
+  guide_note: ""
+  impact: 1
+  effort: S
+
+- id: shattering-roar-intimidate
+  name: The Skeletal Brutes' Shattering Roar Intimidating the boss
+  terms: [Shattering Roar]
+  category: damage sources
+  game: "ActiveSkills brute_warcry: 'Command a Skeletal Brute to use a Warcry, Intimidating nearby enemies and Consuming Freeze'; cooldown 8 s, 1 s cast, Intimidate 4 s (base_skill_effect_duration 4000), 4 m. It Intimidates only since 0.5.2's fix."
+  game_source: "data/game-26476662 GrantedEffects / PerLevel / StatSets ShatteringRoarSkeletalBruteMinion; KeywordPopups Intimidate; patch notes 0.3.0, 0.5.2"
+  pob: none
+  pob_check: "PoB's Intimidated box is the config's; nothing in PoB rates the Roar's uptime."
+  handling: "models.shattering_roar (MECHB30): one Command press a cooldown (over Cooldown Recovery), 4 s each (x 'increased Intimidate Duration'), less presses while every Brute is fallen; one Roar a cooldown however many Brutes (whether another Brute answers a second press: UNVERIFIED, in the note). MECH-A's Intimidated box wires it in (routed)."
+  plan: {approach: custom model, how: "Done in models; waiting on MECH-A's debuff box to read it.", inputs: [the Brute skill's Cooldown Recovery, fallen_skeletons]}
+  what_if: invisible
+  guide_note: "Command Shattering Roar on cooldown: the boss Intimidated X% of the fight."
+  impact: 1
+  effort: S
+
+- id: puppet-master
+  name: Puppet Master stacks from Command Skills
+  terms: [Puppet Master]
+  category: damage sources
+  game: "KeywordPopups PuppetMaster: a stacking Buff, per stack 10% increased Skill Speed with Command Skills, Minions deal 10% increased damage with Command Skills, Minions have 2% increased Movement Speed and 3% increased Skill Speed; 8 s each, at most 5. Gained by Surpassing Chance on using a Command Skill (KeywordPopups SurpassChance)."
+  game_source: "data/game-26476662 KeywordPopups, PassiveSkills Puppetmaster1-20 and DeliriumAnoint_ReplenishingHorde, Mods GenesisTreeRingMinionPuppetMaster / AbyssModStaffKurgalSuffixPuppetMasterStacks / AlloyPuppetMasterChance1 / AlloyPuppeteerStacks1; patch notes 0.5.3"
+  pob: none
+  pob_check: "Every Puppet Master line in PoB's ModCache has leftover text or no mods, so PoB applies none (checked: grep 'puppet' over vendor/PathOfBuilding-PoE2/src Modules and Data/ModCache.lua)."
+  handling: "models.puppet_master_model (MECHB30): stacks = the build's minions' Commands pressed on their cooldowns (models.COMMANDS, the game's cooldowns) x chance / 100 x 8 s (scaled), capped at 5 + the '+N maximum stacks' lines; minions get 3% increased Skill Speed a stack (x effect) as a PoB line (probe POE2T1170: Skeletal Brute Full DPS x1.15 at +15%). Not counted: the Commands' own bonuses, movement, unmapped Commands (djinns, Mirror Breaker, Mad Flight, Death From Above)."
+  plan: {approach: custom model, how: "Done for the mapped Commands; the djinn Commands wait on MECH-A's djinn models.", inputs: [the build's Command skills, Puppet Master lines]}
+  what_if: invisible
+  guide_note: "Press your Commands on cooldown: X Puppet Master stacks."
+  impact: 2
+  effort: M
+
+- id: inevitable-agony
+  name: Chronomancer's Inevitable Agony
+  terms: [Inevitable Agony]
+  category: damage sources
+  game: "ActiveSkills inevitable_agony: a Debuff tracking 25% of the Hit damage the target takes (curse_pain_synchronisation_base_recorded_damage_%_to_apply 25), lost as Life all at once when it expires or can kill; 12 s, cooldown 2 s, 0.7 s cast. poe2db: cut from 50% in 0.5.0, no longer a Curse."
+  game_source: "data/game-26476662 ActiveSkills / GrantedEffects InevitableAgonyPlayer; poe2db (PLANS5, 12 Nov); plans/term-agony.md"
+  pob: none
+  pob_check: "No statMap or calc code for the stat (PLANS5: grep pain_synchron over PoB Modules); PoB's stat set still flags it a curse (stale)."
+  handling: "models.inevitable_agony_model (MECHB30), an added source: 25% of the main skill's hit DPS (PoB's TotalDPS; the minion's for a minion main skill), one press each time it expires (useRates duration; the press counts toward the button cap through build.item_presses), less the main skill's cast time a period; a net loss isn't pressed. Not counted: other skills' hits, early recasts (UNVERIFIED), its Cull."
+  plan: {approach: custom model, how: "Done; an in-game test would confirm the pop is 25% of the window's hit damage.", inputs: [TotalDPS, the skill's duration and cast]}
+  what_if: invisible
+  guide_note: "Cast Inevitable Agony each time it expires: +X DPS."
+  impact: 2
+  effort: S
+
 - id: hazard-early-trigger
   name: Hazards set off in their first half second
   terms: [Hazard, Hazards, Ice Crystals]

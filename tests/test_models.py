@@ -4515,6 +4515,73 @@ def test_death_storm_strikes_the_builds_own_fallen_skeletons():
     assert models.death_storm([warriors, sacrifice, detonate], detonate, stats)[0] == 0.0
 
 
+def test_shattering_roar_intimidates_for_four_seconds_a_command_on_its_cooldown():
+    """MECHB30 (PATCH_CHECK H4-1, 0.5.2's fix): one Command press per 8 s cooldown over the Cooldown Recovery, each
+    Intimidating 4 s (scaled by "increased Intimidate Duration"); fallen Brutes take presses off as Death Storm's do; the
+    other Brutes' cooldowns are only in the note (UNVERIFIED); no Brutes: 0."""
+    brutes = models.Skill("Skeletal Brute Minion", group=3, cooldown_recovery=1.0,
+                          summon={"limit": 2, "persistent": True, "undead": True, "skeleton": True, "reviveBase": 12})
+    spark = models.Skill("Spark", group=1, spell=True)
+    stats = {"Speed": 1.0}
+    up, how = models.shattering_roar([brutes, spark], spark, stats)
+    assert up == pytest.approx(0.5) and "button cap" in how and "UNVERIFIED" in how and "100%" in how
+    up, _ = models.shattering_roar([brutes, spark], spark, stats, ["50% increased Intimidate Duration"])
+    assert up == pytest.approx(0.75)
+    fast = models.Skill("Skeletal Brute Minion", group=3, cooldown_recovery=2.0, summon=brutes.summon)
+    assert models.shattering_roar([fast, spark], spark, stats)[0] == pytest.approx(1.0)
+    # (Sacrifice kills Reviving Skeletons: presses lost while both Brutes are fallen)
+    sacrifice = models.Skill("Sacrifice", group=6)
+    detonate = models.Skill("Detonate Dead", group=1, spell=True, corpses=True)
+    skills = [brutes, sacrifice, detonate]
+    fallen, _, _ = models.fallen_skeletons(skills, detonate, stats)
+    up, how = models.shattering_roar(skills, detonate, stats)
+    assert fallen > 0 and up == pytest.approx((1 - (fallen / 2) ** 2) * 0.5) and "fallen" in how
+    nothing = models.shattering_roar([spark], spark, stats)
+    assert nothing[0] == 0.0 and "no Skeletal Brutes" in nothing[1]
+
+
+def test_puppet_master_stacks_follow_the_builds_own_commands_on_cooldown():
+    """MECHB30 (PATCH_CHECK H4-3): stacks = Command uses/s (each Command of the build's minions on its cooldown over the
+    Cooldown Recovery) x Surpassing Chance / 100 x 8 s (scaled), capped at 5 + the "+N maximum stacks" lines; each gives
+    minions 3% increased Skill Speed (scaled by effect). No chance line, or no mapped Command: nothing (0, a note)."""
+    brutes = models.Skill("Skeletal Brute Minion", group=3, summon={"limit": 2, "persistent": True})
+    mages = models.Skill("Skeletal Storm Mage Minion", group=4, cooldown_recovery=1.25, summon={"limit": 1, "persistent": True})
+    uses, parts = models.command_uses([brutes, mages])
+    assert uses == pytest.approx(1 / 8 + 1 / 4) and len(parts) == 2
+    texts = ["15% Surpassing Chance to gain a Puppet Master stack whenever you use a Command Skill",
+             "25% Chance to revive a random Permanent Minion whenever you use a Command Skill 25% Surpassing Chance to "
+             "gain a Puppet Master stack whenever you use a Command Skill"]
+    mods, notes = models.puppet_master_model([brutes, mages], texts)
+    stacks = 0.375 * 0.40 * 8
+    assert mods[0]["line"] == "Minions have 1% increased Skill Speed" and mods[0]["scale"] == pytest.approx(3 * stacks, abs=1e-3)
+    assert "without it 0" in notes[0]["play"]
+    # (the cap, duration and effect lines)
+    more = texts + ["300% Surpassing Chance to gain a Puppet Master stack whenever you use a Command Skill",
+                    "+1 maximum stacks of Puppet Master", "25% increased Duration of each Puppet Master stack",
+                    "20% increased Effect of Puppet Master"]
+    mods, _ = models.puppet_master_model([brutes, mages], more)
+    assert mods[0]["scale"] == pytest.approx(3 * 6 * 1.2, abs=1e-3)
+    assert models.puppet_master_model([brutes], []) == ([], [])
+    hounds = models.Skill("Summon Infernal Hound", group=5, summon={"limit": 6, "persistent": True})
+    mods, notes = models.puppet_master_model([hounds], texts)
+    assert mods == [] and notes[0]["value"] == 0 and "not a flat guess" in notes[0]["basis"]
+
+
+def test_inevitable_agony_adds_a_quarter_of_the_main_skills_hits_less_its_casts():
+    """MECHB30 (PATCH_CHECK H1-4, plans/term-agony.md): 25% of the main skill's hit DPS, the debuff recast each time it
+    expires (its duration, the 2 s cooldown a floor), less the main skill's time for each 0.7 s cast; a minion main skill
+    loses no time; a net loss or no hits: 0."""
+    dps, rate, mods, notes = models.inevitable_agony_model(1000.0, 1200.0)
+    share = 0.7 / 12
+    assert dps == pytest.approx(0.25 * 1000 * (1 - share) - 1200 * share) and rate == pytest.approx(1 / 12)
+    assert mods[0]["name"] == "AddedInevitableAgony" and "without it +0" in notes[0]["play"]
+    dps, rate, _, _ = models.inevitable_agony_model(1000.0, 0.0, duration=18.0)
+    assert dps == pytest.approx(250.0) and rate == pytest.approx(1 / 18)
+    assert models.inevitable_agony_model(1000.0, 0.0, duration=1.0)[1] == pytest.approx(1 / 2)  # (the cooldown's floor)
+    assert models.inevitable_agony_model(100.0, 10000.0)[:3] == (0.0, 0.0, [])  # (a net loss isn't pressed)
+    assert models.inevitable_agony_model(0.0, 0.0)[0] == 0.0
+
+
 def test_added_sources_sum_and_eternal_hunt_counts_five_wolves_net_of_its_presses():
     """MECHB20: the added-damage slot sums several sources (Melting Maelstrom's pulses and models.added_input's) for the
     bridge's LedgerAddedDPS; Eternal Hunt adds 5 wolves' hits per cooldown (the user's play experience; 1 / all-7 rows), less the main

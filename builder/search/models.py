@@ -943,6 +943,146 @@ def death_storm(skills: list[Skill], main: Skill | None, stats: dict) -> tuple[f
         "killing your Skeletons (an undercount), where they fall (MECH-A's ground reads the area, LOW)")
 
 
+# Shattering Roar (MECHB30, PATCH_CHECK H4-1), the Skeletal Brutes' Command: "Command a Skeletal Brute to use a Warcry,
+# Intimidating nearby enemies and Consuming Freeze ..." (ActiveSkills brute_warcry; a Command since 0.3.0, and it
+# Intimidates only since 0.5.2's fix: "did not intimidate enemies", the newest entry, patch-notes archive --history).
+# Game files (26476662): GrantedEffects ShatteringRoarSkeletalBruteMinion CastTime 1000 ms; GrantedEffectsPerLevel
+# Cooldown 8000 ms, StoredUses 1; its stat set is_commandable_skill, base_skill_effect_duration 4000, area radius 40
+# (4 m). Intimidate (KeywordPopups): "a Debuff that inflicts 10% increased damage taken and 10% reduced damage dealt"
+# (PoB's conditionEnemyIntimidated: DamageTaken INC 10; MECH-A's debuff box wires this rate in).
+# The rate: one Command press each time the cooldown is up (a play strategy under the button cap, shown with and without
+# it in the play guide), over your Cooldown Recovery, the Brute's 1 s cast a floor. One Roar a cooldown however many
+# Brutes you keep: whether a second press Commands another Brute whose cooldown is up is UNVERIFIED (the text says "a
+# Skeletal Brute"), so the lower reading is used and the other (min(1, Brutes x 4 / 8)) is in the note. The Brutes are
+# melee, so the boss is taken to be within the 4 m (MEDIUM). Presses lost while every Brute is fallen are taken off as
+# death_storm does ((fallen / Skeletons)^Brutes). Not counted: the minion's own Skill Effect Duration modifiers (an
+# undercount; the player's "increased Intimidate Duration" lines are counted through duration_scale).
+SKELETAL_BRUTE = "Skeletal Brute"
+SHATTERING_ROAR_COOLDOWN = 8.0  # s (GrantedEffectsPerLevel ShatteringRoarSkeletalBruteMinion Cooldown 8000)
+SHATTERING_ROAR_SECONDS = 4.0  # its Intimidate's duration (base_skill_effect_duration 4000)
+SHATTERING_ROAR_CAST = 1.0  # s (GrantedEffects CastTime 1000)
+
+
+def shattering_roar(skills: list[Skill], main: Skill | None, stats: dict, texts: list[str] = ()) -> tuple[float, str]:
+    """(share of the fight the boss is Intimidated by your Skeletal Brutes' Shattering Roar, how). 0 with a note without
+    Brutes. MECH-A's Intimidated box reads it as one more source."""
+    brute = next((s for s in skills if SKELETAL_BRUTE in s.name), None)
+    if brute is None:
+        return 0.0, "no Skeletal Brutes, so no Shattering Roar"
+    brutes = number(brute.summon.get("limit")) if brute.summon else 0.0
+    if brutes <= 0:
+        return 0.0, "your Skeletal Brute skill keeps no Brutes up (0)"
+    every = max(SHATTERING_ROAR_COOLDOWN / (brute.cooldown_recovery or 1.0), SHATTERING_ROAR_CAST)
+    duration = SHATTERING_ROAR_SECONDS * duration_scale(list(texts), "Intimidate")
+    fallen, _, fall_how = fallen_skeletons(skills, main, stats)
+    bones = sum(number(s.summon.get("limit")) for s in skills if s.summon and s.summon.get("persistent")
+                and not number(s.summon.get("duration")) and is_skeleton(s))
+    down = (fallen / bones) ** brutes if bones > 0 and fallen > 0 else 0.0
+    up = min(1.0, (1.0 - down) * duration / every)
+    other = min(1.0, (1.0 - down) * brutes * duration / every)
+    return up, (f"Shattering Roar (your Skeletal Brutes' Command: one press every {every:.3g} s, its "
+                f"{SHATTERING_ROAR_COOLDOWN:g} s cooldown over your Cooldown Recovery; a press under the button cap) "
+                f"Intimidates the boss for {duration:g} s: {up:.0%} of the fight"
+                + (f", {down:.1%} of presses lost to every Brute being fallen ({fall_how})" if down > 0 else "")
+                + (f". If each press Commands another Brute whose cooldown is up (UNVERIFIED), {brutes:g} Brutes give "
+                   f"{other:.0%}" if other > up else "")
+                + ". The Brutes are melee, so the boss is taken to be in its 4 m (MEDIUM); the minion's own Skill Effect "
+                  "Duration isn't counted (an undercount)")
+
+
+# Puppet Master (MECHB30, PATCH_CHECK H4-3). KeywordPopups PuppetMaster: "a stacking Buff which grants: 10% increased
+# Skill Speed with Command Skills, 10% reduced Movement Speed Penalty with Command Skills, Minions deal 10% increased
+# damage with Command Skills, Minions have 2% increased Movement Speed, Minions have 3% increased Skill Speed. Each stack
+# has an independent duration of 8 seconds. Maximum 5 stacks." Its sources (game files 26476662, the stats
+# surpassing_chance_%_to_gain_1_puppeteer_stack_on_using_command_skill, max_puppet_master_stacks_+,
+# puppet_master_duration_+%, puppet_master_effect_+%): the tree's twenty "Puppet Master chance" passives (Puppetmaster1-20:
+# 10-35% chance, +1 stack, 25% duration, 15-20% effect), the Delirium anoint Replenishing Horde (25%), the ring mod
+# GenesisTreeRingMinionPuppetMaster (40-50%), the Kurgal staff suffix (+3-4 stacks, 0.5.3), the Verisium mods
+# AlloyPuppetMasterChance1 / AlloyPuppeteerStacks1. PoB counts none of it: every Puppet Master line in its ModCache has
+# leftover text (never applied) or none. Surpassing Chance (KeywordPopups SurpassChance): once per 100%, then the rest as
+# a chance, so a use gives chance / 100 stacks on average.
+# The rate: a build that takes Puppet Master presses its Commands to feed it (a play strategy, shown with and without
+# it): each Command its minions have, on its own cooldown over your Cooldown Recovery (its cast a floor), the game's
+# cooldowns below (GrantedEffectsPerLevel; the minion each comes from by its GrantedEffect id). Stacks held = uses/s x
+# stacks a use x duration (independent durations: Little's law), capped at the maximum. No Command, or no chance line: 0
+# with a note. Counted: the minions' 3% increased Skill Speed a stack (PoB's "Minions have N% increased Skill Speed",
+# scaled by the effect lines). Not counted (labelled): the Command Skills' own 10% Skill Speed / minion damage (the
+# Commands are scored apart, an undercount), the movement lines (no damage), presses lost while every minion of a kind
+# is fallen, and the Commands of djinns (MECH-A's), Mirror Breaker, Mad Flight and Death From Above, whose minions this
+# table doesn't map (an undercount), and Sandblast / Ruzhan's Brand (no cooldown: their rate is the presses, not modelled).
+# Whether pressing a Command again while one minion's cooldown runs uses another minion: UNVERIFIED, so one use a
+# cooldown per Command (the lower reading).
+PUPPET_SECONDS = 8.0  # KeywordPopups PuppetMaster: "an independent duration of 8 seconds"
+PUPPET_STACKS = 5  # "Maximum 5 stacks"
+PUPPET_SKILL_SPEED = 3.0  # "Minions have 3% increased Skill Speed" a stack
+COMMANDS = {  # minion skill (a substring of its name): [(Command, cooldown s, cast s)] (GrantedEffects / PerLevel 26476662)
+    "Skeletal Reaver": [("Enrage", 4.0, 1.0)],
+    "Skeletal Sniper": [("Gas Arrow", 6.0, 1.0)],
+    "Skeletal Storm Mage": [(DEATH_STORM, DEATH_STORM_COOLDOWN, DEATH_STORM_CAST)],
+    "Skeletal Arsonist": [("Explosive Demise", EXPLOSIVE_DEMISE_COOLDOWN, 1.0)],
+    "Skeletal Frost Mage": [("Ice Bomb", 8.0, 1.25), ("Ice Armour", 12.0, 1.0)],
+    SKELETAL_BRUTE: [("Shattering Roar", SHATTERING_ROAR_COOLDOWN, SHATTERING_ROAR_CAST)],
+    "Azmerian Wolf": [("Eternal Hunt", 15.0, 4.0)],
+}
+PUPPET_CHANCE = re.compile(r"(\d+(?:\.\d+)?)% surpassing chance to gain a puppet master stack whenever you use a command "
+                           r"skill", re.I)
+PUPPET_MAX = re.compile(r"\+(\d+) maximum stacks? of puppet master", re.I)
+PUPPET_DURATION = re.compile(r"(\d+(?:\.\d+)?)% (increased|reduced) duration of each puppet master stack", re.I)
+PUPPET_EFFECT = re.compile(r"(\d+(?:\.\d+)?)% (increased|reduced) effect of puppet master", re.I)
+
+
+def command_uses(skills: list[Skill]) -> tuple[float, list[str]]:
+    """(Command uses a second with every Command of the build's minions pressed on its cooldown, the parts)."""
+    total, parts, seen = 0.0, [], set()
+    for skill in skills:
+        if not skill.summon or not number(skill.summon.get("limit")):
+            continue
+        for minion, commands in COMMANDS.items():
+            if minion not in skill.name or minion in seen:
+                continue
+            seen.add(minion)
+            for name, cooldown, cast in commands:
+                every = max(cooldown / (skill.cooldown_recovery or 1.0), cast)
+                total += 1.0 / every
+                parts.append(f"{name} every {every:.3g} s")
+    return total, parts
+
+
+def _summed(pattern: re.Pattern, texts: list[str], signed: bool = False) -> float:
+    total = 0.0
+    for text in texts:
+        for m in pattern.finditer(text):
+            total += float(m.group(1)) * (-1 if signed and m.group(2).lower() == "reduced" else 1)
+    return total
+
+
+def puppet_master_model(skills: list[Skill], texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Puppet Master: the minions' Skill Speed at the stacks the build's Commands keep up."""
+    chance = _summed(PUPPET_CHANCE, texts)
+    if chance <= 0:
+        return [], []
+    uses, parts = command_uses(skills)
+    label = "Puppet Master (stacks from your Commands)"
+    if uses <= 0:
+        return [], [{"label": label, "value": 0, "confidence": "MEDIUM",
+                     "basis": f"{chance:g}% Surpassing Chance a Command, but no minion here has a Command this model "
+                              "maps (djinns, Mirror Breaker, Mad Flight, Death From Above aren't mapped): 0, not a flat guess"}]
+    most = PUPPET_STACKS + _summed(PUPPET_MAX, texts)
+    duration = PUPPET_SECONDS * max(0.0, 1 + _summed(PUPPET_DURATION, texts, True) / 100)
+    effect = max(0.0, 1 + _summed(PUPPET_EFFECT, texts, True) / 100)
+    stacks = min(most, uses * chance / 100 * duration)
+    speed = PUPPET_SKILL_SPEED * stacks * effect
+    basis = (f"{uses:.3f} Command uses/s ({', '.join(parts)}: each pressed on its cooldown over your Cooldown Recovery, "
+             f"one use a cooldown, UNVERIFIED for several minions) x {chance:g}% Surpassing Chance x {duration:g} s a "
+             f"stack: {stacks:.2f} of {most:g} stacks held on average; x {PUPPET_SKILL_SPEED:g}% Skill Speed x "
+             f"{effect:.2f} effect = Minions have {speed:.1f}% increased Skill Speed. Not counted: the Commands' own 10% "
+             "Skill Speed and minion damage a stack, movement, presses lost while minions are fallen (labelled)")
+    note = {"label": label, "value": round(speed, 2), "basis": basis, "confidence": "MEDIUM",
+            "play": (f"Press your Commands on cooldown to keep Puppet Master up: with it {stacks:.1f} stacks (+{speed:.1f}% "
+                     f"minion Skill Speed), without it 0")}
+    return ([line("Minions have 1% increased Skill Speed", speed)] if speed > 0 else []), [note]
+
+
 MINION_TYPES = {"Minion", "CreatesMinion"}
 
 
@@ -4359,6 +4499,51 @@ def eternal_hunt_model(hunt: dict, player_dps: float, wolf_dps: float) -> tuple[
                      f"({ETERNAL_HUNT_HITTING} wolves hitting the boss), +{max(one, 0.0):,.1f} DPS with 1 wolf, "
                      f"+{max(seven, 0.0):,.1f} DPS with all {ETERNAL_HUNT_WOLVES}; without it +0.")}
     return dps, ([added_input("EternalHunt", dps)] if dps > 0 else []), [note]
+
+
+# Inevitable Agony (MECHB30, PATCH_CHECK H1-4; plans/term-agony.md, PLANS5): Chronomancer's Inevitability grants it
+# (ActiveSkills inevitable_agony): "Debuff all targets in an area, causing a portion of Damage they take from Hits to be
+# tracked by the Debuff. When the debuff's duration expires or can kill the target, the target loses life equal to that
+# tracked damage all at once"; curse_pain_synchronisation_base_recorded_damage_%_to_apply 25, base_skill_effect_duration
+# 12000, cooldown 2 s (1 stored use), cast 0.7 s (game files 26476662; PoB's InevitableAgonyPlayer has the same numbers;
+# poe2db, 12 Nov: 25% (0.5.0 cut it from 50%), 12 s, 2 s, "no longer a Curse"). PoB has no statMap and no calc code for
+# the stat (PLANS5: grep pain_synchron over Modules: none), so its damage is 0.
+# Counted: 25% of the main skill's hit damage on the boss (PoB's TotalDPS: hits after the boss's mitigation, as "Damage
+# they take"; the Life loss isn't mitigated again), the debuff kept up by one press each time it expires (its duration
+# with the build's modifiers, the cooldown a floor: a play strategy under the button cap, Assumptions' item_presses);
+# its pop when it "can kill the target" means none is lost at the fight's end. The press costs the main skill its cast
+# time a period (0 when a minion is the main skill), and a net loss isn't pressed (0). Not counted (labelled): other
+# skills' and minions' hits beside a player main skill (an undercount), recasting before it expires (whether that pops,
+# refreshes or stacks it: UNVERIFIED), its Cull at the Culling Strike threshold. PoB's stat set still carries
+# baseFlags.curse (stale): our curse model goes by the AppliesCurse type, which it lacks, so it isn't charged as a curse.
+INEVITABLE_AGONY = "Inevitable Agony"
+AGONY_SHARE = 0.25  # curse_pain_synchronisation_base_recorded_damage_%_to_apply 25
+AGONY_SECONDS = 12.0  # base_skill_effect_duration 12000
+AGONY_COOLDOWN = 2.0  # s (GrantedEffectsPerLevel Cooldown 2000)
+AGONY_CAST = 0.7  # s
+
+
+def inevitable_agony_model(hit_dps: float, player_dps: float, duration: float = AGONY_SECONDS,
+                           cast: float = AGONY_CAST) -> tuple[float, float, list[dict], list[dict]]:
+    """(added DPS, presses a second, mods, notes) for Inevitable Agony. `hit_dps`: the main skill's hit DPS on the boss
+    (PoB's TotalDPS, or the minion's); `player_dps`: the main skill's DPS a press costs time from (0 for a minion main)."""
+    label = "Inevitable Agony (25% of your hits on the boss as Life loss)"
+    if hit_dps <= 0:
+        return 0.0, 0.0, [], [{"label": label, "value": 0, "confidence": "MEDIUM",
+                               "basis": "the main skill deals no hit damage for the debuff to track (0)"}]
+    period = max(duration or AGONY_SECONDS, AGONY_COOLDOWN, cast)
+    share = cast / period if player_dps > 0 else 0.0
+    dps = AGONY_SHARE * hit_dps * (1 - share) - player_dps * share
+    basis = (f"one press every {period:.3g} s (when the debuff expires: its {duration or AGONY_SECONDS:g} s duration with "
+             f"your modifiers) keeps it on the boss; {AGONY_SHARE:.0%} of the main skill's {hit_dps:,.0f} hit DPS"
+             + (f", less its {cast:g} s cast ({share:.1%} of the main skill's time, {player_dps:,.0f} DPS)" if share else "")
+             + f": {dps:+,.1f} DPS. Not counted: other skills' hits beside a player main skill, a recast before it "
+               "expires (UNVERIFIED), its Cull")
+    if dps <= 0:
+        return 0.0, 0.0, [], [{"label": label, "value": 0, "basis": basis + ": a net loss, not pressed", "confidence": "MEDIUM"}]
+    note = {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "MEDIUM",
+            "play": f"Cast Inevitable Agony each time it expires (every {period:.3g} s): with it +{dps:,.1f} DPS, without it +0"}
+    return dps, 1.0 / period, [added_input("InevitableAgony", dps)], [note]
 
 # Heavy Stuns of the boss (heavy_stun_rate) ------------------------------------------------------------------------------
 # The game's keyword text (KeywordPopups HeavyStun, Stun, Cold; build 26476662): hits build up the target's Stun bar by

@@ -479,6 +479,26 @@ def eternal_hunt(build: Build, main: models.Skill | None) -> tuple[float, list[d
             return models.eternal_hunt_model(hunt, player, number(hunt.get("baseDPS")) if counted else 0.0)
     return 0.0, [], []
 
+
+def inevitable_agony(build: Build, main: models.Skill | None) -> tuple[float, float, list[dict], list[dict]]:
+    """(added DPS, presses a second, mods, notes) for Chronomancer's Inevitable Agony (models.inevitable_agony_model,
+    MECHB30): the main skill's hit DPS (PoB's TotalDPS, the minion's for a minion main skill), the debuff's duration with
+    the build's modifiers and its cast from its useRates row."""
+    for group in build.groups():
+        if not group["enabled"]:
+            continue
+        for n, skill in enumerate(group["skills"], 1):
+            if skill["name"] != models.INEVITABLE_AGONY or skill.get("disabled"):
+                continue
+            row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+            minion = main is not None and bool(main.summon)
+            stats = build.call("stats", fields=HUNT_FIELDS + ["Minion.TotalDPS"])
+            hit = number(stats.get("Minion.TotalDPS" if minion else "TotalDPS"))
+            player = 0.0 if minion else per_second(stats)
+            return models.inevitable_agony_model(hit, player, number(row.get("duration")) or models.AGONY_SECONDS,
+                                                 number(row.get("castTime")) or models.AGONY_CAST)
+    return 0.0, 0.0, [], []
+
 # What each Warcry Empowers, by its own game text (MECH65, AUDIT29 A29-4; ActiveSkills 26476662 descriptions):
 # KeywordPopups Warcry says Warcries "Empower your subsequent Melee Attacks", but the skills' own texts differ: Arctic
 # Howl "Empowers your attacks" (and Slams), but only "If an enemy is Frozen or a Frozen enemy is Hit"; Seismic Cry
@@ -1166,9 +1186,18 @@ class Assumptions:
         hand_notes += spirit_notes
         for note in spirit_notes:  # (PoB's own one-spirit entry, where its group is in Full DPS, out)
             build.objective.entry_scales.update(note.get("full_dps") or {})
+        puppet_mods, puppet_notes = models.puppet_master_model(found, [e["text"] for e in source_lines])  # (MECHB30)
+        hand_mods, hand_notes = hand_mods + puppet_mods, hand_notes + puppet_notes
+        agony, agony_rate, agony_mods, agony_notes = inevitable_agony(build, main)  # (MECHB30: PoB scores it 0)
+        hand_mods, hand_notes = hand_mods + agony_mods, hand_notes + agony_notes
+        if agony_rate > 0:  # (a press: the button cap counts it, as Bastion of Light's taps: models.ITEM_PRESSES)
+            presses = getattr(build, models.ITEM_PRESSES, None)
+            if isinstance(presses, dict):
+                presses[models.INEVITABLE_AGONY] = (agony_rate, agony_notes[0]["play"])
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
-                                   "Battershout": shout, "Blood Hunt": blood, "Ancestral Spirits": spirits})
+                                   "Battershout": shout, "Blood Hunt": blood, "Ancestral Spirits": spirits,
+                                   "Inevitable Agony": agony})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.
