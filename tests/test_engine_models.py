@@ -3019,3 +3019,21 @@ def test_second_wind_three_recovers_life_per_second_of_its_skills_cooldown(engin
     got, how = hook.second_wind_life(life, "Spark", 1.0)
     print("PROBE second wind", got, how, life)
     assert 0 < got <= 0.01 * life + 1e-6 and "Second Wind III" in how and "cooldown" in how
+
+
+def test_temporal_rift_gives_back_its_share_of_the_mana_the_build_cannot_pay(engine):
+    """MECHC29 (the manager, 15 Nov 13:14): the bare Spark skeleton can't pay for its spell; Temporal Rift's reset to 4 s
+    ago gives back min(1, 4 s x its uses) of that net Mana loss as ManaRiftRecovery, at its own cooldown's rate."""
+    from builder.search.assumptions import Assumptions, temporal_rift_uses
+
+    search = spark_with(engine, [])
+    build = search.build
+    hook = Assumptions(build)
+    hook.life_mana_income(build.call("activeSkills")["skills"], "Spark")
+    assert build.recovery_sources.get("ManaRiftRecovery", 0.0) == 0.0  # (no Temporal Rift)
+    build.call("addSkillGroup", text="Temporal Rift 20/0 1")
+    uses = temporal_rift_uses(build)
+    notes = hook.life_mana_income(build.call("activeSkills")["skills"], "Spark")
+    print("PROBE rift", uses, build.recovery_sources.get("ManaRiftRecovery"), notes[:1])
+    assert uses is not None and uses[0] > 0
+    assert build.recovery_sources["ManaRiftRecovery"] > 0

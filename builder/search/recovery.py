@@ -63,9 +63,10 @@ from dataclasses import dataclass, field
 FIELDS = {
     "Life": ("LifeOnKillRecovery", "LifeRemnantRecovery", "CharmLifeRecoveryRate", "LifeOnEventRecovery",
              "LifeOnConsumeRecovery", "LifePreventedRecoup", "LifeFlameLeechRecovery",
-             "LifeFlaskDrain"),  # (MECHC26: Uhtred's Chalice's Life loss, NEGATIVE: flasks.flask_life_drain)
+             "LifeFlaskDrain",  # (MECHC26: Uhtred's Chalice's Life loss, NEGATIVE: flasks.flask_life_drain)
+             "LifeRiftRecovery"),  # (MECHC29: Temporal Rift's reset to 4 s ago, rift_income)
     "Mana": ("ManaOnKillRecovery", "ManaRemnantRecovery", "CharmManaRecoveryRate", "ManaOnEventRecovery",
-             "ManaOnConsumeRecovery", "ManaFlameLeechRecovery"),
+             "ManaOnConsumeRecovery", "ManaFlameLeechRecovery", "ManaRiftRecovery"),
     # (MECHC17) Energy Shield on events: "Regenerate N% of maximum Energy Shield over 1 second when Stunned" (hit_income).
     # For SEARCH: objective.RECOVERY_POOLS["EnergyShield"] doesn't read it yet
     "EnergyShield": ("EnergyShieldOnEventRecovery", "EnergyShieldPreventedRecoup",  # (MECHC21: Scarred Faith's)
@@ -73,7 +74,8 @@ FIELDS = {
                      # flasks.es_recovery_per_second, at the flask's own use rate)
                      "EnergyShieldFlaskRecovery",
                      "EnergyShieldGhostDanceRegen",  # (MECHC27: Ghost Dance's regeneration, ghost_dance_income)
-                     "EnergyShieldSacrificed"),  # (MECHC27, NEGATIVE: Eldritch Empowerment's sacrifice, sacrifice_income)
+                     "EnergyShieldSacrificed",  # (MECHC27, NEGATIVE: Eldritch Empowerment's sacrifice, sacrifice_income)
+                     "EnergyShieldRiftRecovery"),  # (MECHC29: Temporal Rift, rift_income)
 }
 # The boss's Leech resistance (MECHC26; PATCH_CHECK H2-1, an OVERCOUNT before: neither PoB nor we applied any), a
 # NEGATIVE field per pool: what PoB's {pool}LeechRate holds that the boss resists (leech_resisted). In FIELDS, so the
@@ -912,3 +914,44 @@ def demon_form_cycle(life: float, net: float, per_stack: float, cap: float | Non
         f"a stint of {t:.1f} s from {entry:,.0f} Life ({end}), then the {cooldown:g} s cooldown out of the form "
         f"(Life back at {net:,.1f}/s): in the form {share:.0%} of the fight at {area / t if t else 0:.1f} Demonflame on "
         f"average")
+
+
+# Temporal Rift's reset (MECHC29; the manager, 15 Nov 13:14, from GEM12: "Temporal Rift resets Life, Mana and Energy
+# Shield to their values 4 s ago (16 snapshots x 250 ms) ... a recovery effect for your recovery floors: model it with its
+# cooldown and the build's use rate (no flat rate)"). The game (ActiveSkills temporal_rift): "Cast the Spell to return to
+# the oldest afterimage, teleporting to that location and resetting your Life, Mana and Energy Shield to the values they
+# had at the time"; PoB other.lua: temporal_rift_snapshot_interval 250 (the 16 snapshots: the manager's / GEM12's number,
+# 4 s = assumptions.PHASED_DELAY); 0.3.0 fixed the reset of overcapped pools; 0.5.0 cast time 0.1 s (grep_notes --history,
+# 0.5.0 the newest). In the steady fight a pool whose recovery keeps up with what takes it sits full, now and 4 s ago:
+# the reset gives nothing. A pool losing a net d a second is d x 4 s lower than 4 s ago, so each use gives that back:
+# used u times a second it cancels min(1, 4 s x u) of the net drain (uses on its cooldown are periodic). The net drains:
+# Life's from life_flows (the boss's landed hits after Energy Shield, Life costs, the build's own loss, against Life's
+# recovery); Mana's costs (and Mind over Matter's share of hits) against refill_rate; Energy Shield's share of the hits
+# against its recovery and Recharge. Timing a use right after a big hit (more than the steady drift) isn't counted (an
+# undercount, labelled); nor is a reset that lowers a pool that rose (the player presses it when it helps).
+RIFT_SECONDS = 4.0
+
+
+def rift_income(income: Income, stats: dict, uses: float, how: str) -> None:
+    """Temporal Rift's reset as LifeRiftRecovery / ManaRiftRecovery / EnergyShieldRiftRecovery (comment above). `stats`:
+    PoB's recovery outputs (objective.RECOVERY_INPUTS, Life, LifePerSecondCost, EnergyShield) with the search's added
+    recovery fields; `uses`: Temporal Rift's uses a second."""
+    from builder.search import objective
+
+    share = min(1.0, RIFT_SECONDS * max(uses, 0.0))
+    if share <= 0:
+        return
+    back, hit_life, cost, steady, _ = life_flows(stats)
+    life = hit_life + cost + steady - back
+    taken, hits, _ = objective.boss_taken(stats)
+    es_in = 0.0
+    if _num(stats.get("EnergyShield")) > 0:
+        es_in = sum(v * (1 - min(max(_num(stats.get(f"{t}EnergyShieldBypass")), 0.0), 100.0) / 100) for t, v in taken.items())
+    es = es_in - refill_rate(stats, "EnergyShield")[0] - (objective.es_recharge(stats, hits)[0] if es_in > 0 else 0.0)
+    mom = min(max(_num(stats.get("sharedMindOverMatter")), 0.0), 100.0) / 100
+    mana = max(_num(stats.get("ManaPerSecondCost")), 0.0) + mom * sum(taken.values()) - refill_rate(stats, "Mana")[0]
+    for pool, drain in (("Life", life), ("Mana", mana), ("EnergyShield", es)):
+        if drain > 0:
+            income.add(f"{pool}RiftRecovery", share * drain,
+                       f"Temporal Rift ({how}): {share:.0%} of {pool}'s net loss of {drain:,.1f}/s back (reset to {RIFT_SECONDS:g} "
+                       f"s ago)")

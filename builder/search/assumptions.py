@@ -615,16 +615,26 @@ def ward_shares(build: Build) -> tuple[float, float, str]:
 TEMPORAL_RIFT, PHASED_DELAY = "Temporal Rift", 4.0
 
 
-def phased_form_kept(build: Build) -> tuple[float, str]:
-    """(share of Phased Form's delayed damage that still lands, how): 1 without Temporal Rift."""
+def temporal_rift_uses(build: Build) -> tuple[float, str] | None:
+    """(Temporal Rift's uses a second, how), None without it: its group's rate (on its cooldown, else the search's chosen
+    press rate, else 0). Phased Form's clearing (phased_form_kept) and the pools' reset (recovery.rift_income, MECHC29)."""
     groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
     index = next((g["index"] for g in groups for n in g.get("gems") or []
                   if n["name"] == TEMPORAL_RIFT and n.get("enabled", True)), None)
     if index is None:
-        return 1.0, "no Temporal Rift: all of the delayed damage lands"
+        return None
     choices = models.press_choices(build)
     rate = next((r for r in build.call("useRates", indices=[index])["rates"]), {})
     uses, how, _ = models.press_use_rate(rate, models.press_choice(rate, choices))
+    return uses, how
+
+
+def phased_form_kept(build: Build) -> tuple[float, str]:
+    """(share of Phased Form's delayed damage that still lands, how): 1 without Temporal Rift."""
+    found = temporal_rift_uses(build)
+    if found is None:
+        return 1.0, "no Temporal Rift: all of the delayed damage lands"
+    uses, how = found
     cleared = min(1.0, PHASED_DELAY * uses)
     return 1 - cleared, (f"Temporal Rift {how}: each use removes the past {PHASED_DELAY:g} s of Phased Form's delayed "
                          f"damage, {cleared:.0%} of it (MEDIUM)")
@@ -2796,6 +2806,16 @@ class Assumptions:
             recovery.flame_income(income, {**stats, **leech_stats}, REMNANT_SOURCES[BREACH][0] * multiplier,
                                   breach["remnantGain"], texts,
                                   "one per 1.21 s" + (f", {multiplier_how}" if multiplier_how else ""))
+        if hasattr(build, "groups") and (rift := temporal_rift_uses(build)) is not None and rift[0] > 0:
+            # (MECHC29; the manager 13:14) Temporal Rift's reset of Life / Mana / ES to 4 s ago, on the net drains with
+            # the sources counted so far
+            from builder.search import objective
+
+            added = getattr(build, "added_stats", None)
+            seen = {**build.call("stats", fields=sorted(set(objective.RECOVERY_INPUTS) | {
+                "Life", "LifePerSecondCost", "ManaPerSecondCost", "EnergyShield", "ChaosInoculation"})),
+                    **(added() if callable(added) else {}), **income.rates}
+            recovery.rift_income(income, seen, rift[0], rift[1])
         build.recovery_sources = {**income.rates, flasks.ES_STARTS_FIELD: starts}
         return recovery.note(income) + leech
 

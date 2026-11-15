@@ -1197,3 +1197,25 @@ def test_demon_form_cycle_keeps_the_form_only_where_recovery_outpaces_the_demonf
     assert "non-Spell" in how_cut
     assert recovery.demon_form_cycle(4000, -50, per, 10, 15)[0] == 0.0  # (Life never refills between stints)
     assert recovery.demon_form_cycle(1, 200, per, 10, 15)[0] == 0.0  # (Chaos Inoculation: under 2 Life)
+
+
+def test_temporal_rift_cancels_its_share_of_each_pools_net_drain(monkeypatch):
+    """MECHC29 (the manager, 15 Nov 13:14): Temporal Rift resets Life, Mana and Energy Shield to 4 s ago. A pool that
+    keeps up sits full (nothing back); one losing a net d a second gets d x 4 s back a use: min(1, 4 x uses) of d."""
+    from builder.search import objective
+
+    monkeypatch.setattr(recovery, "life_flows", lambda stats: (50.0, 80.0, 10.0, 0.0, []))  # (90 out, 50 back: net 40)
+    monkeypatch.setattr(objective, "boss_taken", lambda stats: ({"Physical": 100.0}, 0.5, 0.0))
+    monkeypatch.setattr(recovery, "refill_rate", lambda stats, pool="Mana": (30.0, "") if pool == "Mana" else (200.0, ""))
+    monkeypatch.setattr(objective, "es_recharge", lambda stats, hits: (0.0, 0.0))
+    income = recovery.Income()
+    recovery.rift_income(income, {"ManaPerSecondCost": 20.0, "EnergyShield": 0}, 0.2, "its 5 s cooldown")
+    assert income.rates["LifeRiftRecovery"] == pytest.approx(0.8 * 40.0)  # (4 s x 0.2/s)
+    assert income.rates["ManaRiftRecovery"] == 0.0  # (Mana refills faster than it's spent: full, nothing back)
+    assert income.rates["EnergyShieldRiftRecovery"] == 0.0  # (no Energy Shield)
+    income = recovery.Income()
+    recovery.rift_income(income, {"ManaPerSecondCost": 50.0, "EnergyShield": 0}, 1.0, "pressed")
+    assert income.rates["ManaRiftRecovery"] == pytest.approx(20.0)  # (at most the whole net drain)
+    income = recovery.Income()
+    recovery.rift_income(income, {"ManaPerSecondCost": 50.0}, 0.0, "not used")
+    assert sum(income.rates.values()) == 0
