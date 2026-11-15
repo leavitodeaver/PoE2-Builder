@@ -3274,10 +3274,33 @@ end
 
 -- Configuration ---------------------------------------------------------------------------------
 
+-- (MECH78, MA-7) A config input "bridgeCondition<Name>" sets PoB's Condition:<Name> alone (in combat, as PoB's own boxes
+-- do), for a PoB box that also sets something the tool works out itself: Whirlwind's element box (whirlwindBuffCold etc.)
+-- also makes the boss Chilled / Ignited / Shocked outright, while the ailment rows give those their real shares.
+local function installBridgeConditions()
+	local configTab = build.configTab
+	if rawget(configTab, "bridgeConditionsWrapped") then
+		return
+	end
+	local original = configTab.BuildModList
+	configTab.BuildModList = function(self, ...)
+		local results = { original(self, ...) }
+		for var, value in pairs(self.input or { }) do
+			local name = type(var) == "string" and var:match("^bridgeCondition(%w+)$")
+			if name and value then
+				self.modList:NewMod("Condition:" .. name, "FLAG", true, "Config", { type = "Condition", var = "Combat" })
+			end
+		end
+		return unpack(results)
+	end
+	configTab.bridgeConditionsWrapped = true
+end
+
 -- Set config options (PoB's Configuration tab), e.g. { usePowerCharges = true }. A value of
 -- false or "nil" clears the option back to its default.
 function bridge.setConfig(args)
 	local configTab = build.configTab
+	installBridgeConditions()
 	for var, value in pairs(args.vars or { }) do
 		if value == false or value == "nil" then
 			configTab.input[var] = nil

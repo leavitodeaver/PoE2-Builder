@@ -2228,7 +2228,8 @@ def test_supports_that_consume_an_ailment_on_the_hit_count_as_consumers():
     assert all(discharge in c.CONSUME_STATS[a] for a in ("Freeze", "Shock", "Ignite"))
     assert "pillar_of_flame_consume_ignite_to_create_X_pillars" in c.CONSUME_STATS["Ignite"]
     assert "consume_enemy_freeze_to_trigger_morrigan_ward" in c.CONSUME_STATS["Freeze"]
-    assert "lightning_conduit_x_additional_strikes_if_consumed_a_shock" in c.CONSUME_STATS["Shock"]
+    # (MECH78, K2-7: Lightning Conduit no longer consumes Shock since 0.3.0, and no current stat set carries the id)
+    assert "lightning_conduit_x_additional_strikes_if_consumed_a_shock" not in c.CONSUME_STATS["Shock"]
     assert c.CONSUME_TEXT.search("causing it to Consume Elemental Ailments on hit")
 
 

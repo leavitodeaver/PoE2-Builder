@@ -1562,7 +1562,13 @@ DEBUFFS = {  # var: (the verb, the participle)
     "conditionEnemyUnnerved": ("unnerve", "unnerved"),
     "conditionEnemyCoveredInAsh": ("cover", "covered in ash"),
     "conditionEnemyCoveredInFrost": ("cover", "covered in frost"),
+    # (MECH78, PATCH_CHECK MB-15) KeywordPopups Debilitate: "inflicts 20% reduced movement speed and 10% reduced damage
+    # dealt. Unless specified, Debilitate lasts 1 second." PoB's box (conditionEnemyDebilitated) was never set.
+    "conditionEnemyDebilitated": ("debilitate", "debilitated"),
 }
+DEBUFF_DURATIONS = {"conditionEnemyDebilitated": 1.0}  # (each debuff's own default where its definition gives one)
+# "Warcries Debilitate Enemies" (PoB: DebilitateChance 100): the trigger is the line's subject, before the verb
+WARCRIES_SUBJECT = re.compile(r"^\s*warcries\s+debilitate\b", re.I)
 DEBUFF_NOT_SOURCE = re.compile(r"\b(?:increased|reduced|more|less)\b|\bagainst\b|\bcannot\b|immun|\byou are (?!burning)|"
                                r"\ballies\b|minions|companions|summoned|grants skill|\bif you'?ve\b", re.I)
 
@@ -1599,8 +1605,13 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
     chance = float(m.group(1)) / 100 if m.group(1) else 1.0
     when = (m.group(2) if m.group(2) is not None else f"{m.group(3)} {m.group(4)}").lower()
     d = re.search(r"for (\d+(?:\.\d+)?) seconds?", when)
-    duration = (float(d.group(1)) if d else DEBUFF_DURATION) * models.duration_scale(lines, DEBUFFS[var][0])
-    every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
+    duration = ((float(d.group(1)) if d else DEBUFF_DURATIONS.get(var, DEBUFF_DURATION))
+                * models.duration_scale(lines, DEBUFFS[var][0]))
+    every = bosses.benefit_skill_time(stats)
+    if WARCRIES_SUBJECT.search(text) and not when.strip():  # (MECH78: each Warcry the build uses, stats["_events"])
+        rate, how = _named_event("on warcry", stats) or (0.0, "the build's Warcries weren't read")
+        up = min(1.0, rate * duration)
+        return up, f"{rate:.3f} Warcries/s ({how}), {duration:g} s each: {up:.0%} up"  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     if "presence" in when:
         metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or ""), ""))[0]
         radius = number(stats.get("PresenceRadius")) / 10
@@ -1907,7 +1918,9 @@ def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
         main_types = stats.get("_main_types") or set()
         down, how = 1.0, []
         for text in lines:
-            if not qualifies(text, main_types) or (r := _debuff_source(text, var, lines, stats)) is None:
+            # ("Warcries Debilitate Enemies" is the Warcries' own effect, not a line for a Warcry main skill only)
+            if (not qualifies(text, main_types) and not WARCRIES_SUBJECT.search(text)) or (
+                    r := _debuff_source(text, var, lines, stats)) is None:
                 continue
             down *= 1 - r[0]
             how.append(f"{text[:60]} ({r[1]})")
@@ -2539,8 +2552,8 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
 # supports that make its hit consume Freeze, Shock or Ignite (checked: every Stats.json id holding "consum" and an ailment
 # word, game 26476662, 45 ids, and their carriers in PoB's skill data; AUDIT22 A22-2 added the ones that consume on the
 # hit and then do something else with it: Elemental Discharge, Flame Pillar / His Winnowing Flame, Shocking Rift,
-# Morrigan's Refuge, Glacial Cascade's last spike, Lightning Conduit. Shocking Rift and Lightning Conduit consuming the
-# boss's own Shock: MEDIUM. The rest scale by Charges, Incision, Heat, flasks or corpses, or are Bleed / Poison stats,
+# Morrigan's Refuge, Glacial Cascade's last spike, Lightning Conduit (out since MECH78: below). Shocking Rift consuming
+# the boss's own Shock: MEDIUM. The rest scale by Charges, Incision, Heat, flasks or corpses, or are Bleed / Poison stats,
 # not modelled here). Consumed, the ailment ends on the main skill's next hit and the boss is immune to it for 1 s
 # (models.CONSUME_IMMUNE): the boss carries it last / (last + 1 s + the wait to reapply it).
 CONSUME_STATS = {
@@ -2560,8 +2573,13 @@ CONSUME_STATS = {
     # and the Raven's adds are "no known rate" placeholders; Atziri's wave is a lower bound) could give it 3 Shocked
     # enemies, but no source gives a rate, so it counts 0 there too (no source = 0, noted here; AUDIT34 A34-19).
     # In GrantedEffectStatSets the two are on SupportShockingRiftPlayer alone: checked 26476662's stat sets.)
-    "Shock": ("lightning_conduit_x_additional_strikes_if_consumed_a_shock",
-              "consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge", "base_consume_enemy_shock_on_hit",
+    # (MECH78, PATCH_CHECK K2-7: lightning_conduit_x_additional_strikes_if_consumed_a_shock is out. 0.3.0: "Lightning
+    # Conduit: No longer consumes Shocks from targets hit, but now has a 6 second Cooldown" (no later line undoes it);
+    # checked: no GrantedEffectStatSet of 26476662 carries the id (LightningConduitPlayer's are range_backflip...,
+    # lightning_conduit_damage_+%_final_per_5%_increased_damage_taken_from_shock, never_shock, ...), and its ActiveSkills
+    # text has no consume: "If there is a Shocked enemy in the target area, additional lightning bolts are distributed".
+    # PoB's data still carries the id, so a group with another consuming gem marked Shock consumed: an UNDERCOUNT.)
+    "Shock": ("consume_ignite_freeze_shock_on_hit_to_trigger_elemental_discharge", "base_consume_enemy_shock_on_hit",
               "consume_enemy_shock_to_gain_damage_+%_final_per_5%_increased_damage_taken_from_shock",
               "damage_+%_final_from_consuming_shock"),
     "Ignite": ("pillar_of_flame_consume_ignite_to_create_X_pillars", "unique_pillar_of_flame_consume_ignite_to_create_X_pillars",
@@ -3223,6 +3241,197 @@ def _drain_ailments(lines: list[str], stats: dict) -> tuple[object, str]:
         return 0.0, ""
     share, how = drain_share(stats)
     return _box(share, f"{DRAIN_AILMENTS}: {how}")
+
+
+# Skills that gain damage as an element from an Elemental Ground in their path (PATCH_CHECK MA-2 / MA-6 / MA-7; MECH78).
+# PoB gates each gain on a box nothing set, so every such skill counted 0 of it (an UNDERCOUNT):
+#   - Eye of Winter (eyeOfWinterCold / Fire / Lightning): "Gains X% of damage as damage of the corresponding Type when
+#     passing over an Elemental Ground Effect or Orb" (eye_of_winter_new.csd, eye_of_winter_damage_%_to_gain_as_element_
+#     per_ground_effect_type); every type it passes counts (0.2.0 bug fix: "rather than [only] the most recent one"), and
+#     Orbs count (0.2.0e: "other elemental orbs like Solar Orb, Orb of Storms or Frost Bomb").
+#   - Twister (twisterCold / ...): "Elemental twisters Gain 50% of damage as damage of the corresponding Type", from
+#     "Passing over Elemental Ground Surfaces or Consuming an elemental Whirlwind" (twister.csd, ActiveSkills twister).
+#   - Whirling Slash / Whirlwind Lance: "A Whirlwind that overlaps an allied Elemental Ground Surface takes on that
+#     element, gaining 50% of damage as the corresponding type and applying the Ground Surface's debuff to enemies inside
+#     the Whirlwind for 8 seconds" (KeywordPopups Whirlwind; 0.4.0: 8 s, was 4). PoB's own box (whirlwindBuffCold etc.)
+#     also sets the boss Chilled / Ignited / Shocked outright, which would hide the ailment rows' real shares (an
+#     OVERCOUNT), so the tool sets only the gain's PoB condition (bridge: "bridgeCondition<Name>" config inputs).
+# Elemental Ground = Shocked, Chilled and Ignited Ground (KeywordPopups ElementalGround). Each element's share is the
+# share of the fight the build's own ground of it is at the boss (conditions.shocked_ground / chilled_ground: the
+# ground made at the boss, so a skill aimed at the boss passes over it; MEDIUM). Ignited Ground: the tool has no model of
+# it yet, so Fire comes only from an Orb or a ring line (an UNDERCOUNT where the build makes Ignited Ground). Eye of
+# Winter's Orbs: each enabled Orb skill beside it (skill type Orb, by its element types; Hydrosphere's two taken as both,
+# UNVERIFIED) at min(1, its uses/s x its duration) (the play: keep one up and fire the Eye through it; MEDIUM). Flame
+# Wall's added Fire is MECH-B's (MA-12). Wind skills (Twister, the Whirlwinds; ActiveSkillType Wind, 0.4.0) also count
+# as boosted by an element from Berek's Grip / Pass / Respite and The Taming ("Wind Skills which can be boosted by
+# Elemental Ground Surfaces count as being boosted by Shocked Ground"; PoB parses none of them), and take ONE element
+# at a time unless "can be boosted by multiple Elemental Ground Surfaces" (The Taming;
+# wind_skills_can_be_empowered_by_multiple_elements: checked, Stats ids holding wind_skill and their Mods / PassiveSkills
+# / GrantedEffectStatSets users: only The Taming's two Mods carry it; poe2db not checked). So a wind skill without it
+# gets one box, its most-held element, at the share any element is held (1 - prod(1 - each)); the gain is the same 50%
+# whichever element, so only the element's own scaling is approximate (MEDIUM). Not counted (UNDERCOUNTS, labelled): a
+# Whirlwind keeping its element 8 s after it leaves the ground, and the ground's debuff it puts on the boss; Twister's
+# elemental Whirlwinds count through the same ground (they take it from the same patch); grounds from skills the tool
+# doesn't model.
+EYE_OF_WINTER = "Eye of Winter"
+TWISTER = "Twister"
+WHIRLWINDS = ("Whirling Slash", "Whirlwind Lance")
+GROUND_ELEMENTS = ("Cold", "Fire", "Lightning")
+ELEMENT_GAIN_VARS = {EYE_OF_WINTER: "eyeOfWinter", TWISTER: "twister",
+                     **dict.fromkeys(WHIRLWINDS, "bridgeConditionWhirlwindBuff")}
+WIND_GROUND_BOOST = re.compile(r"Wind Skills which can be boosted by Elemental Ground Surfaces count\s+as being boosted "
+                               r"by ((?:(?:Ignited|Shocked|Chilled)(?:,\s*|,?\s+and\s+)?)+) Ground", re.I)
+WIND_MULTIPLE = re.compile(r"Wind Skills which can be boosted by Elemental Ground Surfaces can be boosted by multiple "
+                           r"Elemental Ground Surfaces", re.I)
+GROUND_OF = {"Shocked": "Lightning", "Chilled": "Cold", "Ignited": "Fire"}
+
+
+def element_gain_shares(skill: str, stats: dict, texts: list[str], orbs: dict[str, tuple[float, str]] | None = None
+                        ) -> dict[str, tuple[float, str]]:
+    """{element: (share of the fight `skill` holds its gain of that element, how)} (see the note above). `orbs`: Eye of
+    Winter's Orbs by element ({element: (up, how)}); a wind skill without the multiple-element line gets one element."""
+    joined = " ".join(t.strip() for t in texts)
+    ringed = {GROUND_OF[g] for m in WIND_GROUND_BOOST.finditer(joined)
+              for g in re.findall(r"Ignited|Shocked|Chilled", m.group(1), re.I)} if skill != EYE_OF_WINTER else set()
+    grounds = {"Lightning": stats.get("_shocked_ground") or (0.0, ""), "Cold": stats.get("_chilled_ground") or (0.0, ""),
+               "Fire": (0.0, "Ignited Ground isn't modelled yet (an UNDERCOUNT where the build makes it)")}
+    out: dict[str, tuple[float, str]] = {}
+    for element in GROUND_ELEMENTS:
+        ground, ground_how = grounds[element]
+        parts = [f"its {element} ground at the boss {ground:.0%}" + (f" ({ground_how})" if ground_how else "")]
+        off = 1.0 - min(1.0, max(0.0, ground))
+        if element in ringed:
+            off, parts = 0.0, parts + ["an item makes wind skills count as boosted by it: always"]
+        if orbs and element in orbs:
+            up, how = orbs[element]
+            off *= 1.0 - min(1.0, max(0.0, up))
+            parts.append(f"{how}: {up:.0%}")
+        out[element] = (1.0 - off, "; ".join(parts))
+    if skill != EYE_OF_WINTER and not WIND_MULTIPLE.search(joined):
+        held = 1.0
+        for share, _ in out.values():
+            held *= 1.0 - share
+        best = max(GROUND_ELEMENTS, key=lambda e: out[e][0])
+        if out[best][0] > 0:
+            out = {e: ((1.0 - held, out[e][1] + f"; a wind skill holds one element at a time: {best} counted at the "
+                        f"share any element is held, {1.0 - held:.0%}") if e == best
+                       else (0.0, out[e][1] + f"; one element at a time: counted as {best}")) for e in GROUND_ELEMENTS}
+    return out
+
+
+def _element_gain(var: str, element: str) -> Callable[[list[str], dict], tuple[object, str]]:
+    def value(lines: list[str], stats: dict) -> tuple[object, str]:
+        skill = stats.get("_main_skill") or ""
+        if ELEMENT_GAIN_VARS.get(skill) != var:
+            return 0.0, ""
+        share, how = (stats.get("_element_gain") or {}).get(element) or (0.0, "not read")
+        return _box(share, f"{skill} gaining {element} {share:.0%} of the fight ({how})")
+    return value
+
+
+# Enemies in Close Range (PATCH_CHECK MB-16; MECH78): Viciousness's "3% increased Attack Speed per Enemy in Close Range"
+# (attack_speed_+%_per_enemy_in_close_range) is PoB's AtCloseRange x Multiplier:NearbyEnemies (ModParser "per enemy in
+# close range"), and nothing set the count, so it counted 0. The fight is one boss: 1 (with AtCloseRange, which the tool
+# sets for a melee main skill: KeywordPopups CloseRange, "within 2 metres ... Normally, Melee Attacks you make are in
+# Close Range"). Adds near you aren't counted (an UNDERCOUNT for presets with adds). Other readers of the count: none in
+# the current game (checked: Stats ids holding nearby_enem / close_range + enem, 93, and their Mods / PassiveSkills /
+# GrantedEffectStatSets users: only Viciousness counts enemies (Predator's Mark's per_nearby_enemy stat is PoB's
+# MinionPresenceCount); PoB ModCache, uniques and the 0.5 tree: Viciousness's line only; poe2db not checked).
+NEARBY_ENEMY_LINE = re.compile(r"\bper (?:nearby )?enemy in close range\b|\b(?:per|for each) nearby enemy\b", re.I)
+
+
+def _nearby_enemies(lines: list[str], stats: dict) -> tuple[object, str]:
+    if not any(NEARBY_ENEMY_LINE.search(line) for line in lines):
+        return 0, ""
+    return 1, "the fight is one boss, in Close Range for a melee skill (adds near you not counted)"
+
+
+# Poisons inflicted Recently (PATCH_CHECK MB-12; MECH78): "10% increased Poison Duration for each Poison you have inflicted
+# Recently, up to a maximum of 100%" (Escalating Toxins) and other "for each Poison you have inflicted recently" lines are
+# PoB's Multiplier:PoisonAppliedRecently, which nothing set, so they counted 0 (an UNDERCOUNT). The count is the main
+# skill's Poisons in the past 4 s: its hits/s x Poison chance (capped at one a hit) x 4. Other skills' Poisons aren't read
+# (the bridge's ailment rows carry no Poison: an UNDERCOUNT where another skill poisons).
+POISONS_RECENTLY = re.compile(r"for each Poison you have inflicted Recently", re.I)
+
+
+def _poisons_recently(lines: list[str], stats: dict) -> tuple[object, str]:
+    if not any(POISONS_RECENTLY.search(line) for line in lines):
+        return 0, ""
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+    chance = min(number(stats.get("PoisonChancePerHit")) / 100.0, 1.0)
+    count = hits * chance * RECENTLY
+    return count, (f"the main skill's {hits:.2f} hits/s x {chance:.0%} Poison chance x {RECENTLY:g} s = {count:.1f} "
+                   "Poisons (other skills' Poisons not read)")
+
+
+# Open Weakness (PATCH_CHECK MC-1; MECH78): KeywordPopups RevealWeakness: "Revealed Weaknesses ... occupy a total of 45%
+# of their maximum Life (but in random segments). While the enemy's current Life is within a highlighted segment, they
+# are considered to have an Open Weakness." Sources (checked: Stats ids holding "weakness" or "bloodlust" and their
+# Mods / PassiveSkills / GrantedEffectStatSets users, game 26476662): the Amazon's Predatory Instinct
+# (bloodlust_reveal_weakness) and the unique Mod UniqueRevealWeakness1 (unique_reveal_weakness), both "Reveal Weaknesses
+# against Rare and Unique enemies" (stat_descriptions.csd). Readers: Predatory Instinct's "50% more damage against
+# enemies with an Open Weakness" (PoB: Condition EnemyHasOpenWeakness) and In for the Kill's "40% increased Skill Speed
+# / 20% increased Movement Speed while an enemy with an Open Weakness is in your Presence" (OpenWeaknessEnemyPresence);
+# the Soul Eater / recoup uniques' lines PoB doesn't parse. Nothing set either box: they counted 0 (an UNDERCOUNT).
+# The boss carries it while its Life is in the 45%, and the build kills faster there, so its share of the TIME is
+# 0.45 r / (0.45 r + 0.55), r = PoB's Full DPS with both boxes off over on (Conditions._open_weakness, probed): weighed
+# by weigh_uptimes, the headline is the fight's real average, Life / (0.45 Life / on + 0.55 Life / off). The Presence
+# box also needs the boss in your Presence (the build's distance vs its Presence radius). Labelled: the two boxes
+# weighed as independent (a ~2% undercount at most); a Culling Strike ending the fight inside or outside a segment
+# isn't modelled (MEDIUM).
+REVEAL_WEAKNESS = re.compile(r"^Reveal Weaknesses against Rare and Unique enemies$", re.I)
+OPEN_WEAKNESS_LIFE = 0.45  # (KeywordPopups RevealWeakness)
+OPEN_WEAKNESS_VARS = ("conditionEnemyHasOpenWeakness", "conditionOpenWeaknessEnemyPresence")
+
+
+def open_weakness_share(ratio: float) -> float:
+    """Share of the fight's time the boss has an Open Weakness, `ratio` = DPS without it / with it."""
+    ratio = min(max(ratio, 0.0), 1.0)
+    inside = OPEN_WEAKNESS_LIFE * ratio
+    return inside / (inside + 1.0 - OPEN_WEAKNESS_LIFE) if inside > 0 else 0.0
+
+
+def _open_weakness(presence: bool) -> Callable[[list[str], dict], tuple[object, str]]:
+    def value(lines: list[str], stats: dict) -> tuple[object, str]:
+        found = stats.get("_open_weakness")
+        if not found:
+            return 0.0, ""
+        share, how = found
+        if presence:
+            metres = _boss_distance(lines, stats)[0] / 10
+            radius = number(stats.get("PresenceRadius")) / 10
+            if radius < metres:
+                return 0.0, f"the boss {metres:g} m away, outside your {radius:.1f} m Presence: 0"
+        return _box(share, f"the boss with an Open Weakness {share:.0%} of the fight ({how})")
+    return value
+
+
+# Curse Duration expired (PATCH_CHECK MD-8; MECH78): "Your Curses have 20% increased Magnitudes if 50% of Curse Duration
+# expired" (the Impending Doom passive; PoB: MultiplierThreshold CurseExpired >= 50 on the enemy, ModParser "if (%d+)%
+# of curse duration expired") read PoB's multiplierCurseExpiredOnEnemy, which nothing set: 0. Now the threshold at the
+# share of the fight a curse of the build is on the boss AND past it, from models.curse_uses: a curse cast by hand
+# (recast as it ends, or let run out: CURSE_LAPSE) runs its whole duration each time, so it is past t% for (1 - t) of
+# the time it's on; a curse Hexblast detonates is removed at half its duration (models.HEXBLAST_CURSE_NOTE): past 50%
+# for none of it; a curse applied otherwise (on hit, by a trigger, a cursed zone, "forever") is taken as refreshed
+# before it gets there: 0 (UNVERIFIED; an UNDERCOUNT if it isn't). Several curses: the one past it longest (PoB's one
+# multiplier for the boss; MEDIUM).
+CURSE_EXPIRED = re.compile(r"if (\d+)% of Curse Duration expired", re.I)
+
+
+def _curse_expired(lines: list[str], stats: dict) -> tuple[object, str]:
+    thresholds = [int(m.group(1)) for line in lines if (m := CURSE_EXPIRED.search(line))]
+    if not thresholds:
+        return 0, ""
+    t = min(thresholds)
+    best, how = 0.0, "no curse of the build cast by hand runs that long: 0"
+    for use in stats.get("_curse_uses") or ():
+        if use.hexblast or not use.by_hand:
+            continue
+        share = use.share * (1.0 - t / 100.0)
+        if share > best:
+            best, how = share, (f"{use.name} on the boss {use.share:.0%} of the fight, cast by hand for its whole "
+                                f"{use.duration:g} s, so past {t}% of it for {1 - t / 100:.0%} of that")
+    return (t if best >= MIN_UPTIME else 0), how, best
 
 
 def _box(up: float, basis: str) -> tuple[bool, str, float]:
@@ -3907,6 +4116,21 @@ CONDITIONS: list[Condition] = [
     Condition("arcLightningInfused", "Arc Lightning-Infused", value_fn=_arc_infused),  # (MECH77, MA-1)
     Condition("conditionAilmentConsumed", "Consumed an Ailment (Drain Ailments)", value_fn=_drain_ailments,
               fields=("Speed", "HitChance", *models.IMMOBILISE_FIELDS)),  # (MECH77, MA-10)
+    *(Condition(f"{var}{element}", f"{skill} gained {element} (from your {element} ground in its path)",
+                value_fn=_element_gain(var, element), fields=())
+      for skill, var in ((EYE_OF_WINTER, "eyeOfWinter"), (TWISTER, "twister"),
+                         ("Whirling Slash / Whirlwind Lance", "bridgeConditionWhirlwindBuff"))
+      for element in GROUND_ELEMENTS),  # (MECH78, MA-2 / MA-6 / MA-7)
+    Condition("multiplierNearbyEnemies", "Enemies in Close Range (one boss)", value_fn=_nearby_enemies,
+              fields=()),  # (MECH78, MB-16)
+    Condition("multiplierPoisonAppliedRecently", "Poisons inflicted Recently", value_fn=_poisons_recently,
+              fields=("Speed", "HitChance", "PoisonChancePerHit")),  # (MECH78, MB-12)
+    Condition(OPEN_WEAKNESS_VARS[0], "The boss has an Open Weakness (Reveal Weaknesses)", value_fn=_open_weakness(False),
+              fields=()),  # (MECH78, MC-1)
+    Condition(OPEN_WEAKNESS_VARS[1], "An enemy with an Open Weakness in your Presence", value_fn=_open_weakness(True),
+              fields=("PresenceRadius",)),  # (MECH78, MC-1)
+    Condition("multiplierCurseExpiredOnEnemy", "A curse of yours past its threshold of Curse Duration",
+              value_fn=_curse_expired, fields=()),  # (MECH78, MD-8)
     *(Condition(var, f"You {PAST_TENSE[APPLIED_RECENTLY[var]].lower()} an enemy Recently",
                 value_fn=_applied_recently(var), fields=APPLIED_RECENTLY_FIELDS) for var in APPLIED_RECENTLY),  # (MECH76)
     Condition("conditionEnemyFrozen", "Frozen", value_fn=_immobilised("Freeze", "Frozen"),
@@ -3981,7 +4205,8 @@ CONDITIONS: list[Condition] = [
       for var, label in (("conditionEnemyBlinded", "Blinded"), ("conditionEnemyMaimed", "Maimed"),
                          ("conditionEnemyHindered", "Hindered"), ("conditionEnemyIntimidated", "Intimidated"),
                          ("conditionEnemyUnnerved", "Unnerved"), ("conditionEnemyCoveredInAsh", "Covered in Ash"),
-                         ("conditionEnemyCoveredInFrost", "Covered in Frost"))),
+                         ("conditionEnemyCoveredInFrost", "Covered in Frost"),
+                         ("conditionEnemyDebilitated", "Debilitated"))),  # (MECH78, MB-15)
 ]
 _PATTERNS = {c.var: c.patterns() for c in CONDITIONS}
 # Words that make a support worth a real trial for conditions decided by PoB's numbers
@@ -4222,6 +4447,53 @@ class Conditions:
                                    present[LIVING_BOMB].get("castTime") or 0.0)
                   if bomb and LIVING_BOMB in present else (0.0, ""))
         return infusion_supply(present, [line["text"] for line in lines], self.found_uptimes, siphon, living, orb)
+
+    def _open_weakness(self) -> tuple[float, str]:
+        """(share of the fight's time the boss has an Open Weakness, how): open_weakness_share of PoB's Full DPS with
+        both Open Weakness boxes off over on (probed, the boxes put back after)."""
+        before = self.build.call("getConfig")["input"]
+        saved = {var: before.get(var) for var in OPEN_WEAKNESS_VARS}
+        try:
+            on = number(self.build.call("setConfig", vars=dict.fromkeys(OPEN_WEAKNESS_VARS, True),
+                                        fields=["FullDPS"])["stats"].get("FullDPS"))
+            off = number(self.build.call("setConfig", vars=dict.fromkeys(OPEN_WEAKNESS_VARS, False),
+                                         fields=["FullDPS"])["stats"].get("FullDPS"))
+        finally:
+            self.build.call("setConfig", vars={v: (s if s is not None else False) for v, s in saved.items()},
+                            fields=["FullDPS"])
+        if on <= 0:
+            return 0.0, "no DPS read: 0"
+        ratio = min(off / on, 1.0)
+        share = open_weakness_share(ratio)
+        return share, (f"its Open Weakness segments are {OPEN_WEAKNESS_LIFE:.0%} of its Life; Full DPS {on:,.0f} in them, "
+                       f"{off:,.0f} outside, so {share:.0%} of the fight's time")
+
+    def _orb_uptimes(self) -> dict[str, tuple[float, str]]:
+        """{element: (share of the fight one of the build's Orbs of it is up, how)} for Eye of Winter (MECH78, MA-2):
+        each enabled Orb skill beside the main one (skill type Orb) at min(1, its uses/s x its duration) (skill_use_rate:
+        its cooldown, else once per its duration, else the search's chosen rate, else 0), Orbs of one element combined as
+        independent."""
+        gems = self.build.ctx.gems
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        where = {n["name"]: g["index"] for g in groups for n in g.get("gems") or []
+                 if n.get("enabled", True) and n["name"] != self.main_skill
+                 and not (gems.get(n["name"]) or {}).get("support")
+                 and "Orb" in ((gems.get(n["name"]) or {}).get("skillTypes") or ())}
+        if not where:
+            return {}
+        rows: dict = {}
+        uses = self._group_uses(groups, set(where), rows)
+        off: dict[str, float] = {}
+        said: dict[str, list[str]] = {}
+        for name, index in sorted(where.items()):
+            duration = number((rows.get(index) or {}).get("duration"))
+            each = uses.get(name, self._chosen_use(name))
+            up = min(1.0, each * duration) if duration > 0 else 0.0
+            for element in GROUND_ELEMENTS:
+                if element in ((gems.get(name) or {}).get("skillTypes") or ()):
+                    off[element] = off.get(element, 1.0) * (1.0 - up)
+                    said.setdefault(element, []).append(f"{name} up {up:.0%} ({each:.3f} uses/s x {duration:.2f} s)")
+        return {e: (1.0 - off[e], ", ".join(said[e])) for e in off}
 
     def _arc_infused(self, lines: list[dict], stats: dict) -> tuple[float, str]:
         """(share of Arc's casts that consume a Lightning Infusion, how): ARC_INFUSED. The Lightning (and Verisium)
@@ -4638,6 +4910,11 @@ class Conditions:
                                                  self.main_skill)
         stats["_shocked_ground"] = shocked_ground(stats, texts)
         stats["_chilled_ground"] = chilled_ground(stats, texts, main_gems)  # (MECH76, for COV-A's Desert's Scorn)
+        if self.main_skill in ELEMENT_GAIN_VARS:  # (MECH78, MA-2 / MA-6 / MA-7: its element from the grounds in its path)
+            orbs = self._orb_uptimes() if self.main_skill == EYE_OF_WINTER else None
+            stats["_element_gain"] = element_gain_shares(self.main_skill, stats, texts, orbs)
+        if any(REVEAL_WEAKNESS.match(t.strip()) for t in texts):  # (MECH78, MC-1: its share of the fight's time)
+            stats["_open_weakness"] = self._open_weakness()
         aura = presence_ignite(texts, stats)  # (MECH75: Radiant Grief)
         legion = self.minion_ignite(names)  # (MECH76: MECHB30's Infernal Legion, routed)
         if aura[1] or legion[1]:
