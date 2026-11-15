@@ -8,8 +8,10 @@
 # - replace_main_hand_unarmed_attack_stats_with_nothing_type on the 5 Concoctions: an OVERCOUNT in PoB (it gives them
 #   ModFlag.Unarmed and adds the class's unarmed base damage; the game: "This damage is not based on your unarmed
 #   damage, so this is not considered an Unarmed Attack").
-# - the same stat on Caltrops, Trail of Caltrops and Conductive Runes' rune set: attack sets with no weapon restriction,
-#   where PoB uses the held weapon's (or unarmed) damage; whether the game adds weapon damage there is UNVERIFIED.
+# - the same stat on Caltrops and Trail of Caltrops: attack sets with no weapon restriction, where PoB uses the held
+#   weapon's (or unarmed) damage; whether the game adds weapon damage there is UNVERIFIED. (Conductive Runes: closed by
+#   GEM10, gems-gem10.yaml no-effect-gem10-conductive-runes-not-weapon: patch 0.5.2 says its damage is not based on your
+#   weapon's, and PoB's Explosion set, the one carrying the stat, is nonWeaponAttack.)
 
 - id: gem-active-pob-shield-type
   title: "Shield skills attack with the shield: PoB's shieldAttack flag does the same"

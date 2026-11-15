@@ -106,3 +106,69 @@
             "poe2db.tw/us/Righteous_Descent (14 Nov 2026)", "scratch/gem10/probe_descent.json (POE2T2069)"]
   test_in_game: "With The Ordained against a boss, leap onto each Fragment of Divinity: count the Empowered leaps over 20 s (about 5, against 2 on cooldown)."
   status: proposed
+
+- id: model-gem10-support-life-loss
+  title: "Medved's Felling's and Paquate's Pact's Life lost on use, charged per second (PoB charges none)"
+  kind: model
+  model: gem_life_loss
+  stats: ["lose_x%_of_life_per_5_rage_on_supported_skill_use",
+          "support_corrupting_cry_%_life_cost_per_supported_skill_trigger_or_use_recently_up_to_30%"]
+  skill: [Medved's Felling, Paquate's Pact]
+  confidence: theory
+  notes: >-
+    PATCH_CHECK H1-2 / H1-3 (NOTES2, 0.5.0 notes): both supports make you lose Life on use, and PoB maps neither stat
+    (checked: no SkillStatMap entry or Modules reader for either id; coverage.json mapped=false): an OVERCOUNT, the Life
+    never charged. models.gem_life_loss / gem_stat_life_loss: per use, Medved's Felling 1% of Life per 5 Rage (PoB's Rage
+    stat, the one its attack speed line reads), Paquate's Pact 10% of Life per use in the last 4 s up to 30% (the use
+    itself counted: LOW, UNVERIFIED); times the supported skill's own use rate (PoB's Speed for the main skill, the
+    bridge's useRates with the search's press share for a side skill), given to PoB as LifeDegen (taken off
+    LifeRegenRecovery, which the recovery floors read). Not counted (labelled): Medved's Felling on a side skill (its Rage
+    is read for the main skill only).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (SupportMedvedsFelling)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_str.lua (SupportCorruptingCryPlayerThree)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcDefence.lua 1746-1752 (LifeDegen)",
+            "scratch/manager/PATCH_CHECK.md H1-2, H1-3 (patch 0.5.0)"]
+  test_in_game: "Attack with a Medved's Felling skill at 30 Rage: each use should take 6% of maximum Life."
+  status: proposed
+
+- id: no-effect-gem10-conductive-runes-not-weapon
+  title: "Conductive Runes' explosion isn't based on weapon damage: PoB's Explosion set is a non-weapon attack"
+  kind: gem_stat
+  match: '^replace_main_hand_unarmed_attack_stats_with_nothing_type$'
+  replace: []
+  stats: ["replace_main_hand_unarmed_attack_stats_with_nothing_type"]
+  skill: [Conductive Runes]
+  confidence: datamined
+  notes: >-
+    The stat sits on Conductive Runes' Explosion set, whose PoB baseFlags hold nonWeaponAttack (Data/Skills: the
+    Explosion statSet), so PoB uses no weapon or unarmed damage there. Patch 0.5.2 (newest of its entries,
+    grep_notes.py --history): "Improved Conductive Runes' description to explicitly state that its damage is not based
+    on your weapon's damage". The two agree: PoB counts it (PATCH_CHECK H4's closable item; closes
+    gems-active-batch3.yaml's UNVERIFIED for this skill; Caltrops stay open).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills (Conductive Runes, Explosion set)", "patch notes 0.5.2"]
+  test_in_game: "Not needed: the game text and PoB agree."
+  status: proposed
+
+- id: model-gem10-muster-reviving-kinds
+  title: "Muster (and At your Command) count different kinds of Reviving minions, not every Persistent minion skill"
+  kind: model
+  model: muster_kinds
+  stats: ["support_varied_troops_damage_+%_final_per_different_persistent_ominion"]
+  skill: [Muster]
+  confidence: datamined
+  notes: >-
+    PATCH_CHECK K5-1 (NOTES2). The game: "Supported Minions deal more Damage the more different kinds of Reviving Minions
+    you have summoned"; patch 0.3.0 Hotfix 13 (newest, --history "Muster"): "Fixed a bug where Muster Support and the 'At
+    your Command' Passive node were incorrectly counting Persistent Minions". PoB still counts every active skill typed
+    Minion + Persistent (CalcPerform.lua 1393-1397), including Raging Spirits, Ravenous Swarm, Azmerian Swarms, Kelari's
+    Malediction, Supporting Fire, Verisium Manifestations, Sacrifice, Cast on Minion Death and Grim Feast, none of which
+    carry PoB's RevivingMinion flag (the game's is_resummoning_minion: checked, every PoB skill holding it, 23): an
+    OVERCOUNT. models.muster_kinds_model overrides PoB's Multiplier:PersistentMinionTypes with the build's different
+    skills whose minions carry that flag (the bridge's summon.reviveSpeed), while a skill has Muster socketed; both
+    of its readers are the ones the hotfix fixed, but At your Command alone keeps PoB's count (COV-A's line). At your Command's tree text still says "Persistent Minion" (COV-A's line; the hotfix says it was fixed too).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Modules/CalcPerform.lua 1393-1397",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (Muster, 7132)",
+            "vendor/PathOfBuilding-PoE2/src/Data/SkillStatMap.lua (is_resummoning_minion -> RevivingMinion)",
+            "patch notes 0.3.0, 0.3.0 Hotfix 13", "scratch/manager/PATCH_CHECK.md K5-1"]
+  test_in_game: "Muster on Skeletal Warriors with Raging Spirits and Sacrifice also active: the Warriors' damage shouldn't rise when those two are turned on."
+  status: proposed

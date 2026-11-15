@@ -140,3 +140,38 @@ def test_righteous_descents_empowered_leaps_follow_the_ordaineds_fragments():
     mods, notes = models.gem_stat_model([impact], stats={"Speed": 0.0997}, main=impact)
     assert not [m for m in mods if m.get("entry") == DESCENT_ENTRY]
     assert any(n["entry"] == DESCENT_ENTRY and n["value"] == "not counted" for n in notes)
+
+
+def test_medveds_felling_and_paquates_pact_charge_their_life_per_use_as_life_lost_per_second():
+    sunder = Skill("Sunder", 1, attack=True, melee=True, support_stats={models.MEDVED_STAT: 1})
+    cry = Skill("Infernal Cry", 2, support_stats={models.PAQUATE_STAT: 10})
+    mods, notes = models.gem_stat_model([sunder, cry], stats={"Life": 2000, "Rage": 32, "Speed": 2.0}, main=sunder,
+                                        groups={2: {"speed": 0.5, "_press": 1.0}})
+    loss = sorted(m["value"] for m in mods if m.get("kind") == "Raw" and m["name"] == "LifeDegen")
+    # Medved's: 1% x 2,000 x 6 (32 Rage, per 5, floored) x 2/s = 240; Paquate's: 2 uses in 4 s -> 20% x 2,000 x 0.5/s = 200
+    assert loss == [pytest.approx(200), pytest.approx(240)]
+    assert models.gem_stat_side_groups([sunder, cry], sunder) == [2]
+
+
+def test_a_support_life_cost_with_no_rate_read_is_left_uncharged_with_a_note():
+    cry = Skill("Infernal Cry", 2, support_stats={models.PAQUATE_STAT: 10})
+    mods, notes = models.gem_stat_model([cry], stats={"Life": 2000}, main=None, groups={})
+    assert not [m for m in mods if m.get("kind") == "Raw"]
+    assert any(n["entry"] == models.LIFE_LOSS_ENTRY and n["value"] == "not charged" for n in notes)
+
+
+def test_muster_counts_the_kinds_of_reviving_minions_not_every_persistent_minion_skill():
+    warriors = Skill("Skeletal Warrior Minion", 1, summon={"persistent": True, "limit": 2, "reviveSpeed": 1.0},
+                     support_stats={models.MUSTER_STAT: 7})
+    hound = Skill("Summon Infernal Hound", 2, summon={"persistent": True, "limit": 1, "reviveSpeed": 1.0})
+    spirits = Skill("Raging Spirits", 3, summon={"persistent": True, "limit": 10, "duration": 5.0})
+    mods, notes = models.gem_stat_model([warriors, hound, spirits], stats={}, main=warriors)
+    override = [m for m in mods if m.get("kind") == "Raw" and m["name"] == models.MUSTER_MULTIPLIER]
+    assert override == [{"kind": "Raw", "name": models.MUSTER_MULTIPLIER, "type": "OVERRIDE", "value": 2}]
+    assert any(n["entry"] == models.MUSTER_ENTRY and n["value"] == "2" for n in notes)
+
+
+def test_no_muster_override_without_muster_socketed():
+    warriors = Skill("Skeletal Warrior Minion", 1, summon={"persistent": True, "limit": 2, "reviveSpeed": 1.0})
+    mods, _ = models.gem_stat_model([warriors], stats={}, main=warriors)
+    assert not [m for m in mods if m.get("name") == models.MUSTER_MULTIPLIER]

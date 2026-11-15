@@ -3126,7 +3126,8 @@ def gem_stat_support_stats() -> list[str]:
     from builder.ledger import gem_stat_entries
 
     return sorted({stat for e in gem_stat_entries() if e.raw.get("support") and e.replace
-                   for stat in [*(e.raw.get("support_stats") or ()), *(e.raw.get("share_stats") or ())]})
+                   for stat in [*(e.raw.get("support_stats") or ()), *(e.raw.get("share_stats") or ())]}
+                  | set(LIFE_LOSS_STATS) | {MUSTER_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
 
 
 def _skill_names(entry) -> list[str]:
@@ -3245,6 +3246,10 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                 done.add(name)
             else:
                 names = [n for n in names if n != name]  # one copy of each skill (a buff applies once)
+    loss_mods, loss_notes = gem_stat_life_loss(skills, stats or {}, main, groups or {}, forbidden)
+    mods, notes = mods + loss_mods, notes + loss_notes
+    muster_mods, muster_notes = muster_kinds_model(skills, forbidden)
+    mods, notes = mods + muster_mods, notes + muster_notes
     return mods, notes
 
 
@@ -4055,6 +4060,116 @@ def descent_fragments_share(skill: Skill, stats: dict, main: Skill | None = None
     return more / value, how, play + f" Without the fragments: once per cooldown; with them: {rate / speed:.2g}x the leaps."
 
 
+# Life lost on use from a support (GEM10; PATCH_CHECK H1-2 / H1-3, OVERCOUNTS: PoB maps neither stat, so the Life is
+# never charged; checked: vendor SkillStatMap.lua and Modules have no reader for either id, coverage.json mapped=false).
+# - Medved's Felling (SupportMedvedsFelling): "lose_x%_of_life_per_5_rage_on_supported_skill_use" 1 ("making you lose
+#   Life based on your Rage when using them", PoB's description; patch 0.5.0). Per use: Life x 1% per 5 Rage, the Rage
+#   PoB's own attack speed line for the support reads (its Rage stat, per 5, floored as PoB's PerStat).
+# - Paquate's Pact (SupportCorruptingCryPlayerThree): "support_corrupting_cry_%_life_cost_per_supported_skill_trigger_or_
+#   use_recently_up_to_30%" 10 ("at the cost of your Life", PoB's description; patch 0.5.0: 10% per use Recently, up to
+#   30%). Per use: Life x min(30%, 10% x the uses in the last 4 s), the uses Recently = its rate x 4, at least the use
+#   itself (ASSUMPTION, LOW: the use being paid for counts; UNVERIFIED).
+# The rate is the supported skill's own: PoB's Speed for the main skill, the bridge's useRates (with the press share the
+# search chose) for a side skill. Charged as Life lost per second through PoB's LifeDegen (CalcDefence 1746-1752: taken
+# off LifeRegenRecovery, which the recovery floors read; Life loss, not damage, so no mitigation applies). No rate read:
+# not charged, with a note (an overcount left, labelled).
+MEDVED_STAT = "lose_x%_of_life_per_5_rage_on_supported_skill_use"
+PAQUATE_STAT = "support_corrupting_cry_%_life_cost_per_supported_skill_trigger_or_use_recently_up_to_30%"
+LIFE_LOSS_STATS = (MEDVED_STAT, PAQUATE_STAT)
+LIFE_LOSS_ENTRY = "model-gem10-support-life-loss"
+PAQUATE_CAP, RECENTLY_SECONDS = 30.0, 4.0
+
+
+def gem_stat_life_loss(skills: list[Skill], stats: dict, main: Skill | None, groups: dict,
+                       forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """LifeDegen lines for the Life the supports above make the build lose per second, and their notes."""
+    mods: list[dict] = []
+    notes: list[dict] = []
+    if LIFE_LOSS_ENTRY in forbidden:
+        return mods, notes
+    life = number(stats.get("Life"))
+    for skill in skills:
+        medved, paquate = number(skill.support_stats.get(MEDVED_STAT)), number(skill.support_stats.get(PAQUATE_STAT))
+        if not (medved or paquate):
+            continue
+        is_main = main is not None and skill.name == main.name and skill.group == main.group
+        if is_main:
+            rate, where = number(stats.get("Speed")), "PoB's Speed for it"
+        else:
+            row = groups.get(skill.group) or {}
+            press = row.get("_press")
+            rate = number(row.get("speed")) * number(press if press is not None else 1.0)
+            where = ("its group's use rate" + (f" x the {number(press):.0%} the search presses it" if press is not None
+                                                else " (no press share chosen: PoB's rate)")) if row else ""
+        name = "Medved's Felling" if medved else "Paquate's Pact"
+        if rate <= 0 or life <= 0:
+            notes.append({"label": f"{name}: Life lost on use", "value": "not charged",
+                          "basis": f"{skill.name}: its use rate or Life isn't read ({where or 'no rate for its group'}): "
+                                   "the Life it costs isn't counted (an overcount)", "confidence": "theory",
+                          "entry": LIFE_LOSS_ENTRY})
+            continue
+        if medved:
+            rage = number(stats.get("Rage")) if is_main else 0.0
+            per = life * medved / 100 * (rage // 5)
+            how = (f"{medved:g}% of {life:,.0f} Life per 5 of its {rage:g} Rage (PoB's Rage stat) per use"
+                   + ("" if is_main else ": Rage read for the main skill only, so none counted here (an overcount left)"))
+        else:
+            recent = max(1.0, rate * RECENTLY_SECONDS)
+            pct = min(PAQUATE_CAP, paquate * recent)
+            per = life * pct / 100
+            how = (f"{pct:.3g}% of {life:,.0f} Life per use ({paquate:g}% per use in the last {RECENTLY_SECONDS:g} s: "
+                   f"{recent:.2g}, the use itself counted (LOW); up to {PAQUATE_CAP:g}%)")
+        loss = per * rate
+        if loss <= 0:
+            notes.append({"label": f"{name}: Life lost on use", "value": "0", "basis": f"{skill.name}: {how}",
+                          "confidence": "datamined", "entry": LIFE_LOSS_ENTRY})
+            continue
+        mods.append(raw_mod("LifeDegen", "BASE", loss))
+        notes.append({"label": f"{name}: Life lost on use", "value": f"{loss:,.1f} Life/s",
+                      "basis": f"{skill.name}: {how}, at {rate:.3g} uses/s ({where}); PoB charges none of it, so it's "
+                               "counted as Life lost per second against the recovery floors",
+                      "confidence": "theory", "entry": LIFE_LOSS_ENTRY,
+                      "play": f"{name} costs {loss:,.0f} Life a second at this use rate: recover it (leech, regeneration, "
+                              "flasks) or use the skill less. Without it: no Life lost; with it: that loss."})
+    return mods, notes
+
+
+# Muster's count (GEM10; PATCH_CHECK K5-1, an OVERCOUNT where PoB counts the wrong kinds). Muster (SupportMusterPlayer,
+# support_varied_troops_damage_+%_final_per_different_persistent_ominion): "Supported Minions deal more Damage the more
+# different kinds of Reviving Minions you have summoned" (PoB's description, the game's gem text); patch 0.3.0 "Clarified
+# the wording of Muster Support to refer specifically to the number of different reviving minions you have" and 0.3.0
+# Hotfix 13 (the newest entry, grep_notes.py --history "Muster"): "Fixed a bug where Muster Support and the 'At your
+# Command' Passive node were incorrectly counting Persistent Minions". PoB still counts every active skill typed Minion
+# and Persistent (CalcPerform.lua 1393-1397, Multiplier PersistentMinionTypes), which takes in skills whose minions don't
+# Revive (Raging Spirits, Ravenous Swarm, Azmerian Swarms, Kelari's Malediction's beetles, Supporting Fire, Verisium
+# Manifestations) and persistent skills with no minion of their own (Sacrifice, Cast on Minion Death, Grim Feast). Both
+# readers of that multiplier (Muster, sup_int.lua 7132; "At your Command"'s ModCache line) are the ones the hotfix fixed,
+# so it's overridden with the count of different skills whose minions Revive: PoB's RevivingMinion flag (the game's
+# is_resummoning_minion stat, on 23 PoB skills: skeletons, companions, spectres, djinns, Infernal Hound and others), read
+# by the bridge per skill (summon.reviveSpeed set only with the flag). Whether the game counts each Skeletal gem as its
+# own kind is read from the text ("different kinds"): one per skill, as PoB counts.
+# Set only while a skill has Muster socketed (its stat in the skill's supports): "At your Command" alone keeps PoB's count
+# (its tree line is COV-A's; an overcount left there, labelled).
+MUSTER_MULTIPLIER = "Multiplier:PersistentMinionTypes"
+MUSTER_STAT = "support_varied_troops_damage_+%_final_per_different_persistent_ominion"
+MUSTER_ENTRY = "model-gem10-muster-reviving-kinds"
+
+
+def muster_kinds_model(skills: list[Skill], forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """The override of PoB's PersistentMinionTypes with the build's different Reviving minion skills, and its note."""
+    if MUSTER_ENTRY in forbidden:
+        return [], []
+    if not any(number(s.support_stats.get(MUSTER_STAT)) for s in skills):  # (only where Muster is socketed)
+        return [], []
+    kinds = sorted({s.name for s in skills if s.summon and s.summon.get("reviveSpeed") is not None})
+    return [raw_mod(MUSTER_MULTIPLIER, "OVERRIDE", len(kinds))], [{
+        "label": "Different kinds of Reviving minions (Muster, At your Command)", "value": str(len(kinds)),
+        "basis": (f"{', '.join(kinds) if kinds else 'none'}: the build's minion skills whose minions Revive (PoB's "
+                  "RevivingMinion flag); PoB's own count takes every Persistent minion skill, which the game stopped "
+                  "doing in 0.3.0 Hotfix 13, so it's set to this"),
+        "confidence": "datamined", "entry": MUSTER_ENTRY}]
+
+
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
           "cull_buff": cull_buff_share, "revived_recently": revived_recently_share,
@@ -4086,6 +4201,10 @@ def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
             if entry.raw["share"] == "vruun_combo" and any(  # (and the groups whose Strikes build its Combo)
                     entry.pattern.search(stat) and number(v) for stat, v in skill.support_stats.items()):
                 found.update(g for g in vruun_builder_groups(skills, skill) if main is None or g != main.group)
+    for skill in skills:  # (a side skill whose support makes you lose Life per use: gem_stat_life_loss reads its rate)
+        if skill.group is not None and (main is None or skill.group != main.group) and any(
+                number(skill.support_stats.get(stat)) for stat in LIFE_LOSS_STATS):
+            found.add(skill.group)
     return sorted(found)
 
 
