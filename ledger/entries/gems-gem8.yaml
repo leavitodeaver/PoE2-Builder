@@ -1,0 +1,91 @@
+# skill_specific_stat_description_mode, skill by skill (GEM8, 14 Nov 2026). The stat only picks a tooltip text
+# (PoB's Specific_Skill_Stat_Descriptions/<skill>.lua, the block whose stats list is only this stat), but each text
+# describes a real effect, so each skill is checked against what PoB counts, by probe (scratch/gem8/probe_mode.py,
+# POE2T2054, real PoB). Each entry is scoped to the skills named: the same stat on other skills stays open.
+
+- id: model-gem8-rend-charged-area
+  title: "Rend's Lightning-Charged strike: 150% more Area of Effect"
+  kind: gem_stat
+  match: '^skill_specific_stat_description_mode$'
+  replace: ["1% more Area of Effect"]
+  factor: 150
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Rend]
+  stat_sets:
+    Rend: [Lightning-Charged]
+  confidence: datamined
+  notes: >-
+    WyvernRendEmpoweredPlayer (PoB's set 2, "Lightning-Charged") carries skill_specific_stat_description_mode 1, whose
+    only text in rend.lua is "150% more Area of Effect"; the game's description: "While you have the Buff, Rend covers a
+    much larger area but is slower". Second source: poe2db's Rend page (14 Nov 2026) lists "150% more Area of Effect"
+    on the Lightning-Charged set only. No other stat of the set holds the area (its constant stats: dash range, step
+    distance, 20% less attack speed, this stat), and PoB missed it: probe POE2T2054, AreaOfEffectMod 1 on both sets;
+    with "150% more Area of Effect" 2.5 (the line parses). Counted as 150% more AreaOfEffect on that set only (an
+    UNDERCOUNT of area before). Moves no number today: Rend's damage doesn't read its area (probe: AverageDamage and
+    TotalDPS equal with and without the line) and PoB gives Rend no AreaOfEffectRadius, so the clear estimate's area
+    term doesn't see it either (objective.clear_estimate reads AreaOfEffectRadius only). Patch notes: no Rend entry on
+    its area (no hit is not proof of no change).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/Specific_Skill_Stat_Descriptions/rend.lua",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (WyvernRendPlayer)", "poe2db Rend (14 Nov 2026)",
+            "GrantedEffectStatSets WyvernRendEmpoweredPlayer (build 26476662)", "scratch/gem8/probe_mode.json (POE2T2054)"]
+  test_in_game: "Use Rend with and without the Power Charge buff on a pack: the charged slash covers about 1.58 x the radius (2.5 x the area)."
+  status: proposed
+
+- id: no-effect-gem8-description-mode-counted
+  title: "Whirlwind Lance's melee collapse, Tempest Bell's Ancestral Boost as a Strike, Fulmination's 8-enemy cap: PoB counts them or no boss number"
+  kind: gem_stat
+  match: '^skill_specific_stat_description_mode$'
+  replace: []
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Whirlwind Lance, Tempest Bell, Fulmination]
+  confidence: datamined
+  notes: >-
+    Whirlwind Lance (WhirlwindLanceStormPlayer, PoB's set 2 "Whirlwind"): "Collapse deals Melee damage". PoB's set has
+    baseFlags melee = true; probe POE2T2054: its skillCfg has ModFlag.Melee and "100% increased Melee Damage" raises
+    its hit from 31.5 to 80.0 while the Spear set stays at 53.6. Second source: patch 0.2.0f, "Whirlwind Lance and The
+    Whirlwind keyword hover now clarify that the Whirlwind's collapse deals melee damage". PoB counts it.
+    Tempest Bell (TempestBellPlayer): "Can be Ancestrally Boosted as though a Strike" (poe2db: added in 0.5.0). The game
+    gives it the SpecialAncestralBoost skill type, and Ancestral Call I / II require MeleeSingleTarget or
+    SpecialAncestralBoost (PoB sup_str.lua, from the game's support data). Probe POE2T2054: with Ancestral Call I in its
+    group PoB's AncestralCallUptimeRatio is 11.9% and "Ancestrally Boosted Attacks deal 100% increased Damage" raises
+    the Impact hit 112.9 -> 135.9 (without the support it moves nothing). A boosted Strike's own effect is "will target 2
+    additional Enemies" (KeywordPopups AncestralBoost), nothing against one boss. PoB counts the eligibility.
+    Not counted, and not this stat's (routed to MECH-B): Ancestral Cry's "[Melee] [Strike|Strikes] and [Slam|Slams] are
+    Ancestrally Boosted" while embodying Kaom (ActiveSkills ancestral_cry): probe POE2T2054 with Ancestral Cry in the
+    build: uptime 0 and no damage moved. An UNDERCOUNT for any Strike or Slam with Ancestral Cry (checked: our
+    builder/search names Ancestral Cry only in the warcry cooldown table; Kaom's Blessing is another line; not probed
+    on a Slam). The Empowered lines on boosted hits are MECH-C's kw-empowered.
+    Fulmination (FulminationPlayer): "Hits up to 8 enemies", the cap on its extra hits ("the first time any Skill Hits a
+    Shocked enemy in your Presence, that Skill also Hits other Shocked enemies in your Presence, up to a maximum",
+    ActiveSkills fulmination). Against one boss there are no other enemies, so neither the extra hits nor the cap
+    moves a boss number; and the clear estimate's pack is 8 (objective.PACK_SIZE), so an 8-enemy cap wouldn't bind
+    there either. Patch notes: no entry on the cap.
+    Windstorm Lance and Wrath have description files with the same texts but no game stat set (checked:
+    GrantedEffectStatSets' ConstantStats / ImplicitStats / IgnoredStats for stat 18847, build 26476662; PoB has no
+    skill with those names), so there is nothing to count for them.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/Specific_Skill_Stat_Descriptions/{whirlwind_lance,tempest_bell_statset_0,fulmination}.lua",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua, act_int.lua, sup_str.lua", "patch 0.2.0f",
+            "poe2db Tempest Bell (14 Nov 2026)", "KeywordPopups AncestralBoost (build 26476662)",
+            "scratch/gem8/probe_mode.json (POE2T2054)"]
+  test_in_game: "None needed: Whirlwind Lance's collapse gains from Melee damage, Ancestral Call supports Tempest Bell."
+  status: proposed
+
+- id: model-gem8-frostflame-volatile-ice
+  title: "Frostflame Nova's Volatile Ice hits every 0.5 seconds until the Ignite expires: the Frostflame model's"
+  kind: model
+  model: frostflame
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Frostflame Nova]
+  confidence: theory
+  notes: >-
+    FrostflameNovaColdHitPlayer (PoB's set 2, "Volatile Ice") carries skill_specific_stat_description_mode 1, whose
+    only text in frostflame_nova.lua is "Hits enemies every 0.5 seconds until affected Ignite expires". PoB scores the
+    set as one hit per cast (base_skill_show_average_damage_instead_of_dps). MECH-B's models.frostflame_model
+    (MECHB13 / MECHB14, wired in assumptions.frostflame) already counts it: FROSTFLAME_HITS 2 hits a second while the
+    boss carries an Ignite, at the share of the fight the build's own Ignites give (ignite_share), 0 with no Ignite
+    source; MEDIUM-LOW (one ice at a time: UNVERIFIED). This entry only records that the stat is that model's.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/StatDescriptions/Specific_Skill_Stat_Descriptions/frostflame_nova.lua",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (FrostflameNovaPlayer)",
+            "builder/search/models.py (frostflame_model, MECHB13)"]
+  test_in_game: "Ignite a dummy, cast Frostflame Nova: the ice hits about twice a second until that Ignite ends."
+  status: proposed
