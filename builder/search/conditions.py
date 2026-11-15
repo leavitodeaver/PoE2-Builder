@@ -4451,6 +4451,34 @@ STAT_SET_NEEDS = [
 ]
 
 
+# Stat sets PoB scores as Hits that the game never Hits with (MECH79, the Ignited Ground overcount): never the calculated
+# set. Incinerate's and Ball Lightning's "Ignited Ground" sets carry spell fire damage (game 26476662
+# GrantedEffectStatSetsPerLevel IncinerateGroundPlayer 24-36 at level 1 / 829-1243 at 20, BallLightningIgnitedGround
+# 22-33 / 744-1116) that PoB (act_int 13728, 630) scores as a Hit at the skill's use rate: probe POE2T3127, a bare
+# level-20 build, Incinerate's ground 2,666 DPS of Hits vs 273 for the channel, Ball Lightning's 549 vs 166, and the
+# search kept the ground set as the main damage both times. The game's ground doesn't Hit: KeywordPopups IgnitedGround
+# ("repeatedly inflicts Flammability ... Igniting them when it reaches 50%") and Flammability ("Effects which do not Hit
+# targets, but Ignite as if they had, such as Ignited Ground ... only Ignite once the total Flammability on the target
+# reaches 50%"); patch 0.3.0 says the same, naming Incinerate (checked: both texts, grep_notes --history "Ignited
+# Ground", newest 0.5.0). Both sets also need a Fire Infusion (the skills' descriptions: "Consumes a Fire Infusion if
+# possible to ... create Ignited Ground"), which their label doesn't say, so the Infused gate missed them. Spear of
+# Solaris's ground set (act_dex 7861) PoB scores as Ignite only (POE2T3127: 87 DPS, TotalDPS 0): left a choice. The
+# ground's Ignite isn't counted yet on these two (an UNDERCOUNT until the Ignited Ground model; MECH79's report).
+# The same for sets the game flags display_statset_no_hit_damage (a stat PoB never reads: no reader in Modules or
+# SkillStatMap), probed in POE2T3128: Oil Grenade's and Oil Barrage's "Oil Ground" (OilGrenadeOilGroundPlayer,
+# OilBarrageOilPlayer; KeywordPopups OilGround: Oil only does damage by Igniting once lit, its ground's Ignite takes
+# skill_main_hand_total_attack_fire_damage_permyriad_to_add_as_unscalable_damage_to_oil_ground_ignite) PoB scores as
+# Hits, Oil Grenade's 45.5 vs 22.0 for the grenade (kept as the main damage), Oil Barrage's 499 vs 211 / 349; Gas
+# Arrow's "Poison Cloud" (GasArrowGasDegenPlayer, also display_skill_poisons_without_hit: it Poisons without a Hit) 93.5
+# of Hits beside its 44.9 Poison. Their Ignite / Poison isn't counted while blocked (an UNDERCOUNT, labelled). Not
+# probed (the probe found no skeleton for them), so left a choice: Toxic Grenade's "Poison Cloud" and Poison Burst
+# Arrow's "Poison Burst", which carry the same flags (UNVERIFIED whether PoB scores them as Hits). Tornado Shot's
+# "Tornado" and Vine Arrow's "Vines" score the arrow's own impact (the same Hit as their Impact set) plus their DoT:
+# the whole skill, left a choice
+NO_HIT_STAT_SETS = {"Ignited Ground": {"Incinerate", "Ball Lightning"}, "Oil Ground": {"Oil Grenade", "Oil Barrage"},
+                    "Poison Cloud": {"Gas Arrow"}}
+
+
 def stat_set_needs(label: str | None) -> list[str | None]:
     return [var for pattern, var in STAT_SET_NEEDS if label and pattern.search(label)]
 
@@ -5520,7 +5548,13 @@ class Conditions:
                    if c.var not in self.active or c.var in CHARGE_OVERRIDES)
 
     def allows(self, stat_set: str | None, assume: tuple[str, ...] = ()) -> bool:
-        """May PoB calculate this stat set (STAT_SET_NEEDS)? `assume` counts as active, for what-ifs."""
+        """May PoB calculate this stat set (STAT_SET_NEEDS)? `assume` counts as active, for what-ifs. Never a set PoB
+        scores as Hits the game doesn't deal (NO_HIT_STAT_SETS), on the main group's skills that carry it."""
+        if stat_set in NO_HIT_STAT_SETS:
+            group = self.build.main_group() or {}
+            holders = {s["name"] for s in group.get("skills") or [] if stat_set in (s.get("statSets") or [])}
+            if holders and holders <= NO_HIT_STAT_SETS[stat_set]:
+                return False
         return all(var is not None and (var in self.active or var in assume) for var in stat_set_needs(stat_set))
 
     def sync(self) -> None:
