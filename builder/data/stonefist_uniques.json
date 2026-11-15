@@ -1,0 +1,441 @@
+{
+ "_about": "Gloves uniques as Way of the Stonefist (Martial Artist) transforms them: base Fists of Stone, explicit mods transformed (COV34). Source: poe2db https://poe2db.tw/us/Fists_of_Stone 'Fists of Stone Uniques /37', fetched 15 Nov 2026 (saved scratch/cov34/dl/fists_of_stone.html, parsed by scratch/cov34/parse_fists.py; hidden stats dropped). Implicit lists hold the item's own implicits as poe2db shows them (a granted skill; per-level lines where they differ from the base's).",
+ "uniques": [
+  {
+   "name": "Aerisvane's Wings",
+   "implicit": [],
+   "explicit": [
+    "(10-15)% more Global Evasion Rating and Energy Shield",
+    "10% chance to gain Onslaught for 4 seconds on Hit",
+    "(20-25)% increased Cooldown Recovery Rate",
+    "Deal Double Damage to Enemies that are on Full Life"
+   ]
+  },
+  {
+   "name": "Atziri's Acuity",
+   "implicit": [
+    "Grants Skill: Level 1 Herald of the Royal Queen"
+   ],
+   "explicit": [
+    "(20-25)% more Global Evasion Rating and Energy Shield",
+    "(12-15)% less damage taken while on Low Life",
+    "Leech (13-17)% of Physical Attack Damage as Life",
+    "Leech Life (20-25)% slower",
+    "10% of Physical damage dealt by your Hits causes Blood Loss",
+    "Eternal Youth"
+   ]
+  },
+  {
+   "name": "Aurseize",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "Lose 2% of maximum Life on Kill",
+    "(50-80)% increased Quantity of Gold Dropped by Slain Enemies"
+   ]
+  },
+  {
+   "name": "Blueflame Bracers",
+   "implicit": [],
+   "explicit": [
+    "Has +1 to Evasion Rating per player level",
+    "Has +1 to maximum Energy Shield per player level",
+    "+1% to Maximum Fire Resistance",
+    "+(5-15)% to Fire Resistance",
+    "Gain (10-20)% of Fire damage as Extra Lightning damage",
+    "(10-15)% increased Cooldown Recovery Rate",
+    "100% of Fire damage Converted to Lightning damage"
+   ]
+  },
+  {
+   "name": "Candlemaker",
+   "implicit": [],
+   "explicit": [
+    "(10-15)% more Global Evasion Rating and Energy Shield",
+    "Attacks Gain (4-7)% of Damage as Extra Fire Damage",
+    "Attacks Gain (4-7)% of Damage as Extra Cold Damage",
+    "+(2-3)% to Maximum Fire Resistance",
+    "+(15-25)% to Fire Resistance",
+    "(30-50)% increased Chill Duration on you",
+    "Enemies Ignited or Chilled by you have (-25--15)% to Elemental Resistances"
+   ]
+  },
+  {
+   "name": "Death Articulated",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "(10-15)% chance to gain Onslaught for 4 seconds on Hit",
+    "+2% to Maximum Chaos Resistance",
+    "+(17-23)% to Chaos Resistance",
+    "Regenerate 5 Rage per second",
+    "Lose 5% of maximum Mana per Second",
+    "No Inherent loss of Rage"
+   ]
+  },
+  {
+   "name": "Deathblow",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "Recover 3% of maximum Life on Kill",
+    "Recover 3% of maximum Mana on Kill",
+    "Culling Strike",
+    "(30-40)% increased Culling Strike Threshold if you've dealt a Culling Strike Recently"
+   ]
+  },
+  {
+   "name": "Demon Stitcher",
+   "implicit": [],
+   "explicit": [
+    "+(60-80) to maximum Runic Ward",
+    "+(130-160) to maximum Life",
+    "(9-15)% increased Attack Speed",
+    "Sacrifice (10-30)% of maximum Life to gain half that much Runic Ward when you Attack"
+   ]
+  },
+  {
+   "name": "Doedre's Tenure",
+   "implicit": [],
+   "explicit": [
+    "Has +2 to Evasion Rating per player level",
+    "Has +1 to maximum Energy Shield per player level",
+    "(15-25)% reduced Attack Speed",
+    "100% increased Attack Damage",
+    "15% increased Cooldown Recovery Rate"
+   ]
+  },
+  {
+   "name": "Dreadfist",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "+(1.5-2)% to Critical Hit Chance",
+    "(25-35)% increased Thorns Critical Damage Bonus",
+    "Deal your Thorns damage to enemies you Critically Hit with Melee Attacks",
+    "(24-35) to (36-57) Cold Thorns damage"
+   ]
+  },
+  {
+   "name": "Empire's Grasp",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "Recover 3% of maximum Life on Kill",
+    "Knockback direction is reversed",
+    "(18-24)% increased Area of Effect for Attacks",
+    "Attack Damage with Hits is Lucky while you are Surrounded"
+   ]
+  },
+  {
+   "name": "Essentia Sanguis",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "+2% to Maximum Lightning Resistance",
+    "+(25-35)% to Lightning Resistance",
+    "(20-30)% increased Cooldown Recovery Rate",
+    "Mana Leech effects also Recover Energy Shield",
+    "Attacks Gain (17-21)% of Damage as Extra Lightning Damage"
+   ]
+  },
+  {
+   "name": "Facebreaker",
+   "implicit": [
+    "Grants Skill: Level 1 Smash to Smithereens"
+   ],
+   "explicit": [
+    "Has 9 to 14 Fire damage, +3 to +5 per Boss's Face Broken",
+    "+0.3 metres to Melee Strike Range while Unarmed",
+    "Gain 1% of Unarmed Damage as extra Fire damage per 5 Intelligence",
+    "1% increased Area of Effect for Unarmed Attacks per 10 Intelligence",
+    "Can Attack as though using a One Handed Mace while both of your hand slots are empty",
+    "Unarmed Attacks that would use an Equipped One Hand Mace's damage use this Item's damage"
+   ]
+  },
+  {
+   "name": "Gravebind",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "20% increased Rarity of Items found",
+    "Your other Modifiers to Rarity of Items found do not apply",
+    "Recover 3% of maximum Life on Kill",
+    "Recover 3% of maximum Mana on Kill",
+    "Enemies in your Presence killed by anyone count as being killed by you instead",
+    "(30-50)% chance to gain Volatility on Kill"
+   ]
+  },
+  {
+   "name": "Grip of Winter",
+   "implicit": [],
+   "explicit": [
+    "(10-15)% more Global Evasion Rating and Energy Shield",
+    "Attacks Gain (10-15)% of Damage as Extra Cold Damage",
+    "+(2-3)% to Maximum Cold Resistance",
+    "+(15-25)% to Cold Resistance",
+    "All Damage from Hits Contributes to Chill Magnitude",
+    "All Damage from Hits Contributes to Freeze Buildup"
+   ]
+  },
+  {
+   "name": "Hand of Wisdom and Action",
+   "implicit": [],
+   "explicit": [
+    "(11-13)% increased Dexterity",
+    "(5-10)% increased Intelligence",
+    "1% increased Area of Effect per 20 Intelligence",
+    "Adds 6 to 8 Cold Damage to Attacks per 20 Dexterity"
+   ]
+  },
+  {
+   "name": "Hateforge",
+   "implicit": [],
+   "explicit": [
+    "+(70-100) to maximum Runic Ward",
+    "Gain (6-8) Rage on Hit",
+    "Lose all Rage on reaching Maximum Rage",
+    "(-10-10) to Maximum Rage",
+    "Recover (3-5)% of maximum Runic Ward on reaching Maximum Rage"
+   ]
+  },
+  {
+   "name": "Horror's Flight",
+   "implicit": [
+    "Grants Skill: Level 1 Crushing Fear"
+   ],
+   "explicit": [
+    "(20-25)% more Global Evasion Rating and Energy Shield",
+    "(10-20)% chance to gain Onslaught for 4 seconds on Hit",
+    "+(25-35)% Surpassing chance to fire an additional Projectile",
+    "Gain 1 Fear Overwhelming when you Cull a target",
+    "Attacks Gain (17-23)% of Damage as extra Chaos Damage"
+   ]
+  },
+  {
+   "name": "Idle Hands",
+   "implicit": [],
+   "explicit": [
+    "(10-15)% more Global Evasion Rating and Energy Shield",
+    "25% more Attack damage while on Low Mana",
+    "(10-20)% chance to Blind Enemies on Hit with Attacks",
+    "(10-15)% increased Cooldown Recovery Rate",
+    "You are considered on Low Mana while at 50% of maximum Mana or below instead"
+   ]
+  },
+  {
+   "name": "Jarngreipr",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "Attacks Gain (10-15)% of Damage as Extra Physical Damage",
+    "(6-8)% more damage taken while on Low Life",
+    "(10-15)% chance to gain Onslaught for 4 seconds on Hit",
+    "Dexterity can satisfy other Attribute Requirements of Melee Weapons and Melee Skills"
+   ]
+  },
+  {
+   "name": "Killjoy",
+   "implicit": [],
+   "explicit": [
+    "+(30-50) to maximum Runic Ward",
+    "(6-7)% less damage taken while on Low Life",
+    "+(1-2)% to Critical Hit Chance",
+    "On-Kill Effects happen twice",
+    "Recover 1% of maximum Runic Ward on Kill"
+   ]
+  },
+  {
+   "name": "Kitoko's Current",
+   "implicit": [],
+   "explicit": [
+    "(10-15)% more Global Evasion Rating and Energy Shield",
+    "(10-15)% reduced Attack and Cast Speed",
+    "All damage with Attacks Contributes to Electrocution Buildup",
+    "+(20-40)% Surpassing chance to fire an additional Projectile"
+   ]
+  },
+  {
+   "name": "Leopold's Applause",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "(15-25)% more Attack damage while on Low Mana",
+    "+(15-25)% to all Elemental Resistances",
+    "Elemental Damage from your Hits is Resisted by the enemy's lowest Elemental Resistance",
+    "(15-25)% increased Quantity of Gold Dropped by Slain Enemies"
+   ]
+  },
+  {
+   "name": "Lochtonial Caress",
+   "implicit": [],
+   "explicit": [
+    "Has +1 to Evasion Rating per player level",
+    "Has +1 to maximum Energy Shield per player level",
+    "(7-9)% less damage taken while on Low Life",
+    "(13-20)% increased Attack Speed",
+    "Cannot Leech Mana",
+    "(5-10)% chance to grant a Endurance Charge to Allies in your Presence on Hit",
+    "(5-10)% chance to grant a Frenzy Charge to Allies in your Presence on Hit",
+    "(5-10)% chance to grant a Power Charge to Allies in your Presence on Hit"
+   ]
+  },
+  {
+   "name": "Maligaro's Virtuosity",
+   "implicit": [],
+   "explicit": [
+    "(10-15)% more Global Evasion Rating and Energy Shield",
+    "(20-30)% increased Critical Damage Bonus",
+    "10% chance to gain Onslaught for 4 seconds on Hit",
+    "Critical Hit chance for Attacks is (25-40)%",
+    "+(45-60)% Surpassing chance to fire an additional Projectile"
+   ]
+  },
+  {
+   "name": "Nightscale",
+   "implicit": [],
+   "explicit": [
+    "(15-25)% more Global Evasion Rating and Energy Shield",
+    "(40-60)% increased Critical Hit Chance",
+    "+2% to Maximum Cold Resistance",
+    "+(20-30)% to Cold Resistance",
+    "You have no Mana Regeneration",
+    "15% increased Cooldown Recovery Rate",
+    "(100-150)% increased amount of Mana Leeched if you've dealt a Critical Hit Recently"
+   ]
+  },
+  {
+   "name": "Northpaw",
+   "implicit": [],
+   "explicit": [
+    "Has +2 to Evasion Rating per player level",
+    "Has +1 to maximum Energy Shield per player level",
+    "Attacks Gain (11-15)% of Damage as Extra Physical Damage",
+    "(15-20)% increased Critical Damage Bonus",
+    "+(3-6)% to Unarmed Melee Attack Critical Hit Chance"
+   ]
+  },
+  {
+   "name": "Painter's Servant",
+   "implicit": [],
+   "explicit": [
+    "Gain (6-15)% of Lightning damage as Extra Physical damage",
+    "Gain (6-15)% of Cold damage as Extra Physical damage",
+    "Gain (6-15)% of Fire damage as Extra Physical damage",
+    "Physical damage from Hits Contributes to Flammability and",
+    "Ignite Magnitudes, Freeze Buildup, and Shock Chance"
+   ]
+  },
+  {
+   "name": "Plaguefinger",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "(8-12)% chance to gain Onslaught for 4 seconds on Hit",
+    "(30-40)% increased Magnitude of Poison you inflict with Critical Hits",
+    "Critical Hits Poison the enemy"
+   ]
+  },
+  {
+   "name": "Shackles of the Wretched",
+   "implicit": [],
+   "explicit": [
+    "(10-15)% more Global Evasion Rating and Energy Shield",
+    "(4-6)% reduced Movement Speed while Cursed",
+    "Enemies you Curse take (20-30)% increased Damage",
+    "Curses you inflict are reflected back to you",
+    "(15-20)% more damage taken while Cursed"
+   ]
+  },
+  {
+   "name": "Sine Aequo",
+   "implicit": [],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "(15-25)% increased Attack Speed if you've dealt a Critical Hit Recently",
+    "(25-35)% Surpassing chance per enemy Power to gain",
+    "Mountain's Teachings on Immobilising an enemy if",
+    "you have the [AscendancyMonk1Notable6|Way of the Mountain] Ascendancy Passive Skill",
+    "Immobilise enemies at 50% buildup instead of 100%"
+   ]
+  },
+  {
+   "name": "Snakebite",
+   "implicit": [],
+   "explicit": [
+    "(10-15)% more Global Evasion Rating and Energy Shield",
+    "+1% to Maximum Chaos Resistance",
+    "+(7-17)% to Chaos Resistance",
+    "Regenerate (0.5-1.5)% of maximum Life per second",
+    "Targets can be affected by two of your Chills at the same time",
+    "(20-30)% increased Magnitude of Chill you inflict"
+   ]
+  },
+  {
+   "name": "The Master's Reach",
+   "implicit": [
+    "Grants Skill: Level 1 Untether"
+   ],
+   "explicit": [
+    "(20-25)% more Global Evasion Rating and Energy Shield",
+    "(8-13)% less damage taken while on Low Life",
+    "Reveal Weaknesses against Rare and Unique enemies",
+    "(15-25)% increased Cooldown Recovery Rate",
+    "Eat a Soul when you Hit an enemy with an Open Weakness",
+    "(55-65)% of damage taken from enemies with an Open Weakness Recouped as Life and Energy Shield"
+   ]
+  },
+  {
+   "name": "The Prisoner's Manacles",
+   "implicit": [],
+   "explicit": [
+    "(20-25)% more Global Evasion Rating and Energy Shield",
+    "(10-12)% less damage taken while on Low Life",
+    "100% increased Attribute Requirements",
+    "+(2-3)% to Maximum Lightning Resistance",
+    "+(15-25)% to Lightning Resistance",
+    "Your Hits cannot Stun enemies",
+    "Regenerate (1.5-3)% of maximum Life per second",
+    "(25-50)% increased Immobilisation buildup"
+   ]
+  },
+  {
+   "name": "Thunderfist",
+   "implicit": [
+    "Grants Skill: Level 1 Gelid Palm"
+   ],
+   "explicit": [
+    "(15-20)% more Global Evasion Rating and Energy Shield",
+    "(10-15)% chance to gain Onslaught for 4 seconds on Hit",
+    "+(2-3)% to Maximum Cold Resistance",
+    "+(10-25)% to Cold Resistance",
+    "+(0.8-1.5)% to Unarmed Melee Attack Critical Hit Chance",
+    "Adds 44 to 66 Cold Damage to Unarmed Melee Hits"
+   ]
+  },
+  {
+   "name": "Treefingers",
+   "implicit": [],
+   "explicit": [
+    "(10-15)% more Global Evasion Rating and Energy Shield",
+    "Attacks Gain (10-15)% of Damage as Extra Physical Damage",
+    "5% reduced Cast Speed",
+    "(15-20)% increased Area of Effect for Attacks",
+    "(20-30)% increased Immobilisation buildup",
+    "Hollow Palm Technique"
+   ]
+  },
+  {
+   "name": "Valako's Vice",
+   "implicit": [],
+   "explicit": [
+    "(10-15)% more Global Evasion Rating and Energy Shield",
+    "10% chance to gain Onslaught for 4 seconds on Hit",
+    "Gain (15-25)% of Lightning damage as Extra Cold damage",
+    "100% of Lightning Damage Converted to Cold Damage",
+    "(10-14)% increased Area of Effect for Attacks",
+    "+(25-50)% Surpassing chance to fire an additional Projectile"
+   ]
+  }
+ ]
+}
