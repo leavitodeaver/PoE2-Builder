@@ -3168,7 +3168,9 @@ def gem_stat_support_stats() -> list[str]:
     return sorted({stat for e in gem_stat_entries() if e.raw.get("support") and e.replace
                    for stat in [*(e.raw.get("support_stats") or ()), *(e.raw.get("share_stats") or ())]}
                   | set(LIFE_LOSS_STATS) | {MUSTER_STAT, INEXORABLE_STAT, INEXORABLE_CAP_STAT, BURGEON_STAT,
-                                         BURGEON_CAP_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
+                                         BURGEON_CAP_STAT, SALVO_PROJECTILE_STAT, SALVO_INTERVAL_STAT, SALVO_MAX_STAT,
+                                         VOLT_PER_METRE_STAT, VOLT_MAX_STAT, VOLT_GAIN_STAT, RATHA_DODGE_STAT,
+                                         BHATAIR_STAT, TRICKSTER_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
 
 
 def _skill_names(entry) -> list[str]:
@@ -3178,8 +3180,9 @@ def _skill_names(entry) -> list[str]:
 
 def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats: dict | None = None,
                    main: Skill | None = None, previous: list[dict] | None = None,
-                   config: dict | None = None, groups: dict | None = None) -> tuple[list[dict], list[dict]]:
-    """`previous`: the lines applied when `stats` was calculated (Assumptions.mods), so a `share:` entry whose own line
+                   config: dict | None = None, groups: dict | None = None,
+                   texts: list[str] | None = None) -> tuple[list[dict], list[dict]]:
+    """`texts`: the build's source lines (salvo_model's Seal gain lines). `previous`: the lines applied when `stats` was calculated (Assumptions.mods), so a `share:` entry whose own line
     moves the stat it reads (Cadence's Attack Speed) can take its own last line back out (SHARES). `config`: PoB's config
     input (bridge getConfig), whose boxes an `additive:` entry counts (additive_value). `groups`: {group index: the
     bridge's useRates entry + `_press`} for gem_stat_side_groups, read by GROUP_SHARES (a non-main skill's own output)."""
@@ -3297,6 +3300,16 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + cry_mods, notes + cry_notes
     burgeon_mods, burgeon_notes = burgeon_model(skills, main, forbidden)
     mods, notes = mods + burgeon_mods, notes + burgeon_notes
+    salvo_mods, salvo_notes = salvo_model(skills, stats or {}, main, config, texts, forbidden)
+    mods, notes = mods + salvo_mods, notes + salvo_notes
+    volt_mods, volt_notes = volt_model(skills, stats or {}, main, texts, forbidden)
+    mods, notes = mods + volt_mods, notes + volt_notes
+    ratha_mods, ratha_notes = ratha_model(skills, stats or {}, main, texts, forbidden)
+    mods, notes = mods + ratha_mods, notes + ratha_notes
+    bhatair_mods, bhatair_notes = bhatair_model(skills, stats or {}, main, forbidden)
+    mods, notes = mods + bhatair_mods, notes + bhatair_notes
+    trick_mods, trick_notes = trickster_model(skills, stats or {}, main, forbidden)
+    mods, notes = mods + trick_mods, notes + trick_notes
     return mods, notes
 
 
@@ -3924,7 +3937,8 @@ def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev
 
 CONFIG_SHARES = {"near_boss"}  # (share functions that read PoB's config: gem_stat_model passes `_config`)
 
-SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use", "vruun_combo", "kelari_beetles"}  # (read the build's skills: `_skills`)
+SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use", "vruun_combo", "kelari_beetles",
+                 "cooldown_skills"}  # (read the build's skills: `_skills`)
 
 # `share: rain_landing` (GEM9; an OVERCOUNT PoB can't see): Rain of Arrows' "Modifiers to Projectile speed apply to arrow
 # landing frequency" (rain_of_arrows_new.csd, skill_specific_stat_description_mode 1). The game: "One arrow lands every
@@ -4451,6 +4465,358 @@ def burgeon_model(skills: list[Skill], main: Skill | None, forbidden: set[str] =
     return [raw_mod("Damage", "MORE", more, main.name)], [note]
 
 
+# Salvo's Seals and random directions (GEM11; PATCH_CHECK H1-6). Salvo (sup_dex.lua SupportSalvoPlayer, the game's
+# gem_stat_descriptions.csd): "Supported Skills gain a Seal every {0} seconds" (base_skill_seal_gain_interval_ms 1000),
+# "Supported Skills fire {0} additional [Projectile] per [Seal] broken" (skill_additional_projectiles_per_seal_broken 1),
+# a maximum of 6 Seals (base_maximum_seals_for_skill), and "[Projectile|Projectiles] from Supported Skills are fired in
+# random directions" (random_projectile_direction). 0.5.0 (the newest of its patch-note entries, --history "Salvo"): "It
+# now gains a Seal every 1 second, up to a maximum of 6, providing one projectile per Seal". PoB maps none of the four
+# (checked: SkillStatMap.lua and Modules/*.lua for each id: no reader; its HasSeals bonus in CalcOffence ~1291 acts only
+# under Unleash's DamageSeal / Expand's AreaSeal flags, which Salvo doesn't set), so it scores the supported skill aimed
+# at the boss, with no extra projectiles: neither the Seals' gain nor the random directions' loss.
+# On one boss: a use, made as often as it can be (PoB's Speed), breaks s = min(maximum, Seal gain / Speed) Seals and fires
+# N = PoB's ProjectileCount + s x per Seal projectiles, each in a random direction. A projectile flies at the boss with
+# chance q = asin(min(1, r / d)) / pi (the boss's width seen from d metres, a circle of radius r, over the full turn).
+# KeywordPopups Projectile: "only one Projectile in the group can hit each target unless otherwise specified", so a use of
+# a skill whose one projectile hits the boss (all but SHOTGUN_SKILLS / SEQUENCE_SKILLS) hits it 1 - (1 - q)^N times
+# against PoB's 1; a shotgun or sequence skill (all its projectiles can hit; PoB counts its ProjectileCount) N x q against
+# PoB's ProjectileCount. Given as DPS "more" on the main skill: almost always less (a loss PoB never charges: an
+# OVERCOUNT for a build that has Salvo; the search, which PoB showed no gain, never had a reason to pick it).
+# d: the boss distance the build is calculated at (PoB's enemyDistance), else the tool's natural distance for the main
+# skill (MELEE_DISTANCE / RANGED_DISTANCE, as near_boss_share). LOW, named in the report: SALVO_BOSS_RADIUS (no boss
+# size is in the exported tables; MonsterVarieties isn't exported: a RESEARCH question), the directions spread over the
+# full turn (the game text says "random directions" and no arc; UNVERIFIED), the fractional N in 1 - (1 - q)^N. Not
+# counted (labelled): Pierce / Chain / Fork / Return sending a missed projectile back to the boss, "Sealed Skills" Seal
+# gain lines from other sources beyond SEAL_FREQUENCY_LINE / SEAL_MAX_LINE (read), a side skill with Salvo (PoB's aimed
+# number kept, said in the note).
+SALVO_PROJECTILE_STAT = "skill_additional_projectiles_per_seal_broken"
+SALVO_INTERVAL_STAT = "base_skill_seal_gain_interval_ms"
+SALVO_MAX_STAT = "base_maximum_seals_for_skill"
+SALVO_ENTRY = "model-gem11-salvo-random-directions"
+SALVO_BOSS_RADIUS = 1.5  # metres, LOW: the boss taken as a circle of 1.5 m radius (no boss size in the exported tables)
+
+
+def salvo_hit_chance(metres: float, radius: float = SALVO_BOSS_RADIUS) -> float:
+    """The chance a projectile fired in a uniformly random direction flies at a boss of `radius` metres `metres` away."""
+    if metres <= 0:
+        return 0.5
+    return math.asin(min(1.0, radius / metres)) / math.pi
+
+
+def salvo_model(skills: list[Skill], stats: dict, main: Skill | None, config: dict | None = None,
+                texts: list[str] | None = None, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Salvo on the main skill: its Seals' extra projectiles and its random directions, against PoB's aimed use."""
+    from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE  # (conditions imports models)
+
+    if SALVO_ENTRY in forbidden:
+        return [], []
+    label = "Salvo: Seals' extra projectiles, fired in random directions*"
+    notes = [{"label": label, "value": "PoB's aimed number kept", "confidence": "theory", "entry": SALVO_ENTRY,
+              "basis": f"{s.name} has Salvo but isn't the main skill: its random directions aren't counted (LOW: its "
+                       "PoB number is an aimed one, an overcount)"}
+             for s in skills if number(s.support_stats.get(SALVO_PROJECTILE_STAT)) and
+             main is not None and (s.name, s.group) != (main.name, main.group)]
+    own = None if main is None else next((s for s in skills if (s.name, s.group) == (main.name, main.group)), None)
+    sup = own.support_stats if own else {}
+    per_seal = number(sup.get(SALVO_PROJECTILE_STAT))
+    if per_seal <= 0:
+        return [], notes
+    speed = number(stats.get("Speed"))
+    interval = number(sup.get(SALVO_INTERVAL_STAT)) / 1000
+    if speed <= 0 or interval <= 0 or main.triggered:
+        return [], notes + [{"label": label, "value": 0, "confidence": "theory", "entry": SALVO_ENTRY,
+                             "basis": "no use rate read from PoB (or a triggered use: Seals are for skills you use "
+                                      "yourself): not counted"}]
+    texts = texts or []
+    increased = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                    for t in texts if (m := SEAL_FREQUENCY_LINE.match(t.strip())))
+    most = number(sup.get(SALVO_MAX_STAT)) + sum(int(m.group(1)) for t in texts if (m := SEAL_MAX_LINE.match(t.strip())))
+    gain = max(0.0, 1 + increased / 100) / interval
+    seals = min(most, gain / speed)
+    count = max(number(stats.get("ProjectileCount")), 1.0)
+    fired = count + seals * per_seal
+    units = number((config or {}).get("enemyDistance"))
+    if units > 0:
+        metres, where = units / 10, "the boss distance this build is calculated at"
+    else:
+        metres = MELEE_DISTANCE if main.melee else RANGED_DISTANCE
+        where = "the tool's natural distance for the main skill"
+    every = main.name in SHOTGUN_SKILLS | SEQUENCE_SKILLS
+
+    def factor_at(d: float, turn: float = 1.0) -> float:
+        q = min(1.0, salvo_hit_chance(d) / turn)
+        return fired * q / count if every else 1 - (1 - q) ** fired
+
+    factor, near, half = factor_at(metres), factor_at(MELEE_DISTANCE), factor_at(metres, 0.5)
+    q = salvo_hit_chance(metres)
+    how = (f"{seals:.2f} Seals a use (one every {interval / max(1e-9, 1 + increased / 100):.2f} s, at most {most:g}, "
+           f"{speed:.2f} uses/s) add {seals * per_seal:.2f} projectiles to PoB's {count:g}: {fired:.2f} a use, each in a "
+           f"random direction, {q:.1%} of them at a boss {SALVO_BOSS_RADIUS:g} m in radius {metres:g} m away ({where}); "
+           + (f"all of {main.name}'s projectiles can hit: {fired * q:.2f} hits for PoB's {count:g}"
+              if every else f"one projectile of a use can hit the boss (KeywordPopups Projectile): "
+                            f"{1 - (1 - q) ** fired:.2f} hits a use for PoB's aimed 1"))
+    note = {"label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": SALVO_ENTRY,
+            "basis": f"{how}. LOW: the boss's radius ({SALVO_BOSS_RADIUS:g} m, no size in the game tables read), the "
+                     f"directions taken as spread over the full turn (UNVERIFIED; over a forward half turn: x{half:.3f}); "
+                     "Pierce, Chain, Fork and Return not counted",
+            "play": (f"Salvo fires {main.name} in random directions: fight close. Without Salvo's directions (PoB, aimed):"
+                     f" x1.000; at {metres:g} m: x{factor:.3f}; at {MELEE_DISTANCE:g} m: x{near:.3f}.")}
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], notes + [note]
+
+
+# Volt's Voltaic Charge (GEM11; PATCH_CHECK H1-8, an UNDERCOUNT). Volt (sup_dex.lua SupportVoltPlayer; the game's
+# gem_stat_descriptions.csd): "Supported Skills gain {0} Voltaic Charge per Metre travelled" (support_static_charge_charge_
+# gain_per_metre 2), "Supported Skills have {0} maximum Voltaic Charge / Supported Skills consume all Voltaic Charge on use"
+# (support_static_charge_maximum_charge 30), "Supported Skills gain 1% of Damage as extra [Lightning] Damage per Voltaic
+# Charge consumed" (support_static_charge_%_damage_gained_as_lightning_per_10_charge 10: the text is the value / 10 per
+# Charge). Patch notes (--history "Volt"): 0.5.0 only "Fixed an issue where Volt Support incorrectly had the Chaining
+# tag". PoB maps none of the three (checked: SkillStatMap.lua and Modules/*.lua for "support_static_charge": no reader), so
+# it counts 0. The rate comes from the build's own movement (CLAUDE.md rule 2): against a boss the player dodge rolls every
+# DODGE_EVERY s (the user's default, 7 Nov 2026), dodge_roll() giving the build's own metres a roll (its distance lines and
+# movement speed), so m = metres / DODGE_EVERY a second; each use of the main skill (PoB's Speed) consumes
+# min(maximum, per metre x m / Speed) Charges, given to PoB as DamageGainAsLightning on the skill. LOW / UNVERIFIED: a
+# dodge roll counts as "travelled" (the text doesn't say walking only). Walking between uses (a play choice, not in the
+# headline: a lone boss gives no reason to walk but Volt) is the play guide's "with it" row. Main skill only; a side
+# skill with Volt is said, not counted. Volt's other stat, support_static_charge_X_chains_per_10_charge ("[Chain] {0}
+# time per ten Voltaic Charge consumed"), isn't on the Volt gem in PoB's data (sup_dex.lua) and isn't read here.
+VOLT_PER_METRE_STAT = "support_static_charge_charge_gain_per_metre"
+VOLT_MAX_STAT = "support_static_charge_maximum_charge"
+VOLT_GAIN_STAT = "support_static_charge_%_damage_gained_as_lightning_per_10_charge"
+VOLT_ENTRY = "model-gem11-volt-charge-from-movement"
+VOLT_WALK_SPEED = 3.8  # m/s, LOW: base run speed (FIX_QUEUE A9-4, the manager ~10:55), for the play guide's walking row
+
+
+def volt_model(skills: list[Skill], stats: dict, main: Skill | None, texts: list[str] | None = None,
+               forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Volt on the main skill: the Voltaic Charge its uses consume from the build's dodge rolls, as extra Lightning."""
+    if VOLT_ENTRY in forbidden:
+        return [], []
+    label = "Volt: Voltaic Charge from movement, as extra Lightning Damage"
+    notes = [{"label": label, "value": 0, "confidence": "theory", "entry": VOLT_ENTRY,
+              "basis": f"{s.name} has Volt but isn't the main skill: its Charge isn't counted (an undercount, said)"}
+             for s in skills if number(s.support_stats.get(VOLT_PER_METRE_STAT)) and
+             main is not None and (s.name, s.group) != (main.name, main.group)]
+    own = None if main is None else next((s for s in skills if (s.name, s.group) == (main.name, main.group)), None)
+    sup = own.support_stats if own else {}
+    per_metre, most, gain = (number(sup.get(k)) for k in (VOLT_PER_METRE_STAT, VOLT_MAX_STAT, VOLT_GAIN_STAT))
+    if per_metre <= 0 or gain <= 0:
+        return [], notes
+    speed = number(stats.get("Speed"))
+    if speed <= 0 or main.triggered:
+        return [], notes + [{"label": label, "value": 0, "confidence": "theory", "entry": VOLT_ENTRY,
+                             "basis": "no use rate read from PoB (or a triggered use: Volt supports skills you use "
+                                      "yourself): not counted"}]
+    roll = dodge_roll(texts or [], stats)
+    metres = roll["metres"] / DODGE_EVERY
+    charges = min(most, per_metre * metres / speed)
+    pct = charges * gain / 10
+    walk = VOLT_WALK_SPEED * (number(stats.get("MovementSpeedMod")) or 1.0)
+    walk_metres = most / per_metre  # (metres to fill the Charge)
+    note = {"label": label, "value": f"{pct:.3g}% of Damage as extra Lightning", "confidence": "LOW",
+            "entry": VOLT_ENTRY,
+            "basis": (f"a dodge roll every {DODGE_EVERY:g} s (the user's default): {roll['basis']}; {metres:.2f} m a "
+                      f"second at {per_metre:g} Charge a metre over {speed:.2f} uses/s = {charges:.2f} Charge a use (at "
+                      f"most {most:g}), {gain / 10:g}% each. LOW: a roll taken to count as travelled (UNVERIFIED); "
+                      "walking isn't counted in the headline"),
+            "play": (f"Volt charges {per_metre:g} a metre you move, up to {most:g} ({walk_metres:g} m), all spent on the "
+                     f"next {main.name}. Dodge rolls only (headline): {pct:.3g}% of Damage as extra Lightning; moving "
+                     f"{walk_metres:g} m before each use (about {walk_metres / walk:.1f} s of walking at "
+                     f"{walk:.2f} m/s, LOW): {most * gain / 10:g}%.")}
+    if pct <= 0:
+        return [], notes + [note]
+    return [raw_mod("DamageGainAsLightning", "BASE", pct, main.name)], notes + [note]
+
+
+# Ratha's Assault's bolts on Dodge (GEM11; PATCH_CHECK H1-10). Ratha's Assault (sup_dex.lua SupportCombatReloadPlayer;
+# gem_stat_descriptions.csd): "Supported [Crossbow] [Ammunition] Skills cannot reload" (active_skill_cannot_manually_
+# reload), "Supported Skills load {0} bolts when you Dodge" (crossbow_load_x_bolts_on_dodge 4), "Supported Skills load
+# {0} additional bolts" (support_double_barrel_number_of_crossbow_bolts_+ 3), 10% increased Attack Speed. Patch notes
+# (--history "Ratha's Assault"): 0.4.0 5 bolts on Dodge / 4 additional / 20%; 0.5.0 (newest) 4 / 3 / 10%, as the data.
+# PoB maps the three bolt stats to nothing (checked: SkillStatMap.lua and Modules/*.lua for each id) and reads the
+# Attack Speed, so it scores the skill reloading its clip normally (Speed, with EffectiveReloadTime). The game loads bolts
+# only on a Dodge: the player rolls whenever the bolts run out (the play that feeds it), so each cycle is one roll
+# (dodge_roll's seconds, 0.75 s base) plus firing the 4 bolts at PoB's FiringRate, each bolt lasting 1 / (1 - the chance
+# not to consume Ammunition) shots; rate = shots / cycle, against PoB's Speed: DPS "more" or "less" on the main skill.
+# With every shot free of Ammunition (100%) the bolts never run out: PoB's FiringRate. The 3 additional bolts raise
+# the clip a roll can fill (4 always fit), so they don't change the rate here (said). LOW: the roll's time with no firing
+# (a roll can't be fired through), the cycle taken as steady. Main skill only.
+RATHA_DODGE_STAT = "crossbow_load_x_bolts_on_dodge"
+RATHA_ENTRY = "model-gem11-ratha-bolts-on-dodge"
+
+
+def ratha_model(skills: list[Skill], stats: dict, main: Skill | None, texts: list[str] | None = None,
+                forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Ratha's Assault on the main skill: its bolts loaded only by Dodge rolls, against PoB's normal reloads."""
+    if RATHA_ENTRY in forbidden:
+        return [], []
+    label = "Ratha's Assault: bolts loaded only when you Dodge*"
+    notes = [{"label": label, "value": "PoB's reloads kept", "confidence": "theory", "entry": RATHA_ENTRY,
+              "basis": f"{s.name} has Ratha's Assault but isn't the main skill: PoB's normal reloads kept (LOW)"}
+             for s in skills if number(s.support_stats.get(RATHA_DODGE_STAT)) and
+             main is not None and (s.name, s.group) != (main.name, main.group)]
+    own = None if main is None else next((s for s in skills if (s.name, s.group) == (main.name, main.group)), None)
+    load = number((own.support_stats if own else {}).get(RATHA_DODGE_STAT))
+    if load <= 0:
+        return [], notes
+    speed = number(stats.get("Speed"))
+    firing = number(stats.get("FiringRate")) or speed
+    if speed <= 0 or firing <= 0:
+        return [], notes + [{"label": label, "value": 0, "confidence": "theory", "entry": RATHA_ENTRY,
+                             "basis": "no firing rate read from PoB: not counted"}]
+    free = number(stats.get("ChanceToNotConsumeAmmo"))
+    roll = dodge_roll(texts or [], stats)["seconds"]
+    if free >= 100:
+        rate, how = firing, f"every shot consumes no Ammunition, so the bolts never run out: {firing:.2f} shots/s"
+    else:
+        shots = load / (1 - free / 100)
+        rate = shots / (roll + shots / firing)
+        how = (f"each Dodge ({roll:.2f} s) loads {load:g} bolts, {shots:.2f} shots at {free:g}% chance not to consume "
+               f"Ammunition, fired in {shots / firing:.2f} s at PoB's firing rate {firing:.2f}/s: {rate:.2f} shots/s")
+    factor = rate / speed
+    note = {"label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": RATHA_ENTRY,
+            "basis": f"{how}, against PoB's {speed:.2f}/s with normal reloads (which the support forbids). LOW: the roll "
+                     "taken as time with no firing, the cycle as steady; the 3 additional bolts don't change the rate "
+                     "(4 always fit)",
+            "play": (f"{main.name} can't reload: Dodge roll as soon as the bolts run out. PoB (normal reloads): "
+                     f"x1.000; rolling to reload: x{factor:.3f}.")}
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], notes + [note]
+
+# Bhatair's Vengeance's Cold infusion on Freeze (GEM11; PATCH_CHECK H1-10 row 11, an UNDERCOUNT). Bhatair's Vengeance
+# (sup_int.lua SupportBhatairsVengeancePlayer; gem_stat_descriptions.csd): "When you [Freeze] a target with Supported
+# Skills, for each 2 [Rage] you have, you and [Allies] in your [Presence] gain 1% of Damage as [Cold] Damage for {0}
+# seconds" (supported_skill_grants_shatter_fang_to_you_and_allies_in_presence_for_base_X_ms_on_freeze 15000). Patch
+# notes (part_H1 row 11, 0.5.0, newest): "for each 2 Rage ... for 15 seconds (previously 1 Rage, 20 s)". PoB maps it to
+# nothing (checked: SkillStatMap.lua and Modules/*.lua for "shatter_fang": no reader). From the build: the supported
+# main skill's Freezes a second (buildup_rate: PoB's FreezeBuildupAvg against the boss's threshold, the x6 after each,
+# the pause while Frozen; 0 against a boss immune to Freeze), so the buff is up min(1, 15 s x Freezes a second) of the
+# fight (each Freeze refreshing it: LOW, a refresh rather than a second instance, UNVERIFIED); Rage: PoB's Rage stat
+# (as Medved's Felling reads it), counted in whole 2s ("for each 2"). Given as DamageGainAsCold BASE on the player (all
+# your damage: the text says "you", not the supported skill) x the uptime. Main skill only (a side skill's Freezes
+# aren't read: said). Not counted: allies in your Presence (minions: LOW, said).
+BHATAIR_STAT = "supported_skill_grants_shatter_fang_to_you_and_allies_in_presence_for_base_X_ms_on_freeze"
+BHATAIR_ENTRY = "model-gem11-bhatair-cold-on-freeze"
+
+
+def bhatair_model(skills: list[Skill], stats: dict, main: Skill | None,
+                  forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Bhatair's Vengeance on the main skill: its Freezes' uptime of Rage / 2 % of Damage as extra Cold."""
+    if BHATAIR_ENTRY in forbidden:
+        return [], []
+    label = "Bhatair's Vengeance: Damage as extra Cold per 2 Rage after a Freeze*"
+    notes = [{"label": label, "value": 0, "confidence": "theory", "entry": BHATAIR_ENTRY,
+              "basis": f"{s.name} has Bhatair's Vengeance but isn't the main skill: its Freezes aren't read (an "
+                       "undercount, said)"}
+             for s in skills if number(s.support_stats.get(BHATAIR_STAT)) and
+             main is not None and (s.name, s.group) != (main.name, main.group)]
+    own = None if main is None else next((s for s in skills if (s.name, s.group) == (main.name, main.group)), None)
+    ms = number((own.support_stats if own else {}).get(BHATAIR_STAT))
+    if ms <= 0:
+        return [], notes
+    seconds = ms / 1000
+    freezes = buildup_rate(stats, "Freeze")
+    uptime = min(1.0, seconds * freezes)
+    rage = number(stats.get("Rage"))
+    pct = math.floor(rage / 2 + 1e-9)
+    value = pct * uptime
+    note = {"label": label, "value": f"{value:.3g}% of Damage as extra Cold", "confidence": "LOW",
+            "entry": BHATAIR_ENTRY,
+            "basis": (f"{main.name} Freezes the boss {freezes:.3f} times a second (PoB's Freeze buildup against its "
+                      f"threshold, x6 after each, paused while Frozen): up {uptime:.0%} of the fight for {seconds:g} s "
+                      f"each (refreshed, LOW); {rage:g} Rage (PoB's) = {pct:g}% for each 2. LOW: allies not counted"),
+            "play": (f"Freeze the boss with {main.name} at least every {seconds:g} s and hold Rage: {pct:g}% of Damage "
+                     f"as extra Cold while up. Without a Freeze: 0; with the build's Freezes: {value:.3g}%.")}
+    if value <= 0:
+        return [], notes + [note]
+    return [raw_mod("DamageGainAsCold", "BASE", value)], notes + [note]
+
+
+# Trickster's Shard's Fractured Mimics (GEM11; PATCH_CHECK H1-10, an UNDERCOUNT). Trickster's Shard (sup_int.lua
+# SupportTrickstersShardPlayer; gem_stat_descriptions.csd): "Supported [Spell|Spells] [Trigger] Fragment Self",
+# "Supported Spells deal {0}% less Damage when cast by Fractured Mimics" (skill_used_by_fractured_mimic_spell_damage_+%_
+# final -50). Fragment Self (other.lua): "Creates a Fractured Mimic of yourself, suspended in time at the point of casting
+# the Triggering Spell. If you reach the Limit of Fractured Mimics, they will all finish casting their Spells and
+# disappear"; base_skill_effect_duration 5000, support_tricksters_shard_maximum_active_mimics 4. PoB reads none of it
+# (checked: Modules/*.lua and SkillStatMap.lua for mimic / tricksters_shard: only an unrelated Trickster's Smile box).
+# From the build: the main spell cast at PoB's Speed; the Limit is reached when 4 mimics stand at once, i.e. 4 casts
+# within a mimic's 5 s (3 gaps of 1 / Speed <= 5 s: Speed >= 0.6 / s); then every cast's mimic casts the spell once at
+# 50% less: x(1 + 0.5) on the main spell's DPS. Below that rate a mimic expires before the 4th (LOW: an expiring mimic
+# taken as casting nothing, UNVERIFIED: the text names only the Limit), so x1. Duration modifiers on Fragment Self not
+# read (the base 5 s). Main skill only; a side spell with it is said, not counted.
+TRICKSTER_STAT = "skill_used_by_fractured_mimic_spell_damage_+%_final"
+TRICKSTER_ENTRY = "model-gem11-trickster-fractured-mimics"
+TRICKSTER_LIMIT = 4  # support_tricksters_shard_maximum_active_mimics (Fragment Self's stat set)
+TRICKSTER_SECONDS = 5.0  # Fragment Self's base_skill_effect_duration 5000
+
+
+def trickster_model(skills: list[Skill], stats: dict, main: Skill | None,
+                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Trickster's Shard on the main spell: each cast's Fractured Mimic casting it again at 50% less, when the Limit
+    is reached within a mimic's duration."""
+    if TRICKSTER_ENTRY in forbidden:
+        return [], []
+    label = "Trickster's Shard: Fractured Mimics cast the spell again*"
+    notes = [{"label": label, "value": 0, "confidence": "theory", "entry": TRICKSTER_ENTRY,
+              "basis": f"{s.name} has Trickster's Shard but isn't the main skill: its mimics' casts aren't counted (an "
+                       "undercount, said)"}
+             for s in skills if s.support_stats.get(TRICKSTER_STAT) is not None and
+             main is not None and (s.name, s.group) != (main.name, main.group)]
+    own = None if main is None else next((s for s in skills if (s.name, s.group) == (main.name, main.group)), None)
+    sup = own.support_stats if own else {}
+    if TRICKSTER_STAT not in sup:
+        return [], notes
+    part, part_notes = support_part_scale(own, "mimic")  # (supports-parts.yaml's entry: the mimics' 50% less)
+    less = 100 * (part.get("Damage", 1.0) - 1)
+    notes = notes + part_notes
+    speed = number(stats.get("Speed"))
+    need = (TRICKSTER_LIMIT - 1) / TRICKSTER_SECONDS
+    factor = 1 + (1 + less / 100) if speed >= need and not main.triggered else 1.0
+    note = {"label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": TRICKSTER_ENTRY,
+            "basis": (f"{main.name} cast {speed:.2f} times a second: {TRICKSTER_LIMIT} mimics within their "
+                      f"{TRICKSTER_SECONDS:g} s need {need:.2f} casts a second; "
+                      + (f"reached, so each cast's mimic casts it again at {less:+g}%" if factor > 1 else
+                         "not reached (or a triggered cast), so the mimics expire first (LOW: taken as casting nothing)")),
+            "play": (f"Cast {main.name} at least {need:.2f} times a second so {TRICKSTER_LIMIT} Fractured Mimics stand at "
+                     f"once and all cast it. Slower: x1.000; at that rate: x{1 + (1 + less / 100):.3f}.")}
+    if factor <= 1:
+        return [], notes + [note]
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], notes + [note]
+
+
+
+# `share: cooldown_skills` (GEM11; PATCH_CHECK H1-10, an UNDERCOUNT): Uhtred's Constellation (sup_int.lua
+# SupportUhtredsConstellation; gem_stat_descriptions.csd): "Supported Skills deal {0}% more Damage for each different Skill
+# with a Cooldown you have used in the last 8 seconds" (support_uhtred_damage_+%_final_per_different_cooldown_skill_in_
+# last_8_seconds 8). 0.5.0 added it (--history: one entry). PoB maps it to nothing (checked: SkillStatMap.lua and
+# Modules/*.lua for the id: no reader); it does read the gem's two other stats (+2 cooldown uses, 50% less cooldown
+# speed). Counted from the build's own skills: the supported skill itself (it was just used: LOW, the text doesn't
+# exclude it), plus each OTHER differently named skill you use with a cooldown (PoB's base cooldown over its Cooldown
+# Recovery), used on cooldown (the play that feeds it: LOW) so it was used within 8 s for min(1, 8 s / its cooldown) of
+# the fight. Triggered skills aren't counted (whether a triggered use is one "you have used" is UNVERIFIED: the lower
+# reading, said in the note). The count multiplies the 8%.
+UHTRED_WINDOW = 8.0  # seconds: the stat's own "in the last 8 seconds"
+
+
+def cooldown_skills_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    others: dict[str, float] = {}
+    triggered = set()
+    for s in stats.get("_skills") or ():
+        if s.name == skill.name or not s.cooldown or number(s.cooldown) <= 0:
+            continue
+        if s.triggered:
+            triggered.add(s.name)
+            continue
+        every = number(s.cooldown) / (s.cooldown_recovery or 1.0)
+        others[s.name] = max(others.get(s.name, 0.0), min(1.0, UHTRED_WINDOW / every))
+    count = 1 + sum(others.values())
+    parts = [f"{n} {v:.0%}" for n, v in sorted(others.items())]
+    why = (f"{count:.2f} different Skills with a Cooldown used in the last {UHTRED_WINDOW:g} s: {skill.name} itself"
+           + (f", and {', '.join(parts)} of the time (each used on cooldown, LOW)" if parts else ", and no other")
+           + (f"; triggered ones not counted (UNVERIFIED): {', '.join(sorted(triggered))}" if triggered else ""))
+    play = (f"Use your other Cooldown skills on cooldown: each one used in the last {UHTRED_WINDOW:g} s adds to "
+            f"{skill.name}'s damage. Without them: x1 of the bonus (the skill itself); with them: x{count:.2f}.")
+    return count, why, play
+
+
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
           "cull_buff": cull_buff_share, "revived_recently": revived_recently_share,
@@ -4460,7 +4826,8 @@ SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_s
           "shotgun_fragment_count": shotgun_fragment_count_share,
           "vruun_combo": vruun_combo_share, "rain_landing": rain_landing_share,
           "emergency_reload": emergency_reload_share, "kelari_beetles": kelari_beetles_share,
-          "descent_fragments": descent_fragments_share}
+          "descent_fragments": descent_fragments_share,
+          "cooldown_skills": cooldown_skills_share}
 MODEL_FIELDS.extend(f for f in ("ProjectileSpeedMod",) if f not in MODEL_FIELDS)  # (rain_landing_share)
 MODEL_FIELDS.extend(f for f in ("BoltCount", "EffectiveBoltCount", "ChanceToNotConsumeAmmo", "FiringRate", "EffectiveReloadTime",
                                   "Minion.Speed") if f not in MODEL_FIELDS)  # (emergency_reload_share, kelari_beetles_share)

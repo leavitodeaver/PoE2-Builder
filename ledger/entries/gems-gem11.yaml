@@ -1,0 +1,126 @@
+# GEM11 (15 Nov 2026): PATCH_CHECK H1 items (0.5.0 supports PoB never reads).
+
+- id: model-gem11-salvo-random-directions
+  title: "Salvo: a Seal a second (up to 6), one extra projectile per Seal broken, and every projectile fired in a random direction"
+  kind: model
+  model: salvo
+  stats: ["skill_additional_projectiles_per_seal_broken", "base_skill_seal_gain_interval_ms",
+          "base_maximum_seals_for_skill", "random_projectile_direction", "base_skill_is_sealed_skill"]
+  skill: [Salvo]
+  confidence: LOW
+  notes: >-
+    PATCH_CHECK H1-6. PoB maps none of Salvo's stats (checked: SkillStatMap.lua and Modules/*.lua for each id; its
+    HasSeals bonus acts only under Unleash's / Expand's flags), so it scores the supported skill aimed, with no extra
+    projectiles. models.salvo_model: Seals broken a use = min(maximum, gain / PoB's Speed); projectiles a use N = PoB's
+    ProjectileCount + Seals; each flies at the boss with chance q = asin(r / d) / pi; a use hits 1 - (1 - q)^N times
+    (one projectile of a group per target, KeywordPopups Projectile) against PoB's 1, or N x q against PoB's
+    ProjectileCount for a shotgun / sequence skill. Mostly a LOSS PoB never charges (an OVERCOUNT for a build with
+    Salvo). LOW: the boss radius 1.5 m (SALVO_BOSS_RADIUS, no boss size in the exported tables), the directions spread
+    over the full turn (the game text gives no arc; UNVERIFIED). Not counted: Pierce / Chain / Fork / Return bringing
+    a missed projectile back; a non-main skill with Salvo (PoB's aimed number kept, said in the note).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua (SupportSalvoPlayer)",
+            "data/game-26476662/files/data/statdescriptions/gem_stat_descriptions.csd (random_projectile_direction, skill_additional_projectiles_per_seal_broken)",
+            "KeywordPopups Projectile (one projectile of a group per target)",
+            "patch notes 0.5.0 Support Changes (Salvo: a Seal every 1 s, max 6, one projectile per Seal)",
+            "poe2db Salvo (current values match)"]
+  test_in_game: "Fire a Salvo-supported Lightning Arrow at a dummy 5 m away with 6 Seals: about 1 in 2 volleys should hit it; at 2 m, most."
+  status: proposed
+
+- id: model-gem11-volt-charge-from-movement
+  title: "Volt: 2 Voltaic Charge per metre moved (up to 30), all consumed on use for 1% of Damage as extra Lightning each"
+  kind: model
+  model: volt
+  stats: ["support_static_charge_charge_gain_per_metre", "support_static_charge_maximum_charge",
+          "support_static_charge_%_damage_gained_as_lightning_per_10_charge"]
+  skill: [Volt]
+  confidence: LOW
+  notes: >-
+    PATCH_CHECK H1-8. PoB maps none of Volt's stats (checked: SkillStatMap.lua and Modules/*.lua for
+    "support_static_charge": no reader): 0, an UNDERCOUNT. models.volt_model: metres a second = the build's own dodge
+    roll (dodge_roll: base 4.6 m, its distance lines, movement speed) every DODGE_EVERY s (the user's default); Charge
+    a use = min(30, 2 x metres a second / PoB's Speed), given as DamageGainAsLightning on the main skill. LOW: a roll
+    counts as travelled (UNVERIFIED). The play guide gives walking the 15 m that fills it before each use (base run
+    speed 3.8 m/s x movement speed, LOW: FIX_QUEUE A9-4). Main skill only.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua (SupportVoltPlayer)",
+            "data/game-26476662/files/data/statdescriptions/gem_stat_descriptions.csd (support_static_charge_*)",
+            "builder/search/models.py dodge_roll, DODGE_EVERY", "patch notes 0.5.0 Bug Fixes (Volt's Chaining tag)"]
+  test_in_game: "Walk 15 m, then fire a Volt-supported attack at a dummy: about 30% of its damage should be added as Lightning."
+  status: proposed
+
+- id: support-gem11-uhtreds-constellation-cooldown-skills
+  title: "Uhtred's Constellation: 8% more Damage per different Skill with a Cooldown used in the last 8 seconds"
+  kind: gem_stat
+  support: true
+  share: cooldown_skills
+  skill: [Uhtred's Constellation]
+  support_stats: ['support_uhtred_damage_+%_final_per_different_cooldown_skill_in_last_8_seconds']
+  match: '^support_uhtred_damage_\+%_final_per_different_cooldown_skill_in_last_8_seconds$'
+  replace: ['1% more Damage']
+  confidence: LOW
+  notes: >-
+    PATCH_CHECK H1-10. PoB maps it to nothing (checked: SkillStatMap.lua and Modules/*.lua for the id). Counted by
+    models.cooldown_skills_share from the build's skills: the supported skill itself, plus each other differently named
+    non-triggered skill with a cooldown, used on cooldown, for min(1, 8 s / its cooldown) of the fight (LOW: the play
+    that feeds it). Triggered skills not counted (UNVERIFIED whether they count as used).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (SupportUhtredsConstellation)",
+            "data/game-26476662/files/data/statdescriptions/gem_stat_descriptions.csd",
+            "patch notes 0.5.0 New Lineage Support: Uhtred's Constellation"]
+  test_in_game: "Hit a dummy with the supported skill alone, then right after using two other Cooldown skills: 8% more per skill, so 1.24 / 1.08 = about 15% higher."
+  status: proposed
+
+- id: model-gem11-ratha-bolts-on-dodge
+  title: "Ratha's Assault: the supported crossbow skill can't reload; it loads 4 bolts each Dodge (and 3 additional bolts)"
+  kind: model
+  model: ratha
+  stats: ["crossbow_load_x_bolts_on_dodge", "support_double_barrel_number_of_crossbow_bolts_+",
+          "active_skill_cannot_manually_reload"]
+  skill: [Ratha's Assault]
+  confidence: LOW
+  notes: >-
+    PATCH_CHECK H1-10. PoB maps the three bolt stats to nothing (checked: SkillStatMap.lua and Modules/*.lua for each
+    id) and scores normal reloads. models.ratha_model: the player rolls when the bolts run out; a cycle is one roll
+    (dodge_roll's seconds) plus firing the 4 bolts (each 1 / (1 - no-Ammunition chance) shots) at PoB's FiringRate;
+    shots a second over PoB's Speed, as DPS more / less on the main skill. All shots free of Ammunition: PoB's
+    FiringRate. The 3 additional bolts don't change the rate (4 always fit). Main skill only.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua (SupportCombatReloadPlayer)",
+            "data/game-26476662/files/data/statdescriptions/gem_stat_descriptions.csd",
+            "patch notes 0.4.0 and 0.5.0 Support Changes (Ratha's Assault)"]
+  test_in_game: "Fire a Ratha's Assault crossbow skill at a dummy for 10 s, rolling whenever empty, and count the shots against PoB's Speed x 10."
+  status: proposed
+
+- id: model-gem11-bhatair-cold-on-freeze
+  title: "Bhatair's Vengeance: after a Freeze, 1% of Damage as extra Cold per 2 Rage for 15 seconds"
+  kind: model
+  model: bhatair
+  stats: ["supported_skill_grants_shatter_fang_to_you_and_allies_in_presence_for_base_X_ms_on_freeze"]
+  skill: [Bhatair's Vengeance]
+  confidence: LOW
+  notes: >-
+    PATCH_CHECK H1-10 (part_H1 row 11). PoB maps it to nothing (checked: SkillStatMap.lua and Modules/*.lua for
+    "shatter_fang"). models.bhatair_model: uptime = min(1, 15 s x the main skill's Freezes a second (buildup_rate));
+    floor(PoB's Rage / 2)% of Damage as extra Cold on the player x the uptime. LOW: each Freeze taken to refresh the
+    buff; allies not counted. Main skill only.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (SupportBhatairsVengeancePlayer)",
+            "data/game-26476662/files/data/statdescriptions/gem_stat_descriptions.csd",
+            "scratch/notes2/part_H1.md row 11 (0.5.0: 2 Rage, 15 s)"]
+  test_in_game: "With 30 Rage, Freeze a dummy with the supported skill: other hits for 15 s should gain 15% of their damage as Cold."
+  status: proposed
+
+- id: model-gem11-trickster-fractured-mimics
+  title: "Trickster's Shard: each cast leaves a Fractured Mimic; at 4, they all cast the spell at 50% less"
+  kind: model
+  model: trickster
+  stats: ["support_tricksters_shard_trigger_fractured_self_on_cast", "skill_used_by_fractured_mimic_spell_damage_+%_final",
+          "support_tricksters_shard_maximum_active_mimics"]
+  skill: [Trickster's Shard, Fragment Self]
+  confidence: LOW
+  notes: >-
+    PATCH_CHECK H1-10. PoB reads none of it (checked: Modules/*.lua, SkillStatMap.lua for mimic / tricksters_shard).
+    models.trickster_model: 4 mimics within their 5 s need 0.6 casts a second; at that rate each cast's mimic casts
+    once more at 50% less (x1.5 on the main spell's DPS); slower: x1 (LOW: an expiring mimic taken as casting
+    nothing, UNVERIFIED). Main skill only.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (SupportTrickstersShardPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (Fragment Self)",
+            "data/game-26476662/files/data/statdescriptions/gem_stat_descriptions.csd"]
+  test_in_game: "Cast a Trickster's Shard spell 4 times within 5 s at a dummy: the 4 mimics should each cast it at half damage."
+  status: proposed

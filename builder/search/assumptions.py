@@ -1160,7 +1160,8 @@ class Assumptions:
         side_groups = {r["index"]: {**r, "_press": press.get(r["name"])}
                        for r in build.call("useRates", indices=side)["rates"]} if side else None
         stat_mods, stat_notes = models.gem_stat_model(found, set(build.ctx.request.forbid_ledger_entries), stats, main,
-                                                      self.mods, build.call("getConfig")["input"], side_groups)
+                                                      self.mods, build.call("getConfig")["input"], side_groups,
+                                                      [e["text"] for e in source_lines])  # (GEM11: Salvo's Seal lines)
         harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
         ring_mods, ring_notes = models.resist_rings_model(source_lines) if models.RESIST_ENTRY not in forbidden else ([], [])
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()

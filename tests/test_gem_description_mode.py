@@ -247,3 +247,87 @@ def test_burgeon_averages_over_the_channels_the_dodge_rhythm_allows():
     assert [m["value"] for m in mods if m.get("name") == "Damage" and m.get("skill") == "Incinerate"] == [
         pytest.approx(models.burgeon_average(20, 40, channel))]
     assert any(n["entry"] == models.BURGEON_ENTRY and "play" in n for n in notes)
+
+
+def test_salvo_counts_its_seals_and_its_random_directions_on_one_boss():
+    sup = {models.SALVO_PROJECTILE_STAT: 1, models.SALVO_INTERVAL_STAT: 1000, models.SALVO_MAX_STAT: 6}
+    arrow = Skill("Lightning Arrow", 1, attack=True, support_stats=sup)
+    # 0.5 uses/s: 2 Seals a use, 1 + 2 projectiles; at 5 m a 1.5 m boss is asin(0.3) / pi of the turn
+    mods, notes = models.gem_stat_model([arrow], stats={"Speed": 0.5, "ProjectileCount": 1}, main=arrow)
+    q = models.salvo_hit_chance(5.0)
+    assert q == pytest.approx(0.0970, abs=1e-3)
+    dps = [m["value"] for m in mods if m.get("name") == "DPS" and m.get("skill") == "Lightning Arrow"]
+    assert dps == [pytest.approx(100 * ((1 - (1 - q) ** 3) - 1), abs=0.01)]
+    note = next(n for n in notes if n["entry"] == models.SALVO_ENTRY)
+    assert note["confidence"] == "LOW" and "play" in note
+    # Seals capped at 6; the calculated distance (enemyDistance, units) is read; a shotgun skill counts every projectile
+    shards = Skill("Galvanic Shards", 1, attack=True, support_stats=sup)
+    mods, _ = models.gem_stat_model([shards], stats={"Speed": 0.1, "ProjectileCount": 4}, main=shards,
+                                    config={"enemyDistance": 20})
+    q2 = models.salvo_hit_chance(2.0)
+    assert [m["value"] for m in mods if m.get("name") == "DPS"] == [pytest.approx(100 * ((4 + 6) * q2 / 4 - 1), abs=0.01)]
+
+
+def test_salvo_off_the_main_skill_keeps_pobs_number_with_a_note():
+    sup = {models.SALVO_PROJECTILE_STAT: 1, models.SALVO_INTERVAL_STAT: 1000, models.SALVO_MAX_STAT: 6}
+    side = Skill("Lightning Arrow", 2, attack=True, support_stats=sup)
+    main = Skill("Spark", 1, spell=True)
+    mods, notes = models.gem_stat_model([main, side], stats={"Speed": 1, "ProjectileCount": 1}, main=main)
+    assert not [m for m in mods if m.get("name") == "DPS"]
+    assert any(n["entry"] == models.SALVO_ENTRY and "isn't the main skill" in n["basis"] for n in notes)
+
+
+def test_volt_charges_from_the_builds_dodge_rolls_and_caps_at_its_maximum():
+    sup = {models.VOLT_PER_METRE_STAT: 2, models.VOLT_MAX_STAT: 30, models.VOLT_GAIN_STAT: 10}
+    arrow = Skill("Lightning Arrow", 1, attack=True, support_stats=sup)
+    mods, notes = models.gem_stat_model([arrow], stats={"Speed": 2, "MovementSpeedMod": 1}, main=arrow)
+    charges = 2 * models.DODGE_ROLL_METRES / models.DODGE_EVERY / 2  # 2 a metre, a roll every 2 s, 2 uses/s
+    assert [m["value"] for m in mods if m.get("name") == "DamageGainAsLightning"] == [pytest.approx(charges, abs=0.01)]
+    assert any(n["entry"] == models.VOLT_ENTRY and "play" in n for n in notes)
+    slow = Skill("Lightning Arrow", 1, attack=True, support_stats=sup)
+    mods, _ = models.gem_stat_model([slow], stats={"Speed": 0.01, "MovementSpeedMod": 1}, main=slow)
+    assert [m["value"] for m in mods if m.get("name") == "DamageGainAsLightning"] == [pytest.approx(30)]
+
+
+def test_uhtreds_constellation_counts_the_builds_other_cooldown_skills_used_on_cooldown():
+    stat = "support_uhtred_damage_+%_final_per_different_cooldown_skill_in_last_8_seconds"
+    main = Skill("Shield Charge", 1, attack=True, cooldown=6, support_stats={stat: 8})
+    cry = Skill("Infernal Cry", 2, cooldown=8)  # within 8 s all the time
+    wall = Skill("Frost Wall", 3, spell=True, cooldown=16)  # half the time
+    trig = Skill("Comet", 4, spell=True, triggered=True, cooldown=1)  # triggered: not counted (UNVERIFIED)
+    mods, notes = models.gem_stat_model([main, cry, wall, trig], stats={"Speed": 1}, main=main)
+    assert [m["scale"] for m in mods if m.get("entry") == "support-gem11-uhtreds-constellation-cooldown-skills"] == [
+        pytest.approx(8 * 2.5)]
+    alone, *_ = models.cooldown_skills_share(main, {"_skills": [main]})
+    assert alone == 1
+
+
+def test_rathas_assault_fires_the_bolts_each_dodge_loads_instead_of_reloading():
+    sup = {models.RATHA_DODGE_STAT: 4}
+    bolt = Skill("Armour Piercing Rounds", 1, attack=True, support_stats=sup)
+    mods, notes = models.gem_stat_model([bolt], stats={"Speed": 3, "FiringRate": 4}, main=bolt)
+    rate = 4 / (models.DODGE_ROLL_SECONDS + 4 / 4)  # a roll, then 4 bolts at 4/s
+    assert [m["value"] for m in mods if m.get("name") == "DPS"] == [pytest.approx(100 * (rate / 3 - 1), abs=0.01)]
+    mods, _ = models.gem_stat_model([bolt], stats={"Speed": 3, "FiringRate": 4, "ChanceToNotConsumeAmmo": 100}, main=bolt)
+    assert [m["value"] for m in mods if m.get("name") == "DPS"] == [pytest.approx(100 * (4 / 3 - 1), abs=0.01)]
+
+
+def test_bhatairs_vengeance_counts_rage_over_two_for_the_share_of_the_fight_after_a_freeze():
+    ice = Skill("Ice Strike", 1, attack=True, support_stats={models.BHATAIR_STAT: 15000})
+    stats = {"Speed": 2, "HitChance": 100, "FreezeBuildupAvg": 10, "Rage": 31}
+    mods, notes = models.gem_stat_model([ice], stats=stats, main=ice)
+    up = min(1.0, 15 * models.buildup_rate(stats, "Freeze"))
+    assert 0 < up < 1
+    assert [m["value"] for m in mods if m.get("name") == "DamageGainAsCold"] == [pytest.approx(15 * up, abs=0.01)]
+    mods, notes = models.gem_stat_model([ice], stats={**stats, "FreezeBuildupAvg": 0}, main=ice)
+    assert not [m for m in mods if m.get("name") == "DamageGainAsCold"]  # no Freeze: no source, 0
+    assert any(n["entry"] == models.BHATAIR_ENTRY for n in notes)
+
+
+def test_tricksters_shard_needs_four_casts_within_a_mimics_five_seconds():
+    spark = Skill("Spark", 1, spell=True, support_stats={models.TRICKSTER_STAT: -50})
+    mods, _ = models.gem_stat_model([spark], stats={"Speed": 0.6}, main=spark)
+    assert [m["value"] for m in mods if m.get("name") == "DPS"] == [pytest.approx(50)]
+    mods, notes = models.gem_stat_model([spark], stats={"Speed": 0.5}, main=spark)
+    assert not [m for m in mods if m.get("name") == "DPS"]
+    assert any(n["entry"] == models.TRICKSTER_ENTRY and n["value"] == "x1.000" for n in notes)
