@@ -3817,6 +3817,23 @@ def test_attack_damage_while_an_ally_is_in_your_presence_counts_with_a_persisten
     assert models.ally_in_presence_model(["10% increased Damage"], [wolf]) == ([], [])
 
 
+def test_infernal_legion_ignites_the_boss_all_fight_with_a_persistent_melee_minion():
+    """MECHB31 (the manager 06:59, MECH76's Ignited hook): the boss is Ignited all fight while a persistent melee minion
+    the support's stat marks lives; ranged minions and unsupported skills give 0; temporary minions at their own rate."""
+    legion = {models.LEGION_STAT: 10}
+    brute = Skill("Skeletal Brute", group=2, support_stats=legion, summon={"limit": 2, "duration": 0, "persistent": True})
+    mage = Skill("Skeletal Arsonist", group=3, support_stats=legion, summon={"limit": 2, "duration": 0, "persistent": True})
+    plain = Skill("Skeletal Brute", group=2, summon={"limit": 2, "duration": 0, "persistent": True})
+    share, how = models.infernal_legion_ignited([brute], None, {})
+    assert share == 1.0 and "Skeletal Brute" in how
+    assert models.infernal_legion_ignited([mage], None, {})[0] == 0.0
+    assert models.infernal_legion_ignited([plain], None, {})[0] == 0.0
+    temp = Skill("Raise Zombie", group=4, support_stats=legion, summon={"limit": 1, "duration": 8, "persistent": False})
+    assert models.infernal_legion_ignited([temp], None, {}, {"Raise Zombie": 0.05})[0] == pytest.approx(0.4)
+    share, how = models.infernal_legion_ignited([temp], None, {})
+    assert share == 0.0 and "undercount" in how
+
+
 def test_warding_rune_of_bodyguards_gives_minions_onslaught_at_the_low_ward_share():
     """MECHB31 (the manager 05:37, COV32): PoB doesn't parse "Minions have Onslaught" (0 before); Onslaught's 20% Skill
     Speed counts at the share of the fight on Low Runic Ward (assumptions.ward_shares)."""

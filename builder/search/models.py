@@ -5165,6 +5165,42 @@ def infernal_legion_model(minions: list[tuple[str, float]], fire_resist: float, 
     return added, {"label": label, "value": round(added, 1), "basis": basis, "confidence": "MEDIUM"}
 
 
+# The boss Ignited by Infernal Legion's minions, for MECH-A's Ignited box (MECHB31; the manager 06:59, MECH76's hook).
+# The same reading as infernal_legion_model: a supported melee minion stands within the 1.5 m and Ignites the boss
+# continually (each burn re-applies it), so the boss is Ignited all fight while one lives: persistent minions (they
+# come back when killed) give 1.0 (MEDIUM: the time every supported minion lies dead isn't taken off, an OVERCOUNT
+# there); temporary ones give min(1, their limit x duration x the summon's uses a second) when a model gives that rate,
+# else 0 (an undercount, labelled); ranged minions (RANGED_MINIONS) keep away: 0. Which skills it supports: the
+# support's own stat in each Skill's support_stats, which the bridge reports on every activeSkills call (bridge.lua
+# modelSupportStats).
+LEGION_STAT = "support_minions_ignite_for_%_max_life"
+
+
+def infernal_legion_ignited(skills: list[Skill], main: Skill | None, stats: dict,
+                            rates: dict[str, float] | None = None) -> tuple[float, str]:
+    """(share of the fight the boss is Ignited by Infernal Legion's minions, how). `skills` carry LEGION_STAT in their
+    support_stats (see above); `rates`: a temporary minion skill's summons a second, by name, when a model gives it."""
+    supported = [s for s in skills if number(s.support_stats.get(LEGION_STAT)) > 0 and s.summon]
+    if not supported:
+        return 0.0, "no minion skill supported by Infernal Legion"
+    melee = [s for s in supported if not any(r in s.name for r in RANGED_MINIONS)]
+    if not melee:
+        return 0.0, (f"{', '.join(s.name for s in supported)}: ranged minions, taken to keep away from the boss's 1.5 m "
+                     "(MEDIUM): 0")
+    persistent = [s for s in melee if s.summon.get("persistent")]
+    if persistent:
+        return 1.0, (f"{persistent[0].name}'s minions (Infernal Legion) stand at the boss and Ignite it within 1.5 m all "
+                     "fight (MEDIUM: melee minions; the time every one lies dead not taken off)")
+    best, why = 0.0, []
+    for s in melee:
+        rate = number((rates or {}).get(s.name))
+        up = min(1.0, number(s.summon.get("limit")) * number(s.summon.get("duration")) * rate)
+        best = max(best, up)
+        why.append(f"{s.name} {rate:.2f} summons/s x {number(s.summon.get('duration')):g} s" if rate > 0
+                   else f"{s.name}: no model gives its summon rate (0, an undercount)")
+    return best, f"temporary minions (Infernal Legion): {'; '.join(why)}: Ignited {best:.0%} of the fight"
+
+
 # Tailwind (MECHB30, PATCH_CHECK MB-3). KeywordPopups Tailwind: "a stacking Buff which grants 1% increased movement
 # speed, 2% increased Skill Speed, 10% increased Evasion Rating and prevent 1% of Damage from Deflected Hits per stack.
 # Maximum 10 stacks. Lose all Tailwind stacks when Hit." Sources (PoB tree 0_5 and uniques; PoB parses each to its

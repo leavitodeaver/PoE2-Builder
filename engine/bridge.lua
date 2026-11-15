@@ -3775,6 +3775,8 @@ local modelSupportStats = {
 	["support_minion_pact_damage_+%_final"] = true,
 	-- (MECH63) Eternal Mark's "Marks are not Consumed the first time they Activate" (models.mark_model)
 	["marks_avoid_consumption_when_first_activated"] = true,
+	-- (MECHB31) Infernal Legion I / II: which minion skills it supports (models.infernal_legion_ignited, MECH-A's Ignited box)
+	["support_minions_ignite_for_%_max_life"] = true,
 }
 
 -- (MECHB30, M1-2) PoB's computed cooldown of a skill with a base cooldown (calcSkillCooldown, global in CalcOffence),

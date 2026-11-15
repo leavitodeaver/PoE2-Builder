@@ -2918,3 +2918,26 @@ def test_impale_counts_the_main_skills_own_extractions(engine):
     print("PROBE impale support", row.get("LedgerImpaleExtract"), own, notes)
     assert row["LedgerImpaleExtract"] == 0 and own == 0 and "can't Extract" in notes[0]["basis"]
     assert row.get("LedgerImpaleNoExtractGem") == "Impale"
+
+
+def test_infernal_legion_marks_its_minion_skill_for_the_ignited_box_on_a_real_build(engine):
+    """MECHB31 (the manager 06:59, MECH76's hook): the bridge reports Infernal Legion's own stat on every activeSkills
+    call (modelSupportStats), so models.infernal_legion_ignited finds the supported Skeletal Brutes from a plain call:
+    the boss Ignited all fight; without the support, 0."""
+    payload = make_payload(BuildRequest(main_skill="Skeletal Brute", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Skeletal Brute"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+
+    def ignited():
+        found = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s["disabled"]]
+        return models.infernal_legion_ignited(found, None, {})
+
+    assert ignited()[0] == 0.0
+    group = next(x for x in build.groups() if any(y["name"].startswith("Skeletal Brute") for y in x["gems"]))
+    gems = [{k: y.get(k) for k in ("name", "support", "level", "quality", "enabled")} for y in group["gems"]]
+    gems.append({"name": "Infernal Legion II", "support": True, "level": 20, "quality": 0, "enabled": True})
+    build.call("setGroup", index=group["index"], gems=gems, fields=[])
+    share, how = ignited()
+    assert share == 1.0 and "Skeletal Brute" in how
