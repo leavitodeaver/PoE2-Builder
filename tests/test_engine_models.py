@@ -2702,3 +2702,29 @@ def test_a_curse_laid_as_cursed_ground_gets_its_play_guide_row_on_a_real_build(e
     assert [row["var"] for row in rows] == ["curse-zone:Despair"]
     assert rows[0]["counted"] and rows[0]["dps_with"] == rows[0]["dps_without"] == 1000.0
     assert "Cursed Ground" in rows[0]["play"] and "MEDIUM" in rows[0]["confidence"]
+
+
+
+def test_a_side_orb_of_storms_gets_its_cast_near_it_row_on_a_real_build(engine):
+    """MECHC26 (MECHC25's Handover 2): Spark main, Orb of Storms in a Full DPS side group: MECH-B's orb_cycle counts
+    Spark's casts near the Orb; the play guide's "orb:near" row scores one trial with none near it (timer bolts only),
+    lower than the headline (a Full DPS score; a main-skill score holds no Orb, so no row), and puts the build back."""
+    from builder.search import play_guide
+
+    search = spark_with(engine, [])
+    build = search.build
+    build.call("setGroup", gems=[{"name": "Orb of Storms", "level": 20}], fullDPS=True)
+    search.settle()
+    main_only = play_guide.orb_near_row(search, build.objective.dps(build.stats))
+    assert build.objective.full or main_only is None  # (a main-skill score holds no Orb: no row)
+    build.objective.base_full = True  # (scored on Full DPS, as a request with a side skill is)
+    build.refresh()  # (its stats now carry SkillDPS, which press_scales rescale)
+    search.settle()
+    note = next((n for n in search.assumptions.active if n.get("label") == play_guide.ORB_NOTE_LABEL), None)
+    print("PROBE orb note", note)
+    assert note is not None and play_guide.ORB_NEAR_WORDS in note["basis"]
+    headline = build.objective.dps(build.stats)
+    row = play_guide.orb_near_row(search, headline)
+    print("PROBE orb row", row)
+    assert row is not None and 0 < row["dps_without"] < 0.9 * headline  # (probe POE2T1731: 111 vs 193)
+    assert build.objective.dps(build.stats) == pytest.approx(headline)  # (put back)

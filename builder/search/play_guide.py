@@ -170,6 +170,8 @@ def guide(search: Any) -> list[dict]:
         rows.append(row)
     if row := raised_row(search, headline):
         rows.append(row)
+    if row := orb_near_row(search, headline):
+        rows.append(row)
     rows += kept_flask_rows(search, headline)
     rows += curse_zone_rows(search, headline)
     after, base = build.objective.dps(build.stats), headline
@@ -369,6 +371,52 @@ def raised_row(search: Any, headline: float) -> dict | None:
                      "counts as a button while you tap it; at the button cap, leave the taps (and Bastion's Blind) out"),
             "dps_with": headline, "dps_without": without,
             "change": (headline - without) / without if without > 0 else 0.0, "confidence": "theory (the tap's length LOW)"}
+
+
+# MECH-B's side-Orb note (models.orb_cycle, MECHB28) and the words its basis carries when the main Spell feeds the Orb
+ORB_NOTE_LABEL = "Orb of Storms: bolts per second beside the main skill*"
+ORB_NEAR_WORDS = "casts/s near the Orb (a play strategy"
+
+
+def orb_near_row(search: Any, headline: float) -> dict | None:
+    """A side Orb of Storms fed by the main Spell's casts (MECHC26; MECHC25's Handover 2): the headline takes every
+    main-Spell cast as near the Orb (models.orb_cycle: each fires a bolt, so the Orb ends at its maximum bolts sooner and
+    is recast); one trial with no cast near it (its timer bolts only, the Orb lasting its whole duration), conditions and
+    assumptions re-read, then put back. Counted in the headline. The trial hands orb_cycle the main skill's row at 0
+    casts a second (the switch MECH-B's code has none of yet: asked for in MECHC26's report); nothing else in
+    press_model reads that copy. Lightning Infusion Remnants follow the Orb's presses only once build.orb_presses lands
+    (MECHB29): until then both figures carry the same Remnants."""
+    from builder.search import models
+
+    note = next((n for n in getattr(getattr(search, "assumptions", None), "active", None) or []
+                 if n.get("label") == ORB_NOTE_LABEL and ORB_NEAR_WORDS in (n.get("basis") or "")), None)
+    if note is None:
+        return None  # (no side Orb, or the main skill isn't a hand-cast Spell: timer bolts only, nothing to choose)
+    build, cycle = search.build, models.orb_cycle
+    if not getattr(build.objective, "full", True):
+        return None  # (the headline scores the main skill alone: the Orb's bolts and recasts aren't in it)
+    main = note["basis"].split("'s ", 1)[0]
+
+    def away(orb: dict, main_rate: dict | None, *args: Any, **kwargs: Any) -> tuple[float, float, dict]:
+        return cycle(orb, {**main_rate, "speed": 0.0} if main_rate else main_rate, *args, **kwargs)
+
+    models.orb_cycle = away
+    try:
+        search.settle()
+        without = build.objective.dps(build.stats)
+    finally:
+        models.orb_cycle = cycle
+        search.settle()
+    return {"var": "orb:near", "label": f"Orb of Storms: cast {main} near the Orb*", "kind": PLAYER, "counted": True,
+            "play": (f"Cast {main} where your Orb of Storms is: each cast fires a bolt from it, so an Orb ends at its "
+                     f"most bolts sooner and you recast it. {headline:,.0f} DPS casting near it (the headline), "
+                     f"{without:,.0f} away from it (its timer bolts only). Bolts: {note['value']}. Every cast is taken "
+                     "as near (what 'near' covers: UNVERIFIED)"
+                     + ("" if without <= headline else "; for this build casting away from it is stronger (the recasts "
+                        "cost the main Spell more than the bolts give): the headline is the lower figure")),
+            "dps_with": headline, "dps_without": without,
+            "change": (headline - without) / without if without > 0 else 0.0,
+            "confidence": "MEDIUM (what 'near' covers UNVERIFIED; the player stays by the Orb)"}
 
 
 __all__ = ["guide", "kind", "KINDS", "OFF_OPTIONS", "PLAYER", "BUILD", "FIGHT"]

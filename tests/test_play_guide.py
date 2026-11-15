@@ -476,3 +476,37 @@ def test_a_curse_laid_as_an_area_gets_mech73s_play_row(monkeypatch):
     plain = Build()
     plain.groups = lambda: [{"gems": [{"name": "Temporal Chains"}]}]
     assert play_guide.curse_zone_rows(SimpleNamespace(build=plain), 1000.0) == []  # no zone support: no PoB call
+
+
+def test_the_orb_row_scores_the_main_spell_cast_away_from_a_side_orb():
+    """MECHC26: a side Orb of Storms fed by the main Spell (models.orb_cycle's note) gets a "cast near the Orb" row: one
+    trial with orb_cycle handed the main skill at 0 casts a second, then put back; counted in the headline."""
+    from builder.search import models
+
+    original = models.orb_cycle
+    note = {"label": play_guide.ORB_NOTE_LABEL, "value": "1.50/s (0.200 Orbs/s); without casting near it 0.23/s",
+            "basis": "Spark's 2.00 casts/s near the Orb (a play strategy: cast it where the Orb is*) plus 3 timer bolts"}
+
+    class Build:
+        objective = SimpleNamespace(dps=lambda stats: stats["dps"])
+
+        @property
+        def stats(self):
+            return {"dps": 1000.0 if models.orb_cycle is original else 800.0}
+
+    settled = []
+    search = SimpleNamespace(build=Build(), assumptions=SimpleNamespace(active=[note]),
+                             settle=lambda: settled.append(models.orb_cycle is original))
+    row = play_guide.orb_near_row(search, 1000.0)
+    assert models.orb_cycle is original and settled == [False, True]  # (the trial, then put back)
+    assert row["var"] == "orb:near" and row["counted"] and row["dps_without"] == 800.0
+    assert row["change"] == approx(0.25) and "Cast Spark where your Orb of Storms is" in row["play"]
+    # the trial's orb_cycle sees the main skill at 0 casts a second: timer bolts only
+    orb = {"name": "Orb of Storms", "orbMaxHits": 6, "orbBoltFrequency": 4000, "duration": 12.0, "speed": 1.25,
+           "castTime": 0.8}
+    timer = models.orb_cycle(orb, None, 0.0)[1]
+    assert original(orb, {"speed": 0.0, "spell": True, "name": "Spark"}, 0.0)[1] == approx(timer)
+    assert original(orb, {"speed": 2.0, "spell": True, "name": "Spark"}, 0.0)[1] > timer
+    timer_only = {**note, "basis": "timer bolts only: 3 an Orb in its 12.00 s; the main skill Spark is not a Spell"}
+    assert play_guide.orb_near_row(SimpleNamespace(build=Build(), assumptions=SimpleNamespace(active=[timer_only]),
+                                                   settle=lambda: None), 1000.0) is None
