@@ -2044,7 +2044,7 @@ CURSE_DELAY = 1.5
 # objective attribute CURSE_LAPSE: the set of curse names played so; SEARCH's toggle, curse_lapse_candidates), never by
 # default. Played so, each cast lands CURSE_LAPSE_GAP s after the last ran out: the curse is up D / (D + gap) of the fight
 # and every cast finds the boss uncursed, 1 / (D + gap) a second. CURSE_LAPSE_GAP = 0.5 s: the player's timing, which no
-# game data gives (LOW, a named flat number; the manager asks the user).
+# game data gives; the user, 15 Nov: "0.5 s is fine" (player timing).
 CURSE_LAPSE = "curse_lapse"
 CURSE_LAPSE_GAP = 0.5
 # "Curses you inflict have infinite Duration" (RULE_AUDIT #1, MECH42): a curse cast by hand is cast once and never recast,
@@ -2130,7 +2130,7 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
             elif name in (stats.get("_curse_lapse") or ()):  # (MECH75: let run out before each recast, CURSE_LAPSE)
                 up = duration / (duration + CURSE_LAPSE_GAP)
                 uses.append(CurseUse(name, up, f"cast by hand, let run out ({lasts}) and recast to land "
-                                               f"{CURSE_LAPSE_GAP:g} s after (LOW: the player's timing), so each cast "
+                                               f"{CURSE_LAPSE_GAP:g} s after (the user, 15 Nov: player timing), so each cast "
                                                f"finds the boss uncursed (Withering Hex): {up:.0%} of the fight",
                                      True, duration, lapse=True))
             else:

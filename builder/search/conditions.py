@@ -133,7 +133,7 @@ def withering_hex_rate(uses: list) -> tuple[float, str]:
                 rest *= 1.0 - min(1.0, max(0.0, other.share))
         if use.lapse:  # (MECH75: let run out, one cast per duration + the gap, models.CURSE_LAPSE)
             each = rest / (use.duration + models.CURSE_LAPSE_GAP)
-            kind = f"cast by hand and let run out, recast {models.CURSE_LAPSE_GAP:g} s after (LOW: the player's timing)"
+            kind = f"cast by hand and let run out, recast {models.CURSE_LAPSE_GAP:g} s after (the user, 15 Nov: player timing)"
         else:
             each = use.share / use.duration * rest
             kind = f"triggered, {use.share:.0%} of the fight; triggers taken as evenly spaced, MEDIUM"
@@ -1640,6 +1640,15 @@ def _self_ignited(lines: list[str], stats: dict) -> tuple[object, str, float] | 
 # (MIN_UPTIME), so the defence floors (the worse of on / off) see you Shocked. The boss's own Shocks on you aren't set here
 # (boss_hits.ailment_rate gives their rate; not wired into the box: a separate OVERCOUNT of survival for every build,
 # left for the boss-side lane).
+# PoB bug (MECH75; PATCH_CHECK's Mirror sweep, MD-9): its "Enemy entered Presence Recently?" box (ConfigOptions.lua 1672)
+# uses the same var as "Enemy exited Presence Recently?" (1669), conditionEnemyExitedPresenceRecently, so setting it turns
+# on BOTH Condition:ExitedPresenceRecently and Condition:EnteredPresenceRecently (an OVERCOUNT: the lines reading the other
+# one count too). Nothing in the tool sets it today (checked: builder/ and engine/bridge.lua hold neither name). Whoever
+# models them (MD-9, MECH-C) must not tick that var: set the enemy condition it means directly instead (a bridge raw
+# enemy mod, as models.raw_mod does for the player), or label the double count.
+PRESENCE_RECENTLY_SHARED_VAR = "conditionEnemyExitedPresenceRecently"
+
+
 OVERCHARGE = "Overcharge"
 SELF_SHOCK_SECONDS = 4.0
 SHOCK_BASE = 20.0

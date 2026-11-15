@@ -630,6 +630,62 @@ def broken_stance(build: Build, main: models.Skill | None) -> tuple[float, list[
                                       how="; ".join(part for part in (how, taken) if part))
 
 
+# Stoicism I / II (MECH75; PATCH_CHECK's Mirror sweep MA-8 and its "while not" row). The game (gem_stat_descriptions,
+# support_no_fear_damage_+%_final_per_second_up_to_30%: 1 for I, 2 for II): "Supported Skills gain {0}% more Damage every
+# second, up to 20%. This Damage Bonus resets if you Dodge Roll or use a [Travel] Skill"; patch 0.5.0: it supports Attacks
+# only. PoB scores it only with its "Seconds building Stoicism" box set (ConfigOptions.lua 504, unset: 0, an UNDERCOUNT),
+# and then only while neither "Dodge Rolled Recently" nor "Used a Travel Skill Recently" is ticked (SkillStatMap.lua 872-877):
+# set as it stands, it would count all fight whatever the rolls (an OVERCOUNT), and setting the rolled box would zero it
+# (the game resets the ramp on a roll, it doesn't switch it off for 4 s). So PoB's box stays unset and the time-averaged
+# bonus goes in as the main skill's Damage MORE: with a reset every T s the ramp averages min(r T / 2, 20 - 200 / (r T)).
+# T: the build's dodge rolls, one per telegraphed boss hit (models.PARRY_EVERY, 5 s: the manager's ruling on PLANS2, 12 Nov
+# ~09:00), or models.DODGE_EVERY (2 s, the user's default) for a build that relies on rolling (Cast on Dodge, a "when you
+# dodge roll" line); 1 / its speed for a Travel main skill (0 then). Labelled MEDIUM: Travel skills pressed beside the main
+# skill aren't read as resets (an OVERCOUNT for a build that presses one); not rolling at all (the full 20%) isn't offered
+# as a play (the tool doesn't price the hits a roll avoids); Stoicism on a skill beside the main one isn't read.
+STOICISM = ("Stoicism I", "Stoicism II")
+STOICISM_STAT = "support_no_fear_damage_+%_final_per_second_up_to_30%"
+STOICISM_CAP = 20.0
+ROLL_RELIANT = re.compile(r"\b(?:when|on|after) you dodge roll|\bdodge rolled recently\b|\bon dodge roll\b", re.I)
+
+
+def stoicism_average(per_second: float, every: float) -> float:
+    """The average more Damage (%) of a ramp of per_second % a second up to STOICISM_CAP, reset every `every` s."""
+    if per_second <= 0 or every <= 0:
+        return 0.0
+    ramp = per_second * every
+    if ramp <= STOICISM_CAP:
+        return ramp / 2
+    return STOICISM_CAP - STOICISM_CAP ** 2 / (2 * ramp)
+
+
+def stoicism(build, main, main_types: set[str], texts: list[str]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Stoicism on the main skill (see the note above)."""
+    group = build.main_group() if main is not None else None
+    names = {g["name"] for g in (group or {}).get("gems") or [] if g.get("enabled", True)}
+    if main is None or not names & set(STOICISM) or "Attack" not in main_types:
+        return [], []
+    raw = build.call("activeSkills", supportStats=[STOICISM_STAT])
+    got = next((s for s in raw["skills"] if s["name"] == main.name and not s.get("disabled")), {})
+    per_second = models.number((got.get("supportStats") or {}).get(STOICISM_STAT))
+    every_gem = {g["name"] for grp in build.groups() if grp.get("enabled") is not False for g in grp["gems"]
+                 if g.get("enabled", True)}
+    if "Travel" in main_types:
+        every, why = 1.0 / max(models.number(build.call("stats", fields=["Speed"]).get("Speed")), 1e-9), \
+            "the main skill is a Travel skill: each use resets it"
+    elif "Cast on Dodge" in every_gem or any(ROLL_RELIANT.search(t) for t in texts):
+        every, why = models.DODGE_EVERY, f"a dodge roll every {models.DODGE_EVERY:g} s (the build relies on rolling)"
+    else:
+        every, why = models.PARRY_EVERY, (f"a dodge roll every {models.PARRY_EVERY:g} s, one per telegraphed boss hit "
+                                          "(the manager's ruling, 12 Nov)")
+    more = stoicism_average(per_second, every)
+    note = {"label": "Stoicism: more Damage between resets*", "value": f"{more:.1f}% more",
+            "basis": (f"{per_second:g}% more a second up to {STOICISM_CAP:g}%, reset by {why}: {more:.1f}% on average "
+                      "(PoB's own box left unset; Travel skills pressed beside it not read: MEDIUM)"),
+            "confidence": "MEDIUM"}
+    return ([models.raw_mod("Damage", "MORE", more, skill=main.name)] if more > 0 else []), [note]
+
+
 def blood_hunt(build: Build, main: models.Skill | None, texts: list[str]) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Blood Hunt's explosions as the main skill (MECH75; models.blood_hunt_model's note): its
     level stats' explosion %, the other skills' Bleed PoB counts (Best Bleed DPS among the Full DPS skills: Blood Hunt
@@ -898,6 +954,8 @@ class Assumptions:
         # -20% comes from the condition box at the line's uptime (conditions._exposure_uptime)
         exposure_flags = conditions_mod.exposure_source_flags(texts, main_types)
         exposure_flags += conditions_mod.wither_source_flags(texts, main_types)  # (MECH72: partly parsed Withered lines)
+        stoic_mods, stoic_notes = stoicism(build, main, main_types, texts)  # (MECH75: Stoicism's ramp between resets)
+        hand_mods, hand_notes = hand_mods + stoic_mods, hand_notes + stoic_notes
         if main is not None:  # (MECH75: Overcharge's reflected Shock over PoB's 15% "Are you Shocked?" box)
             overcharge, overcharge_how = conditions_mod.overcharge_taken_mods(build, main.name)
             exposure_flags += overcharge

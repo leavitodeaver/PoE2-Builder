@@ -183,3 +183,14 @@ def test_overcharge_reflects_the_supported_skills_shocks_onto_you():
     assert half == pytest.approx(1 - math.exp(-0.375 * c.SELF_SHOCK_SECONDS))
     assert c._self_shocked([], {"_overcharge": found, "ShockAvoidChance": 100})[0] == 0.0
     assert c._self_shocked([], {}) == (0.0, "")
+
+
+def test_stoicism_averages_its_ramp_between_resets():
+    """MECH75 (Mirror sweep MA-8): N% more a second up to 20%, reset by each dodge roll / Travel skill use: averaged."""
+    from builder.search import assumptions as a
+
+    assert a.stoicism_average(1, 5) == pytest.approx(2.5)  # (Stoicism I, a roll every 5 s)
+    assert a.stoicism_average(2, 2) == pytest.approx(2.0)  # (II, a roll every 2 s)
+    assert a.stoicism_average(2, 20) == pytest.approx(20 - 400 / 80)  # (capped for the last 10 s of each 20 s)
+    assert a.stoicism_average(1, 0) == 0.0
+    assert a.ROLL_RELIANT.search("Trigger a skill when you Dodge Roll") and not a.ROLL_RELIANT.search("+1 to Strength")

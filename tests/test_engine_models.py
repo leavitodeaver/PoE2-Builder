@@ -2655,3 +2655,21 @@ def number_of(value) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def test_stoicism_on_the_main_skill_adds_its_averaged_ramp(engine):
+    """MECH75: PoB scores Stoicism 0 with its box unset; the tool adds its average more Damage between dodge rolls."""
+    from builder.search import assumptions as amod
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    main = build.main_group()
+    old = [{"name": g["name"], "level": g["level"], "quality": g["quality"]} for g in main["gems"]]
+    build.set_group(index=main["index"], gems=[*old, {"name": "Stoicism II", "level": 1, "quality": 0}])
+    types = set(build.ctx.gems["Boneshatter"].get("skillTypes") or [])
+    mods, notes = amod.stoicism(build, models.Skill.of({"name": "Boneshatter"}), types, [])
+    print("PROBE stoicism", mods, notes)
+    assert mods and mods[0]["value"] == pytest.approx(5.0) and "every 5 s" in notes[0]["basis"]
