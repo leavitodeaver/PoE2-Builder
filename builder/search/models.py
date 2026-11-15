@@ -2519,6 +2519,30 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
     return (events + freezes * FREEZE_ENERGY) * power, how
 
 
+# "Meta Skills gain N% increased Energy while on Full Mana" (MECHB31; the manager 08:42 from CULT9: Idle Hands' Cultivated
+# outcome, which the search can't offer until something reads it). PoB doesn't parse it (no ModCache entry). The share of
+# the fight on full Mana: 1 - not_full_mana_share's reading (the main skill's Mana spent a second over Mana regenerated;
+# none spent: on full Mana all fight; other skills' costs, flasks and leech not counted, MEDIUM). Added to the Energy
+# model's MetaEnergy input at N% x that share (Energy gained is linear in its increased sum). The ledger entry
+# model-meta-energy-full-mana says the line is read here (replace: []).
+FULL_MANA_ENERGY = re.compile(r"^Meta Skills gain (\d+(?:\.\d+)?)% increased Energy while on Full Mana$", re.I)
+
+
+def full_mana_energy(texts: list[str], stats: dict) -> tuple[float, list[dict]]:
+    """(increased Energy to add to MetaEnergy, notes): the "while on Full Mana" lines at the share of the fight on full
+    Mana."""
+    total = sum(float(m.group(1)) for t in texts if (m := FULL_MANA_ENERGY.search(t.strip())))
+    if total <= 0:
+        return 0.0, []
+    spend, regen = number(stats.get("ManaPerSecondCost")), number(stats.get("ManaRegenRecovery"))
+    below = 0.0 if spend <= 0 else (1.0 if regen <= 0 else min(1.0, spend / regen))
+    value = total * (1 - below)
+    return value, [{"label": "Meta Skills' Energy while on Full Mana", "value": round(value, 2), "confidence": "MEDIUM",
+                    "basis": f"on full Mana {1 - below:.0%} of the fight (the main skill spends {spend:.1f} Mana/s against "
+                             f"{regen:.1f} regenerated; other costs, flasks and leech not counted): {total:g}% increased "
+                             f"Energy counts as {value:.3g}% (PoB doesn't parse the line: 0 before)"}]
+
+
 def energy_rate(meta: str, x: dict, gain: float, cost: float, crits_recently: bool, doubled: bool,
                 level: int | None = None) -> float:
     """Triggers per second: Energy gained per second over the Energy one round of triggers costs."""
@@ -5700,6 +5724,117 @@ def triggered_recently_model(texts: list[str], rates: dict[str, float]) -> tuple
     mods = [line(f"1% increased {kind}", value * share) for kind, value in found.items() if value * share > 0]
     return mods, [{"label": "Triggered a Skill Recently: share of the fight", "value": round(share, 3), "basis": basis,
                    "confidence": "MEDIUM"}]
+
+
+# Escalating Mayhem (MECHB31, PATCH_CHECK MB-10, an UNDERCOUNT): "10% increased Damage for each Hazard triggered Recently,
+# up to 50%" reads PoB's Multiplier:HazardsTriggeredRecently, which only its unset count box sets (ConfigOptions 1634): 0
+# before. The only source (checked: the 33 Stats ids holding "hazard"; damage_+%_per_recently_triggered_hazard_up_to_50%
+# in PassiveSkills / Mods / GrantedEffectStatSets: the notable hazards3 alone; PoB's ModCache the same line). PoB counts
+# no hazards. The player's hazard skills (GrantedEffectStatSets with is_hazard or curse_zones_are_hazards, mapped through
+# GrantedEffects to ActiveSkills): HAZARD_SKILLS. Counted: each use of one sets off at least the hazard that hits the boss
+# (one a use: a lower bound, an undercount where the boss walks into more of a use's hazards, which the game's layout
+# decides), times (1 + PoB's HazardRearmChance) for the main skill; triggered ones (Caltrops, Brambles, Doedre's Dark
+# Design) at the trigger rate the models hand PoB. Hazards in the past 4 s: rate x 4 (evenly spaced, MEDIUM), each worth
+# the line's 10% up to its cap, handed to PoB as the line without its condition (PoB floors a Multiplier, so not as one).
+HAZARD_SKILLS = ("Spearfield", "Permafrost Bolts", "Ice Shards", "Conductive Runes", "Caltrops", "Brambles",
+                 "Doedre's Dark Design")
+ESCALATING_MAYHEM = re.compile(r"^(\d+(?:\.\d+)?)% increased Damage for each Hazard triggered Recently, up to "
+                               r"(\d+(?:\.\d+)?)%$", re.I)
+MODEL_FIELDS.extend(f for f in ("HazardRearmChance",) if f not in MODEL_FIELDS)
+
+
+def escalating_mayhem_model(texts: list[str], stats: dict, main: Skill | None,
+                            rates: dict[str, float]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): Escalating Mayhem's damage per hazard set off in the past 4 s (see above)."""
+    found = [(float(m.group(1)), float(m.group(2))) for t in texts if (m := ESCALATING_MAYHEM.search(t.strip()))]
+    if not found:
+        return [], []
+    parts, rate = [], 0.0
+    if main is not None and main.name in HAZARD_SKILLS:
+        rearm = min(100.0, number(stats.get("HazardRearmChance"))) / 100
+        own = number(stats.get("Speed")) * (1 + rearm)
+        rate += own
+        parts.append(f"{main.name} {own:.2f}/s (one a use" + (f", x{1 + rearm:.2f} rearms" if rearm else "") + ")")
+    for name, value in sorted(rates.items()):
+        if name in HAZARD_SKILLS and (main is None or name != main.name) and number(value) > 0:
+            rate += number(value)
+            parts.append(f"{name} {number(value):.2f}/s (triggered)")
+    count = rate * RECENTLY
+    value = sum(min(cap, per * count) for per, cap in found)
+    basis = (f"hazards set off {rate:.2f}/s ({'; '.join(parts) or 'no hazard skill in the build'}): {count:.2g} in the "
+             f"past {RECENTLY:g} s, so {value:.3g}% increased Damage (one hazard a use: a lower bound; evenly spaced, "
+             "MEDIUM; PoB's count box is never set: 0 before)")
+    return ([line("1% increased Damage", value)] if value > 0 else []), [{
+        "label": "Escalating Mayhem: hazards set off recently", "value": round(count, 2), "basis": basis,
+        "confidence": "MEDIUM"}]
+
+
+# Faerie Fire (MECHB31, PATCH_CHECK MB-11, an UNDERCOUNT): Periphery grants Azmerian Swarms (PoB other.lua 1786): "summons
+# short-lived Azmerian Swarms when you ... hit Rare or Unique enemies affected by Elemental Ailments", constants
+# max_azmerian_swarms 8, base_skill_effect_duration 10 s, skill_grants_%_chance_to_summon_azmerian_swarm_on_hitting_unique_
+# or_rare_enemy_affected_by_elemental_ailment 10, %_chance_to_apply_hounded_by_wisps_on_hit 100 (SkillStatMap 2972: Faerie
+# Fire), active_skill_minion_1%_attack_speed_+%_per_X_player_dexterity 5; the swarm attacks once a second (Minions.lua
+# AzmerianSwarm attackTime 1). Faerie Fire (ConfigOptions 1725, CalcSetup DamageGainAsRandom): hits against the target
+# gain 2% of damage as a random element per stack, 8 s, at most 10; PoB reads it only from its unset count box: 0
+# before. Counted: swarms summoned at the main skill's hits/s x 10% x the share of the fight the boss carries an
+# Elemental Ailment; alive min(8, that x 10 s); their hits a second x 8 s = stacks, at most 10 (the swarms' own hit chance
+# and the Dexterity bonus's other sources not counted; evenly spread, MEDIUM). Handed to PoB as "Gain N% of Damage as
+# Extra Damage of a random Element" at 2% x the mean stacks (gain-as is linear in it), not as PoB's Multiplier, which it
+# floors.
+AZMERIAN_SWARMS = "Azmerian Swarms"
+SWARM_CHANCE, SWARM_LIFE, SWARM_LIMIT, SWARM_ATTACK = 0.10, 10.0, 8, 1.0
+FAERIE_PER, FAERIE_SECONDS, FAERIE_MAX = 2.0, 8.0, 10
+
+
+def faerie_fire_model(hits: float, ailment_share: float, dex: float, ailments: str = "") -> tuple[list[dict], list[dict]]:
+    """(mods, notes): Azmerian Swarms' mean Faerie Fire stacks on the boss (see above)."""
+    summons = hits * SWARM_CHANCE * max(0.0, min(1.0, ailment_share))
+    alive = min(float(SWARM_LIMIT), summons * SWARM_LIFE)
+    swarm_hits = alive * SWARM_ATTACK * (1 + dex / 5 / 100)
+    stacks = min(float(FAERIE_MAX), swarm_hits * FAERIE_SECONDS)
+    value = FAERIE_PER * stacks
+    basis = (f"{hits:.2f} hits/s on the boss, an Elemental Ailment on it {ailment_share:.0%} of the fight "
+             f"({ailments or 'none'}): {summons:.3f} swarms/s at 10%, {alive:.2f} alive (10 s, at most 8), "
+             f"{swarm_hits:.2f} swarm hits/s (1 attack/s, +1% per 5 of your {dex:g} Dexterity): {stacks:.2f} Faerie Fire "
+             f"stacks (8 s each, at most 10) = {value:.3g}% of damage as a random element (MEDIUM; PoB's count box is "
+             "never set: 0 before)")
+    return ([line("Gain 1% of Damage as Extra Damage of a random Element", value)] if value > 0 else []), [{
+        "label": "Faerie Fire stacks on the boss (Azmerian Swarms)", "value": round(stacks, 2), "basis": basis,
+        "confidence": "MEDIUM"}]
+
+
+# Briarpatch (MECHB31; GEM9's item via the manager; MECHB30.research.md Q5; PoB scores it 0). Game text (PoB act_str.lua
+# 2013 = poe2db): "Stores 1% of Physical Attack damage dealt, up to {cap}" (briarpatch_stores_permyriad_of_physical_damage_
+# dealt 100; briarpatch_maximum_stored_physical_damage BRIAR_CAP by gem level, 256 at 20, 3,424 at 40); "casting a Spell
+# will create a patch of Thorny Ground that deals the stored damage"; at most one patch every 8 s
+# (briarpatch_ground_creation_delay_ms 8000), limit 1, 6 s, 3 m. KeywordPopups ThornyGround: "deals Spell damage to
+# enemies upon being created, then continues to damage enemies that move over the Ground, no more than twice per second".
+# Counted: the creation hit only, one patch per 8 s when the build casts a Spell of its own (a curse's recasts, a pressed
+# Spell: taken to come at least every 8 s, MEDIUM, not charged again), dealing the damage stored over those 8 s: min(cap,
+# 1% x the main skill's Physical Attack damage a second (PoB's PhysicalHitAverage x hits/s) x 8 s), as base damage. Not
+# counted (labelled): the ticks while the boss moves over it (how much a boss moves is the game's; a lower bound), Thorns
+# and Spell modifiers on that base (an undercount), the boss's armour against it (an overcount), other attacks' damage.
+BRIARPATCH = "Briarpatch"
+BRIAR_STORE, BRIAR_DELAY = 0.01, 8.0
+BRIAR_CAP = (9, 12, 16, 20, 26, 32, 38, 46, 54, 64, 74, 86, 100, 115, 132, 151, 173, 197, 224, 256, 291, 330, 375, 426,
+             484, 549, 624, 709, 805, 916, 1041, 1185, 1349, 1538, 1753, 2001, 2285, 2613, 2990, 3424)
+
+
+def briarpatch_model(physical: float, level: int, spells: list[str]) -> tuple[float, dict]:
+    """(added DPS, note): Briarpatch's Thorny Ground creation hit (see above). `physical`: the main skill's Physical
+    Attack damage a second; `level`: Briarpatch's gem level; `spells`: the build's own Spells that create the patch."""
+    label = "Briarpatch (Thorny Ground's creation hit)"
+    cap = BRIAR_CAP[max(1, min(len(BRIAR_CAP), int(level or 20))) - 1]
+    if not spells:
+        return 0.0, {"label": label, "value": 0, "confidence": "MEDIUM",
+                     "basis": "the build casts no Spell of its own, so no Thorny Ground is created: 0"}
+    stored = min(float(cap), BRIAR_STORE * physical * BRIAR_DELAY)
+    dps = stored / BRIAR_DELAY
+    basis = (f"one patch per {BRIAR_DELAY:g} s on casting {spells[0]}: 1% of {physical:,.0f} Physical Attack damage a "
+             f"second over {BRIAR_DELAY:g} s, at most {cap} (level {level}) = {stored:,.0f} on creation, {dps:,.1f} DPS "
+             "(MEDIUM: the Spell taken to come at least every 8 s; the ticks while the boss moves, Thorns / Spell "
+             "modifiers and the boss's armour not counted; PoB scores it 0)")
+    return dps, {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "MEDIUM"}
 
 
 # "if you've Reloaded Recently" (MECHB31, PATCH_CHECK MB-6, an UNDERCOUNT; ticking PoB's box alone would be an OVERCOUNT: at

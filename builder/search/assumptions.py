@@ -535,6 +535,47 @@ def zenith_share(stats: dict) -> tuple[float, str]:
 LOW_WARD = 0.35
 
 
+def elemental_ailment_share(stats: dict) -> tuple[float, str]:
+    """(share of the fight the boss carries any Elemental Ailment from the main skill's hits, which ones): Ignite, Shock,
+    Chill, Freeze, Electrocute at their uptimes, taken as independent (as the Mana Remnants reading)."""
+    ups = {"Ignited": ailment_uptime(stats, "Ignite"), "Shocked": shock_share(stats), "Chilled": chill_share(stats),
+           "Frozen": models.immobilised_share(stats, "Freeze")[0],
+           "Electrocuted": models.immobilised_share(stats, "Electrocute")[0]}
+    absent = 1.0
+    for up in ups.values():
+        absent *= 1.0 - min(1.0, max(0.0, up))
+    return 1.0 - absent, ", ".join(f"{k} {v:.0%}" for k, v in ups.items() if v > 0)
+
+
+def briarpatch(build: Build, main: models.Skill | None, found: list[models.Skill]) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Briarpatch (models.briarpatch_model, MECHB31): the main attack's Physical damage a second,
+    the gem's level, and the build's own Spells."""
+    if not any(s.name == models.BRIARPATCH for s in found):
+        return 0.0, []
+    level = next((g.get("level") for grp in build.groups() for g in grp["gems"] if g["name"] == models.BRIARPATCH), 20)
+    physical = 0.0
+    if main is not None and main.attack:
+        # (PoB sets the per-type hit average on each hand's output: MainHand.PhysicalHitAverage, probe POE2T1198)
+        got = build.call("stats", fields=["MainHand.PhysicalHitAverage", "PhysicalHitAverage", "Speed", "HitChance"])
+        hit = number(got.get("MainHand.PhysicalHitAverage")) or number(got.get("PhysicalHitAverage"))
+        physical = (hit * number(got.get("Speed"))
+                    * (number(got.get("HitChance")) or 100.0) / 100.0)
+    spells = [s.name for s in found if s.spell and not s.triggered and s.name != models.BRIARPATCH]
+    added, note = models.briarpatch_model(physical, int(number(level)) or 20, spells)
+    return added, [note]
+
+
+def faerie_fire(build: Build, found: list[models.Skill]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Periphery's Azmerian Swarms (models.faerie_fire_model, MECHB31): the main skill's hits, the boss's
+    Elemental Ailment share and your Dexterity."""
+    if not any(s.name == models.AZMERIAN_SWARMS for s in found):
+        return [], []
+    stats = build.call("stats", fields=[*HIT_REMNANT_FIELDS, "Dex"])
+    share, named = elemental_ailment_share(stats)
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+    return models.faerie_fire_model(hits, share, number(stats.get("Dex")), named)
+
+
 def ward_low_shares(sustain: dict, pool: float) -> tuple[float, float, str]:
     """(share of the fight on Low Runic Ward, share Missing Runic Ward, how). Nothing spends it: (0, 0) (it regenerates
     to full and stays). Spending at least what it regenerates: (1, 1) (held near empty). Otherwise, each spend of c from
@@ -1245,8 +1286,12 @@ class Assumptions:
                     for g in build.groups()}
         qualities = {g["index"]: models.number(x.get("quality")) for g in build.groups() for x in g["gems"]
                      if not x["support"] and x["name"] in models.QUALITY_MAX_ENERGY}  # (an Invocation's store, MECHB26)
+        full_mana, full_mana_notes = models.full_mana_energy(texts, stats)  # (MECHB31: Idle Hands' Cultivated line)
+        if full_mana:
+            inputs.items["MetaEnergy"] = inputs.items.get("MetaEnergy", 0.0) + full_mana
         energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports, qualities,
                                                                        models.press_choices(build))
+        energy_notes = energy_notes + full_mana_notes
         # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
         build.trigger_rates = {m["skill"]: m["value"] for m in energy_mods
                                if m.get("kind") == "SkillData" and m.get("key") == "triggerRate"}
@@ -1511,6 +1556,9 @@ class Assumptions:
         legion, legion_notes = infernal_legion(build, stats)  # (MECHB30, H1-7: PoB rates no boss Ignite from it)
         hand_mods += [models.added_input("InfernalLegion", legion)] if legion > 0 else []
         hand_notes += legion_notes
+        briar, briar_notes = briarpatch(build, main, found)  # (MECHB31: Briarpatch's creation hit, PoB 0)
+        hand_mods += [models.added_input("Briarpatch", briar)] if briar > 0 else []
+        hand_notes += briar_notes
         tail_mods, tail_notes = models.tailwind_model([e["text"] for e in source_lines], stats, main)  # (MECHB30, MB-3)
         hand_mods, hand_notes = hand_mods + tail_mods, hand_notes + tail_notes
         eldritch_mods, eldritch_notes = models.eldritch_empowerment_model([e["text"] for e in source_lines], stats, main)
@@ -1524,7 +1572,8 @@ class Assumptions:
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
                                    "Battershout": shout, "Crackling Palm": palm, "Blood Hunt": blood, "Ancestral Spirits": spirits,
-                                   "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion})
+                                   "Inevitable Agony": agony, "Impale": impaled + impaled_others, "Infernal Legion": legion,
+                                   "Briarpatch": briar})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.
@@ -1542,10 +1591,15 @@ class Assumptions:
             triggered[main.name] = models.number(stats.get("Speed"))
         recent_mods, recent_notes = models.triggered_recently_model([e["text"] for e in source_lines], triggered)
         mods, notes = mods + recent_mods, notes + recent_notes
+        mayhem_mods, mayhem_notes = models.escalating_mayhem_model([e["text"] for e in source_lines], stats, main,
+                                                                   triggered)  # (MECHB31, MB-10)
+        mods, notes = mods + mayhem_mods, notes + mayhem_notes
         reload_mods, reload_notes = models.reloaded_recently_model([e["text"] for e in source_lines], stats)  # (MECHB31, MB-6)
         mods, notes = mods + reload_mods, notes + reload_notes
         ally_mods, ally_notes = models.ally_in_presence_model([e["text"] for e in source_lines], found)  # (MECHB31, MB-9)
         mods, notes = mods + ally_mods, notes + ally_notes
+        faerie_mods, faerie_notes = faerie_fire(build, found)  # (MECHB31, MB-11: Periphery's Azmerian Swarms)
+        mods, notes = mods + faerie_mods, notes + faerie_notes
         notes += corpse_notes + models.spirit_vessel_notes(skills)
         notes += models.granted_level_notes([(o.name, o.raw, o.granted_basis) for o in build.equipped.values() if o is not None and o.unique])
         if faced := [o.raw for o in build.equipped.values() if o is not None and FACEBREAKER_LINE.search(o.raw)]:

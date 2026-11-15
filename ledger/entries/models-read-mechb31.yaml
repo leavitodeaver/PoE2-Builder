@@ -1,0 +1,40 @@
+# Item lines PoB doesn't parse that MECH-B's models read or settle (MECHB31; the manager 08:42 from CULT9 section 2: a
+# Cultivated outcome is offered once its unread line has a stand-in). replace: [] (the models read the lines themselves,
+# bridge sourceLines), so these entries add nothing; they tell the audit and cultivated.outcome_lines the line is counted.
+
+- id: model-meta-energy-full-mana
+  title: Meta Skills gain increased Energy while on Full Mana (Idle Hands' Cultivated outcome; the Energy model)
+  kind: pob_gap
+  model: energy
+  match: '^Meta Skills gain (\(\d+-\d+\)|\d+)% increased Energy while on Full Mana$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    PoB doesn't parse it (no ModCache entry). models.full_mana_energy (MECHB31) adds it to the Energy model's MetaEnergy
+    input at the share of the fight on full Mana: 1 - the main skill's Mana spent a second over Mana regenerated (none
+    spent: all fight; other costs, flasks and leech not counted, MEDIUM).
+  sources: ["builder/search/models.py (FULL_MANA_ENERGY, full_mana_energy)",
+            "scratch/manager/workers/CULT9.report.md section 2 (Idle Hands)"]
+  test_in_game: "Not needed: the share follows the build's own Mana numbers."
+  status: proposed
+
+- id: model-fork-on-melee-hit-lone-boss
+  title: Projectiles have a chance to Fork if you've dealt a Melee Hit in the past eight seconds (Atziri's Contempt's Cultivated outcome)
+  kind: pob_gap
+  match: '^Projectiles have (\(\d+-\d+\)|\d+)% chance to Fork if you''ve dealt a Melee Hit in the past eight seconds$'
+  replace: []
+  confidence: community_confirmed
+  notes: >-
+    No damage against the lone boss the tool scores, whether or not the build lands a Melee Hit: Forked projectiles
+    can't hit the enemy they forked from again. (checked: KeywordPopups Fork, "Projectiles that Fork split into two the
+    first time they collide with an enemy and do not Split from it or Pierce it"; poe2wiki Projectile behaviour, "only
+    one Projectile in the group can hit each target unless otherwise specified"; a developer answer on the official
+    forum that forked projectiles can't hit a target a sibling already hit; a community test (r/PathOfExile2, 3 Jan
+    2025) seeing no boss damage from extra projectiles; PoB counts no hits from Fork either: CalcOffence 1479-1484 only
+    sets ForkCountMax. Patch notes --history "Fork" (0.2.0 to 0.5.2): no change to how Forks hit; the newest
+    Fork-related entries are items (0.5.0 Stag Idol, 0.5.2 Runic Fork). MEDIUM.) Its value against packs isn't scored.
+  sources: ["data/game-26476662/tables/KeywordPopups.json (Fork)", "https://www.poe2wiki.net/wiki/Projectile_behaviour",
+            "https://devtrackers.gg/pathofexile/p/9ed6765f-projectiles-mechanics",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua (1479-1484)"]
+  test_in_game: "Optional: Fork on a single target dummy, damage with and without the Melee Hit."
+  status: proposed

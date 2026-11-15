@@ -838,3 +838,48 @@
   guide_note: "An Ally (minion or totem) in your Presence all fight."
   impact: 1
   effort: S
+
+- id: escalating-mayhem
+  name: Hazards triggered Recently (Escalating Mayhem)
+  terms: [Hazard triggered Recently]
+  category: your state
+  game: "Stat damage_+%_per_recently_triggered_hazard_up_to_50% (notable hazards3, 10% each, up to 50%). Hazard skills: the sets with is_hazard / curse_zones_are_hazards (Spearfield, Permafrost Bolts, Ice Shards, Conductive Runes, Caltrops, Brambles, Doedre's Dark Design)."
+  game_source: "data/game-26476662 Stats, PassiveSkills, GrantedEffectStatSets, GrantedEffects, ActiveSkills; PoB ConfigOptions 1634"
+  pob: config-only
+  pob_check: "PoB reads Multiplier:HazardsTriggeredRecently, set only by its count box, which nothing set; PoB counts no hazards."
+  handling: "models.escalating_mayhem_model (MECHB31): one hazard a use of a hazard main skill (x its rearm chance) plus triggered hazard skills' rates, x 4 s, 10% each to the cap."
+  plan: {approach: custom model, how: "Done; one hazard a use is a lower bound.", inputs: [Speed, HazardRearmChance, triggerRate mods]}
+  what_if: invisible
+  guide_note: "X hazards set off in the past 4 s."
+  impact: 1
+  effort: S
+
+- id: faerie-fire
+  name: Faerie Fire stacks (Periphery's Azmerian Swarms)
+  terms: [Faerie Fire, Azmerian Swarms]
+  category: your skills
+  game: "Azmerian Swarms (Periphery): 10% chance on hitting a Unique enemy with an Elemental Ailment to summon a swarm (10 s, at most 8, 1 attack/s, +1% per 5 Dexterity); its hits inflict Faerie Fire: 2% of damage as a random element per stack, 8 s, at most 10."
+  game_source: "PoB Data/Skills/other.lua 1786, Minions.lua AzmerianSwarm, SkillStatMap 2972, ConfigOptions 1725"
+  pob: config-only
+  pob_check: "PoB reads Multiplier:FaerieFireStack only from its count box, which nothing set."
+  handling: "models.faerie_fire_model / assumptions.faerie_fire (MECHB31): swarms from the main skill's hits x 10% x the boss's Elemental Ailment share, their hits x 8 s = stacks, as gain-as-random-element at 2% a stack."
+  plan: {approach: custom model, how: "Done.", inputs: [Speed, HitChance, ailment shares, Dex]}
+  what_if: invisible
+  guide_note: "X Faerie Fire stacks on the boss."
+  impact: 1
+  effort: S
+
+- id: briarpatch-thorny-ground
+  name: Briarpatch's Thorny Ground
+  terms: [Briarpatch, Thorny Ground]
+  category: your skills
+  game: "Briarpatch: stores 1% of Physical Attack damage dealt, up to a level cap (256 at 20); casting a Spell creates Thorny Ground (one per 8 s, limit 1, 6 s, 3 m) dealing the stored damage on creation, then to enemies moving over it at most twice a second (KeywordPopups ThornyGround)."
+  game_source: "PoB Data/Skills/act_str.lua 2013 (= poe2db); data/game-26476662 KeywordPopups, Stats 24143"
+  pob: none
+  pob_check: "PoB scores Briarpatch 0 (a persistent buff; nothing turns the stored damage into a hit)."
+  handling: "models.briarpatch_model / assumptions.briarpatch (MECHB31): one creation hit per 8 s when the build casts a Spell of its own, of min(cap, 1% x the main attack's Physical damage a second x 8 s), an added source."
+  plan: {approach: custom model, how: "Done; the ticks while the boss moves, Thorns / Spell modifiers and armour not counted.", inputs: [PhysicalHitAverage, Speed, gem level]}
+  what_if: invisible
+  guide_note: "Cast a Spell at least every 8 s to make Thorny Ground."
+  impact: 1
+  effort: S

@@ -3782,6 +3782,68 @@ def test_triggered_a_skill_recently_lines_count_at_the_share_the_builds_triggers
     assert models.triggered_recently_model(["10% increased Damage"], {"Ice Nova": 1.0}) == ([], [])
 
 
+def test_escalating_mayhem_counts_the_hazards_the_build_sets_off_in_four_seconds():
+    """MECHB31 (PATCH_CHECK MB-10): PoB's hazard count box is never set (0 before). At least one hazard a use of a hazard
+    main skill (x its rearm chance) plus triggered hazard skills' rates, 10% each up to 50%."""
+    texts = ["10% increased Damage for each Hazard triggered Recently, up to 50%"]
+    spear = Skill("Spearfield", group=1, attack=True)
+    mods, notes = models.escalating_mayhem_model(texts, {"Speed": 0.5, "HazardRearmChance": 20}, spear, {})
+    assert mods == [models.line("1% increased Damage", 24.0)] and notes[0]["value"] == pytest.approx(2.4)
+    mods, _ = models.escalating_mayhem_model(texts, {"Speed": 2.0}, spear, {"Caltrops": 1.0})
+    assert mods[0]["scale"] == pytest.approx(50.0)  # capped
+    mods, notes = models.escalating_mayhem_model(texts, {"Speed": 2.0}, Skill("Spark", group=1, spell=True), {"Caltrops": 0.25})
+    assert mods[0]["scale"] == pytest.approx(10.0) and "Caltrops" in notes[0]["basis"]
+    mods, notes = models.escalating_mayhem_model(texts, {"Speed": 2.0}, Skill("Spark", group=1, spell=True), {})
+    assert mods == [] and notes[0]["value"] == 0
+    assert models.escalating_mayhem_model(["10% increased Damage"], {}, spear, {}) == ([], [])
+
+
+def test_faerie_fire_stacks_come_from_swarms_the_builds_hits_on_an_ailmented_boss_summon():
+    """MECHB31 (PATCH_CHECK MB-11): PoB's Faerie Fire count box is never set (0 before). Swarms at 10% of hits on a boss
+    with an Elemental Ailment, 10 s each (at most 8), 1 attack/s (+1% per 5 Dexterity); stacks 8 s each, at most 10."""
+    mods, notes = models.faerie_fire_model(1.0, 0.5, 0.0, "Ignited 50%")
+    # 0.05 swarms/s, 0.5 alive, 0.5 hits/s, 4 stacks: 8%
+    assert mods == [models.line("Gain 1% of Damage as Extra Damage of a random Element", 8.0)]
+    assert notes[0]["value"] == pytest.approx(4.0)
+    mods, notes = models.faerie_fire_model(10.0, 1.0, 100.0)
+    assert mods[0]["scale"] == pytest.approx(20.0) and notes[0]["value"] == 10  # capped at 10 stacks
+    assert models.faerie_fire_model(2.0, 0.0, 100.0)[0] == []  # no Elemental Ailment on the boss: no swarms
+
+
+def test_briarpatch_counts_one_creation_hit_of_the_stored_damage_per_eight_seconds():
+    """MECHB31 (GEM9 / MECHB30.research.md Q5): PoB scores Briarpatch 0. One patch per 8 s with a Spell of the build's
+    own, its creation hit the stored 1% of 8 s of Physical Attack damage, at most the level's cap (256 at 20)."""
+    dps, note = models.briarpatch_model(1000.0, 20, ["Despair"])
+    assert dps == pytest.approx(10.0) and "Despair" in note["basis"]  # 1% x 1,000 x 8 = 80 a patch
+    dps, _ = models.briarpatch_model(10000.0, 20, ["Despair"])
+    assert dps == pytest.approx(256 / 8)  # capped at 256
+    assert models.briarpatch_model(10000.0, 40, ["Despair"])[0] == pytest.approx(800 / 8)
+    dps, note = models.briarpatch_model(10000.0, 20, [])
+    assert dps == 0 and note["value"] == 0  # no Spell: no ground
+
+
+def test_meta_energy_while_on_full_mana_counts_at_the_full_mana_share():
+    """MECHB31 (CULT9: Idle Hands' Cultivated outcome): PoB doesn't parse it; 25% increased Energy at the share of the
+    fight on full Mana (1 - the main skill's Mana spent / regenerated)."""
+    texts = ["Meta Skills gain 25% increased Energy while on Full Mana"]
+    value, notes = models.full_mana_energy(texts, {"ManaPerSecondCost": 5.0, "ManaRegenRecovery": 20.0})
+    assert value == pytest.approx(18.75) and notes[0]["value"] == pytest.approx(18.75)
+    assert models.full_mana_energy(texts, {"ManaPerSecondCost": 0.0, "ManaRegenRecovery": 20.0})[0] == 25.0
+    assert models.full_mana_energy(texts, {"ManaPerSecondCost": 30.0, "ManaRegenRecovery": 20.0})[0] == 0.0
+    assert models.full_mana_energy(["Meta Skills gain 25% increased Energy"], {}) == (0.0, [])
+
+
+def test_idle_hands_and_atziris_contempt_cultivated_lines_have_a_stand_in():
+    """MECHB31 (the manager 08:42, CULT9 section 2): a Cultivated outcome is offered once its unread line has an item
+    stand-in (cultivated.outcome_lines); Idle Hands' line is read by models.full_mana_energy and Atziri's Contempt's Fork
+    adds nothing against a lone boss (ledger/entries/models-read-mechb31.yaml)."""
+    for text in ("Meta Skills gain 25% increased Energy while on Full Mana",
+                 "Projectiles have 63% chance to Fork if you've dealt a Melee Hit in the past eight seconds",
+                 "Projectiles have (50-75)% chance to Fork if you've dealt a Melee Hit in the past eight seconds"):
+        found = translate(text)
+        assert found and found[0].on_items and found[1] == [], text
+
+
 def test_reloaded_recently_ammunition_chance_counts_over_the_whole_clip():
     """MECHB31 (PATCH_CHECK MB-6): PoB's "Reloaded Recently" box is never set (0 before; ticked alone, Rampart Raptor's
     100% would be an endless clip). The chance holds for the 4 s after each reload; handed to PoB as the whole-clip chance
