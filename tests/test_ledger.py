@@ -352,3 +352,15 @@ def test_thorns_and_cadiro_lines_feed_their_models():
     assert models.THORNS_ON_HIT.search("20% chance to deal your Thorns Damage to Enemies you Hit with Melee Attacks")
     assert models.CADIRO_ARROWS.search("Each Arrow fired is a Crescendo, Splinter, Reversing, Diamond, Covetous, or Blunt Arrow")
     assert model_entry("Deal your Thorns Damage to Enemies you Stun with Melee Attacks") is None  # (not counted yet)
+
+
+def test_the_adorneds_cultivated_rare_jewel_outcome_is_offered_as_pob_joins_it():
+    """COV34 (CULT9 section 2): the outcome's two lines get empty stand-ins (ledger items-cov34.yaml): PoB joins them and
+    parses the sentence whole (Item.lua 1240-1251; probe POE2T2564), so the outcome is offered with its lines as they
+    are, nothing added."""
+    from builder.search import cultivated
+
+    offered = [o for o in cultivated.outcomes("The Adorned") if o["mod"] == "UniqueMutatedVaalCorruptedRareJewelModEffect"]
+    assert len(offered) == 1
+    assert cultivated.outcome_lines(offered[0]) == ["(0-75)% increased Effect of Jewel Socket Passive Skills",
+                                                    "containing Corrupted Rare Jewels"]

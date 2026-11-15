@@ -1,0 +1,37 @@
+# Cultivated outcome lines PoB reads itself once joined (COV34, 15 Nov 2026; CULT9.report.md section 2, the manager's
+# item 3). PoB joins an item line it can't parse with the next one and keeps the pair when the joined text parses whole
+# (Classes/Item.lua 1240-1251), so a mod the game wraps over two lines needs nothing added: these empty stand-ins only
+# say so, which lets cultivated.outcome_lines offer the outcome. Probe POE2T2564 (scratch/cov34/probe_adorned.py,
+# probe2564.log): see each entry.
+
+- id: items-adorned-corrupted-jewel-effect-first-line
+  title: The Adorned, "N% increased Effect of Jewel Socket Passive Skills" (first half of a two-line mod PoB joins)
+  kind: pob_gap
+  match: '^(\(\d+-\d+\)|\d+)% increased Effect of Jewel Socket Passive Skills$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    The Cultivated outcome UniqueMutatedVaalCorruptedRareJewelModEffect (local_unique_jewel_passive_jewel_socket_mod_
+    effect_+%_with_corrupted_rare_jewel_socketed, 0-75) comes as "(0-75)% increased Effect of Jewel Socket Passive
+    Skills" / "containing Corrupted Rare Jewels", as PoB's own Adorned writes its Magic version. PoB parses neither
+    half, but joins them (Item.lua 1240-1251) and parses the whole sentence (ModCache 4007: JewelData
+    corruptedRareJewelIncEffect), which CalcSetup 1276-1277 turns into Multiplier CorruptedRareJewelEffect, the same
+    path PoB's own Magic version takes (corruptedMagicJewelIncEffect, CalcSetup 1273-1274). Nothing to add. Probe
+    POE2T2564 (The Adorned in a jewel socket, bridge itemMods): the range form and a 38% roll each come back as one
+    joined line ("... Passive Skills" + "containing Corrupted Rare Jewels"), 1 modifier, supported, as PoB's own Magic
+    pair does.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Classes/Item.lua:1240-1251", "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua:4007",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcSetup.lua:1272-1278", "scratch/cov34/probe2564.log"]
+  test_in_game: "Cultivate The Adorned to the Corrupted Rare Jewels outcome, socket corrupted rare jewels: their passive effects rise by the rolled %."
+  status: proposed
+
+- id: items-adorned-corrupted-jewel-effect-second-line
+  title: The Adorned, "containing Corrupted Rare / Magic Jewels" (second half of a two-line mod PoB joins)
+  kind: pob_gap
+  match: '^containing Corrupted (?:Rare|Magic) Jewels$'
+  replace: []
+  confidence: datamined
+  notes: Carried by items-adorned-corrupted-jewel-effect-first-line (PoB reads the pair joined).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Classes/Item.lua:1240-1251"]
+  test_in_game: "As items-adorned-corrupted-jewel-effect-first-line."
+  status: proposed
