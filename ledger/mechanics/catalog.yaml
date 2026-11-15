@@ -367,10 +367,40 @@
   game_source: "data/game-26476662 GrantedEffectStatSets SupportHayoxisBindingPlayer, SupportTriggeredAnnihilationPlayer; gem_stat_descriptions, annihilation.csd"
   pob: none
   pob_check: "PoB gives Annihilation no rate: 0 in Full DPS (probe MECHB29, POE2T1146); a trigger rate r gives r x one hit (688.4 at r = 1/7: 98.3). It doesn't apply the conversion to the curse's damage types."
-  handling: "models.annihilation_model (MECH-B, MECHB29): one eruption per area that persists 7 s; the play: 2 areas, a new cast every max(3.5 s, the curse's cooldown), 2 per 7 s (without it, one per curse duration); trigger rate = eruptions x 6 hits (all on the boss: LOW); the extra casts charged to the main skill. Areas taken to last the curse's duration (UNVERIFIED; under 7 s: 0, LOW). The curse's group in Full DPS isn't charged again as a press (rate_presses). Not modelled: the damage conversion."
+  handling: "models.annihilation_model (MECH-B, MECHB29): one eruption per area that persists 7 s; the play: 2 areas, a new cast every max(3.5 s, the curse's cooldown), 2 per 7 s (without it, one per curse duration); trigger rate = eruptions x 6 hits (all on the boss: LOW); the extra casts charged to the main skill. Areas taken to last the curse's duration where that is 7 s or more (UNVERIFIED); under 7 s the other reading (areas last until replaced) is counted, LOW (AUDIT36 A36-1), both in the note. The curse's group in Full DPS isn't charged again as a press (rate_presses). Not modelled: the damage conversion."
   plan: {approach: custom model, how: "Done; the conversion to the curse's damage types and whether areas outlast the curse are open.", inputs: [the curse's duration, cooldown and cast time, curse_uses]}
   what_if: visible
   guide_note: "Cast the curse under the boss every 3.5 s, keeping two areas: each erupts after 7 s."
+  impact: 2
+  effort: S
+
+- id: kaom-embodiment
+  name: Ancestral Cry's Kaom embodiment
+  terms: [Ancestral Cry, Kaom, Ancestrally Boosted]
+  category: damage sources
+  game: "Ancestral Cry (100 Glory from Igniting enemies, 8 s, +50% duration per Endurance Charge consumed): while embodying Kaom, Melee Strikes and Slams are Ancestrally Boosted, and you Trigger Volcanic Steps and Volcanic Eruption (ActiveSkills ancestral_cry, AncestralCryPlayer)."
+  game_source: "data/game-26476662 ActiveSkills ancestral_cry; GrantedEffectStatSets AncestralCryPlayer"
+  pob: none
+  pob_check: "PoB counts no boost for it (GEM8's probe POE2T2054; MECHB29's POE2T1162: no boost ratio, no damage change, no config option)."
+  handling: "models.kaom_uptime + ancestral_boost_model(embodiment) (MECH-B, MECHB29): uptime = the uses its Glory pays for (glory_caps) x PoB's duration; every Melee Slam boosted while up (30% more on that share, one boost a use with the other sources), a Strike's boosted-attack lines at the share; its casts charged to the main skill. Not counted: the Endurance Charges' longer duration, Volcanic Steps / Eruption damage, the 25% area."
+  plan: {approach: custom model, how: "Done; Volcanic Steps / Eruption and the Endurance extension left.", inputs: [glory_caps, Ancestral Cry's duration and cast time, the main skill's types]}
+  what_if: visible
+  guide_note: "Use Ancestral Cry whenever its Glory is full (Ignite the boss): your Slams are boosted while you embody Kaom."
+  impact: 2
+  effort: S
+
+- id: ancestral-spirits
+  name: Warbringer's Ancestral Spirits
+  terms: [Ancestral Spirits, Answered Call]
+  category: damage sources
+  game: "Answered Call: Trigger Ancestral Spirits when you Summon a Totem; one Ancestral Spirit minion per summon, dying with its Totem. They act since 0.5.0 Hotfix 3."
+  game_source: "data/game-26476662 ActiveSkills ancestral_spirits; patch notes 0.5.0 Hotfix 3"
+  pob: partial
+  pob_check: "PoB scores the group 0 outside Full DPS and one spirit of its first type (the Turtle) inside it (probe MECHB29, POE2T1165)."
+  handling: "models.ancestral_spirits_model (MECH-B, MECHB29): one spirit per Totem the main totem skill keeps up (its Totem Limit), each at the mean of PoB's four types (bridge.minionTypes; which type each summon makes: UNVERIFIED), an added source; PoB's own entry taken out. Not counted: side totem skills' spirits, the Turtle's aura, the Warhorn's buffs."
+  plan: {approach: custom model, how: "Done for a main totem skill; which spirit each summon makes is open.", inputs: [bridge minionTypes, the main skill's Totem Limit]}
+  what_if: visible
+  guide_note: "Keep your Totems up: each brings an Ancestral Spirit."
   impact: 2
   effort: S
 

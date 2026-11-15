@@ -1546,6 +1546,53 @@ def test_hayoxis_annihilation_counts_in_full_dps_and_its_curse_isnt_charged_as_a
     assert rate["value"] == pytest.approx(2 / 7 * 6, abs=1e-3)
 
 
+def test_a_side_orb_of_storms_rate_is_published_on_the_build_for_its_remnants(engine):
+    """MECHB29 (the manager 21:40, for MECH-C's orb_remnants): rate_presses puts the pressed side Orb's Orbs a second
+    (models.orbs_per_second, the rate press_model scores) on build.orb_presses, {skill: (Orbs/s, how)}; none without it."""
+    from builder.request.schema import Choices
+    from builder.search.assumptions import pressed_group
+
+    payload = make_payload(BuildRequest(main_skill="Spark", ascendancies=["Stormweaver"], level=90,
+                                        require=Choices(skills=["Orb of Storms"])))
+    skeleton = enumerate_skeletons(Context(payload), ["Spark"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    search.assumptions.rate_presses()
+    orb = next(g["index"] for g in build.groups() if any(x["name"] == models.ORB_OF_STORMS for x in g["gems"]))
+    build.call("setGroup", index=orb, fullDPS=False, fields=[])
+    search.assumptions.rate_presses()
+    assert build.orb_presses == {}
+    build.call("setGroup", index=orb, fullDPS=True, fields=[])
+    search.assumptions.rate_presses()
+    groups = build.call("groups")
+    main = groups["mainSocketGroup"]
+    pressed = {g["index"] for g in groups["groups"] if g["index"] != main and pressed_group(g, build.ctx.gems)}
+    rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
+    rate, how = build.orb_presses[models.ORB_OF_STORMS]
+    assert rate > 1 / 12.8 and "orbs_per_second" in how  # (Spark's casts end each Orb before its 12 s)
+    assert rate == pytest.approx(sum(models.orbs_per_second(rates, main, pressed).values()), rel=1e-6)
+
+
+def test_the_bridge_rates_each_ancestral_spirit_type_and_puts_pobs_choice_back(engine):
+    """MECHB29 (probe POE2T1165): Answered Call adds the Ancestral Spirits group; PoB counts its first type only (one
+    Turtle in Full DPS); bridge.minionTypes rates all four and leaves PoB's choice as it was."""
+    payload = make_payload(BuildRequest(main_skill="Shockwave Totem", ascendancies=["Warbringer"], level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Shockwave Totem"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    build.call("allocate", add=[39411], fields=[])  # Answered Call
+    group = next(s["group"] for s in build.call("activeSkills")["skills"] if s["name"] == models.ANCESTRAL_SPIRITS)
+    build.call("setGroup", index=group, fullDPS=True, fields=[])
+    before = build.call("stats", fields=["FullDPS"])["FullDPS"]
+    types = build.call("minionTypes", index=group)["types"]
+    assert len(types) == 4 and all(t["CombinedDPS"] > 0 for t in types)
+    assert {t["id"] for t in types} >= {"AncestralSpiritTurtle", "AncestralSpiritHulk"}
+    assert before == pytest.approx(types[0]["CombinedDPS"])  # (PoB's Full DPS: one spirit of its first type)
+    assert build.call("stats", fields=["FullDPS"])["FullDPS"] == pytest.approx(before)  # (its choice put back)
+
+
 def test_a_second_dark_effigy_doubles_vile_effusions_damage(engine):
     """MECHB8 (engine probe POE2T1018): Vile Effusion carries no ActiveTotemLimit; the bridge reports Dark Effigy's, and
     the totem count model counts each totem placed."""

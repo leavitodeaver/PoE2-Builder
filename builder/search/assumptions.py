@@ -447,6 +447,19 @@ HUNT_FIELDS = ["CombinedDPS", "ShowAverage", "CullMultiplier", "ReservationDpsMu
                "TotalDotDPS"]
 
 
+def ancestral_spirits(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Warbringer's Ancestral Spirits (models.ancestral_spirits_model, MECHB29): the bridge's
+    minionTypes rates each of the four spirit types."""
+    for group in build.groups():
+        for n, skill in enumerate(group["skills"], 1):
+            if skill["name"] != models.ANCESTRAL_SPIRITS or skill.get("disabled"):
+                continue
+            found = build.call("minionTypes", index=group["index"], active=n)
+            types = found.get("types") if isinstance(found, dict) else None  # (an empty Lua table reaches Python as a list)
+            return models.ancestral_spirits_model(list(types or []), main)
+    return 0.0, []
+
+
 def eternal_hunt(build: Build, main: models.Skill | None) -> tuple[float, list[dict], list[dict]]:
     """(added DPS, mods, notes) for an Azmerian Wolf's Eternal Hunt (models.eternal_hunt_model, MECHB20): the bridge's
     minionSkillHit scores the wolf with the hunt chosen. The Command's press costs the main skill's time (the player's
@@ -884,13 +897,26 @@ class Assumptions:
         # -20% comes from the condition box at the line's uptime (conditions._exposure_uptime)
         exposure_flags = conditions_mod.exposure_source_flags(texts, main_types)
         exposure_flags += conditions_mod.wither_source_flags(texts, main_types)  # (MECH72: partly parsed Withered lines)
-        if any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t)
-               or models.EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts):
+        embodiment, kaom_busy = (0.0, ""), 0.0
+        cry = next((s for s in found if s.name == models.ANCESTRAL_CRY and s.group is not None), None)
+        boosted = main is not None and main.attack and ("Slam" in main_types or ("Strike" in main_types and main.melee))
+        if cry is not None and boosted and cry is not main and not main.triggered:
+            # (MECHB29: Ancestral Cry's Kaom embodiment, at the uses its Glory pays for x its duration)
+            uses, how = self.glory_caps().get(models.ANCESTRAL_CRY, (0.0, "its Glory wasn't read"))
+            row = (build.call("useRates", indices=[cry.group])["rates"] or [{}])[0]
+            up, kaom_busy, kaom_how = models.kaom_uptime(uses, models.number(row.get("duration")),
+                                                         models.number(row.get("castTime")) or cry.cast_time, how)
+            embodiment = (up, kaom_how)
+            if kaom_busy > 0:  # (its casts take the main skill's time: nothing else charges a Warcry's)
+                hand_mods = hand_mods + [models.line("1% more Attack and Cast Speed", -100 * kaom_busy, skill=main.name)]
+        if embodiment[0] > 0 or any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t)
+                                    or models.EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts):
             # (MECH-B, MECHB18: Ancestral Boost's sources PoB leaves unparsed; PoB's own boost uptimes beside the stats;
-            # MECHB19: Ancestral Empowerment + Fist of War at the lower reading)
+            # MECHB19: Ancestral Empowerment + Fist of War at the lower reading; MECHB29: the Kaom embodiment)
             boost_mods, boost_notes = models.ancestral_boost_model(
                 texts, {**stats, **build.call("stats", fields=models.ANCESTRAL_FIELDS)}, found, main, main_types,
-                self.warcry_uses() if any(models.KAOMS_BLESSING.match(t.strip()) for t in texts) else (0.0, ""))
+                self.warcry_uses() if any(models.KAOMS_BLESSING.match(t.strip()) for t in texts) else (0.0, ""),
+                embodiment)
             hand_mods, hand_notes = hand_mods + boost_mods, hand_notes + boost_notes
         sanguine_mods, sanguine_notes = models.sanguine_model(inputs, stats, self.life_flask_charges())             if inputs.has(models.SANGUINE) else ([], [])
         hand_mods, hand_notes = hand_mods + sanguine_mods, hand_notes + sanguine_notes
@@ -1070,9 +1096,14 @@ class Assumptions:
         blood, blood_notes = blood_hunt(build, main, [e["text"] for e in source_lines])  # (MECH75: Blood Loss explosions)
         hand_mods += [models.added_input("BloodHunt", blood)] if blood > 0 else []
         hand_notes += blood_notes
+        spirits, spirit_notes = ancestral_spirits(build, main)  # (MECHB29: Warbringer's Ancestral Spirits, PoB 0 / one)
+        hand_mods += [models.added_input("AncestralSpirits", spirits)] if spirits > 0 else []
+        hand_notes += spirit_notes
+        for note in spirit_notes:  # (PoB's own one-spirit entry, where its group is in Full DPS, out)
+            build.objective.entry_scales.update(note.get("full_dps") or {})
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
-                                   "Battershout": shout, "Blood Hunt": blood})
+                                   "Battershout": shout, "Blood Hunt": blood, "Ancestral Spirits": spirits})
         # A model whose effect follows the build's own numbers and that the bridge can't work out again per calculation
         # would make every item what-if a real trial (Build.item_deltas). All of today's are worked out in the bridge
         # (models.derived): uptimes from Mana and regeneration, Life spent, attack speed, Mana > Life, Maelstrom's pulses.
@@ -1116,6 +1147,7 @@ class Assumptions:
         pressed = {g["index"] for g in groups["groups"] if g["index"] != main and pressed_group(g, build.ctx.gems)}
         # (MECH62: the Cull models' scales, reset beside press_scales and set again by cull_window)
         build.objective.whole_scales, build.objective.cull_scale = {}, 1.0
+        build.orb_presses = {}  # (MECHB29, for MECH-C's orb_remnants: {skill: (Orbs a second, how)}, set below)
         if not pressed:
             build.objective.press_scales = {}
             return self.consume_ignite(groups, []) + self.cull_window()
@@ -1137,6 +1169,13 @@ class Assumptions:
         caps = self.press_caps(groups["groups"], pressed)
         build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps,
                                                                  models.press_choices(build))
+        # (MECHB29, the manager 21:40: MECH-C's orb_remnants reads it) a pressed side Orb's Orbs a second, as press_model
+        # scores it: each Orb ends at its maximum hits or its duration and is recast at once (models.orbs_per_second)
+        orbs = models.orbs_per_second(rates, main, pressed, paced, caps, models.press_choices(build))
+        if orbs:
+            build.orb_presses = {models.ORB_OF_STORMS: (sum(orbs.values()), (
+                "MECH-B's side-Orb cycle, models.orbs_per_second: each Orb ends at its maximum hits, fed by the Spells "
+                "cast near it, or its duration, and is recast at once"))}
         return notes + self.consume_ignite(groups, rates) + self.cull_window()
 
     def cull_window(self) -> list[dict]:

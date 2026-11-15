@@ -3363,6 +3363,41 @@ function bridge.minionSkillHit(args)
 	return result
 end
 
+-- (MECHB29, models.ancestral_spirits_model) Each minion type a summon skill can make, as PoB would score it with that
+-- type chosen (srcInstance.skillMinion, CalcActiveSkill 951-953; the tool never sets it, so PoB rates the first listed
+-- type only): Warbringer's Ancestral Spirits lists four (Turtle, Hulk, Caster, Warhorn). args.index: the group;
+-- args.active: the skill's position in it. Gives { types = { { id, name, CombinedDPS, TotalDPS, Speed }, ... } }; the
+-- main group, active skill and chosen minion are put back.
+function bridge.minionTypes(args)
+	local calcs = require("Modules.CalcBase")
+	local group = build.skillsTab.socketGroupList[args.index]
+	local position = tonumber(args.active) or (group and group.mainActiveSkill) or 1
+	local activeSkill = group and group.displaySkillList and group.displaySkillList[position]
+	local instance = activeSkill and activeSkill.activeEffect.srcInstance
+	local granted = activeSkill and activeSkill.activeEffect.grantedEffect
+	if not instance or not granted or not granted.minionList then
+		return { reason = not instance and "no such skill in the group" or "the skill lists no minion types" }
+	end
+	local saved, oldMinion, oldActive = build.mainSocketGroup, instance.skillMinion, group.mainActiveSkill
+	local types = { }
+	for _, id in ipairs(granted.minionList) do
+		build.mainSocketGroup, group.mainActiveSkill, instance.skillMinion = args.index, position, id
+		local entry = { id = id, name = data.minions[id] and data.minions[id].name or id }
+		local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
+		if ok and env and pcall(calcs.perform, env, true) and env.minion then
+			local output = env.minion.output or { }
+			for _, field in ipairs({ "CombinedDPS", "TotalDPS", "Speed" }) do
+				if type(output[field]) == "number" then
+					entry[field] = jsonNumber(output[field])
+				end
+			end
+		end
+		types[#types + 1] = entry
+	end
+	build.mainSocketGroup, group.mainActiveSkill, instance.skillMinion = saved, oldActive, oldMinion
+	return { types = types }
+end
+
 -- (MECH72, models.battershout_model) Battershout's explosion (TriggeredBattershoutExplosionPlayer, the support gem's
 -- additional granted effect) has no base damage in PoB: "Physical Area Damage based off of the Broken Armour of the
 -- target" (support_battershout_physical_damage_equal_to_%_of_broken_armour 40, which PoB maps to nothing). Each

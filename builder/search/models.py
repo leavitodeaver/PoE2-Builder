@@ -1553,7 +1553,9 @@ def spirit_vessel_notes(skills: list[dict]) -> list[dict]:
 # beats the spikes), and never more than one where corpses come (an UNDERCOUNT). The constructs alive on average are
 # Unearth's corpses per second x each construct's duration (PoB's, the bridge's summon.duration), capped at the limit
 # (ActiveUnearthBoneConstructLimit): one construct per corpse (larger corpses' extra ones not counted, an undercount;
-# a Reviving minion's body counted as one, LOW), and Unearth cast often enough to raise each (LOW).
+# a Reviving minion's body makes one: datamined, Unearth's own text "Reviving Minions can only create one Bone Construct
+# per death", unearth.csd skill_specific_stat_description_mode, GEM9; was LOW), and Unearth cast often enough to raise
+# each (LOW).
 # Its corpses: an even share of the common supply (the boss's adds, Sacrifice's undead minions; every corpse user,
 # Unearth too, splits it: corpse_model) plus the build's dead Reviving minions only Unearth can use (any Reviving
 # minion, undead or not, with or without Sacrifice: minion_deaths, less Sacrifice's share of them, which is in the
@@ -1575,8 +1577,9 @@ def unearth_constructs(unearth: Skill, corpses: float, how: str) -> tuple[list[d
     basis = (f"{corpses:.3g} corpses/s for Unearth ({how}) x {duration:.3g} s each construct lasts"
              + (f", capped at its limit of {limit:g}" if count >= limit else "")
              + f": {count:.3g} alive on average (PoB counts one fighting nonstop, whatever the corpses). One construct a "
-               "corpse (larger corpses make more: not counted, an undercount); a dead Reviving minion's body counted "
-               "as one, and Unearth cast often enough to raise each (LOW). Without corpses: its spikes only")
+               "corpse (larger corpses make more: not counted, an undercount); a dead Reviving minion's body makes one "
+               "(the game's own text: \"Reviving Minions can only create one Bone Construct per death\", unearth.csd: "
+               "datamined); Unearth cast often enough to raise each (LOW). Without corpses: its spikes only")
     return ([line("Minions deal 1% more Damage", 100 * (count - 1), skill=unearth.name)],
             {"label": "Unearth's Bone Constructs alive on average*", "value": round(count, 3), "basis": basis,
              "confidence": "LOW" if count > 0 else "datamined"})
@@ -4256,6 +4259,47 @@ def added_total(mods: list[dict]) -> float:
     return sum(m["value"] for m in mods if m.get("kind") == "Derived" and m.get("fn") in ADDED_FNS) / 100
 
 
+# Warbringer's Ancestral Spirits (MECHB29; NOTES2 H3-2, an UNDERCOUNT). Answered Call (tree node 39411): "Trigger Ancestral
+# Spirits when you Summon a Totem"; ActiveSkills ancestral_spirits: "Triggered each time you summon a Totem, summoning an
+# Ancestral Spirit Minion to fight for you. If the Totem dies then the Ancestral Spirit triggered by it's summoning will
+# die too." Patch notes --history "Ancestral Spirit" (newest wins): 0.5.0 Hotfix 3 "Fixed a bug where the Ancestral
+# Spirit minions from Warbringer's triggered skill took no actions", so they fight now. PoB (probe POE2T1165, two totem
+# Warbringers): the group scores 0 outside Full DPS (Full DPS 0 -> 81.9 with it in), and then counts ONE spirit, its
+# first listed type (Ancestral Spirit Turtle), whatever the totems. PoB lists four types (Turtle 81.9, Jade Hulk 162.2,
+# Jadecaster 65.5, Warhorn 81.9 DPS there; bridge.minionTypes rates each). The model: one spirit per totem alive, so the
+# main totem skill's Totem Limit when it keeps its totems up (MEDIUM); which type each summon makes isn't in the game
+# text ("an Ancestral Spirit Minion": UNVERIFIED), taken as the mean of the four (LOW); counted as an added source (fixed
+# at the resolve, like Thorns), PoB's own one-Turtle entry taken out of Full DPS. Not counted (labelled): spirits from
+# side totem skills (an undercount), the Turtle's Paua Shell Aura (defences) and the Warhorn's buffs.
+ANCESTRAL_SPIRITS = "Ancestral Spirits"
+
+
+def ancestral_spirits_model(types: list[dict], main: Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Warbringer's Ancestral Spirits: one spirit per totem the main skill keeps up, each at the
+    mean of PoB's spirit types (bridge.minionTypes `types`)."""
+    rated = [t for t in types if number(t.get("CombinedDPS")) > 0]
+    if not types:
+        return 0.0, []
+    limit = number(main.totem_limit) if main is not None else 0.0
+    mean = sum(number(t.get("CombinedDPS")) for t in rated) / len(rated) if rated else 0.0
+    each = ", ".join(f"{t.get('name')} {number(t.get('CombinedDPS')):.1f}" for t in types)
+    if limit <= 0 or main is None or main.triggered:
+        return 0.0, [{"label": "Ancestral Spirits (Answered Call) DPS*", "value": 0,
+                      "basis": (f"one spirit per Totem alive; the main skill {main.name if main else '(none)'} keeps no "
+                                "Totems up (spirits from a side totem skill aren't counted: an undercount); PoB's types: "
+                                f"{each}"),
+                      "confidence": "LOW"}]
+    dps = limit * mean
+    return dps, [{"label": "Ancestral Spirits (Answered Call) DPS*", "value": round(dps, 1),
+                  "basis": (f"one spirit per Totem alive: {limit:g} ({main.name}'s Totem Limit, kept up: MEDIUM) x "
+                            f"{mean:.1f}, the mean of PoB's four spirit types ({each}; which type each summon makes "
+                            "isn't in the game text: UNVERIFIED, LOW); they fight since 0.5.0 Hotfix 3; PoB alone "
+                            "scores none outside Full DPS, one Turtle inside it (taken out)"),
+                  "play": (f"Keep your {limit:g} Totem{'s' if limit != 1 else ''} up: each brings an Ancestral Spirit "
+                           f"(without them 0, with them {dps:.0f} DPS)"),
+                  "confidence": "LOW", "full_dps": {ANCESTRAL_SPIRITS: 0.0}}]
+
+
 # Eternal Hunt (MECHB20; MECHB19's research): the Azmerian Wolf's Command. The game: packleader_great_hunt.csd mode 7,
 # "Summons {0} Spirit Wolves / Wolves dash at enemies over 8 seconds" (7 wolves); GreatHuntPackleaderMinion: Cooldown
 # 15000 ms, CastTime 4000 ms (the wolf's howl), 1000% of base; each wolf's hit, GAPackleaderGreatHuntDash, has the same
@@ -5055,6 +5099,30 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
 # Damage" lines get the same share difference as increased Attack Damage. Not counted (labelled): the 25% increased
 # area, and the Empowered-only lines on the extra share (MECH-C's kw-empowered); Guided Hand's share (guided_hand_model)
 # is added on top, not merged (a small OVERCOUNT where both are taken, at most Guided Hand's own share).
+# Ancestral Cry's Kaom embodiment (MECHB29; GEM8's item, an UNDERCOUNT): ActiveSkills ancestral_cry: "Perform a Warcry
+# using Glory gained by Igniting enemies to turn you into an embodiment of Kaom. While embodying Kaom, you Trigger Volcanic
+# Steps while travelling, Melee Strikes and Slams are Ancestrally Boosted, and your Melee Strikes Trigger Volcanic
+# Eruption" (AncestralCryPlayer: active_skill_requires_X_glory 100, base_skill_effect_duration 8000,
+# ancestral_cry_duration_+%_final_per_removable_endurance_charge 50: "Consumes all Endurance Charges to increase Warcry
+# duration by 50% per charge"). PoB counts nothing for it (GEM8's probe POE2T2054; MECHB29's POE2T1162: a Volcanic Fissure
+# Warbringer with Ancestral Cry: no boost ratio, no damage change; its config has no Kaom option). The uptime: its uses
+# the build's Glory pays for (glory_plan through Assumptions.glory_caps: 20 Glory an Ignite on a boss, once per 0.5 s,
+# none while it's up) x its duration (PoB's, with the build's duration modifiers), at most 1; no Glory, 0 (no flat
+# rate). Each use takes its cast time from the main skill. Not counted (labelled): the Endurance Charges' longer duration
+# (an undercount), Volcanic Steps and Volcanic Eruption's damage (an undercount), the boosted Slam's 25% area.
+ANCESTRAL_CRY = "Ancestral Cry"
+
+
+def kaom_uptime(uses: float, duration: float, cast_time: float, how: str) -> tuple[float, float, str]:
+    """(share of the fight embodying Kaom, share of the main skill's time its casts take, how) from Ancestral Cry's
+    uses per second (its Glory's) and its duration."""
+    if uses <= 0 or duration <= 0:
+        return 0.0, 0.0, f"Ancestral Cry: {how or 'no Glory'} (0: no Glory to use it with)"
+    up = min(1.0, uses * duration)
+    return up, min(1.0, uses * cast_time), (f"Ancestral Cry {uses:.3f} uses/s ({how}) x its {duration:.2f} s = {up:.0%} "
+                                           "(the Endurance Charges' longer duration not counted)")
+
+
 ANCESTRAL_FIELDS = ["Speed", "FistOfWarCooldown", "FistOfWarDamageMultiplier", "AncestralEmpowermentDamageMultiplier",
                     "AncestralEmpowermentUptimeRatio", "AncestralEmpowermentCombinedUptimeRatio", "FistOfWarUptimeRatio"]
 SHAPESHIFT_EVERY_SECOND_SLAM = re.compile(r"Every second Slam Skill you use while Shapeshifted is Ancestrally Boosted",
@@ -5065,10 +5133,13 @@ ANCESTRAL_SPELL_MORE = 30  # AncestralBoostSpell: "30% more damage" (KeywordPopu
 
 
 def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], main: Skill | None, main_types: set[str],
-                          warcries: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
-    """The two unparsed Ancestral Boost sources: the Shapeshifted unique's every second Slam and Kaom's Blessing's Fire
-    Spell after a Warcry (`warcries`: the build's Warcry uses per second, and how). Mods on the main skill, and notes."""
-    if main is None or not texts:
+                          warcries: tuple[float, str] = (0.0, ""),
+                          embodiment: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
+    """The unparsed Ancestral Boost sources: the Shapeshifted unique's every second Slam, Kaom's Blessing's Fire Spell
+    after a Warcry (`warcries`: the build's Warcry uses per second, and how) and Ancestral Cry's Kaom embodiment
+    (`embodiment`: the share of the fight it's up, and how; kaom_uptime, MECHB29). Mods on the main skill, and notes."""
+    embodied, embodied_how = min(1.0, max(0.0, number(embodiment[0]))), embodiment[1]
+    if main is None or (not texts and embodied <= 0):
         return [], []
     label = "Ancestral Boost (sources PoB doesn't parse)"
     unique = any(SHAPESHIFT_EVERY_SECOND_SLAM.search(t) for t in texts)
@@ -5079,10 +5150,10 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
                    or number(stats.get("AncestralEmpowermentCombinedUptimeRatio")) > 0)
     cooldown = number(stats.get("FistOfWarCooldown"))
     both = empowerment and cooldown > 0
-    if not unique and not kaom and not both:
+    if not unique and not kaom and not both and embodied <= 0:
         return [], []
     if main.triggered:
-        if not unique and not kaom:
+        if not unique and not kaom and embodied <= 0:
             return [], []
         return [], [{"label": label, "value": "0 (triggered)", "confidence": "theory", "entry": "ancestral-boost",
                      "basis": f"{main.name} is triggered: \"Triggered Skills cannot be Ancestrally Boosted\" (KeywordPopups)"}]
@@ -5097,10 +5168,9 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
                          "basis": f"{main.name} isn't a Shapeshift skill, so it isn't used while Shapeshifted"}]
                        if unique and not shapeshifted else [])
         unique = unique and shapeshifted
-        if not unique and not both:
+        if not unique and not both and embodied <= 0:
             return [], unique_note
         fist = min(1.0, 1 / (cooldown * speed)) if cooldown > 0 else 0.0
-        share = 0.5 + 0.5 * fist
         pob = max(number(stats.get(k)) for k in ("AncestralEmpowermentUptimeRatio",
                                                   "AncestralEmpowermentCombinedUptimeRatio", "FistOfWarUptimeRatio")) / 100
         if empowerment and cooldown > 0:  # (PoB hides Fist of War's own ratio once it's combined)
@@ -5109,6 +5179,9 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
             pob = max(pob, fist)
         elif empowerment:
             pob = max(pob, 0.5)
+        # (MECHB29) while embodying Kaom every Slam is boosted; outside it, the other sources' share (one boost a use)
+        other = 0.5 + 0.5 * fist if unique or both else pob
+        share = embodied + (1 - embodied) * other
         more = (number(stats.get("AncestralEmpowermentDamageMultiplier")) or number(stats.get("FistOfWarDamageMultiplier"))
                 or ANCESTRAL_SLAM_MORE / 100)
         if abs(share - pob) < 1e-9:
@@ -5121,10 +5194,15 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
         sources = (["the Shapeshifted unique's every second Slam"] if unique else []) + (
             ["Ancestral Empowerment's every second Slam" + (" (the same half, taken as overlapping: UNVERIFIED)"
                                                             if unique else "")]
-            if empowerment else []) + ([f"Fist of War once per {cooldown:g} s"] if cooldown > 0 else [])
+            if empowerment else []) + ([f"Fist of War once per {cooldown:g} s"] if cooldown > 0 else []) + (
+            [f"every Slam while embodying Kaom (Ancestral Cry), {embodied:.0%} of the fight: {embodied_how}"]
+            if embodied > 0 else [])
         upper = max(pob, min(1.0, 0.5 + fist)) if cooldown > 0 else pob
         upper_factor = (1 + more * upper) / (1 + more * pob)
-        if unique:
+        if embodied > 0 and not unique and not both:
+            play = (f"Use Ancestral Cry each time its Glory is full (Ignite the boss to fill it): without it x1.000, with "
+                    f"it every Slam boosted while you embody Kaom, {embodied:.0%} of the fight, x{factor:.3f}")
+        elif unique:
             play = (f"Without the unique: x1.000. With it: every second Slam you use in your Shapeshifted form is boosted, "
                     f"x{factor:.3f}")
         else:
@@ -5141,7 +5219,19 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
                         f"the upper reading, PoB's, is {min(1.0, 0.5 + fist):.0%})" if cooldown > 0 else "")
                      + "; the 25% increased area and the Empowered-only lines on the extra share aren't counted",
             "play": play,
-            "confidence": "LOW" if cooldown > 0 else "theory", "entry": "ancestral-boost"}]
+            "confidence": "LOW" if cooldown > 0 else "MEDIUM" if embodied > 0 else "theory",
+            "entry": "ancestral-boost"}]
+    if embodied > 0 and "Strike" in main_types and main.attack and main.melee:
+        # (MECHB29) a boosted Strike targets 2 more enemies (nothing on one boss); its "Ancestrally Boosted Attacks deal
+        # N% increased Damage" lines count at the embodied share (PoB counts no boost for a Strike)
+        boost = sum(int(m.group(1)) for t in texts if (m := BOOSTED_LINE.match(t.strip())))
+        mods = [line("1% increased Attack Damage", boost * embodied, skill=main.name)] if boost else []
+        return mods, [{"label": label, "value": f"{embodied:.0%} of {main.name}'s uses boosted (embodying Kaom)",
+                       "basis": (f"Ancestral Cry's Kaom embodiment boosts Melee Strikes: {embodied_how}; a boosted Strike "
+                                 "targets 2 additional enemies (nothing on one boss)"
+                                 + (f"; the build's {boost}% increased damage for Ancestrally Boosted Attacks at that share"
+                                    if boost else "") + "; the Empowered-only lines aren't counted"),
+                       "confidence": "MEDIUM", "entry": "ancestral-boost"}]
     if kaom and main.spell and "Fire" in main_types:
         if cast_by_totem(skills, main):
             return [], [{"label": label, "value": "0 (totem)", "confidence": "theory", "entry": "ancestral-boost",
@@ -7345,10 +7435,12 @@ def doom_blast_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[
 #   - an area erupts once, when it has persisted 7 s (the text names one trigger; a second at 14 s: UNVERIFIED, not
 #     counted, moot under the play below); an area replaced at the Limit before 7 s doesn't erupt (it hasn't persisted
 #     7 s; KeywordPopups Limit: "the oldest effect will dissapear");
-#   - an area lasts the curse's duration (CurseUse.duration: PoB's, with the build's modifiers). UNVERIFIED: no source
-#     gives Cursed Ground's own duration (checked: no stat id in the game files names one; KeywordPopups has no Cursed
-#     Ground entry; PoB has no Cursed Ground handling). Under 7 s it never erupts under that reading: 0, labelled LOW and
-#     held for the user (if areas outlast the curse, 2 per 7 s);
+#   - how long an area lasts: UNVERIFIED, no source gives Cursed Ground's own duration (checked: no stat id in the game
+#     files names one; KeywordPopups has no Cursed Ground entry; PoB has no Cursed Ground handling). Read as the
+#     curse's duration (CurseUse.duration: PoB's, with the build's modifiers) where that is 7 s or more (MEDIUM). Under
+#     7 s that reading would give 0, so (AUDIT36 A36-1, CLAUDE.md: never zero on an unverified reading) the other
+#     reading is counted, areas lasting until replaced at the Limit: the same 2 per 7 s, labelled LOW, both readings in
+#     the note; held for the user;
 #   - the play (a player who takes it plays to feed it: CLAUDE.md): two areas under the boss, a new one cast every 3.5 s
 #     (7 s / 2 areas, or the curse's cooldown if that is longer), so each area reaches 7 s, erupts and is replaced by the
 #     next cast: 2 eruptions per 7 s. Without it (the curse recast each duration, as curse_uses counts it): 1 per duration;
@@ -7383,21 +7475,22 @@ def annihilation_model(skills: list[Skill], curses: list[CurseUse],
         elif not curse.by_hand:
             how = (f"{curse.name} is {curse.how.split(':')[0]}: whether a curse not cast by hand makes Cursed Ground is "
                    "UNVERIFIED (a meta can't trigger it: the support excludes Triggered skills); left as PoB has it")
-        elif curse.duration < HAYOXI_DELAY - 1e-9:
-            how = (f"{curse.name}'s areas last its {curse.duration:.3g} s duration (UNVERIFIED that Cursed Ground lasts "
-                   f"the curse's duration), under the {HAYOXI_DELAY:g} s an area must persist: none erupts (0; if areas "
-                   f"outlast the curse, {CURSE_AREAS} per {HAYOXI_DELAY:g} s)")
         else:
             cooldown = (cast.cooldown or HAYOXI_COOLDOWN) / (cast.cooldown_recovery or 1.0)
             every = max(HAYOXI_DELAY / CURSE_AREAS, cooldown)
             rate, without = 1 / every, 1 / curse.duration
             extra = max(0.0, rate - without)
-            confidence = "MEDIUM"
+            short = curse.duration < HAYOXI_DELAY - 1e-9
+            confidence = "LOW" if short else "MEDIUM"
             how = (f"{curse.name} cast every {every:.3g} s ({HAYOXI_DELAY:g} s / {CURSE_AREAS} areas, its "
                    f"{cooldown:.3g} s cooldown allowing), so each area persists {HAYOXI_DELAY:g} s, erupts and is "
                    f"replaced by the next cast: {rate:.3f} eruptions/s (a play strategy*; recast only each "
-                   f"{curse.duration:.3g} s duration: {without:.3f}/s); areas taken to last the curse's duration "
-                   "(UNVERIFIED)")
+                   f"{curse.duration:.3g} s duration: {without:.3f}/s); ")
+            how += (f"its {curse.duration:.3g} s duration is under the {HAYOXI_DELAY:g} s an area must persist: if "
+                    "Cursed Ground lasts the curse's duration none erupts (0), if it lasts until replaced at the Limit "
+                    "(counted: LOW, AUDIT36 A36-1: CLAUDE.md, no zero on an unverified reading) the rate above; no "
+                    "source gives the areas a duration (UNVERIFIED)" if short else
+                    "areas taken to last the curse's duration (UNVERIFIED), at least 7 s here")
             play = (f"Cast {curse.name} under the boss every {every:.3g} s, keeping {CURSE_AREAS} areas: each erupts "
                     f"after {HAYOXI_DELAY:g} s. Without it (recast each {curse.duration:.3g} s): {without:.3f} "
                     f"Annihilations/s; with it: {rate:.3f}/s")

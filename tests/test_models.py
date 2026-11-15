@@ -3672,11 +3672,13 @@ def test_hayoxis_fulmination_erupts_once_per_cursed_ground_area_that_persists_se
     # a slower cooldown sets the pace: one eruption a cast
     slow = replace(despair, cooldown=2.0, cooldown_recovery=0.4)  # (5 s)
     assert models.annihilation_model([slow, blast, main], [by_hand], main)[1][0]["value"] == pytest.approx(0.2)
-    # areas under 7 s never erupt (labelled), a curse not cast by hand is left as PoB has it, no Annihilation: nothing
+    # a curse under 7 s (AUDIT36 A36-1): the reading "areas last the curse's duration" would give 0, so the other one
+    # (areas last until replaced) is counted, LOW, both in the note; a curse not cast by hand is left as PoB has it
     short = models.CurseUse("Despair", 1.0, "cast by hand every 6 s", True, 6.0)
     mods, notes, groups = models.annihilation_model([despair, blast, main], [short], main)
-    assert next(m for m in mods if m.get("key") == "triggerRate")["value"] == 0 and groups == set()
-    assert notes[0]["confidence"] == "LOW" and "UNVERIFIED" in notes[0]["basis"]
+    assert next(m for m in mods if m.get("key") == "triggerRate")["value"] == pytest.approx(2 / 7 * 6, abs=1e-3)
+    assert groups == {4} and notes[0]["confidence"] == "LOW"
+    assert "none erupts (0)" in notes[0]["basis"] and "until replaced" in notes[0]["basis"]
     aura = models.CurseUse("Despair", 1.0, "an Aura (Blasphemy) on enemies nearby: inside it")
     mods, notes, groups = models.annihilation_model([despair, blast, main], [aura], main)
     assert groups == set() and "left as PoB has it" in notes[0]["basis"]
@@ -4227,6 +4229,48 @@ def test_ancestral_boost_sources_combine_as_one_boost_per_slam_at_the_lower_read
     assert models.ancestral_boost_model([UNIQUE_SLAM, EMPOWERMENT], {"Speed": 1.0, "AncestralEmpowermentUptimeRatio": 50},
                                         [slam], slam, {"Attack", "Slam", "Shapeshift"}) == ([], [])
 
+
+
+def test_ancestral_cry_boosts_every_slam_while_embodying_kaom_at_its_glory_uptime():
+    """MECHB29 (GEM8, probe POE2T1162: PoB counts nothing): while embodying Kaom every Melee Slam / Strike is
+    Ancestrally Boosted; the uptime is the uses Ancestral Cry's Glory pays for x its duration, its casts cost the main
+    skill; no Glory, 0; with Ancestral Empowerment's every second Slam the rest of the fight keeps its half."""
+    assert models.kaom_uptime(0.0, 8.0, 0.8, "0.00 ignites/s x 20, never")[0] == 0.0
+    up, busy, how = models.kaom_uptime(0.05, 8.0, 0.8, "glory")
+    assert up == pytest.approx(0.4) and busy == pytest.approx(0.04) and "40%" in how
+    assert models.kaom_uptime(0.5, 8.0, 0.8, "glory")[0] == 1.0
+    slam = Skill("Volcanic Fissure", group=1, attack=True, melee=True)
+    stats = {"Speed": 1.12}
+    mods, notes = models.ancestral_boost_model([], stats, [slam], slam, {"Slam", "Attack", "Melee"}, (0.0, ""),
+                                               (0.4, how))
+    assert mods[0]["name"] == "Damage" and mods[0]["value"] == pytest.approx(100 * 0.3 * 0.4, abs=1e-3)
+    assert notes[0]["value"].startswith("40%") and "Kaom" in notes[0]["basis"] and "Ancestral Cry" in notes[0]["play"]
+    assert f"x{1 + 0.3 * 0.4:.3f}" in notes[0]["value"]
+    texts = ["Every second Slam Skill you use yourself is Ancestrally Boosted"]
+    _, notes = models.ancestral_boost_model(texts, {**stats, "AncestralEmpowermentUptimeRatio": 50}, [slam], slam,
+                                            {"Slam", "Attack", "Melee"}, (0.0, ""), (0.4, how))
+    assert notes[0]["value"].startswith(f"{0.4 + 0.6 * 0.5:.0%}")  # (PoB's half outside the embodiment)
+    # a Strike: 2 more targets (nothing on a boss), its boosted-attack lines at the share
+    strike = Skill("Mace Strike", group=1, attack=True, melee=True)
+    mods, notes = models.ancestral_boost_model(["Ancestrally Boosted Attacks deal 20% increased Damage"], stats, [strike],
+                                               strike, {"Strike", "Attack", "Melee"}, (0.0, ""), (0.4, how))
+    assert mods[0]["scale"] == pytest.approx(8.0) and "2 additional enemies" in notes[0]["basis"]
+    assert models.ancestral_boost_model([], stats, [slam], slam, {"Slam", "Attack"}, (0.0, ""), (0.0, "")) == ([], [])
+
+
+def test_ancestral_spirits_count_one_spirit_per_totem_kept_up_at_the_mean_of_the_four_types():
+    """MECHB29 (NOTES2 H3-2; probe POE2T1165: PoB 0 outside Full DPS, one Turtle inside): one Ancestral Spirit per totem
+    alive, the main totem skill's Totem Limit, each at the mean of PoB's four types; PoB's own entry taken out."""
+    types = [{"name": "Ancestral Spirit Turtle", "CombinedDPS": 81.9}, {"name": "Ancestral Jade Hulk", "CombinedDPS": 162.2},
+             {"name": "Ancestral Jadecaster", "CombinedDPS": 65.5}, {"name": "Ancestral Warhorn", "CombinedDPS": 81.9}]
+    totem = Skill("Shockwave Totem", group=1, attack=True, totem_limit=2)
+    dps, notes = models.ancestral_spirits_model(types, totem)
+    assert dps == pytest.approx(2 * (81.9 + 162.2 + 65.5 + 81.9) / 4)
+    assert notes[0]["full_dps"] == {models.ANCESTRAL_SPIRITS: 0.0} and "UNVERIFIED" in notes[0]["basis"]
+    assert "without them 0" in notes[0]["play"]
+    spark = Skill("Spark", group=1, spell=True)
+    assert models.ancestral_spirits_model(types, spark)[0] == 0.0
+    assert models.ancestral_spirits_model([], totem) == (0.0, [])
 
 
 def test_ancestral_empowerment_with_fist_of_war_takes_the_lower_reading_without_the_unique():
