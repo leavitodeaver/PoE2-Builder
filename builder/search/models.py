@@ -3172,6 +3172,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
             if entry.raw.get("sum") and values:
                 values = {" + ".join(sorted(values)): sum(values.values())}
             targets = [name]
+            if entry.raw.get("to") == "main" and main is not None:  # (a buff on the main skill: Emergency Reload's bolts)
+                targets = [main.name]
             if entry.raw.get("to") == "triggered":  # (the skills the supported skill triggers: its group's triggered ones)
                 targets = [s.name for s in skills if s is not skill and s.group is not None and s.group == skill.group
                            and s.triggered]
@@ -3870,7 +3872,7 @@ def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev
 
 CONFIG_SHARES = {"near_boss"}  # (share functions that read PoB's config: gem_stat_model passes `_config`)
 
-SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use", "vruun_combo"}  # (read the build's skills: `_skills`)
+SKILLS_SHARES = {"revived_recently", "corpse_consumed", "corpses_per_use", "vruun_combo", "kelari_beetles"}  # (read the build's skills: `_skills`)
 
 # `share: rain_landing` (GEM9; an OVERCOUNT PoB can't see): Rain of Arrows' "Modifiers to Projectile speed apply to arrow
 # landing frequency" (rain_of_arrows_new.csd, skill_specific_stat_description_mode 1). The game: "One arrow lands every
@@ -3919,6 +3921,102 @@ def rain_landing_share(skill: Skill, stats: dict, main: Skill | None = None, pre
     return (less, f"{less:.3g}% less: {how}", play) if less > 0.05 else (0.0, f"0: {how}", play)
 
 
+# `share: emergency_reload` (GEM10; an UNDERCOUNT PoB can't see): Emergency Reload (EmergencyReloadPlayer). Its game text
+# (emergency_reload.csd, game 26476662): "Empowers bolts with {0}% more damage" (emergency_reload_damage_+%_final: 12 at
+# gem level 1, 31 at 20), "duration is {0} seconds or until your Empowered bolts are expended" (base_skill_effect_duration
+# 6000), and skill_specific_stat_description_mode 1: "Number of each clip's Empowered bolts is equal to the maximum
+# Ammunition of the clip". ActiveSkills: "Instantly reload all your Crossbow Ammunition clips and Empower each clip's
+# Ammunition". Patch 0.3.0 (the newest of its three entries, grep_notes.py --history): "Now reloads all of your Crossbow
+# Ammunition clips ... Empowers each clip's Ammunition to deal increased damage for its duration or until you expend all
+# your Empowered bolts. Now has Number of each clip's Empowered bolts is equal to the maximum Ammunition of the clip". PoB
+# maps emergency_reload_damage_+%_final to nothing (SkillStatMap, CalcOffence: no reader), so it scores the bolts without
+# it. The rate from the build (the user's no-flat-rates rule): Emergency Reload used on cooldown (P = its cooldown / the
+# build's cooldown recovery; Instant, so it takes no time) when the main skill's clip runs dry. Each use Empowers
+# E = min(clip, FiringRate x duration) bolts (clip: PoB's EffectiveBoltCount, the bolts a clip fires with the build's
+# chance not to consume Ammunition; ASSUMPTION, UNVERIFIED: a shot that consumes no Ammunition expends no Empowered bolt),
+# and replaces one reload (EffectiveReloadTime). Over a period the main skill fires Speed x (P + R) bolts instead of
+# Speed x P, E of them v% harder: more Damage = (1 + R / P + v E / (Speed P)) - 1. The main skill only, and only a
+# crossbow skill that fires a clip (PoB gives it BoltCount); its other clips (each ammo skill's own) aren't counted (an
+# undercount where the build fires two), nor the build's Skill Effect Duration modifiers (the base 6 s; it binds only when
+# a clip takes longer than that to fire). Labelled LOW for the play pattern (used on cooldown with the clip empty).
+EMERGENCY_RELOAD = "Emergency Reload"
+EMERGENCY_RELOAD_COOLDOWN, EMERGENCY_RELOAD_SECONDS = 45.0, 6.0  # (its level data's cooldown 45, duration 6000 ms)
+
+
+def emergency_reload_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    """The main skill's more Damage from Emergency Reload's Empowered bolts and skipped reloads, as a factor of the
+    stat's own value (see above), and how."""
+    v = number(skill.level_stats.get("emergency_reload_damage_+%_final"))
+    seconds = number(skill.level_stats.get("base_skill_effect_duration")) / 1000 or EMERGENCY_RELOAD_SECONDS
+    period = max((skill.cooldown or EMERGENCY_RELOAD_COOLDOWN) / (skill.cooldown_recovery or 1.0), 0.1)
+    play = ("Use Emergency Reload on cooldown when the main skill's clip is empty, and fire the Empowered clip within "
+            f"{seconds:g} s.")
+    bolts, speed = number(stats.get("BoltCount")), number(stats.get("Speed"))
+    if main is None or bolts <= 0 or speed <= 0 or v <= 0:
+        return 0.0, ("0: the main skill fires no Crossbow clip PoB gives (no BoltCount), or no Empower at this level"), play
+    effective = number(stats.get("EffectiveBoltCount")) or bolts
+    unlimited = number(stats.get("ChanceToNotConsumeAmmo")) >= 100
+    firing = number(stats.get("FiringRate")) or speed
+    reload = 0.0 if unlimited else max(number(stats.get("EffectiveReloadTime")), 0.0)
+    fired = speed * (period + reload)
+    empowered = min(firing * seconds if unlimited else min(effective, firing * seconds), fired)
+    more = (reload / period + v / 100 * empowered / (speed * period)) * 100
+    how = (f"{more:.3g}% more on {main.name}: once per {period:.3g} s it Empowers {empowered:.3g} bolts "
+           f"({'no Ammunition consumed: ' + f'{seconds:g} s of firing' if unlimited else f'a clip of {effective:.3g}'}"
+           f"{f', capped by {seconds:g} s of firing' if not unlimited and empowered < effective else ''}) "
+           f"with {v:g}% more, of {fired:.3g} fired, and replaces a {reload:.3g} s reload (LOW: used on cooldown with the "
+           "clip empty; one clip, the base duration)")
+    return more / v, how, play + f" Without it: PoB's damage; with it: {more:.3g}% more on {main.name}."
+
+
+# `share: kelari_beetles` (GEM10; an OVERCOUNT on a lone boss, an undercount with many corpses): Kelari's Malediction
+# (CorpseBeetlesPlayer). corpse_beetles.csd (game 26476662): skill_specific_stat_description_mode "Summons {0} Beetles per
+# Corpse consumed" (2), "{0} second duration between Corpse consumptions" (base_secondary_skill_effect_duration: 1.5 s
+# at gem level 1, 0.9 s at 20), "Maximum {0} Corpse Beetles" (4-8); ActiveSkills: "passively Consume Corpses in your
+# Presence, causing Corpse Beetle Minions to burst forth ... On your Command, they rush the target and explode". PoB
+# (probe POE2T2066, real PoB, our models on: scratch/gem10/probe_kelari.json) scores one beetle's Sandblast at its own
+# use rate (minion Speed 1/s, cast time 1 s) for ever, with no corpse in it (FullDPS 374 = the beetle's 374 average
+# hit x 1/s; BeetleLimit 8 read, not used); corpse_model's triggerRate for it doesn't reach a minion's damage. Each
+# beetle explodes once, so the boss takes per x c explosions a second, c the corpses Kelari's Malediction consumes a
+# second: its even share of the build's corpse supply (corpse_supply; split as corpse_model splits it), capped by one
+# consumption per its interval. Scored as "Minions deal more / less Damage" on the skill by (per x c / PoB's rate - 1):
+# 100% less with no corpse source (the user's rule: no source means 0), more where the corpses outrun PoB's one a
+# second. PoB's rate is its minion Speed when Kelari's Malediction is the main skill; otherwise its Sandblast's 1 s
+# cast (ASSUMPTION, labelled: minion cast speed modifiers on a non-main Kelari's not read). Not counted (labelled): the
+# Command's own 0.4 s cast time (all beetles go at once), the beetle limit (a cap on stored beetles, not on the rate
+# while they're commanded as they come).
+KELARI = "Kelari's Malediction"
+KELARI_INTERVAL, KELARI_PER_CORPSE = 0.9, 2.0  # (its level-20 900 ms; the mode's value, when the stats aren't read)
+
+
+def kelari_beetles_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
+    """The factor of the stat's value (beetles per corpse) giving Kelari's Malediction's "Minions deal more Damage"
+    (negative: less) against PoB's one beetle per minion use (see above), and how."""
+    per = number(skill.level_stats.get("skill_specific_stat_description_mode")) or KELARI_PER_CORPSE
+    interval = number(skill.level_stats.get("base_secondary_skill_effect_duration")) / 1000 or KELARI_INTERVAL
+    skills = stats.get("_skills") or [skill]
+    present = {s.name for s in skills}
+    supply = corpse_supply(present, stats)
+    users = {s.name for s in skills if s.corpses and not s.wrong_weapon} - set(CORPSE_OPTIONAL)
+    sharers = max(1, len(users | {skill.name}) + (1 if any(s.name == UNEARTH and s.corpses for s in skills) else 0))
+    corpses = min(supply / sharers, 1.0 / interval)
+    is_main = main is not None and main.name == skill.name and main.group == skill.group
+    pob = number(stats.get("Minion.Speed")) if is_main else 0.0
+    rate_how = "PoB's minion Speed" if pob > 0 else "its Sandblast's 1 s cast (minion speed not read: not the main skill)"
+    pob = pob if pob > 0 else 1.0
+    beetles = per * corpses
+    more = (beetles / pob - 1.0) * 100
+    play = ("Feed Kelari's Malediction corpses: on a lone boss nothing leaves one, so it needs the build's own corpse "
+            "source (Sacrifice's undead Reviving minions) or the boss's adds; Command the beetles as they come.")
+    how = (f"{beetles:.3g} beetle explosions/s ({per:g} per corpse, {corpses:.3g} corpses/s: "
+           + (f"its share of {supply:.3g}/s split among {sharers} corpse user{'s' if sharers != 1 else ''}, at most one "
+              f"per {interval:g} s; {add_corpses_note(stats)}" if supply > 0 else
+              f"no corpse source in the build or the boss preset; {add_corpses_note(stats)}")
+           + f") against PoB's {pob:.3g}/s ({rate_how})")
+    return more / per, (f"{more:+.3g}% Minion Damage on it: {how}"), (
+        play + f" Without corpses: 0; with them: {per:g} beetles per corpse, up to {per / interval:.3g} explosions/s.")
+
+
 SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_stun_buff": heavy_stun_buff_share,
           "not_full_mana": not_full_mana_share, "supported_main": supported_main_share,
           "cull_buff": cull_buff_share, "revived_recently": revived_recently_share,
@@ -3926,8 +4024,11 @@ SHARES = {"alignment": alignment_match_share, "cadence": cadence_share, "heavy_s
           "corpses_per_use": corpses_per_use_share, "stun_bar": stun_bar_share,
           "seal_echo": seal_echo_share, "shotgun_fragments": shotgun_fragments_share,
           "shotgun_fragment_count": shotgun_fragment_count_share,
-          "vruun_combo": vruun_combo_share, "rain_landing": rain_landing_share}
+          "vruun_combo": vruun_combo_share, "rain_landing": rain_landing_share,
+          "emergency_reload": emergency_reload_share, "kelari_beetles": kelari_beetles_share}
 MODEL_FIELDS.extend(f for f in ("ProjectileSpeedMod",) if f not in MODEL_FIELDS)  # (rain_landing_share)
+MODEL_FIELDS.extend(f for f in ("BoltCount", "EffectiveBoltCount", "ChanceToNotConsumeAmmo", "FiringRate", "EffectiveReloadTime",
+                                  "Minion.Speed") if f not in MODEL_FIELDS)  # (emergency_reload_share, kelari_beetles_share)
 
 
 def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:

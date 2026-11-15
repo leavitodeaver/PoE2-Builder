@@ -1,0 +1,58 @@
+# GEM10 (14 Nov 2026): skill_specific_stat_description_mode, more of GEM8's list (item 1). The stat's value only picks
+# which text the game shows; each text describes a real effect, so each skill is checked against what PoB counts. Each
+# entry is scoped to the skills named: the same stat on other skills stays open.
+
+- id: model-gem10-emergency-reload-empowered-bolts
+  title: "Emergency Reload: a clip of Empowered bolts with 12-31% more damage, and a reload skipped, each cooldown"
+  kind: gem_stat
+  match: '^emergency_reload_damage_\+%_final$'
+  replace: ["1% more Damage"]
+  share: emergency_reload
+  to: main
+  stats: ["emergency_reload_damage_+%_final", "skill_specific_stat_description_mode"]
+  skill: [Emergency Reload]
+  confidence: theory
+  notes: >-
+    emergency_reload.csd (game 26476662): "Empowers bolts with {0}% more damage", "duration is {0} seconds or until your
+    Empowered bolts are expended", and its skill_specific_stat_description_mode 1 text "Number of each clip's Empowered
+    bolts is equal to the maximum Ammunition of the clip". PoB maps emergency_reload_damage_+%_final to nothing (no
+    SkillStatMap entry, no reader in Modules; checked: grep of vendor/PathOfBuilding-PoE2/src for the id), so it scores
+    the bolts without it: an UNDERCOUNT. Counted on the main skill when it fires a Crossbow clip (PoB's BoltCount),
+    from the build's own clip, firing rate, reload time and Emergency Reload's cooldown (models.emergency_reload_share):
+    used on cooldown with the clip empty (the play pattern, LOW), it Empowers one clip (capped by 6 s of firing) and
+    replaces one reload. Second source: patch 0.3.0 (the newest of its three entries) "Empowers each clip's Ammunition
+    to deal increased damage for its duration or until you expend all your Empowered bolts. Now has Number of each
+    clip's Empowered bolts is equal to the maximum Ammunition of the clip". Not counted (labelled): the build's other
+    clips, Skill Effect Duration modifiers. ASSUMPTION (UNVERIFIED): a shot that consumes no Ammunition expends no
+    Empowered bolt (PoB's EffectiveBoltCount is the clip).
+  sources: ["data/game-26476662/files/data/statdescriptions/specific_skill_stat_descriptions/emergency_reload.csd",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua (EmergencyReloadPlayer)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 3022-3037 (BoltCount, Speed with reloads)",
+            "patch notes 0.3.0 (Emergency Reload)"]
+  test_in_game: "Fire a crossbow ammo skill at a training dummy with Emergency Reload: the Empowered bolts' hits should be 31% higher (gem level 20) for one clip, then normal."
+  status: proposed
+
+- id: model-gem10-kelari-beetles-per-corpse
+  title: "Kelari's Malediction: 2 beetles per corpse consumed, each exploding once (PoB: one beetle a second, corpses or not)"
+  kind: gem_stat
+  match: '^skill_specific_stat_description_mode$'
+  replace: ["Minions deal 1% more Damage"]
+  share: kelari_beetles
+  stats: ["skill_specific_stat_description_mode"]
+  skill: [Kelari's Malediction]
+  confidence: theory
+  notes: >-
+    corpse_beetles.csd (game 26476662): "Summons {0} Beetles per Corpse consumed" (this stat, 2), "{0} second duration
+    between Corpse consumptions" (0.9 s at gem level 20); ActiveSkills: Corpse Beetle Minions burst forth from consumed
+    corpses and "On your Command, they rush the target and explode". Probe POE2T2066 (real PoB, our models on; scratch/gem10/
+    probe_kelari.json): PoB's FullDPS 374 is one beetle's Sandblast at minion Speed 1/s, with no corpse in it, and
+    corpse_model's triggerRate doesn't reach a minion's damage: an OVERCOUNT on a lone boss (no corpse source: 100% less,
+    the user's no-source-means-0 rule), an undercount where corpses come faster than PoB's one a second (up to 2.2
+    explosions/s at level 20). Rate from the build's own corpse supply (models.corpse_supply, its even share among the
+    corpse users), models.kelari_beetles_share. Not counted (labelled): Command's 0.4 s cast, the beetle limit; a
+    non-main Kelari's is read against its 1 s cast, not its minion speed.
+  sources: ["data/game-26476662/files/data/statdescriptions/specific_skill_stat_descriptions/corpse_beetles.csd",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/other.lua (CorpseBeetlesPlayer), minion.lua (CorpseBeetleExplode)",
+            "scratch/gem10/probe_kelari.json (POE2T2066)"]
+  test_in_game: "With a corpse source (Sacrifice and undead Reviving minions) against a boss: count the beetle explosions over 10 s (2 per corpse consumed, at most one consumption per 0.9 s)."
+  status: proposed
