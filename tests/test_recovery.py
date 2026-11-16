@@ -1320,3 +1320,30 @@ def test_heavy_stunned_row_gives_the_dps_without_the_stuns():
     assert row["dps_with"] == 750.0 and row["dps_without"] == pytest.approx(1000.0) and "25%" in row["label"]
     search.build.heavy_stunned_self = (0.0, 0.0, "")
     assert play_guide.heavy_stunned_row(search, 750.0) is None
+
+
+@pytest.mark.usefixtures("arbiter_default")  # (the parry test's boss: one hit every 0.7 s)
+def test_refutations_blocks_heavy_stun_you_within_its_buff():
+    """MECHC30: Refutation's blocks build the bar through its 4 s buff (threshold x0.5 x (1 + 5% per 10 Ward)); a full
+    bar ends the buff; parry_plan then loses the stun's 3 s and the Parried after it."""
+    from builder.search import bosses, boss_hits, models
+
+    big = {f"{t}TakenHit": 50000 for t in boss_hits.TYPES} | {"StunThreshold": 1000, "enemySkillTime": 0.7,
+                                                             "_boss": bosses.DEFAULT}
+    unavoidable, evadable = boss_hits.shares(big)
+    blocked = (1 - unavoidable - evadable) / 0.7
+    at, how = recovery.refutation_heavy_stun(big, 0.5)
+    assert at == pytest.approx(1 / blocked) and "buff ends" in how
+    calm = {**big, **{f"{t}TakenHit": 1 for t in boss_hits.TYPES}}
+    assert recovery.refutation_heavy_stun(calm, 0.5)[0] == 0.0
+    refutation = models.Skill("Refutation", spell=True, cast_time=0.65, cooldown=9.0)
+    stats = {"enemySkillTime": 0.7, "Ward": 100}
+    plain = models.parry_plan([refutation], stats, True)
+    stunned = models.parry_plan([refutation], stats, True, refute=(1.0, "a stun 1.0 s in"))
+    assert plain.box > 0
+    # 1.0 s in: Parried only until the stun, the 0.65 s cast + 3 s stun lost: not worth it
+    assert stunned.box == 0 and "a stun 1.0 s in" in stunned.how and "not worth" in stunned.how
+    calm_plan = models.parry_plan([refutation], stats, True, refute=(0.0, "no stun within the buff"))
+    assert calm_plan.box == plain.box and "no stun within the buff" in calm_plan.how
+    # a stun at 3.9 s: Parried under 3.9 s of 13, 3.65 s lost: under x(1 + 0.5 x 0.3) x 0.72 = 0.83, not worth it
+    assert models.parry_plan([refutation], stats, True, refute=(3.9, "late")).box == 0

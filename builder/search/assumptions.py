@@ -530,6 +530,9 @@ SOUL_REVEAL = re.compile(r"^Reveal Weaknesses against Rare and Unique enemies$",
 SOUL_LINE = "1% increased Skill Speed"
 
 
+BLOCK_CAP = 90.0  # PoB's data.misc.BlockChanceCap (MECHC30: heavy_stunned_self's raised-shield Block)
+
+
 def soul_eater_average(fight: float, segments: list[tuple[float, float]] | None, inside: float, outside: float,
                        cap: int = SOUL_MAX, dt: float = 0.05) -> float:
     """Average eaten souls over a `fight` of that many seconds from 0: eating `inside` souls a second within `segments`
@@ -1624,8 +1627,10 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
         parry_stun = (recovery_mod.parry_stun_of(build) if any(s.name == "Parry" for s in found)
                       else (0.0, ""))  # (MECH-C: Heavy Stun from parrying, MECHC30)
+        refute_stun = (recovery_mod.refutation_stun_of(build) if any(s.name == "Refutation" for s in found)
+                       else (0.0, ""))  # (MECH-C: Heavy Stun from Refutation's blocks, MECHC30)
         parry_mods, parry_notes = models.parry_model(found, stats, main, bool(({name} | main_gems) & models.PARRY_CONSUMERS),
-                                                     parry_stun)
+                                                     parry_stun, refute_stun)
         hand_mods, hand_notes = hand_mods + parry_mods, hand_notes + parry_notes
         presses: dict[str, tuple[float, str]] = {}  # (item-granted skills the build presses: models.ITEM_PRESSES)
         if any(models.RAISED_BLIND.search(e["text"]) for e in source_lines):  # (Bastion of Light's shield taps, MECHC21)
@@ -3074,19 +3079,32 @@ class Assumptions:
     def heavy_stunned_self(self, main: str | None) -> tuple[list[dict], list[dict]]:
         """Heavy Stuns on you from channelling Resonating Shield as the main skill (recovery.channel_stun_of: the bar never
         decays while the shield is raised): the share of the fight Heavily Stunned is lost from the main skill's time, as
-        "1% more Attack and Cast Speed" x -100 x that share (parry_model's way). Its lost Block / Evasion in the defence
-        floors isn't counted yet (an overcount of defence, named)."""
+        "1% more Attack and Cast Speed" x -100 x that share (parry_model's way); Block on PoB at 1 - that share (the
+        raised shield Blocks every Blockable hit while channelling, nothing while stunned). Evasion isn't removed yet."""
         share, rate, how = recovery_mod.channel_stun_of(self.build, main)
         self.build.heavy_stunned_self = (share, rate, how)  # (play_guide.heavy_stunned_row)
         if not how:
             return [], []
         note = {"label": "Heavily Stunned while channelling with your shield raised*",
                 "value": f"{share:.0%} of the fight ({rate * 60:.1f} Heavy Stuns a minute)", "confidence": "MEDIUM",
-                "basis": how + ("; the time lost comes off the main skill (its DPS x" + f"{1 - share:.2f}); the lost Block and "
-                                "Evasion while stunned aren't in the defence floors yet (an overcount of defence)")}
-        if share <= 0:
-            return [], [note]
-        return [models.line("1% more Attack and Cast Speed", -100 * share, skill=main)], [note]
+                "basis": how + ("; the time lost comes off the main skill (its DPS x" + f"{1 - share:.2f})")}
+        # (MECHC30, leftover (a)) Resonating Shield: "While Channelling Resonating Shield, your Shield is raised and you will
+        # Block all incoming Blockable hits" (ActiveSkills resonating_shield), and "While Heavily Stunned players cannot
+        # Block" (KeywordPopups HeavyStunPlayer): Block = 100% of Blockable hits outside the stunned share, 0 inside it.
+        # PoB knew neither (its ordinary shield Block chance: an undercount while channelling, an overcount while
+        # stunned). On PoB as its Block chance at its maximum, the maximum overridden to 1 - share (PoB's 90% cap kept:
+        # data.misc BlockChanceCap), so every reader of EffectiveBlockChance (boss_hits' land and block shares, the
+        # recovery and defence floors, PoB's EHP) sees it; red-flash hits stay unblockable (boss_hits.shares). Not done:
+        # "You cannot Evade while your Shield is raised" (Raise Shield's text): PoB's Evasion still applies, an overcount
+        # of defence (named), because the stun model needs the Evasion chance you'd have (it avoids the buildup)
+        block = min(BLOCK_CAP, 100 * (1 - share))
+        note["basis"] += (f"; Block: all Blockable hits while channelling, none while stunned: {block:.0f}% on PoB (its Block "
+                          "at a maximum set to that; PoB's 90% cap kept). Your Evasion still counts in PoB, though a "
+                          "raised shield can't Evade (an overcount of defence, LOW)")
+        mods = [models.raw_mod("BlockChanceMax", "OVERRIDE", block), models.raw_mod("MaxBlockIfNotBlockedRecently", "FLAG", 1)]
+        if share > 0:
+            mods.append(models.line("1% more Attack and Cast Speed", -100 * share, skill=main))
+        return mods, [note]
 
     def demon_form(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Demon Form's Demonflame and its share of the fight (MECHC28; PATCH_CHECK S2-4 / K1-o4: PoB keeps you in the form

@@ -3102,8 +3102,17 @@ def test_resonating_shield_heavy_stuns_you_from_blocked_hits(engine):
     assert 0 <= share < 1 and "never decays" in how and "HeavyStunDamageScalePlayer" in how
     mods, notes = Assumptions(build).heavy_stunned_self("Resonating Shield")
     assert notes and "Heavily Stunned" in notes[0]["label"]
+    speed = [m for m in mods if m.get("kind") == "Line"]
     if share > 0:
-        assert mods and mods[0]["scale"] == pytest.approx(-100 * share, abs=0.01)
+        assert speed and speed[0]["scale"] == pytest.approx(-100 * share, abs=0.01)
+    # the raised shield Blocks every Blockable hit outside the stunned share (PoB's 90% cap)
+    raw = {m["name"]: m for m in mods if m.get("kind") == "Raw"}
+    assert raw["BlockChanceMax"]["value"] == pytest.approx(min(90.0, 100 * (1 - share)), abs=0.01)
+    search.resolve()  # (on PoB: its EffectiveBlockChance, which every defence reader sees)
+    share = recovery.channel_stun_of(build, "Resonating Shield")[0]
+    block = build.call("stats", fields=["EffectiveBlockChance"])["EffectiveBlockChance"]
+    print("PROBE resonating block", share, block)
+    assert block == pytest.approx(min(90.0, 100 * (1 - share)), abs=1.0)
     assert recovery.channel_stun_of(build, "Spark") == (0.0, 0.0, "")
 
 

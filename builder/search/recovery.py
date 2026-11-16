@@ -987,7 +987,8 @@ def rift_income(income: Income, stats: dict, uses: float, how: str) -> None:
 # high threshold, MEDIUM). Decay modifiers (Defender's Resolve, the Amanamu shield suffix, Resolute Reprisal: all faster)
 # change nothing below: a channel never decays, and 5 s between parries already empties the bar at the base rate.
 # Not counted yet (named in the notes): Refutation's blocks during its buff, Raise Shield taps, Runic Reprieve's channel,
-# Hazardous Holdout; and the Heavy Stunned share's lost Block / Evasion in the defence floors (an overcount of defence).
+# Hazardous Holdout; and Evasion while the shield is raised ("You cannot Evade while your Shield is raised": PoB's
+# Evasion still counts, an overcount of defence). Block while channelling: assumptions.heavy_stunned_self.
 HEAVY_STUN_SCALE_PLAYER = 0.65
 PLAYER_HEAVY_STUN_SECONDS = 3.0
 HEAVY_DECAY_DELAY, HEAVY_DECAY_PER_SECOND = 2.0, 0.5
@@ -1123,3 +1124,49 @@ def channel_stun_of(build, main: str | None) -> tuple[float, float, str]:
     scale, what = heavy_stun_scale(texts, support, raised=True, channel=True)
     share, rate, how = channel_heavy_stun(stats, scale)
     return share, rate, how + (f" (threshold: {', '.join(what)})" if what else "")
+
+
+# Refutation (MECHC30, leftover (b)): "Spends all your Runic Ward to gain a short-duration Buff that causes you to Block all
+# Blockable Hits ... This Buff is removed if you are Heavy Stunned. While this Buff is active, you cannot be Light Stunned,
+# but Blocking too much damage may Heavy Stun you" (ActiveSkills refutation). RefutationPlayer: base_skill_effect_duration
+# 4000, runic_fortress_stun_threshold_+%_final -50 ("50% less Stun Threshold while Buff is active") and
+# runic_fortress_stun_threshold_+%_final_per_10_ward_spent 5 ("5% more Stun Threshold while Buff is active per 10 Runic
+# Ward spent"; PoB's refutation.lua stat descriptions): the threshold x0.5 x (1 + 5% x Ward / 10), the Ward spent being
+# PoB's Ward (all of it; the per-10 count taken as one "more" scaled by the count, as such stats usually read: MEDIUM).
+# The buff isn't an action (RefutationPlayer has no active_skill_does_not_decay_heavy_stun_during_action), but the bar
+# waits 2 s after a hit before decaying, and the boss's hits come far closer than that, so it builds through the buff.
+# After the buff the bar empties (2 s + at most 2 s) long before the next cast (Refutation's cooldown doesn't recover
+# during the buff). A stun at t s into the buff ends the buff there and costs 3 s.
+REFUTATION_THRESHOLD, REFUTATION_PER_10_WARD = 0.5, 0.05
+REFUTATION_BUFF_SECONDS = 4.0
+
+
+def refutation_heavy_stun(stats: dict, scale: float, buff: float = REFUTATION_BUFF_SECONDS) -> tuple[float, str]:
+    """(seconds into Refutation's buff at which its blocks Heavy Stun you, 0.0 when they don't within the buff; how)."""
+    from builder.search import boss_hits
+
+    buildups, how = heavy_buildups(stats, scale)
+    unavoidable, evadable = boss_hits.shares(stats)
+    evade, _ = boss_hits.evade_block(stats)
+    every = _num(stats.get("enemySkillTime")) or 0.7
+    blocked = max(1 - unavoidable - evadable, 0.0) * (1 - evade) / every
+    mean = sum(w * b for w, b in buildups)
+    if blocked <= 0 or mean <= 0:
+        return 0.0, f"Refutation: no blocked boss hit builds Heavy Stun ({how})"
+    hits = max(1, math.ceil(1 / mean - 1e-9))
+    at = hits / blocked
+    if at >= buff:
+        return 0.0, (f"Refutation's blocks fill {mean * blocked * buff:.0%} of the bar in its {buff:g} s buff ({how}; "
+                     f"{blocked:.2f} blocked hits a second): no Heavy Stun")
+    return at, (f"Refutation's blocks Heavy Stun you {at:.1f} s into its {buff:g} s buff (every {hits} blocked hits, "
+                f"{blocked:.2f} a second; {how}): the buff ends there and the stun takes {PLAYER_HEAVY_STUN_SECONDS:g} s")
+
+
+def refutation_stun_of(build) -> tuple[float, str]:
+    """(seconds into Refutation's buff of its Heavy Stun, 0.0 for none; how) for models.parry_plan."""
+    stats, support, texts = _heavy_stun_reads(build, "Refutation")
+    ward = max(_num(build.call("stats", fields=["Ward"]).get("Ward")), 0.0)
+    scale = REFUTATION_THRESHOLD * (1 + REFUTATION_PER_10_WARD * ward / 10)
+    at, how = refutation_heavy_stun(stats, scale)
+    return at, how + (f" (threshold x{scale:.2f}: Refutation's 50% less, 5% more per 10 of the {ward:,.0f} Runic Ward "
+                      "spent)")

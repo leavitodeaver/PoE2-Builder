@@ -5516,8 +5516,10 @@ class Conditions:
             from builder.search import recovery  # (MECH-C: Heavy Stun from parrying, MECHC30)
 
             stun = recovery.parry_stun_of(self.build) if any(s.name == "Parry" for s in found) else (0.0, "")
+            refute = recovery.refutation_stun_of(self.build) if any(s.name == "Refutation" for s in found) else (0.0, "")
             stats["_parry_plan"] = self.parry_plan = models.parry_plan(
-                found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS), stun)
+                found, stats, "Attack" in main_types, bool(({self.main_skill} | main_gems) & models.PARRY_CONSUMERS), stun,
+                refute)
         if any(STUNS_YOU.search(t) for t in texts):  # (Blinding Flash, MECHC25: the boss's Light Stuns on you)
             from builder.search import flasks
 
