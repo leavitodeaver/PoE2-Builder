@@ -7,11 +7,15 @@
 #
 # Left open on purpose (not read, or read only for some skills): Feral Invocation (models.NOT_MODELED_YET), Reaper's
 # Invocation (models.NO_ENERGY_ON_A_BOSS: Energy on kills, none counted on a boss), Curse on Block, Cast on Melee
-# Stun and Cast on Melee Kill (models.DEPRECATED, MECH's evidence there), generic_ongoing_trigger_maximum_energy (the
-# Invocations' 500 store: the model names it in its explanation but its rate doesn't read it), skill_maximum_energy_+%
-# (Energy Capacitor),
+# Stun and Cast on Melee Kill (models.DEPRECATED, MECH's evidence there),
 # generic_ongoing_trigger_does_not_use_energy (Trail of Caltrops), base_skill_cannot_generate_energy (Midnight Zenith),
 # Savage Fury's wild_beast_* (another Energy). Listed for the mechanics lane in COV2's report.
+# Read since this header was written (COV35, 15 Nov 2026): the Invocations' 500 store
+# (generic_ongoing_trigger_maximum_energy) and Energy Capacitor's skill_maximum_energy_+% 80 feed
+# models.invocation_max_energy (MECHB25 80912553, from GEM4; Elemental Invocation's quality +5 a 1%, MECHB26), which
+# energy_model uses for "a spell costing more never triggers"; "Invocated skills have N% increased Maximum Energy" feeds
+# it through the ledger's meta-invocation-maximum entry (custom-models.yaml). Not listed as `model` entries here: gem
+# stats are GEM's rows.
 
 - id: model-stats-energy-gain
   title: Meta skills' increased Energy from their level (Energy model)
