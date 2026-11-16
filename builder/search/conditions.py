@@ -836,6 +836,20 @@ def charges_with_refresh(gains: float, duration: float, most: float, extra: floa
 # "Lose all <kind> Charges on reaching maximum <kind> Charges" (MECHC14; COV18, an OVERCOUNT: Redflare Conduit's Power
 # Charges; PoB parses the line to no mod, ModCache {nil, ...}; before, the line was read only for how often the maximum is
 # reached, _reaching_maximum, and the charges held were counted as if the build kept the maximum)
+# "Skills have N% chance to not remove Charges but still count as consuming them" (MECHC32; COV37 via the manager, 16 Nov
+# 09:09: nothing read it; PoB parses it only in part, ModCache 9390 with leftover text, so it adds nothing): a consumer's
+# use still counts as consuming (its effect, and "on consuming a Charge" recovery, happen) but the charge stays on that
+# chance. So the charges removed a second are the spends x (1 - chance); the uses that find a charge rise to
+# min(1, made / removed). Read for Power, Frenzy and Endurance Charges alike ("Charges" names no kind); the chance summed
+# over the build's lines, at most 100%. (MEDIUM: the wording; the Elemental Infusion line is another stat, not read here.)
+CHARGES_KEPT = re.compile(r"^Skills have (\d+(?:\.\d+)?)% chance to not remove Charges but still count as consuming them$", re.I)
+
+
+def charges_kept_chance(lines: list[str]) -> float:
+    """The chance a consumed Charge isn't removed (CHARGES_KEPT lines, summed, at most 1)."""
+    return min(sum(float(m.group(1)) for t in lines if (m := CHARGES_KEPT.match(t.strip()))), 100.0) / 100
+
+
 CHARGE_RESET_AT_MAX = re.compile(r"\blose all (power|frenzy|endurance) charges on reaching maximum \1 charges\b", re.I)
 
 
@@ -955,16 +969,21 @@ def _charges_held(kind: str):
         spent = sum((stats.get("_consumers") or {}).get(kind, {}).values())
         extra_text = f" x {1 + extra:.2f} per gain ({', '.join(extra_how)})" if extra_how else ""
         if spent:
-            net = max(rate - spent, 0.0)
+            kept = charges_kept_chance(lines)  # (MECHC32: consumed but not removed on that chance)
+            removed = spent * (1 - kept)
+            net = max(rate - removed, 0.0)
             count = min(most, net * duration)
-            share = min(1.0, rate / spent)
+            share = min(1.0, rate / removed) if removed > 0 else 1.0
             # (MECHC13: the charges consumed a second, for recovery on consuming one: Conditions.evidence puts them on
             # build.charge_flow)
             stats.setdefault("_charge_flow", {})[kind] = (
-                min(rate, spent), f"{rate:.2f}/s made, {spent:.2f}/s wanted by " + ", ".join(stats["_consumers"][kind]))
+                spent * share, f"{rate:.2f}/s made, {spent:.2f}/s wanted by " + ", ".join(stats["_consumers"][kind]))
             basis = (f"{gains:.2f} gains/s{extra_text} = {rate:.2f}/s made, {spent:.2f}/s spent by " +
                      ", ".join(stats["_consumers"][kind]) +
                      f" (one per use; {share:.0%} of their uses find a charge), {net:.2f}/s left x {duration:g} s")
+            if kept:
+                basis += (f"; {kept:.0%} chance a consumed charge isn't removed (it still counts as consumed): "
+                          f"{removed:.2f}/s removed (MEDIUM); without it: {max(rate - spent, 0.0):.2f}/s left")
             if count <= 0 and share >= 0.5:
                 count = 0.1  # (held for an instant before it's spent: enough for PoB to count the charged use)
             if fill:

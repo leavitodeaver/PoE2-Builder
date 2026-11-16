@@ -3683,3 +3683,23 @@ def test_minion_deaths_come_in_waves_under_revival():
     recently = next(c for c in CONDITIONS if c.var == "conditionMinionsDiedRecently")
     on, basis, share = recently.value_fn(["40% increased Spell Damage if one of your Minions has died Recently"], stats)
     assert share == pytest.approx(wave) and "evenly random would give 96%" in basis
+
+
+def test_a_chance_to_not_remove_consumed_charges_keeps_them():
+    """MECHC32 (COV37 via the manager, 09:09): "Skills have N% chance to not remove Charges but still count as consuming
+    them": the spends remove spends x (1 - N%) charges, so more of the consumer's uses find one and more are held; every
+    use still counts as consuming (the charge flow for "on consuming" recovery)."""
+    from builder.search.conditions import _charges_held
+
+    stats = {"Speed": 2.0, "HitChance": 100, "CritChance": 50, "FrenzyChargesMax": 3, "FrenzyChargesDuration": 15,
+             "_consumers": {"Frenzy": {"Explosive Spear": 2.0}}}
+    source = ["Gain a Frenzy Charge on Critical Hit"]  # 1 per s
+    kept = source + ["Skills have 50% chance to not remove Charges but still count as consuming them"]
+    count, basis = _charges_held("Frenzy")(kept, dict(stats))
+    assert "100% of their uses find a charge" in basis and "without it" in basis  # (1/s made, 2 x 0.5 = 1/s removed)
+    flow = {**stats}
+    _charges_held("Frenzy")(kept, flow)
+    assert flow["_charge_flow"]["Frenzy"][0] == pytest.approx(2.0)  # (every use counts as consuming)
+    assert _charges_held("Frenzy")(source, dict(stats))[0] == 0.1  # (without it: half the uses, none held)
+    more = source + ["Skills have 75% chance to not remove Charges but still count as consuming them"]
+    assert _charges_held("Frenzy")(more, dict(stats))[0] == 3  # (0.5/s left x 15 s, at most 3)
