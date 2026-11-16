@@ -3370,6 +3370,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + bomb_mods, notes + bomb_notes
     cost_mods, cost_notes = over_time_cost_model(skills, forbidden)
     mods, notes = mods + cost_mods, notes + cost_notes
+    proof_mods, proof_notes = warcry_proof_model(main, forbidden)
+    mods, notes = mods + proof_mods, notes + proof_notes
     return mods, notes
 
 
@@ -5936,6 +5938,34 @@ def over_time_cost_model(skills: list[Skill], forbidden: set[str] = frozenset())
                       "cost per second scales with the whole multiplier (MEDIUM: the text gives no formula; linear is the "
                       "plain reading)")})
     return mods, notes
+
+
+# "Cannot be Empowered by Warcries" (GEM15; an OVERCOUNT): cannot_be_empowered_by_warcries (skill_stat_descriptions.csd:
+# "Cannot be [Empowered] by [Warcry|Warcries]"). Player carrier: ResonatingShieldPlayer only (checked: Stats ids holding
+# "empowered_by_warcr" / "cannot_be_empowered": this one; GrantedEffectStatSets, PerLevel, Mods, PassiveSkills of build
+# 26650308: ResonatingShieldPlayer and the monster set ResonatingShieldRogueExileWarrior2; patch notes --history "Resonating
+# Shield": nothing on warcries, which proves nothing). PoB reads nothing for it (SkillStatMap / Modules: no reader) and
+# Empowers by skill type (CalcOffence 3457-3510: Infernal Cry on any Melee main skill; Resonating Shield is Attack, Melee,
+# Channel). Probe POE2T2140 (scratch/gem15/probe_rshield.py): with Infernal Cry, PoB gave Resonating Shield 2 Empowers at
+# 18% uptime, Full DPS 48.0 -> 57.0 (Boneshatter, the control, 382 -> 426). PoB counts a warcry's Empowers as its
+# Power-based count plus <Name>EmpoweredAttacks summed under the MAIN skill's cfg, and only when that is above 0
+# (CalcPerform 2204-2211), so a large negative <Name>EmpoweredAttacks tagged to the skill turns Empowerment off for it alone.
+WARCRY_PROOF = {"Resonating Shield"}
+WARCRY_PROOF_ENTRY = "model-gem15-cannot-be-empowered-by-warcries"
+# (PoB's warcryName: the buff's name without " Cry", "'s" and spaces; the skills PoB types Warcry, Data/Skills/act_*.lua)
+WARCRY_EMPOWER_NAMES = ("Infernal", "Fortifying", "Ancestral", "Seismic", "ArcticHowl", "FerociousRoar", "LunarBlessing")
+
+
+def warcry_proof_model(main: Skill | None, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """No Warcry Empowerment for a main skill the game says can't be Empowered by Warcries."""
+    if main is None or main.name not in WARCRY_PROOF or WARCRY_PROOF_ENTRY in forbidden:
+        return [], []
+    mods = [raw_mod(f"{name}EmpoweredAttacks", "BASE", -1000, main.name) for name in WARCRY_EMPOWER_NAMES]
+    return mods, [{
+        "label": f"{main.name}: cannot be Empowered by Warcries*", "value": "no Empowered uses", "confidence": "HIGH",
+        "entry": WARCRY_PROOF_ENTRY,
+        "basis": (f"The game: \"Cannot be Empowered by Warcries\" ({main.name}'s own stat); PoB Empowers it like any Melee "
+                  "attack (probe: Infernal Cry +19% Full DPS). Its Warcry Empowers are set to none")}]
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

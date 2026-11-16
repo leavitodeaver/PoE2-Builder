@@ -14,3 +14,17 @@
     to cast speed also affect this skill's cost". Probe POE2T2135: +20% Cast Speed raised Bonestorm's Speed 8.8 -> 10.56
     and Volcano's 1.25 -> 1.5 with ManaPerSecondCost unchanged (60, 61); the override x1.2 gave 72 / 73. Linear in the
     whole multiplier is MEDIUM (no source gives a formula).
+
+- id: model-gem15-cannot-be-empowered-by-warcries
+  title: "Resonating Shield: cannot be Empowered by Warcries (PoB Empowers it like any Melee attack: an overcount)"
+  kind: model
+  model: warcry_proof
+  stats: ["cannot_be_empowered_by_warcries"]
+  skill: [Resonating Shield]
+  confidence: HIGH
+  notes: >-
+    models.warcry_proof_model (GEM15): with Resonating Shield the main skill, each warcry's <Name>EmpoweredAttacks gets
+    -1000 tagged to it, so PoB's Num<Warcry>Empowers stays unset (CalcPerform 2204-2211 adds Empowers only above 0).
+    Probe POE2T2140: Infernal Cry gave it 2 Empowers at 18% uptime, Full DPS 48.0 -> 57.0, though the game text says
+    "Cannot be [Empowered] by [Warcry|Warcries]". Player carrier ResonatingShieldPlayer only (checked: Stats,
+    GrantedEffectStatSets, PerLevel, Mods, PassiveSkills of build 26650308; one monster set too).

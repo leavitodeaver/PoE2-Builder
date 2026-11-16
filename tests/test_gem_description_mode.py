@@ -574,3 +574,14 @@ def test_cast_speed_raises_a_channelled_skills_per_minute_cost():
     assert models.over_time_cost_model([bone], {models.OVER_TIME_COST_ENTRY}) == ([], [])
     slow = models.Skill("Flameblast", over_time_cost={"perMinute": {"ManaPerMinute": 3450}, "castSpeed": 0.8})
     assert models.over_time_cost_model([slow])[0][0]["value"] == 3450 * 0.8
+
+
+def test_resonating_shield_gets_no_warcry_empowers():
+    """GEM15: "Cannot be Empowered by Warcries": each warcry's EmpoweredAttacks pushed below 0 on it, nothing elsewhere."""
+    shield, spark = Skill("Resonating Shield", 1, attack=True, melee=True), Skill("Spark", 1, spell=True)
+    mods, notes = models.warcry_proof_model(shield)
+    assert {m["name"] for m in mods} >= {"InfernalEmpoweredAttacks", "FortifyingEmpoweredAttacks", "AncestralEmpoweredAttacks"}
+    assert all(m["value"] < 0 and m["skill"] == "Resonating Shield" and m["type"] == "BASE" for m in mods)
+    assert notes[0]["entry"] == models.WARCRY_PROOF_ENTRY
+    assert models.warcry_proof_model(spark) == ([], [])
+    assert models.warcry_proof_model(shield, {models.WARCRY_PROOF_ENTRY}) == ([], [])
