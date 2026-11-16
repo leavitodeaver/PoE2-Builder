@@ -1713,6 +1713,15 @@ class Assumptions:
             mag = build.call("shockMagnitude") or {}
             inflict = (1 + number(mag.get("inc")) / 100) * (number(mag.get("more")) if mag.get("more") is not None else 1.0)
         redflare, redflare_how = conditions_mod.self_shock_taken_mods(texts, overcharge, effect, inflict)
+        if main is not None and main.name == recovery_mod.TWISTER:  # (MECHC33, R28-10: hits on the boss per cast)
+            seen = build.call("stats", fields=list(recovery_mod.TWISTER_FIELDS))
+            radius, radius_how = bosses.hit_radius({"_boss": boss})
+            head, walled, how = recovery_mod.twister_hits(seen, radius)
+            hand_notes = hand_notes + [{
+                "label": "Twister hits on the boss per cast*", "value": f"{head:g} (walled arena: {walled:.2f})",
+                "basis": how + f"; boss radius: {radius_how}",
+                "confidence": "HIGH (the 0.66 s cap) / MEDIUM (open arena: 1) / LOW (the walled row)",
+                "play": f"in an arena with walls your twisters bounce back: about {walled:.2f} hits a cast instead of 1"}]
         if main is not None and not main.triggered and {"Channel", "Cooldown"} <= set(main_types):
             # (MECHC33, GEM15's find: a channelled skill on a cooldown pays its per-minute cost only while channelled)
             kinds = ("Mana", "Life", "ES", "Rage")
@@ -3246,6 +3255,14 @@ class Assumptions:
                 rate, why = flasks.uses_per_second(info or {}, gain, option.raw, None)
                 charms.append((option.name, option.raw, rate, why))
             recovery.charm_income(income, charms, stats, texts)
+        if has(recovery.MANA_FLASK_LIFE):  # (MECHC33: "Recover N% of maximum Life when you use a Mana Flask")
+            option = (getattr(build, "equipped", {}) or {}).get("Flask 2")
+            if option is None:
+                income.parts.append("Life on Mana flask use: 0, no Mana flask equipped")
+            else:
+                info = build.call("flaskData", raws=[option.raw])["results"][0]
+                uses, uses_how = flasks.uses_per_second(info or {}, flasks.Charges.of(build), option.raw, "Mana")
+                recovery.mana_flask_income(income, stats, texts, uses, f"{option.name}: {uses_how}")
         warcries, warcry_how = 0.0, ""
         if has(recovery.WARCRY_BOTH) or has(recovery.WARCRY_LIFE):
             main_types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()

@@ -265,7 +265,6 @@ EVENT_UNREAD = {
     "Life when your Trap is triggered": re.compile(r"life when your trap is triggered", re.I),
     "Life / Mana per Remnant's Rage (Sanguine Revelry)": re.compile(r"each remnant causes you to recover", re.I),
     "all Mana when a flask is Used": re.compile(r"^recover all mana when used$", re.I),
-    "Life when you use a Mana Flask": re.compile(r"recover \S+ of maximum life when you use a mana flask", re.I),
 }
 
 
@@ -369,6 +368,23 @@ def charm_income(income: Income, charms: list[tuple[str, str, float, str]], stat
     if any_pct > 0 and total > 0:
         income.add("CharmManaRecoveryRate", any_pct / 100 * _num(stats.get("Mana")) * total,
                    f"{any_pct:g}% of maximum Mana when a Charm is used x {total:.3f} charm uses/s")
+
+
+# "Recover N% of maximum Life when you use a Mana Flask" (MECHC33; COV37 via the manager, 16 Nov 11:48: an UNDERCOUNT,
+# listed in EVENT_UNREAD before; PoB: no mod, ModCache 9097 / 9163): N% of maximum Life at each use of the Mana flask, at
+# flasks.uses_per_second's rate for it (its generated charges, capped at the dips below full Mana: a Mana flask isn't
+# drunk at full Mana, RESEARCH26 R26-29 (b), MEDIUM). Without it: 0.
+MANA_FLASK_LIFE = re.compile(r"\brecover (\d+(?:\.\d+)?)% of maximum life when you use a mana flask\b", re.I)
+
+
+def mana_flask_income(income: Income, stats: dict, texts: list[str], uses: float, how: str) -> None:
+    """Life a second from MANA_FLASK_LIFE lines at the Mana flask's `uses` a second."""
+    pct = sum(float(m.group(1)) for t in texts if (m := MANA_FLASK_LIFE.search(t)))
+    if pct <= 0:
+        return
+    life = _num(stats.get("Life"))
+    income.add("LifeOnEventRecovery", pct / 100 * life * uses,
+               f"{pct:g}% of maximum Life a Mana flask use x {uses:.3f} uses/s ({how}; MEDIUM; without it: 0)")
 
 
 def event_income(income: Income, stats: dict, texts: list[str], *, warcries: float = 0.0, warcry_how: str = "",
@@ -1221,3 +1237,39 @@ def channel_cost_share(stats: dict) -> tuple[float, float, str]:
     return head, other, (f"channelled {channel:.2f} s a release on its {cooldown:.2f} s cooldown: its per-minute cost runs "
                          f"{head:.0%} of the fight (the cooldown taken to start with the channel, the cautious side for a "
                          f"cost; LOW), {other:.0%} if it starts at release; PoB counts it all fight (without this: 100%)")
+
+
+# Twister's hits on one boss per cast (MECHC33; RESEARCH28 R28-10, twister-hits-on-boss.md, the manager 16 Nov 10:56; the
+# manager's earlier ruling: no flat number, work it out from the twister's movement and area and the boss's radius).
+# TwisterPlayer (game files): base_skill_effect_duration 3000, active_skill_base_area_of_effect_radius 5 (0.5 m),
+# twister_hit_interval_ms 660 ("Twisters fired at the same time can Hit the same target no more than once every 0.66
+# seconds": HIGH, shared by the group: MEDIUM-HIGH), projectile speed 7.5 m/s (poe2vault: MEDIUM). Cap k = floor(D /
+# 0.66) + 1. HEADLINE, an open arena: a straight pass overlaps the boss for 2 (R + r) / v, 0.2-0.4 s, under one window,
+# so 1 hit a cast, PoB's number (MEDIUM). The walled row (LOW, a named assumption: twisters bounce around a roam space of
+# a 6 m radius): hits = 1 + (k - 1)(1 - e^(-N x 2 rho x v x 0.66 / A)), rho = the twister's radius (PoB's
+# AreaOfEffectRadiusMetres, else 0.5 m x sqrt(area modifier)) + the boss's hit radius (bosses.hit_radius), v = 7.5 m/s x
+# PoB's ProjectileSpeedMod, N = PoB's ProjectileCount, D = PoB's Duration. Each hit rolls the build's on-hit lines (R26-45
+# (d), ASSUMED), so on-hit charge gains scale by the row's hits too (a row: the headline keeps 1). Twisters made by
+# Whirlwinds or Barrage repeats as separate groups: UNVERIFIED, not counted.
+TWISTER = "Twister"
+TWISTER_FIELDS = ("ProjectileCount", "ProjectileSpeedMod", "Duration", "AreaOfEffectRadiusMetres", "AreaOfEffectMod")
+TWISTER_SPEED, TWISTER_RADIUS, TWISTER_INTERVAL, TWISTER_DURATION = 7.5, 0.5, 0.66, 3.0
+TWISTER_ROAM = 6.0  # metres: the walled row's roam space radius (LOW, RESEARCH28's named assumption)
+
+
+def twister_hits(stats: dict, boss_radius: float) -> tuple[float, float, str]:
+    """(hits on the boss a cast: headline 1, the walled row, how) from PoB's Twister outputs."""
+    duration = _num(stats.get("Duration")) or TWISTER_DURATION
+    k = math.floor(duration / TWISTER_INTERVAL + 1e-9) + 1
+    count = max(_num(stats.get("ProjectileCount")), 1.0)
+    speed = TWISTER_SPEED * (_num(stats.get("ProjectileSpeedMod")) or 1.0)
+    own = _num(stats.get("AreaOfEffectRadiusMetres")) or TWISTER_RADIUS * math.sqrt(_num(stats.get("AreaOfEffectMod")) or 1.0)
+    rho = own + max(boss_radius, 0.0)
+    area = math.pi * TWISTER_ROAM ** 2
+    walled = 1 + (k - 1) * (1 - math.exp(-count * 2 * rho * speed * TWISTER_INTERVAL / area))
+    return 1.0, walled, (
+        f"1 hit a cast in an open arena (a pass crosses the boss in 2 x ({own:.2f} + {boss_radius:.2f}) m / {speed:.1f} "
+        f"m/s = {2 * rho / speed:.2f} s, under one {TWISTER_INTERVAL:g} s window: PoB's number, MEDIUM); in a walled arena "
+        f"(twisters bouncing in a {TWISTER_ROAM:g} m roam space: LOW, a named assumption) {walled:.2f} a cast, at most "
+        f"{k} ({duration:.2f} s / {TWISTER_INTERVAL:g} s + 1, shared by the {count:g} twister(s) of a cast); each hit rolls "
+        f"your on-hit lines (on-hit charges x{walled:.2f} in that row; ASSUMED)")

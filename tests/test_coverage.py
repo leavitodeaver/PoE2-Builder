@@ -342,7 +342,9 @@ def test_recovery_lines_no_rate_reads_are_named_undercounts_and_modelled_ones_co
     from builder.data import data_dir
     from builder.ledger.coverage import ignored_line_status
 
-    assert coverage.unread_recovery("Recover 3% of maximum Life when you use a Mana Flask")
+    assert coverage.unread_recovery("Recover 3% of maximum Life when you lose a Spirit Charge")
+    # (MECHC33: "Life when you use a Mana Flask" read at the Mana flask's uses, recovery.mana_flask_income)
+    assert not coverage.unread_recovery("Recover 3% of maximum Life when you use a Mana Flask")
     # (train 36: MECHC15's 1d9ba16 counts "Life when Stunned" at the boss's Light-Stunning hits: no longer unread)
     assert not coverage.unread_recovery("Regenerate 5% of maximum Life over 1 second when Stunned")
     for line in ("Recover (20-30)% of Missing Life before being Hit by an Enemy",

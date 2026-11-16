@@ -1691,3 +1691,35 @@ def test_the_games_elemental_infusions_not_removed_line_is_read():
     assert KEEP_INFUSION.search("50% chance to not remove an Infusion but still count as consuming it")
     assert not KEEP_INFUSION.search("Skills have 45% chance to not remove Elemental Infusions but still count as consuming "
                                     "them if you've lost an Archon Buff in the past 6 seconds")
+
+
+def test_life_when_you_use_a_mana_flask_at_the_flasks_uses():
+    """MECHC33 (COV37 via the manager, 11:48): "Recover N% of maximum Life when you use a Mana Flask" at the Mana flask's
+    uses a second (flasks.uses_per_second, capped at the dips below full Mana); no longer listed as unread."""
+    from builder.search import recovery
+
+    line = "Recover 9% of maximum Life when you use a Mana Flask"
+    income = recovery.Income()
+    recovery.mana_flask_income(income, {"Life": 2000.0}, [line], 0.25, "Flask 2: 1.00 charges/s / 4 per use")
+    assert income.pool("Life") == pytest.approx(0.09 * 2000 * 0.25)
+    assert recovery.unread([line]) == []
+    empty = recovery.Income()
+    recovery.mana_flask_income(empty, {"Life": 2000.0}, ["+10 to maximum Life"], 0.25, "")
+    assert empty.pool("Life") == 0.0
+
+
+def test_twister_hits_one_boss_once_a_cast_in_the_open_and_more_off_walls():
+    """MECHC33 (RESEARCH28 R28-10, the manager 10:56): headline 1 hit a cast (open arena, PoB's number); the walled row
+    1 + (k - 1)(1 - e^(-N 2 rho v 0.66 / A)), k = floor(D / 0.66) + 1, A = pi 6^2: RESEARCH28's table: plain 1.30 on the
+    Arbiter (0.4 m) / 1.27 on the worst case (0.3 m); 7 twisters at 3x speed 4.24 / 4.08."""
+    from builder.search import recovery
+
+    head, walled, how = recovery.twister_hits({"ProjectileCount": 1, "ProjectileSpeedMod": 1.0, "Duration": 3.0,
+                                               "AreaOfEffectRadiusMetres": 0.5}, 0.4)
+    assert head == 1.0 and walled == pytest.approx(1.30, abs=0.01) and "at most 5" in how
+    base = {"ProjectileCount": 1, "ProjectileSpeedMod": 1.0, "Duration": 3.0, "AreaOfEffectRadiusMetres": 0.5}
+    assert recovery.twister_hits(base, 0.3)[1] == pytest.approx(1.27, abs=0.01)
+    fast = recovery.twister_hits({"ProjectileCount": 7, "ProjectileSpeedMod": 3.0, "Duration": 3.0,
+                                  "AreaOfEffectRadiusMetres": 0.5}, 0.4)[1]
+    assert fast == pytest.approx(4.24, abs=0.05)
+    assert recovery.twister_hits({}, 0.4)[1] == pytest.approx(walled)  # (PoB gives nothing: the base numbers)
