@@ -3672,3 +3672,27 @@ def test_a_granted_pressed_skill_joins_full_dps_only_on_the_finished_build(engin
     else:
         assert abs(build.score - before) < 1e-6
         assert not joined and build.objective.press_scales == scales_before
+
+
+def test_spell_echo_is_never_offered_for_a_spell_a_meta_gem_casts(engine):
+    """SEARCH25, RESEARCH26 R26-8 (research/now-and-again-r26.md, SETTLED HIGH): Spell Echo, Zarokh's Refrain and Tul's
+    Avalanche exclude Triggered skills (game GrantedEffects ExcludedActiveSkillTypes; patch 0.2.0 "Spell Echo Support can
+    no longer support Triggered Skills"), and every meta gem that casts spells makes them Triggered. The search's support
+    shortlists come from PoB's supportCandidates (calcLib.canGrantedEffectSupportActiveSkill over the group's skills), so
+    a meta group never gets them, while the same area spell cast by hand does (Comet: Cascadable; Fireball isn't)."""
+    from builder.search.gems import META_LABEL, Gems
+
+    payload = make_payload(BuildRequest(main_skill="Comet", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Comet"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    echoes = {"Spell Echo", "Zarokh's Refrain", "Tul's Avalanche"}
+    hand = build.set_group(gems=Gems.gem_list(["Comet"]), label="probe: by hand")
+    by_hand = set(build.call("supportCandidates", group=hand["index"])["names"])
+    build.remove_group(hand["index"])
+    meta = build.set_group(gems=Gems.gem_list(["Cast on Critical", "Comet"]), label=META_LABEL, fullDPS=True)
+    in_meta = set(build.call("supportCandidates", group=meta["index"])["names"])
+    print("PROBE echo supports by hand", sorted(by_hand & echoes), "in Cast on Critical", sorted(in_meta & echoes))
+    assert "Spell Echo" in by_hand
+    assert not in_meta & echoes and in_meta  # (other supports still go on the triggered spell)
