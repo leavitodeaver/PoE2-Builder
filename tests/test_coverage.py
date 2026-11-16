@@ -486,13 +486,13 @@ def test_a_never_on_line_a_model_reads_is_counted_and_one_nothing_reads_stays_op
 
 def test_a_line_pobs_item_code_reads_is_pobs():
     """COV36: "This item gains bonuses from Socketed Items as though it was a Body Armour" isn't parsed by ModParser, but
-    PoB's Item.lua reads it (probe POE2T2594, tests/test_as_though_body_armour.py); the Soul Core form isn't probed."""
+    PoB's Item.lua reads it (probe POE2T2594, tests/test_as_though_body_armour.py); the Soul Core form too (POE2T2599)."""
     status, entry, reason = coverage.ignored_line_status(
         "This item gains bonuses from Socketed Items as though it was a Body Armour", False)
     assert status == "pob" and "Item.lua" in reason
     assert coverage.ignored_line_status("This item gains bonuses from Socketed Items as though it was Gloves", False)[0] == "pob"
     assert coverage.ignored_line_status(
-        "This item gains bonuses from Socketed Soul Cores as though it was also a Helmet", False)[0] != "pob"
+        "This item gains bonuses from Socketed Soul Cores as though it was also a Helmet", False)[0] == "pob"
 
 
 def test_a_multiplier_tag_with_an_actor_names_that_actors_multiplier():

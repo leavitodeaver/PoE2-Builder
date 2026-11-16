@@ -526,10 +526,16 @@ def cached_templates(src: Path = POB_SRC) -> dict[str, bool]:
 #   of Rain, Grasping Ring): Item.lua 1279 captures <type> into socketedAugmentTypeOverride and GetSocketedAugmentTypes
 #   applies the augments' <type> lines. Probe POE2T2594 (tests/test_as_though_body_armour.py): The Bringer of Rain takes
 #   Amanamu's Gaze's body armour line (more Armour than without the line), Darkness Enthroned (a belt) Desert Rune's.
-#   The Soul Core form ("... Soul Cores as though it was also <type>", Item.lua 1280 / 1527) isn't probed: left open.
+# - "This item gains bonuses from Socketed Soul Cores as though it was also <type>" (Atziri's Splendour's four variants,
+#   their Vaal Cultivated outcomes): Item.lua 1280 captures <type> into socketedSoulCoreType and 1527 applies a Soul
+#   Core's <type> line too. Probe POE2T2599 (tests/test_as_though_soul_core.py): Atziri's Splendour (Helmet) with a Soul
+#   Core of Zalatl, whose only line is its helmet "5% increased maximum Mana": Mana 444 with the line, 424 without, 424
+#   with no core.
 ITEM_TEXT_READS = [
     (re.compile(r"^This item gains bonuses from Socketed Items as though it was a? ?.+$", re.I),
      "PoB's Item.lua reads it from the item text (socketedAugmentTypeOverride, Item.lua 1279; probe POE2T2594)"),
+    (re.compile(r"^This item gains bonuses from Socketed Soul Cores as though it was also a? ?.+$", re.I),
+     "PoB's Item.lua reads it from the item text (socketedSoulCoreType, Item.lua 1280 / 1527; probe POE2T2599)"),
 ]
 
 
