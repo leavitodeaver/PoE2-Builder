@@ -5686,3 +5686,25 @@ def test_critical_weakness_stacks_come_from_the_builds_own_sources():
     assert mods[0]["name"] == "CritChance" and mods[0]["value"] == pytest.approx(6.0) and notes
     assert m.critical_weakness_mods((0.0, "")) == ([], [])
     assert m.critical_weakness_stacks(["Grants Onslaught"], [spell], stats, spell, 2.0) == (0.0, "")
+
+
+def test_flammability_stacks_raise_the_ignite_chance_and_the_main_skills_ignite():
+    """MECH81 (MECH80's step 5, an UNDERCOUNT before): a hit's Ignite chance is all the live Flammability on the boss
+    (KeywordPopups Ignite / Flammability: instances stack, 8 s each), not that hit's alone as PoB takes it."""
+    from builder.search import conditions as c
+    from builder.search import models as m
+
+    # 2 hits/s at 5% a hit: 5% + 8 s x 2 x 5% = 85% a hit; Ignited ~100% vs PoB's 2 x 5% x 4 s = 40%
+    eff, live = c.stacked_ignite_chance(0.05, 2.0)
+    assert eff == pytest.approx(0.85) and live == pytest.approx(0.8)
+    stats = {"Speed": 2.0, "HitChance": 100, "IgniteChancePerHit": 5, "IgniteDuration": 4, "IgniteStackPotential": 0.4}
+    assert c.ailment_uptime(stats, "Ignite") > 0.99
+    scale, how = c.flammability_ignite_scale(stats)
+    assert scale == pytest.approx((1 - 0.15 ** 8) / 0.4) and "Flammability stacks" in how
+    # PoB already at 100%: no change; a consumed Ignite keeps the per-hit chance (consuming clears Flammability)
+    assert c.flammability_ignite_scale({**stats, "IgniteStackPotential": 3.0}) == (1.0, "")
+    assert c.flammability_ignite_scale({**stats, "_consumes": {"Ignite": "x"}}) == (1.0, "")
+    # the mods: more Ignite Magnitude on the main skill
+    mods, notes = m.flammability_mods("Fireball", (2.5, "x"))
+    assert mods[0]["line"] == m.COMPOUND_LINE and mods[0]["scale"] == pytest.approx(150.0) and notes
+    assert m.flammability_mods("Fireball", (1.0, "")) == ([], [])

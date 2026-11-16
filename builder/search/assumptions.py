@@ -1543,6 +1543,8 @@ class Assumptions:
         mods, notes = mods + uruk_mods, notes + uruk_notes
         storm_mods, storm_notes = models.stormfire_mods(name or "", getattr(build, "stormfire", None))  # (MECH81, G2-2)
         mods, notes = mods + storm_mods, notes + storm_notes
+        flam_mods, flam_notes = models.flammability_mods(name or "", getattr(build, "flammability_scale", None))  # (MECH81)
+        mods, notes = mods + flam_mods, notes + flam_notes
         if power[1]:
             mods += models.power_mods(power[0])
             notes.append({"label": "Boss Power (your Power lines)*", "value": f"{power[0]:g}", "basis": power[1],

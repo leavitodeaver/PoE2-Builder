@@ -14,20 +14,23 @@ NONE = {"Speed": 2.0, "HitChance": 100.0, "IgniteChancePerHit": 0.0}
 
 
 def test_another_groups_ignite_counts_where_the_main_skill_has_none():
-    other = ("Fireball", 1.0, 0.5, 4.0)
+    # (MECH81: a hit's Ignite chance is all the live Flammability: 2% + 8 s x 1/s x 2% = 18% a hit)
+    other = ("Fireball", 1.0, 0.02, 4.0)
     assert c.ailment_uptime(NONE, "Ignite") == 0.0
     share = c.ailment_uptime({**NONE, "_ailment_others": {"Ignite": [other]}}, "Ignite")
-    assert share == pytest.approx(1 - 0.5 ** 4.0)
+    assert share == pytest.approx(1 - 0.82 ** 4.0)
     # an "other" that never lands adds nothing
     assert c.ailment_uptime({**NONE, "_ailment_others": {"Ignite": [("x", 0.0, 0.5, 4.0)]}}, "Ignite") == 0.0
 
 
 def test_the_sources_combine_as_independent():
-    other = ("Fireball", 1.0, 0.5, 4.0)
-    own = 1 - 0.75 ** (2.0 * 4.0)
-    both = c.ailment_uptime({**MAIN, "_ailment_others": {"Ignite": [other]}}, "Ignite")
-    assert c.ailment_uptime(MAIN, "Ignite") == pytest.approx(own)
-    assert both == pytest.approx(1 - (1 - own) * 0.5 ** 4.0)
+    # (MECH81) both sources' Flammability stacks into each hit's chance: live 8 s x (2/s x 1% + 1/s x 2%) = 32%
+    main = {**MAIN, "IgniteChancePerHit": 1.0}
+    other = ("Fireball", 1.0, 0.02, 4.0)
+    own = 1 - 0.83 ** (2.0 * 4.0)  # alone: 1% + 8 x 2 x 1% = 17% a hit
+    both = c.ailment_uptime({**main, "_ailment_others": {"Ignite": [other]}}, "Ignite")
+    assert c.ailment_uptime(main, "Ignite") == pytest.approx(own)
+    assert both == pytest.approx(1 - 0.67 ** 8.0 * 0.66 ** 4.0)
     # other ailments read only their own sources
     assert c.ailment_uptime({**NONE, "_ailment_others": {"Ignite": [other]}}, "Poison") == 0.0
 

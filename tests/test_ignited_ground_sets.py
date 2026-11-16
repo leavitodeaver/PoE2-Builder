@@ -643,3 +643,36 @@ def test_critical_weakness_from_a_spell_crit_line_raises_crit_on_a_real_build(en
     after = models.number(search.build.call("stats", fields=["CritChance"]).get("CritChance"))
     print("CRITICAL WEAKNESS", note, before, after)
     assert "spell crit" in note["basis"] and after > before
+
+
+def test_stacked_flammability_raises_a_low_chance_ignite_on_a_real_build(engine):
+    """MECH81: Rolling Slam with a little added Fire: each hit's own Flammability is tiny, so PoB counts its Ignite at a
+    small share (IgniteStackPotential); stacked Flammability raises it, as more Ignite Magnitude on the main skill."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, ItemOption, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Rolling Slam"))
+    skeleton = enumerate_skeletons(Context(payload), ["Rolling Slam"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    raw = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                        "Adds 20 to 30 Fire damage to Attacks"])
+    search.build.equip("Ring 1", ItemOption(name="Test Loop", base="Iron Ring", type="Ring", sub_type=None, raw=raw,
+                                            unique=False, price=None, confidence="ssf", level=1))
+    search.settle()
+    fields = ["IgniteChancePerHit", "IgniteStackPotential", "IgniteDPS"]
+    pob = search.build.call("stats", fields=fields)
+    scale = getattr(search.build, "flammability_scale", None)
+    print("FLAMMABILITY", pob, scale)
+    assert scale is not None and scale[0] > 1.0 and "Flammability stacks" in scale[1]
+    # (settle already applied the assumptions: PoB's Ignite with the scale; without it, the scale switched off)
+    note = next(n for n in search.assumptions.active if "stacked Flammability" in n["label"])
+    search.build.flammability_scale = (1.0, "")
+    search.assumptions.apply()
+    without = search.build.call("stats", fields=fields)
+    print("FLAMMABILITY with / without", note, pob, without)
+    assert models.number(pob.get("IgniteDPS")) == pytest.approx(models.number(without.get("IgniteDPS")) * scale[0],
+                                                                 rel=0.02)

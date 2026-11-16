@@ -1885,6 +1885,7 @@ CHILL_FLOOR = 30.0  # KeywordPopups Chill: "Chills smaller than 30% will be igno
 CHILL_FIELDS = ("ChillChanceOnHit", "Speed", "HitChance", "ChillDuration", "ChillEffectMod", "EnemyAilmentThreshold",
                 "CritChance", "ChillHitDamage", "ChillCritDamage", *(f"{t}{a}" for t in models.DAMAGE_TYPES for a in ("HitAverage", "CritAverage")))
 EVIDENCE_FIELDS.extend(f for f in CHILL_FIELDS if f not in EVIDENCE_FIELDS)
+EVIDENCE_FIELDS.extend(f for f in ("IgniteDuration", "IgniteStackPotential") if f not in EVIDENCE_FIELDS)  # (MECH81)
 
 
 def chill_effect(stats: dict) -> tuple[float, float, str]:
@@ -2816,11 +2817,62 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
     extra = sum(h * c for _, h, c, _ in others)  # (the other groups' applications a second)
     if ailment in (stats.get("_consumes") or {}):
         return consumed_share(hits, chance, ground, extra=extra)
+    if ailment == "Ignite" and ailment not in (stats.get("_side_consumes") or {}):
+        # (MECH81: a hit's chance is all the live Flammability on the boss, stacked_ignite_chance; a consumer beside the
+        # main skill clears it with each Ignite it consumes, patch 0.3.0, so the per-hit chance stays there)
+        live = stacked_ignite_chance(chance if own else 0.0, hits, extra)[1]
+        chance = min(1.0, chance + live) if own else chance
+        others = [(n, h, min(1.0, c + live), d) for n, h, c, d in others]
+        extra = sum(h * c for _, h, c, _ in others)
     absent = ((1.0 - chance) ** (hits * duration) if own else 1.0) * (1.0 - ground)
     for _, h, c, d in others:
         absent *= (1.0 - c) ** (h * d)
     # (side_consumed's wait to reapply, 1 / (hits x chance), over every source's applications)
     return side_consumed(1.0 - absent, stats, ailment, hits * chance + extra, 1.0, ground)
+
+
+# Flammability stacks (MECH81; MECH80's next step 5, an UNDERCOUNT for fire hitters: PoB and the tool took each hit's
+# Ignite chance from that hit's own Flammability alone). KeywordPopups Ignite (26650308): "The chance for a Hit to Ignite
+# a target is determined by the total Magnitude of Flammability on the target, including the amount added by that Hit";
+# Flammability: "Multiple instances of Flammability stack, raising the chance for Hits to Ignite the target up to 100%.
+# Each instance of Flammability has its own independent duration, lasting 8 seconds by default"; patch 0.3.0: "a target
+# being hit frequently and/or hard enough will consistently have 100% chance to be ignited". PoB's IgniteChancePerHit is
+# one hit's Flammability (CalcOffence 5613-5629), and its Ignite DPS is x min(1, hit chance x that chance x duration x
+# hits a second) (CalcOffence 5253-5262, 5399: activeAilments). Here a hit's chance = min(1, its own + the live
+# Flammability: 8 s x the Ignite applications a second x their own chance, the main skill's and the other groups', at
+# their average magnitude, MEDIUM: an Ignite isn't taken to clear Flammability, which only removing / consuming an
+# Ignite does (patch 0.3.0); a consumed Ignite keeps the per-hit chance). Used by ailment_uptime (the Ignited share every
+# reader uses) and flammability_ignite_scale (the main skill's Ignite DPS: PoB's x the stacked uptime over PoB's own).
+FLAMMABILITY_SECONDS_STACK = 8.0  # s an instance lasts on monsters (KeywordPopups Flammability; = FLAMMABILITY_SECONDS)
+
+
+def stacked_ignite_chance(chance: float, hits: float, extra: float = 0.0) -> tuple[float, float]:
+    """(a hit's Ignite chance with the live Flammability, the live Flammability) for `hits` landing a second of `chance`
+    (0-1) each, plus `extra` other applications' hits x chance a second."""
+    live = FLAMMABILITY_SECONDS_STACK * (max(hits, 0.0) * max(chance, 0.0) + max(extra, 0.0))
+    return min(1.0, chance + live), live
+
+
+def flammability_ignite_scale(stats: dict) -> tuple[float, str]:
+    """(x on PoB's own Ignite DPS for the main skill, how): the Ignited uptime with stacked Flammability over PoB's
+    activeAilments, min(1, IgniteStackPotential). (1.0, "") where it doesn't apply (no Ignite chance, a consumed Ignite)."""
+    chance = min(number(stats.get("IgniteChancePerHit")) / 100.0, 1.0)
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+    if (chance <= 0 or hits <= 0 or "Ignite" in (stats.get("_consumes") or {})
+            or "Ignite" in (stats.get("_side_consumes") or {})):
+        return 1.0, ""
+    duration = number(stats.get("IgniteDuration")) or AILMENT_DURATION["Ignite"]
+    potential = number(stats.get("IgniteStackPotential"))
+    pob = min(1.0, potential) if potential > 0 else min(1.0, hits * chance * duration)
+    others = [o for o in (stats.get("_ailment_others") or {}).get("Ignite") or () if o[1] > 0 and o[2] > 0]
+    eff, live = stacked_ignite_chance(chance, hits, sum(o[1] * o[2] for o in others))
+    up = 1.0 - (1.0 - eff) ** (hits * duration)
+    if pob <= 0 or abs(up / pob - 1.0) < 1e-3:
+        return 1.0, ""
+    return up / pob, (f"Flammability stacks (KeywordPopups: a hit's Ignite chance is all the Flammability on the boss, "
+                      f"each instance 8 s): {chance:.1%} a hit + {live:.0%} live = {eff:.0%} a hit at {hits:.2f} hits/s, "
+                      f"Ignited {up:.0%} of the fight vs PoB's {pob:.0%} (its one-hit chance x duration x hits): "
+                      f"x{up / pob:.2f} on the main skill's Ignite (MEDIUM)")
 
 
 # Ailments the main skill consumes on hit (MECH51; FIX_QUEUE RESEARCH18 #92, HIGH): the stats of its own stat sets or its
@@ -6091,6 +6143,7 @@ class Conditions:
                                              or up / models.full_break_duration(texts))
         if URUK in main_gems and number(stats.get("_full_break_rate")) > 0:  # (MECH80, G2-4: models.uruk_mods)
             stats["_uruk"] = self._uruk_taken(number(stats["_full_break_rate"]))
+        stats["_flammability_scale"] = flammability_ignite_scale(stats)  # (MECH81: models.flammability_mods)
         if STORMFIRE in main_gems and number(stats.get("IgniteChancePerHit")) > 0:  # (MECH81, G2-2: models.stormfire_mods)
             raw = self.build.call("activeSkills", levelStats=[self.main_skill], supportStats=[STORMFIRE_STAT])
             sf = next((s for s in raw["skills"] if s["name"] == self.main_skill and not s.get("disabled")), {})
@@ -6172,6 +6225,7 @@ class Conditions:
         self.build.compound_ignite = ((self.main_skill, *stats["_compound"]) if stats.get("_compound") else None)
         self.build.uruk_taken = stats.get("_uruk") or (0.0, "")  # (MECH80: Uruk's Smelting, models.uruk_mods)
         self.build.stormfire = stats.get("_stormfire") or (0.0, "")  # (MECH81: Stormfire, models.stormfire_mods)
+        self.build.flammability_scale = stats.get("_flammability_scale") or (1.0, "")  # (MECH81)
         # (MECH78, MC-1; for COV-A's OpenWeakness ledger condition, the manager 12:43: one share for both) the share of
         # the fight's TIME the boss has an Open Weakness: open_weakness_up(build)
         self.build.open_weakness_up = stats.get("_open_weakness") or (0.0, "")

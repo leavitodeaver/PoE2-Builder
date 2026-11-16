@@ -7400,6 +7400,17 @@ def stormfire_mods(main: str, more: tuple | None) -> tuple[list[dict], list[dict
         {"label": "Stormfire: Ignite damage as Lightning on Shocked enemies*", "value": f"+{more[0]:.1f}% Ignite damage",
          "basis": more[1], "confidence": "MEDIUM"}]
 
+# Flammability stacks on the main skill's Ignite DPS (MECH81; conditions.flammability_ignite_scale holds the game facts):
+# PoB's Ignite x the scale, as more Ignite Magnitude on the main skill (COMPOUND_LINE's form; a scale under 1 as less).
+def flammability_mods(main: str, scale: tuple | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) from Conditions' build.flammability_scale = (x on PoB's Ignite DPS, how)."""
+    if not scale or not scale[1] or abs(scale[0] - 1.0) < 1e-3:
+        return [], []
+    return [line(COMPOUND_LINE, scale=(scale[0] - 1.0) * 100.0, skill=main)], [
+        {"label": f"{main}'s Ignite with stacked Flammability*", "value": f"x{scale[0]:.2f}", "basis": scale[1],
+         "confidence": "MEDIUM"}]
+
+
 # Critical Weakness on the boss (MECH81; PATCH_CHECK K3-1, an UNDERCOUNT: PoB's conditionEnemyCriticalWeakness box has
 # no default and nothing set it, and PoB doesn't parse the spell-crit, Parry and warcry lines at all, so every source
 # scored 0). KeywordPopups CriticalWeakness (26650308): "Critical Weakness causes hits against affected targets to have

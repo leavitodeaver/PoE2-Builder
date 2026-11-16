@@ -869,9 +869,10 @@ def test_withered_stacks_from_the_builds_lines():
     assert _withered_stacks([keep], {**spell, "Speed": 4.0, "IgniteChancePerHit": 100})[0] == 0.0  # no Withered source
     # Ignite up part of the fight (the user's rule, 9 Nov: the real share): 10 stacks at Ignite's uptime, the chance-line
     # stacks (here 4) with it off; under 7%, only the chance-line stacks
-    value, basis, up, off = _withered_stacks([quill, keep], {**spell, "Speed": 4.0, "IgniteChancePerHit": 5, "IgniteDuration": 4})
-    assert value == 10.0 and off == 4 and up == pytest.approx(1 - 0.95 ** 16) and "while it is Ignited" in basis
-    assert _withered_stacks([quill, keep], {**spell, "Speed": 4.0, "IgniteChancePerHit": 0.1, "IgniteDuration": 4}) == (4.0, _withered_stacks([quill], {**spell, "Speed": 4.0})[1])
+    # (MECH81: a hit's Ignite chance is all the live Flammability, 0.5% + 8 s x 4/s x 0.5% = 16.5% a hit)
+    value, basis, up, off = _withered_stacks([quill, keep], {**spell, "Speed": 4.0, "IgniteChancePerHit": 0.5, "IgniteDuration": 4})
+    assert value == 10.0 and off == 4 and up == pytest.approx(1 - (1 - 0.005 * 33) ** 16) and "while it is Ignited" in basis
+    assert _withered_stacks([quill, keep], {**spell, "Speed": 4.0, "IgniteChancePerHit": 0.01, "IgniteDuration": 4}) == (4.0, _withered_stacks([quill], {**spell, "Speed": 4.0})[1])
     assert _withered_stacks([quill], {"Speed": 4.0, "_main_types": {"Attack"}})[0] == 0.0  # a Spells line, an Attack
 
 
@@ -1133,7 +1134,8 @@ def test_ailment_uptime_uses_each_ailments_own_duration_and_hits_that_land():
     assert ailment_uptime({"BleedChancePerHit": 40, "Speed": 1.2}, "Bleed") == pytest.approx(1 - 0.6 ** 6)
     assert ailment_uptime({"BleedChancePerHit": 40, "Speed": 1.2, "BleedDuration": 10}, "Bleed") == pytest.approx(1 - 0.6 ** 12)
     # misses apply nothing: 50% hit chance halves the hits
-    assert ailment_uptime({"IgniteChancePerHit": 50, "Speed": 2, "HitChance": 50}, "Ignite") == pytest.approx(1 - 0.5 ** 4)
+    # (MECH81: Flammability stacks, 1% + 8 s x 1 landing hit/s x 1% = 9% a hit)
+    assert ailment_uptime({"IgniteChancePerHit": 1, "Speed": 2, "HitChance": 50}, "Ignite") == pytest.approx(1 - 0.91 ** 4)
     assert ailment_uptime({"ShockChancePerHit": 0, "Speed": 2}, "Shock") == 0.0
     shocked = next(c for c in CONDITIONS if c.var == "conditionEnemyShocked")
     # on at any real share (MECH30: counted at it, was off under 90%): 2% x 2 hits/s x 8 s = 1 - 0.98^16, 28%
@@ -2326,7 +2328,8 @@ def test_an_ailment_consumed_by_a_skill_beside_the_main_one_is_carried_less():
              "IgniteChancePerHit": 50, "IgniteDuration": 4}
     plain_shock, plain_ignite = c.shock_share(stats), c.ailment_uptime(stats, "Ignite")
     stats["_side_consumes"] = side
-    u = plain_ignite
+    u = 1 - 0.5 ** 8  # (MECH81: a consumer beside it clears Flammability with each Ignite: the per-hit chance stays)
+    assert plain_ignite >= u
     assert abs(c.ailment_uptime(stats, "Ignite") - u / (1 + u * 0.5 * (1 + 1 / (2 * 0.5)))) < 1e-9
     assert c.shock_share(stats) < plain_shock
     assert abs(c.shock_share(stats) - plain_shock / (1 + plain_shock * 0.5 * 2.0)) < 1e-9
