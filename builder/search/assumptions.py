@@ -1920,7 +1920,7 @@ class Assumptions:
             standing = bool(build.call("getConfig")["input"].get("conditionStationary"))
             gun_mods, gun_notes = models.run_and_gun_model(texts, stats, main, main_types, standing)
             hand_mods, hand_notes = hand_mods + gun_mods, hand_notes + gun_notes
-        early_mods, early_notes = models.hazard_early_model(found, stats, forbidden)  # (MECH-B: hazards set off early)
+        early_mods, early_notes = models.hazard_early_model(found, stats, forbidden, self.hitters(found))  # (MECH-B)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
         count_mods, count_notes = models.hazard_count_model(main, stats)  # (MECHB33: a use's hazards on the boss)
         hand_mods, hand_notes = hand_mods + count_mods, hand_notes + count_notes
@@ -1956,6 +1956,7 @@ class Assumptions:
             heat, heat_how = self.heat_made(found, main)
             spend_mods, spend_notes = models.heat_consumed_model(main, stats, heat, heat_how)
             hand_mods, hand_notes = hand_mods + spend_mods, hand_notes + spend_notes
+        hand_notes = hand_notes + models.guided_shrine_notes(texts)  # (MECHB36: Guiding Palm's shrines, a labelled 0)
         if main is not None:  # (returning projectiles' second boss hit: MECH-B, models.return_model)
             gem = build.ctx.gems.get(name) or {}
             back_mods, back_notes = models.return_model(
@@ -2757,6 +2758,20 @@ class Assumptions:
                     out.append((spender, uses, how))
         return out
 
+    def hitters(self, found: list) -> set[str]:
+        """The build's skills that hit (their gem's types hold Attack or Damage and no minion type; an item-granted
+        skill with no gem entry counts if it is an Attack): the breakers hazard_early_model looks for (MECHB36, R26-43)."""
+        out = set()
+        for s in found:
+            gem = self.build.ctx.gems.get(s.name)
+            types = set((gem or {}).get("skillTypes") or [])
+            if gem is None:
+                if s.attack and s.summon is None:
+                    out.add(s.name)
+            elif types & {"Attack", "Damage"} and not types & {"Minion", "CreatesMinion"}:
+                out.add(s.name)
+        return out
+
     def heat_made(self, found: list, main: "models.Skill") -> tuple[float, str]:
         """(Heat a second, how) from the build's Rapid Shot pressed beside the main skill: one Heat an attack at its
         pressed use rate (models.press_use_rate: the search's chosen rate, else 0). MECHB35."""
@@ -2899,7 +2914,8 @@ class Assumptions:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
             KALGUUR, *models.gem_stat_skills()],
-            supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT])["skills"]  # (MECH-B: A23-3)
+            supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT,
+                          models.CASCADES_PER_SIDE])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade)
         mods, notes, self.extra_groups = self.models(skills)
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:

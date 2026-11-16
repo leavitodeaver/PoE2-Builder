@@ -2375,6 +2375,12 @@ def test_hazards_set_off_in_their_first_half_second_deal_80_percent_less():
     assert models.hazard_early_model([brambles], {})[0][0]["scale"] == pytest.approx(-80.0)
     assert models.hazard_early_model([models.Skill("Glacial Bolt")], {}) == ([], [])  # its Projectile set: no stat
     assert models.hazard_early_model([spearfield], {}, {models.EARLY_HAZARD_ENTRY}) == ([], [])
+    # MECHB36 (R26-43): Ice Crystals with no other skill that hits are broken by the boss, at once: x0.2
+    pillars = models.Skill("Grim Pillars", spell=True, early_hazard={"kind": "ice_crystals", "more": -80})
+    mods, notes = models.hazard_early_model([pillars], {}, set(), {"Grim Pillars"})
+    assert mods[0]["scale"] == pytest.approx(-80.0) and "Add a skill that hits" in notes[0]["play"]
+    assert models.hazard_early_model([pillars], {}, set(), {"Grim Pillars", "Spark"})[0] == []  # Spark breaks them
+    assert models.hazard_early_model([pillars], {}, set(), set())[0][0]["scale"] == pytest.approx(-80.0)
 
 
 def test_the_hazard_stat_sets_are_the_game_files():
@@ -2468,10 +2474,19 @@ def test_rapid_shot_fires_only_part_of_the_fight_at_maximum_heat():
     share = (45 / 8) / (45 / 8 + 10)
     assert mods[0]["scale"] == pytest.approx(-100 * (1 - share), abs=0.05) and share == pytest.approx(0.36, abs=0.01)
     mods, notes = models.heat_model(main, {"Speed": 8}, rapid, [("Explosive Grenade", 0.6, "on its cooldown")])
-    assert mods == [] and "never reaches maximum" in notes[0]["label"]
+    assert "never reaches maximum" in notes[0]["label"]
+    # MECHB36: the side Grenade asks 9 Heat/s of the 8 made: 8/9 of its throws get 50% of Damage as Fire, on its own skill
+    assert len(mods) == 1 and mods[0]["skill"] == "Explosive Grenade"
+    assert mods[0]["scale"] == pytest.approx(50 * 8 / 9, abs=0.05)
+    assert "Extra Fire" in mods[0]["line"] and "8/9" not in notes[1]["value"] and notes[1]["value"] == "89% of uses"
     # a slower spender: net gain 8 - 15 x 0.2 = 5/s; the lockout drains 60 + 30 (capped at 45)
     mods, _ = models.heat_model(main, {"Speed": 8}, rapid, [("Explosive Grenade", 0.2, "on its cooldown")])
     assert mods[0]["scale"] == pytest.approx(-100 * (1 - 9 / 19), abs=0.05)
+    # 8 x 9/19 = 3.8 Heat/s made over the fight, 3 asked: every throw finds Heat
+    assert mods[1]["skill"] == "Explosive Grenade" and mods[1]["scale"] == pytest.approx(50, abs=0.05)
+    # Incendiary Shot beside it gets its Ignite line
+    mods, _ = models.heat_model(main, {"Speed": 8}, rapid, [("Incendiary Shot", 0.2, "x")])
+    assert mods[1]["skill"] == "Incendiary Shot" and "Ignite Magnitude" in mods[1]["line"]
     assert models.heat_model(Skill("Ice Shot", group=1), {"Speed": 8}, rapid, []) == ([], [])
 
 
@@ -3856,6 +3871,13 @@ def test_a_curses_own_duration_sets_its_uptime_recast_time_and_doom_blasts():
     mods, notes, _ = models.doom_blast_model([despair, blast], [zoned])
     assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(1 / 11.1, abs=1e-3)
     assert "not counted" in notes[0]["basis"] and "overwrite areas" in notes[0]["basis"]
+    # MECHB36: Spell Cascade (1 a side) lays 3 areas a cast, each removing an older one: 3 Doom Blasts a cast
+    cascaded = Skill("Despair", group=4, spell=True, cast_time=0.7, support_stats={models.CASCADES_PER_SIDE: 1})
+    mods, notes, _ = models.doom_blast_model([cascaded, blast], [zoned], {"Despair": 0.5})
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(1.5)
+    assert "Spell Cascade lays 3 areas" in notes[0]["basis"]
+    mods, notes, _ = models.doom_blast_model([cascaded, blast], [zoned], {"Despair": 3.0})
+    assert next(m for m in mods if m["key"] == "triggerRate")["value"] == pytest.approx(1 / 0.15, abs=1e-3)
 
 
 def test_a_curse_hexblast_detonates_is_recast_once_a_cycle_not_once_a_duration():
@@ -5874,3 +5896,11 @@ def test_a_main_heat_spender_gets_its_bonus_on_the_share_of_uses_a_pressed_rapid
     assert mods == [models.line("1% more Ignite Magnitude", 100.0, skill="Incendiary Shot")]
     assert models.heat_consumed_model(Skill("Spark", group=1, spell=True), {"Speed": 1.0}, 6.0, "") == ([], [])
 
+
+
+def test_guiding_palms_shrines_are_a_labelled_zero():
+    """MECHB36 (RESEARCH26 R26-39 (b)): PoB has no shrine skill, so each Guided Shrine is a labelled 0 note."""
+    notes = models.guided_shrine_notes(["Grants effect of Guided Meteoric Shrine", "+20 to Intelligence"])
+    assert len(notes) == 1 and notes[0]["value"] == 0 and "2.5 s" in notes[0]["basis"]
+    assert "ASSUMED" in models.guided_shrine_notes(["Grants effect of Guided Freezing Shrine"])[0]["basis"]
+    assert models.guided_shrine_notes(["Grants effect of Meteoric Shrine"]) == []

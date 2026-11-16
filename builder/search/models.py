@@ -10454,6 +10454,13 @@ def cadiro_model(texts: list[str], stats: dict, main: Skill | None, main_types: 
 #     Wall: broken by the player's own hits (KeywordPopups
 #     IceCrystals: Consume-Freeze skills shatter them; Shield Wall's own "more damage when slammed"), which the penalty
 #     doesn't touch ("something other than you"): none early; the boss breaking them is the "without it" row.
+#   - (MECHB36, RESEARCH26 R26-43, ASSUMED LOW-MEDIUM: research/grim-pillars-totem-r26.md) Ice Crystals and Shield Wall
+#     count as broken by you only when the build has its own breaker: another skill that hits (its gem's types hold
+#     Attack or Damage, not a minion's; an item-granted skill with no gem entry counts if it is an Attack). Without one
+#     only the boss breaks them, by walking or hitting through them ("larger monsters will destroy Ice Crystals in their
+#     path", KeywordPopups / 0.3.0): all early, x0.2 (LOW); spears never broken may never explode (UNVERIFIED, not
+#     counted). Whether "something other than you" means the totem that made them, so a totem's crystals broken early by
+#     your own hit still take the penalty: UNVERIFIED, said in the note (a breaker hitting after 0.5 s avoids it).
 # Rearm (PoB: DPS x (1 + rearm chance)): a rearmed hazard's later trigger is taken as after 0.5 s, so at full damage
 # (UNVERIFIED: whether the window restarts on rearming isn't in the game files' text).
 EARLY_HAZARD_WINDOW = 0.5  # seconds (the stats' "first_500_ms")
@@ -10461,8 +10468,9 @@ EARLY_HAZARD_BY_BOSS = {"hazard": True, "ice_crystals": False, "shield_wall": Fa
 EARLY_HAZARD_ENTRY = "hazard-early-trigger"
 
 
-def hazard_early_share(early: dict) -> tuple[float, str]:
-    """The share of the skill's hazards the boss sets off in their first 0.5 s, and why."""
+def hazard_early_share(early: dict, breaker: bool = True) -> tuple[float, str]:
+    """The share of the skill's hazards the boss sets off in their first 0.5 s, and why. `breaker`: the build has
+    another skill that hits, to break Ice Crystals / Shield Wall itself (MECHB36, R26-43)."""
     arming = number(early.get("arming")) / 1000
     if arming >= EARLY_HAZARD_WINDOW:
         return 0.0, f"they arm after {arming:g} s, past the 0.5 s window"
@@ -10472,10 +10480,17 @@ def hazard_early_share(early: dict) -> tuple[float, str]:
         return 0.0, f"{early.get('delayBy') or 'a support'}: they can't trigger for {number(early['delay']):g} s"
     if EARLY_HAZARD_BY_BOSS.get(early.get("kind"), True):
         return 1.0, "placed where the boss stands, it sets them off at once (LOW, a play assumption)"
-    return 0.0, "you break them with your own hits, which the penalty doesn't touch (LOW, a play assumption)"
+    if not breaker:
+        return 1.0, ("the build has no other skill that hits to break them, so only the boss does, walking or hitting "
+                     "through them, at once (LOW, RESEARCH26 R26-43; ones never broken may never explode: not counted)")
+    return 0.0, ("you break them with your own hits, which the penalty doesn't touch (LOW, a play assumption; RESEARCH26 "
+                 "R26-43: UNVERIFIED whether a totem's crystals count your hits as 'something other than' the totem)")
 
 
-def hazard_early_model(skills: list[Skill], stats: dict, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+def hazard_early_model(skills: list[Skill], stats: dict, forbidden: set[str] = frozenset(),
+                       hitters: set[str] | None = None) -> tuple[list[dict], list[dict]]:
+    """`hitters`: the build's skills that hit (assumptions: gem types Attack or Damage, no minion); None = not known,
+    taken as a breaker present (the old reading)."""
     if EARLY_HAZARD_ENTRY in forbidden:
         return [], []
     mods, notes, seen = [], [], set()
@@ -10486,17 +10501,20 @@ def hazard_early_model(skills: list[Skill], stats: dict, forbidden: set[str] = f
             continue
         seen.add(skill.name)
         less = number(early.get("more")) / 100  # -0.8
-        share, why = hazard_early_share(early)
+        share, why = hazard_early_share(early, hitters is None or bool(hitters - {skill.name}))
         factor = (1 + less * share + rearm) / (1 + rearm)
         by_boss = (1 + less + rearm) / (1 + rearm)
         if factor != 1:
             mods.append(line("1% more Damage", 100 * (factor - 1), skill=skill.name))
-        crystals = early.get("kind") != "hazard"
+        crystals = early.get("kind") != "hazard" and share == 0
+        unbroken = early.get("kind") != "hazard" and share > 0  # (MECHB36: crystals with no breaker in the build)
         notes.append({
             "label": f"{skill.name}: {abs(less):.0%} less if set off in its first 0.5 s", "value": round(factor, 4),
             "basis": f"{why}; PoB counts every one at full damage"
                      + (f"; rearms ({rearm:.0%}) taken as later, at full damage (UNVERIFIED)" if rearm else ""),
-            "play": (f"{'Break them yourself' if crystals else 'Lay them in the boss path at least 0.5 s before it gets there'}"
+            "play": (f"Add a skill that hits to break them yourself after 0.5 s: x{1 / by_boss:.2f} on {skill.name}'s "
+                     f"damage. Without it (the boss breaks them): x{by_boss:.2f}" if unbroken else
+                     f"{'Break them yourself' if crystals else 'Lay them in the boss path at least 0.5 s before it gets there'}"
                      f": x{1 if crystals else 1 / by_boss:.2f} on {skill.name}'s damage. Without it (the boss "
                      f"{'breaks them' if crystals else 'sets them off at once'}): x{by_boss:.2f}"
                      if share or crystals else ""),
@@ -10593,8 +10611,8 @@ CADENCE_PACE = (6 - 1) / 4.0
 # spenders keep spending and decay empties the rest after 4 s; then it fires again until full. Share firing = refill time
 # / (refill + L). Counted as "more Damage" on Rapid Shot (not attack speed: the rate it reads would move with it), so the
 # average over the fight is right; Freeze/Electrocute buildup from fewer, full hits isn't modelled (small). Not counted:
-# what the player does in the lockout (other skills, unscored), and the spenders' "if Heat consumed" bonuses on side
-# spenders (an undercount: their Full DPS entries; heat_consumed_model counts them where the spender is the main skill).
+# what the player does in the lockout (other skills, unscored). The spenders' "if Heat consumed" bonuses: heat_side_spenders
+# (beside a main Rapid Shot, on their own Full DPS entries; MECHB36) and heat_consumed_model (a main spender).
 RAPID_SHOT = "Rapid Shot"
 HEAT_PER_ATTACK = 1.0
 HEAT_LOCKOUT = 10.0  # seconds (skill_specific_stat_description_mode 10000 ms; read from the gem when the bridge has it)
@@ -10657,14 +10675,16 @@ def heat_model(main: Skill | None, stats: dict, rapid: Skill | None, spenders: l
     play = (f"Rapid Shot gains {HEAT_PER_ATTACK:g} Heat per attack ({attacks:.2f}/s) up to {most:g}; at {most:g} it can't fire "
             f"for {lockout:g} s. {who}.")
     if gain <= 0:
-        return [], [{"label": "Rapid Shot: Heat never reaches maximum", "value": "x1",
-                     "basis": play + " The spenders take at least what it makes, so it never locks out (needs them used "
-                              "at that rate: a play strategy*)", "confidence": "MEDIUM"}]
+        side_mods, side_notes = heat_side_spenders(attacks, spenders)
+        return side_mods, [{"label": "Rapid Shot: Heat never reaches maximum", "value": "x1",
+                            "basis": play + " The spenders take at least what it makes, so it never locks out (needs them "
+                                     "used at that rate: a play strategy*)", "confidence": "MEDIUM"}] + side_notes
     drained = min(most, HEAT_DECAY_RATE * max(0.0, lockout - HEAT_DECAY_DELAY) + spent * lockout)
     refill = drained / gain
     share = refill / (refill + lockout) if refill > 0 else 0.0
-    mods = [line("1% more Damage", -100 * (1 - share), skill=RAPID_SHOT)]
-    return mods, [{"label": "Rapid Shot: share of the fight it can fire (Heat lockout)*", "value": f"{share:.1%}",
+    side_mods, side_notes = heat_side_spenders(attacks * share, spenders)
+    mods = [line("1% more Damage", -100 * (1 - share), skill=RAPID_SHOT)] + side_mods
+    return mods, side_notes + [{"label": "Rapid Shot: share of the fight it can fire (Heat lockout)*", "value": f"{share:.1%}",
                    "basis": play + f" Heat rises {gain:.2f}/s while firing; in each {lockout:g} s lockout {drained:.0f} Heat "
                             f"drains (decay {HEAT_DECAY_RATE:g}/s from {HEAT_DECAY_DELAY:g} s after the last gain, and the "
                             f"spenders), refilled in {refill:.2f} s of firing: {share:.1%} of the fight firing (PoB: 100%). "
@@ -10672,6 +10692,58 @@ def heat_model(main: Skill | None, stats: dict, rapid: Skill | None, spenders: l
                             "are from the 0.3.0 notes (MEDIUM-HIGH); the time locked out is free for other skills, not "
                             "counted. With a Grenade or Incendiary Shot spending 15 Heat per use, it locks out less",
                    "confidence": "MEDIUM"}]
+
+
+def heat_side_spenders(made: float, spenders: list[tuple[str, float, str]]) -> tuple[list[dict], list[dict]]:
+    """The side Heat spenders' "if Heat is consumed" bonus beside a main Rapid Shot (MECHB36; the undercount the Heat
+    model's comment named). `made`: Heat a second over the fight (Rapid Shot's attacks x the share of the fight it fires);
+    `spenders`: (name, uses a second, how), as heat_model gets them. The spenders share what is made in proportion to
+    their demand: each finds 15 Heat on min(1, made / (sum of 15 x uses)) of its uses (decay's loss while they wait is
+    left out: a small overcount, MEDIUM), and that share of its bonus (HEAT_BONUS: gain-as and "more" are linear in their
+    %) goes on its own skill (SkillName), so its Full DPS entry, which press_model scales, carries it."""
+    demand = sum(HEAT_SPENDERS.get(name, 15.0) * uses for name, uses, _ in spenders if name in HEAT_BONUS and uses > 0)
+    if demand <= 0:
+        return [], []
+    share = min(1.0, made / demand) if made > 0 else 0.0
+    mods, notes = [], []
+    for name, uses, how in spenders:
+        if name not in HEAT_BONUS or uses <= 0:
+            continue
+        text, value = HEAT_BONUS[name]
+        bonus = text.replace("1%", f"{value:g}%")
+        if share > 0:
+            mods.append(line(text, value * share, skill=name))
+        notes.append({"label": f"{name} beside Rapid Shot: Heat consumed on its uses*", "value": f"{share:.0%} of uses",
+                      "basis": (f"Rapid Shot makes {made:.2f} Heat/s over the fight (its attacks x the share it fires); "
+                                f"the spenders ask {demand:.2f} Heat/s; {name} {uses:.2f} uses/s ({how}) gets \"{bonus}\" "
+                                f"on {share:.0%} of them (PoB counts none; decay while it waits left out, MEDIUM)"),
+                      "play": (f"Use {name} while Rapid Shot has Heat: without it +0; with it {share:.0%} of its uses "
+                               f"get {bonus}"),
+                      "confidence": "MEDIUM"})
+    return mods, notes
+
+
+# Guiding Palm's Guided Shrines (MECHB36; RESEARCH26 R26-39 (b), research/shrine-proc-rates-r26.md). The three Guiding
+# Palm sceptres' "Grants effect of Guided Meteoric / Freezing / Tempest Shrine" (has_unique_fire / cold /
+# lightning_shrine_effect) trigger the player shrine skills GTShrineFirePlayer / ColdPlayer / LightningPlayer (game files
+# GrantedEffects 6283 / 6293 / 6286); the Meteoric one at most once per 2.5 s (GrantedEffectsPerLevel: Cooldown 2500 ms,
+# 1 stored use; HIGH), the other two ASSUMED the same (LOW). PoB has no skill for them (its sceptre.lua carries the lines;
+# no Data/Skills entry for any shrine skill, checked), so their damage is 0 in every score: a small UNDERCOUNT (the
+# buff "does not scale with character modifiers", poe2wiki), kept as a labelled 0 until built (R26-39's instruction).
+GUIDED_SHRINE = re.compile(r"^Grants effect of Guided (Meteoric|Freezing|Tempest) Shrine$", re.I)
+
+
+def guided_shrine_notes(texts: list[str]) -> list[dict]:
+    """A labelled 0 for each Guided Shrine the build's items grant (see above)."""
+    out = []
+    for kind in sorted({m.group(1).title() for t in texts if (m := GUIDED_SHRINE.search(t.strip()))}):
+        out.append({"label": f"Guided {kind} Shrine's damage (not counted)*", "value": 0,
+                    "basis": (f"Guiding Palm's Guided {kind} Shrine triggers a shrine skill PoB doesn't have; "
+                              + ("at most one trigger per 2.5 s while enemies are in range (its Cooldown, game files)"
+                                 if kind == "Meteoric" else "its rate is ASSUMED one per 2.5 s like the Meteoric one (LOW)")
+                              + ": its damage isn't counted, a small UNDERCOUNT (RESEARCH26 R26-39)"),
+                    "confidence": "LOW"})
+    return out
 
 
 # Different Non-Instant skills used per 8 s (MECHB4; AUDIT7 A7-2, research/cast-speed-per-different-spell.md) -------------
@@ -11361,8 +11433,17 @@ def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict],
 #   - "Curses you inflict have infinite Duration" (CURSE_FOREVER): the curse never expires on a boss that lives, 0;
 #   - any other application (a meta's trigger, Blasphemy's Aura, an item's curse on hit): the support excludes it, 0;
 #   - its curse's group is counted in Full DPS when the rate is above 0 (before, only if another model put it there).
+#   - (MECHB36, R26-78 (b): "Spell Cascade creates multiple overlapping Curse areas. As new areas overwrite existing ones,
+#     the previous Curse expires and immediately triggers Doom Blast", poe-vault; a Doedre's Undoing build guide, seen
+#     only as a web-search summary (16 Nov, page not read): "Spell Cascade causes 3 Cast of Despair, the 3rd one
+#     replacing the original Cursed Ground") Spell
+#     Cascade on a Cursed Ground curse lays 1 + 2 x support_spell_cascade_number_of_cascades_per_side areas a cast
+#     (SupportSpellCascadePlayer: 1 a side, game files 26650308); past the Limit of 2 each new area removes the oldest,
+#     so a cast removes that many: that many Doom Blasts a cast (MEDIUM-LOW: whether the boss's curse "expires" when it
+#     still stands in a newer area of the same curse rests on the guide's words), still at most one per cooldown.
 DOOM_BLAST = "Doom Blast"
 DOOM_BLAST_COOLDOWN = 0.15  # DoomBlastPlayer Cooldown 150 ms (GrantedEffectsPerLevel)
+CASCADES_PER_SIDE = "support_spell_cascade_number_of_cascades_per_side"
 
 
 def doom_blast_model(skills: list[Skill], curses: list[CurseUse],
@@ -11375,6 +11456,8 @@ def doom_blast_model(skills: list[Skill], curses: list[CurseUse],
     shares = {c.name: c for c in curses}
     for blast in blasts:
         curse = next((shares[s.name] for s in skills if s.group == blast.group and s.name in shares), None)
+        cursing = next((s for s in skills if s.group == blast.group and s.name in shares), None)
+        areas = 1 + 2 * number((cursing.support_stats if cursing is not None else {}).get(CASCADES_PER_SIDE))
         if curse is None:
             rate, how = 0.0, "no curse in its group is applied (0)"
         elif not curse.by_hand and "infinite Duration" in curse.how:
@@ -11389,16 +11472,19 @@ def doom_blast_model(skills: list[Skill], curses: list[CurseUse],
             if curse.zone:  # (MECHB34, R26-78 (b): areas overwritten past the Limit)
                 chosen = number((choices or {}).get(curse.name))
                 cap = 1 / DOOM_BLAST_COOLDOWN
-                if chosen > rate:
-                    rate = min(chosen, cap)
+                laid = (f"; Spell Cascade lays {areas:g} areas a cast, each removing an older one: {areas:g} Doom "
+                        "Blasts a cast (MEDIUM-LOW, the guides' words)" if areas > 1 else "")
+                if chosen * areas > rate:
+                    rate = min(chosen * areas, cap)
                     how = (f"{curse.name} laid as {curse.zone}'s Cursed Ground and recast {chosen:.3g} times a second* "
                            f"(the rate the search chose): past the Limit of {CURSE_AREAS} areas each cast removes the "
                            "oldest, whose curse expires: one Doom Blast a cast (MEDIUM, RESEARCH26 R26-78: poe-vault's "
-                           "0.5 Impending Doom guide)" + (f", at most one per {DOOM_BLAST_COOLDOWN:g} s cooldown"
-                                                           if chosen > cap else ""))
+                           "0.5 Impending Doom guide)" + laid + (f", at most one per {DOOM_BLAST_COOLDOWN:g} s cooldown"
+                                                                  if chosen * areas > cap else ""))
                 else:
                     how += (f"; laid as {curse.zone}'s Cursed Ground, recasting it faster would overwrite areas past the "
-                            f"Limit of {CURSE_AREAS}, one Doom Blast a cast (RESEARCH26 R26-78; up to one per "
+                            f"Limit of {CURSE_AREAS}, {areas:g} Doom Blast{'s' if areas > 1 else ''} a cast "
+                            f"(RESEARCH26 R26-78{'; Spell Cascade' if areas > 1 else ''}; up to one per "
                             f"{DOOM_BLAST_COOLDOWN:g} s), each cast taking the main skill's time: not counted, as the "
                             "search offers no press rate for a skill with a duration yet")
         mods += trigger_rate(DOOM_BLAST, rate)
