@@ -291,3 +291,36 @@
     Chilled Ground share. PoB ignores the line.
   sources: [builder/search/conditions.py (CHILLED_CHANCE_ON_FREEZE)]
   status: proposed
+
+- id: no-effect-projectile-fork-chance
+  title: '"Projectiles have N% chance to Fork" (hand wraps): no damage against the lone boss'
+  kind: pob_gap
+  match: '^Projectiles have (\(\d+-\d+\)|\d+)% chance to Fork$'
+  replace: []
+  confidence: community_confirmed
+  notes: >-
+    The plain form of MECHB31's model-fork-on-melee-hit-lone-boss (Item HandWrapsMarksmanInfluenceProjectileFork*, 25-44%):
+    Forked projectiles can't hit the enemy they forked from again, so the boss takes no extra hit. (checked, as that entry
+    and no-effect-spell-projectile-chain-fork: KeywordPopups Fork, "Projectiles that Fork split into two the first time
+    they collide with an enemy and do not Split from it or Pierce it" (build 26650308); poe2wiki Projectile behaviour,
+    "only one Projectile in the group can hit each target unless otherwise specified"; a developer answer that forked
+    projectiles can't hit a target a sibling already hit; RESEARCH9 #18y; PoB counts no hits from Fork either, CalcOffence
+    1479-1484 sets ForkCountMax only. MEDIUM, as those entries: in-game test #53.) Its value against packs isn't scored.
+  sources: ["https://www.poe2wiki.net/wiki/Forking", ledger/entries/models-read-mechb31.yaml (model-fork-on-melee-hit-lone-boss)]
+  test_in_game: "Fire a projectile at a lone boss with this on: no second hit on the boss from the forks."
+  status: proposed
+
+- id: model-read-enemies-you-curse-chaos-resistance
+  title: '"Enemies you Curse have N% to Chaos Resistance" (models.curse_model; The Unborn Lich, the Desecrated Kulemak mod)'
+  kind: pob_gap
+  model: curses
+  match: '^Enemies you Curse have (-?\(-?\d+-\d+\)|[+-]?\d+)% to Chaos Resistance$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.CURSED_LINES / curse_model (assumptions.py 1636-1640): PoB never applies the line (COV35's probe POE2T2588), so
+    since MECH82's 85cb4364 (CURSED_UNAPPLIED) the model adds it as "Nearby Enemies have +1% to Chaos Resistance" x the
+    line's total x the share of the fight the boss is cursed. The pattern takes the ranged "-(8-5)%" text; the model reads
+    the rolled value (bridge.sourceLines applies the range).
+  sources: [builder/search/models.py (CURSED_LINES, CURSED_UNAPPLIED, curse_model)]
+  status: proposed

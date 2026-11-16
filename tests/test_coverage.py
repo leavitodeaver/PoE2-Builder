@@ -575,6 +575,8 @@ def test_item_lines_a_model_reads_count_as_the_models():
         "Recover 2% of maximum Life when you Consume a corpse": "model-read-recover-on-corpse-consumed",
         "15% chance to create Chilled Ground when you Freeze an Enemy": "model-read-chilled-ground-on-freeze",
         "You lose all Endurance Charges on reaching maximum Endurance Charges": "model-lose-all-charges-on-maximum",
+        "Enemies you Curse have -(8-5)% to Chaos Resistance": "model-read-enemies-you-curse-chaos-resistance",
+        "Enemies you Curse have -5% to Chaos Resistance": "model-read-enemies-you-curse-chaos-resistance",
     }
     for line, entry in cases.items():
         assert (found := model_entry(line)) is not None and found.id == entry, line
@@ -598,3 +600,11 @@ def test_a_freeze_cull_stat_is_damage_not_behaviour():
     """COV37 (GEM15): Arctic Howl's has_freeze_cull ("Freeze enemies that are Primed for Freeze") changes Freeze uptime."""
     assert coverage.stat_mechanic("has_freeze_cull") == "damage"
     assert not coverage.STAT_BEHAVIOUR.search("has_freeze_cull")
+
+
+def test_a_plain_fork_chance_has_no_effect_on_the_lone_boss():
+    """COV37: the hand wraps' "Projectiles have N% chance to Fork" reads as MECHB31's melee-hit form does (no boss hit)."""
+    from builder.ledger import translate
+
+    found = translate("Projectiles have (25-44)% chance to Fork")
+    assert found is not None and found[0].id == "no-effect-projectile-fork-chance" and not found[1]
