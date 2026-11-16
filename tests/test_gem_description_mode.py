@@ -616,7 +616,26 @@ def test_overgrown_plants_follow_the_builds_thunderstorm(speed, duration, press,
 def test_overgrown_needs_a_plant_main_skill():
     spark, storm = Skill("Spark", 1, spell=True), Skill("Thunderstorm", 2, spell=True)
     assert models.overgrown_model([spark, storm], spark, {2: {"speed": 1, "duration": 5}}) == ([], [])
-    assert models.gem_stat_side_groups([spark, storm], spark) == []
+    assert models.gem_stat_side_groups([spark, storm], spark) == [2]  # (read for its Drenched: drenched_model)
     vine = Skill("Vine Arrow", 1, attack=True)
     mods, notes = models.overgrown_model([vine], vine, {})
     assert mods == [] and notes[0]["value"] == "not counted"
+
+
+@pytest.mark.parametrize("level_cap, speed, duration, more", [
+    (78, 1.0, 12.0, -100.0),   # gem level 17's cap 78 under a level-82 boss: no Drenched
+    (0, 0.05, 10.0, -50.0),    # no cap; a storm every 20 s lasting 10 s: half the fight
+    (0, 1.0, 12.0, None),      # always up: PoB's number, a note only
+])
+def test_thunderstorms_drenched_follows_its_level_cap_and_casts(level_cap, speed, duration, more):
+    spark = Skill("Spark", 1, spell=True)
+    storm = Skill("Thunderstorm", 2, spell=True, level_stats={models.DRENCH_LEVEL_STAT: level_cap})
+    mods, notes = models.drenched_model([spark, storm], {}, spark, {2: {"speed": speed, "duration": duration}}, 82)
+    assert [m["value"] for m in mods] == ([pytest.approx(more)] if more is not None else [])
+    assert all(m["name"] == "BuffEffect" and m["skill"] == "Thunderstorm" for m in mods)
+    assert notes[0]["entry"] == models.DRENCH_ENTRY
+
+
+def test_thunderstorm_without_a_use_rate_keeps_pobs_drenched():
+    spark, storm = Skill("Spark", 1, spell=True), Skill("Thunderstorm", 2, spell=True)
+    assert models.drenched_model([spark, storm], {}, spark, {}, 82) == ([], [])

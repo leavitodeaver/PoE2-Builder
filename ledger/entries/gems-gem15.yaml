@@ -87,3 +87,17 @@
     and Navira's Oasis (a djinn command, no use rate read: not counted). Main skill only; Damage MORE 50 x min(1,
     Thunderstorm's uses a second x its Duration), from the bridge's useRates (the play: cast the storm on the boss, make
     the plants in it). LOW: whether a plant outliving the storm stays Overgrown is UNVERIFIED.
+
+- id: model-gem15-thunderstorm-drenched
+  title: "Thunderstorm's Drenched: none on a boss above its gem level's level cap, else at the share of the fight a storm covers the boss (PoB: always on)"
+  kind: model
+  model: drenched
+  stats: ["thunderstorm_wet_debuff_cannot_apply_to_targets_above_level"]
+  skill: [Thunderstorm]
+  confidence: MEDIUM
+  notes: >-
+    models.drenched_model (GEM15): an OVERCOUNT before. PoB maps the Drenched stats to EnemyShockChance /
+    EnemyFreezeBuildup MORE as a GlobalEffect Buff on whenever Thunderstorm is in the build, and doesn't read its level
+    cap (game files 26650308 GrantedEffectStatSetsPerLevel: 20 at gem level 1 to 78 at 17; 0, no cap, from 18). Above
+    the cap: BuffEffect MORE -100 on Thunderstorm (HIGH). Otherwise x min(1, uses/s x Duration) from the bridge's
+    useRates (MEDIUM: the boss stands in the storm, the play). No use rate read: PoB's number stays.

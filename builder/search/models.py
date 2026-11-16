@@ -3445,6 +3445,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + proof_mods, notes + proof_notes
     grown_mods, grown_notes = overgrown_model(skills, main, groups or {}, forbidden)
     mods, notes = mods + grown_mods, notes + grown_notes
+    drench_mods, drench_notes = drenched_model(skills, stats or {}, main, groups or {}, boss_level, forbidden)
+    mods, notes = mods + drench_mods, notes + drench_notes
     return mods, notes
 
 
@@ -5762,7 +5764,7 @@ def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
             found.add(skill.group)
     # (GEM12: Vruun's Aftermath's Warcries and crystal makers, Uhtred's Rite's skills: their use rates)
     found.update(g for g in vruun_aftermath_groups(skills) | uhtred_rite_groups(skills) | frost_bomb_groups(skills)
-                 | overgrow_groups(skills, main)
+                 | overgrow_groups(skills, main) | {s.group for s in skills if s.name in OVERGROW_SKILLS and s.group is not None}
                  if main is None or g != main.group)  # (GEM13: Frost Bomb's casts, frost_bomb_exposure_model; GEM15:
     # Thunderstorm's casts and duration, overgrown_model)
     for skill in skills:  # (a side skill whose support makes you lose Life per use: gem_stat_life_loss reads its rate)
@@ -6159,6 +6161,56 @@ def overgrown_model(skills: list[Skill], main: Skill | None, groups: dict,
                   "Overgrown; Navira's Oasis not counted)"),
         "play": (f"Cast Thunderstorm on the boss and make your plants inside it (Overgrown: {more:g}% more damage). "
                  f"Without it: +0; with this build's storms: {value:.1f}% more.")}]
+
+
+# Thunderstorm's Drenched (GEM15; an OVERCOUNT where it can't reach the boss or isn't kept up). The game: "Enemies in the
+# area are Drenched, causing them to become Shocked or Frozen more easily" (ActiveSkills thunderstorm); its stat set
+# (ThunderstormPlayer, game files 26650308) carries thunderstorm_wet_debuff_shock_chance_on_+%_final and _hit_damage_freeze_
+# multiplier_+%_final, and thunderstorm_wet_debuff_cannot_apply_to_targets_above_level (GrantedEffectStatSetsPerLevel: 20 at
+# gem level 1 rising to 78 at 17, 0 = no cap from 18). PoB maps the two to EnemyShockChance / EnemyFreezeBuildup MORE as a
+# GlobalEffect Buff named Thunderstorm (act_str.lua ThunderstormPlayer statMap), on whenever the skill is in the build,
+# and reads no level cap (the stat isn't mapped). So, like Frost Bomb's: above the cap, none (BuffEffect MORE -100 on
+# Thunderstorm); otherwise at the share of the fight a storm covers the boss, min(1, its uses a second x its Duration:
+# the bridge's useRates, or PoB's Speed / Duration when it's the main skill), where the boss stands in the storm (the
+# play: cast it on the boss; MEDIUM). No use rate read (not the main skill and no group row): PoB's always-on stays.
+DRENCH_SKILL = "Thunderstorm"
+DRENCH_LEVEL_STAT = "thunderstorm_wet_debuff_cannot_apply_to_targets_above_level"
+DRENCH_ENTRY = "model-gem15-thunderstorm-drenched"
+
+
+def drenched_model(skills: list[Skill], stats: dict, main: Skill | None, groups: dict, boss_level: int = 0,
+                   forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Thunderstorm's Drenched on the boss: none above its gem level's cap, else at the storm's coverage."""
+    storm = next((s for s in skills if s.name == DRENCH_SKILL), None)
+    if storm is None or DRENCH_ENTRY in forbidden:
+        return [], []
+    label = "Thunderstorm: Drenched on the boss (Shocked / Frozen more easily)*"
+    cap = number(storm.level_stats.get(DRENCH_LEVEL_STAT))
+    if 0 < cap < 100 and boss_level > cap:
+        return [raw_mod("BuffEffect", "MORE", -100, DRENCH_SKILL)], [{
+            "label": label, "value": "none", "confidence": "HIGH", "entry": DRENCH_ENTRY,
+            "basis": (f"Thunderstorm at this gem level can't Drench enemies above level {cap:g}; the boss is level "
+                      f"{boss_level} (PoB applies it at every level). Gem level 18 lifts the cap"),
+            "play": f"Level Thunderstorm to 18 or more: below it, its Drenched doesn't reach a level-{boss_level} boss."}]
+    if main is not None and storm.group == main.group:
+        rate, duration, how = number(stats.get("Speed")), number(stats.get("Duration")), "Thunderstorm (main) at PoB's Speed"
+    elif storm.group in groups:
+        row = groups[storm.group]
+        press = row.get("_press")
+        rate = number(row.get("speed")) * number(press if press is not None else 1.0)
+        duration = number(row.get("duration"))
+        how = "Thunderstorm" + (f" pressed {number(press):.0%}" if press is not None else " at PoB's rate")
+    else:
+        return [], []  # (no use rate read for it: PoB's always-on stays, never zeroed)
+    up = min(1.0, max(rate, 0.0) * max(duration, 0.0))
+    note = {"label": label, "value": f"{up:.0%} uptime", "confidence": "MEDIUM", "entry": DRENCH_ENTRY,
+            "basis": (f"{how} {rate:.3g}/s x {duration:.2f} s: a storm covers the boss {up:.0%} of the fight (PoB: "
+                      "always, whenever the skill is in the build); the boss counted Drenched while a storm is on it"),
+            "play": (f"Cast Thunderstorm on the boss and keep one up: the boss is Shocked and Frozen more easily inside "
+                     f"it. Without it: no Drenched; with this build's casts: {up:.0%} of the fight.")}
+    if up >= 1.0 - 1e-9:
+        return [], [note]
+    return [raw_mod("BuffEffect", "MORE", 100 * (up - 1), DRENCH_SKILL)], [note]
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
