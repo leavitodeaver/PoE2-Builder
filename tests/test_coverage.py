@@ -590,3 +590,9 @@ def test_debuff_lines_whose_event_the_model_rates_count_as_resolver_sources():
         found = coverage.resolver_condition(line)
         assert found is not None and found.var == "conditionEnemyBlinded", line
     assert coverage.resolver_condition("Blind Enemies when you Kill them") is None
+
+
+def test_a_freeze_cull_stat_is_damage_not_behaviour():
+    """COV37 (GEM15): Arctic Howl's has_freeze_cull ("Freeze enemies that are Primed for Freeze") changes Freeze uptime."""
+    assert coverage.stat_mechanic("has_freeze_cull") == "damage"
+    assert not coverage.STAT_BEHAVIOUR.search("has_freeze_cull")

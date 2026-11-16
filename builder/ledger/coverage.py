@@ -438,7 +438,9 @@ STAT_BEHAVIOUR = re.compile(r"projectile_(uses|spread|maximum|minimum|distance|b
                             r"_delay_ms|spacing|number_of_.*_allowed|cannot_|can_be_|_override$|statset_index|"
                             r"is_|_index|limitation|specifier|movement_speed|stun|knockback|show_|prediction|_distance|"
                             r"repeat_interval|remnant_duration|_debuff_duration_ms|attack_duration_ms|ground_effect_area|"
-                            r"has_freeze_cull|radius|area_of_effect", re.I)
+                            r"radius|area_of_effect", re.I)
+# (COV37, GEM15's find: has_freeze_cull, Arctic Howl's "Freeze enemies that are Primed for Freeze", moves Freeze uptime, so
+# it's "damage" through STAT_KINDS' "freeze", not behaviour: taken out of STAT_BEHAVIOUR, where it never applied anyway)
 STAT_KINDS = (
     ("damage", r"damage|crit|penetrat|exposure|_as_|wither|shock|ignite|poison|bleed|impale|freeze|chill|"
                r"electrocut|cull|additional_projectile|number_of_projectiles|chain|repeat|echo|_final|"
