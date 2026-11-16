@@ -57,6 +57,7 @@ EVIDENCE_FIELDS = [
     "PhysicalCritAverage",  # (Concussive Spells' crits with Physical damage, _dazed; MECH70)
     "ShockAvoidChance",  # (Overcharge's reflected Shocks, _self_shocked; MECH75)
     "LifeUnreserved",  # (Clash: the most Life % you fight at, _clash; MECH76)
+    "FireDot",  # (the main skill's own Fire damage over time: the boss Burning, _enemy_burning; MECH80)
 ]
 RECENTLY = 4.0  # seconds ("Recently": the past 4 seconds)
 
@@ -4081,6 +4082,29 @@ def compounding_factor(rate: float, channel: float, gap: float, duration: float)
     return (comp / plain if plain else 1.0), n
 
 
+# The boss Burning from Fire damage over time that isn't an Ignite (MECH80; PATCH_CHECK MD-5, an UNDERCOUNT: nothing set
+# PoB's conditionEnemyBurning, ConfigOptions 1785, so "against Burning Enemies" lines counted only through Ignite, which
+# PoB already makes imply Burning, CalcSetup 83). KeywordPopups Burning: "Enemies taking Fire damage over time are
+# Burning. Usually this occurs because the enemy is Ignited." Counted: the main skill's own Fire damage over time (PoB's
+# FireDot: the player skills carrying base_fire_damage_to_deal_per_minute are Flame Wall and Incinerate, checked: every
+# skill holding the stat in PoB's Data/Skills, the others are monster and minion skills) for the share of the fight the
+# skill runs (1 for a main skill used all fight, MEDIUM: Flame Wall taken as placed on the boss; Incinerate its fuel's
+# share). The box is set at that share on its own: PoB's Ignited box still implies Burning on top, the two taken as
+# independent. Not counted (an UNDERCOUNT, labelled): other groups' Fire damage over time, Herald of Ash's Burning
+# from overkill.
+def _enemy_burning(lines: list[str], stats: dict) -> tuple[object, str]:
+    """The Burning box at the share of the fight the main skill's own Fire damage over time is on the boss (MECH80)."""
+    dot = number(stats.get("FireDot"))
+    if dot <= 0:
+        return 0.0, ""
+    share, how = 1.0, "the main skill used all fight (MEDIUM)"
+    if stats.get("_main_skill") == INCINERATE:
+        share, _, fuel = stats.get("_incinerate_fuel") or (0.0, 0.0, "fuel not read")
+        how = f"Incinerate channelled {share:.0%} of the fight ({fuel})"
+    return _box(share, f"the main skill's own {dot:,.0f} Fire damage over time a second: {how} (other skills' Fire "
+                       "damage over time not counted)")
+
+
 def _incinerate_channelling(lines: list[str], stats: dict) -> tuple[object, str]:
     """The Channelling Incinerate box at the share of the fight its fuel allows (MECH79; off, its damage 100% less:
     models.compound_ignite_mods)."""
@@ -4661,6 +4685,8 @@ CONDITIONS: list[Condition] = [
               fields=("PresenceRadius",)),  # (MECH78, MC-1)
     Condition(INCINERATE_CHANNEL_VAR, "Channelling Incinerate (its fuel: Mana spent on other skills)",
               value_fn=_incinerate_channelling, fields=()),  # (MECH79)
+    Condition("conditionEnemyBurning", "Burning (Fire damage over time that isn't an Ignite)",
+              value_fn=_enemy_burning, fields=("FireDot",)),  # (MECH80, MD-5)
     Condition("multiplierCurseExpiredOnEnemy", "A curse of yours past its threshold of Curse Duration",
               value_fn=_curse_expired, fields=()),  # (MECH78, MD-8)
     *(Condition(var, f"You {PAST_TENSE[APPLIED_RECENTLY[var]].lower()} an enemy Recently",

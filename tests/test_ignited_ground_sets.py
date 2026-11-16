@@ -395,3 +395,46 @@ def test_uruks_line_is_an_enemy_physical_damage_taken_and_the_support_is_read_on
     share, how = search.conditions._uruk_taken(0.1)
     print("URUK at 0.1/s", share, how)
     assert "5% a Full Break up to 20%" in how and "Full DPS" in how and 0.0 <= share <= 20.0
+
+
+# MECH80 (PATCH_CHECK MD-5): the boss Burning from the main skill's own Fire damage over time, not only from Ignite
+def test_the_main_skills_own_fire_damage_over_time_sets_the_boss_burning():
+    on, how, up = conditions._enemy_burning([], {"FireDot": 250.0, "_main_skill": "Flame Wall"})
+    assert on and up == 1.0 and "250" in how
+    assert conditions._enemy_burning([], {"FireDot": 0.0}) == (0.0, "")
+    fuel = {"FireDot": 57.5, "_main_skill": conditions.INCINERATE, "_incinerate_fuel": (0.3, 5.0, "x")}
+    assert conditions._enemy_burning([], fuel)[2] == pytest.approx(0.3)
+
+
+def test_flame_wall_sets_the_boss_burning_on_a_real_build(engine):
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Flame Wall"))
+    skeleton = enumerate_skeletons(Context(payload), ["Flame Wall"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    search.settle()
+    found = search.conditions.evidence()
+    print("BURNING", found.get("conditionEnemyBurning"))
+    assert found["conditionEnemyBurning"][0] is True and "Fire damage over time" in found["conditionEnemyBurning"][1]
+    # PoB reads the box: an "against Burning Enemies" line moves the score only with it on
+    from builder.search.context import ItemOption
+
+    raw = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                        "30% increased Damage against Burning Enemies"])
+    search.build.equip("Ring 1", ItemOption(name="Test Loop", base="Iron Ring", type="Ring", sub_type=None, raw=raw,
+                                            unique=False, price=None, confidence="ssf", level=1))
+    before = search.build.call("getConfig")["input"]
+    try:
+        off = search.build.call("setConfig", vars={"conditionEnemyBurning": False, "conditionEnemyIgnited": False},
+                                fields=["TotalDPS", "TotalDot"])["stats"]
+        on = search.build.call("setConfig", vars={"conditionEnemyBurning": True, "conditionEnemyIgnited": False},
+                               fields=["TotalDPS", "TotalDot"])["stats"]
+    finally:
+        search.build.call("setConfig", vars={k: before.get(k, False) for k in ("conditionEnemyBurning",
+                                                                                "conditionEnemyIgnited")})
+    print("BURNING off / on", off, on)
+    assert sum(on.values()) > sum(off.values()) * 1.05
