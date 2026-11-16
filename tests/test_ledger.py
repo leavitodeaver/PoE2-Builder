@@ -78,13 +78,14 @@ def test_an_entry_matches_a_rolled_range_at_both_ends():
 
 def test_the_audit_counts_debuff_lines_the_uptime_models_rate():
     """Maim / Blind / Intimidate lines on your hits, crits or Blocks feed conditions.debuff_uptime; wordings it rates 0
-    (a kill, a Stun on you) or that aren't sources stay open (COV5)."""
+    (a kill) or that aren't sources stay open (COV5). (COV37: a Stun on you is rated since MECHC25, Blinding Flash, so
+    "Blind Enemies when they Stun you" counts now: tests/test_coverage.py's debuff test.)"""
     from builder.ledger.coverage import resolver_condition
 
     assert resolver_condition("(10-15)% chance to Maim on Hit").var == "conditionEnemyMaimed"
     assert resolver_condition("Intimidate Enemies on Block for 8 seconds").var == "conditionEnemyIntimidated"
     assert resolver_condition("Break Armour equal to (2-4)% of Physical Damage dealt").var == "conditionEnemyArmourBroken"
-    for line in ("Blind does not affect your Light Radius", "Blind Enemies when they Stun you",
+    for line in ("Blind does not affect your Light Radius", "Blind Enemies when you Kill them",
                  "Socketed Gems are supported by Level 10 Blind"):
         assert resolver_condition(line) is None, line
 

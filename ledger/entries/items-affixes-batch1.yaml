@@ -6,7 +6,7 @@
 - id: items-minion-damaging-ailment-magnitude
   title: Minions' increased Magnitude of Damaging Ailments, as PoB's "you inflict" form given to minions
   kind: pob_gap
-  match: '^Minions have (\d+)% increased Magnitude of Damaging Ailments$'
+  match: '^Minions have (\(\d+-\d+\)|\d+)% increased Magnitude of Damaging Ailments$'
   replace: ['Minions have {1}% increased Magnitude of Damaging Ailments you inflict']
   confidence: datamined
   notes: >-
@@ -63,7 +63,7 @@
 - id: items-spell-elemental-ailment-magnitude
   title: Increased Magnitude of Elemental Ailments you inflict with Spells (Ignite, Shock, Chill; Freeze buildup as PoB maps it)
   kind: pob_gap
-  match: '^(\d+)% increased Magnitude of Elemental Ailments you inflict with Spells$'
+  match: '^(\(\d+-\d+\)|\d+)% increased Magnitude of Elemental Ailments you inflict with Spells$'
   replace: ['Spells have {1}% increased Magnitude of Ignite', 'Spells have {1}% increased Magnitude of Non-Damaging Ailments you inflict']
   confidence: theory
   notes: >-

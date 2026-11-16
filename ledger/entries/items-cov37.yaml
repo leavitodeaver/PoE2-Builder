@@ -1,0 +1,208 @@
+# COV37 (COV-A), 16 Nov 2026: item lines a model already reads, so the audit counts them (each model's regex and its live
+# caller checked by hand; scratch/cov37/leads.py lists the rows). These entries only say a model reads the line: an empty
+# replace adds nothing to PoB. The model's own labels and confidence stay as its lane wrote them.
+
+- id: model-read-companion-limit
+  title: '"You can have two / any number of Companions of different types" (models.companion_limit)'
+  kind: pob_gap
+  model: companion_limit
+  match: '^You can have (two|any number of) Companions of different types$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.COMPANION_TWO / COMPANION_ANY in companion_limit, called from assumptions.py 2525 (the Companion limit: groups
+    past it deal nothing, one per type). Trusted Kinship + Yriel's Fostering read as 2 (the user's ruling, memory
+    mod-wording-sets-vs-adds); Sylvan's Effigy any number. PoB ignores both lines.
+  sources: [builder/search/models.py (COMPANION_TWO, COMPANION_ANY, companion_limit), builder/search/assumptions.py 2525]
+  status: proposed
+
+- id: model-read-companion-per-type
+  title: '"N% increased Damage per each different Companion in your Presence" (models.companion_per_type_model)'
+  kind: pob_gap
+  model: companion_per_type
+  match: '^(\(\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|\d+(?:\.\d+)?)% (increased|reduced) Damage per each different Companion in your Presence$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.COMPANION_PER_TYPE in companion_per_type_model, called from assumptions.py 2539 with the Companions the limit
+    keeps (Idol of Grold). PoB ignores the line.
+  sources: [builder/search/models.py (COMPANION_PER_TYPE, companion_per_type_model), builder/search/assumptions.py 2539]
+  status: proposed
+
+- id: model-read-puppet-master
+  title: 'Puppet Master''s Surpassing Chance and maximum stacks (models.puppet_master_model)'
+  kind: pob_gap
+  model: puppet_master
+  match: '^((\(\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|\d+(?:\.\d+)?)% Surpassing Chance to gain a Puppet Master stack whenever you use a Command Skill|\+(\(\d+-\d+\)|\d+) maximum stacks? of Puppet Master)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.PUPPET_CHANCE / PUPPET_MAX in puppet_master_model, called from assumptions.py 1849: the stacks the build's
+    Command uses keep up (uses x chance x duration, capped at the base + the "+N maximum stacks" lines), as minions' Skill
+    Speed; 0 with a note when no Command is mapped. PoB ignores both lines.
+  sources: [builder/search/models.py (PUPPET_CHANCE, PUPPET_MAX, puppet_master_model), builder/search/assumptions.py 1849]
+  status: proposed
+
+- id: model-read-glory-lines
+  title: 'Glory retained on use, Banner Glory generation, Glory when your Marks Activate (models.glory_lines)'
+  kind: pob_gap
+  model: glory
+  match: '^((\(\d+-\d+\)|\d+(?:\.\d+)?)% chance for Skills to retain 40% of Glory on use|(\(\d+-\d+\)|\d+(?:\.\d+)?)% (increased|reduced) Glory generation for Banner Skills|A random Skill that requires Glory generates (\d+(?:\.\d+)?)% of its maximum Glory when your Marks Activate)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.GLORY_RETAIN / GLORY_INC ("for Banner Skills": banner_inc, Banner skills only) / GLORY_MARK in glory_lines,
+    which glory_plan (models.py 8869) turns into the build's Glory skill uses (retain: the Glory a use consumes x (1 - 0.4 x
+    the chance); mark: glory_mark_rate). PoB ignores all three. ("increased Glory generation" lines for Tribute stay
+    unread there and aren't matched here.)
+  sources: [builder/search/models.py (GLORY_RETAIN, GLORY_INC, GLORY_MARK, glory_lines, glory_plan)]
+  status: proposed
+
+- id: model-read-seals
+  title: '"Sealed Skills have +N to maximum Seals / N% increased Seal gain frequency" (the Seal models)'
+  kind: pob_gap
+  model: seals
+  match: '^Sealed Skills have (\+(\d+) to maximum Seals|(\(\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|\d+(?:\.\d+)?)% (increased|reduced) Seal gain frequency)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.SEAL_MAX_LINE / SEAL_FREQUENCY_LINE, read by burgeon_model and salvo_model (models.py 3394 / 3396) and
+    freezing_salvo_model (assumptions.py 1797). PoB ignores both lines.
+  sources: [builder/search/models.py (SEAL_MAX_LINE, SEAL_FREQUENCY_LINE, burgeon_model, salvo_model, freezing_salvo_model)]
+  status: proposed
+
+- id: model-read-escalating-mayhem
+  title: '"N% increased Damage for each Hazard triggered Recently, up to N%" (models.escalating_mayhem_model)'
+  kind: pob_gap
+  model: escalating_mayhem
+  match: '^(\d+(?:\.\d+)?)% increased Damage for each Hazard triggered Recently, up to (\d+(?:\.\d+)?)%$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.ESCALATING_MAYHEM in escalating_mayhem_model, called from assumptions.py 1898, at the build's own hazards set off
+    in the past 4 s. PoB parses it under Multiplier:HazardsTriggeredRecently, which only its Configuration sets.
+  sources: [builder/search/models.py (ESCALATING_MAYHEM, escalating_mayhem_model), builder/search/assumptions.py 1898]
+  status: proposed
+
+- id: model-read-dodge-distance-rolled-recently
+  title: '"-N metres to Dodge Roll distance if you''ve Dodge Rolled Recently" (models.dodge_roll; Lioneye''s Glare)'
+  kind: pob_gap
+  model: dodge_roll
+  match: '^-(\d+(?:\.\d+)?) metres? to Dodge Roll distance if you''ve Dodge Rolled Recently$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.dodge_roll counts a distance line whose condition is "if you've Dodge Rolled Recently" (the model rolls every
+    DODGE_EVERY s, so it holds): Lioneye's Glare's downside. Its "+2 metres ... if you haven't Dodge Rolled Recently" the
+    model rates 0, and "+0.5 metres ... while Surrounded" only with "Require N fewer enemies": both left open here, as
+    model-dodge-roll-distance left them.
+  sources: [builder/search/models.py (DODGE_DISTANCE, dodge_roll)]
+  status: proposed
+
+- id: model-read-ward-on-reviving-minion-killed
+  title: '"Recover N% of maximum Runic Ward when one of your Reviving Minions is Killed" (models.ward_income)'
+  kind: pob_gap
+  model: ward_income
+  match: '^Recover (\d+(?:\.\d+)?)% of maximum Runic Ward when one of your Reviving Minions is Killed$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.WARD_ON_MINION_KILLED in ward_income (assumptions.py 2824), at the build's own minions Killed a second
+    (models.minion_deaths, every Killed minion taken as Reviving: LOW, the model's label). PoB ignores the line.
+  sources: [builder/search/models.py (WARD_ON_MINION_KILLED, ward_income)]
+  status: proposed
+
+- id: model-read-bodyguards
+  title: '"Minions in your Presence have Onslaught while you are on Low Runic Ward" (models.bodyguards_model)'
+  kind: pob_gap
+  model: bodyguards
+  match: '^Minions in your Presence have Onslaught while you are on Low Runic Ward$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.BODYGUARDS in bodyguards_model (assumptions.py 2727): Onslaught's 20% Skill Speed for minions at the share of
+    the fight on Low Runic Ward. PoB ignores the line.
+  sources: [builder/search/models.py (BODYGUARDS, bodyguards_model), builder/search/assumptions.py 2727]
+  status: proposed
+
+- id: model-read-charm-not-consume
+  title: '"N% chance for Charms you use to not consume Charges" (flasks.charm_not_consume)'
+  kind: pob_gap
+  model: flasks
+  match: '^(\(\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|\d+(?:\.\d+)?)% chance for Charms you use to not consume Charges$'
+  replace: []
+  confidence: theory
+  notes: >-
+    flasks.CHARM_NOT_CONSUME (MECHC21), summed by charm_not_consume into the charm's charges per use (flasks.py 181,
+    charges_per_use), so more charm uses. PoB ignores the line.
+  sources: [builder/search/flasks.py (CHARM_NOT_CONSUME, charm_not_consume, charges_per_use)]
+  status: proposed
+
+- id: model-read-es-from-life-flask
+  title: '"Life Recovery from Flasks also applies to Energy Shield" (Assumptions.es_flask_income)'
+  kind: pob_gap
+  model: flasks
+  match: '^Life Recovery from Flasks also applies to Energy Shield( during Effect)?$'
+  replace: []
+  confidence: theory
+  notes: >-
+    flasks.ES_FROM_LIFE_FLASK in Assumptions.es_flask_income (MECHC23, AUDIT33 A33-1; assumptions.py 3318): Energy Shield
+    from the Life flask at its own use rate (flasks.es_recovery_per_second) into recovery's EnergyShieldFlaskRecovery,
+    where PoB applies it only to a Life flask whose effect isn't removed at full Life (Shavronne's Satchel). The "during
+    Effect" form (a Life flask's own line, FlaskZealotsOathUnique__1) is read the same way: a Life flask recovers only
+    during its effect. Replaces COV27's parsed_unused entry unused-life-flask-recovery-applies-to-es (retired).
+  sources: [builder/search/flasks.py (ES_FROM_LIFE_FLASK), builder/search/assumptions.py (es_flask_income)]
+  status: proposed
+
+- id: model-read-leech-on-spell-cast
+  title: '"Leeches N% of maximum Life when you Cast a Spell" (recovery.hit_income)'
+  kind: pob_gap
+  model: recovery
+  match: '^Leeches (\d+(?:\.\d+)?)% of maximum Life when you Cast a Spell$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.CAST_LEECH in hit_income (assumptions.py 3026): N% of maximum Life a Spell cast x the build's casts a second
+    (Leech's rate cap not applied: the model's label). Lifesprig and its Legacy rune. PoB ignores the line.
+  sources: [builder/search/recovery.py (CAST_LEECH, HIT_LINES, hit_income)]
+  status: proposed
+
+- id: model-read-life-on-minion-revived
+  title: '"Recover N% of maximum Life when one of your Minions is Revived" (recovery.spent_income)'
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\d+(?:\.\d+)?)% of maximum Life when one of your Minions is Revived$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.MINION_REVIVED (MECHC17 / MECHC21) in spent_income (assumptions.py 3023 / 3502): at the build's Persistent,
+    Reviving minions Killed a second (models.minion_deaths; each Killed one Revives once). PoB ignores the line.
+  sources: [builder/search/recovery.py (MINION_REVIVED, SPENT_LINES, spent_income), builder/search/assumptions.py (spent_rates)]
+  status: proposed
+
+- id: model-read-recover-on-combo-expended
+  title: '"Recover N% of Maximum Life / Mana when you expend at least 10 Combo" (recovery.spent_income)'
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\(\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|\d+(?:\.\d+)?)% of Maximum (Life|Mana) when you expend at least 10 Combo$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.COMBO_SPENT in spent_income (assumptions.py 3023 / 3515), at the build's own Combo spends a second. PoB
+    ignores the line.
+  sources: [builder/search/recovery.py (COMBO_SPENT, SPENT_LINES, spent_income), builder/search/assumptions.py (spent_rates)]
+  status: proposed
+
+- id: model-read-lose-tailwind-when-hit
+  title: '"Lose all Tailwind when Hit" (models.tailwind_model; The Black Insignia''s downside)'
+  kind: pob_gap
+  model: tailwind
+  match: '^Lose all Tailwind when Hit$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.tailwind_model (MECHB30, assumptions.py 1866) drops every stack at each boss hit that lands or is Blocked
+    (KeywordPopups Tailwind: "Lose all Tailwind stacks when Hit"), so the item's line is already how the model counts the
+    stacks. PoB ignores the line (its Tailwind count box has no hit rule).
+  sources: [builder/search/models.py (tailwind_model)]
+  status: proposed

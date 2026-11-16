@@ -38,7 +38,7 @@
 - id: aftershock-chance
   title: Earthbreaker, chance for your Slams to cause an additional Aftershock
   kind: pob_gap
-  match: '^(\d+)% chance for Slam Skills you use yourself to cause an additional Aftershock$'
+  match: '^(\(\d+-\d+\)|\d+)% chance for Slam Skills you use yourself to cause an additional Aftershock$'
   replace: ['Slam Skills have {1}% more DPS']
   confidence: datamined
   notes: >-
@@ -568,7 +568,7 @@
 - id: aftershock-chance-mace
   title: Mace Slams' chance to cause an additional Aftershock
   kind: pob_gap
-  match: '^(\d+)% chance for Mace Slam Skills you use yourself to cause an additional Aftershock$'
+  match: '^(\(\d+-\d+\)|\d+)% chance for Mace Slam Skills you use yourself to cause an additional Aftershock$'
   replace: ['Slam Skills have {1}% more DPS while wielding a Mace']
   confidence: datamined
   notes: "As aftershock-chance: an Aftershock repeats the slam's damage in the same area (poe2db glossary). 'while wielding a Mace' keeps PoB's Mace condition ('with Maces' parses without it)."

@@ -134,3 +134,33 @@ def test_olrovasaras_power_line_adds_maximum_lightning_to_its_own_attacks(engine
     assert abs(dps(70, own + [stand_in], 2000) - dps(90)) < 1e-6 * plain
     assert dps(70, own + [stand_in], 0) == plain
     assert dps(70, own + [stand_in], 2000, skill="Spark 20/0 1") == dps(70, skill="Spark 20/0 1")
+
+
+RANGED_ITEM_LINES = [  # (COV37) each entry matched single rolls only, so a unique's or rune's ranged text slipped past
+    "(20-30)% increased chance to inflict Bleeding", "(20-30)% increased chance to Poison",
+    "(10-16)% chance for Mace Slam Skills you use yourself to cause an additional Aftershock",
+    "(5-10)% chance for Slam Skills you use yourself to cause an additional Aftershock",
+    "(30-40)% increased Magnitude of Elemental Ailments you inflict with Spells",
+    "Minions have (35-45)% increased Magnitude of Damaging Ailments",
+    "(10-15)% increased Magnitudes of Non-Curse Auras from your Skills",
+    "(6-8)% increased Attack Speed with Maces or Sceptres", "(12-16)% increased Critical Hit Chance with Maces or Sceptres",
+    "+(8-10)% to Critical Damage Bonus with Maces or Sceptres", "(6-8)% increased Unarmed Attack Speed with Melee Skills",
+]
+
+
+def test_ranged_item_lines_get_their_entrys_replacement_and_pob_reads_it(engine):
+    """COV37: the entries now match a rolled range ("(20-30)%"), and the replacement keeps the range, which PoB's item
+    parser rolls (Item.lua 2731, applyRange on every mod line) before ModParser reads it."""
+    from builder.ledger import item_lines, translate
+
+    added = []
+    for line in RANGED_ITEM_LINES:
+        found = translate(line)
+        assert found is not None and found[1], line
+        added += item_lines(found[1])
+    engine.call("newBuild")
+    engine.call("equip", slot="Ring 1", fields=[],
+                raw="Rarity: Rare\nProbe Ring\nAmethyst Ring\n--------\n" + "\n".join(added))
+    lines = engine.call("itemMods")["Ring 1"]["lines"]
+    unread = [l["line"] for l in lines if not l["supported"]]
+    assert len(lines) == len(added) and not unread, unread

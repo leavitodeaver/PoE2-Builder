@@ -27,7 +27,7 @@
     (scratch/cov27/probe_a33.py, POE2T2475) compares PoB's outputs with and without the line.
   sources: ["https://poe2db.tw/us/Shavronne%27s_Satchel"]
   test_in_game: "Wear Shavronne's Satchel with Energy Shield missing and drink a Life flask: ES should rise with Life."
-  status: proposed
+  status: retired  # COV37: MECH-C reads it since MECHC23 (Assumptions.es_flask_income); items-cov37.yaml model-read-es-from-life-flask
 
 - id: unused-charms-use-no-charges
   title: "Charms use no Charges (Pragmatism): nothing in PoB or the tool reads it; the charm uptime still charges each use"

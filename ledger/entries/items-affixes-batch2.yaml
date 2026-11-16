@@ -6,7 +6,7 @@
 - id: items-increased-poison-chance
   title: Increased chance to Poison, as PoB's INC PoisonChance
   kind: pob_gap
-  match: '^(\d+)% increased chance to Poison$'
+  match: '^(\(\d+-\d+\)|\d+)% increased chance to Poison$'
   replace: ['{1}% increased to Poison']
   confidence: datamined
   notes: >-
@@ -26,7 +26,7 @@
 - id: items-increased-bleed-chance
   title: Increased chance to inflict Bleeding, as PoB's INC BleedChance
   kind: pob_gap
-  match: '^(\d+)% increased chance to inflict Bleeding$'
+  match: '^(\(\d+-\d+\)|\d+)% increased chance to inflict Bleeding$'
   replace: ['{1}% increased to inflict Bleeding']
   confidence: datamined
   notes: >-
@@ -77,7 +77,7 @@
 - id: items-non-curse-aura-magnitudes
   title: Increased Magnitudes of Non-Curse Auras from your Skills, as PoB's aura effect
   kind: pob_gap
-  match: '^(\d+)% increased Magnitudes of Non-Curse Auras from your Skills$'
+  match: '^(\(\d+-\d+\)|\d+)% increased Magnitudes of Non-Curse Auras from your Skills$'
   replace: ['{1}% increased Effect of Non-Curse Auras from your Skills']
   confidence: datamined
   notes: >-
@@ -93,7 +93,7 @@
 - id: items-mace-attack-speed
   title: Jewel line "increased Attack Speed with Maces or Sceptres", as PoB's "with Maces"
   kind: pob_gap
-  match: '^(\d+)% increased Attack Speed with Maces or Sceptres$'
+  match: '^(\(\d+-\d+\)|\d+)% increased Attack Speed with Maces or Sceptres$'
   replace: ['{1}% increased Attack Speed with Maces']
   confidence: datamined
   notes: >-
@@ -106,7 +106,7 @@
 - id: items-mace-crit-chance
   title: Jewel line "increased Critical Hit Chance with Maces or Sceptres", as PoB's "with Maces"
   kind: pob_gap
-  match: '^(\d+)% increased Critical Hit Chance with Maces or Sceptres$'
+  match: '^(\(\d+-\d+\)|\d+)% increased Critical Hit Chance with Maces or Sceptres$'
   replace: ['{1}% increased Critical Hit Chance with Maces']
   confidence: datamined
   notes: "As items-mace-attack-speed (CritChanceWithMaceJewel)."
@@ -116,7 +116,7 @@
 - id: items-mace-crit-damage-bonus
   title: Jewel line "to Critical Damage Bonus with Maces or Sceptres", as PoB's "with Maces"
   kind: pob_gap
-  match: '^\+(\d+)% to Critical Damage Bonus with Maces or Sceptres$'
+  match: '^\+(\(\d+-\d+\)|\d+)% to Critical Damage Bonus with Maces or Sceptres$'
   replace: ['+{1}% to Critical Damage Bonus with Maces']
   confidence: datamined
   notes: "As items-mace-attack-speed (CritMultiplierWithMaceJewel)."
@@ -126,7 +126,7 @@
 - id: items-unarmed-melee-attack-speed
   title: Increased Unarmed Attack Speed with Melee Skills, as PoB's unarmed melee attack speed
   kind: pob_gap
-  match: '^(\d+)% increased Unarmed Attack Speed with Melee Skills$'
+  match: '^(\(\d+-\d+\)|\d+)% increased Unarmed Attack Speed with Melee Skills$'
   replace: ['{1}% increased Attack Speed with Unarmed Melee Attacks']
   confidence: datamined
   notes: "The game's stat unarmed_melee_attack_speed_+% (UnarmedAttackSpeedJewel); PoB's \"with unarmed melee attacks\" (ModFlag Unarmed, Melee) with Speed."

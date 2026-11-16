@@ -642,8 +642,15 @@ def resolver_condition(line: str):
         if var in c.DEBUFFS and (m := c._debuff_pattern(var).search(rolled)) and not c.DEBUFF_NOT_SOURCE.search(rolled):
             when = (m.group(2) if m.group(2) is not None else f"{m.group(3)} {m.group(4)}").lower()
             # (the events _debuff_source rates: your hits and crits, the boss's hits on you or your Blocks, your
-            # Presence, your curses, Full Breaks; any other wording it rates 0, so the line stays open here)
-            if not re.search(r"\bkill|heavy stun|immobilis|shapeshift|burning|socketed|\bfrozen by\b", when) and                     re.search(r"presence|you curse|fully (?:armour )?break|block|hit you|critical|on hit", when):
+            # Presence, your curses, Full Breaks; any other wording it rates 0, so the line stays open here). (COV37) And
+            # the events it has rated since: your Poisons / Ignites / Shocks (WHEN_YOU_AILMENT, MECH63's Murkshaft line),
+            # the boss's Stuns on you (MECHC25's Blinding Flash), a raised shield's Blind (MECHC21's Bastion of Light), and
+            # a Warcry-subject line with no "when" (MECH78)
+            if not re.search(r"\bkill|heavy stun|immobilis|shapeshift|burning|socketed|\bfrozen by\b", when) and (
+                    re.search(r"presence|you curse|fully (?:armour )?break|block|hit you|critical|on hit|stun you", when)
+                    or c.WHEN_YOU_AILMENT.search(when)
+                    or ("shield is raised" in when and var == "conditionEnemyBlinded")
+                    or (not when.strip() and c.WARCRIES_SUBJECT.search(rolled))):
                 return condition
         elif var.endswith("Exposure") and (m := c.EXPOSURE_SOURCE.search(rolled)) and                 m.group(2).lower() in ("elemental", "", var[len("conditionEnemy"):-len("Exposure")].lower()):
             # (COV29: plain "Exposure" is all three elements, as conditions._exposure_uptime reads it since MECH69)

@@ -424,11 +424,11 @@ def test_a_parsed_line_pob_reads_but_the_tool_doesnt_count_is_reported_not_appli
     reads = coverage.calc_reads()
     satchel = "Life Recovery from Flasks also applies to Energy Shield"
     assert coverage.name_read("LifeFlaskAppliesToEnergyShield", reads)  # (why the audit called it counted)
-    entry = parsed_unused(satchel)
-    assert entry and entry.id == "unused-life-flask-recovery-applies-to-es" and entry.raw["owner"] == "MECH-C"
-    assert not entry.replace and parsed_unused(satchel + " during Effect") == entry
-    status, found, reason = coverage.unused_status(satchel, entry)
-    assert (status, found) == ("none", entry.id) and "MECH-C" in reason
+    # (COV37) MECH-C reads it since MECHC23 (Assumptions.es_flask_income), so its parsed_unused entry is retired and the
+    # audit says the model counts it
+    assert parsed_unused(satchel) is None and parsed_unused(satchel + " during Effect") is None
+    status, found, reason = coverage.noop_status(satchel, ["LifeFlaskAppliesToEnergyShield"], True)
+    assert (status, found) == ("model", "model-read-es-from-life-flask")
     # (COV35) "Charms use no Charges" was the no-op example with an entry naming its owner; MECH-C reads it since
     # MECHC25 (flasks.CHARMS_FREE), so its parsed_unused entry is retired and the no-op is closed by the model
     status, found, reason = coverage.noop_status("Charms use no Charges", ["CharmsUseNoCharges"], True)
@@ -526,3 +526,53 @@ def test_rampart_raptors_reloaded_recently_line_counts_as_the_models():
     for gap in (" ", "\n"):
         line = f"Bolts fired by Crossbow Attacks have 100% chance to not{gap}expend Ammunition if you've Reloaded Recently"
         assert model_entry(line).id == "model-read-reloaded-recently-ammunition"
+    # (COV37) Reusable Ammunition's first half, a line of its own in PoB's 0.5 tree (the model joins neighbours)
+    assert model_entry("Bolts fired by Crossbow Attacks have 30% chance to not").id ==         "model-read-reloaded-recently-ammunition"
+
+
+def test_item_lines_a_model_reads_count_as_the_models():
+    """COV37: lines whose model was already live (its regex and caller checked) count as read, each by its own entry;
+    the conditional dodge-roll lines the model rates 0 stay open."""
+    from builder.ledger import model_entry
+
+    cases = {
+        "You can have two Companions of different types": "model-read-companion-limit",
+        "You can have any number of Companions of different types": "model-read-companion-limit",
+        "15% increased Damage per each different Companion in your Presence": "model-read-companion-per-type",
+        "(40-50)% Surpassing Chance to gain a Puppet Master stack whenever you use a Command Skill": "model-read-puppet-master",
+        "+(3-4) maximum stacks of Puppet Master": "model-read-puppet-master",
+        "(20-30)% chance for Skills to retain 40% of Glory on use": "model-read-glory-lines",
+        "(15-20)% increased Glory generation for Banner Skills": "model-read-glory-lines",
+        "A random Skill that requires Glory generates 50% of its maximum Glory when your Marks Activate":
+            "model-read-glory-lines",
+        "Sealed Skills have +1 to maximum Seals": "model-read-seals",
+        "Sealed Skills have (21-35)% increased Seal gain frequency": "model-read-seals",
+        "10% increased Damage for each Hazard triggered Recently, up to 50%": "model-read-escalating-mayhem",
+        "-1 metre to Dodge Roll distance if you've Dodge Rolled Recently": "model-read-dodge-distance-rolled-recently",
+        "Recover 3% of maximum Runic Ward when one of your Reviving Minions is Killed":
+            "model-read-ward-on-reviving-minion-killed",
+        "Minions in your Presence have Onslaught while you are on Low Runic Ward": "model-read-bodyguards",
+        "(10-18)% chance for Charms you use to not consume Charges": "model-read-charm-not-consume",
+        "Life Recovery from Flasks also applies to Energy Shield": "model-read-es-from-life-flask",
+        "Life Recovery from Flasks also applies to Energy Shield during Effect": "model-read-es-from-life-flask",
+        "Leeches 1% of maximum Life when you Cast a Spell": "model-read-leech-on-spell-cast",
+        "Recover 3% of maximum Life when one of your Minions is Revived": "model-read-life-on-minion-revived",
+        "Recover (6-12)% of Maximum Life when you expend at least 10 Combo": "model-read-recover-on-combo-expended",
+        "Lose all Tailwind when Hit": "model-read-lose-tailwind-when-hit",
+    }
+    for line, entry in cases.items():
+        assert (found := model_entry(line)) is not None and found.id == entry, line
+    for line in ("+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently",
+                 "20% increased Glory generation for Tribute"):
+        found = model_entry(line)
+        assert found is None or not found.id.startswith("model-read-"), line
+
+
+def test_debuff_lines_whose_event_the_model_rates_count_as_resolver_sources():
+    """COV37: conditions._debuff_source rates Blind from your Poisons (MECH63), from the boss's Stuns on you (MECHC25) and
+    from a raised shield (MECHC21), so the audit counts those lines as the resolver's; a kill-event Blind stays open."""
+    for line in ("Blind Targets when you Poison them", "Blind Enemies when they Stun you",
+                 "Blind Enemies 6 metres in front of you every 2 seconds while your Shield is raised"):
+        found = coverage.resolver_condition(line)
+        assert found is not None and found.var == "conditionEnemyBlinded", line
+    assert coverage.resolver_condition("Blind Enemies when you Kill them") is None
