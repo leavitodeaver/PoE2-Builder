@@ -841,6 +841,14 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
                 elif condition := resolver_condition(line["line"]):
                     status, entry, why = ("model", f"condition:{condition.var}",
                                           f"{why}; a source of {condition.label} for the condition resolver")
+                elif source_type in ("unique", "affix") and (fixed := wrong(line["line"], line.get("unique"))):
+                    # (COV36) a pob_wrong entry replaces the line on items (context.corrected_raw, items.corrected_item),
+                    # as noop_status already asks: Indigon's "for each 200 total Mana Spent Recently" lines (PoB's
+                    # Multiplier:ManaSpentRecently only by its Configuration box) are COV32's shares at the build's own
+                    # Mana spent (uniques-cov32.yaml)
+                    status, entry = "ledger", fixed[0].id
+                    why += ("; switched off on items, a model reads it (pob_wrong)" if fixed[1] is None
+                            else "; replaced on items by a line PoB calculates (pob_wrong)")
                 else:
                     status, entry = "none", None
                 add("never-on", source, kind, line["line"], status, entry, why, weight, of=source_type,

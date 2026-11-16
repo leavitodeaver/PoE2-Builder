@@ -503,3 +503,16 @@ def test_a_multiplier_tag_with_an_actor_names_that_actors_multiplier():
     assert needs([{"g": ["Multiplier=player:IdolsInEquipment"]}]) == ["Multiplier:IdolsInEquipment"]
     assert needs([{"g": ["Multiplier=enemy:ChillEffect"]}]) == ["enemy:Multiplier:ChillEffect"]
     assert needs([{"g": ["Multiplier=Rage"]}]) == ["Multiplier:Rage"]
+
+
+def test_a_never_on_item_line_a_pob_wrong_entry_replaces_is_counted():
+    """COV36: Indigon's "for each 200 total Mana Spent Recently" lines are parsed under Multiplier:ManaSpentRecently (only
+    PoB's Configuration box sets it), but COV32's pob_wrong entries replace them on items with shares at the build's own
+    Mana spent: the never-on check now asks wrong() on item lines, as noop_status does."""
+    from builder.data import data_dir
+
+    if not (data_dir() / "coverage.json").exists():
+        pytest.skip("no coverage.json")
+    rows = [r for r in coverage.audit()["records"] if r["category"] == "never-on"
+            and r["line"].endswith("increased Cost of Skills for each 200 total Mana Spent Recently")]
+    assert rows and all(r["status"] == "ledger" and r["entry"] == "wrong-indigon-cost-per-mana-spent" for r in rows)
