@@ -90,3 +90,18 @@
   sources: ["builder/search/models.py (PROJECTILE_HIT_RANGE, projectile_hit_recently_model)",
             "vendor/PathOfBuilding-PoE2/src/Data/ModCache.lua 93"]
   status: proposed
+
+- id: model-read-reloaded-recently-ammunition
+  title: models.reloaded_recently_model reads it (Rampart Raptor, the crossbow passives)
+  kind: pob_gap
+  model: reloaded_recently
+  match: '^Bolts fired by Crossbow Attacks have (\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to not\s+expend Ammunition if you''ve Reloaded Recently$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.RELOADED_RECENTLY / reloaded_recently_model (MECHB31, PATCH_CHECK MB-6), called from assumptions.py 1898: the
+    chance over the clip from PoB's own FiringRate / BoltCount / ChanceToNotConsumeAmmo (PoB's Condition:ReloadedRecently
+    is set only by its Configuration box). It joins neighbouring source lines, so Rampart Raptor's two-line form (PoB's
+    text breaks after "not") counts too. This entry only says a model reads the line; it adds nothing to PoB.
+  sources: [builder/search/models.py (RELOADED_RECENTLY, reloaded_recently_model), builder/search/assumptions.py 1898]
+  status: proposed

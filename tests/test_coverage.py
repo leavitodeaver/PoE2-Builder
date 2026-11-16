@@ -516,3 +516,13 @@ def test_a_never_on_item_line_a_pob_wrong_entry_replaces_is_counted():
     rows = [r for r in coverage.audit()["records"] if r["category"] == "never-on"
             and r["line"].endswith("increased Cost of Skills for each 200 total Mana Spent Recently")]
     assert rows and all(r["status"] == "ledger" and r["entry"] == "wrong-indigon-cost-per-mana-spent" for r in rows)
+
+
+def test_rampart_raptors_reloaded_recently_line_counts_as_the_models():
+    """COV36: models.reloaded_recently_model (MECHB31) reads "... chance to not expend Ammunition if you've Reloaded
+    Recently", in one line or broken after "not" (Rampart Raptor's PoB text)."""
+    from builder.ledger import model_entry
+
+    for gap in (" ", "\n"):
+        line = f"Bolts fired by Crossbow Attacks have 100% chance to not{gap}expend Ammunition if you've Reloaded Recently"
+        assert model_entry(line).id == "model-read-reloaded-recently-ammunition"
