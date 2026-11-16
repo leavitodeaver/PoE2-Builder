@@ -1507,7 +1507,7 @@ def test_coat_of_reds_bleed_on_you_reads_the_bosss_landed_physical_hits():
     assert f"{bleeding * 0.15 * boss_hits.hit_sizes('Arbiter of Ash')['Physical']:,.0f}" in notes[0]["basis"]  # (biggest)
     moving = boss_hits.self_bleed([line], {**stats, "_rolling": 0.5})[0]
     assert moving == pytest.approx(taken * 1.5)
-    assert "Energy Shield" in boss_hits.self_bleed([line], {**stats, "EnergyShield": 500})[1][0]["basis"]
+    assert "Life only" in notes[0]["basis"]  # (Bleeding bypasses Energy Shield: objective.self_bleed_taken)
     assert boss_hits.self_bleed(["+100 to maximum Life"], stats) == (0.0, [])
     dodged = boss_hits.self_bleed([line], {**stats, "EvadeChance": 50})[0]
     assert 0 < dodged < taken
@@ -1530,3 +1530,33 @@ def test_redflares_shock_on_you_at_the_rate_its_power_charges_refill():
     assert mods[0]["value"] == pytest.approx(5.0) and mods[0]["condition"] == "Shocked"
     assert self_shock_taken_mods(texts, [{"kind": "Raw"}]) == ([], "")  # (Overcharge's own mod is there)
     assert shocked.value_fn(texts[:2], {**stats, "_texts": texts[:2]}) == (0.0, "")
+
+
+def test_widows_reign_and_your_own_bleed_reach_life_only():
+    """MECHC32: Widow's Reign (RESEARCH26 R26-40 (a), SETTLED): reserved Life can't be healed, so Life recovery counts only
+    past a damage-free window between the boss's landed hits (e^(-hits x window)), 0 under your own steady Life loss.
+    The manager's 09:09 ruling: Coat of Red's Bleed on you is Life's own loss (it bypasses Energy Shield), through
+    Build.added_stats, not PoB's Physical degen: it stops Life Recharge, never ES Recharge."""
+    from builder.search import objective
+    from builder.search.run import recovery_text
+
+    stats = {"_boss": "Arbiter of Ash", "PhysicalTakenHit": 300.0, "FireTakenHit": 300.0, "enemySkillTime": 1.0,
+             "LifeRegenRecovery": 400.0, "ManaRegenRecovery": 50.0}
+    plain = objective.boss_recovery(stats)
+    held = objective.boss_recovery({**stats, objective.LIFE_RESERVED_SECONDS: 3.0})
+    open_share = math.exp(-plain["hits"] * 3.0)
+    assert held["life_reserved_open"] == pytest.approx(open_share)
+    assert held["parts"]["Life"] == pytest.approx(plain["parts"]["Life"] * open_share)
+    assert "Widow's Reign" in recovery_text(held) and plain["life_reserved_open"] is None
+    bled = {**stats, objective.SELF_BLEED_PER_SECOND: 100.0, "PhysicalTakenDotMult": 0.8}
+    assert objective.self_bleed_taken(bled) == pytest.approx(80.0)
+    assert objective.own_loss({**bled, "EnergyShield": 500})["Life"] == pytest.approx(80.0)
+    assert objective.own_loss({**bled, "EnergyShield": 500})["EnergyShield"] == 0.0
+    assert objective.boss_recovery(bled)["incoming"] == pytest.approx(plain["incoming"] + 80.0)
+    # (your own steady Life loss keeps the reservation up: no Life recovery at all under Widow's Reign)
+    assert objective.boss_recovery({**bled, objective.LIFE_RESERVED_SECONDS: 3.0})["life_reserved_open"] == 0.0
+    from builder.search.assumptions import LIFE_RESERVED
+
+    for text in ("Life that would be lost by taking Damage is instead Reserved\nuntil you take no Damage to Life for 3 seconds",
+                 "Life that would be lost by taking Damage is instead Reserved until you take no Damage to Life for 3 seconds"):
+        assert LIFE_RESERVED.search(text).group(1) == "3"  # (the item's two lines, or one)

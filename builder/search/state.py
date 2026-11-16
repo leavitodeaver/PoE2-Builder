@@ -315,6 +315,12 @@ class Build:
             died = getattr(self, "minion_died", None)
             events = (float(died[0]) if damage > 0 and died else 0.0) + (max(float(ignites), 0.0) if burn > 0 else 0.0)
             own = {"SelfDamagePerSecond": damage, "SelfFireDamagePerSecond": burn, "SelfDamageEvents": events}
+        # (MECHC32, a MECH-C hook: Widow's Reign's window, objective.life_reserved_open)
+        if (held := getattr(self, "life_reserved_seconds", 0.0) or 0.0) > 0:
+            own["LifeReservedOnDamageSeconds"] = held
+        # (MECHC32, a MECH-C hook: the Bleed your own item inflicts on you, Life only: objective.self_bleed_taken)
+        if (bleed := getattr(self, "self_bleed", 0.0) or 0.0) > 0:
+            own["SelfBleedPerSecond"] = bleed
         return {**self.recovery_sources, **self.extra_stats, **self.boss_stats, **own}
 
     # Snapshots ---------------------------------------------------------------------------------

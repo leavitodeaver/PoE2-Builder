@@ -174,6 +174,7 @@ RECOVERY_INPUTS = sorted({f for fields, cost in RECOVERY_POOLS.values() for f in
                             "FireTakenDotMult"}  # (own_loss)
                          | {f"{t}{f}" for t in RECOVERY_DAMAGE_TYPES for f in ("BuildDegen", "EnergyShieldBypass")}
                          | set(boss_hits.BIGGEST_FIELDS))  # (the biggest-hit row: Armour against a bigger hit)
+# (LIFE_RESERVED_SECONDS isn't a PoB field: Build.added_stats gives it)
 
 
 def boss_taken(stats: dict, every: float | None = None) -> tuple[dict[str, float], float, float]:
@@ -248,10 +249,26 @@ SELF_EVENTS, SELF_PER_SECOND, SELF_FIRE_PER_SECOND = "SelfDamageEvents", "SelfDa
 SELF_DAMAGE = {"Physical": SELF_PER_SECOND, "Fire": SELF_FIRE_PER_SECOND}  # the per-event damage in each type's degen
 
 
+# Bleeding your own item inflicts on you (MECHC32; the manager's 09:09 ruling, item 3): Coat of Red's Bleed
+# (boss_hits.self_bleed, per second before your damage-over-time modifiers) reaches here through Build.added_stats, not
+# PoB, because "Damage from Bleeding bypasses Energy Shield" (KeywordPopups Bleeding) and PoB has no Life-only damage over
+# time (its Physical degen would let Energy Shield take it and stop ES Recharge). Counted as Life's own steady loss (it
+# stops Life Recharge, never ES Recharge) at PoB's PhysicalTakenDotMult, and as incoming in the recovery share.
+SELF_BLEED_PER_SECOND = "SelfBleedPerSecond"
+
+
+def self_bleed_taken(stats: dict) -> float:
+    """Life lost a second to the Bleed your own item inflicts on you (the comment above), after your DoT modifiers."""
+    raw = max(number(stats.get(SELF_BLEED_PER_SECOND)), 0.0)
+    if raw <= 0:
+        return 0.0
+    return raw * (number(stats.get("PhysicalTakenDotMult")) if "PhysicalTakenDotMult" in stats else 1.0)
+
+
 def own_loss(stats: dict) -> dict[str, float]:
     """The build's own steady loss per second on each pool ({"EnergyShield": ..., "Life": ...}), without the per-event
     Heartbound damage (own_events)."""
-    out = {"EnergyShield": 0.0, "Life": 0.0}
+    out = {"EnergyShield": 0.0, "Life": self_bleed_taken(stats)}
     es = number(stats.get("EnergyShield")) > 0
     for t in RECOVERY_DAMAGE_TYPES:
         degen = max(number(stats.get(f"{t}BuildDegen")), 0.0)
@@ -345,10 +362,33 @@ def life_recharge(stats: dict, hits: float) -> tuple[float, float]:
     return recharge * share, share
 
 
+# Widow's Reign (MECHC32; RESEARCH26 R26-40 (a), SETTLED MEDIUM, plans5-five-in-game-checks-r26.md: "Life that would be lost
+# by taking Damage is instead Reserved until you take no Damage to Life for 3 seconds", Mod UniqueLifeLossReservesLife1;
+# poe2wiki: the reserved Life isn't given back when the reservation ends, "Modifiers to Life Recovery Rate have no effect
+# on the reservation"; forum 3908703: "while your life is 'reserved' like this you cannot heal that life in any way"). So
+# while Life damage comes within the window, regeneration, leech, flasks and recoup refill no Life; they work only after a
+# gap of the window with no Life damage. Before, nothing read it (PoB's DamageInsteadReservesLife flag only resizes its
+# EHP pool, CalcDefence 2872): an OVERCOUNT of Life recovery for any build wearing it. The share of the fight past such a
+# gap: e^(-landed hits a second x window) (hits evenly random, LOW-MEDIUM; every landed hit taken to reach Life, an
+# undercount of the open share where Energy Shield takes whole hits), 0 under the build's own steady Life loss (it never
+# stops). Its window comes from the line (Assumptions.models: build.life_reserved_seconds, Build.added_stats).
+LIFE_RESERVED_SECONDS = "LifeReservedOnDamageSeconds"
+
+
+def life_reserved_open(stats: dict, hits: float) -> float | None:
+    """Share of the fight Life recovery works under Widow's Reign (the comment above); None without the line."""
+    window = number(stats.get(LIFE_RESERVED_SECONDS))
+    if window <= 0:
+        return None
+    if own_loss(stats)["Life"] > 0:
+        return 0.0
+    return math.exp(-max(hits, 0.0) * window)
+
+
 def boss_recovery(stats: dict) -> dict:
     """Recovery per second against a boss, the boss's damage per second after mitigation, and the share recovered."""
     taken, hits, deflect = boss_taken(stats)
-    own = max(number(stats.get(BUILD_DEGEN)), 0.0)
+    own = max(number(stats.get(BUILD_DEGEN)), 0.0) + self_bleed_taken(stats)  # (MECHC32: your own item's Bleed)
     incoming = sum(taken.values()) + own
     parts = {}
     for pool, (fields, cost) in RECOVERY_POOLS.items():
@@ -363,11 +403,16 @@ def boss_recovery(stats: dict) -> dict:
     life_back, life_share = life_recharge(stats, hits)
     if life_back > 0:  # (the two recharges together refill at most the incoming damage)
         parts["Life recharge"] = min(life_back, max(incoming - parts.get("Energy Shield recharge", 0.0), 0.0))
+    reserved = life_reserved_open(stats, hits)  # (MECHC32: Widow's Reign, Life recovery only after a damage-free window)
+    if reserved is not None:
+        for key in ("Life", "Life recharge"):
+            if key in parts:
+                parts[key] *= reserved
     recovery = sum(parts.values())
     share = recovery / incoming if incoming > 0 else float("inf")
     result = {"recovery": recovery, "incoming": incoming, "share": share, "parts": parts, "hits": hits,
               "deflect": 1 - deflect, "no_deflect_share": share, "own_degen": own, "recharging": recharging,
-              "life_recharging": life_share,
+              "life_recharging": life_share, "life_reserved_open": reserved,
               "recharge_stopped": [name for pool, name, field in (("EnergyShield", "Energy Shield", "EnergyShieldRecharge"),
                                                                   ("Life", "Life", "LifeRecharge"))
                                    if number(stats.get(field)) > 0 and own_loss(stats)[pool] > 0]}

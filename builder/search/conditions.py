@@ -444,7 +444,8 @@ def event_rates(groups: list[dict], gems: dict[str, dict], main_skill: str, main
 # your own minions Killed (the manager's ruling on A17-4: Killed minions count as Kills, LOW, held for an in-game test).
 # Lines that say "enemy" or "monster" read the adds only (your minions are allies: KeywordPopups MinionDeath / Allies);
 # a plain "on Kill" line reads both. In stats["_kills"] (Conditions.evidence), (enemies/s, all/s, how).
-# - "Rare or Unique": the adds' rarity isn't in the presets; they're taken as Normal or Magic (UNVERIFIED, LOW: an
+# - "Rare or Unique": the adds are taken as Normal (RESEARCH26 R26-55, ASSUMED MEDIUM: no summoned_monster_rarity
+#   on the King's Affliction Totem or Atziri's Royal Acolyte summon skills, their Life and fixed names fit Normal; an
 #   undercount if some are Rare), your minions aren't enemies, and the boss's own death ends the fight: 0, labelled.
 # - "with <weapon>" / "Killing Blow with <weapon>": only with that weapon held (either slot).
 # - "affected by <X>" / "Culling Strike": counted as every kill (LOW, an overcount where the build doesn't apply X / can't
@@ -463,8 +464,9 @@ def kill_events(when: str, stats: dict) -> tuple[float, str]:
         return 0.0, "on kill: the build's kills weren't read (0)"
     enemies, total, how = kills
     if re.search(r"\brare\b|\bunique\b", when):
-        return 0.0, ("on killing a Rare or Unique enemy: 0 (the boss's death ends the fight; its adds taken as Normal or "
-                     "Magic, UNVERIFIED: the presets don't give their rarity; your minions aren't enemies)")
+        return 0.0, ("on killing a Rare or Unique enemy: 0 (the boss's death ends the fight; its adds taken as Normal, "
+                     "ASSUMED MEDIUM: no rarity stat on their summon skills, RESEARCH26 R26-55; your minions aren't "
+                     "enemies)")
     if weapon := re.search(rf"\b(?:with|using) (?:an? )?({KILL_WEAPONS})\b", when):
         word = weapon.group(1)
         word = {"quarterstaves": "quarterstaff", "staves": "staff", "axes": "axe"}.get(word, word.rstrip("s"))
@@ -875,8 +877,9 @@ CHARGE_REDIRECTED = "gained instead of"  # (in a basis: the use box goes on from
 # in your Presence, and each that gains it gives you a copy: you hold the charges your sources make, as without
 # Conduit, once you have an ally (a minion skill in the build: the ally must be able to hold the charge; a minion holds
 # 3 of each, Monster.ot). One copy per gain, not one per minion (ASSUMED, LOW-MEDIUM); the 0 without the share-back is
-# the other figure.
-CHARGE_SHARE_BACK = re.compile(r"\ballies in your presence share charges with you\b", re.I)
+# the other figure. Conduit with no ally: no charge (RESEARCH26 R26-21 (e), ASSUMED MEDIUM-LOW: "instead" sends the gain
+# to the allies, and you aren't your own Ally; plans2-in-game-checks-r26.md).
+CHARGE_SHARE_BACK =re.compile(r"\ballies in your presence share charges with you\b", re.I)
 
 
 def _charge_sources(lines: list[str], kind: str) -> tuple[list[str], str]:
@@ -1223,7 +1226,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         # leaves on you (boss_hits.es_dot: share p of landed hits, d s each) keeps the loss paused d s longer, so the loss
         # runs e^(-land x (pause + sum p d)) of the time. Bleeding / Poison on you aren't in es_dot (they bypass ES) but
         # pause Rage loss too: the boss presets' Bleeding (Olroth) isn't counted here, a small overcount of the loss.
-        # Grounds: 0, you step out of them, as for ES.)
+        # Grounds: 0, you step out of them, as for ES (not all can be: boss_hits.GROUNDS_NOTE, RESEARCH26 R26-59).)
         level = min(most, net / events)  # (each gain, held `pause` s, then lost `decay` per s while no hit pauses it)
         gap = 1 / events
         dots = boss_hits.es_dot(stats, land=land)

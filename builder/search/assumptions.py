@@ -552,6 +552,9 @@ MAX_BLOCK_ADDER = re.compile(r"^([+-]\d+(?:\.\d+)?)% to maximum Block chance$", 
 MAX_BLOCK_CONDITIONAL = re.compile(r"^[+-]\d+(?:\.\d+)?% to maximum Block chance (?:if|while|when) ", re.I)
 MAX_BLOCK_TO_RES = re.compile(r"^Modifiers to Maximum Block Chance instead apply to Maximum Resistances$", re.I)
 TURTLE_TAG = "TurtleCharm"
+# Widow's Reign's line (MECHC32; objective.life_reserved_open): the item shows it over two lines, PoB's sourceLines too
+LIFE_RESERVED = re.compile(r"Life that would be lost by taking Damage is instead Reserved\s+until you take no Damage to "
+                           r"Life for (\d+(?:\.\d+)?) seconds", re.I)
 # Stalking Panther + "Evasion Rating is doubled if you have not been Hit Recently" (MECHC32; RESEARCH27 R27-4 (3),
 # wording-sets-vs-adds-audit.md item 3; the manager, 15 Nov 23:30: "x2 headline vs x4, labelled UNVERIFIED"). PoB parses
 # the Huntress notable's "Evasion Rating from Equipped Helmet, Gloves and Boots is doubled" as Evasion MORE 100 on those
@@ -1750,6 +1753,22 @@ class Assumptions:
         # (the defence cadence): in PoB as Physical damage taken per second (boss_hits.self_bleed)
         from builder.search import boss_hits
 
+        # (MECHC32) Widow's Reign: its damage-free window for objective.life_reserved_open (Build.added_stats); the line
+        # may come split over two of the item's lines, so read the joined text
+        held = LIFE_RESERVED.search("\n".join(e["text"].strip() for e in source_lines))
+        build.life_reserved_seconds = float(held.group(1)) if held else 0.0
+        if held:
+            hand_notes = hand_notes + [{
+                "label": "Life Reserved instead of lost (Widow's Reign)*",
+                "value": f"Life recovery only after {held.group(1)} s with no Life damage",
+                "basis": ("\"Life that would be lost by taking Damage is instead Reserved until you take no Damage to Life "
+                          f"for {held.group(1)} seconds\": the reserved Life isn't given back and can't be healed while "
+                          "reserved (RESEARCH26 R26-40 (a), SETTLED MEDIUM), so the recovery check counts Life recovery "
+                          "only in the share of the fight past such a gap between the boss's landed hits (evenly random, "
+                          "LOW-MEDIUM; 0 under your own steady Life loss); without it: Life recovery all fight"),
+                "confidence": "MEDIUM (rule) / LOW-MEDIUM (the gaps)"}]
+
+        build.self_bleed = 0.0
         if any(boss_hits.SELF_BLEED.match(e["text"].strip()) for e in source_lines):
             seen = dict(build.call("stats", fields=list(boss_hits.SELF_BLEED_FIELDS)))
             boss_name = getattr(getattr(build, "ctx", None), "request", None)
@@ -1759,8 +1778,9 @@ class Assumptions:
                                    if str(n.get("label", "")).startswith("Time spent dodge rolling")
                                    and (m := re.match(r"([\d.]+)%", str(n.get("value")))))
             bleed, bleed_notes = boss_hits.self_bleed([e["text"] for e in source_lines], seen)
-            if bleed > 0:
-                hand_mods = hand_mods + [models.line("1 Physical Damage taken per second", bleed)]
+            # (the manager's 09:09 ruling: Life only, through Build.added_stats, objective.self_bleed_taken; not PoB's
+            # Physical degen, which Energy Shield would take)
+            build.self_bleed = bleed
             hand_notes = hand_notes + bleed_notes
         jiquani_mods, jiquani_notes = models.jiquani_model([e["text"] for e in source_lines])  # (MECHC9, A12-2)
         hand_mods, hand_notes = hand_mods + jiquani_mods, hand_notes + jiquani_notes
@@ -3619,7 +3639,9 @@ class Assumptions:
                  "Life flasks": number(extra.get(flasks.RECOVERY_FIELDS["Life"])),
                  "recoup and Life on Block": objective.recoup(hit, taken, "Life") + objective.on_block(hit, "Life", every),
                  "kills, Remnants, charms, events and spending": max(before, 0.0)}
-        costs = number(hit.get("LifePerSecondCost")) + max(number(hit.get(objective.BUILD_DEGEN)), 0.0) * share
+        costs = (number(hit.get("LifePerSecondCost")) + max(number(hit.get(objective.BUILD_DEGEN)), 0.0) * share
+                 + objective.self_bleed_taken({**hit, objective.SELF_BLEED_PER_SECOND: getattr(build, "self_bleed", 0.0)}))
+        # (MECHC32: your own item's Bleed, Life only)
         refill = max(sum(gains.values()) - costs, 0.0)
         refill_how = (", ".join(f"{k} {v:,.1f}" for k, v in gains.items() if v > 0) or "no other Life recovery") + (
             f", less {costs:,.1f} Life costs and own damage over time" if costs > 0 else "") + (
@@ -4854,6 +4876,8 @@ def mountain_splitter_slam(main: str | None, main_types: set[str], main_info: di
 # Labelled: Mana flasks, leech and recoup refilling faster aren't counted (an OVERCOUNT of missing Mana: MECH-C's
 # recovery model could give a fuller refill rate); other skills' Mana costs aren't counted (an UNDERCOUNT); reserved Mana
 # taken as not missing (UNVERIFIED either way); a hit's share from Mana taken as the lines' sum, uncapped at 100%.
+# Whole tens only, rounded down (RESEARCH26 R26-7, ASSUMED MEDIUM-LOW: the game's integer "per X" rule; PoB floors too;
+# force-of-will-r26.md): the k tens above are whole.
 MANA_BEFORE_LIFE = re.compile(r"^(\d+(?:\.\d+)?)% of Damage is taken from Mana before Life$", re.I)
 
 

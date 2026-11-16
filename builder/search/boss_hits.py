@@ -526,7 +526,8 @@ CADENCE_NOTE = ("the boss's hits: for defences and recovery one every PoB's enem
 #   Ignite) x PoB's SelfIgniteDuration.
 # - Corrupted Blood (Atziri's BloodSpearPulse, 3 s, stacking; "is not Bleeding", so it hits ES: MEDIUM-HIGH): one of her
 #   damaging skills, at its share of her hits (LOW).
-# - Degen grounds (8 bosses): you can step out of them: 0, with a play note (RESEARCH21's advice; LOW).
+# - Degen grounds (8 bosses): you can step out of most of them: 0, with a play note (RESEARCH21's advice; LOW; the
+#   exceptions, RESEARCH26 R26-59, at GROUNDS_NOTE).
 # - Bleeding (Olroth) and Poison bypass ES: they don't delay its Recharge.
 # ---------------------------------------------------------------------------------------------------------------------
 IGNITE_SECONDS = 4.0  # KeywordPopups Ignite: Fire damage over time for 4 s by default (HIGH)
@@ -547,7 +548,14 @@ FLAMMABILITY_SECONDS = 4.0
 # scan).
 IGNITE_INCREASE = {"Arbiter of Ash": (20,), "Atziri, the Red Queen": (80,), "Atziri, the Fell Serpent": (80,)}
 CORRUPTED_BLOOD = {"Atziri, the Red Queen": 3.0, "Atziri, the Fell Serpent": 3.0}  # seconds (BloodSpearPulse, RESEARCH13)
-GROUNDS_NOTE = ("the boss's damaging grounds aren't counted: step out of them (8 of 13 bosses have one; LOW)")
+# (RESEARCH26 R26-59, LOW-MEDIUM, boss-dot-on-player-es-r26.md: placed grounds are taken as 0 stands, but NOT every
+# pinnacle damage over time can be stepped out of: the King in the Mists' maze phase (80% Physical / 20% Chaos over time,
+# escaped fast; the boss is immune then), Ritual of Meditation (moving brings an unavoidable punishing hit), the Affliction
+# Totems / Portent Vapors (damage over time, not grounds); the Bodach's and Kulemak's grounds last all fight (whether the
+# arena leaves room: UNVERIFIED). None of these is counted: an UNDERCOUNT of damage taken on those bosses, named here.)
+GROUNDS_NOTE = ("the boss's damaging grounds aren't counted: step out of them (8 of 13 bosses have one; LOW); not all "
+                "can be (the King's maze, Ritual of Meditation's punishing hit, the Affliction Totems' damage over time, "
+                "the Bodach's and Kulemak's all-fight grounds: not counted, an undercount on those bosses)")
 
 
 def ignite_chance(stats: dict, land: float = 0.0) -> tuple[float, str]:
@@ -713,11 +721,12 @@ def deflect_kept(stats: dict, what: str) -> tuple[float, str]:
 #   1 - e^(-rate x 5 s) of the fight (hits taken as evenly random);
 # - damage while Bleeding: 15% of the boss's AVERAGE Physical hit (mean_hits, what PoB's hits use) a second, x2 for the
 #   share of the fight you move (stats["_rolling"], the build's dodge rolls; 0 when not read: standing while attacking),
-#   the biggest ordinary Physical hit as a row; your damage-over-time-taken modifiers apply on PoB (PhysicalTakenDotMult).
-# On PoB as "N Physical Damage taken per second" (the average, as Heartbound Loop's), so recovery, the Life flask's
-# dips and sustain see it. PoB has no Life-only damage over time: it lets Energy Shield take its Physical share (LOW: on
-# an Energy Shield build the game's Bleed goes to Life and doesn't stop ES Recharge; PoB's split and the steady loss
-# understate Life's loss and stop the Recharge: named in the note).
+#   the biggest ordinary Physical hit as a row; your damage-over-time-taken modifiers (PoB's PhysicalTakenDotMult) apply.
+# Not on PoB: PoB has no Life-only damage over time (its Physical degen would let Energy Shield take it and stop ES
+# Recharge). The manager's 09:09 ruling: Life only, through Build.added_stats (SelfBleedPerSecond) to
+# objective.self_bleed_taken: Life's own steady loss (stops Life Recharge, not ES Recharge), incoming in the recovery
+# share, Life costs in the Life refill (Assumptions), at PoB's PhysicalTakenDotMult. (Before this, turn 1 of MECHC32
+# put it on PoB as Physical degen, labelled LOW for ES builds.)
 SELF_BLEED = re.compile(r"^(\d+(?:\.\d+)?)% chance to be inflicted with Bleeding when Hit$", re.I)
 BLEED_SECONDS, BLEED_SHARE_PER_SECOND, BLEED_MOVING_MORE = 5.0, 0.15, 1.0
 SELF_BLEED_FIELDS = ("enemySkillTime", "EvadeChance", "EffectiveBlockChance", "DeflectChance", "EnergyShield")
@@ -743,7 +752,6 @@ def self_bleed(texts: list[str], stats: dict) -> tuple[float, list[dict]]:
         return bleeding * BLEED_SHARE_PER_SECOND * hit * (1 + BLEED_MOVING_MORE * moving)
 
     taken, harsh = dot(mean), dot(big)
-    es = number(stats.get("EnergyShield")) > 0
     if rate <= 0:
         basis = (f"{chance:.0%} chance when Hit, but none of the boss's landed hits deal Physical damage (or none land), so "
                  "no Bleed (LOW-MEDIUM: a hit with no Physical damage taken to inflict none)")
@@ -755,10 +763,8 @@ def self_bleed(texts: list[str], stats: dict) -> tuple[float, list[dict]]:
                  f"({mean:,.0f}) a second" + (f", x2 for the {moving:.0%} of the fight you move" if moving else
                                               " (standing while attacking; x2 while you move)")
                  + f": {taken:,.0f} a second on average before your damage-over-time modifiers; at its biggest ordinary "
-                 f"Physical hit ({big:,.0f}): {harsh:,.0f}. Without it: 0. On PoB as Physical damage taken per second")
-        if es:
-            basis += (" (PoB lets Energy Shield take part of it and treats it as a steady loss, which stops ES Recharge; "
-                      "the game's Bleeding bypasses Energy Shield: LOW for this build)")
+                 f"Physical hit ({big:,.0f}): {harsh:,.0f}. Without it: 0. Taken from Life only (Bleeding bypasses Energy Shield; it stops Life Recharge, not ES "
+                 "Recharge)")
     return taken, [{"label": "Bleeding inflicted on you when Hit (your item's downside)*",
                     "value": f"{taken:,.0f} Physical damage a second (Bleeding {bleeding:.0%} of the fight)",
                     "basis": basis, "confidence": "MEDIUM (rate, the game's numbers) / LOW (a hit with no Physical "

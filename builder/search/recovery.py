@@ -114,7 +114,8 @@ GLORY_SPENT = re.compile(rf"recover {NUM}% of maximum life per glory consumed", 
 COMBO_SPENT = re.compile(rf"recover {NUM}% of maximum (life|mana) when you expend at least 10 combo", re.I)
 COMBO_AT_LEAST = 10.0
 CORPSE_LIFE = re.compile(rf"recover {NUM}% of maximum life when you consume a corpse", re.I)
-CORPSE_MANA = re.compile(rf"regenerate {NUM}% of maximum mana over 2 seconds when you consume a corpse", re.I)
+CORPSE_MANA = re.compile(rf"regenerate {NUM}% of maximum mana over 2 seconds when you consume a corpse", re.I)  # (no PoE2 carrier: PoE1's Essence Glutton;
+# RESEARCH26 R26-69, HIGH, checked every Stat column of the game tables, PoB-PoE2's Uniques and poe2db; kept, harmless)
 OFFERING_LIFE = re.compile(rf"recover {NUM}% of maximum life when you create an offering", re.I)
 # (MECHC18) you_gain_%_life_when_one_of_your_minions_is_revived (Stats 19093; the passive minion_defence9 and two Soul Core
 # rows, MECHC17's carrier check): at the build's Persistent, Reviving minions Killed a second (models.minion_deaths: every
@@ -133,7 +134,8 @@ SPENT_LINES = (ENDURANCE_SPENT, POWER_SPENT, GLORY_SPENT, COMBO_SPENT, CORPSE_LI
 # maximum Life when you Cast a Spell")
 MISSING_BEFORE_HIT = re.compile(rf"recover {NUM}% of missing life before being hit by an enemy", re.I)
 ARMOUR_ON_BLOCK = re.compile(rf"regenerate {NUM}% of your armour as life over 1 second when you block", re.I)
-CAST_REGEN = re.compile(rf"regenerate {NUM} life over 1 second when you cast a spell", re.I)
+CAST_REGEN = re.compile(rf"regenerate {NUM} life over 1 second when you cast a spell", re.I)  # (no PoE2 carrier either: RESEARCH26 R26-69, HIGH;
+# PoE2's Lifesprig has the Leech line below instead; kept, harmless)
 CAST_LEECH = re.compile(rf"leeches {NUM}% of maximum life when you cast a spell", re.I)
 # "Regenerate N% of maximum Life over 1 second when Stunned" (regenerate_%_life_over_1_second_when_stunned; two
 # passives; PoB's ModCache {nil, ...}: parsed to no mod): at the boss's hits that Light Stun you (MECHC15, stuns_taken)

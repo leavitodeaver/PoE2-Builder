@@ -11,7 +11,7 @@ fight; your own minions aren't enemies, so killing them gives none). The search 
   sustain floor (objective.SUSTAIN_POOLS), whether or not its effect counts
 
 Charms that trigger on killing a Rare or Unique enemy never count: the boss's own death ends the fight, and its
-adds are taken as Normal or Magic (UNVERIFIED: the boss presets don't give their rarity).
+adds are taken as Normal (RESEARCH26 R26-55, ASSUMED MEDIUM: no rarity stat on their summon skills).
 Charge numbers per item come from PoB (bridge `flaskData`, local modifiers included); charge
 generation and scaling from the committed build (bridge `chargeGain`).
 """
@@ -405,7 +405,10 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
 # 1.21 s at 20; PoB's level stats via bridge.chargeGain). Which kind each Bloom is: no source gives the split, a third
 # each (LOW-MEDIUM, UNVERIFIED). Every Bloom collected (as assumptions.py's Remnants; a play note: walk to each; it clashes
 # with standing still, labelled there). Whether "Ancient Blooms have N% increased effect" (remnant_effect_+%, 100 at level
-# 20) scales the 5: UNVERIFIED, leaning yes: the headline counts 5 (the lower reading), bloom_note gives the higher.
+# 20) scales the 5: UNVERIFIED, leaning yes (RESEARCH26 R26-45 (c), MEDIUM-LOW: the game keeps
+# virtual_ancient_gifts_*_charges_restored beside the base 5s, and virtual stats hold values after modifiers; the code
+# already scales Into the Breach's Flames by Remnant effect): the headline counts 5 (the lower reading), bloom_note
+# gives the higher. The kind split: no source (R26-45 (c), LOW).
 # Charges a Bloom gives go to every flask of that kind; generation modifiers ("increased Flask Charges gained") taken to
 # apply (MEDIUM: they are charges gained).
 BLOOM_KIND_SHARE = 1 / 3
@@ -432,7 +435,7 @@ def bloom_note(gain: Charges) -> str:
             f"{gain.bloom_mana:g} charges each: {bloom_charges(gain, 'Mana'):.2f} charges/s to each Mana Flask, "
             f"{bloom_charges(gain, 'Life'):.2f} to each Life Flask, {bloom_charges(gain, 'Charm'):.2f} to each Charm, "
             f"every Bloom collected (walk to each); {bloom_charges(gain, 'Mana', True):.2f} each if their "
-            f"{gain.bloom_effect:g}% increased effect scales the charges (UNVERIFIED, not counted)")
+            f"{gain.bloom_effect:g}% increased effect scales the charges (UNVERIFIED, leaning yes, MEDIUM-LOW: not counted)")
 
 
 # Charges from kills (MECHC9, AUDIT23 A23-4; before, none: "nothing dies"). The game files' KeywordPopups (build
@@ -526,7 +529,8 @@ def charm_extra_uses(gain: Charges, raw: str) -> tuple[float, str]:
 # Stats.json id holding charm with no_charge / not_consume / charges_used / free, and their Mods carriers: this one
 # alone holds it; PoB's Uniques: Pragmatism, body.lua 571; patch notes: no hit for "Pragmatism" or "use no Charges",
 # which isn't proof of no change). Each charm is then used each time its trigger fires (trigger_rate) while its effect
-# is down, at most once per its effect (as its other uses); a trigger this doesn't read: once per its effect (the
+# is down, at most once per its effect (as its other uses; SETTLED, RESEARCH26 R26-5: not reusable during its own effect,
+# MEDIUM-HIGH); a trigger this doesn't read: once per its effect (the
 # charm's own pace, UNVERIFIED). A charm that waits for a kill still never fires on a lone boss.
 CHARMS_FREE = re.compile(r"^\s*charms use no charges\s*$", re.I | re.M)
 
@@ -719,7 +723,9 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
         return 0.0, "no charges per use read"
     # (MECHC3, merged in MECHC4: Reverie's "Cannot use Life Flasks"; a Mana Flask whose charges a Concoction main skill
     # throws. Life and Mana flask effects queue (RESEARCH A5-6, MEDIUM-HIGH: "Life Flask Effects do not Queue" exists only
-    # as Enduring Elixirs' exception), so their uses aren't capped by the duration; charms keep the cap, no rule found)
+    # as Enduring Elixirs' exception), so their uses aren't capped by the duration; charms keep the cap: SETTLED, a charm
+    # can't be used again during its own effect (RESEARCH26 R26-5, MEDIUM-HIGH: poe2wiki Charm "cannot be reused until
+    # the duration expires", forum 3771536's unequip workaround; no stat allows it; flask-reuse-r26.md))
     if pool == "Life" and gain.life_flask_unusable:
         return 0.0, "Life Flasks can't be used (Cannot use Life Flasks)"
     if thrown(gain, pool):

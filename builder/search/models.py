@@ -9363,7 +9363,7 @@ SANGUINE_CONSUMED = 0.4  # of the full Life Flask's charges, consumed on Hit, 1%
 def sanguine_model(inputs: Inputs, stats: dict, flask_charges: float | None = None) -> tuple[list[dict], list[dict]]:
     """Sanguine Tides (RESEARCH4, sanguine-tides.md): 1 Life Flask charge per 2% of Life spent; on Hit with a full Life Flask,
     40% of its charges are consumed for 1% of damage as Physical each, for 5 s. The buff refreshes rather than stacks
-    (poe2wiki, MEDIUM), so it is one value, 0.4 x the flask's maximum charges, up while refills come within 5 s: gain =
+    (poe2wiki; SETTLED by RESEARCH26 R26-28: BuffDefinitions MergeMode 3, MEDIUM-HIGH), so it is one value, 0.4 x the flask's maximum charges, up while refills come within 5 s: gain =
     min(0.4 C, 2.5 x % of Life spent per second) (before, 2.5 x L% uncapped: an overcount above the cap). `flask_charges`:
     the equipped Life Flask's maximum charges, 0 with none (no flask to consume: nothing); None leaves it uncapped (tests)."""
     if not inputs.has(SANGUINE):
@@ -9392,7 +9392,7 @@ def sanguine_model(inputs: Inputs, stats: dict, flask_charges: float | None = No
         "label": "Sanguine Tides: damage gained as Physical", "value": f"{gain:.1f}%",
         "basis": f"the main skill spends {spent:,.0f} Life/s ({spent / life:.1%} of {life:,.0f} per second): 1 Life Flask charge per 2% spent, "
                  "40% of the full flask's charges consumed on Hit, 1% each for 5 s; the buff refreshes, it doesn't stack "
-                 "(poe2wiki, MEDIUM)"
+                 "(SETTLED, MEDIUM-HIGH: the game's BuffDefinitions MergeMode 3, one copy refreshed; RESEARCH26 R26-28)"
                  + (f", so it is capped at {cap:.0f}% (40% of the Life Flask's {flask_charges:.0f} charges)" if capped else
                     (f"; the flask refills too slowly to keep its {cap:.0f}% up, so it is up part of the time" if cap else ""))
                  + "; you hit the boss whenever the flask is full",
