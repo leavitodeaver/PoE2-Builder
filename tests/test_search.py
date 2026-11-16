@@ -3617,3 +3617,13 @@ def test_the_search_offers_the_plain_loreweave_the_generic_price_buys():
     assert not any("Extra Chaos" in line or "Ignites you inflict spread" in line for line in lines)
     assert "Selected Base Variant: 1" in text and "{base:2}Runemastered Ornate Ringmail" in text  # (base versions kept)
     assert loreweave.offered("Kaom's Heart", raw) == raw
+
+
+def test_a_recipe_made_base_with_no_price_is_offered_only_in_ssf():
+    """RESEARCH27 (the manager, 15 Nov 23:30): Grasping Mail is made from 60 Breach Rings, not picked up, and our price
+    feed has neither, so it (and its Runeforged / Runemastered / Runefather's rows) is offered only in SSF until priced."""
+    from builder.search.context import crafted_base_unpriced
+
+    for name in ("Grasping Mail", "Runeforged Grasping Mail", "Runefather's Grasping Mail"):
+        assert crafted_base_unpriced(name, ssf=False) and not crafted_base_unpriced(name, ssf=True)
+    assert not crafted_base_unpriced("Breach Ring", ssf=False) and not crafted_base_unpriced("Ornate Ringmail", ssf=False)

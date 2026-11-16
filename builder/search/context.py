@@ -136,6 +136,23 @@ ITEM_SKILL_GEMS = {
 # only"), each with two sources that agree: item_options and skill_source leave them out, so the search never offers one;
 # a PoB code or a request that names one still prices it (unique_option). COV25, from PoB's "Source: No longer obtainable"
 # tags (vendor PoB Data/Uniques) and the research in its report.
+# Bases you can't pick up: made by a recipe whose inputs cost something (SEARCH24; the manager, 15 Nov 23:30, from
+# RESEARCH27, INDEX R27-2). Grasping Mail (a rare-able body armour, level 65, "Can roll Ring Modifiers") is made from 60
+# Breach Rings (any of the eight Breach ring types) at the Genesis Tree's Grasping Orchid (poe2db Equip Recipe; IGGM);
+# its Runeforged / Runemastered / Runefather's rows start from one (builder/data/runeforging.json). The search offered
+# them as free plain bases (and built rares on them), a base no one gets for nothing: an OVERCOUNT of value per divine.
+# Our price feed has no Breach Ring and no Grasping Mail line (checked: data/prices/<league>/exchange/*.json and
+# uniques/*.json, 15 Nov), so under the user's "no price, no offer" they are offered only in SSF (where no item is
+# priced) until a price for the rings or the base exists.
+CRAFTED_BASES: dict[str, str] = {"Grasping Mail": "60 Breach Rings at the Genesis Tree (Grasping Orchid)"}
+
+
+def crafted_base_unpriced(name: str, ssf: bool) -> bool:
+    """True for a recipe-made base (CRAFTED_BASES, by its plain name: "Runeforged Grasping Mail" is a Grasping Mail)
+    that has no price, outside SSF."""
+    return not ssf and any(name == base or name.endswith(" " + base) for base in CRAFTED_BASES)
+
+
 GONE_UNIQUES: dict[str, str] = {
     # The official 0.3.0 notes (pathofexile.com forum 3826682): "The following Uniques can no longer drop, and will be
     # reintroduced at a later date: Infernoclasp, Forbidden Gaze, Thunderstep, The Wailing Wall, The Fallen Formation,
@@ -541,6 +558,8 @@ class Context:
         for base in self.data.bases:
             # Bases only uniques use (Golden Visage, ...) and weapon classes not in the game yet
             # are never normal, magic or rare items (builder/data/game_rules.yaml)
+            if crafted_base_unpriced(base["name"], self.ssf):
+                continue  # (Grasping Mail: 60 Breach Rings, unpriced: no price, no offer; CRAFTED_BASES)
             if self._base_ok(base) and self._style_ok(base) and rules.normal_base_ok(base):
                 options.setdefault(base["type"], []).append(ItemOption(
                     base["name"], base["name"], base["type"], base.get("subType"), normal_item(base), False,
