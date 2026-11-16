@@ -611,11 +611,15 @@ def test_fluke_counts_the_middle_of_its_range_on_the_skills_the_meta_triggers():
 
 
 def test_alignment_counts_at_a_match_share_with_its_play_note():
-    # RESEARCH10 / the manager's revised ruling: one matched attack per 1.5 s (LOW) against the skill's attack rate
+    # one matched attack per max(1 s, 1.4 x 5 m / (3.7 m/s x movement speed)) (MECHB35, R26-37; was a flat 1.5 s)
     stat = "support_called_shots_projectile_damage_+%_final_when_matching_direction"
     bow = models.Skill("Lightning Arrow", group=1, attack=True, support_stats={stat: 40})
     mods, notes = models.gem_stat_model([bow], stats={"Speed": 3.0}, main=bow)
-    share = (1 / models.ALIGNMENT_MATCH_SECONDS) / 3.0
+    every = 1.4 * 5 / 3.7
+    assert models.alignment_seconds(bow, {})[0] == pytest.approx(every)
+    assert models.alignment_seconds(bow, {"MovementSpeedMod": 2.5})[0] == pytest.approx(1.0)  # (the 1 s floor)
+    assert models.alignment_seconds(models.Skill("Ice Strike", group=1, attack=True, melee=True), {})[0] == 1.0
+    share = (1 / every) / 3.0
     assert [(m["line"], m.get("skill")) for m in mods] == [("1% more Projectile Damage", "Lightning Arrow")]
     assert mods[0]["scale"] == pytest.approx(40 * share, abs=0.01)  # ~x1.09, not x1.40
     assert "step round the boss" in notes[0]["play"] and "Without it" in notes[0]["play"]
@@ -5831,4 +5835,27 @@ def test_frost_darts_counts_its_chunks_on_a_chilled_boss_and_its_explosions_on_i
     mods, _ = models.frost_darts_model("Frost Darts", "Explosion", sets, 3, 0.0, "x", 0.0, "y", 0.3)
     assert mods == [models.raw_mod("DPS", "MORE", 100 * (100 / 300 - 1), "Frost Darts")]
     assert models.frost_darts_model("Spark", "Projectile", sets, 3, 1, "", 1, "", 0.3) == ([], [])
+
+
+def test_a_side_untether_fills_from_the_other_pressed_skills_at_their_pressed_rates():
+    """MECHB35 (MECHB33's open undercount): the feed adds every Full DPS entry press_model scaled, at its scale, less
+    the main skill's and Untether's own; unpressed entries (minions) stay out."""
+    entries = [{"name": "Spark", "dps": 1000.0}, {"name": "Frost Bomb", "dps": 400.0, "count": 1},
+               {"name": "Best Ignite DPS", "source": "Frost Bomb", "dps": 100.0}, {"name": "Untether", "dps": 50.0},
+               {"name": "Raging Spirit", "dps": 300.0}]
+    scales = {"Spark": 0.9, "Frost Bomb": 0.25, "Best Ignite DPS from Frost Bomb": 0.5, "Untether": 0.1}
+    total, how = models.untether_side_feed(entries, scales, "Spark")
+    assert total == pytest.approx(400 * 0.25 + 100 * 0.5) and "Frost Bomb" in how and "Raging" not in how
+    assert models.untether_side_feed(entries, {}, "Spark") == (0.0, "")
+
+
+def test_mantra_fed_by_another_skills_strikes_is_pressed_only_where_the_trade_pays():
+    """MECHB35: N = 8 / (1 x 1) builder Strikes at 2/s (4 s) + a 1 s cast = 5 s a cycle; one Empowered attack at +69%
+    of a 1 s attack is 0.69 s of damage: a loss, not pressed; with 10 Empowered attacks of 1 s, 6.9 s > 5 s: pressed
+    back to back, the main attack keeping 10 / (10 + 5) of its time."""
+    time, share, how = models.mantra_fed_cycle(1.0, 69, 1, 8, 1.0, 1.0, 2.0, "Tempest Flurry", 1.0)
+    assert (time, share) == (1.0, 0.0) and "not pressed" in how
+    time, share, how = models.mantra_fed_cycle(1.0, 69, 10, 8, 1.0, 1.0, 2.0, "Tempest Flurry", 1.0)
+    assert time == pytest.approx(10 / 15) and share == 1.0 and "back to back" in how
+    assert models.mantra_fed_cycle(1.0, 69, 1, 8, 1.0, 1.0, 0.0, "", 1.0)[:2] == (1.0, 0.0)
 

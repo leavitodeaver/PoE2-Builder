@@ -3558,12 +3558,31 @@ def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[
 # directions and changes it each time an attack matches it (within called_shot_angle_allowance_degs 40). Against one boss
 # the boss must lie in the shown direction, so after each match the player moves round the boss before the next attack
 # can match: matched attacks per second are at most one per (the hidden called_shot_aiming_delay_ms 1000, meaning
-# UNVERIFIED + the reposition time). ALIGNMENT_MATCH_SECONDS is that interval: a flat LOW number (the game and the
+# UNVERIFIED + the reposition time). That interval was a flat LOW number (the game and the
 # boss's movement decide it; no data gives it; RESEARCH10's ~1.5 s), named in the report for the manager to ask about.
 # RESEARCH26 R26-37 (alignment-aiming-delay-r26.md): ASSUMED, LOW: called_shot_aiming_delay_ms has no game text; circling
-# ~80 degrees round the boss between matches is ~1.4 x the distance in metres, so 1.5 s stays; a later model could
-# derive max(1 s, 1.4 x distance / movement speed) from the build.
-ALIGNMENT_MATCH_SECONDS = 1.5
+# ~80 degrees round the boss between matches is ~1.4 x the distance in metres. MECHB35 (the manager 16 Nov 09:36): the
+# interval now comes from the build (the no-flat-rate rule): max(ALIGNMENT_DELAY 1 s, 1.4 x the distance / (usage.BASE_RUN
+# 3.7 m/s, MEDIUM: Character.ot base_speed 37, COVC9 / RESEARCH20 #80 / RESEARCH21 #118, x the build's MovementSpeedMod)),
+# the distance the tool's natural one for the skill (MELEE_DISTANCE 2 m / RANGED_DISTANCE 5 m): a ranged build at 0%
+# movement speed 1.89 s (was the flat 1.5 s, an OVERCOUNT of its matches), a melee one the 1 s floor. LOW (the delay's
+# meaning, the 80-degree average arc, walking while attacking at full speed).
+ALIGNMENT_DELAY = 1.0  # called_shot_aiming_delay_ms 1000 read as the floor between matches (UNVERIFIED meaning)
+ALIGNMENT_ARC = 1.4  # radians walked round the boss between matches, on average (RESEARCH26 R26-37)
+
+
+def alignment_seconds(skill: Skill, stats: dict) -> tuple[float, str]:
+    """(seconds between matched attacks, how) from the build's distance and movement speed (see above)."""
+    from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE  # (conditions imports models)
+    from builder.search.usage import BASE_RUN  # (usage imports models)
+
+    metres = MELEE_DISTANCE if skill.melee else RANGED_DISTANCE
+    movement = number(stats.get("MovementSpeedMod")) or 1.0
+    walk = ALIGNMENT_ARC * metres / (BASE_RUN * movement)
+    seconds = max(ALIGNMENT_DELAY, walk)
+    return seconds, (f"{ALIGNMENT_ARC:g} rad round the boss at {metres:g} m = {ALIGNMENT_ARC * metres:.1f} m at "
+                     f"{BASE_RUN:g} m/s x{movement:.2f} movement speed = {walk:.2f} s, at least the {ALIGNMENT_DELAY:g} s "
+                     "aiming delay (meaning UNVERIFIED)")
 
 
 def alignment_match_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
@@ -3572,14 +3591,14 @@ def alignment_match_share(skill: Skill, stats: dict, main: Skill | None = None, 
     where = "the skill's attack rate" if is_main else ("its base attack rate (not the main skill)" if rate else "")
     if rate <= 0:
         rate, where = 1.0, "attack rate unknown, taken as 1 attack/s"
-    matches = 1 / ALIGNMENT_MATCH_SECONDS
+    every, every_how = alignment_seconds(skill, stats)
+    matches = 1 / every
     share = min(1.0, matches / rate)
-    why = (f"matched share {share:.0%}: at most one matched attack per {ALIGNMENT_MATCH_SECONDS:g} s (the 1 s hidden aiming "
-           f"delay, meaning UNVERIFIED, plus stepping round the boss to the next direction; LOW) against {rate:.2f} attacks/s "
-           f"({where})")
+    why = (f"matched share {share:.0%}: at most one matched attack per {every:.2f} s (stepping round the boss to the next "
+           f"direction: {every_how}; LOW) against {rate:.2f} attacks/s ({where})")
     play = (f"After each matched attack, step round the boss so it lies in the next indicated direction (four directions, "
             f"40 degrees' allowance); the headline counts {share:.0%} of attacks matched (one per "
-            f"{ALIGNMENT_MATCH_SECONDS:g} s, LOW). Without it (standing still) only the first attack matches: the bonus is ~0. "
+            f"{every:.2f} s at your movement speed, LOW). Without it (standing still) only the first attack matches: the bonus is ~0. "
             f"Every attack matched (not reachable against one boss at {rate:.2f} attacks/s) would give the full bonus.")
     return share, why, play
 
@@ -7186,6 +7205,25 @@ UNTETHER_STATS = ("living_bomb_damage_threshold_%_of_ailment_threshold", "living
 UNTETHER_DEFAULTS = (100.0, 5.0, 6.0)  # (threshold %, seeds, seconds: the stat set's, build 26476662)
 
 
+def untether_side_feed(entries: list[dict], scales: dict[str, float], main: str | None) -> tuple[float, str]:
+    """(damage a second the build's other pressed skills deal, at press_model's scaled rates, and how) for a side
+    Untether's seeds (MECHB35; MECHB33's open undercount): every Full DPS entry press_model scaled (press_key in
+    `scales`), less the main skill's and Untether's own (the main skill's is counted on its own). Minions, totems and
+    other unpressed Full DPS entries aren't counted (an undercount, said)."""
+    total, parts = 0.0, []
+    for e in entries:
+        name, source = e.get("name"), e.get("source")
+        key = press_key(name, source)
+        if key not in scales or main in (name, source) or UNTETHER in (name, source):
+            continue
+        dps = number(e.get("dps")) * (number(e.get("count")) or 1.0) * max(number(scales[key]), 0.0)
+        if dps > 0:
+            total += dps
+            parts.append(f"{key} {dps:,.0f}/s")
+    return total, (f"the other pressed skills' {total:,.0f}/s at their pressed rates ({', '.join(parts)}; minions, totems "
+                   "and unpressed entries not counted)" if parts else "")
+
+
 def untether_rate(need: float, feed: float, hit: float, seeds: float = 5.0, duration: float = 6.0,
                   casts: float = float("inf")) -> tuple[float, str]:
     """(Untether explosions a second, how): `need` the damage a seed waits for, `feed` the build's other damage a
@@ -7258,6 +7296,30 @@ def mantra_cycle(speed: float, hit: float, combo: float, per_hit: float, empower
     return time, share, (f"{attacks:.1f} main attacks build its {combo:g} Combo ({per_hit:g} a hit, {hit:.0%} hit), then "
                          f"its {cast:.2f} s cast: the main attack keeps {time:.1%} of its time, and {min(empowers, attacks):g} "
                          f"of each {attacks:.1f} attacks are Empowered ({share:.1%})")
+
+
+def mantra_fed_cycle(speed: float, gain: float, empowers: float, combo: float, per_hit: float, hit: float,
+                     builder_speed: float, builder: str, cast: float) -> tuple[float, float, str]:
+    """(the main attack's time share, the share of its attacks Empowered, how) for Mantra of Destruction fed by another
+    skill's Strikes (MECHB35; MECHB33's open undercount): a main Quarterstaff attack that builds no Combo itself. A cycle
+    is N = combo / (per_hit x hit) builder Strikes (1 / builder_speed each) and Mantra's cast, then M main attacks, the
+    first k Empowered (+gain% of Damage as Chaos). With C the builder's time and the cast, the main attack's damage a
+    second is (M + k gain) t / (M t + C): it pays only if k x gain x t > C, and then most at M = k (cycles back to back);
+    else Mantra isn't pressed (x1). The builder's own Strike damage isn't counted on the main skill (Full DPS has it at
+    PoB's rate), nor Combo decay between cycles (the Strikes come right before the cast)."""
+    if speed <= 0 or builder_speed <= 0 or per_hit <= 0 or hit <= 0 or combo <= 0 or empowers <= 0 or gain <= 0:
+        return 1.0, 0.0, f"{builder or 'no other skill'} can't feed its Combo here (no Strike rate or Combo read): not pressed"
+    t, strikes = 1.0 / speed, combo / (per_hit * hit)
+    cost = strikes / builder_speed + cast
+    k = empowers
+    pays = k * gain / 100 * t > cost
+    head = (f"{strikes:.1f} {builder} Strikes ({builder_speed:.2f}/s, {per_hit:g} Combo a hit) build its {combo:g} Combo, "
+            f"then its {cast:.2f} s cast: {cost:.2f} s a cycle for {k:g} Empowered attack(s) at +{gain:g}% as Chaos "
+            f"({t:.2f} s each)")
+    if not pays:
+        return 1.0, 0.0, head + f": +{k * gain / 100 * t:.2f} s of damage for {cost:.2f} s spent, a loss: not pressed"
+    time = k * t / (k * t + cost)
+    return time, 1.0, head + f": pressed back to back, the main attack keeps {time:.1%} of its time, every attack Empowered"
 
 
 def unleash_factor(speed: float, repeats: float, cooldown_pct: float, recovery: float = 1.0, empowers: float = 1.0,

@@ -978,10 +978,21 @@ def empowered_presses(build: Build, main: models.Skill | None) -> tuple[list[dic
             time, share, how = models.mantra_cycle(speed, min(number(stats.get("HitChance")) or 100.0, 100.0) / 100,
                                                    number(level.get(models.MANTRA_COMBO)) or 8.0, per_hit, empowers,
                                                    number(mantra.get("castTime")) or 1.0)
-        else:
-            time, share, how = 1.0, 0.0, ("the main attack isn't a Strike, so it builds no Combo; a Combo from another "
-                                          "skill isn't counted (its Strikes' time would come off the main attack: an "
-                                          "undercount where that trade pays)")
+        else:  # (MECHB35: the main attack builds no Combo; another of the build's Strikes feeds it, if that trade pays)
+            from builder.search.usage import MARTIAL_ADEPT, Usage
+            usage = Usage(build, None)
+            builders = [b for b in usage.combo_builders(models.MANTRA_OF_DESTRUCTION)
+                        if b[0] is not None and b[0] != main.group]
+            rates = build.call("useRates", indices=sorted({i for i, _ in builders}))["rates"] if builders else []
+            best = max(rates, key=lambda r: number(r.get("speed")), default=None)
+            per_hit = 1.0 + (1.0 if usage.has_passive(MARTIAL_ADEPT) else 0.0) + min(
+                usage.combo_chance() + (usage.group_combo_chance(best["index"]) if best else 0.0), 100.0) / 100
+            time, share, how = models.mantra_fed_cycle(
+                speed, gain, empowers, number(level.get(models.MANTRA_COMBO)) or 8.0, per_hit,
+                min(number(stats.get("HitChance")) or 100.0, 100.0) / 100,  # (the builder's hit chance taken as the main's)
+                number(best.get("speed")) if best else 0.0, best["name"] if best else "",
+                number(mantra.get("castTime")) or 1.0)
+            how = "the main attack isn't a Strike, so it builds no Combo; " + how
         if share > 0 and gain > 0:
             mods.append(models.line("Gain 1% of Damage as Extra Chaos Damage", gain * share, skill=main.name))
             mods.append(models.raw_mod("DPS", "MORE", (time - 1) * 100, skill=main.name))
@@ -2091,10 +2102,21 @@ class Assumptions:
             return self.consume_ignite(groups, rates) + self.cull_window()
         paced = {g["index"]: models.CADENCE_PACE for g in groups["groups"] if g["index"] in pressed
                  and any(x["enabled"] and x["name"] in models.CADENCE_SUPPORTS for x in g["gems"])}
+        self.untether_side_feed = (0.0, "")
         caps = self.press_caps(groups["groups"], pressed)
         near = getattr(build, models.ORB_NEAR, True) is not False  # (MECHB30: MECHC26's "without it" row switch)
         build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps,
                                                                  models.press_choices(build), near)
+        side = {g["index"] for g in groups["groups"] if g["index"] in pressed and g["index"] != main
+                and any(x["enabled"] and not x["support"] and x["name"] == models.UNTETHER for x in g["gems"])}
+        if side:  # (MECHB35: a side Untether also fills from the other pressed skills, at their pressed rates: one more pass)
+            main_name = next((r["name"] for r in rates if r["index"] == main), None)
+            self.untether_side_feed = models.untether_side_feed((build.stats or {}).get("SkillDPS") or [],
+                                                                build.objective.press_scales, main_name)
+            if self.untether_side_feed[0] > 0:
+                caps = self.press_caps(groups["groups"], pressed)
+                build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps,
+                                                                         models.press_choices(build), near)
         # (MECHB29, the manager 21:40: MECH-C's orb_remnants reads it) a pressed side Orb's Orbs a second, as press_model
         # scores it: each Orb ends at its maximum hits or its duration and is recast at once (models.orbs_per_second)
         orbs = models.orbs_per_second(rates, main, pressed, paced, caps, models.press_choices(build), near)
@@ -2445,12 +2467,15 @@ class Assumptions:
         need, seeds, duration, hit, casts, _ = self.untether_inputs(index)
         stats = self.build.call("stats", fields=list(LIVING_BOMB_FIELDS))
         added = number(getattr(getattr(self.build, "objective", None), "added_dps", 0.0))
-        feed = per_second(stats) + max(added, 0.0)
+        others, others_how = getattr(self, "untether_side_feed", (0.0, ""))
+        feed = per_second(stats) + max(added, 0.0) + max(others, 0.0)  # (MECHB35: + the other pressed skills')
         # (MECHB33; RESEARCH26 mechb33-hazards-untether-r26.md: one seed per enemy is the headline, the lower case, so no
         # overcount on an unverified reading; several seeds on the boss is the other row)
         rate, how = models.untether_rate(need, feed, hit, 1.0, duration, casts)
         several, _ = models.untether_rate(need, feed, hit, seeds, duration, casts)
         how += f" (one seed per enemy, UNVERIFIED either way); if {seeds:g} seeds can sit on the boss: {several:.3f}/s"
+        how += f"; the feed counts {others_how}" if others > 0 else (
+            "; the other pressed skills' damage not counted (none in Full DPS, or Full DPS not read)")
         return models.PressCap(rate, f"Untether: {how}", 0.0, "MEDIUM")
 
     def glory_caps(self) -> dict[str, tuple[float, str]]:
