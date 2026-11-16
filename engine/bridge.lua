@@ -1699,7 +1699,9 @@ end
 -- stat reads 2 against 969. PoB's CalcActiveSkill 439-460 inheritance doesn't reach those calculations (MECHB17 read
 -- that it did; the probe says otherwise). Living Lightning (a minion skill) and Creeping Chill (no level-scaled stat)
 -- read the same either way.
--- OPEN (MECHB17), a possible OVERCOUNT: 7 of these 34 forty-level effects look structurally different. GrantedEffects'
+-- SETTLED moot (RESEARCH26 R26-81, HIGH, unmarked-granted-skill-level-r26.md): their level rows are identical but for
+-- ActorLevel (their damage comes from fixed stats), so the copied level moves nothing; Soulbreaker's 11% crit is at level
+-- 1 only (unmodelled anywhere). MECHB17's old note, kept for the record: 7 of these 34 forty-level effects look structurally different. GrantedEffects'
 -- unnamed column after the two effectiveness floats is 40 on the other 27 and on no ordinary gem, and 0 on Soulbreaker,
 -- Burning Inscription, Hoarfrost, Savage Snare, Creeping Chill, Empowered Sparks' TriggeredSparkEmpowerPlayer and
 -- Fragment Self. poe2db has no "copy the Level" line on Creeping Chill, Soulbreaker or Fragment Self. They keep the

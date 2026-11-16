@@ -2444,7 +2444,7 @@ def test_echoing_cry_counts_each_echo_of_the_warcry():
     other = models.Skill("Infernal Cry", group=3)
     mods, notes = models.warcry_echo_model([cry, other], {2: ["Echoing Cry"], 3: []}, {"Seismic Cry", "Infernal Cry"})
     assert mods == [models.line("1% more Damage", 200, skill="Seismic Cry")]
-    assert notes[0]["confidence"] == "UNVERIFIED" and "x3 hits" == notes[0]["value"] and "Without the Echoes" in notes[0]["basis"]
+    assert notes[0]["confidence"] == "MEDIUM" and "x3 hits" == notes[0]["value"] and "Without the Echoes" in notes[0]["basis"]
 
     def part(skill, name):
         assert name == "warcry_echo"
@@ -5802,3 +5802,33 @@ def test_stalking_panther_doubles_its_slots_once_beside_the_uniques_doubling():
                      "slots": ["Helmet", "Boots", "Gloves"], "tag": "StalkingPantherOnce"}]
     assert "x4 in the other" in notes[0]["value"] and "600" in notes[0]["basis"]
     assert a.evasion_doublings([panther]) == ([], []) and a.evasion_doublings([unique]) == ([], [])
+
+
+def test_offering_spikes_keep_pobs_uptime_labelled_by_placement():
+    """MECHB35 (RESEARCH26 R26-38, ASSUMED): no death rate for a spike is known, so the uptime stays PoB's; Pain
+    Offering's note names the overcount next to melee minions; one note per Offering, none without one."""
+    skills = [Skill("Pain Offering", group=2, spell=True), Skill("Soul Offering", group=3, spell=True),
+              Skill("Spark", group=1, spell=True)]
+    notes = models.offering_placement_notes(skills)
+    assert [n["label"].split(":")[0] for n in notes] == ["Pain Offering", "Soul Offering"]
+    assert "OVERCOUNT" in notes[0]["basis"] and notes[0]["confidence"] == "LOW" and "play" in notes[0]
+    assert models.offering_placement_notes([Skill("Spark", group=1, spell=True)]) == []
+
+
+def test_frost_darts_counts_its_chunks_on_a_chilled_boss_and_its_explosions_on_infused_casts():
+    """MECHB35: one cast = dart + chilled x 2 x q x chunk + infused x (explosion + 3 x q x chunk), against the scored
+    set; q from the boss's radius (0.3 m: ~48%)."""
+    sets = [{"label": "Projectile", "TotalDPS": 100.0, "Speed": 1.0}, {"label": "Explosion", "TotalDPS": 300.0, "Speed": 1.0},
+            {"label": "Ice Chunk", "TotalDPS": 50.0, "Speed": 1.0}]
+    q = models.frost_chunk_chance(0.3)
+    assert q == pytest.approx(0.483, abs=0.01)
+    assert models.frost_chunk_chance(1.0) > models.frost_chunk_chance(0.3)
+    mods, notes = models.frost_darts_model("Frost Darts", "Projectile", sets, 3, 0.5, "x", 0.25, "y", 0.3)
+    each = 100 + 0.5 * 2 * q * 50 + 0.25 * (300 + 3 * q * 50)
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (each / 100 - 1), "Frost Darts")]
+    assert notes[0]["confidence"] == "LOW" and "all 3 darts" in notes[0]["basis"]
+    # the Explosion scored on every cast with no Infusion and no Chill: the darts alone (an overcount fixed)
+    mods, _ = models.frost_darts_model("Frost Darts", "Explosion", sets, 3, 0.0, "x", 0.0, "y", 0.3)
+    assert mods == [models.raw_mod("DPS", "MORE", 100 * (100 / 300 - 1), "Frost Darts")]
+    assert models.frost_darts_model("Spark", "Projectile", sets, 3, 1, "", 1, "", 0.3) == ([], [])
+

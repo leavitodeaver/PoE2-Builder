@@ -1839,6 +1839,7 @@ class Assumptions:
                 models.number(stats.get(bosses.KILLS_STAT)), None, None, None, 1.0)[1]
         danse_mods, danse_notes = models.danse_macabre_model(found, supports)  # (MECH-B: Danse Macabre's second skeleton)
         hand_mods, hand_notes = hand_mods + danse_mods, hand_notes + danse_notes
+        hand_notes = hand_notes + models.offering_placement_notes(found)  # (MECHB35: R26-38, labelled by placement)
         warcries = {s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")
             echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries, models.support_part_scale)
@@ -1878,6 +1879,19 @@ class Assumptions:
                                                                   up.get("Shock") if up else None, up_how,
                                                                   bosses.hit_radius(stats)[0])  # (MECHB35, R28-1)
             hand_mods, hand_notes = hand_mods + combo_mods, hand_notes + combo_notes
+        if main is not None and group and main.name == models.FROST_DARTS:  # (MECHB35: Frost Darts' whole cast)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            up, _ = models.ailment_up_of(build)
+            ground, ground_how = self.chilled_ground_share()
+            frozen = up.get("Freeze", 0.0)
+            chilled = 1 - (1 - ground) * (1 - frozen)
+            infused, infused_how = self.infusion_share(
+                "Cold", {f"conditionEnemy{models.DISCHARGE_UPTIMES[k]}": v for k, v in up.items()})
+            frost_mods, frost_notes = models.frost_darts_model(
+                main.name, main.stat_set, sets, models.number(stats.get("ProjectileCount")), chilled,
+                f"Chilled Ground {ground:.0%}: {ground_how}; Frozen {frozen:.0%}", infused, infused_how,
+                bosses.hit_radius(stats)[0], forbidden)
+            hand_mods, hand_notes = hand_mods + frost_mods, hand_notes + frost_notes
         if main is not None and group and main.name in models.WHIRL_SKILLS:  # (GEM12: Whirlwind stages, then collapse)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             whirl_mods, whirl_notes = models.whirlwind_stage_model(main, sets, forbidden)

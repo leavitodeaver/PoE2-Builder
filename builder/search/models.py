@@ -602,7 +602,8 @@ def energy_seconds(skill: Skill) -> float:
     Lightning Conduit, Skyfall and His Foul Emergence carry +1 s, Crushing Earth +1.5 s, Plasma Blast +2 s
     (total_cast_time_+_ms in their own stat sets, game files): Comet's base 1 s costs 300 Energy, not 100. Whether a
     skill's own +N s is such a modifier (300) or part of its base (200) has no game text beyond the definition: the
-    definition's reading is taken (MEDIUM; Cast on Critical's tooltip with Comet in game settles it, held for the user)."""
+    definition's reading is taken, SETTLED at 300 (MEDIUM-HIGH: RESEARCH26 R26-49 (b), own-minion-kills-and-comet-
+    energy-r26.md: 1 s cast + "+1 s to Total Cast Time", the Total use time counted double: 3 s x 100)."""
     return (skill.cast_time or 0.0) + 2 * (skill.total_time_added or 0.0)
 
 
@@ -663,7 +664,8 @@ DODGE_ROLL_SECONDS = 0.75  # DodgeRollPlayer's cast time, 750 ms (game files); m
 # while you stay within 3 m of the boss, a play condition). (checked: the game tables' Stats with dodge_roll and distance
 # or speed in their ids; Mods, PassiveSkills, SoulCoreStats, GrantedEffectStatSets(PerLevel) and GrantedEffectQuality-
 # Stats for them; PoB ModCache: none of these lines is applied, all leave text; the Sanctum-only map_player_ stat is left
-# out, a Sanctum relic.) Distance scales with movement speed (community sources only, RESEARCH 18w: LOW). "X% faster
+# out, a Sanctum relic.) Distance scales with movement speed, in the same 0.75 s (MEDIUM: RESEARCH26 R26-44 (b),
+# poe2wiki and Mobalytics, 0.5.4e fits; RESEARCH 18w had community sources only). "X% faster
 # Dodge Roll" (dodge_roll_speed_+%, one unique) shortens the roll's 0.75 s (assumed: time / (1 + X%), LOW); it doesn't
 # change the distance. Cast on Dodge's alternate quality (cast_on_dodge_dodge_roll_distance_granted_+, +0.05 m a quality)
 # isn't read: the builder sets no alternate qualities.
@@ -706,8 +708,8 @@ def dodge_roll(texts: list[str], stats: dict) -> dict:
     seconds = DODGE_ROLL_SECONDS / max(1 + faster / 100, 0.1)
     basis = (f"{base:g} m a roll ({DODGE_ROLL_METRES:g} m base"
              + (f"; {'; '.join(used)}" if used else "") + (f"; not counted: {'; '.join(skipped)}" if skipped else "")
-             + f"), x{speed:g} movement speed = {base * speed:.2f} m (rolls scaling with movement speed: community sources "
-               "only, LOW)" + (f"; each roll takes {seconds:.3g} s" if faster else ""))
+             + f"), x{speed:g} movement speed = {base * speed:.2f} m (rolls scaling with movement speed in the same "
+               "0.75 s: MEDIUM, RESEARCH26 R26-44 (b))" + (f"; each roll takes {seconds:.3g} s" if faster else ""))
     return {"metres": base * speed, "base_metres": base, "seconds": seconds, "basis": basis}
 NO_ENERGY_ON_A_BOSS: dict[str, str] = {}  # (Reaper's Invocation left it in MECHB9: it reads the boss's add kills)
 # Skills whose own use can't feed a meta skill's Energy: base_skill_cannot_generate_energy, "This Skill cannot cause Meta
@@ -1365,8 +1367,10 @@ def mirage_model(skills: list[Skill], main: Skill | None, gems: dict[str, tuple[
 # SupportHollowFormPlayer gives that Attack 30% less attack speed and 15% less damage, and it can't consume charges
 # (cannot_consume_power_frenzy_endurance_charges). poe2db agrees ("Consumes a Power Charge to create 2 additional Images",
 # 15% less damage, 30% less attack speed). PoB prices the socketed Attack as used by you at those penalties and reads
-# neither the images nor the charges. No stat gives the images made per use without a charge: one is assumed, so PoB's
-# number stands for that, and the model adds the 2 per Power Charge on the share of uses that find one.
+# neither the images nor the charges. No stat gives the images made per use without a charge: one image per channel
+# tick all through the channel, +2 per Power Charge spent (3 on a charged tick): SETTLED, MEDIUM (RESEARCH26 R26-9,
+# repeat-echo-hollow-form-r26.md: allthings.how 30 May 2026, kami-labs 0.5, switchblade 5 Jun 2026), so PoB's number
+# stands for the one, and the model adds the 2 per Power Charge on the share of uses that find one.
 HOLLOW_FORM = "Hollow Form"
 HOLLOW_IMAGES_PER_POWER = 2
 HOLLOW_EXCLUDES = {"HasUsageCondition", "Meta", "Triggered", "Persistent", "Channel"}  # (the support's excludeSkillTypes)
@@ -3556,6 +3560,9 @@ def support_part_scale(skill: Skill, part: str) -> tuple[dict[str, float], list[
 # can match: matched attacks per second are at most one per (the hidden called_shot_aiming_delay_ms 1000, meaning
 # UNVERIFIED + the reposition time). ALIGNMENT_MATCH_SECONDS is that interval: a flat LOW number (the game and the
 # boss's movement decide it; no data gives it; RESEARCH10's ~1.5 s), named in the report for the manager to ask about.
+# RESEARCH26 R26-37 (alignment-aiming-delay-r26.md): ASSUMED, LOW: called_shot_aiming_delay_ms has no game text; circling
+# ~80 degrees round the boss between matches is ~1.4 x the distance in metres, so 1.5 s stays; a later model could
+# derive max(1 s, 1.4 x distance / movement speed) from the build.
 ALIGNMENT_MATCH_SECONDS = 1.5
 
 
@@ -8438,7 +8445,9 @@ def guided_hand_model(inputs: Inputs, lines: list[dict], stats: dict, main: Skil
 # - Kaom's Blessing, "The next Fire Spell you cast yourself after using a Warcry is Ancestrally Boosted": one Fire Spell
 #   cast per Warcry use (the build's Warcries at their own use rates: cooldown, duration or the search's press choice;
 #   none: 0), so min(1, warcries/s / casts/s) of a Fire Spell main skill's casts, not cast by a totem or a trigger.
-# A Slam's sources combine as one boost per use (RESEARCH25: "two sources on one slam give one 30%"): an every-second
+# A Slam's sources combine as one boost per use (RESEARCH25: "two sources on one slam give one 30%"; RESEARCH26 R26-67,
+# MEDIUM-HIGH, ancestral-boost-once-per-use-r26.md: patch 0.3.0 fixed stacked boosts on one use as a bug; the game's
+# virtual_slam_is_ancestrally_boosted is yes / no; only Fist of War III's double_ancestral_boost_effect scales it): an every-second
 # source (Ancestral Empowerment, which PoB parses, or this unique) boosts half the slams; Fist of War boosts one slam per
 # its interval T. Whether Fist of War's charge is spent on a slam the every-second source already boosts is UNVERIFIED
 # (RESEARCH #153); the lower reading is taken, as RESEARCH25 says: share = 0.5 + 0.5 x min(1, 1 / (T x slams/s)) (LOW).
@@ -10153,9 +10162,10 @@ def channel_windup_note(main: Skill | None) -> list[dict]:
 # 40% less Damage and 50% less Area (COVE2's ledger entries) are on the Warcry, so each Echo repeats the penalised hit:
 # a damaging Warcry deals (1 + 2) x 0.6 = 1.8x, not 0.6x. PoB counts no Echo. The part is COV-E's "warcry_echo"
 # (support_part_scale, ledger supports-parts.yaml on cov5: WarcryEchoes, EchoAreaMorePercentPerEcho, WarcryEchoDelayMs);
-# until that lands, WARCRY_ECHO holds the same game-file values. Whether each Echo hits the boss (it repeats at the first
-# use's location 1.3 and 2.6 s later; KeywordPopups Echo) is an in-game question held for the user: counted as hitting
-# (UNVERIFIED), with the x1 "without it" row in the note. Not read: the Echoes' larger area (a lone boss is in the area
+# until that lands, WARCRY_ECHO holds the same game-file values. Each Echo hits the same targeted location again
+# (SETTLED, MEDIUM-HIGH: KeywordPopups Cascadable; RESEARCH26 R26-44 (a)), 1.3 and 2.6 s later, repeating the damage at
+# the support's 40% less and reaching a boss that stays near the shout spot (ASSUMED, MEDIUM: R26-42 (b); the Echoes'
+# areas x2, x3), with the x1 "without it" row in the note. Not read: the Echoes' larger area (a lone boss is in the area
 # or not), whether a new use cancels Echoes still pending (UNVERIFIED), the Echoes' Warcry buffs, and Echoing Cry's
 # "travel a distance before each use" (COV-C's, usage).
 WARCRY_ECHO = {"WarcryEchoes": 2.0, "EchoAreaMorePercentPerEcho": 100.0, "WarcryEchoDelayMs": 1300.0}
@@ -10181,10 +10191,11 @@ def warcry_echo_model(skills: list[Skill], supports: dict[int, list[str]], warcr
         notes += part_notes
         notes.append({"label": f"{skill.name}: Echoing Cry's Echoes", "value": f"x{1 + echoes:g} hits",
                       "basis": f"\"Supported Warcries Echo {echoes:g} times\", {delay:g} s apart, each with the support's 40% "
-                               "less Damage (counted on the Warcry); PoB counts no Echo. Each Echo is counted as hitting the "
-                               f"boss at the first use's location (UNVERIFIED: an in-game test). Without the Echoes: x1, "
+                               "less Damage (counted on the Warcry); PoB counts no Echo. Each Echo hits the first use's "
+                               "location again (KeywordPopups Cascadable, MEDIUM-HIGH) and is counted as hitting a boss that "
+                               f"stays near it (MEDIUM, RESEARCH26 R26-42 / -44). Without the Echoes: x1, "
                                f"x{1 / (1 + echoes):.2f} on this number",
-                      "confidence": "UNVERIFIED"})
+                      "confidence": "MEDIUM"})
     return mods, notes
 
 
@@ -10662,6 +10673,117 @@ def danse_macabre_model(skills: list[Skill], supports: dict[int, list[str]] | No
                                "and duration modifiers not counted). Without Danse Macabre: one skeleton per cast, no 30%",
                       "confidence": "MEDIUM"})
     return mods, notes
+
+
+# Offering spikes and the boss's hits (MECHB35; RESEARCH26 R26-38, offering-spike-life-r26.md, ASSUMED, LOW). An
+# Offering's spike is itself a Minion and "If it dies, the effect ends immediately" (ActiveSkills pain_offering /
+# soul_offering; Bone Offering's shields "disappear"); KeywordPopups Offering: "their Buffs are lost if they die". PoB
+# keeps the buff up for the whole duration. No source gives a rate at which pinnacle hits kill a spike (bosses are
+# reported to aim at the player: forum 3621704, 3596529, player reports, LOW-MEDIUM), so no rate is invented (the user's
+# no-flat-rate rule): the uptime stays PoB's and the note labels it by placement. Pain Offering buffs Minions within its
+# 6 m area (PainOfferingPlayer radius 60): melee minions at the boss put the spike inside the boss's areas, where early
+# deaths are likely and not counted (an OVERCOUNT of unknown size); with ranged minions it can stand away. Soul Offering
+# buffs you, Bone Offering shields minions from the spike's place: both can stand away from the boss (a play row).
+OFFERING_PLACEMENT = {
+    "Pain Offering": ("it buffs Minions within 6 m of the spike: next to melee minions at the boss it stands in the boss's "
+                      "areas, where its early deaths aren't counted (an OVERCOUNT of unknown size, UNVERIFIED); with "
+                      "ranged minions it can stand away from the boss"),
+    "Soul Offering": "it buffs you, not your minions: the spike can stand away from the boss, out of the boss's areas",
+    "Bone Offering": "its shields last while the spike stands: it can stand away from the boss, out of the boss's areas",
+}
+
+
+def offering_placement_notes(skills: list[Skill]) -> list[dict]:
+    """A labelled note per Offering in the build: its spike's uptime is PoB's (no death rate known), by placement."""
+    notes = []
+    for name in dict.fromkeys(s.name for s in skills if s.name in OFFERING_PLACEMENT and s.group is not None):
+        notes.append({"label": f"{name}: the spike's uptime against the boss*", "value": "PoB's (the whole duration)",
+                      "basis": f"the spike is a Minion and the buff ends if it dies (game text); {OFFERING_PLACEMENT[name]}. "
+                               "No source gives how often boss hits kill a spike, so none is counted (RESEARCH26 R26-38, "
+                               "ASSUMED)",
+                      "play": (f"Place {name}'s spike on a skeleton away from the boss's attacks: the counted uptime "
+                               "assumes it survives its duration; a spike killed early loses its buff (not counted)"),
+                      "confidence": "LOW"})
+    return notes
+
+
+# Frost Darts over one cast (MECHB35; MECHB33's finding, plans/term-explode.md D). ActiveSkills frost_darts: "Conjures a
+# number of icy Projectiles that launch towards the target. Projectiles that Hit a Chilled or Frozen target create chunks
+# of ice that deal additional damage on impacting the ground. Consumes a Cold Infusion if possible to cause each
+# Projectile to lodge into the enemy then explode" (unchanged since 0.3.0; 0.4.0c only let Spell Totem take it). PoB
+# (act_int.lua FrostDartsPlayer) has three stat sets and scores one: "Projectile" (base_number_of_projectiles 3),
+# "Explosion" (radius 1.8 m, frost_darts_explode_creates_X_mortars 3: "Each explosion creates 3 Ice Chunks") and "Ice
+# Chunk" (2 a hit, base_number_of_projectiles 2, number_of_projectiles_cannot_be_modified, random_projectile_direction,
+# landing skill_mortar_minimum / maximum_projectile_distance 0.5-1.7 m from the hit, radius 0.8 m). The search keeps the
+# best set, so PoB scores e.g. the Explosion on every cast whatever the Infusions (an OVERCOUNT when they don't cover every
+# cast), or the darts alone (an UNDERCOUNT of the chunks and explosions). Here one cast is:
+#   h x (Projectile + chilled x 2 x q x Chunk + infused x (Explosion + 3 x q x Chunk)),
+# each set's per-cast damage PoB's (setRates TotalDPS / Speed: one dart, one explosion, one chunk), against the scored
+# set's, as DPS "more" on the main skill.
+# - h, darts on the boss a cast: 1 (KeywordPopups Projectile: "only one Projectile in the group can hit each target
+#   unless otherwise specified"; the text says the darts "launch towards the target" and no more: UNVERIFIED whether
+#   all hit, the note's row counts all of PoB's ProjectileCount).
+# - chilled: the boss Chilled or Frozen. Frost Darts never Chills (never_freeze_or_chill), so from the build's Chilled
+#   Ground (MECH-A's chilled_ground_up) and its Freeze uptime, taken as independent; other skills' Chills not counted (an
+#   undercount, labelled). No source: 0.
+# - infused: the share of casts that find a Cold Infusion (Assumptions.infusion_share, MECH-C's supply over the casts).
+# - q: a chunk lands on the boss when it falls within 0.8 m + the boss's radius (bosses.hit_radius) of its centre; it
+#   lands 0.5-1.7 m from the hit (uniform in distance, any direction, UNVERIFIED), the hit taken at the boss's edge
+#   (projectile_uses_contact_position) and the explosion's chunks from the same point: 48% on the 0.3 m default boss.
+# - an Infused dart still deals its own hit, then explodes (its text: "lodge into the enemy then explode": MEDIUM-LOW).
+# LOW overall (the chunk spread's distribution, the darts' count on one target).
+FROST_DARTS = "Frost Darts"
+FROST_SETS = ("Projectile", "Explosion", "Ice Chunk")
+FROST_BASE_DARTS = 3.0  # the Projectile set's base_number_of_projectiles (the all-darts row; PoB's count if higher)
+FROST_CHUNKS_A_HIT, FROST_CHUNKS_AN_EXPLOSION = 2, 3
+FROST_CHUNK_RADIUS, FROST_CHUNK_NEAR, FROST_CHUNK_FAR = 0.8, 0.5, 1.7  # metres: radius 8, mortar distance 5-17 units
+FROST_ENTRY = "model-mechb35-frost-darts-cast"
+
+
+def frost_chunk_chance(radius: float, steps: int = 90) -> float:
+    """The chance an Ice Chunk lands on a boss of `radius` metres (see above), by a grid over distance and direction."""
+    reach = FROST_CHUNK_RADIUS + radius
+    hit = 0
+    for i in range(steps):
+        d = FROST_CHUNK_NEAR + (FROST_CHUNK_FAR - FROST_CHUNK_NEAR) * (i + 0.5) / steps
+        for j in range(2 * steps):
+            a = math.pi * (j + 0.5) / steps
+            x, y = radius + d * math.cos(a), d * math.sin(a)
+            hit += x * x + y * y <= reach * reach
+    return hit / (2 * steps * steps)
+
+
+def frost_darts_model(main: str | None, scored: str | None, sets: list[dict], projectiles: float, chilled: float,
+                      chill_how: str, infused: float, infused_how: str, radius: float,
+                      forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Frost Darts' whole cast (see above) against the one stat set PoB scores."""
+    if main != FROST_DARTS or FROST_ENTRY in forbidden:
+        return [], []
+    per = {s.get("label"): (number(s.get("TotalDPS")) / number(s.get("Speed")) if number(s.get("Speed")) > 0 else 0.0)
+           for s in sets}
+    if scored not in per or per[scored] <= 0 or per.get("Projectile", 0) <= 0:
+        return [], [{"label": "Frost Darts: its whole cast", "value": "not counted", "confidence": "theory",
+                     "entry": FROST_ENTRY, "basis": "PoB gave its scored set or its Projectile set no damage: PoB's kept"}]
+    dart, blast, chunk = (per.get(label, 0.0) for label in FROST_SETS)
+    chilled, infused = min(max(chilled, 0.0), 1.0), min(max(infused, 0.0), 1.0)
+    q = frost_chunk_chance(radius)
+    each = (dart + chilled * FROST_CHUNKS_A_HIT * q * chunk
+            + infused * (blast + FROST_CHUNKS_AN_EXPLOSION * q * chunk))
+    factor = each / per[scored]
+    every = max(projectiles, FROST_BASE_DARTS)  # (PoB's count on the Explosion set reads 1.2: probe POE2T3261)
+    note = {"label": "Frost Darts: darts, Ice Chunks and Infused explosions over one cast*", "value": f"x{factor:.3f}",
+            "entry": FROST_ENTRY, "confidence": "LOW",
+            "basis": (f"one dart on the boss a cast ({dart:,.0f}); Ice Chunks {FROST_CHUNKS_A_HIT} a hit on a Chilled or "
+                      f"Frozen boss, {chilled:.0%} of the fight ({chill_how}); a Cold Infusion on {infused:.0%} of casts "
+                      f"({infused_how}): its explosion ({blast:,.0f}) and {FROST_CHUNKS_AN_EXPLOSION} more chunks; each "
+                      f"chunk ({chunk:,.0f}) lands on the boss {q:.0%} of the time (a {radius:g} m boss; 0.5-1.7 m from "
+                      f"the hit, 0.8 m radius): {each:,.0f} a cast against PoB's {scored} set alone ({per[scored]:,.0f}). "
+                      f"Row: if all {every:g} darts hit the boss, x{factor * every:.3f} (UNVERIFIED). Other skills' "
+                      "Chills not counted"),
+            "play": (f"Frost Darts' chunks need a Chilled boss (Chilled Ground, or another skill that Chills) and its "
+                     f"explosions a Cold Infusion: as built x{factor:.3f}; without either, the darts alone "
+                     f"x{dart / per[scored]:.3f}.")}
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main)], [note]
 
 
 # Coursing Current against a lone boss (MECHB6; RESEARCH22 #129, research/coursing-current-lone-boss.md) ---------------------

@@ -1,0 +1,21 @@
+# MECH-B's model entries (MECHB35).
+
+- id: model-mechb35-frost-darts-cast
+  title: "Frost Darts: one cast's dart, Ice Chunks on a Chilled boss and Cold-Infused explosions, against the one set PoB scores"
+  kind: model
+  model: frost_darts
+  stats: ["frost_darts_explode_creates_X_mortars", "skill_mortar_minimum_projectile_distance",
+          "skill_mortar_maximum_projectile_distance"]
+  skill: [Frost Darts]
+  confidence: LOW
+  notes: >-
+    PoB scores one of Frost Darts' three stat sets (Projectile, Explosion, Ice Chunk) and the search keeps the best, so a
+    cast was the darts alone (no chunks or explosions: an UNDERCOUNT) or the Explosion on every cast whatever the Cold
+    Infusions (an OVERCOUNT). models.frost_darts_model: one dart on the boss a cast, 2 Ice Chunks a hit on a Chilled or
+    Frozen boss (the build's Chilled Ground and Freeze; Frost Darts never Chills), on Infused casts the explosion and 3
+    more chunks; a chunk lands on the boss by the boss's hit radius (0.5-1.7 m from the hit, 0.8 m radius: 48% on the
+    0.3 m default boss). LOW: the chunk spread, whether all darts hit one target (a row).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (FrostDartsPlayer)",
+            "data/game-26650308 ActiveSkills frost_darts", "scratch/manager/plans/term-explode.md (D)"]
+  test_in_game: "Frost Darts with a Cold Infusion on a Chilled boss: count the Ice Chunk damage numbers a cast."
+  status: proposed
