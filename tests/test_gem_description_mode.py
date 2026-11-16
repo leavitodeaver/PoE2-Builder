@@ -682,6 +682,23 @@ def test_firestorm_rate_scale_readings():
     assert models.firestorm_infusion_model(Skill("Spark", 1, spell=True), "Firestorm", FIRESTORM_SETS, {}) == ([], [])
 
 
+THUNDER_SETS = [{"label": "Melee", "TotalDPS": 127.5}, {"label": "Projectile", "TotalDPS": 162.3}]
+
+
+@pytest.mark.parametrize("scored, charges, factor", [
+    ("Projectile", 0, 127.5 * 0.9 / 162.3),   # the OVERCOUNT (probe POE2T2172): no charges, no projectiles; steer to Melee
+    ("Melee", 0, None),                        # the slam alone: PoB's number
+    ("Melee", 3, (127.5 + 162.3) / 127.5),     # with charges one use does both
+    ("Projectile", 3, (127.5 + 162.3) / 162.3),
+])
+def test_falling_thunder_needs_power_charges_for_its_projectiles(scored, charges, factor):
+    mods, notes = models.falling_thunder_model(Skill("Falling Thunder", 1, attack=True), scored, THUNDER_SETS, charges)
+    more = [m["value"] for m in mods if m["name"] == "DPS"]
+    assert (1 + more[0] / 100 if more else None) == (pytest.approx(factor, rel=1e-4) if factor else None)
+    assert notes[0]["entry"] == models.FALLING_THUNDER_ENTRY and "Without them" in notes[0]["play"]
+    assert models.falling_thunder_model(Skill("Spark", 1, spell=True), scored, THUNDER_SETS, charges) == ([], [])
+
+
 @pytest.mark.parametrize("level_cap, speed, duration, more", [
     (78, 1.0, 12.0, -100.0),   # gem level 17's cap 78 under a level-82 boss: no Drenched
     (0, 0.05, 10.0, -50.0),    # no cap; a storm every 20 s lasting 10 s: half the fight

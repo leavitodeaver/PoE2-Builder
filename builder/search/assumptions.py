@@ -2020,6 +2020,11 @@ class Assumptions:
             shares = {e: self.infusion_share(e, ailments, casts) for e in ("Fire", "Cold", "Lightning")}
             storm_mods, storm_notes = models.firestorm_infusion_model(main, main.stat_set, sets, shares, forbidden)
             hand_mods, hand_notes = hand_mods + storm_mods, hand_notes + storm_notes
+        if main is not None and group and main.name == models.FALLING_THUNDER:  # (GEM16: projectiles need Power Charges)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            charges = number(build.call("stats", fields=["RemovablePowerCharges"]).get("RemovablePowerCharges"))
+            thunder_mods, thunder_notes = models.falling_thunder_model(main, main.stat_set, sets, charges, forbidden)
+            hand_mods, hand_notes = hand_mods + thunder_mods, hand_notes + thunder_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)

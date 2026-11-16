@@ -63,3 +63,23 @@
             "https://poe2db.tw/us/Firestorm"]
   test_in_game: "Optional: Firestorm on a boss with and without a Cold Infusion, count ice bolt hits."
   status: proposed
+
+- id: model-gem16-falling-thunder-power-charges
+  title: "Falling Thunder: no projectiles without Power Charges (PoB scored its Projectile set anyway); with them, one use is the slam plus the projectiles"
+  kind: model
+  model: falling_thunder
+  stats: ["zero_projectiles_if_no_power_charges"]
+  skill: [Falling Thunder]
+  confidence: MEDIUM
+  notes: >-
+    models.falling_thunder_model (GEM16), hooked in Assumptions. Game: ActiveSkills falling_thunder "Consumes your Power
+    Charges to fire Lightning Projectiles forwards from the impact"; the Projectile set carries
+    zero_projectiles_if_no_power_charges (no description) and 3 projectiles per Power Charge. PoB reads no such stat and
+    scores the Melee / Projectile sets one at a time: probe POE2T2172 (no Power Charges, ProjectileCount 0) scored the
+    Projectile set 162.3 vs the slam's 127.5 and the search kept it (an OVERCOUNT). With no charges each use (PoB's
+    RemovablePowerCharges) the use is the slam alone (a Projectile set scored then gets the slam x 0.9 so the search
+    keeps the Melee set); with charges, slam + projectiles at PoB's per-set numbers (an UNDERCOUNT before). Whether the
+    build regains its charges between uses is MECH-C's charge model.
+  sources: ["builder/search/models.py (falling_thunder_model)", "data/game-26650308/tables/ActiveSkills.json (falling_thunder)"]
+  test_in_game: "Optional: Falling Thunder with and without Power Charges on a boss."
+  status: proposed

@@ -6333,6 +6333,52 @@ def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[
                  f"alone (x{fire / dps[scored]:.3f} of PoB's {scored}); with this build's: x{low:.3f}.")}]
 
 
+# Falling Thunder's Power Charges (GEM16; an OVERCOUNT with no Power Charges, an UNDERCOUNT with them). The game:
+# "[Slam] the ground to deal damage in a large cone in front of you. Consumes your [Charges|Power Charges] to fire
+# [Lightning|Lightning] [Projectile|Projectiles] forwards from the impact" (ActiveSkills falling_thunder, 26650308); its
+# Projectile set carries zero_projectiles_if_no_power_charges (no stat description: internal) and
+# lightning_strike_base_number_of_projectiles_per_power_charge 3. PoB scores the "Melee" (the slam) and "Projectile" sets
+# one at a time and reads no zero_projectiles stat: probe POE2T2172 (a level-90 search, no Power Charges: PoB's
+# RemovablePowerCharges 0, ProjectileCount 0) still scored the Projectile set at 162.3 DPS against the slam's 127.5, and
+# the search kept it. Here: with no Power Charges each use finds (PoB's RemovablePowerCharges), the use is the slam alone;
+# with them, the slam plus the projectiles (one use does both: the projectiles fire from the slam's impact), each set at
+# PoB's own number (setRates). A Projectile set scored with no charges gets the slam's number x FIRESTORM_BOLTS_MARGIN,
+# so the search keeps the Melee set (PoB has no stat-set tag to zero one set). The charges each use finds are PoB's (the
+# resolver's usePowerCharges and the build's maximum); whether the build regains them between uses is MECH-C's charge
+# model (not re-checked here). MEDIUM.
+FALLING_THUNDER = "Falling Thunder"
+FALLING_THUNDER_SETS = ("Melee", "Projectile")
+FALLING_THUNDER_ENTRY = "model-gem16-falling-thunder-power-charges"
+
+
+def falling_thunder_model(main: Skill | None, scored: str | None, sets: list[dict], charges: float,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Falling Thunder's use as the game makes it (see above): `sets` the bridge's setRates for its group, `charges` the
+    Power Charges each use consumes (PoB's RemovablePowerCharges)."""
+    if main is None or main.name != FALLING_THUNDER or FALLING_THUNDER_ENTRY in forbidden or scored not in FALLING_THUNDER_SETS:
+        return [], []
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    slam, bolts = (dps.get(k, 0.0) for k in FALLING_THUNDER_SETS)
+    if dps.get(scored, 0.0) <= 0 or slam <= 0:
+        return [], []
+    total = slam + (bolts if charges > 0 else 0.0)
+    factor = total / dps[scored]
+    if charges <= 0 and scored != "Melee":
+        factor *= FIRESTORM_BOLTS_MARGIN  # (steer the search to the slam set)
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), FALLING_THUNDER)] if abs(factor - 1) > 1e-9 else []
+    what = (f"the slam ({slam:,.0f}) plus the projectiles from {charges:g} Power Charge(s) ({bolts:,.0f})" if charges > 0
+            else f"the slam alone ({slam:,.0f}): no Power Charge to consume, so no projectiles")
+    return mods, [{
+        "label": "Falling Thunder: the slam and its Power Charge projectiles*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": FALLING_THUNDER_ENTRY,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS). The game: each use slams, and fires "
+                  f"projectiles only by consuming Power Charges; this use is {what}"
+                  + ("; scored on the Projectile set with no charges, it's kept 10% under the slam so the search keeps "
+                     "the Melee set" if charges <= 0 and scored != "Melee" else "")),
+        "play": (f"Hold Power Charges for each slam. Without them: the slam alone ({slam:,.0f}); with "
+                 f"{max(charges, 1):g}: slam + projectiles ({slam + bolts:,.0f}, PoB's numbers).")}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
