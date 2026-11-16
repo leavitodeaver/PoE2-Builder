@@ -206,3 +206,88 @@
     stacks. PoB ignores the line (its Tailwind count box has no hit rule).
   sources: [builder/search/models.py (tailwind_model)]
   status: proposed
+
+- id: model-read-charm-triggers
+  title: 'A charm''s "Used when ..." trigger (flasks.trigger_rate: its uses on a lone boss)'
+  kind: pob_gap
+  model: flasks
+  match: '^Used when you (become (Ignited|Frozen|Shocked|Poisoned|Stunned)|start Bleeding|are affected by a Slow|take (Fire|Cold|Lightning|Chaos|Physical) damage from a Hit|release a skill with Perfect Timing)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    flasks.trigger_rate (MECHC12-19), called by the charm uptime / uses code (flasks.py 539, 593, 670, 736): the events
+    a second that fire the charm on a lone boss, from the boss's hits by type, its ailments, Stuns and Slows on the build
+    (boss_hits / recovery), or the build's Perfect Timing releases; 0 with a note where the boss deals no such damage. The
+    Slow branch keeps a LOW flat rate (one per BOSS_AILMENT_EVERY 10 s) only for bosses with no Cold hit or Slow skill:
+    MECH-C's, named in its notes. "Used when you become Cursed" isn't matched: the model rates it 0 (RESEARCH #33: no
+    pinnacle boss curses you), so it stays open as lines rated 0 do. PoB ignores all these lines.
+  sources: [builder/search/flasks.py (trigger_rate)]
+  status: proposed
+
+- id: model-read-consecrated-ground-charm
+  title: '"Creates Consecrated Ground on use" (Sanguis Heroum; Assumptions'' Consecrated Ground share)'
+  kind: pob_gap
+  model: grounds
+  match: '^Creates Consecrated Ground on [Uu]se$'
+  replace: []
+  confidence: theory
+  notes: >-
+    assumptions.CONSECRATED_CHARM (assumptions.py 700, 3153): the equipped charm's uses a second (flasks.uses_per_second)
+    x its Consecrated Ground duration, joined with the build's other Consecrated Ground sources into the ground's share.
+    PoB ignores the line. (The flask form "on Use", Exclusive UtilityFlaskConsecrate, has no PoB-PoE2 carrier and isn't
+    a charm: the model reads charm slots only, so that form is read only if worn as a charm.)
+  sources: [builder/search/assumptions.py (CONSECRATED_CHARM)]
+  status: proposed
+
+- id: model-read-soul-eater-lines
+  title: '"Eat a Soul when you Hit ..." and "Reveal Weaknesses against Rare and Unique enemies" (Assumptions.soul_eater)'
+  kind: pob_gap
+  model: soul_eater
+  match: '^(Eat a Soul when you Hit an enemy with an Open Weakness|Eat a Soul when you Hit a (Rare or )?Unique Enemy, no more than once every (\d+(?:\.\d+)?) seconds|Reveal Weaknesses against Rare and Unique enemies)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    assumptions.SOUL_OPEN_WEAKNESS / SOUL_UNIQUE / SOUL_REVEAL in Assumptions.soul_eater (assumptions.py 3083-3113): the
+    souls eaten over the fight from the main skill's hits (Open Weakness revealed by the build's own sources, the reveal
+    line among them), as Skill Speed per soul. PoB ignores the lines (ModCache {nil, ...}).
+  sources: [builder/search/assumptions.py (SOUL_OPEN_WEAKNESS, SOUL_UNIQUE, SOUL_REVEAL, soul_eater)]
+  status: proposed
+
+- id: model-read-ward-sacrifice-on-attack
+  title: '"Sacrifice N% of maximum Life to gain half that much Runic Ward when you Attack" (models.ward_income)'
+  kind: pob_gap
+  model: ward_income
+  match: '^Sacrifice (\(\d+-\d+\)|\d+(?:\.\d+)?)% of maximum Life to gain half that much Runic Ward when you Attack$'
+  replace: []
+  confidence: theory
+  notes: >-
+    models.WARD_SACRIFICE (models.py 11251, 11286; assumptions.py 2860 / 2886): the Ward gained and the Life paid at the
+    build's attacks. PoB ignores the line.
+  sources: [builder/search/models.py (WARD_SACRIFICE, ward_income)]
+  status: proposed
+
+- id: model-read-recover-on-corpse-consumed
+  title: '"Recover N% of maximum Life / Mana when you Consume a corpse" (recovery.spent_income)'
+  kind: pob_gap
+  model: recovery
+  match: '^Recover (\(\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|\d+(?:\.\d+)?)% of maximum (Life|Mana) when you Consume a corpse$'
+  replace: []
+  confidence: theory
+  notes: >-
+    recovery.CORPSE_LIFE / CORPSE_MANA in spent_income (assumptions.py 3481, spent_rates' corpses: the build's corpse
+    skills' uses, at most the corpses there are). PoB ignores the line.
+  sources: [builder/search/recovery.py (CORPSE_LIFE, CORPSE_MANA, spent_income)]
+  status: proposed
+
+- id: model-read-chilled-ground-on-freeze
+  title: '"N% chance to create Chilled Ground when you Freeze an Enemy" (conditions'' Chilled Ground share)'
+  kind: pob_gap
+  model: grounds
+  match: '^(\d+)% chance to create Chilled Ground when you Freeze an Enemy$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.CHILLED_CHANCE_ON_FREEZE (conditions.py 3858 / 3870): the chance x the build's Freezes of the boss into the
+    Chilled Ground share. PoB ignores the line.
+  sources: [builder/search/conditions.py (CHILLED_CHANCE_ON_FREEZE)]
+  status: proposed

@@ -23,7 +23,7 @@
   title: Lose all Power / Frenzy / Endurance Charges on reaching the maximum (charges held climb and drop to 0)
   kind: pob_gap
   model: charges
-  match: '^Lose all (Power|Frenzy|Endurance) Charges on reaching maximum \1 Charges$'
+  match: '^(?:You )?[Ll]ose all (Power|Frenzy|Endurance) Charges on reaching maximum \1 Charges$'  # (COV37: "You lose all ...", conditions.CHARGE_RESET_AT_MAX searches either)
   replace: []
   confidence: reported
   notes: >-

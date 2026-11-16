@@ -559,11 +559,25 @@ def test_item_lines_a_model_reads_count_as_the_models():
         "Recover 3% of maximum Life when one of your Minions is Revived": "model-read-life-on-minion-revived",
         "Recover (6-12)% of Maximum Life when you expend at least 10 Combo": "model-read-recover-on-combo-expended",
         "Lose all Tailwind when Hit": "model-read-lose-tailwind-when-hit",
+        "Used when you become Ignited": "model-read-charm-triggers",
+        "Used when you take Cold damage from a Hit": "model-read-charm-triggers",
+        "Used when you are affected by a Slow": "model-read-charm-triggers",
+        "Used when you release a skill with Perfect Timing": "model-read-charm-triggers",
+        "Used when you start Bleeding": "model-read-charm-triggers",
+        "Creates Consecrated Ground on use": "model-read-consecrated-ground-charm",
+        "Eat a Soul when you Hit an enemy with an Open Weakness": "model-read-soul-eater-lines",
+        "Eat a Soul when you Hit a Unique Enemy, no more than once every 0.5 seconds": "model-read-soul-eater-lines",
+        "Reveal Weaknesses against Rare and Unique enemies": "model-read-soul-eater-lines",
+        "Sacrifice (10-30)% of maximum Life to gain half that much Runic Ward when you Attack":
+            "model-read-ward-sacrifice-on-attack",
+        "Recover 2% of maximum Life when you Consume a corpse": "model-read-recover-on-corpse-consumed",
+        "15% chance to create Chilled Ground when you Freeze an Enemy": "model-read-chilled-ground-on-freeze",
+        "You lose all Endurance Charges on reaching maximum Endurance Charges": "model-lose-all-charges-on-maximum",
     }
     for line, entry in cases.items():
         assert (found := model_entry(line)) is not None and found.id == entry, line
     for line in ("+2 metres to Dodge Roll distance if you haven't Dodge Rolled Recently",
-                 "20% increased Glory generation for Tribute"):
+                 "20% increased Glory generation for Tribute", "Used when you become Cursed"):
         found = model_entry(line)
         assert found is None or not found.id.startswith("model-read-"), line
 
