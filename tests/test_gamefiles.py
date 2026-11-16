@@ -48,7 +48,12 @@ def test_meta_gems_from_the_game_files(live):
     assert "drops (uncut gem tier 14)" in gems["Cast on Critical"]["sources"]
     assert any(s.startswith("passive: Called Shots") for s in gems["Called Shots"]["sources"])
     metas = {n for n, e in gems.items() if e["meta"] and e["status"].startswith("live")}
-    assert len(metas) == 25 and {"Pounce", "Cast on Dodge", "Cast on Minion Death", "Spell Totem"} <= metas
+    # Animus Splinters (0.5.0 notes: one of the "23 Kalguuran Skills that can be crafted from Remnants"; Expedition core
+    # since 0.5.5, "Runes of Aldur Moving to Core") is reached once our export has the Runeshape recipes (Expedition2Recipes:
+    # in the export list since 30c6657a, first exported with build 26650308; the table isn't new in the game)
+    recipes = any(s.startswith("crafted from Expedition Remnants") for e in gems.values() for s in e["sources"])
+    assert ("Animus Splinters" in metas) == recipes
+    assert len(metas) == (26 if recipes else 25) and {"Pounce", "Cast on Dodge", "Cast on Minion Death", "Spell Totem"} <= metas
 
 
 def test_liveness_rules_on_the_rest(live):

@@ -1138,7 +1138,11 @@ OTHER_METAS = {
                      "bridge adds its monster to PoB (210% damage and life, 1 s attacks, 25% increased attack speed, 5% "
                      "crit), so PoB prices the companion (spirit_vessel_notes); the gear round tries Forgotten Warden with the best "
                      "shapeshift skills, then supports, in its group (gems.spirit_vessel_round)",
-    "Animus Splinters": "0.5 league content (Runic Ward cost); its source isn't read from the game files yet",
+    "Animus Splinters": "a pressed meta, no Energy: spends Runic Ward equal to its socketed skills' total cost to make a short-lived "
+                        "copy of you that uses one socketed skill once (not Channelled, Remote, Cooldown, Conditional or Minion "
+                        "skills; game files ActiveSkills animus_splinters); crafted from Expedition Remnants (Runeshape recipes "
+                        "3SlotAnimusSplinters1 / 6SlotLevel20AnimusSplinters1; 0.5.0 notes; core since 0.5.5). Not priced: the "
+                        "search doesn't propose it (Runic Ward spending isn't modelled)",
 }
 
 
