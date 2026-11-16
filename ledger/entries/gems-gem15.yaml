@@ -28,3 +28,18 @@
     Probe POE2T2140: Infernal Cry gave it 2 Empowers at 18% uptime, Full DPS 48.0 -> 57.0, though the game text says
     "Cannot be [Empowered] by [Warcry|Warcries]". Player carrier ResonatingShieldPlayer only (checked: Stats,
     GrantedEffectStatSets, PerLevel, Mods, PassiveSkills of build 26650308; one monster set too).
+
+- id: no-effect-gem15-incinerate-maximum-stages
+  title: "Incinerate's maximum stages: 1 stage worth 0% (the stages are vestigial), so PoB's 0 stages changes nothing"
+  kind: gem_stat
+  match: '^incinerate_maximum_stages$'
+  replace: []
+  stats: ["incinerate_maximum_stages"]
+  skill: [Incinerate]
+  confidence: datamined
+  notes: >-
+    Game files 26650308 GrantedEffectStatSets IncineratePlayer: incinerate_maximum_stages 1,
+    incinerate_damage_+%_final_per_stage 0 (also incinerate_gain_stage_every_x_ms 250, fuel 1000 / 5000). PoB maps the
+    maximum to Multiplier:IncinerateMaxStages and the per-stage damage to a MORE per Multiplier:IncinerateStage, which
+    nothing sets (grep of PoB's Modules / Classes / Data, engine/ and builder/: only the skill's own lines and two
+    ModParser lines). At 0% a stage, any stage count gives the same damage. Fuel is MECH79's model.
