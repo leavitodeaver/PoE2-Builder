@@ -2273,6 +2273,15 @@ CURSED_LINES = (
     (re.compile(r"(\d+)% increased duration of Ailments you inflict against Cursed Enemies", re.I),
      "1% increased duration of Ailments you inflict against Cursed Enemies"),
 )
+# (MECH82; the manager 09:09, COV37's find, a SIGN ERROR since MECH80's template) How each template is scaled. PoB applies
+# "Enemies you Curse take N% increased Damage" and "N% increased duration of Ailments you inflict against Cursed Enemies"
+# in full while the enemy is Cursed (ModCache: Condition var="Cursed" / ActorCondition enemy "Cursed", which PoB sets with
+# any curse or Mark; COV35's probe and POE2T3169), so their template takes off the uncursed part: -N x (1 - share). PoB
+# never applies "Enemies you Curse have N% to Chaos Resistance" (ModCache: its EnemyModifier's condition is var="Curse",
+# which nothing sets; COV35's POE2T2588), so its template, an unconditional enemy line, adds the cursed part: +N x share.
+# Before, the Chaos line took -N x (1 - share) too: nothing when the boss was always cursed, and the wrong sign (Chaos
+# Resistance ADDED to the boss) when it was cursed part of the fight.
+CURSED_UNAPPLIED = {"Nearby Enemies have +1% to Chaos Resistance"}
 # Chance lines against a cursed enemy: not scaled (a chance doesn't scale linearly), listed in the note
 CURSED_UNSCALED = re.compile(r"against cursed enemies|hitting cursed enemies|poison cursed enemies", re.I)
 # Supports that make a curse an area on the ground instead of a cast on enemies (curse_apply_as_curse_zone; MECH73, GEM7's
@@ -2431,7 +2440,11 @@ def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
     found, unscaled = [], []
     for pattern, text in CURSED_LINES:
         total = sum(float(m.group(1)) for entry in lines or [] if (m := pattern.search(entry["text"])))
-        if total and share < 1.0:
+        if total and text in CURSED_UNAPPLIED:  # (PoB never applies the build's own line: add the cursed share)
+            if share > 0:
+                mods.append(line(text, total * share))
+            found.append(text.replace("+1%", f"{total:+g}%"))
+        elif total and share < 1.0:  # (PoB applies the build's line in full: take off the uncursed share)
             mods.append(line(text, -total * (1.0 - share)))
             found.append(text.replace("+1%", f"{total:+g}%") if "+1%" in text else text.replace("1%", f"{total:g}%"))
     unscaled = [entry["text"] for entry in lines or [] if CURSED_UNSCALED.search(entry["text"])]

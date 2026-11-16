@@ -770,3 +770,108 @@ def test_beetlebite_aggravates_bleeds_at_the_reentry_rate_for_any_main_skill():
         assert mods[0]["scale"] == pytest.approx(100 * own, rel=1e-3) and "Beetlebite" in notes[0]["basis"]
     mods, notes = models.aggravate_model([line], stats, {"Spell"}, entries=(0.0, "outside"))
     assert not any(m.get("scale") for m in mods) and "Beetlebite: outside" in notes[0]["basis"]
+
+
+# MECH82 (the manager 09:09, COV37's find): the Chaos Resistance template adds the cursed share; the two templates PoB
+# applies in full take off the uncursed share
+def test_the_cursed_chaos_resistance_line_counts_at_the_cursed_share_with_its_own_sign():
+    from builder.search import models
+
+    lines = [{"text": "Enemies you Curse have -11% to Chaos Resistance"},
+             {"text": "Enemies you Curse take 25% increased Damage"}]
+    for share in (0.0, 0.5, 1.0):
+        mods, notes = models.curse_model([models.CurseUse("Despair", share, "test")], [], None, lines)
+        by_line = {m["line"]: m["scale"] for m in mods}
+        chaos = by_line.get("Nearby Enemies have +1% to Chaos Resistance", 0.0)
+        assert chaos == pytest.approx(-11.0 * share)  # (lower Chaos Resistance on the boss, never higher)
+        assert by_line.get("Enemies you Curse take 1% increased Damage", 0.0) == pytest.approx(-25.0 * (1 - share))
+        assert "-11% to Chaos Resistance" in notes[-1]["basis"]
+
+
+def test_the_curse_templates_scale_with_the_cursed_share_on_a_real_build(engine):
+    """MECH82: on a real Rolling Slam with added Chaos and Fire, each template's net effect in PoB is linear in the share:
+    nothing at 0, all of it at 1 (the Chaos line through our template only; the other two through the build's own line,
+    which PoB applies with its Cursed box on, less our uncursed part)."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, ItemOption, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    def build_with(*texts):
+        payload = make_payload(BuildRequest(main_skill="Rolling Slam"))
+        skeleton = enumerate_skeletons(Context(payload), ["Rolling Slam"])[0][0]
+        search = Search(engine, None, payload, skeleton.as_dict(), 0)
+        search.setup(quests=False)
+        raw = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                            "Adds 40 to 60 Chaos damage to Attacks", "Adds 40 to 60 Fire damage to Attacks", *texts])
+        search.build.equip("Ring 1", ItemOption(name="Test Loop", base="Iron Ring", type="Ring", sub_type=None, raw=raw,
+                                                unique=False, price=None, confidence="ssf", level=1))
+        search.settle()
+        search.build.call("setConfig", vars={"conditionEnemyCursed": True})
+        return search.build, [{"text": t} for t in texts]
+
+    def scored(build, lines, share, field):
+        mods = models.curse_model([models.CurseUse("Despair", share, "test")], [], None, lines)[0]
+        return models.number(build.call("setAssumptions", mods=mods, fields=[field])["stats"].get(field))
+
+    for texts, field in ((["Enemies you Curse have -40% to Chaos Resistance"], "TotalDPS"),
+                         (["Enemies you Curse take 30% increased Damage"], "TotalDPS"),
+                         (["50% increased duration of Ailments you inflict against Cursed Enemies"], "IgniteDuration")):
+        build, lines = build_with(*texts)
+        none = models.number(build.call("setAssumptions", mods=[], fields=[field])["stats"].get(field))
+        if "take" in texts[0] or "duration" in texts[0]:  # (the build's own line, applied by PoB, minus it all)
+            build.call("setConfig", vars={"conditionEnemyCursed": False})
+            none = models.number(build.call("setAssumptions", mods=[], fields=[field])["stats"].get(field))
+            build.call("setConfig", vars={"conditionEnemyCursed": True})
+        at = {s: scored(build, lines, s, field) for s in (0.0, 0.5, 1.0)}
+        print("CURSE", texts[0], field, none, at)
+        assert at[0.0] == pytest.approx(none, rel=1e-3)
+        assert at[1.0] > at[0.5] > at[0.0]
+        assert at[1.0] - at[0.5] == pytest.approx(at[0.5] - at[0.0], rel=0.05)
+
+
+# MECH82 (the manager 09:09, COV37's find): the minions' Withered isn't sized by your own Withered Magnitude
+def test_your_withered_magnitude_is_taken_off_when_only_your_minions_wither():
+    minions = "Minions have 10% chance to inflict Withered on Hit"
+    magnitude = ["20% increased Withered Magnitude", "5% reduced effect of Withered", "50% reduced effect of Withered on you"]
+    mods, how = conditions.minion_wither_magnitude([minions, *magnitude], "Raise Zombie", {"Raise Zombie"})
+    assert [(m["name"], m["value"]) for m in mods] == [("WitherEffect", -15.0)] and "only your minions" in how
+    # a Withered source of your own: your Magnitude stays (labelled)
+    mods, how = conditions.minion_wither_magnitude([minions, *magnitude], "Chaos Bolt", {"Chaos Bolt"})
+    assert mods == [] and "stays" in how
+    assert conditions.minion_wither_magnitude(magnitude, "Raise Zombie", set()) == ([], "")  # (no minion line)
+    assert conditions.minion_wither_magnitude([minions], "Raise Zombie", set()) == ([], "")  # (no Magnitude line)
+
+
+def test_pob_puts_your_withered_magnitude_on_the_minions_withered_and_the_mod_takes_it_off(engine):
+    """MECH82 (COV37): on a real Rolling Slam with added Chaos and the boss at 10 Withered stacks, the minions' Withered line
+    with "20% increased Withered Magnitude" scores higher than the line alone in PoB (your Magnitude on their Withered);
+    minion_wither_magnitude's mod brings it back to the line alone."""
+    from builder.request.schema import BuildRequest
+    from builder.search import models
+    from builder.search.context import Context, ItemOption, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    minions = "Minions have 10% chance to inflict Withered on Hit"
+
+    def dps(texts, mods):
+        payload = make_payload(BuildRequest(main_skill="Rolling Slam"))
+        skeleton = enumerate_skeletons(Context(payload), ["Rolling Slam"])[0][0]
+        search = Search(engine, None, payload, skeleton.as_dict(), 0)
+        search.setup(quests=False)
+        raw = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                            "Adds 40 to 60 Chaos damage to Attacks", *texts])
+        search.build.equip("Ring 1", ItemOption(name="Test Loop", base="Iron Ring", type="Ring", sub_type=None, raw=raw,
+                                                unique=False, price=None, confidence="ssf", level=1))
+        search.settle()
+        search.build.call("setConfig", vars={"multiplierWitheredStackCount": 10})
+        return models.number(search.build.call("setAssumptions", mods=mods, fields=["TotalDPS"])["stats"].get("TotalDPS"))
+
+    alone = dps([minions], [])
+    texts = [minions, "20% increased Withered Magnitude"]
+    mods, how = conditions.minion_wither_magnitude(texts, "Rolling Slam", {"Rolling Slam"})
+    boosted, fixed = dps(texts, []), dps(texts, mods)
+    print("WITHER", alone, boosted, fixed, mods, how)
+    assert boosted > alone * 1.001 and fixed == pytest.approx(alone, rel=1e-4)

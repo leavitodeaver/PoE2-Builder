@@ -1641,6 +1641,13 @@ class Assumptions:
         # -20% comes from the condition box at the line's uptime (conditions._exposure_uptime)
         exposure_flags = conditions_mod.exposure_source_flags(texts, main_types)
         exposure_flags += conditions_mod.wither_source_flags(texts, main_types)  # (MECH72: partly parsed Withered lines)
+        wither_mods, wither_how = conditions_mod.minion_wither_magnitude(  # (MECH82: COV37, your Magnitude on minions')
+            texts, main.name if main else "", {g["name"] for grp in build.groups() for g in grp["gems"]
+                                               if grp["enabled"] and g.get("enabled", True)})
+        exposure_flags += wither_mods
+        if wither_how:
+            hand_notes.append({"label": "Withered from your minions: its magnitude*", "value": "5% a stack" if wither_mods
+                               else "your Magnitude", "basis": wither_how, "confidence": "MEDIUM"})
         stoic_mods, stoic_notes = stoicism(build, main, main_types, texts)  # (MECH75: Stoicism's ramp between resets)
         hand_mods, hand_notes = hand_mods + stoic_mods, hand_notes + stoic_notes
         if main is not None:  # (MECH75: Overcharge's reflected Shock over PoB's 15% "Are you Shocked?" box)

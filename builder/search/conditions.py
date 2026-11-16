@@ -2797,6 +2797,36 @@ def wither_source_flags(texts: list[str], main_types: set[str]) -> list[dict]:
     return []
 
 
+# The minions' Withered sized by YOUR Withered Magnitude (MECH82; the manager 09:09, COV37's find, a small OVERCOUNT). PoB's
+# ModCache reads "Minions have N% chance to inflict Withered on Hit" as a player Condition:CanWither, and each stack's
+# effect is the most over the active skills with it: 5 for a minion skill, 5 x (1 + your WitherEffect INC) for one of
+# yours (CalcPerform 2588-2590). So with any skill of your own in the build, the minions' Withered took your "increased
+# Withered Magnitude" lines (ModParser 505-506: WitherEffect), which speak of Withered you inflict. When the minions' line is
+# the build's only Withered source, those lines are cancelled (WitherEffect INC less their sum): the base 5% a stack,
+# PoB's own figure for a minion skill. With a Withered source of your own beside it the stacks are one count in PoB, so
+# your Magnitude stays on all of them (the minions' share overcounted there, labelled; not split).
+WITHER_MAGNITUDE = re.compile(r"^(\d+(?:\.\d+)?)% (increased|reduced) (?:Withered Magnitude|effect of Withered)$", re.I)
+
+
+def minion_wither_magnitude(texts: list[str], main: str, gem_names: set[str]) -> tuple[list[dict], str]:
+    """(mods, how): your Withered Magnitude lines cancelled when only your minions Wither (see the note above)."""
+    if not any(WITHER_MINIONS.match(t.strip()) for t in texts):
+        return [], ""
+    own = ([t for t in texts if WITHER_CHANCE.search(t) or WITHER_HEX.match(t.strip()) or WITHER_WASTING.match(t.strip())
+            or re.search(r"withered .*when they enter your presence", t, re.I)]
+           + [n for n in ({main} | gem_names) if n in WITHER_ON_HIT_SKILLS or n in (WITHERING_PRESENCE, "Withering Touch")])
+    total = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
+                for t in texts if (m := WITHER_MAGNITUDE.match(t.strip())))
+    if not total:
+        return [], ""
+    if own:
+        return [], (f"your Withered Magnitude ({total:+g}%) stays on the minions' Withered too: {own[0][:50]} Withers the "
+                    "boss as well and PoB counts one stack count (the minions' share overcounted, labelled)")
+    return [models.raw_mod("WitherEffect", "INC", -total)], (
+        f"only your minions Wither the boss: your {total:+g}% Withered Magnitude lines don't size their Withered (PoB's "
+        "minion figure, 5% a stack)")
+
+
 def _exposure_uptime(element: str) -> Callable[[list[str], dict], tuple[object, str]]:
     def uptime(lines: list[str], stats: dict) -> tuple[object, str]:
         main_types = stats.get("_main_types") or set()
