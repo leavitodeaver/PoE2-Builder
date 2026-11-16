@@ -11142,3 +11142,38 @@ def tornado_copy_model(main: Skill | None, main_types: set[str], stats: dict, to
                  "Tornado, and each arrow's ring its own group (if a volley's rings are one group, x"
                  f"{(1 + penalty / 100) / direct * firing / (firing + 1 / tornado_speed):.3f}, so not worth it); "
                  "the sucked-in arrow taken as not hitting (UNVERIFIED)"}]
+
+
+# "N% increased Melee Damage if you've dealt a Projectile Attack Hit in the past eight seconds" (COV35, from the coverage
+# report's open rows: a jewel affix JewelMeleeDamageIfProjectileHitRecently, Daevata's Wind, the unique mod
+# UniqueMeleeDamageIfProjectileHitRecently1, the desecrated AbyssModSpearKurgalPrefix...EightSeconds and the small passive
+# "Melee Damage if Projectile Hit"). PoB parses it under Condition:HitProjectileRecently, which only its unset Configuration
+# box (conditionHitProjectileRecently) sets: 0 before, an UNDERCOUNT. Its rate is the build's own: the share of the fight
+# with a Projectile Attack Hit in the past 8 s, 1 - e^(-8 s x the build's Projectile Attack hits a second) (hits taken as
+# evenly random: the lower reading, as triggered_recently_model; MEDIUM). The hits: the main skill's if it is a
+# Projectile Attack (PoB's Speed x hit chance), plus each other enabled Projectile Attack skill's uses (its group's rate:
+# cooldown, duration or the search's chosen press rate, else 0: conditions.skill_use_rate), one hit a use (LOW: a use
+# that misses or fires several projectiles counts once). An increased line scales linearly with the uptime, so PoB gets
+# the same line without the condition at line x share.
+PROJECTILE_HIT_RECENTLY = re.compile(r"^(\d+(?:\.\d+)?)% increased Melee Damage if you've dealt a Projectile Attack Hit "
+                                     r"in the past eight seconds$", re.I)
+PROJECTILE_HIT_WINDOW = 8.0  # "in the past eight seconds" (the line's own window)
+
+
+def projectile_hit_recently_model(texts: list[str], rates: dict[str, tuple[float, str]]) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the "Melee Damage if you've dealt a Projectile Attack Hit in the past eight seconds" lines at the
+    share of the fight with such a hit in the window, from `rates` ({Projectile Attack skill: (hits a second, how)})."""
+    total_line = sum(float(m.group(1)) for t in texts if (m := PROJECTILE_HIT_RECENTLY.search(t.strip())))
+    if not total_line:
+        return [], []
+    hits = sum(max(0.0, number(r)) for r, _ in rates.values())
+    share = 1 - math.exp(-hits * PROJECTILE_HIT_WINDOW)
+    parts = "; ".join(f"{name}: {number(r):.2f}/s ({how})" for name, (r, how) in sorted(rates.items()))
+    basis = (f"Projectile Attack hits {hits:.2f}/s ({parts or 'no Projectile Attack skill in the build: 0'}): one in the "
+             f"past {PROJECTILE_HIT_WINDOW:g} s {share:.0%} of the fight (hits taken as evenly random, the lower reading); "
+             f"{total_line:g}% increased Melee Damage counts as {total_line * share:.3g}% (PoB's box is never set: 0 before)")
+    mods = [line("1% increased Melee Damage", total_line * share)] if total_line * share > 0 else []
+    return mods, [{"label": "Projectile Attack Hit in the past 8 s: share of the fight", "value": round(share, 3),
+                   "basis": basis, "play": "Hit with a Projectile Attack at least every few seconds (a thrown spear, an "
+                                           "arrow) to keep the melee bonus up",
+                   "confidence": "MEDIUM (LOW where a side skill's rate is the search's chosen press rate)"}]

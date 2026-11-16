@@ -53,3 +53,67 @@
             "scratch/cov35/probe2578.log"]
   test_in_game: "Hit a boss with Olrovasara: the weapon's Lightning damage tooltip rises by about 20 (its Power) for 20 s."
   status: proposed
+
+# Berek's Grip / Pass / Respite, Loreweave and The Taming: wind skills boosted by an element's ground (coverage report
+# 15 Nov rows 1 and 9). PoB parses none of these lines (ModCache: no entry parses them whole); MECH-A's model reads them
+# from the build's lines (conditions.py WIND_GROUND_BOOST / WIND_MULTIPLE, element_gain_shares; MECH78's 9704428c,
+# PATCH_CHECK MA-6 / MA-7): a wind skill (Twister, Whirling Slash, Whirlwind Lance) counts as boosted by the named
+# ground all fight, one element at a time unless the "multiple" line is there, through PoB's own element boxes. These
+# entries only say a model reads them; they add nothing to PoB (no second count).
+
+- id: items-wind-skills-boosted-by-ground-first-line
+  title: Wind Skills which can be boosted by Elemental Ground Surfaces count (as being boosted by <ground>), read by the ground model
+  kind: pob_gap
+  model: ground_elements
+  match: '^Wind Skills which can be boosted by Elemental Ground Surfaces count$'
+  replace: []
+  confidence: theory
+  notes: >-
+    First half of the two-line mod (Berek's Grip, Pass, Respite; Loreweave): conditions.WIND_GROUND_BOOST reads the
+    joined lines ("count\s+as being boosted by ... Ground") and element_gain_shares counts the named element all fight
+    for the build's wind skills (MECH78).
+  sources: ["builder/search/conditions.py (WIND_GROUND_BOOST, element_gain_shares)", "https://poe2db.tw/us/Bereks_Grip"]
+  status: proposed
+
+- id: items-wind-skills-boosted-by-ground-second-line
+  title: as being boosted by Ignited / Shocked / Chilled Ground (second half), read by the ground model
+  kind: pob_gap
+  model: ground_elements
+  match: '^as being boosted by (?:(?:Ignited|Shocked|Chilled)(?:,\s*|,?\s+and\s+)?)+ Ground$'
+  replace: []
+  confidence: theory
+  notes: Carried by items-wind-skills-boosted-by-ground-first-line (the model reads both halves joined).
+  sources: ["builder/search/conditions.py (WIND_GROUND_BOOST)"]
+  status: proposed
+
+- id: items-wind-skills-multiple-grounds
+  title: Wind Skills ... can be boosted by multiple Elemental Ground Surfaces (The Taming, Loreweave), read by the ground model
+  kind: pob_gap
+  model: ground_elements
+  match: '^Wind Skills which can be boosted by Elemental Ground Surfaces can be boosted by multiple Elemental Ground Surfaces$'
+  replace: []
+  confidence: theory
+  notes: >-
+    conditions.WIND_MULTIPLE: with it a wind skill keeps every element it holds instead of one at a time
+    (element_gain_shares; MECH78).
+  sources: ["builder/search/conditions.py (WIND_MULTIPLE, element_gain_shares)", "https://poe2db.tw/us/The_Taming"]
+  status: proposed
+
+- id: model-melee-damage-if-projectile-hit-recently
+  title: N% increased Melee Damage if you've dealt a Projectile Attack Hit in the past eight seconds, at the build's own share
+  kind: pob_gap
+  model: projectile_hit_recently
+  match: '^(\(\d+-\d+\)|\d+)% increased Melee Damage if you''ve dealt a Projectile Attack Hit in the past eight seconds$'
+  replace: []
+  confidence: theory
+  notes: >-
+    PoB parses it under Condition:HitProjectileRecently, set only by its Configuration box (conditionHitProjectileRecently),
+    which the optimizer leaves off: 0 before (coverage report, never-on, 15 Nov: 5 sources: a jewel affix, Daevata's Wind,
+    a unique mod, a desecrated spear mod, the small passive "Melee Damage if Projectile Hit"). models.projectile_hit_recently_model
+    hands PoB the same increase without the condition at the share of the fight with a Projectile Attack Hit in the past
+    8 s: 1 - e^(-8 x the build's Projectile Attack hits a second), from the main skill if it is one and every other
+    enabled Projectile Attack skill at its own use rate (no such skill: 0). The box stays off, so nothing counts twice.
+  sources: ["builder/search/models.py (PROJECTILE_HIT_RECENTLY, projectile_hit_recently_model)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/ConfigOptions.lua:1146 (conditionHitProjectileRecently)"]
+  test_in_game: "With a melee skill and a thrown spear: the melee skill's damage rises after a spear hit and falls 8 s later."
+  status: proposed

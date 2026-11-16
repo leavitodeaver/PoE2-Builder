@@ -1,0 +1,276 @@
+# Lines a model already reads that the coverage audit listed as open (COV35, 15 Nov 2026; the refreshed report's top
+# rows): each model's own regex matches the line and is used in a live path (checked: git grep of each pattern's name;
+# see each note). Empty replace: nothing is added to PoB, so no line counts twice. Written by
+# scratch/cov35/make_entries.py.
+
+- id: model-read-presence-seconds-damage
+  title: conditions.PRESENCE_SECONDS_LINE reads it
+  kind: pob_gap
+  model: presence_seconds
+  match: ^Deal (\(\d+-\d+\)|\d+)% increased Damage with Hits to Rare or Unique Enemies for each second they've ever been in
+    your Presence, up to a maximum of (\(\d+-\d+\)|\d+)%$
+  replace: []
+  confidence: theory
+  notes: 'conditions.PRESENCE_SECONDS_LINE (MECH-A): sets PoB''s enemyMultiplierEnemyPresenceSeconds box to the seconds whose
+    Full DPS equals the fight''s average (the boss in your Presence from the start; 0 outside it). The Vile Knight, its Legacy
+    rune, UniqueBuildDamageAgainstRareAndUnique1. This entry only says a model reads the line; it adds nothing to PoB (no
+    second count).'
+  sources:
+  - builder/search/conditions.py (PRESENCE_SECONDS_LINE, PRESENCE_SECONDS_VAR)
+  status: proposed
+- id: model-read-shock-makes-shocked-ground
+  title: conditions.SHOCK_MAKES_GROUND reads it
+  kind: pob_gap
+  model: grounds
+  match: ^(\(\d+-\d+\)|\d+)% chance on Shocking Enemies to created Shocked Ground$
+  replace: []
+  confidence: theory
+  notes: 'conditions.SHOCK_MAKES_GROUND (MECH-A): a source of the build''s own Shocked Ground at its Shock rate (I am the
+    Thunder...). This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/conditions.py (SHOCK_MAKES_GROUND)
+  status: proposed
+- id: model-read-freeze-makes-chilled-ground
+  title: conditions.CHILLED_ON_FREEZE reads it
+  kind: pob_gap
+  model: grounds
+  match: ^On Freezing Enemies create Chilled Ground$
+  replace: []
+  confidence: theory
+  notes: 'conditions.CHILLED_ON_FREEZE (MECH-A): a source of the build''s own Chilled Ground at its Freeze rate (I am the
+    Blizzard...). This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/conditions.py (CHILLED_ON_FREEZE)
+  status: proposed
+- id: model-read-triggered-recently
+  title: models.triggered_recently_model reads it
+  kind: pob_gap
+  model: triggered_recently
+  match: ^(\(\d+-\d+\)|\d+)% increased (?:Damage|Critical Hit Chance) if you've Triggered a Skill Recently$
+  replace: []
+  confidence: theory
+  notes: 'models.triggered_recently_model (MECHB31, PATCH_CHECK MB-2): the line without its condition at the share of the
+    fight a skill was Triggered in the past 4 s, from the build''s trigger rates (Dynamism, Power of the Storm, Evocational
+    Practitioner). This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (TRIGGERED_RECENTLY, triggered_recently_model)
+  status: proposed
+- id: model-read-charm-uses-another
+  title: flasks.CHARM_ANOTHER reads it
+  kind: pob_gap
+  model: flasks
+  match: ^(\(\d+-\d+\)|\d+)% chance when a Charm is used to use another Charm without consuming Charges$
+  replace: []
+  confidence: theory
+  notes: 'flasks.CHARM_ANOTHER (MECH-C): extra charm uses at the build''s charm use rate (Heart of the Well, its desecrated
+    mod, the passive). This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/flasks.py (CHARM_ANOTHER)
+  status: proposed
+- id: model-read-power-doubled-wasted
+  title: models.POWER_DOUBLED_WASTED reads it
+  kind: pob_gap
+  model: boss_power
+  match: ^Targets affected by Abyssal Wasting in your Presence have double Power$
+  replace: []
+  confidence: theory
+  notes: 'models.POWER_DOUBLED_WASTED (MECH67): the boss''s Power doubled while it has Abyssal Wasting from the build''s hits,
+    inside the Presence (models.boss_power; read by the Energy / Glory / roar models and PoB''s EnemyPower). This entry only
+    says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (POWER_DOUBLED_WASTED, presence_power)
+  status: proposed
+- id: model-read-power-doubled
+  title: models.POWER_DOUBLED reads it
+  kind: pob_gap
+  model: boss_power
+  match: ^Enemies in your Presence count as having double Power$
+  replace: []
+  confidence: theory
+  notes: 'models.POWER_DOUBLED (MECH67): the boss''s Power doubled inside the Presence (Redblade Banner). This entry only
+    says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (POWER_DOUBLED, presence_power)
+  status: proposed
+- id: model-read-madness-power
+  title: models.MADNESS_POWER reads it
+  kind: pob_gap
+  model: boss_power
+  match: ^Enemies in your Presence have additional Power equal to their Gruelling Madness$
+  replace: []
+  confidence: theory
+  notes: 'models.MADNESS_POWER (MECH67): +Power per Gruelling Madness stack on the boss (Sadist''s Mercy). This entry only
+    says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (MADNESS_POWER, presence_power)
+  status: proposed
+- id: model-read-madness-on-hit
+  title: models.MADNESS_ON_HIT reads it
+  kind: pob_gap
+  model: boss_power
+  match: ^Hits with this Weapon inflict (\(\d+-\d+\)|\d+) Gruelling Madness$
+  replace: []
+  confidence: theory
+  notes: 'models.MADNESS_ON_HIT (MECH67): Gruelling Madness stacks from the main skill''s hits with this weapon, for MADNESS_POWER.
+    This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (MADNESS_ON_HIT, presence_power)
+  status: proposed
+- id: model-read-madness-per-second
+  title: models.MADNESS_PER_SECOND reads it
+  kind: pob_gap
+  model: boss_power
+  match: ^Enemies in your Presence gain (\(\d+-\d+\)|\d+) Gruelling Madness each second$
+  replace: []
+  confidence: theory
+  notes: 'models.MADNESS_PER_SECOND (MECH67): Gruelling Madness kept at its maximum (The Auspex), for MADNESS_POWER. This
+    entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (MADNESS_PER_SECOND, presence_power)
+  status: proposed
+- id: model-read-glory-every-2s
+  title: models.GLORY_FLAT reads it
+  kind: pob_gap
+  model: glory
+  match: ^Skills which require Glory generate (\(\d+-\d+\)|\d+) Glory every 2 seconds$
+  replace: []
+  confidence: theory
+  notes: 'models.GLORY_FLAT (MECH-C): flat Glory over time for the build''s Glory skills (Fury of the King). This entry only
+    says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (GLORY_FLAT)
+  status: proposed
+- id: model-read-shapeshift-slam-boost
+  title: models.SHAPESHIFT_EVERY_SECOND_SLAM reads it
+  kind: pob_gap
+  model: ancestral_boost
+  match: ^Every second Slam Skill you use while Shapeshifted is Ancestrally Boosted$
+  replace: []
+  confidence: theory
+  notes: 'models.SHAPESHIFT_EVERY_SECOND_SLAM (MECH-B): Ancestral Boost on every second Slam while Shapeshifted (Surge of
+    the Tide). This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (SHAPESHIFT_EVERY_SECOND_SLAM)
+  status: proposed
+- id: model-read-impale-on-crit
+  title: models.IMPALE_ON_CRIT reads it
+  kind: pob_gap
+  model: impale
+  match: ^Critical Hits inflict Impale$
+  replace: []
+  confidence: theory
+  notes: 'models.IMPALE_ON_CRIT (MECH-B): Impale from the build''s crits in the Impale model (Dreadfist). This entry only
+    says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (IMPALE_ON_CRIT)
+  status: proposed
+- id: model-read-impale-no-crit-extract
+  title: models.IMPALE_NO_CRIT_EXTRACT reads it
+  kind: pob_gap
+  model: impale
+  match: ^Critical Hits cannot Extract Impale$
+  replace: []
+  confidence: theory
+  notes: 'models.IMPALE_NO_CRIT_EXTRACT (MECH-B): crits don''t extract Impales in the Impale model (Dreadfist). This entry
+    only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (IMPALE_NO_CRIT_EXTRACT)
+  status: proposed
+- id: model-read-hit-blood-loss
+  title: models.HIT_BLOOD_LOSS reads it
+  kind: pob_gap
+  model: blood_loss
+  match: ^(\(\d+-\d+\)|\d+)% of Physical damage dealt by your Hits causes Blood Loss$
+  replace: []
+  confidence: theory
+  notes: 'models.HIT_BLOOD_LOSS (MECH-B): Blood Loss from the build''s Physical hit damage (Atziri''s Acuity, PercentOfPhysicalHitDamageAsAdditionalBloodLoss).
+    This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (HIT_BLOOD_LOSS)
+  status: proposed
+- id: model-read-presence-ignite
+  title: conditions.PRESENCE_IGNITE reads it
+  kind: pob_gap
+  model: ailments
+  match: ^Enemies in your Presence are Ignited as though dealt (\(\d+-\d+\)|\d+) Base Fire Damage$
+  replace: []
+  confidence: theory
+  notes: 'conditions.PRESENCE_IGNITE (MECH-A): the boss Ignited inside the Presence as the line says (Radiant Grief). This
+    entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/conditions.py (PRESENCE_IGNITE)
+  status: proposed
+- id: model-read-tailwind-on-crit
+  title: models.TAILWIND_ON_CRIT reads it
+  kind: pob_gap
+  model: tailwind
+  match: ^Gain Tailwind on Critical Hit, no more than once per second$
+  replace: []
+  confidence: theory
+  notes: 'models.TAILWIND_ON_CRIT (MECH-B): Tailwind stacks from the build''s crits, at most one a second (The Black Insignia).
+    This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (TAILWIND_ON_CRIT)
+  status: proposed
+- id: model-read-challenge-off-hand
+  title: models.CHALLENGE_OFF_HAND reads it
+  kind: pob_gap
+  model: boss_power
+  match: ^Off-hand Hits inflict Runefather's Challenge$
+  replace: []
+  confidence: theory
+  notes: 'models.CHALLENGE_OFF_HAND (MECH67): Runefather''s Challenge (+Power) from off-hand hits, in boss_power''s challenge_share
+    (Eyes of the Runefather, the Legacy rune). This entry only says a model reads the line; it adds nothing to PoB (no second
+    count).'
+  sources:
+  - builder/search/models.py (CHALLENGE_OFF_HAND, challenge_share)
+  status: proposed
+- id: model-read-challenge-raise
+  title: models.CHALLENGE_RAISE reads it
+  kind: pob_gap
+  model: boss_power
+  match: ^Inflicts Runefather's Challenge on enemies (\(\d+-\d+\)|\d+) metres in front of you when raised, no more than once
+    every (\(\d+-\d+\)|\d+) seconds$
+  replace: []
+  confidence: theory
+  notes: 'models.CHALLENGE_RAISE (MECH67): Runefather''s Challenge from a raised shield within the line''s metres, in challenge_share.
+    This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/models.py (CHALLENGE_RAISE, challenge_share)
+  status: proposed
+- id: model-read-no-ward-drain
+  title: flasks.NO_WARD_DRAIN reads it
+  kind: pob_gap
+  model: flasks
+  match: ^Lose (\(\d+-\d+\)|\d+)% Life per second while you have no Runic Ward during Effect$
+  replace: []
+  confidence: theory
+  notes: 'flasks.NO_WARD_DRAIN (MECH-C): the Life drain during the flask''s effect while the build has no Runic Ward (Uhtred''s
+    Chalice). This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/flasks.py (NO_WARD_DRAIN)
+  status: proposed
+- id: model-read-charms-free
+  title: flasks.CHARMS_FREE reads it
+  kind: pob_gap
+  model: flasks
+  match: ^Charms use no Charges$
+  replace: []
+  confidence: theory
+  notes: 'flasks.CHARMS_FREE (MECH-C): charms used without spending charges in the charm-use model (Pragmatism). PoB parses
+    it into a name no calculation reads. This entry only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/flasks.py (CHARMS_FREE)
+  status: proposed
+- id: model-read-es-recharge-on-use
+  title: flasks.ES_START_ON_USE reads it
+  kind: pob_gap
+  model: flasks
+  match: ^Energy Shield Recharge starts on use$
+  replace: []
+  confidence: theory
+  notes: 'flasks.ES_START_ON_USE (MECH-C): Energy Shield recharge started at each use of the charm (Nascent Hope). This entry
+    only says a model reads the line; it adds nothing to PoB (no second count).'
+  sources:
+  - builder/search/flasks.py (ES_START_ON_USE)
+  status: proposed

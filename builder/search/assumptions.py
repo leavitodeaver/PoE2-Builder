@@ -1899,6 +1899,10 @@ class Assumptions:
         mods, notes = mods + reload_mods, notes + reload_notes
         ally_mods, ally_notes = models.ally_in_presence_model([e["text"] for e in source_lines], found)  # (MECHB31, MB-9)
         mods, notes = mods + ally_mods, notes + ally_notes
+        if any(models.PROJECTILE_HIT_RECENTLY.search(e["text"].strip()) for e in source_lines):  # (COV35)
+            hit_mods, hit_notes = models.projectile_hit_recently_model(
+                [e["text"] for e in source_lines], self.projectile_attack_rates(main.name if main else None, stats))
+            mods, notes = mods + hit_mods, notes + hit_notes
         faerie_mods, faerie_notes = faerie_fire(build, found)  # (MECHB31, MB-11: Periphery's Azmerian Swarms)
         mods, notes = mods + faerie_mods, notes + faerie_notes
         notes += corpse_notes + models.spirit_vessel_notes(skills)
@@ -4330,6 +4334,34 @@ class Assumptions:
         if state == "missing":
             return missing, f"missing Runic Ward {missing:.0%} of the fight: {how}"
         return 1.0 - missing, f"on full Runic Ward {1.0 - missing:.0%} of the fight (missing it {missing:.0%}): {how}"
+
+    def projectile_attack_rates(self, main: str | None, stats: dict) -> dict[str, tuple[float, str]]:
+        """{Projectile Attack skill: (hits a second, how)} for models.projectile_hit_recently_model (COV35): the main
+        skill's hits (PoB's Speed x hit chance) if its skill types hold Projectile and Attack, and each other enabled
+        non-support gem with both types at its group's use rate (conditions.skill_use_rate: cooldown, duration or the
+        search's chosen press rate, else 0), one hit a use."""
+        build = self.build
+        ctx = build.ctx
+
+        def projectile_attack(name: str) -> bool:
+            types = set(gem_of(ctx, name).get("skillTypes") or [])
+            return {"Projectile", "Attack"} <= types
+
+        out: dict[str, tuple[float, str]] = {}
+        if main and projectile_attack(main):
+            hits = models.hits_per_second(stats)
+            out[main] = (hits, f"the main skill, {number(stats.get('Speed')):.2f} uses/s x its hit chance")
+        groups = [g for g in build.call("groups")["groups"] if g.get("enabled") is not False]
+        where = {g["index"]: n["name"] for g in groups for n in g.get("gems") or []
+                 if n.get("enabled", True) and not n.get("support") and n["name"] != main and projectile_attack(n["name"])}
+        if where:
+            choices = models.press_choices(build)
+            for rate in build.call("useRates", indices=sorted(where))["rates"]:
+                name = where.get(rate.get("index"))
+                if name is not None and name not in out:
+                    each, why, _ = conditions_mod.skill_use_rate(rate, choices)
+                    out[name] = (each, f"on {why}")
+        return out
 
     def enemy_power_hit_count(self, window: float, cap: float, main: str | None,
                               main_types: set[str]) -> tuple[float, str]:
