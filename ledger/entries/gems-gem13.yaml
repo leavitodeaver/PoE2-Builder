@@ -131,3 +131,19 @@
             "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 5728-5730"]
   test_in_game: "Not needed: a Shock duration line."
   status: proposed
+
+- id: model-gem13-orb-of-storms-hits-and-bolts-read
+  title: "Orb of Storms: its maximum hits and bolt frequency (MECH-B's Orb of Storms models read both)"
+  kind: model
+  model: orb_cycle
+  stats: ["orb_of_storms_maximum_number_of_hits", "orb_of_storms_base_bolt_frequency_ms"]
+  skill: [Orb of Storms]
+  confidence: MEDIUM
+  notes: >-
+    The bridge's useRates (engine/bridge.lua 3670-3678) builds Orb of Storms' set stats (with quality) and passes
+    orb_of_storms_maximum_number_of_hits as orbMaxHits and orb_of_storms_base_bolt_frequency_ms as orbBoltFrequency;
+    models.py (MECHB28 / MECHB29) uses both for the main-skill Orb (its bolts and how long its hits last) and for a
+    pressed side Orb (presses and bolts a second). Entry only: no number moves.
+  sources: ["engine/bridge.lua 3660-3678", "builder/search/models.py (orbBoltFrequency, orbMaxHits; MECHB28 / MECHB29)"]
+  test_in_game: "Not needed here: the Orb models' own tests cover it."
+  status: proposed
