@@ -1678,7 +1678,7 @@ class Assumptions:
             if kaom_busy > 0:  # (its casts take the main skill's time: nothing else charges a Warcry's)
                 hand_mods = hand_mods + [models.line("1% more Attack and Cast Speed", -100 * kaom_busy, skill=main.name)]
         if embodiment[0] > 0 or any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t)
-                                    or models.EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts):
+                                    or models.EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts)                 or any(g.startswith("Fist of War") for g in main_gems):  # (MECHB35: Fist of War alone, R26-58 (b))
             # (MECH-B, MECHB18: Ancestral Boost's sources PoB leaves unparsed; PoB's own boost uptimes beside the stats;
             # MECHB19: Ancestral Empowerment + Fist of War at the lower reading; MECHB29: the Kaom embodiment)
             boost_mods, boost_notes = models.ancestral_boost_model(
@@ -1875,7 +1875,8 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             up, up_how = models.ailment_up_of(build)  # (GEM12: Primal Strikes' spirits need a Shocked boss)
             combo_mods, combo_notes = models.combo_sequence_model(main.name, main.stat_set, sets, forbidden,
-                                                                  up.get("Shock") if up else None, up_how)
+                                                                  up.get("Shock") if up else None, up_how,
+                                                                  bosses.hit_radius(stats)[0])  # (MECHB35, R28-1)
             hand_mods, hand_notes = hand_mods + combo_mods, hand_notes + combo_notes
         if main is not None and group and main.name in models.WHIRL_SKILLS:  # (GEM12: Whirlwind stages, then collapse)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]

@@ -564,3 +564,48 @@ def self_ignite_uptime(stats: dict) -> tuple[float, str]:
     return share, (f"the boss Ignites you {rate * 60:.1f} times a minute ({land:.2f} landed hits/s, {fire:.0%} Fire; "
                    f"{how}; {avoid:.0%} avoided), {seconds:g} s each: Ignited {share:.0%} of the fight (LOW: the "
                    "hit cadence is the preset's estimate)")
+
+
+# The boss's hit radius (MECHB35, MECH-B's field; RESEARCH28 R28-1, scratch/manager/research/boss-hit-radius.md; the
+# manager 16 Nov 00:55). MonsterVarieties.ObjectSize read as the monster's hit / collision radius in distance units (10
+# units = 1 m): the values HIGH (checked: research13's MonsterVarieties export of 26476662, every preset's row, 16 Nov),
+# the unit reading MEDIUM (poedb's distance page: "2 units Radius (hitboxes) of Humanoids", humans' ObjectSize 2-3; a
+# 2014 forum post "Base character radius is 2 units"). ModelSizeMultiplier (poe2db's "Model Size") is cosmetic by the
+# only staff word (Mark_GGG, forum 969990, 2014: "it doesn't change the collision radius"), so ObjectSize x Model Size
+# is only a labelled upper reading (HIT_RADIUS_UPPER). Hits count edge to edge (an area or projectile hits when it
+# overlaps the circle; MEDIUM, forum 3757630). Read by MECH-B's Salvo, Spearfield / Conductive Runes (hazards per use,
+# Escalating Mayhem) and Primal Strikes' stampede. The King: both forms ObjectSize 4 (model 125% / 120%: the larger
+# for the upper row). The worst case takes the SMALLEST (fewest hazards / Salvo projectiles on the boss).
+HIT_RADIUS: dict[str, float] = {  # metres: ObjectSize / 10
+    "Arbiter of Ash": 0.4,  # DemonClawBoss
+    "Arbiter of Divinity": 0.4,  # ArbiterofDivinity_
+    "Xesht, We That Are One": 0.3,  # ItThatReturned
+    "The King in the Mists": 0.4,  # VoodooKingBoss2 / VoodooKingBoss3
+    "Zarokh, the Temporal": 0.4,  # SilentSpiresApparition
+    "The Raven Trickster": 0.3,  # DeliriumTangmazu/TangmazuBoss
+    "The Bodach": 0.5,  # RitualWendigoBoss
+    "Olroth, Origin of the Fall": 0.4,  # LeagueExpeditionNew/Olroth/Olroth
+    "The Aberration": 0.5,  # CyclopsSpiderBoss
+    "Vessel of Kulemak": 0.6,  # LichBoss/KulemakBoss
+    "Atziri, the Red Queen": 0.5,  # AtziriBossPhaseOne
+    "Atziri, the Fell Serpent": 1.0,  # AtziriBossPhaseTwo______ (immobile)
+}
+MODEL_SIZE: dict[str, float] = {  # ModelSizeMultiplier / 100, the same rows
+    "Arbiter of Ash": 1.30, "Arbiter of Divinity": 1.30, "Xesht, We That Are One": 1.00, "The King in the Mists": 1.25,
+    "Zarokh, the Temporal": 1.40, "The Raven Trickster": 1.50, "The Bodach": 2.20, "Olroth, Origin of the Fall": 1.50,
+    "The Aberration": 1.53, "Vessel of Kulemak": 1.00, "Atziri, the Red Queen": 0.88, "Atziri, the Fell Serpent": 1.00,
+}
+HIT_RADIUS_UPPER: dict[str, float] = {n: round(HIT_RADIUS[n] * MODEL_SIZE[n], 3) for n in REAL}
+HIT_RADIUS[WORST] = min(HIT_RADIUS[n] for n in REAL)
+HIT_RADIUS_UPPER[WORST] = min(HIT_RADIUS_UPPER[n] for n in REAL)  # (Xesht 0.3 m either way: the minimum doesn't move)
+LARGEST_RADIUS = max(REAL, key=lambda n: HIT_RADIUS[n])  # the Fell Serpent, 1.0 m: the notes' big-boss row
+
+
+def hit_radius(stats: dict | None = None, reading: str = "headline") -> tuple[float, str]:
+    """(the scored boss's hit radius in metres, how): reading "headline" (ObjectSize / 10) or "upper" (x Model Size)."""
+    name = of(stats).name
+    if reading == "upper":
+        r = HIT_RADIUS_UPPER.get(name, HIT_RADIUS_UPPER[WORST])
+        return r, f"{name}'s {r:g} m (ObjectSize x Model Size, the upper reading: Model Size is cosmetic by GGG's word)"
+    r = HIT_RADIUS.get(name, HIT_RADIUS[WORST])
+    return r, f"{name}'s {r:g} m hit radius (MonsterVarieties ObjectSize / 10, MEDIUM: the unit read from poedb)"

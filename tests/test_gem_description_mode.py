@@ -266,10 +266,11 @@ def test_burgeon_averages_over_the_channels_the_dodge_rhythm_allows():
 def test_salvo_counts_its_seals_and_its_random_directions_on_one_boss():
     sup = {models.SALVO_PROJECTILE_STAT: 1, models.SALVO_INTERVAL_STAT: 1000, models.SALVO_MAX_STAT: 6}
     arrow = Skill("Lightning Arrow", 1, attack=True, support_stats=sup)
-    # 0.5 uses/s: 2 Seals a use, 1 + 2 projectiles; at 5 m a 1.5 m boss is asin(0.3) / pi of the turn
+    # 0.5 uses/s: 2 Seals a use, 1 + 2 projectiles; at 5 m the default boss (0.3 m, MECHB35: RESEARCH28's ObjectSize
+    # radius, was 1.5 m) is asin(0.06) / pi of the turn
     mods, notes = models.gem_stat_model([arrow], stats={"Speed": 0.5, "ProjectileCount": 1}, main=arrow)
     q = models.salvo_hit_chance(5.0)
-    assert q == pytest.approx(0.0970, abs=1e-3)
+    assert q == pytest.approx(0.0191, abs=1e-4) and models.salvo_hit_chance(5.0, 1.5) == pytest.approx(0.0970, abs=1e-3)
     dps = [m["value"] for m in mods if m.get("name") == "DPS" and m.get("skill") == "Lightning Arrow"]
     assert dps == [pytest.approx(100 * ((1 - (1 - q) ** 3) - 1), abs=0.01)]
     note = next(n for n in notes if n["entry"] == models.SALVO_ENTRY)
@@ -435,7 +436,8 @@ def test_primal_strikes_combo_adds_its_spirits_on_a_shocked_boss_only():
     mods, notes = models.combo_sequence_model("Primal Strikes", "Normal Strikes", sets)
     assert [m["value"] for m in mods] == [pytest.approx(100 * (plain / 100 - 1), abs=0.01)]
     assert "spirits not counted" in notes[0]["basis"]
-    reach = (2 * models.SALVO_BOSS_RADIUS + models.PRIMAL_WIDTH) / models.PRIMAL_SPACING
+    reach = (2 * models.DEFAULT_BOSS_RADIUS + models.PRIMAL_WIDTH) / models.PRIMAL_SPACING  # (0.3 m: 1.5 spirits)
+    assert reach == pytest.approx(1.5)
     spirits = 0.5 * (2 + reach * 1.5) * 20
     mods, notes = models.combo_sequence_model("Primal Strikes", "Spirits", sets, shocked=0.5)
     assert [m["value"] for m in mods] == [pytest.approx(100 * ((plain + spirits / 2.0) / 40 - 1), abs=0.01)]

@@ -4653,8 +4653,10 @@ def burgeon_model(skills: list[Skill], main: Skill | None, forbidden: set[str] =
 # PoB's ProjectileCount. Given as DPS "more" on the main skill: almost always less (a loss PoB never charges: an
 # OVERCOUNT for a build that has Salvo; the search, which PoB showed no gain, never had a reason to pick it).
 # d: the boss distance the build is calculated at (PoB's enemyDistance), else the tool's natural distance for the main
-# skill (MELEE_DISTANCE / RANGED_DISTANCE, as near_boss_share). LOW, named in the report: SALVO_BOSS_RADIUS (no boss
-# size is in the exported tables; MonsterVarieties isn't exported: a RESEARCH question), the directions spread over the
+# skill (MELEE_DISTANCE / RANGED_DISTANCE, as near_boss_share). r: the scored boss's hit radius (bosses.hit_radius,
+# MonsterVarieties ObjectSize / 10: 0.3 m for the worst-case default, MEDIUM; MECHB35 on RESEARCH28 R28-1, an OVERCOUNT
+# fix: GEM11's constant 1.5 m read ~4x too many hits; the manager 16 Nov 00:55 gave this change to MECH-B, so it edits
+# GEM's section here; the upper reading, x Model Size, in the note). LOW, named in the report: the directions spread over the
 # full turn (the game text says "random directions" and no arc; UNVERIFIED), the fractional N in 1 - (1 - q)^N. Not
 # counted (labelled): Pierce / Chain / Fork / Return sending a missed projectile back to the boss, "Sealed Skills" Seal
 # gain lines from other sources beyond SEAL_FREQUENCY_LINE / SEAL_MAX_LINE (read), a side skill with Salvo (PoB's aimed
@@ -4663,10 +4665,10 @@ SALVO_PROJECTILE_STAT = "skill_additional_projectiles_per_seal_broken"
 SALVO_INTERVAL_STAT = "base_skill_seal_gain_interval_ms"
 SALVO_MAX_STAT = "base_maximum_seals_for_skill"
 SALVO_ENTRY = "model-gem11-salvo-random-directions"
-SALVO_BOSS_RADIUS = 1.5  # metres, LOW: the boss taken as a circle of 1.5 m radius (no boss size in the exported tables)
+DEFAULT_BOSS_RADIUS = bosses.HIT_RADIUS[bosses.DEFAULT]  # metres: the default boss's (0.3 m, MEDIUM; bosses.hit_radius)
 
 
-def salvo_hit_chance(metres: float, radius: float = SALVO_BOSS_RADIUS) -> float:
+def salvo_hit_chance(metres: float, radius: float = DEFAULT_BOSS_RADIUS) -> float:
     """The chance a projectile fired in a uniformly random direction flies at a boss of `radius` metres `metres` away."""
     if metres <= 0:
         return 0.5
@@ -4712,21 +4714,25 @@ def salvo_model(skills: list[Skill], stats: dict, main: Skill | None, config: di
         metres = MELEE_DISTANCE if main.melee else RANGED_DISTANCE
         where = "the tool's natural distance for the main skill"
     every = main.name in SHOTGUN_SKILLS | SEQUENCE_SKILLS
+    radius, radius_how = bosses.hit_radius(stats)
+    upper, _ = bosses.hit_radius(stats, "upper")
+    big = bosses.HIT_RADIUS[bosses.LARGEST_RADIUS]
 
-    def factor_at(d: float, turn: float = 1.0) -> float:
-        q = min(1.0, salvo_hit_chance(d) / turn)
+    def factor_at(d: float, turn: float = 1.0, r: float = radius) -> float:
+        q = min(1.0, salvo_hit_chance(d, r) / turn)
         return fired * q / count if every else 1 - (1 - q) ** fired
 
     factor, near, half = factor_at(metres), factor_at(MELEE_DISTANCE), factor_at(metres, 0.5)
-    q = salvo_hit_chance(metres)
+    q = salvo_hit_chance(metres, radius)
     how = (f"{seals:.2f} Seals a use (one every {interval / max(1e-9, 1 + increased / 100):.2f} s, at most {most:g}, "
            f"{speed:.2f} uses/s) add {seals * per_seal:.2f} projectiles to PoB's {count:g}: {fired:.2f} a use, each in a "
-           f"random direction, {q:.1%} of them at a boss {SALVO_BOSS_RADIUS:g} m in radius {metres:g} m away ({where}); "
+           f"random direction, {q:.1%} of them at a boss {radius:g} m in radius {metres:g} m away ({where}); "
            + (f"all of {main.name}'s projectiles can hit: {fired * q:.2f} hits for PoB's {count:g}"
               if every else f"one projectile of a use can hit the boss (KeywordPopups Projectile): "
                             f"{1 - (1 - q) ** fired:.2f} hits a use for PoB's aimed 1"))
     note = {"label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "entry": SALVO_ENTRY,
-            "basis": f"{how}. LOW: the boss's radius ({SALVO_BOSS_RADIUS:g} m, no size in the game tables read), the "
+            "basis": f"{how}. The boss's radius: {radius_how}; the upper reading {upper:g} m: x{factor_at(metres, r=upper):.3f}; "
+                     f"a {big:g} m boss ({bosses.LARGEST_RADIUS}): x{factor_at(metres, r=big):.3f}. LOW: the "
                      f"directions taken as spread over the full turn (UNVERIFIED; over a forward half turn: x{half:.3f}); "
                      "Pierce, Chain, Fork and Return not counted",
             "play": (f"Salvo fires {main.name} in random directions: fight close. Without Salvo's directions (PoB, aimed):"
@@ -4978,8 +4984,9 @@ def trickster_model(skills: list[Skill], stats: dict, main: Skill | None,
 #   6 x primal_strikes_stag_stampede_damage_+%_final 50%), each at the Spirits set's per-use hit (one spirit: PoB reads
 #   neither stat, checked: SkillStatMap.lua / Modules for "primal_strikes": none). The stampede's 6 spirits fly
 #   primal_strikes_stag_volley_spacing 16 (1.6 m) apart: those that reach the boss = min(6, (2 x the boss's radius
-#   SALVO_BOSS_RADIUS 1.5 m + the wave's 1.8 m width) / 1.6 m) = 3 (LOW, UNVERIFIED: the spacing read as side by side;
-#   along one line all 6 hit: printed in the note). The +50% taken as the stampede's only (its id; no game text found
+#   bosses.hit_radius, 0.3 m for the default boss + the wave's 1.8 m width) / 1.6 m) = 1.5 (LOW, UNVERIFIED: the spacing
+#   read as side by side; along one line all 6 hit: printed in the note; MECHB35: was GEM11's 1.5 m boss, 3 spirits, an
+#   OVERCOUNT by RESEARCH28 R28-1). The +50% taken as the stampede's only (its id; no game text found
 #   for it: UNVERIFIED). Shock at the third attack taken as the fight's Shock share (LOW).
 # The combo's average: each step's hit (the set's TotalDPS / Speed, PoB's per-use damage) over each step's time (1 /
 # the set's Speed): sum of hits / sum of times, against the scored set's TotalDPS, as DPS "more" on the main skill. LOW:
@@ -5006,10 +5013,11 @@ COMBO_STRIKES: dict[tuple[str, str], int] = {("Tempest Flurry", "Third Strike"):
 
 def combo_sequence_model(main: str | None, scored: str | None, sets: list[dict],
                          forbidden: set[str] = frozenset(), shocked: float | None = None,
-                         shock_how: str = "") -> tuple[list[dict], list[dict]]:
+                         shock_how: str = "", radius: float = DEFAULT_BOSS_RADIUS) -> tuple[list[dict], list[dict]]:
     """A combo skill's average DPS over its whole combo (COMBO_SEQUENCES) against the one stat set PoB scores. `sets`:
     the bridge's setRates for the main group's skill (label, TotalDPS, Speed per set). `shocked`: the boss's Shock share
-    (Primal Strikes' spirits; None: not known, the spirits count 0)."""
+    (Primal Strikes' spirits; None: not known, the spirits count 0); `radius`: the boss's hit radius, metres
+    (bosses.hit_radius)."""
     steps = COMBO_SEQUENCES.get(main or "")
     if not steps or COMBO_ENTRY in forbidden:
         return [], []
@@ -5022,7 +5030,7 @@ def combo_sequence_model(main: str | None, scored: str | None, sets: list[dict],
     seconds = sum(1 / rows[label][1] for label in steps)
     spirits_how = ""
     if main == "Primal Strikes":
-        extra, spirits_how = primal_spirits(rows, shocked, shock_how)
+        extra, spirits_how = primal_spirits(rows, shocked, shock_how, radius)
         damage += extra
     average = damage / seconds
     factor = average / rows[scored][0]
@@ -5040,18 +5048,19 @@ def combo_sequence_model(main: str | None, scored: str | None, sets: list[dict],
     return [raw_mod("DPS", "MORE", 100 * (factor - 1), main)], [note]
 
 
-def primal_spirits(rows: dict, shocked: float | None, how: str = "") -> tuple[float, str]:
+def primal_spirits(rows: dict, shocked: float | None, how: str = "",
+                   radius: float = DEFAULT_BOSS_RADIUS) -> tuple[float, str]:
     """(Primal Strikes' spirits' damage a combo, how): see COMBO_SEQUENCES' comment."""
     total, speed = rows.get(PRIMAL_SPIRITS_SET, (0.0, 0.0))
     if shocked is None or total <= 0 or speed <= 0:
         why = "the boss's Shock share isn't known" if shocked is None else "PoB gives its Spirits set no damage"
         return 0.0, f"; its spirits not counted ({why})"
     hit = total / speed
-    reach = min(PRIMAL_STAMPEDE, (2 * SALVO_BOSS_RADIUS + PRIMAL_WIDTH) / PRIMAL_SPACING)
+    reach = min(PRIMAL_STAMPEDE, (2 * radius + PRIMAL_WIDTH) / PRIMAL_SPACING)
     per = shocked * (2 * PRIMAL_SPIRITS_EACH + reach * (1 + PRIMAL_STAMPEDE_MORE / 100))
     return per * hit, (f"; plus its spirits on a Shocked boss ({shocked:.0%} of the time{': ' + how if how else ''}; "
                        f"Primal Strikes never Shocks itself): {2 * PRIMAL_SPIRITS_EACH} spirits and the stampede's "
-                       f"{reach:.1f} of {PRIMAL_STAMPEDE} that reach a {SALVO_BOSS_RADIUS:g} m boss (LOW; all "
+                       f"{reach:.1f} of {PRIMAL_STAMPEDE} that reach a {radius:g} m boss (LOW, the boss's hit radius MEDIUM; all "
                        f"{PRIMAL_STAMPEDE} if they fly in one line) at +{PRIMAL_STAMPEDE_MORE:g}%, {hit:,.0f} a spirit "
                        f"(PoB's Spirits set): {per * hit:,.0f} a combo")
 
@@ -6735,16 +6744,18 @@ def escalating_mayhem_model(texts: list[str], stats: dict, main: Skill | None,
 # under the boss, so the hazards the boss touches = the use's count x its footprint's share of the field
 # (pi (r + reach)^2 over the cone's (angle / 2) R^2), at least PoB's one, at most the use's count (a spent hazard can't
 # hit twice; the active limit is above one use's count, so it caps nothing more; the oldest replaced at the limit,
-# UNVERIFIED). BOSS_FOOTPRINT_RADIUS (LOW) is GEM11's SALVO_BOSS_RADIUS, one boss size for the whole tool: no datamined
-# boss hit radius (MonsterVarieties.ObjectSize, 3-6 for the presets' bosses and 0 / 4 in Character.ot's object_size /
-# secondary_object_size, is in no stated unit) nor a published one (searched 15 Nov); Maxroll's Spear Huntress guide:
-# Spearfield hits "very hard against larger bosses because many of its spears land on the same enemy". The note gives
-# the count at HAZARD_SMALL_BOSS too (the size's weight shown). Not counted (a lower bound): spears the boss walks into
-# later as it moves.
+# UNVERIFIED). The boss's radius r: the scored preset's hit radius (bosses.hit_radius: MonsterVarieties ObjectSize / 10,
+# 0.3 m for the worst-case default, 0.3-1.0 m over the presets, MEDIUM; MECHB35 on RESEARCH28 R28-1, the manager 16 Nov
+# 00:55: an OVERCOUNT fix, the code took 1.5 m: Spearfield L20 x6.4 -> x1.0, Conductive Runes x2.5 -> x1.0). Maxroll's
+# Spear Huntress guide: Spearfield hits "very hard against larger bosses because many of its spears land on the same
+# enemy". Spearfield's trigger reach: the headline 0 (a spear goes off when the boss's circle covers it; the cautious
+# reading, the manager's); HAZARD_REACH_ROWS' 0.6 m (SpearfieldPlayer's active_skill_base_secondary_area_of_effect_radius
+# 6, game 26650308 GrantedEffectStatSets 161, read as Conductive Runes' 5 is: MEDIUM-LOW, it may be the explosion's
+# area) a row in the note, with the upper radius (x Model Size) and the largest preset (the Fell Serpent, 1.0 m). Not
+# counted (a lower bound): spears the boss walks into later as it moves.
 # Hazards set off at once take MECH-A's / MECHB2's 80% less (hazard_early_model), which multiplies on top.
 SPEARFIELD_CONE_DEGREES = 90.0  # LOW: in no data (poe2db gives only the cone's length)
-BOSS_FOOTPRINT_RADIUS = SALVO_BOSS_RADIUS  # metres, LOW (see above)
-HAZARD_SMALL_BOSS = 1.0  # metres: the smaller boss the note also shows
+HAZARD_REACH_ROWS = {"Spearfield": 0.6}  # metres: the note's row reach (see above), MEDIUM-LOW
 HAZARD_LAYOUTS = {  # name: (per metre of radius, fixed count, max active, cone degrees, base radius m or None, reach m)
     "Spearfield": (1 / 0.2, 0.0, 70.0, SPEARFIELD_CONE_DEGREES, None, 0.0),
     "Conductive Runes": (0.0, 10.0, 20.0, 80.0, 8.5, 0.5),
@@ -6752,13 +6763,17 @@ HAZARD_LAYOUTS = {  # name: (per metre of radius, fixed count, max active, cone 
 MODEL_FIELDS.extend(f for f in ("AreaOfEffectRadius", "AreaOfEffectMod") if f not in MODEL_FIELDS)
 
 
-def hazards_on_boss(main: Skill | None, stats: dict,
-                    radius: float = BOSS_FOOTPRINT_RADIUS) -> tuple[float, str]:
-    """(hazards of one use the boss sets off, how) for the main skill (see above): 1.0 where nothing says more."""
+def hazards_on_boss(main: Skill | None, stats: dict, radius: float | None = None,
+                    reach: float | None = None) -> tuple[float, str]:
+    """(hazards of one use the boss sets off, how) for the main skill (see above): 1.0 where nothing says more.
+    `radius`: the boss's (None: the scored preset's, bosses.hit_radius); `reach`: a hazard's trigger reach (None: the
+    layout's headline)."""
     layout = HAZARD_LAYOUTS.get(main.name) if main is not None else None
     if layout is None:
         return 1.0, "one a use (PoB's count)"
-    per_metre, fixed, cap, degrees, base, reach = layout
+    per_metre, fixed, cap, degrees, base, own_reach = layout
+    reach = own_reach if reach is None else reach
+    radius = bosses.hit_radius(stats)[0] if radius is None else radius
     if base is None:
         field = number(stats.get("AreaOfEffectRadius")) / 10
     else:
@@ -6773,7 +6788,7 @@ def hazards_on_boss(main: Skill | None, stats: dict,
     under = made * math.pi * (radius + reach) ** 2 / cone
     count = min(made, max(1.0, under))
     return count, (f"{made:g} made a use in a {degrees:g} degree cone {field:.2g} m long ({cone:.3g} m2); the boss's "
-                   f"footprint {math.pi * (radius + reach) ** 2:.2g} m2 (a {radius:g} m radius, LOW"
+                   f"footprint {math.pi * (radius + reach) ** 2:.2g} m2 (a {radius:g} m radius, MEDIUM"
                    + (f", + {reach:g} m trigger reach" if reach else "") + f") holds {under:.2g}, so {count:.2g} a use")
 
 
@@ -6782,13 +6797,22 @@ def hazard_count_model(main: Skill | None, stats: dict) -> tuple[list[dict], lis
     if main is None or main.name not in HAZARD_LAYOUTS:
         return [], []
     count, how = hazards_on_boss(main, stats)
-    small, _ = hazards_on_boss(main, stats, HAZARD_SMALL_BOSS)
+    radius_how = bosses.hit_radius(stats)[1]
+    upper = bosses.hit_radius(stats, "upper")[0]
+    big = bosses.HIT_RADIUS[bosses.LARGEST_RADIUS]
+    rows = [f"{hazards_on_boss(main, stats, upper)[0]:.2g} a use at the upper radius {upper:g} m (x Model Size)",
+            f"{hazards_on_boss(main, stats, big)[0]:.2g} for a {big:g} m boss ({bosses.LARGEST_RADIUS})"]
+    if main.name in HAZARD_REACH_ROWS:
+        far = HAZARD_REACH_ROWS[main.name]
+        rows.append(f"{hazards_on_boss(main, stats, reach=far)[0]:.2g} if a hazard goes off within {far:g} m of the "
+                    "boss (its secondary radius read as the trigger reach, MEDIUM-LOW; "
+                    f"{hazards_on_boss(main, stats, big, far)[0]:.2g} for the {big:g} m boss)")
     note = {"label": f"{main.name}: hazards the boss sets off per use*", "value": round(count, 2),
-            "basis": f"{how} ({small:.2g} a use for a {HAZARD_SMALL_BOSS:g} m boss); PoB counts one a use; the boss "
+            "basis": f"{how}; the boss: {radius_how}. Rows: {'; '.join(rows)}. PoB counts one a use; the boss "
                      "walking into more later isn't counted (a lower bound)",
             "play": (f"Lay {main.name} under the boss and keep it there: without it (one a use, PoB's count) x1.00; "
                      f"with it x{count:.2f} on {main.name}'s damage"),
-            "confidence": "LOW (the cone's angle and the boss's footprint aren't in the game data; the counts are)"}
+            "confidence": "LOW (the cone's angle isn't in the game data; the counts are; the boss's radius MEDIUM)"}
     if count <= 1.0:
         return [], [note]
     return [line("1% more Damage", 100 * (count - 1), skill=main.name)], [note]
@@ -6813,7 +6837,9 @@ def hazard_count_model(main: Skill | None, stats: dict) -> tuple[list[dict], lis
 # Protector ("The Bear Spirit does not count toward your Companion limit") and His Grave Command (it commands, it summons
 # nothing). Rhoa Mount and Summon Companion count (their texts call them Companions; no exemption line: MEDIUM). A
 # group is one Companion; its type is its Companion skill's name ("Companion: <beast>" for Tame Beast, so two different
-# beasts are two types: RESEARCH26's reading, UNVERIFIED). Kept: the main skill's group first, then the most Full DPS,
+# beasts are two types: HIGH, patch 0.2.1 "Fixed a bug on gamepad where you could not enable more than one Tamed Beast
+# companion of a different monster type", and a player report of a Cerberic Bat and a Riverdrake out together; RESEARCH28
+# R28-2, the manager 16 Nov 00:55; the same beast twice is one type, MEDIUM-HIGH). Kept: the main skill's group first, then the most Full DPS,
 # one per type, up to the limit; the rest deal nothing (their minions "100% less Damage"; their buffs aren't removed, a
 # small OVERCOUNT where an extra one carries a buff, labelled).
 COMPANION_TWO = re.compile(r"^You can have two Companions of different types$", re.I)
@@ -8467,7 +8493,9 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
     after a Warcry (`warcries`: the build's Warcry uses per second, and how) and Ancestral Cry's Kaom embodiment
     (`embodiment`: the share of the fight it's up, and how; kaom_uptime, MECHB29). Mods on the main skill, and notes."""
     embodied, embodied_how = min(1.0, max(0.0, number(embodiment[0]))), embodiment[1]
-    if main is None or (not texts and embodied <= 0):
+    cooldown = number(stats.get("FistOfWarCooldown"))
+    fist_only = cooldown > 0 and number(stats.get("AncestralEmpowermentCombinedUptimeRatio")) <= 0
+    if main is None or (not texts and embodied <= 0 and not fist_only):
         return [], []
     label = "Ancestral Boost (sources PoB doesn't parse)"
     unique = any(SHAPESHIFT_EVERY_SECOND_SLAM.search(t) for t in texts)
@@ -8476,9 +8504,9 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
     # the lower reading until RESEARCH #153's in-game check)
     empowerment = (any(EMPOWERMENT_EVERY_SECOND_SLAM.match(t.strip()) for t in texts)
                    or number(stats.get("AncestralEmpowermentCombinedUptimeRatio")) > 0)
-    cooldown = number(stats.get("FistOfWarCooldown"))
     both = empowerment and cooldown > 0
-    if not unique and not kaom and not both and embodied <= 0:
+    alone = cooldown > 0 and not empowerment  # (MECHB35: Fist of War alone, R26-58 (b)'s wait on PoB's own ratio)
+    if not unique and not kaom and not both and not alone and embodied <= 0:
         return [], []
     if main.triggered:
         if not unique and not kaom and embodied <= 0:
@@ -8496,11 +8524,12 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
                          "basis": f"{main.name} isn't a Shapeshift skill, so it isn't used while Shapeshifted"}]
                        if unique and not shapeshifted else [])
         unique = unique and shapeshifted
-        if not unique and not both and embodied <= 0:
+        if not unique and not both and not alone and embodied <= 0:
             return [], unique_note
         # (MECHB34, R26-58 (b): "no more than once every T seconds" starts at each boosted slam, and the next boost waits
-        # for the first slam after T: half a slam's time on average, so 1 / (T r + 0.5); PoB's own ratio is 1 / (T r))
-        fist = min(1.0, 1 / (cooldown * speed + 0.5)) if cooldown > 0 else 0.0
+        # for the first slam after T: half a slam's time on average, so 1 / (T r + 0.5); PoB's own ratio is 1 / (T r);
+        # MECHB35: with T r <= 1 the cooldown is over by the next slam, so every slam is boosted)
+        fist = (1.0 if cooldown * speed <= 1 else 1 / (cooldown * speed + 0.5)) if cooldown > 0 else 0.0
         fist_pob = min(1.0, 1 / (cooldown * speed)) if cooldown > 0 else 0.0
         pob = max(number(stats.get(k)) for k in ("AncestralEmpowermentUptimeRatio",
                                                   "AncestralEmpowermentCombinedUptimeRatio", "FistOfWarUptimeRatio")) / 100
@@ -8511,7 +8540,7 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
         elif empowerment:
             pob = max(pob, 0.5)
         # (MECHB29) while embodying Kaom every Slam is boosted; outside it, the other sources' share (one boost a use)
-        other = 0.5 + 0.5 * fist if unique or both else pob
+        other = 0.5 + 0.5 * fist if unique or both else fist if alone else pob
         share = embodied + (1 - embodied) * other
         more = (number(stats.get("AncestralEmpowermentDamageMultiplier")) or number(stats.get("FistOfWarDamageMultiplier"))
                 or ANCESTRAL_SLAM_MORE / 100)
@@ -8529,9 +8558,13 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
             [f"every Slam while embodying Kaom (Ancestral Cry), {embodied:.0%} of the fight: {embodied_how}"]
             if embodied > 0 else [])
         # (the higher reading, each boost on a different Slam, with the cooldown's wait: 0.5 + 1 / (T r + 1), R26-58 (b))
-        upper = min(1.0, 0.5 + 1 / (cooldown * speed + 1)) if cooldown > 0 else pob
+        upper = (min(1.0, 0.5 + 1 / (cooldown * speed + 1)) if unique or both else fist_pob) if cooldown > 0 else pob
         upper_factor = (1 + more * upper) / (1 + more * pob)
-        if embodied > 0 and not unique and not both:
+        if alone and not unique:
+            play = (f"Fist of War boosts one Slam per {cooldown:g} s, then waits for the next Slam after the cooldown "
+                    f"(half a Slam's time on average): {share:.0%} boosted, x{factor:.3f}"
+                    + (f" (with {embodied:.0%} of the fight embodying Kaom)" if embodied > 0 else ""))
+        elif embodied > 0 and not unique and not both:
             play = (f"Use Ancestral Cry each time its Glory is full (Ignite the boss to fill it): without it x1.000, with "
                     f"it every Slam boosted while you embody Kaom, {embodied:.0%} of the fight, x{factor:.3f}")
         elif unique:
@@ -8540,7 +8573,10 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
         else:
             play = (f"Ancestral Empowerment with Fist of War: x{factor:.3f} at the lower reading (Fist of War's charge "
                     f"spent on a Slam Ancestral Empowerment already boosts, {share:.0%} boosted)")
-        if cooldown > 0:
+        if alone and not unique:
+            play += (f"; PoB's {pob:.0%} (1 / ({cooldown:g} s x {speed:.2f} uses/s), no wait: the upper reading): "
+                     f"x{upper_factor:.3f}")
+        elif cooldown > 0:
             play += (f"; with the higher reading (each boost on a different Slam, {upper:.0%} boosted; PoB's "
                      f"{pob:.0%} leaves out the wait for the next Slam after Fist of War's {cooldown:g} s): "
                      f"x{upper_factor:.3f} (RESEARCH #153, an in-game check)")
@@ -8548,12 +8584,15 @@ def ancestral_boost_model(texts: list[str], stats: dict, skills: list[Skill], ma
             "label": label,
             "value": f"{share:.0%} of {main.name}'s uses boosted ({more:.0%} more), against PoB's {pob:.0%}: x{factor:.3f}",
             "basis": f"{'; '.join(sources)}; one boost per use; {speed:.2f} uses/s"
-                     + ("; Fist of War's charge taken as spent on an already boosted slam (the lower reading, UNVERIFIED; "
+                     + (f"; Fist of War alone: 1 / ({cooldown:g} s x {speed:.2f} + 0.5), the wait for the next Slam "
+                        f"after its cooldown (MEDIUM, RESEARCH26 R26-58 (b); PoB's {pob:.0%} leaves it out: a small "
+                        "OVERCOUNT)" if alone and not unique else
+                        "; Fist of War's charge taken as spent on an already boosted slam (the lower reading, UNVERIFIED; "
                         f"the upper reading is {upper:.0%}, PoB's {pob:.0%} without the wait for the next Slam after "
                         "the cooldown: RESEARCH26 R26-58 (b))" if cooldown > 0 else "")
                      + "; the 25% increased area and the Empowered-only lines on the extra share aren't counted",
             "play": play,
-            "confidence": "LOW" if cooldown > 0 else "MEDIUM" if embodied > 0 else "theory",
+            "confidence": "MEDIUM" if alone and not unique else "LOW" if cooldown > 0 else "MEDIUM" if embodied > 0 else "theory",
             "entry": "ancestral-boost"}]
     if embodied > 0 and "Strike" in main_types and main.attack and main.melee:
         # (MECHB29) a boosted Strike targets 2 more enemies (nothing on one boss); its "Ancestrally Boosted Attacks deal
