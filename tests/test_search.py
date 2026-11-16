@@ -2512,7 +2512,8 @@ def test_murderous_intent_culls_on_unleashs_empowered_uses_where_pob_gives_none(
     a = Assumptions.__new__(Assumptions)
     a.build = FakeBuild()
     notes = a.cull_window()
-    share = c.empowered_cull_saving(bosses.cull_threshold(bosses.DEFAULT) / 100.0, c.boss_pool(bosses.DEFAULT), 1e6, 4.0)[0]
+    share = c.empowered_cull_saving(bosses.cull_threshold(bosses.DEFAULT) / 100.0 / c.life_bars(bosses.DEFAULT),
+                                    c.boss_pool(bosses.DEFAULT), 1e6, 4.0)[0]  # (MECHC31: the last Life bar only)
     assert share > 0 and a.build.objective.whole_scales["Murderous Intent"] == pytest.approx(1 / (1 - share))
     assert "Murderous Intent" in notes[0]["label"] and notes[0]["confidence"] == "MEDIUM"
 
@@ -2848,7 +2849,8 @@ def test_enemies_are_culled_on_block_saves_the_window_less_the_wait_for_a_block(
 
     stats = {**block, "_boss": boss}
     blocks = boss_hits.block_share(stats) / bosses.benefit_skill_time(stats)
-    expect = c.block_cull_saving(bosses.cull_threshold(boss) / 100, c.boss_pool(boss), dps, blocks)[0]
+    expect = c.block_cull_saving(bosses.cull_threshold(boss) / 100 / c.life_bars(boss), c.boss_pool(boss), dps,
+                                 blocks)[0]  # (MECHC31: the last Life bar only)
     gain = expect / (1 - expect)
     entries = [{"name": "Spark", "dps": dps}, {"name": "Best Ignite DPS", "source": "Spark", "dps": 1.0}]
     notes, found = run(entries)
@@ -3634,3 +3636,23 @@ def test_a_recipe_made_base_with_no_price_is_offered_only_in_ssf():
     for name in ("Grasping Mail", "Runeforged Grasping Mail", "Runefather's Grasping Mail"):
         assert crafted_base_unpriced(name, ssf=False) and not crafted_base_unpriced(name, ssf=True)
     assert not crafted_base_unpriced("Breach Ring", ssf=False) and not crafted_base_unpriced("Ornate Ringmail", ssf=False)
+
+
+def test_life_bars_lengthen_the_fight_and_keep_the_cull_to_the_last_bar():
+    """MECHC31 (RESEARCH26 R26-64): the Arbiter heals to full at 55% (1.45 bars), Olroth revives at ~70% (1.7); the worst
+    case has the Arbiter's Life (its 9.5M unchanged, the user's "Keep as is") and so its 1.45. The fight's pool (ramps,
+    every Cull reader's fight) takes all the bars; a Cull saves its threshold of the LAST bar only."""
+    from builder.search import conditions as c
+
+    assert c.life_bars("Arbiter of Ash") == 1.45 and c.life_bars("Olroth, Origin of the Fall") == 1.7
+    assert c.life_bars(c.bosses.WORST) == 1.45 and c.life_bars("The King in the Mists") == 1.0  # (its 1.75 is in its Life)
+    assert c.bosses.PRESETS[c.bosses.WORST].life == c.bosses.PRESETS["Arbiter of Ash"].life  # (the Life figure untouched)
+    one = c.boss_pool("Arbiter of Ash") / 1.45
+    assert one == pytest.approx(c.bosses.PRESETS["Arbiter of Ash"].life / c.bosses.life_share_of_pool("Arbiter of Ash"))
+    mult = 1 / (1 - 0.05)
+    single, _, _ = c.cull_window_scale(mult, mult, 1e7, 1e6, 1e9, 1.0, 0.0)  # (an instant hit: the whole 5% saved)
+    bars, how, _ = c.cull_window_scale(mult, mult, 1.45e7, 1e6, 1e9, 1.0, 0.0, bars=1.45)
+    assert single == pytest.approx(1.0) and bars < single and "last of 1.45 Life bars" in how
+    saved = 0.05 / 1.45  # (the threshold's share of one bar, over the whole fight)
+    assert bars == pytest.approx((saved / (1 - saved)) / (0.05 / 0.95), rel=1e-3)
+    assert c.block_cull_saving(0.05 / 1.45, 1.45e7, 1e6, 1e9)[0] == pytest.approx(saved, rel=1e-3)
