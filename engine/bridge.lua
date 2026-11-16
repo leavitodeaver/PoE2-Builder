@@ -4259,11 +4259,58 @@ function bridge.activeSkills(args)
 			return total
 		end
 		if types[SkillType.SummonsTotem] then
+			-- (MECHB34) the skill's own base Totem Limit read from its data: base_number_of_totems_allowed in ANY of its
+			-- stat sets (constant or at its level) plus its quality line. PoB's skillModList holds only the calculated
+			-- set's stats, so Shockwave Totem calculated on its slam set read 0 bare and 1 with a "+1 Totems" line (probe
+			-- POE2T3242); the game's limit is its Totem set's 1 plus the line. The build's lines (every BASE entry not
+			-- from the skill itself, the one-totem correction left out) are added to it
+			local function ownLimit()
+				local effect = activeSkill.activeEffect.grantedEffect
+				local level = activeSkill.activeEffect.level or 1
+				local best = 0
+				for _, set in ipairs(effect.statSets or { }) do
+					for _, constant in ipairs(set.constantStats or { }) do
+						if constant[1] == "base_number_of_totems_allowed" then
+							best = math.max(best, constant[2] or 0)
+						end
+					end
+					local row = set.levels and set.levels[level]
+					for i, stat in ipairs(set.stats or { }) do
+						if stat == "base_number_of_totems_allowed" and row and row[i] then
+							best = math.max(best, row[i])
+						end
+					end
+				end
+				local quality = activeSkill.activeEffect.quality or 0
+				for _, line in ipairs(effect.qualityStats or { }) do
+					if line[1] == "base_number_of_totems_allowed" then
+						best = best + math.floor(quality * (line[2] or 0) + 1e-9)
+					end
+				end
+				return best
+			end
+			local okOwn, own = pcall(ownLimit)
+			own = okOwn and own or nil
 			local ok, limit = pcall(function()
 				local list, cfg = activeSkill.skillModList, activeSkill.skillCfg
-				return list:Override(cfg, "ActiveTotemLimit", "ActiveBallistaLimit") or totemLimitBase(list, cfg)
+				local override = list:Override(cfg, "ActiveTotemLimit", "ActiveBallistaLimit")
+				if override then
+					return override
+				end
+				if not own or own <= 0 then
+					return totemLimitBase(list, cfg)
+				end
+				local id = "Skill:" .. activeSkill.activeEffect.grantedEffect.id
+				local added = 0
+				for _, entry in ipairs(list:Tabulate("BASE", cfg, "ActiveTotemLimit", "ActiveBallistaLimit")) do
+					if entry.mod.source ~= "Assumption:OneTotem" and entry.mod.source ~= id then
+						added = added + entry.value
+					end
+				end
+				return own + added
 			end)
 			skills[#skills].totemLimit = ok and limit or nil
+			skills[#skills].totemLimitOwn = own
 		end
 		-- The count PoB multiplies a totem skill's Ignite / Poison / Bleed stacks by (CalcOffence 5264-5267, skills flagged
 		-- totem): the TotemsSummoned override, else the skill's own ActiveTotemLimit (one-totem correction left out)

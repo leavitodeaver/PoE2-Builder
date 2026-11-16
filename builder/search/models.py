@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 
 from builder.ledger import model_entry
@@ -246,6 +246,8 @@ class Skill:
     mark_duration: float = 0.0  # a Mark's duration with the build's modifiers (bridge activeSkills markDuration; MECH62)
     # its raw per-minute costs and cast speed multiplier if cast speed also scales its cost (bridge overTimeCost; GEM15)
     over_time_cost: dict | None = None
+    # a totem-summoning skill's own base Totem Limit, without the build's "+N" lines (bridge totemLimitOwn; MECHB34)
+    totem_limit_own: float = 0.0
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -256,7 +258,8 @@ class Skill:
                    bool(raw.get("corpses")), raw.get("level"), raw.get("minion"), raw.get("summon"),
                    dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")),
                    number(raw.get("totalTimeAdded")), raw.get("statSet"), number(raw.get("totemLimit")),
-                   raw.get("ailmentTotems"), number(raw.get("markDuration")), raw.get("overTimeCost"))
+                   raw.get("ailmentTotems"), number(raw.get("markDuration")), raw.get("overTimeCost"),
+                   number(raw.get("totemLimitOwn")))
 
 
 def hits_per_second(stats: dict) -> float:
@@ -1181,6 +1184,24 @@ def totems_allowed(level: int) -> int:
     return next(n for at, n in SPELL_TOTEMS_ALLOWED if level >= at)
 
 
+# Ancestral Bond's doubling against the build's "+N Totems" lines (MECHB34; RESEARCH27's wording audit R27-1..5, the
+# manager 15 Nov 23:30: two UNDERCOUNTS, Spell Totem's model read no "+N" line and the other totems' model read PoB's limit,
+# which counts the adders but not the doubling: PoB leaves "Your Totem Limit is doubled" unparsed, ModCache 9994 holds it
+# with its text left over, and PoB never applies a part-parsed line, LANE_RULES). The wording rule (memory
+# mod-wording-sets-vs-adds, a WORKING rule): "doubled" doubles once. Which comes first, the doubling or the adders, is
+# UNVERIFIED (no game text or test found: RESEARCH27): headline (base + adds) x 2, the lower row (base x 2) + adds (MEDIUM).
+def bond_totems(base: float, adds: float, doubled: bool) -> tuple[float, float, str]:
+    """(totems allowed, the lower reading, the note's words) for a skill's own base Totem Limit and the build's adds."""
+    if not doubled:
+        return base + adds, base + adds, ""
+    high, low = (base + adds) * 2, base * 2 + adds
+    words = (f"Ancestral Bond's 'Your Totem Limit is doubled' (PoB doesn't apply it): ({base:g} + {adds:g}) x 2 = "
+             f"{high:g} counted (MEDIUM: whether the doubling comes before or after the +{adds:g} is UNVERIFIED; the "
+             f"wording rule: 'doubled' doubles once)" + (f"; lower row ({base:g} x 2) + {adds:g} = {low:g}"
+                                                          if low != high else ""))
+    return high, low, words
+
+
 def cast_by_totem(skills: list[Skill], skill: Skill | None) -> bool:
     """The skill is socketed in a totem meta (its group has one): the totem uses it, not you."""
     return skill is not None and any(s.name in TOTEM_METAS and s.group == skill.group for s in skills)
@@ -1205,11 +1226,14 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
     made = rates["Power"] + rates["Endurance"]
     power = rates["Power"] / made if made else 0.0  # (the charges are spent as they're made: their mix is the build's)
     level = levels.get("Spell Totem", 20)
-    allowed = totems_allowed(level)
+    base = totems_allowed(level)
     bond = any(ANCESTRAL_BOND_FREE.match(t.strip()) for t in texts)
     doubled = any(ANCESTRAL_BOND_DOUBLE.match(t.strip()) for t in texts)
-    if doubled:
-        allowed *= 2
+    # (MECHB34) the build's "+N Totems" lines: PoB's Totem Limit on the Spell Totem skill less its own base stat
+    totem = next((s for s in skills if s.name == "Spell Totem" and s.group == main.group and s.totem_limit > 0), None)
+    adds = max(0.0, round(totem.totem_limit - totem.totem_limit_own)) if totem is not None else 0.0
+    allowed, lower, bond_words = bond_totems(base, adds, doubled)
+    allowed = int(allowed)
     if any(number(s.support_stats.get(TOTEM_ONE_STAT)) > 0 for s in skills if s.group == main.group):
         allowed = 1  # (a one-totem support: "Supported Skills can only have one active Totem"; A24-3, MECHB11)
     duration = (number(stats.get("TotemDuration")) or SPELL_TOTEM_DURATION) * (
@@ -1238,8 +1262,10 @@ def totem_model(skills: list[Skill], stats: dict, texts: list[str], levels: dict
     basis = (f"{rates['Power']:.2f} Power and {rates['Endurance']:.2f} Endurance Charges made per second by what isn't "
              f"{main.name}'s hits (the totem's hits aren't yours: assumed); {SPELL_TOTEM_CHARGES} per totem, which lasts "
              f"{duration:.1f} s ({SPELL_TOTEM_DURATION_PER_ENDURANCE:.0%} longer per Endurance Charge consumed); "
-             f"{allowed} totems allowed at gem level {level}" + (" doubled by Ancestral Bond" if doubled else "")
-             + f" (game files; PoB fixes 2): {up:.2f} up on average, and PoB counts one" + bond_note)
+             f"{allowed} totems allowed ({base} at gem level {level}, game files"
+             + (f", +{adds:g} from the build's lines" if adds else "") + ")"
+             + (f" ({bond_words})" if bond_words else "")
+             + f": {up:.2f} up on average, and PoB counts one" + bond_note)
     notes = [{"label": f"Spell Totems up on average ({main.name})", "value": round(up, 2), "basis": basis
               + ("; no charges made, so no totem: no damage" if up <= 0 else "")
               + (f"; {more:.0f}% more damage from the Power Charges consumed ({SPELL_TOTEM_DAMAGE_PER_POWER:g}% each, "
@@ -6206,13 +6232,18 @@ def added_total(mods: list[dict]) -> float:
 ANCESTRAL_SPIRITS = "Ancestral Spirits"
 
 
-def ancestral_spirits_model(types: list[dict], main: Skill | None) -> tuple[float, list[dict]]:
+def ancestral_spirits_model(types: list[dict], main: Skill | None,
+                            texts: Iterable[str] = ()) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Warbringer's Ancestral Spirits: one spirit per totem the main skill keeps up, each at the
-    mean of PoB's spirit types (bridge.minionTypes `types`)."""
+    mean of PoB's spirit types (bridge.minionTypes `types`); Ancestral Bond's doubling (bond_totems, MECHB34) counted."""
     rated = [t for t in types if number(t.get("CombinedDPS")) > 0]
     if not types:
         return 0.0, []
     limit = number(main.totem_limit) if main is not None else 0.0
+    bond_words = ""
+    if limit > 0 and any(ANCESTRAL_BOND_DOUBLE.match(t.strip()) for t in texts):
+        own = main.totem_limit_own if 0 < main.totem_limit_own <= limit else limit
+        limit, _, bond_words = bond_totems(own, limit - own, True)
     mean = sum(number(t.get("CombinedDPS")) for t in rated) / len(rated) if rated else 0.0
     each = ", ".join(f"{t.get('name')} {number(t.get('CombinedDPS')):.1f}" for t in types)
     if limit <= 0 or main is None or main.triggered:
@@ -6223,7 +6254,8 @@ def ancestral_spirits_model(types: list[dict], main: Skill | None) -> tuple[floa
                       "confidence": "LOW"}]
     dps = limit * mean
     return dps, [{"label": "Ancestral Spirits (Answered Call) DPS*", "value": round(dps, 1),
-                  "basis": (f"one spirit per Totem alive: {limit:g} ({main.name}'s Totem Limit, kept up: MEDIUM) x "
+                  "basis": (f"one spirit per Totem alive: {limit:g} ({main.name}'s Totem Limit, kept up: MEDIUM"
+                            + (f"; {bond_words}" if bond_words else "") + ") x "
                             f"{mean:.1f}, the mean of PoB's four spirit types ({each}; which type each summon makes "
                             "isn't in the game text: UNVERIFIED, LOW); they fight since 0.5.0 Hotfix 3; PoB alone "
                             "scores none outside Full DPS, one Turtle inside it (taken out)"),
@@ -10464,12 +10496,17 @@ def doom_blast_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[
 #   - an area erupts once, when it has persisted 7 s (the text names one trigger; a second at 14 s: UNVERIFIED, not
 #     counted, moot under the play below); an area replaced at the Limit before 7 s doesn't erupt (it hasn't persisted
 #     7 s; KeywordPopups Limit: "the oldest effect will dissapear");
-#   - how long an area lasts: UNVERIFIED, no source gives Cursed Ground's own duration (checked: no stat id in the game
-#     files names one; KeywordPopups has no Cursed Ground entry; PoB has no Cursed Ground handling). Read as the
-#     curse's duration (CurseUse.duration: PoB's, with the build's modifiers) where that is 7 s or more (MEDIUM). Under
-#     7 s that reading would give 0, so (AUDIT36 A36-1, CLAUDE.md: never zero on an unverified reading) the other
-#     reading is counted, areas lasting until replaced at the Limit: the same 2 per 7 s, labelled LOW, both readings in
-#     the note; held for the user;
+#   - how long an area lasts: the curse's own duration (CurseUse.duration: PoB's, with the build's modifiers; MEDIUM,
+#     MECHB34, the manager's ruling 15 Nov 22:15 on RESEARCH26 R26-62: "a curse area lasts only the curse's duration
+#     ... the sourced reading, and the conservative one. Score it that way (0 Annihilations under 7 s where that
+#     follows), and show 'until replaced' as a row"). Sources: official forum thread 3900027 (Selous, 9 Jan 2026: Hayoxi's
+#     7 s trigger needs "Curse Duration—or the effect might simply not work"); no game text gives the area a duration of
+#     its own (checked, MECHB29 / RESEARCH26: no stat id in the game files names one; KeywordPopups has no Cursed Ground
+#     entry; PoB has no Cursed Ground handling; poedb.tw's "15-34 s" is PoE1's support). So under 7 s of curse duration
+#     no area erupts: 0, the headline; the other reading (areas last until replaced at the Limit: the same 2 per 7 s,
+#     LOW) is the note's "until replaced" row. This zero rests on a source (the forum reply), not on an unverified
+#     claim, so CLAUDE.md's "never zero on an unverified claim" (AUDIT36 A36-1, which counted the other reading before)
+#     no longer applies;
 #   - the play (a player who takes it plays to feed it: CLAUDE.md): two areas under the boss, a new one cast every 3.5 s
 #     (7 s / 2 areas, or the curse's cooldown if that is longer), so each area reaches 7 s, erupts and is replaced by the
 #     next cast: 2 eruptions per 7 s. Without it (the curse recast each duration, as curse_uses counts it): 1 per duration;
@@ -10508,21 +10545,31 @@ def annihilation_model(skills: list[Skill], curses: list[CurseUse],
             cooldown = (cast.cooldown or HAYOXI_COOLDOWN) / (cast.cooldown_recovery or 1.0)
             every = max(HAYOXI_DELAY / CURSE_AREAS, cooldown)
             rate, without = 1 / every, 1 / curse.duration
-            extra = max(0.0, rate - without)
             short = curse.duration < HAYOXI_DELAY - 1e-9
-            confidence = "LOW" if short else "MEDIUM"
-            how = (f"{curse.name} cast every {every:.3g} s ({HAYOXI_DELAY:g} s / {CURSE_AREAS} areas, its "
-                   f"{cooldown:.3g} s cooldown allowing), so each area persists {HAYOXI_DELAY:g} s, erupts and is "
-                   f"replaced by the next cast: {rate:.3f} eruptions/s (a play strategy*; recast only each "
-                   f"{curse.duration:.3g} s duration: {without:.3f}/s); ")
-            how += (f"its {curse.duration:.3g} s duration is under the {HAYOXI_DELAY:g} s an area must persist: if "
-                    "Cursed Ground lasts the curse's duration none erupts (0), if it lasts until replaced at the Limit "
-                    "(counted: LOW, AUDIT36 A36-1: CLAUDE.md, no zero on an unverified reading) the rate above; no "
-                    "source gives the areas a duration (UNVERIFIED)" if short else
-                    "areas taken to last the curse's duration (UNVERIFIED), at least 7 s here")
-            play = (f"Cast {curse.name} under the boss every {every:.3g} s, keeping {CURSE_AREAS} areas: each erupts "
-                    f"after {HAYOXI_DELAY:g} s. Without it (recast each {curse.duration:.3g} s): {without:.3f} "
-                    f"Annihilations/s; with it: {rate:.3f}/s")
+            confidence = "MEDIUM"
+            if short:  # (the manager's ruling 15 Nov 22:15, R26-62: an area lasts the curse's duration: none erupts)
+                replaced = rate
+                rate, without = 0.0, 0.0
+                how = (f"{curse.name}'s {curse.duration:.3g} s duration is under the {HAYOXI_DELAY:g} s an area must "
+                       "persist, and an area lasts the curse's duration (MEDIUM: official forum 3900027, Hayoxi's "
+                       "trigger needs enough Curse Duration 'or the effect might simply not work'; no game text gives "
+                       "the area a duration of its own), so none erupts (0); 'until replaced' row (LOW: if areas lasted "
+                       f"until replaced at the Limit of {CURSE_AREAS}, cast every {every:.3g} s): {replaced:.3f} "
+                       "eruptions/s")
+                play = (f"Raise {curse.name}'s Curse Duration to {HAYOXI_DELAY:g} s or more (it has "
+                        f"{curse.duration:.3g} s): below that no Cursed Ground area lasts long enough to erupt. "
+                        f"Without it: 0 Annihilations/s; with it (cast every {every:.3g} s, {CURSE_AREAS} areas): "
+                        f"{replaced:.3f}/s")
+            else:
+                how = (f"{curse.name} cast every {every:.3g} s ({HAYOXI_DELAY:g} s / {CURSE_AREAS} areas, its "
+                       f"{cooldown:.3g} s cooldown allowing), so each area persists {HAYOXI_DELAY:g} s, erupts and is "
+                       f"replaced by the next cast: {rate:.3f} eruptions/s (a play strategy*; recast only each "
+                       f"{curse.duration:.3g} s duration: {without:.3f}/s); areas last the curse's duration (MEDIUM: "
+                       "official forum 3900027), at least 7 s here")
+                play = (f"Cast {curse.name} under the boss every {every:.3g} s, keeping {CURSE_AREAS} areas: each "
+                        f"erupts after {HAYOXI_DELAY:g} s. Without it (recast each {curse.duration:.3g} s): "
+                        f"{without:.3f} Annihilations/s; with it: {rate:.3f}/s")
+            extra = max(0.0, rate - without)
             took = cast.cast_time or 0.7
             if main is not None and cast is not main and extra > 0:
                 first = min(1.0, took / curse.duration)  # (curse_model's line for the cast each duration)
@@ -10541,7 +10588,7 @@ def annihilation_model(skills: list[Skill], curses: list[CurseUse],
                                 "its damage Physical: the conversion to the curse's damage types isn't applied (an "
                                 "error either way, not modelled)"),
                       **({"play": play} if play else {}),
-                      "confidence": confidence if rate > 0 else "LOW"})
+                      "confidence": confidence})
     return mods, notes, groups
 
 
@@ -10753,7 +10800,8 @@ TOTEM_SPLINTER_STAT = "support_splinter_totem_X_times"
 TOTEM_OWN_MODEL = {"Spell Totem", "Ancestral Warrior Totem"}
 
 
-def totem_count_model(skills: list[Skill], main: Skill | None) -> tuple[list[dict], list[dict]]:
+def totem_count_model(skills: list[Skill], main: Skill | None,
+                      texts: Iterable[str] = ()) -> tuple[list[dict], list[dict]]:
     """More totems than one for the main skill's totem (see above): a speed line on the main skill and its note."""
     if main is None or main.group is None:
         return [], []
@@ -10766,12 +10814,19 @@ def totem_count_model(skills: list[Skill], main: Skill | None) -> tuple[list[dic
     if summoner is None:
         return [], []
     others = sorted({s.name for s in skills if s.totem_limit > 0 and s.group != main.group})
-    limit = int(summoner.totem_limit)
+    pob = int(summoner.totem_limit)
+    doubled = any(ANCESTRAL_BOND_DOUBLE.match(t.strip()) for t in texts)
+    own = summoner.totem_limit_own if 0 < summoner.totem_limit_own <= pob else float(pob)
+    high, low, bond_words = bond_totems(own, pob - own, doubled)
+    limit = int(high)
     up = max(1, limit - len(others))
     if up <= 1 and not others:
         return [], []
     mods = [line("1% more Attack and Cast Speed", 100.0 * (up - 1), skill=main.name)] if up > 1 else []
-    basis = (f"{summoner.name}'s Totem Limit {limit} (PoB's, with the build's +Totem lines)"
+    basis = (f"{summoner.name}'s Totem Limit {limit} (PoB's {pob}, with the build's +Totem lines"
+             + (f"; {bond_words}" if bond_words else "") + ")"
+             + (f" (lower row less the other totem skills: {max(1, int(low) - len(others))} totems)"
+                if low != high and others else "")
              + (f", less {len(others)} for {', '.join(others)} (KeywordPopups Totem: the limit is shared; each assumed to "
                 "keep one totem placed)" if others else "")
              + f": {up} totems, each using {main.name} at PoB's one-totem rate, all in reach of the boss (MEDIUM: placed "

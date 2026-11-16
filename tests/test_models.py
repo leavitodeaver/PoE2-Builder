@@ -3133,6 +3133,33 @@ def test_totem_count_counts_each_totem_up_less_other_totem_skills():
     assert models.totem_count_model([spell_totem, effusion], effusion) == ([], [])  # (totem_model's)
 
 
+
+def test_ancestral_bonds_doubling_counts_the_builds_totem_adders_on_every_totem_model():
+    """MECHB34 (RESEARCH27 R27-1..5, the manager 15 Nov 23:30): "Your Totem Limit is doubled" against the build's "+N
+    Totems" lines. PoB leaves the doubling unparsed (ModCache 9994), so the other totems' model, which read PoB's limit
+    (base + adds), now doubles it; Spell Totem's model, which read only the gem level's base, now counts the adds too.
+    Headline (base + adds) x 2; (base x 2) + adds is the lower row (the order is UNVERIFIED)."""
+    bond = ["Your Totem Limit is doubled"]
+    effigy = Skill("Dark Effigy", group=1, totem_limit=3, totem_limit_own=2)  # (2 its own, +1 from a line)
+    effusion = Skill("Vile Effusion", group=1, spell=True)
+    mods, notes = models.totem_count_model([effigy, effusion], effusion, bond)
+    assert notes[0]["value"] == 6 and mods[0]["scale"] == pytest.approx(500.0)
+    assert "(2 + 1) x 2 = 6" in notes[0]["basis"] and "lower row (2 x 2) + 1 = 5" in notes[0]["basis"]
+    assert models.totem_count_model([effigy, effusion], effusion)[1][0]["value"] == 3  # (no keystone: PoB's 3)
+    # no own value read (an older bridge): PoB's limit taken as all base
+    mods, notes = models.totem_count_model([Skill("Dark Effigy", group=1, totem_limit=3), effusion], effusion, bond)
+    assert notes[0]["value"] == 6 and "lower row" not in notes[0]["basis"]
+    # Spell Totem: 2 at gem level 20, +1 from a line (PoB's 3 less its own 2), doubled: 6; capped by Spirit with the keystone
+    main = Skill("Fireball", group=1, spell=True, cast_time=0.75)
+    totem = Skill("Spell Totem", group=1, totem_limit=3, totem_limit_own=2)
+    texts = bond + ["No Charge requirement for placing Totems"]
+    mods, notes = models.totem_model([main, totem], {"SpiritUnreserved": 1000}, texts, {"Spell Totem": 20}, main)
+    assert notes[0]["value"] == 6 and "(2 + 1) x 2 = 6" in notes[0]["basis"] and "lower row (2 x 2) + 1 = 5" in notes[0]["basis"]
+    mods, notes = models.totem_model([main, Skill("Spell Totem", group=1, totem_limit=3, totem_limit_own=2)],
+                                     {"SpiritUnreserved": 1000}, ["No Charge requirement for placing Totems"],
+                                     {"Spell Totem": 20}, main)
+    assert notes[0]["value"] == 3 and "+1 from the build's lines" in notes[0]["basis"]
+
 def test_wildwoods_gifts_blooms_give_flasks_and_charms_charges():
     """MECHC7 (#105): one Ancient Bloom per breach_flame_spawn_rate_ms, a third each kind (LOW-MEDIUM), 5 charges to every
     flask / charm of its kind; the Blooms' increased effect only in the note (UNVERIFIED that it scales the 5)."""
@@ -3697,7 +3724,8 @@ def test_doom_blast_fires_once_each_time_its_curse_expires():
 def test_hayoxis_fulmination_erupts_once_per_cursed_ground_area_that_persists_seven_seconds():
     """MECHB29 (GEM7, MECHB28's findings): Annihilation triggers when a Cursed Ground area has persisted 7 s; with 2
     areas a curse cast every 3.5 s (the play) erupts 2 per 7 s, 6 hits each; its extra casts over one a duration cost the
-    main skill their cast time; an area shorter than 7 s (taken to last the curse's duration) never erupts."""
+    main skill their cast time; an area shorter than 7 s (it lasts the curse's duration: the manager's ruling) never
+    erupts."""
     despair = Skill("Despair", group=4, spell=True, cast_time=0.5, cooldown=2.0)
     blast = Skill(models.ANNIHILATION, group=4, spell=True, triggered=True)
     main = Skill("Spark", group=1, spell=True)
@@ -3715,13 +3743,16 @@ def test_hayoxis_fulmination_erupts_once_per_cursed_ground_area_that_persists_se
     # a slower cooldown sets the pace: one eruption a cast
     slow = replace(despair, cooldown=2.0, cooldown_recovery=0.4)  # (5 s)
     assert models.annihilation_model([slow, blast, main], [by_hand], main)[1][0]["value"] == pytest.approx(0.2)
-    # a curse under 7 s (AUDIT36 A36-1): the reading "areas last the curse's duration" would give 0, so the other one
-    # (areas last until replaced) is counted, LOW, both in the note; a curse not cast by hand is left as PoB has it
+    # a curse under 7 s (MECHB34, the manager's ruling 15 Nov 22:15 on R26-62): an area lasts the curse's duration, so
+    # none erupts: 0 is the headline (MEDIUM, sourced), the "until replaced" reading a row in the note and the play
+    # guide; no extra casts are charged to the main skill
     short = models.CurseUse("Despair", 1.0, "cast by hand every 6 s", True, 6.0)
     mods, notes, groups = models.annihilation_model([despair, blast, main], [short], main)
-    assert next(m for m in mods if m.get("key") == "triggerRate")["value"] == pytest.approx(2 / 7 * 6, abs=1e-3)
-    assert groups == {4} and notes[0]["confidence"] == "LOW"
-    assert "none erupts (0)" in notes[0]["basis"] and "until replaced" in notes[0]["basis"]
+    assert next(m for m in mods if m.get("key") == "triggerRate")["value"] == 0
+    assert not any(m.get("line") == "1% more Attack and Cast Speed" for m in mods)
+    assert groups == set() and notes[0]["value"] == 0 and notes[0]["confidence"] == "MEDIUM"
+    assert "none erupts (0)" in notes[0]["basis"] and "'until replaced' row" in notes[0]["basis"]
+    assert "0.286" in notes[0]["basis"] and "Without it: 0" in notes[0]["play"] and "0.286/s" in notes[0]["play"]
     aura = models.CurseUse("Despair", 1.0, "an Aura (Blasphemy) on enemies nearby: inside it")
     mods, notes, groups = models.annihilation_model([despair, blast, main], [aura], main)
     assert groups == set() and "left as PoB has it" in notes[0]["basis"]
@@ -4494,6 +4525,10 @@ def test_ancestral_spirits_count_one_spirit_per_totem_kept_up_at_the_mean_of_the
     spark = Skill("Spark", group=1, spell=True)
     assert models.ancestral_spirits_model(types, spark)[0] == 0.0
     assert models.ancestral_spirits_model([], totem) == (0.0, [])
+    # (MECHB34) Ancestral Bond's "Your Totem Limit is doubled" (PoB doesn't apply it): (2 own + 1 added) x 2 = 6 spirits
+    plus = Skill("Shockwave Totem", group=1, attack=True, totem_limit=3, totem_limit_own=2)
+    dps, notes = models.ancestral_spirits_model(types, plus, ["Your Totem Limit is doubled"])
+    assert dps == pytest.approx(6 * (81.9 + 162.2 + 65.5 + 81.9) / 4) and "(2 + 1) x 2 = 6" in notes[0]["basis"]
 
 
 def test_ancestral_empowerment_with_fist_of_war_takes_the_lower_reading_without_the_unique():

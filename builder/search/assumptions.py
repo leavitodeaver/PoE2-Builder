@@ -804,7 +804,8 @@ def ancestral_spirits(build: Build, main: models.Skill | None) -> tuple[float, l
                 continue
             found = build.call("minionTypes", index=group["index"], active=n)
             types = found.get("types") if isinstance(found, dict) else None  # (an empty Lua table reaches Python as a list)
-            return models.ancestral_spirits_model(list(types or []), main)
+            texts = [line["text"] for line in build.call("sourceLines")["lines"]]  # (Ancestral Bond's doubling, MECHB34)
+            return models.ancestral_spirits_model(list(types or []), main, texts)
     return 0.0, []
 
 
@@ -1558,7 +1559,7 @@ class Assumptions:
         levels = {g["name"]: g["level"] for grp in build.groups() for g in grp["gems"] if g.get("level")}
         totem_mods, totem_notes = models.totem_model(found, stats, [e["text"] for e in source_lines], levels, main)
         energy_mods, energy_notes = energy_mods + totem_mods, energy_notes + totem_notes
-        count_mods, count_notes = models.totem_count_model(found, main)  # (MECH-B, MECHB8: other totems' count)
+        count_mods, count_notes = models.totem_count_model(found, main, [e["text"] for e in source_lines])  # (MECH-B, MECHB8: other totems' count)
         energy_mods, energy_notes = energy_mods + count_mods, energy_notes + count_notes
         pact_mods, pact_notes = models.minion_pact_model(found, main, stats)  # (MECH-B, MECHB11: A23-2)
         energy_mods, energy_notes = energy_mods + pact_mods, energy_notes + pact_notes
