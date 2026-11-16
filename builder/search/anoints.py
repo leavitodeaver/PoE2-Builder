@@ -4,8 +4,11 @@ Which items take how many (FIX_QUEUE gear item 1, the research manager-checked 1
 - every amulet: 1;
 - Strugglescream: 1 + "Can have 3 additional Instilled Modifiers" = 4 (UniqueMultipleAnointments1,
   local_item_can_have_x_additional_enchantments 3, checked in the game's Mods table);
-- Twisted and Distorted Amulets (0.5 bases): 2, from the official 0.5.0 patch notes (MEDIUM). How re-instilling them
-  works is UNVERIFIED: they are treated as bought already instilled, at the emotions' price (LOW);
+- Twisted and Distorted Amulets (0.5 bases): 2, from the official 0.5.0 patch notes (MEDIUM). Re-instilling one:
+  ASSUMED one random notable replaced (timesaver.gg's 0.5.4 guide; poe2wiki's Instilling page), though poe2wiki's
+  Twisted Amulet page says both (RESEARCH26 R26-20, research/instilling-amulets-raven-r26.md; no official source, no
+  later patch note: grep_notes "instil"). Either way the search can't craft a chosen pair onto one, so it is treated as
+  bought already instilled, and the emotions' price is a floor (LOW-MEDIUM);
 - an item with the "Raven-Touched" line (The Auspex, Horror's Flight: UniqueCanBeInstilled, local_item_can_be_instilled):
   1. Whether every copy has the line is UNVERIFIED: the line is in PoB's text of both, so the item what-if needs it;
 - a helmet with a Raven-Touched Shard in an augment socket: 1 (Gear.shard_trial; runes.json: helmet only, levelReq 60,
