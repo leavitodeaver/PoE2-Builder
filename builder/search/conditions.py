@@ -3166,15 +3166,34 @@ def side_consumed(share: float, stats: dict, ailment: str, hits: float, chance: 
 CULL_WINDOW_FIELDS = ("CullMultiplier", "Speed", "HitChance", "TotalDPS", "TotalDotDPS", "FullDPS")
 
 
+# Life bars (MECHC31; RESEARCH26 R26-64, olroth-arbiter-life-heal.md, MEDIUM: two 0.5 guides and the 0.4.0 note): the
+# Arbiter of Ash changes phase at 55% and heals to full, so the fight takes 1.45 of its Life bars; Olroth revives once at
+# ~70%: 1.7 bars (maxroll 4 Nov 2026 and a second guide). The King in the Mists' 1.75 is already inside its Life figure
+# (bosses.py: both forms counted), so none here. The worst case's Life is the Arbiter of Ash's (the user's "Keep as is"
+# on the 9.5M, 12 Nov 19:27: the Life figure is NOT changed), so it takes the Arbiter's 1.45. Only the fight's length
+# moves (the ramps: presence_fight, every Cull reader's fight) and the Cull, which lands on the last bar only: its saving
+# is the threshold's share of ONE bar, so threshold / bars of the whole fight (the manager, 15 Nov 22:15: "only check
+# whether the bars change the Cull share and the ramps"). Before, one bar each: the ramps undercounted (fight too short)
+# and the Cull overcounted (its window 1.45-1.7x too big a share).
+LIFE_BARS = {"Arbiter of Ash": 1.45, "Olroth, Origin of the Fall": 1.7}
+
+
+def life_bars(name: str) -> float:
+    """How many of the preset's Life bars the fight takes (the worst case: the Arbiter of Ash's, whose Life it has)."""
+    if name == getattr(bosses, "WORST", None):
+        return LIFE_BARS["Arbiter of Ash"]
+    return LIFE_BARS.get(name, 1.0)
+
+
 def boss_pool(name: str) -> float:
-    """The Life + Energy Shield the player takes off this boss preset in the fight."""
-    return bosses.PRESETS[name].life / bosses.life_share_of_pool(name)
+    """The Life + Energy Shield the player takes off this boss preset in the fight (all its Life bars: life_bars)."""
+    return bosses.PRESETS[name].life / bosses.life_share_of_pool(name) * life_bars(name)
 
 
 def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: float, hits: float, hit_dps: float,
                       dot_dps: float, split: dict | None = None, heavy: float = 0.0,
                       empowered: tuple[float, str] | None = None,
-                      other: dict | None = None) -> tuple[float, str, str]:
+                      other: dict | None = None, bars: float = 1.0) -> tuple[float, str, str]:
     """(the scale on PoB's Full Culling DPS, how, confidence): full_mult, PoB's Full DPS cull multiplier; main_mult, the
     main skill's CullMultiplier; pool, the boss's Life + ES; dps, Full DPS before the Cull; hits, the main skill's hits
     per second; hit_dps / dot_dps, its hit and damage-over-time DPS (for the wait after the boss falls under t); split,
@@ -3187,6 +3206,7 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
     t = 1.0 - 1.0 / full_mult if full_mult > 1.0 else 0.0
     if t <= 0:
         return 1.0, "", ""
+    bars = max(bars, 1.0)  # (MECHC31: the Cull lands on the last of `bars` Life bars: thresholds below are of one bar)
     if main_mult < full_mult - 1e-6:
         osplit = (other or {}).get("split") or {}
         ohits = float((other or {}).get("hits") or 0.0)
@@ -3197,11 +3217,12 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
             return 1.0, (f"another skill than the main one ({(other or {}).get('name') or 'unread'}) Culls, and {why}: "
                          "PoB's whole-window price kept (a possible overcount)"), "LOW"
         ohit = min(max(float(other.get("hitDps") or 0.0), 0.0), dps)
-        oscale, ohow, _ = cull_window_scale(full_mult, full_mult, pool, dps, ohits, ohit, dps - ohit, osplit)
+        oscale, ohow, _ = cull_window_scale(full_mult, full_mult, pool, dps, ohits, ohit, dps - ohit, osplit,
+                                                bars=bars)
         gain, how = oscale * (full_mult - 1.0), f"{other.get('name')}'s Cull (not the main skill's): {ohow}"
         if main_mult > 1.0:  # (the main skill's own, smaller Cull, at its own hits; the larger saving counts)
             mscale, mhow, _ = cull_window_scale(main_mult, main_mult, pool, dps, hits, hit_dps, dot_dps, split, heavy,
-                                                empowered)
+                                                empowered, bars=bars)
             if mscale * (main_mult - 1.0) > gain:
                 gain, how = mscale * (main_mult - 1.0), (f"the main skill's own Cull saves more than "
                                                           f"{other.get('name')}'s: {mhow}")
@@ -3211,7 +3232,7 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
     fight = pool / dps
     dot_share = dot_dps / (hit_dps + dot_dps) if hit_dps + dot_dps > 0 else 0.0
     wait = (1.0 - dot_share / 2.0) / hits
-    saved = max(0.0, t - wait / fight)
+    saved = max(0.0, t / bars - wait / fight)
     lands = f"the first hit under it, {wait:.2f} s later on average ({hits:.2f} hits/s)"
     split = split or {}
     critical, regular = float(split.get("critical") or 0.0), float(split.get("regular") or 0.0)
@@ -3244,7 +3265,7 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
     gated = heavy_only or empower_only  # (a regular Cull that lands only on some uses)
     if critical > regular or (gated and critical > 0):
         c = float(split.get("critChance") or 0.0) / 100.0
-        crit_t, regular_t = critical * inc / 100.0, regular * inc / 100.0
+        crit_t, regular_t = critical * inc / 100.0 / bars, regular * inc / 100.0 / bars
         crit_wait = (1.0 / c - dot_share / 2.0) / hits if c > 0 else float("inf")
         crit_saved = max(0.0, crit_t - crit_wait / fight)
         regular_saved = regular_saving(regular_t) if regular_t > 0 else 0.0
@@ -3257,13 +3278,15 @@ def cull_window_scale(full_mult: float, main_mult: float, pool: float, dps: floa
             lands = (f"{regular_lands}, threshold {regular_t:.1%} (the crit-only {crit_t:.1%} saves less at {c:.0%} "
                      "crit chance)")
     elif gated:
-        t_shown = regular * inc / 100.0
+        t_shown = regular * inc / 100.0 / bars
         saved, lands = regular_saving(t_shown), regular_lands
     else:
-        t_shown = t
+        t_shown = t / bars
     scale = (saved / (1.0 - saved)) / (t / (1.0 - t))
     how = (f"PoB counts the last {t:.1%} of the boss's {pool:,.0f} Life + ES saved (x{full_mult:.3f}); the Cull "
-           f"(threshold {t_shown:.1%}) lands at {lands}, in a {fight:.1f} s fight: "
+           f"(threshold {t_shown:.1%} of the fight" + (f": {t_shown * bars:.1%} of the last of {bars:g} Life bars, "
+                                                       "R26-64" if bars > 1 else "") + f") lands at {lands}, in a "
+           f"{fight:.1f} s fight: "
            f"{saved:.2%} saved (x{1.0 / (1.0 - saved):.3f})")
     return min(scale, 1.0), how, "MEDIUM"
 

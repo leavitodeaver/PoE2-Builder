@@ -2017,7 +2017,8 @@ class Assumptions:
             scale, how, confidence = conditions_mod.cull_window_scale(
                 mult, main_mult, conditions_mod.boss_pool(boss), base,
                 number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0,
-                number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), split, heavy, empowered, other)
+                number(stats.get("TotalDPS")), number(stats.get("TotalDotDPS")), split, heavy, empowered, other,
+                bars=conditions_mod.life_bars(boss))  # (MECHC31: the Cull on the last Life bar only, R26-64)
             hit_gain = (mult - 1.0) * scale
             if scale < 1.0 or how:
                 build.objective.cull_scale = scale
@@ -2039,7 +2040,8 @@ class Assumptions:
         inc = number(split.get("inc")) or 1.0
         threshold = bosses.cull_threshold(boss) / 100.0 * inc
         rate, rate_how = self.empowered_uses(stats)
-        share, how = conditions_mod.empowered_cull_saving(threshold, conditions_mod.boss_pool(boss), base, rate)
+        share, how = conditions_mod.empowered_cull_saving(threshold / conditions_mod.life_bars(boss),
+                                                          conditions_mod.boss_pool(boss), base, rate)  # (MECHC31)
         gain = share / (1.0 - share) if share < 1.0 else 0.0
         label = f"Murderous Intent's Cull on Empowered uses against {boss}*"
         play = "Use the skill Murderous Intent supports as the boss gets low: the Empowered hit under the threshold Culls it."
@@ -2173,7 +2175,8 @@ class Assumptions:
         threshold = bosses.cull_threshold(boss) / 100.0 * inc
         every = bosses.benefit_skill_time(stats)
         blocks = boss_hits.block_share(stats) / every if every > 0 else 0.0
-        share, how = conditions_mod.block_cull_saving(threshold, conditions_mod.boss_pool(boss), base, blocks)
+        share, how = conditions_mod.block_cull_saving(threshold / conditions_mod.life_bars(boss),
+                                                      conditions_mod.boss_pool(boss), base, blocks)  # (MECHC31)
         gain = share / (1.0 - share) if share < 1.0 else 0.0
         label = f"Enemies are Culled on Block (Doomgate) against {boss}*"
         play = "Block the boss's hits once it is low: a Block under the threshold Culls it."
