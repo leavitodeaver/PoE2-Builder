@@ -32,6 +32,11 @@ def tool_uniques() -> list[dict]:
     return json.loads(Path(__file__).with_name("tool_uniques.json").read_text(encoding="utf-8"))["uniques"]
 
 
+def tool_gems() -> list[dict]:
+    """The skills the tool adds where PoB's gem dump has none (builder/data/tool_gems.json, with their sources: Untether)"""
+    return json.loads(Path(__file__).with_name("tool_gems.json").read_text(encoding="utf-8"))["gems"]
+
+
 def pin() -> dict:
     return json.loads((ENGINE_DIR / "pob-pin.json").read_text(encoding="utf-8"))
 
@@ -150,7 +155,12 @@ class GameData:
 
     @cached_property
     def gems(self) -> list[dict]:
-        return self._part("gems")["gems"]
+        """PoB's gems, then the skills the bridge adds that PoB's dump lacks (tool_gems.json: Untether, COV35), each only
+        while PoB has no gem of that name (MECHB33: lookups by name or skill id missed Untether)."""
+        gems = list(self._part("gems")["gems"])
+        names = {g["name"] for g in gems}
+        gems += [{k: v for k, v in extra.items() if k != "sources"} for extra in tool_gems() if extra["name"] not in names]
+        return gems
 
     @cached_property
     def tree(self) -> dict:

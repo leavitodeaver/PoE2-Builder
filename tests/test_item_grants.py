@@ -196,3 +196,18 @@ def test_a_bought_rares_inherent_skill_is_at_its_item_levels_skill_level():
     assert rares.inherent_skill_line("Grants Skill: Level (5-10) Lightning Bolt", 86) == "Grants Skill: Level 10 Lightning Bolt"
     assert rares.inherent_skill_line("Grants Skill: Level (1-20) Chaos Bolt", 40) is None
     assert rares.inherent_skill_line("Adds (1-3) to (5-8) Physical Damage", 82) is None
+
+
+def test_untether_is_in_the_tools_gem_list_but_never_offered_as_a_gem():
+    """COV35 (MECHB33): PoB's gem dump lacks Untether (the bridge adds the skill to PoB only), so lookups by name or skill
+    id missed it; builder/data/tool_gems.json adds it to GameData.gems as fromItem / tier 0: found by gem_of and
+    any_gems, granted by The Master's Reach, and not in Context.gems (no socketable Untether gem)."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, gem_of, make_payload
+
+    ctx = Context(make_payload(BuildRequest(main_skill="Spark")))
+    by_name, by_id = gem_of(ctx, "Untether"), gem_of(ctx, None, "AbyssalLivingBomb")
+    assert by_name and by_name is by_id and "Spell" in by_name["skillTypes"] and by_name["reqInt"] == 100
+    assert "Untether" in ctx.any_gems and "Untether" not in ctx.gems
+    assert ("unique", "The Master's Reach", None) in ctx.granted_by["Untether"]
+    assert sum(g["name"] == "Untether" for g in ctx.data.gems) == 1

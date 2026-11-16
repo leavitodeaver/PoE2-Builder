@@ -1,0 +1,30 @@
+{
+ "about": "Skills the tool adds where PoB's gem dump (data/pob-*/gems.json) has none, in that dump's form, with their sources (COV35, 15 Nov 2026). GameData.gems appends each entry whose name PoB doesn't list. The bridge adds the same skill to PoB itself (engine/bridge.lua, Untether's block): this file is the Python side's copy, so lookups by name or skill id (Context.all_gems / any_gems / gems_by_skill_id, gem_of) find it.",
+ "gems": [
+  {
+   "baseTypeName": "Untether",
+   "description": "Plant a seed of Abyssal Energy on the enemy's heart. Dealing enough damage to the enemy, or killing it outright, causes their heart to explode, dealing Physical damage in an area.",
+   "fromItem": true,
+   "gemType": "Spell",
+   "grantedEffectId": "AbyssalLivingBomb",
+   "id": "Metadata/Items/Gems/SkillGemAbyssalLivingBomb",
+   "levelRequirement": 0,
+   "name": "Untether",
+   "naturalMaxLevel": 20,
+   "reqDex": 0,
+   "reqInt": 100,
+   "reqStr": 0,
+   "skillTypes": ["Area", "AreaSpell", "Damage", "Duration", "Limit", "Mineable", "Physical", "Spell", "Totemable", "Trappable", "Triggerable", "UsableWhileMoving"],
+   "support": false,
+   "tagString": "AoE, Physical, Duration",
+   "tags": ["area", "duration", "grants_active_skill", "intelligence", "physical", "spell"],
+   "tier": 0,
+   "sources": [
+    "game files build 26476662: ActiveSkills 826 abyssal_living_bomb 'Untether' (description, types); SkillGems -> BaseItemType Metadata/Items/Gem/SkillGemAbyssalLivingBomb (Intelligence 100%)",
+    "engine/bridge.lua: the same skill (data.skills.AbyssalLivingBomb) and gem row, COV34 (bbc4da06)",
+    "https://poe2db.tw/us/Untether (COV34's saved page, 15 Nov 2026)",
+    "League-obtainable through The Master's Reach (drops from the Vessel of Kulemak, 0.5.4; COV34), the one carrier found (checked: game Mods rows naming LivingBomb: UniqueAbyssalLivingBomb1 only; ModGrantedSkills: none; poe2db's Fists of Stone version is the same gloves under Way of the Stonefist). fromItem with tier 0, so Context.gems never offers it as a socketable gem"
+   ]
+  }
+ ]
+}
