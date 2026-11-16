@@ -622,6 +622,66 @@ def test_overgrown_needs_a_plant_main_skill():
     assert mods == [] and notes[0]["value"] == "not counted"
 
 
+@pytest.mark.parametrize("texts, speed, more, conf", [
+    (["Plants have a 20% chance to immediately Overgrow"], 0.0, 10.0, "MEDIUM"),       # Boundless Growth alone: 20% x 50
+    (["Plants have a 25% chance to immediately Overgrow when they enter your Presence for the first time"], 0.0, 12.5,
+     "LOW"),                                                                            # Idol of Yeena alone
+    (["Plants have a 20% chance to immediately Overgrow"], 0.05, 30.0, "LOW"),         # + a storm half the fight: 1-.8x.5
+    (["Plants have a 20% chance to immediately Overgrow",
+      "Plants have a 25% chance to immediately Overgrow when they enter your Presence for the first time"], 0.0, 20.0,
+     "LOW"),                                                                            # 1 - .8 x .75 = 40%
+    (["Plants have a 20% chance to immediately Overgrow when Wet"], 0.0, None, "LOW"),   # not the line: nothing
+])
+def test_overgrown_plants_count_the_builds_chance_to_overgrow(texts, speed, more, conf):
+    vine, storm = Skill("Vine Arrow", 1, attack=True), Skill("Thunderstorm", 2, spell=True)
+    groups = {2: {"speed": speed, "duration": 10.0, "name": "Thunderstorm"}}
+    mods, notes = models.overgrown_model([vine, storm], vine, groups, texts=texts)
+    assert [m["value"] for m in mods] == ([pytest.approx(more)] if more else [])
+    assert notes[0]["confidence"] == conf and notes[0]["entry"] == models.OVERGROWN_ENTRY
+    if more:
+        assert models.overgrown_share([vine, storm], groups, texts)[0] == pytest.approx(more / 50)
+
+
+FIRESTORM_SETS = [{"label": "Firestorm", "TotalDPS": 1000.0}, {"label": "Ice Bolts", "TotalDPS": 800.0},
+                  {"label": "Lightning Bolts", "TotalDPS": 1500.0}]
+
+
+@pytest.mark.parametrize("scored, shares, low, high, inc", [
+    ("Firestorm", {}, None, 1.0, None),                         # no Infusions: PoB's fire set as it is
+    ("Firestorm", {"Fire": 1.0}, 4 / 3, 4 / 3, 100.0),          # every cast Fire-Infused: 0.1 s bolts held to 0.15 s
+    ("Firestorm", {"Cold": 1.0}, 1.8 * (1 / 0.15) / 10, 1.8, None),  # ice bolts added; shared limit 6.67 of 10 hits/s
+    ("Firestorm", {"Fire": 0.5, "Lightning": 0.5}, None, None, 50.0),
+])
+def test_firestorm_counts_its_infusions_bolts_and_bonuses(scored, shares, low, high, inc):
+    storm = Skill("Firestorm", 1, spell=True)
+    mods, notes = models.firestorm_infusion_model(storm, scored, FIRESTORM_SETS, {e: (v, "test") for e, v in shares.items()})
+    more = [m["value"] for m in mods if m["name"] == "DPS"]
+    assert more == ([] if low is None and not shares else more)
+    if low is not None:
+        assert (1 + more[0] / 100 if more else 1.0) == pytest.approx(low, rel=1e-4)
+    if high is not None:
+        assert f"x{high:.3f}" in notes[0]["basis"]
+    assert [m["value"] for m in mods if m["name"] == "Damage"] == ([pytest.approx(inc)] if inc else [])
+    assert notes[0]["entry"] == models.FIRESTORM_ENTRY and "Without Infusions" in notes[0]["play"]
+
+
+@pytest.mark.parametrize("scored", ["Ice Bolts", "Lightning Bolts"])
+def test_firestorms_bolt_sets_never_score_alone(scored):  # (the OVERCOUNT, probe POE2T2164: Lightning Bolts 477 vs 409)
+    mods, notes = models.firestorm_infusion_model(Skill("Firestorm", 1, spell=True), scored, FIRESTORM_SETS,
+                                                  {"Cold": (1.0, "test")})
+    more = [m["value"] for m in mods if m["name"] == "DPS"]
+    total = (1000 + 800) * (1 / 0.15) / 10  # (fire + ice bolts, the shared limit's 6.67 of 10 hits a second)
+    dps = {s["label"]: s["TotalDPS"] for s in FIRESTORM_SETS}
+    assert 1 + more[0] / 100 == pytest.approx(total * models.FIRESTORM_BOLTS_MARGIN / dps[scored], rel=1e-4)
+
+
+def test_firestorm_rate_scale_readings():
+    assert models.firestorm_rate_scale(0.0, 0.0, True) == pytest.approx(1.0)
+    assert models.firestorm_rate_scale(1.0, 1.0, False) == pytest.approx(4 / 3)        # per type: each stream x1.33
+    assert models.firestorm_rate_scale(1.0, 1.0, True) == pytest.approx((1 / 0.15) / 2 / 5)  # shared: 6.67 over two
+    assert models.firestorm_infusion_model(Skill("Spark", 1, spell=True), "Firestorm", FIRESTORM_SETS, {}) == ([], [])
+
+
 @pytest.mark.parametrize("level_cap, speed, duration, more", [
     (78, 1.0, 12.0, -100.0),   # gem level 17's cap 78 under a level-82 boss: no Drenched
     (0, 0.05, 10.0, -50.0),    # no cap; a storm every 20 s lasting 10 s: half the fight

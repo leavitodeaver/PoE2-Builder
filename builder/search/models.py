@@ -3443,7 +3443,7 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
     mods, notes = mods + cost_mods, notes + cost_notes
     proof_mods, proof_notes = warcry_proof_model(main, forbidden)
     mods, notes = mods + proof_mods, notes + proof_notes
-    grown_mods, grown_notes = overgrown_model(skills, main, groups or {}, forbidden)
+    grown_mods, grown_notes = overgrown_model(skills, main, groups or {}, forbidden, texts or [])
     mods, notes = mods + grown_mods, notes + grown_notes
     drench_mods, drench_notes = drenched_model(skills, stats or {}, main, groups or {}, boss_level, forbidden)
     mods, notes = mods + drench_mods, notes + drench_notes
@@ -6107,19 +6107,39 @@ def warcry_proof_model(main: Skill | None, forbidden: set[str] = frozenset()) ->
 # and TriggeredBrambleslamPlayer (Brambles) (checked: GrantedEffectStatSets; the one monster carrier is a Vine Arrow set;
 # PoB's data has it on both Vine Arrow sets, Thrashing Vines and Brambles; no SkillStatMap or Modules reader). KeywordPopups
 # Plant: "Plants created by Plant Skills can be Overgrown ... This generally cannot be caused by the Skill that creates
-# the Plants, and requires a different Skill or effect". What Overgrows them (checked: "Overgrown" in ActiveSkills,
-# KeywordPopups, PassiveSkills, Mods, BaseItemTypes and every stat description of 26650308; patch notes: nothing on it):
-# Thunderstorm ("Plants in the area become Overgrown") and Navira's Oasis, a Water Djinn command on Chilled Ground (a
-# minion skill: no player use rate is read, so not counted: 0, said). The play that feeds it: Thunderstorm cast on the
-# boss, the plants made inside it. Counted on the main skill as Damage MORE 50% x the share of the fight a storm covers the
-# boss, min(1, Thunderstorm's uses a second x its Duration with the build's modifiers: the bridge's useRates); plants made
-# while a storm is up count as Overgrown for their damage (LOW: whether a plant that outlives the storm stays Overgrown,
-# and where in the storm it must stand, are UNVERIFIED). Vine Arrow's arrow hit is counted too: PoB puts the stat on both
-# its sets (MEDIUM). Brambles as a side skill (Brambleslam's) isn't scaled here (its rate is brambles_model's): the main
-# skill only.
+# the Plants, and requires a different Skill or effect".
+# What Overgrows them (GEM16 corrects GEM15's list, whose search for "Overgrown" missed the stats that say "Overgrow";
+# checked: every Stats id holding overgrow / plant / when_wet, and their uses in GrantedEffectStatSets(PerLevel), Mods,
+# PassiveSkills and SoulCoreStats of 26650308, with their stat_descriptions.csd text; PoB's ModCache / ModRunes / ModItem
+# for "Overgrow" as the second source):
+# - Thunderstorm ("Plants in the area become Overgrown"): the share of the fight a storm covers the boss, min(1, its uses
+#   a second x its Duration with the build's modifiers: the bridge's useRates); plants made while a storm is up count as
+#   Overgrown for their damage (LOW: whether a plant that outlives the storm stays Overgrown, and where in the storm it
+#   must stand, are UNVERIFIED);
+# - the notable Boundless Growth (physical62), chance_for_plants_to_be_overgrown_% 20: "Plants have a 20% chance to
+#   immediately Overgrow" (PoB: ModCache nil, unparsed): that share of the plants, each rolled once as it's made
+#   (MEDIUM);
+# - Idol of Yeena (SoulCoreStats 277 / 278: bonded on boots, and its other slot), chance_%_for_plants_to_overgrow_when_
+#   entering_your_presence 25: "Plants have a 25% chance to immediately Overgrow when they enter your Presence for the
+#   first time" (PoB: ModRunes.lua has it, ModParser doesn't): counted like Boundless Growth, taking plants made at a boss
+#   inside your Presence as entering it (LOW, UNVERIFIED; the play: fight the boss inside your Presence);
+# - Navira's Oasis, a Water Djinn command on Chilled Ground (a minion skill: no player use rate is read, so not counted:
+#   0, said).
+# - Nature's Archon, a buff: "Plants have a 100% chance to immediately Overgrow" (poe2db Natures_Archon, 16 Nov 2026; the
+#   buff's own stats aren't in our exported tables), gained from the Alloy line "(25-50)% chance to gain Nature's Archon
+#   when your Plants Overgrow" (Mods AlloyNaturesArchon1): a loop fed by the sources above. Not counted (0, said): its
+#   uptime is an Archon buff's (MECH-C's topic), routed in GEM16's report.
+# The chances of one line add (one stat); the three sources are taken as independent rolls: Overgrown share = 1 - (1 -
+# storm share) x (1 - chance) x (1 - Presence chance). Counted on the main skill as Damage MORE 50% x that share. Vine
+# Arrow's arrow hit is counted too: PoB puts the stat on both its sets (MEDIUM). Brambles as a side skill (Brambleslam's)
+# isn't scaled here (its rate is brambles_model's): the main skill only. overgrown_share is public for the passive line
+# "Overgrown Plant Skills Break 50% increased Armour" (Return to Nature, physical67), which MECH-A's armour break reads.
 OVERGROW_SKILLS = ("Thunderstorm",)
 OVERGROWN_MORE = {"Vine Arrow": 50.0, "Thrashing Vines": 50.0, "Brambles": 50.0}
 OVERGROWN_ENTRY = "model-gem15-overgrown-plants"
+OVERGROW_CHANCE = re.compile(r"^Plants have an? (\d+(?:\.\d+)?)% chance to immediately Overgrow$", re.I)
+OVERGROW_PRESENCE = re.compile(r"^Plants have an? (\d+(?:\.\d+)?)% chance to immediately Overgrow when they enter your "
+                               r"Presence for the first time$", re.I)
 
 
 def overgrow_groups(skills: list[Skill], main: Skill | None) -> set[int]:
@@ -6129,14 +6149,10 @@ def overgrow_groups(skills: list[Skill], main: Skill | None) -> set[int]:
     return {s.group for s in skills if s.name in OVERGROW_SKILLS and s.group is not None}
 
 
-def overgrown_model(skills: list[Skill], main: Skill | None, groups: dict,
-                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
-    """The main Plant skill's "more damage while Overgrown" at the share of the fight the build's Thunderstorm covers."""
-    if main is None or main.name not in OVERGROWN_MORE or OVERGROWN_ENTRY in forbidden:
-        return [], []
-    more = OVERGROWN_MORE[main.name]
-    label = f"{main.name}: Overgrown Plants deal more damage*"
-    up, parts = 0.0, []
+def overgrown_share(skills: list[Skill], groups: dict, texts: list[str] = ()) -> tuple[float, list[str], str]:
+    """(share of the main skill's plants that are Overgrown, how, confidence): the build's Thunderstorm (its share of the
+    fight over the boss), "Plants have N% chance to immediately Overgrow" and its Presence form (each plant one roll)."""
+    up, parts, conf = 0.0, [], "MEDIUM"
     for storm in sorted({s.group for s in skills if s.name in OVERGROW_SKILLS and s.group is not None}):
         row = groups.get(storm) or {}
         press = row.get("_press")
@@ -6146,21 +6162,40 @@ def overgrown_model(skills: list[Skill], main: Skill | None, groups: dict,
         up = 1 - (1 - up) * (1 - share)
         parts.append(f"{row.get('name') or 'Thunderstorm'} {rate:.3g}/s" + (f" pressed {number(press):.0%}" if press
                      is not None else " at PoB's rate") + f" x {duration:.2f} s = {share:.0%}")
+        conf = "LOW" if share > 0 else conf
+    for rx, what in ((OVERGROW_CHANCE, "chance to immediately Overgrow"),
+                     (OVERGROW_PRESENCE, "chance as they enter your Presence (made at a boss inside it: LOW)")):
+        chance = min(100.0, sum(float(m.group(1)) for t in texts if (m := rx.match(t.strip()))))
+        if chance > 0:
+            up = 1 - (1 - up) * (1 - chance / 100)
+            parts.append(f"{chance:g}% {what}")
+            conf = "LOW" if rx is OVERGROW_PRESENCE else conf
+    return up, parts, conf
+
+
+def overgrown_model(skills: list[Skill], main: Skill | None, groups: dict,
+                    forbidden: set[str] = frozenset(), texts: list[str] = ()) -> tuple[list[dict], list[dict]]:
+    """The main Plant skill's "more damage while Overgrown" at the share of its plants that are Overgrown
+    (overgrown_share: the build's Thunderstorm, Boundless Growth, Idol of Yeena)."""
+    if main is None or main.name not in OVERGROWN_MORE or OVERGROWN_ENTRY in forbidden:
+        return [], []
+    more = OVERGROWN_MORE[main.name]
+    label = f"{main.name}: Overgrown Plants deal more damage*"
+    up, parts, conf = overgrown_share(skills, groups, texts)
+    play = ("Cast Thunderstorm on the boss and make your plants inside it, or take Boundless Growth / an Idol of Yeena "
+            f"(a chance for each plant to Overgrow): Overgrown plants deal {more:g}% more damage.")
     if up <= 0:
         return [], [{"label": label, "value": "not counted", "confidence": "LOW", "entry": OVERGROWN_ENTRY,
                      "basis": (f"{more:g}% more damage while its Plants are Overgrown (PoB never reads it); nothing the "
-                               "build uses Overgrows them: Thunderstorm isn't in the build (or has no use rate), and "
-                               "Navira's Oasis (a Water Djinn command) has no use rate read: 0"),
-                     "play": (f"Cast Thunderstorm on the boss and make your plants inside it: they become Overgrown "
-                              f"and deal {more:g}% more damage. Without it: +0; with it: up to {more:g}% more.")}]
+                               "build uses Overgrows them: no Thunderstorm with a use rate, no \"chance to immediately "
+                               "Overgrow\" line, and Navira's Oasis (a Water Djinn command) has no use rate read: 0"),
+                     "play": f"{play} Without it: +0; with it: up to {more:g}% more."}]
     value = more * up
     return [raw_mod("Damage", "MORE", value, main.name)], [{
-        "label": label, "value": f"{value:.1f}% more", "confidence": "LOW", "entry": OVERGROWN_ENTRY,
-        "basis": (f"{more:g}% more damage while its Plants are Overgrown (PoB never reads it), at the share of the fight "
-                  f"a Thunderstorm covers the boss: {'; '.join(parts)} -> {up:.0%} (LOW: plants made in the storm counted "
-                  "Overgrown; Navira's Oasis not counted)"),
-        "play": (f"Cast Thunderstorm on the boss and make your plants inside it (Overgrown: {more:g}% more damage). "
-                 f"Without it: +0; with this build's storms: {value:.1f}% more.")}]
+        "label": label, "value": f"{value:.1f}% more", "confidence": conf, "entry": OVERGROWN_ENTRY,
+        "basis": (f"{more:g}% more damage while its Plants are Overgrown (PoB never reads it), at the share of its plants "
+                  f"Overgrown: {'; '.join(parts)} -> {up:.0%} (independent rolls; Navira's Oasis and Nature's Archon not counted)"),
+        "play": f"{play} Without it: +0; with this build's sources: {value:.1f}% more."}]
 
 
 # Thunderstorm's Drenched (GEM15; an OVERCOUNT where it can't reach the boss or isn't kept up). The game: "Enemies in the
@@ -6211,6 +6246,91 @@ def drenched_model(skills: list[Skill], stats: dict, main: Skill | None, groups:
     if up >= 1.0 - 1e-9:
         return [], [note]
     return [raw_mod("BuffEffect", "MORE", 100 * (up - 1), DRENCH_SKILL)], [note]
+
+
+# Firestorm's Infusions (GEM16; an OVERCOUNT where the search scored an Infused set with no Infusion, an UNDERCOUNT where
+# the build makes them). The game: "Can [Consume] all three types of [ElementalInfusion|Elemental Infusion], creating a
+# much larger storm when Fire-Infused, causing lightning bolts when Lightning-Infused, and raining ice bolts when
+# Cold-Infused" (ActiveSkills firestorm, 26650308). Patch 0.3.0 (grep_notes --history "Firestorm"; the newest entries on
+# these points): "Cold and Lightning Infusions cause the storm to create additional cold and lightning bolts
+# respectively. One of each Infusion can be consumed by a single use of the Skill"; 0.4.0: "Fixed a bug where fire
+# infusion stats were not applying to Ice and Lightning Bolts of Firestorm". Fire Infusion (firestorm/statset_0.csd):
+# "grants {0}% increased Damage" (firestorm_damage_+%_if_consumed_fire_infusion 100), "grants {0}% increased bolt
+# frequency" (firestorm_bolt_frequency_+%_if_consumed_fire_infusion 100), "+1.5 metre to storm radius". PoB: three sets,
+# "Firestorm" (fire bolts), "Ice Bolts" (FirestormColdInfusionPlayer) and "Lightning Bolts" (FirestormLightningInfusion-
+# Player), each scored ALONE as a storm always up at one hit per max(fire_storm_fireball_delay_ms 200, rain_hit_delay_ms
+# 150) ms (CalcOffence 3133-3141); it reads none of the Infusion stats, and the "Bolts" labels miss the "-infused" gate
+# (conditions.INFUSED_SET), so the search could score Lightning Bolts with no Lightning Infusion.
+# Here: whichever set PoB scored, the storm is the fire bolts plus, on the casts that consume one, the ice / lightning
+# bolts, all with the Fire-Infused casts' bonuses: shares s_fire / s_cold / s_lightning of the casts (Assumptions.
+# infusion_share with casts = 1 / the storm's Duration: one storm at a time (firestorm_max_number_of_storms 1), recast as
+# it ends; MEDIUM). Fire Infusion's damage as Damage INC 100 x s_fire on Firestorm (exact on the average); its bolt
+# frequency as the hits it adds under the per-target limit (0.1 s bolts, held to 0.15 s: x1.33). The extra bolts use the
+# fire bolts' timing (PoB gives the Bolts sets the same constants). Whether the per-target limit is one for the whole storm
+# or one per bolt type is UNVERIFIED (0.1.0d: "a hit-rate limit"): the shared limit (the lower) is the headline, the
+# per-type reading (PoB's, each set capped alone) is in the note. Every bolt is taken to hit the boss, as PoB does
+# (a larger storm spreads them: not counted). "Any" (Verisium) Infusions are offered to each element (a small
+# overcount where the build makes them).
+# A Bolts set PoB scored alone (probe POE2T2164: Lightning Bolts 477 DPS vs the fire storm's 409, no Infusion: the
+# OVERCOUNT) gets the storm's total x FIRESTORM_BOLTS_MARGIN 0.9, so the search keeps the fire set; PoB has no stat-set tag
+# to zero that set alone (a skill-tagged -100% zeroed all three, probe POE2T2165).
+FIRESTORM = "Firestorm"
+FIRESTORM_SETS = {"Firestorm": "Fire", "Ice Bolts": "Cold", "Lightning Bolts": "Lightning"}
+FIRESTORM_DELAY, FIRESTORM_LIMIT, FIRESTORM_FREQ = 0.2, 0.15, 1.0  # (s, s, Fire Infusion's +100% bolt frequency)
+FIRESTORM_INC = 100.0
+FIRESTORM_ENTRY = "model-gem16-firestorm-infusions"
+FIRESTORM_BOLTS_MARGIN = 0.9  # (a Bolts set scored alone: the storm's total x this, so the fire set wins)
+
+
+def firestorm_rate_scale(fire_share: float, extra: float, shared: bool) -> float:
+    """Hits a second on the boss relative to PoB's one set alone, averaged over Fire-Infused casts (`fire_share`), with
+    `extra` expected extra bolt streams (cold + lightning shares) and the per-target limit `shared` by all bolts or not."""
+    def rate(freq: float) -> float:
+        each = freq / FIRESTORM_DELAY
+        if shared:
+            return min(each * (1 + extra), 1 / FIRESTORM_LIMIT) / (1 + extra)
+        return min(each, 1 / FIRESTORM_LIMIT)
+    base = min(1 / FIRESTORM_DELAY, 1 / FIRESTORM_LIMIT)
+    return ((1 - fire_share) * rate(1.0) + fire_share * rate(1 + FIRESTORM_FREQ)) / base
+
+
+def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[dict], shares: dict,
+                             forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Firestorm as the game casts it (see above): `sets` the bridge's setRates for its group, `shares` {element: (share
+    of casts consuming one, how)} from Assumptions.infusion_share at one cast per Duration."""
+    if main is None or main.name != FIRESTORM or FIRESTORM_ENTRY in forbidden or scored not in FIRESTORM_SETS:
+        return [], []
+    dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
+    fire, ice, bolt = (dps.get(k, 0.0) for k in FIRESTORM_SETS)
+    if fire <= 0 or dps.get(scored, 0.0) <= 0:
+        return [], []
+    s = {e: min(1.0, max(0.0, number((shares.get(e) or (0.0, ""))[0]))) for e in ("Fire", "Cold", "Lightning")}
+    extra = s["Cold"] + s["Lightning"]
+    streams = fire + s["Cold"] * ice + s["Lightning"] * bolt  # (PoB's per-set DPS, each at the plain rate)
+    low = firestorm_rate_scale(s["Fire"], extra, True) * streams / dps[scored]  # (each stream its share of the cap)
+    high = firestorm_rate_scale(s["Fire"], extra, False) * streams / dps[scored]
+    if scored != FIRESTORM:
+        # A Bolts set scored alone (probe POE2T2164: Lightning Bolts 477 vs the fire storm's 409 with no Infusion; PoB has
+        # no stat-set tag, so a mod can't zero that set alone): the storm's total, kept FIRESTORM_BOLTS_MARGIN under, so
+        # the search keeps the fire set (whose element and ailments the storm has); if ever kept, its number is low
+        low, high = low * FIRESTORM_BOLTS_MARGIN, high * FIRESTORM_BOLTS_MARGIN
+    mods = [raw_mod("DPS", "MORE", 100 * (low - 1), FIRESTORM)] if abs(low - 1) > 1e-9 else []
+    if s["Fire"] > 0:
+        mods.append(raw_mod("Damage", "INC", FIRESTORM_INC * s["Fire"], FIRESTORM))
+    how = "; ".join(f"{e} {s[e]:.0%} ({(shares.get(e) or (0, 'not read'))[1]})" for e in ("Fire", "Cold", "Lightning"))
+    return mods, [{
+        "label": "Firestorm: its Infusions (fire bolts + ice / lightning bolts)*", "value": f"x{low:.3f}",
+        "confidence": "MEDIUM",
+        "entry": FIRESTORM_ENTRY,
+        "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Firestorm {fire:,.0f}, Ice Bolts {ice:,.0f}, "
+                  f"Lightning Bolts {bolt:,.0f}, each its own storm). The game: fire bolts always, ice / lightning bolts on "
+                  f"the casts that consume a Cold / Lightning Infusion, all with Fire Infusion's 100% increased Damage and "
+                  f"bolt frequency on the casts that consume one. Shares of casts at one storm a Duration: {how}. "
+                  f"Headline: one per-target hit limit for the whole storm (x{low:.3f}); one limit per bolt type: "
+                  f"x{high:.3f} (UNVERIFIED which). Fire Infusion's damage as {FIRESTORM_INC * s['Fire']:.0f}% increased"),
+        "play": ("Keep one Firestorm on the boss and recast it as it ends, with an Infusion of each element ready: Fire for "
+                 "a bigger, faster, harder storm, Cold / Lightning for extra bolts. Without Infusions: the fire bolts "
+                 f"alone (x{fire / dps[scored]:.3f} of PoB's {scored}); with this build's: x{low:.3f}.")}]
 
 
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------

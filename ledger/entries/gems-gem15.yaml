@@ -82,11 +82,14 @@
   confidence: LOW
   notes: >-
     models.overgrown_model (GEM15): an UNDERCOUNT before (PoB has no reader). Game text "More [Plant|Overgrown]
-    damage@{0}%", 50 on all three. Overgrow sources (checked: "Overgrown" in ActiveSkills, KeywordPopups, PassiveSkills,
-    Mods, BaseItemTypes and every stat description of 26650308): Thunderstorm ("Plants in the area become Overgrown")
-    and Navira's Oasis (a djinn command, no use rate read: not counted). Main skill only; Damage MORE 50 x min(1,
-    Thunderstorm's uses a second x its Duration), from the bridge's useRates (the play: cast the storm on the boss, make
-    the plants in it). LOW: whether a plant outliving the storm stays Overgrown is UNVERIFIED.
+    damage@{0}%", 50 on all three. Overgrow sources (GEM16 corrects GEM15's list, whose search for "Overgrown" missed
+    the stats that say "Overgrow"; checked: every Stats id holding overgrow / plant / when_wet and their uses in stat
+    sets, Mods, PassiveSkills and SoulCoreStats of 26650308; PoB's ModCache / ModRunes / ModItem): Thunderstorm ("Plants
+    in the area become Overgrown"), Boundless Growth (20% chance per plant), Idol of Yeena (25% as plants enter your
+    Presence) and Navira's Oasis (a djinn command, no use rate read: not counted); also Nature's Archon, a buff with a 100% chance (poe2db), gained from an Alloy line when plants Overgrow: not counted, its uptime is an Archon's (MECH-C). Main skill only; Damage MORE 50 x
+    models.overgrown_share: 1 - (1 - min(1, Thunderstorm's uses a second x its Duration)) x (1 - chance) x (1 - Presence
+    chance), the storm from the bridge's useRates (the play: cast the storm on the boss, make the plants in it). LOW:
+    whether a plant outliving the storm stays Overgrown is UNVERIFIED.
 
 - id: model-gem15-thunderstorm-drenched
   title: "Thunderstorm's Drenched: none on a boss above its gem level's level cap, else at the share of the fight a storm covers the boss (PoB: always on)"

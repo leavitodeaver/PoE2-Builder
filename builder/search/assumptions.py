@@ -2010,6 +2010,16 @@ class Assumptions:
                 up_how = f"{uses:.3f} uses a second x its {models.GLORY_INSTANCE.get(buff, 0.0):g} s; {up_how}"
             meteor_mods, meteor_notes = models.meteor_rate_model(main, sets, up, up_how, forbidden)
             hand_mods, hand_notes = hand_mods + meteor_mods, hand_notes + meteor_notes
+        if main is not None and group and main.name == models.FIRESTORM:  # (GEM16: its Infusions' bolts and bonuses)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            duration = number(build.call("stats", fields=["Duration"]).get("Duration"))
+            up, _ = models.ailment_up_of(build)  # (Snap's Remnants: the ailments on the boss, as infusion_share reads them)
+            ailments = {var: up.get(name, 0.0) for var, name in (("conditionEnemyIgnited", "Ignite"),
+                        ("conditionEnemyShocked", "Shock"), ("conditionEnemyFrozen", "Freeze"))}
+            casts = 1.0 / duration if duration > 0 else None  # (one storm at a time, recast as it ends)
+            shares = {e: self.infusion_share(e, ailments, casts) for e in ("Fire", "Cold", "Lightning")}
+            storm_mods, storm_notes = models.firestorm_infusion_model(main, main.stat_set, sets, shares, forbidden)
+            hand_mods, hand_notes = hand_mods + storm_mods, hand_notes + storm_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
         cap_mods, cap_notes = self.main_cap(group, name)  # (MECH-B: the press hook on the main skill, MECHB5)
@@ -4168,9 +4178,12 @@ class Assumptions:
             "confidence": "game files' trigger, cooldown and mana share; Critical Hits taken at their average rate",
         }
 
-    def infusion_share(self, element: str, ailments: set[str] | dict[str, float]) -> tuple[float, str]:
+    def infusion_share(self, element: str, ailments: set[str] | dict[str, float],
+                       casts: float | None = None) -> tuple[float, str]:
         """The share of the main skill's casts that find an Elemental Infusion of `element` (one consumed per cast):
-        the build's supply (infusion_supply) over its casts per second, less those that keep the Infusion."""
+        the build's supply (infusion_supply) over its casts per second, less those that keep the Infusion. `casts`: the
+        main skill's casts per second when PoB's Speed isn't them (GEM16: Firestorm's one storm a Duration, models.
+        firestorm_infusion_model); None reads PoB's Speed, net of the Remnant presses, as before."""
         build = self.build
         raw = build.call("activeSkills")["skills"]
         present = {s["name"]: s for s in raw if not s["disabled"]}
@@ -4182,11 +4195,14 @@ class Assumptions:
         supply, used = infusion_supply(present, lines, ailments, siphon, bomb, orb,
                                        far=still_far(build.call("getConfig")))
         keep = min(1.0, sum(float(m.group(1)) for t in lines if (m := KEEP_INFUSION.search(t.strip()))) / 100.0)
-        uses = float(build.call("stats", fields=["Speed"]).get("Speed") or 0.0)
-        # (MECH46: the main skill's casts net of the time pressing Snap / Frost Bomb takes, whether or not that press
-        # line is on PoB's numbers now)
-        busy = (self.remnant_presses(raw, self.main_skill())[1] or [{"value": 0.0}])[0]["value"]
-        uses *= (1.0 - busy) / (1.0 - self.press_busy)
+        if casts is not None:
+            uses = max(0.0, float(casts))
+        else:
+            uses = float(build.call("stats", fields=["Speed"]).get("Speed") or 0.0)
+            # (MECH46: the main skill's casts net of the time pressing Snap / Frost Bomb takes, whether or not that press
+            # line is on PoB's numbers now)
+            busy = (self.remnant_presses(raw, self.main_skill())[1] or [{"value": 0.0}])[0]["value"]
+            uses *= (1.0 - busy) / (1.0 - self.press_busy)
         have = supply[element] + supply["Any"]
         others, other_how = self.other_infusion_users(element)
         needed = uses * (1.0 - keep)

@@ -1,0 +1,65 @@
+# GEM16: lines and gem stats the GEM lane's models read (C:\PROJECTS\PoE2 Builder\scratch\manager\workers\GEM16.report.md).
+
+- id: model-gem16-plants-chance-to-overgrow
+  title: "Plants have a N% chance to immediately Overgrow (Boundless Growth): that share of a Plant skill's plants is Overgrown (overgrown_model)"
+  kind: pob_gap
+  model: overgrown
+  match: '^Plants have an? (\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to immediately Overgrow$'
+  replace: []
+  confidence: MEDIUM
+  notes: >-
+    PoB doesn't parse it (ModCache nil). Game files 26650308: PassiveSkills physical62 Boundless Growth,
+    chance_for_plants_to_be_overgrown_% 20, "[Plant|Plants] have a {0}% chance to immediately [Plant|Overgrow]"
+    (stat_descriptions.csd). models.overgrown_share (GEM16) counts it as each plant rolled once as it's made, independent
+    of Thunderstorm and the Presence form; overgrown_model gives the main Vine Arrow / Thrashing Vines / Brambles
+    Damage MORE 50 x the share. An UNDERCOUNT before (GEM15's model read Thunderstorm only). Other Overgrow sources
+    (checked: every Stats id holding overgrow / plant / when_wet and their uses in stat sets, Mods, PassiveSkills and
+    SoulCoreStats of 26650308; PoB's ModCache / ModRunes / ModItem): Thunderstorm, Idol of Yeena's Presence line, Navira's
+    Oasis (a djinn command, no rate: not counted); also Nature's Archon, a buff with a 100% chance (poe2db), gained from an Alloy line when plants Overgrow: not counted, its uptime is an Archon's (MECH-C).
+  sources: ["data/game-26650308/tables/PassiveSkills.json (physical62)", "builder/search/models.py (overgrown_share)"]
+  test_in_game: "Optional: Vine Arrow with Boundless Growth, count how many plants show Overgrown."
+  status: proposed
+
+- id: model-gem16-plants-overgrow-entering-presence
+  title: "Plants have a N% chance to immediately Overgrow when they enter your Presence for the first time (Idol of Yeena): counted for plants made at a boss inside your Presence (overgrown_model, LOW)"
+  kind: pob_gap
+  model: overgrown
+  match: '^Plants have an? (\(\d+-\d+\)|\d+(?:\.\d+)?)% chance to immediately Overgrow when they enter your Presence for the first time$'
+  replace: []
+  confidence: LOW
+  notes: >-
+    PoB doesn't parse it (ModRunes.lua lists it on Idol of Yeena's boots bond; no ModCache / ModParser reader). Game files
+    26650308: SoulCoreStats 277 / 278 (Idol of Yeena), chance_%_for_plants_to_overgrow_when_entering_your_presence 25.
+    models.overgrown_share (GEM16) counts it like Boundless Growth, taking plants made at a boss inside your Presence as
+    entering it (UNVERIFIED; the play: fight the boss inside your Presence). Without it: +0.
+  sources: ["data/game-26650308/tables/SoulCoreStats.json (277, 278)", "vendor/PathOfBuilding-PoE2/src/Data/ModRunes.lua (Idol of Yeena)",
+            "builder/search/models.py (overgrown_share)"]
+  test_in_game: "Optional: Vine Arrow at a target inside your Presence with Idol of Yeena, count Overgrown plants."
+  status: proposed
+
+- id: model-gem16-firestorm-infusions
+  title: "Firestorm: fire bolts plus ice / lightning bolts on the casts that consume a Cold / Lightning Infusion, all with Fire Infusion's 100% increased Damage and bolt frequency on Fire-Infused casts (PoB scores one set alone)"
+  kind: model
+  model: firestorm_infusion
+  stats: ["active_skill_consumes_a_fire_infusion", "active_skill_consumes_a_cold_infusion",
+          "active_skill_consumes_a_lightning_infusion", "firestorm_damage_+%_if_consumed_fire_infusion",
+          "firestorm_bolt_frequency_+%_if_consumed_fire_infusion"]
+  skill: [Firestorm]
+  confidence: MEDIUM
+  notes: >-
+    models.firestorm_infusion_model (GEM16), hooked in Assumptions beside the other multi-set models. PoB scores
+    "Firestorm", "Ice Bolts" or "Lightning Bolts" alone and reads no Infusion stat; the "Bolts" labels miss the
+    "-infused" gate, so the search could score Lightning Bolts with no Lightning Infusion (an OVERCOUNT); with
+    Infusions the extra bolts and Fire Infusion's bonuses were missing (an UNDERCOUNT). Game: ActiveSkills firestorm;
+    patch 0.3.0 "Cold and Lightning Infusions cause the storm to create additional cold and lightning bolts ... One of
+    each Infusion can be consumed by a single use"; 0.4.0 Fire Infusion stats apply to Ice and Lightning Bolts;
+    firestorm/statset_0.csd "Fire Infusion grants 100% increased Damage / bolt frequency". Shares of casts from
+    Assumptions.infusion_share at one cast per storm Duration (limit 1 storm). Per-target hit limit (0.15 s) one for the
+    whole storm is the headline (lower); one per bolt type (poe2db shows the line on each set) in the note (UNVERIFIED
+    which). Not counted: Fire Infusion's +1.5 m storm radius (every bolt taken to hit the boss, as PoB does). A Bolts set
+    PoB scored alone gets the storm's total x 0.9 so the search keeps the fire set (probe POE2T2164: Lightning Bolts
+    477 DPS vs the fire storm's 409 with no Infusion, the overcount).
+  sources: ["builder/search/models.py (firestorm_infusion_model)", "scratch/manager/research/patchnotes (0.3.0, 0.4.0 Firestorm)",
+            "https://poe2db.tw/us/Firestorm"]
+  test_in_game: "Optional: Firestorm on a boss with and without a Cold Infusion, count ice bolt hits."
+  status: proposed
