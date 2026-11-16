@@ -1350,7 +1350,8 @@ def test_shocked_ground_reads_the_builds_shock_magnitude_but_not_crit_only_lines
 
 def test_return_model_lines_parse_in_pob(engine):
     """MECHB1: the bridge stops a search on an assumption line PoB can't parse; the return model's two lines."""
-    texts = ["1% more Damage", "1% more Damage against Enemies with Fully Broken Armour"]
+    texts = ["1% more Damage", "1% more Damage against Enemies with Fully Broken Armour",
+             "1% more Ignite Magnitude", "Gain 1% of Damage as Extra Fire Damage"]  # (MECHB35: HEAT_BONUS)
     results = engine.call("parseLines", lines=texts)["results"]
     assert [r["line"] for r in results if not r["supported"]] == []
 

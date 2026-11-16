@@ -5859,3 +5859,18 @@ def test_mantra_fed_by_another_skills_strikes_is_pressed_only_where_the_trade_pa
     assert time == pytest.approx(10 / 15) and share == 1.0 and "back to back" in how
     assert models.mantra_fed_cycle(1.0, 69, 1, 8, 1.0, 1.0, 0.0, "", 1.0)[:2] == (1.0, 0.0)
 
+
+def test_a_main_heat_spender_gets_its_bonus_on_the_share_of_uses_a_pressed_rapid_shot_feeds():
+    """MECHB35 (GEM15's item): Cluster Grenade at 1 use/s needs 15 Heat a use; a pressed Rapid Shot at 6 attacks/s makes
+    6 Heat/s: 40% of uses gain 50% as Fire (20%); none without Rapid Shot; Incendiary Shot's 100% more Ignite Magnitude."""
+    grenade = Skill("Cluster Grenade", group=1, attack=True)
+    mods, notes = models.heat_consumed_model(grenade, {"Speed": 1.0}, 6.0, "Rapid Shot 6/s")
+    assert mods == [models.line("Gain 1% of Damage as Extra Fire Damage", 20.0, skill="Cluster Grenade")]
+    assert notes[0]["value"] == "40% of uses" and "Press Rapid Shot" in notes[0]["play"]
+    mods, notes = models.heat_consumed_model(grenade, {"Speed": 1.0}, 0.0, "")
+    assert mods == [] and "no Rapid Shot" in notes[0]["basis"]
+    shot = Skill("Incendiary Shot", group=1, attack=True)
+    mods, _ = models.heat_consumed_model(shot, {"Speed": 0.2}, 6.0, "x")
+    assert mods == [models.line("1% more Ignite Magnitude", 100.0, skill="Incendiary Shot")]
+    assert models.heat_consumed_model(Skill("Spark", group=1, spell=True), {"Speed": 1.0}, 6.0, "") == ([], [])
+

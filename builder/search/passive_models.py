@@ -131,9 +131,14 @@ def echo_chance(main: Skill | None, main_types: set[str], main_supports: set[str
     reading; research rhythm-of-ice.md)."""
     if main is None or not main.spell or "Cascadable" not in main_types:
         return 0.0, "the main skill isn't a Cascadable spell"
-    if main.triggered or by_totem or {"Triggered", "Persistent", "UsedByProxy"} & main_types:
-        return 0.0, "the main spell isn't one you cast yourself (Echo supports skip it)"
-    support = next((s for s in ECHO_EVERY_CAST if s in main_supports), None)
+    # (MECHB35, GEM15's routed item: KeywordPopups Cascadable excludes no Triggered spell from Echoing, while Repeat's own
+    # text does ("Trigger skills ... cannot Repeat"); so a triggered Cascadable spell keeps Now and Again's and its gem
+    # quality's chance, MEDIUM; the Echo supports skip it by their own skill types. A totem's spell stays 0: whether its
+    # Echo is "yours" for these lines is UNVERIFIED.)
+    if by_totem or {"Persistent", "UsedByProxy"} & main_types:
+        return 0.0, "the main spell isn't one you cast yourself (a totem's or by proxy: UNVERIFIED that its Echo counts)"
+    triggered = main.triggered or "Triggered" in main_types
+    support = None if triggered else next((s for s in ECHO_EVERY_CAST if s in main_supports), None)
     if support:
         return 1.0, support
     passive = sum(float(m.group(1)) for t in texts if (m := ECHO_CHANCE.match(t.strip())))
@@ -142,8 +147,10 @@ def echo_chance(main: Skill | None, main_types: set[str], main_supports: set[str
     if chance > 0:
         parts = ([f"Now and Again {passive:g}%"] if passive > 0 else []) + \
                 ([f"{main.name}'s {quality:g}% quality {own:g}%"] if own > 0 else [])
-        return chance, f"a {chance:.0%} chance to Echo ({', '.join(parts)})"
-    return 0.0, "nothing makes the main spell Echo"
+        return chance, f"a {chance:.0%} chance to Echo ({', '.join(parts)})" + (
+            "; triggered: Echo supports don't apply, the chance does (MEDIUM)" if triggered else "")
+    return 0.0, ("triggered: Echo supports don't apply and nothing else makes it Echo" if triggered
+                 else "nothing makes the main spell Echo")
 
 
 def other_seals(main: Skill | None, main_types: set[str], main_supports: set[str], families=None) -> str:

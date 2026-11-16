@@ -10427,14 +10427,49 @@ CADENCE_PACE = (6 - 1) / 4.0
 # spenders keep spending and decay empties the rest after 4 s; then it fires again until full. Share firing = refill time
 # / (refill + L). Counted as "more Damage" on Rapid Shot (not attack speed: the rate it reads would move with it), so the
 # average over the fight is right; Freeze/Electrocute buildup from fewer, full hits isn't modelled (small). Not counted:
-# what the player does in the lockout (other skills, unscored), and the spenders' "if Heat consumed" bonuses (an
-# undercount, next).
+# what the player does in the lockout (other skills, unscored), and the spenders' "if Heat consumed" bonuses on side
+# spenders (an undercount: their Full DPS entries; heat_consumed_model counts them where the spender is the main skill).
 RAPID_SHOT = "Rapid Shot"
 HEAT_PER_ATTACK = 1.0
 HEAT_LOCKOUT = 10.0  # seconds (skill_specific_stat_description_mode 10000 ms; read from the gem when the bridge has it)
 HEAT_DECAY_DELAY, HEAT_DECAY_RATE = 4.0, 10.0
 HEAT_MAX = 45.0  # level 20, no quality (fallback when the gem's stats aren't read)
 HEAT_SPENDERS = {"Explosive Grenade": 15.0, "Cluster Grenade": 15.0, "Incendiary Shot": 15.0}
+
+
+# Heat consumed by the main skill (MECHB35; GEM15's routed item, the Heat model's "next"). The spenders' own stats (game
+# 26650308 GrantedEffectStatSets; PoB maps none, checked SkillStatMap.lua / Modules for "heat_is_consumed"): Explosive
+# Grenade and Cluster Grenade consume_X_heat_on_skill_use 15 + active_skill_all_damage_%_as_fire_if_heat_is_consumed 50;
+# Incendiary Shot 15 + ignite_effect_+%_final_if_heat_is_consumed 100 (patch 0.4.0, the newest entry: "consumes 15 Heat to
+# gain 100% more Ignite Magnitude"). Heat's only player source is Rapid Shot, 1 per attack (checked: the Heat stats'
+# carriers in GrantedEffectStatSets / PerLevel / QualityStats, Mods Stat1-8, PassiveSkills, SoulCoreStats: only
+# RapidShotPlayer's levels carry maximum_number_of_crossbow_heat_stacks, beside two monster sets; no item or passive Heat
+# line). So a main spender finds 15 Heat on min(1, Rapid Shot's attacks a second / (15 x its own uses a second)) of its
+# uses, Rapid Shot pressed beside it at the rate the build gives it (press_use_rate: the search's chosen rate, else 0: no
+# flat rate); that share of the bonus counts (gain-as and "more" are linear in their %). Rapid Shot's time is press_model's.
+HEAT_BONUS = {"Explosive Grenade": ("Gain 1% of Damage as Extra Fire Damage", 50.0),
+              "Cluster Grenade": ("Gain 1% of Damage as Extra Fire Damage", 50.0),
+              "Incendiary Shot": ("1% more Ignite Magnitude", 100.0)}
+
+
+def heat_consumed_model(main: Skill | None, stats: dict, heat: float, heat_how: str) -> tuple[list[dict], list[dict]]:
+    """The main Heat spender's "if Heat is consumed" bonus at the share of its uses that find 15 Heat (see above).
+    `heat`: Heat made a second (the build's pressed Rapid Shot's attacks), `heat_how` how."""
+    if main is None or main.name not in HEAT_BONUS:
+        return [], []
+    text, value = HEAT_BONUS[main.name]
+    uses = number(stats.get("Speed"))
+    cost = HEAT_SPENDERS.get(main.name, 15.0)
+    share = min(1.0, heat / (cost * uses)) if uses > 0 and heat > 0 else 0.0
+    bonus = text.replace("1%", f"{value:g}%")
+    note = {"label": f"{main.name}: Heat consumed on its uses*", "value": f"{share:.0%} of uses",
+            "basis": (f"{heat:.2f} Heat/s ({heat_how or 'no Rapid Shot pressed in the build: no Heat'}) for "
+                      f"{uses:.2f} uses/s at {cost:g} Heat each: {share:.0%} of uses get \"{bonus}\" (PoB counts "
+                      "none; the bonus is linear in its share, MEDIUM)"),
+            "play": (f"Press Rapid Shot to build Heat, then use {main.name}: without it +0; with it {share:.0%} of uses "
+                     f"get {bonus}" if share > 0 else f"Press Rapid Shot beside {main.name} to give it Heat"),
+            "confidence": "MEDIUM"}
+    return ([line(text, value * share, skill=main.name)] if share > 0 else []), [note]
 
 
 def heat_model(main: Skill | None, stats: dict, rapid: Skill | None, spenders: list[tuple[str, float, str]]
@@ -10949,12 +10984,15 @@ FROST_CHUNK_RADIUS, FROST_CHUNK_NEAR, FROST_CHUNK_FAR = 0.8, 0.5, 1.7  # metres:
 FROST_ENTRY = "model-mechb35-frost-darts-cast"
 
 
-def frost_chunk_chance(radius: float, steps: int = 90) -> float:
-    """The chance an Ice Chunk lands on a boss of `radius` metres (see above), by a grid over distance and direction."""
+def frost_chunk_chance(radius: float, steps: int = 90, area: bool = False) -> float:
+    """The chance an Ice Chunk lands on a boss of `radius` metres (see above), by a grid over distance and direction;
+    `area`: landing spots uniform over the ring's area instead of its distance (RESEARCH28 R28-8's other reading)."""
     reach = FROST_CHUNK_RADIUS + radius
     hit = 0
     for i in range(steps):
-        d = FROST_CHUNK_NEAR + (FROST_CHUNK_FAR - FROST_CHUNK_NEAR) * (i + 0.5) / steps
+        u = (i + 0.5) / steps
+        d = (math.sqrt(FROST_CHUNK_NEAR ** 2 + u * (FROST_CHUNK_FAR ** 2 - FROST_CHUNK_NEAR ** 2)) if area
+             else FROST_CHUNK_NEAR + (FROST_CHUNK_FAR - FROST_CHUNK_NEAR) * u)
         for j in range(2 * steps):
             a = math.pi * (j + 0.5) / steps
             x, y = radius + d * math.cos(a), d * math.sin(a)
@@ -10975,9 +11013,11 @@ def frost_darts_model(main: str | None, scored: str | None, sets: list[dict], pr
                      "entry": FROST_ENTRY, "basis": "PoB gave its scored set or its Projectile set no damage: PoB's kept"}]
     dart, blast, chunk = (per.get(label, 0.0) for label in FROST_SETS)
     chilled, infused = min(max(chilled, 0.0), 1.0), min(max(infused, 0.0), 1.0)
-    q = frost_chunk_chance(radius)
+    q, q_area = frost_chunk_chance(radius), frost_chunk_chance(radius, area=True)
     each = (dart + chilled * FROST_CHUNKS_A_HIT * q * chunk
             + infused * (blast + FROST_CHUNKS_AN_EXPLOSION * q * chunk))
+    each_area = (dart + chilled * FROST_CHUNKS_A_HIT * q_area * chunk
+                 + infused * (blast + FROST_CHUNKS_AN_EXPLOSION * q_area * chunk))
     factor = each / per[scored]
     every = max(projectiles, FROST_BASE_DARTS)  # (PoB's count on the Explosion set reads 1.2: probe POE2T3261)
     note = {"label": "Frost Darts: darts, Ice Chunks and Infused explosions over one cast*", "value": f"x{factor:.3f}",
@@ -10987,7 +11027,9 @@ def frost_darts_model(main: str | None, scored: str | None, sets: list[dict], pr
                       f"({infused_how}): its explosion ({blast:,.0f}) and {FROST_CHUNKS_AN_EXPLOSION} more chunks; each "
                       f"chunk ({chunk:,.0f}) lands on the boss {q:.0%} of the time (a {radius:g} m boss; 0.5-1.7 m from "
                       f"the hit, 0.8 m radius): {each:,.0f} a cast against PoB's {scored} set alone ({per[scored]:,.0f}). "
-                      f"Row: if all {every:g} darts hit the boss, x{factor * every:.3f} (UNVERIFIED). Other skills' "
+                      f"Rows: if all {every:g} darts hit the boss, x{factor * every:.3f} (RESEARCH28 R28-7: the files' group rule vs "
+                      f"players' reports, unsettled); chunks spread evenly over the ring's area, {q_area:.0%} land: "
+                      f"x{each_area / per[scored]:.3f} (R28-8). Other skills' "
                       "Chills not counted"),
             "play": (f"Frost Darts' chunks need a Chilled boss (Chilled Ground, or another skill that Chills) and its "
                      f"explosions a Cold Infusion: as built x{factor:.3f}; without either, the darts alone "

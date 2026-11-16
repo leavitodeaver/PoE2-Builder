@@ -1952,6 +1952,10 @@ class Assumptions:
             heat_mods, heat_notes = models.heat_model(main, stats, next((s for s in found if s.name == models.RAPID_SHOT),
                                                                          None), self.heat_spenders(found))
             hand_mods, hand_notes = hand_mods + heat_mods, hand_notes + heat_notes
+        if main is not None and main.name in models.HEAT_BONUS:  # (MECHB35: the main spender's Heat from a pressed Rapid Shot)
+            heat, heat_how = self.heat_made(found, main)
+            spend_mods, spend_notes = models.heat_consumed_model(main, stats, heat, heat_how)
+            hand_mods, hand_notes = hand_mods + spend_mods, hand_notes + spend_notes
         if main is not None:  # (returning projectiles' second boss hit: MECH-B, models.return_model)
             gem = build.ctx.gems.get(name) or {}
             back_mods, back_notes = models.return_model(
@@ -2737,6 +2741,20 @@ class Assumptions:
                 if uses > 0:
                     out.append((spender, uses, how))
         return out
+
+    def heat_made(self, found: list, main: "models.Skill") -> tuple[float, str]:
+        """(Heat a second, how) from the build's Rapid Shot pressed beside the main skill: one Heat an attack at its
+        pressed use rate (models.press_use_rate: the search's chosen rate, else 0). MECHB35."""
+        groups = {s.group for s in found if s.name == models.RAPID_SHOT and s.group is not None and s.group != main.group}
+        if not groups:
+            return 0.0, ""
+        total, parts = 0.0, []
+        for rate in self.build.call("useRates", indices=sorted(groups))["rates"]:
+            if str(rate.get("name") or "").startswith(models.RAPID_SHOT):
+                uses, how, _ = models.press_use_rate(rate, models.press_choice(rate, models.press_choices(self.build)))
+                total += uses * models.HEAT_PER_ATTACK
+                parts.append(f"Rapid Shot {uses:.2f} attacks/s ({how})")
+        return total, "; ".join(parts)
 
     def living_bomb_main(self, skills: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Living Bomb as the main skill: its casts cut to one explosion per seed (living_bomb_main_speed)."""

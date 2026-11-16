@@ -65,6 +65,10 @@ def test_rhythm_of_ice_counts_the_main_spells_echoes():
     # nothing Echoes: a spell that isn't Cascadable, a triggered one, one cast by a totem, or no Echo source
     assert pm.echo_chance(spell, {"Spell"}, {"Spell Echo"}, [])[0] == 0.0
     assert pm.echo_chance(Skill("Frost Bomb", group=1, spell=True, triggered=True), cascadable, {"Spell Echo"}, [])[0] == 0.0
+    # (MECHB35) a triggered Cascadable spell keeps Now and Again's chance (Echo supports still skip it)
+    fired = Skill("Frost Bomb", group=1, spell=True, triggered=True)
+    assert pm.echo_chance(fired, cascadable, {"Spell Echo"}, ["Cascadable Spells have 20% chance to Echo"])[0] == pytest.approx(0.2)
+    assert pm.echo_chance(spell, cascadable, set(), ["Cascadable Spells have 20% chance to Echo"], by_totem=True)[0] == 0.0
     assert pm.echo_chance(spell, cascadable, {"Spell Echo"}, [], by_totem=True)[0] == 0.0
     assert pm.echo_chance(spell, cascadable, set(), [])[0] == 0.0
 
